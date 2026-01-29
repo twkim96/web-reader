@@ -19,22 +19,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         
         {/* 인코딩 설정 (utf-16le 옵션 추가) */}
         <div className="space-y-4">
-          <label className="text-[10px] font-black uppercase opacity-50 tracking-widest block text-center">Encoding</label>
-          <div className="flex flex-wrap gap-2">
+        <label className="text-[10px] font-black uppercase opacity-50 tracking-widest block text-center">Encoding</label>
+        <div className="flex flex-wrap gap-2">
+            {/* utf-16le를 배열에 추가하여 types.ts와 동기화 */}
             {(['auto', 'utf-8', 'euc-kr', 'utf-16le'] as const).map(enc => (
-              <button 
+            <button 
                 key={enc}
                 onClick={() => onUpdateSettings({ encoding: enc })}
                 className={`flex-1 min-w-[70px] py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.encoding === enc ? 'bg-indigo-600 text-white shadow-lg' : theme.secondary}`}
-              >
+            >
                 {enc === 'auto' ? 'Auto' : enc === 'utf-16le' ? 'UTF-16' : enc}
-              </button>
+            </button>
             ))}
-          </div>
-          {settings.encoding === 'auto' && (
-            <p className="text-[9px] text-center text-slate-500 font-bold opacity-60">* 한글이 깨져 보인다면 수동으로 인코딩을 선택해 주세요.</p>
-          )}
         </div>
+    </div>
 
         {/* 글꼴 선택 */}
         <div className="space-y-4">
