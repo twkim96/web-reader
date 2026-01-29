@@ -23,8 +23,8 @@ export interface ViewerSettings {
   textAlign: 'left' | 'center' | 'justify';
   theme: 'light' | 'dark' | 'sepia' | 'blue';
   navMode: 'scroll' | 'page';
-  fontFamily: 'sans' | 'serif' | 'ridi'; // ridi 옵션 추가
-  encoding: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le'; // utf-16le 추가
+  fontFamily: 'sans' | 'serif' | 'ridi';
+  encoding: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le'; // utf-16le가 포함되어야 합니다.
 }
 
 export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';
