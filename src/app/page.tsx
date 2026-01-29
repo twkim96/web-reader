@@ -29,9 +29,10 @@ export default function Page() {
     theme: 'sepia', 
     navMode: 'scroll',
     fontFamily: 'sans',
-    encoding: 'auto',
+    encoding: 'auto'
   });
 
+  // 1. 초기 인증 상태 및 세션 복구 (sessionStorage 사용)
   useEffect(() => {
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
@@ -56,7 +57,17 @@ export default function Page() {
           }
         });
 
-        setView('auth');
+        // [변경] sessionStorage에서 토큰 복구 시도
+        const savedToken = sessionStorage.getItem('google_drive_token');
+        const tokenExpiry = sessionStorage.getItem('google_drive_token_expiry');
+        
+        if (savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
+          setGoogleToken(savedToken);
+          loadLibrary(savedToken);
+        } else {
+          setView('auth');
+        }
+
         return () => { unsubProgress(); unsubSettings(); };
       } else {
         setView('auth');
@@ -64,6 +75,27 @@ export default function Page() {
     });
     return () => unsubscribeAuth();
   }, []);
+
+  const loadLibrary = async (token: string) => {
+    setView('loading');
+    try {
+      const targetFolderName = "web viewer";
+      const fid = await findFolderId(targetFolderName, token);
+      
+      if (fid) {
+        setFolderId(fid);
+        const data = await fetchDriveFiles(token, fid);
+        setBooks(data.files || []);
+      } else {
+        setBooks([]);
+      }
+      setView('shelf');
+    } catch (err) { 
+      console.error("Library load failed:", err); 
+      setBooks([]); 
+      setView('shelf'); 
+    }
+  };
 
   const handleGoogleLogin = async () => {
     try {
@@ -73,9 +105,34 @@ export default function Page() {
     }
   };
 
+  // 구글 드라이브 연결 (sessionStorage에 저장)
+  const handleConnect = () => {
+    if (!(window as any).google) return;
+    const client = (window as any).google.accounts.oauth2.initTokenClient({
+      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/drive.readonly',
+      callback: (res: any) => { 
+        if (res.access_token) { 
+          setGoogleToken(res.access_token); 
+          
+          // [변경] sessionStorage에 토큰과 만료 시간 저장 (탭 닫으면 자동 삭제)
+          const expiryTime = Date.now() + (res.expires_in * 1000);
+          sessionStorage.setItem('google_drive_token', res.access_token);
+          sessionStorage.setItem('google_drive_token_expiry', expiryTime.toString());
+          
+          loadLibrary(res.access_token); 
+        } 
+      },
+    });
+    client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
+  };
+
   const handleLogout = async () => {
     if (confirm("로그아웃 하시겠습니까?")) {
       await signOut(auth);
+      // [변경] 세션 정보 명시적 삭제
+      sessionStorage.removeItem('google_drive_token');
+      sessionStorage.removeItem('google_drive_token_expiry');
       setGoogleToken(null);
       setBooks([]);
       setView('auth');
@@ -90,32 +147,6 @@ export default function Page() {
       await setDoc(settingsRef, updated, { merge: true });
     }
   }, [settings, user]);
-
-  /**
-   * 라이브러리 로드 로직 수정: "web viewer" 폴더 강제 지정
-   */
-  const loadLibrary = async (token: string) => {
-    setView('loading');
-    try {
-      // 검색할 폴더명을 "web viewer"로 고정
-      const targetFolderName = "web viewer";
-      const fid = await findFolderId(targetFolderName, token);
-      
-      if (fid) {
-        setFolderId(fid);
-        const data = await fetchDriveFiles(token, fid);
-        setBooks(data.files || []);
-      } else {
-        // 폴더가 없으면 빈 목록 설정
-        setBooks([]);
-      }
-      setView('shelf');
-    } catch (err) { 
-      console.error("Library load failed:", err); 
-      setBooks([]); 
-      setView('shelf'); 
-    }
-  };
 
   const handleSaveProgress = useCallback(async (idx: number, pct: number) => {
     if (!user || !activeBook || isNaN(idx)) return;
@@ -132,24 +163,9 @@ export default function Page() {
     }
   }, [user?.uid, activeBook?.id]);
 
-  const handleConnect = () => {
-    if (!(window as any).google) return;
-    const client = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.readonly',
-      callback: (res: any) => { 
-        if (res.access_token) { 
-          setGoogleToken(res.access_token); 
-          loadLibrary(res.access_token); 
-        } 
-      },
-    });
-    client.requestAccessToken();
-  };
-
   if (view === 'loading') {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-4">
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white gap-4">
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
         <p className="font-black uppercase tracking-widest text-xs opacity-30">Initializing...</p>
       </div>
@@ -157,14 +173,14 @@ export default function Page() {
   }
 
   return (
-    <div className="min-h-screen font-sans">
+    <div className="min-h-screen font-sans bg-[#0f172a]">
       {view === 'auth' && !user && (
-        <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white gap-12 p-10 text-center">
-          <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl">
+        <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-12 p-10 text-center">
+          <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl shadow-indigo-500/20">
             <HardDrive size={64} />
           </div>
           <div className="space-y-4">
-            <h1 className="text-4xl font-black italic uppercase tracking-tighter text-white">Private Cloud Reader</h1>
+            <h1 className="text-4xl font-black italic uppercase tracking-tighter">Private Cloud Reader</h1>
             <p className="text-slate-400 text-xs tracking-widest uppercase">Sync your library with Google Account</p>
           </div>
           <button 
@@ -177,7 +193,7 @@ export default function Page() {
       )}
 
       {view === 'auth' && user && (
-        <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white gap-12 p-10 text-center">
+        <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-12 p-10 text-center">
           <div className="relative">
             <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl">
               <HardDrive size={64} />
@@ -195,7 +211,7 @@ export default function Page() {
           </div>
           <button 
             onClick={handleConnect} 
-            className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl"
+            className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95"
           >
             Connect Google Drive
           </button>
