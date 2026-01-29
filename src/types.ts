@@ -1,3 +1,4 @@
+// src/types.ts
 import { User as FirebaseUser } from 'firebase/auth';
 
 export interface Book {
@@ -22,6 +23,7 @@ export interface ViewerSettings {
   textAlign: 'left' | 'center' | 'justify';
   theme: 'light' | 'dark' | 'sepia' | 'blue';
   navMode: 'scroll' | 'page';
+  fontFamily: 'sans' | 'serif' | 'ridi'; // ridi 옵션 추가
 }
 
 export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';

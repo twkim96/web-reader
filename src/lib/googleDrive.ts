@@ -1,6 +1,6 @@
+// src/lib/googleDrive.ts
 /**
  * 구글 드라이브 API 통신 전용 유틸리티
- * 비즈니스 로직 없이, 요청받은 데이터를 가져오는 기능만 수행합니다.
  */
 
 export const findFolderId = async (folderName: string, token: string) => {
@@ -25,30 +25,20 @@ export const fetchDriveFiles = async (token: string, folderId?: string) => {
 };
 
 /**
- * [핵심 기능] 지정된 바이트 범위의 데이터를 요청합니다.
- * Reader.tsx에서 이 함수를 호출하여 필요한 만큼 텍스트를 가져갑니다.
+ * [수정] 파일 전체를 한 번에 가져오는 함수
+ * 메모리 기반 슬라이싱을 위해 전체 텍스트를 메모리에 로드합니다.
  */
-export const fetchFileChunk = async (fileId: string, token: string, startByte: number, chunkSize: number) => {
-  const endByte = startByte + chunkSize - 1;
+export const fetchFullFile = async (fileId: string, token: string) => {
   const response = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Range: `bytes=${startByte}-${endByte}`,
-      },
-    }
+    { headers: { Authorization: `Bearer ${token}` } }
   );
 
-  if (!response.ok && response.status !== 206) throw new Error('구글 드라이브 데이터 로드 실패');
-
-  const contentRange = response.headers.get('Content-Range');
-  const totalSize = contentRange ? parseInt(contentRange.split('/')[1]) : 0;
-  const text = await response.text();
+  if (!response.ok) throw new Error('파일 로드 실패');
   
+  const text = await response.text();
   return { 
     text, 
-    totalSize, 
-    endByte: Math.min(endByte, totalSize - 1) 
+    totalSize: text.length 
   };
 };
