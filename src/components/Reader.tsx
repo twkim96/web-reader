@@ -4,7 +4,8 @@ import { Book, UserProgress, ViewerSettings } from '../types';
 import { THEMES } from '../lib/constants';
 import { fetchFullFile } from '../lib/googleDrive';
 import { SettingsModal } from './SettingsModal';
-import { ChevronLeft, Settings, Moon, Sun, Hash, X, Check } from 'lucide-react';
+import { SearchModal } from './SearchModal';
+import { ChevronLeft, Settings, Moon, Sun, Hash, X, Check, Search } from 'lucide-react';
 
 interface ReaderProps {
   book: Book;
@@ -22,9 +23,9 @@ export const Reader: React.FC<ReaderProps> = ({
   const [isLoaded, setIsLoaded] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   
-  // 모달 관련 상태
-  const [showConfirm, setShowConfirm] = useState<{show: boolean, type: 'jump' | 'input', target?: number}>({ show: false, type: 'jump' });
+  const [showConfirm, setShowConfirm] = useState<{show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean}>({ show: false, type: 'jump' });
   const [jumpInput, setJumpInput] = useState("");
 
   const [readPercent, setReadPercent] = useState(0);
@@ -62,7 +63,6 @@ export const Reader: React.FC<ReaderProps> = ({
     const view = new Uint8Array(buffer);
     const isUTF16LE = view[0] === 0xFF && view[1] === 0xFE;
     const isUTF16BE = view[0] === 0xFE && view[1] === 0xFF;
-
     if (mode === 'auto') {
       try {
         if (isUTF16LE || isUTF16BE) {
@@ -82,22 +82,42 @@ export const Reader: React.FC<ReaderProps> = ({
     }
   }, []);
 
+  /**
+   * 정밀 점프 로직: Range API를 사용하여 해당 위치를 화면 중앙에 배치
+   */
   const jumpToIdx = useCallback((targetIdx: number) => {
     if (!isLoaded || !fullContent.current) return;
     isJumping.current = true;
     const safeIdx = Math.max(0, Math.min(targetIdx, fullContent.current.length - 1));
     const blockIdx = Math.floor(safeIdx / BLOCK_SIZE);
-    
+    const internalIdx = safeIdx % BLOCK_SIZE;
+
     setPaddingTop(0);
     blockHeights.current = {};
     setVisibleRange({ start: blockIdx, end: blockIdx });
-    
+
     setTimeout(() => {
       const blockElem = blockRefs.current[blockIdx];
-      if (blockElem) {
-        const ratio = (safeIdx % BLOCK_SIZE) / (BLOCK_SIZE || 1);
-        const targetScroll = blockElem.offsetTop + (blockElem.offsetHeight * ratio);
-        window.scrollTo({ top: targetScroll, behavior: 'instant' });
+      const textNode = blockElem?.firstChild;
+
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        try {
+          const range = document.createRange();
+          const offset = Math.min(internalIdx, textNode.textContent?.length || 0);
+          range.setStart(textNode, offset);
+          range.setEnd(textNode, offset);
+
+          const rect = range.getBoundingClientRect();
+          // 정밀 측정: 텍스트의 현재 좌표 + 스크롤 값 - (뷰포트 높이 / 2)
+          const scrollTarget = rect.top + window.scrollY - (window.innerHeight / 2);
+
+          window.scrollTo({ top: scrollTarget, behavior: 'instant' });
+        } catch (e) {
+          // Range API 실패 시 백업 (선형 계산)
+          const ratio = (safeIdx % BLOCK_SIZE) / (BLOCK_SIZE || 1);
+          const targetScroll = (blockElem?.offsetTop || 0) + ((blockElem?.offsetHeight || 0) * ratio) - (window.innerHeight / 2);
+          window.scrollTo({ top: targetScroll, behavior: 'instant' });
+        }
       }
       isJumping.current = false;
     }, 150);
@@ -135,13 +155,11 @@ export const Reader: React.FC<ReaderProps> = ({
       const scrolled = window.scrollY;
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
-
       if (totalH - (scrolled + vh) < 2000) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContent.current.length) {
           setVisibleRange(prev => ({ ...prev, end: prev.end + 1 }));
         }
       }
-
       if (visibleRange.end - visibleRange.start >= MAX_VISIBLE_BLOCKS && scrolled > totalH * 0.7) {
         const firstBlockIdx = visibleRange.start;
         const firstBlockElem = blockRefs.current[firstBlockIdx];
@@ -153,7 +171,6 @@ export const Reader: React.FC<ReaderProps> = ({
           window.scrollBy(0, -height);
         }
       }
-
       const firstVisibleBlock = blockRefs.current[visibleRange.start];
       if (firstVisibleBlock) {
         const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
@@ -176,13 +193,11 @@ export const Reader: React.FC<ReaderProps> = ({
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientY } = e;
     const h = window.innerHeight;
-    // 하단 "맨 위로 가기" 버튼 오작동 방지를 위해 navMode 영역을 더 엄격히 구분
     if (settings.navMode === 'page') {
-      if (clientY < h * 0.25) { // 상단 25% 클릭 시 위로
+      if (clientY < h * 0.35) { 
         window.scrollBy({ top: -(h - 60), behavior: 'smooth' }); 
         return; 
-      }
-      else if (clientY > h * 0.75) { // 하단 75% 이후 클릭 시 아래로
+      } else if (clientY > h * 0.65) { 
         window.scrollBy({ top: (h - 60), behavior: 'smooth' }); 
         return; 
       }
@@ -190,17 +205,10 @@ export const Reader: React.FC<ReaderProps> = ({
     setShowControls(!showControls);
   };
 
-  const handleSliderStart = () => {
-    preSlideProgress.current = { percent: readPercent, index: currentIdx };
-  };
-
-  const handleSliderRelease = () => {
-    setShowConfirm({ show: true, type: 'jump', target: currentIdx });
-  };
-
   const confirmJump = () => {
     if (showConfirm.type === 'jump' && showConfirm.target !== undefined) {
       jumpToIdx(showConfirm.target);
+      if (showConfirm.fromSearch) setShowSearch(false);
     } else if (showConfirm.type === 'input') {
       if (jumpInput.includes('%')) {
         const p = parseFloat(jumpInput.replace('%', ''));
@@ -215,7 +223,7 @@ export const Reader: React.FC<ReaderProps> = ({
   };
 
   const cancelJump = () => {
-    if (showConfirm.type === 'jump') {
+    if (!showConfirm.fromSearch && showConfirm.type === 'jump') {
       setReadPercent(preSlideProgress.current.percent);
       setCurrentIdx(preSlideProgress.current.index);
     }
@@ -229,42 +237,39 @@ export const Reader: React.FC<ReaderProps> = ({
     return 'font-sans';
   };
 
-  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase tracking-widest opacity-20`}>Loading...</div>;
+  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20`}>Loading...</div>;
 
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-300 ${getFontClass()} select-none`}>
-      {/* 커스텀 확인 모달 (window.confirm 대체) */}
+      {/* 정밀 이동 확인 모달 (SearchModal 위에 뜸) */}
       {showConfirm.show && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
           <div className={`${theme.bg} ${theme.text} w-full max-w-xs rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200`}>
-            <p className="text-sm font-bold mb-4 text-center">
-              {showConfirm.type === 'jump' ? `${readPercent.toFixed(1)}% 위치로 이동할까요?` : '이동할 위치(%)나 인덱스를 입력하세요.'}
-            </p>
+            <p className="text-sm font-bold mb-6 text-center">해당 위치로 이동할까요?</p>
             {showConfirm.type === 'input' && (
-              <input 
-                autoFocus
-                type="text"
-                value={jumpInput}
-                onChange={(e) => setJumpInput(e.target.value)}
-                placeholder="예: 50% 또는 100000"
-                className="w-full bg-black/5 dark:bg-white/5 border border-white/10 rounded-xl p-3 mb-6 text-center outline-none focus:ring-2 ring-indigo-500"
-              />
+              <input autoFocus type="text" value={jumpInput} onChange={(e) => setJumpInput(e.target.value)} placeholder="50% 또는 100000" className="w-full bg-black/5 dark:bg-white/5 border border-white/10 rounded-xl p-3 mb-6 text-center outline-none" />
             )}
             <div className="flex gap-3">
-              <button onClick={cancelJump} className="flex-1 py-3 bg-red-500/10 text-red-500 font-bold rounded-2xl hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2">
-                <X size={18} /> 취소
-              </button>
-              <button onClick={confirmJump} className="flex-1 py-3 bg-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 hover:bg-indigo-600 transition-colors flex items-center justify-center gap-2">
-                <Check size={18} /> 이동
-              </button>
+              <button onClick={cancelJump} className="flex-1 py-3 bg-red-500/10 text-red-500 font-bold rounded-2xl">취소</button>
+              <button onClick={confirmJump} className="flex-1 py-3 bg-indigo-500 text-white font-bold rounded-2xl">이동</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 상단바 */}
-      <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
-        <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
+      {/* 검색 모달 */}
+      {showSearch && (
+        <SearchModal 
+          content={fullContent.current} 
+          theme={theme} 
+          onClose={() => setShowSearch(false)} 
+          onSelect={(idx) => setShowConfirm({ show: true, type: 'jump', target: idx, fromSearch: true })}
+        />
+      )}
+
+      {/* 상단 네비게이션 */}
+      <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0' : '-translate-y-full'}`}>
+        <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
@@ -278,36 +283,40 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       </main>
 
-      {/* 하단바 및 진행률 컨트롤 */}
-      <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
-        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-          <span className="text-[10px] font-black text-white tracking-widest font-sans">
-            ({currentIdx.toLocaleString()} / {fullContent.current.length.toLocaleString()}) 
+      {/* 하단 컨트롤 레이어 */}
+      <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0' : 'translate-y-full'}`}>
+        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+          <span className="text-[10px] font-black text-white tracking-widest">
+            {currentIdx.toLocaleString()} / {fullContent.current.length.toLocaleString()} 
             <span className="ml-2 text-indigo-400">{readPercent.toFixed(1)}%</span>
           </span>
-          <button onClick={() => setShowConfirm({ show: true, type: 'input' })} className="text-white/50 hover:text-white"><Hash size={14} /></button>
+          <button onClick={() => setShowConfirm({ show: true, type: 'input', fromSearch: false })} className="text-white/50"><Hash size={14} /></button>
         </div>
 
-        <div className="max-w-lg mx-auto px-6 pt-6 pb-2">
+        <div className="max-w-lg mx-auto px-6 pt-6 pb-2 flex items-center gap-4">
           <input 
             type="range" min="0" max="100" step="0.1" value={readPercent} 
-            onMouseDown={handleSliderStart} onTouchStart={handleSliderStart}
+            onMouseDown={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }}
             onChange={(e) => {
               const p = parseFloat(e.target.value);
               setReadPercent(p);
-              setCurrentIdx(Math.floor((p / 100) * fullContent.current.length));
+              setCurrentIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
             }}
-            onMouseUp={handleSliderRelease} onTouchEnd={handleSliderRelease}
-            className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            onMouseUp={() => setShowConfirm({ show: true, type: 'jump', target: currentIdx, fromSearch: false })}
+            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none accent-indigo-500"
           />
+          {/* 검색 버튼 배치 */}
+          <button onClick={() => setShowSearch(true)} className="p-2 opacity-60 hover:opacity-100">
+            <Search size={22} />
+          </button>
         </div>
 
         <div className="flex justify-around p-5 max-w-lg mx-auto">
-          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100">
-            <Settings size={22} /><span className="text-[9px] font-bold uppercase">Config</span>
+          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60">
+            <Settings size={22} /><span className="text-[9px] font-bold">CONFIG</span>
           </button>
-          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100">
-            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold uppercase">Mode</span>
+          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60">
+            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold">MODE</span>
           </button>
         </div>
       </div>
