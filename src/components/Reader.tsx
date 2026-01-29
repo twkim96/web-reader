@@ -37,7 +37,6 @@ export const Reader: React.FC<ReaderProps> = ({
   const lastSaveTime = useRef<number>(0);
   const isJumping = useRef(false);
 
-  // 슬라이더 조작 시 복구를 위한 백업 값
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
@@ -81,7 +80,7 @@ export const Reader: React.FC<ReaderProps> = ({
   }, []);
 
   const jumpToIdx = useCallback((targetIdx: number) => {
-    if (!isLoaded) return;
+    if (!isLoaded || !fullContent.current) return;
     isJumping.current = true;
     const safeIdx = Math.max(0, Math.min(targetIdx, fullContent.current.length - 1));
     const blockIdx = Math.floor(safeIdx / BLOCK_SIZE);
@@ -98,41 +97,59 @@ export const Reader: React.FC<ReaderProps> = ({
         window.scrollTo({ top: targetScroll, behavior: 'instant' });
       }
       isJumping.current = false;
-    }, 100);
+    }, 150);
   }, [isLoaded]);
 
+  // 1. 파일 데이터 로드
   useEffect(() => {
     const init = async () => {
       try {
         const buffer = await fetchFullFile(book.id, googleToken);
         rawBuffer.current = buffer;
         decodeData(buffer, settings.encoding);
-        
-        const startBlock = initialProgress ? Math.floor(initialProgress.charIndex / BLOCK_SIZE) : 0;
-        setVisibleRange({ start: startBlock, end: startBlock });
-        setCurrentIdx(initialProgress?.charIndex || 0);
-        setReadPercent(initialProgress?.progressPercent || 0);
         setIsLoaded(true);
       } catch (err) { console.error(err); }
     };
     init();
   }, [book.id, googleToken, decodeData]);
 
+  // 2. 마지막 읽은 위치 복구 로직 (초기 로딩 시 1회 실행)
+  useEffect(() => {
+    if (!isLoaded || hasRestored.current === book.id) return;
+
+    if (initialProgress && initialProgress.charIndex > 0) {
+      setCurrentIdx(initialProgress.charIndex);
+      setReadPercent(initialProgress.progressPercent);
+      
+      const timer = setTimeout(() => {
+        jumpToIdx(initialProgress.charIndex);
+        hasRestored.current = book.id;
+      }, 200);
+      return () => clearTimeout(timer);
+    } else if (isLoaded) {
+      hasRestored.current = book.id;
+    }
+  }, [isLoaded, initialProgress, book.id, jumpToIdx]);
+
+  // 3. 스크롤 감지 및 진행률 저장
   useEffect(() => {
     const handleScroll = () => {
-      if (isJumping.current) return;
+      // 복구가 완료되기 전에는 스크롤 이벤트를 통한 저장을 방지함
+      if (isJumping.current || !isLoaded || hasRestored.current !== book.id) return;
+
       const scrolled = window.scrollY;
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
-      if (!isLoaded || hasRestored.current !== book.id) return;
 
+      // 무한 스크롤: 아래 블록 추가
       if (totalH - (scrolled + vh) < 2000) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContent.current.length) {
           setVisibleRange(prev => ({ ...prev, end: prev.end + 1 }));
         }
       }
 
-      if (visibleRange.end - visibleRange.start >= MAX_VISIBLE_BLOCKS && scrolled > totalH * 0.6) {
+      // 가상화: 위 블록 제거
+      if (visibleRange.end - visibleRange.start >= MAX_VISIBLE_BLOCKS && scrolled > totalH * 0.7) {
         const firstBlockIdx = visibleRange.start;
         const firstBlockElem = blockRefs.current[firstBlockIdx];
         if (firstBlockElem) {
@@ -144,19 +161,7 @@ export const Reader: React.FC<ReaderProps> = ({
         }
       }
 
-      if (scrolled < 1500 && visibleRange.start > 0) {
-        const prevBlockIdx = visibleRange.start - 1;
-        const prevHeight = blockHeights.current[prevBlockIdx] || 0;
-        setVisibleRange(prev => ({ ...prev, start: prev.start - 1 }));
-        if (prevHeight > 0) {
-          setPaddingTop(prev => Math.max(0, prev - prevHeight));
-          window.scrollBy(0, prevHeight);
-        }
-        if (visibleRange.end - visibleRange.start >= MAX_VISIBLE_BLOCKS) {
-          setVisibleRange(prev => ({ ...prev, end: prev.end - 1 }));
-        }
-      }
-
+      // 진행률 계산
       const firstVisibleBlock = blockRefs.current[visibleRange.start];
       if (firstVisibleBlock) {
         const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
@@ -167,15 +172,16 @@ export const Reader: React.FC<ReaderProps> = ({
         setCurrentIdx(Math.min(absoluteIdx, totalSize));
         setReadPercent(finalPercent);
 
+        // 주기적 자동 저장 (5초 간격)
         const now = Date.now();
-        if (now - lastSaveTime.current > 3000) {
+        if (now - lastSaveTime.current > 5000) {
           onSaveProgress(Math.min(absoluteIdx, totalSize), finalPercent);
           lastSaveTime.current = now;
         }
       }
     };
 
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id]);
 
@@ -183,13 +189,18 @@ export const Reader: React.FC<ReaderProps> = ({
     const { clientY } = e;
     const h = window.innerHeight;
     if (settings.navMode === 'page') {
-      if (clientY < h * 0.3) { window.scrollBy({ top: -(h - 60), behavior: 'instant' }); return; }
-      else if (clientY > h * 0.7) { window.scrollBy({ top: (h - 60), behavior: 'instant' }); return; }
+      if (clientY < h * 0.3) { 
+        window.scrollBy({ top: -(h - 60), behavior: 'smooth' }); 
+        return; 
+      }
+      else if (clientY > h * 0.7) { 
+        window.scrollBy({ top: (h - 60), behavior: 'smooth' }); 
+        return; 
+      }
     }
     setShowControls(!showControls);
   };
 
-  // 슬라이더 터치/클릭 시작 시 현재 위치 백업
   const handleSliderStart = () => {
     preSlideProgress.current = { percent: readPercent, index: currentIdx };
   };
@@ -201,12 +212,10 @@ export const Reader: React.FC<ReaderProps> = ({
     setCurrentIdx(targetIdx);
   };
 
-  // 슬라이더에서 손을 뗄 때 확인창 표시
   const handleSliderRelease = () => {
     if (window.confirm(`${readPercent.toFixed(1)}% 위치로 이동하시겠습니까?`)) {
       jumpToIdx(currentIdx);
     } else {
-      // 취소 시 이전 위치로 복구
       setReadPercent(preSlideProgress.current.percent);
       setCurrentIdx(preSlideProgress.current.index);
     }
@@ -231,7 +240,7 @@ export const Reader: React.FC<ReaderProps> = ({
     return 'font-sans';
   };
 
-  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg}`}>...</div>;
+  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase tracking-widest opacity-20`}>Loading Content...</div>;
 
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-300 ${getFontClass()} select-none`}>
