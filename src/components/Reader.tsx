@@ -44,8 +44,8 @@ export const Reader: React.FC<ReaderProps> = ({
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
-  const BLOCK_SIZE = 30000;
-  const MAX_VISIBLE_BLOCKS = 3;
+  const BLOCK_SIZE = 15000; 
+  const MAX_VISIBLE_BLOCKS = 4; 
 
   const getVisibleBlocks = () => {
     const blocks = [];
@@ -65,26 +65,16 @@ export const Reader: React.FC<ReaderProps> = ({
     const isUTF16BE = view[0] === 0xFE && view[1] === 0xFF;
     if (mode === 'auto') {
       try {
-        if (isUTF16LE || isUTF16BE) {
-          const decoder = new TextDecoder(isUTF16LE ? 'utf-16le' : 'utf-16be');
-          fullContent.current = decoder.decode(buffer);
-        } else {
-          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-          fullContent.current = utf8Decoder.decode(buffer);
-        }
+        const decoder = new TextDecoder((isUTF16LE || isUTF16BE) ? (isUTF16LE ? 'utf-16le' : 'utf-16be') : 'utf-8', { fatal: true });
+        fullContent.current = decoder.decode(buffer);
       } catch (e) {
-        const eucKrDecoder = new TextDecoder('euc-kr');
-        fullContent.current = eucKrDecoder.decode(buffer);
+        fullContent.current = new TextDecoder('euc-kr').decode(buffer);
       }
     } else {
-      const decoder = new TextDecoder(mode);
-      fullContent.current = decoder.decode(buffer);
+      fullContent.current = new TextDecoder(mode).decode(buffer);
     }
   }, []);
 
-  /**
-   * 정밀 점프 로직: Range API를 사용하여 해당 위치를 화면 중앙에 배치
-   */
   const jumpToIdx = useCallback((targetIdx: number) => {
     if (!isLoaded || !fullContent.current) return;
     isJumping.current = true;
@@ -94,34 +84,27 @@ export const Reader: React.FC<ReaderProps> = ({
 
     setPaddingTop(0);
     blockHeights.current = {};
-    setVisibleRange({ start: blockIdx, end: blockIdx });
+    setVisibleRange({ start: blockIdx, end: Math.min(blockIdx + 1, Math.floor(fullContent.current.length / BLOCK_SIZE)) });
 
     setTimeout(() => {
       const blockElem = blockRefs.current[blockIdx];
       const textNode = blockElem?.firstChild;
-
       if (textNode && textNode.nodeType === Node.TEXT_NODE) {
         try {
           const range = document.createRange();
           const offset = Math.min(internalIdx, textNode.textContent?.length || 0);
           range.setStart(textNode, offset);
           range.setEnd(textNode, offset);
-
           const rect = range.getBoundingClientRect();
-          // 정밀 측정: 텍스트의 현재 좌표 + 스크롤 값 - (뷰포트 높이 / 2)
-          const scrollTarget = rect.top + window.scrollY - (window.innerHeight / 2);
-
-          window.scrollTo({ top: scrollTarget, behavior: 'instant' });
+          window.scrollTo({ top: window.scrollY + rect.top - 20, behavior: 'instant' });
         } catch (e) {
-          // Range API 실패 시 백업 (선형 계산)
-          const ratio = (safeIdx % BLOCK_SIZE) / (BLOCK_SIZE || 1);
-          const targetScroll = (blockElem?.offsetTop || 0) + ((blockElem?.offsetHeight || 0) * ratio) - (window.innerHeight / 2);
-          window.scrollTo({ top: targetScroll, behavior: 'instant' });
+          const ratio = internalIdx / BLOCK_SIZE;
+          window.scrollTo({ top: (blockElem?.offsetTop || 0) + ((blockElem?.offsetHeight || 0) * ratio), behavior: 'instant' });
         }
       }
-      isJumping.current = false;
-    }, 150);
-  }, [isLoaded]);
+      setTimeout(() => { isJumping.current = false; }, 100);
+    }, 60);
+  }, [isLoaded, BLOCK_SIZE]);
 
   useEffect(() => {
     const init = async () => {
@@ -140,10 +123,8 @@ export const Reader: React.FC<ReaderProps> = ({
     if (initialProgress && initialProgress.charIndex > 0) {
       setCurrentIdx(initialProgress.charIndex);
       setReadPercent(initialProgress.progressPercent);
-      setTimeout(() => {
-        jumpToIdx(initialProgress.charIndex);
-        hasRestored.current = book.id;
-      }, 200);
+      jumpToIdx(initialProgress.charIndex);
+      hasRestored.current = book.id;
     } else if (isLoaded) {
       hasRestored.current = book.id;
     }
@@ -155,51 +136,73 @@ export const Reader: React.FC<ReaderProps> = ({
       const scrolled = window.scrollY;
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
-      if (totalH - (scrolled + vh) < 2000) {
+
+      if (totalH - (scrolled + vh) < 1500) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContent.current.length) {
-          setVisibleRange(prev => ({ ...prev, end: prev.end + 1 }));
+          setVisibleRange(prev => {
+            const newEnd = prev.end + 1;
+            if (newEnd - prev.start + 1 > MAX_VISIBLE_BLOCKS) {
+              const startBlock = blockRefs.current[prev.start];
+              if (startBlock) {
+                const h = startBlock.offsetHeight;
+                blockHeights.current[prev.start] = h;
+                setPaddingTop(pt => pt + h);
+                window.scrollBy(0, -h);
+                return { start: prev.start + 1, end: newEnd };
+              }
+            }
+            return { ...prev, end: newEnd };
+          });
         }
       }
-      if (visibleRange.end - visibleRange.start >= MAX_VISIBLE_BLOCKS && scrolled > totalH * 0.7) {
-        const firstBlockIdx = visibleRange.start;
-        const firstBlockElem = blockRefs.current[firstBlockIdx];
-        if (firstBlockElem) {
-          const height = firstBlockElem.offsetHeight;
-          blockHeights.current[firstBlockIdx] = height;
-          setPaddingTop(prev => prev + height);
-          setVisibleRange(prev => ({ ...prev, start: prev.start + 1 }));
-          window.scrollBy(0, -height);
-        }
+
+      if (scrolled - paddingTop < 800 && visibleRange.start > 0) {
+        setVisibleRange(prev => {
+          const newStart = prev.start - 1;
+          const h = blockHeights.current[newStart] || 0;
+          if (h > 0) {
+            setPaddingTop(pt => Math.max(0, pt - h));
+            window.scrollBy(0, h);
+          }
+          return { start: newStart, end: (prev.end - newStart + 1 > MAX_VISIBLE_BLOCKS) ? prev.end - 1 : prev.end };
+        });
       }
+
       const firstVisibleBlock = blockRefs.current[visibleRange.start];
       if (firstVisibleBlock) {
         const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
         const absoluteIdx = Math.floor((visibleRange.start + blockProgress) * BLOCK_SIZE);
         const totalSize = fullContent.current.length || 1;
-        const finalPercent = (absoluteIdx / totalSize) * 100;
         setCurrentIdx(Math.min(absoluteIdx, totalSize));
-        setReadPercent(finalPercent);
+        setReadPercent((absoluteIdx / totalSize) * 100);
         const now = Date.now();
         if (now - lastSaveTime.current > 5000) {
-          onSaveProgress(Math.min(absoluteIdx, totalSize), finalPercent);
+          onSaveProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100);
           lastSaveTime.current = now;
         }
       }
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id]);
+  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE]);
 
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientY } = e;
     const h = window.innerHeight;
+    
+    // 현재 설정된 폰트 크기와 줄 간격을 바탕으로 한 줄의 높이를 계산 (약간의 마진 포함)
+    const oneLineHeight = settings.fontSize * settings.lineHeight;
+    const scrollStep = h - oneLineHeight - 10; 
+
     if (settings.navMode === 'page') {
-      if (clientY < h * 0.35) { 
-        window.scrollBy({ top: -(h - 60), behavior: 'smooth' }); 
-        return; 
-      } else if (clientY > h * 0.65) { 
-        window.scrollBy({ top: (h - 60), behavior: 'smooth' }); 
-        return; 
+      if (clientY > h * 0.65) {
+        // 하단 탭: 다음 페이지로 이동하되, 마지막 한 줄만 겹치게 스크롤
+        window.scrollBy({ top: scrollStep, behavior: 'instant' });
+        return;
+      } else if (clientY < h * 0.35) {
+        // 상단 탭: 이전 페이지로 이동
+        window.scrollBy({ top: -scrollStep, behavior: 'instant' });
+        return;
       }
     }
     setShowControls(!showControls);
@@ -212,7 +215,7 @@ export const Reader: React.FC<ReaderProps> = ({
     } else if (showConfirm.type === 'input') {
       if (jumpInput.includes('%')) {
         const p = parseFloat(jumpInput.replace('%', ''));
-        if (!isNaN(p)) jumpToIdx(Math.floor((p / 100) * fullContent.current.length));
+        if (!isNaN(p)) jumpToIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
       } else {
         const idx = parseInt(jumpInput.replace(/,/g, ''));
         if (!isNaN(idx)) jumpToIdx(idx);
@@ -237,27 +240,25 @@ export const Reader: React.FC<ReaderProps> = ({
     return 'font-sans';
   };
 
-  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20`}>Loading...</div>;
+  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>Loading...</div>;
 
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-300 ${getFontClass()} select-none`}>
-      {/* 정밀 이동 확인 모달 (SearchModal 위에 뜸) */}
       {showConfirm.show && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
           <div className={`${theme.bg} ${theme.text} w-full max-w-xs rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200`}>
             <p className="text-sm font-bold mb-6 text-center">해당 위치로 이동할까요?</p>
             {showConfirm.type === 'input' && (
-              <input autoFocus type="text" value={jumpInput} onChange={(e) => setJumpInput(e.target.value)} placeholder="50% 또는 100000" className="w-full bg-black/5 dark:bg-white/5 border border-white/10 rounded-xl p-3 mb-6 text-center outline-none" />
+              <input autoFocus type="text" value={jumpInput} onChange={(e) => setJumpInput(e.target.value)} placeholder="50% 또는 100000" className="w-full bg-black/5 dark:bg-white/5 border border-white/10 rounded-xl p-3 mb-6 text-center outline-none focus:ring-2 ring-indigo-500" />
             )}
             <div className="flex gap-3">
-              <button onClick={cancelJump} className="flex-1 py-3 bg-red-500/10 text-red-500 font-bold rounded-2xl">취소</button>
-              <button onClick={confirmJump} className="flex-1 py-3 bg-indigo-500 text-white font-bold rounded-2xl">이동</button>
+              <button onClick={cancelJump} className="flex-1 py-3 bg-red-500/10 text-red-500 font-bold rounded-2xl transition-colors">취소</button>
+              <button onClick={confirmJump} className="flex-1 py-3 bg-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 transition-transform active:scale-95">이동</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 검색 모달 */}
       {showSearch && (
         <SearchModal 
           content={fullContent.current} 
@@ -267,9 +268,8 @@ export const Reader: React.FC<ReaderProps> = ({
         />
       )}
 
-      {/* 상단 네비게이션 */}
-      <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0' : '-translate-y-full'}`}>
-        <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5"><ChevronLeft /></button>
+      <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
+        <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
@@ -283,14 +283,13 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       </main>
 
-      {/* 하단 컨트롤 레이어 */}
-      <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0' : 'translate-y-full'}`}>
-        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-          <span className="text-[10px] font-black text-white tracking-widest">
-            {currentIdx.toLocaleString()} / {fullContent.current.length.toLocaleString()} 
+      <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
+        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          <span className="text-[10px] font-black text-white tracking-widest font-sans">
+            {currentIdx.toLocaleString()} / {(fullContent.current.length || 0).toLocaleString()} 
             <span className="ml-2 text-indigo-400">{readPercent.toFixed(1)}%</span>
           </span>
-          <button onClick={() => setShowConfirm({ show: true, type: 'input', fromSearch: false })} className="text-white/50"><Hash size={14} /></button>
+          <button onClick={() => setShowConfirm({ show: true, type: 'input', fromSearch: false })} className="text-white/50 hover:text-white"><Hash size={14} /></button>
         </div>
 
         <div className="max-w-lg mx-auto px-6 pt-6 pb-2 flex items-center gap-4">
@@ -303,20 +302,19 @@ export const Reader: React.FC<ReaderProps> = ({
               setCurrentIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
             }}
             onMouseUp={() => setShowConfirm({ show: true, type: 'jump', target: currentIdx, fromSearch: false })}
-            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none accent-indigo-500"
+            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
           />
-          {/* 검색 버튼 배치 */}
-          <button onClick={() => setShowSearch(true)} className="p-2 opacity-60 hover:opacity-100">
+          <button onClick={() => setShowSearch(true)} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">
             <Search size={22} />
           </button>
         </div>
 
-        <div className="flex justify-around p-5 max-w-lg mx-auto">
-          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60">
-            <Settings size={22} /><span className="text-[9px] font-bold">CONFIG</span>
+        <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
+          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+            <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
           </button>
-          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60">
-            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold">MODE</span>
+          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold uppercase tracking-tighter">Mode</span>
           </button>
         </div>
       </div>
