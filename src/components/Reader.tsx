@@ -4,7 +4,7 @@ import { Book, UserProgress, ViewerSettings } from '../types';
 import { THEMES } from '../lib/constants';
 import { fetchFullFile } from '../lib/googleDrive';
 import { SettingsModal } from './SettingsModal';
-import { ChevronLeft, Settings, Moon, Sun, Hash } from 'lucide-react';
+import { ChevronLeft, Settings, Moon, Sun, Hash, X, Check } from 'lucide-react';
 
 interface ReaderProps {
   book: Book;
@@ -23,6 +23,10 @@ export const Reader: React.FC<ReaderProps> = ({
   const [showControls, setShowControls] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
+  // 모달 관련 상태
+  const [showConfirm, setShowConfirm] = useState<{show: boolean, type: 'jump' | 'input', target?: number}>({ show: false, type: 'jump' });
+  const [jumpInput, setJumpInput] = useState("");
+
   const [readPercent, setReadPercent] = useState(0);
   const [currentIdx, setCurrentIdx] = useState(0);
   const fullContent = useRef<string>(""); 
@@ -36,7 +40,6 @@ export const Reader: React.FC<ReaderProps> = ({
   const hasRestored = useRef<string | null>(null);
   const lastSaveTime = useRef<number>(0);
   const isJumping = useRef(false);
-
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
@@ -100,7 +103,6 @@ export const Reader: React.FC<ReaderProps> = ({
     }, 150);
   }, [isLoaded]);
 
-  // 1. 파일 데이터 로드
   useEffect(() => {
     const init = async () => {
       try {
@@ -113,42 +115,33 @@ export const Reader: React.FC<ReaderProps> = ({
     init();
   }, [book.id, googleToken, decodeData]);
 
-  // 2. 마지막 읽은 위치 복구 로직 (초기 로딩 시 1회 실행)
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
-
     if (initialProgress && initialProgress.charIndex > 0) {
       setCurrentIdx(initialProgress.charIndex);
       setReadPercent(initialProgress.progressPercent);
-      
-      const timer = setTimeout(() => {
+      setTimeout(() => {
         jumpToIdx(initialProgress.charIndex);
         hasRestored.current = book.id;
       }, 200);
-      return () => clearTimeout(timer);
     } else if (isLoaded) {
       hasRestored.current = book.id;
     }
   }, [isLoaded, initialProgress, book.id, jumpToIdx]);
 
-  // 3. 스크롤 감지 및 진행률 저장
   useEffect(() => {
     const handleScroll = () => {
-      // 복구가 완료되기 전에는 스크롤 이벤트를 통한 저장을 방지함
       if (isJumping.current || !isLoaded || hasRestored.current !== book.id) return;
-
       const scrolled = window.scrollY;
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
 
-      // 무한 스크롤: 아래 블록 추가
       if (totalH - (scrolled + vh) < 2000) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContent.current.length) {
           setVisibleRange(prev => ({ ...prev, end: prev.end + 1 }));
         }
       }
 
-      // 가상화: 위 블록 제거
       if (visibleRange.end - visibleRange.start >= MAX_VISIBLE_BLOCKS && scrolled > totalH * 0.7) {
         const firstBlockIdx = visibleRange.start;
         const firstBlockElem = blockRefs.current[firstBlockIdx];
@@ -161,18 +154,14 @@ export const Reader: React.FC<ReaderProps> = ({
         }
       }
 
-      // 진행률 계산
       const firstVisibleBlock = blockRefs.current[visibleRange.start];
       if (firstVisibleBlock) {
         const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
         const absoluteIdx = Math.floor((visibleRange.start + blockProgress) * BLOCK_SIZE);
         const totalSize = fullContent.current.length || 1;
         const finalPercent = (absoluteIdx / totalSize) * 100;
-        
         setCurrentIdx(Math.min(absoluteIdx, totalSize));
         setReadPercent(finalPercent);
-
-        // 주기적 자동 저장 (5초 간격)
         const now = Date.now();
         if (now - lastSaveTime.current > 5000) {
           onSaveProgress(Math.min(absoluteIdx, totalSize), finalPercent);
@@ -180,7 +169,6 @@ export const Reader: React.FC<ReaderProps> = ({
         }
       }
     };
-
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id]);
@@ -188,12 +176,13 @@ export const Reader: React.FC<ReaderProps> = ({
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientY } = e;
     const h = window.innerHeight;
+    // 하단 "맨 위로 가기" 버튼 오작동 방지를 위해 navMode 영역을 더 엄격히 구분
     if (settings.navMode === 'page') {
-      if (clientY < h * 0.3) { 
+      if (clientY < h * 0.25) { // 상단 25% 클릭 시 위로
         window.scrollBy({ top: -(h - 60), behavior: 'smooth' }); 
         return; 
       }
-      else if (clientY > h * 0.7) { 
+      else if (clientY > h * 0.75) { // 하단 75% 이후 클릭 시 아래로
         window.scrollBy({ top: (h - 60), behavior: 'smooth' }); 
         return; 
       }
@@ -205,33 +194,33 @@ export const Reader: React.FC<ReaderProps> = ({
     preSlideProgress.current = { percent: readPercent, index: currentIdx };
   };
 
-  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const percent = parseFloat(e.target.value);
-    const targetIdx = Math.floor((percent / 100) * fullContent.current.length);
-    setReadPercent(percent);
-    setCurrentIdx(targetIdx);
-  };
-
   const handleSliderRelease = () => {
-    if (window.confirm(`${readPercent.toFixed(1)}% 위치로 이동하시겠습니까?`)) {
-      jumpToIdx(currentIdx);
-    } else {
-      setReadPercent(preSlideProgress.current.percent);
-      setCurrentIdx(preSlideProgress.current.index);
-    }
+    setShowConfirm({ show: true, type: 'jump', target: currentIdx });
   };
 
-  const promptJump = () => {
-    const input = window.prompt(`이동할 위치를 입력하세요.\n(예: 50% 또는 100000)`, currentIdx.toString());
-    if (input) {
-      if (input.includes('%')) {
-        const p = parseFloat(input.replace('%', ''));
+  const confirmJump = () => {
+    if (showConfirm.type === 'jump' && showConfirm.target !== undefined) {
+      jumpToIdx(showConfirm.target);
+    } else if (showConfirm.type === 'input') {
+      if (jumpInput.includes('%')) {
+        const p = parseFloat(jumpInput.replace('%', ''));
         if (!isNaN(p)) jumpToIdx(Math.floor((p / 100) * fullContent.current.length));
       } else {
-        const idx = parseInt(input.replace(/,/g, ''));
+        const idx = parseInt(jumpInput.replace(/,/g, ''));
         if (!isNaN(idx)) jumpToIdx(idx);
       }
     }
+    setShowConfirm({ show: false, type: 'jump' });
+    setJumpInput("");
+  };
+
+  const cancelJump = () => {
+    if (showConfirm.type === 'jump') {
+      setReadPercent(preSlideProgress.current.percent);
+      setCurrentIdx(preSlideProgress.current.index);
+    }
+    setShowConfirm({ show: false, type: 'jump' });
+    setJumpInput("");
   };
 
   const getFontClass = () => {
@@ -240,14 +229,42 @@ export const Reader: React.FC<ReaderProps> = ({
     return 'font-sans';
   };
 
-  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase tracking-widest opacity-20`}>Loading Content...</div>;
+  if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase tracking-widest opacity-20`}>Loading...</div>;
 
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-300 ${getFontClass()} select-none`}>
+      {/* 커스텀 확인 모달 (window.confirm 대체) */}
+      {showConfirm.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+          <div className={`${theme.bg} ${theme.text} w-full max-w-xs rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200`}>
+            <p className="text-sm font-bold mb-4 text-center">
+              {showConfirm.type === 'jump' ? `${readPercent.toFixed(1)}% 위치로 이동할까요?` : '이동할 위치(%)나 인덱스를 입력하세요.'}
+            </p>
+            {showConfirm.type === 'input' && (
+              <input 
+                autoFocus
+                type="text"
+                value={jumpInput}
+                onChange={(e) => setJumpInput(e.target.value)}
+                placeholder="예: 50% 또는 100000"
+                className="w-full bg-black/5 dark:bg-white/5 border border-white/10 rounded-xl p-3 mb-6 text-center outline-none focus:ring-2 ring-indigo-500"
+              />
+            )}
+            <div className="flex gap-3">
+              <button onClick={cancelJump} className="flex-1 py-3 bg-red-500/10 text-red-500 font-bold rounded-2xl hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2">
+                <X size={18} /> 취소
+              </button>
+              <button onClick={confirmJump} className="flex-1 py-3 bg-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 hover:bg-indigo-600 transition-colors flex items-center justify-center gap-2">
+                <Check size={18} /> 이동
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 상단바 */}
       <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
-        <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5 transition-colors">
-          <ChevronLeft />
-        </button>
+        <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
@@ -256,63 +273,46 @@ export const Reader: React.FC<ReaderProps> = ({
         <div style={{ height: `${paddingTop}px` }} />
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight }}>
           {getVisibleBlocks().map(block => (
-            <div key={`${book.id}-${block.index}`} ref={el => { blockRefs.current[block.index] = el; }}>
-              {block.text}
-            </div>
+            <div key={`${book.id}-${block.index}`} ref={el => { blockRefs.current[block.index] = el; }}>{block.text}</div>
           ))}
         </div>
       </main>
 
+      {/* 하단바 및 진행률 컨트롤 */}
       <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
-        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl whitespace-nowrap transition-opacity duration-300 flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <span className="text-[10px] font-black text-white tracking-widest font-sans">
             ({currentIdx.toLocaleString()} / {fullContent.current.length.toLocaleString()}) 
             <span className="ml-2 text-indigo-400">{readPercent.toFixed(1)}%</span>
           </span>
-          <button onClick={promptJump} className="text-white/50 hover:text-white transition-colors">
-            <Hash size={14} />
-          </button>
+          <button onClick={() => setShowConfirm({ show: true, type: 'input' })} className="text-white/50 hover:text-white"><Hash size={14} /></button>
         </div>
 
         <div className="max-w-lg mx-auto px-6 pt-6 pb-2">
           <input 
-            type="range" 
-            min="0" 
-            max="100" 
-            step="0.1" 
-            value={readPercent} 
-            onMouseDown={handleSliderStart}
-            onTouchStart={handleSliderStart}
-            onChange={handleSliderChange}
-            onMouseUp={handleSliderRelease}
-            onTouchEnd={handleSliderRelease}
+            type="range" min="0" max="100" step="0.1" value={readPercent} 
+            onMouseDown={handleSliderStart} onTouchStart={handleSliderStart}
+            onChange={(e) => {
+              const p = parseFloat(e.target.value);
+              setReadPercent(p);
+              setCurrentIdx(Math.floor((p / 100) * fullContent.current.length));
+            }}
+            onMouseUp={handleSliderRelease} onTouchEnd={handleSliderRelease}
             className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
           />
         </div>
 
-        <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
-          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <Settings size={22} />
-            <span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
+        <div className="flex justify-around p-5 max-w-lg mx-auto">
+          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100">
+            <Settings size={22} /><span className="text-[9px] font-bold uppercase">Config</span>
           </button>
-          <button 
-            onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} 
-            className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity"
-          >
-            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}
-            <span className="text-[9px] font-bold uppercase tracking-tighter">Mode</span>
+          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100">
+            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold uppercase">Mode</span>
           </button>
         </div>
       </div>
 
-      {showSettings && (
-        <SettingsModal 
-          settings={settings} 
-          onUpdateSettings={onUpdateSettings} 
-          onClose={() => setShowSettings(false)} 
-          theme={theme} 
-        />
-      )}
+      {showSettings && <SettingsModal settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setShowSettings(false)} theme={theme} />}
     </div>
   );
 };
