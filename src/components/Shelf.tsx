@@ -9,7 +9,7 @@ import {
   RefreshCcw, 
   BookOpen, 
   FolderPlus,
-  LogOut // 로그아웃 아이콘 추가
+  LogOut 
 } from 'lucide-react';
 
 interface ShelfProps {
@@ -17,7 +17,7 @@ interface ShelfProps {
   progress: Record<string, UserProgress>;
   onOpen: (book: Book) => void;
   onRefresh: () => void;
-  onLogout: () => void; // 로그아웃 함수 추가
+  onLogout: () => void;
   isRefreshing: boolean;
   userEmail: string;
 }
@@ -31,6 +31,26 @@ export const Shelf: React.FC<ShelfProps> = ({
   isRefreshing,
   userEmail 
 }) => {
+  // 날짜 포맷팅 헬퍼 함수
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return 'Ready to Start';
+    
+    // Firestore Timestamp(toDate 존재) 또는 일반 Date 객체 처리
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    
+    // 유효하지 않은 날짜 처리
+    if (isNaN(date.getTime())) return 'Ready to Start';
+
+    return date.toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 font-sans pb-20">
       {/* 상단 헤더 */}
@@ -57,7 +77,7 @@ export const Shelf: React.FC<ShelfProps> = ({
               <RefreshCcw size={20} />
             </button>
 
-            {/* 로그아웃 버튼 추가 */}
+            {/* 로그아웃 버튼 */}
             <button 
               onClick={onLogout}
               className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-90"
@@ -99,7 +119,10 @@ export const Shelf: React.FC<ShelfProps> = ({
 
                     <div className="space-y-3">
                       <div className="flex justify-between items-end">
-                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">Reading Progress</span>
+                        {/* 수정됨: 고정 텍스트 대신 마지막 읽은 날짜 표시 */}
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
+                          {bookProgress?.lastRead ? formatDate(bookProgress.lastRead) : 'Ready to Start'}
+                        </span>
                         <span className="text-xs font-black text-indigo-400">{bookProgress?.progressPercent?.toFixed(1) || '0.0'}%</span>
                       </div>
                       <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden">

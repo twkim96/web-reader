@@ -15,8 +15,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   // 공통 라벨 스타일
   const labelStyle = "text-sm font-black uppercase tracking-widest block text-center mb-3";
-  // 조절 버튼 공통 스타일 (크기 축소)
+  // 조절 버튼 공통 스타일
   const controlBtnStyle = `flex-1 py-1.5 ${theme.secondary} rounded-lg font-bold transition-transform active:scale-95 text-sm shadow-sm`;
+
+  // 네비게이션 모드 옵션 정의
+  const navOptions = [
+    { value: 'scroll', label: 'Scroll' },
+    { value: 'page', label: 'T/B Tap' },
+    { value: 'left-right', label: 'L/R Tap' },
+    { value: 'all-dir', label: '4-Way' },
+  ] as const;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -25,20 +33,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* 1. 화면 이동 방식 */}
         <div>
           <label className={labelStyle}>Navigation Mode</label>
-          <div className="flex gap-2">
-            {(['scroll', 'page'] as const).map(mode => (
+          <div className="grid grid-cols-4 gap-2">
+            {navOptions.map(opt => (
               <button 
-                key={mode}
-                onClick={() => onUpdateSettings({ navMode: mode })}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.navMode === mode ? 'bg-indigo-600 text-white shadow-lg' : theme.secondary}`}
+                key={opt.value}
+                onClick={() => onUpdateSettings({ navMode: opt.value })}
+                className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.navMode === opt.value ? 'bg-indigo-600 text-white shadow-lg' : theme.secondary}`}
               >
-                {mode === 'scroll' ? 'Scroll' : 'Page Tap'}
+                {opt.label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* 2. 인코딩 및 폰트 (가로 배치 가능하나 가독성을 위해 유지) */}
+        {/* 2. 인코딩 및 폰트 */}
         <div>
           <label className={labelStyle}>Encoding</label>
           <div className="flex flex-wrap gap-2">
@@ -54,7 +62,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
-        {/* 3. 글자 크기 및 줄 간격 (한 줄에 통합) */}
+        {/* 3. 글자 크기 및 줄 간격 */}
         <div className="flex gap-6">
           {/* 글자 크기 */}
           <div className="flex-1">

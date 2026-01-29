@@ -22,9 +22,9 @@ export interface ViewerSettings {
   padding: number;
   textAlign: 'left' | 'center' | 'justify';
   theme: 'light' | 'dark' | 'sepia' | 'blue';
-  navMode: 'scroll' | 'page';
+  navMode: 'scroll' | 'page' | 'left-right' | 'all-dir'; // 모드 추가됨
   fontFamily: 'sans' | 'serif' | 'ridi';
-  encoding: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le'; // utf-16le가 포함되어야 합니다.
+  encoding: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le';
 }
 
 export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';

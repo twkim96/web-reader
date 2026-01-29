@@ -187,24 +187,46 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE]);
 
   const handleInteraction = (e: React.MouseEvent) => {
-    const { clientY } = e;
+    const { clientX, clientY } = e;
+    const w = window.innerWidth;
     const h = window.innerHeight;
     
-    // 현재 설정된 폰트 크기와 줄 간격을 바탕으로 한 줄의 높이를 계산 (약간의 마진 포함)
-    const oneLineHeight = settings.fontSize * settings.lineHeight;
-    const scrollStep = h - oneLineHeight - 10; 
+    // [수정됨] 화면 높이(h)만큼 정확히 이동 (중복 제거, 스킵 없음)
+    // 기존의 oneLineHeight 차감 로직을 제거하여 중복을 없앴습니다.
+    const scrollStep = h; 
 
-    if (settings.navMode === 'page') {
-      if (clientY > h * 0.65) {
-        // 하단 탭: 다음 페이지로 이동하되, 마지막 한 줄만 겹치게 스크롤
-        window.scrollBy({ top: scrollStep, behavior: 'instant' });
-        return;
-      } else if (clientY < h * 0.35) {
-        // 상단 탭: 이전 페이지로 이동
-        window.scrollBy({ top: -scrollStep, behavior: 'instant' });
-        return;
+    // 공통 이동 함수: dir이 -1이면 위로(이전), 1이면 아래로(다음)
+    const move = (dir: number) => {
+      window.scrollBy({ top: dir * scrollStep, behavior: 'instant' });
+    };
+
+    if (settings.navMode !== 'scroll') {
+      // 1. 기존: 상/하 탭 (Page Tap)
+      if (settings.navMode === 'page') {
+        if (clientY > h * 0.65) { move(1); return; }
+        if (clientY < h * 0.35) { move(-1); return; }
+      }
+      
+      // 2. 신규: 좌/우 탭 (Left-Right) - 좌측은 위(이전), 우측은 아래(다음)
+      else if (settings.navMode === 'left-right') {
+        // 메뉴 호출을 위해 중앙 30% 영역은 제외
+        if (clientX < w * 0.35) { move(-1); return; }
+        if (clientX > w * 0.65) { move(1); return; }
+      }
+
+      // 3. 신규: 상/하/좌/우 탭 (All-Dir) - 상/하 우선, 그 외엔 좌/우
+      else if (settings.navMode === 'all-dir') {
+        // 상/하 우선 판별 (상단/하단 35% 영역)
+        if (clientY < h * 0.35) { move(-1); return; }
+        if (clientY > h * 0.65) { move(1); return; }
+
+        // 상/하 영역이 아닐 때 좌/우 판별 (메뉴 호출을 위해 중앙 박스 제외)
+        if (clientX < w * 0.4) { move(-1); return; }
+        if (clientX > w * 0.6) { move(1); return; }
       }
     }
+    
+    // 위 조건에 해당하지 않으면 메뉴 토글 (중앙 영역 터치 등)
     setShowControls(!showControls);
   };
 
