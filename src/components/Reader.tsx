@@ -4,7 +4,7 @@ import { Book, UserProgress, ViewerSettings } from '../types';
 import { THEMES } from '../lib/constants';
 import { fetchFullFile } from '../lib/googleDrive';
 import { SettingsModal } from './SettingsModal';
-import { ChevronLeft, Settings, Moon, Sun } from 'lucide-react';
+import { ChevronLeft, Settings, Moon, Sun, Hash } from 'lucide-react';
 
 interface ReaderProps {
   book: Book;
@@ -35,6 +35,10 @@ export const Reader: React.FC<ReaderProps> = ({
   
   const hasRestored = useRef<string | null>(null);
   const lastSaveTime = useRef<number>(0);
+  const isJumping = useRef(false);
+
+  // 슬라이더 조작 시 복구를 위한 백업 값
+  const preSlideProgress = useRef({ percent: 0, index: 0 });
   
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
   const BLOCK_SIZE = 30000;
@@ -76,6 +80,27 @@ export const Reader: React.FC<ReaderProps> = ({
     }
   }, []);
 
+  const jumpToIdx = useCallback((targetIdx: number) => {
+    if (!isLoaded) return;
+    isJumping.current = true;
+    const safeIdx = Math.max(0, Math.min(targetIdx, fullContent.current.length - 1));
+    const blockIdx = Math.floor(safeIdx / BLOCK_SIZE);
+    
+    setPaddingTop(0);
+    blockHeights.current = {};
+    setVisibleRange({ start: blockIdx, end: blockIdx });
+    
+    setTimeout(() => {
+      const blockElem = blockRefs.current[blockIdx];
+      if (blockElem) {
+        const ratio = (safeIdx % BLOCK_SIZE) / (BLOCK_SIZE || 1);
+        const targetScroll = blockElem.offsetTop + (blockElem.offsetHeight * ratio);
+        window.scrollTo({ top: targetScroll, behavior: 'instant' });
+      }
+      isJumping.current = false;
+    }, 100);
+  }, [isLoaded]);
+
   useEffect(() => {
     const init = async () => {
       try {
@@ -94,31 +119,8 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [book.id, googleToken, decodeData]);
 
   useEffect(() => {
-    if (rawBuffer.current && isLoaded) {
-      decodeData(rawBuffer.current, settings.encoding);
-      blockHeights.current = {}; 
-    }
-  }, [settings.encoding, isLoaded, decodeData]);
-
-  useEffect(() => {
-    if (isLoaded && hasRestored.current !== book.id) {
-      const timer = setTimeout(() => {
-        if (initialProgress) {
-          const blockIdx = Math.floor(initialProgress.charIndex / BLOCK_SIZE);
-          const blockElem = blockRefs.current[blockIdx];
-          if (blockElem) {
-            const ratio = (initialProgress.charIndex % BLOCK_SIZE) / (BLOCK_SIZE || 1);
-            window.scrollTo({ top: blockElem.offsetTop + (blockElem.offsetHeight * ratio), behavior: 'instant' });
-          }
-        }
-        hasRestored.current = book.id;
-      }, 200);
-      return () => clearTimeout(timer);
-    }
-  }, [isLoaded, book.id, initialProgress]);
-
-  useEffect(() => {
     const handleScroll = () => {
+      if (isJumping.current) return;
       const scrolled = window.scrollY;
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
@@ -181,10 +183,46 @@ export const Reader: React.FC<ReaderProps> = ({
     const { clientY } = e;
     const h = window.innerHeight;
     if (settings.navMode === 'page') {
-      if (clientY < h * 0.3) { window.scrollBy({ top: -(h - 60), behavior: 'smooth' }); return; }
-      else if (clientY > h * 0.7) { window.scrollBy({ top: (h - 60), behavior: 'smooth' }); return; }
+      if (clientY < h * 0.3) { window.scrollBy({ top: -(h - 60), behavior: 'instant' }); return; }
+      else if (clientY > h * 0.7) { window.scrollBy({ top: (h - 60), behavior: 'instant' }); return; }
     }
     setShowControls(!showControls);
+  };
+
+  // 슬라이더 터치/클릭 시작 시 현재 위치 백업
+  const handleSliderStart = () => {
+    preSlideProgress.current = { percent: readPercent, index: currentIdx };
+  };
+
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const percent = parseFloat(e.target.value);
+    const targetIdx = Math.floor((percent / 100) * fullContent.current.length);
+    setReadPercent(percent);
+    setCurrentIdx(targetIdx);
+  };
+
+  // 슬라이더에서 손을 뗄 때 확인창 표시
+  const handleSliderRelease = () => {
+    if (window.confirm(`${readPercent.toFixed(1)}% 위치로 이동하시겠습니까?`)) {
+      jumpToIdx(currentIdx);
+    } else {
+      // 취소 시 이전 위치로 복구
+      setReadPercent(preSlideProgress.current.percent);
+      setCurrentIdx(preSlideProgress.current.index);
+    }
+  };
+
+  const promptJump = () => {
+    const input = window.prompt(`이동할 위치를 입력하세요.\n(예: 50% 또는 100000)`, currentIdx.toString());
+    if (input) {
+      if (input.includes('%')) {
+        const p = parseFloat(input.replace('%', ''));
+        if (!isNaN(p)) jumpToIdx(Math.floor((p / 100) * fullContent.current.length));
+      } else {
+        const idx = parseInt(input.replace(/,/g, ''));
+        if (!isNaN(idx)) jumpToIdx(idx);
+      }
+    }
   };
 
   const getFontClass = () => {
@@ -207,7 +245,6 @@ export const Reader: React.FC<ReaderProps> = ({
 
       <main onClick={handleInteraction} className="min-h-screen pt-12 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
-        {/* 줄 간격(lineHeight) 스타일 적용 */}
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight }}>
           {getVisibleBlocks().map(block => (
             <div key={`${book.id}-${block.index}`} ref={el => { blockRefs.current[block.index] = el; }}>
@@ -218,11 +255,30 @@ export const Reader: React.FC<ReaderProps> = ({
       </main>
 
       <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
-        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl whitespace-nowrap transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl whitespace-nowrap transition-opacity duration-300 flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <span className="text-[10px] font-black text-white tracking-widest font-sans">
             ({currentIdx.toLocaleString()} / {fullContent.current.length.toLocaleString()}) 
             <span className="ml-2 text-indigo-400">{readPercent.toFixed(1)}%</span>
           </span>
+          <button onClick={promptJump} className="text-white/50 hover:text-white transition-colors">
+            <Hash size={14} />
+          </button>
+        </div>
+
+        <div className="max-w-lg mx-auto px-6 pt-6 pb-2">
+          <input 
+            type="range" 
+            min="0" 
+            max="100" 
+            step="0.1" 
+            value={readPercent} 
+            onMouseDown={handleSliderStart}
+            onTouchStart={handleSliderStart}
+            onChange={handleSliderChange}
+            onMouseUp={handleSliderRelease}
+            onTouchEnd={handleSliderRelease}
+            className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+          />
         </div>
 
         <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
