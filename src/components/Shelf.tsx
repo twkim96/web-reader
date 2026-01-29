@@ -8,8 +8,8 @@ import {
   Library, 
   RefreshCcw, 
   BookOpen, 
-  Search,
-  FolderPlus 
+  FolderPlus,
+  LogOut // 로그아웃 아이콘 추가
 } from 'lucide-react';
 
 interface ShelfProps {
@@ -17,6 +17,7 @@ interface ShelfProps {
   progress: Record<string, UserProgress>;
   onOpen: (book: Book) => void;
   onRefresh: () => void;
+  onLogout: () => void; // 로그아웃 함수 추가
   isRefreshing: boolean;
   userEmail: string;
 }
@@ -26,6 +27,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   progress, 
   onOpen, 
   onRefresh, 
+  onLogout,
   isRefreshing,
   userEmail 
 }) => {
@@ -44,13 +46,26 @@ export const Shelf: React.FC<ShelfProps> = ({
             </div>
           </div>
           
-          <button 
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className={`p-4 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all ${isRefreshing ? 'animate-spin opacity-50' : 'active:scale-90'}`}
-          >
-            <RefreshCcw size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* 새로고침 버튼 */}
+            <button 
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className={`p-4 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all ${isRefreshing ? 'animate-spin opacity-50' : 'active:scale-90'}`}
+              title="Refresh Library"
+            >
+              <RefreshCcw size={20} />
+            </button>
+
+            {/* 로그아웃 버튼 추가 */}
+            <button 
+              onClick={onLogout}
+              className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-90"
+              title="Sign Out"
+            >
+              <LogOut size={20} />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -100,7 +115,6 @@ export const Shelf: React.FC<ShelfProps> = ({
             })}
           </div>
         ) : (
-          /* [수정] 파일이 없을 때 Shelf 내부에 직접 안내 문구 표시 */
           <div className="flex flex-col items-center justify-center py-32 text-center space-y-8 bg-white/5 rounded-[3.5rem] border border-white/10 backdrop-blur-sm">
             <div className="p-8 bg-indigo-600/20 rounded-[2rem] text-indigo-400 shadow-inner">
               <FolderPlus size={64} />

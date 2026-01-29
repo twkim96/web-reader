@@ -10,39 +10,48 @@ import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
 import { Shelf } from '../components/Shelf';
 import { Reader } from '../components/Reader';
 import { Book, UserProgress, ViewerSettings, ViewState } from '../types';
-import { HardDrive, LogOut } from 'lucide-react';
+import { HardDrive, LogOut, ShieldCheck } from 'lucide-react';
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
   const [googleToken, setGoogleToken] = useState<string | null>(null);
-  const [folderId, setFolderId] = useState<string | null>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   
+  // 공용 PC 여부 상태 (기본값: false -> localStorage 사용)
+  const [isPublicPC, setIsPublicPC] = useState(false);
+
   const [settings, setSettings] = useState<ViewerSettings>({
-    fontSize: 18, 
-    lineHeight: 1.9, 
-    padding: 24, 
-    textAlign: 'justify', 
-    theme: 'sepia', 
-    navMode: 'scroll',
-    fontFamily: 'sans',
-    encoding: 'auto'
+    fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify', 
+    theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto'
   });
 
-  // 1. 초기 인증 상태 및 세션 복구 (sessionStorage 사용)
+  // 1. 토큰 복구 로직 (두 곳 모두 확인)
+  const getStoredToken = () => {
+    // 보안이 더 높은 sessionStorage를 먼저 확인하고, 없으면 localStorage 확인
+    const sToken = sessionStorage.getItem('google_drive_token');
+    const sExpiry = sessionStorage.getItem('google_drive_token_expiry');
+    if (sToken && sExpiry && Date.now() < parseInt(sExpiry)) return sToken;
+
+    const lToken = localStorage.getItem('google_drive_token');
+    const lExpiry = localStorage.getItem('google_drive_token_expiry');
+    if (lToken && lExpiry && Date.now() < parseInt(lExpiry)) return lToken;
+
+    return null;
+  };
+
   useEffect(() => {
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
-    script.async = true; 
-    script.defer = true;
+    script.async = true; script.defer = true;
     document.body.appendChild(script);
 
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
+        // 데이터 구독 로직
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, (snapshot) => {
           const p: Record<string, UserProgress> = {};
@@ -52,18 +61,14 @@ export default function Page() {
 
         const settingsRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'settings', 'viewer');
         const unsubSettings = onSnapshot(settingsRef, (docSnap) => {
-          if (docSnap.exists()) {
-            setSettings(docSnap.data() as ViewerSettings);
-          }
+          if (docSnap.exists()) setSettings(docSnap.data() as ViewerSettings);
         });
 
-        // [변경] sessionStorage에서 토큰 복구 시도
-        const savedToken = sessionStorage.getItem('google_drive_token');
-        const tokenExpiry = sessionStorage.getItem('google_drive_token_expiry');
-        
-        if (savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
-          setGoogleToken(savedToken);
-          loadLibrary(savedToken);
+        // 토큰 복구 시도
+        const recoveredToken = getStoredToken();
+        if (recoveredToken) {
+          setGoogleToken(recoveredToken);
+          loadLibrary(recoveredToken);
         } else {
           setView('auth');
         }
@@ -81,31 +86,14 @@ export default function Page() {
     try {
       const targetFolderName = "web viewer";
       const fid = await findFolderId(targetFolderName, token);
-      
       if (fid) {
-        setFolderId(fid);
         const data = await fetchDriveFiles(token, fid);
         setBooks(data.files || []);
-      } else {
-        setBooks([]);
       }
       setView('shelf');
-    } catch (err) { 
-      console.error("Library load failed:", err); 
-      setBooks([]); 
-      setView('shelf'); 
-    }
+    } catch (err) { setView('shelf'); }
   };
 
-  const handleGoogleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Login failed:", error);
-    }
-  };
-
-  // 구글 드라이브 연결 (sessionStorage에 저장)
   const handleConnect = () => {
     if (!(window as any).google) return;
     const client = (window as any).google.accounts.oauth2.initTokenClient({
@@ -114,11 +102,19 @@ export default function Page() {
       callback: (res: any) => { 
         if (res.access_token) { 
           setGoogleToken(res.access_token); 
+          const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
           
-          // [변경] sessionStorage에 토큰과 만료 시간 저장 (탭 닫으면 자동 삭제)
-          const expiryTime = Date.now() + (res.expires_in * 1000);
-          sessionStorage.setItem('google_drive_token', res.access_token);
-          sessionStorage.setItem('google_drive_token_expiry', expiryTime.toString());
+          // 체크 여부에 따라 저장소 선택
+          const storage = isPublicPC ? sessionStorage : localStorage;
+          
+          // 다른 저장소에 남아있을지 모를 이전 토큰 청소
+          localStorage.removeItem('google_drive_token');
+          localStorage.removeItem('google_drive_token_expiry');
+          sessionStorage.removeItem('google_drive_token');
+          sessionStorage.removeItem('google_drive_token_expiry');
+
+          storage.setItem('google_drive_token', res.access_token);
+          storage.setItem('google_drive_token_expiry', expiryTime);
           
           loadLibrary(res.access_token); 
         } 
@@ -130,7 +126,8 @@ export default function Page() {
   const handleLogout = async () => {
     if (confirm("로그아웃 하시겠습니까?")) {
       await signOut(auth);
-      // [변경] 세션 정보 명시적 삭제
+      localStorage.removeItem('google_drive_token');
+      localStorage.removeItem('google_drive_token_expiry');
       sessionStorage.removeItem('google_drive_token');
       sessionStorage.removeItem('google_drive_token_expiry');
       setGoogleToken(null);
@@ -150,74 +147,67 @@ export default function Page() {
 
   const handleSaveProgress = useCallback(async (idx: number, pct: number) => {
     if (!user || !activeBook || isNaN(idx)) return;
-    try {
-      const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
-      await setDoc(docRef, { 
-        bookId: activeBook.id, 
-        charIndex: idx, 
-        progressPercent: pct, 
-        lastRead: serverTimestamp() 
-      }, { merge: true });
-    } catch (e) {
-      console.error("Progress Save Error:", e);
-    }
+    const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
+    await setDoc(docRef, { bookId: activeBook.id, charIndex: idx, progressPercent: pct, lastRead: serverTimestamp() }, { merge: true });
   }, [user?.uid, activeBook?.id]);
 
   if (view === 'loading') {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white gap-4">
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        <p className="font-black uppercase tracking-widest text-xs opacity-30">Initializing...</p>
+        <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen font-sans bg-[#0f172a]">
+      {/* 1. 로그인 화면 */}
       {view === 'auth' && !user && (
         <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-12 p-10 text-center">
           <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl shadow-indigo-500/20">
             <HardDrive size={64} />
           </div>
-          <div className="space-y-4">
-            <h1 className="text-4xl font-black italic uppercase tracking-tighter">Private Cloud Reader</h1>
-            <p className="text-slate-400 text-xs tracking-widest uppercase">Sync your library with Google Account</p>
-          </div>
-          <button 
-            onClick={handleGoogleLogin} 
-            className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl transition-transform active:scale-95"
-          >
+          <h1 className="text-4xl font-black italic uppercase tracking-tighter">Private Reader</h1>
+          <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95">
             Sign in with Google
           </button>
         </div>
       )}
 
+      {/* 2. 드라이브 연결 화면 (옵션 추가) */}
       {view === 'auth' && user && (
-        <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-12 p-10 text-center">
-          <div className="relative">
+        <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-8 p-10 text-center">
+          <div className="relative mb-4">
             <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl">
               <HardDrive size={64} />
             </div>
-            <button 
-              onClick={handleLogout}
-              className="absolute -top-2 -right-2 p-3 bg-red-500 rounded-full shadow-lg transition-transform active:scale-90"
-            >
-              <LogOut size={18} />
-            </button>
+            <button onClick={handleLogout} className="absolute -top-2 -right-2 p-3 bg-red-500 rounded-full shadow-lg active:scale-90"><LogOut size={18} /></button>
           </div>
-          <div className="space-y-2">
-            <p className="text-indigo-400 font-black text-[10px] uppercase tracking-[0.3em]">Welcome back</p>
+          
+          <div className="space-y-1">
+            <p className="text-indigo-400 font-black text-[10px] uppercase tracking-[0.3em]">Authorized as</p>
             <h1 className="text-xl font-bold">{user.displayName || user.email}</h1>
           </div>
-          <button 
-            onClick={handleConnect} 
-            className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95"
-          >
-            Connect Google Drive
-          </button>
+
+          <div className="w-full max-w-xs space-y-4">
+            {/* 공용 PC 체크박스 */}
+            <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/10 bg-white/5'}`}>
+              <input type="checkbox" checked={isPublicPC} onChange={(e) => setIsPublicPC(e.target.checked)} className="hidden" />
+              <ShieldCheck size={20} className={isPublicPC ? 'text-indigo-400' : 'text-slate-500'} />
+              <span className={`text-[11px] font-bold uppercase tracking-wider ${isPublicPC ? 'text-white' : 'text-slate-400'}`}>
+                {isPublicPC ? 'Public PC (Session Only)' : 'Private PC (Keep Logged in)'}
+              </span>
+            </label>
+
+            <button onClick={handleConnect} className="w-full py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95">
+              Connect Google Drive
+            </button>
+          </div>
         </div>
       )}
 
+      {/* 3. 책장 & 리더 */}
       {view === 'shelf' && (
         <Shelf 
           books={books} 
@@ -225,23 +215,12 @@ export default function Page() {
           isRefreshing={false} 
           onRefresh={() => googleToken && loadLibrary(googleToken)} 
           onOpen={(b) => { setActiveBook(b); setView('reader'); }} 
+          onLogout={handleLogout} // 로그아웃 핸들러 추가
           userEmail={user?.email || ""} 
         />
       )}
-
       {view === 'reader' && activeBook && googleToken && (
-        <Reader 
-          book={activeBook} 
-          googleToken={googleToken}
-          initialProgress={progress[activeBook.id]} 
-          settings={settings} 
-          onUpdateSettings={handleUpdateSettings} 
-          onBack={() => {
-            window.scrollTo(0, 0);
-            setView('shelf');
-          }} 
-          onSaveProgress={handleSaveProgress} 
-        />
+        <Reader book={activeBook} googleToken={googleToken} initialProgress={progress[activeBook.id]} settings={settings} onUpdateSettings={handleUpdateSettings} onBack={() => { window.scrollTo(0, 0); setView('shelf'); }} onSaveProgress={handleSaveProgress} />
       )}
     </div>
   );
