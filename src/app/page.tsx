@@ -2,15 +2,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { auth, db, APP_ID } from '../lib/firebase';
-import { onAuthStateChanged, signInAnonymously, User as FirebaseUser } from 'firebase/auth';
+import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
+import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 import { collection, doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
 import { Shelf } from '../components/Shelf';
 import { Reader } from '../components/Reader';
 import { Book, UserProgress, ViewerSettings, ViewState } from '../types';
-import { HardDrive } from 'lucide-react';
+import { HardDrive, LogOut } from 'lucide-react';
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -21,7 +21,6 @@ export default function Page() {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   
-  // [수정] ViewerSettings 타입 변경에 맞춰 fontFamily 초기값 추가
   const [settings, setSettings] = useState<ViewerSettings>({
     fontSize: 18, 
     lineHeight: 1.9, 
@@ -29,9 +28,10 @@ export default function Page() {
     textAlign: 'justify', 
     theme: 'sepia', 
     navMode: 'scroll',
-    fontFamily: 'sans' // 기본값 추가
+    fontFamily: 'sans'
   });
 
+  // 인증 상태 감시 및 데이터 구독
   useEffect(() => {
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
@@ -39,10 +39,10 @@ export default function Page() {
     script.defer = true;
     document.body.appendChild(script);
 
-    signInAnonymously(auth);
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
+        // 사용자의 독서 기록 구독
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, (snapshot) => {
           const p: Record<string, UserProgress> = {};
@@ -50,6 +50,7 @@ export default function Page() {
           setProgress(p);
         });
 
+        // 사용자의 뷰어 설정 구독
         const settingsRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'settings', 'viewer');
         const unsubSettings = onSnapshot(settingsRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -59,10 +60,31 @@ export default function Page() {
 
         setView('auth');
         return () => { unsubProgress(); unsubSettings(); };
+      } else {
+        setView('auth');
       }
     });
     return () => unsubscribeAuth();
   }, []);
+
+  // [추가] 구글 로그인 핸들러
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Login failed:", error);
+    }
+  };
+
+  // [추가] 로그아웃 핸들러
+  const handleLogout = async () => {
+    if (confirm("로그아웃 하시겠습니까?")) {
+      await signOut(auth);
+      setGoogleToken(null);
+      setBooks([]);
+      setView('auth');
+    }
+  };
 
   const handleUpdateSettings = useCallback(async (newSettings: Partial<ViewerSettings>) => {
     const updated = { ...settings, ...newSettings };
@@ -121,20 +143,54 @@ export default function Page() {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white gap-4">
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        <p className="font-black uppercase tracking-widest text-xs opacity-30">Initializing Library</p>
+        <p className="font-black uppercase tracking-widest text-xs opacity-30">Initializing...</p>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen font-sans">
-      {view === 'auth' && (
+      {view === 'auth' && !user && (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white gap-12 p-10 text-center">
           <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl">
             <HardDrive size={64} />
           </div>
-          <h1 className="text-4xl font-black italic uppercase tracking-tighter text-white">Private Cloud Reader</h1>
-          <button onClick={handleConnect} className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest">Connect Google Drive</button>
+          <div className="space-y-4">
+            <h1 className="text-4xl font-black italic uppercase tracking-tighter">Private Cloud Reader</h1>
+            <p className="text-slate-400 text-xs tracking-widest uppercase">Sync your library with Google Account</p>
+          </div>
+          <button 
+            onClick={handleGoogleLogin} 
+            className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl transition-transform active:scale-95"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      )}
+
+      {view === 'auth' && user && (
+        <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white gap-12 p-10 text-center">
+          <div className="relative">
+            <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl">
+              <HardDrive size={64} />
+            </div>
+            <button 
+              onClick={handleLogout}
+              className="absolute -top-2 -right-2 p-3 bg-red-500 rounded-full shadow-lg transition-transform active:scale-90"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+          <div className="space-y-2">
+            <p className="text-indigo-400 font-black text-[10px] uppercase tracking-[0.3em]">Welcome back</p>
+            <h1 className="text-xl font-bold">{user.displayName || user.email}</h1>
+          </div>
+          <button 
+            onClick={handleConnect} 
+            className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl"
+          >
+            Connect Google Drive
+          </button>
         </div>
       )}
 
@@ -145,7 +201,7 @@ export default function Page() {
           isRefreshing={false} 
           onRefresh={() => googleToken && loadLibrary(googleToken)} 
           onOpen={(b) => { setActiveBook(b); setView('reader'); }} 
-          userEmail={user?.email} 
+          userEmail={user?.email || ""} 
         />
       )}
 
@@ -155,7 +211,6 @@ export default function Page() {
           googleToken={googleToken}
           initialProgress={progress[activeBook.id]} 
           settings={settings} 
-          // [수정] 프롭 이름을 Reader의 interface와 동일하게 맞춥니다.
           onUpdateSettings={handleUpdateSettings} 
           onBack={() => {
             window.scrollTo(0, 0);
