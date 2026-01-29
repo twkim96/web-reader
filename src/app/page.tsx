@@ -28,7 +28,8 @@ export default function Page() {
     textAlign: 'justify', 
     theme: 'sepia', 
     navMode: 'scroll',
-    fontFamily: 'sans'
+    fontFamily: 'sans',
+    encoding: 'auto',
   });
 
   useEffect(() => {

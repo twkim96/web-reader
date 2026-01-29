@@ -24,10 +24,7 @@ export const fetchDriveFiles = async (token: string, folderId?: string) => {
   return response.json();
 };
 
-/**
- * [수정] 파일 전체를 한 번에 가져오는 함수
- * 메모리 기반 슬라이싱을 위해 전체 텍스트를 메모리에 로드합니다.
- */
+// src/lib/googleDrive.ts
 export const fetchFullFile = async (fileId: string, token: string) => {
   const response = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
@@ -36,9 +33,6 @@ export const fetchFullFile = async (fileId: string, token: string) => {
 
   if (!response.ok) throw new Error('파일 로드 실패');
   
-  const text = await response.text();
-  return { 
-    text, 
-    totalSize: text.length 
-  };
+  // 텍스트 대신 ArrayBuffer로 받아 리더에서 처리하도록 합니다.
+  return await response.arrayBuffer();
 };

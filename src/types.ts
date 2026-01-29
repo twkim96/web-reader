@@ -24,6 +24,7 @@ export interface ViewerSettings {
   theme: 'light' | 'dark' | 'sepia' | 'blue';
   navMode: 'scroll' | 'page';
   fontFamily: 'sans' | 'serif' | 'ridi'; // ridi 옵션 추가
+  encoding: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le'; // utf-16le 추가
 }
 
 export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';

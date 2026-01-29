@@ -1,3 +1,5 @@
+// src/lib/constants.ts
+
 /**
  * Moon Reader 스타일의 테마 설정
  */
@@ -9,8 +11,9 @@ export const THEMES = {
     secondary: 'bg-slate-100' 
   },
   dark: { 
-    bg: 'bg-[#1a1a1a]', 
-    text: 'text-[#cccccc]', 
+    // [수정] 배경색을 #272728로, 텍스트 색상을 #b8b8b8로 변경
+    bg: 'bg-[#272728]', 
+    text: 'text-[#b8b8b8]', 
     border: 'border-white/10', 
     secondary: 'bg-white/5' 
   },
