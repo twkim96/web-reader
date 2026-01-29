@@ -5,10 +5,10 @@
   --foreground: #171717;
 }
 
-/* 리디바탕 폰트 정의 */
 @font-face {
   font-family: 'RidiBatang';
-  src: url('/fonts/RidiBatang.otf') format('opentype'); /* .otf는 opentype으로 지정 */
+  /* 파일명을 RIDIBatang.otf로 정확히 수정 */
+  src: url('/fonts/RIDIBatang.otf') format('opentype'); 
   font-weight: normal;
   font-style: normal;
   font-display: swap;
