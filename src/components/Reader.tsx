@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Book, UserProgress, ViewerSettings } from '../types';
 import { THEMES } from '../lib/constants';
 import { fetchFullFile } from '../lib/googleDrive';
-// 👇 새로 만든 localDB에서 함수 import
 import { saveOfflineBook, getOfflineBook } from '../lib/localDB';
 import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
@@ -108,24 +107,18 @@ export const Reader: React.FC<ReaderProps> = ({
     }, 60);
   }, [isLoaded, BLOCK_SIZE]);
 
-  // 👇 초기화 로직 수정: 로컬 DB 확인 -> 없으면 구글 드라이브 -> 다운로드 후 저장
   useEffect(() => {
     const init = async () => {
       try {
         let buffer: ArrayBuffer;
-        
-        // 1. 로컬 DB 확인
         const offlineData = await getOfflineBook(book.id);
         
         if (offlineData) {
           console.log('Loaded from local storage');
           buffer = offlineData.data;
         } else {
-          // 2. 없으면 구글 드라이브 다운로드
           console.log('Fetching from Google Drive');
           buffer = await fetchFullFile(book.id, googleToken);
-          
-          // 3. 다운로드 완료 후 로컬 저장 (백그라운드 처리)
           saveOfflineBook(book.id, book.name, buffer)
             .then(() => console.log('Saved to local storage'))
             .catch(err => console.error('Failed to save locally:', err));
@@ -141,7 +134,7 @@ export const Reader: React.FC<ReaderProps> = ({
       }
     };
     init();
-  }, [book.id, googleToken, decodeData]); // onBack 의존성 제거
+  }, [book.id, googleToken, decodeData]); 
 
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
@@ -216,8 +209,17 @@ export const Reader: React.FC<ReaderProps> = ({
     const w = window.innerWidth;
     const h = window.innerHeight;
     
-    // [중복 방지] 화면 높이만큼 정확히 이동
-    const scrollStep = h; 
+    // [핵심 변경 사항] 화면 높이를 기준으로 하되, 글자 줄 단위(Line Height)에 맞춰 스냅(Snap)을 줍니다.
+    // 1. 현재 설정된 한 줄의 정확한 높이 계산
+    const oneLineHeight = settings.fontSize * settings.lineHeight;
+    
+    // 2. 현재 화면 높이(h)에 "온전히" 들어갈 수 있는 줄 수 계산 (소수점 버림)
+    // 예: 화면 800px, 줄높이 30px -> 26.6줄 -> 26줄
+    const linesPerScreen = Math.floor(h / oneLineHeight);
+
+    // 3. 실제 이동할 거리는 (온전한 줄 수 * 줄 높이)
+    // 이렇게 하면 맨 아래 0.6줄만큼 잘려있던 글자는 이동 범위에서 제외되어, 다음 화면의 맨 윗줄에 온전하게 나타납니다.
+    const scrollStep = linesPerScreen * oneLineHeight; 
 
     // 공통 이동 함수
     const move = (dir: number) => {
@@ -225,22 +227,19 @@ export const Reader: React.FC<ReaderProps> = ({
     };
 
     if (settings.navMode !== 'scroll') {
-      // 1. 상/하 탭
       if (settings.navMode === 'page') {
         if (clientY > h * 0.65) { move(1); return; }
         if (clientY < h * 0.35) { move(-1); return; }
       }
-      // 2. 좌/우 탭
       else if (settings.navMode === 'left-right') {
         if (clientX < w * 0.35) { move(-1); return; }
         if (clientX > w * 0.65) { move(1); return; }
       }
-      // 3. 4방향 탭
       else if (settings.navMode === 'all-dir') {
-        if (clientY < h * 0.35) { move(-1); return; }
-        if (clientY > h * 0.65) { move(1); return; }
-        if (clientX < w * 0.35) { move(-1); return; }
-        if (clientX > w * 0.65) { move(1); return; }
+        if (clientY < h * 0.25) { move(-1); return; }
+        if (clientY > h * 0.75) { move(1); return; }
+        if (clientX < w * 0.4) { move(-1); return; }
+        if (clientX > w * 0.6) { move(1); return; }
       }
     }
     

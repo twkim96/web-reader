@@ -28,9 +28,8 @@ export default function Page() {
     theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto'
   });
 
-  // 1. 토큰 복구 로직 (두 곳 모두 확인)
+  // 1. 토큰 복구 로직
   const getStoredToken = () => {
-    // 보안이 더 높은 sessionStorage를 먼저 확인하고, 없으면 localStorage 확인
     const sToken = sessionStorage.getItem('google_drive_token');
     const sExpiry = sessionStorage.getItem('google_drive_token_expiry');
     if (sToken && sExpiry && Date.now() < parseInt(sExpiry)) return sToken;
@@ -51,7 +50,6 @@ export default function Page() {
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        // 데이터 구독 로직
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, (snapshot) => {
           const p: Record<string, UserProgress> = {};
@@ -64,7 +62,6 @@ export default function Page() {
           if (docSnap.exists()) setSettings(docSnap.data() as ViewerSettings);
         });
 
-        // 토큰 복구 시도
         const recoveredToken = getStoredToken();
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
@@ -80,6 +77,21 @@ export default function Page() {
     });
     return () => unsubscribeAuth();
   }, []);
+
+  // [New] 브라우저 뒤로가기(popstate) 핸들링
+  useEffect(() => {
+    const handlePopState = () => {
+      // URL에 #reader가 없고, 현재 뷰가 reader라면 shelf로 돌아감
+      if (view === 'reader' && !window.location.hash.includes('reader')) {
+        setView('shelf');
+        setActiveBook(null);
+        window.scrollTo(0, 0);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view]);
 
   const loadLibrary = async (token: string) => {
     setView('loading');
@@ -104,10 +116,8 @@ export default function Page() {
           setGoogleToken(res.access_token); 
           const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
           
-          // 체크 여부에 따라 저장소 선택
           const storage = isPublicPC ? sessionStorage : localStorage;
           
-          // 다른 저장소에 남아있을지 모를 이전 토큰 청소
           localStorage.removeItem('google_drive_token');
           localStorage.removeItem('google_drive_token_expiry');
           sessionStorage.removeItem('google_drive_token');
@@ -133,6 +143,10 @@ export default function Page() {
       setGoogleToken(null);
       setBooks([]);
       setView('auth');
+      // 로그아웃 시 해시 제거
+      if (window.location.hash) {
+        history.replaceState(null, '', ' ');
+      }
     }
   };
 
@@ -150,6 +164,27 @@ export default function Page() {
     const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
     await setDoc(docRef, { bookId: activeBook.id, charIndex: idx, progressPercent: pct, lastRead: serverTimestamp() }, { merge: true });
   }, [user?.uid, activeBook?.id]);
+
+  // [New] 책 열기 핸들러 (히스토리 추가)
+  const handleOpenBook = (b: Book) => {
+    // 가상의 히스토리 엔트리 추가 (#reader)
+    window.history.pushState({ view: 'reader' }, '', '#reader');
+    setActiveBook(b);
+    setView('reader');
+  };
+
+  // [New] 책 닫기 핸들러 (히스토리 뒤로가기)
+  const handleCloseBook = () => {
+    if (window.location.hash.includes('reader')) {
+      // 히스토리가 있으면 뒤로가기를 통해 popstate 유발 -> useEffect에서 처리
+      window.history.back();
+    } else {
+      // 히스토리가 꼬였을 경우 강제 이동
+      window.scrollTo(0, 0);
+      setView('shelf');
+      setActiveBook(null);
+    }
+  };
 
   if (view === 'loading') {
     return (
@@ -175,7 +210,7 @@ export default function Page() {
         </div>
       )}
 
-      {/* 2. 드라이브 연결 화면 (옵션 추가) */}
+      {/* 2. 드라이브 연결 화면 */}
       {view === 'auth' && user && (
         <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-8 p-10 text-center">
           <div className="relative mb-4">
@@ -191,7 +226,6 @@ export default function Page() {
           </div>
 
           <div className="w-full max-w-xs space-y-4">
-            {/* 공용 PC 체크박스 */}
             <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/10 bg-white/5'}`}>
               <input type="checkbox" checked={isPublicPC} onChange={(e) => setIsPublicPC(e.target.checked)} className="hidden" />
               <ShieldCheck size={20} className={isPublicPC ? 'text-indigo-400' : 'text-slate-500'} />
@@ -214,13 +248,21 @@ export default function Page() {
           progress={progress} 
           isRefreshing={false} 
           onRefresh={() => googleToken && loadLibrary(googleToken)} 
-          onOpen={(b) => { setActiveBook(b); setView('reader'); }} 
-          onLogout={handleLogout} // 로그아웃 핸들러 추가
+          onOpen={handleOpenBook} // 수정된 핸들러 전달
+          onLogout={handleLogout}
           userEmail={user?.email || ""} 
         />
       )}
       {view === 'reader' && activeBook && googleToken && (
-        <Reader book={activeBook} googleToken={googleToken} initialProgress={progress[activeBook.id]} settings={settings} onUpdateSettings={handleUpdateSettings} onBack={() => { window.scrollTo(0, 0); setView('shelf'); }} onSaveProgress={handleSaveProgress} />
+        <Reader 
+          book={activeBook} 
+          googleToken={googleToken} 
+          initialProgress={progress[activeBook.id]} 
+          settings={settings} 
+          onUpdateSettings={handleUpdateSettings} 
+          onBack={handleCloseBook} // 수정된 핸들러 전달 (내부 뒤로가기 클릭 시)
+          onSaveProgress={handleSaveProgress} 
+        />
       )}
     </div>
   );
