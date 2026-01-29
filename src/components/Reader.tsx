@@ -3,9 +3,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Book, UserProgress, ViewerSettings } from '../types';
 import { THEMES } from '../lib/constants';
 import { fetchFullFile } from '../lib/googleDrive';
+// 👇 새로 만든 localDB에서 함수 import
+import { saveOfflineBook, getOfflineBook } from '../lib/localDB';
 import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
-import { ChevronLeft, Settings, Moon, Sun, Hash, X, Check, Search } from 'lucide-react';
+import { ChevronLeft, Settings, Moon, Sun, Hash, Search } from 'lucide-react';
 
 interface ReaderProps {
   book: Book;
@@ -106,17 +108,40 @@ export const Reader: React.FC<ReaderProps> = ({
     }, 60);
   }, [isLoaded, BLOCK_SIZE]);
 
+  // 👇 초기화 로직 수정: 로컬 DB 확인 -> 없으면 구글 드라이브 -> 다운로드 후 저장
   useEffect(() => {
     const init = async () => {
       try {
-        const buffer = await fetchFullFile(book.id, googleToken);
+        let buffer: ArrayBuffer;
+        
+        // 1. 로컬 DB 확인
+        const offlineData = await getOfflineBook(book.id);
+        
+        if (offlineData) {
+          console.log('Loaded from local storage');
+          buffer = offlineData.data;
+        } else {
+          // 2. 없으면 구글 드라이브 다운로드
+          console.log('Fetching from Google Drive');
+          buffer = await fetchFullFile(book.id, googleToken);
+          
+          // 3. 다운로드 완료 후 로컬 저장 (백그라운드 처리)
+          saveOfflineBook(book.id, book.name, buffer)
+            .then(() => console.log('Saved to local storage'))
+            .catch(err => console.error('Failed to save locally:', err));
+        }
+
         rawBuffer.current = buffer;
         decodeData(buffer, settings.encoding);
         setIsLoaded(true);
-      } catch (err) { console.error(err); }
+      } catch (err) { 
+        console.error(err); 
+        alert("파일을 불러오는데 실패했습니다.");
+        onBack();
+      }
     };
     init();
-  }, [book.id, googleToken, decodeData]);
+  }, [book.id, googleToken, decodeData]); // onBack 의존성 제거
 
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
@@ -191,42 +216,34 @@ export const Reader: React.FC<ReaderProps> = ({
     const w = window.innerWidth;
     const h = window.innerHeight;
     
-    // [수정됨] 화면 높이(h)만큼 정확히 이동 (중복 제거, 스킵 없음)
-    // 기존의 oneLineHeight 차감 로직을 제거하여 중복을 없앴습니다.
+    // [중복 방지] 화면 높이만큼 정확히 이동
     const scrollStep = h; 
 
-    // 공통 이동 함수: dir이 -1이면 위로(이전), 1이면 아래로(다음)
+    // 공통 이동 함수
     const move = (dir: number) => {
       window.scrollBy({ top: dir * scrollStep, behavior: 'instant' });
     };
 
     if (settings.navMode !== 'scroll') {
-      // 1. 기존: 상/하 탭 (Page Tap)
+      // 1. 상/하 탭
       if (settings.navMode === 'page') {
         if (clientY > h * 0.65) { move(1); return; }
         if (clientY < h * 0.35) { move(-1); return; }
       }
-      
-      // 2. 신규: 좌/우 탭 (Left-Right) - 좌측은 위(이전), 우측은 아래(다음)
+      // 2. 좌/우 탭
       else if (settings.navMode === 'left-right') {
-        // 메뉴 호출을 위해 중앙 30% 영역은 제외
         if (clientX < w * 0.35) { move(-1); return; }
         if (clientX > w * 0.65) { move(1); return; }
       }
-
-      // 3. 신규: 상/하/좌/우 탭 (All-Dir) - 상/하 우선, 그 외엔 좌/우
+      // 3. 4방향 탭
       else if (settings.navMode === 'all-dir') {
-        // 상/하 우선 판별 (상단/하단 35% 영역)
         if (clientY < h * 0.35) { move(-1); return; }
         if (clientY > h * 0.65) { move(1); return; }
-
-        // 상/하 영역이 아닐 때 좌/우 판별 (메뉴 호출을 위해 중앙 박스 제외)
-        if (clientX < w * 0.4) { move(-1); return; }
-        if (clientX > w * 0.6) { move(1); return; }
+        if (clientX < w * 0.35) { move(-1); return; }
+        if (clientX > w * 0.65) { move(1); return; }
       }
     }
     
-    // 위 조건에 해당하지 않으면 메뉴 토글 (중앙 영역 터치 등)
     setShowControls(!showControls);
   };
 

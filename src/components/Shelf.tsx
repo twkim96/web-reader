@@ -1,15 +1,16 @@
 // src/components/Shelf.tsx
-import React from 'react';
-import { 
-  Book, 
-  UserProgress 
-} from '../types';
+import React, { useState, useEffect } from 'react';
+import { Book, UserProgress } from '../types';
+import { getOfflineBookIds } from '../lib/localDB'; // 추가됨
+import { ManageModal } from './ManageModal'; // 추가됨
 import { 
   Library, 
   RefreshCcw, 
   BookOpen, 
   FolderPlus,
-  LogOut 
+  LogOut,
+  HardDrive, // 아이콘 추가
+  CheckCircle2 // 아이콘 추가
 } from 'lucide-react';
 
 interface ShelfProps {
@@ -31,23 +32,25 @@ export const Shelf: React.FC<ShelfProps> = ({
   isRefreshing,
   userEmail 
 }) => {
-  // 날짜 포맷팅 헬퍼 함수
+  const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
+  const [showManage, setShowManage] = useState(false);
+
+  // 로컬 저장된 책 목록 확인
+  const checkOfflineStatus = async () => {
+    const ids = await getOfflineBookIds();
+    setOfflineIds(ids);
+  };
+
+  useEffect(() => {
+    checkOfflineStatus();
+  }, [books]); // 책 목록이 바뀌거나, 마운트될 때 확인
+
   const formatDate = (timestamp: any) => {
     if (!timestamp) return 'Ready to Start';
-    
-    // Firestore Timestamp(toDate 존재) 또는 일반 Date 객체 처리
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    
-    // 유효하지 않은 날짜 처리
     if (isNaN(date.getTime())) return 'Ready to Start';
-
     return date.toLocaleString('ko-KR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
     });
   };
 
@@ -67,6 +70,15 @@ export const Shelf: React.FC<ShelfProps> = ({
           </div>
           
           <div className="flex items-center gap-2">
+            {/* 1. 도서 관리 버튼 (신규) */}
+            <button 
+              onClick={() => setShowManage(true)}
+              className="p-4 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-indigo-400 hover:bg-white/10 transition-all active:scale-90"
+              title="Manage Offline Books"
+            >
+              <HardDrive size={20} />
+            </button>
+
             {/* 새로고침 버튼 */}
             <button 
               onClick={onRefresh}
@@ -95,6 +107,8 @@ export const Shelf: React.FC<ShelfProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
             {books.map((book) => {
               const bookProgress = progress[book.id];
+              const isDownloaded = offlineIds.has(book.id);
+
               return (
                 <div 
                   key={book.id}
@@ -106,8 +120,17 @@ export const Shelf: React.FC<ShelfProps> = ({
                   </div>
 
                   <div className="relative z-10 space-y-6">
-                    <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-500">
-                      <BookOpen className="text-white" size={28} />
+                    <div className="flex justify-between items-start">
+                      <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-500">
+                        <BookOpen className="text-white" size={28} />
+                      </div>
+                      
+                      {/* 2. 다운로드 완료 아이콘 (신규) */}
+                      {isDownloaded && (
+                        <div className="p-2 bg-green-500/20 rounded-full border border-green-500/30 text-green-400 animate-in zoom-in duration-300">
+                          <CheckCircle2 size={16} strokeWidth={3} />
+                        </div>
+                      )}
                     </div>
                     
                     <div>
@@ -119,7 +142,6 @@ export const Shelf: React.FC<ShelfProps> = ({
 
                     <div className="space-y-3">
                       <div className="flex justify-between items-end">
-                        {/* 수정됨: 고정 텍스트 대신 마지막 읽은 날짜 표시 */}
                         <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
                           {bookProgress?.lastRead ? formatDate(bookProgress.lastRead) : 'Ready to Start'}
                         </span>
@@ -157,6 +179,15 @@ export const Shelf: React.FC<ShelfProps> = ({
           </div>
         )}
       </main>
+
+      {/* 3. 모달 (신규) */}
+      {showManage && (
+        <ManageModal 
+          onClose={() => setShowManage(false)} 
+          onUpdate={checkOfflineStatus} // 삭제 시 Shelf 상태 갱신
+          theme={{ bg: 'bg-[#0f172a]', text: 'text-white' }}
+        />
+      )}
     </div>
   );
 };
