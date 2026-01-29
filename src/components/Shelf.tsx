@@ -1,77 +1,125 @@
+// src/components/Shelf.tsx
 import React from 'react';
-import { Book, UserProgress } from '../types';
 import { 
-  BookOpen, RefreshCw, Clock, HardDrive, 
-  FileText, User as UserIcon 
+  Book, 
+  UserProgress 
+} from '../types';
+import { 
+  Library, 
+  RefreshCcw, 
+  BookOpen, 
+  Search,
+  FolderPlus 
 } from 'lucide-react';
 
 interface ShelfProps {
   books: Book[];
   progress: Record<string, UserProgress>;
-  isRefreshing: boolean;
-  onRefresh: () => void;
   onOpen: (book: Book) => void;
-  userEmail?: string | null;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+  userEmail: string;
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
-  books, progress, isRefreshing, onRefresh, onOpen, userEmail 
-}) => (
-  <div className="bg-slate-50 min-h-screen flex flex-col">
-    <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
-      <div className="flex items-center gap-3">
-        <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg">
-          <BookOpen size={20} />
+  books, 
+  progress, 
+  onOpen, 
+  onRefresh, 
+  isRefreshing,
+  userEmail 
+}) => {
+  return (
+    <div className="min-h-screen bg-[#0f172a] text-slate-200 font-sans pb-20">
+      {/* 상단 헤더 */}
+      <header className="sticky top-0 z-40 bg-[#0f172a]/80 backdrop-blur-md border-b border-white/5 px-6 py-6">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-500/20">
+              <Library className="text-white" size={24} />
+            </div>
+            <div>
+              <h1 className="text-xl font-black text-white tracking-tight uppercase italic">My Library</h1>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{userEmail}</p>
+            </div>
+          </div>
+          
+          <button 
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className={`p-4 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all ${isRefreshing ? 'animate-spin opacity-50' : 'active:scale-90'}`}
+          >
+            <RefreshCcw size={20} />
+          </button>
         </div>
-        <h1 className="font-black text-xl tracking-tight text-slate-800 italic uppercase">Cloud Reader</h1>
-      </div>
-      <div className="flex items-center gap-2">
-        <button onClick={onRefresh} disabled={isRefreshing} className={`p-2 hover:bg-slate-100 rounded-full text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`}>
-          <RefreshCw size={20} />
-        </button>
-        <div className="h-8 w-px bg-slate-200 mx-2" />
-        <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full">
-          <UserIcon size={14} className="text-slate-400" />
-          <span className="text-xs font-bold text-slate-600">{userEmail?.split('@')[0] || 'User'}</span>
-        </div>
-      </div>
-    </header>
-    <main className="flex-1 max-w-6xl mx-auto w-full p-6">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">내 서재</h2>
-        <p className="text-sm text-slate-500 mt-1">'web reader' 폴더의 텍스트 파일들입니다.</p>
-      </div>
-      {books.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-4">
-          <HardDrive size={64} strokeWidth={1} />
-          <p className="font-medium">도서가 없습니다.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-          {books.map((book) => {
-            const bookProgress = progress[book.id];
-            return (
-              <div key={book.id} onClick={() => onOpen(book)} className="group flex flex-col cursor-pointer">
-                <div className="aspect-[3/4] bg-slate-800 rounded-2xl shadow-sm group-hover:shadow-2xl group-hover:-translate-y-2 transition-all duration-300 flex flex-col justify-end p-5 text-white relative overflow-hidden border border-slate-700">
-                  <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <FileText size={80} strokeWidth={1} />
+      </header>
+
+      {/* 메인 콘텐츠 영역 */}
+      <main className="max-w-7xl mx-auto px-6 py-12">
+        {books.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+            {books.map((book) => {
+              const bookProgress = progress[book.id];
+              return (
+                <div 
+                  key={book.id}
+                  onClick={() => onOpen(book)}
+                  className="group relative bg-white/5 border border-white/10 rounded-[2.5rem] p-8 cursor-pointer hover:bg-white/10 hover:border-indigo-500/50 transition-all duration-500 hover:-translate-y-2 overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <BookOpen size={100} className="rotate-12" />
                   </div>
-                  <h3 className="font-bold leading-tight line-clamp-3 text-sm">{book.name.replace('.txt', '')}</h3>
+
+                  <div className="relative z-10 space-y-6">
+                    <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-500">
+                      <BookOpen className="text-white" size={28} />
+                    </div>
+                    
+                    <div>
+                      <h3 className="text-lg font-bold text-white leading-tight line-clamp-2 group-hover:text-indigo-300 transition-colors">
+                        {book.name.replace('.txt', '')}
+                      </h3>
+                      <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">Text Document</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-end">
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">Reading Progress</span>
+                        <span className="text-xs font-black text-indigo-400">{bookProgress?.progressPercent?.toFixed(1) || '0.0'}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-indigo-500 rounded-full transition-all duration-1000 ease-out"
+                          style={{ width: `${bookProgress?.progressPercent || 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-4 space-y-1.5 px-1">
-                  <div className="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase">
-                    <span>{bookProgress ? `${Math.round(bookProgress.progressPercent)}%` : '미독'}</span>
-                    <Clock size={10} />
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-indigo-500 rounded-full transition-all duration-700" style={{ width: `${bookProgress?.progressPercent || 0}%` }} />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </main>
-  </div>
-);
+              );
+            })}
+          </div>
+        ) : (
+          /* [수정] 파일이 없을 때 Shelf 내부에 직접 안내 문구 표시 */
+          <div className="flex flex-col items-center justify-center py-32 text-center space-y-8 bg-white/5 rounded-[3.5rem] border border-white/10 backdrop-blur-sm">
+            <div className="p-8 bg-indigo-600/20 rounded-[2rem] text-indigo-400 shadow-inner">
+              <FolderPlus size={64} />
+            </div>
+            <div className="space-y-4 max-w-sm">
+              <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">No Books Found</h3>
+              <p className="text-slate-400 text-sm leading-relaxed font-medium">
+                구글 드라이브에 <span className="text-indigo-400 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-indigo-400 font-black">.txt</span> 파일을 업로드해 주세요.
+              </p>
+            </div>
+            <button 
+              onClick={onRefresh}
+              className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95"
+            >
+              Refresh Library
+            </button>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};

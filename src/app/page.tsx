@@ -31,7 +31,6 @@ export default function Page() {
     fontFamily: 'sans'
   });
 
-  // 인증 상태 감시 및 데이터 구독
   useEffect(() => {
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
@@ -42,7 +41,6 @@ export default function Page() {
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        // 사용자의 독서 기록 구독
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, (snapshot) => {
           const p: Record<string, UserProgress> = {};
@@ -50,7 +48,6 @@ export default function Page() {
           setProgress(p);
         });
 
-        // 사용자의 뷰어 설정 구독
         const settingsRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'settings', 'viewer');
         const unsubSettings = onSnapshot(settingsRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -67,7 +64,6 @@ export default function Page() {
     return () => unsubscribeAuth();
   }, []);
 
-  // [추가] 구글 로그인 핸들러
   const handleGoogleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
@@ -76,7 +72,6 @@ export default function Page() {
     }
   };
 
-  // [추가] 로그아웃 핸들러
   const handleLogout = async () => {
     if (confirm("로그아웃 하시겠습니까?")) {
       await signOut(auth);
@@ -95,16 +90,28 @@ export default function Page() {
     }
   }, [settings, user]);
 
+  /**
+   * 라이브러리 로드 로직 수정: "web viewer" 폴더 강제 지정
+   */
   const loadLibrary = async (token: string) => {
     setView('loading');
     try {
-      const fid = folderId || await findFolderId("web reader", token);
-      setFolderId(fid);
-      const data = await fetchDriveFiles(token, fid || undefined);
-      setBooks(data.files || []);
+      // 검색할 폴더명을 "web viewer"로 고정
+      const targetFolderName = "web viewer";
+      const fid = await findFolderId(targetFolderName, token);
+      
+      if (fid) {
+        setFolderId(fid);
+        const data = await fetchDriveFiles(token, fid);
+        setBooks(data.files || []);
+      } else {
+        // 폴더가 없으면 빈 목록 설정
+        setBooks([]);
+      }
       setView('shelf');
     } catch (err) { 
       console.error("Library load failed:", err); 
+      setBooks([]); 
       setView('shelf'); 
     }
   };
@@ -156,7 +163,7 @@ export default function Page() {
             <HardDrive size={64} />
           </div>
           <div className="space-y-4">
-            <h1 className="text-4xl font-black italic uppercase tracking-tighter">Private Cloud Reader</h1>
+            <h1 className="text-4xl font-black italic uppercase tracking-tighter text-white">Private Cloud Reader</h1>
             <p className="text-slate-400 text-xs tracking-widest uppercase">Sync your library with Google Account</p>
           </div>
           <button 
