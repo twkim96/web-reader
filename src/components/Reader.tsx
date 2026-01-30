@@ -47,7 +47,6 @@ export const Reader: React.FC<ReaderProps> = ({
     isLoaded, 
     hasRestored: hasRestored.current === book.id,
     onScrollProgress: (idx, pct) => {
-      // 스크롤 시에는 상태만 업데이트하고, 자동 저장은 시간 간격을 둠
       setCurrentIdx(idx);
       setReadPercent(pct);
       
@@ -89,12 +88,10 @@ export const Reader: React.FC<ReaderProps> = ({
     if (!isLoaded || hasRestored.current === book.id) return;
     if (initialProgress) {
       if (initialProgress.charIndex > 0) {
-        // 즉시 상태 반영 후 점프
         setCurrentIdx(initialProgress.charIndex);
         setReadPercent(initialProgress.progressPercent);
         jumpToIdx(initialProgress.charIndex);
       }
-      // bookmarks는 hook 내부에서 초기화됨
       hasRestored.current = book.id;
     } else if (isLoaded) {
       hasRestored.current = book.id;
@@ -105,7 +102,7 @@ export const Reader: React.FC<ReaderProps> = ({
 
   const handleUIBack = () => { window.history.back(); };
 
-  // Tap Navigation (Original Logic Restored)
+  // Tap Navigation
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientX, clientY } = e;
     const w = window.innerWidth;
@@ -137,13 +134,11 @@ export const Reader: React.FC<ReaderProps> = ({
   const confirmJump = () => {
     let updatedBookmarks = undefined;
 
-    // 1. 자동 책갈피 생성
     if (showConfirm.originIdx !== undefined) {
       updatedBookmarks = createAutoBookmark(showConfirm.originIdx);
-      setBookmarks(updatedBookmarks); // UI 즉시 반영
+      setBookmarks(updatedBookmarks); 
     }
 
-    // 2. 점프 수행
     const bookmarksToSave = updatedBookmarks || bookmarks;
 
     if (showConfirm.type === 'jump' && showConfirm.target !== undefined) {
@@ -198,13 +193,12 @@ export const Reader: React.FC<ReaderProps> = ({
       setCurrentIdx(syncConflict.remoteIdx);
       setReadPercent(syncConflict.remotePercent);
       
-      // 저장 후 점프
       onSaveProgress(syncConflict.remoteIdx, syncConflict.remotePercent, updatedBookmarks);
       lastSaveTime.current = Date.now();
       
       jumpToIdx(syncConflict.remoteIdx);
     } else {
-      lastSaveTime.current = Date.now(); // 무시 시 현재 시간 갱신하여 충돌 루프 방지
+      lastSaveTime.current = Date.now();
     }
     setSyncConflict(null);
   };
@@ -213,6 +207,17 @@ export const Reader: React.FC<ReaderProps> = ({
     if (settings.fontFamily === 'ridi') return 'font-["RidiBatang"]';
     if (settings.fontFamily === 'serif') return 'font-serif';
     return 'font-sans';
+  };
+
+  // [Fix 1] 모바일/데스크톱 공용 핸들러: 드래그 종료 시 모달 띄우기
+  const handleSlideEnd = () => {
+    setShowConfirm({ 
+      show: true, 
+      type: 'jump', 
+      target: currentIdx, 
+      fromSearch: false, 
+      originIdx: preSlideProgress.current.index 
+    });
   };
 
   if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>Loading...</div>;
@@ -331,12 +336,16 @@ export const Reader: React.FC<ReaderProps> = ({
           <input 
             type="range" min="0" max="100" step="0.1" value={readPercent} 
             onMouseDown={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }}
+            // [Fix 1] 모바일 터치 시작 이벤트 추가 (드래그 시작 좌표 저장용)
+            onTouchStart={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }}
             onChange={(e) => {
               const p = parseFloat(e.target.value);
               setReadPercent(p);
               setCurrentIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
             }}
-            onMouseUp={() => setShowConfirm({ show: true, type: 'jump', target: currentIdx, fromSearch: false, originIdx: preSlideProgress.current.index })}
+            // [Fix 1] MouseUp과 TouchEnd에 동일 핸들러 적용
+            onMouseUp={handleSlideEnd}
+            onTouchEnd={handleSlideEnd}
             className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
           />
           <button onClick={() => setShowSearch(true)} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">
