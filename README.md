@@ -93,4 +93,4 @@ npm install
 
 # 개발 서버 실행
 npm run dev
-Google Cloud Console에서 프로젝트 생성 후 NEXT_PUBLIC_GOOGLE_CLIENT_ID 및 Firebase 설정이 필요합니다.
+Google Cloud Console에서 프로젝트 생성 후 NEXT_PUBLIC_GOOGLE_CLIENT_ID 및 Firebase 설정이 필요합니다
