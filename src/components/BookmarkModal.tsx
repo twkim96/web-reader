@@ -17,7 +17,9 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   bookmarks, theme, onClose, onAdd, onDelete, onJump, totalLength
 }) => {
   const manualBookmarks = bookmarks.filter(b => b.type === 'manual').sort((a, b) => b.createdAt - a.createdAt);
-  const autoBookmark = bookmarks.find(b => b.type === 'auto');
+  
+  // [Modified] 단일 검색(find) -> 전체 검색(filter) 후 최신순 정렬
+  const autoBookmarks = bookmarks.filter(b => b.type === 'auto').sort((a, b) => b.createdAt - a.createdAt);
 
   const getPercent = (charIndex: number) => {
     const p = (charIndex / Math.max(1, totalLength)) * 100;
@@ -76,12 +78,9 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                     <div className={`w-1.5 self-stretch rounded-full ${bm.color}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-serif leading-relaxed line-clamp-2 opacity-90">"{bm.name}"</p>
-                      
-                      {/* [Modified] 날짜/퍼센트 표시 개선 */}
                       <p className="text-[10px] mt-2.5 font-sans flex items-center gap-2">
                         <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                         <span className="w-1 h-1 rounded-full bg-current opacity-20" />
-                        {/* 잘 보이게 수정된 퍼센트 태그 */}
                         <span className="font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded text-[11px]">
                           {getPercent(bm.charIndex)}%
                         </span>
@@ -104,33 +103,34 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
           <hr className={`border-dashed ${theme.border} opacity-50`} />
 
-          {/* 2. 자동 책갈피 */}
-          <div>
+          {/* 2. 자동 책갈피 (목록형으로 변경됨) */}
+          <div className="space-y-3">
             <div className="flex items-center gap-2 mb-3">
               <History size={14} className="opacity-50" />
-              <span className="text-xs font-bold opacity-50 uppercase tracking-wider">자동 저장 (최근 이동 전 위치)</span>
+              <span className="text-xs font-bold opacity-50 uppercase tracking-wider">자동 저장 (최근 이동 기록)</span>
             </div>
             
-            {autoBookmark ? (
-              <button 
-                onClick={() => onJump(autoBookmark.charIndex)}
-                className={`w-full p-4 rounded-2xl text-left transition-transform active:scale-95 border border-white/5 bg-white/5 hover:bg-white/10 flex gap-4`}
-              >
-                <div className={`w-1.5 self-stretch rounded-full bg-slate-500`} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-serif leading-relaxed line-clamp-2 opacity-90">"{autoBookmark.name}"</p>
-                  
-                  {/* [Modified] 날짜/퍼센트 표시 개선 */}
-                  <p className="text-[10px] mt-2.5 font-sans flex items-center gap-2">
-                    <span className="opacity-40">{new Date(autoBookmark.createdAt).toLocaleString()}</span>
-                    <span className="w-1 h-1 rounded-full bg-current opacity-20" />
-                    {/* 잘 보이게 수정된 퍼센트 태그 */}
-                    <span className="font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded text-[11px]">
-                      {getPercent(autoBookmark.charIndex)}%
-                    </span>
-                  </p>
-                </div>
-              </button>
+            {autoBookmarks.length > 0 ? (
+              autoBookmarks.map((bm) => (
+                <button 
+                  key={bm.id} // use UUID
+                  onClick={() => onJump(bm.charIndex)}
+                  className={`w-full p-4 rounded-2xl text-left transition-transform active:scale-95 border border-white/5 bg-white/5 hover:bg-white/10 flex gap-4`}
+                >
+                  <div className={`w-1.5 self-stretch rounded-full bg-slate-500`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-serif leading-relaxed line-clamp-2 opacity-90">"{bm.name}"</p>
+                    
+                    <p className="text-[10px] mt-2.5 font-sans flex items-center gap-2">
+                      <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
+                      <span className="w-1 h-1 rounded-full bg-current opacity-20" />
+                      <span className="font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded text-[11px]">
+                        {getPercent(bm.charIndex)}%
+                      </span>
+                    </p>
+                  </div>
+                </button>
+              ))
             ) : (
               <p className="text-center text-xs opacity-30 py-4 bg-black/5 rounded-2xl">대량 이동 시 자동으로 생성됩니다.</p>
             )}
