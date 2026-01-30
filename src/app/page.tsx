@@ -9,7 +9,8 @@ import { collection, doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/f
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
 import { Shelf } from '../components/Shelf';
 import { Reader } from '../components/Reader';
-import { Book, UserProgress, ViewerSettings, ViewState } from '../types';
+// [Modified] Bookmark 타입 추가 import (types.ts에 정의되어 있어야 함)
+import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
 import { HardDrive, LogOut, ShieldCheck } from 'lucide-react';
 
 export default function Page() {
@@ -20,7 +21,6 @@ export default function Page() {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   
-  // 공용 PC 여부 상태 (기본값: false -> localStorage 사용)
   const [isPublicPC, setIsPublicPC] = useState(false);
 
   const [settings, setSettings] = useState<ViewerSettings>({
@@ -28,7 +28,6 @@ export default function Page() {
     theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto'
   });
 
-  // [New] 1. 앱 로드 시 로컬 스토리지에서 기기별 설정 불러오기
   useEffect(() => {
     const savedSettings = localStorage.getItem('viewer_settings');
     if (savedSettings) {
@@ -40,9 +39,7 @@ export default function Page() {
     }
   }, []);
 
-  // 2. 토큰 복구 로직 (두 곳 모두 확인)
   const getStoredToken = () => {
-    // 보안이 더 높은 sessionStorage를 먼저 확인하고, 없으면 localStorage 확인
     const sToken = sessionStorage.getItem('google_drive_token');
     const sExpiry = sessionStorage.getItem('google_drive_token_expiry');
     if (sToken && sExpiry && Date.now() < parseInt(sExpiry)) return sToken;
@@ -63,17 +60,14 @@ export default function Page() {
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        // [Modified] 설정(Settings) 구독 제거, 독서 기록(Progress)만 구독
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, (snapshot) => {
           const p: Record<string, UserProgress> = {};
+          // [Note] UserProgress 타입에 bookmarks가 추가되어 있으므로 자동으로 불러와집니다.
           snapshot.forEach(d => p[d.id] = d.data() as UserProgress);
           setProgress(p);
         });
 
-        // (기존의 settingsRef 구독 코드는 삭제됨)
-
-        // 토큰 복구 시도
         const recoveredToken = getStoredToken();
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
@@ -113,10 +107,8 @@ export default function Page() {
           setGoogleToken(res.access_token); 
           const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
           
-          // 체크 여부에 따라 저장소 선택
           const storage = isPublicPC ? sessionStorage : localStorage;
           
-          // 다른 저장소에 남아있을지 모를 이전 토큰 청소
           localStorage.removeItem('google_drive_token');
           localStorage.removeItem('google_drive_token_expiry');
           sessionStorage.removeItem('google_drive_token');
@@ -145,7 +137,6 @@ export default function Page() {
     }
   };
 
-  // [Modified] 설정을 Firebase 대신 LocalStorage에 저장
   const handleUpdateSettings = useCallback((newSettings: Partial<ViewerSettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
@@ -154,10 +145,25 @@ export default function Page() {
     });
   }, []);
 
-  const handleSaveProgress = useCallback(async (idx: number, pct: number) => {
+  // [Modified] bookmarks 인자 추가 및 Firestore 저장 로직 업데이트
+  const handleSaveProgress = useCallback(async (idx: number, pct: number, bookmarks?: Bookmark[]) => {
     if (!user || !activeBook || isNaN(idx)) return;
     const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
-    await setDoc(docRef, { bookId: activeBook.id, charIndex: idx, progressPercent: pct, lastRead: serverTimestamp() }, { merge: true });
+    
+    // 저장할 데이터 객체 생성
+    const updateData: any = { 
+      bookId: activeBook.id, 
+      charIndex: idx, 
+      progressPercent: pct, 
+      lastRead: serverTimestamp() 
+    };
+
+    // bookmarks가 있을 때만 데이터에 포함 (덮어쓰기 방지)
+    if (bookmarks) {
+      updateData.bookmarks = bookmarks;
+    }
+
+    await setDoc(docRef, updateData, { merge: true });
   }, [user?.uid, activeBook?.id]);
 
   if (view === 'loading') {
@@ -184,7 +190,7 @@ export default function Page() {
         </div>
       )}
 
-      {/* 2. 드라이브 연결 화면 (옵션 추가) */}
+      {/* 2. 드라이브 연결 화면 */}
       {view === 'auth' && user && (
         <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-8 p-10 text-center">
           <div className="relative mb-4">
@@ -200,7 +206,6 @@ export default function Page() {
           </div>
 
           <div className="w-full max-w-xs space-y-4">
-            {/* 공용 PC 체크박스 */}
             <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/10 bg-white/5'}`}>
               <input type="checkbox" checked={isPublicPC} onChange={(e) => setIsPublicPC(e.target.checked)} className="hidden" />
               <ShieldCheck size={20} className={isPublicPC ? 'text-indigo-400' : 'text-slate-500'} />
@@ -229,7 +234,15 @@ export default function Page() {
         />
       )}
       {view === 'reader' && activeBook && googleToken && (
-        <Reader book={activeBook} googleToken={googleToken} initialProgress={progress[activeBook.id]} settings={settings} onUpdateSettings={handleUpdateSettings} onBack={() => { window.scrollTo(0, 0); setView('shelf'); }} onSaveProgress={handleSaveProgress} />
+        <Reader 
+          book={activeBook} 
+          googleToken={googleToken} 
+          initialProgress={progress[activeBook.id]} 
+          settings={settings} 
+          onUpdateSettings={handleUpdateSettings} 
+          onBack={() => { window.scrollTo(0, 0); setView('shelf'); }} 
+          onSaveProgress={handleSaveProgress} 
+        />
       )}
     </div>
   );

@@ -1,12 +1,14 @@
 // src/components/Reader.tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Book, UserProgress, ViewerSettings } from '../types';
+import { Book, UserProgress, ViewerSettings, Bookmark } from '../types';
 import { THEMES } from '../lib/constants';
 import { fetchFullFile } from '../lib/googleDrive';
 import { saveOfflineBook, getOfflineBook } from '../lib/localDB';
 import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
-import { ChevronLeft, Settings, Moon, Sun, Hash, Search, ArrowUpCircle } from 'lucide-react';
+import { BookmarkModal } from './BookmarkModal';
+import { ThemeModal } from './ThemeModal'; 
+import { ChevronLeft, Settings, Palette, Hash, Search, ArrowUpCircle, Bookmark as BookmarkIcon } from 'lucide-react';
 
 interface ReaderProps {
   book: Book;
@@ -15,7 +17,7 @@ interface ReaderProps {
   settings: ViewerSettings;
   onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onBack: () => void;
-  onSaveProgress: (absoluteCharIndex: number, progressPercent: number) => void;
+  onSaveProgress: (idx: number, pct: number, bookmarks?: Bookmark[]) => void;
 }
 
 export const Reader: React.FC<ReaderProps> = ({ 
@@ -25,15 +27,25 @@ export const Reader: React.FC<ReaderProps> = ({
   const [showControls, setShowControls] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showBookmarks, setShowBookmarks] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
   
-  const [showConfirm, setShowConfirm] = useState<{show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean}>({ show: false, type: 'jump' });
+  const [showConfirm, setShowConfirm] = useState<{
+    show: boolean, 
+    type: 'jump' | 'input', 
+    target?: number, 
+    fromSearch?: boolean,
+    originIdx?: number 
+  }>({ show: false, type: 'jump' });
+  
   const [jumpInput, setJumpInput] = useState("");
-
-  // 원격 동기화 충돌 상태 관리
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
 
   const [readPercent, setReadPercent] = useState(0);
   const [currentIdx, setCurrentIdx] = useState(0);
+  
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialProgress?.bookmarks || []);
+
   const fullContent = useRef<string>(""); 
   const rawBuffer = useRef<ArrayBuffer | null>(null);
 
@@ -43,15 +55,26 @@ export const Reader: React.FC<ReaderProps> = ({
   const blockRefs = useRef<Record<number, HTMLDivElement | null>>({});
   
   const hasRestored = useRef<string | null>(null);
-  const lastSaveTime = useRef<number>(Date.now()); // 초기값 현재시간
+  const lastSaveTime = useRef<number>(Date.now());
   const isJumping = useRef(false);
+  
+  const [pendingJump, setPendingJump] = useState<{ blockIdx: number, internalOffset: number } | null>(null);
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
   const BLOCK_SIZE = 15000; 
-  const MAX_VISIBLE_BLOCKS = 4; 
+  const MAX_VISIBLE_BLOCKS = 4;
+  const MANUAL_COLORS = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-blue-500'];
 
-  // 가상화 블록 계산 함수
+  useEffect(() => {
+    window.history.pushState({ panel: 'reader' }, '', '');
+    const handlePopState = () => { onBack(); };
+    window.addEventListener('popstate', handlePopState);
+    return () => { window.removeEventListener('popstate', handlePopState); };
+  }, [onBack]);
+
+  const handleUIBack = () => { window.history.back(); };
+
   const getVisibleBlocks = () => {
     const blocks = [];
     for (let i = visibleRange.start; i <= visibleRange.end; i++) {
@@ -64,7 +87,6 @@ export const Reader: React.FC<ReaderProps> = ({
     return blocks;
   };
 
-  // 인코딩 디코더
   const decodeData = useCallback((buffer: ArrayBuffer, mode: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le') => {
     const view = new Uint8Array(buffer);
     const isUTF16LE = view[0] === 0xFF && view[1] === 0xFE;
@@ -81,56 +103,136 @@ export const Reader: React.FC<ReaderProps> = ({
     }
   }, []);
 
-  // 특정 위치로 점프 (패딩 및 블록 재계산)
-  const jumpToIdx = useCallback((targetIdx: number) => {
+  const getPreviewText = (idx: number) => {
+    if (!fullContent.current) return "";
+    const start = Math.max(0, idx - 30);
+    const end = Math.min(fullContent.current.length, idx + 100);
+    return fullContent.current.substring(start, end).replace(/\n/g, ' ').trim();
+  };
+
+  // [Modified] DB 저장을 제거하고, 업데이트된 책갈피 리스트를 반환만 하도록 변경
+  const createAutoBookmark = (originIndex: number): Bookmark[] => {
+    if (originIndex < 100) return bookmarks; 
+
+    const newAutoMark: Bookmark = {
+      id: 'auto-bookmark',
+      type: 'auto',
+      name: getPreviewText(originIndex),
+      charIndex: originIndex,
+      createdAt: Date.now(),
+      color: 'bg-slate-500'
+    };
+
+    const filtered = bookmarks.filter(b => b.type !== 'auto');
+    return [newAutoMark, ...filtered];
+  };
+
+  // [Modified] 수동 추가는 여전히 즉시 저장 (이동이 없으므로 안전)
+  const addManualBookmark = () => {
+    const manualCount = bookmarks.filter(b => b.type === 'manual').length;
+    if (manualCount >= 5) {
+      alert("수동 책갈피는 최대 5개까지만 저장할 수 있습니다.");
+      return;
+    }
+
+    const targetIdx = currentIdx; 
+    const usedColors = bookmarks.filter(b => b.type === 'manual').map(b => b.color);
+    const nextColor = MANUAL_COLORS.find(c => !usedColors.includes(c)) || MANUAL_COLORS[0];
+
+    const newMark: Bookmark = {
+      id: crypto.randomUUID(),
+      type: 'manual',
+      name: getPreviewText(targetIdx),
+      charIndex: targetIdx,
+      createdAt: Date.now(),
+      color: nextColor
+    };
+
+    setBookmarks(prev => {
+      const updated = [newMark, ...prev];
+      onSaveProgress(currentIdx, readPercent, updated);
+      lastSaveTime.current = Date.now();
+      return updated;
+    });
+  };
+
+  const deleteBookmark = (id: string) => {
+    setBookmarks(prev => {
+      const updated = prev.filter(b => b.id !== id);
+      onSaveProgress(currentIdx, readPercent, updated);
+      lastSaveTime.current = Date.now();
+      return updated;
+    });
+  };
+
+  // [Modified] updatedBookmarks 매개변수 추가 (점프 시 최신 책갈피 반영)
+  const jumpToIdx = useCallback((targetIdx: number, updatedBookmarks?: Bookmark[]) => {
     if (!isLoaded || !fullContent.current) return;
+    
+    const totalLen = fullContent.current.length || 1;
+    const safeIdx = Math.max(0, Math.min(targetIdx, totalLen - 1));
+    const newPercent = (safeIdx / totalLen) * 100;
+
+    // 1. 상태 즉시 업데이트
+    setCurrentIdx(safeIdx);
+    setReadPercent(newPercent);
+    
+    // 2. [Core Fix] 단일 진실 공급원(Single Source of Truth)으로서 저장 수행
+    // 자동 책갈피가 생성되었다면 updatedBookmarks를 사용하고, 아니면 기존 bookmarks 사용
+    const bookmarksToSave = updatedBookmarks || bookmarks;
+    onSaveProgress(safeIdx, newPercent, bookmarksToSave);
+    lastSaveTime.current = Date.now();
+
+    // 3. 가상화 및 스크롤 처리
     isJumping.current = true;
-    const safeIdx = Math.max(0, Math.min(targetIdx, fullContent.current.length - 1));
     const blockIdx = Math.floor(safeIdx / BLOCK_SIZE);
-    const internalIdx = safeIdx % BLOCK_SIZE;
+    const internalOffset = safeIdx % BLOCK_SIZE;
 
     setPaddingTop(0);
     blockHeights.current = {};
-    setVisibleRange({ start: blockIdx, end: Math.min(blockIdx + 1, Math.floor(fullContent.current.length / BLOCK_SIZE)) });
+    setVisibleRange({ start: blockIdx, end: Math.min(blockIdx + 1, Math.floor(totalLen / BLOCK_SIZE)) });
 
-    setTimeout(() => {
+    setPendingJump({ blockIdx, internalOffset });
+  }, [isLoaded, BLOCK_SIZE, bookmarks, onSaveProgress]);
+
+  useEffect(() => {
+    if (pendingJump) {
+      const { blockIdx, internalOffset } = pendingJump;
       const blockElem = blockRefs.current[blockIdx];
-      const textNode = blockElem?.firstChild;
-      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-        try {
-          const range = document.createRange();
-          const offset = Math.min(internalIdx, textNode.textContent?.length || 0);
-          range.setStart(textNode, offset);
-          range.setEnd(textNode, offset);
-          const rect = range.getBoundingClientRect();
-          window.scrollTo({ top: window.scrollY + rect.top - 20, behavior: 'instant' });
-        } catch (e) {
-          const ratio = internalIdx / BLOCK_SIZE;
-          window.scrollTo({ top: (blockElem?.offsetTop || 0) + ((blockElem?.offsetHeight || 0) * ratio), behavior: 'instant' });
-        }
-      }
-      setTimeout(() => { isJumping.current = false; }, 100);
-    }, 60);
-  }, [isLoaded, BLOCK_SIZE]);
 
-  // 초기 로딩 (로컬 DB 우선 -> 구글 드라이브 -> 저장)
+      if (blockElem && blockElem.firstChild) {
+        const textNode = blockElem.firstChild;
+        try {
+          if (textNode.nodeType === Node.TEXT_NODE) {
+            const range = document.createRange();
+            const offset = Math.min(internalOffset, textNode.textContent?.length || 0);
+            range.setStart(textNode, offset);
+            range.setEnd(textNode, offset);
+            const rect = range.getBoundingClientRect();
+            window.scrollTo({ top: window.scrollY + rect.top - 20, behavior: 'instant' });
+          } else {
+             window.scrollTo({ top: blockElem.offsetTop, behavior: 'instant' });
+          }
+        } catch (e) {
+          console.error("Jump Error", e);
+        }
+        setPendingJump(null);
+        setTimeout(() => { isJumping.current = false; }, 100);
+      }
+    }
+  }, [pendingJump, visibleRange]);
+
   useEffect(() => {
     const init = async () => {
       try {
         let buffer: ArrayBuffer;
         const offlineData = await getOfflineBook(book.id);
-        
         if (offlineData) {
-          console.log('Loaded from local storage');
           buffer = offlineData.data;
         } else {
-          console.log('Fetching from Google Drive');
           buffer = await fetchFullFile(book.id, googleToken);
-          saveOfflineBook(book.id, book.name, buffer)
-            .then(() => console.log('Saved to local storage'))
-            .catch(err => console.error('Failed to save locally:', err));
+          saveOfflineBook(book.id, book.name, buffer).catch(console.error);
         }
-
         rawBuffer.current = buffer;
         decodeData(buffer, settings.encoding);
         setIsLoaded(true);
@@ -143,29 +245,28 @@ export const Reader: React.FC<ReaderProps> = ({
     init();
   }, [book.id, googleToken, decodeData]); 
 
-  // 초기 진입 시 위치 복구
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
-    if (initialProgress && initialProgress.charIndex > 0) {
-      setCurrentIdx(initialProgress.charIndex);
-      setReadPercent(initialProgress.progressPercent);
-      jumpToIdx(initialProgress.charIndex);
+    if (initialProgress) {
+      if (initialProgress.charIndex > 0) {
+        setCurrentIdx(initialProgress.charIndex);
+        setReadPercent(initialProgress.progressPercent);
+        jumpToIdx(initialProgress.charIndex);
+      }
+      if (initialProgress.bookmarks) {
+        setBookmarks(initialProgress.bookmarks);
+      }
       hasRestored.current = book.id;
     } else if (isLoaded) {
       hasRestored.current = book.id;
     }
   }, [isLoaded, initialProgress, book.id, jumpToIdx]);
 
-  // 실시간 동기화 감지 로직 (Page.tsx의 리스너 활용)
   useEffect(() => {
     if (!isLoaded || !initialProgress || !initialProgress.lastRead) return;
-
-    // Firestore Timestamp to Millis
     const remoteTime = initialProgress.lastRead.toMillis ? initialProgress.lastRead.toMillis() : new Date(initialProgress.lastRead).getTime();
     
-    // 내가 마지막으로 저장한 시간보다 2초 이상 뒤에(미래에) 저장된 기록이 있다면 타 기기 저장임
     if (remoteTime > lastSaveTime.current + 2000) {
-      // 현재 보고 있는 위치와 차이가 꽤 날 경우에만 알림 (약 300자 이상)
       if (Math.abs(initialProgress.charIndex - currentIdx) > 300) {
         setSyncConflict({
           show: true,
@@ -173,10 +274,12 @@ export const Reader: React.FC<ReaderProps> = ({
           remotePercent: initialProgress.progressPercent
         });
       }
+      if (initialProgress.bookmarks) {
+        setBookmarks(initialProgress.bookmarks);
+      }
     }
   }, [initialProgress, currentIdx, isLoaded]);
 
-  // 스크롤 핸들러
   useEffect(() => {
     const handleScroll = () => {
       if (isJumping.current || !isLoaded || hasRestored.current !== book.id) return;
@@ -225,30 +328,24 @@ export const Reader: React.FC<ReaderProps> = ({
         setReadPercent((absoluteIdx / totalSize) * 100);
         
         const now = Date.now();
-        // 충돌 알림이 떠있으면 저장하지 않음 (덮어쓰기 방지)
         if (now - lastSaveTime.current > 5000 && !syncConflict) {
-          onSaveProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100);
+          onSaveProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100, bookmarks);
           lastSaveTime.current = now;
         }
       }
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE, syncConflict]); 
+  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE, syncConflict, bookmarks]);
 
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientX, clientY } = e;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    
-    // 줄 잘림 방지 로직 적용
     const oneLineHeight = settings.fontSize * settings.lineHeight;
     const linesPerScreen = Math.floor(h / oneLineHeight);
     const scrollStep = linesPerScreen * oneLineHeight; 
-
-    const move = (dir: number) => {
-      window.scrollBy({ top: dir * scrollStep, behavior: 'instant' });
-    };
+    const move = (dir: number) => { window.scrollBy({ top: dir * scrollStep, behavior: 'instant' }); };
 
     if (settings.navMode !== 'scroll') {
       if (settings.navMode === 'page') {
@@ -266,21 +363,32 @@ export const Reader: React.FC<ReaderProps> = ({
         if (clientX > w * 0.7) { move(1); return; }
       }
     }
-    
     setShowControls(!showControls);
   };
 
   const confirmJump = () => {
+    let updatedBookmarks = undefined;
+
+    // 1. 자동 책갈피 생성 (state 업데이트 + 로컬 변수에 저장)
+    if (showConfirm.originIdx !== undefined) {
+      updatedBookmarks = createAutoBookmark(showConfirm.originIdx);
+      setBookmarks(updatedBookmarks);
+    }
+
+    // 2. 점프 수행 (업데이트된 책갈피 전달)
     if (showConfirm.type === 'jump' && showConfirm.target !== undefined) {
-      jumpToIdx(showConfirm.target);
+      jumpToIdx(showConfirm.target, updatedBookmarks);
       if (showConfirm.fromSearch) setShowSearch(false);
     } else if (showConfirm.type === 'input') {
       if (jumpInput.includes('%')) {
         const p = parseFloat(jumpInput.replace('%', ''));
-        if (!isNaN(p)) jumpToIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
+        if (!isNaN(p)) {
+            const idx = Math.floor((p / 100) * (fullContent.current.length || 1));
+            jumpToIdx(idx, updatedBookmarks);
+        }
       } else {
         const idx = parseInt(jumpInput.replace(/,/g, ''));
-        if (!isNaN(idx)) jumpToIdx(idx);
+        if (!isNaN(idx)) jumpToIdx(idx, updatedBookmarks);
       }
     }
     setShowConfirm({ show: false, type: 'jump' });
@@ -296,16 +404,13 @@ export const Reader: React.FC<ReaderProps> = ({
     setJumpInput("");
   };
 
-  // 동기화 알림 처리 함수
   const handleSyncResolve = (action: 'sync' | 'ignore') => {
     if (action === 'sync' && syncConflict) {
-      jumpToIdx(syncConflict.remoteIdx);
-      setCurrentIdx(syncConflict.remoteIdx);
-      setReadPercent(syncConflict.remotePercent);
-      // 동기화 후 내 저장 시간 갱신 (즉시 덮어쓰기 방지)
-      lastSaveTime.current = Date.now();
+      const updatedBookmarks = createAutoBookmark(currentIdx);
+      setBookmarks(updatedBookmarks);
+      
+      jumpToIdx(syncConflict.remoteIdx, updatedBookmarks);
     } else {
-      // 무시할 경우: 현재 내 위치가 최신이 되도록 시간 갱신하여 저장 재개
       lastSaveTime.current = Date.now();
     }
     setSyncConflict(null);
@@ -321,7 +426,6 @@ export const Reader: React.FC<ReaderProps> = ({
 
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-300 ${getFontClass()} select-none`}>
-      {/* 1. 점프 확인 모달 */}
       {showConfirm.show && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
           <div className={`${theme.bg} ${theme.text} w-full max-w-xs rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200`}>
@@ -337,37 +441,19 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       )}
 
-      {/* 2. 동기화 충돌 알림 (Toast) - 위치 수정됨 (모바일: 하단 중앙 / PC: 우측 하단) */}
       {syncConflict && (
-        <div className="fixed z-[100] max-w-sm w-[90%] md:w-full animate-in duration-500 
-          bottom-24 left-1/2 -translate-x-1/2 
-          md:top-auto md:left-auto md:bottom-24 md:right-6 md:translate-x-0 
-          zoom-in-95 md:zoom-in-100 md:slide-in-from-right">
+         <div className="fixed z-[100] max-w-sm w-[90%] md:w-full animate-in duration-500 bottom-24 left-1/2 -translate-x-1/2 md:top-auto md:left-auto md:bottom-24 md:right-6 md:translate-x-0 zoom-in-95 md:zoom-in-100 md:slide-in-from-right">
           <div className="bg-slate-900/90 text-white backdrop-blur-md p-4 rounded-3xl shadow-2xl border border-white/10 flex flex-col gap-3">
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-400">
-                <ArrowUpCircle size={20} />
-              </div>
+              <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-400"><ArrowUpCircle size={20} /></div>
               <div className="flex-1">
                 <h4 className="text-sm font-bold">원격 기록 발견</h4>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  다른 기기에서 <span className="text-indigo-400 font-bold">{syncConflict.remotePercent.toFixed(1)}%</span>까지 읽은 기록이 있습니다. 동기화하시겠습니까?
-                </p>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">다른 기기에서 <span className="text-indigo-400 font-bold">{syncConflict.remotePercent.toFixed(1)}%</span>까지 읽은 기록이 있습니다. 동기화하시겠습니까?</p>
               </div>
             </div>
             <div className="flex gap-2 pl-11">
-              <button 
-                onClick={() => handleSyncResolve('ignore')}
-                className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-white/5 rounded-xl transition-colors"
-              >
-                무시하기
-              </button>
-              <button 
-                onClick={() => handleSyncResolve('sync')}
-                className="flex-1 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/20 transition-colors"
-              >
-                동기화 (이동)
-              </button>
+              <button onClick={() => handleSyncResolve('ignore')} className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-white/5 rounded-xl transition-colors">무시하기</button>
+              <button onClick={() => handleSyncResolve('sync')} className="flex-1 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/20 transition-colors">동기화 (이동)</button>
             </div>
           </div>
         </div>
@@ -378,12 +464,42 @@ export const Reader: React.FC<ReaderProps> = ({
           content={fullContent.current} 
           theme={theme} 
           onClose={() => setShowSearch(false)} 
-          onSelect={(idx) => setShowConfirm({ show: true, type: 'jump', target: idx, fromSearch: true })}
+          onSelect={(idx) => setShowConfirm({ show: true, type: 'jump', target: idx, fromSearch: true, originIdx: currentIdx })}
+        />
+      )}
+
+      {showBookmarks && (
+        <BookmarkModal 
+          bookmarks={bookmarks}
+          theme={theme}
+          onClose={() => setShowBookmarks(false)}
+          onAdd={addManualBookmark}
+          onDelete={deleteBookmark}
+          onJump={(idx) => {
+            const updatedBookmarks = createAutoBookmark(currentIdx);
+            setBookmarks(updatedBookmarks);
+            
+            jumpToIdx(idx, updatedBookmarks);
+            setShowBookmarks(false);
+          }}
+          // [Added] 전체 길이 전달 (0으로 나눔 방지 위해 || 1)
+          totalLength={fullContent.current.length || 1}
+        />
+      )}
+
+      {showThemeModal && (
+        <ThemeModal
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          onClose={() => setShowThemeModal(false)}
+          theme={theme}
+          // [Fix] onSelectTheme prop 추가
+          onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })}
         />
       )}
 
       <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
-        <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
+        <button onClick={handleUIBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
@@ -403,7 +519,7 @@ export const Reader: React.FC<ReaderProps> = ({
             {currentIdx.toLocaleString()} / {(fullContent.current.length || 0).toLocaleString()} 
             <span className="ml-2 text-indigo-400">{readPercent.toFixed(1)}%</span>
           </span>
-          <button onClick={() => setShowConfirm({ show: true, type: 'input', fromSearch: false })} className="text-white/50 hover:text-white"><Hash size={14} /></button>
+          <button onClick={() => setShowConfirm({ show: true, type: 'input', fromSearch: false, originIdx: currentIdx })} className="text-white/50 hover:text-white"><Hash size={14} /></button>
         </div>
 
         <div className="max-w-lg mx-auto px-6 pt-6 pb-2 flex items-center gap-4">
@@ -415,7 +531,7 @@ export const Reader: React.FC<ReaderProps> = ({
               setReadPercent(p);
               setCurrentIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
             }}
-            onMouseUp={() => setShowConfirm({ show: true, type: 'jump', target: currentIdx, fromSearch: false })}
+            onMouseUp={() => setShowConfirm({ show: true, type: 'jump', target: currentIdx, fromSearch: false, originIdx: preSlideProgress.current.index })}
             className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
           />
           <button onClick={() => setShowSearch(true)} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">
@@ -427,8 +543,14 @@ export const Reader: React.FC<ReaderProps> = ({
           <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
             <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
           </button>
-          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold uppercase tracking-tighter">Mode</span>
+          
+          <button onClick={() => setShowThemeModal(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+             <Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span>
+          </button>
+
+          <button onClick={() => setShowBookmarks(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity text-indigo-500">
+            <BookmarkIcon size={22} />
+            <span className="text-[9px] font-bold uppercase tracking-tighter">Mark</span>
           </button>
         </div>
       </div>
