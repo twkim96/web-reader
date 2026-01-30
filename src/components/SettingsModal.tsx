@@ -1,7 +1,6 @@
 // src/components/SettingsModal.tsx
 import React from 'react';
 import { ViewerSettings } from '../types';
-import { THEMES } from '../lib/constants';
 
 interface SettingsModalProps {
   settings: ViewerSettings;
@@ -13,12 +12,9 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
   settings, onUpdateSettings, onClose, theme 
 }) => {
-  // 공통 라벨 스타일
   const labelStyle = "text-sm font-black uppercase tracking-widest block text-center mb-3";
-  // 조절 버튼 공통 스타일
   const controlBtnStyle = `flex-1 py-1.5 ${theme.secondary} rounded-lg font-bold transition-transform active:scale-95 text-sm shadow-sm`;
 
-  // 네비게이션 모드 옵션 정의
   const navOptions = [
     { value: 'scroll', label: 'Scroll' },
     { value: 'page', label: 'T/B Tap' },
@@ -46,7 +42,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
-        {/* 2. 인코딩 및 폰트 */}
+        {/* 2. 인코딩 */}
         <div>
           <label className={labelStyle}>Encoding</label>
           <div className="flex flex-wrap gap-2">
@@ -64,43 +60,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* 3. 글자 크기 및 줄 간격 */}
         <div className="flex gap-6">
-          {/* 글자 크기 */}
           <div className="flex-1">
             <label className={labelStyle}>Size</label>
             <div className="flex items-center gap-2">
-              <button 
-                onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} 
-                className={controlBtnStyle}
-              >
-                -
-              </button>
+              <button onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} className={controlBtnStyle}>-</button>
               <span className="w-8 text-center font-black text-xl">{settings.fontSize}</span>
-              <button 
-                onClick={() => onUpdateSettings({ fontSize: Math.min(40, settings.fontSize + 1) })} 
-                className={controlBtnStyle}
-              >
-                +
-              </button>
+              <button onClick={() => onUpdateSettings({ fontSize: Math.min(40, settings.fontSize + 1) })} className={controlBtnStyle}>+</button>
             </div>
           </div>
 
-          {/* 줄 간격 */}
           <div className="flex-1">
             <label className={labelStyle}>Line</label>
             <div className="flex items-center gap-2">
-              <button 
-                onClick={() => onUpdateSettings({ lineHeight: Math.max(1.0, parseFloat((settings.lineHeight - 0.1).toFixed(1))) })} 
-                className={controlBtnStyle}
-              >
-                -
-              </button>
+              <button onClick={() => onUpdateSettings({ lineHeight: Math.max(1.0, parseFloat((settings.lineHeight - 0.1).toFixed(1))) })} className={controlBtnStyle}>-</button>
               <span className="w-10 text-center font-black text-xl">{settings.lineHeight.toFixed(1)}</span>
-              <button 
-                onClick={() => onUpdateSettings({ lineHeight: Math.min(3.0, parseFloat((settings.lineHeight + 0.1).toFixed(1))) })} 
-                className={controlBtnStyle}
-              >
-                +
-              </button>
+              <button onClick={() => onUpdateSettings({ lineHeight: Math.min(3.0, parseFloat((settings.lineHeight + 0.1).toFixed(1))) })} className={controlBtnStyle}>+</button>
             </div>
           </div>
         </div>
@@ -121,19 +95,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
         
-        {/* 5. 테마 설정 */}
-        <div>
-          <label className={labelStyle}>Theme</label>
-          <div className="grid grid-cols-4 gap-3">
-            {(Object.keys(THEMES) as Array<keyof typeof THEMES>).map(t => (
-              <button 
-                key={t} 
-                onClick={() => onUpdateSettings({ theme: t })} 
-                className={`h-12 rounded-2xl border-2 transition-all ${(THEMES as any)[t].bg} ${settings.theme === t ? 'border-indigo-600 scale-105 shadow-inner' : 'border-transparent opacity-60'}`} 
-              />
-            ))}
-          </div>
-        </div>
+        {/* 테마 섹션 삭제됨 */}
 
         <button onClick={onClose} className="w-full py-5 bg-slate-900 text-white font-black rounded-[1.5rem] tracking-[0.2em] uppercase text-sm shadow-xl active:scale-95 transition-transform">Done</button>
       </div>

@@ -6,7 +6,9 @@ import { fetchFullFile } from '../lib/googleDrive';
 import { saveOfflineBook, getOfflineBook } from '../lib/localDB';
 import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
-import { ChevronLeft, Settings, Moon, Sun, Hash, Search } from 'lucide-react';
+// 1번 파일이 있어야 이 import가 작동합니다.
+import { ThemeModal } from './ThemeModal'; 
+import { ChevronLeft, Settings, Palette, Hash, Search, ArrowUpCircle } from 'lucide-react';
 
 interface ReaderProps {
   book: Book;
@@ -23,11 +25,15 @@ export const Reader: React.FC<ReaderProps> = ({
 }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  
+  // 모달 상태 관리
   const [showSettings, setShowSettings] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   
   const [showConfirm, setShowConfirm] = useState<{show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean}>({ show: false, type: 'jump' });
   const [jumpInput, setJumpInput] = useState("");
+  const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
 
   const [readPercent, setReadPercent] = useState(0);
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -40,7 +46,7 @@ export const Reader: React.FC<ReaderProps> = ({
   const blockRefs = useRef<Record<number, HTMLDivElement | null>>({});
   
   const hasRestored = useRef<string | null>(null);
-  const lastSaveTime = useRef<number>(0);
+  const lastSaveTime = useRef<number>(Date.now());
   const isJumping = useRef(false);
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   
@@ -149,6 +155,20 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [isLoaded, initialProgress, book.id, jumpToIdx]);
 
   useEffect(() => {
+    if (!isLoaded || !initialProgress || !initialProgress.lastRead) return;
+    const remoteTime = initialProgress.lastRead.toMillis ? initialProgress.lastRead.toMillis() : new Date(initialProgress.lastRead).getTime();
+    if (remoteTime > lastSaveTime.current + 2000) {
+      if (Math.abs(initialProgress.charIndex - currentIdx) > 300) {
+        setSyncConflict({
+          show: true,
+          remoteIdx: initialProgress.charIndex,
+          remotePercent: initialProgress.progressPercent
+        });
+      }
+    }
+  }, [initialProgress, currentIdx, isLoaded]);
+
+  useEffect(() => {
     const handleScroll = () => {
       if (isJumping.current || !isLoaded || hasRestored.current !== book.id) return;
       const scrolled = window.scrollY;
@@ -191,10 +211,12 @@ export const Reader: React.FC<ReaderProps> = ({
         const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
         const absoluteIdx = Math.floor((visibleRange.start + blockProgress) * BLOCK_SIZE);
         const totalSize = fullContent.current.length || 1;
+        
         setCurrentIdx(Math.min(absoluteIdx, totalSize));
         setReadPercent((absoluteIdx / totalSize) * 100);
+        
         const now = Date.now();
-        if (now - lastSaveTime.current > 5000) {
+        if (now - lastSaveTime.current > 5000 && !syncConflict) {
           onSaveProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100);
           lastSaveTime.current = now;
         }
@@ -202,26 +224,17 @@ export const Reader: React.FC<ReaderProps> = ({
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE]);
+  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE, syncConflict]);
 
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientX, clientY } = e;
     const w = window.innerWidth;
     const h = window.innerHeight;
     
-    // [핵심 변경 사항] 화면 높이를 기준으로 하되, 글자 줄 단위(Line Height)에 맞춰 스냅(Snap)을 줍니다.
-    // 1. 현재 설정된 한 줄의 정확한 높이 계산
     const oneLineHeight = settings.fontSize * settings.lineHeight;
-    
-    // 2. 현재 화면 높이(h)에 "온전히" 들어갈 수 있는 줄 수 계산 (소수점 버림)
-    // 예: 화면 800px, 줄높이 30px -> 26.6줄 -> 26줄
     const linesPerScreen = Math.floor(h / oneLineHeight);
-
-    // 3. 실제 이동할 거리는 (온전한 줄 수 * 줄 높이)
-    // 이렇게 하면 맨 아래 0.6줄만큼 잘려있던 글자는 이동 범위에서 제외되어, 다음 화면의 맨 윗줄에 온전하게 나타납니다.
     const scrollStep = linesPerScreen * oneLineHeight; 
 
-    // 공통 이동 함수
     const move = (dir: number) => {
       window.scrollBy({ top: dir * scrollStep, behavior: 'instant' });
     };
@@ -272,6 +285,18 @@ export const Reader: React.FC<ReaderProps> = ({
     setJumpInput("");
   };
 
+  const handleSyncResolve = (action: 'sync' | 'ignore') => {
+    if (action === 'sync' && syncConflict) {
+      jumpToIdx(syncConflict.remoteIdx);
+      setCurrentIdx(syncConflict.remoteIdx);
+      setReadPercent(syncConflict.remotePercent);
+      lastSaveTime.current = Date.now();
+    } else {
+      lastSaveTime.current = Date.now();
+    }
+    setSyncConflict(null);
+  };
+
   const getFontClass = () => {
     if (settings.fontFamily === 'ridi') return 'font-["RidiBatang"]';
     if (settings.fontFamily === 'serif') return 'font-serif';
@@ -282,6 +307,7 @@ export const Reader: React.FC<ReaderProps> = ({
 
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-300 ${getFontClass()} select-none`}>
+      {/* 1. 점프 확인 모달 */}
       {showConfirm.show && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
           <div className={`${theme.bg} ${theme.text} w-full max-w-xs rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200`}>
@@ -297,6 +323,30 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       )}
 
+      {/* 2. 동기화 충돌 알림 (Toast) */}
+      {syncConflict && (
+        <div className="fixed bottom-24 right-6 z-[100] max-w-sm w-full animate-in slide-in-from-right duration-500">
+          <div className="bg-slate-900/90 text-white backdrop-blur-md p-4 rounded-3xl shadow-2xl border border-white/10 flex flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-400">
+                <ArrowUpCircle size={20} />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-bold">원격 기록 발견</h4>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  다른 기기에서 <span className="text-indigo-400 font-bold">{syncConflict.remotePercent.toFixed(1)}%</span>까지 읽은 기록이 있습니다. 동기화하시겠습니까?
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 pl-11">
+              <button onClick={() => handleSyncResolve('ignore')} className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-white/5 rounded-xl transition-colors">무시하기</button>
+              <button onClick={() => handleSyncResolve('sync')} className="flex-1 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/20 transition-colors">동기화 (이동)</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. 검색 모달 */}
       {showSearch && (
         <SearchModal 
           content={fullContent.current} 
@@ -306,12 +356,14 @@ export const Reader: React.FC<ReaderProps> = ({
         />
       )}
 
+      {/* 상단 네비게이션 */}
       <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
         <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
 
+      {/* 본문 영역 */}
       <main onClick={handleInteraction} className="min-h-screen pt-12 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight }}>
@@ -321,6 +373,7 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       </main>
 
+      {/* 하단 컨트롤 패널 */}
       <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
         <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <span className="text-[10px] font-black text-white tracking-widest font-sans">
@@ -347,17 +400,21 @@ export const Reader: React.FC<ReaderProps> = ({
           </button>
         </div>
 
+        {/* 하단 버튼 영역 */}
         <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
           <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
             <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
           </button>
-          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold uppercase tracking-tighter">Mode</span>
+          
+          <button onClick={() => setShowThemeModal(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+            <Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span>
           </button>
         </div>
       </div>
 
+      {/* 4. 모달 렌더링 */}
       {showSettings && <SettingsModal settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setShowSettings(false)} theme={theme} />}
+      {showThemeModal && <ThemeModal currentTheme={settings.theme} onSelectTheme={(t) => onUpdateSettings({ theme: t as any })} onClose={() => setShowThemeModal(false)} theme={theme} />}
     </div>
   );
 };
