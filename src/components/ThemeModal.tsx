@@ -7,6 +7,7 @@ interface ThemeModalProps {
   onSelectTheme: (theme: string) => void;
   onClose: () => void;
   theme: any; // 현재 적용된 테마 스타일 (모달 배경용)
+  onSelectTheme: (theme: string) => void;
 }
 
 // ⚠️ 이 부분(export const ThemeModal)이 정확히 있어야 합니다.
