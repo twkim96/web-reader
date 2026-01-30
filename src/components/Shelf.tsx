@@ -1,5 +1,5 @@
 // src/components/Shelf.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Book, UserProgress } from '../types';
 import { getOfflineBookIds } from '../lib/localDB';
 import { ManageModal } from './ManageModal';
@@ -40,6 +40,38 @@ export const Shelf: React.FC<ShelfProps> = ({
   // 검색 관련 상태 추가
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
+
+  // 상태 감지용 Ref
+  const stateRef = useRef({ showManage, showSearch });
+  useEffect(() => {
+    stateRef.current = { showManage, showSearch };
+  }, [showManage, showSearch]);
+
+  // History 처리: 모달이 열려있으면 뒤로가기 시 모달만 닫기
+  useEffect(() => {
+    // Shelf 마운트 시 History state 추가 (뒤로가기 제어권 확보)
+    window.history.pushState({ panel: 'shelf' }, '', '');
+
+    const handlePopState = (event: PopStateEvent) => {
+      const { showManage, showSearch } = stateRef.current;
+      
+      if (showManage || showSearch) {
+        // 모달 닫기
+        if (showManage) setShowManage(false);
+        if (showSearch) setShowSearch(false);
+        
+        // 다시 state를 push하여 Shelf 화면 유지 (앱 종료 방지)
+        window.history.pushState({ panel: 'shelf' }, '', '');
+      } else {
+        // 모달이 없으면 브라우저 기본 동작 허용 (뒤로 이동 or 앱 종료 등)
+        // 만약 여기서 강제로 앱 종료를 막고 싶다면 pushState를 또 하면 됩니다.
+        // 현재는 모달 닫기 기능만 수행하도록 합니다.
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const checkOfflineStatus = async () => {
     const ids = await getOfflineBookIds();

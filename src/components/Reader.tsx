@@ -73,17 +73,63 @@ export const Reader: React.FC<ReaderProps> = ({
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
-  // --- Effects ---
+  // --- History & Back Button Handling (Modified) ---
 
-  // History Handling
+  // 이벤트 리스너에서 최신 상태를 참조하기 위한 Ref
+  const stateRef = useRef({
+    showSettings,
+    showSearch,
+    showBookmarks,
+    showThemeModal,
+    showConfirm,
+    syncConflict
+  });
+
   useEffect(() => {
+    stateRef.current = { showSettings, showSearch, showBookmarks, showThemeModal, showConfirm, syncConflict };
+  }, [showSettings, showSearch, showBookmarks, showThemeModal, showConfirm, syncConflict]);
+
+  useEffect(() => {
+    // 진입 시 History Entry 추가
     window.history.pushState({ panel: 'reader' }, '', '');
-    const handlePopState = () => { onBack(); };
+
+    const handlePopState = (event: PopStateEvent) => {
+      const { showSettings, showSearch, showBookmarks, showThemeModal, showConfirm, syncConflict } = stateRef.current;
+      
+      const isAnyModalOpen = showSettings || showSearch || showBookmarks || showThemeModal || showConfirm.show || syncConflict;
+
+      if (isAnyModalOpen) {
+        // 모달이 열려있다면 뒤로가기를 '취소'하고 모달만 닫음
+        // 다시 현재 상태를 push하여 뒤로가기 스택을 복구
+        window.history.pushState({ panel: 'reader' }, '', '');
+
+        if (showSettings) setShowSettings(false);
+        if (showSearch) setShowSearch(false);
+        if (showBookmarks) setShowBookmarks(false);
+        if (showThemeModal) setShowThemeModal(false);
+        if (syncConflict) setSyncConflict(null);
+        
+        // Confirm 모달 닫기 시 취소 로직(슬라이더 되돌리기 등) 적용
+        if (showConfirm.show) {
+          if (!showConfirm.fromSearch && showConfirm.type === 'jump') {
+            setReadPercent(preSlideProgress.current.percent);
+            setCurrentIdx(preSlideProgress.current.index);
+          }
+          setShowConfirm(prev => ({ ...prev, show: false }));
+          setJumpInput("");
+        }
+      } else {
+        // 모달이 없으면 정상적으로 뒤로가기 수행 (Shelf로 이동)
+        onBack();
+      }
+    };
+
     window.addEventListener('popstate', handlePopState);
     return () => { window.removeEventListener('popstate', handlePopState); };
-  }, [onBack]);
+  }, [onBack, setSyncConflict, setCurrentIdx, setReadPercent]); // 의존성 추가
 
-  // Initial Restore & Jump
+  // --- Initial Restore & Jump ---
+
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
     if (initialProgress) {
