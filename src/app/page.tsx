@@ -177,7 +177,7 @@ export default function Page() {
           <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl shadow-indigo-500/20">
             <HardDrive size={64} />
           </div>
-          <h1 className="text-4xl font-black italic uppercase tracking-tighter">Private Reader</h1>
+          <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
           <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95">
             Sign in with Google
           </button>
