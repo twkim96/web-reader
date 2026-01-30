@@ -337,11 +337,11 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       )}
 
-      {/* 2. 동기화 충돌 알림 (Toast) - 반응형 위치 수정됨 */}
+      {/* 2. 동기화 충돌 알림 (Toast) - 위치 수정됨 (모바일: 하단 중앙 / PC: 우측 하단) */}
       {syncConflict && (
         <div className="fixed z-[100] max-w-sm w-[90%] md:w-full animate-in duration-500 
-          top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
-          md:top-auto md:left-auto md:bottom-24 md:right-6 md:translate-x-0 md:translate-y-0 
+          bottom-24 left-1/2 -translate-x-1/2 
+          md:top-auto md:left-auto md:bottom-24 md:right-6 md:translate-x-0 
           zoom-in-95 md:zoom-in-100 md:slide-in-from-right">
           <div className="bg-slate-900/90 text-white backdrop-blur-md p-4 rounded-3xl shadow-2xl border border-white/10 flex flex-col gap-3">
             <div className="flex items-start gap-3">
