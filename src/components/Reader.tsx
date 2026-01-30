@@ -252,18 +252,18 @@ export const Reader: React.FC<ReaderProps> = ({
 
     if (settings.navMode !== 'scroll') {
       if (settings.navMode === 'page') {
-        if (clientY > h * 0.65) { move(1); return; }
-        if (clientY < h * 0.35) { move(-1); return; }
+        if (clientY > h * 0.7) { move(1); return; }
+        if (clientY < h * 0.3) { move(-1); return; }
       }
       else if (settings.navMode === 'left-right') {
-        if (clientX < w * 0.35) { move(-1); return; }
-        if (clientX > w * 0.65) { move(1); return; }
+        if (clientX < w * 0.3) { move(-1); return; }
+        if (clientX > w * 0.7) { move(1); return; }
       }
       else if (settings.navMode === 'all-dir') {
-        if (clientY < h * 0.25) { move(-1); return; }
-        if (clientY > h * 0.75) { move(1); return; }
-        if (clientX < w * 0.4) { move(-1); return; }
-        if (clientX > w * 0.6) { move(1); return; }
+        if (clientY < h * 0.3) { move(-1); return; }
+        if (clientY > h * 0.7) { move(1); return; }
+        if (clientX < w * 0.3) { move(-1); return; }
+        if (clientX > w * 0.7) { move(1); return; }
       }
     }
     
