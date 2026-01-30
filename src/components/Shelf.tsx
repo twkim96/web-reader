@@ -3,16 +3,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Book, UserProgress } from '../types';
 import { getOfflineBookIds } from '../lib/localDB';
 import { ManageModal } from './ManageModal';
-import { ShelfSearchModal } from './ShelfSearchModal'; // 신규 모달 임포트
+import { ShelfSearchModal } from './ShelfSearchModal';
 import { 
   Library, 
-  Search, // 아이콘 변경 (RefreshCcw -> Search)
+  Search, 
   BookOpen, 
   FolderPlus,
   LogOut,
   HardDrive,
   CheckCircle2,
-  XCircle // 검색 결과 없음 아이콘용
+  XCircle,
+  WifiOff // [New] 아이콘 추가
 } from 'lucide-react';
 
 interface ShelfProps {
@@ -23,25 +24,27 @@ interface ShelfProps {
   onLogout: () => void;
   isRefreshing: boolean;
   userEmail: string;
+  isOfflineMode: boolean; // [New]
+  onToggleCloud: () => void; // [New] 클라우드 연결 토글
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
   books, 
   progress, 
   onOpen, 
-  onRefresh, // 인터페이스 유지를 위해 남겨둠 (실제 버튼은 제거됨)
+  onRefresh,
   onLogout,
-  isRefreshing, // 인터페이스 유지를 위해 남겨둠
-  userEmail 
+  isRefreshing, 
+  userEmail,
+  isOfflineMode,
+  onToggleCloud
 }) => {
   const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
   const [showManage, setShowManage] = useState(false);
-  
-  // 검색 관련 상태 추가
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
 
-  // 상태 감지용 Ref
+  // 상태 감지용 Ref (뒤로가기 제어용)
   const stateRef = useRef({ showManage, showSearch });
   useEffect(() => {
     stateRef.current = { showManage, showSearch };
@@ -49,23 +52,15 @@ export const Shelf: React.FC<ShelfProps> = ({
 
   // History 처리: 모달이 열려있으면 뒤로가기 시 모달만 닫기
   useEffect(() => {
-    // Shelf 마운트 시 History state 추가 (뒤로가기 제어권 확보)
     window.history.pushState({ panel: 'shelf' }, '', '');
 
     const handlePopState = (event: PopStateEvent) => {
       const { showManage, showSearch } = stateRef.current;
       
       if (showManage || showSearch) {
-        // 모달 닫기
         if (showManage) setShowManage(false);
         if (showSearch) setShowSearch(false);
-        
-        // 다시 state를 push하여 Shelf 화면 유지 (앱 종료 방지)
         window.history.pushState({ panel: 'shelf' }, '', '');
-      } else {
-        // 모달이 없으면 브라우저 기본 동작 허용 (뒤로 이동 or 앱 종료 등)
-        // 만약 여기서 강제로 앱 종료를 막고 싶다면 pushState를 또 하면 됩니다.
-        // 현재는 모달 닫기 기능만 수행하도록 합니다.
       }
     };
 
@@ -91,7 +86,6 @@ export const Shelf: React.FC<ShelfProps> = ({
     });
   };
 
-  // 검색어 필터링 로직
   const filteredBooks = books.filter(book => 
     book.name.toLowerCase().includes(searchKeyword.toLowerCase())
   );
@@ -102,11 +96,32 @@ export const Shelf: React.FC<ShelfProps> = ({
       <header className="sticky top-0 z-40 bg-[#0f172a]/80 backdrop-blur-md border-b border-white/5 px-6 py-6">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-500/20">
-              <Library className="text-white" size={24} />
-            </div>
+            {/* 연결/해제 토글 버튼 */}
+            <button 
+              onClick={onToggleCloud}
+              className={`p-3 rounded-2xl shadow-lg transition-all active:scale-90 group relative ${
+                isOfflineMode 
+                  ? 'bg-slate-700 shadow-none hover:bg-slate-600' 
+                  : 'bg-indigo-600 shadow-indigo-500/20 hover:bg-indigo-500'
+              }`}
+              title={isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
+            >
+              {isOfflineMode ? (
+                <WifiOff className="text-white group-hover:text-indigo-300 transition-colors" size={24} />
+              ) : (
+                <Library className="text-white" size={24} />
+              )}
+              
+              {/* Tooltip */}
+              <span className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-[10px] text-white rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none transition-opacity z-50">
+                {isOfflineMode ? "Go Online" : "Go Offline"}
+              </span>
+            </button>
+
             <div>
-              <h1 className="text-xl font-black text-white tracking-tight uppercase italic">My Library</h1>
+              <h1 className="text-xl font-black text-white tracking-tight uppercase italic">
+                {isOfflineMode ? 'Local Library' : 'Cloud Library'}
+              </h1>
               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{userEmail}</p>
             </div>
           </div>
@@ -121,7 +136,7 @@ export const Shelf: React.FC<ShelfProps> = ({
               <HardDrive size={20} />
             </button>
 
-            {/* [변경] 검색 버튼 (기존 새로고침 버튼 대체) */}
+            {/* 검색 버튼 */}
             <button 
               onClick={() => setShowSearch(true)}
               className={`p-4 rounded-2xl border transition-all active:scale-90 ${
@@ -146,7 +161,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         </div>
       </header>
 
-      {/* 검색 필터 상태 표시 (검색어가 있을 때만) */}
+      {/* 검색 필터 상태 표시 */}
       {searchKeyword && (
         <div className="max-w-7xl mx-auto px-6 pt-4 pb-0">
           <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -171,7 +186,8 @@ export const Shelf: React.FC<ShelfProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
             {filteredBooks.map((book) => {
               const bookProgress = progress[book.id];
-              const isDownloaded = offlineIds.has(book.id);
+              // 로컬 모드일 땐 항상 다운로드된 것으로 간주(목록 자체가 로컬DB이므로)
+              const isDownloaded = isOfflineMode || offlineIds.has(book.id);
 
               return (
                 <div 
@@ -243,22 +259,34 @@ export const Shelf: React.FC<ShelfProps> = ({
               </>
             ) : (
               <>
-                <div className="p-8 bg-indigo-600/20 rounded-[2rem] text-indigo-400 shadow-inner">
-                  <FolderPlus size={64} />
+                <div className={`p-8 rounded-[2rem] shadow-inner ${isOfflineMode ? 'bg-slate-700/50 text-slate-400' : 'bg-indigo-600/20 text-indigo-400'}`}>
+                  {isOfflineMode ? <WifiOff size={64} /> : <FolderPlus size={64} />}
                 </div>
+                
                 <div className="space-y-4 max-w-sm">
-                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">No Books Found</h3>
-                  <p className="text-slate-400 text-sm leading-relaxed font-medium">
-                    구글 드라이브에 <span className="text-indigo-400 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-indigo-400 font-black">.txt</span> 파일을 업로드해 주세요.
-                  </p>
+                  {isOfflineMode ? (
+                    <>
+                      <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Local Library Empty</h3>
+                      <p className="text-slate-400 text-sm leading-relaxed font-medium">
+                        저장된 도서가 없습니다.<br/>
+                        <span className="text-indigo-400 font-black">Cloud Mode</span>로 접속하여 도서를 다운로드해주세요.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">No Books Found</h3>
+                      <p className="text-slate-400 text-sm leading-relaxed font-medium">
+                        구글 드라이브에 <span className="text-indigo-400 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-indigo-400 font-black">.txt</span> 파일을 업로드해 주세요.
+                      </p>
+                      <button 
+                        onClick={onRefresh}
+                        className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95"
+                      >
+                        Refresh Library
+                      </button>
+                    </>
+                  )}
                 </div>
-                {/* 데이터가 아예 없을 때는 여전히 Refresh 버튼을 보여주는 것이 유용할 수 있으나, 요청에 따라 제거하거나 상단 로직에 의존합니다. 여기서는 새로고침을 유지합니다. */}
-                <button 
-                  onClick={onRefresh}
-                  className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95"
-                >
-                  Refresh Library
-                </button>
               </>
             )}
           </div>

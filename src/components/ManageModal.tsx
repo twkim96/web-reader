@@ -1,12 +1,13 @@
 // src/components/ManageModal.tsx
 import React, { useEffect, useState } from 'react';
-import { getAllOfflineBooks, removeOfflineBook } from '../lib/localDB';
+// [Fixed] 올바른 함수명으로 import 수정
+import { getAllOfflineBooks, removeBookFromLocal } from '../lib/localDB';
 import { Trash2, HardDrive, X, FileText } from 'lucide-react';
 
 interface ManageModalProps {
   onClose: () => void;
-  onUpdate: () => void; // 삭제 후 Shelf 업데이트용
-  theme: any; // Shelf와 테마 일관성 유지
+  onUpdate: () => void;
+  theme: any;
 }
 
 export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, theme }) => {
@@ -14,10 +15,11 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
 
   const loadBooks = async () => {
     const data = await getAllOfflineBooks();
+    // [Modified] 이제 data에 size 정보가 포함되어 있음 (내용을 로드하지 않아 빠름)
     setBooks(data.map(b => ({ 
       id: b.id, 
       name: b.name, 
-      size: b.data.byteLength 
+      size: b.size || 0 
     })));
   };
 
@@ -25,13 +27,15 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
 
   const handleDelete = async (id: string) => {
     if (confirm("이 도서를 로컬 저장소에서 삭제하시겠습니까?")) {
-      await removeOfflineBook(id);
+      // [Fixed] 변경된 함수 사용
+      await removeBookFromLocal(id);
       await loadBooks();
-      onUpdate(); // Shelf의 아이콘 상태 업데이트
+      onUpdate();
     }
   };
 
   const formatSize = (bytes: number) => {
+    if (!bytes) return 'Unknown Size';
     return (bytes / 1024 / 1024).toFixed(2) + ' MB';
   };
 

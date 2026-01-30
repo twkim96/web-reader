@@ -1,82 +1,61 @@
 // src/lib/localDB.ts
+import { openDB } from 'idb';
+import { Book } from '../types';
 
-const DB_NAME = 'WebReaderDB';
-const STORE_NAME = 'offline_books';
-const DB_VERSION = 1;
+const DB_NAME = 'web-reader-db';
+const STORE_NAME = 'books';         // 책 내용(ArrayBuffer)
+const META_STORE = 'metadata';      // 책 정보(Book + size)
 
-interface OfflineBook {
-  id: string;
-  name: string;
-  data: ArrayBuffer; // 원본 바이너리 데이터 저장
-  savedAt: number;
-}
-
-const openDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    
-    request.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
+export const initDB = async () => {
+  return openDB(DB_NAME, 1, {
+    upgrade(db) {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        db.createObjectStore(STORE_NAME);
       }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: 'id' });
+      }
+    },
   });
 };
 
-export const saveOfflineBook = async (id: string, name: string, data: ArrayBuffer) => {
-  const db = await openDB();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.put({ id, name, data, savedAt: Date.now() });
-    
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
+// [Modified] 파일 크기(size)를 메타데이터에 함께 저장
+export const saveBookToLocal = async (book: Book, content: ArrayBuffer) => {
+  const db = await initDB();
+  const tx = db.transaction([STORE_NAME, META_STORE], 'readwrite');
+  
+  // Book 타입에 size 속성이 없더라도 DB에는 저장 가능 (JS 객체 특성 활용)
+  const metaData = { ...book, size: content.byteLength };
+
+  await tx.objectStore(STORE_NAME).put(content, book.id);
+  await tx.objectStore(META_STORE).put(metaData); 
+  
+  await tx.done;
 };
 
-export const getOfflineBook = async (id: string): Promise<OfflineBook | undefined> => {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.get(id);
-    
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+export const loadBookFromLocal = async (id: string) => {
+  const db = await initDB();
+  return db.get(STORE_NAME, id);
 };
 
-export const removeOfflineBook = async (id: string) => {
-  const db = await openDB();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.delete(id);
-    
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
+// [Modified] 함수명 변경됨 (removeOfflineBook -> removeBookFromLocal)
+export const removeBookFromLocal = async (id: string) => {
+  const db = await initDB();
+  const tx = db.transaction([STORE_NAME, META_STORE], 'readwrite');
+  
+  await tx.objectStore(STORE_NAME).delete(id);
+  await tx.objectStore(META_STORE).delete(id);
+  
+  await tx.done;
 };
 
-export const getAllOfflineBooks = async (): Promise<OfflineBook[]> => {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.getAll();
-    
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+export const getOfflineBookIds = async () => {
+  const db = await initDB();
+  const keys = await db.getAllKeys(STORE_NAME);
+  return new Set(keys.map(String));
 };
 
-// ID 목록만 빠르게 가져오기 (Shelf 아이콘 표시용)
-export const getOfflineBookIds = async (): Promise<Set<string>> => {
-  const books = await getAllOfflineBooks();
-  return new Set(books.map(b => b.id));
+export const getAllOfflineBooks = async (): Promise<(Book & { size?: number })[]> => {
+  const db = await initDB();
+  return db.getAll(META_STORE);
 };
