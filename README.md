@@ -1,87 +1,96 @@
-1. 프로젝트 개요
-Private Cloud Reader는 Google Drive를 스토리지로 활용하는 개인용 웹 소설 뷰어입니다.
-Next.js 15 기반의 PWA(Progressive Web App)로 개발되었으며, 대용량 텍스트 파일의 최적화된 렌더링, 오프라인 저장소 지원, 기기 간 실시간 독서 기록 동기화 기능을 제공합니다.
+# Private Cloud Reader
 
-2. 기술 스택 (Tech Stack)
-Framework: Next.js 15 (App Router), TypeScript
+**Private Cloud Reader**는 Google Drive를 개인 서재(Storage)로 활용하는 웹 소설 뷰어입니다.
+Next.js 16 기반의 PWA(Progressive Web App)로 개발되었으며, **오프라인 우선(Offline-First)** 전략과 **가상화(Virtualization)** 기술을 통해 대용량 텍스트 파일을 끊김 없이 렌더링합니다.
 
-Auth & Database: Firebase Authentication (Google Auth), Firestore (Real-time DB)
+---
 
-Storage: Google Drive API (Read-only scope)
+## 1. 기술 스택 (Tech Stack)
 
-Local Cache: IndexedDB (브라우저 내 대용량 파일 저장)
+* **Framework**: Next.js 16.1 (App Router), React 19
+* **Language**: TypeScript
+* **Auth & DB**: Firebase Authentication (Google Auth), Firestore (Real-time Sync)
+* **Storage**: Google Drive API (Read-only scope)
+* **Local Cache**: IndexedDB (브라우저 내 대용량 파일 영구 저장)
+* **Styling**: Tailwind CSS, Lucide React (Icons)
+* **PWA**: Service Worker, Manifest (설치형 앱 동작 지원)
 
-Styling: Tailwind CSS, Lucide React (Icons)
+---
 
-Font: 리디바탕 (Ridi Batang), Noto Sans/Serif
+## 2. 프로젝트 구조 (Project Structure)
 
-PWA: Service Worker (sw.js), Manifest 지원 (설치형 앱 동작)
+**핵심 로직은 유지보수성을 위해 Custom Hooks로 분리되었습니다 (`src/hooks`).**
 
-3. 프로젝트 구조 (Project Structure)
-src/app/page.tsx: 메인 진입점. 인증, 데이터 구독, 라우팅(Shelf ↔ Reader) 및 브라우저 히스토리(뒤로가기) 관리.
+```text
+src/
+├── app/
+│   └── page.tsx            # 메인 진입점 (인증, 라우팅, 전역 상태 관리)
+├── components/
+│   ├── Shelf.tsx           # 도서 목록 (파일 관리, 오프라인 캐시 확인)
+│   ├── Reader.tsx          # 뷰어 UI 컴포넌트 (Hooks 통합 및 이벤트 바인딩)
+│   └── BookmarkModal.tsx   # 책갈피 관리 (자동/수동 리스트 렌더링)
+├── hooks/                  # [Refactored] 비즈니스 로직 분리
+│   ├── useBookLoader.ts    # Google Drive 다운로드, IndexedDB 캐싱, 디코딩
+│   ├── useReadingProgress.ts # 독서 진행률, 책갈피(Auto/Manual), 동기화 충돌 감지
+│   └── useVirtualScroll.ts # 대용량 텍스트 가상화, 스크롤 이벤트, 점프 로직
+├── lib/
+│   ├── googleDrive.ts      # Google Drive API 통신
+│   ├── localDB.ts          # IndexedDB Wrapper (Offline Storage)
+│   └── firebase.ts         # Firebase 초기화
+└── types.ts                # 공용 타입 정의 (Book, Bookmark, UserProgress 등)
 
-src/components/Shelf.tsx: 도서 목록(책장) UI. 오프라인 상태 관리 및 파일 관리 모달 연동.
-
-src/components/Reader.tsx: 핵심 뷰어. 텍스트 가상화, 내비게이션, 설정, 동기화 충돌 감지 로직 포함.
-
-src/lib/googleDrive.ts: Google Drive API 연동 (폴더 탐색, 파일 다운로드).
-
-src/lib/localDB.ts: IndexedDB 래퍼. 파일의 오프라인 저장/로드/삭제 관리.
-
-src/lib/firebase.ts: Firebase 초기화 및 인증/DB 인스턴스 export.
-
-4. 핵심 기능 및 구현 상세 (Core Logic)
+3. 핵심 기능 및 구현 상세 (Core Logic)
 A. 데이터 관리 및 오프라인 우선 정책 (Offline First)
-Google Drive 연동: 사용자의 구글 드라이브 루트에서 "web viewer" 폴더를 찾아 .txt 파일 목록을 가져옵니다.
+하이브리드 로딩: 책을 열 때 IndexedDB를 먼저 확인하여 네트워크 요청을 최소화합니다.
 
-하이브리드 로딩 전략:
+Hit: 로컬 데이터 즉시 로드 (로딩 속도 < 0.1s).
 
-책을 열 때 IndexedDB를 먼저 확인합니다.
+Miss: Google Drive에서 다운로드 후 비동기로 로컬 DB에 저장.
 
-Hit: 로컬에 저장된 데이터가 있으면 즉시 로드 (네트워크 비용 절약).
+데이터 보호: 원본 파일은 변형하지 않으며, 메타데이터와 진행 상황만 Firestore에 저장합니다.
 
-Miss: 구글 드라이브에서 다운로드 후, 즉시 IndexedDB에 비동기 저장.
+B. 뷰어 렌더링 최적화 (Virtualization - useVirtualScroll)
+블록 가상화: 전체 텍스트를 BLOCK_SIZE (15,000자) 단위로 분할하여 관리합니다.
 
-관리 기능: 사용자는 Shelf에서 로컬에 저장된 도서 목록을 확인하고 삭제하여 저장 공간을 관리할 수 있습니다.
+동적 렌더링: 현재 스크롤 위치에 인접한 블록(±Buffer)만 DOM에 렌더링하여 메모리 누수를 방지합니다.
 
-B. 뷰어 렌더링 최적화 (Virtualization)
-대용량 텍스트 파일(1MB 이상)을 끊김 없이 보여주기 위해 커스텀 가상화 로직을 사용합니다.
+스크롤 보정: 역방향(위로) 스크롤 시 블록이 추가될 때, paddingTop 조정과 scrollBy를 통해 시각적 떨림(Jank)을 제거했습니다.
 
-블록 분할: 전체 텍스트를 BLOCK_SIZE (15,000자) 단위로 분할하여 메모리에 로드합니다.
+C. 동기화 및 책갈피 시스템 (Sync & Bookmarks - useReadingProgress)
+Firestore를 통해 기기 간 독서 상태를 실시간으로 동기화합니다.
 
-동적 렌더링: 현재 스크롤 위치에 해당하는 블록(±Buffer)만 DOM에 렌더링(MAX_VISIBLE_BLOCKS: 4)하여 메모리 누수를 방지합니다.
+진행률 동기화:
 
-역방향 스크롤 보정: 위로 스크롤 시 상단 블록이 추가될 때, paddingTop과 scrollBy를 이용해 시각적 흔들림(Jank)을 방지합니다.
+스크롤 시 실시간으로 현재 위치(charIndex, percent)를 계산합니다.
 
-C. 고급 내비게이션 및 줄 잘림 방지 (Navigation)
-모드 지원: 기본 스크롤 외 3가지 탭 모드 지원 (config에서 설정 가능).
+Firestore 쓰기 비용 절약을 위해 5초 간격으로 스로틀링(Throttling)하여 저장합니다.
 
-T/B Tap: 상단/하단 터치로 이동.
+책갈피 관리 (Updated):
 
-L/R Tap: 좌측(이전)/우측(다음) 터치로 이동.
+자동 책갈피 (Auto): 검색, 슬라이더 이동, 페이지 점프 등 대량 이동 시 자동으로 생성됩니다.
 
-4-Way: 상/하 우선, 좌/우 보조 이동.
+Rule: 최대 2개까지 유지되며, UUID를 발급하여 시간순으로 관리(오래된 항목 자동 삭제).
 
-D. 실시간 동기화 및 충돌 방지 (Real-time Sync & Conflict Guard)
-Firestore 연동: readingHistory 컬렉션을 통해 실시간으로 독서 진행률(charIndex, percent)을 저장합니다.
+수동 책갈피 (Manual): 사용자가 직접 저장하며 최대 5개까지 색상별로 관리됩니다.
 
-SPA 히스토리 관리: window.history.pushState를 사용하여 뷰어 진입 시 가상의 히스토리를 생성, 브라우저/기기의 물리적 '뒤로가기' 버튼이 앱을 종료하지 않고 책장으로 돌아가도록 처리했습니다.
+충돌 감지 (Conflict Guard):
 
-동기화 충돌 감지 (Conflict Detection):
+다른 기기에서 독서를 진행한 경우(서버 타임스탬프 > 로컬 저장 시간 + 2초), 알림창(Toast)을 띄웁니다.
 
-다른 기기에서 독서를 진행하여 서버 데이터가 갱신되면, 현재 기기에서 이를 실시간으로 감지합니다.
+사용자는 "동기화(이동)" 또는 **"무시"**를 선택할 수 있으며, 알림이 떠 있는 동안은 데이터 덮어쓰기가 차단됩니다.
 
-로직: (서버의 저장 시간) > (내 마지막 저장 시간 + 2초) 일 경우 충돌로 간주.
+D. 사용자 경험 (UX)
+고급 내비게이션: 스크롤 외 3가지 터치 모드(상하/좌우/4방향) 지원.
 
-UI: 화면 하단(모바일) 또는 우측 하단(PC)에 Toast 알림을 띄워 "동기화(이동)" 또는 **"무시"**를 선택하게 합니다.
+슬라이더 미리보기: 진행률 슬라이더 조작 시, 손을 떼기 전까지는 UI만 업데이트되고 실제 스크롤/저장은 발생하지 않습니다.
 
-데이터 보호: 알림이 떠 있는 동안은 자동 저장을 차단하여, 실수로 과거 기록이 최신 기록을 덮어쓰는 것을 방지합니다.
+설정 동기화: 테마, 폰트(리디바탕 등), 줄 간격 등 모든 설정값은 클라우드에 영구 저장됩니다.
 
-5. 사용자 설정 (Settings)
-다음 설정값은 Firestore에 영구 저장되어 기기 간 공유됩니다.
+4. 실행 방법
+Bash
+# 의존성 설치
+npm install
 
-테마: Light, Dark, Sepia, Blue
-
-타이포그래피: 폰트 크기, 줄 간격, 좌우 여백, 정렬(Left/Justify), 폰트 종류(Sans/Serif/Ridi)
-
-기능: 인코딩(Auto/UTF-8/EUC-KR 등), 내비게이션 모드
+# 개발 서버 실행
+npm run dev
+Google Cloud Console에서 프로젝트 생성 후 NEXT_PUBLIC_GOOGLE_CLIENT_ID 및 Firebase 설정이 필요합니다.
