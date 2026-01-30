@@ -6,9 +6,7 @@ import { fetchFullFile } from '../lib/googleDrive';
 import { saveOfflineBook, getOfflineBook } from '../lib/localDB';
 import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
-// 1번 파일이 있어야 이 import가 작동합니다.
-import { ThemeModal } from './ThemeModal'; 
-import { ChevronLeft, Settings, Palette, Hash, Search, ArrowUpCircle } from 'lucide-react';
+import { ChevronLeft, Settings, Moon, Sun, Hash, Search, ArrowUpCircle } from 'lucide-react';
 
 interface ReaderProps {
   book: Book;
@@ -25,14 +23,13 @@ export const Reader: React.FC<ReaderProps> = ({
 }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [showControls, setShowControls] = useState(false);
-  
-  // 모달 상태 관리
   const [showSettings, setShowSettings] = useState(false);
-  const [showThemeModal, setShowThemeModal] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   
   const [showConfirm, setShowConfirm] = useState<{show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean}>({ show: false, type: 'jump' });
   const [jumpInput, setJumpInput] = useState("");
+
+  // 원격 동기화 충돌 상태 관리
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
 
   const [readPercent, setReadPercent] = useState(0);
@@ -46,7 +43,7 @@ export const Reader: React.FC<ReaderProps> = ({
   const blockRefs = useRef<Record<number, HTMLDivElement | null>>({});
   
   const hasRestored = useRef<string | null>(null);
-  const lastSaveTime = useRef<number>(Date.now());
+  const lastSaveTime = useRef<number>(Date.now()); // 초기값 현재시간
   const isJumping = useRef(false);
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   
@@ -54,6 +51,7 @@ export const Reader: React.FC<ReaderProps> = ({
   const BLOCK_SIZE = 15000; 
   const MAX_VISIBLE_BLOCKS = 4; 
 
+  // 가상화 블록 계산 함수
   const getVisibleBlocks = () => {
     const blocks = [];
     for (let i = visibleRange.start; i <= visibleRange.end; i++) {
@@ -66,6 +64,7 @@ export const Reader: React.FC<ReaderProps> = ({
     return blocks;
   };
 
+  // 인코딩 디코더
   const decodeData = useCallback((buffer: ArrayBuffer, mode: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le') => {
     const view = new Uint8Array(buffer);
     const isUTF16LE = view[0] === 0xFF && view[1] === 0xFE;
@@ -82,6 +81,7 @@ export const Reader: React.FC<ReaderProps> = ({
     }
   }, []);
 
+  // 특정 위치로 점프 (패딩 및 블록 재계산)
   const jumpToIdx = useCallback((targetIdx: number) => {
     if (!isLoaded || !fullContent.current) return;
     isJumping.current = true;
@@ -113,6 +113,7 @@ export const Reader: React.FC<ReaderProps> = ({
     }, 60);
   }, [isLoaded, BLOCK_SIZE]);
 
+  // 초기 로딩 (로컬 DB 우선 -> 구글 드라이브 -> 저장)
   useEffect(() => {
     const init = async () => {
       try {
@@ -142,6 +143,7 @@ export const Reader: React.FC<ReaderProps> = ({
     init();
   }, [book.id, googleToken, decodeData]); 
 
+  // 초기 진입 시 위치 복구
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
     if (initialProgress && initialProgress.charIndex > 0) {
@@ -154,10 +156,16 @@ export const Reader: React.FC<ReaderProps> = ({
     }
   }, [isLoaded, initialProgress, book.id, jumpToIdx]);
 
+  // 실시간 동기화 감지 로직 (Page.tsx의 리스너 활용)
   useEffect(() => {
     if (!isLoaded || !initialProgress || !initialProgress.lastRead) return;
+
+    // Firestore Timestamp to Millis
     const remoteTime = initialProgress.lastRead.toMillis ? initialProgress.lastRead.toMillis() : new Date(initialProgress.lastRead).getTime();
+    
+    // 내가 마지막으로 저장한 시간보다 2초 이상 뒤에(미래에) 저장된 기록이 있다면 타 기기 저장임
     if (remoteTime > lastSaveTime.current + 2000) {
+      // 현재 보고 있는 위치와 차이가 꽤 날 경우에만 알림 (약 300자 이상)
       if (Math.abs(initialProgress.charIndex - currentIdx) > 300) {
         setSyncConflict({
           show: true,
@@ -168,6 +176,7 @@ export const Reader: React.FC<ReaderProps> = ({
     }
   }, [initialProgress, currentIdx, isLoaded]);
 
+  // 스크롤 핸들러
   useEffect(() => {
     const handleScroll = () => {
       if (isJumping.current || !isLoaded || hasRestored.current !== book.id) return;
@@ -216,6 +225,7 @@ export const Reader: React.FC<ReaderProps> = ({
         setReadPercent((absoluteIdx / totalSize) * 100);
         
         const now = Date.now();
+        // 충돌 알림이 떠있으면 저장하지 않음 (덮어쓰기 방지)
         if (now - lastSaveTime.current > 5000 && !syncConflict) {
           onSaveProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100);
           lastSaveTime.current = now;
@@ -224,13 +234,14 @@ export const Reader: React.FC<ReaderProps> = ({
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE, syncConflict]);
+  }, [isLoaded, visibleRange, paddingTop, onSaveProgress, book.id, BLOCK_SIZE, syncConflict]); 
 
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientX, clientY } = e;
     const w = window.innerWidth;
     const h = window.innerHeight;
     
+    // 줄 잘림 방지 로직 적용
     const oneLineHeight = settings.fontSize * settings.lineHeight;
     const linesPerScreen = Math.floor(h / oneLineHeight);
     const scrollStep = linesPerScreen * oneLineHeight; 
@@ -249,10 +260,10 @@ export const Reader: React.FC<ReaderProps> = ({
         if (clientX > w * 0.65) { move(1); return; }
       }
       else if (settings.navMode === 'all-dir') {
-        if (clientY < h * 0.35) { move(-1); return; }
-        if (clientY > h * 0.65) { move(1); return; }
-        if (clientX < w * 0.35) { move(-1); return; }
-        if (clientX > w * 0.65) { move(1); return; }
+        if (clientY < h * 0.25) { move(-1); return; }
+        if (clientY > h * 0.75) { move(1); return; }
+        if (clientX < w * 0.4) { move(-1); return; }
+        if (clientX > w * 0.6) { move(1); return; }
       }
     }
     
@@ -285,13 +296,16 @@ export const Reader: React.FC<ReaderProps> = ({
     setJumpInput("");
   };
 
+  // 동기화 알림 처리 함수
   const handleSyncResolve = (action: 'sync' | 'ignore') => {
     if (action === 'sync' && syncConflict) {
       jumpToIdx(syncConflict.remoteIdx);
       setCurrentIdx(syncConflict.remoteIdx);
       setReadPercent(syncConflict.remotePercent);
+      // 동기화 후 내 저장 시간 갱신 (즉시 덮어쓰기 방지)
       lastSaveTime.current = Date.now();
     } else {
+      // 무시할 경우: 현재 내 위치가 최신이 되도록 시간 갱신하여 저장 재개
       lastSaveTime.current = Date.now();
     }
     setSyncConflict(null);
@@ -323,9 +337,12 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       )}
 
-      {/* 2. 동기화 충돌 알림 (Toast) */}
+      {/* 2. 동기화 충돌 알림 (Toast) - 반응형 위치 수정됨 */}
       {syncConflict && (
-        <div className="fixed bottom-24 right-6 z-[100] max-w-sm w-full animate-in slide-in-from-right duration-500">
+        <div className="fixed z-[100] max-w-sm w-[90%] md:w-full animate-in duration-500 
+          top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+          md:top-auto md:left-auto md:bottom-24 md:right-6 md:translate-x-0 md:translate-y-0 
+          zoom-in-95 md:zoom-in-100 md:slide-in-from-right">
           <div className="bg-slate-900/90 text-white backdrop-blur-md p-4 rounded-3xl shadow-2xl border border-white/10 flex flex-col gap-3">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-400">
@@ -339,14 +356,23 @@ export const Reader: React.FC<ReaderProps> = ({
               </div>
             </div>
             <div className="flex gap-2 pl-11">
-              <button onClick={() => handleSyncResolve('ignore')} className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-white/5 rounded-xl transition-colors">무시하기</button>
-              <button onClick={() => handleSyncResolve('sync')} className="flex-1 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/20 transition-colors">동기화 (이동)</button>
+              <button 
+                onClick={() => handleSyncResolve('ignore')}
+                className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-white/5 rounded-xl transition-colors"
+              >
+                무시하기
+              </button>
+              <button 
+                onClick={() => handleSyncResolve('sync')}
+                className="flex-1 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/20 transition-colors"
+              >
+                동기화 (이동)
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 3. 검색 모달 */}
       {showSearch && (
         <SearchModal 
           content={fullContent.current} 
@@ -356,14 +382,12 @@ export const Reader: React.FC<ReaderProps> = ({
         />
       )}
 
-      {/* 상단 네비게이션 */}
       <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
         <button onClick={onBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
 
-      {/* 본문 영역 */}
       <main onClick={handleInteraction} className="min-h-screen pt-12 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight }}>
@@ -373,7 +397,6 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       </main>
 
-      {/* 하단 컨트롤 패널 */}
       <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
         <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <span className="text-[10px] font-black text-white tracking-widest font-sans">
@@ -400,21 +423,17 @@ export const Reader: React.FC<ReaderProps> = ({
           </button>
         </div>
 
-        {/* 하단 버튼 영역 */}
         <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
           <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
             <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
           </button>
-          
-          <button onClick={() => setShowThemeModal(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span>
+          <button onClick={() => onUpdateSettings({ theme: settings.theme === 'dark' ? 'sepia' : 'dark' })} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+            {settings.theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}<span className="text-[9px] font-bold uppercase tracking-tighter">Mode</span>
           </button>
         </div>
       </div>
 
-      {/* 4. 모달 렌더링 */}
       {showSettings && <SettingsModal settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setShowSettings(false)} theme={theme} />}
-      {showThemeModal && <ThemeModal currentTheme={settings.theme} onSelectTheme={(t) => onUpdateSettings({ theme: t as any })} onClose={() => setShowThemeModal(false)} theme={theme} />}
     </div>
   );
 };
