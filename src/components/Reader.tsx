@@ -46,6 +46,15 @@ export const Reader: React.FC<ReaderProps> = ({
     fullContentRef: fullContent, 
     isLoaded, 
     hasRestored: hasRestored.current === book.id,
+    currentIdx,
+    // [Added] 레이아웃에 영향을 주는 설정값들을 전달하여 변경 시 위치 재보정
+    layoutDeps: [
+      settings.fontSize, 
+      settings.lineHeight, 
+      settings.fontFamily, 
+      settings.padding, 
+      settings.textAlign
+    ],
     onScrollProgress: (idx, pct) => {
       setCurrentIdx(idx);
       setReadPercent(pct);
@@ -73,9 +82,8 @@ export const Reader: React.FC<ReaderProps> = ({
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
-  // --- History & Back Button Handling (Modified) ---
+  // --- History & Back Button Handling ---
 
-  // 이벤트 리스너에서 최신 상태를 참조하기 위한 Ref
   const stateRef = useRef({
     showSettings,
     showSearch,
@@ -90,7 +98,6 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [showSettings, showSearch, showBookmarks, showThemeModal, showConfirm, syncConflict]);
 
   useEffect(() => {
-    // 진입 시 History Entry 추가
     window.history.pushState({ panel: 'reader' }, '', '');
 
     const handlePopState = (event: PopStateEvent) => {
@@ -99,8 +106,6 @@ export const Reader: React.FC<ReaderProps> = ({
       const isAnyModalOpen = showSettings || showSearch || showBookmarks || showThemeModal || showConfirm.show || syncConflict;
 
       if (isAnyModalOpen) {
-        // 모달이 열려있다면 뒤로가기를 '취소'하고 모달만 닫음
-        // 다시 현재 상태를 push하여 뒤로가기 스택을 복구
         window.history.pushState({ panel: 'reader' }, '', '');
 
         if (showSettings) setShowSettings(false);
@@ -109,7 +114,6 @@ export const Reader: React.FC<ReaderProps> = ({
         if (showThemeModal) setShowThemeModal(false);
         if (syncConflict) setSyncConflict(null);
         
-        // Confirm 모달 닫기 시 취소 로직(슬라이더 되돌리기 등) 적용
         if (showConfirm.show) {
           if (!showConfirm.fromSearch && showConfirm.type === 'jump') {
             setReadPercent(preSlideProgress.current.percent);
@@ -119,14 +123,13 @@ export const Reader: React.FC<ReaderProps> = ({
           setJumpInput("");
         }
       } else {
-        // 모달이 없으면 정상적으로 뒤로가기 수행 (Shelf로 이동)
         onBack();
       }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => { window.removeEventListener('popstate', handlePopState); };
-  }, [onBack, setSyncConflict, setCurrentIdx, setReadPercent]); // 의존성 추가
+  }, [onBack, setSyncConflict, setCurrentIdx, setReadPercent]);
 
   // --- Initial Restore & Jump ---
 
@@ -148,7 +151,6 @@ export const Reader: React.FC<ReaderProps> = ({
 
   const handleUIBack = () => { window.history.back(); };
 
-  // Tap Navigation
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientX, clientY } = e;
     const w = window.innerWidth;
@@ -255,7 +257,6 @@ export const Reader: React.FC<ReaderProps> = ({
     return 'font-sans';
   };
 
-  // [Fix 1] 모바일/데스크톱 공용 핸들러: 드래그 종료 시 모달 띄우기
   const handleSlideEnd = () => {
     setShowConfirm({ 
       show: true, 
@@ -382,14 +383,12 @@ export const Reader: React.FC<ReaderProps> = ({
           <input 
             type="range" min="0" max="100" step="0.1" value={readPercent} 
             onMouseDown={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }}
-            // [Fix 1] 모바일 터치 시작 이벤트 추가 (드래그 시작 좌표 저장용)
             onTouchStart={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }}
             onChange={(e) => {
               const p = parseFloat(e.target.value);
               setReadPercent(p);
               setCurrentIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
             }}
-            // [Fix 1] MouseUp과 TouchEnd에 동일 핸들러 적용
             onMouseUp={handleSlideEnd}
             onTouchEnd={handleSlideEnd}
             className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
