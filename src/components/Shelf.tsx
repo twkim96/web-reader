@@ -8,12 +8,14 @@ import {
   Library, 
   Search, 
   BookOpen, 
-  FolderPlus,
   LogOut,
+  LogIn, // [New]
   HardDrive,
   CheckCircle2,
   XCircle,
-  WifiOff // [New] 아이콘 추가
+  FolderPlus,
+  WifiOff,
+  User as UserIcon // [New]
 } from 'lucide-react';
 
 interface ShelfProps {
@@ -22,10 +24,12 @@ interface ShelfProps {
   onOpen: (book: Book) => void;
   onRefresh: () => void;
   onLogout: () => void;
+  onLogin: () => void; // [New] 게스트 모드에서 로그인 트리거
   isRefreshing: boolean;
   userEmail: string;
-  isOfflineMode: boolean; // [New]
-  onToggleCloud: () => void; // [New] 클라우드 연결 토글
+  isOfflineMode: boolean; 
+  isGuest: boolean; // [New] 게스트 여부
+  onToggleCloud: () => void; 
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
@@ -34,9 +38,11 @@ export const Shelf: React.FC<ShelfProps> = ({
   onOpen, 
   onRefresh,
   onLogout,
+  onLogin,
   isRefreshing, 
   userEmail,
   isOfflineMode,
+  isGuest,
   onToggleCloud
 }) => {
   const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
@@ -44,26 +50,21 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
 
-  // 상태 감지용 Ref (뒤로가기 제어용)
   const stateRef = useRef({ showManage, showSearch });
   useEffect(() => {
     stateRef.current = { showManage, showSearch };
   }, [showManage, showSearch]);
 
-  // History 처리: 모달이 열려있으면 뒤로가기 시 모달만 닫기
   useEffect(() => {
     window.history.pushState({ panel: 'shelf' }, '', '');
-
     const handlePopState = (event: PopStateEvent) => {
       const { showManage, showSearch } = stateRef.current;
-      
       if (showManage || showSearch) {
         if (showManage) setShowManage(false);
         if (showSearch) setShowSearch(false);
         window.history.pushState({ panel: 'shelf' }, '', '');
       }
     };
-
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
@@ -79,6 +80,7 @@ export const Shelf: React.FC<ShelfProps> = ({
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return 'Ready to Start';
+    // Firestore Timestamp or JS Date or Number
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     if (isNaN(date.getTime())) return 'Ready to Start';
     return date.toLocaleString('ko-KR', {
@@ -96,9 +98,9 @@ export const Shelf: React.FC<ShelfProps> = ({
       <header className="sticky top-0 z-40 bg-[#0f172a]/80 backdrop-blur-md border-b border-white/5 px-6 py-6">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {/* 연결/해제 토글 버튼 */}
+            {/* 연결/해제 토글 버튼 (게스트 모드가 아닐 때만 활성화하거나, 게스트면 로그인 유도) */}
             <button 
-              onClick={onToggleCloud}
+              onClick={isGuest ? onLogin : onToggleCloud}
               className={`p-3 rounded-2xl shadow-lg transition-all active:scale-90 group relative ${
                 isOfflineMode 
                   ? 'bg-slate-700 shadow-none hover:bg-slate-600' 
@@ -111,23 +113,20 @@ export const Shelf: React.FC<ShelfProps> = ({
               ) : (
                 <Library className="text-white" size={24} />
               )}
-              
-              {/* Tooltip */}
-              <span className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-[10px] text-white rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none transition-opacity z-50">
-                {isOfflineMode ? "Go Online" : "Go Offline"}
-              </span>
             </button>
 
             <div>
               <h1 className="text-xl font-black text-white tracking-tight uppercase italic">
-                {isOfflineMode ? 'Local Library' : 'Cloud Library'}
+                {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
               </h1>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{userEmail}</p>
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                {isGuest && <UserIcon size={10} />}
+                <span>{userEmail}</span>
+              </div>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
-            {/* 도서 관리 버튼 */}
             <button 
               onClick={() => setShowManage(true)}
               className="p-4 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-indigo-400 hover:bg-white/10 transition-all active:scale-90"
@@ -136,7 +135,6 @@ export const Shelf: React.FC<ShelfProps> = ({
               <HardDrive size={20} />
             </button>
 
-            {/* 검색 버튼 */}
             <button 
               onClick={() => setShowSearch(true)}
               className={`p-4 rounded-2xl border transition-all active:scale-90 ${
@@ -149,19 +147,28 @@ export const Shelf: React.FC<ShelfProps> = ({
               <Search size={20} />
             </button>
 
-            {/* 로그아웃 버튼 */}
-            <button 
-              onClick={onLogout}
-              className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-90"
-              title="Sign Out"
-            >
-              <LogOut size={20} />
-            </button>
+            {/* 로그인/로그아웃 버튼 */}
+            {isGuest ? (
+              <button 
+                onClick={onLogin}
+                className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                title="Sign In"
+              >
+                <LogIn size={20} />
+              </button>
+            ) : (
+              <button 
+                onClick={onLogout}
+                className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-90"
+                title="Sign Out"
+              >
+                <LogOut size={20} />
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      {/* 검색 필터 상태 표시 */}
       {searchKeyword && (
         <div className="max-w-7xl mx-auto px-6 pt-4 pb-0">
           <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -180,13 +187,12 @@ export const Shelf: React.FC<ShelfProps> = ({
         </div>
       )}
 
-      {/* 메인 콘텐츠 영역 */}
       <main className="max-w-7xl mx-auto px-6 py-8">
         {filteredBooks.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
             {filteredBooks.map((book) => {
               const bookProgress = progress[book.id];
-              // 로컬 모드일 땐 항상 다운로드된 것으로 간주(목록 자체가 로컬DB이므로)
+              // 게스트/오프라인 모드면 이미 다운로드된 것들임
               const isDownloaded = isOfflineMode || offlineIds.has(book.id);
 
               return (
@@ -239,7 +245,6 @@ export const Shelf: React.FC<ShelfProps> = ({
             })}
           </div>
         ) : (
-          /* 도서가 없거나 검색 결과가 없을 때 */
           <div className="flex flex-col items-center justify-center py-32 text-center space-y-8 bg-white/5 rounded-[3.5rem] border border-white/10 backdrop-blur-sm">
             {searchKeyword ? (
               <>
@@ -250,12 +255,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                   <h3 className="text-xl font-bold text-white">검색 결과가 없습니다</h3>
                   <p className="text-slate-500 text-sm">"{searchKeyword}"</p>
                 </div>
-                <button 
-                  onClick={() => setSearchKeyword('')}
-                  className="px-8 py-3 bg-white/10 text-white rounded-full font-bold text-xs uppercase hover:bg-white/20 transition-all"
-                >
-                  전체 목록 보기
-                </button>
+                <button onClick={() => setSearchKeyword('')} className="px-8 py-3 bg-white/10 text-white rounded-full font-bold text-xs uppercase hover:bg-white/20 transition-all">전체 목록 보기</button>
               </>
             ) : (
               <>
@@ -266,11 +266,21 @@ export const Shelf: React.FC<ShelfProps> = ({
                 <div className="space-y-4 max-w-sm">
                   {isOfflineMode ? (
                     <>
-                      <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Local Library Empty</h3>
+                      <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">
+                        {isGuest ? 'Guest Library Empty' : 'Local Library Empty'}
+                      </h3>
                       <p className="text-slate-400 text-sm leading-relaxed font-medium">
                         저장된 도서가 없습니다.<br/>
-                        <span className="text-indigo-400 font-black">Cloud Mode</span>로 접속하여 도서를 다운로드해주세요.
+                        {isGuest 
+                          ? <span><span className="text-indigo-400 font-black">Login</span>하여 클라우드에서 도서를 받아보세요.</span>
+                          : <span><span className="text-indigo-400 font-black">Cloud Mode</span>로 접속하여 도서를 다운로드해주세요.</span>
+                        }
                       </p>
+                      {isGuest && (
+                        <button onClick={onLogin} className="px-10 py-4 bg-indigo-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl active:scale-95">
+                          Log In Now
+                        </button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -278,10 +288,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                       <p className="text-slate-400 text-sm leading-relaxed font-medium">
                         구글 드라이브에 <span className="text-indigo-400 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-indigo-400 font-black">.txt</span> 파일을 업로드해 주세요.
                       </p>
-                      <button 
-                        onClick={onRefresh}
-                        className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95"
-                      >
+                      <button onClick={onRefresh} className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95">
                         Refresh Library
                       </button>
                     </>
@@ -293,7 +300,6 @@ export const Shelf: React.FC<ShelfProps> = ({
         )}
       </main>
 
-      {/* 모달 렌더링 */}
       {showManage && (
         <ManageModal 
           onClose={() => setShowManage(false)} 

@@ -4,14 +4,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
 import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
-import { collection, doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, getDoc } from 'firebase/firestore';
 
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
-import { getAllOfflineBooks } from '../lib/localDB'; // [New] 로컬 책 목록 불러오기
+// [Modified] 로컬 DB 함수들 추가 import
+import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress, getProgressFromLocal } from '../lib/localDB';
 import { Shelf } from '../components/Shelf';
 import { Reader } from '../components/Reader';
 import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
-import { HardDrive, LogOut, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
+import { HardDrive, LogOut, ShieldCheck, Wifi, WifiOff, User as UserIcon } from 'lucide-react';
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -22,7 +23,8 @@ export default function Page() {
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   
   const [isPublicPC, setIsPublicPC] = useState(false);
-  const [isOfflineMode, setIsOfflineMode] = useState(false); // [New] 로컬 모드 상태
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [isGuest, setIsGuest] = useState(false); // [New] 게스트 모드 상태
 
   const [settings, setSettings] = useState<ViewerSettings>({
     fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify', 
@@ -52,41 +54,118 @@ export default function Page() {
     return null;
   };
 
+  // [New] 로컬 데이터와 클라우드 데이터 동기화 로직
+  const syncLocalAndCloud = async (uid: string) => {
+    try {
+      // 1. 로컬 데이터 가져오기
+      const localProgressList = await getAllLocalProgress();
+      
+      // 2. 클라우드 데이터 가져오기 (단발성)
+      const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
+      const cloudSnapshot = await getDocs(cloudRef);
+      
+      const localMap = new Map(localProgressList.map(p => [p.bookId, p]));
+      const cloudMap = new Map(cloudSnapshot.docs.map(d => [d.id, d.data() as UserProgress]));
+
+      // 3. 로컬 -> 클라우드 동기화 (로컬이 더 최신이거나 클라우드에 없을 때)
+      for (const [bookId, localData] of localMap.entries()) {
+        const cloudData = cloudMap.get(bookId);
+        
+        const localTime = new Date(localData.lastRead).getTime();
+        const cloudTime = cloudData?.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
+
+        // 로컬이 더 최신이거나 클라우드에 없으면 업로드
+        if (!cloudData || localTime > cloudTime) {
+          console.log(`Syncing to Cloud: ${bookId}`);
+          await setDoc(doc(cloudRef, bookId), {
+            ...localData,
+            lastRead: serverTimestamp() // 서버 시간으로 갱신
+          }, { merge: true });
+        }
+      }
+
+      // 4. 클라우드 -> 로컬 동기화 (클라우드가 더 최신이거나 로컬에 없을 때)
+      for (const [bookId, cloudData] of cloudMap.entries()) {
+        const localData = localMap.get(bookId);
+        
+        const localTime = localData ? new Date(localData.lastRead).getTime() : 0;
+        const cloudTime = cloudData.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
+
+        if (!localData || cloudTime > localTime) {
+          console.log(`Syncing to Local: ${bookId}`);
+          // 클라우드 데이터를 로컬에 저장 (Timestamp를 Date/Number로 변환)
+          await saveProgressToLocal({
+            ...cloudData,
+            lastRead: cloudTime 
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Sync failed:", e);
+    }
+  };
+
   useEffect(() => {
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true; script.defer = true;
     document.body.appendChild(script);
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
-        // Firebase 독서 기록 동기화는 모드 상관없이 항상 수행
+        setIsGuest(false); // 로그인 성공 시 게스트 모드 해제
+
+        // [New] 로그인 직후 동기화 수행
+        await syncLocalAndCloud(u.uid);
+
+        // Firebase 리스너 등록
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
-        const unsubProgress = onSnapshot(historyRef, (snapshot) => {
+        const unsubProgress = onSnapshot(historyRef, async (snapshot) => {
           const p: Record<string, UserProgress> = {};
-          snapshot.forEach(d => p[d.id] = d.data() as UserProgress);
+          
+          for (const d of snapshot.docs) {
+            const data = d.data() as UserProgress;
+            p[d.id] = data;
+            
+            // [New] 온라인 상태에서도 수신된 데이터를 로컬에 백업 (오프라인 전환 대비)
+            const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
+            await saveProgressToLocal({ ...data, lastRead: serverTime });
+          }
+          
+          // 로컬 데이터도 병합해서 보여줌 (서버에 없는 로컬 데이터가 있을 수 있으므로)
+          const localP = await getAllLocalProgress();
+          localP.forEach(lp => {
+             // 서버 데이터가 없거나 로컬이 더 최신인 경우 로컬 데이터로 덮어씌움 (메모리상)
+             if (!p[lp.bookId] || new Date(lp.lastRead).getTime() > (p[lp.bookId].lastRead?.toDate?.().getTime() || 0)) {
+               p[lp.bookId] = lp;
+             }
+          });
+
           setProgress(p);
         });
 
-        // 저장된 유효 토큰이 있으면 자동으로 '클라우드 모드' 진입
+        // 토큰 복구 및 라이브러리 로드
         const recoveredToken = getStoredToken();
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
           setIsOfflineMode(false);
           loadLibrary(recoveredToken);
         } else {
-          // 토큰이 없으면 모드 선택 화면(auth) 유지
+          // 토큰이 없으면 인증/모드 선택 화면 유지
           setView('auth');
         }
 
         return () => { unsubProgress(); };
       } else {
-        setView('auth');
+        // 로그아웃 상태일 때
+        if (!isGuest) {
+          setView('auth');
+        }
       }
     });
     return () => unsubscribeAuth();
-  }, []);
+  }, [isGuest]); // isGuest 의존성 추가
 
   const loadLibrary = async (token: string) => {
     setView('loading');
@@ -101,14 +180,41 @@ export default function Page() {
     } catch (err) { setView('shelf'); }
   };
 
-  // [New] 로컬 모드 진입 핸들러
+  // [New] 게스트 모드 진입
+  const handleGuestMode = async () => {
+    setView('loading');
+    setIsGuest(true);
+    setIsOfflineMode(true);
+    setUser(null);
+    setGoogleToken(null);
+
+    try {
+      // 로컬 책 로드
+      const localBooks = await getAllOfflineBooks();
+      setBooks(localBooks);
+
+      // 로컬 진행 상황 로드
+      const localProgress = await getAllLocalProgress();
+      const p: Record<string, UserProgress> = {};
+      localProgress.forEach(item => {
+        p[item.bookId] = item;
+      });
+      setProgress(p);
+
+      setView('shelf');
+    } catch (e) {
+      console.error("Guest mode init failed", e);
+      setView('auth');
+    }
+  };
+
   const handleLocalMode = async () => {
     setView('loading');
     try {
       const localBooks = await getAllOfflineBooks();
       setBooks(localBooks);
       setIsOfflineMode(true);
-      setGoogleToken(null); // 토큰 클리어
+      setGoogleToken(null);
       setView('shelf');
     } catch (e) {
       console.error("Failed to load local books", e);
@@ -116,7 +222,6 @@ export default function Page() {
     }
   };
 
-  // [New] 구글 드라이브 연결만 끊기 (Firebase는 유지)
   const handleDisconnectDrive = async () => {
     if (confirm("클라우드 연결을 해제하고 로컬 모드로 전환하시겠습니까?")) {
       setGoogleToken(null);
@@ -124,7 +229,6 @@ export default function Page() {
       localStorage.removeItem('google_drive_token_expiry');
       sessionStorage.removeItem('google_drive_token');
       sessionStorage.removeItem('google_drive_token_expiry');
-
       await handleLocalMode(); 
     }
   };
@@ -138,18 +242,12 @@ export default function Page() {
         if (res.access_token) { 
           setGoogleToken(res.access_token); 
           const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
-          
           const storage = isPublicPC ? sessionStorage : localStorage;
-          
           localStorage.removeItem('google_drive_token');
-          localStorage.removeItem('google_drive_token_expiry');
           sessionStorage.removeItem('google_drive_token');
-          sessionStorage.removeItem('google_drive_token_expiry');
-
           storage.setItem('google_drive_token', res.access_token);
           storage.setItem('google_drive_token_expiry', expiryTime);
-          
-          setIsOfflineMode(false); // 클라우드 모드 설정
+          setIsOfflineMode(false); 
           loadLibrary(res.access_token); 
         } 
       },
@@ -157,15 +255,19 @@ export default function Page() {
     client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
   };
 
+  const handleLoginTrigger = () => {
+    // 게스트 모드에서 로그인 버튼 클릭 시 구글 로그인 팝업
+    signInWithPopup(auth, googleProvider).catch(console.error);
+  };
+
   const handleLogout = async () => {
     if (confirm("로그아웃 하시겠습니까?")) {
       await signOut(auth);
       localStorage.removeItem('google_drive_token');
-      localStorage.removeItem('google_drive_token_expiry');
       sessionStorage.removeItem('google_drive_token');
-      sessionStorage.removeItem('google_drive_token_expiry');
       setGoogleToken(null);
       setBooks([]);
+      setIsGuest(false);
       setView('auth');
     }
   };
@@ -178,23 +280,54 @@ export default function Page() {
     });
   }, []);
 
+  // [Modified] 진행 상황 저장 로직 (Local First + Cloud Sync)
   const handleSaveProgress = useCallback(async (idx: number, pct: number, bookmarks?: Bookmark[]) => {
-    if (!user || !activeBook || isNaN(idx)) return;
-    const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
-    
-    const updateData: any = { 
-      bookId: activeBook.id, 
-      charIndex: idx, 
-      progressPercent: pct, 
-      lastRead: serverTimestamp() 
+    if (!activeBook || isNaN(idx)) return;
+
+    const now = Date.now();
+    const progressData: UserProgress = {
+      bookId: activeBook.id,
+      charIndex: idx,
+      progressPercent: pct,
+      lastRead: now,
+      bookmarks: bookmarks
     };
 
-    if (bookmarks) {
-      updateData.bookmarks = bookmarks;
+    // 1. [UI & Local First] 로컬 DB 저장 및 UI 업데이트를 먼저 수행 (가장 중요)
+    // 네트워크 상태와 무관하게 즉시 반응성을 보장합니다.
+    try {
+      await saveProgressToLocal(progressData);
+      
+      // UI 상태 업데이트를 Firebase 저장보다 먼저 수행하거나, 
+      // Firebase 에러가 나도 실행되도록 보장해야 함
+      setProgress(prev => ({
+        ...prev,
+        [activeBook.id]: progressData
+      }));
+    } catch (e) {
+      console.error("Local save failed", e);
     }
 
-    await setDoc(docRef, updateData, { merge: true });
-  }, [user?.uid, activeBook?.id]);
+    // 2. [Cloud Sync] 로그인 상태라면 Firebase에도 저장 (Best Effort)
+    if (user) {
+      try {
+        const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
+        
+        // 오프라인 지속성이 켜져 있다면(enableIndexedDbPersistence), 
+        // 네트워크가 끊겨도 이 코드는 '로컬 캐시 저장 성공'으로 간주되어 즉시 완료됩니다.
+        // 네트워크가 복구되면 SDK가 알아서 백그라운드 동기화를 수행합니다.
+        await setDoc(docRef, { 
+          ...progressData, 
+          lastRead: serverTimestamp() 
+        }, { merge: true });
+        
+      } catch (e) {
+        // 네트워크 에러 등이 발생해도 사용자 경험(책 읽기)에는 지장이 없도록 로그만 남기고 넘어감
+        console.warn("Cloud sync paused (offline):", e);
+      }
+    }
+
+  }, [user, activeBook]);
 
   if (view === 'loading') {
     return (
@@ -214,13 +347,22 @@ export default function Page() {
             <HardDrive size={64} />
           </div>
           <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
-          <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full max-w-xs py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95">
-            Sign in with Google
-          </button>
+          
+          <div className="flex flex-col gap-4 w-full max-w-xs">
+            <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95">
+              Sign in with Google
+            </button>
+            
+            {/* [New] Guest Mode 버튼 */}
+            <button onClick={handleGuestMode} className="w-full py-5 bg-slate-800 border border-white/10 text-slate-300 font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors">
+              <UserIcon size={16} />
+              <span>Guest Mode (Offline)</span>
+            </button>
+          </div>
         </div>
       )}
 
-      {/* 2. 모드 선택 화면 (클라우드 vs 로컬) */}
+      {/* 2. 모드 선택 화면 (클라우드 vs 로컬) - 로그인 상태일 때 */}
       {view === 'auth' && user && (
         <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-8 p-10 text-center">
           <div className="relative mb-4">
@@ -236,20 +378,17 @@ export default function Page() {
           </div>
 
           <div className="w-full max-w-xs space-y-4">
-            {/* A. 클라우드 연결 버튼 */}
             <button onClick={handleConnect} className="group relative w-full py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center justify-center gap-3 overflow-hidden">
                <div className="absolute inset-0 bg-indigo-500 opacity-0 group-hover:opacity-10 transition-opacity" />
                <Wifi size={18} className="text-indigo-600" />
                <span>Connect Cloud</span>
             </button>
 
-             {/* B. 로컬 모드 버튼 */}
             <button onClick={handleLocalMode} className="w-full py-5 bg-slate-800 border border-white/10 text-slate-300 font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-3 hover:bg-slate-700 transition-colors">
               <WifiOff size={18} />
               <span>Local Library Only</span>
             </button>
             
-            {/* 공용 PC 옵션 (클라우드 모드용) */}
             <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/5 bg-transparent'}`}>
               <input type="checkbox" checked={isPublicPC} onChange={(e) => setIsPublicPC(e.target.checked)} className="hidden" />
               <ShieldCheck size={20} className={isPublicPC ? 'text-indigo-400' : 'text-slate-500'} />
@@ -270,9 +409,11 @@ export default function Page() {
           onRefresh={() => !isOfflineMode && googleToken && loadLibrary(googleToken)} 
           onOpen={(b) => { setActiveBook(b); setView('reader'); }} 
           onLogout={handleLogout} 
-          userEmail={user?.email || ""} 
+          onLogin={handleLoginTrigger} // [New]
+          userEmail={user?.email || "Guest User"} 
           isOfflineMode={isOfflineMode} 
-          onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive} // 연결 토글 핸들러 전달
+          isGuest={isGuest} // [New]
+          onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive} 
         />
       )}
       
@@ -280,7 +421,7 @@ export default function Page() {
       {view === 'reader' && activeBook && (
         <Reader 
           book={activeBook} 
-          googleToken={googleToken || ''} // 로컬 모드일 땐 빈 토큰 전달
+          googleToken={googleToken || ''} 
           initialProgress={progress[activeBook.id]} 
           settings={settings} 
           onUpdateSettings={handleUpdateSettings} 

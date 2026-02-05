@@ -1,7 +1,8 @@
 // src/lib/firebase.ts
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+// [Modified] getFirestore 대신 initializeFirestore, persistentLocalCache를 가져옵니다.
+import { initializeFirestore, persistentLocalCache } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -14,10 +15,15 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider(); // 구글 로그인 제공자 추가
 
-// 환경별 고유 ID (기존 데이터 유지용)
+// [Modified] 기존 getFirestore() + enableIndexedDbPersistence() 조합을 아래 한 줄로 대체
+// 이렇게 하면 DB가 생성될 때 오프라인 캐시(Persistence)가 즉시 활성화됩니다.
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache() 
+});
+
+const googleProvider = new GoogleAuthProvider();
+
 export const APP_ID = "private-web-novel-viewer"; 
 
 export { auth, db, googleProvider };
