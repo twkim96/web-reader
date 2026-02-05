@@ -73,9 +73,6 @@ export const Reader: React.FC<ReaderProps> = ({
   const [showSearch, setShowSearch] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
-  
-  // [Added] 하단 마스크 높이 상태
-  const [maskHeight, setMaskHeight] = useState(0);
 
   const [showConfirm, setShowConfirm] = useState<{
     show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean, originIdx?: number 
@@ -84,22 +81,6 @@ export const Reader: React.FC<ReaderProps> = ({
   const [jumpInput, setJumpInput] = useState("");
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
-
-  // --- Mask Height Calculation ---
-  useEffect(() => {
-    const updateMask = () => {
-      const vh = window.innerHeight;
-      const oneLineHeight = settings.fontSize * settings.lineHeight;
-      // 화면 높이를 줄 높이로 나눈 나머지 계산 (이만큼 하단을 가림)
-      const remainder = vh % oneLineHeight;
-      // 소수점 오차 등을 고려하여 약간의 여유를 줄 수도 있으나, 여기선 정직하게 계산
-      setMaskHeight(remainder);
-    };
-
-    updateMask();
-    window.addEventListener('resize', updateMask);
-    return () => window.removeEventListener('resize', updateMask);
-  }, [settings.fontSize, settings.lineHeight]);
 
   // --- History & Back Button Handling ---
 
@@ -303,12 +284,6 @@ export const Reader: React.FC<ReaderProps> = ({
 
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-300 ${getFontClass()} select-none`}>
-      {/* [Added] Bottom Mask: 잘린 텍스트 가림용 */}
-      <div 
-        className={`fixed bottom-0 left-0 right-0 z-40 pointer-events-none ${theme.bg}`} 
-        style={{ height: `${maskHeight + 1}px` }} 
-      />
-
       {/* Confirm Modal */}
       {showConfirm.show && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
