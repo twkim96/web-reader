@@ -22,7 +22,8 @@ export default function Page() {
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   
   const [isPublicPC, setIsPublicPC] = useState(false);
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  // [Fix] 초기값을 true(오프라인/로컬)로 설정하여, 연결 확인 전에는 'Local Library'로 표시
+  const [isOfflineMode, setIsOfflineMode] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
 
   const [settings, setSettings] = useState<ViewerSettings>({
@@ -53,10 +54,12 @@ export default function Page() {
     return null;
   };
 
-  // [Local Load] 로컬 데이터를 메모리로 로드 (가장 빠름)
+  // [Local Load] 로컬 데이터를 메모리로 로드
   const restoreLocalData = async () => {
     try {
-      // 로컬 DB 조회
+      // [Fix] 로컬 데이터를 로드할 때는 확실히 오프라인 모드로 설정
+      setIsOfflineMode(true);
+
       const [localBooks, localProgress] = await Promise.all([
         getAllOfflineBooks(),
         getAllLocalProgress()
@@ -66,10 +69,8 @@ export default function Page() {
       localProgress.forEach(item => { p[item.bookId] = item; });
       setProgress(p);
 
-      // 책이 있으면 상태 업데이트
       if (localBooks.length > 0) {
         setBooks(localBooks);
-        // [핵심] 로컬 데이터가 있으면 즉시 Shelf 화면으로 전환 (Auth 기다리지 않음)
         setView('shelf');
         return true; 
       }
@@ -80,7 +81,7 @@ export default function Page() {
     }
   };
 
-  // [Sync Logic] 클라우드 동기화 (백그라운드 전용)
+  // [Sync Logic] 클라우드 동기화 (백그라운드)
   const syncLocalAndCloud = async (uid: string) => {
     if (!navigator.onLine) return; 
 
@@ -116,7 +117,7 @@ export default function Page() {
     }
   };
 
-  // [Library Load] 구글 드라이브 로드 (백그라운드 전용)
+  // [Library Load] 구글 드라이브 로드 (백그라운드)
   const loadLibraryBackground = async (token: string) => {
     try {
       const targetFolderName = "web viewer";
@@ -124,13 +125,15 @@ export default function Page() {
       if (fid) {
         const data = await fetchDriveFiles(token, fid);
         if (data.files && data.files.length > 0) {
-          setBooks(data.files); // 클라우드 목록으로 갱신
+          setBooks(data.files);
         }
       }
+      // [Success] 성공 시에만 클라우드 모드(온라인)로 전환
       setIsOfflineMode(false);
       return true;
     } catch (err) { 
       console.log("Background library load skipped (Offline or Error)");
+      // [Fail] 실패 시 오프라인 모드 유지
       setIsOfflineMode(true);
       return false;
     }
@@ -140,10 +143,13 @@ export default function Page() {
   useEffect(() => {
     const handleOnline = async () => {
       console.log("Online detected.");
-      setIsOfflineMode(false);
+      // 단순 온라인 연결 감지로는 모드를 바꾸지 않고, 실제 토큰 체크 후 변경
       if (user && googleToken) {
-        loadLibraryBackground(googleToken).then((isOnline) => {
-            if(isOnline) syncLocalAndCloud(user.uid);
+        loadLibraryBackground(googleToken).then((isSuccess) => {
+            if(isSuccess) {
+              setIsOfflineMode(false);
+              syncLocalAndCloud(user.uid);
+            }
         });
       }
     };
@@ -162,52 +168,37 @@ export default function Page() {
 
   // [Main Init Logic]
   useEffect(() => {
-    // 1. [Super Fast Init] 컴포넌트 마운트 즉시 로컬 데이터부터 로드
-    // 인증(Auth)이 완료되기를 기다리지 않고 무조건 실행합니다.
+    // 1. [Start] 로컬 데이터 로드 (Local Library 상태로 시작)
     restoreLocalData();
 
-    // 2. Google Script Load
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true; script.defer = true;
     document.body.appendChild(script);
 
-    // 3. Auth Listener (나중에 천천히 실행됨)
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       
       if (u) {
         setIsGuest(false);
         
-        // 로그인 확인됨. 토큰 확인 및 백그라운드 작업 시작
         const recoveredToken = getStoredToken();
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
           
-          // 이미 로컬 데이터로 화면은 떠있음. 뒤에서 조용히 최신화
+          // 토큰이 있으면 백그라운드에서 드라이브 연결 시도
           loadLibraryBackground(recoveredToken).then((isSuccess) => {
             if (isSuccess) {
+              // 성공 시 Cloud Library로 자동 전환됨 (loadLibraryBackground 내부)
               syncLocalAndCloud(u.uid);
             }
           });
         } else {
-          // 토큰이 없는데 로컬 책도 없다면 로그인 화면으로
-          // (주의: restoreLocalData가 이미 실행되었으므로, books.length로 확인 가능하지만
-          // state update가 비동기라 여기서 직접 확인은 어려움. 
-          // 하지만 보통 토큰만 만료되고 로컬 책은 있는 경우가 많으므로 일단 Shelf 유지)
-          
-          // 만약 로컬 데이터도 없고 토큰도 없다면 Auth 화면으로 보내야 함
-          // restoreLocalData 내부에서 view를 shelf로 바꿨으므로,
-          // 여기서 강제로 auth로 보내는 건 신중해야 함.
-          // 로컬에 책이 있으면 -> Shelf (Guest처럼 보임) -> 유저가 갱신하면 됨
-          // 로컬에 책이 없으면 -> 여기서 view를 'auth'로 변경
+          // [Fix] 토큰이 없으면 확실하게 오프라인 모드(Local Library) 유지
+          setIsOfflineMode(true);
         }
         
-        // 로컬에 책이 아예 없었고, 토큰도 없어서 view가 여전히 loading이라면 -> Auth 화면 노출
-        // (restoreLocalData는 비동기라 타이밍 이슈가 있을 수 있으나, 
-        // 보통 로컬 DB조회가 Auth 체크보다 빠름)
-        
-        // Firebase 리스너 연결
+        // Firebase 리스너
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, async (snapshot) => {
           const p: Record<string, UserProgress> = {};
@@ -225,19 +216,14 @@ export default function Page() {
           });
           setProgress(p);
         });
+
         return () => { unsubProgress(); };
 
       } else {
-        // 비로그인 상태 (로그아웃 됨)
+        // 비로그인
         if (!isGuest) {
-          // 로컬 데이터 로드를 시도했는데 책이 없으면 -> 로그인 화면
-          // 책이 있으면 -> restoreLocalData가 이미 Shelf로 보냈음.
-          // 여기서 강제로 Auth로 보내버리면 "깜빡임"이 발생하거나 로컬 책을 못 봄.
-          
-          // 간단한 해결책: 0.5초 뒤에도 view가 loading이면 auth로 보냄 (타임아웃)
-          setTimeout(() => {
+           setTimeout(() => {
              setView(prev => {
-               // 로컬에 책이 있어서 'shelf'로 변했으면 건드리지 않음
                if (prev === 'shelf') return prev;
                return 'auth';
              });
@@ -246,7 +232,7 @@ export default function Page() {
       }
     });
     return () => unsubscribeAuth();
-  }, [isGuest]); // 의존성 배열 최소화
+  }, [isGuest]);
 
 
   const handleGuestMode = async () => {
@@ -292,8 +278,9 @@ export default function Page() {
           sessionStorage.removeItem('google_drive_token');
           storage.setItem('google_drive_token', res.access_token);
           storage.setItem('google_drive_token_expiry', expiryTime);
-          setIsOfflineMode(false); 
           
+          // [Fix] 연결 성공 시 즉시 모드 변경하지 않고 로드 함수에 위임하거나 여기서 변경
+          setIsOfflineMode(false); 
           loadLibraryBackground(res.access_token);
         } 
       },
