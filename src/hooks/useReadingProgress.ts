@@ -24,7 +24,10 @@ export const useReadingProgress = ({
   
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
   
-  const lastSaveTime = useRef<number>(Date.now());
+  // [Fix] lastSaveTime의 초기값을 Date.now()에서 0으로 변경.
+  // 이렇게 해야 앱 진입 후 아직 아무런 스크롤을 하지 않은 상태에서 뒤늦게 클라우드 동기화로 최신 데이터가 들어올 때,
+  // remoteTime이 앱을 켠 시간보다 과거여도 알림 팝업 로직을 정상적으로 통과하여 동기화 창을 띄웁니다.
+  const lastSaveTime = useRef<number>(0);
   const hasRestored = useRef<string | null>(null);
 
   // Helper: Get Preview Text
