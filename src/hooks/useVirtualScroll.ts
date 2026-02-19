@@ -3,6 +3,8 @@ import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react
 
 const BLOCK_SIZE = 15000; 
 const MAX_VISIBLE_BLOCKS = 4;
+// [Added] 블록당 가상 높이 추정치 (스크롤바 위치를 정상적으로 잡기 위함)
+const ESTIMATED_BLOCK_HEIGHT = 15000; 
 
 interface UseVirtualScrollProps {
   fullContentRef: React.MutableRefObject<string>;
@@ -33,7 +35,6 @@ export const useVirtualScroll = ({
 
   const prevStart = useRef(0);
 
-  // Helper: Get Visible Blocks
   const getVisibleBlocks = () => {
     const blocks = [];
     if (!fullContentRef.current) return [];
@@ -58,7 +59,8 @@ export const useVirtualScroll = ({
     const blockIdx = Math.floor(safeIdx / BLOCK_SIZE);
     const internalOffset = safeIdx % BLOCK_SIZE;
 
-    setPaddingTop(0);
+    // [Modified] 최상단으로 스크롤바가 쏠리는 현상을 막기 위해 추정 높이 적용
+    setPaddingTop(blockIdx * ESTIMATED_BLOCK_HEIGHT);
     blockHeights.current = {}; 
     setVisibleRange({ start: blockIdx, end: Math.min(blockIdx + 1, Math.floor(totalLen / BLOCK_SIZE)) });
     prevStart.current = blockIdx;
@@ -66,7 +68,7 @@ export const useVirtualScroll = ({
     setPendingJump({ blockIdx, internalOffset });
   }, [fullContentRef]);
 
-  // Layout Change Handler (Settings Change)
+  // Layout Change
   useLayoutEffect(() => {
     if (!isLoaded || !hasRestored) return;
 
@@ -81,7 +83,7 @@ export const useVirtualScroll = ({
     return () => clearTimeout(timer);
   }, layoutDeps); 
 
-  // Resize Event Handler
+  // Resize
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
     let lastWidth = window.innerWidth;
@@ -111,7 +113,7 @@ export const useVirtualScroll = ({
     };
   }, [isLoaded, hasRestored, currentIdx, jumpToIdx]);
 
-  // Jump Logic
+  // Execute Jump
   useEffect(() => {
     if (pendingJump) {
       const executeJump = () => {
@@ -120,7 +122,6 @@ export const useVirtualScroll = ({
 
         if (blockElem) {
           try {
-            // [Modified] 브라우저가 거대한 텍스트 노드를 여러 개로 분할하는 경우를 대비하여 TreeWalker 사용
             let targetNode: Node | null = null;
             let targetNodeOffset = 0;
             let currentOffset = 0;
@@ -159,7 +160,6 @@ export const useVirtualScroll = ({
         }
       };
 
-      // [Added] 웹 폰트 로딩 완료 및 DOM 렌더링 안정화 대기 후 위치 계산 (레이아웃 시프트 방지)
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(() => {
           requestAnimationFrame(executeJump);
@@ -179,6 +179,7 @@ export const useVirtualScroll = ({
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
 
+      // 1. Scrolling Down
       if (totalH - (scrolled + vh) < 1500) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContentRef.current.length) {
           setVisibleRange(prev => {
@@ -197,22 +198,16 @@ export const useVirtualScroll = ({
         }
       }
 
+      // 2. Scrolling Up (여백 처리 분리)
       if (scrolled - paddingTop < 800 && visibleRange.start > 0) {
         setVisibleRange(prev => {
           const newStart = prev.start - 1;
-          const h = blockHeights.current[newStart];
-
-          if (h && paddingTop >= h) {
-            setPaddingTop(pt => pt - h);
-            const newEnd = (prev.end - newStart + 1 > MAX_VISIBLE_BLOCKS) ? prev.end - 1 : prev.end;
-            return { start: newStart, end: newEnd };
-          } 
-          
           const newEnd = (prev.end - newStart + 1 > MAX_VISIBLE_BLOCKS) ? prev.end - 1 : prev.end;
           return { start: newStart, end: newEnd };
         });
       }
 
+      // Progress Calculation
       const firstVisibleBlock = blockRefs.current[visibleRange.start];
       if (firstVisibleBlock) {
         const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
@@ -227,17 +222,36 @@ export const useVirtualScroll = ({
     return () => window.removeEventListener('scroll', handleScroll);
   }, [isLoaded, visibleRange, paddingTop, onScrollProgress, hasRestored, fullContentRef]);
 
-  // Scroll Anchoring
+  // [Modified] Scroll Anchoring (이전 블록 로드 시 화면 떨림/튕김 완벽 제어)
   useLayoutEffect(() => {
     if (visibleRange.start < prevStart.current) {
       const addedBlockIdx = visibleRange.start;
       const addedBlock = blockRefs.current[addedBlockIdx];
       
       if (addedBlock) {
-        const storedH = blockHeights.current[addedBlockIdx];
-        if (!storedH) {
-           window.scrollBy(0, addedBlock.offsetHeight);
-        }
+        const h = addedBlock.offsetHeight;
+        blockHeights.current[addedBlockIdx] = h;
+        
+        // 새로 추가된 블록의 실제 높이만큼 paddingTop을 정확히 깎아냄 (Layout Shift 무효화)
+        setPaddingTop(prev => {
+          if (prev >= h) {
+            return prev - h;
+          } else {
+            // paddingTop이 부족할 경우(가상 추정치 오차)에만 강제로 위치 재조정
+            const diff = h - prev;
+            const originalStyle = document.documentElement.style.scrollBehavior;
+            document.documentElement.style.scrollBehavior = 'auto'; // 스무스 스크롤 임시 해제
+            document.body.style.overflowAnchor = 'none'; // 브라우저 자동 앵커링 충돌 방지
+            
+            window.scrollBy({ top: diff, behavior: 'instant' });
+            
+            setTimeout(() => {
+              document.documentElement.style.scrollBehavior = originalStyle || '';
+              document.body.style.overflowAnchor = '';
+            }, 50);
+            return 0;
+          }
+        });
       }
     }
     prevStart.current = visibleRange.start;
