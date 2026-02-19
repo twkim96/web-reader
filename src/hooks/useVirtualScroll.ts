@@ -10,7 +10,7 @@ interface UseVirtualScrollProps {
   hasRestored: boolean; 
   currentIdx: number; 
   onScrollProgress: (idx: number, percent: number) => void;
-  layoutDeps?: any[]; // [Added] 레이아웃 변경을 유발하는 의존성 배열
+  layoutDeps?: any[];
 }
 
 export const useVirtualScroll = ({ 
@@ -19,7 +19,7 @@ export const useVirtualScroll = ({
   hasRestored,
   currentIdx,
   onScrollProgress,
-  layoutDeps = [] // [Added] 기본값 빈 배열
+  layoutDeps = []
 }: UseVirtualScrollProps) => {
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
   const [paddingTop, setPaddingTop] = useState(0);
@@ -66,34 +66,33 @@ export const useVirtualScroll = ({
     setPendingJump({ blockIdx, internalOffset });
   }, [fullContentRef]);
 
-  // [Added] Layout Change Handler (Settings Change)
-  // 폰트 크기, 줄 간격 등이 바뀌면 즉시 현재 위치로 재정렬합니다.
+  // Layout Change Handler (Settings Change)
   useLayoutEffect(() => {
     if (!isLoaded || !hasRestored) return;
 
-    // 1. 레이아웃 변경 중 스크롤 이벤트 차단
     isResizing.current = true;
-    
-    // 2. 높이 캐시 초기화
     blockHeights.current = {};
-
-    // 3. 현재 위치로 강제 이동 (Re-anchor)
     jumpToIdx(currentIdx);
 
-    // 4. 짧은 지연 후 차단 해제 (jumpToIdx의 비동기 처리 고려)
     const timer = setTimeout(() => {
       isResizing.current = false;
     }, 100);
 
     return () => clearTimeout(timer);
-  }, layoutDeps); // 의존성 배열(settings 값들)이 변할 때 실행
+  }, layoutDeps); 
 
   // Resize Event Handler
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
+    let lastWidth = window.innerWidth;
 
     const handleResize = () => {
       if (!isLoaded || !hasRestored) return;
+
+      if (window.innerWidth === lastWidth) {
+        return;
+      }
+      lastWidth = window.innerWidth;
 
       isResizing.current = true;
 
@@ -115,29 +114,58 @@ export const useVirtualScroll = ({
   // Jump Logic
   useEffect(() => {
     if (pendingJump) {
-      const { blockIdx, internalOffset } = pendingJump;
-      const blockElem = blockRefs.current[blockIdx];
+      const executeJump = () => {
+        const { blockIdx, internalOffset } = pendingJump;
+        const blockElem = blockRefs.current[blockIdx];
 
-      if (blockElem && blockElem.firstChild) {
-        const textNode = blockElem.firstChild;
-        try {
-          if (textNode.nodeType === Node.TEXT_NODE) {
-            const range = document.createRange();
-            const offset = Math.min(internalOffset, textNode.textContent?.length || 0);
-            range.setStart(textNode, offset);
-            range.setEnd(textNode, offset);
-            const rect = range.getBoundingClientRect();
+        if (blockElem) {
+          try {
+            // [Modified] 브라우저가 거대한 텍스트 노드를 여러 개로 분할하는 경우를 대비하여 TreeWalker 사용
+            let targetNode: Node | null = null;
+            let targetNodeOffset = 0;
+            let currentOffset = 0;
             
-            const scrollTop = window.scrollY + rect.top - 80; 
-            window.scrollTo({ top: scrollTop, behavior: 'instant' });
-          } else {
-             window.scrollTo({ top: blockElem.offsetTop - 80, behavior: 'instant' });
+            const walk = document.createTreeWalker(blockElem, NodeFilter.SHOW_TEXT, null);
+            let node = walk.nextNode();
+            
+            while (node) {
+              const len = node.nodeValue?.length || 0;
+              if (currentOffset + len >= internalOffset) {
+                targetNode = node;
+                targetNodeOffset = internalOffset - currentOffset;
+                break;
+              }
+              currentOffset += len;
+              node = walk.nextNode();
+            }
+
+            if (targetNode) {
+              const range = document.createRange();
+              range.setStart(targetNode, targetNodeOffset);
+              range.setEnd(targetNode, targetNodeOffset);
+              const rect = range.getBoundingClientRect();
+              
+              const scrollTop = window.scrollY + rect.top - 80; 
+              window.scrollTo({ top: scrollTop, behavior: 'instant' });
+            } else {
+               window.scrollTo({ top: blockElem.offsetTop - 80, behavior: 'instant' });
+            }
+          } catch (e) {
+            console.error("Jump Error", e);
+            window.scrollTo({ top: blockElem.offsetTop - 80, behavior: 'instant' });
           }
-        } catch (e) {
-          console.error("Jump Error", e);
+          setPendingJump(null);
+          setTimeout(() => { isJumping.current = false; }, 100);
         }
-        setPendingJump(null);
-        setTimeout(() => { isJumping.current = false; }, 100);
+      };
+
+      // [Added] 웹 폰트 로딩 완료 및 DOM 렌더링 안정화 대기 후 위치 계산 (레이아웃 시프트 방지)
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+          requestAnimationFrame(executeJump);
+        });
+      } else {
+        requestAnimationFrame(executeJump);
       }
     }
   }, [pendingJump, visibleRange]);
@@ -151,7 +179,6 @@ export const useVirtualScroll = ({
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
 
-      // 1. Scrolling Down
       if (totalH - (scrolled + vh) < 1500) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContentRef.current.length) {
           setVisibleRange(prev => {
@@ -170,7 +197,6 @@ export const useVirtualScroll = ({
         }
       }
 
-      // 2. Scrolling Up
       if (scrolled - paddingTop < 800 && visibleRange.start > 0) {
         setVisibleRange(prev => {
           const newStart = prev.start - 1;
@@ -187,7 +213,6 @@ export const useVirtualScroll = ({
         });
       }
 
-      // Progress Calculation
       const firstVisibleBlock = blockRefs.current[visibleRange.start];
       if (firstVisibleBlock) {
         const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
