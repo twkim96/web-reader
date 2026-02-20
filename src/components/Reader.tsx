@@ -183,22 +183,14 @@ export const Reader: React.FC<ReaderProps> = ({
 
       if (scrollStep <= 0) return;
 
-      // ✅ 핵심 수정: paddingTop을 기준점으로 삼아 스냅 계산
+      // ✅ 스냅 없이 정확히 scrollStep만큼만 이동.
       //
-      // 텍스트의 실제 줄 경계는 paddingTop을 기준으로 배열됨:
-      //   줄 N의 document 위치 = paddingTop + N * exactLineHeight
-      //   → scrollY가 paddingTop의 배수 + N*exactLineHeight 일 때 줄이 정확히 맞음
+      // 스냅(Math.round)을 사용하면 navHeight가 exactLineHeight의 배수가 아닐 때
+      // 그리드 기준점이 어긋나 1줄 중복이 발생한다.
       //
-      // 기존 코드의 문제:
-      //   Math.round(scrollY / exactLineHeight) * exactLineHeight
-      //   → paddingTop을 무시하고 0 기준으로 스냅 → 블록 전환 후 어긋남
-      //
-      // 수정 후:
-      //   paddingTop을 빼서 상대 위치 계산 → 스냅 → paddingTop 다시 더함
-      const relativeY = window.scrollY - paddingTop;
-      const alignedRelativeY = Math.round(relativeY / exactLineHeight) * exactLineHeight;
-      const currentAlignedY = alignedRelativeY + paddingTop;
-      const targetScrollY = currentAlignedY + (dir * scrollStep);
+      // jumpToIdx가 이미 줄 경계에 정확히 위치를 잡아주고,
+      // 이후 탭은 scrollStep의 배수로만 이동하므로 항상 줄 단위 정렬이 유지된다.
+      const targetScrollY = window.scrollY + dir * scrollStep;
 
       window.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'instant' });
     };
