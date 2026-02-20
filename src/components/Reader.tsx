@@ -28,8 +28,10 @@ export const Reader: React.FC<ReaderProps> = ({
 }) => {
   const { isLoaded, fullContent } = useBookLoader(book, googleToken, settings, onBack);
 
+  // 소수점 오차를 원천 차단하는 강제 정수 계산
   const exactLineHeight = Math.round(settings.fontSize * settings.lineHeight);
 
+  // 동적 화면 수치 측정 (모바일 접근성 및 스크롤 바운스 완벽 대응)
   const navRef = useRef<HTMLElement>(null);
   const [navHeight, setNavHeight] = useState(64);
   const [layoutMetrics, setLayoutMetrics] = useState({ maskHeight: 0, vh: 0 });
@@ -181,15 +183,24 @@ export const Reader: React.FC<ReaderProps> = ({
 
       if (scrollStep <= 0) return;
 
-      // [버그 수정됨] 클로드의 지적 반영
-      // 텍스트의 실제 시작점인 paddingTop을 기준으로 상대 Y좌표를 구한 뒤 스냅
+      // ✅ 핵심 수정: paddingTop을 기준점으로 삼아 스냅 계산
+      //
+      // 텍스트의 실제 줄 경계는 paddingTop을 기준으로 배열됨:
+      //   줄 N의 document 위치 = paddingTop + N * exactLineHeight
+      //   → scrollY가 paddingTop의 배수 + N*exactLineHeight 일 때 줄이 정확히 맞음
+      //
+      // 기존 코드의 문제:
+      //   Math.round(scrollY / exactLineHeight) * exactLineHeight
+      //   → paddingTop을 무시하고 0 기준으로 스냅 → 블록 전환 후 어긋남
+      //
+      // 수정 후:
+      //   paddingTop을 빼서 상대 위치 계산 → 스냅 → paddingTop 다시 더함
       const relativeY = window.scrollY - paddingTop;
       const alignedRelativeY = Math.round(relativeY / exactLineHeight) * exactLineHeight;
       const currentAlignedY = alignedRelativeY + paddingTop;
-
       const targetScrollY = currentAlignedY + (dir * scrollStep);
 
-      window.scrollTo({ top: targetScrollY, behavior: 'instant' });
+      window.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'instant' });
     };
 
     if (settings.navMode !== 'scroll') {
@@ -338,6 +349,7 @@ export const Reader: React.FC<ReaderProps> = ({
       {/* Main Reader View */}
       <main onClick={handleInteraction} className="min-h-screen relative pb-96" style={{ paddingTop: `${navHeight}px`, paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
+        {/* CSS 렌더링을 소수점 오차 없도록 exactLineHeight 강제 주입 */}
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: `${exactLineHeight}px` }}>
           {getVisibleBlocks().map(block => (
             <div key={`${book.id}-${block.index}`} ref={el => { blockRefs.current[block.index] = el; }}>{block.text}</div>
