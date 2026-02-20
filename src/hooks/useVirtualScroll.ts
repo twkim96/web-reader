@@ -96,16 +96,13 @@ export const useVirtualScroll = ({
       const rects = Array.from(range.getClientRects());
 
       for (const rect of rects) {
-        // rect.bottom이 뷰포트 하단(window.innerHeight)을 벗어난 첫 번째 줄
-        // = 현재 화면에서 잘리는 줄 = 다음 페이지 첫 줄
-        if (rect.top < window.innerHeight && rect.bottom > window.innerHeight - 1) {
-          // 이 줄이 뷰포트 하단에 걸쳐 있음 (잘림 발생)
-          // → 이 줄의 절대 top을 다음 페이지 시작점으로 사용
-          nextPageTop = window.scrollY + rect.top - NAV_HEIGHT;
-          break outer;
-        }
-        if (rect.top >= window.innerHeight) {
-          // 이미 완전히 화면 밖인 줄이 나타났으면 바로 직전 줄이 경계
+        // rect.bottom이 뷰포트 하단을 엄격하게(strictly) 초과한 첫 번째 줄
+        // = 완전히 보이지 않는 줄 = 다음 페이지 첫 줄
+        //
+        // ※ 중복 방지 핵심: "> window.innerHeight" (등호 없음)
+        //   rect.bottom === window.innerHeight 인 줄은 완전히 보이므로
+        //   현재 페이지에 포함시키고 다음 페이지로 넘기지 않는다.
+        if (rect.bottom > window.innerHeight) {
           nextPageTop = window.scrollY + rect.top - NAV_HEIGHT;
           break outer;
         }
