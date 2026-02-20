@@ -34,6 +34,7 @@ export const useVirtualScroll = ({
   const [pendingJump, setPendingJump] = useState<{ blockIdx: number, internalOffset: number } | null>(null);
 
   const prevStart = useRef(0);
+  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const getVisibleBlocks = () => {
     const blocks = [];
@@ -59,7 +60,6 @@ export const useVirtualScroll = ({
     const blockIdx = Math.floor(safeIdx / BLOCK_SIZE);
     const internalOffset = safeIdx % BLOCK_SIZE;
 
-    // [Modified] 최상단으로 스크롤바가 쏠리는 현상을 막기 위해 추정 높이 적용
     setPaddingTop(blockIdx * ESTIMATED_BLOCK_HEIGHT);
     blockHeights.current = {}; 
     setVisibleRange({ start: blockIdx, end: Math.min(blockIdx + 1, Math.floor(totalLen / BLOCK_SIZE)) });
@@ -170,6 +170,57 @@ export const useVirtualScroll = ({
     }
   }, [pendingJump, visibleRange]);
 
+  // 화면 최상단(y:80 부근)의 텍스트 노드 Index를 이진 탐색으로 추출
+  const getExactVisibleIndex = useCallback(() => {
+    if (!fullContentRef.current) return null;
+    
+    // 블록 걸침 현상을 대비해 최상단 2개 블록 탐색
+    const blocksToCheck = [visibleRange.start, visibleRange.start + 1];
+
+    for (const blockIdx of blocksToCheck) {
+      const blockElem = blockRefs.current[blockIdx];
+      if (!blockElem) continue;
+
+      const targetViewportY = 80; // 상단 Nav 바 영역(약 64px) + 여백
+      const textNode = blockElem.firstChild;
+      
+      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
+
+      const blockRect = blockElem.getBoundingClientRect();
+      if (blockRect.bottom < targetViewportY) {
+        continue; // 이 블록은 이미 스크롤로 지나쳐 화면 밖에 있음
+      }
+
+      let low = 0;
+      let high = textNode.nodeValue?.length || 0;
+      let bestOffset = -1;
+      const range = document.createRange();
+
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        try {
+          range.setStart(textNode, mid);
+          range.setEnd(textNode, mid);
+          const rect = range.getBoundingClientRect();
+          
+          if (rect.top >= targetViewportY) {
+            bestOffset = mid;
+            high = mid - 1; // 목표점 아래에 있으므로 더 앞쪽 글자를 탐색
+          } else {
+            low = mid + 1; // 목표점보다 위에 가려져 있으므로 뒤쪽 글자를 탐색
+          }
+        } catch (e) {
+          break;
+        }
+      }
+      
+      if (bestOffset !== -1) {
+        return (blockIdx * BLOCK_SIZE) + bestOffset;
+      }
+    }
+    return null;
+  }, [visibleRange.start, fullContentRef]);
+
   // Scroll Handler
   useEffect(() => {
     const handleScroll = () => {
@@ -179,7 +230,7 @@ export const useVirtualScroll = ({
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
 
-      // 1. Scrolling Down
+      // 1. Scrolling Down (블록 렌더링 즉시 처리)
       if (totalH - (scrolled + vh) < 1500) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContentRef.current.length) {
           setVisibleRange(prev => {
@@ -198,7 +249,7 @@ export const useVirtualScroll = ({
         }
       }
 
-      // 2. Scrolling Up (여백 처리 분리)
+      // 2. Scrolling Up (블록 해제 즉시 처리)
       if (scrolled - paddingTop < 800 && visibleRange.start > 0) {
         setVisibleRange(prev => {
           const newStart = prev.start - 1;
@@ -207,22 +258,34 @@ export const useVirtualScroll = ({
         });
       }
 
-      // Progress Calculation
-      const firstVisibleBlock = blockRefs.current[visibleRange.start];
-      if (firstVisibleBlock) {
-        const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
-        const absoluteIdx = Math.floor((visibleRange.start + blockProgress) * BLOCK_SIZE);
+      // 3. Progress Calculation (성능을 위해 150ms 디바운스 처리 후 정확한 DOM 측정)
+      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+      scrollTimeout.current = setTimeout(() => {
         const totalSize = fullContentRef.current.length || 1;
-        
-        onScrollProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100);
-      }
+        const exactIdx = getExactVisibleIndex();
+
+        if (exactIdx !== null) {
+          onScrollProgress(Math.min(exactIdx, totalSize), (exactIdx / totalSize) * 100);
+        } else {
+          // 예외적으로 스캔 실패 시 기존의 비율 추정식으로 Fallback
+          const firstVisibleBlock = blockRefs.current[visibleRange.start];
+          if (firstVisibleBlock) {
+            const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
+            const absoluteIdx = Math.floor((visibleRange.start + blockProgress) * BLOCK_SIZE);
+            onScrollProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100);
+          }
+        }
+      }, 150);
     };
     
     window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [isLoaded, visibleRange, paddingTop, onScrollProgress, hasRestored, fullContentRef]);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
+    };
+  }, [isLoaded, visibleRange, paddingTop, onScrollProgress, hasRestored, fullContentRef, getExactVisibleIndex]);
 
-  // [Modified] Scroll Anchoring (이전 블록 로드 시 화면 떨림/튕김 완벽 제어)
+  // Scroll Anchoring (이전 블록 로드 시 화면 떨림/튕김 완벽 제어)
   useLayoutEffect(() => {
     if (visibleRange.start < prevStart.current) {
       const addedBlockIdx = visibleRange.start;
@@ -232,16 +295,14 @@ export const useVirtualScroll = ({
         const h = addedBlock.offsetHeight;
         blockHeights.current[addedBlockIdx] = h;
         
-        // 새로 추가된 블록의 실제 높이만큼 paddingTop을 정확히 깎아냄 (Layout Shift 무효화)
         setPaddingTop(prev => {
           if (prev >= h) {
             return prev - h;
           } else {
-            // paddingTop이 부족할 경우(가상 추정치 오차)에만 강제로 위치 재조정
             const diff = h - prev;
             const originalStyle = document.documentElement.style.scrollBehavior;
-            document.documentElement.style.scrollBehavior = 'auto'; // 스무스 스크롤 임시 해제
-            document.body.style.overflowAnchor = 'none'; // 브라우저 자동 앵커링 충돌 방지
+            document.documentElement.style.scrollBehavior = 'auto'; 
+            document.body.style.overflowAnchor = 'none'; 
             
             window.scrollBy({ top: diff, behavior: 'instant' });
             

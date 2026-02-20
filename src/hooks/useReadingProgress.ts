@@ -24,8 +24,6 @@ export const useReadingProgress = ({
   
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
   
-  // [Fix] 초기값을 로컬에서 넘겨받은 데이터의 기록 시간으로 설정합니다.
-  // 데이터가 아예 없다면 0으로 설정하여, 이후 동기화 시 알림을 띄우게 합니다.
   const initialTime = initialProgress && initialProgress.lastRead
     ? (initialProgress.lastRead.toMillis ? initialProgress.lastRead.toMillis() : new Date(initialProgress.lastRead).getTime())
     : 0;
@@ -36,8 +34,9 @@ export const useReadingProgress = ({
   // Helper: Get Preview Text
   const getPreviewText = useCallback((idx: number) => {
     if (!fullContentRef.current) return "";
-    const start = Math.max(0, idx - 30);
-    const end = Math.min(fullContentRef.current.length, idx + 100);
+    // [Modified] 인덱스를 화면의 완벽한 첫 줄로 스캔하므로, 캡처 또한 이전 내용 없이 idx부터 정확히 시작합니다.
+    const start = idx;
+    const end = Math.min(fullContentRef.current.length, idx + 80);
     return fullContentRef.current.substring(start, end).replace(/\n/g, ' ').trim();
   }, [fullContentRef]);
 
@@ -53,11 +52,10 @@ export const useReadingProgress = ({
     existingAuto.sort((a, b) => b.createdAt - a.createdAt);
 
     // 3. 최신 1개만 남김 (새로 하나가 추가되면 총 2개가 됨)
-    // 기존이 0개면 [], 1개면 [1], 2개면 [최신]
     const survivors = existingAuto.slice(0, 1);
 
     const newAutoMark: Bookmark = {
-      id: crypto.randomUUID(), // 고유 ID 부여
+      id: crypto.randomUUID(),
       type: 'auto',
       name: getPreviewText(originIndex),
       charIndex: originIndex,
@@ -65,7 +63,7 @@ export const useReadingProgress = ({
       color: 'bg-slate-500'
     };
 
-    // 4. [새것, 살아남은것(최대1개), 수동...] 순서로 병합
+    // 4. 병합
     return [newAutoMark, ...survivors, ...manualBookmarks];
   }, [bookmarks, getPreviewText]);
 

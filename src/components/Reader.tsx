@@ -47,7 +47,6 @@ export const Reader: React.FC<ReaderProps> = ({
     isLoaded, 
     hasRestored: hasRestored.current === book.id,
     currentIdx,
-    // [Added] 레이아웃에 영향을 주는 설정값들을 전달하여 변경 시 위치 재보정
     layoutDeps: [
       settings.fontSize, 
       settings.lineHeight, 
@@ -81,6 +80,30 @@ export const Reader: React.FC<ReaderProps> = ({
   const [jumpInput, setJumpInput] = useState("");
   const preSlideProgress = useRef({ percent: 0, index: 0 });
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
+
+  // [Added] 정확한 줄 맞춤 및 하단 잘림 방지를 위한 레이아웃 수치 상태
+  const [layoutMetrics, setLayoutMetrics] = useState({ maskHeight: 0, linesPerScreen: 0, oneLineHeight: 0 });
+
+  useEffect(() => {
+    const updateMetrics = () => {
+      const oneLineHeight = settings.fontSize * settings.lineHeight;
+      const topNavHeight = 64; // h-16 (16 * 4px)
+      const availableHeight = window.innerHeight - topNavHeight;
+      
+      const lines = Math.floor(availableHeight / oneLineHeight);
+      const remainder = availableHeight % oneLineHeight;
+
+      setLayoutMetrics({
+        maskHeight: remainder,
+        linesPerScreen: lines,
+        oneLineHeight: oneLineHeight
+      });
+    };
+
+    updateMetrics();
+    window.addEventListener('resize', updateMetrics);
+    return () => window.removeEventListener('resize', updateMetrics);
+  }, [settings.fontSize, settings.lineHeight]);
 
   // --- History & Back Button Handling ---
 
@@ -156,18 +179,17 @@ export const Reader: React.FC<ReaderProps> = ({
     const w = window.innerWidth;
     const h = window.innerHeight;
     
-    // [Modified] 정확한 줄 단위 이동을 위한 계산
-    const oneLineHeight = settings.fontSize * settings.lineHeight;
-    const linesPerScreen = Math.floor(h / oneLineHeight);
+    // [Modified] 마스킹 영역과 계산된 라인 수를 기반으로 오차 없는 정확한 픽셀 이동 적용
+    const { oneLineHeight, linesPerScreen } = layoutMetrics;
     const scrollStep = linesPerScreen * oneLineHeight; 
 
-    // [Modified] 이동 시 그리드 스냅 적용
     const move = (dir: number) => { 
+      if (scrollStep <= 0) return;
+
       const currentScrollY = window.scrollY;
       const targetScrollY = currentScrollY + (dir * scrollStep);
       
-      // 타겟 위치를 줄 높이의 정수배로 반올림 (스냅)
-      // 이렇게 하면 수동 스크롤로 인해 어긋난 위치가 탭 이동 시 깔끔하게 보정됨
+      // 탑 네비게이션 높이 오차를 없애고 무조건 한 줄의 정수배에 스냅하도록 보정
       const snappedY = Math.round(targetScrollY / oneLineHeight) * oneLineHeight;
       
       window.scrollTo({ top: snappedY, behavior: 'instant' }); 
@@ -365,15 +387,15 @@ export const Reader: React.FC<ReaderProps> = ({
         />
       )}
 
-      {/* Top Navbar */}
+      {/* Top Navbar (h-16 = 64px) */}
       <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
         <button onClick={handleUIBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
 
-      {/* Main Reader View */}
-      <main onClick={handleInteraction} className="min-h-screen pt-12 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
+      {/* Main Reader View (pt-16 적용하여 Nav bar 공간 확보) */}
+      <main onClick={handleInteraction} className="min-h-screen pt-16 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight }}>
           {getVisibleBlocks().map(block => (
@@ -382,7 +404,15 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       </main>
 
-      {/* Bottom Controls */}
+      {/* [Added] 하단 글자 반쯤 짤림 방지용 가림막 (Mask) */}
+      {layoutMetrics.maskHeight > 0 && (
+        <div 
+          className={`fixed bottom-0 inset-x-0 ${theme.bg} z-40 pointer-events-none transition-colors duration-300`} 
+          style={{ height: `${layoutMetrics.maskHeight}px` }} 
+        />
+      )}
+
+      {/* Bottom Controls (z-50으로 Mask 위로 올라옴) */}
       <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
         <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <span className="text-[10px] font-black text-white tracking-widest font-sans">
