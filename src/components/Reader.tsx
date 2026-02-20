@@ -41,7 +41,8 @@ export const Reader: React.FC<ReaderProps> = ({
 
   // 3. Virtual Scroll
   const { 
-    paddingTop, blockRefs, getVisibleBlocks, jumpToIdx, isJumping 
+    paddingTop, blockRefs, getVisibleBlocks, jumpToIdx, isJumping,
+    goNextPage, goPrevPage  // [Added]
   } = useVirtualScroll({ 
     fullContentRef: fullContent, 
     isLoaded, 
@@ -155,22 +156,16 @@ export const Reader: React.FC<ReaderProps> = ({
     const { clientX, clientY } = e;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    
-    // [Modified] 정확한 줄 단위 이동을 위한 계산
-    const oneLineHeight = settings.fontSize * settings.lineHeight;
-    const linesPerScreen = Math.floor(h / oneLineHeight);
-    const scrollStep = linesPerScreen * oneLineHeight; 
 
-    // [Modified] 이동 시 그리드 스냅 적용
-    const move = (dir: number) => { 
-      const currentScrollY = window.scrollY;
-      const targetScrollY = currentScrollY + (dir * scrollStep);
-      
-      // 타겟 위치를 줄 높이의 정수배로 반올림 (스냅)
-      // 이렇게 하면 수동 스크롤로 인해 어긋난 위치가 탭 이동 시 깔끔하게 보정됨
-      const snappedY = Math.round(targetScrollY / oneLineHeight) * oneLineHeight;
-      
-      window.scrollTo({ top: snappedY, behavior: 'instant' }); 
+    // [Modified] 픽셀 기반 이동을 제거하고 DOM 실측 기반 goNextPage/goPrevPage 사용.
+    // 이로써 글자 잘림이 사라지고 탭 이동 시 중복/건너뜀 없이 정확하게 연속 독서 가능.
+    const move = (dir: number) => {
+      if (isJumping.current) return;
+      if (dir > 0) {
+        goNextPage();
+      } else {
+        goPrevPage();
+      }
     };
 
     if (settings.navMode !== 'scroll') {

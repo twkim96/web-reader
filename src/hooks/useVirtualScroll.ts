@@ -36,6 +36,9 @@ export const useVirtualScroll = ({
   const prevStart = useRef(0);
   const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
 
+  // [Added] 탭 이동 히스토리 스택 (이전 페이지 복귀용)
+  const pageHistory = useRef<number[]>([]);
+
   const getVisibleBlocks = () => {
     const blocks = [];
     if (!fullContentRef.current) return [];
@@ -67,6 +70,66 @@ export const useVirtualScroll = ({
 
     setPendingJump({ blockIdx, internalOffset });
   }, [fullContentRef]);
+
+  // [Added] 다음 페이지 이동:
+  // 현재 뷰포트에서 완전히 보이는 마지막 줄의 바로 다음 줄 top으로 이동.
+  // 잘리는 줄은 다음 페이지 첫 줄이 되어 글자가 잘리지 않는다.
+  const goNextPage = useCallback(() => {
+    const NAV_HEIGHT = 64; // 상단 네비게이션 높이 (px)
+
+    let nextPageTop: number | null = null;
+
+    // 현재 렌더링된 블록 인덱스를 순서대로 순회
+    const blockIndices = Object.keys(blockRefs.current)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    outer:
+    for (const idx of blockIndices) {
+      const blockElem = blockRefs.current[idx];
+      if (!blockElem) continue;
+
+      // Range.getClientRects()로 실제 렌더링된 줄별 rect 수집
+      // (whitespace-pre-wrap, 폰트, 패딩 등 모두 반영된 실측값)
+      const range = document.createRange();
+      range.selectNodeContents(blockElem);
+      const rects = Array.from(range.getClientRects());
+
+      for (const rect of rects) {
+        // rect.bottom이 뷰포트 하단(window.innerHeight)을 벗어난 첫 번째 줄
+        // = 현재 화면에서 잘리는 줄 = 다음 페이지 첫 줄
+        if (rect.top < window.innerHeight && rect.bottom > window.innerHeight - 1) {
+          // 이 줄이 뷰포트 하단에 걸쳐 있음 (잘림 발생)
+          // → 이 줄의 절대 top을 다음 페이지 시작점으로 사용
+          nextPageTop = window.scrollY + rect.top - NAV_HEIGHT;
+          break outer;
+        }
+        if (rect.top >= window.innerHeight) {
+          // 이미 완전히 화면 밖인 줄이 나타났으면 바로 직전 줄이 경계
+          nextPageTop = window.scrollY + rect.top - NAV_HEIGHT;
+          break outer;
+        }
+      }
+    }
+
+    // 찾지 못한 경우 기존 방식 fallback
+    const targetScrollTop = nextPageTop ?? (window.scrollY + window.innerHeight - NAV_HEIGHT);
+
+    // 현재 위치를 히스토리 스택에 저장 (이전 페이지 복귀용)
+    pageHistory.current.push(window.scrollY);
+
+    window.scrollTo({ top: targetScrollTop, behavior: 'instant' });
+  }, [blockRefs]);
+
+  // [Added] 이전 페이지 복귀:
+  // pageHistory 스택에서 이전 scrollY를 꺼내 복원.
+  // 중복/건너뜀 없이 정확한 이전 페이지 시작점으로 돌아간다.
+  const goPrevPage = useCallback(() => {
+    const prevTop = pageHistory.current.pop();
+    if (prevTop !== undefined) {
+      window.scrollTo({ top: prevTop, behavior: 'instant' });
+    }
+  }, []);
 
   // Layout Change
   useLayoutEffect(() => {
@@ -324,6 +387,8 @@ export const useVirtualScroll = ({
     blockRefs,
     getVisibleBlocks,
     jumpToIdx,
-    isJumping
+    isJumping,
+    goNextPage,   // [Added]
+    goPrevPage,   // [Added]
   };
 };
