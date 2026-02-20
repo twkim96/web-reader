@@ -4,13 +4,13 @@ import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react
 const BLOCK_SIZE = 15000; 
 const MAX_VISIBLE_BLOCKS = 4;
 const ESTIMATED_BLOCK_HEIGHT = 15000; 
-const TOP_NAV_HEIGHT = 64; // 고정된 오프셋
 
 interface UseVirtualScrollProps {
   fullContentRef: React.MutableRefObject<string>;
   isLoaded: boolean;
   hasRestored: boolean; 
-  currentIdx: number; 
+  currentIdx: number;
+  topNavHeight: number; // [Added] 동적 Nav 높이 수신
   onScrollProgress: (idx: number, percent: number) => void;
   layoutDeps?: any[];
 }
@@ -20,6 +20,7 @@ export const useVirtualScroll = ({
   isLoaded, 
   hasRestored,
   currentIdx,
+  topNavHeight, 
   onScrollProgress,
   layoutDeps = []
 }: UseVirtualScrollProps) => {
@@ -146,14 +147,14 @@ export const useVirtualScroll = ({
               range.setEnd(targetNode, targetNodeOffset);
               const rect = range.getBoundingClientRect();
               
-              const scrollTop = window.scrollY + rect.top - TOP_NAV_HEIGHT; 
+              const scrollTop = window.scrollY + rect.top - topNavHeight; 
               window.scrollTo({ top: scrollTop, behavior: 'instant' });
             } else {
-               window.scrollTo({ top: blockElem.offsetTop - TOP_NAV_HEIGHT, behavior: 'instant' });
+               window.scrollTo({ top: blockElem.offsetTop - topNavHeight, behavior: 'instant' });
             }
           } catch (e) {
             console.error("Jump Error", e);
-            window.scrollTo({ top: blockElem.offsetTop - TOP_NAV_HEIGHT, behavior: 'instant' });
+            window.scrollTo({ top: blockElem.offsetTop - topNavHeight, behavior: 'instant' });
           }
           setPendingJump(null);
           setTimeout(() => { isJumping.current = false; }, 100);
@@ -168,7 +169,7 @@ export const useVirtualScroll = ({
         requestAnimationFrame(executeJump);
       }
     }
-  }, [pendingJump, visibleRange]);
+  }, [pendingJump, visibleRange, topNavHeight]);
 
   const getExactVisibleIndex = useCallback(() => {
     if (!fullContentRef.current) return null;
@@ -179,8 +180,8 @@ export const useVirtualScroll = ({
       const blockElem = blockRefs.current[blockIdx];
       if (!blockElem) continue;
 
-      // [Fix] 화면 최상단의 기준점을 변형 없는 고정 픽셀(64px)로 설정
-      const targetViewportY = TOP_NAV_HEIGHT; 
+      // 동적으로 측정된 Nav 바 높이를 탐색 기준으로 사용
+      const targetViewportY = topNavHeight; 
       const textNode = blockElem.firstChild;
       
       if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
@@ -218,7 +219,7 @@ export const useVirtualScroll = ({
       }
     }
     return null;
-  }, [visibleRange.start, fullContentRef]);
+  }, [visibleRange.start, fullContentRef, topNavHeight]);
 
   // Scroll Handler
   useEffect(() => {

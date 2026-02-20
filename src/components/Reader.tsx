@@ -13,8 +13,6 @@ import { useBookLoader } from '../hooks/useBookLoader';
 import { useReadingProgress } from '../hooks/useReadingProgress';
 import { useVirtualScroll } from '../hooks/useVirtualScroll';
 
-const TOP_NAV_HEIGHT = 64; // 절대 픽셀로 고정
-
 interface ReaderProps {
   book: Book;
   googleToken: string;
@@ -31,6 +29,10 @@ export const Reader: React.FC<ReaderProps> = ({
   // 1. Data Loading
   const { isLoaded, fullContent } = useBookLoader(book, googleToken, settings, onBack);
 
+  // [Added] 실제 렌더링된 Nav 높이를 동적으로 측정하기 위한 Ref 및 상태
+  const navRef = useRef<HTMLElement>(null);
+  const [navHeight, setNavHeight] = useState(64); // Fallback 기본값
+
   // 2. Reading Progress & State
   const { 
     currentIdx, setCurrentIdx,
@@ -41,7 +43,6 @@ export const Reader: React.FC<ReaderProps> = ({
     lastSaveTime, hasRestored
   } = useReadingProgress({ initialProgress, fullContentRef: fullContent, onSaveProgress, isLoaded });
 
-  // [Fix] 브라우저 소수점 렌더링 오차를 막기 위해 한 줄의 높이를 완벽한 정수(px)로 강제 변환
   const exactLineHeight = Math.round(settings.fontSize * settings.lineHeight);
 
   // 3. Virtual Scroll
@@ -52,13 +53,15 @@ export const Reader: React.FC<ReaderProps> = ({
     isLoaded, 
     hasRestored: hasRestored.current === book.id,
     currentIdx,
+    topNavHeight: navHeight, // [Modified] 동적으로 측정된 Nav 높이 전달
     layoutDeps: [
       settings.fontSize, 
       settings.lineHeight, 
       settings.fontFamily, 
       settings.padding, 
       settings.textAlign,
-      exactLineHeight
+      exactLineHeight,
+      navHeight // Nav 높이 변경 시에도 재계산
     ],
     onScrollProgress: (idx, pct) => {
       setCurrentIdx(idx);
@@ -90,11 +93,16 @@ export const Reader: React.FC<ReaderProps> = ({
   // 레이아웃 수치 상태
   const [layoutMetrics, setLayoutMetrics] = useState({ maskHeight: 0, linesPerScreen: 0 });
 
+  // [Added] Nav 높이 및 화면 비율 측정
   useEffect(() => {
     const updateMetrics = () => {
-      // 모바일 기기의 동적 주소창 숨김/보임을 완벽하게 대응하기 위해 visualViewport 우선 사용
+      // 1. 실제 Nav 바 높이 캡처
+      const currentNavHeight = navRef.current ? navRef.current.offsetHeight : 64;
+      setNavHeight(currentNavHeight);
+
+      // 2. 가용 화면 계산
       const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-      const availableHeight = vh - TOP_NAV_HEIGHT;
+      const availableHeight = vh - currentNavHeight;
       
       const lines = Math.floor(availableHeight / exactLineHeight);
       const remainder = availableHeight % exactLineHeight;
@@ -108,7 +116,6 @@ export const Reader: React.FC<ReaderProps> = ({
     updateMetrics();
     window.addEventListener('resize', updateMetrics);
     
-    // 모바일 viewport 변화 감지
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', updateMetrics);
     }
@@ -183,14 +190,12 @@ export const Reader: React.FC<ReaderProps> = ({
     const w = window.innerWidth;
     const h = window.innerHeight;
     
-    // [Fix] 문장 중복(오버랩)을 방지하기 위한 완벽한 스텝 계산
     const { linesPerScreen } = layoutMetrics;
     const scrollStep = linesPerScreen * exactLineHeight; 
 
     const move = (dir: number) => { 
       if (scrollStep <= 0) return;
 
-      // 수동 스크롤로 인해 애매하게 멈춰있을 수 있는 현재 위치를, 가장 가까운 "완벽한 줄" 위치로 우선 스냅
       const currentAlignedY = Math.round(window.scrollY / exactLineHeight) * exactLineHeight;
       const targetScrollY = currentAlignedY + (dir * scrollStep);
       
@@ -338,17 +343,19 @@ export const Reader: React.FC<ReaderProps> = ({
       {showBookmarks && <BookmarkModal bookmarks={bookmarks} theme={theme} onClose={() => setShowBookmarks(false)} onAdd={addManualBookmark} onDelete={deleteBookmark} onJump={(idx) => { const updatedBookmarks = createAutoBookmark(currentIdx); setBookmarks(updatedBookmarks); setCurrentIdx(idx); setReadPercent((idx / (fullContent.current.length || 1)) * 100); onSaveProgress(idx, (idx / (fullContent.current.length || 1)) * 100, updatedBookmarks); lastSaveTime.current = Date.now(); jumpToIdx(idx); setShowBookmarks(false); }} totalLength={fullContent.current.length || 1} />}
       {showThemeModal && <ThemeModal settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setShowThemeModal(false)} theme={theme} onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })} />}
 
-      {/* Top Navbar (접근성 설정 무시, 절대 픽셀 고정) */}
-      <nav className={`fixed top-0 inset-x-0 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`} style={{ height: `${TOP_NAV_HEIGHT}px` }}>
+      {/* Top Navbar: ref를 달아 렌더링된 높이를 측정합니다. */}
+      <nav 
+        ref={navRef}
+        className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}
+      >
         <button onClick={handleUIBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
 
-      {/* Main Reader View (Nav 높이와 동일한 절대 픽셀 여백 확보) */}
-      <main onClick={handleInteraction} className="min-h-screen relative pb-96" style={{ paddingTop: `${TOP_NAV_HEIGHT}px`, paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
+      {/* Main Reader View (측정된 navHeight 만큼 여백 확보) */}
+      <main onClick={handleInteraction} className="min-h-screen relative pb-96" style={{ paddingTop: `${navHeight}px`, paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
-        {/* [Fix] 소수점 렌더링을 막기 위해 exactLineHeight를 절대 픽셀 단위로 주입 */}
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: `${exactLineHeight}px` }}>
           {getVisibleBlocks().map(block => (
             <div key={`${book.id}-${block.index}`} ref={el => { blockRefs.current[block.index] = el; }}>{block.text}</div>
