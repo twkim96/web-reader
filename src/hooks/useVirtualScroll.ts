@@ -3,14 +3,14 @@ import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react
 
 const BLOCK_SIZE = 15000; 
 const MAX_VISIBLE_BLOCKS = 4;
+// [Added] 블록당 가상 높이 추정치 (스크롤바 위치를 정상적으로 잡기 위함)
 const ESTIMATED_BLOCK_HEIGHT = 15000; 
 
 interface UseVirtualScrollProps {
   fullContentRef: React.MutableRefObject<string>;
   isLoaded: boolean;
   hasRestored: boolean; 
-  currentIdx: number;
-  topNavHeight: number; // [Added] 동적 Nav 높이 수신
+  currentIdx: number; 
   onScrollProgress: (idx: number, percent: number) => void;
   layoutDeps?: any[];
 }
@@ -20,7 +20,6 @@ export const useVirtualScroll = ({
   isLoaded, 
   hasRestored,
   currentIdx,
-  topNavHeight, 
   onScrollProgress,
   layoutDeps = []
 }: UseVirtualScrollProps) => {
@@ -147,14 +146,14 @@ export const useVirtualScroll = ({
               range.setEnd(targetNode, targetNodeOffset);
               const rect = range.getBoundingClientRect();
               
-              const scrollTop = window.scrollY + rect.top - topNavHeight; 
+              const scrollTop = window.scrollY + rect.top - 80; 
               window.scrollTo({ top: scrollTop, behavior: 'instant' });
             } else {
-               window.scrollTo({ top: blockElem.offsetTop - topNavHeight, behavior: 'instant' });
+               window.scrollTo({ top: blockElem.offsetTop - 80, behavior: 'instant' });
             }
           } catch (e) {
             console.error("Jump Error", e);
-            window.scrollTo({ top: blockElem.offsetTop - topNavHeight, behavior: 'instant' });
+            window.scrollTo({ top: blockElem.offsetTop - 80, behavior: 'instant' });
           }
           setPendingJump(null);
           setTimeout(() => { isJumping.current = false; }, 100);
@@ -169,26 +168,27 @@ export const useVirtualScroll = ({
         requestAnimationFrame(executeJump);
       }
     }
-  }, [pendingJump, visibleRange, topNavHeight]);
+  }, [pendingJump, visibleRange]);
 
+  // 화면 최상단(y:80 부근)의 텍스트 노드 Index를 이진 탐색으로 추출
   const getExactVisibleIndex = useCallback(() => {
     if (!fullContentRef.current) return null;
     
+    // 블록 걸침 현상을 대비해 최상단 2개 블록 탐색
     const blocksToCheck = [visibleRange.start, visibleRange.start + 1];
 
     for (const blockIdx of blocksToCheck) {
       const blockElem = blockRefs.current[blockIdx];
       if (!blockElem) continue;
 
-      // 동적으로 측정된 Nav 바 높이를 탐색 기준으로 사용
-      const targetViewportY = topNavHeight; 
+      const targetViewportY = 80; // 상단 Nav 바 영역(약 64px) + 여백
       const textNode = blockElem.firstChild;
       
       if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
 
       const blockRect = blockElem.getBoundingClientRect();
       if (blockRect.bottom < targetViewportY) {
-        continue; 
+        continue; // 이 블록은 이미 스크롤로 지나쳐 화면 밖에 있음
       }
 
       let low = 0;
@@ -205,9 +205,9 @@ export const useVirtualScroll = ({
           
           if (rect.top >= targetViewportY) {
             bestOffset = mid;
-            high = mid - 1; 
+            high = mid - 1; // 목표점 아래에 있으므로 더 앞쪽 글자를 탐색
           } else {
-            low = mid + 1; 
+            low = mid + 1; // 목표점보다 위에 가려져 있으므로 뒤쪽 글자를 탐색
           }
         } catch (e) {
           break;
@@ -219,7 +219,7 @@ export const useVirtualScroll = ({
       }
     }
     return null;
-  }, [visibleRange.start, fullContentRef, topNavHeight]);
+  }, [visibleRange.start, fullContentRef]);
 
   // Scroll Handler
   useEffect(() => {
@@ -230,6 +230,7 @@ export const useVirtualScroll = ({
       const vh = window.innerHeight;
       const totalH = document.documentElement.scrollHeight;
 
+      // 1. Scrolling Down (블록 렌더링 즉시 처리)
       if (totalH - (scrolled + vh) < 1500) {
         if ((visibleRange.end + 1) * BLOCK_SIZE < fullContentRef.current.length) {
           setVisibleRange(prev => {
@@ -248,6 +249,7 @@ export const useVirtualScroll = ({
         }
       }
 
+      // 2. Scrolling Up (블록 해제 즉시 처리)
       if (scrolled - paddingTop < 800 && visibleRange.start > 0) {
         setVisibleRange(prev => {
           const newStart = prev.start - 1;
@@ -256,6 +258,7 @@ export const useVirtualScroll = ({
         });
       }
 
+      // 3. Progress Calculation (성능을 위해 150ms 디바운스 처리 후 정확한 DOM 측정)
       if (scrollTimeout.current) clearTimeout(scrollTimeout.current);
       scrollTimeout.current = setTimeout(() => {
         const totalSize = fullContentRef.current.length || 1;
@@ -264,6 +267,7 @@ export const useVirtualScroll = ({
         if (exactIdx !== null) {
           onScrollProgress(Math.min(exactIdx, totalSize), (exactIdx / totalSize) * 100);
         } else {
+          // 예외적으로 스캔 실패 시 기존의 비율 추정식으로 Fallback
           const firstVisibleBlock = blockRefs.current[visibleRange.start];
           if (firstVisibleBlock) {
             const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
@@ -281,7 +285,7 @@ export const useVirtualScroll = ({
     };
   }, [isLoaded, visibleRange, paddingTop, onScrollProgress, hasRestored, fullContentRef, getExactVisibleIndex]);
 
-  // Scroll Anchoring
+  // Scroll Anchoring (이전 블록 로드 시 화면 떨림/튕김 완벽 제어)
   useLayoutEffect(() => {
     if (visibleRange.start < prevStart.current) {
       const addedBlockIdx = visibleRange.start;
