@@ -29,21 +29,6 @@ export const Reader: React.FC<ReaderProps> = ({
   // 1. Data Loading
   const { isLoaded, fullContent } = useBookLoader(book, googleToken, settings, onBack);
 
-  // Nav 동적 측정 (모바일 글자크기 확대 대비)
-  const navRef = useRef<HTMLElement>(null);
-  const [navHeight, setNavHeight] = useState(64);
-
-  useEffect(() => {
-    const updateNavHeight = () => {
-      if (navRef.current) {
-        setNavHeight(navRef.current.offsetHeight);
-      }
-    };
-    updateNavHeight();
-    window.addEventListener('resize', updateNavHeight);
-    return () => window.removeEventListener('resize', updateNavHeight);
-  }, [settings.fontSize]);
-
   // 2. Reading Progress & State
   const { 
     currentIdx, setCurrentIdx,
@@ -56,21 +41,19 @@ export const Reader: React.FC<ReaderProps> = ({
 
   // 3. Virtual Scroll
   const { 
-    paddingTop, blockRefs, getVisibleBlocks, jumpToIdx, isJumping,
-    goNextPage, goPrevPage
+    paddingTop, blockRefs, getVisibleBlocks, jumpToIdx, isJumping 
   } = useVirtualScroll({ 
     fullContentRef: fullContent, 
     isLoaded, 
     hasRestored: hasRestored.current === book.id,
     currentIdx,
-    topNavHeight: navHeight, // 동적 계산된 높이 주입
+    // [Added] 레이아웃에 영향을 주는 설정값들을 전달하여 변경 시 위치 재보정
     layoutDeps: [
       settings.fontSize, 
       settings.lineHeight, 
       settings.fontFamily, 
       settings.padding, 
-      settings.textAlign,
-      navHeight
+      settings.textAlign
     ],
     onScrollProgress: (idx, pct) => {
       setCurrentIdx(idx);
@@ -100,7 +83,15 @@ export const Reader: React.FC<ReaderProps> = ({
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
   // --- History & Back Button Handling ---
-  const stateRef = useRef({ showSettings, showSearch, showBookmarks, showThemeModal, showConfirm, syncConflict });
+
+  const stateRef = useRef({
+    showSettings,
+    showSearch,
+    showBookmarks,
+    showThemeModal,
+    showConfirm,
+    syncConflict
+  });
 
   useEffect(() => {
     stateRef.current = { showSettings, showSearch, showBookmarks, showThemeModal, showConfirm, syncConflict };
@@ -111,10 +102,12 @@ export const Reader: React.FC<ReaderProps> = ({
 
     const handlePopState = (event: PopStateEvent) => {
       const { showSettings, showSearch, showBookmarks, showThemeModal, showConfirm, syncConflict } = stateRef.current;
+      
       const isAnyModalOpen = showSettings || showSearch || showBookmarks || showThemeModal || showConfirm.show || syncConflict;
 
       if (isAnyModalOpen) {
         window.history.pushState({ panel: 'reader' }, '', '');
+
         if (showSettings) setShowSettings(false);
         if (showSearch) setShowSearch(false);
         if (showBookmarks) setShowBookmarks(false);
@@ -139,6 +132,7 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [onBack, setSyncConflict, setCurrentIdx, setReadPercent]);
 
   // --- Initial Restore & Jump ---
+
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
     if (initialProgress) {
@@ -154,20 +148,29 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [isLoaded, initialProgress, book.id, jumpToIdx, setCurrentIdx, setReadPercent, hasRestored]);
 
   // --- Handlers ---
+
   const handleUIBack = () => { window.history.back(); };
 
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientX, clientY } = e;
     const w = window.innerWidth;
     const h = window.innerHeight;
+    
+    // [Modified] 정확한 줄 단위 이동을 위한 계산
+    const oneLineHeight = settings.fontSize * settings.lineHeight;
+    const linesPerScreen = Math.floor(h / oneLineHeight);
+    const scrollStep = linesPerScreen * oneLineHeight; 
 
-    const move = (dir: number) => {
-      if (isJumping.current) return;
-      if (dir > 0) {
-        goNextPage();
-      } else {
-        goPrevPage();
-      }
+    // [Modified] 이동 시 그리드 스냅 적용
+    const move = (dir: number) => { 
+      const currentScrollY = window.scrollY;
+      const targetScrollY = currentScrollY + (dir * scrollStep);
+      
+      // 타겟 위치를 줄 높이의 정수배로 반올림 (스냅)
+      // 이렇게 하면 수동 스크롤로 인해 어긋난 위치가 탭 이동 시 깔끔하게 보정됨
+      const snappedY = Math.round(targetScrollY / oneLineHeight) * oneLineHeight;
+      
+      window.scrollTo({ top: snappedY, behavior: 'instant' }); 
     };
 
     if (settings.navMode !== 'scroll') {
@@ -196,16 +199,20 @@ export const Reader: React.FC<ReaderProps> = ({
       updatedBookmarks = createAutoBookmark(showConfirm.originIdx);
       setBookmarks(updatedBookmarks); 
     }
+
     const bookmarksToSave = updatedBookmarks || bookmarks;
 
     if (showConfirm.type === 'jump' && showConfirm.target !== undefined) {
       setCurrentIdx(showConfirm.target);
       const newPercent = (showConfirm.target / (fullContent.current.length || 1)) * 100;
       setReadPercent(newPercent);
+      
       onSaveProgress(showConfirm.target, newPercent, bookmarksToSave);
       lastSaveTime.current = Date.now();
+      
       jumpToIdx(showConfirm.target);
       if (showConfirm.fromSearch) setShowSearch(false);
+
     } else if (showConfirm.type === 'input') {
       let idx = 0;
       if (jumpInput.includes('%')) {
@@ -219,8 +226,10 @@ export const Reader: React.FC<ReaderProps> = ({
         setCurrentIdx(idx);
         const newPercent = (idx / (fullContent.current.length || 1)) * 100;
         setReadPercent(newPercent);
+
         onSaveProgress(idx, newPercent, bookmarksToSave);
         lastSaveTime.current = Date.now();
+
         jumpToIdx(idx);
       }
     }
@@ -241,10 +250,13 @@ export const Reader: React.FC<ReaderProps> = ({
     if (action === 'sync' && syncConflict) {
       const updatedBookmarks = createAutoBookmark(currentIdx);
       setBookmarks(updatedBookmarks);
+      
       setCurrentIdx(syncConflict.remoteIdx);
       setReadPercent(syncConflict.remotePercent);
+      
       onSaveProgress(syncConflict.remoteIdx, syncConflict.remotePercent, updatedBookmarks);
       lastSaveTime.current = Date.now();
+      
       jumpToIdx(syncConflict.remoteIdx);
     } else {
       lastSaveTime.current = Date.now();
@@ -259,7 +271,13 @@ export const Reader: React.FC<ReaderProps> = ({
   };
 
   const handleSlideEnd = () => {
-    setShowConfirm({ show: true, type: 'jump', target: currentIdx, fromSearch: false, originIdx: preSlideProgress.current.index });
+    setShowConfirm({ 
+      show: true, 
+      type: 'jump', 
+      target: currentIdx, 
+      fromSearch: false, 
+      originIdx: preSlideProgress.current.index 
+    });
   };
 
   if (!isLoaded) return <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>Loading...</div>;
@@ -301,20 +319,61 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       )}
 
-      {/* Modals */}
-      {showSearch && <SearchModal content={fullContent.current} theme={theme} onClose={() => setShowSearch(false)} onSelect={(idx) => setShowConfirm({ show: true, type: 'jump', target: idx, fromSearch: true, originIdx: currentIdx })} />}
-      {showBookmarks && <BookmarkModal bookmarks={bookmarks} theme={theme} onClose={() => setShowBookmarks(false)} onAdd={addManualBookmark} onDelete={deleteBookmark} onJump={(idx) => { const updatedBookmarks = createAutoBookmark(currentIdx); setBookmarks(updatedBookmarks); setCurrentIdx(idx); setReadPercent((idx / (fullContent.current.length || 1)) * 100); onSaveProgress(idx, (idx / (fullContent.current.length || 1)) * 100, updatedBookmarks); lastSaveTime.current = Date.now(); jumpToIdx(idx); setShowBookmarks(false); }} totalLength={fullContent.current.length || 1} />}
-      {showThemeModal && <ThemeModal settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setShowThemeModal(false)} theme={theme} onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })} />}
+      {/* Search Modal */}
+      {showSearch && (
+        <SearchModal 
+          content={fullContent.current} 
+          theme={theme} 
+          onClose={() => setShowSearch(false)} 
+          onSelect={(idx) => setShowConfirm({ show: true, type: 'jump', target: idx, fromSearch: true, originIdx: currentIdx })}
+        />
+      )}
+
+      {/* Bookmark Modal */}
+      {showBookmarks && (
+        <BookmarkModal 
+          bookmarks={bookmarks}
+          theme={theme}
+          onClose={() => setShowBookmarks(false)}
+          onAdd={addManualBookmark}
+          onDelete={deleteBookmark}
+          onJump={(idx) => {
+            const updatedBookmarks = createAutoBookmark(currentIdx);
+            setBookmarks(updatedBookmarks);
+
+            setCurrentIdx(idx);
+            setReadPercent((idx / (fullContent.current.length || 1)) * 100);
+            
+            onSaveProgress(idx, (idx / (fullContent.current.length || 1)) * 100, updatedBookmarks);
+            lastSaveTime.current = Date.now();
+
+            jumpToIdx(idx);
+            setShowBookmarks(false);
+          }}
+          totalLength={fullContent.current.length || 1}
+        />
+      )}
+
+      {/* Theme Modal */}
+      {showThemeModal && (
+        <ThemeModal
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          onClose={() => setShowThemeModal(false)}
+          theme={theme}
+          onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })}
+        />
+      )}
 
       {/* Top Navbar */}
-      <nav ref={navRef} className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
+      <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
         <button onClick={handleUIBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
         <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.txt', '')}</h2>
         <div className="w-10" />
       </nav>
 
       {/* Main Reader View */}
-      <main onClick={handleInteraction} className="min-h-screen relative pb-96" style={{ paddingTop: `${navHeight}px`, paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
+      <main onClick={handleInteraction} className="min-h-screen pt-12 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight }}>
           {getVisibleBlocks().map(block => (
@@ -334,14 +393,37 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
 
         <div className="max-w-lg mx-auto px-6 pt-6 pb-2 flex items-center gap-4">
-          <input type="range" min="0" max="100" step="0.1" value={readPercent} onMouseDown={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }} onTouchStart={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }} onChange={(e) => { const p = parseFloat(e.target.value); setReadPercent(p); setCurrentIdx(Math.floor((p / 100) * (fullContent.current.length || 1))); }} onMouseUp={handleSlideEnd} onTouchEnd={handleSlideEnd} className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
-          <button onClick={() => setShowSearch(true)} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity"><Search size={22} /></button>
+          <input 
+            type="range" min="0" max="100" step="0.1" value={readPercent} 
+            onMouseDown={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }}
+            onTouchStart={() => { preSlideProgress.current = { percent: readPercent, index: currentIdx }; }}
+            onChange={(e) => {
+              const p = parseFloat(e.target.value);
+              setReadPercent(p);
+              setCurrentIdx(Math.floor((p / 100) * (fullContent.current.length || 1)));
+            }}
+            onMouseUp={handleSlideEnd}
+            onTouchEnd={handleSlideEnd}
+            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+          />
+          <button onClick={() => setShowSearch(true)} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">
+            <Search size={22} />
+          </button>
         </div>
 
         <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
-          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity"><Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span></button>
-          <button onClick={() => setShowThemeModal(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity"><Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span></button>
-          <button onClick={() => setShowBookmarks(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity text-indigo-500"><BookmarkIcon size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Mark</span></button>
+          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+            <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
+          </button>
+          
+          <button onClick={() => setShowThemeModal(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+             <Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span>
+          </button>
+
+          <button onClick={() => setShowBookmarks(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity text-indigo-500">
+            <BookmarkIcon size={22} />
+            <span className="text-[9px] font-bold uppercase tracking-tighter">Mark</span>
+          </button>
         </div>
       </div>
 
