@@ -28,13 +28,11 @@ export const Reader: React.FC<ReaderProps> = ({
 }) => {
   const { isLoaded, fullContent } = useBookLoader(book, googleToken, settings, onBack);
 
-  // 소수점 오차를 원천 차단하는 강제 정수 계산
   const exactLineHeight = Math.round(settings.fontSize * settings.lineHeight);
 
-  // 동적 화면 수치 측정 (모바일 접근성 및 스크롤 바운스 완벽 대응)
   const navRef = useRef<HTMLElement>(null);
   const [navHeight, setNavHeight] = useState(64);
-  const [layoutMetrics, setLayoutMetrics] = useState({ maskHeight: 0, vh: 0 });
+  const [layoutMetrics, setLayoutMetrics] = useState({ maskHeight: 0, vh: 0, scrollStep: 0 });
 
   useEffect(() => {
     const updateMetrics = () => {
@@ -43,9 +41,16 @@ export const Reader: React.FC<ReaderProps> = ({
 
       const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
       const availableHeight = vh - currentNavHeight;
-      const remainder = availableHeight % exactLineHeight;
+      
+      // [핵심 1] 브라우저 소수점 연산 오차(예: 779.999 / 30 = 25)로 인해 
+      // 완벽히 들어가는 줄이 버려져 중복되는 현상을 막기 위한 0.1px 보정치(Epsilon) 추가
+      const linesPerScreen = Math.floor((availableHeight + 0.1) / exactLineHeight);
+      const scrollStep = linesPerScreen * exactLineHeight;
 
-      setLayoutMetrics({ maskHeight: remainder, vh });
+      const remainder = availableHeight - (linesPerScreen * exactLineHeight);
+      const maskHeight = Math.max(0, remainder);
+
+      setLayoutMetrics({ maskHeight, vh, scrollStep });
     };
 
     updateMetrics();
@@ -176,23 +181,20 @@ export const Reader: React.FC<ReaderProps> = ({
     const move = (dir: number) => {
       if (isJumping.current) return;
 
-      const vh = layoutMetrics.vh || window.innerHeight;
-      const availableHeight = vh - navHeight;
-      const linesPerScreen = Math.floor(availableHeight / exactLineHeight);
-      const scrollStep = linesPerScreen * exactLineHeight;
+      const scrollStep = layoutMetrics.scrollStep;
+      if (!scrollStep || scrollStep <= 0) return;
 
-      if (scrollStep <= 0) return;
+      // [핵심 3] 클로드가 지적했던 버그 해결: 가상 스크롤 영역(paddingTop)을 제외한 순수 텍스트 상대 좌표 추출
+      const relativeY = window.scrollY - paddingTop;
+      
+      // 현재 위치에서 가장 가까운 텍스트 줄에 강제 정렬 (그리드 스냅)
+      const alignedRelativeY = Math.round(relativeY / exactLineHeight) * exactLineHeight;
+      
+      // 절대 좌표계로 복원
+      const currentAlignedY = alignedRelativeY + paddingTop;
+      const targetScrollY = Math.max(0, currentAlignedY + (dir * scrollStep));
 
-      // ✅ 스냅 없이 정확히 scrollStep만큼만 이동.
-      //
-      // 스냅(Math.round)을 사용하면 navHeight가 exactLineHeight의 배수가 아닐 때
-      // 그리드 기준점이 어긋나 1줄 중복이 발생한다.
-      //
-      // jumpToIdx가 이미 줄 경계에 정확히 위치를 잡아주고,
-      // 이후 탭은 scrollStep의 배수로만 이동하므로 항상 줄 단위 정렬이 유지된다.
-      const targetScrollY = window.scrollY + dir * scrollStep;
-
-      window.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'instant' });
+      window.scrollTo({ top: targetScrollY, behavior: 'instant' });
     };
 
     if (settings.navMode !== 'scroll') {
@@ -341,7 +343,6 @@ export const Reader: React.FC<ReaderProps> = ({
       {/* Main Reader View */}
       <main onClick={handleInteraction} className="min-h-screen relative pb-96" style={{ paddingTop: `${navHeight}px`, paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         <div style={{ height: `${paddingTop}px` }} />
-        {/* CSS 렌더링을 소수점 오차 없도록 exactLineHeight 강제 주입 */}
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: `${exactLineHeight}px` }}>
           {getVisibleBlocks().map(block => (
             <div key={`${book.id}-${block.index}`} ref={el => { blockRefs.current[block.index] = el; }}>{block.text}</div>
@@ -349,9 +350,15 @@ export const Reader: React.FC<ReaderProps> = ({
         </div>
       </main>
 
-      {/* 하단 글자 짤림 방지용 가림막 (Mask) */}
+      {/* [핵심 2] 하단 글자 짤림 방지용 가림막: 모바일 주소창 버그를 막기 위해 bottom-0 제거 및 절대 좌표 할당 */}
       {layoutMetrics.maskHeight > 0 && (
-        <div className={`fixed bottom-0 inset-x-0 ${theme.bg} z-40 pointer-events-none transition-colors duration-300`} style={{ height: `${layoutMetrics.maskHeight}px` }} />
+        <div 
+          className={`fixed inset-x-0 ${theme.bg} z-40 pointer-events-none transition-colors duration-300`} 
+          style={{ 
+            top: `${layoutMetrics.vh - layoutMetrics.maskHeight}px`, 
+            height: `${layoutMetrics.maskHeight}px` 
+          }} 
+        />
       )}
 
       {/* Bottom Controls */}
