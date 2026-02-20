@@ -175,20 +175,18 @@ export default function Page() {
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
           
-          // [Fix] 기존 책장에 있지 않다면 로딩 뷰를 띄움
           setView(prev => prev === 'shelf' ? 'shelf' : 'loading');
           
           loadLibraryBackground(recoveredToken).then((isSuccess) => {
             if (isSuccess) {
               syncLocalAndCloud(u.uid);
             }
-            // [Fix] 로드가 끝나면 무조건 책장 뷰로 이동
             setView('shelf');
           });
         } else {
           setIsOfflineMode(true);
-          // [Fix] 로그인은 되었지만 토큰이 없으면 드라이브 연결 모달(auth 뷰)로 유도
-          setView('auth');
+          // 드라이브 토큰이 없어도 튕겨내지 않고 로컬 모드 책장으로 진입
+          setView('shelf');
         }
         
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
@@ -271,7 +269,6 @@ export default function Page() {
           storage.setItem('google_drive_token_expiry', expiryTime);
           
           setIsOfflineMode(false); 
-          // [Fix] 성공적으로 토큰을 받아오면 로딩 화면을 거쳐 책장으로 이동
           setView('loading');
           loadLibraryBackground(res.access_token).then(() => {
             setView('shelf');
