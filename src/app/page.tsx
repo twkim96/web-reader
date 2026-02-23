@@ -53,7 +53,8 @@ export default function Page() {
     return null;
   };
 
-  const restoreLocalData = async () => {
+  // [Modified] preventRedirect 인자 추가: 데이터만 로드하고 화면 전환은 하지 않는 옵션
+  const restoreLocalData = async (preventRedirect = false) => {
     try {
       setIsOfflineMode(true);
 
@@ -68,7 +69,9 @@ export default function Page() {
 
       if (localBooks.length > 0) {
         setBooks(localBooks);
-        setView('shelf');
+        if (!preventRedirect) {
+          setView('shelf');
+        }
         return true; 
       }
       return false;
@@ -158,7 +161,7 @@ export default function Page() {
   }, [user, googleToken]);
 
   useEffect(() => {
-    restoreLocalData();
+    restoreLocalData(); // 초기 로드 시 실행 (기본 동작: 책장으로 이동)
 
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
@@ -170,23 +173,30 @@ export default function Page() {
       
       if (u) {
         setIsGuest(false);
+
+        // [Fix 2] 로그인 직후 로컬 데이터 복구 (화면 전환 없이 데이터만 로드)
+        // 재로그인 시 책장이 비어보이는 현상을 방지하기 위함
+        await restoreLocalData(true);
         
         const recoveredToken = getStoredToken();
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
           
-          setView(prev => prev === 'shelf' ? 'shelf' : 'loading');
+          // [Fix 1] 이미 읽기 모드('reader')나 책장('shelf')에 있다면 로딩 화면으로 전환하지 않음
+          setView(prev => (prev === 'shelf' || prev === 'reader') ? prev : 'loading');
           
           loadLibraryBackground(recoveredToken).then((isSuccess) => {
             if (isSuccess) {
               syncLocalAndCloud(u.uid);
             }
-            setView('shelf');
+            // [Fix 1] 라이브러리 로딩 완료 후, 사용자가 이미 책을 읽고 있다면('reader') 책장으로 튕기지 않음
+            setView(prev => prev === 'reader' ? 'reader' : 'shelf');
           });
         } else {
           setIsOfflineMode(true);
           // 드라이브 토큰이 없어도 튕겨내지 않고 로컬 모드 책장으로 진입
-          setView('shelf');
+          // 이미 읽고 있는 중이라면 유지
+          setView(prev => prev === 'reader' ? 'reader' : 'shelf');
         }
         
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
@@ -213,6 +223,8 @@ export default function Page() {
         if (!isGuest) {
            setTimeout(() => {
              setView(prev => {
+               // 읽고 있거나 책장에 있다면 유지 (단, 로그아웃 명시적 처리는 handleLogout에서 함)
+               // 여기서는 세션 만료 등의 자동 처리를 위함이나, 안전하게 shelf면 유지
                if (prev === 'shelf') return prev;
                return 'auth';
              });
@@ -230,13 +242,13 @@ export default function Page() {
     setIsOfflineMode(true);
     setUser(null);
     setGoogleToken(null);
-    await restoreLocalData(); 
+    await restoreLocalData(); // 게스트 모드는 강제 책장 이동 OK
     setView('shelf');
   };
 
   const handleLocalMode = async () => {
     setView('loading');
-    await restoreLocalData();
+    await restoreLocalData(); // 로컬 모드 전환 시 강제 책장 이동 OK
     setIsOfflineMode(true);
     setGoogleToken(null);
     setView('shelf');
