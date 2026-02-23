@@ -24,17 +24,19 @@ export const useReadingProgress = ({
   
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
   
-  const initialTime = initialProgress && initialProgress.lastRead
-    ? (initialProgress.lastRead.toMillis ? initialProgress.lastRead.toMillis() : new Date(initialProgress.lastRead).getTime())
-    : 0;
+  // [Modified] 타임스탬프 파싱 로직을 안전하게 통일
+  const parseTime = (val: any) => {
+    if (!val) return 0;
+    return val.toMillis ? val.toMillis() : new Date(val).getTime();
+  };
 
+  const initialTime = parseTime(initialProgress?.lastRead);
   const lastSaveTime = useRef<number>(initialTime);
   const hasRestored = useRef<string | null>(null);
 
   // Helper: Get Preview Text
   const getPreviewText = useCallback((idx: number) => {
     if (!fullContentRef.current) return "";
-    // [Modified] 인덱스를 화면의 완벽한 첫 줄로 스캔하므로, 캡처 또한 이전 내용 없이 idx부터 정확히 시작합니다.
     const start = idx;
     const end = Math.min(fullContentRef.current.length, idx + 80);
     return fullContentRef.current.substring(start, end).replace(/\n/g, ' ').trim();
@@ -44,14 +46,10 @@ export const useReadingProgress = ({
   const createAutoBookmark = useCallback((originIndex: number): Bookmark[] => {
     if (originIndex < 100) return bookmarks; 
 
-    // 1. 기존 자동/수동 책갈피 분리
     const existingAuto = bookmarks.filter(b => b.type === 'auto');
     const manualBookmarks = bookmarks.filter(b => b.type !== 'auto');
 
-    // 2. 자동 책갈피를 최신순(createdAt 내림차순)으로 정렬
     existingAuto.sort((a, b) => b.createdAt - a.createdAt);
-
-    // 3. 최신 1개만 남김 (새로 하나가 추가되면 총 2개가 됨)
     const survivors = existingAuto.slice(0, 1);
 
     const newAutoMark: Bookmark = {
@@ -63,7 +61,6 @@ export const useReadingProgress = ({
       color: 'bg-slate-500'
     };
 
-    // 4. 병합
     return [newAutoMark, ...survivors, ...manualBookmarks];
   }, [bookmarks, getPreviewText]);
 
@@ -106,24 +103,47 @@ export const useReadingProgress = ({
     });
   }, [currentIdx, readPercent, onSaveProgress]);
 
-  // Logic: Conflict Detection
+  // Logic: Conflict Detection & Auto Sync
   useEffect(() => {
     if (!isLoaded || !initialProgress || !initialProgress.lastRead) return;
-    const remoteTime = initialProgress.lastRead.toMillis ? initialProgress.lastRead.toMillis() : new Date(initialProgress.lastRead).getTime();
     
+    const remoteTime = parseTime(initialProgress.lastRead);
+    
+    // [Modified] 로컬 저장 시간보다 원격 시간이 '확실히' 미래라면 (2초 버퍼)
     if (remoteTime > lastSaveTime.current + 2000) {
-      if (Math.abs(initialProgress.charIndex - currentIdx) > 300) {
+      const diff = Math.abs(initialProgress.charIndex - currentIdx);
+
+      // 1. 책갈피는 무조건 최신으로 동기화
+      if (initialProgress.bookmarks) {
+        setBookmarks(initialProgress.bookmarks);
+      }
+
+      // 2. 위치 동기화 로직 분기
+      if (diff > 300) {
+        // 차이가 크면 사용자에게 선택권 부여 (충돌 모달)
         setSyncConflict({
           show: true,
           remoteIdx: initialProgress.charIndex,
           remotePercent: initialProgress.progressPercent
         });
-      }
-      if (initialProgress.bookmarks) {
-        setBookmarks(initialProgress.bookmarks);
+        // 주의: 여기서 lastSaveTime을 업데이트하면 안 됨 (사용자가 '무시'를 선택할 수 있으므로)
+      } else if (diff > 0) {
+        // [Key Fix] 차이가 작으면(300자 이내) '조용히' 최신 위치로 자동 보정
+        // 이렇게 해야 "미세한 과거 상태"로 덮어쓰는 것을 방지함
+        setCurrentIdx(initialProgress.charIndex);
+        setReadPercent(initialProgress.progressPercent);
+        
+        // [Key Fix] 로컬 기준 시간을 원격 시간으로 맞춰줌으로써
+        // 불필요한 자동 저장 트리거 방지
+        lastSaveTime.current = remoteTime;
+        
+        console.log(`[AutoSync] Minor diff(${diff}) detected. Synced to remote.`);
+      } else {
+        // 위치가 정확히 같다면 시간만 동기화
+        lastSaveTime.current = remoteTime;
       }
     }
-  }, [initialProgress, currentIdx, isLoaded]);
+  }, [initialProgress, currentIdx, isLoaded]); // 의존성 배열 유지
 
   return {
     currentIdx, setCurrentIdx,
