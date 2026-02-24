@@ -273,12 +273,16 @@ export const Shelf: React.FC<ShelfProps> = ({
                         저장된 도서가 없습니다.<br/>
                         {isGuest 
                           ? <span><span className="text-indigo-400 font-black">Login</span>하여 클라우드에서 도서를 받아보세요.</span>
-                          : <span><span className="text-indigo-400 font-black">Cloud Mode</span>로 접속하여 도서를 다운로드해주세요.</span>
+                          : <span><button onClick={onToggleCloud} className="text-indigo-400 font-black hover:text-indigo-300 underline decoration-indigo-400/50 underline-offset-4 transition-colors">Cloud Mode</button>를 클릭하여 도서를 다운로드해주세요.</span>
                         }
                       </p>
-                      {isGuest && (
-                        <button onClick={onLogin} className="px-10 py-4 bg-indigo-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl active:scale-95">
+                      {isGuest ? (
+                        <button onClick={onLogin} className="px-10 py-4 bg-indigo-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl active:scale-95 mt-2">
                           Log In Now
+                        </button>
+                      ) : (
+                        <button onClick={onToggleCloud} className="px-10 py-4 bg-indigo-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl active:scale-95 mt-2">
+                          Switch to Cloud Mode
                         </button>
                       )}
                     </>
@@ -288,7 +292,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                       <p className="text-slate-400 text-sm leading-relaxed font-medium">
                         구글 드라이브에 <span className="text-indigo-400 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-indigo-400 font-black">.txt</span> 파일을 업로드해 주세요.
                       </p>
-                      <button onClick={onRefresh} className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95">
+                      <button onClick={onRefresh} className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95 mt-2">
                         Refresh Library
                       </button>
                     </>
