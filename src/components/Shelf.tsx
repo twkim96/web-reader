@@ -88,9 +88,13 @@ export const Shelf: React.FC<ShelfProps> = ({
     });
   };
 
-  const filteredBooks = books.filter(book => 
-    book.name.toLowerCase().includes(searchKeyword.toLowerCase())
-  );
+  // NFD(MacOS) / NFC 유니코드 정규화 및 공백/확장자 제거를 통한 검색 정확도 향상
+  const filteredBooks = books.filter(book => {
+    if (!book.name) return false;
+    const normalizedBookName = book.name.normalize('NFC').replace('.txt', '').replace(/\s+/g, '').toLowerCase();
+    const normalizedKeyword = searchKeyword.normalize('NFC').replace(/\s+/g, '').toLowerCase();
+    return normalizedBookName.includes(normalizedKeyword);
+  });
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 font-sans pb-20">
