@@ -22,14 +22,14 @@ export default function Page() {
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
-  
+
   const [isPublicPC, setIsPublicPC] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
 
   const [settings, setSettings] = useState<ViewerSettings>({
-    fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify', 
+    fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify',
     theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto',
     accentColor: 'sky'
   });
@@ -68,7 +68,7 @@ export default function Page() {
         getAllOfflineBooks(),
         getAllLocalProgress()
       ]);
-      
+
       const p: Record<string, UserProgress> = {};
       localProgress.forEach(item => { p[item.bookId] = item; });
       setProgress(p);
@@ -78,7 +78,7 @@ export default function Page() {
         if (!preventRedirect) {
           setView('shelf');
         }
-        return true; 
+        return true;
       }
       return false;
     } catch (e) {
@@ -88,13 +88,13 @@ export default function Page() {
   };
 
   const syncLocalAndCloud = async (uid: string) => {
-    if (!navigator.onLine) return; 
+    if (!navigator.onLine) return;
 
     try {
       const localProgressList = await getAllLocalProgress();
       const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
       const cloudSnapshot = await getDocs(cloudRef);
-      
+
       const localMap = new Map(localProgressList.map(p => [p.bookId, p]));
       const cloudMap = new Map(cloudSnapshot.docs.map(d => [d.id, d.data() as UserProgress]));
 
@@ -134,7 +134,7 @@ export default function Page() {
       }
       setIsOfflineMode(false);
       return true;
-    } catch (err) { 
+    } catch (err) {
       console.log("Background library load skipped (Offline or Error)");
       setIsOfflineMode(true);
       return false;
@@ -146,10 +146,10 @@ export default function Page() {
       console.log("Online detected.");
       if (user && googleToken) {
         loadLibraryBackground(googleToken).then((isSuccess) => {
-            if(isSuccess) {
-              setIsOfflineMode(false);
-              syncLocalAndCloud(user.uid);
-            }
+          if (isSuccess) {
+            setIsOfflineMode(false);
+            syncLocalAndCloud(user.uid);
+          }
         });
       }
     };
@@ -176,21 +176,21 @@ export default function Page() {
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      
+
       if (u) {
         setIsGuest(false);
 
         // [Fix 2] 로그인 직후 로컬 데이터 복구 (화면 전환 없이 데이터만 로드)
         // 재로그인 시 책장이 비어보이는 현상을 방지하기 위함
         await restoreLocalData(true);
-        
+
         const recoveredToken = getStoredToken();
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
-          
+
           // [Fix 1] 이미 읽기 모드('reader')나 책장('shelf')에 있다면 로딩 화면으로 전환하지 않음
           setView(prev => (prev === 'shelf' || prev === 'reader') ? prev : 'loading');
-          
+
           loadLibraryBackground(recoveredToken).then((isSuccess) => {
             if (isSuccess) {
               syncLocalAndCloud(u.uid);
@@ -204,7 +204,7 @@ export default function Page() {
           // 이미 읽고 있는 중이라면 유지
           setView(prev => prev === 'reader' ? 'reader' : 'shelf');
         }
-        
+
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, async (snapshot) => {
           const p: Record<string, UserProgress> = {};
@@ -216,9 +216,9 @@ export default function Page() {
           }
           const localP = await getAllLocalProgress();
           localP.forEach(lp => {
-             if (!p[lp.bookId] || new Date(lp.lastRead).getTime() > (p[lp.bookId].lastRead?.toDate?.().getTime() || 0)) {
-               p[lp.bookId] = lp;
-             }
+            if (!p[lp.bookId] || new Date(lp.lastRead).getTime() > (p[lp.bookId].lastRead?.toDate?.().getTime() || 0)) {
+              p[lp.bookId] = lp;
+            }
           });
           setProgress(p);
         });
@@ -227,13 +227,13 @@ export default function Page() {
 
       } else {
         if (!isGuest) {
-           setTimeout(() => {
-             setView(prev => {
-               // 읽고 있거나 책장에 있다면 유지 (단, 로그아웃 명시적 처리는 handleLogout에서 함)
-               // 여기서는 세션 만료 등의 자동 처리를 위함이나, 안전하게 shelf면 유지
-               if (prev === 'shelf') return prev;
-               return 'auth';
-             });
+          setTimeout(() => {
+            setView(prev => {
+              // 읽고 있거나 책장에 있다면 유지 (단, 로그아웃 명시적 처리는 handleLogout에서 함)
+              // 여기서는 세션 만료 등의 자동 처리를 위함이나, 안전하게 shelf면 유지
+              if (prev === 'shelf') return prev;
+              return 'auth';
+            });
           }, 500);
         }
       }
@@ -267,22 +267,22 @@ export default function Page() {
     const client = (window as any).google.accounts.oauth2.initTokenClient({
       client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
       scope: 'https://www.googleapis.com/auth/drive.readonly',
-      callback: (res: any) => { 
-        if (res.access_token) { 
-          setGoogleToken(res.access_token); 
+      callback: (res: any) => {
+        if (res.access_token) {
+          setGoogleToken(res.access_token);
           const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
           const storage = isPublicPC ? sessionStorage : localStorage;
           localStorage.removeItem('google_drive_token');
           sessionStorage.removeItem('google_drive_token');
           storage.setItem('google_drive_token', res.access_token);
           storage.setItem('google_drive_token_expiry', expiryTime);
-          
-          setIsOfflineMode(false); 
+
+          setIsOfflineMode(false);
           setView('loading');
           loadLibraryBackground(res.access_token).then(() => {
             setView('shelf');
           });
-        } 
+        }
       },
     });
     client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
@@ -417,9 +417,9 @@ export default function Page() {
           </div>
           <div className="w-full max-w-xs space-y-4">
             <button onClick={handleConnect} className={`group relative w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center justify-center gap-3 overflow-hidden hover:opacity-80 transition-all`}>
-               <div className="absolute inset-0 bg-accent-500 opacity-0 group-hover:opacity-10 transition-opacity" />
-               <Wifi size={18} className="text-accent-600 dark:text-accent-400" />
-               <span>Connect Cloud</span>
+              <div className="absolute inset-0 bg-accent-500 opacity-0 group-hover:opacity-10 transition-opacity" />
+              <Wifi size={18} className="text-accent-600 dark:text-accent-400" />
+              <span>Connect Cloud</span>
             </button>
             <button onClick={handleLocalMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-3 transition-colors`}>
               <WifiOff size={18} />
@@ -438,41 +438,41 @@ export default function Page() {
 
       {/* 3. 책장 */}
       {view === 'shelf' && (
-        <Shelf 
-          books={books} 
-          progress={progress} 
-          isRefreshing={false} 
-          onRefresh={() => !isOfflineMode && googleToken && loadLibraryBackground(googleToken)} 
-          onOpen={(b) => { setActiveBook(b); setView('reader'); }} 
-          onLogout={handleLogout} 
+        <Shelf
+          books={books}
+          progress={progress}
+          isRefreshing={false}
+          onRefresh={() => !isOfflineMode && googleToken && loadLibraryBackground(googleToken)}
+          onOpen={(b) => { setActiveBook(b); setView('reader'); }}
+          onLogout={handleLogout}
           onLogin={handleLoginTrigger}
-          userEmail={user?.email || "Guest User"} 
-          isOfflineMode={isOfflineMode} 
+          userEmail={user?.email || "Guest User"}
+          isOfflineMode={isOfflineMode}
           isGuest={isGuest}
-          onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive} 
+          onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive}
           onDeleteProgress={handleDeleteProgress}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
         />
       )}
-      
+
       {/* 4. 리더 */}
       {view === 'reader' && activeBook && (
-        <Reader 
-          book={activeBook} 
-          googleToken={googleToken || ''} 
-          initialProgress={progress[activeBook.id]} 
-          settings={settings} 
-          onUpdateSettings={handleUpdateSettings} 
-          onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }} 
-          onSaveProgress={handleSaveProgress} 
+        <Reader
+          book={activeBook}
+          googleToken={googleToken || ''}
+          initialProgress={progress[activeBook.id]}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
+          onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
+          onSaveProgress={handleSaveProgress}
         />
       )}
 
       {pendingAction && (
         <ConfirmDialog
           message={pendingAction === 'logout' ? '로그아웃 하시겠습니까?' : '클라우드 연결을 해제하시겠습니까?'}
-          subMessage={pendingAction === 'disconnect' ? '로컈 모드로 전환됩니다.' : undefined}
+          subMessage={pendingAction === 'disconnect' ? '로컬 모드로 전환됩니다.' : undefined}
           confirmLabel={pendingAction === 'logout' ? '로그아웃' : '연결 해제'}
           theme={theme}
           onConfirm={executePendingAction}
