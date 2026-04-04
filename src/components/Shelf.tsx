@@ -5,6 +5,7 @@ import { getOfflineBookIds } from '../lib/localDB';
 import { ManageModal } from './ManageModal';
 import { ShelfSearchModal } from './ShelfSearchModal';
 import { ThemeModal } from './ThemeModal';
+import { ConfirmDialog } from './ConfirmDialog';
 import { THEMES } from '../lib/constants';
 import { 
   Library, 
@@ -71,6 +72,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortMode, setSortMode] = useState<'alpha' | 'recent'>('recent');
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [pendingDeleteProgressId, setPendingDeleteProgressId] = useState<string | null>(null);
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
@@ -362,9 +364,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (confirm('해당 도서의 읽은 내역을 삭제하시겠습니까?')) {
-                                onDeleteProgress(book.id);
-                              }
+                              setPendingDeleteProgressId(book.id);
                             }}
                             className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1 transition-colors"
                             title="Delete Progress"
@@ -427,9 +427,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (confirm('해당 도서의 읽은 내역을 삭제하시겠습니까?')) {
-                                  onDeleteProgress(book.id);
-                                }
+                                setPendingDeleteProgressId(book.id);
                               }}
                               className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1 transition-colors"
                               title="Delete Progress"
@@ -566,6 +564,17 @@ export const Shelf: React.FC<ShelfProps> = ({
           onClose={() => setShowThemeModal(false)}
           theme={theme}
           onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })}
+        />
+      )}
+
+      {pendingDeleteProgressId && onDeleteProgress && (
+        <ConfirmDialog
+          message="읽은 내역을 삭제하시겠습니까?"
+          subMessage="해당 도서의 진행률이 초기화됩니다."
+          confirmLabel="삭제"
+          theme={theme}
+          onConfirm={() => { onDeleteProgress(pendingDeleteProgressId); setPendingDeleteProgressId(null); }}
+          onCancel={() => setPendingDeleteProgressId(null)}
         />
       )}
     </div>

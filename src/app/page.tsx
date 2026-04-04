@@ -13,6 +13,7 @@ import { Reader } from '../components/Reader';
 import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { HardDrive, LogOut, ShieldCheck, Wifi, WifiOff, User as UserIcon } from 'lucide-react';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -25,6 +26,7 @@ export default function Page() {
   const [isPublicPC, setIsPublicPC] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
 
   const [settings, setSettings] = useState<ViewerSettings>({
     fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify', 
@@ -258,16 +260,7 @@ export default function Page() {
     setView('shelf');
   };
 
-  const handleDisconnectDrive = async () => {
-    if (confirm("클라우드 연결을 해제하고 로컬 모드로 전환하시겠습니까?")) {
-      setGoogleToken(null);
-      localStorage.removeItem('google_drive_token');
-      localStorage.removeItem('google_drive_token_expiry');
-      sessionStorage.removeItem('google_drive_token');
-      sessionStorage.removeItem('google_drive_token_expiry');
-      await handleLocalMode(); 
-    }
-  };
+  const handleDisconnectDrive = () => setPendingAction('disconnect');
 
   const handleConnect = () => {
     if (!(window as any).google) return;
@@ -299,8 +292,10 @@ export default function Page() {
     signInWithPopup(auth, googleProvider).catch(console.error);
   };
 
-  const handleLogout = async () => {
-    if (confirm("로그아웃 하시겠습니까?")) {
+  const handleLogout = () => setPendingAction('logout');
+
+  const executePendingAction = async () => {
+    if (pendingAction === 'logout') {
       await signOut(auth);
       localStorage.removeItem('google_drive_token');
       sessionStorage.removeItem('google_drive_token');
@@ -308,7 +303,15 @@ export default function Page() {
       setBooks([]);
       setIsGuest(false);
       setView('auth');
+    } else if (pendingAction === 'disconnect') {
+      setGoogleToken(null);
+      localStorage.removeItem('google_drive_token');
+      localStorage.removeItem('google_drive_token_expiry');
+      sessionStorage.removeItem('google_drive_token');
+      sessionStorage.removeItem('google_drive_token_expiry');
+      await handleLocalMode();
     }
+    setPendingAction(null);
   };
 
   const handleUpdateSettings = useCallback((newSettings: Partial<ViewerSettings>) => {
@@ -463,6 +466,17 @@ export default function Page() {
           onUpdateSettings={handleUpdateSettings} 
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }} 
           onSaveProgress={handleSaveProgress} 
+        />
+      )}
+
+      {pendingAction && (
+        <ConfirmDialog
+          message={pendingAction === 'logout' ? '로그아웃 하시겠습니까?' : '클라우드 연결을 해제하시겠습니까?'}
+          subMessage={pendingAction === 'disconnect' ? '로컈 모드로 전환됩니다.' : undefined}
+          confirmLabel={pendingAction === 'logout' ? '로그아웃' : '연결 해제'}
+          theme={theme}
+          onConfirm={executePendingAction}
+          onCancel={() => setPendingAction(null)}
         />
       )}
     </div>
