@@ -461,7 +461,7 @@ export default function Page() {
           initialProgress={progress[activeBook.id]} 
           settings={settings} 
           onUpdateSettings={handleUpdateSettings} 
-          onBack={() => { window.scrollTo(0, 0); setView('shelf'); }} 
+          onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }} 
           onSaveProgress={handleSaveProgress} 
         />
       )}
