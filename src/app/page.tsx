@@ -4,13 +4,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
 import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
-import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDoc } from 'firebase/firestore';
 
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
-import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress } from '../lib/localDB';
+import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress, removeProgressFromLocal } from '../lib/localDB';
 import { Shelf } from '../components/Shelf';
 import { Reader } from '../components/Reader';
 import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
+import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { HardDrive, LogOut, ShieldCheck, Wifi, WifiOff, User as UserIcon } from 'lucide-react';
 
 export default function Page() {
@@ -27,8 +28,11 @@ export default function Page() {
 
   const [settings, setSettings] = useState<ViewerSettings>({
     fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify', 
-    theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto'
+    theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto',
+    accentColor: 'sky'
   });
+
+  const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
   useEffect(() => {
     const savedSettings = localStorage.getItem('viewer_settings');
@@ -340,29 +344,54 @@ export default function Page() {
     }
   }, [user, activeBook]);
 
+  const handleDeleteProgress = useCallback(async (bookId: string) => {
+    setProgress(prev => {
+      const next = { ...prev };
+      delete next[bookId];
+      return next;
+    });
+
+    try {
+      await removeProgressFromLocal(bookId);
+    } catch (e) { console.error(e); }
+
+    if (user) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId));
+      } catch (e) { console.error(e); }
+    }
+  }, [user]);
+
+  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
+  const dynamicStyles = {
+    '--accent-400': accentColorObj[400],
+    '--accent-500': accentColorObj[500],
+    '--accent-600': accentColorObj[600],
+  } as React.CSSProperties;
+
   if (view === 'loading') {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0f172a] text-white gap-4">
-        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className={`h-screen w-screen flex flex-col items-center justify-center ${theme.bg} ${theme.text} gap-4 transition-colors duration-300`} style={dynamicStyles}>
+        <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
         <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen font-sans bg-[#0f172a]">
+    <div className={`min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`} style={dynamicStyles}>
       {/* 1. 로그인 화면 */}
       {view === 'auth' && !user && (
-        <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-12 p-10 text-center">
-          <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl shadow-indigo-500/20">
+        <div className="h-screen w-screen flex flex-col items-center justify-center gap-12 p-10 text-center">
+          <div className="p-10 bg-accent-600 text-white rounded-[3.5rem] shadow-2xl shadow-accent-500/20">
             <HardDrive size={64} />
           </div>
           <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
           <div className="flex flex-col gap-4 w-full max-w-xs">
-            <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95">
+            <button onClick={() => signInWithPopup(auth, googleProvider).catch((e) => console.log('Popup cancelled or closed'))} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
               Sign in with Google
             </button>
-            <button onClick={handleGuestMode} className="w-full py-5 bg-slate-800 border border-white/10 text-slate-300 font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors">
+            <button onClick={handleGuestMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 transition-colors`}>
               <UserIcon size={16} />
               <span>Guest Mode (Offline)</span>
             </button>
@@ -372,31 +401,31 @@ export default function Page() {
 
       {/* 2. 모드 선택 화면 */}
       {view === 'auth' && user && (
-        <div className="h-screen w-screen flex flex-col items-center justify-center text-white gap-8 p-10 text-center">
+        <div className="h-screen w-screen flex flex-col items-center justify-center gap-8 p-10 text-center">
           <div className="relative mb-4">
-            <div className="p-10 bg-indigo-600 rounded-[3.5rem] shadow-2xl">
+            <div className="p-10 bg-accent-600 text-white rounded-[3.5rem] shadow-2xl">
               <HardDrive size={64} />
             </div>
             <button onClick={handleLogout} className="absolute -top-2 -right-2 p-3 bg-red-500 rounded-full shadow-lg active:scale-90"><LogOut size={18} /></button>
           </div>
           <div className="space-y-1 mb-2">
-            <p className="text-indigo-400 font-black text-[10px] uppercase tracking-[0.3em]">Welcome back</p>
+            <p className="text-accent-400 font-black text-[10px] uppercase tracking-[0.3em]">Welcome back</p>
             <h1 className="text-xl font-bold">{user.displayName || user.email}</h1>
           </div>
           <div className="w-full max-w-xs space-y-4">
-            <button onClick={handleConnect} className="group relative w-full py-5 bg-white text-slate-900 font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center justify-center gap-3 overflow-hidden">
-               <div className="absolute inset-0 bg-indigo-500 opacity-0 group-hover:opacity-10 transition-opacity" />
-               <Wifi size={18} className="text-indigo-600" />
+            <button onClick={handleConnect} className={`group relative w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center justify-center gap-3 overflow-hidden hover:opacity-80 transition-all`}>
+               <div className="absolute inset-0 bg-accent-500 opacity-0 group-hover:opacity-10 transition-opacity" />
+               <Wifi size={18} className="text-accent-600 dark:text-accent-400" />
                <span>Connect Cloud</span>
             </button>
-            <button onClick={handleLocalMode} className="w-full py-5 bg-slate-800 border border-white/10 text-slate-300 font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-3 hover:bg-slate-700 transition-colors">
+            <button onClick={handleLocalMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-3 transition-colors`}>
               <WifiOff size={18} />
               <span>Local Library Only</span>
             </button>
-            <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/5 bg-transparent'}`}>
+            <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-accent-500 bg-accent-500/10' : `border-transparent ${theme.secondary}`}`}>
               <input type="checkbox" checked={isPublicPC} onChange={(e) => setIsPublicPC(e.target.checked)} className="hidden" />
-              <ShieldCheck size={20} className={isPublicPC ? 'text-indigo-400' : 'text-slate-500'} />
-              <span className={`text-[11px] font-bold uppercase tracking-wider ${isPublicPC ? 'text-white' : 'text-slate-400'}`}>
+              <ShieldCheck size={20} className={isPublicPC ? 'text-accent-500' : 'opacity-40'} />
+              <span className={`text-[11px] font-bold uppercase tracking-wider ${isPublicPC ? 'text-accent-500' : 'opacity-60'}`}>
                 {isPublicPC ? 'Public PC (Session Only)' : 'Private PC (Keep Logged in)'}
               </span>
             </label>
@@ -418,6 +447,9 @@ export default function Page() {
           isOfflineMode={isOfflineMode} 
           isGuest={isGuest}
           onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive} 
+          onDeleteProgress={handleDeleteProgress}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
         />
       )}
       

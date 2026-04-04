@@ -18,6 +18,7 @@ export interface ViewerSettings {
   navMode: 'scroll' | 'page' | 'left-right' | 'all-dir';
   fontFamily: 'sans' | 'serif' | 'ridi';
   encoding: 'auto' | 'utf-8' | 'euc-kr' | 'utf-16le';
+  accentColor: string;
 }
 
 // [Added] 책갈피 타입 정의

@@ -290,11 +290,11 @@ export const Reader: React.FC<ReaderProps> = ({
           <div className={`${theme.bg} ${theme.text} w-full max-w-xs rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200`}>
             <p className="text-sm font-bold mb-6 text-center">해당 위치로 이동할까요?</p>
             {showConfirm.type === 'input' && (
-              <input autoFocus type="text" value={jumpInput} onChange={(e) => setJumpInput(e.target.value)} placeholder="50% 또는 100000" className="w-full bg-black/5 dark:bg-white/5 border border-white/10 rounded-xl p-3 mb-6 text-center outline-none focus:ring-2 ring-indigo-500" />
+              <input autoFocus type="text" value={jumpInput} onChange={(e) => setJumpInput(e.target.value)} placeholder="50% 또는 100000" className="w-full bg-black/5 dark:bg-white/5 border border-white/10 rounded-xl p-3 mb-6 text-center outline-none focus:ring-2 ring-accent-500" />
             )}
             <div className="flex gap-3">
               <button onClick={cancelJump} className="flex-1 py-3 bg-red-500/10 text-red-500 font-bold rounded-2xl transition-colors">취소</button>
-              <button onClick={confirmJump} className="flex-1 py-3 bg-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/30 transition-transform active:scale-95">이동</button>
+              <button onClick={confirmJump} className="flex-1 py-3 bg-accent-500 text-white font-bold rounded-2xl shadow-lg shadow-accent-500/30 transition-transform active:scale-95">이동</button>
             </div>
           </div>
         </div>
@@ -305,15 +305,15 @@ export const Reader: React.FC<ReaderProps> = ({
          <div className="fixed z-[100] max-w-sm w-[90%] md:w-full animate-in duration-500 bottom-24 left-1/2 -translate-x-1/2 md:top-auto md:left-auto md:bottom-24 md:right-6 md:translate-x-0 zoom-in-95 md:zoom-in-100 md:slide-in-from-right">
           <div className="bg-slate-900/90 text-white backdrop-blur-md p-4 rounded-3xl shadow-2xl border border-white/10 flex flex-col gap-3">
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-400"><ArrowUpCircle size={20} /></div>
+              <div className="p-2 bg-accent-500/20 rounded-full text-accent-400"><ArrowUpCircle size={20} /></div>
               <div className="flex-1">
                 <h4 className="text-sm font-bold">원격 기록 발견</h4>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">다른 기기에서 <span className="text-indigo-400 font-bold">{syncConflict.remotePercent.toFixed(1)}%</span>까지 읽은 기록이 있습니다. 동기화하시겠습니까?</p>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">다른 기기에서 <span className="text-accent-400 font-bold">{syncConflict.remotePercent.toFixed(1)}%</span>까지 읽은 기록이 있습니다. 동기화하시겠습니까?</p>
               </div>
             </div>
             <div className="flex gap-2 pl-11">
               <button onClick={() => handleSyncResolve('ignore')} className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-white/5 rounded-xl transition-colors">무시하기</button>
-              <button onClick={() => handleSyncResolve('sync')} className="flex-1 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/20 transition-colors">동기화 (이동)</button>
+              <button onClick={() => handleSyncResolve('sync')} className="flex-1 py-2 text-xs font-bold bg-accent-600 hover:bg-accent-500 rounded-xl shadow-lg shadow-accent-500/20 transition-colors">동기화 (이동)</button>
             </div>
           </div>
         </div>
@@ -387,7 +387,7 @@ export const Reader: React.FC<ReaderProps> = ({
         <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <span className="text-[10px] font-black text-white tracking-widest font-sans">
             {currentIdx.toLocaleString()} / {(fullContent.current.length || 0).toLocaleString()} 
-            <span className="ml-2 text-indigo-400">{readPercent.toFixed(1)}%</span>
+            <span className="ml-2 text-accent-400">{readPercent.toFixed(1)}%</span>
           </span>
           <button onClick={() => setShowConfirm({ show: true, type: 'input', fromSearch: false, originIdx: currentIdx })} className="text-white/50 hover:text-white"><Hash size={14} /></button>
         </div>
@@ -404,7 +404,7 @@ export const Reader: React.FC<ReaderProps> = ({
             }}
             onMouseUp={handleSlideEnd}
             onTouchEnd={handleSlideEnd}
-            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"
           />
           <button onClick={() => setShowSearch(true)} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">
             <Search size={22} />
@@ -420,7 +420,7 @@ export const Reader: React.FC<ReaderProps> = ({
              <Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span>
           </button>
 
-          <button onClick={() => setShowBookmarks(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity text-indigo-500">
+          <button onClick={() => setShowBookmarks(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity text-accent-500">
             <BookmarkIcon size={22} />
             <span className="text-[9px] font-bold uppercase tracking-tighter">Mark</span>
           </button>

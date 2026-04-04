@@ -19,6 +19,11 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  
+  /* Dynamic Accent Colors */
+  --color-accent-400: var(--accent-400, var(--color-sky-400));
+  --color-accent-500: var(--accent-500, var(--color-sky-500));
+  --color-accent-600: var(--accent-600, var(--color-sky-600));
 }
 
 @media (prefers-color-scheme: dark) {

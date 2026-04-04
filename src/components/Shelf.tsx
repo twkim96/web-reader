@@ -1,9 +1,11 @@
 // src/components/Shelf.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Book, UserProgress } from '../types';
+import { Book, UserProgress, ViewerSettings } from '../types';
 import { getOfflineBookIds } from '../lib/localDB';
 import { ManageModal } from './ManageModal';
 import { ShelfSearchModal } from './ShelfSearchModal';
+import { ThemeModal } from './ThemeModal';
+import { THEMES } from '../lib/constants';
 import { 
   Library, 
   Search, 
@@ -15,12 +17,21 @@ import {
   XCircle,
   FolderPlus,
   WifiOff,
-  User as UserIcon // [New]
+  User as UserIcon, // [New]
+  LayoutGrid,
+  List,
+  ArrowDownAZ,
+  Clock,
+  CalendarDays,
+  Eraser,
+  Palette
 } from 'lucide-react';
 
 interface ShelfProps {
   books: Book[];
   progress: Record<string, UserProgress>;
+  settings: ViewerSettings;
+  onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onOpen: (book: Book) => void;
   onRefresh: () => void;
   onLogout: () => void;
@@ -30,6 +41,7 @@ interface ShelfProps {
   isOfflineMode: boolean; 
   isGuest: boolean; // [New] 게스트 여부
   onToggleCloud: () => void; 
+  onDeleteProgress?: (bookId: string) => void; 
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
@@ -43,12 +55,48 @@ export const Shelf: React.FC<ShelfProps> = ({
   userEmail,
   isOfflineMode,
   isGuest,
-  onToggleCloud
+  onToggleCloud,
+  onDeleteProgress,
+  settings,
+  onUpdateSettings
 }) => {
   const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
   const [showManage, setShowManage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortMode, setSortMode] = useState<'alpha' | 'recent'>('recent');
+  const [showThemeModal, setShowThemeModal] = useState(false);
+
+  const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
+
+  useEffect(() => {
+    const savedView = localStorage.getItem('shelf_viewMode');
+    if (savedView === 'grid' || savedView === 'list') setViewMode(savedView);
+    
+    const savedSort = localStorage.getItem('shelf_sortMode');
+    if (savedSort === 'alpha' || savedSort === 'recent') setSortMode(savedSort);
+  }, []);
+
+  const handleSetViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('shelf_viewMode', mode);
+  };
+
+  const handleSetSortMode = (mode: 'alpha' | 'recent') => {
+    setSortMode(mode);
+    localStorage.setItem('shelf_sortMode', mode);
+  };
+
+  const getSortIcon = () => {
+    if (sortMode === 'alpha') return <ArrowDownAZ size={20} />;
+    return <Clock size={20} />;
+  };
+
+  const getSortTitle = () => {
+    if (sortMode === 'alpha') return "가나다순";
+    return "최근에 읽은 순";
+  };
 
   const stateRef = useRef({ showManage, showSearch });
   useEffect(() => {
@@ -94,36 +142,53 @@ export const Shelf: React.FC<ShelfProps> = ({
     const normalizedBookName = book.name.normalize('NFC').replace('.txt', '').replace(/\s+/g, '').toLowerCase();
     const normalizedKeyword = searchKeyword.normalize('NFC').replace(/\s+/g, '').toLowerCase();
     return normalizedBookName.includes(normalizedKeyword);
+  }).sort((a, b) => {
+    if (sortMode === 'alpha') {
+      return a.name.localeCompare(b.name);
+    } else if (sortMode === 'recent') {
+      const getMs = (ts: any) => {
+        if (!ts) return 0;
+        const d = ts.toDate ? ts.toDate() : new Date(ts);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      };
+      const pA = getMs(progress[a.id]?.lastRead);
+      const pB = getMs(progress[b.id]?.lastRead);
+      if (pA === 0 && pB === 0) {
+        return books.indexOf(b) - books.indexOf(a); 
+      }
+      return pB - pA;
+    }
+    return 0;
   });
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200 font-sans pb-20">
+    <div className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-20 transition-colors duration-300`}>
       {/* 상단 헤더 */}
-      <header className="sticky top-0 z-40 bg-[#0f172a]/80 backdrop-blur-md border-b border-white/5 px-6 py-6">
+      <header className={`sticky top-0 z-40 ${theme.bg}/80 backdrop-blur-md border-b ${theme.border} px-6 py-6 transition-colors duration-300`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {/* 연결/해제 토글 버튼 (게스트 모드가 아닐 때만 활성화하거나, 게스트면 로그인 유도) */}
+            {/* 연결/해제 토글 버튼 */}
             <button 
               onClick={isGuest ? onLogin : onToggleCloud}
               className={`p-3 rounded-2xl shadow-lg transition-all active:scale-90 group relative ${
                 isOfflineMode 
                   ? 'bg-slate-700 shadow-none hover:bg-slate-600' 
-                  : 'bg-indigo-600 shadow-indigo-500/20 hover:bg-indigo-500'
+                  : 'bg-accent-600 shadow-accent-500/20 hover:bg-accent-500'
               }`}
               title={isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
               {isOfflineMode ? (
-                <WifiOff className="text-white group-hover:text-indigo-300 transition-colors" size={24} />
+                <WifiOff className="text-white group-hover:text-accent-300 transition-colors" size={24} />
               ) : (
                 <Library className="text-white" size={24} />
               )}
             </button>
 
             <div>
-              <h1 className="text-xl font-black text-white tracking-tight uppercase italic">
+              <h1 className="text-xl font-black tracking-tight uppercase italic">
                 {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
               </h1>
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+              <div className="flex items-center gap-1.5 text-[10px] opacity-60 font-bold uppercase tracking-widest">
                 {isGuest && <UserIcon size={10} />}
                 <span>{userEmail}</span>
               </div>
@@ -131,31 +196,65 @@ export const Shelf: React.FC<ShelfProps> = ({
           </div>
           
           <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setShowManage(true)}
-              className="p-4 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-indigo-400 hover:bg-white/10 transition-all active:scale-90"
-              title="Manage Offline Books"
-            >
-              <HardDrive size={20} />
-            </button>
-
+            {/* 1. Search (돋보기) */}
             <button 
               onClick={() => setShowSearch(true)}
               className={`p-4 rounded-2xl border transition-all active:scale-90 ${
                 searchKeyword 
-                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20' 
-                  : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
+                  ? 'bg-accent-600 border-accent-500 text-white shadow-lg shadow-accent-500/20' 
+                  : `${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100`
               }`}
               title="Search Books"
             >
               <Search size={20} />
             </button>
 
-            {/* 로그인/로그아웃 버튼 */}
+            {/* 2. Sort (정렬) */}
+            <button
+              onClick={() => handleSetSortMode(sortMode === 'alpha' ? 'recent' : 'alpha')}
+              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
+              title={getSortTitle()}
+            >
+              <div className="flex items-center justify-center relative">
+                {getSortIcon()}
+                <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
+                  {sortMode === 'alpha' ? 'A' : 'R'}
+                </span>
+              </div>
+            </button>
+
+            {/* 3. View Mode (목록) */}
+            <button
+              onClick={() => handleSetViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
+              title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
+            >
+              {viewMode === 'grid' ? <List size={20} /> : <LayoutGrid size={20} />}
+            </button>
+
+            {/* 4. Theme (테마) */}
+            <button
+              onClick={() => setShowThemeModal(true)}
+              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
+              title="Change Theme"
+            >
+              <Palette size={20} />
+            </button>
+
+            {/* 5. Manage (저장) */}
+            <button 
+              onClick={() => setShowManage(true)}
+              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
+              title="Manage Offline Books"
+            >
+              <HardDrive size={20} />
+            </button>
+
+            {/* 6. Logout (로그아웃) */}
             {isGuest ? (
               <button 
                 onClick={onLogin}
-                className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                className="p-4 rounded-2xl bg-accent-500/10 border border-accent-500/20 text-accent-400 hover:bg-accent-500 hover:text-white transition-all active:scale-90"
                 title="Sign In"
               >
                 <LogIn size={20} />
@@ -176,7 +275,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       {searchKeyword && (
         <div className="max-w-7xl mx-auto px-6 pt-4 pb-0">
           <div className="flex items-center gap-2 text-sm text-slate-400">
-            <span className="text-indigo-400 font-bold">"{searchKeyword}"</span>
+            <span className="text-accent-400 font-bold">"{searchKeyword}"</span>
             <span>검색 결과</span>
             <span className="bg-white/10 px-2 py-0.5 rounded-md text-xs font-bold text-white">
               {filteredBooks.length}
@@ -193,17 +292,73 @@ export const Shelf: React.FC<ShelfProps> = ({
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         {filteredBooks.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+          <div className={`grid gap-8 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
             {filteredBooks.map((book) => {
               const bookProgress = progress[book.id];
               // 게스트/오프라인 모드면 이미 다운로드된 것들임
               const isDownloaded = isOfflineMode || offlineIds.has(book.id);
 
+              if (viewMode === 'list') {
+                return (
+                  <div 
+                    key={book.id}
+                    onClick={() => onOpen(book)}
+                    className={`group flex items-center ${theme.secondary} border ${theme.border} rounded-3xl p-4 sm:p-5 cursor-pointer hover:border-accent-500/50 transition-all duration-300`}
+                  >
+                    <div className="w-12 h-12 bg-accent-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg group-hover:scale-105 transition-transform duration-300 mr-4">
+                      <BookOpen className="text-white" size={20} />
+                    </div>
+                    
+                    <div className="flex-1 min-w-0 pr-4">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base sm:text-lg font-bold truncate group-hover:text-accent-500 transition-colors">
+                          {book.name.replace('.txt', '')}
+                        </h3>
+                        {isDownloaded && (
+                          <CheckCircle2 size={16} className="text-green-400 shrink-0" strokeWidth={3} />
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest truncate">
+                        {bookProgress?.lastRead ? formatDate(bookProgress.lastRead) : 'Ready to Start'}
+                      </div>
+                    </div>
+
+                    <div className="w-20 sm:w-32 shrink-0 flex flex-col justify-center">
+                      <div className="flex justify-end mb-1.5 items-center gap-1.5">
+                        {(bookProgress?.progressPercent || 0) > 0 && onDeleteProgress && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm('해당 도서의 읽은 내역을 삭제하시겠습니까?')) {
+                                onDeleteProgress(book.id);
+                              }
+                            }}
+                            className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1 transition-colors"
+                            title="Delete Progress"
+                          >
+                            <Eraser size={12} strokeWidth={3} />
+                          </button>
+                        )}
+                        <span className="text-xs font-black text-accent-400">
+                          {bookProgress?.progressPercent?.toFixed(1) || '0.0'}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-accent-500 rounded-full transition-all duration-1000 ease-out"
+                          style={{ width: `${bookProgress?.progressPercent || 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div 
                   key={book.id}
                   onClick={() => onOpen(book)}
-                  className="group relative bg-white/5 border border-white/10 rounded-[2.5rem] p-8 cursor-pointer hover:bg-white/10 hover:border-indigo-500/50 transition-all duration-500 hover:-translate-y-2 overflow-hidden"
+                  className={`group relative ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-8 cursor-pointer hover:border-accent-500/50 transition-all duration-500 hover:-translate-y-2 overflow-hidden`}
                 >
                   <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                     <BookOpen size={100} className="rotate-12" />
@@ -211,7 +366,7 @@ export const Shelf: React.FC<ShelfProps> = ({
 
                   <div className="relative z-10 space-y-6">
                     <div className="flex justify-between items-start">
-                      <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-500">
+                      <div className="w-14 h-14 bg-accent-600 rounded-2xl flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-500">
                         <BookOpen className="text-white" size={28} />
                       </div>
                       
@@ -223,7 +378,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                     </div>
                     
                     <div>
-                      <h3 className="text-lg font-bold text-white leading-tight line-clamp-2 group-hover:text-indigo-300 transition-colors">
+                      <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
                         {book.name.replace('.txt', '')}
                       </h3>
                       <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">Text Document</p>
@@ -234,11 +389,27 @@ export const Shelf: React.FC<ShelfProps> = ({
                         <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
                           {bookProgress?.lastRead ? formatDate(bookProgress.lastRead) : 'Ready to Start'}
                         </span>
-                        <span className="text-xs font-black text-indigo-400">{bookProgress?.progressPercent?.toFixed(1) || '0.0'}%</span>
+                        <div className="flex items-center gap-1.5">
+                          {(bookProgress?.progressPercent || 0) > 0 && onDeleteProgress && (
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm('해당 도서의 읽은 내역을 삭제하시겠습니까?')) {
+                                  onDeleteProgress(book.id);
+                                }
+                              }}
+                              className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1 transition-colors"
+                              title="Delete Progress"
+                            >
+                              <Eraser size={12} strokeWidth={3} />
+                            </button>
+                          )}
+                          <span className="text-xs font-black text-accent-400">{bookProgress?.progressPercent?.toFixed(1) || '0.0'}%</span>
+                        </div>
                       </div>
                       <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-indigo-500 rounded-full transition-all duration-1000 ease-out"
+                          className="h-full bg-accent-500 rounded-full transition-all duration-1000 ease-out"
                           style={{ width: `${bookProgress?.progressPercent || 0}%` }}
                         />
                       </div>
@@ -249,56 +420,81 @@ export const Shelf: React.FC<ShelfProps> = ({
             })}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-32 text-center space-y-8 bg-white/5 rounded-[3.5rem] border border-white/10 backdrop-blur-sm">
+          <div className={`flex flex-col items-center justify-center py-32 text-center space-y-8 ${theme.secondary} rounded-[3.5rem] border ${theme.border} backdrop-blur-sm`}>
             {searchKeyword ? (
               <>
-                <div className="p-8 bg-slate-700/50 rounded-[2rem] text-slate-400">
+                <div className={`p-8 ${theme.secondary} rounded-[2rem] opacity-60`}>
                   <XCircle size={64} />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="text-xl font-bold text-white">검색 결과가 없습니다</h3>
-                  <p className="text-slate-500 text-sm">"{searchKeyword}"</p>
+                  <h3 className="text-xl font-bold">검색 결과가 없습니다</h3>
+                  <p className="opacity-60 text-sm">"{searchKeyword}"</p>
                 </div>
-                <button onClick={() => setSearchKeyword('')} className="px-8 py-3 bg-white/10 text-white rounded-full font-bold text-xs uppercase hover:bg-white/20 transition-all">전체 목록 보기</button>
+                <button onClick={() => setSearchKeyword('')} className="px-8 py-3 bg-accent-600 text-white rounded-full font-bold text-xs uppercase hover:bg-accent-500 transition-all">전체 목록 보기</button>
               </>
             ) : (
               <>
-                <div className={`p-8 rounded-[2rem] shadow-inner ${isOfflineMode ? 'bg-slate-700/50 text-slate-400' : 'bg-indigo-600/20 text-indigo-400'}`}>
+                <div className={`p-8 rounded-[2rem] shadow-inner ${isOfflineMode ? 'bg-slate-700/50 text-slate-400' : 'bg-accent-600/20 text-accent-400'}`}>
                   {isOfflineMode ? <WifiOff size={64} /> : <FolderPlus size={64} />}
                 </div>
                 
                 <div className="space-y-4 max-w-sm">
                   {isOfflineMode ? (
                     <>
-                      <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">
+                      <h3 className="text-2xl font-black italic uppercase tracking-tighter">
                         {isGuest ? 'Guest Library Empty' : 'Local Library Empty'}
                       </h3>
-                      <p className="text-slate-400 text-sm leading-relaxed font-medium">
+                      <p className="opacity-60 text-sm leading-relaxed font-medium">
                         저장된 도서가 없습니다.<br/>
                         {isGuest 
-                          ? <span><span className="text-indigo-400 font-black">Login</span>하여 클라우드에서 도서를 받아보세요.</span>
-                          : <span><button onClick={onToggleCloud} className="text-indigo-400 font-black hover:text-indigo-300 underline decoration-indigo-400/50 underline-offset-4 transition-colors">Cloud Mode</button>를 클릭하여 도서를 다운로드해주세요.</span>
+                          ? <span><span className="text-accent-500 font-black">Login</span>하여 클라우드에서 도서를 받아보세요.</span>
+                          : <span><button onClick={onToggleCloud} className="text-accent-500 font-black hover:opacity-80 underline decoration-accent-500/50 underline-offset-4 transition-all">Cloud Mode</button>를 클릭하여 도서를 다운로드해주세요.</span>
                         }
                       </p>
                       {isGuest ? (
-                        <button onClick={onLogin} className="px-10 py-4 bg-indigo-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl active:scale-95 mt-2">
+                        <button onClick={onLogin} className="px-10 py-4 bg-accent-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl active:scale-95 mt-2">
                           Log In Now
                         </button>
                       ) : (
-                        <button onClick={onToggleCloud} className="px-10 py-4 bg-indigo-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl active:scale-95 mt-2">
+                        <button onClick={onToggleCloud} className="px-10 py-4 bg-accent-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl active:scale-95 mt-2">
                           Switch to Cloud Mode
                         </button>
                       )}
                     </>
                   ) : (
                     <>
-                      <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">No Books Found</h3>
-                      <p className="text-slate-400 text-sm leading-relaxed font-medium">
-                        구글 드라이브에 <span className="text-indigo-400 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-indigo-400 font-black">.txt</span> 파일을 업로드해 주세요.
+                      <h3 className="text-2xl font-black italic uppercase tracking-tighter">No Books Found</h3>
+                      <p className="opacity-60 text-sm leading-relaxed font-medium">
+                        구글 드라이브에 <span className="text-accent-500 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
                       </p>
-                      <button onClick={onRefresh} className="px-10 py-4 bg-white text-[#0f172a] rounded-full font-black text-xs uppercase tracking-[0.2em] hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95 mt-2">
-                        Refresh Library
-                      </button>
+                      <div className="flex flex-col gap-3 items-center w-full mt-2">
+                        <a 
+                          href="https://drive.google.com/" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className={`w-full max-w-[240px] py-4 border-2 border-accent-500/30 bg-accent-500/5 ${theme.text} rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500/10 transition-all flex items-center justify-center gap-3 active:scale-95 shadow-sm`}
+                        >
+                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M7.74023 6L4.64023 11.38L8.60023 18.25L11.7002 12.87L7.74023 6Z" fill="#0066DA"/>
+                            <path d="M21.5 13.5L15.3 13.5L12.21 18.82L15.41 24L21.5 13.5Z" fill="#0066DA" opacity="0"/>
+                            <path d="M21.5002 13.5002L18.4002 18.8802L12.3002 18.8802L15.4002 13.5002L21.5002 13.5002Z" fill="#2684FF"/>
+                            <path d="M12.3002 18.88L15.4002 13.5L8.60023 18.25L12.3002 18.88Z" fill="#0066DA" opacity="0"/>
+                            <path d="M15.4002 13.5002L12.3002 8.12015L6.2002 8.12015L9.3002 13.5002L15.4002 13.5002Z" fill="#FFBC00"/>
+                            <path d="M15.4002 13.5002L12.3002 8.12015L11.7002 12.87L15.4002 13.5002Z" fill="#0066DA" opacity="0"/>
+                            <path d="M9.30023 13.5002L6.19022 18.8802L3.10022 13.5001L6.20023 8.12012L9.30023 13.5002Z" fill="#00AC47"/>
+                            <path d="M6.2002 8.12012L9.3002 13.5002L12.3002 8.12012L9.2002 2.74012L3.1002 2.74012L6.2002 8.12012Z" fill="#EA4335" opacity="0"/>
+                            <path d="M15.4002 2.74011L9.2002 2.74011L6.10022 8.12011L12.3002 8.12011L15.4002 2.74011Z" fill="#00AC47" opacity="0"/>
+                            <path d="M9.3002 2.74011L3.2002 2.74011L6.2002 8.12011L9.3002 2.74011Z" fill="#0066DA" opacity="0"/>
+                            <path d="M12.3002 8.12011L9.2002 2.74011L15.4002 2.74011L18.5002 8.12011L12.3002 8.12011Z" fill="#00AC47" opacity="0"/>
+                            <path d="M15.41 12.87L18.51 8.12L12.41 8.12L9.31006 13.5L15.41 12.87Z" fill="#0066DA" opacity="0"/>
+                            <path d="M18.5 8.12011L15.4 2.74011L9.3 2.74011L12.4 8.12011L18.5 8.12011Z" fill="#0066DA" opacity="0"/>
+                          </svg>
+                          <span>Open Google Drive</span>
+                        </a>
+                        <button onClick={onRefresh} className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95">
+                          Refresh Library
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
@@ -312,7 +508,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         <ManageModal 
           onClose={() => setShowManage(false)} 
           onUpdate={checkOfflineStatus}
-          theme={{ bg: 'bg-[#0f172a]', text: 'text-white' }}
+          theme={theme}
         />
       )}
 
@@ -321,6 +517,22 @@ export const Shelf: React.FC<ShelfProps> = ({
           onClose={() => setShowSearch(false)}
           onSearch={(keyword) => setSearchKeyword(keyword)}
           initialKeyword={searchKeyword}
+          theme={theme}
+          books={books}
+          onOpen={onOpen}
+          progress={progress}
+          offlineIds={offlineIds}
+          isOfflineMode={isOfflineMode}
+        />
+      )}
+
+      {showThemeModal && (
+        <ThemeModal
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          onClose={() => setShowThemeModal(false)}
+          theme={theme}
+          onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })}
         />
       )}
     </div>

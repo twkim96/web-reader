@@ -1,17 +1,29 @@
-// src/components/ShelfSearchModal.tsx
 import React, { useState } from 'react';
-import { Search, X, ArrowRight } from 'lucide-react';
+import { Search, X, BookOpen, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Book, UserProgress } from '../types';
 
 interface ShelfSearchModalProps {
   onClose: () => void;
   onSearch: (keyword: string) => void;
   initialKeyword: string;
+  theme: any;
+  books: Book[];
+  onOpen: (book: Book) => void;
+  progress: Record<string, UserProgress>;
+  offlineIds: Set<string>;
+  isOfflineMode: boolean;
 }
 
 export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({ 
   onClose, 
   onSearch,
-  initialKeyword 
+  initialKeyword,
+  theme,
+  books,
+  onOpen,
+  progress,
+  offlineIds,
+  isOfflineMode
 }) => {
   const [keyword, setKeyword] = useState(initialKeyword);
 
@@ -21,64 +33,114 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
     onClose();
   };
 
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return null;
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    if (isNaN(date.getTime())) return null;
+    return date.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+  };
+
+  const filteredBooks = keyword ? books.filter(b => {
+    if (!b.name) return false;
+    const normalizedBookName = b.name.normalize('NFC').replace('.txt', '').replace(/\s+/g, '').toLowerCase();
+    const normalizedKeyword = keyword.normalize('NFC').replace(/\s+/g, '').toLowerCase();
+    return normalizedBookName.includes(normalizedKeyword);
+  }).slice(0, 5) : [];
+
   return (
-    <div className="fixed inset-0 z-[110] bg-[#0f172a]/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 animate-in fade-in duration-200">
-      <div className="w-full max-w-md space-y-8 animate-in slide-in-from-bottom-10 duration-300">
-        
-        {/* 헤더 및 닫기 버튼 */}
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">
-            Search Library
-          </h2>
-          <button 
-            onClick={onClose}
-            className="p-3 rounded-full bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
-          >
-            <X size={24} />
-          </button>
-        </div>
-
-        {/* 검색 폼 */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="relative group">
-            <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
-              <Search className="text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={24} />
-            </div>
-            <input
-              autoFocus
-              type="text"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="도서 제목 검색..."
-              className="w-full bg-black/20 border-2 border-white/10 rounded-3xl py-6 pl-14 pr-6 text-lg text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/50 focus:bg-black/30 transition-all font-bold"
-            />
+    <div className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[15vh] p-4 animate-in fade-in duration-200" onClick={onClose}>
+      <div 
+        className={`w-full max-w-2xl ${theme.bg} ${theme.text} rounded-[2rem] shadow-2xl border ${theme.border} overflow-hidden flex flex-col animate-in slide-in-from-top-4 zoom-in-95 duration-300`}
+        onClick={e => e.stopPropagation()}
+      >
+        <form onSubmit={handleSubmit} className="relative flex items-center p-2">
+          <div className="pl-6 pr-2">
+            <Search className="opacity-50" size={28} />
           </div>
-
-          <div className="flex gap-3">
-             {/* 초기화 버튼 (검색어가 있을 때만 표시) */}
-             {keyword && (
-              <button
-                type="button"
-                onClick={() => { setKeyword(''); onSearch(''); onClose(); }}
-                className="px-6 py-4 rounded-2xl bg-white/5 text-slate-400 font-bold text-sm hover:bg-white/10 hover:text-white transition-colors"
-              >
-                초기화
-              </button>
-            )}
-            
-            <button
-              type="submit"
-              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl py-4 font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-500/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+          <input
+            autoFocus
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="도서 이름으로 검색..."
+            className={`w-full py-6 pr-6 bg-transparent text-xl focus:outline-none font-bold placeholder:opacity-30`}
+          />
+          {keyword && (
+            <button 
+              type="button"
+              onClick={() => { setKeyword(''); onSearch(''); onClose(); }}
+              className="mr-4 p-2 rounded-full opacity-50 hover:bg-black/10 hover:opacity-100 transition-all"
             >
-              <span>Search</span>
-              <ArrowRight size={18} />
+              <X size={20} />
             </button>
-          </div>
+          )}
         </form>
 
-        <p className="text-center text-slate-500 text-xs font-medium">
-          Enter 키를 누르면 검색이 시작됩니다.
-        </p>
+        {keyword && (
+           <div className={`border-t ${theme.border}`}>
+             {filteredBooks.length > 0 ? (
+               <div className="py-2">
+                 <div className="px-6 py-2 text-[10px] font-black uppercase tracking-widest text-accent-500">Books</div>
+                 {filteredBooks.map(book => {
+                   const bookProgress = progress[book.id];
+                   const isDownloaded = isOfflineMode || offlineIds.has(book.id);
+                   const lastDate = formatDate(bookProgress?.lastRead);
+                   const percent = bookProgress?.progressPercent;
+
+                   return (
+                     <button
+                       key={book.id}
+                       type="button"
+                       onClick={() => { onClose(); onOpen(book); }}
+                       className={`w-full flex items-center gap-4 px-6 py-4 text-left hover:bg-accent-500/10 transition-colors group`}
+                     >
+                       <div className="relative">
+                         <div className={`p-2 rounded-xl bg-accent-500/10 text-accent-500`}>
+                           <BookOpen size={20} />
+                         </div>
+                         {isDownloaded && (
+                           <div className="absolute -top-1.5 -right-1.5 bg-green-500 text-white rounded-full p-0.5 border-2 border-white dark:border-slate-900 shadow-sm">
+                             <CheckCircle2 size={10} strokeWidth={4} />
+                           </div>
+                         )}
+                       </div>
+                       
+                       <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
+                         <span className="font-bold truncate text-base group-hover:text-accent-500 transition-colors">
+                           {book.name.replace('.txt', '')}
+                         </span>
+                         {(lastDate || percent !== undefined) && (
+                           <div className="flex items-center gap-3 shrink-0">
+                             {lastDate && <span className="opacity-40 text-[10px] font-bold uppercase tracking-tight">{lastDate}</span>}
+                             {percent !== undefined && percent > 0 && (
+                               <span className="text-accent-500 text-xs font-black bg-accent-500/10 px-2 py-0.5 rounded-md">
+                                 {percent.toFixed(1)}%
+                               </span>
+                             )}
+                           </div>
+                         )}
+                       </div>
+                       
+                       <ChevronRight className="opacity-0 group-hover:opacity-40 text-accent-500 transition-opacity shrink-0" size={16} />
+                     </button>
+                   );
+                 })}
+               </div>
+             ) : (
+                <div className="py-12 text-center opacity-50 font-bold text-sm">
+                  검색 결과가 없습니다.
+                </div>
+             )}
+             
+             {filteredBooks.length > 0 && (
+                <div className={`p-4 border-t ${theme.border} ${theme.secondary} text-center flex justify-center`}>
+                  <button type="submit" onClick={handleSubmit} className="text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 bg-black/5 px-4 py-2 rounded-full transition-all flex items-center gap-2">
+                    <Search size={14} /> 전체 검색 결과 화면 보기
+                  </button>
+                </div>
+             )}
+           </div>
+        )}
       </div>
     </div>
   );

@@ -84,3 +84,8 @@ export const getAllLocalProgress = async (): Promise<UserProgress[]> => {
   const db = await initDB();
   return db.getAll(PROGRESS_STORE);
 };
+
+export const removeProgressFromLocal = async (bookId: string) => {
+  const db = await initDB();
+  await db.delete(PROGRESS_STORE, bookId);
+};

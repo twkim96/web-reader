@@ -38,7 +38,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
         {/* Header */}
         <div className={`flex items-center justify-between p-5 border-b ${theme.border}`}>
           <div className="flex items-center gap-2">
-            <BookmarkIcon className="text-indigo-500" size={20} />
+            <BookmarkIcon className="text-accent-500" size={20} />
             <h2 className="font-bold text-lg">책갈피</h2>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-black/5 rounded-full transition-colors">
@@ -61,7 +61,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               className={`w-full py-4 rounded-2xl border-2 border-dashed flex items-center justify-center gap-2 font-bold transition-all
                 ${manualBookmarks.length >= 5 
                   ? 'border-gray-500/20 text-gray-500/40 cursor-not-allowed' 
-                  : `border-indigo-500/30 text-indigo-500 hover:bg-indigo-500/5 active:scale-95`
+                  : `border-accent-500/30 text-accent-500 hover:bg-accent-500/5 active:scale-95`
                 }`}
             >
               {manualBookmarks.length >= 5 ? '슬롯이 가득 찼습니다' : '+ 현재 위치 추가하기'}
@@ -81,7 +81,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                       <p className="text-[10px] mt-2.5 font-sans flex items-center gap-2">
                         <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                         <span className="w-1 h-1 rounded-full bg-current opacity-20" />
-                        <span className="font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded text-[11px]">
+                        <span className="font-bold text-accent-500 bg-accent-500/10 px-1.5 py-0.5 rounded text-[11px]">
                           {getPercent(bm.charIndex)}%
                         </span>
                       </p>
@@ -124,7 +124,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                     <p className="text-[10px] mt-2.5 font-sans flex items-center gap-2">
                       <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                       <span className="w-1 h-1 rounded-full bg-current opacity-20" />
-                      <span className="font-bold text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded text-[11px]">
+                      <span className="font-bold text-accent-500 bg-accent-500/10 px-1.5 py-0.5 rounded text-[11px]">
                         {getPercent(bm.charIndex)}%
                       </span>
                     </p>

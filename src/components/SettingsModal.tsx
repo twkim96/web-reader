@@ -34,7 +34,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button 
                 key={opt.value}
                 onClick={() => onUpdateSettings({ navMode: opt.value })}
-                className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.navMode === opt.value ? 'bg-indigo-600 text-white shadow-lg' : theme.secondary}`}
+                className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.navMode === opt.value ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
               >
                 {opt.label}
               </button>
@@ -50,7 +50,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button 
                 key={enc}
                 onClick={() => onUpdateSettings({ encoding: enc })}
-                className={`flex-1 min-w-[70px] py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.encoding === enc ? 'bg-indigo-600 text-white shadow-lg' : theme.secondary}`}
+                className={`flex-1 min-w-[70px] py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.encoding === enc ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
               >
                 {enc === 'auto' ? 'Auto' : enc === 'utf-16le' ? 'UTF-16' : enc}
               </button>
@@ -87,7 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button 
                 key={f}
                 onClick={() => onUpdateSettings({ fontFamily: f })}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.fontFamily === f ? 'bg-indigo-600 text-white shadow-lg' : theme.secondary}`}
+                className={`flex-1 py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.fontFamily === f ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
               >
                 {f === 'ridi' ? 'Ridi Batang' : f}
               </button>
