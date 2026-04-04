@@ -65,6 +65,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
   const [showManage, setShowManage] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -105,6 +106,18 @@ export const Shelf: React.FC<ShelfProps> = ({
   useEffect(() => {
     stateRef.current = { showManage, showSearch };
   }, [showManage, showSearch]);
+
+  // 모바일 메뉴 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!showMobileMenu) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setShowMobileMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showMobileMenu]);
 
   useEffect(() => {
     window.history.pushState({ panel: 'shelf' }, '', '');
@@ -198,7 +211,7 @@ export const Shelf: React.FC<ShelfProps> = ({
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" ref={mobileMenuRef}>
             {/* 1. Search (돋보기) */}
             <button 
               onClick={() => setShowSearch(true)}
