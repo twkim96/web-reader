@@ -31,24 +31,11 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
         className={`w-full max-w-sm ${theme.bg} ${theme.text} rounded-3xl shadow-2xl border ${theme.border} p-6 animate-in zoom-in-95 duration-200`}
       >
         <div className="flex items-center justify-between mb-6">
-          <h2 className="font-bold text-lg whitespace-nowrap">테마 설정</h2>
-          
-          <div className="flex flex-1 items-center justify-end px-4 gap-2">
-            {ACCENT_COLORS.map(color => (
-              <button
-                key={color}
-                onClick={() => onUpdateSettings({ accentColor: color })}
-                className={`w-6 h-6 rounded-full shrink-0 transition-all outline-none ${settings.accentColor === color ? 'ring-2 ring-offset-2 ring-accent-500 ring-offset-transparent scale-110 shadow-md' : 'opacity-50 hover:opacity-100 hover:scale-110'}`}
-                style={{ backgroundColor: ACCENT_PALETTE[color]?.[500] || ACCENT_PALETTE.indigo[500] }}
-                title={`${color}`}
-              />
-            ))}
-          </div>
-
-          <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={20} /></button>
+          <h2 className="font-bold text-lg">테마 설정</h2>
+          <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 mb-8">
           {Object.entries(THEMES).map(([key, t]) => (
             <button
               key={key}
@@ -68,6 +55,22 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
               )}
             </button>
           ))}
+        </div>
+
+        {/* 포인트 컬러 설정 섹션 */}
+        <div>
+          <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-3">Point Color</p>
+          <div className="flex items-center gap-3.5">
+            {ACCENT_COLORS.map(color => (
+              <button
+                key={color}
+                onClick={() => onUpdateSettings({ accentColor: color })}
+                className={`w-6 h-6 rounded-full shrink-0 transition-all outline-none ${settings.accentColor === color ? 'ring-2 ring-offset-2 ring-accent-500 ring-offset-transparent scale-110 shadow-lg shadow-accent-500/20' : 'opacity-40 hover:opacity-100 hover:scale-110'}`}
+                style={{ backgroundColor: ACCENT_PALETTE[color]?.[500] || ACCENT_PALETTE.indigo[500] }}
+                title={`${color}`}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>

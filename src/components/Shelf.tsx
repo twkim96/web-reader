@@ -24,7 +24,9 @@ import {
   Clock,
   CalendarDays,
   Eraser,
-  Palette
+  Palette,
+  Menu,
+  X
 } from 'lucide-react';
 
 interface ShelfProps {
@@ -62,6 +64,7 @@ export const Shelf: React.FC<ShelfProps> = ({
 }) => {
   const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
   const [showManage, setShowManage] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -185,7 +188,7 @@ export const Shelf: React.FC<ShelfProps> = ({
             </button>
 
             <div>
-              <h1 className="text-xl font-black tracking-tight uppercase italic">
+              <h1 className="text-lg md:text-xl font-black tracking-tight uppercase italic whitespace-nowrap">
                 {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
               </h1>
               <div className="flex items-center gap-1.5 text-[10px] opacity-60 font-bold uppercase tracking-widest">
@@ -208,6 +211,22 @@ export const Shelf: React.FC<ShelfProps> = ({
             >
               <Search size={20} />
             </button>
+
+            {/* Mobile Menu Toggle (Hamburger) */}
+            <button
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className={`md:hidden p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
+            >
+              {showMobileMenu ? <X size={20} /> : <Menu size={20} />}
+            </button>
+
+            {/* Desktop Actions / Mobile Dropdown Container */}
+            <div className={`
+              absolute top-[88px] right-6 p-4 rounded-3xl border shadow-2xl flex flex-col gap-2 
+              md:static md:p-0 md:bg-transparent md:border-none md:shadow-none md:flex-row md:flex
+              ${theme.bg} ${theme.border}
+              ${showMobileMenu ? 'animate-in fade-in slide-in-from-top-4 flex' : 'hidden'}
+            `}>
 
             {/* 2. Sort (정렬) */}
             <button
@@ -268,6 +287,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                 <LogOut size={20} />
               </button>
             )}
+            </div>
           </div>
         </div>
       </header>
