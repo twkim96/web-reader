@@ -12,6 +12,7 @@ export const useBookLoader = (
   onBack: () => void
 ) => {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [contentVersion, setContentVersion] = useState(0);
   const fullContent = useRef<string>("");
   const rawBuffer = useRef<ArrayBuffer | null>(null);
 
@@ -74,17 +75,13 @@ export const useBookLoader = (
     return () => { isMounted = false; };
   }, [book, googleToken, onBack]); // settings.encoding 제외 (아래 효과에서 처리)
 
-  // 인코딩 설정이 바뀌면 버퍼만 다시 디코딩 (새로고침 불필요)
+  // 인코딩 설정이 바뀌면 버퍼만 다시 디코딩 (새로고침/깜빡임 불필요)
   useEffect(() => {
     if (rawBuffer.current && isLoaded) {
       decodeData(rawBuffer.current, settings.encoding);
-      // 강제 리렌더링을 위해 필요하다면 상태 업데이트를 추가할 수 있으나,
-      // 보통 상위 Reader가 settings 변경 시 리렌더링 되므로 fullContent.current가 반영됨.
-      // 리액트 상태 갱신이 필요하면 아래와 같이 더미 상태를 쓸 수 있음
-      setIsLoaded(prev => !prev); 
-      setTimeout(() => setIsLoaded(true), 0);
+      setContentVersion(v => v + 1); // isLoaded는 건드리지 않고 리렌더링만 유발
     }
-  }, [settings.encoding, decodeData, isLoaded]);
+  }, [settings.encoding, decodeData]); // isLoaded 의존성 제거 (무한루프 위험 차단)
 
-  return { isLoaded, fullContent };
+  return { isLoaded, contentVersion, fullContent };
 };

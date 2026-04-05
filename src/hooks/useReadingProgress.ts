@@ -42,6 +42,34 @@ export const useReadingProgress = ({
     return fullContentRef.current.substring(start, end).replace(/\n/g, ' ').trim();
   }, [fullContentRef]);
 
+  // [Added] 언마운트나 탭 숨김 시 최신 위치를 반드시 저장하기 위한 Ref 트래킹
+  const latestState = useRef({ currentIdx: 0, readPercent: 0, bookmarks: [] as Bookmark[] });
+  useEffect(() => {
+    latestState.current = { currentIdx, readPercent, bookmarks };
+  }, [currentIdx, readPercent, bookmarks]);
+
+  useEffect(() => {
+    const saveCurrentState = () => {
+      const { currentIdx: idx, readPercent: pct, bookmarks: bks } = latestState.current;
+      if (idx > 0) {
+        onSaveProgress(idx, pct, bks);
+        lastSaveTime.current = Date.now();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveCurrentState();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      saveCurrentState(); // 언마운트 시 즉시 저장
+    };
+  }, [onSaveProgress]);
+
   // Logic: Create Auto Bookmark (최대 2개 유지)
   const createAutoBookmark = useCallback((originIndex: number): Bookmark[] => {
     if (originIndex < 100) return bookmarks; 

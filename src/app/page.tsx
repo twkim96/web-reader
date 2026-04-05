@@ -62,7 +62,7 @@ export default function Page() {
   // [Modified] preventRedirect 인자 추가: 데이터만 로드하고 화면 전환은 하지 않는 옵션
   const restoreLocalData = async (preventRedirect = false) => {
     try {
-      setIsOfflineMode(true);
+      if (!preventRedirect) setIsOfflineMode(true);
 
       const [localBooks, localProgress] = await Promise.all([
         getAllOfflineBooks(),
@@ -71,13 +71,19 @@ export default function Page() {
 
       const p: Record<string, UserProgress> = {};
       localProgress.forEach(item => { p[item.bookId] = item; });
-      setProgress(p);
+
+      // progress는 항상 merge (덮어쓰지 않음)
+      setProgress(prev => ({ ...prev, ...p }));
 
       if (localBooks.length > 0) {
-        setBooks(localBooks);
-        if (!preventRedirect) {
-          setView('shelf');
-        }
+        // books는 기존 목록에 로컬 전용 도서만 추가 (중복 방지)
+        setBooks(prev => {
+          const existingIds = new Set(prev.map(b => b.id));
+          const newBooks = localBooks.filter(b => !existingIds.has(b.id));
+          // 목록이 비어 있으면 전체 로컬 도서로 채움, 아니면 새것만 append
+          return prev.length === 0 ? localBooks : newBooks.length > 0 ? [...prev, ...newBooks] : prev;
+        });
+        if (!preventRedirect) setView('shelf');
         return true;
       }
       return false;
@@ -129,7 +135,11 @@ export default function Page() {
       if (fid) {
         const data = await fetchDriveFiles(token, fid);
         if (data.files && data.files.length > 0) {
-          setBooks(data.files);
+          // 클라우드 도서 + 로컬 전용 도서 병합
+          const cloudIds = new Set(data.files.map((f: Book) => f.id));
+          const localBooks = await getAllOfflineBooks();
+          const localOnly = localBooks.filter(b => !cloudIds.has(b.id));
+          setBooks([...data.files, ...localOnly]);
         }
       }
       setIsOfflineMode(false);

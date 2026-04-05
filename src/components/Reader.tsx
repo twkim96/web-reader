@@ -27,7 +27,7 @@ export const Reader: React.FC<ReaderProps> = ({
   book, googleToken, initialProgress, settings, onUpdateSettings, onBack, onSaveProgress 
 }) => {
   // 1. Data Loading
-  const { isLoaded, fullContent } = useBookLoader(book, googleToken, settings, onBack);
+  const { isLoaded, fullContent, contentVersion } = useBookLoader(book, googleToken, settings, onBack);
 
   // 2. Reading Progress & State
   const { 
@@ -53,7 +53,8 @@ export const Reader: React.FC<ReaderProps> = ({
       settings.lineHeight, 
       settings.fontFamily, 
       settings.padding, 
-      settings.textAlign
+      settings.textAlign,
+      contentVersion
     ],
     onScrollProgress: (idx, pct) => {
       setCurrentIdx(idx);
