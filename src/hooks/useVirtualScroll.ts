@@ -143,7 +143,8 @@ export const useVirtualScroll = ({
             if (targetNode) {
               const range = document.createRange();
               range.setStart(targetNode, targetNodeOffset);
-              range.setEnd(targetNode, targetNodeOffset);
+              // [수정] 0-width Range는 브라우저에 따라 위치가 부정확할 수 있으므로 최소 1글자 범위를 잡아 높이 측정
+              range.setEnd(targetNode, Math.min((targetNode.nodeValue?.length || targetNodeOffset), targetNodeOffset + 1));
               const rect = range.getBoundingClientRect();
               
               const scrollTop = window.scrollY + rect.top - 80; 
@@ -156,7 +157,16 @@ export const useVirtualScroll = ({
             window.scrollTo({ top: blockElem.offsetTop - 80, behavior: 'instant' });
           }
           setPendingJump(null);
-          setTimeout(() => { isJumping.current = false; }, 100);
+          
+          // 점프 직후 즉시 현재 위치를 정밀 측정하여 UI 인덱스 동기화
+          requestAnimationFrame(() => {
+            const exactIdx = getExactVisibleIndex();
+            if (exactIdx !== null) {
+              const totalSize = fullContentRef.current.length || 1;
+              onScrollProgress(exactIdx, (exactIdx / totalSize) * 100);
+            }
+            setTimeout(() => { isJumping.current = false; }, 150);
+          });
         }
       };
 
@@ -170,56 +180,82 @@ export const useVirtualScroll = ({
     }
   }, [pendingJump, visibleRange]);
 
-  // 화면 최상단(y:80 부근)의 텍스트 노드 Index를 이진 탐색으로 추출
+  // [Added] 화면 최상단(y:80 부근)의 텍스트 노드 Index를 TreeWalker와 다중 블록 순회로 정밀하게 추출
   const getExactVisibleIndex = useCallback(() => {
     if (!fullContentRef.current) return null;
     
-    // 블록 걸침 현상을 대비해 최상단 2개 블록 탐색
-    const blocksToCheck = [visibleRange.start, visibleRange.start + 1];
+    // 렌더링된 모든 가시 블록을 순회
+    const blocksToCheck = [];
+    for (let i = visibleRange.start; i <= visibleRange.end; i++) {
+      blocksToCheck.push(i);
+    }
 
     for (const blockIdx of blocksToCheck) {
       const blockElem = blockRefs.current[blockIdx];
       if (!blockElem) continue;
 
       const targetViewportY = 80; // 상단 Nav 바 영역(약 64px) + 여백
-      const textNode = blockElem.firstChild;
-      
-      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
-
       const blockRect = blockElem.getBoundingClientRect();
-      if (blockRect.bottom < targetViewportY) {
-        continue; // 이 블록은 이미 스크롤로 지나쳐 화면 밖에 있음
-      }
+      
+      // 블록이 완전히 화면 위로 지나갔다면 스킵
+      if (blockRect.bottom < targetViewportY) continue;
+      
+      // 블록이 완전히 화면 아래에 있다면 더 이상 아래 블록은 탐색할 필요 없음
+      if (blockRect.top > window.innerHeight) break;
 
-      let low = 0;
-      let high = textNode.nodeValue?.length || 0;
-      let bestOffset = -1;
-      const range = document.createRange();
+      const walk = document.createTreeWalker(blockElem, NodeFilter.SHOW_TEXT, null);
+      let node: Node | null;
+      let offsetAcc = 0;
+      let bestIdx = -1;
 
-      while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        try {
-          range.setStart(textNode, mid);
-          range.setEnd(textNode, mid);
-          const rect = range.getBoundingClientRect();
-          
-          if (rect.top >= targetViewportY) {
-            bestOffset = mid;
-            high = mid - 1; // 목표점 아래에 있으므로 더 앞쪽 글자를 탐색
-          } else {
-            low = mid + 1; // 목표점보다 위에 가려져 있으므로 뒤쪽 글자를 탐색
+      while ((node = walk.nextNode())) {
+        const len = node.nodeValue?.length || 0;
+        if (len === 0) continue;
+
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const nodeRect = range.getBoundingClientRect();
+
+        // 텍스트 노드가 목표선 아래에 있거나 목표선에 걸쳐있을 경우만 내부 이진 탐색 진행
+        if (nodeRect.bottom >= targetViewportY) {
+          let low = 0;
+          let high = len - 1;
+          let localBest = -1;
+
+          while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            try {
+              range.setStart(node, mid);
+              // 부피를 가진 1글자 Range 생성하여 정확한 좌표 측정
+              range.setEnd(node, Math.min(mid + 1, len)); 
+              const rect = range.getBoundingClientRect();
+              
+              if (rect.top >= targetViewportY) {
+                localBest = mid;
+                high = mid - 1; // 목표점 아래에 있으므로 더 앞쪽 글자를 탐색
+              } else {
+                low = mid + 1; // 목표점보다 위에 가려져 있으므로 뒤쪽 글자를 탐색
+              }
+            } catch (e) {
+              break;
+            }
           }
-        } catch (e) {
-          break;
+          
+          if (localBest !== -1) {
+            bestIdx = offsetAcc + localBest;
+            break; // 해당 블록에서 위치를 찾았으므로 더 이상 텍스트 노드를 순회하지 않음
+          }
         }
+        offsetAcc += len;
       }
       
-      if (bestOffset !== -1) {
-        return (blockIdx * BLOCK_SIZE) + bestOffset;
+      // 정밀 탐색으로 위치를 찾아냈다면 즉시 반환
+      if (bestIdx !== -1) {
+        return (blockIdx * BLOCK_SIZE) + bestIdx;
       }
     }
     return null;
-  }, [visibleRange.start, fullContentRef]);
+  }, [visibleRange, fullContentRef]);
 
   // Scroll Handler
   useEffect(() => {
@@ -266,14 +302,6 @@ export const useVirtualScroll = ({
 
         if (exactIdx !== null) {
           onScrollProgress(Math.min(exactIdx, totalSize), (exactIdx / totalSize) * 100);
-        } else {
-          // 예외적으로 스캔 실패 시 기존의 비율 추정식으로 Fallback
-          const firstVisibleBlock = blockRefs.current[visibleRange.start];
-          if (firstVisibleBlock) {
-            const blockProgress = Math.max(0, (scrolled - paddingTop) / (firstVisibleBlock.offsetHeight || 1));
-            const absoluteIdx = Math.floor((visibleRange.start + blockProgress) * BLOCK_SIZE);
-            onScrollProgress(Math.min(absoluteIdx, totalSize), (absoluteIdx / totalSize) * 100);
-          }
         }
       }, 150);
     };
