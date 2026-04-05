@@ -453,6 +453,7 @@ export default function Page() {
           onDeleteProgress={handleDeleteProgress}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
+          onLocalBookImported={() => restoreLocalData(true)}
         />
       )}
 

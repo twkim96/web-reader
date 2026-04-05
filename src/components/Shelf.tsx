@@ -1,7 +1,7 @@
 // src/components/Shelf.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Book, UserProgress, ViewerSettings } from '../types';
-import { getOfflineBookIds } from '../lib/localDB';
+import { getOfflineBookIds, saveBookToLocal } from '../lib/localDB';
 import { ManageModal } from './ManageModal';
 import { ShelfSearchModal } from './ShelfSearchModal';
 import { ThemeModal } from './ThemeModal';
@@ -27,7 +27,8 @@ import {
   Eraser,
   Palette,
   Menu,
-  X
+  X,
+  FilePlus
 } from 'lucide-react';
 
 interface ShelfProps {
@@ -42,9 +43,10 @@ interface ShelfProps {
   isRefreshing: boolean;
   userEmail: string;
   isOfflineMode: boolean; 
-  isGuest: boolean; // [New] 게스트 여부
+  isGuest: boolean;
   onToggleCloud: () => void; 
   onDeleteProgress?: (bookId: string) => void; 
+  onLocalBookImported?: () => void;
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
@@ -61,18 +63,21 @@ export const Shelf: React.FC<ShelfProps> = ({
   onToggleCloud,
   onDeleteProgress,
   settings,
-  onUpdateSettings
+  onUpdateSettings,
+  onLocalBookImported
 }) => {
   const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
   const [showManage, setShowManage] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortMode, setSortMode] = useState<'alpha' | 'recent'>('recent');
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [pendingDeleteProgressId, setPendingDeleteProgressId] = useState<string | null>(null);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
@@ -120,6 +125,32 @@ export const Shelf: React.FC<ShelfProps> = ({
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showMobileMenu]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    e.target.value = ''; // Reset input to allow selecting the same file again
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as ArrayBuffer;
+      if (!content) return;
+
+      const book: Book = {
+        id: file.name,
+        name: file.name,
+        mimeType: file.type || 'text/plain',
+      };
+      
+      await saveBookToLocal(book, content);
+      
+      if (onLocalBookImported) {
+        onLocalBookImported();
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   useEffect(() => {
     window.history.pushState({ panel: 'shelf' }, '', '');
@@ -242,6 +273,22 @@ export const Shelf: React.FC<ShelfProps> = ({
               ${theme.bg} ${theme.border}
               ${showMobileMenu ? 'animate-in fade-in slide-in-from-top-4 flex' : 'hidden'}
             `}>
+
+            {/* Local Import (파일선택) */}
+            <button
+              onClick={() => setShowImportConfirm(true)}
+              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90 text-accent-500`}
+              title="Add Local Book"
+            >
+              <FilePlus size={20} />
+            </button>
+            <input 
+              type="file" 
+              accept=".txt" 
+              ref={fileInputRef} 
+              style={{ display: 'none' }} 
+              onChange={handleFileUpload} 
+            />
 
             {/* 2. Sort (정렬) */}
             <button
@@ -479,7 +526,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                         저장된 도서가 없습니다.<br/>
                         {isGuest 
                           ? <span><span className="text-accent-500 font-black">Login</span>하여 클라우드에서 도서를 받아보세요.</span>
-                          : <span><button onClick={onToggleCloud} className="text-accent-500 font-black hover:opacity-80 underline decoration-accent-500/50 underline-offset-4 transition-all">Cloud Mode</button>를 클릭하여 도서를 다운로드해주세요.</span>
+                          : <span><button onClick={onToggleCloud} className="text-accent-500 font-black hover:opacity-80 underline decoration-accent-500/50 underline-offset-4 transition-all">Cloud Mode</button>를 클릭하거나 우측 상단의 <FilePlus size={14} className="inline-block relative -top-0.5" /> 버튼을 눌러 도서를 기기에 직접 추가해주세요.</span>
                         }
                       </p>
                       {isGuest ? (
@@ -575,6 +622,18 @@ export const Shelf: React.FC<ShelfProps> = ({
           theme={theme}
           onConfirm={() => { onDeleteProgress(pendingDeleteProgressId); setPendingDeleteProgressId(null); }}
           onCancel={() => setPendingDeleteProgressId(null)}
+        />
+      )}
+
+      {showImportConfirm && (
+        <ConfirmDialog
+          message="도서를 로컬에 직접 추가하시겠습니까?"
+          subMessage="클라우드 동기화는 이름이 같은 도서에 대해서만 가능합니다. 원활한 이용을 위해 클라우드(Google Drive)에 파일을 업로드하는 것을 권장합니다."
+          confirmLabel="계속"
+          variant="info"
+          theme={theme}
+          onConfirm={() => { setShowImportConfirm(false); fileInputRef.current?.click(); }}
+          onCancel={() => setShowImportConfirm(false)}
         />
       )}
     </div>
