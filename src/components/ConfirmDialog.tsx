@@ -4,7 +4,7 @@ import { AlertTriangle } from 'lucide-react';
 
 interface ConfirmDialogProps {
   message: string;
-  subMessage?: string;
+  subMessage?: React.ReactNode; // [Modified] string -> ReactNode
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'danger' | 'info';

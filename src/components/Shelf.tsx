@@ -577,9 +577,24 @@ export const Shelf: React.FC<ShelfProps> = ({
                         {isGuest ? 'Guest Library Empty' : 'Local Library Empty'}
                       </h3>
                       <div className="flex flex-col gap-3 items-center w-full mt-2">
+                        {/* [New] 로그인 상태인데 클라우드 미연결인 경우, 연결 유도 버튼 추가 */}
+                        {!isGuest && isOfflineMode && (
+                          <button 
+                            onClick={onToggleCloud} 
+                            className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <Library size={16} />
+                            <span>Cloud Library 연결하기</span>
+                          </button>
+                        )}
+
                         <button 
                           onClick={() => setShowImportConfirm(true)} 
-                          className="px-10 py-4 bg-accent-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl active:scale-95 mt-2 flex items-center gap-2"
+                          className={`w-full max-w-[240px] py-4 rounded-full font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${
+                            !isGuest && isOfflineMode 
+                              ? `bg-white/5 border-2 ${theme.border} hover:bg-white/10 opacity-70` 
+                              : "bg-accent-600 text-white hover:bg-accent-500"
+                          }`}
                         >
                           <FilePlus size={16} />
                           <span>도서 직접 추가하기</span>
@@ -692,7 +707,22 @@ export const Shelf: React.FC<ShelfProps> = ({
         <ConfirmDialog
           message="도서를 라이브러리에 추가하시겠습니까?"
           subMessage={isOfflineMode 
-            ? "선택한 도서가 내 기기에 저장됩니다. 원활한 동기화를 위해 클라우드 로그인 후 추가하는 것을 추천합니다." 
+            ? (
+              <span>
+                선택한 도서가 내 기기에 저장됩니다. 원활한 동기화를 위해{" "}
+                <button 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setShowImportConfirm(false); 
+                    onToggleCloud(); 
+                  }}
+                  className="text-accent-500 underline decoration-accent-500/50 underline-offset-2 hover:text-accent-400 font-black cursor-pointer"
+                >
+                  {isGuest ? "클라우드 로그인" : "클라우드 서비스 연결"}
+                </button>
+                {" "}후 추가하는 것을 추천합니다.
+              </span>
+            )
             : "선택한 도서가 내 기기에 저장되며, 구글 드라이브의 'web viewer' 폴더로 자동 업로드됩니다."
           }
           confirmLabel="추가"
