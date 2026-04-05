@@ -576,22 +576,24 @@ export const Shelf: React.FC<ShelfProps> = ({
                       <h3 className="text-2xl font-black italic uppercase tracking-tighter">
                         {isGuest ? 'Guest Library Empty' : 'Local Library Empty'}
                       </h3>
-                      <p className="opacity-60 text-sm leading-relaxed font-medium">
-                        저장된 도서가 없습니다.<br/>
-                        {isGuest 
-                          ? <span><span className="text-accent-500 font-black">Login</span>하여 클라우드에서 도서를 받아보세요.</span>
-                          : <span><button onClick={onToggleCloud} className="text-accent-500 font-black hover:opacity-80 underline decoration-accent-500/50 underline-offset-4 transition-all">Cloud Mode</button>를 클릭하거나 우측 상단의 <FilePlus size={14} className="inline-block relative -top-0.5" /> 버튼을 눌러 도서를 기기에 직접 추가해주세요.</span>
-                        }
-                      </p>
-                      {isGuest ? (
-                        <button onClick={onLogin} className="px-10 py-4 bg-accent-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl active:scale-95 mt-2">
-                          Log In Now
+                      <div className="flex flex-col gap-3 items-center w-full mt-2">
+                        <button 
+                          onClick={() => setShowImportConfirm(true)} 
+                          className="px-10 py-4 bg-accent-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl active:scale-95 mt-2 flex items-center gap-2"
+                        >
+                          <FilePlus size={16} />
+                          <span>도서 직접 추가하기</span>
                         </button>
-                      ) : (
-                        <button onClick={onToggleCloud} className="px-10 py-4 bg-accent-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl active:scale-95 mt-2">
-                          Switch to Cloud Mode
-                        </button>
-                      )}
+
+                        {isGuest && (
+                          <button 
+                            onClick={onLogin} 
+                            className="text-[10px] font-bold text-accent-500/60 hover:text-accent-500 uppercase tracking-widest transition-colors"
+                          >
+                            또는 클라우드 계정으로 로그인하기
+                          </button>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <>
@@ -600,6 +602,13 @@ export const Shelf: React.FC<ShelfProps> = ({
                         구글 드라이브에 <span className="text-accent-500 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
                       </p>
                       <div className="flex flex-col gap-3 items-center w-full mt-2">
+                        <button 
+                          onClick={() => setShowImportConfirm(true)} 
+                          className="w-full max-w-[240px] py-4 bg-slate-700 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-slate-600 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          <FilePlus size={16} />
+                          <span>도서 직접 추가하기</span>
+                        </button>
                         <a 
                           href="https://drive.google.com/" 
                           target="_blank" 
