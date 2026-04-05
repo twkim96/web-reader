@@ -475,10 +475,10 @@ export const Shelf: React.FC<ShelfProps> = ({
                               e.stopPropagation();
                               setPendingDeleteProgressId(book.id);
                             }}
-                            className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1 transition-colors"
+                            className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-2 transition-colors"
                             title="Delete Progress"
                           >
-                            <Eraser size={12} strokeWidth={3} />
+                            <Eraser size={18} strokeWidth={2.5} />
                           </button>
                         )}
                         <span className="text-xs font-black text-accent-400">
@@ -538,10 +538,10 @@ export const Shelf: React.FC<ShelfProps> = ({
                                 e.stopPropagation();
                                 setPendingDeleteProgressId(book.id);
                               }}
-                              className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1 transition-colors"
+                              className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-2 transition-colors"
                               title="Delete Progress"
                             >
-                              <Eraser size={12} strokeWidth={3} />
+                              <Eraser size={18} strokeWidth={2.5} />
                             </button>
                           )}
                           <span className="text-xs font-black text-accent-400">{bookProgress?.progressPercent?.toFixed(1) || '0.0'}%</span>
