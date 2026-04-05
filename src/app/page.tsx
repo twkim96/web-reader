@@ -128,10 +128,14 @@ export default function Page() {
     }
   };
 
-  const loadLibraryBackground = async (token: string) => {
+  /**
+   * 구글 드라이브에서 도서 목록을 불러옵니다.
+   */
+  const loadLibraryFromDrive = async (token: string) => {
     try {
       const targetFolderName = "web viewer";
       const fid = await findFolderId(targetFolderName, token);
+      
       if (fid) {
         const data = await fetchDriveFiles(token, fid);
         if (data.files && data.files.length > 0) {
@@ -145,7 +149,7 @@ export default function Page() {
       setIsOfflineMode(false);
       return true;
     } catch (err) {
-      console.log("Background library load skipped (Offline or Error)");
+      console.warn("Drive Library Load Failed (Offline or Error)");
       setIsOfflineMode(true);
       return false;
     }
@@ -155,9 +159,8 @@ export default function Page() {
     const handleOnline = async () => {
       console.log("Online detected.");
       if (user && googleToken) {
-        loadLibraryBackground(googleToken).then((isSuccess) => {
+        loadLibraryFromDrive(googleToken).then((isSuccess) => {
           if (isSuccess) {
-            setIsOfflineMode(false);
             syncLocalAndCloud(user.uid);
           }
         });
@@ -197,15 +200,18 @@ export default function Page() {
         const recoveredToken = getStoredToken();
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
-
-          // [Fix 1] 이미 읽기 모드('reader')나 책장('shelf')에 있다면 로딩 화면으로 전환하지 않음
+          setIsOfflineMode(false); // [Fix] 토큰이 있다면 즉시 클라우드 모드로 전환 시도
+          
+          // 읽기 모드나 책장에 있다면 로딩 화면 생략
           setView(prev => (prev === 'shelf' || prev === 'reader') ? prev : 'loading');
 
-          loadLibraryBackground(recoveredToken).then((isSuccess) => {
+          loadLibraryFromDrive(recoveredToken).then((isSuccess) => {
             if (isSuccess) {
               syncLocalAndCloud(u.uid);
+              setIsOfflineMode(false);
+            } else {
+              setIsOfflineMode(true);
             }
-            // [Fix 1] 라이브러리 로딩 완료 후, 사용자가 이미 책을 읽고 있다면('reader') 책장으로 튕기지 않음
             setView(prev => prev === 'reader' ? 'reader' : 'shelf');
           });
         } else {
@@ -276,7 +282,7 @@ export default function Page() {
     if (!(window as any).google) return;
     const client = (window as any).google.accounts.oauth2.initTokenClient({
       client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.readonly',
+      scope: 'https://www.googleapis.com/auth/drive.file',
       callback: (res: any) => {
         if (res.access_token) {
           setGoogleToken(res.access_token);
@@ -289,7 +295,7 @@ export default function Page() {
 
           setIsOfflineMode(false);
           setView('loading');
-          loadLibraryBackground(res.access_token).then(() => {
+          loadLibraryFromDrive(res.access_token).then(() => {
             setView('shelf');
           });
         }
@@ -451,8 +457,9 @@ export default function Page() {
         <Shelf
           books={books}
           progress={progress}
+          googleToken={googleToken}
           isRefreshing={false}
-          onRefresh={() => !isOfflineMode && googleToken && loadLibraryBackground(googleToken)}
+          onRefresh={() => !isOfflineMode && googleToken && loadLibraryFromDrive(googleToken)}
           onOpen={(b) => { setActiveBook(b); setView('reader'); }}
           onLogout={handleLogout}
           onLogin={handleLoginTrigger}

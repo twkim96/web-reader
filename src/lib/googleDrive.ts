@@ -24,18 +24,90 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout 
   }
 };
 
+/**
+ * 구글 드라이브 내 특정 이름의 폴더 ID를 조회합니다.
+ */
 export const findFolderId = async (folderName: string, token: string) => {
   const query = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
   
-  // 폴더 ID 찾기는 데이터가 작으므로 5초 타임아웃 (오프라인 감지용)
   const response = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`,
     { headers: { Authorization: `Bearer ${token}` } },
     5000 
   );
   
+  if (!response.ok) return null;
   const data = await response.json();
   return data.files?.[0]?.id || null;
+};
+
+/**
+ * 구글 드라이브에 새로운 폴더를 생성합니다.
+ */
+export const createFolder = async (folderName: string, token: string) => {
+  const response = await fetchWithTimeout(
+    'https://www.googleapis.com/drive/v3/files',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+      }),
+    },
+    10000
+  );
+
+  if (!response.ok) throw new Error('폴더 생성 실패');
+  const data = await response.json();
+  return data.id;
+};
+
+/**
+ * 파일을 구글 드라이브의 특정 폴더에 업로드합니다 (Multipart Upload).
+ */
+export const uploadFile = async (fileName: string, content: ArrayBuffer, folderId: string, token: string) => {
+  const boundary = '-------antigravity_sync_boundary';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+
+  const metadata = {
+    name: fileName,
+    parents: [folderId],
+    mimeType: 'text/plain',
+  };
+
+  const head = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n${delimiter}Content-Type: text/plain\r\n\r\n`;
+  
+  const body = new Blob([
+    head,
+    new Uint8Array(content),
+    closeDelimiter
+  ]);
+
+  const response = await fetchWithTimeout(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body: body,
+    },
+    60000 
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Google Drive Upload Error:', errorText);
+    throw new Error('클라우드 업로드 실패');
+  }
+
+  return response.json();
 };
 
 export const fetchDriveFiles = async (token: string, folderId?: string) => {

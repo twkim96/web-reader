@@ -1,5 +1,9 @@
-// src/components/Shelf.tsx
 import React, { useState, useEffect, useRef } from 'react';
+import { 
+  findFolderId, 
+  createFolder, 
+  uploadFile 
+} from '../lib/googleDrive';
 import { Book, UserProgress, ViewerSettings } from '../types';
 import { getOfflineBookIds, saveBookToLocal } from '../lib/localDB';
 import { ManageModal } from './ManageModal';
@@ -12,34 +16,35 @@ import {
   Search, 
   BookOpen, 
   LogOut,
-  LogIn, // [New]
+  LogIn,
   HardDrive,
   CheckCircle2,
   XCircle,
   FolderPlus,
   WifiOff,
-  User as UserIcon, // [New]
+  User as UserIcon,
   LayoutGrid,
   List,
   ArrowDownAZ,
   Clock,
-  CalendarDays,
   Eraser,
   Palette,
   Menu,
   X,
-  FilePlus
+  FilePlus,
+  CloudLightning
 } from 'lucide-react';
 
 interface ShelfProps {
   books: Book[];
   progress: Record<string, UserProgress>;
+  googleToken: string | null;
   settings: ViewerSettings;
   onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onOpen: (book: Book) => void;
   onRefresh: () => void;
   onLogout: () => void;
-  onLogin: () => void; // [New] 게스트 모드에서 로그인 트리거
+  onLogin: () => void; 
   isRefreshing: boolean;
   userEmail: string;
   isOfflineMode: boolean; 
@@ -52,6 +57,7 @@ interface ShelfProps {
 export const Shelf: React.FC<ShelfProps> = ({ 
   books, 
   progress, 
+  googleToken,
   onOpen, 
   onRefresh,
   onLogout,
@@ -78,6 +84,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [pendingDeleteProgressId, setPendingDeleteProgressId] = useState<string | null>(null);
   const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
@@ -126,17 +133,47 @@ export const Shelf: React.FC<ShelfProps> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showMobileMenu]);
 
+  /**
+   * [Refactored] 선택된 파일을 구글 드라이브에 동기화합니다.
+   */
+  const syncFileToDrive = async (fileName: string, content: ArrayBuffer) => {
+    if (!googleToken || isOfflineMode) return;
+
+    try {
+      setIsSyncing(true);
+      const targetFolderName = "web viewer";
+      
+      let folderId = await findFolderId(targetFolderName, googleToken);
+      if (!folderId) {
+        folderId = await createFolder(targetFolderName, googleToken);
+      }
+
+      if (folderId) {
+        await uploadFile(fileName, content, folderId, googleToken);
+        onRefresh(); // 목록 갱신
+      } else {
+        throw new Error('폴더를 생성하거나 찾을 수 없습니다.');
+      }
+    } catch (error: any) {
+      console.error('Sync failed:', error);
+      alert(`클라우드 동기화 실패: ${error.message || '알 수 없는 오류'}\n(파일은 기기에 로컬로 저장되었습니다.)`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    e.target.value = ''; // Reset input to allow selecting the same file again
+    e.target.value = '';
 
     const reader = new FileReader();
     reader.onload = async (event) => {
       const content = event.target?.result as ArrayBuffer;
       if (!content) return;
 
+      // 1. 로컬 저장 (IndexedDB)
       const book: Book = {
         id: file.name,
         name: file.name,
@@ -144,6 +181,15 @@ export const Shelf: React.FC<ShelfProps> = ({
       };
       
       await saveBookToLocal(book, content);
+      
+      // 2. 구글 드라이브 동기화 (권한 체크 및 실행)
+      if (!isOfflineMode) {
+        if (googleToken) {
+          await syncFileToDrive(file.name, content);
+        } else {
+          alert('구글 드라이브 권한이 없습니다. 로그아웃 후 다시 로그인하여 권한을 허용해 주세요.');
+        }
+      }
       
       if (onLocalBookImported) {
         onLocalBookImported();
@@ -234,9 +280,17 @@ export const Shelf: React.FC<ShelfProps> = ({
             </button>
 
             <div>
-              <h1 className="text-lg md:text-xl font-black tracking-tight uppercase italic whitespace-nowrap">
-                {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg md:text-xl font-black tracking-tight uppercase italic whitespace-nowrap">
+                  {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
+                </h1>
+                {isSyncing && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500/10 border border-accent-500/20 rounded-xl text-accent-500 animate-in fade-in zoom-in duration-300">
+                    <CloudLightning size={14} className="animate-bounce" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.1em] hidden sm:inline">Syncing to Cloud</span>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-1.5 text-[10px] opacity-60 font-bold uppercase tracking-widest">
                 {isGuest && <UserIcon size={10} />}
                 <span>{userEmail}</span>
@@ -627,9 +681,12 @@ export const Shelf: React.FC<ShelfProps> = ({
 
       {showImportConfirm && (
         <ConfirmDialog
-          message="도서를 로컬에 직접 추가하시겠습니까?"
-          subMessage="클라우드 동기화는 이름이 같은 도서에 대해서만 가능합니다. 원활한 이용을 위해 클라우드(Google Drive)에 파일을 업로드하는 것을 권장합니다."
-          confirmLabel="계속"
+          message="도서를 라이브러리에 추가하시겠습니까?"
+          subMessage={isOfflineMode 
+            ? "선택한 도서가 내 기기에 저장됩니다. 원활한 동기화를 위해 클라우드 로그인 후 추가하는 것을 추천합니다." 
+            : "선택한 도서가 내 기기에 저장되며, 구글 드라이브의 'web viewer' 폴더로 자동 업로드됩니다."
+          }
+          confirmLabel="추가"
           variant="info"
           theme={theme}
           onConfirm={() => { setShowImportConfirm(false); fileInputRef.current?.click(); }}
