@@ -6,7 +6,7 @@ import { SettingsModal } from './SettingsModal';
 import { SearchModal } from './SearchModal';
 import { BookmarkModal } from './BookmarkModal';
 import { ThemeModal } from './ThemeModal'; 
-import { ChevronLeft, Settings, Palette, Hash, Search, ArrowUpCircle, Bookmark as BookmarkIcon } from 'lucide-react';
+import { ChevronLeft, Settings, Palette, Hash, Search, ArrowUpCircle, Bookmark as BookmarkIcon, Cloud } from 'lucide-react';
 
 // Hooks
 import { useBookLoader } from '../hooks/useBookLoader';
@@ -36,7 +36,7 @@ export const Reader: React.FC<ReaderProps> = ({
     bookmarks, setBookmarks,
     syncConflict, setSyncConflict,
     createAutoBookmark, addManualBookmark, deleteBookmark,
-    lastSaveTime, hasRestored
+    lastSaveTime, hasRestored, autoSyncToast
   } = useReadingProgress({ initialProgress, fullContentRef: fullContent, onSaveProgress, isLoaded });
 
   // 3. Virtual Scroll
@@ -140,36 +140,53 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [onBack, setSyncConflict, setCurrentIdx, setReadPercent]);
 
   // --- Smart Scrolling & Masking ---
-  useEffect(() => {
-    let isScrolling: NodeJS.Timeout;
+  const getGridSnapY = useCallback((targetY: number) => {
+    const lh = settings.fontSize * settings.lineHeight;
+    let baseTop = 48; // 기본 패딩 48px
+    
+    const breathingRoom = Math.round(settings.fontSize * 0.3); // 숨통 트이는 여백 (약 5~6px)
+    
+    // Virtual Scroll의 누적 오차(paddingTop)를 피하기 위해, 실제 DOM 요소의 절대 좌표를 그리드 기준으로 삼음
+    const blocks = getVisibleBlocks();
+    if (blocks.length > 0) {
+      const firstElem = blockRefs.current[blocks[0].index];
+      if (firstElem) {
+        // 텍스트 블록의 절대 문서(Y) 위치
+        baseTop = window.scrollY + firstElem.getBoundingClientRect().top;
+      }
+    }
+    
+    if (targetY >= 48) {
+      const snapTarget = Math.round((targetY - baseTop) / lh) * lh + baseTop;
+      return Math.max(0, snapTarget - breathingRoom);
+    }
+    return 0; // 최상단 영역
+  }, [settings.fontSize, settings.lineHeight, getVisibleBlocks, blockRefs]);
 
+  const snapTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const snapFuncRef = useRef(getGridSnapY);
+  useEffect(() => { snapFuncRef.current = getGridSnapY; }, [getGridSnapY]);
+
+  useEffect(() => {
     const updateMaskAndSnap = () => {
       const lh = settings.fontSize * settings.lineHeight;
       const h = window.innerHeight;
-      const lines = Math.floor(h / lh);
-      setMaskHeight(h - (lines * lh));
+      const breathingRoom = Math.round(settings.fontSize * 0.3);
+      const lines = Math.floor((h - breathingRoom) / lh);
+      setMaskHeight(Math.max(0, h - (lines * lh) - breathingRoom));
     };
 
     const handleScroll = () => {
-      clearTimeout(isScrolling);
-      isScrolling = setTimeout(() => {
+      clearTimeout(snapTimerRef.current);
+      snapTimerRef.current = setTimeout(() => {
         // 사용자가 수동으로 스와이프를 멈췄을 때 가장 가까운 라인에 맞게 스냅(이동) 
         if (isJumping.current) return;
-        const lh = settings.fontSize * settings.lineHeight;
-        const currentY = window.scrollY;
-        const ptOffset = 48; // `<main>`의 pt-12 (48px)
         
-        if (currentY >= ptOffset) {
-          const snapY = Math.round((currentY - ptOffset) / lh) * lh + ptOffset;
-          // 약간의 오차(2px) 이상 어긋났을 때만 부드럽게 스냅
-          if (Math.abs(snapY - currentY) > 2) { 
-            window.scrollTo({ top: snapY, behavior: 'smooth' });
-          }
-        } else if (currentY > 0 && currentY < ptOffset) {
-          const snapY = currentY > ptOffset / 2 ? ptOffset : 0;
-          if (Math.abs(snapY - currentY) > 2) { 
-            window.scrollTo({ top: snapY, behavior: 'smooth' });
-          }
+        const currentY = window.scrollY;
+        const snapY = snapFuncRef.current(currentY);
+        
+        if (Math.abs(snapY - currentY) > 2) { 
+          window.scrollTo({ top: snapY, behavior: 'smooth' });
         }
       }, 300); // 스크롤이 완전히 멈춘 후 대기시간 (300ms)
     };
@@ -181,9 +198,9 @@ export const Reader: React.FC<ReaderProps> = ({
     return () => {
       window.removeEventListener('resize', updateMaskAndSnap);
       window.removeEventListener('scroll', handleScroll);
-      clearTimeout(isScrolling);
+      clearTimeout(snapTimerRef.current);
     };
-  }, [settings.fontSize, settings.lineHeight, isJumping]);
+  }, [settings.fontSize, settings.lineHeight, isJumping]); // getGridSnapY 제거 (리렌더링 간섭 방지)
 
   // --- Initial Restore & Jump ---
 
@@ -210,24 +227,18 @@ export const Reader: React.FC<ReaderProps> = ({
     const w = window.innerWidth;
     const h = window.innerHeight;
     
-    // [Modified] 정확한 줄 단위 이동을 위한 계산
+    // [Modified] 정확한 줄 단위 이동을 위한 계산 (여백 포함)
     const oneLineHeight = settings.fontSize * settings.lineHeight;
-    const linesPerScreen = Math.floor(h / oneLineHeight);
+    const breathingRoom = Math.round(settings.fontSize * 0.3);
+    const linesPerScreen = Math.floor((h - breathingRoom) / oneLineHeight);
     const scrollStep = linesPerScreen * oneLineHeight; 
 
     // [Modified] 이동 시 그리드 스냅 적용
     const move = (dir: number) => { 
       const currentScrollY = window.scrollY;
       const targetScrollY = currentScrollY + (dir * scrollStep);
-      const ptOffset = 48; // pt-12 (48px)
       
-      let snappedY = targetScrollY;
-      if (targetScrollY >= ptOffset) {
-         snappedY = Math.round((targetScrollY - ptOffset) / oneLineHeight) * oneLineHeight + ptOffset;
-      } else {
-         snappedY = 0;
-      }
-      
+      const snappedY = getGridSnapY(targetScrollY);
       window.scrollTo({ top: Math.max(0, snappedY), behavior: 'instant' }); 
     };
 
@@ -355,6 +366,14 @@ export const Reader: React.FC<ReaderProps> = ({
               <button onClick={confirmJump} className="flex-1 py-3 bg-accent-500 text-white font-bold rounded-2xl shadow-lg shadow-accent-500/30 transition-transform active:scale-95">이동</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Auto Sync Toast */}
+      {autoSyncToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-accent-600/95 text-white px-5 py-3 rounded-full text-[11px] font-black tracking-widest shadow-2xl backdrop-blur-md animate-in slide-in-from-top-4 fade-in duration-500 z-[100] flex items-center gap-2">
+          <Cloud size={16} />
+          클라우드 위치로 갱신됨
         </div>
       )}
 

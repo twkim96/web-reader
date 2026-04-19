@@ -23,6 +23,7 @@ export const useReadingProgress = ({
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialProgress?.bookmarks || []);
   
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
+  const [autoSyncToast, setAutoSyncToast] = useState(false);
   
   // [Modified] 타임스탬프 파싱 로직을 안전하게 통일
   const parseTime = (val: any) => {
@@ -33,6 +34,24 @@ export const useReadingProgress = ({
   const initialTime = parseTime(initialProgress?.lastRead);
   const lastSaveTime = useRef<number>(initialTime);
   const hasRestored = useRef<string | null>(null);
+
+  // [Added] 상태 기반 자동 동기화 처리를 위한 추적 Ref
+  const mountTime = useRef(Date.now());
+  const hasInteracted = useRef(false);
+
+  useEffect(() => {
+    const handler = () => { hasInteracted.current = true; };
+    window.addEventListener('touchstart', handler, { passive: true, once: true });
+    window.addEventListener('mousedown', handler, { passive: true, once: true });
+    window.addEventListener('wheel', handler, { passive: true, once: true });
+    window.addEventListener('keydown', handler, { passive: true, once: true });
+    return () => {
+      window.removeEventListener('touchstart', handler);
+      window.removeEventListener('mousedown', handler);
+      window.removeEventListener('wheel', handler);
+      window.removeEventListener('keydown', handler);
+    };
+  }, []);
 
   // Helper: Get Preview Text
   const getPreviewText = useCallback((idx: number) => {
@@ -146,28 +165,41 @@ export const useReadingProgress = ({
         setBookmarks(initialProgress.bookmarks);
       }
 
+      // [Rule 3] 네트워크 응답이 너무 늦은 경우 (로딩 후 5초 초과) 모달/이동 모두 취소
+      const timeSinceMount = Date.now() - mountTime.current;
+      if (timeSinceMount > 5000) {
+        lastSaveTime.current = remoteTime;
+        console.log(`[AutoSync] Rejected: Network response took too long (${timeSinceMount}ms)`);
+        return;
+      }
+
       // 2. 위치 동기화 로직 분기
       if (diff > 300) {
-        // 차이가 크면 사용자에게 선택권 부여 (충돌 모달)
-        setSyncConflict({
-          show: true,
-          remoteIdx: initialProgress.charIndex,
-          remotePercent: initialProgress.progressPercent
-        });
-        // 주의: 여기서 lastSaveTime을 업데이트하면 안 됨 (사용자가 '무시'를 선택할 수 있으므로)
+        // [Rule 1 & 2] 유저의 동작(탭, 스크롤) 여부에 따라 결정
+        if (!hasInteracted.current) {
+          // Rule 1: 유저 조작이 없었다면 조용히 최신 위치로 자동 이동
+          setCurrentIdx(initialProgress.charIndex);
+          setReadPercent(initialProgress.progressPercent);
+          lastSaveTime.current = remoteTime;
+          setAutoSyncToast(true);
+          setTimeout(() => setAutoSyncToast(false), 2500);
+          console.log(`[AutoSync] Silent auto-jump executed.`);
+        } else {
+          // Rule 2: 유저가 이미 책을 조작하고 있다면 기존처럼 모달 띄우기
+          setSyncConflict({
+            show: true,
+            remoteIdx: initialProgress.charIndex,
+            remotePercent: initialProgress.progressPercent
+          });
+        }
       } else if (diff > 0) {
-        // [Key Fix] 차이가 작으면(300자 이내) '조용히' 최신 위치로 자동 보정
-        // 이렇게 해야 "미세한 과거 상태"로 덮어쓰는 것을 방지함
-        setCurrentIdx(initialProgress.charIndex);
-        setReadPercent(initialProgress.progressPercent);
-        
-        // [Key Fix] 로컬 기준 시간을 원격 시간으로 맞춰줌으로써
-        // 불필요한 자동 저장 트리거 방지
+        // 미세한 차이는 조용히 맞춤
+        if (!hasInteracted.current) {
+          setCurrentIdx(initialProgress.charIndex);
+          setReadPercent(initialProgress.progressPercent);
+        }
         lastSaveTime.current = remoteTime;
-        
-        console.log(`[AutoSync] Minor diff(${diff}) detected. Synced to remote.`);
       } else {
-        // 위치가 정확히 같다면 시간만 동기화
         lastSaveTime.current = remoteTime;
       }
     }
@@ -178,6 +210,7 @@ export const useReadingProgress = ({
     readPercent, setReadPercent,
     bookmarks, setBookmarks,
     syncConflict, setSyncConflict,
+    autoSyncToast,
     createAutoBookmark,
     addManualBookmark,
     deleteBookmark,
