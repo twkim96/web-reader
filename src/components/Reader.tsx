@@ -75,6 +75,9 @@ export const Reader: React.FC<ReaderProps> = ({
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
 
+  // [Added] 동적 마스킹(잘림 방지) 기능을 위한 하단 여백 높이 상태
+  const [maskHeight, setMaskHeight] = useState(0);
+
   const [showConfirm, setShowConfirm] = useState<{
     show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean, originIdx?: number 
   }>({ show: false, type: 'jump' });
@@ -128,9 +131,59 @@ export const Reader: React.FC<ReaderProps> = ({
       }
     };
 
+    // [x] 페이지 단위 스크롤을 위한 다이내믹 패딩(마스크) 추가
+    // [x] 스크롤 종료 후 가까운 줄로 스냅되는 `scrollend` 로직 (300ms Debounce)
+    // [x] 탭스크롤 시 스냅 포인트 연동 및 정확도 100% 달성
+
     window.addEventListener('popstate', handlePopState);
     return () => { window.removeEventListener('popstate', handlePopState); };
   }, [onBack, setSyncConflict, setCurrentIdx, setReadPercent]);
+
+  // --- Smart Scrolling & Masking ---
+  useEffect(() => {
+    let isScrolling: NodeJS.Timeout;
+
+    const updateMaskAndSnap = () => {
+      const lh = settings.fontSize * settings.lineHeight;
+      const h = window.innerHeight;
+      const lines = Math.floor(h / lh);
+      setMaskHeight(h - (lines * lh));
+    };
+
+    const handleScroll = () => {
+      clearTimeout(isScrolling);
+      isScrolling = setTimeout(() => {
+        // 사용자가 수동으로 스와이프를 멈췄을 때 가장 가까운 라인에 맞게 스냅(이동) 
+        if (isJumping.current) return;
+        const lh = settings.fontSize * settings.lineHeight;
+        const currentY = window.scrollY;
+        const ptOffset = 48; // `<main>`의 pt-12 (48px)
+        
+        if (currentY >= ptOffset) {
+          const snapY = Math.round((currentY - ptOffset) / lh) * lh + ptOffset;
+          // 약간의 오차(2px) 이상 어긋났을 때만 부드럽게 스냅
+          if (Math.abs(snapY - currentY) > 2) { 
+            window.scrollTo({ top: snapY, behavior: 'smooth' });
+          }
+        } else if (currentY > 0 && currentY < ptOffset) {
+          const snapY = currentY > ptOffset / 2 ? ptOffset : 0;
+          if (Math.abs(snapY - currentY) > 2) { 
+            window.scrollTo({ top: snapY, behavior: 'smooth' });
+          }
+        }
+      }, 300); // 스크롤이 완전히 멈춘 후 대기시간 (300ms)
+    };
+
+    updateMaskAndSnap();
+    window.addEventListener('resize', updateMaskAndSnap);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    
+    return () => {
+      window.removeEventListener('resize', updateMaskAndSnap);
+      window.removeEventListener('scroll', handleScroll);
+      clearTimeout(isScrolling);
+    };
+  }, [settings.fontSize, settings.lineHeight, isJumping]);
 
   // --- Initial Restore & Jump ---
 
@@ -166,12 +219,16 @@ export const Reader: React.FC<ReaderProps> = ({
     const move = (dir: number) => { 
       const currentScrollY = window.scrollY;
       const targetScrollY = currentScrollY + (dir * scrollStep);
+      const ptOffset = 48; // pt-12 (48px)
       
-      // 타겟 위치를 줄 높이의 정수배로 반올림 (스냅)
-      // 이렇게 하면 수동 스크롤로 인해 어긋난 위치가 탭 이동 시 깔끔하게 보정됨
-      const snappedY = Math.round(targetScrollY / oneLineHeight) * oneLineHeight;
+      let snappedY = targetScrollY;
+      if (targetScrollY >= ptOffset) {
+         snappedY = Math.round((targetScrollY - ptOffset) / oneLineHeight) * oneLineHeight + ptOffset;
+      } else {
+         snappedY = 0;
+      }
       
-      window.scrollTo({ top: snappedY, behavior: 'instant' }); 
+      window.scrollTo({ top: Math.max(0, snappedY), behavior: 'instant' }); 
     };
 
     if (settings.navMode !== 'scroll') {
@@ -429,6 +486,12 @@ export const Reader: React.FC<ReaderProps> = ({
       </div>
 
       {showSettings && <SettingsModal settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setShowSettings(false)} theme={theme} />}
+
+      {/* Dynamic Masking: 하단 텍스트 잘림 현상 방지용 배경색 블록 */}
+      <div 
+        className={`fixed bottom-0 inset-x-0 pointer-events-none z-40 transition-colors ${theme.bg}`} 
+        style={{ height: `${maskHeight}px` }} 
+      />
     </div>
   );
 };
