@@ -165,6 +165,14 @@ export const useReadingProgress = ({
         setBookmarks(initialProgress.bookmarks);
       }
 
+      // [Rule 3] 네트워크 응답이 너무 늦은 경우 (로딩 후 5초 초과) 모달/이동 모두 취소
+      const timeSinceMount = Date.now() - mountTime.current;
+      if (timeSinceMount > 5000) {
+        lastSaveTime.current = remoteTime;
+        console.log(`[AutoSync] Rejected: Network response took too long (${timeSinceMount}ms)`);
+        return;
+      }
+
       // 2. 위치 동기화 로직 분기
       if (diff > 300) {
         // [Rule 1 & 2] 유저의 동작(탭, 스크롤) 여부에 따라 결정

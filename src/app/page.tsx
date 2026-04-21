@@ -4,38 +4,157 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
 import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { saveProgressToLocal, getAllLocalProgress } from '../lib/localDB';
+import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDoc } from 'firebase/firestore';
 
-import { useViewerSettings } from '../hooks/useViewerSettings';
-import { useLibrary } from '../hooks/useLibrary';
-
+import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
+import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress, removeProgressFromLocal } from '../lib/localDB';
 import { Shelf } from '../components/Shelf';
 import { Reader } from '../components/Reader';
-import { AuthView } from '../components/AuthView';
-import { LoadingView } from '../components/LoadingView';
+import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
+import { THEMES, ACCENT_PALETTE } from '../lib/constants';
+import { HardDrive, LogOut, ShieldCheck, Wifi, WifiOff, User as UserIcon } from 'lucide-react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-
-import { Book, UserProgress, ViewState } from '../types';
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
+  const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
+  const [progress, setProgress] = useState<Record<string, UserProgress>>({});
+
   const [isPublicPC, setIsPublicPC] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
 
-  const { settings, handleUpdateSettings, theme, dynamicStyles } = useViewerSettings();
+  const [settings, setSettings] = useState<ViewerSettings>({
+    fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify',
+    theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto',
+    accentColor: 'sky'
+  });
 
-  const {
-    books, progress, setProgress, googleToken, isOfflineMode,
-    setGoogleToken, setIsOfflineMode, setBooks,
-    getStoredToken, restoreLocalData, syncLocalAndCloud,
-    loadLibraryFromDrive, handleSaveProgress, handleDeleteProgress,
-  } = useLibrary({ user, setView });
+  const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
-  // --- Online/Offline 감지 ---
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('viewer_settings');
+    if (savedSettings) {
+      try {
+        setSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));
+      } catch (e) {
+        console.error("Failed to parse settings", e);
+      }
+    }
+  }, []);
+
+  const getStoredToken = () => {
+    const sToken = sessionStorage.getItem('google_drive_token');
+    const sExpiry = sessionStorage.getItem('google_drive_token_expiry');
+    if (sToken && sExpiry && Date.now() < parseInt(sExpiry)) return sToken;
+
+    const lToken = localStorage.getItem('google_drive_token');
+    const lExpiry = localStorage.getItem('google_drive_token_expiry');
+    if (lToken && lExpiry && Date.now() < parseInt(lExpiry)) return lToken;
+
+    return null;
+  };
+
+  // [Modified] preventRedirect 인자 추가: 데이터만 로드하고 화면 전환은 하지 않는 옵션
+  const restoreLocalData = async (preventRedirect = false) => {
+    try {
+      if (!preventRedirect) setIsOfflineMode(true);
+
+      const [localBooks, localProgress] = await Promise.all([
+        getAllOfflineBooks(),
+        getAllLocalProgress()
+      ]);
+
+      const p: Record<string, UserProgress> = {};
+      localProgress.forEach(item => { p[item.bookId] = item; });
+
+      // progress는 항상 merge (덮어쓰지 않음)
+      setProgress(prev => ({ ...prev, ...p }));
+
+      if (localBooks.length > 0) {
+        // books는 기존 목록에 로컬 전용 도서만 추가 (중복 방지)
+        setBooks(prev => {
+          const existingIds = new Set(prev.map(b => b.id));
+          const newBooks = localBooks.filter(b => !existingIds.has(b.id));
+          // 목록이 비어 있으면 전체 로컬 도서로 채움, 아니면 새것만 append
+          return prev.length === 0 ? localBooks : newBooks.length > 0 ? [...prev, ...newBooks] : prev;
+        });
+        if (!preventRedirect) setView('shelf');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("Failed to restore local data:", e);
+      return false;
+    }
+  };
+
+  const syncLocalAndCloud = async (uid: string) => {
+    if (!navigator.onLine) return;
+
+    try {
+      const localProgressList = await getAllLocalProgress();
+      const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
+      const cloudSnapshot = await getDocs(cloudRef);
+
+      const localMap = new Map(localProgressList.map(p => [p.bookId, p]));
+      const cloudMap = new Map(cloudSnapshot.docs.map(d => [d.id, d.data() as UserProgress]));
+
+      for (const [bookId, localData] of localMap.entries()) {
+        const cloudData = cloudMap.get(bookId);
+        const localTime = new Date(localData.lastRead).getTime();
+        const cloudTime = cloudData?.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
+
+        if (!cloudData || localTime > cloudTime) {
+          await setDoc(doc(cloudRef, bookId), { ...localData, lastRead: serverTimestamp() }, { merge: true });
+        }
+      }
+
+      for (const [bookId, cloudData] of cloudMap.entries()) {
+        const localData = localMap.get(bookId);
+        const localTime = localData ? new Date(localData.lastRead).getTime() : 0;
+        const cloudTime = cloudData.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
+
+        if (!localData || cloudTime > localTime) {
+          await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
+        }
+      }
+    } catch (e) {
+      console.warn("Background sync paused:", e);
+    }
+  };
+
+  /**
+   * 구글 드라이브에서 도서 목록을 불러옵니다.
+   */
+  const loadLibraryFromDrive = async (token: string) => {
+    try {
+      const targetFolderName = "web viewer";
+      const fid = await findFolderId(targetFolderName, token);
+      
+      if (fid) {
+        const data = await fetchDriveFiles(token, fid);
+        if (data.files && data.files.length > 0) {
+          // 클라우드 도서 + 로컬 전용 도서 병합
+          const cloudIds = new Set(data.files.map((f: Book) => f.id));
+          const localBooks = await getAllOfflineBooks();
+          const localOnly = localBooks.filter(b => !cloudIds.has(b.id));
+          setBooks([...data.files, ...localOnly]);
+        }
+      }
+      setIsOfflineMode(false);
+      return true;
+    } catch (err) {
+      console.warn("Drive Library Load Failed (Offline or Error)");
+      setIsOfflineMode(true);
+      return false;
+    }
+  };
+
   useEffect(() => {
     const handleOnline = async () => {
       console.log("Online detected.");
@@ -60,7 +179,6 @@ export default function Page() {
     };
   }, [user, googleToken]);
 
-  // --- Firebase Auth + 초기 로드 ---
   useEffect(() => {
     restoreLocalData(); // 초기 로드 시 실행 (기본 동작: 책장으로 이동)
 
@@ -139,7 +257,7 @@ export default function Page() {
     return () => unsubscribeAuth();
   }, [isGuest]);
 
-  // --- 핸들러: 게스트 모드 ---
+
   const handleGuestMode = async () => {
     setView('loading');
     setIsGuest(true);
@@ -150,7 +268,6 @@ export default function Page() {
     setView('shelf');
   };
 
-  // --- 핸들러: 로컬 모드 ---
   const handleLocalMode = async () => {
     setView('loading');
     await restoreLocalData(); // 로컬 모드 전환 시 강제 책장 이동 OK
@@ -159,7 +276,6 @@ export default function Page() {
     setView('shelf');
   };
 
-  // --- 핸들러: 클라우드 연결/해제 ---
   const handleDisconnectDrive = () => setPendingAction('disconnect');
 
   const handleConnect = () => {
@@ -188,7 +304,6 @@ export default function Page() {
     client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
   };
 
-  // --- 핸들러: 로그인/로그아웃 ---
   const handleLoginTrigger = () => {
     signInWithPopup(auth, googleProvider).catch(console.error);
   };
@@ -215,29 +330,129 @@ export default function Page() {
     setPendingAction(null);
   };
 
-  // --- 렌더링 ---
+  const handleUpdateSettings = useCallback((newSettings: Partial<ViewerSettings>) => {
+    setSettings(prev => {
+      const updated = { ...prev, ...newSettings };
+      localStorage.setItem('viewer_settings', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  const handleSaveProgress = useCallback(async (idx: number, pct: number, bookmarks?: Bookmark[]) => {
+    if (!activeBook || isNaN(idx)) return;
+
+    const now = Date.now();
+    const progressData: UserProgress = {
+      bookId: activeBook.id,
+      charIndex: idx,
+      progressPercent: pct,
+      lastRead: now,
+      bookmarks: bookmarks
+    };
+
+    try {
+      await saveProgressToLocal(progressData);
+      setProgress(prev => ({ ...prev, [activeBook.id]: progressData }));
+    } catch (e) { console.error(e); }
+
+    if (user) {
+      try {
+        const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
+        await setDoc(docRef, { ...progressData, lastRead: serverTimestamp() }, { merge: true });
+      } catch (e) { }
+    }
+  }, [user, activeBook]);
+
+  const handleDeleteProgress = useCallback(async (bookId: string) => {
+    setProgress(prev => {
+      const next = { ...prev };
+      delete next[bookId];
+      return next;
+    });
+
+    try {
+      await removeProgressFromLocal(bookId);
+    } catch (e) { console.error(e); }
+
+    if (user) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId));
+      } catch (e) { console.error(e); }
+    }
+  }, [user]);
+
+  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
+  const dynamicStyles = {
+    '--accent-400': accentColorObj[400],
+    '--accent-500': accentColorObj[500],
+    '--accent-600': accentColorObj[600],
+  } as React.CSSProperties;
+
   if (view === 'loading') {
-    return <LoadingView theme={theme} dynamicStyles={dynamicStyles} />;
+    return (
+      <div className={`h-screen w-screen flex flex-col items-center justify-center ${theme.bg} ${theme.text} gap-4 transition-colors duration-300`} style={dynamicStyles}>
+        <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
+        <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
+      </div>
+    );
   }
 
   return (
     <div className={`min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`} style={dynamicStyles}>
-      {/* 1. 로그인/모드 선택 화면 */}
-      {view === 'auth' && (
-        <AuthView
-          user={user}
-          theme={theme}
-          isPublicPC={isPublicPC}
-          setIsPublicPC={setIsPublicPC}
-          onSignIn={() => signInWithPopup(auth, googleProvider).catch((e) => console.log('Popup cancelled or closed'))}
-          onGuestMode={handleGuestMode}
-          onConnect={handleConnect}
-          onLocalMode={handleLocalMode}
-          onLogout={handleLogout}
-        />
+      {/* 1. 로그인 화면 */}
+      {view === 'auth' && !user && (
+        <div className="h-screen w-screen flex flex-col items-center justify-center gap-12 p-10 text-center">
+          <div className="p-10 bg-accent-600 text-white rounded-[3.5rem] shadow-2xl shadow-accent-500/20">
+            <HardDrive size={64} />
+          </div>
+          <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
+          <div className="flex flex-col gap-4 w-full max-w-xs">
+            <button onClick={() => signInWithPopup(auth, googleProvider).catch((e) => console.log('Popup cancelled or closed'))} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
+              Sign in with Google
+            </button>
+            <button onClick={handleGuestMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 transition-colors`}>
+              <UserIcon size={16} />
+              <span>Guest Mode (Offline)</span>
+            </button>
+          </div>
+        </div>
       )}
 
-      {/* 2. 책장 */}
+      {/* 2. 모드 선택 화면 */}
+      {view === 'auth' && user && (
+        <div className="h-screen w-screen flex flex-col items-center justify-center gap-8 p-10 text-center">
+          <div className="relative mb-4">
+            <div className="p-10 bg-accent-600 text-white rounded-[3.5rem] shadow-2xl">
+              <HardDrive size={64} />
+            </div>
+            <button onClick={handleLogout} className="absolute -top-2 -right-2 p-3 bg-red-500 rounded-full shadow-lg active:scale-90"><LogOut size={18} /></button>
+          </div>
+          <div className="space-y-1 mb-2">
+            <p className="text-accent-400 font-black text-[10px] uppercase tracking-[0.3em]">Welcome back</p>
+            <h1 className="text-xl font-bold">{user.displayName || user.email}</h1>
+          </div>
+          <div className="w-full max-w-xs space-y-4">
+            <button onClick={handleConnect} className={`group relative w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center justify-center gap-3 overflow-hidden hover:opacity-80 transition-all`}>
+              <div className="absolute inset-0 bg-accent-500 opacity-0 group-hover:opacity-10 transition-opacity" />
+              <Wifi size={18} className="text-accent-600 dark:text-accent-400" />
+              <span>Connect Cloud</span>
+            </button>
+            <button onClick={handleLocalMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-3 transition-colors`}>
+              <WifiOff size={18} />
+              <span>Local Library Only</span>
+            </button>
+            <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-accent-500 bg-accent-500/10' : `border-transparent ${theme.secondary}`}`}>
+              <input type="checkbox" checked={isPublicPC} onChange={(e) => setIsPublicPC(e.target.checked)} className="hidden" />
+              <ShieldCheck size={20} className={isPublicPC ? 'text-accent-500' : 'opacity-40'} />
+              <span className={`text-[11px] font-bold uppercase tracking-wider ${isPublicPC ? 'text-accent-500' : 'opacity-60'}`}>
+                {isPublicPC ? 'Public PC (Session Only)' : 'Private PC (Keep Logged in)'}
+              </span>
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* 3. 책장 */}
       {view === 'shelf' && (
         <Shelf
           books={books}
@@ -259,7 +474,7 @@ export default function Page() {
         />
       )}
 
-      {/* 3. 리더 */}
+      {/* 4. 리더 */}
       {view === 'reader' && activeBook && (
         <Reader
           book={activeBook}
@@ -268,7 +483,7 @@ export default function Page() {
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
-          onSaveProgress={(idx, pct, bookmarks) => handleSaveProgress(idx, pct, bookmarks, activeBook)}
+          onSaveProgress={handleSaveProgress}
         />
       )}
 
