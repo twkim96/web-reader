@@ -1,7 +1,7 @@
 // src/app/page.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
 import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDoc } from 'firebase/firestore';
@@ -26,6 +26,18 @@ export default function Page() {
   const [isPublicPC, setIsPublicPC] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
+  // [Fix] Auth Effect에서 isGuest를 의존성으로 쓰면 Firebase 리스너가 재구독됨 → ref로 대체
+  const isGuestRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (localStorage.getItem('isGuest') === 'true') {
+        setIsGuest(true);
+        isGuestRef.current = true;
+      }
+    }
+  }, []);
+
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
 
   const [settings, setSettings] = useState<ViewerSettings>({
@@ -242,11 +254,9 @@ export default function Page() {
         return () => { unsubProgress(); };
 
       } else {
-        if (!isGuest) {
+        if (!isGuestRef.current) {
           setTimeout(() => {
             setView(prev => {
-              // 읽고 있거나 책장에 있다면 유지 (단, 로그아웃 명시적 처리는 handleLogout에서 함)
-              // 여기서는 세션 만료 등의 자동 처리를 위함이나, 안전하게 shelf면 유지
               if (prev === 'shelf') return prev;
               return 'auth';
             });
@@ -255,12 +265,14 @@ export default function Page() {
       }
     });
     return () => unsubscribeAuth();
-  }, [isGuest]);
+  }, []);
 
 
   const handleGuestMode = async () => {
     setView('loading');
     setIsGuest(true);
+    isGuestRef.current = true;
+    localStorage.setItem('isGuest', 'true');
     setIsOfflineMode(true);
     setUser(null);
     setGoogleToken(null);
