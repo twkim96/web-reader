@@ -221,11 +221,6 @@ export default function Page() {
   useEffect(() => {
     restoreLocalData(); // 초기 로드 시 실행 (기본 동작: 책장으로 이동)
 
-    const script = document.createElement('script');
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true; script.defer = true;
-    document.body.appendChild(script);
-
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
 
@@ -318,29 +313,9 @@ export default function Page() {
   const handleDisconnectDrive = () => setPendingAction('disconnect');
 
   const handleConnect = () => {
-    if (!(window as any).google) return;
-    const client = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: (res: any) => {
-        if (res.access_token) {
-          setGoogleToken(res.access_token);
-          const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
-          const storage = isPublicPC ? sessionStorage : localStorage;
-          localStorage.removeItem('google_drive_token');
-          sessionStorage.removeItem('google_drive_token');
-          storage.setItem('google_drive_token', res.access_token);
-          storage.setItem('google_drive_token_expiry', expiryTime);
-
-          setIsOfflineMode(false);
-          setView('loading');
-          loadLibraryFromDrive(res.access_token).then(() => {
-            setView('shelf');
-          });
-        }
-      },
-    });
-    client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
+    // [Fix] 팝업 차단 중복 발생을 방지하기 위해 별도의 GIS SDK 대신 
+    // 이미 Drive 권한이 포함된 Firebase Redirect flow를 재사용합니다.
+    signInWithRedirect(auth, googleProvider);
   };
 
   const handleLoginTrigger = () => {

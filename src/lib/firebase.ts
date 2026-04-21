@@ -23,6 +23,7 @@ const db = initializeFirestore(app, {
 });
 
 const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
 export const APP_ID = "private-web-novel-viewer"; 
 
