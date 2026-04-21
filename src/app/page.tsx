@@ -3,7 +3,14 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
-import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
+import { 
+  onAuthStateChanged, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  GoogleAuthProvider,
+  signOut, 
+  User as FirebaseUser 
+} from 'firebase/auth';
 import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDoc } from 'firebase/firestore';
 
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
@@ -57,6 +64,26 @@ export default function Page() {
         console.error("Failed to parse settings", e);
       }
     }
+  }, []);
+
+  // [New] 구글 로그인 리다이렉트 결과 처리 (팝업 차단 방지용)
+  useEffect(() => {
+    getRedirectResult(auth).then((result) => {
+      if (result) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const token = credential?.accessToken;
+        if (token) {
+          console.log("Redirected Login Success - Token Captured");
+          sessionStorage.setItem('google_drive_token', token);
+          sessionStorage.setItem('google_drive_token_expiry', (Date.now() + 3600 * 1000).toString());
+          localStorage.setItem('google_drive_token', token);
+          localStorage.setItem('google_drive_token_expiry', (Date.now() + 3600 * 1000).toString());
+          setGoogleToken(token);
+        }
+      }
+    }).catch((error) => {
+      console.error("Error getting redirect result:", error);
+    });
   }, []);
 
   const getStoredToken = () => {
@@ -317,7 +344,7 @@ export default function Page() {
   };
 
   const handleLoginTrigger = () => {
-    signInWithPopup(auth, googleProvider).catch(console.error);
+    signInWithRedirect(auth, googleProvider);
   };
 
   const handleLogout = () => setPendingAction('logout');
@@ -419,7 +446,7 @@ export default function Page() {
           </div>
           <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
           <div className="flex flex-col gap-4 w-full max-w-xs">
-            <button onClick={() => signInWithPopup(auth, googleProvider).catch((e) => console.log('Popup cancelled or closed'))} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
+            <button onClick={() => signInWithRedirect(auth, googleProvider)} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
               Sign in with Google
             </button>
             <button onClick={handleGuestMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 transition-colors`}>
