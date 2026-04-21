@@ -19,12 +19,11 @@ const auth = getAuth(app);
 // [Modified] 기존 getFirestore() + enableIndexedDbPersistence() 조합을 아래 한 줄로 대체
 // 이렇게 하면 DB가 생성될 때 오프라인 캐시(Persistence)가 즉시 활성화됩니다.
 const db = initializeFirestore(app, {
-  localCache: persistentLocalCache() 
+  localCache: persistentLocalCache()
 });
 
 const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
-export const APP_ID = "private-web-novel-viewer"; 
+export const APP_ID = "private-web-novel-viewer";
 
 export { auth, db, googleProvider };

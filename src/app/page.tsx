@@ -3,14 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
-import { 
-  onAuthStateChanged, 
-  signInWithRedirect, 
-  getRedirectResult, 
-  GoogleAuthProvider,
-  signOut, 
-  User as FirebaseUser 
-} from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDoc } from 'firebase/firestore';
 
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
@@ -64,26 +57,6 @@ export default function Page() {
         console.error("Failed to parse settings", e);
       }
     }
-  }, []);
-
-  // [New] 구글 로그인 리다이렉트 결과 처리 (팝업 차단 방지용)
-  useEffect(() => {
-    getRedirectResult(auth).then((result) => {
-      if (result) {
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const token = credential?.accessToken;
-        if (token) {
-          console.log("Redirected Login Success - Token Captured");
-          sessionStorage.setItem('google_drive_token', token);
-          sessionStorage.setItem('google_drive_token_expiry', (Date.now() + 3600 * 1000).toString());
-          localStorage.setItem('google_drive_token', token);
-          localStorage.setItem('google_drive_token_expiry', (Date.now() + 3600 * 1000).toString());
-          setGoogleToken(token);
-        }
-      }
-    }).catch((error) => {
-      console.error("Error getting redirect result:", error);
-    });
   }, []);
 
   const getStoredToken = () => {
@@ -174,7 +147,7 @@ export default function Page() {
     try {
       const targetFolderName = "web viewer";
       const fid = await findFolderId(targetFolderName, token);
-      
+
       if (fid) {
         const data = await fetchDriveFiles(token, fid);
         if (data.files && data.files.length > 0) {
@@ -221,6 +194,11 @@ export default function Page() {
   useEffect(() => {
     restoreLocalData(); // 초기 로드 시 실행 (기본 동작: 책장으로 이동)
 
+    const script = document.createElement('script');
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true; script.defer = true;
+    document.body.appendChild(script);
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
 
@@ -235,7 +213,7 @@ export default function Page() {
         if (recoveredToken) {
           setGoogleToken(recoveredToken);
           setIsOfflineMode(false); // [Fix] 토큰이 있다면 즉시 클라우드 모드로 전환 시도
-          
+
           // 읽기 모드나 책장에 있다면 로딩 화면 생략
           setView(prev => (prev === 'shelf' || prev === 'reader') ? prev : 'loading');
 
@@ -313,13 +291,33 @@ export default function Page() {
   const handleDisconnectDrive = () => setPendingAction('disconnect');
 
   const handleConnect = () => {
-    // [Fix] 팝업 차단 중복 발생을 방지하기 위해 별도의 GIS SDK 대신 
-    // 이미 Drive 권한이 포함된 Firebase Redirect flow를 재사용합니다.
-    signInWithRedirect(auth, googleProvider);
+    if (!(window as any).google) return;
+    const client = (window as any).google.accounts.oauth2.initTokenClient({
+      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: (res: any) => {
+        if (res.access_token) {
+          setGoogleToken(res.access_token);
+          const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
+          const storage = isPublicPC ? sessionStorage : localStorage;
+          localStorage.removeItem('google_drive_token');
+          sessionStorage.removeItem('google_drive_token');
+          storage.setItem('google_drive_token', res.access_token);
+          storage.setItem('google_drive_token_expiry', expiryTime);
+
+          setIsOfflineMode(false);
+          setView('loading');
+          loadLibraryFromDrive(res.access_token).then(() => {
+            setView('shelf');
+          });
+        }
+      },
+    });
+    client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
   };
 
   const handleLoginTrigger = () => {
-    signInWithRedirect(auth, googleProvider);
+    signInWithPopup(auth, googleProvider).catch(console.error);
   };
 
   const handleLogout = () => setPendingAction('logout');
@@ -421,7 +419,7 @@ export default function Page() {
           </div>
           <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
           <div className="flex flex-col gap-4 w-full max-w-xs">
-            <button onClick={() => signInWithRedirect(auth, googleProvider)} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
+            <button onClick={() => signInWithPopup(auth, googleProvider).catch((e) => console.log('Popup cancelled or closed'))} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
               Sign in with Google
             </button>
             <button onClick={handleGuestMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 transition-colors`}>
