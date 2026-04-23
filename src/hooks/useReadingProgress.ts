@@ -165,32 +165,27 @@ export const useReadingProgress = ({
         setBookmarks(initialProgress.bookmarks);
       }
 
-      // [Rule 3] 네트워크 응답이 너무 늦은 경우 (로딩 후 5초 초과) 모달/이동 모두 취소
-      const timeSinceMount = Date.now() - mountTime.current;
-      if (timeSinceMount > 5000) {
-        lastSaveTime.current = remoteTime;
-        console.log(`[AutoSync] Rejected: Network response took too long (${timeSinceMount}ms)`);
-        return;
-      }
-
       // 2. 위치 동기화 로직 분기
       if (diff > 300) {
-        // [Rule 1 & 2] 유저의 동작(탭, 스크롤) 여부에 따라 결정
-        if (!hasInteracted.current) {
-          // Rule 1: 유저 조작이 없었다면 조용히 최신 위치로 자동 이동
+        // [Rule 1 & 2] 마운트 직후(2초 이내)이면서 조작이 없었다면 자동 이동, 그 외엔 무조건 알림
+        const isInitialLoad = (Date.now() - mountTime.current) < 2000;
+        
+        if (isInitialLoad && !hasInteracted.current) {
+          // 초기 로드 시점에는 조용히 최신 위치로 자동 이동
           setCurrentIdx(initialProgress.charIndex);
           setReadPercent(initialProgress.progressPercent);
           lastSaveTime.current = remoteTime;
           setAutoSyncToast(true);
           setTimeout(() => setAutoSyncToast(false), 2500);
-          console.log(`[AutoSync] Silent auto-jump executed.`);
+          console.log(`[AutoSync] Initial silent auto-jump executed.`);
         } else {
-          // Rule 2: 유저가 이미 책을 조작하고 있다면 기존처럼 모달 띄우기
+          // 독서 중(2초 이후)이거나 이미 조작 중이라면 '무조건' 알림 모달 띄우기
           setSyncConflict({
             show: true,
             remoteIdx: initialProgress.charIndex,
             remotePercent: initialProgress.progressPercent
           });
+          console.log(`[AutoSync] Sync notification triggered.`);
         }
       } else if (diff > 0) {
         // 미세한 차이는 조용히 맞춤
