@@ -1,8 +1,7 @@
 // src/lib/firebase.ts
-import { initializeApp } from "firebase/app";
+import { getApps, initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-// [Modified] getFirestore 대신 initializeFirestore, persistentLocalCache를 가져옵니다.
-import { initializeFirestore, persistentLocalCache } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -13,14 +12,18 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 
-// [Modified] 기존 getFirestore() + enableIndexedDbPersistence() 조합을 아래 한 줄로 대체
-// 이렇게 하면 DB가 생성될 때 오프라인 캐시(Persistence)가 즉시 활성화됩니다.
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache()
-});
+// Next.js HMR 환경에서 여러 번 초기화되는 것을 방지합니다.
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch (error) {
+  db = getFirestore(app);
+}
 
 const googleProvider = new GoogleAuthProvider();
 

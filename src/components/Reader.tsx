@@ -36,7 +36,7 @@ export const Reader: React.FC<ReaderProps> = ({
     bookmarks, setBookmarks,
     syncConflict, setSyncConflict,
     createAutoBookmark, addManualBookmark, deleteBookmark,
-    lastSaveTime, hasRestored, autoSyncToast
+    lastSaveTime, hasRestored, autoSyncToast, triggerSave, resolveConflict
   } = useReadingProgress({ initialProgress, fullContentRef: fullContent, onSaveProgress, isLoaded });
 
   // 3. Virtual Scroll
@@ -62,8 +62,7 @@ export const Reader: React.FC<ReaderProps> = ({
       
       const now = Date.now();
       if (now - lastSaveTime.current > 5000 && !syncConflict) {
-        onSaveProgress(idx, pct, bookmarks);
-        lastSaveTime.current = now;
+        triggerSave(idx, pct, bookmarks);
       }
     }
   });
@@ -276,8 +275,7 @@ export const Reader: React.FC<ReaderProps> = ({
       const newPercent = (showConfirm.target / (fullContent.current.length || 1)) * 100;
       setReadPercent(newPercent);
       
-      onSaveProgress(showConfirm.target, newPercent, bookmarksToSave);
-      lastSaveTime.current = Date.now();
+      triggerSave(showConfirm.target, newPercent, bookmarksToSave);
       
       jumpToIdx(showConfirm.target);
       if (showConfirm.fromSearch) setShowSearch(false);
@@ -296,8 +294,7 @@ export const Reader: React.FC<ReaderProps> = ({
         const newPercent = (idx / (fullContent.current.length || 1)) * 100;
         setReadPercent(newPercent);
 
-        onSaveProgress(idx, newPercent, bookmarksToSave);
-        lastSaveTime.current = Date.now();
+        triggerSave(idx, newPercent, bookmarksToSave);
 
         jumpToIdx(idx);
       }
@@ -323,14 +320,13 @@ export const Reader: React.FC<ReaderProps> = ({
       setCurrentIdx(syncConflict.remoteIdx);
       setReadPercent(syncConflict.remotePercent);
       
-      onSaveProgress(syncConflict.remoteIdx, syncConflict.remotePercent, updatedBookmarks);
-      lastSaveTime.current = Date.now();
+      triggerSave(syncConflict.remoteIdx, syncConflict.remotePercent, updatedBookmarks);
       
       jumpToIdx(syncConflict.remoteIdx);
+      resolveConflict(false);
     } else {
-      lastSaveTime.current = Date.now();
+      resolveConflict(true);
     }
-    setSyncConflict(null);
   };
 
   const getFontClass = () => {
@@ -421,8 +417,7 @@ export const Reader: React.FC<ReaderProps> = ({
             setCurrentIdx(idx);
             setReadPercent((idx / (fullContent.current.length || 1)) * 100);
             
-            onSaveProgress(idx, (idx / (fullContent.current.length || 1)) * 100, updatedBookmarks);
-            lastSaveTime.current = Date.now();
+            triggerSave(idx, (idx / (fullContent.current.length || 1)) * 100, updatedBookmarks);
 
             jumpToIdx(idx);
             setShowBookmarks(false);

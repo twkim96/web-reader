@@ -120,7 +120,13 @@ export const Shelf: React.FC<ShelfProps> = ({
       const normalizedKeyword = searchKeyword.normalize('NFC').replace(/\s+/g, '').toLowerCase();
       return normalizedBookName.includes(normalizedKeyword);
     }).sort((a, b) => {
+      // 0%는 안 읽은 것으로 취급
+      const isReadA = (progress[a.id]?.progressPercent || 0) > 0;
+      const isReadB = (progress[b.id]?.progressPercent || 0) > 0;
+
       if (sortMode === 'alpha') {
+        // 읽던 책 우선 → 그 안에서 가나다순
+        if (isReadA !== isReadB) return isReadA ? -1 : 1;
         return a.name.localeCompare(b.name);
       } else if (sortMode === 'recent') {
         const getMs = (ts: any) => {
@@ -128,10 +134,11 @@ export const Shelf: React.FC<ShelfProps> = ({
           const d = ts.toDate ? ts.toDate() : new Date(ts);
           return isNaN(d.getTime()) ? 0 : d.getTime();
         };
+        // 읽던 책 우선 → 그 안에서 최신순
+        if (isReadA !== isReadB) return isReadA ? -1 : 1;
         const pA = getMs(progress[a.id]?.lastRead);
         const pB = getMs(progress[b.id]?.lastRead);
         if (pA === 0 && pB === 0) {
-          // 최근 추가된 파일이 상단에 오도록 기본 정렬(원래 배열 순서 유지 등)을 반전시킵니다.
           return books.indexOf(a) - books.indexOf(b); 
         }
         return pB - pA;

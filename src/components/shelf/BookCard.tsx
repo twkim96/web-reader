@@ -52,7 +52,7 @@ export const BookCard: React.FC<BookCardProps> = ({
             )}
           </div>
           <div className="text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest truncate">
-            {progress?.lastRead ? formatDate(progress.lastRead) : 'Ready to Start'}
+            {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
           </div>
         </div>
 
@@ -117,7 +117,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         <div className="space-y-3">
           <div className="flex justify-between items-end">
             <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
-              {progress?.lastRead ? formatDate(progress.lastRead) : 'Ready to Start'}
+              {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
             </span>
             <div className="flex items-center gap-1.5">
               {percent > 0 && onDeleteProgress && (

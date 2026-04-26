@@ -116,23 +116,16 @@ export default function Page() {
       const localMap = new Map(localProgressList.map(p => [p.bookId, p]));
       const cloudMap = new Map(cloudSnapshot.docs.map(d => [d.id, d.data() as UserProgress]));
 
-      for (const [bookId, localData] of localMap.entries()) {
-        const cloudData = cloudMap.get(bookId);
-        const localTime = new Date(localData.lastRead).getTime();
-        const cloudTime = cloudData?.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
-
-        if (!cloudData || localTime > cloudTime) {
-          await setDoc(doc(cloudRef, bookId), { ...localData, lastRead: serverTimestamp() }, { merge: true });
-        }
+      // Step 1: 서버 데이터가 존재하면 서버를 기준으로 로컬을 덮어씀
+      for (const [bookId, cloudData] of cloudMap.entries()) {
+        const cloudTime = cloudData.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
+        await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
       }
 
-      for (const [bookId, cloudData] of cloudMap.entries()) {
-        const localData = localMap.get(bookId);
-        const localTime = localData ? new Date(localData.lastRead).getTime() : 0;
-        const cloudTime = cloudData.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
-
-        if (!localData || cloudTime > localTime) {
-          await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
+      // Step 2: 서버에 없는 로컬 전용 데이터만 서버에 업로드
+      for (const [bookId, localData] of localMap.entries()) {
+        if (!cloudMap.has(bookId)) {
+          await setDoc(doc(cloudRef, bookId), { ...localData, lastRead: serverTimestamp() }, { merge: true });
         }
       }
     } catch (e) {
@@ -236,18 +229,28 @@ export default function Page() {
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, async (snapshot) => {
           const p: Record<string, UserProgress> = {};
+
+          // Step 1: 서버 데이터를 기준으로 삼고, 서버가 더 최신이면 로컬을 덮어씀
           for (const d of snapshot.docs) {
             const data = d.data() as UserProgress;
-            p[d.id] = data;
             const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
+            p[d.id] = { ...data, lastRead: serverTime };
             await saveProgressToLocal({ ...data, lastRead: serverTime });
           }
+
+          // Step 2: 서버에 없는 로컬 전용 데이터만 보충 (서버에 이미 있는 것은 건드리지 않음)
           const localP = await getAllLocalProgress();
-          localP.forEach(lp => {
-            if (!p[lp.bookId] || new Date(lp.lastRead).getTime() > (p[lp.bookId].lastRead?.toDate?.().getTime() || 0)) {
+          for (const lp of localP) {
+            if (!p[lp.bookId]) {
+              // 서버에 아예 없는 도서 → 로컬 데이터 사용 + 서버에 업로드
               p[lp.bookId] = lp;
+              try {
+                const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory', lp.bookId);
+                await setDoc(docRef, { ...lp, lastRead: serverTimestamp() }, { merge: true });
+              } catch (e) { console.warn('Failed to upload local-only progress:', e); }
             }
-          });
+          }
+
           setProgress(p);
         });
 
@@ -376,19 +379,27 @@ export default function Page() {
   }, [user, activeBook]);
 
   const handleDeleteProgress = useCallback(async (bookId: string) => {
-    setProgress(prev => {
-      const next = { ...prev };
-      delete next[bookId];
-      return next;
-    });
+    const now = Date.now();
+    const resetData: UserProgress = {
+      bookId,
+      charIndex: 0,
+      progressPercent: 0,
+      lastRead: now,
+      bookmarks: []
+    };
+
+    setProgress(prev => ({ ...prev, [bookId]: resetData }));
 
     try {
-      await removeProgressFromLocal(bookId);
+      await saveProgressToLocal(resetData);
     } catch (e) { console.error(e); }
 
     if (user) {
       try {
-        await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId));
+        await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId), { 
+          ...resetData, 
+          lastRead: serverTimestamp() 
+        }, { merge: true });
       } catch (e) { console.error(e); }
     }
   }, [user]);

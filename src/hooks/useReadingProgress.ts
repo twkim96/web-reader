@@ -23,6 +23,7 @@ export const useReadingProgress = ({
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialProgress?.bookmarks || []);
   
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
+  const hasUnresolvedConflict = useRef(false);
   const [autoSyncToast, setAutoSyncToast] = useState(false);
   
   // [Modified] 타임스탬프 파싱 로직을 안전하게 통일
@@ -38,6 +39,7 @@ export const useReadingProgress = ({
   // [Added] 상태 기반 자동 동기화 처리를 위한 추적 Ref
   const mountTime = useRef(Date.now());
   const hasInteracted = useRef(false);
+  const recentlySavedIdx = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     const handler = () => { hasInteracted.current = true; };
@@ -67,12 +69,18 @@ export const useReadingProgress = ({
     latestState.current = { currentIdx, readPercent, bookmarks };
   }, [currentIdx, readPercent, bookmarks]);
 
+  const triggerSave = useCallback((idx: number, pct: number, bks?: Bookmark[]) => {
+    recentlySavedIdx.current.add(idx);
+    onSaveProgress(idx, pct, bks);
+    lastSaveTime.current = Date.now();
+  }, [onSaveProgress]);
+
   useEffect(() => {
     const saveCurrentState = () => {
       const { currentIdx: idx, readPercent: pct, bookmarks: bks } = latestState.current;
-      if (idx > 0) {
-        onSaveProgress(idx, pct, bks);
-        lastSaveTime.current = Date.now();
+      // 해결되지 않은 원격 충돌(또는 원격 초기화)이 있다면 현재 로컬 상태를 서버에 덮어쓰지 않음
+      if (idx > 0 && !hasUnresolvedConflict.current) {
+        triggerSave(idx, pct, bks);
       }
     };
 
@@ -134,21 +142,19 @@ export const useReadingProgress = ({
 
     setBookmarks(prev => {
       const updated = [newMark, ...prev];
-      onSaveProgress(currentIdx, readPercent, updated);
-      lastSaveTime.current = Date.now();
+      triggerSave(currentIdx, readPercent, updated);
       return updated;
     });
-  }, [bookmarks, currentIdx, readPercent, getPreviewText, onSaveProgress]);
+  }, [bookmarks, currentIdx, readPercent, getPreviewText, triggerSave]);
 
   // Logic: Delete Bookmark
   const deleteBookmark = useCallback((id: string) => {
     setBookmarks(prev => {
       const updated = prev.filter(b => b.id !== id);
-      onSaveProgress(currentIdx, readPercent, updated);
-      lastSaveTime.current = Date.now();
+      triggerSave(currentIdx, readPercent, updated);
       return updated;
     });
-  }, [currentIdx, readPercent, onSaveProgress]);
+  }, [currentIdx, readPercent, triggerSave]);
 
   // Logic: Conflict Detection & Auto Sync
   useEffect(() => {
@@ -156,6 +162,14 @@ export const useReadingProgress = ({
     
     const remoteTime = parseTime(initialProgress.lastRead);
     
+    // [Fix] Firebase serverTimestamp와 로컬 시간의 오차(Clock Skew)로 인해 
+    // 내가 방금 저장한 기록이 미래의 시간으로 되돌아오는 메아리(Echo) 현상을 방지
+    if (recentlySavedIdx.current.has(initialProgress.charIndex)) {
+      recentlySavedIdx.current.delete(initialProgress.charIndex);
+      lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
+      return; // 내 저장에 대한 서버의 응답이므로 무시
+    }
+
     // [Modified] 로컬 저장 시간보다 원격 시간이 '확실히' 미래라면 (2초 버퍼)
     if (remoteTime > lastSaveTime.current + 2000) {
       const diff = Math.abs(initialProgress.charIndex - currentIdx);
@@ -180,6 +194,7 @@ export const useReadingProgress = ({
           console.log(`[AutoSync] Initial silent auto-jump executed.`);
         } else {
           // 독서 중(2초 이후)이거나 이미 조작 중이라면 '무조건' 알림 모달 띄우기
+          hasUnresolvedConflict.current = true;
           setSyncConflict({
             show: true,
             remoteIdx: initialProgress.charIndex,
@@ -200,16 +215,26 @@ export const useReadingProgress = ({
     }
   }, [initialProgress, currentIdx, isLoaded]); // 의존성 배열 유지
 
+  const resolveConflict = useCallback((keepLocal: boolean) => {
+    hasUnresolvedConflict.current = false;
+    if (keepLocal) {
+      lastSaveTime.current = Date.now();
+    }
+    setSyncConflict(null);
+  }, []);
+
   return {
     currentIdx, setCurrentIdx,
     readPercent, setReadPercent,
     bookmarks, setBookmarks,
     syncConflict, setSyncConflict,
+    resolveConflict,
     autoSyncToast,
     createAutoBookmark,
     addManualBookmark,
     deleteBookmark,
     lastSaveTime,
-    hasRestored
+    hasRestored,
+    triggerSave
   };
 };
