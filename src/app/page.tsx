@@ -8,7 +8,7 @@ import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDo
 
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
 import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress, removeProgressFromLocal } from '../lib/localDB';
-import { Shelf } from '../components/Shelf';
+import { Shelf } from '../components/shelf';
 import { Reader } from '../components/Reader';
 import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
