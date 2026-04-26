@@ -39,7 +39,8 @@ export const useReadingProgress = ({
   // [Added] 상태 기반 자동 동기화 처리를 위한 추적 Ref
   const mountTime = useRef(Date.now());
   const hasInteracted = useRef(false);
-  const recentlySavedIdx = useRef<Set<number>>(new Set());
+  // 마지막으로 저장한 charIndex를 기억 (Firebase 이중 발행 대응)
+  const lastSavedCharIndex = useRef<number | null>(null);
 
   useEffect(() => {
     const handler = () => { hasInteracted.current = true; };
@@ -70,7 +71,7 @@ export const useReadingProgress = ({
   }, [currentIdx, readPercent, bookmarks]);
 
   const triggerSave = useCallback((idx: number, pct: number, bks?: Bookmark[]) => {
-    recentlySavedIdx.current.add(idx);
+    lastSavedCharIndex.current = idx;
     onSaveProgress(idx, pct, bks);
     lastSaveTime.current = Date.now();
   }, [onSaveProgress]);
@@ -161,16 +162,23 @@ export const useReadingProgress = ({
     if (!isLoaded || !initialProgress || !initialProgress.lastRead) return;
     
     const remoteTime = parseTime(initialProgress.lastRead);
+    const timeSinceLastSave = Date.now() - lastSaveTime.current;
     
-    // [Fix] Firebase serverTimestamp와 로컬 시간의 오차(Clock Skew)로 인해 
-    // 내가 방금 저장한 기록이 미래의 시간으로 되돌아오는 메아리(Echo) 현상을 방지
-    if (recentlySavedIdx.current.has(initialProgress.charIndex)) {
-      recentlySavedIdx.current.delete(initialProgress.charIndex);
+    // [Fix] Echo 방지: 최근 10초 이내에 저장했고 charIndex가 내가 마지막으로 저장한 값과 같으면
+    // Firebase의 이중 발행(로컬 캐시 + 서버 확인) 응답이므로 무시
+    if (timeSinceLastSave < 10000 && lastSavedCharIndex.current === initialProgress.charIndex) {
       lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
-      return; // 내 저장에 대한 서버의 응답이므로 무시
+      return;
     }
 
-    // [Modified] 로컬 저장 시간보다 원격 시간이 '확실히' 미래라면 (2초 버퍼)
+    // [Fix] 최근 10초 이내에 저장한 적이 있다면, Clock Skew로 인한 오탐을 방지하기 위해
+    // remoteTime 비교를 건너뛰고 charIndex 차이만으로 판단
+    if (timeSinceLastSave < 10000) {
+      lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
+      return;
+    }
+
+    // 마지막 저장 이후 10초 이상 경과 → 진짜 원격 변경인지 확인
     if (remoteTime > lastSaveTime.current + 2000) {
       const diff = Math.abs(initialProgress.charIndex - currentIdx);
 
@@ -181,29 +189,23 @@ export const useReadingProgress = ({
 
       // 2. 위치 동기화 로직 분기
       if (diff > 300) {
-        // [Rule 1 & 2] 마운트 직후(2초 이내)이면서 조작이 없었다면 자동 이동, 그 외엔 무조건 알림
         const isInitialLoad = (Date.now() - mountTime.current) < 2000;
         
         if (isInitialLoad && !hasInteracted.current) {
-          // 초기 로드 시점에는 조용히 최신 위치로 자동 이동
           setCurrentIdx(initialProgress.charIndex);
           setReadPercent(initialProgress.progressPercent);
           lastSaveTime.current = remoteTime;
           setAutoSyncToast(true);
           setTimeout(() => setAutoSyncToast(false), 2500);
-          console.log(`[AutoSync] Initial silent auto-jump executed.`);
         } else {
-          // 독서 중(2초 이후)이거나 이미 조작 중이라면 '무조건' 알림 모달 띄우기
           hasUnresolvedConflict.current = true;
           setSyncConflict({
             show: true,
             remoteIdx: initialProgress.charIndex,
             remotePercent: initialProgress.progressPercent
           });
-          console.log(`[AutoSync] Sync notification triggered.`);
         }
       } else if (diff > 0) {
-        // 미세한 차이는 조용히 맞춤
         if (!hasInteracted.current) {
           setCurrentIdx(initialProgress.charIndex);
           setReadPercent(initialProgress.progressPercent);
@@ -213,7 +215,7 @@ export const useReadingProgress = ({
         lastSaveTime.current = remoteTime;
       }
     }
-  }, [initialProgress, currentIdx, isLoaded]); // 의존성 배열 유지
+  }, [initialProgress, currentIdx, isLoaded]);
 
   const resolveConflict = useCallback((keepLocal: boolean) => {
     hasUnresolvedConflict.current = false;

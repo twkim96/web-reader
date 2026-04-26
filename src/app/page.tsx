@@ -242,7 +242,6 @@ export default function Page() {
           const localP = await getAllLocalProgress();
           for (const lp of localP) {
             if (!p[lp.bookId]) {
-              // 서버에 아예 없는 도서 → 로컬 데이터 사용 + 서버에 업로드
               p[lp.bookId] = lp;
               try {
                 const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory', lp.bookId);
@@ -251,7 +250,18 @@ export default function Page() {
             }
           }
 
-          setProgress(p);
+          // [Fix] 데이터가 실질적으로 변경된 경우에만 상태 업데이트 (불필요한 re-render 방지)
+          setProgress(prev => {
+            const hasChanged = Object.keys(p).some(id => {
+              const old = prev[id];
+              if (!old) return true;
+              return old.charIndex !== p[id].charIndex || 
+                     old.progressPercent !== p[id].progressPercent ||
+                     (old.bookmarks?.length || 0) !== (p[id].bookmarks?.length || 0);
+            }) || Object.keys(prev).length !== Object.keys(p).length;
+            
+            return hasChanged ? p : prev;
+          });
         });
 
         return () => { unsubProgress(); };
