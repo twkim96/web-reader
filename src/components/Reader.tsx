@@ -36,7 +36,8 @@ export const Reader: React.FC<ReaderProps> = ({
     bookmarks, setBookmarks,
     syncConflict, setSyncConflict,
     createAutoBookmark, addManualBookmark, deleteBookmark,
-    lastSaveTime, lastSaveActionTime, hasRestored, autoSyncToast, triggerSave, resolveConflict
+    lastSaveTime, lastSaveActionTime, hasRestored, autoSyncToast, triggerSave, resolveConflict,
+    jumpRequest, setJumpRequest // [Added]
   } = useReadingProgress({ initialProgress, fullContentRef: fullContent, onSaveProgress, isLoaded });
 
   // 3. Virtual Scroll
@@ -73,6 +74,14 @@ export const Reader: React.FC<ReaderProps> = ({
   const [showSearch, setShowSearch] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
+
+  // [Added] jumpRequest 처리
+  useEffect(() => {
+    if (jumpRequest !== null) {
+      jumpToIdx(jumpRequest);
+      setJumpRequest(null);
+    }
+  }, [jumpRequest, jumpToIdx, setJumpRequest]);
 
   // [Added] 동적 마스킹(잘림 방지) 기능을 위한 하단 여백 높이 상태
   const [maskHeight, setMaskHeight] = useState(0);

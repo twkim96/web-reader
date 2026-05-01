@@ -25,6 +25,8 @@ export const useReadingProgress = ({
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
   const hasUnresolvedConflict = useRef(false);
   const [autoSyncToast, setAutoSyncToast] = useState(false);
+  const [jumpRequest, setJumpRequest] = useState<number | null>(null); // [Added]
+  
   
   // [Modified] 타임스탬프 파싱 로직을 안전하게 통일
   const parseTime = (val: any) => {
@@ -192,6 +194,7 @@ export const useReadingProgress = ({
           setCurrentIdx(initialProgress.charIndex);
           setReadPercent(initialProgress.progressPercent);
           lastSaveTime.current = remoteTime;
+          setJumpRequest(initialProgress.charIndex); // [Added]
           setAutoSyncToast(true);
           setTimeout(() => setAutoSyncToast(false), 2500);
         } else {
@@ -206,6 +209,7 @@ export const useReadingProgress = ({
         if (!hasInteracted.current) {
           setCurrentIdx(initialProgress.charIndex);
           setReadPercent(initialProgress.progressPercent);
+          setJumpRequest(initialProgress.charIndex); // [Added]
         }
         lastSaveTime.current = remoteTime;
       } else {
@@ -235,6 +239,8 @@ export const useReadingProgress = ({
     lastSaveTime,
     lastSaveActionTime, // [Added] Export for useVirtualScroll throttle
     hasRestored,
-    triggerSave
+    triggerSave,
+    jumpRequest, // [Added]
+    setJumpRequest // [Added]
   };
 };
