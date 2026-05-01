@@ -36,7 +36,7 @@ export const Reader: React.FC<ReaderProps> = ({
     bookmarks, setBookmarks,
     syncConflict, setSyncConflict,
     createAutoBookmark, addManualBookmark, deleteBookmark,
-    lastSaveTime, hasRestored, autoSyncToast, triggerSave, resolveConflict
+    lastSaveTime, lastSaveActionTime, hasRestored, autoSyncToast, triggerSave, resolveConflict
   } = useReadingProgress({ initialProgress, fullContentRef: fullContent, onSaveProgress, isLoaded });
 
   // 3. Virtual Scroll
@@ -61,7 +61,7 @@ export const Reader: React.FC<ReaderProps> = ({
       setReadPercent(pct);
       
       const now = Date.now();
-      if (now - lastSaveTime.current > 5000 && !syncConflict) {
+      if (now - lastSaveActionTime.current > 5000 && !syncConflict) {
         triggerSave(idx, pct, bookmarks);
       }
     }

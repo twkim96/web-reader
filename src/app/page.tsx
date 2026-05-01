@@ -109,24 +109,14 @@ export default function Page() {
     if (!navigator.onLine) return;
 
     try {
-      const localProgressList = await getAllLocalProgress();
       const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
       const cloudSnapshot = await getDocs(cloudRef);
 
-      const localMap = new Map(localProgressList.map(p => [p.bookId, p]));
-      const cloudMap = new Map(cloudSnapshot.docs.map(d => [d.id, d.data() as UserProgress]));
-
-      // Step 1: 서버 데이터가 존재하면 서버를 기준으로 로컬을 덮어씀
-      for (const [bookId, cloudData] of cloudMap.entries()) {
+      // 서버 데이터를 로컬에 동기화 (서버 = 진실의 원천)
+      for (const d of cloudSnapshot.docs) {
+        const cloudData = d.data() as UserProgress;
         const cloudTime = cloudData.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
         await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
-      }
-
-      // Step 2: 서버에 없는 로컬 전용 데이터만 서버에 업로드
-      for (const [bookId, localData] of localMap.entries()) {
-        if (!cloudMap.has(bookId)) {
-          await setDoc(doc(cloudRef, bookId), { ...localData, lastRead: serverTimestamp() }, { merge: true });
-        }
       }
     } catch (e) {
       console.warn("Background sync paused:", e);
@@ -228,29 +218,22 @@ export default function Page() {
 
         const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
         const unsubProgress = onSnapshot(historyRef, async (snapshot) => {
+          const isFromCache = snapshot.metadata.fromCache;
+          const hasPending = snapshot.metadata.hasPendingWrites;
           const p: Record<string, UserProgress> = {};
 
-          // Step 1: 서버 데이터를 기준으로 삼고, 서버가 더 최신이면 로컬을 덮어씀
           for (const d of snapshot.docs) {
             const data = d.data() as UserProgress;
             const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
             p[d.id] = { ...data, lastRead: serverTime };
-            await saveProgressToLocal({ ...data, lastRead: serverTime });
-          }
 
-          // Step 2: 서버에 없는 로컬 전용 데이터만 보충 (서버에 이미 있는 것은 건드리지 않음)
-          const localP = await getAllLocalProgress();
-          for (const lp of localP) {
-            if (!p[lp.bookId]) {
-              p[lp.bookId] = lp;
-              try {
-                const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory', lp.bookId);
-                await setDoc(docRef, { ...lp, lastRead: serverTimestamp() }, { merge: true });
-              } catch (e) { console.warn('Failed to upload local-only progress:', e); }
+            // 서버 확정 데이터만 로컬 DB에 저장
+            if (!isFromCache && !hasPending) {
+              await saveProgressToLocal({ ...data, lastRead: serverTime });
             }
           }
 
-          // [Fix] 데이터가 실질적으로 변경된 경우에만 상태 업데이트 (불필요한 re-render 방지)
+          // UI에는 항상 최신 데이터 표시
           setProgress(prev => {
             const hasChanged = Object.keys(p).some(id => {
               const old = prev[id];

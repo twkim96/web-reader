@@ -1,7 +1,7 @@
 // src/lib/firebase.ts
 import { getApps, initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { Firestore, getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { Firestore, getFirestore, initializeFirestore, memoryLocalCache, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -15,11 +15,14 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 
-// Next.js HMR 환경에서 여러 번 초기화되는 것을 방지합니다.
+const isDev = process.env.NODE_ENV === 'development';
+
 let db: Firestore;
 try {
   db = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    localCache: isDev 
+      ? memoryLocalCache()  // 개발: 메모리 캐시 (오래된 pending writes 방지)
+      : persistentLocalCache({ tabManager: persistentMultipleTabManager() })  // 운영: 오프라인 지원
   });
 } catch (error) {
   db = getFirestore(app);

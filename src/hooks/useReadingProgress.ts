@@ -41,6 +41,9 @@ export const useReadingProgress = ({
   const hasInteracted = useRef(false);
   // 마지막으로 저장한 charIndex를 기억 (Firebase 이중 발행 대응)
   const lastSavedCharIndex = useRef<number | null>(null);
+  
+  // [Added] 쓰로틀링 전용 타이머 (초기값을 Date.now()로 두어 진입 직후 스크롤에 의한 즉시 저장 방지)
+  const lastSaveActionTime = useRef<number>(Date.now());
 
   useEffect(() => {
     const handler = () => { hasInteracted.current = true; };
@@ -74,6 +77,7 @@ export const useReadingProgress = ({
     lastSavedCharIndex.current = idx;
     onSaveProgress(idx, pct, bks);
     lastSaveTime.current = Date.now();
+    lastSaveActionTime.current = Date.now();
   }, [onSaveProgress]);
 
   useEffect(() => {
@@ -164,21 +168,14 @@ export const useReadingProgress = ({
     const remoteTime = parseTime(initialProgress.lastRead);
     const timeSinceLastSave = Date.now() - lastSaveTime.current;
     
-    // [Fix] Echo 방지: 최근 10초 이내에 저장했고 charIndex가 내가 마지막으로 저장한 값과 같으면
+    // [Fix] Echo 방지: 최근 10초 이내에 저장했고 charIndex가 내가 마지막으로 저장한 값과 같거나 비슷하면
     // Firebase의 이중 발행(로컬 캐시 + 서버 확인) 응답이므로 무시
-    if (timeSinceLastSave < 10000 && lastSavedCharIndex.current === initialProgress.charIndex) {
+    if (timeSinceLastSave < 10000 && lastSavedCharIndex.current !== null && Math.abs(lastSavedCharIndex.current - initialProgress.charIndex) < 100) {
       lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
       return;
     }
 
-    // [Fix] 최근 10초 이내에 저장한 적이 있다면, Clock Skew로 인한 오탐을 방지하기 위해
-    // remoteTime 비교를 건너뛰고 charIndex 차이만으로 판단
-    if (timeSinceLastSave < 10000) {
-      lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
-      return;
-    }
-
-    // 마지막 저장 이후 10초 이상 경과 → 진짜 원격 변경인지 확인
+    // 마지막 저장 이후 10초 이상 경과했거나 다른 위치의 원격 업데이트인 경우 → 진짜 원격 변경인지 확인
     if (remoteTime > lastSaveTime.current + 2000) {
       const diff = Math.abs(initialProgress.charIndex - currentIdx);
 
@@ -236,6 +233,7 @@ export const useReadingProgress = ({
     addManualBookmark,
     deleteBookmark,
     lastSaveTime,
+    lastSaveActionTime, // [Added] Export for useVirtualScroll throttle
     hasRestored,
     triggerSave
   };
