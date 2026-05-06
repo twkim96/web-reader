@@ -88,6 +88,7 @@ export const Reader: React.FC<ReaderProps> = ({
   const [maskHeight, setMaskHeight] = useState(0);
   const measureRef = useRef<HTMLDivElement>(null);
   const [actualLineHeight, setActualLineHeight] = useState(settings.fontSize * settings.lineHeight);
+  const skipNextSnap = useRef(false);  // 탭 이동 후 불필요한 재스냅 방지
 
   useEffect(() => {
     if (measureRef.current) {
@@ -254,6 +255,8 @@ export const Reader: React.FC<ReaderProps> = ({
     const handleScroll = () => {
       clearTimeout(snapTimerRef.current);
       snapTimerRef.current = setTimeout(() => {
+        // 탭 이동으로 이미 정확한 위치에 도착한 경우 재스냅 건너뜀
+        if (skipNextSnap.current) { skipNextSnap.current = false; return; }
         // 사용자가 수동으로 스와이프를 멈췄을 때 가장 가까운 라인에 맞게 스냅(이동) 
         if (isJumping.current) return;
         
@@ -313,6 +316,7 @@ export const Reader: React.FC<ReaderProps> = ({
       const currentScrollY = window.scrollY;
       const targetScrollY = currentScrollY + (dir * scrollStep);
       
+      skipNextSnap.current = true; // 이미 정확한 위치로 이동하므로 재스냅 불필요
       const snappedY = getGridSnapY(targetScrollY);
       window.scrollTo({ top: Math.max(0, snappedY), behavior: 'instant' }); 
     };
