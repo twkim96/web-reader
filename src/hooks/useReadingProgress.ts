@@ -34,9 +34,10 @@ export const useReadingProgress = ({
     return val.toMillis ? val.toMillis() : new Date(val).getTime();
   };
 
-  const initialTime = parseTime(initialProgress?.lastRead);
-  const lastSaveTime = useRef<number>(initialTime);
+  const lastSaveTime = useRef<number>(0);
   const hasRestored = useRef<string | null>(null);
+  // [Fix] 마운트 시점의 charIndex를 기록하여 "초기 복원 데이터" vs "실시간 원격 업데이트"를 구분
+  const mountCharIndex = useRef<number | null>(null);
 
   // [Added] 상태 기반 자동 동기화 처리를 위한 추적 Ref
   const mountTime = useRef(Date.now());
@@ -168,52 +169,68 @@ export const useReadingProgress = ({
     if (!isLoaded || !initialProgress || !initialProgress.lastRead) return;
     
     const remoteTime = parseTime(initialProgress.lastRead);
-    const timeSinceLastSave = Date.now() - lastSaveTime.current;
-    
-    // [Fix] Echo 방지: 최근 10초 이내에 저장했고 charIndex가 내가 마지막으로 저장한 값과 같거나 비슷하면
+    const remoteIdx = initialProgress.charIndex;
+
+    // [Fix] 첫 번째 유효 데이터: baseline(마운트 시점 위치)으로 기록하고 종료
+    // 초기 복원(Reader의 Initial Restore)이 이 데이터를 사용하므로 여기서는 건드리지 않음
+    if (mountCharIndex.current === null) {
+      mountCharIndex.current = remoteIdx;
+      lastSaveTime.current = remoteTime;
+      return;
+    }
+
+    // Echo 방지: 최근 10초 이내에 저장했고 charIndex가 내가 마지막으로 저장한 값과 같거나 비슷하면
     // Firebase의 이중 발행(로컬 캐시 + 서버 확인) 응답이므로 무시
-    if (timeSinceLastSave < 10000 && lastSavedCharIndex.current !== null && Math.abs(lastSavedCharIndex.current - initialProgress.charIndex) < 100) {
+    const timeSinceLastSave = Date.now() - lastSaveTime.current;
+    if (timeSinceLastSave < 10000 && lastSavedCharIndex.current !== null && Math.abs(lastSavedCharIndex.current - remoteIdx) < 100) {
       lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
       return;
     }
 
-    // 마지막 저장 이후 10초 이상 경과했거나 다른 위치의 원격 업데이트인 경우 → 진짜 원격 변경인지 확인
-    if (remoteTime > lastSaveTime.current + 2000) {
-      const diff = Math.abs(initialProgress.charIndex - currentIdx);
+    // [Fix] 원격 변경 감지: baseline과 charIndex 비교 (시간 기반 → 위치 기반으로 변경)
+    // baseline(mountCharIndex)과 다르거나, 마지막 저장 이후 새로운 원격 업데이트인 경우
+    const diffFromBaseline = Math.abs(remoteIdx - mountCharIndex.current);
+    const diffFromCurrent = Math.abs(remoteIdx - currentIdx);
+    const isNewRemoteUpdate = remoteTime > lastSaveTime.current + 2000;
+    const isBaselineDrift = diffFromBaseline > 300;
 
+    if (isBaselineDrift || isNewRemoteUpdate) {
       // 1. 책갈피는 무조건 최신으로 동기화
       if (initialProgress.bookmarks) {
         setBookmarks(initialProgress.bookmarks);
       }
 
       // 2. 위치 동기화 로직 분기
-      if (diff > 300) {
-        const isInitialLoad = (Date.now() - mountTime.current) < 2000;
+      if (diffFromCurrent > 300) {
+        const isInitialLoad = (Date.now() - mountTime.current) < 5000;
         
         if (isInitialLoad && !hasInteracted.current) {
-          setCurrentIdx(initialProgress.charIndex);
+          setCurrentIdx(remoteIdx);
           setReadPercent(initialProgress.progressPercent);
           lastSaveTime.current = remoteTime;
-          setJumpRequest(initialProgress.charIndex); // [Added]
+          mountCharIndex.current = remoteIdx;
+          setJumpRequest(remoteIdx);
           setAutoSyncToast(true);
           setTimeout(() => setAutoSyncToast(false), 2500);
         } else {
           hasUnresolvedConflict.current = true;
           setSyncConflict({
             show: true,
-            remoteIdx: initialProgress.charIndex,
+            remoteIdx: remoteIdx,
             remotePercent: initialProgress.progressPercent
           });
         }
-      } else if (diff > 0) {
+      } else if (diffFromCurrent > 0) {
         if (!hasInteracted.current) {
-          setCurrentIdx(initialProgress.charIndex);
+          setCurrentIdx(remoteIdx);
           setReadPercent(initialProgress.progressPercent);
-          setJumpRequest(initialProgress.charIndex); // [Added]
+          setJumpRequest(remoteIdx);
         }
         lastSaveTime.current = remoteTime;
+        mountCharIndex.current = remoteIdx;
       } else {
         lastSaveTime.current = remoteTime;
+        mountCharIndex.current = remoteIdx;
       }
     }
   }, [initialProgress, currentIdx, isLoaded]);
