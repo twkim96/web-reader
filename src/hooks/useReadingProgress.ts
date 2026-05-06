@@ -181,19 +181,18 @@ export const useReadingProgress = ({
       return;
     }
 
-    // Echo 방지: 최근 10초 이내에 저장했고 charIndex가 내가 마지막으로 저장한 값과 같거나 비슷하면
-    // Firebase의 이중 발행(로컬 캐시 + 서버 확인) 응답이므로 무시
-    const timeSinceLastSave = Date.now() - lastSaveTime.current;
-    if (timeSinceLastSave < 10000 && lastSavedCharIndex.current !== null && Math.abs(lastSavedCharIndex.current - remoteIdx) < 100) {
+    // [Fix] Stale echo 방지: remoteTime이 lastSaveTime 이하면
+    // 이 기기에서 저장한 것보다 오래된 데이터 (out-of-order Firebase 확인 응답) → 무시
+    // 클럭 스큐를 고려하여 5초 버퍼 적용
+    if (lastSavedCharIndex.current !== null && remoteTime <= lastSaveTime.current + 5000) {
       lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
       return;
     }
 
-    // [Fix] 원격 변경 감지: baseline과 charIndex 비교 (시간 기반 → 위치 기반으로 변경)
-    // baseline(mountCharIndex)과 다르거나, 마지막 저장 이후 새로운 원격 업데이트인 경우
+    // 원격 변경 감지: baseline과 charIndex 비교
     const diffFromBaseline = Math.abs(remoteIdx - mountCharIndex.current);
     const diffFromCurrent = Math.abs(remoteIdx - currentIdx);
-    const isNewRemoteUpdate = remoteTime > lastSaveTime.current + 2000;
+    const isNewRemoteUpdate = remoteTime > lastSaveTime.current + 5000;
     const isBaselineDrift = diffFromBaseline > 300;
 
     if (isBaselineDrift || isNewRemoteUpdate) {
