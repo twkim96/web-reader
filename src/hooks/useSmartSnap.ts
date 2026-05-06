@@ -28,7 +28,7 @@ export const useSmartSnap = ({
 
   const getGridSnapY = useCallback((targetY: number) => {
     const lh = actualLineHeight;
-    let baseTop = 48;
+    let baseTop = lh;
     
     const topPadding = lh;
     
@@ -40,7 +40,7 @@ export const useSmartSnap = ({
       baseTop = window.scrollY + firstElem.getBoundingClientRect().top;
     }
     
-    if (targetY < 48) return 0;
+    if (targetY < lh) return 0;
 
     // 1. 그리드 스냅을 먼저 계산 (현재 targetY가 뷰포트 기준이므로 topPadding을 더해 텍스트 기준 좌표로 변환 후 반올림)
     const gridY = Math.round((targetY + topPadding - baseTop) / lh) * lh + baseTop;

@@ -402,7 +402,7 @@ export const Reader: React.FC<ReaderProps> = ({
       </nav>
 
       {/* Main Reader View */}
-      <main onClick={handleInteraction} className="min-h-screen pt-12 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
+      <main onClick={handleInteraction} className="min-h-screen pb-96 relative" style={{ paddingTop: `${actualLineHeight}px`, paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
         {/* 숨김 처리된 더미 텍스트 (실제 렌더링되는 한 줄의 높이 측정용) */}
         <div 
           ref={measureRef} 
