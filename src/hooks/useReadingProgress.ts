@@ -209,10 +209,13 @@ export const useReadingProgress = ({
         });
       }
     } else if (diff > 0 && !hasInteracted.current) {
-      // 미세 차이: 조용히 조정
-      setCurrentIdx(remoteIdx);
-      setReadPercent(remoteProgress.progressPercent);
-      setJumpRequest(remoteIdx);
+      // 미세 차이: 초기 로드 시에만 조용히 조정 (이후엔 무시)
+      const isInitialLoad = (Date.now() - mountTime.current) < 5000;
+      if (isInitialLoad) {
+        setCurrentIdx(remoteIdx);
+        setReadPercent(remoteProgress.progressPercent);
+        setJumpRequest(remoteIdx);
+      }
     }
   }, [remoteProgress, isLoaded]);
 
