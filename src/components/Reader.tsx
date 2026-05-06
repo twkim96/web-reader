@@ -160,12 +160,11 @@ export const Reader: React.FC<ReaderProps> = ({
   // --- Smart Scrolling & Masking ---
   const getGridSnapY = useCallback((targetY: number) => {
     const lh = actualLineHeight;
-    let baseTop = 48; // 기본 패딩 48px
+    let baseTop = 48;
     
-    // 상단 고정 여백 (너무 딱 달라붙지 않게 fontSize의 1.2배 정도)
-    const topPadding = Math.round(settings.fontSize * 1.2); 
+    // 상단 고정 여백: 정확히 한 줄 높이 (그리드와 완벽 정렬)
+    const topPadding = lh;
     
-    // Virtual Scroll의 누적 오차(paddingTop)를 피하기 위해, 실제 DOM 요소의 절대 좌표를 그리드 기준으로 삼음
     const blocks = getVisibleBlocks();
     if (blocks.length === 0) return 0;
     
@@ -176,21 +175,18 @@ export const Reader: React.FC<ReaderProps> = ({
     
     if (targetY < 48) return 0;
 
-    // 1. 수학적 그리드 스냅 타겟 계산 (targetY 위치에 있을 때 topPadding 위치에 올 텍스트 라인)
-    const snapTarget = Math.round((targetY + topPadding - baseTop) / lh) * lh + baseTop;
+    // 1. 그리드 스냅을 먼저 계산 (topPadding 없이 순수하게 줄 단위로 반올림)
+    const gridY = Math.round((targetY - baseTop) / lh) * lh + baseTop;
     
-    // 2. snapTarget(문서 절대 Y좌표)부터 시작해서 가장 처음 만나는 "실제 텍스트(공백 아님)"를 찾음
-    let actualTextDocY = snapTarget;
+    // 2. gridY 위치부터 시작해서 첫 번째 "실제 텍스트"를 찾음 (빈 줄 스킵)
+    let finalGridY = gridY;
     
     for (const block of blocks) {
       const blockElem = blockRefs.current[block.index];
       if (!blockElem) continue;
       
-      const blockRect = blockElem.getBoundingClientRect();
-      const blockDocBottom = window.scrollY + blockRect.bottom;
-      
-      // 블록 전체가 snapTarget보다 위에 있으면 스킵 (소수점 오차 감안 -2px)
-      if (blockDocBottom < snapTarget - 2) continue;
+      const blockDocBottom = window.scrollY + blockElem.getBoundingClientRect().bottom;
+      if (blockDocBottom < gridY - 2) continue;
       
       const walk = document.createTreeWalker(blockElem, NodeFilter.SHOW_TEXT, null);
       let node: Node | null;
@@ -198,56 +194,39 @@ export const Reader: React.FC<ReaderProps> = ({
 
       while ((node = walk.nextNode())) {
         const text = node.nodeValue || "";
-        if (text.trim() === "") continue; 
+        if (text.trim() === "") continue;
 
         const range = document.createRange();
         range.selectNodeContents(node);
         const nodeDocBottom = window.scrollY + range.getBoundingClientRect().bottom;
-        
-        if (nodeDocBottom < snapTarget - 2) continue;
+        if (nodeDocBottom < gridY - 2) continue;
 
-        let low = 0;
-        let high = text.length - 1;
-        let firstVisibleIdx = -1;
-
-        // 이진 탐색으로 snapTarget 라인에 걸치는 첫 글자를 찾음
+        // 이진 탐색으로 gridY 라인에 걸치는 첫 글자를 찾음
+        let low = 0, high = text.length - 1, firstIdx = -1;
         while (low <= high) {
           const mid = Math.floor((low + high) / 2);
           try {
             range.setStart(node, mid);
             range.setEnd(node, mid + 1);
-            const rect = range.getBoundingClientRect();
-            // 글자의 수직 중심점 (CSS Line box 내부에 안전하게 위치함)
-            const charCenterY = window.scrollY + rect.top + rect.height / 2;
-
-            if (charCenterY >= snapTarget) {
-              firstVisibleIdx = mid;
-              high = mid - 1; 
-            } else {
-              low = mid + 1;
-            }
-          } catch(e) { break; }
+            const charCenterY = window.scrollY + range.getBoundingClientRect().top + range.getBoundingClientRect().height / 2;
+            if (charCenterY >= gridY) { firstIdx = mid; high = mid - 1; }
+            else { low = mid + 1; }
+          } catch { break; }
         }
 
-        // 해당 글자부터 순차 탐색하여 공백이 아닌 실제 문자를 찾음
-        if (firstVisibleIdx !== -1) {
-          for (let i = firstVisibleIdx; i < text.length; i++) {
+        // 해당 글자부터 공백이 아닌 실제 문자를 찾고, 그 줄의 그리드 라인 Top을 역산
+        if (firstIdx !== -1) {
+          for (let i = firstIdx; i < text.length; i++) {
             if (text[i].trim() === "") continue;
-            
             try {
               range.setStart(node, i);
               range.setEnd(node, i + 1);
               const rect = range.getBoundingClientRect();
               const charCenterY = window.scrollY + rect.top + rect.height / 2;
-              
-              // 글자 고유의 렌더링 박스(rect.top)는 문자에 따라 들쭉날쭉하여 텍스트가 짤릴 수 있으므로,
-              // 중심점을 이용해 이 글자가 속한 완벽한 수학적 CSS 라인의 최상단 좌표를 역산하여 스냅함
-              const exactGridLineTop = Math.floor((charCenterY - baseTop) / lh) * lh + baseTop;
-              
-              actualTextDocY = exactGridLineTop;
+              finalGridY = Math.floor((charCenterY - baseTop) / lh) * lh + baseTop;
               found = true;
               break;
-            } catch(e) { break; }
+            } catch { break; }
           }
         }
         if (found) break;
@@ -255,8 +234,9 @@ export const Reader: React.FC<ReaderProps> = ({
       if (found) break;
     }
 
-    return Math.max(0, actualTextDocY - topPadding);
-  }, [settings.fontSize, actualLineHeight, getVisibleBlocks, blockRefs]);
+    // 3. 최종: 그리드 라인에서 topPadding(정확히 1줄)만큼 위로 → 첫 줄이 뷰포트 상단에서 정확히 1줄 아래에 위치
+    return Math.max(0, finalGridY - topPadding);
+  }, [actualLineHeight, getVisibleBlocks, blockRefs]);
 
   const snapTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const snapFuncRef = useRef(getGridSnapY);
@@ -266,7 +246,7 @@ export const Reader: React.FC<ReaderProps> = ({
     const updateMaskAndSnap = () => {
       const lh = actualLineHeight;
       const h = document.documentElement.clientHeight || window.innerHeight;
-      const topPadding = Math.round(settings.fontSize * 1.2);
+      const topPadding = lh; // 상단 여백 = 정확히 한 줄
       const lines = Math.floor((h - topPadding) / lh);
       setMaskHeight(Math.max(0, h - (lines * lh) - topPadding));
     };
@@ -322,9 +302,9 @@ export const Reader: React.FC<ReaderProps> = ({
     const w = window.innerWidth;
     const h = document.documentElement.clientHeight || window.innerHeight;
     
-    // [Modified] 정확한 줄 단위 이동을 위한 계산 (상단 고정 여백 반영)
+    // [Modified] 정확한 줄 단위 이동을 위한 계산 (상단 여백 = 정확히 한 줄)
     const oneLineHeight = actualLineHeight;
-    const topPadding = Math.round(settings.fontSize * 1.2);
+    const topPadding = actualLineHeight;
     const linesPerScreen = Math.floor((h - topPadding) / oneLineHeight);
     const scrollStep = linesPerScreen * oneLineHeight; 
 
