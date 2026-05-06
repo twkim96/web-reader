@@ -84,8 +84,17 @@ export const Reader: React.FC<ReaderProps> = ({
     }
   }, [jumpRequest, jumpToIdx, setJumpRequest]);
 
-  // [Added] 동적 마스킹(잘림 방지) 기능을 위한 하단 여백 높이 상태
+  // [Added] 동적 마스킹(잘림 방지) 기능을 위한 하단 여백 높이 상태 및 실측 줄 높이
   const [maskHeight, setMaskHeight] = useState(0);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [actualLineHeight, setActualLineHeight] = useState(settings.fontSize * settings.lineHeight);
+
+  useEffect(() => {
+    if (measureRef.current) {
+      const h = measureRef.current.getBoundingClientRect().height;
+      if (h > 0) setActualLineHeight(h);
+    }
+  }, [settings.fontSize, settings.lineHeight, settings.fontFamily]);
 
   const [showConfirm, setShowConfirm] = useState<{
     show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean, originIdx?: number 
@@ -150,7 +159,7 @@ export const Reader: React.FC<ReaderProps> = ({
 
   // --- Smart Scrolling & Masking ---
   const getGridSnapY = useCallback((targetY: number) => {
-    const lh = settings.fontSize * settings.lineHeight;
+    const lh = actualLineHeight;
     let baseTop = 48; // 기본 패딩 48px
     
     const breathingRoom = Math.round(settings.fontSize * 0.3); // 숨통 트이는 여백 (약 5~6px)
@@ -170,7 +179,7 @@ export const Reader: React.FC<ReaderProps> = ({
       return Math.max(0, snapTarget - breathingRoom);
     }
     return 0; // 최상단 영역
-  }, [settings.fontSize, settings.lineHeight, getVisibleBlocks, blockRefs]);
+  }, [settings.fontSize, actualLineHeight, getVisibleBlocks, blockRefs]);
 
   const snapTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const snapFuncRef = useRef(getGridSnapY);
@@ -178,8 +187,8 @@ export const Reader: React.FC<ReaderProps> = ({
 
   useEffect(() => {
     const updateMaskAndSnap = () => {
-      const lh = settings.fontSize * settings.lineHeight;
-      const h = window.innerHeight;
+      const lh = actualLineHeight;
+      const h = document.documentElement.clientHeight || window.innerHeight;
       const breathingRoom = Math.round(settings.fontSize * 0.3);
       const lines = Math.floor((h - breathingRoom) / lh);
       setMaskHeight(Math.max(0, h - (lines * lh) - breathingRoom));
@@ -209,7 +218,7 @@ export const Reader: React.FC<ReaderProps> = ({
       window.removeEventListener('scroll', handleScroll);
       clearTimeout(snapTimerRef.current);
     };
-  }, [settings.fontSize, settings.lineHeight, isJumping]); // getGridSnapY 제거 (리렌더링 간섭 방지)
+  }, [settings.fontSize, actualLineHeight, isJumping]); // getGridSnapY 제거 (리렌더링 간섭 방지)
 
   // --- Initial Restore & Jump ---
 
@@ -234,10 +243,10 @@ export const Reader: React.FC<ReaderProps> = ({
   const handleInteraction = (e: React.MouseEvent) => {
     const { clientX, clientY } = e;
     const w = window.innerWidth;
-    const h = window.innerHeight;
+    const h = document.documentElement.clientHeight || window.innerHeight;
     
     // [Modified] 정확한 줄 단위 이동을 위한 계산 (여백 포함)
-    const oneLineHeight = settings.fontSize * settings.lineHeight;
+    const oneLineHeight = actualLineHeight;
     const breathingRoom = Math.round(settings.fontSize * 0.3);
     const linesPerScreen = Math.floor((h - breathingRoom) / oneLineHeight);
     const scrollStep = linesPerScreen * oneLineHeight; 
@@ -456,6 +465,13 @@ export const Reader: React.FC<ReaderProps> = ({
 
       {/* Main Reader View */}
       <main onClick={handleInteraction} className="min-h-screen pt-12 pb-96 relative" style={{ paddingLeft: `${settings.padding}px`, paddingRight: `${settings.padding}px`, textAlign: settings.textAlign }}>
+        {/* 숨김 처리된 더미 텍스트 (실제 렌더링되는 한 줄의 높이 측정용) */}
+        <div 
+          ref={measureRef} 
+          style={{ position: 'absolute', visibility: 'hidden', fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight, pointerEvents: 'none' }}
+        >
+          A
+        </div>
         <div style={{ height: `${paddingTop}px` }} />
         <div className="max-w-3xl mx-auto whitespace-pre-wrap break-words" style={{ fontSize: `${settings.fontSize}px`, lineHeight: settings.lineHeight }}>
           {getVisibleBlocks().map(block => (
