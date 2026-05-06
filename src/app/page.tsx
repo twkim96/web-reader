@@ -22,6 +22,8 @@ export default function Page() {
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
+  const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
+  const deviceId = useRef(crypto.randomUUID());
 
   const [isPublicPC, setIsPublicPC] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(true);
@@ -223,7 +225,7 @@ export default function Page() {
           const p: Record<string, UserProgress> = {};
 
           for (const d of snapshot.docs) {
-            const data = d.data() as UserProgress;
+            const data = d.data() as UserProgress & { deviceId?: string };
             const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
             p[d.id] = { ...data, lastRead: serverTime };
 
@@ -243,8 +245,28 @@ export default function Page() {
                      (old.bookmarks?.length || 0) !== (p[id].bookmarks?.length || 0);
             }) || Object.keys(prev).length !== Object.keys(p).length;
             
-            return hasChanged ? p : prev;
+            return hasChanged ? { ...prev, ...p } : prev;
           });
+
+          // 원격 업데이트 감지: 서버 확정 데이터 중 다른 기기에서 온 것만 추출
+          if (!isFromCache) {
+            setRemoteProgress(prev => {
+              let changed = false;
+              const updated = { ...prev };
+              for (const d of snapshot.docs) {
+                const data = d.data() as UserProgress & { deviceId?: string };
+                if (data.deviceId && data.deviceId !== deviceId.current) {
+                  const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
+                  const entry: UserProgress = { ...data, lastRead: serverTime };
+                  if (!prev[d.id] || prev[d.id].charIndex !== data.charIndex || prev[d.id].progressPercent !== data.progressPercent) {
+                    updated[d.id] = entry;
+                    changed = true;
+                  }
+                }
+              }
+              return changed ? updated : prev;
+            });
+          }
         });
 
         return () => { unsubProgress(); };
@@ -366,7 +388,7 @@ export default function Page() {
     if (user) {
       try {
         const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
-        await setDoc(docRef, { ...progressData, lastRead: serverTimestamp() }, { merge: true });
+        await setDoc(docRef, { ...progressData, lastRead: serverTimestamp(), deviceId: deviceId.current }, { merge: true });
       } catch (e) { }
     }
   }, [user, activeBook]);
@@ -391,7 +413,8 @@ export default function Page() {
       try {
         await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId), { 
           ...resetData, 
-          lastRead: serverTimestamp() 
+          lastRead: serverTimestamp(),
+          deviceId: deviceId.current
         }, { merge: true });
       } catch (e) { console.error(e); }
     }
@@ -496,6 +519,7 @@ export default function Page() {
           book={activeBook}
           googleToken={googleToken || ''}
           initialProgress={progress[activeBook.id]}
+          remoteProgress={remoteProgress[activeBook.id]}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}

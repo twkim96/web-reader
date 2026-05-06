@@ -17,6 +17,7 @@ interface ReaderProps {
   book: Book;
   googleToken: string;
   initialProgress?: UserProgress;
+  remoteProgress?: UserProgress;
   settings: ViewerSettings;
   onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onBack: () => void;
@@ -24,7 +25,7 @@ interface ReaderProps {
 }
 
 export const Reader: React.FC<ReaderProps> = ({ 
-  book, googleToken, initialProgress, settings, onUpdateSettings, onBack, onSaveProgress 
+  book, googleToken, initialProgress, remoteProgress, settings, onUpdateSettings, onBack, onSaveProgress 
 }) => {
   // 1. Data Loading
   const { isLoaded, fullContent, contentVersion } = useBookLoader(book, googleToken, settings, onBack);
@@ -36,9 +37,9 @@ export const Reader: React.FC<ReaderProps> = ({
     bookmarks, setBookmarks,
     syncConflict, setSyncConflict,
     createAutoBookmark, addManualBookmark, deleteBookmark,
-    lastSaveTime, lastSaveActionTime, hasRestored, autoSyncToast, triggerSave, resolveConflict,
-    jumpRequest, setJumpRequest // [Added]
-  } = useReadingProgress({ initialProgress, fullContentRef: fullContent, onSaveProgress, isLoaded });
+    lastSaveActionTime, hasRestored, autoSyncToast, triggerSave, resolveConflict,
+    jumpRequest, setJumpRequest
+  } = useReadingProgress({ initialProgress, remoteProgress, fullContentRef: fullContent, onSaveProgress, isLoaded });
 
   // 3. Virtual Scroll
   const { 

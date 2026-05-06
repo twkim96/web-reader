@@ -6,6 +6,7 @@ const MANUAL_COLORS = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green
 
 interface UseReadingProgressProps {
   initialProgress?: UserProgress;
+  remoteProgress?: UserProgress;
   fullContentRef: React.MutableRefObject<string>;
   onSaveProgress: (idx: number, pct: number, bookmarks?: Bookmark[]) => void;
   isLoaded: boolean;
@@ -13,6 +14,7 @@ interface UseReadingProgressProps {
 
 export const useReadingProgress = ({
   initialProgress,
+  remoteProgress,
   fullContentRef,
   onSaveProgress,
   isLoaded
@@ -25,27 +27,20 @@ export const useReadingProgress = ({
   const [syncConflict, setSyncConflict] = useState<{ show: boolean, remoteIdx: number, remotePercent: number } | null>(null);
   const hasUnresolvedConflict = useRef(false);
   const [autoSyncToast, setAutoSyncToast] = useState(false);
-  const [jumpRequest, setJumpRequest] = useState<number | null>(null); // [Added]
+  const [jumpRequest, setJumpRequest] = useState<number | null>(null);
   
-  
-  // [Modified] 타임스탬프 파싱 로직을 안전하게 통일
-  const parseTime = (val: any) => {
-    if (!val) return 0;
-    return val.toMillis ? val.toMillis() : new Date(val).getTime();
-  };
-
-  const lastSaveTime = useRef<number>(0);
   const hasRestored = useRef<string | null>(null);
-  // [Fix] 마운트 시점의 charIndex를 기록하여 "초기 복원 데이터" vs "실시간 원격 업데이트"를 구분
-  const mountCharIndex = useRef<number | null>(null);
+  // initialProgress를 ref로 추적하여 remoteProgress effect에서 항상 최신값 참조
+  const initialProgressRef = useRef(initialProgress);
+  useEffect(() => { initialProgressRef.current = initialProgress; }, [initialProgress]);
+  // 초기 복원 완료 여부 추적 (완료 전엔 currentIdx = 0)
+  const hasInitialRestored = useRef(false);
 
-  // [Added] 상태 기반 자동 동기화 처리를 위한 추적 Ref
+  // 자동 동기화 판별용
   const mountTime = useRef(Date.now());
   const hasInteracted = useRef(false);
-  // 마지막으로 저장한 charIndex를 기억 (Firebase 이중 발행 대응)
-  const lastSavedCharIndex = useRef<number | null>(null);
   
-  // [Added] 쓰로틀링 전용 타이머 (초기값을 Date.now()로 두어 진입 직후 스크롤에 의한 즉시 저장 방지)
+  // 쓰로틀링 전용 타이머 (초기값을 Date.now()로 두어 진입 직후 스크롤에 의한 즉시 저장 방지)
   const lastSaveActionTime = useRef<number>(Date.now());
 
   useEffect(() => {
@@ -70,25 +65,25 @@ export const useReadingProgress = ({
     return fullContentRef.current.substring(start, end).replace(/\n/g, ' ').trim();
   }, [fullContentRef]);
 
-  // [Added] 언마운트나 탭 숨김 시 최신 위치를 반드시 저장하기 위한 Ref 트래킹
+  // 언마운트나 탭 숨김 시 최신 위치를 반드시 저장하기 위한 Ref 트래킹
   const latestState = useRef({ currentIdx: 0, readPercent: 0, bookmarks: [] as Bookmark[] });
   useEffect(() => {
     latestState.current = { currentIdx, readPercent, bookmarks };
+    // currentIdx가 처음으로 0보다 커지면 초기 복원 완료로 표시
+    if (currentIdx > 0 && !hasInitialRestored.current) {
+      hasInitialRestored.current = true;
+    }
   }, [currentIdx, readPercent, bookmarks]);
 
   const triggerSave = useCallback((idx: number, pct: number, bks?: Bookmark[]) => {
-    lastSavedCharIndex.current = idx;
-    // [Fix] 사용자 본인의 저장 시 baseline도 갱신 → 지연된 Firebase echo가 isBaselineDrift를 오발하지 않도록
-    mountCharIndex.current = idx;
     onSaveProgress(idx, pct, bks);
-    lastSaveTime.current = Date.now();
     lastSaveActionTime.current = Date.now();
   }, [onSaveProgress]);
 
   useEffect(() => {
     const saveCurrentState = () => {
       const { currentIdx: idx, readPercent: pct, bookmarks: bks } = latestState.current;
-      // 해결되지 않은 원격 충돌(또는 원격 초기화)이 있다면 현재 로컬 상태를 서버에 덮어쓰지 않음
+      // 해결되지 않은 원격 충돌이 있다면 현재 로컬 상태를 서버에 덮어쓰지 않음
       if (idx > 0 && !hasUnresolvedConflict.current) {
         triggerSave(idx, pct, bks);
       }
@@ -166,81 +161,63 @@ export const useReadingProgress = ({
     });
   }, [currentIdx, readPercent, triggerSave]);
 
-  // Logic: Conflict Detection & Auto Sync
+  // Logic: Conflict Detection & Auto Sync (deviceId 기반 — 원격 업데이트만 수신)
+  const lastProcessedRemote = useRef<{ charIndex: number, lastRead: number } | null>(null);
+
   useEffect(() => {
-    if (!isLoaded || !initialProgress || !initialProgress.lastRead) return;
-    
-    const remoteTime = parseTime(initialProgress.lastRead);
-    const remoteIdx = initialProgress.charIndex;
+    if (!isLoaded || !remoteProgress) return;
 
-    // [Fix] 첫 번째 유효 데이터: baseline(마운트 시점 위치)으로 기록하고 종료
-    // 초기 복원(Reader의 Initial Restore)이 이 데이터를 사용하므로 여기서는 건드리지 않음
-    if (mountCharIndex.current === null) {
-      mountCharIndex.current = remoteIdx;
-      lastSaveTime.current = remoteTime;
-      return;
+    const remoteIdx = remoteProgress.charIndex;
+    const remoteTime = remoteProgress.lastRead;
+
+    // 이미 처리한 업데이트와 동일하면 무시
+    if (lastProcessedRemote.current &&
+        lastProcessedRemote.current.charIndex === remoteIdx &&
+        lastProcessedRemote.current.lastRead === remoteTime) return;
+    lastProcessedRemote.current = { charIndex: remoteIdx, lastRead: remoteTime };
+
+    // 1. 책갈피는 무조건 최신으로 동기화
+    if (remoteProgress.bookmarks) {
+      setBookmarks(remoteProgress.bookmarks);
     }
 
-    // [Fix] Stale echo 방지: remoteTime이 lastSaveTime 이하면
-    // 이 기기에서 저장한 것보다 오래된 데이터 (out-of-order Firebase 확인 응답) → 무시
-    // 클럭 스큐를 고려하여 5초 버퍼 적용
-    if (lastSavedCharIndex.current !== null && remoteTime <= lastSaveTime.current + 5000) {
-      lastSaveTime.current = Math.max(lastSaveTime.current, remoteTime);
-      return;
-    }
+    // 2. 위치 동기화 로직
+    // 초기 복원 전(currentIdx = 0)엔 initialProgress 위치를 기준으로 diff 계산
+    // → 같은 onSnapshot에서 initialProgress와 remoteProgress가 동시에 업데이트돼도 diff ≈ 0이므로 오발 없음
+    const baseIdx = hasInitialRestored.current
+      ? latestState.current.currentIdx
+      : (initialProgressRef.current?.charIndex ?? 0);
+    const diff = Math.abs(remoteIdx - baseIdx);
 
-    // 원격 변경 감지: baseline과 charIndex 비교
-    const diffFromBaseline = Math.abs(remoteIdx - mountCharIndex.current);
-    const diffFromCurrent = Math.abs(remoteIdx - currentIdx);
-    const isNewRemoteUpdate = remoteTime > lastSaveTime.current + 5000;
-    const isBaselineDrift = diffFromBaseline > 300;
+    if (diff > 300) {
+      const isInitialLoad = (Date.now() - mountTime.current) < 5000;
 
-    if (isBaselineDrift || isNewRemoteUpdate) {
-      // 1. 책갈피는 무조건 최신으로 동기화
-      if (initialProgress.bookmarks) {
-        setBookmarks(initialProgress.bookmarks);
-      }
-
-      // 2. 위치 동기화 로직 분기
-      if (diffFromCurrent > 300) {
-        const isInitialLoad = (Date.now() - mountTime.current) < 5000;
-        
-        if (isInitialLoad && !hasInteracted.current) {
-          setCurrentIdx(remoteIdx);
-          setReadPercent(initialProgress.progressPercent);
-          lastSaveTime.current = remoteTime;
-          mountCharIndex.current = remoteIdx;
-          setJumpRequest(remoteIdx);
-          setAutoSyncToast(true);
-          setTimeout(() => setAutoSyncToast(false), 2500);
-        } else {
-          hasUnresolvedConflict.current = true;
-          setSyncConflict({
-            show: true,
-            remoteIdx: remoteIdx,
-            remotePercent: initialProgress.progressPercent
-          });
-        }
-      } else if (diffFromCurrent > 0) {
-        if (!hasInteracted.current) {
-          setCurrentIdx(remoteIdx);
-          setReadPercent(initialProgress.progressPercent);
-          setJumpRequest(remoteIdx);
-        }
-        lastSaveTime.current = remoteTime;
-        mountCharIndex.current = remoteIdx;
+      if (isInitialLoad && !hasInteracted.current) {
+        // 자동 동기화 (토스트)
+        setCurrentIdx(remoteIdx);
+        setReadPercent(remoteProgress.progressPercent);
+        setJumpRequest(remoteIdx);
+        setAutoSyncToast(true);
+        setTimeout(() => setAutoSyncToast(false), 2500);
       } else {
-        lastSaveTime.current = remoteTime;
-        mountCharIndex.current = remoteIdx;
+        // 충돌 다이얼로그
+        hasUnresolvedConflict.current = true;
+        setSyncConflict({
+          show: true,
+          remoteIdx: remoteIdx,
+          remotePercent: remoteProgress.progressPercent
+        });
       }
+    } else if (diff > 0 && !hasInteracted.current) {
+      // 미세 차이: 조용히 조정
+      setCurrentIdx(remoteIdx);
+      setReadPercent(remoteProgress.progressPercent);
+      setJumpRequest(remoteIdx);
     }
-  }, [initialProgress, currentIdx, isLoaded]);
+  }, [remoteProgress, isLoaded]);
 
-  const resolveConflict = useCallback((keepLocal: boolean) => {
+  const resolveConflict = useCallback((_keepLocal: boolean) => {
     hasUnresolvedConflict.current = false;
-    if (keepLocal) {
-      lastSaveTime.current = Date.now();
-    }
     setSyncConflict(null);
   }, []);
 
@@ -254,11 +231,10 @@ export const useReadingProgress = ({
     createAutoBookmark,
     addManualBookmark,
     deleteBookmark,
-    lastSaveTime,
-    lastSaveActionTime, // [Added] Export for useVirtualScroll throttle
+    lastSaveActionTime,
     hasRestored,
     triggerSave,
-    jumpRequest, // [Added]
-    setJumpRequest // [Added]
+    jumpRequest,
+    setJumpRequest
   };
 };
