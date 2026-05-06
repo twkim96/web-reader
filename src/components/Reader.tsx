@@ -12,6 +12,7 @@ import { ChevronLeft, Settings, Palette, Hash, Search, ArrowUpCircle, Bookmark a
 import { useBookLoader } from '../hooks/useBookLoader';
 import { useReadingProgress } from '../hooks/useReadingProgress';
 import { useVirtualScroll } from '../hooks/useVirtualScroll';
+import { useSmartSnap } from '../hooks/useSmartSnap';
 
 interface ReaderProps {
   book: Book;
@@ -85,17 +86,12 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [jumpRequest, jumpToIdx, setJumpRequest]);
 
   // [Added] 동적 마스킹(잘림 방지) 기능을 위한 하단 여백 높이 상태 및 실측 줄 높이
-  const [maskHeight, setMaskHeight] = useState(0);
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [actualLineHeight, setActualLineHeight] = useState(settings.fontSize * settings.lineHeight);
-  const skipNextSnap = useRef(false);  // 탭 이동 후 불필요한 재스냅 방지
-
-  useEffect(() => {
-    if (measureRef.current) {
-      const h = measureRef.current.getBoundingClientRect().height;
-      if (h > 0) setActualLineHeight(h);
-    }
-  }, [settings.fontSize, settings.lineHeight, settings.fontFamily]);
+  const { maskHeight, measureRef, actualLineHeight, getGridSnapY, skipNextSnap } = useSmartSnap({
+    settings,
+    blockRefs,
+    getVisibleBlocks,
+    isJumping
+  });
 
   const [showConfirm, setShowConfirm] = useState<{
     show: boolean, type: 'jump' | 'input', target?: number, fromSearch?: boolean, originIdx?: number 
@@ -159,126 +155,7 @@ export const Reader: React.FC<ReaderProps> = ({
   }, [onBack, setSyncConflict, setCurrentIdx, setReadPercent]);
 
   // --- Smart Scrolling & Masking ---
-  const getGridSnapY = useCallback((targetY: number) => {
-    const lh = actualLineHeight;
-    let baseTop = 48;
-    
-    // 상단 고정 여백: 정확히 한 줄 높이 (그리드와 완벽 정렬)
-    const topPadding = lh;
-    
-    const blocks = getVisibleBlocks();
-    if (blocks.length === 0) return 0;
-    
-    const firstElem = blockRefs.current[blocks[0].index];
-    if (firstElem) {
-      baseTop = window.scrollY + firstElem.getBoundingClientRect().top;
-    }
-    
-    if (targetY < 48) return 0;
-
-    // 1. 그리드 스냅을 먼저 계산 (topPadding 없이 순수하게 줄 단위로 반올림)
-    const gridY = Math.round((targetY - baseTop) / lh) * lh + baseTop;
-    
-    // 2. gridY 위치부터 시작해서 첫 번째 "실제 텍스트"를 찾음 (빈 줄 스킵)
-    let finalGridY = gridY;
-    
-    for (const block of blocks) {
-      const blockElem = blockRefs.current[block.index];
-      if (!blockElem) continue;
-      
-      const blockDocBottom = window.scrollY + blockElem.getBoundingClientRect().bottom;
-      if (blockDocBottom < gridY - 2) continue;
-      
-      const walk = document.createTreeWalker(blockElem, NodeFilter.SHOW_TEXT, null);
-      let node: Node | null;
-      let found = false;
-
-      while ((node = walk.nextNode())) {
-        const text = node.nodeValue || "";
-        if (text.trim() === "") continue;
-
-        const range = document.createRange();
-        range.selectNodeContents(node);
-        const nodeDocBottom = window.scrollY + range.getBoundingClientRect().bottom;
-        if (nodeDocBottom < gridY - 2) continue;
-
-        // 이진 탐색으로 gridY 라인에 걸치는 첫 글자를 찾음
-        let low = 0, high = text.length - 1, firstIdx = -1;
-        while (low <= high) {
-          const mid = Math.floor((low + high) / 2);
-          try {
-            range.setStart(node, mid);
-            range.setEnd(node, mid + 1);
-            const charCenterY = window.scrollY + range.getBoundingClientRect().top + range.getBoundingClientRect().height / 2;
-            if (charCenterY >= gridY) { firstIdx = mid; high = mid - 1; }
-            else { low = mid + 1; }
-          } catch { break; }
-        }
-
-        // 해당 글자부터 공백이 아닌 실제 문자를 찾고, 그 줄의 그리드 라인 Top을 역산
-        if (firstIdx !== -1) {
-          for (let i = firstIdx; i < text.length; i++) {
-            if (text[i].trim() === "") continue;
-            try {
-              range.setStart(node, i);
-              range.setEnd(node, i + 1);
-              const rect = range.getBoundingClientRect();
-              const charCenterY = window.scrollY + rect.top + rect.height / 2;
-              finalGridY = Math.floor((charCenterY - baseTop) / lh) * lh + baseTop;
-              found = true;
-              break;
-            } catch { break; }
-          }
-        }
-        if (found) break;
-      }
-      if (found) break;
-    }
-
-    // 3. 최종: 그리드 라인에서 topPadding(정확히 1줄)만큼 위로 → 첫 줄이 뷰포트 상단에서 정확히 1줄 아래에 위치
-    return Math.max(0, finalGridY - topPadding);
-  }, [actualLineHeight, getVisibleBlocks, blockRefs]);
-
-  const snapTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  const snapFuncRef = useRef(getGridSnapY);
-  useEffect(() => { snapFuncRef.current = getGridSnapY; }, [getGridSnapY]);
-
-  useEffect(() => {
-    const updateMaskAndSnap = () => {
-      const lh = actualLineHeight;
-      const h = document.documentElement.clientHeight || window.innerHeight;
-      const topPadding = lh; // 상단 여백 = 정확히 한 줄
-      const lines = Math.floor((h - topPadding) / lh);
-      setMaskHeight(Math.max(0, h - (lines * lh) - topPadding));
-    };
-
-    const handleScroll = () => {
-      clearTimeout(snapTimerRef.current);
-      snapTimerRef.current = setTimeout(() => {
-        // 탭 이동으로 이미 정확한 위치에 도착한 경우 재스냅 건너뜀
-        if (skipNextSnap.current) { skipNextSnap.current = false; return; }
-        // 사용자가 수동으로 스와이프를 멈췄을 때 가장 가까운 라인에 맞게 스냅(이동) 
-        if (isJumping.current) return;
-        
-        const currentY = window.scrollY;
-        const snapY = snapFuncRef.current(currentY);
-        
-        if (Math.abs(snapY - currentY) > 2) { 
-          window.scrollTo({ top: snapY, behavior: 'smooth' });
-        }
-      }, 300); // 스크롤이 완전히 멈춘 후 대기시간 (300ms)
-    };
-
-    updateMaskAndSnap();
-    window.addEventListener('resize', updateMaskAndSnap);
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    
-    return () => {
-      window.removeEventListener('resize', updateMaskAndSnap);
-      window.removeEventListener('scroll', handleScroll);
-      clearTimeout(snapTimerRef.current);
-    };
-  }, [settings.fontSize, actualLineHeight, isJumping]); // getGridSnapY 제거 (리렌더링 간섭 방지)
+  // 이 로직은 useSmartSnap 훅으로 분리되었습니다.
 
   // --- Initial Restore & Jump ---
 
