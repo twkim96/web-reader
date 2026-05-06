@@ -217,9 +217,10 @@ export const Reader: React.FC<ReaderProps> = ({
             range.setStart(node, mid);
             range.setEnd(node, mid + 1);
             const rect = range.getBoundingClientRect();
-            const docBottom = window.scrollY + rect.bottom;
+            // 글자의 수직 중심점 (CSS Line box 내부에 안전하게 위치함)
+            const charCenterY = window.scrollY + rect.top + rect.height / 2;
 
-            if (docBottom >= snapTarget - 2) {
+            if (charCenterY >= snapTarget) {
               firstVisibleIdx = mid;
               high = mid - 1; 
             } else {
@@ -237,7 +238,13 @@ export const Reader: React.FC<ReaderProps> = ({
               range.setStart(node, i);
               range.setEnd(node, i + 1);
               const rect = range.getBoundingClientRect();
-              actualTextDocY = window.scrollY + rect.top;
+              const charCenterY = window.scrollY + rect.top + rect.height / 2;
+              
+              // 글자 고유의 렌더링 박스(rect.top)는 문자에 따라 들쭉날쭉하여 텍스트가 짤릴 수 있으므로,
+              // 중심점을 이용해 이 글자가 속한 완벽한 수학적 CSS 라인의 최상단 좌표를 역산하여 스냅함
+              const exactGridLineTop = Math.floor((charCenterY - baseTop) / lh) * lh + baseTop;
+              
+              actualTextDocY = exactGridLineTop;
               found = true;
               break;
             } catch(e) { break; }
