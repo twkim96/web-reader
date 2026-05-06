@@ -42,7 +42,8 @@ export const useSmartSnap = ({
     
     if (targetY < 48) return 0;
 
-    const gridY = Math.round((targetY - baseTop) / lh) * lh + baseTop;
+    // 1. 그리드 스냅을 먼저 계산 (현재 targetY가 뷰포트 기준이므로 topPadding을 더해 텍스트 기준 좌표로 변환 후 반올림)
+    const gridY = Math.round((targetY + topPadding - baseTop) / lh) * lh + baseTop;
     let finalGridY = gridY;
     
     for (const block of blocks) {
