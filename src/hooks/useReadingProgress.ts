@@ -78,6 +78,8 @@ export const useReadingProgress = ({
 
   const triggerSave = useCallback((idx: number, pct: number, bks?: Bookmark[]) => {
     lastSavedCharIndex.current = idx;
+    // [Fix] 사용자 본인의 저장 시 baseline도 갱신 → 지연된 Firebase echo가 isBaselineDrift를 오발하지 않도록
+    mountCharIndex.current = idx;
     onSaveProgress(idx, pct, bks);
     lastSaveTime.current = Date.now();
     lastSaveActionTime.current = Date.now();
