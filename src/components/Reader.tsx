@@ -185,8 +185,9 @@ export const Reader: React.FC<ReaderProps> = ({
     // [Modified] 정확한 줄 단위 이동을 위한 계산 (상단 여백 = 정확히 한 줄)
     const oneLineHeight = actualLineHeight;
     const topPadding = actualLineHeight;
-    // 이전 페이지의 마지막 한 줄을 겹치지 않게 하기 위해 +1처리
-    const linesPerScreen = Math.floor((h - topPadding) / oneLineHeight) + 1;
+    // 이전 페이지의 마지막 줄이 겹치는 현상을 방지하기 위한 +1 처리는
+    // 오히려 잘린 줄을 통째로 스킵해버리는 문제를 발생시키므로 제거합니다.
+    const linesPerScreen = Math.floor((h - topPadding) / oneLineHeight);
     const scrollStep = Math.max(1, linesPerScreen) * oneLineHeight;
 
     // [Modified] 이동 시 그리드 스냅 적용
@@ -470,6 +471,11 @@ export const Reader: React.FC<ReaderProps> = ({
       <div
         className={`fixed bottom-0 inset-x-0 pointer-events-none z-40 transition-colors ${theme.bg}`}
         style={{ height: `${maskHeight}px` }}
+      />
+      {/* Top Masking: 상단 여백에 이전 줄이 노출되는 중복 현상 방지용 블록 */}
+      <div
+        className={`fixed top-0 inset-x-0 pointer-events-none z-40 transition-colors ${theme.bg}`}
+        style={{ height: `${actualLineHeight}px` }}
       />
     </div>
   );
