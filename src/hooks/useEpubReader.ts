@@ -147,7 +147,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       const sections = view.book.sections || [];
       const sizes = sections.map((s: any) => (s.linear !== 'no' && s.size > 0) ? s.size : 0);
       const sizeTotal = sizes.reduce((a: number, b: number) => a + b, 0);
-      
+
       const sectionFractions: number[] = [0];
       if (sizeTotal > 0) {
         let sum = 0;
@@ -163,7 +163,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
           // 1. 기본 해상도 시도
           const resolved = view.resolveNavigation(item.href);
           let index = (resolved && typeof resolved === 'object') ? (resolved.index ?? 0) : 0;
-          
+
           // 2. 수동 검색 (경로 정규화 비교)
           if (index === 0 && item.href) {
             const hrefPath = item.href.split('#')[0].split('/').pop(); // 파일명만 추출
@@ -175,7 +175,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
           }
 
           const progress = (sectionFractions[index] || 0) * 100;
-          
+
           const enrichedItem = { ...item, progress };
           if (item.subitems && item.subitems.length > 0) {
             enrichedItem.subitems = enrichTocItems(item.subitems);
@@ -251,6 +251,10 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       html, body {
         ${styles.bgColor ? `background-color: ${styles.bgColor} !important;` : ''}
         ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
       }
       body, p, div, span, li, td, th, dd, dt, blockquote, cite, pre, code, h1, h2, h3, h4, h5, h6 {
         ${styles.fontSize ? `font-size: ${styles.fontSize}px !important;` : ''}
