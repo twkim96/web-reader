@@ -24,6 +24,12 @@ export default function Page() {
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
+  const prevProgress = useRef<Record<string, UserProgress>>({});
+  
+  useEffect(() => {
+    prevProgress.current = progress;
+  }, [progress]);
+
   const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
   const deviceId = useRef<string>('');
 
@@ -240,16 +246,26 @@ export default function Page() {
           for (const d of snapshot.docs) {
             const raw = d.data() as any;
             const serverTime = raw.lastRead?.toDate ? raw.lastRead.toDate().getTime() : Date.now();
-            // charIndex→cfi 하위 호환: 기존 Firestore 문서에 cfi가 없으면 charIndex를 문자열로 변환
-            const data: UserProgress & { deviceId?: string } = {
-              bookId: raw.bookId || d.id,
+            const serverBookmarks = (raw.bookmarks || []) as Bookmark[];
+            
+            // [중요] 하이브리드 북마크 병합: 
+            // 수동 북마크는 서버 데이터를 따르고, 자동 북마크는 현재 로컬 상태를 유지함
+            const currentLocal = prevProgress.current[raw.bookId || d.id]?.bookmarks || [];
+            const localAuto = currentLocal.filter((b: Bookmark) => b.type === 'auto');
+            const mergedBookmarks = [
+              ...serverBookmarks.filter((b: Bookmark) => b.type === 'manual'),
+              ...localAuto
+            ].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+            const bookId = raw.bookId || d.id;
+            const data: UserProgress = {
+              bookId,
               cfi: raw.cfi || (raw.charIndex !== undefined ? String(raw.charIndex) : ''),
               progressPercent: raw.progressPercent || 0,
               lastRead: serverTime,
-              bookmarks: raw.bookmarks || [],
-              deviceId: raw.deviceId,
-            } as any;
-            p[d.id] = data;
+              bookmarks: mergedBookmarks,
+            };
+            p[bookId] = data;
 
             // 서버 확정 데이터만 로컬 DB에 저장
             if (!isFromCache && !hasPending) {
@@ -406,6 +422,10 @@ export default function Page() {
         bookmarks: finalBookmarks
       };
 
+      // 비동기 작업에 필요한 값을 미리 캡처 (activeBook이 null이 될 경우 대비)
+      const bookId = activeBook.id;
+      const currentBookmarks = progressData.bookmarks || [];
+
       // Perform side-effects async
       setTimeout(async () => {
         try {
@@ -414,13 +434,17 @@ export default function Page() {
 
         if (user) {
           try {
-            const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
-            await setDoc(docRef, { ...progressData, lastRead: serverTimestamp(), deviceId: deviceId.current }, { merge: true });
+            // Firestore에는 수동 북마크만 저장
+            const manualOnly = currentBookmarks.filter(b => b.type === 'manual');
+            const syncData = { ...progressData, bookmarks: manualOnly };
+            
+            const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId);
+            await setDoc(docRef, { ...syncData, lastRead: serverTimestamp(), deviceId: deviceId.current }, { merge: true });
           } catch (e) { console.error('[SaveProgress] Firestore save failed:', e); }
         }
       }, 0);
 
-      return { ...prev, [activeBook.id]: progressData };
+      return { ...prev, [bookId]: progressData };
     });
   }, [user, activeBook]);
 

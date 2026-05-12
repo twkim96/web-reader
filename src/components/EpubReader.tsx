@@ -299,7 +299,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
   }, []);
 
-  // 북마크 추가
+  // 북마크 추가 (서버 동기화 포함)
   const addBookmark = useCallback(() => {
     if (!currentCfi) return;
     const preview = getPreviewText();
@@ -324,7 +324,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     onSaveProgress(currentCfi, totalProgress, updated);
   }, [bookmarks, currentCfi, totalProgress, onSaveProgress]);
 
-  // 자동 북마크 생성 (큰 폭 이동 시)
+  // 자동 북마크 생성 (로컬 전용, 최대 3개)
   const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
     const preview = getPreviewText();
     const autoMark: Bookmark = {
@@ -337,13 +337,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       color: '#64748b',
     };
 
-    // 자동 북마크는 최대 5개 유지
+    // 자동 북마크는 로컬에만 3개 유지
     const manual = bookmarks.filter(b => b.type === 'manual');
-    const auto = bookmarks.filter(b => b.type === 'auto').slice(0, 4);
+    const auto = bookmarks.filter(b => b.type === 'auto').slice(0, 2); // 신규 포함 3개
     const updated = [...manual, autoMark, ...auto];
 
     setBookmarks(updated);
-    // 상태 업데이트 함수 외부에서 부모 상태 업데이트 호출 (에러 방지)
     onSaveProgress(currentCfi, totalProgress, updated);
   }, [getPreviewText, onSaveProgress, currentCfi, totalProgress, bookmarks]);
 
