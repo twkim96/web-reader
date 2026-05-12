@@ -5,10 +5,14 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 
 interface RelocateDetail {
   cfi: string;
-  fraction: number;       // 현재 섹션 내 진행률 (0~1)
+  fraction: number;       // 전체 진행률 (0~1)
   location: {
     current: number;
     next: number;
+    total: number;
+  };
+  section?: {
+    current: number;
     total: number;
   };
   tocItem?: {
@@ -105,6 +109,74 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     // load 이벤트: 섹션이 로드될 때 (iframe doc 접근 가능)
     view.addEventListener('load', (e: CustomEvent) => {
       const { doc } = e.detail || {};
+      if (doc) {
+        // 스크롤 모드에서 챕터 경계 너머로 스크롤 시 이동 처리
+        let wheelAccumulator = 0;
+        let lastWheelTime = 0;
+        let touchStartY = 0;
+
+        doc.addEventListener('wheel', (ev: WheelEvent) => {
+          const viewEl = viewRef.current;
+          if (!viewEl || !viewEl.renderer) return;
+          const renderer = viewEl.renderer;
+          
+          // 스크롤 모드(flow=scrolled)일 때만 작동
+          if (renderer.getAttribute('flow') !== 'scrolled') return;
+
+          const now = Date.now();
+          if (now - lastWheelTime > 300) wheelAccumulator = 0;
+          lastWheelTime = now;
+
+          // 렌더러의 현재 스크롤 위치 및 전체 크기 확인 (foliate-paginator의 public getter 활용)
+          const scrollPos = renderer.start;
+          const totalSize = renderer.viewSize;
+          const viewportSize = renderer.size;
+
+          // 최상단에서 위로 스크롤
+          if (scrollPos <= 0 && ev.deltaY < 0) {
+            wheelAccumulator += Math.abs(ev.deltaY);
+            if (wheelAccumulator > 150) {
+              wheelAccumulator = 0;
+              viewEl.prev();
+            }
+          }
+          // 최하단에서 아래로 스크롤
+          else if (scrollPos + viewportSize >= totalSize - 5 && ev.deltaY > 0) {
+            wheelAccumulator += ev.deltaY;
+            if (wheelAccumulator > 150) {
+              wheelAccumulator = 0;
+              viewEl.next();
+            }
+          } else {
+            wheelAccumulator = 0;
+          }
+        }, { passive: true });
+
+        doc.addEventListener('touchstart', (ev: TouchEvent) => {
+          touchStartY = ev.touches[0].clientY;
+        }, { passive: true });
+
+        doc.addEventListener('touchend', (ev: TouchEvent) => {
+          const viewEl = viewRef.current;
+          if (!viewEl || !viewEl.renderer) return;
+          const renderer = viewEl.renderer;
+          if (renderer.getAttribute('flow') !== 'scrolled') return;
+
+          const touchEndY = ev.changedTouches[0].clientY;
+          const deltaY = touchStartY - touchEndY;
+          
+          const scrollPos = renderer.start;
+          const totalSize = renderer.viewSize;
+          const viewportSize = renderer.size;
+
+          // 터치 스와이프 임계값 (50px)
+          if (scrollPos <= 0 && deltaY < -60) {
+            viewEl.prev();
+          } else if (scrollPos + viewportSize >= totalSize - 10 && deltaY > 60) {
+            viewEl.next();
+          }
+        }, { passive: true });
+      }
       options?.onLoad?.(doc);
     });
 

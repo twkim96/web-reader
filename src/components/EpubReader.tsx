@@ -62,7 +62,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   };
   const themeColors = THEME_COLORS[settings.theme] || THEME_COLORS.sepia;
 
-  const skipNextSave = useRef(false);
+  const skipNextSave = useRef(true);
 
   const {
     containerRef,
@@ -109,10 +109,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     },
   });
 
-  // 초기 로드 시에는 첫 reloc을 건너뛰도록 설정
-  useEffect(() => {
-    skipNextSave.current = true;
-  }, []);
+  // 초기 로드 시에는 첫 reloc을 건너뛰도록 설정 (이미 skipNextSave.current = true 로 시작함)
 
   // epub 파일 로드
   const loadAttempted = useRef(false);
@@ -341,14 +338,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     };
 
     // 자동 북마크는 최대 5개 유지
-    setBookmarks(prev => {
-      const manual = prev.filter(b => b.type === 'manual');
-      const auto = prev.filter(b => b.type === 'auto').slice(0, 4);
-      const updated = [...manual, autoMark, ...auto];
-      onSaveProgress(currentCfi, totalProgress, updated);
-      return updated;
-    });
-  }, [getPreviewText, onSaveProgress, currentCfi, totalProgress]);
+    const manual = bookmarks.filter(b => b.type === 'manual');
+    const auto = bookmarks.filter(b => b.type === 'auto').slice(0, 4);
+    const updated = [...manual, autoMark, ...auto];
+
+    setBookmarks(updated);
+    // 상태 업데이트 함수 외부에서 부모 상태 업데이트 호출 (에러 방지)
+    onSaveProgress(currentCfi, totalProgress, updated);
+  }, [getPreviewText, onSaveProgress, currentCfi, totalProgress, bookmarks]);
 
   // 점프 핸들러 (자동 북마크 로직 포함)
   const performJump = useCallback(async (targetCfi: string) => {
