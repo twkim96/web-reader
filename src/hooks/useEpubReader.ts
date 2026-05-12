@@ -267,6 +267,13 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         ${styles.textAlign ? `text-align: ${styles.textAlign} !important;` : ''}
         ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
       }
+      p, div {
+        margin-top: 0 !important;
+        margin-bottom: 1em !important;
+      }
+      p:last-child, div:last-child {
+        margin-bottom: 0 !important;
+      }
       img, svg, video {
         max-width: 100% !important;
         max-height: 95vh !important;
