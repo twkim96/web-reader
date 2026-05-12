@@ -51,6 +51,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     goToFraction,
     prev,
     next,
+    viewRef,
   } = useEpubReader({
     onRelocate: (detail) => {
       // 주기적 저장 (5초마다)
@@ -67,25 +68,45 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const lastSaveTime = useRef(Date.now());
 
   // epub 파일 로드
+  const loadAttempted = useRef(false);
   useEffect(() => {
-    if (!isReady) return;
+    if (loadAttempted.current) return;
+    if (!containerRef.current) return;
+    loadAttempted.current = true;
+    console.log('[EpubReader] Starting epub load for:', book.id);
     
     const loadEpub = async () => {
       try {
         // 1. 로컬에서 먼저 시도
+        console.log('[EpubReader] Checking local storage...');
         const localData = await loadBookFromLocal(book.id);
         
         let source: Blob;
         if (localData) {
+          console.log('[EpubReader] Found local data, size:', localData.byteLength);
           source = new Blob([localData], { type: 'application/epub+zip' });
         } else {
           // 2. Google Drive에서 다운로드
+          console.log('[EpubReader] No local data, trying Drive...');
           if (!googleToken) throw new Error('No Token');
           const buffer = await fetchFullFile(book.id, googleToken);
           source = new Blob([buffer], { type: 'application/epub+zip' });
         }
 
+        // openBook이 내부적으로 initView()를 호출하여 <foliate-view> 생성
+        console.log('[EpubReader] Calling openBook...');
         await openBook(source);
+        console.log('[EpubReader] openBook completed! Setting isLoaded=true');
+
+        // 렌더러 설정: 1페이지 고정 + 애니메이션
+        const renderer = viewRef.current?.renderer;
+        if (renderer) {
+          renderer.setAttribute('max-column-count', '1');
+          renderer.setAttribute('animated', '');
+          // 스크롤 모드 여부
+          renderer.setAttribute('flow', settings.navMode === 'scroll' ? 'scrolled' : 'paginated');
+        }
+
         setIsLoaded(true);
 
         // 초기 위치 복원
@@ -96,13 +117,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           }, 300);
         }
       } catch (e) {
-        console.error('Failed to load epub:', e);
+        console.error('[EpubReader] Failed to load epub:', e);
         onBack();
       }
     };
 
     loadEpub();
-  }, [isReady, book.id, googleToken]);
+  }, [book.id, googleToken]);
 
   // 탭 숨김/언마운트 시 저장
   useEffect(() => {
@@ -122,9 +143,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     };
   }, [currentCfi, totalProgress, onSaveProgress]);
 
-  // 뒤로가기 핸들링
+  // 뒤로가기 핸들링 — 마운트 시 1회만 pushState
+  const historyPushed = useRef(false);
   useEffect(() => {
-    window.history.pushState({ panel: 'reader' }, '', '');
+    if (!historyPushed.current) {
+      window.history.pushState({ panel: 'reader' }, '', '');
+      historyPushed.current = true;
+    }
 
     const handlePopState = () => {
       if (showSettings || showThemeModal) {
@@ -141,8 +166,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [onBack, showSettings, showThemeModal]);
 
   // 탭 네비게이션
-  const handleInteraction = useCallback((e: React.MouseEvent) => {
-    const { clientX, clientY } = e;
+  const handleInteraction = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    const point = 'touches' in e ? e.touches[0] : (e as React.MouseEvent);
+    const { clientX, clientY } = point;
     const w = window.innerWidth;
     const h = window.innerHeight;
 
@@ -165,23 +191,30 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const handleUIBack = () => window.history.back();
 
-  if (!isLoaded) {
-    return (
-      <div className={`h-screen w-screen flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
-        Loading...
-      </div>
-    );
-  }
-
   return (
     <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}>
-      {/* Epub Viewer Container */}
+      {/* 로딩 오버레이 — containerRef는 항상 뒤에 존재 */}
+      {!isLoaded && (
+        <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
+          Loading...
+        </div>
+      )}
+
+      {/* Epub Viewer Container — 항상 DOM에 존재해야 Foliate-js가 마운트됨 */}
       <div
         ref={containerRef}
-        onClick={handleInteraction}
         className="w-full h-full"
         style={{ position: 'relative' }}
       />
+
+      {/* 투명 클릭 오버레이 — Shadow DOM 위에서 탭 이벤트 캡처 (스크롤 모드에서는 비활성) */}
+      {isLoaded && !showControls && settings.navMode !== 'scroll' && (
+        <div
+          className="fixed inset-0 z-10"
+          style={{ background: 'transparent' }}
+          onClick={handleInteraction}
+        />
+      )}
 
       {/* Top Navbar */}
       <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>

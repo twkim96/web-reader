@@ -36,9 +36,40 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
   const initView = useCallback(async () => {
     if (!containerRef.current || viewRef.current) return;
 
-    // view.js를 동적으로 import (Web Component 등록됨)
-    // @ts-ignore — public/ 디렉토리의 static 파일이므로 TS 모듈 해석 불가
-    await import('/foliate-js/view.js');
+    // view.js를 <script type="module">로 로드 (public/ 디렉토리의 static 파일)
+    // Next.js의 webpack이 import()를 가로채므로 script 태그 방식 사용
+    if (!customElements.get('foliate-view')) {
+      console.log('[EpubReader] Loading foliate-js view.js...');
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = '/foliate-js/view.js';
+        script.onload = () => {
+          console.log('[EpubReader] view.js script loaded');
+        };
+        script.onerror = (e) => {
+          console.error('[EpubReader] view.js load error:', e);
+          reject(e);
+        };
+        document.head.appendChild(script);
+        // module script는 비동기 실행이므로 customElements 등록 대기
+        const check = setInterval(() => {
+          if (customElements.get('foliate-view')) {
+            console.log('[EpubReader] foliate-view custom element registered!');
+            clearInterval(check);
+            resolve();
+          }
+        }, 100);
+        // 10초 타임아웃
+        setTimeout(() => {
+          clearInterval(check);
+          console.warn('[EpubReader] Timeout waiting for foliate-view registration. Proceeding anyway.');
+          resolve();
+        }, 10000);
+      });
+    } else {
+      console.log('[EpubReader] foliate-view already registered');
+    }
 
     const view = document.createElement('foliate-view') as any;
     view.style.width = '100%';
@@ -89,7 +120,12 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     if (!view) return;
 
     try {
-      await view.open(source);
+      // Blob → File 변환 (foliate-js의 makeBook은 file.name 속성에 접근)
+      let fileSource = source;
+      if (source instanceof Blob && !(source instanceof File)) {
+        fileSource = new File([source], 'book.epub', { type: 'application/epub+zip' });
+      }
+      await view.open(fileSource);
     } catch (e) {
       console.error('Failed to open epub:', e);
       throw e;
