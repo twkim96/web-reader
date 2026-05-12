@@ -257,8 +257,8 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       html, body {
         ${styles.bgColor ? `background-color: ${styles.bgColor} !important;` : ''}
         ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
-        margin: 40px 40 !important;
-        padding: 0 !important;
+        margin: 0 !important;
+        padding: 10px 2px !important;
         width: 100% !important;
         max-width: none !important;
       }
