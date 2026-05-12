@@ -580,6 +580,7 @@ export default function Page() {
           onSaveProgress={handleSaveProgress}
           initialCfi={progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
+          initialTime={progress[activeBook.id]?.lastRead}
           remoteProgress={remoteProgress[activeBook.id]}
         />
       )}
