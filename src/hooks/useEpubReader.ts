@@ -257,7 +257,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       html, body {
         ${styles.bgColor ? `background-color: ${styles.bgColor} !important;` : ''}
         ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
-        margin: 2px 0 !important;
+        margin: 0 !important;
         padding: 0 !important;
       }
       body, p, div, span, li, td, th, dd, dt, blockquote, cite, pre, code, h1, h2, h3, h4, h5, h6 {
