@@ -62,6 +62,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   };
   const themeColors = THEME_COLORS[settings.theme] || THEME_COLORS.sepia;
 
+  const skipNextSave = useRef(false);
+
   const {
     containerRef,
     isReady,
@@ -83,7 +85,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     initialPercent,
     onRelocate: (detail) => {
       if (detail.cfi) {
-        // detail.fraction은 0~1 사이 전체 진행률 — stale closure 방지를 위해 직접 사용
+        // 동기화 이동 직후나 초기 로드 시에는 저장을 한 번 건너뜀 (에코 루프 방지)
+        if (skipNextSave.current) {
+          skipNextSave.current = false;
+          return;
+        }
+
         const pct = detail.fraction !== undefined
           ? Math.min(100, Math.max(0, detail.fraction * 100))
           : 0;
@@ -101,6 +108,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       });
     },
   });
+
+  // 초기 로드 시에는 첫 reloc을 건너뛰도록 설정
+  useEffect(() => {
+    skipNextSave.current = true;
+  }, []);
 
   // epub 파일 로드
   const loadAttempted = useRef(false);
@@ -246,7 +258,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
     if (lastSaveTime.current && Math.abs(remoteTime - lastSaveTime.current) < 5000) return;
 
-    if (remoteCfi && remoteCfi !== currentCfi && remoteTime > lastSaveTime.current) {
+    // 현재 위치와 동일하면 무시
+    if (remoteCfi === currentCfi) return;
+
+    if (remoteCfi && remoteTime > lastSaveTime.current) {
       setSyncConflict({ cfi: remoteCfi, percent: remoteProgress.progressPercent });
     }
   }, [remoteProgress, isLoaded, currentCfi]);
@@ -532,7 +547,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
                 무시
               </button>
               <button
-                onClick={() => { performJump(syncConflict.cfi); setSyncConflict(null); }}
+                onClick={() => { 
+                  skipNextSave.current = true;
+                  performJump(syncConflict.cfi); 
+                  setSyncConflict(null); 
+                }}
                 className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-accent-500 text-white hover:bg-accent-600 transition-colors shadow-lg shadow-accent-500/30"
               >
                 이동하기

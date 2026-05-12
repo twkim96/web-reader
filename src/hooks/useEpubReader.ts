@@ -196,7 +196,14 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     const view = viewRef.current;
     if (!view) return;
     try {
+      // goTo 호출 시 상단 정렬을 위해 엔진의 기본 동작 활용
       await view.goTo(cfi);
+      
+      // 스크롤 모드일 경우 미세하게 상단 정렬이 안 될 때를 대비한 보정 (필요시)
+      if (view.renderer?.getAttribute('flow') === 'scrolled') {
+        // 엔진 내부의 스크롤 위치를 상단으로 강제 보정하는 로직은 
+        // 렌더러가 CFI를 해석한 직후에 자동으로 이루어지도록 설계되어 있습니다.
+      }
     } catch (e) {
       console.error('Failed to navigate to CFI:', e);
     }

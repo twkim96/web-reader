@@ -25,7 +25,18 @@ export default function Page() {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
-  const deviceId = useRef(crypto.randomUUID());
+  const deviceId = useRef<string>('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      let id = localStorage.getItem('reader_device_id');
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('reader_device_id', id);
+      }
+      deviceId.current = id;
+    }
+  }, []);
 
   const [isPublicPC, setIsPublicPC] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(true);
@@ -545,7 +556,7 @@ export default function Page() {
           onSaveProgress={handleSaveProgress}
           initialCfi={progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
-          remoteProgress={progress[activeBook.id]}
+          remoteProgress={remoteProgress[activeBook.id]}
         />
       )}
 
