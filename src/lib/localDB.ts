@@ -8,16 +8,21 @@ const META_STORE = 'metadata';      // 책 정보(Book + size)
 const PROGRESS_STORE = 'progress';  // [New] 독서 진행 상황
 
 export const initDB = async () => {
-  return openDB(DB_NAME, 2, { // [Modified] 버전 1 -> 2로 증가
-    upgrade(db) {
+  return openDB(DB_NAME, 3, { // v3: charIndex → cfi 마이그레이션
+    upgrade(db, oldVersion) {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
       }
       if (!db.objectStoreNames.contains(META_STORE)) {
         db.createObjectStore(META_STORE, { keyPath: 'id' });
       }
-      // [New] 진행 상황 저장소 추가
       if (!db.objectStoreNames.contains(PROGRESS_STORE)) {
+        db.createObjectStore(PROGRESS_STORE, { keyPath: 'bookId' });
+      }
+      // v2→v3: 기존 진행률 데이터 삭제 (charIndex→cfi 비호환)
+      if (oldVersion < 3 && db.objectStoreNames.contains(PROGRESS_STORE)) {
+        // objectStore를 삭제하고 재생성하여 데이터 초기화
+        db.deleteObjectStore(PROGRESS_STORE);
         db.createObjectStore(PROGRESS_STORE, { keyPath: 'bookId' });
       }
     },

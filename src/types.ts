@@ -26,17 +26,16 @@ export interface Bookmark {
   id: string;        // UUID or specific ID
   type: 'manual' | 'auto';
   name: string;      // Preview text
-  charIndex: number; // Position
+  cfi: string;       // epub CFI position
   createdAt: number;
   color: string;     // Color code (Tailwind class or Hex)
 }
 
 export interface UserProgress {
   bookId: string;
-  charIndex: number;
+  cfi: string;              // epub CFI (Canonical Fragment Identifier)
   progressPercent: number;
   lastRead: any; // Firestore Timestamp
-  // [Added] 책갈피 리스트 추가
   bookmarks?: Bookmark[]; 
 }
 

@@ -243,7 +243,7 @@ export default function Page() {
             const hasChanged = Object.keys(p).some(id => {
               const old = prev[id];
               if (!old) return true;
-              return old.charIndex !== p[id].charIndex || 
+              return old.cfi !== p[id].cfi || 
                      old.progressPercent !== p[id].progressPercent ||
                      (old.bookmarks?.length || 0) !== (p[id].bookmarks?.length || 0);
             }) || Object.keys(prev).length !== Object.keys(p).length;
@@ -261,7 +261,7 @@ export default function Page() {
                 if (data.deviceId && data.deviceId !== deviceId.current) {
                   const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
                   const entry: UserProgress = { ...data, lastRead: serverTime };
-                  if (!prev[d.id] || prev[d.id].charIndex !== data.charIndex || prev[d.id].progressPercent !== data.progressPercent) {
+                  if (!prev[d.id] || prev[d.id].cfi !== data.cfi || prev[d.id].progressPercent !== data.progressPercent) {
                     updated[d.id] = entry;
                     changed = true;
                   }
@@ -371,13 +371,13 @@ export default function Page() {
     });
   }, []);
 
-  const handleSaveProgress = useCallback(async (idx: number | string, pct: number, bookmarks?: Bookmark[]) => {
+  const handleSaveProgress = useCallback(async (cfi: number | string, pct: number, bookmarks?: Bookmark[]) => {
     if (!activeBook) return;
 
     const now = Date.now();
     const progressData: UserProgress = {
       bookId: activeBook.id,
-      charIndex: idx as any, // Phase 3에서 cfi: string으로 정식 전환 예정
+      cfi: String(cfi),
       progressPercent: pct,
       lastRead: now,
       bookmarks: bookmarks
@@ -400,7 +400,7 @@ export default function Page() {
     const now = Date.now();
     const resetData: UserProgress = {
       bookId,
-      charIndex: 0,
+      cfi: '',
       progressPercent: 0,
       lastRead: now,
       bookmarks: []
@@ -527,7 +527,7 @@ export default function Page() {
           onSaveProgress={(cfi: string, pct: number, bookmarks?: Bookmark[]) => {
             handleSaveProgress(cfi, pct, bookmarks);
           }}
-          initialCfi={progress[activeBook.id]?.charIndex as unknown as string}
+          initialCfi={progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
         />
       )}

@@ -9,22 +9,15 @@ interface BookmarkModalProps {
   onClose: () => void;
   onAdd: () => void;
   onDelete: (id: string) => void;
-  onJump: (idx: number) => void;
-  totalLength: number;
+  onJump: (cfi: string) => void;
 }
 
 export const BookmarkModal: React.FC<BookmarkModalProps> = ({
-  bookmarks, theme, onClose, onAdd, onDelete, onJump, totalLength
+  bookmarks, theme, onClose, onAdd, onDelete, onJump
 }) => {
   const manualBookmarks = bookmarks.filter(b => b.type === 'manual').sort((a, b) => b.createdAt - a.createdAt);
   
-  // [Modified] 단일 검색(find) -> 전체 검색(filter) 후 최신순 정렬
   const autoBookmarks = bookmarks.filter(b => b.type === 'auto').sort((a, b) => b.createdAt - a.createdAt);
-
-  const getPercent = (charIndex: number) => {
-    const p = (charIndex / Math.max(1, totalLength)) * 100;
-    return p.toFixed(2);
-  };
 
   return (
     <div 
@@ -72,7 +65,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               {manualBookmarks.map((bm) => (
                 <div key={bm.id} className="relative group">
                   <button 
-                    onClick={() => onJump(bm.charIndex)}
+                    onClick={() => onJump(bm.cfi)}
                     className={`w-full p-4 pr-14 rounded-2xl text-left transition-transform active:scale-95 border border-white/5 bg-white/5 hover:bg-white/10 overflow-hidden flex gap-4`}
                   >
                     <div className={`w-1.5 self-stretch rounded-full ${bm.color}`} />
@@ -82,7 +75,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                         <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                         <span className="w-1 h-1 rounded-full bg-current opacity-20" />
                         <span className="font-bold text-accent-500 bg-accent-500/10 px-1.5 py-0.5 rounded text-[11px]">
-                          {getPercent(bm.charIndex)}%
+                          {bm.cfi ? 'CFI' : ''}
                         </span>
                       </p>
                     </div>
@@ -114,7 +107,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               autoBookmarks.map((bm) => (
                 <button 
                   key={bm.id} // use UUID
-                  onClick={() => onJump(bm.charIndex)}
+                  onClick={() => onJump(bm.cfi)}
                   className={`w-full p-4 rounded-2xl text-left transition-transform active:scale-95 border border-white/5 bg-white/5 hover:bg-white/10 flex gap-4`}
                 >
                   <div className={`w-1.5 self-stretch rounded-full bg-slate-500`} />
@@ -125,7 +118,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                       <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                       <span className="w-1 h-1 rounded-full bg-current opacity-20" />
                       <span className="font-bold text-accent-500 bg-accent-500/10 px-1.5 py-0.5 rounded text-[11px]">
-                        {getPercent(bm.charIndex)}%
+                        {bm.cfi ? 'CFI' : ''}
                       </span>
                     </p>
                   </div>

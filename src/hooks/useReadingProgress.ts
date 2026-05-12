@@ -116,7 +116,7 @@ export const useReadingProgress = ({
       id: crypto.randomUUID(),
       type: 'auto',
       name: getPreviewText(originIndex),
-      charIndex: originIndex,
+      cfi: String(originIndex),
       createdAt: Date.now(),
       color: 'bg-slate-500'
     };
@@ -140,7 +140,7 @@ export const useReadingProgress = ({
       id: crypto.randomUUID(),
       type: 'manual',
       name: getPreviewText(targetIdx),
-      charIndex: targetIdx,
+      cfi: String(targetIdx),
       createdAt: Date.now(),
       color: nextColor
     };
@@ -162,19 +162,19 @@ export const useReadingProgress = ({
   }, [currentIdx, readPercent, triggerSave]);
 
   // Logic: Conflict Detection & Auto Sync (deviceId 기반 — 원격 업데이트만 수신)
-  const lastProcessedRemote = useRef<{ charIndex: number, lastRead: number } | null>(null);
+  const lastProcessedRemote = useRef<{ cfi: string, lastRead: number } | null>(null);
 
   useEffect(() => {
     if (!isLoaded || !remoteProgress) return;
 
-    const remoteIdx = remoteProgress.charIndex;
+    const remoteIdx = Number(remoteProgress.cfi) || 0;
     const remoteTime = remoteProgress.lastRead;
 
     // 이미 처리한 업데이트와 동일하면 무시
     if (lastProcessedRemote.current &&
-        lastProcessedRemote.current.charIndex === remoteIdx &&
+        lastProcessedRemote.current.cfi === remoteProgress.cfi &&
         lastProcessedRemote.current.lastRead === remoteTime) return;
-    lastProcessedRemote.current = { charIndex: remoteIdx, lastRead: remoteTime };
+    lastProcessedRemote.current = { cfi: remoteProgress.cfi, lastRead: remoteTime };
 
     // 1. 책갈피는 무조건 최신으로 동기화
     if (remoteProgress.bookmarks) {
@@ -186,7 +186,7 @@ export const useReadingProgress = ({
     // → 같은 onSnapshot에서 initialProgress와 remoteProgress가 동시에 업데이트돼도 diff ≈ 0이므로 오발 없음
     const baseIdx = hasInitialRestored.current
       ? latestState.current.currentIdx
-      : (initialProgressRef.current?.charIndex ?? 0);
+      : Number(initialProgressRef.current?.cfi ?? 0);
     const diff = Math.abs(remoteIdx - baseIdx);
 
     if (diff > 300) {

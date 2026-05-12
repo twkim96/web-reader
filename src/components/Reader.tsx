@@ -162,10 +162,11 @@ export const Reader: React.FC<ReaderProps> = ({
   useEffect(() => {
     if (!isLoaded || hasRestored.current === book.id) return;
     if (initialProgress) {
-      if (initialProgress.charIndex > 0) {
-        setCurrentIdx(initialProgress.charIndex);
+      const idx = Number(initialProgress.cfi) || 0;
+      if (idx > 0) {
+        setCurrentIdx(idx);
         setReadPercent(initialProgress.progressPercent);
-        jumpToIdx(initialProgress.charIndex);
+        jumpToIdx(idx);
       }
       hasRestored.current = book.id;
     } else if (isLoaded) {
@@ -369,7 +370,8 @@ export const Reader: React.FC<ReaderProps> = ({
           onClose={() => setShowBookmarks(false)}
           onAdd={addManualBookmark}
           onDelete={deleteBookmark}
-          onJump={(idx) => {
+          onJump={(cfi) => {
+            const idx = Number(cfi) || 0;
             const updatedBookmarks = createAutoBookmark(currentIdx);
             setBookmarks(updatedBookmarks);
 
@@ -381,7 +383,6 @@ export const Reader: React.FC<ReaderProps> = ({
             jumpToIdx(idx);
             setShowBookmarks(false);
           }}
-          totalLength={fullContent.current.length || 1}
         />
       )}
 
