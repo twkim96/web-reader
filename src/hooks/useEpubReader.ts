@@ -257,8 +257,10 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       html, body {
         ${styles.bgColor ? `background-color: ${styles.bgColor} !important;` : ''}
         ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
-        margin: 0 !important;
+        margin: 40px 40 !important;
         padding: 0 !important;
+        width: 100% !important;
+        max-width: none !important;
       }
       body, p, div, span, li, td, th, dd, dt, blockquote, cite, pre, code, h1, h2, h3, h4, h5, h6 {
         ${styles.fontSize ? `font-size: ${styles.fontSize}px !important;` : ''}
@@ -303,7 +305,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     if (!view?.renderer) return;
 
     if (layout.flow) view.renderer.setAttribute('flow', layout.flow);
-    if (layout.margin) view.renderer.setAttribute('margin', `${layout.margin}px`);
+    if (layout.margin !== undefined) view.renderer.setAttribute('margin', `${layout.margin}px`);
     if (layout.gap) view.renderer.setAttribute('gap', layout.gap);
     if (layout.maxColumnCount) view.renderer.setAttribute('max-column-count', String(layout.maxColumnCount));
     if (layout.maxInlineSize) view.renderer.setAttribute('max-inline-size', layout.maxInlineSize);
