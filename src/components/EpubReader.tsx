@@ -240,46 +240,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     return () => window.removeEventListener('popstate', handlePopState);
   }, [onBack, showSettings, showThemeModal, showBookmarks, showSearchModal, showJumpInput]);
 
-  // 동기화 충돌 감지
-  const lastProcessedRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
-  const isInitialSync = useRef(true); // 최초 로딩 감지용
-
-  useEffect(() => {
-    if (!isLoaded || !remoteProgress) return;
-    const remoteTime = remoteProgress.lastRead;
-    const remoteCfi = remoteProgress.cfi;
-
-    if (
-      lastProcessedRemote.current &&
-      lastProcessedRemote.current.cfi === remoteCfi &&
-      lastProcessedRemote.current.lastRead === remoteTime
-    ) return;
-
-    lastProcessedRemote.current = { cfi: remoteCfi, lastRead: remoteTime };
-
-    // 1. 최초 로딩 시: 원격 데이터가 더 최신이면 무조건 이동 (알림 없이)
-    if (isInitialSync.current) {
-      isInitialSync.current = false;
-      if (remoteCfi && remoteCfi !== currentCfi && remoteTime > lastSaveTime.current) {
-        skipNextSave.current = true;
-        goTo(remoteCfi); // 최초 로딩 시에는 자동 북마크 없이 이동
-        return;
-      }
-    }
-
-    if (lastSaveTime.current && Math.abs(remoteTime - lastSaveTime.current) < 5000) return;
-
-    // 현재 위치와 동일하면 무시
-    if (remoteCfi === currentCfi) return;
-
-    if (remoteCfi && remoteTime > lastSaveTime.current) {
-      // 0.03% 이내 차이라면 알림 없이 무시
-      const diff = Math.abs((remoteProgress.progressPercent || 0) - (totalProgress || 0));
-      if (diff > 0.03) {
-        setSyncConflict({ cfi: remoteCfi, percent: remoteProgress.progressPercent });
-      }
-    }
-  }, [remoteProgress, isLoaded, currentCfi, totalProgress, performJump, goTo]);
 
   // 탭 네비게이션 (페이지 모드 전용)
   const handleInteraction = useCallback((e: React.MouseEvent) => {
@@ -382,6 +342,48 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
     await goToFraction(fraction);
   }, [currentCfi, totalProgress, createAutoBookmark, goToFraction]);
+
+  // 동기화 충돌 감지
+  const lastProcessedRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
+  const isInitialSync = useRef(true); // 최초 로딩 감지용
+
+  useEffect(() => {
+    if (!isLoaded || !remoteProgress) return;
+    const remoteTime = remoteProgress.lastRead;
+    const remoteCfi = remoteProgress.cfi;
+
+    if (
+      lastProcessedRemote.current &&
+      lastProcessedRemote.current.cfi === remoteCfi &&
+      lastProcessedRemote.current.lastRead === remoteTime
+    ) return;
+
+    lastProcessedRemote.current = { cfi: remoteCfi, lastRead: remoteTime };
+
+    // 1. 최초 로딩 시: 원격 데이터가 더 최신이면 무조건 이동 (알림 없이)
+    if (isInitialSync.current) {
+      isInitialSync.current = false;
+      if (remoteCfi && remoteCfi !== currentCfi && remoteTime > lastSaveTime.current) {
+        skipNextSave.current = true;
+        goTo(remoteCfi); // 최초 로딩 시에는 자동 북마크 없이 이동
+        return;
+      }
+    }
+
+    if (lastSaveTime.current && Math.abs(remoteTime - lastSaveTime.current) < 5000) return;
+
+    // 현재 위치와 동일하면 무시
+    if (remoteCfi === currentCfi) return;
+
+    if (remoteCfi && remoteTime > lastSaveTime.current) {
+      // 0.03% 이내 차이라면 알림 없이 무시
+      const diff = Math.abs((remoteProgress.progressPercent || 0) - (totalProgress || 0));
+      if (diff > 0.03) {
+        setSyncConflict({ cfi: remoteCfi, percent: remoteProgress.progressPercent });
+      }
+    }
+  }, [remoteProgress, isLoaded, currentCfi, totalProgress, performJump, goTo]);
+
 
   // % 또는 CFI로 이동
   const handleJump = useCallback(() => {
