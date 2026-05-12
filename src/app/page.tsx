@@ -9,7 +9,6 @@ import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDo
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
 import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress, removeProgressFromLocal } from '../lib/localDB';
 import { Shelf } from '../components/shelf';
-import { Reader } from '../components/Reader';
 import dynamic from 'next/dynamic';
 
 const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
@@ -47,7 +46,7 @@ export default function Page() {
 
   const [settings, setSettings] = useState<ViewerSettings>({
     fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify',
-    theme: 'sepia', navMode: 'scroll', fontFamily: 'sans', encoding: 'auto',
+    theme: 'sepia', navMode: 'scroll', fontFamily: 'sans',
     accentColor: 'sky'
   });
 
@@ -228,9 +227,18 @@ export default function Page() {
           const p: Record<string, UserProgress> = {};
 
           for (const d of snapshot.docs) {
-            const data = d.data() as UserProgress & { deviceId?: string };
-            const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
-            p[d.id] = { ...data, lastRead: serverTime };
+            const raw = d.data() as any;
+            const serverTime = raw.lastRead?.toDate ? raw.lastRead.toDate().getTime() : Date.now();
+            // charIndex→cfi 하위 호환: 기존 Firestore 문서에 cfi가 없으면 charIndex를 문자열로 변환
+            const data: UserProgress & { deviceId?: string } = {
+              bookId: raw.bookId || d.id,
+              cfi: raw.cfi || (raw.charIndex !== undefined ? String(raw.charIndex) : ''),
+              progressPercent: raw.progressPercent || 0,
+              lastRead: serverTime,
+              bookmarks: raw.bookmarks || [],
+              deviceId: raw.deviceId,
+            } as any;
+            p[d.id] = data;
 
             // 서버 확정 데이터만 로컬 DB에 저장
             if (!isFromCache && !hasPending) {
@@ -371,29 +379,38 @@ export default function Page() {
     });
   }, []);
 
-  const handleSaveProgress = useCallback(async (cfi: number | string, pct: number, bookmarks?: Bookmark[]) => {
+  const handleSaveProgress = useCallback((cfi: number | string, pct: number, bookmarks?: Bookmark[]) => {
     if (!activeBook) return;
 
-    const now = Date.now();
-    const progressData: UserProgress = {
-      bookId: activeBook.id,
-      cfi: String(cfi),
-      progressPercent: pct,
-      lastRead: now,
-      bookmarks: bookmarks
-    };
+    setProgress(prev => {
+      const now = Date.now();
+      const existingBookmarks = prev[activeBook.id]?.bookmarks || [];
+      const finalBookmarks = bookmarks !== undefined ? bookmarks : existingBookmarks;
 
-    try {
-      await saveProgressToLocal(progressData);
-      setProgress(prev => ({ ...prev, [activeBook.id]: progressData }));
-    } catch (e) { console.error(e); }
+      const progressData: UserProgress = {
+        bookId: activeBook.id,
+        cfi: String(cfi),
+        progressPercent: pct,
+        lastRead: now,
+        bookmarks: finalBookmarks
+      };
 
-    if (user) {
-      try {
-        const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
-        await setDoc(docRef, { ...progressData, lastRead: serverTimestamp(), deviceId: deviceId.current }, { merge: true });
-      } catch (e) { }
-    }
+      // Perform side-effects async
+      setTimeout(async () => {
+        try {
+          await saveProgressToLocal(progressData);
+        } catch (e) { console.error(e); }
+
+        if (user) {
+          try {
+            const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', activeBook.id);
+            await setDoc(docRef, { ...progressData, lastRead: serverTimestamp(), deviceId: deviceId.current }, { merge: true });
+          } catch (e) { console.error('[SaveProgress] Firestore save failed:', e); }
+        }
+      }, 0);
+
+      return { ...prev, [activeBook.id]: progressData };
+    });
   }, [user, activeBook]);
 
   const handleDeleteProgress = useCallback(async (bookId: string) => {
@@ -519,16 +536,16 @@ export default function Page() {
       {/* 4. 리더 (epub 전용) */}
       {view === 'reader' && activeBook && (
         <EpubReader
+          key={activeBook.id}
           book={activeBook}
           googleToken={googleToken || ''}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
-          onSaveProgress={(cfi: string, pct: number, bookmarks?: Bookmark[]) => {
-            handleSaveProgress(cfi, pct, bookmarks);
-          }}
+          onSaveProgress={handleSaveProgress}
           initialCfi={progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
+          remoteProgress={progress[activeBook.id]}
         />
       )}
 

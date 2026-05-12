@@ -22,13 +22,14 @@ interface RelocateDetail {
 interface UseEpubReaderOptions {
   onRelocate?: (detail: RelocateDetail) => void;
   onLoad?: (doc?: Document) => void;
+  initialPercent?: number;
 }
 
 export const useEpubReader = (options?: UseEpubReaderOptions) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
-  const [totalProgress, setTotalProgress] = useState(0);
+  const [totalProgress, setTotalProgress] = useState(options?.initialPercent || 0);
   const [currentCfi, setCurrentCfi] = useState<string>('');
   const [currentChapter, setCurrentChapter] = useState<string>('');
 
@@ -81,13 +82,13 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       if (detail) {
         setCurrentCfi(detail.cfi || '');
         
-        // 전체 진행률 계산
-        if (detail.fraction !== undefined && detail.location) {
+        // 전체 진행률 계산 (foliate-js의 detail.fraction은 0~1 사이의 전체 진행률임)
+        if (detail.fraction !== undefined) {
+          setTotalProgress(Math.min(100, Math.max(0, detail.fraction * 100)));
+        } else if (detail.location) {
           const { current, total } = detail.location;
           if (total > 0) {
-            const sectionProgress = detail.fraction;
-            const overallProgress = ((current + sectionProgress) / total) * 100;
-            setTotalProgress(Math.min(100, Math.max(0, overallProgress)));
+            setTotalProgress((current / total) * 100);
           }
         }
 
@@ -111,8 +112,19 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     setIsReady(true);
   }, [options]);
 
+  // 언마운트 시 뷰 정리 (ResizeObserver 등 잔류 방지)
+  useEffect(() => {
+    return () => {
+      try {
+        viewRef.current?.close();
+        viewRef.current?.remove();
+      } catch (e) { /* ignore */ }
+      viewRef.current = null;
+    };
+  }, []);
+
   // epub 파일 열기
-  const openBook = useCallback(async (source: Blob | File | string) => {
+  const openBook = useCallback(async (source: Blob | File | string, initialCfi?: string) => {
     if (!viewRef.current) {
       await initView();
     }
@@ -127,6 +139,9 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         fileSource = new File([source], 'book.epub', { type: 'application/epub+zip' });
       }
       await view.open(fileSource);
+      // init()을 호출해야 첫 번째 섹션이 실제로 로드됨
+      // initialCfi가 있으면 해당 위치로 바로 렌더링
+      await view.init({ lastLocation: initialCfi || null });
     } catch (e) {
       console.error('Failed to open epub:', e);
       throw e;
@@ -201,6 +216,12 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         ${styles.textAlign ? `text-align: ${styles.textAlign} !important;` : ''}
         ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
       }
+      img, svg, video {
+        max-width: 100% !important;
+        max-height: 95vh !important;
+        height: auto !important;
+        object-fit: contain !important;
+      }
       a { color: inherit !important; }
     `;
 
@@ -217,6 +238,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     margin?: number;
     gap?: string;
     maxColumnCount?: number;
+    maxInlineSize?: string;
     animated?: boolean;
   }) => {
     const view = viewRef.current;
@@ -226,16 +248,44 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     if (layout.margin) view.renderer.setAttribute('margin', `${layout.margin}px`);
     if (layout.gap) view.renderer.setAttribute('gap', layout.gap);
     if (layout.maxColumnCount) view.renderer.setAttribute('max-column-count', String(layout.maxColumnCount));
+    if (layout.maxInlineSize) view.renderer.setAttribute('max-inline-size', layout.maxInlineSize);
     if (layout.animated) view.renderer.setAttribute('animated', '');
   }, []);
 
-  // 검색
-  const search = useCallback(async (query: string): Promise<any[]> => {
+  // 검색 (foliate-js async generator 방식)
+  const searchBook = useCallback(async (
+    query: string,
+    onResult: (result: { label: string; index: number; total: number; progress: number; subitems: { cfi: string; excerpt: any }[] }) => void,
+    onProgress: (p: number) => void,
+  ): Promise<void> => {
     const view = viewRef.current;
-    if (!view) return [];
-    // foliate-js의 search 기능은 view 인스턴스를 통해 접근
-    // 구체적인 API는 Phase 2에서 구현
-    return [];
+    if (!view || !query.trim()) return;
+    try {
+      const total = view.book?.sections?.length || 1;
+      let lastProgress = 0;
+      const iter = view.search({ query });
+      for await (const result of iter) {
+        if (result === 'done') break;
+        if (typeof result?.progress === 'number') {
+          lastProgress = result.progress;
+          onProgress(result.progress);
+        } else if (result?.subitems?.length) {
+          onResult({ 
+            label: result.label || '', 
+            index: result.index || 0,
+            total,
+            progress: lastProgress,
+            subitems: result.subitems 
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[Search] failed:', e);
+    }
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    viewRef.current?.clearSearch?.();
   }, []);
 
   // cleanup
@@ -263,7 +313,8 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     next,
     setStyle,
     setLayout,
-    search,
+    searchBook,
+    clearSearch,
     viewRef,
   };
 };

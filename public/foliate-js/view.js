@@ -560,7 +560,8 @@ export class View extends HTMLElement {
                     .map(({ cfi }) => ({ value: SEARCH_PREFIX + cfi }))
                 this.#searchResults.set(result.index, list)
                 for (const item of list) this.addAnnotation(item)
-                yield {
+                 yield {
+                    index: result.index,
                     label: this.#tocProgress.getProgress(result.index)?.label ?? '',
                     subitems: result.subitems,
                 }

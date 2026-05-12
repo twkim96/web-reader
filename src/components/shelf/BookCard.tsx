@@ -45,7 +45,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         <div className="flex-1 min-w-0 pr-4">
           <div className="flex items-center gap-2">
             <h3 className="text-base sm:text-lg font-bold truncate group-hover:text-accent-500 transition-colors">
-              {book.name.replace('.txt', '')}
+              {book.name.replace(/\.epub$/i, '').replace(/\.txt$/i, '')}
             </h3>
             {isDownloaded && (
               <CheckCircle2 size={16} className="text-green-400 shrink-0" strokeWidth={3} />
@@ -109,9 +109,9 @@ export const BookCard: React.FC<BookCardProps> = ({
         
         <div>
           <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
-            {book.name.replace('.txt', '')}
+            {book.name.replace(/\.epub$/i, '').replace(/\.txt$/i, '')}
           </h3>
-          <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">Text Document</p>
+          <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">EPUB Document</p>
         </div>
 
         <div className="space-y-3">

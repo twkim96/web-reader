@@ -77,10 +77,10 @@ export const uploadFile = async (fileName: string, content: ArrayBuffer, folderI
   const metadata = {
     name: fileName,
     parents: [folderId],
-    mimeType: 'text/plain',
+    mimeType: 'application/epub+zip',
   };
 
-  const head = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n${delimiter}Content-Type: text/plain\r\n\r\n`;
+  const head = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n${delimiter}Content-Type: application/epub+zip\r\n\r\n`;
   
   const body = new Blob([
     head,
@@ -111,7 +111,7 @@ export const uploadFile = async (fileName: string, content: ArrayBuffer, folderI
 };
 
 export const fetchDriveFiles = async (token: string, folderId?: string) => {
-  let q = "mimeType='text/plain' and trashed=false";
+  let q = "mimeType='application/epub+zip' and trashed=false";
   if (folderId) q = `'${folderId}' in parents and ${q}`;
   
   // 파일 목록 조회도 5초 타임아웃 (오프라인 감지용)

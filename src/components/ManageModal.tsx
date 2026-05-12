@@ -56,9 +56,11 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {books.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 opacity-30 gap-4">
+            <div className="flex flex-col items-center justify-center py-12 opacity-30 gap-4 text-center px-4">
               <HardDrive size={48} strokeWidth={1} />
-              <p className="text-xs font-bold uppercase tracking-widest">No Downloads</p>
+              <p className="text-xs font-bold uppercase tracking-widest">
+                구글 드라이브에 <span className="text-accent-500 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.epub</span> 또는 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
+              </p>
             </div>
           ) : (
             books.map((book) => (
@@ -66,7 +68,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
                 <div className="flex items-center gap-4 overflow-hidden">
                   <FileText className="text-accent-400 shrink-0" size={20} />
                   <div className="min-w-0">
-                    <h3 className="font-bold text-sm truncate">{book.name.replace('.txt', '')}</h3>
+                    <h3 className="font-bold text-sm truncate">{book.name.normalize('NFC').replace(/\.epub$/i, '').replace(/\.txt$/i, '')}</h3>
                     <p className="text-[10px] opacity-60 font-bold uppercase tracking-wider">{formatSize(book.size)}</p>
                   </div>
                 </div>
