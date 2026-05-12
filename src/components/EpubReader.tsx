@@ -120,6 +120,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         setLayout({
           flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
           maxColumnCount: 1,
+      margin: 10,
         });
         setStyle({
           fontSize: settings.fontSize,
@@ -167,6 +168,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     setLayout({
       flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
       maxColumnCount: 1,
+      margin: 10,
     });
   }, [isLoaded, settings.navMode, setLayout]);
 
