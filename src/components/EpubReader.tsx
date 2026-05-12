@@ -296,6 +296,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       type: 'manual',
       name: preview,
       cfi: currentCfi,
+      progressPercent: totalProgress,
       createdAt: Date.now(),
       color: '#f59e0b',
     };

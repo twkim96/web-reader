@@ -82,7 +82,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       const detail = e.detail;
       if (detail) {
         setCurrentCfi(detail.cfi || '');
-        
+
         // 전체 진행률 계산 (foliate-js의 detail.fraction은 0~1 사이의 전체 진행률임)
         if (detail.fraction !== undefined) {
           setTotalProgress(Math.min(100, Math.max(0, detail.fraction * 100)));
@@ -140,22 +140,40 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         fileSource = new File([source], 'book.epub', { type: 'application/epub+zip' });
       }
       await view.open(fileSource);
-      
+      await view.init({ lastLocation: initialCfi || null });
+
       // 목차 데이터 구성 (진행률 포함)
+      // view.init() 이후에 계산하여 renderer가 준비된 상태에서 진행
       const sections = view.book.sections || [];
-      const sizes = sections.map((s: any) => s.linear !== 'no' && s.size > 0 ? s.size : 0);
+      const sizes = sections.map((s: any) => (s.linear !== 'no' && s.size > 0) ? s.size : 0);
       const sizeTotal = sizes.reduce((a: number, b: number) => a + b, 0);
+      
       const sectionFractions: number[] = [0];
-      let sum = 0;
-      for (const size of sizes) sectionFractions.push((sum += size) / sizeTotal);
+      if (sizeTotal > 0) {
+        let sum = 0;
+        for (const size of sizes) sectionFractions.push((sum += size) / sizeTotal);
+      } else {
+        // 사이즈 정보가 없을 경우 섹션 개수로 균등 분할
+        for (let i = 1; i <= sections.length; i++) sectionFractions.push(i / sections.length);
+      }
 
       const rawToc = view.book.toc || [];
-      
-      // 재귀적으로 목차에 진행률 추가
       const enrichTocItems = (items: any[]): any[] => {
         return items.map(item => {
+          // 1. 기본 해상도 시도
           const resolved = view.resolveNavigation(item.href);
-          const index = resolved?.index ?? 0;
+          let index = (resolved && typeof resolved === 'object') ? (resolved.index ?? 0) : 0;
+          
+          // 2. 수동 검색 (경로 정규화 비교)
+          if (index === 0 && item.href) {
+            const hrefPath = item.href.split('#')[0].split('/').pop(); // 파일명만 추출
+            const foundIndex = sections.findIndex((s: any) => {
+              const sPath = (s.id || s.href || '').split('/').pop();
+              return sPath && hrefPath && sPath === hrefPath;
+            });
+            if (foundIndex !== -1) index = foundIndex;
+          }
+
           const progress = (sectionFractions[index] || 0) * 100;
           
           const enrichedItem = { ...item, progress };
@@ -167,9 +185,6 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       };
 
       setToc(enrichTocItems(rawToc));
-      // init()을 호출해야 첫 번째 섹션이 실제로 로드됨
-      // initialCfi가 있으면 해당 위치로 바로 렌더링
-      await view.init({ lastLocation: initialCfi || null });
     } catch (e) {
       console.error('Failed to open epub:', e);
       throw e;
@@ -298,12 +313,12 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
           lastProgress = result.progress;
           onProgress(result.progress);
         } else if (result?.subitems?.length) {
-          onResult({ 
-            label: result.label || '', 
+          onResult({
+            label: result.label || '',
             index: result.index || 0,
             total,
             progress: lastProgress,
-            subitems: result.subitems 
+            subitems: result.subitems
           });
         }
       }

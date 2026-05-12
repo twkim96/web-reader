@@ -25,7 +25,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div 
+      <div
         className={`w-full max-w-md rounded-t-[2.5rem] ${theme.bg} ${theme.text} shadow-2xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-300`}
         onClick={e => e.stopPropagation()}
       >
@@ -56,11 +56,10 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
               <button
                 key={idx}
                 onClick={() => onJump(item.href)}
-                className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group ${
-                  currentChapter === item.label 
-                    ? 'bg-accent-500/10 text-accent-500' 
+                className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group ${currentChapter === item.label
+                    ? 'bg-accent-500/10 text-accent-500'
                     : 'hover:bg-white/5'
-                }`}
+                  }`}
               >
                 <div className="flex items-center gap-4 min-w-0 flex-1">
                   <span className={`text-[10px] font-black w-5 text-accent-500 ${currentChapter === item.label ? 'opacity-100' : 'opacity-40'} group-hover:opacity-100 transition-opacity`}>
@@ -82,10 +81,10 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
             ))
           )}
         </div>
-        
+
         <div className="p-6">
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl tracking-[0.2em] uppercase text-[10px] shadow-xl active:scale-95 transition-all"
           >
             Close

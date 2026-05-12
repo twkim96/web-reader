@@ -75,7 +75,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                         <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                         <span className="w-1 h-1 rounded-full bg-current opacity-20" />
                         <span className="font-bold text-accent-500 bg-accent-500/10 px-1.5 py-0.5 rounded text-[11px]">
-                          {bm.cfi ? 'CFI' : ''}
+                          {bm.progressPercent !== undefined ? `${bm.progressPercent.toFixed(1)}%` : 'CFI'}
                         </span>
                       </p>
                     </div>
@@ -118,7 +118,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                       <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                       <span className="w-1 h-1 rounded-full bg-current opacity-20" />
                       <span className="font-bold text-accent-500 bg-accent-500/10 px-1.5 py-0.5 rounded text-[11px]">
-                        {bm.cfi ? 'CFI' : ''}
+                        {bm.progressPercent !== undefined ? `${bm.progressPercent.toFixed(1)}%` : 'CFI'}
                       </span>
                     </p>
                   </div>
