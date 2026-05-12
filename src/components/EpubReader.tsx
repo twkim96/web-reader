@@ -4,10 +4,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Book, ViewerSettings, Bookmark, UserProgress } from '../types';
 import { THEMES } from '../lib/constants';
-import { ChevronLeft, Search, Settings, Palette, Bookmark as BookmarkIcon, Hash, RefreshCw, X, Trash2 } from 'lucide-react';
+import { ChevronLeft, Search, Settings, Palette, Bookmark as BookmarkIcon, Hash, RefreshCw, X, Trash2, List } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
+import { TocModal } from './TocModal';
 import { EpubSearchModal } from './EpubSearchModal';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { loadBookFromLocal, saveBookToLocal } from '../lib/localDB';
@@ -41,6 +42,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
+  const [showToc, setShowToc] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showJumpInput, setShowJumpInput] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
@@ -76,6 +78,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     setLayout,
     searchBook,
     clearSearch,
+    toc,
   } = useEpubReader({
     initialPercent,
     onRelocate: (detail) => {
@@ -135,7 +138,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         setLayout({
           flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
           maxColumnCount: 1,
-          margin: 20,
+          margin: 5,
           maxInlineSize: '1000px',
         });
         setStyle({
@@ -177,7 +180,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     setLayout({
       flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
       maxColumnCount: 1,
-      margin: 20,
+      margin: 5,
       maxInlineSize: '1000px',
     });
   }, [isLoaded, settings.navMode, setLayout]);
@@ -433,6 +436,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
               Mark{bookmarks.length > 0 ? ` (${bookmarks.length})` : ''}
             </span>
           </button>
+          <button onClick={() => setShowToc(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+            <List size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Index</span>
+          </button>
         </div>
       </div>
 
@@ -459,6 +465,17 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onAdd={addBookmark}
           onDelete={deleteBookmark}
           onJump={(cfi) => { performJump(cfi); setShowBookmarks(false); }}
+        />
+      )}
+
+      {/* 목차 모달 */}
+      {showToc && (
+        <TocModal
+          toc={toc}
+          theme={theme}
+          onClose={() => setShowToc(false)}
+          onJump={(href) => { performJump(href); setShowToc(false); }}
+          currentChapter={currentChapter}
         />
       )}
 

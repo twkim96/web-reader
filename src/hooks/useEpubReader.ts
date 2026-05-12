@@ -32,6 +32,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
   const [totalProgress, setTotalProgress] = useState(options?.initialPercent || 0);
   const [currentCfi, setCurrentCfi] = useState<string>('');
   const [currentChapter, setCurrentChapter] = useState<string>('');
+  const [toc, setToc] = useState<any[]>([]);
 
   // Foliate-js 초기화 (view.js import 및 <foliate-view> 생성)
   const initView = useCallback(async () => {
@@ -139,6 +140,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         fileSource = new File([source], 'book.epub', { type: 'application/epub+zip' });
       }
       await view.open(fileSource);
+      setToc(view.book.toc || []);
       // init()을 호출해야 첫 번째 섹션이 실제로 로드됨
       // initialCfi가 있으면 해당 위치로 바로 렌더링
       await view.init({ lastLocation: initialCfi || null });
@@ -306,6 +308,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     totalProgress,
     currentCfi,
     currentChapter,
+    toc,
     openBook,
     goTo,
     goToFraction,
