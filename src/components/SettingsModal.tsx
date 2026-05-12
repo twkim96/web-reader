@@ -42,23 +42,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
-        {/* 2. 인코딩 */}
-        <div>
-          <label className={labelStyle}>Encoding</label>
-          <div className="flex flex-wrap gap-2">
-            {(['auto', 'utf-8', 'euc-kr', 'utf-16le'] as const).map(enc => (
-              <button 
-                key={enc}
-                onClick={() => onUpdateSettings({ encoding: enc })}
-                className={`flex-1 min-w-[70px] py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.encoding === enc ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
-              >
-                {enc === 'auto' ? 'Auto' : enc === 'utf-16le' ? 'UTF-16' : enc}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* 3. 글자 크기 및 줄 간격 */}
+        {/* 2. 글자 크기 및 줄 간격 */}
         <div className="flex gap-6">
           <div className="flex-1">
             <label className={labelStyle}>Size</label>

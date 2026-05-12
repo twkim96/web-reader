@@ -164,35 +164,50 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     viewRef.current?.next();
   }, []);
 
-  // 렌더러 스타일 설정
+  // 렌더러 스타일 설정 (epub 내부 CSS 오버라이드)
   const setStyle = useCallback((styles: {
     fontSize?: number;
     lineHeight?: number;
     fontFamily?: string;
-    padding?: number;
     textAlign?: string;
+    bgColor?: string;
+    textColor?: string;
   }) => {
     const view = viewRef.current;
     if (!view?.renderer) return;
 
-    // epub 내부 CSS를 오버라이드하기 위한 스타일시트 주입
-    const css = `
-      body, p, div, span {
-        ${styles.fontSize ? `font-size: ${styles.fontSize}px !important;` : ''}
-        ${styles.lineHeight ? `line-height: ${styles.lineHeight} !important;` : ''}
-        ${styles.fontFamily ? `font-family: ${styles.fontFamily} !important;` : ''}
-        ${styles.textAlign ? `text-align: ${styles.textAlign} !important;` : ''}
-      }
+    // 폰트 패밀리 매핑
+    const fontMap: Record<string, string> = {
+      sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      serif: '"Noto Serif KR", "Noto Serif", Georgia, serif',
+      ridi: '"RIDIBatang", "Noto Serif KR", serif',
+    };
+    const fontStack = styles.fontFamily ? fontMap[styles.fontFamily] || styles.fontFamily : '';
+
+    // CSS 생성 — beforeStyle (폰트 페이스), style (본문)
+    const beforeStyle = `
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap');
     `;
 
-    // view.renderer에 setStyles 또는 CSS를 주입하는 방법은
-    // foliate-js 버전에 따라 다를 수 있음 — 추후 Phase 2에서 정밀 조정
-    try {
-      if (view.renderer?.setStyles) {
-        view.renderer.setStyles(css);
+    const style = `
+      html, body {
+        ${styles.bgColor ? `background-color: ${styles.bgColor} !important;` : ''}
+        ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
       }
+      body, p, div, span, li, td, th, dd, dt, blockquote, cite, pre, code, h1, h2, h3, h4, h5, h6 {
+        ${styles.fontSize ? `font-size: ${styles.fontSize}px !important;` : ''}
+        ${styles.lineHeight ? `line-height: ${styles.lineHeight} !important;` : ''}
+        ${fontStack ? `font-family: ${fontStack} !important;` : ''}
+        ${styles.textAlign ? `text-align: ${styles.textAlign} !important;` : ''}
+        ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
+      }
+      a { color: inherit !important; }
+    `;
+
+    try {
+      view.renderer.setStyles([beforeStyle, style]);
     } catch (e) {
-      console.warn('Style injection not yet supported:', e);
+      console.warn('[EpubReader] Style injection failed:', e);
     }
   }, []);
 

@@ -40,6 +40,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
 
+  // 테마별 실제 HEX 색상 매핑 (epub 내부 CSS 주입용)
+  const THEME_COLORS: Record<string, { bg: string; text: string }> = {
+    light:  { bg: '#ffffff', text: '#222222' },
+    dark:   { bg: '#272728', text: '#b8b8b8' },
+    sepia:  { bg: '#f4ecd8', text: '#5b4636' },
+    blue:   { bg: '#eef2f7', text: '#2c3e50' },
+  };
+  const themeColors = THEME_COLORS[settings.theme] || THEME_COLORS.sepia;
+
   const {
     containerRef,
     isReady,
@@ -52,6 +61,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     prev,
     next,
     viewRef,
+    setStyle,
+    setLayout,
   } = useEpubReader({
     onRelocate: (detail) => {
       // 주기적 저장 (5초마다)
@@ -103,20 +114,21 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         // openBook이 내부적으로 initView()를 호출하여 <foliate-view> 생성
         console.log('[EpubReader] Calling openBook...');
         await openBook(source);
-        console.log('[EpubReader] openBook completed! Setting isLoaded=true');
+        console.log('[EpubReader] openBook completed!');
 
-        // 렌더러 설정: 1페이지 고정
-        const renderer = viewRef.current?.renderer;
-        console.log('[EpubReader] renderer:', renderer, 'navMode:', settings.navMode);
-        if (renderer) {
-          renderer.setAttribute('max-column-count', '1');
-          // 스크롤 모드 여부
-          const flow = settings.navMode === 'scroll' ? 'scrolled' : 'paginated';
-          renderer.setAttribute('flow', flow);
-          console.log('[EpubReader] Set flow:', flow, 'max-column-count: 1');
-        } else {
-          console.warn('[EpubReader] renderer not found on view!');
-        }
+        // 초기 렌더러 설정
+        setLayout({
+          flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
+          maxColumnCount: 1,
+        });
+        setStyle({
+          fontSize: settings.fontSize,
+          lineHeight: settings.lineHeight,
+          fontFamily: settings.fontFamily,
+          textAlign: settings.textAlign,
+          bgColor: themeColors.bg,
+          textColor: themeColors.text,
+        });
 
         setIsLoaded(true);
 
@@ -135,6 +147,28 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
     loadEpub();
   }, [book.id, googleToken]);
+
+  // settings 변경 시 epub 내부 스타일 즉시 반영
+  useEffect(() => {
+    if (!isLoaded) return;
+    setStyle({
+      fontSize: settings.fontSize,
+      lineHeight: settings.lineHeight,
+      fontFamily: settings.fontFamily,
+      textAlign: settings.textAlign,
+      bgColor: themeColors.bg,
+      textColor: themeColors.text,
+    });
+  }, [isLoaded, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.textAlign, settings.theme, setStyle]);
+
+  // navMode 변경 시 렌더러 flow 변경
+  useEffect(() => {
+    if (!isLoaded) return;
+    setLayout({
+      flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
+      maxColumnCount: 1,
+    });
+  }, [isLoaded, settings.navMode, setLayout]);
 
   // 탭 숨김/언마운트 시 저장
   useEffect(() => {
