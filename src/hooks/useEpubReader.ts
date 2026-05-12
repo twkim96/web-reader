@@ -140,7 +140,24 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         fileSource = new File([source], 'book.epub', { type: 'application/epub+zip' });
       }
       await view.open(fileSource);
-      setToc(view.book.toc || []);
+      
+      // 목차 데이터 구성 (진행률 포함)
+      const sections = view.book.sections || [];
+      const sizes = sections.map((s: any) => s.linear !== 'no' && s.size > 0 ? s.size : 0);
+      const sizeTotal = sizes.reduce((a: number, b: number) => a + b, 0);
+      const sectionFractions: number[] = [0];
+      let sum = 0;
+      for (const size of sizes) sectionFractions.push((sum += size) / sizeTotal);
+
+      const rawToc = view.book.toc || [];
+      const enrichedToc = rawToc.map((item: any) => {
+        const resolved = view.resolveNavigation(item.href);
+        const index = resolved?.index ?? 0;
+        const progress = (sectionFractions[index] || 0) * 100;
+        return { ...item, progress };
+      });
+
+      setToc(enrichedToc);
       // init()을 호출해야 첫 번째 섹션이 실제로 로드됨
       // initialCfi가 있으면 해당 위치로 바로 렌더링
       await view.init({ lastLocation: initialCfi || null });

@@ -49,17 +49,22 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
                     : 'hover:bg-white/5'
                 }`}
               >
-                <div className="flex items-center gap-4 min-w-0">
-                  <span className={`text-[10px] font-black w-5 opacity-20 group-hover:opacity-100 transition-opacity`}>
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <span className={`text-[10px] font-black w-5 text-accent-500 ${currentChapter === item.label ? 'opacity-100' : 'opacity-40'} group-hover:opacity-100 transition-opacity`}>
                     {(idx + 1).toString().padStart(2, '0')}
                   </span>
                   <span className={`text-sm font-bold truncate ${currentChapter === item.label ? 'text-accent-500' : 'opacity-80'}`}>
                     {item.label}
                   </span>
                 </div>
-                {currentChapter === item.label && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-accent-500 shadow-[0_0_8px_rgba(var(--accent-500-rgb),0.6)]" />
-                )}
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className={`text-[10px] font-bold ${currentChapter === item.label ? 'text-accent-500' : 'opacity-30'}`}>
+                    {item.progress?.toFixed(1)}%
+                  </span>
+                  {currentChapter === item.label && (
+                    <div className="w-1.5 h-1.5 rounded-full bg-accent-500 shadow-[0_0_8px_rgba(var(--accent-500-rgb),0.6)]" />
+                  )}
+                </div>
               </button>
             ))
           )}
