@@ -156,6 +156,22 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
           touchStartY = ev.touches[0].clientY;
         }, { passive: true });
 
+        doc.addEventListener('touchmove', (ev: TouchEvent) => {
+          const viewEl = viewRef.current;
+          if (!viewEl || !viewEl.renderer) return;
+          const renderer = viewEl.renderer;
+          if (renderer.getAttribute('flow') !== 'scrolled') return;
+
+          const currentY = ev.touches[0].clientY;
+          const deltaY = touchStartY - currentY; // 음수면 아래로 스와이프 (새로고침 방향)
+          const scrollPos = renderer.start;
+
+          // 최상단에서 아래로 당길 때만 브라우저 기본 동작(새로고침) 방지
+          if (scrollPos <= 0 && deltaY < 0) {
+            if (ev.cancelable) ev.preventDefault();
+          }
+        }, { passive: false });
+
         doc.addEventListener('touchend', (ev: TouchEvent) => {
           const viewEl = viewRef.current;
           if (!viewEl || !viewEl.renderer) return;
@@ -340,7 +356,6 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         padding: 10px 2px !important;
         width: 100% !important;
         max-width: none !important;
-        overscroll-behavior-y: none !important;
       }
       body, p, div, span, li, td, th, dd, dt, blockquote, cite, pre, code, h1, h2, h3, h4, h5, h6 {
         ${styles.fontSize ? `font-size: ${styles.fontSize}px !important;` : ''}
