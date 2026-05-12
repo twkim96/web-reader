@@ -2,6 +2,7 @@ import React from 'react';
 import { findFolderId, createFolder, uploadFile } from '../../lib/googleDrive';
 import { saveBookToLocal } from '../../lib/localDB';
 import { Book } from '../../types';
+import { convertTxtToEpub } from '../../lib/txtToEpub';
 
 interface FileUploaderProps {
   googleToken: string | null;
@@ -60,11 +61,36 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       const content = event.target?.result as ArrayBuffer;
       if (!content) return;
 
-      let bookId = file.name; // 기본값은 파일명
+      const isTxt = file.name.toLowerCase().endsWith('.txt');
+      
+      // txt 파일이면 epub으로 자동 변환
+      let finalContent: ArrayBuffer;
+      let finalFileName: string;
+      let finalMimeType: string;
+
+      if (isTxt) {
+        try {
+          const epubBlob = await convertTxtToEpub(content, file.name, 'auto');
+          finalContent = await epubBlob.arrayBuffer();
+          finalFileName = file.name.replace(/\.txt$/i, '.epub');
+          finalMimeType = 'application/epub+zip';
+        } catch (err) {
+          console.error('txt→epub 변환 실패:', err);
+          alert('txt→epub 변환에 실패했습니다.');
+          return;
+        }
+      } else {
+        // epub은 그대로
+        finalContent = content;
+        finalFileName = file.name;
+        finalMimeType = 'application/epub+zip';
+      }
+
+      let bookId = finalFileName; // 기본값은 파일명
       
       // 1. 구글 드라이브 동기화 (클라우드 모드일 때 먼저 실행하여 ID 확보)
       if (!isOfflineMode && googleToken) {
-        const driveId = await syncFileToDrive(file.name, content);
+        const driveId = await syncFileToDrive(finalFileName, finalContent);
         if (driveId) {
           bookId = driveId; // 드라이브 업로드 성공 시 해당 ID 사용
         }
@@ -76,11 +102,11 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       // 2. 로컬 저장 (확보된 bookId 사용 - 중복 방지 핵심)
       const book: Book = {
         id: bookId,
-        name: file.name,
-        mimeType: file.type || 'text/plain',
+        name: finalFileName,
+        mimeType: finalMimeType,
       };
       
-      await saveBookToLocal(book, content);
+      await saveBookToLocal(book, finalContent);
       
       if (onLocalBookImported) {
         onLocalBookImported();
@@ -92,7 +118,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
   return (
     <input 
       type="file" 
-      accept=".txt" 
+      accept=".txt,.epub" 
       ref={fileInputRef} 
       style={{ display: 'none' }} 
       onChange={handleFileUpload} 
