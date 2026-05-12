@@ -21,7 +21,7 @@ interface RelocateDetail {
 
 interface UseEpubReaderOptions {
   onRelocate?: (detail: RelocateDetail) => void;
-  onLoad?: () => void;
+  onLoad?: (doc?: Document) => void;
 }
 
 export const useEpubReader = (options?: UseEpubReaderOptions) => {
@@ -100,9 +100,10 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       }
     });
 
-    // load 이벤트: 섹션이 로드될 때
-    view.addEventListener('load', () => {
-      options?.onLoad?.();
+    // load 이벤트: 섹션이 로드될 때 (iframe doc 접근 가능)
+    view.addEventListener('load', (e: CustomEvent) => {
+      const { doc } = e.detail || {};
+      options?.onLoad?.(doc);
     });
 
     containerRef.current.appendChild(view);

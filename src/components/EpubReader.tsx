@@ -63,6 +63,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         }
       }
     },
+    onLoad: (doc) => {
+      // iframe 내부 document에 클릭 리스너 주입 (스크롤 모드 탭 감지)
+      if (!doc) return;
+      doc.addEventListener('click', () => {
+        setShowControls(prev => !prev);
+      });
+    },
   });
 
   const lastSaveTime = useRef(Date.now());
@@ -98,13 +105,17 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         await openBook(source);
         console.log('[EpubReader] openBook completed! Setting isLoaded=true');
 
-        // 렌더러 설정: 1페이지 고정 + 애니메이션
+        // 렌더러 설정: 1페이지 고정
         const renderer = viewRef.current?.renderer;
+        console.log('[EpubReader] renderer:', renderer, 'navMode:', settings.navMode);
         if (renderer) {
           renderer.setAttribute('max-column-count', '1');
-          renderer.setAttribute('animated', '');
           // 스크롤 모드 여부
-          renderer.setAttribute('flow', settings.navMode === 'scroll' ? 'scrolled' : 'paginated');
+          const flow = settings.navMode === 'scroll' ? 'scrolled' : 'paginated';
+          renderer.setAttribute('flow', flow);
+          console.log('[EpubReader] Set flow:', flow, 'max-column-count: 1');
+        } else {
+          console.warn('[EpubReader] renderer not found on view!');
         }
 
         setIsLoaded(true);
@@ -165,26 +176,25 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     return () => window.removeEventListener('popstate', handlePopState);
   }, [onBack, showSettings, showThemeModal]);
 
-  // 탭 네비게이션
-  const handleInteraction = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    const point = 'touches' in e ? e.touches[0] : (e as React.MouseEvent);
-    const { clientX, clientY } = point;
+  // 스크롤 모드 탭 감지는 onLoad 콜백에서 iframe doc에 직접 주입됨
+
+  // 탭 네비게이션 (페이지 모드 전용)
+  const handleInteraction = useCallback((e: React.MouseEvent) => {
+    const { clientX, clientY } = e;
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    if (settings.navMode !== 'scroll') {
-      if (settings.navMode === 'page') {
-        if (clientY > h * 0.7) { next(); return; }
-        if (clientY < h * 0.3) { prev(); return; }
-      } else if (settings.navMode === 'left-right') {
-        if (clientX < w * 0.3) { prev(); return; }
-        if (clientX > w * 0.7) { next(); return; }
-      } else if (settings.navMode === 'all-dir') {
-        if (clientY < h * 0.3) { prev(); return; }
-        if (clientY > h * 0.7) { next(); return; }
-        if (clientX < w * 0.3) { prev(); return; }
-        if (clientX > w * 0.7) { next(); return; }
-      }
+    if (settings.navMode === 'page') {
+      if (clientY > h * 0.7) { next(); return; }
+      if (clientY < h * 0.3) { prev(); return; }
+    } else if (settings.navMode === 'left-right') {
+      if (clientX < w * 0.3) { prev(); return; }
+      if (clientX > w * 0.7) { next(); return; }
+    } else if (settings.navMode === 'all-dir') {
+      if (clientY < h * 0.3) { prev(); return; }
+      if (clientY > h * 0.7) { next(); return; }
+      if (clientX < w * 0.3) { prev(); return; }
+      if (clientX > w * 0.7) { next(); return; }
     }
     setShowControls(!showControls);
   }, [settings.navMode, showControls, prev, next]);
@@ -193,22 +203,22 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   return (
     <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}>
-      {/* 로딩 오버레이 — containerRef는 항상 뒤에 존재 */}
+      {/* 로딩 오버레이 */}
       {!isLoaded && (
         <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
           Loading...
         </div>
       )}
 
-      {/* Epub Viewer Container — 항상 DOM에 존재해야 Foliate-js가 마운트됨 */}
+      {/* Epub Viewer Container */}
       <div
         ref={containerRef}
         className="w-full h-full"
         style={{ position: 'relative' }}
       />
 
-      {/* 투명 클릭 오버레이 — Shadow DOM 위에서 탭 이벤트 캡처 (스크롤 모드에서는 비활성) */}
-      {isLoaded && !showControls && settings.navMode !== 'scroll' && (
+      {/* 탭 오버레이 (페이지 모드 전용 — 스크롤 모드는 useEffect로 처리) */}
+      {isLoaded && settings.navMode !== 'scroll' && (
         <div
           className="fixed inset-0 z-10"
           style={{ background: 'transparent' }}
