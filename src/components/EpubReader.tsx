@@ -400,7 +400,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [jumpInput, performJump, performJumpFraction]);
 
   return (
-    <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}>
+    <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`} style={{ overscrollBehaviorY: 'none' }}>
       {/* 로딩 오버레이 */}
       {!isLoaded && (
         <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>

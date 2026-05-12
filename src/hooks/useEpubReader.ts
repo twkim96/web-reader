@@ -169,10 +169,10 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
           const totalSize = renderer.viewSize;
           const viewportSize = renderer.size;
 
-          // 터치 스와이프 임계값 (50px)
-          if (scrollPos <= 0 && deltaY < -60) {
+          // 터치 스와이프 임계값 (60px)
+          if (scrollPos <= 5 && deltaY < -60) {
             viewEl.prev();
-          } else if (scrollPos + viewportSize >= totalSize - 10 && deltaY > 60) {
+          } else if (scrollPos + viewportSize >= totalSize - 15 && deltaY > 60) {
             viewEl.next();
           }
         }, { passive: true });
@@ -340,6 +340,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         padding: 10px 2px !important;
         width: 100% !important;
         max-width: none !important;
+        overscroll-behavior-y: none !important;
       }
       body, p, div, span, li, td, th, dd, dt, blockquote, cite, pre, code, h1, h2, h3, h4, h5, h6 {
         ${styles.fontSize ? `font-size: ${styles.fontSize}px !important;` : ''}
