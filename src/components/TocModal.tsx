@@ -10,6 +10,19 @@ interface TocModalProps {
 }
 
 export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump, currentChapter }) => {
+  // 목차 평탄화 (중첩된 챕터도 리스트에 표시)
+  const flattenToc = (items: any[]): any[] => {
+    return items.reduce((acc, item) => {
+      acc.push(item);
+      if (item.subitems && item.subitems.length > 0) {
+        acc.push(...flattenToc(item.subitems));
+      }
+      return acc;
+    }, []);
+  };
+
+  const allChapters = flattenToc(toc);
+
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div 
@@ -34,12 +47,12 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
 
         {/* List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-1 custom-scrollbar">
-          {toc.length === 0 ? (
+          {allChapters.length === 0 ? (
             <div className="py-20 text-center opacity-30 text-xs font-bold uppercase tracking-widest">
               No Chapters Found
             </div>
           ) : (
-            toc.map((item, idx) => (
+            allChapters.map((item, idx) => (
               <button
                 key={idx}
                 onClick={() => onJump(item.href)}
@@ -58,8 +71,8 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
                   </span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <span className={`text-[10px] font-bold ${currentChapter === item.label ? 'text-accent-500' : 'opacity-30'}`}>
-                    {item.progress?.toFixed(1)}%
+                  <span className={`text-[10px] font-bold text-accent-500 ${currentChapter === item.label ? 'opacity-100' : 'opacity-30'} group-hover:opacity-100 transition-opacity`}>
+                    {(item.progress || 0).toFixed(1)}%
                   </span>
                   {currentChapter === item.label && (
                     <div className="w-1.5 h-1.5 rounded-full bg-accent-500 shadow-[0_0_8px_rgba(var(--accent-500-rgb),0.6)]" />

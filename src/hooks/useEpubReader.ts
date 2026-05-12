@@ -150,14 +150,23 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       for (const size of sizes) sectionFractions.push((sum += size) / sizeTotal);
 
       const rawToc = view.book.toc || [];
-      const enrichedToc = rawToc.map((item: any) => {
-        const resolved = view.resolveNavigation(item.href);
-        const index = resolved?.index ?? 0;
-        const progress = (sectionFractions[index] || 0) * 100;
-        return { ...item, progress };
-      });
+      
+      // 재귀적으로 목차에 진행률 추가
+      const enrichTocItems = (items: any[]): any[] => {
+        return items.map(item => {
+          const resolved = view.resolveNavigation(item.href);
+          const index = resolved?.index ?? 0;
+          const progress = (sectionFractions[index] || 0) * 100;
+          
+          const enrichedItem = { ...item, progress };
+          if (item.subitems && item.subitems.length > 0) {
+            enrichedItem.subitems = enrichTocItems(item.subitems);
+          }
+          return enrichedItem;
+        });
+      };
 
-      setToc(enrichedToc);
+      setToc(enrichTocItems(rawToc));
       // init()을 호출해야 첫 번째 섹션이 실제로 로드됨
       // initialCfi가 있으면 해당 위치로 바로 렌더링
       await view.init({ lastLocation: initialCfi || null });
