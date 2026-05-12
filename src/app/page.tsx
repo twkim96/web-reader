@@ -46,7 +46,7 @@ export default function Page() {
 
   const [settings, setSettings] = useState<ViewerSettings>({
     fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify',
-    theme: 'sepia', navMode: 'scroll', fontFamily: 'sans',
+    theme: 'sepia', navMode: 'scroll', fontFamily: 'ridi',
     accentColor: 'sky'
   });
 

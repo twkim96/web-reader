@@ -245,16 +245,20 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     // CSS 생성 — beforeStyle (폰트 페이스), style (본문)
     const beforeStyle = `
       @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap');
+      @font-face {
+        font-family: 'RIDIBatang';
+        src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_twelve@1.1/RIDIBatang.woff') format('woff');
+        font-weight: normal;
+        font-style: normal;
+      }
     `;
 
     const style = `
       html, body {
         ${styles.bgColor ? `background-color: ${styles.bgColor} !important;` : ''}
         ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
+        margin: 2px 0 !important;
+        padding: 0 !important;
       }
       body, p, div, span, li, td, th, dd, dt, blockquote, cite, pre, code, h1, h2, h3, h4, h5, h6 {
         ${styles.fontSize ? `font-size: ${styles.fontSize}px !important;` : ''}
