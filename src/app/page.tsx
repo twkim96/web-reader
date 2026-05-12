@@ -10,6 +10,9 @@ import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
 import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress, removeProgressFromLocal } from '../lib/localDB';
 import { Shelf } from '../components/shelf';
 import { Reader } from '../components/Reader';
+import dynamic from 'next/dynamic';
+
+const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
 import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { HardDrive, LogOut, ShieldCheck, Wifi, WifiOff, User as UserIcon } from 'lucide-react';
@@ -368,13 +371,13 @@ export default function Page() {
     });
   }, []);
 
-  const handleSaveProgress = useCallback(async (idx: number, pct: number, bookmarks?: Bookmark[]) => {
-    if (!activeBook || isNaN(idx)) return;
+  const handleSaveProgress = useCallback(async (idx: number | string, pct: number, bookmarks?: Bookmark[]) => {
+    if (!activeBook) return;
 
     const now = Date.now();
     const progressData: UserProgress = {
       bookId: activeBook.id,
-      charIndex: idx,
+      charIndex: idx as any, // Phase 3에서 cfi: string으로 정식 전환 예정
       progressPercent: pct,
       lastRead: now,
       bookmarks: bookmarks
@@ -513,17 +516,19 @@ export default function Page() {
         />
       )}
 
-      {/* 4. 리더 */}
+      {/* 4. 리더 (epub 전용) */}
       {view === 'reader' && activeBook && (
-        <Reader
+        <EpubReader
           book={activeBook}
           googleToken={googleToken || ''}
-          initialProgress={progress[activeBook.id]}
-          remoteProgress={remoteProgress[activeBook.id]}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
-          onSaveProgress={handleSaveProgress}
+          onSaveProgress={(cfi: string, pct: number, bookmarks?: Bookmark[]) => {
+            handleSaveProgress(cfi, pct, bookmarks);
+          }}
+          initialCfi={progress[activeBook.id]?.charIndex as unknown as string}
+          initialPercent={progress[activeBook.id]?.progressPercent}
         />
       )}
 
