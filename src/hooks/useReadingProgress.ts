@@ -117,6 +117,7 @@ export const useReadingProgress = ({
       type: 'auto',
       name: getPreviewText(originIndex),
       cfi: String(originIndex),
+      progressPercent: readPercent,
       createdAt: Date.now(),
       color: 'bg-slate-500'
     };
@@ -141,6 +142,7 @@ export const useReadingProgress = ({
       type: 'manual',
       name: getPreviewText(targetIdx),
       cfi: String(targetIdx),
+      progressPercent: readPercent,
       createdAt: Date.now(),
       color: nextColor
     };

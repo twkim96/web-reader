@@ -26,7 +26,7 @@ export interface Bookmark {
   type: 'manual' | 'auto';
   name: string;      // Preview text
   cfi: string;       // epub CFI position
-  progressPercent: number;
+  progressPercent?: number;
   createdAt: number;
   color: string;     // Color code (Tailwind class or Hex)
 }

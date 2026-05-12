@@ -320,6 +320,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       type: 'auto',
       name: `이전 위치: ${preview}`,
       cfi: prevCfi,
+      progressPercent: prevPct,
       createdAt: Date.now(),
       color: '#64748b',
     };
