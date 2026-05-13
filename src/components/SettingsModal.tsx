@@ -1,12 +1,12 @@
 // src/components/SettingsModal.tsx
 import React from 'react';
-import { ViewerSettings } from '../types';
+import { ThemeClasses, ViewerSettings } from '../types';
 
 interface SettingsModalProps {
   settings: ViewerSettings;
   onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onClose: () => void;
-  theme: any;
+  theme: ThemeClasses;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 

@@ -4,11 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { getAllOfflineBooks, removeBookFromLocal } from '../lib/localDB';
 import { Trash2, HardDrive, X, FileText } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ThemeClasses } from '../types';
 
 interface ManageModalProps {
   onClose: () => void;
   onUpdate: () => void;
-  theme: any;
+  theme: ThemeClasses;
 }
 
 export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, theme }) => {
@@ -25,7 +26,10 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
     })));
   };
 
-  useEffect(() => { loadBooks(); }, []);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => void loadBooks(), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   const handleDelete = async (id: string) => {
     await removeBookFromLocal(id);
@@ -59,7 +63,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
             <div className="flex flex-col items-center justify-center py-12 opacity-30 gap-4 text-center px-4">
               <HardDrive size={48} strokeWidth={1} />
               <p className="text-xs font-bold uppercase tracking-widest">
-                구글 드라이브에 <span className="text-accent-500 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.epub</span> 또는 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
+                구글 드라이브에 <span className="text-accent-500 font-black">&ldquo;web viewer&rdquo;</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.epub</span> 또는 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
               </p>
             </div>
           ) : (

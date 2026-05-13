@@ -24,7 +24,7 @@ try {
       ? memoryLocalCache()  // 개발: 메모리 캐시 (오래된 pending writes 방지)
       : persistentLocalCache({ tabManager: persistentMultipleTabManager() })  // 운영: 오프라인 지원
   });
-} catch (error) {
+} catch {
   db = getFirestore(app);
 }
 

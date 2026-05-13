@@ -9,6 +9,13 @@ export interface Book {
 
 export type ThemeType = 'light' | 'dark' | 'sepia' | 'blue';
 
+export interface ThemeClasses {
+  bg: string;
+  text: string;
+  border: string;
+  secondary: string;
+}
+
 export interface ViewerSettings {
   fontSize: number;
   lineHeight: number;

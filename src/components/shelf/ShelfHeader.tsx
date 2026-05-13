@@ -17,9 +17,10 @@ import {
   FilePlus,
   CloudLightning
 } from 'lucide-react';
+import { ThemeClasses } from '../../types';
 
 interface ShelfHeaderProps {
-  theme: any;
+  theme: ThemeClasses;
   isOfflineMode: boolean;
   isGuest: boolean;
   isSyncing: boolean;

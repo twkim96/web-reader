@@ -1,9 +1,11 @@
 import React from 'react';
 import { X, List } from 'lucide-react';
+import { TocItem } from '../hooks/foliate/types';
+import { ThemeClasses } from '../types';
 
 interface TocModalProps {
-  toc: any[];
-  theme: any;
+  toc: TocItem[];
+  theme: ThemeClasses;
   onClose: () => void;
   onJump: (href: string) => void;
   currentChapter?: string;
@@ -11,8 +13,8 @@ interface TocModalProps {
 
 export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump, currentChapter }) => {
   // 목차 평탄화 (중첩된 챕터도 리스트에 표시)
-  const flattenToc = (items: any[]): any[] => {
-    return items.reduce((acc, item) => {
+  const flattenToc = (items: TocItem[]): TocItem[] => {
+    return items.reduce<TocItem[]>((acc, item) => {
       acc.push(item);
       if (item.subitems && item.subitems.length > 0) {
         acc.push(...flattenToc(item.subitems));

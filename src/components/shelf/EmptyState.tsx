@@ -1,11 +1,12 @@
 import React from 'react';
 import { XCircle, WifiOff, FolderPlus, Library, FilePlus } from 'lucide-react';
+import { ThemeClasses } from '../../types';
 
 interface EmptyStateProps {
   searchKeyword: string;
   isOfflineMode: boolean;
   isGuest: boolean;
-  theme: any;
+  theme: ThemeClasses;
   onClearSearch: () => void;
   onToggleCloud: () => void;
   onShowImportConfirm: () => void;
@@ -33,7 +34,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           </div>
           <div className="space-y-2">
             <h3 className="text-xl font-bold">검색 결과가 없습니다</h3>
-            <p className="opacity-60 text-sm">"{searchKeyword}"</p>
+            <p className="opacity-60 text-sm">&ldquo;{searchKeyword}&rdquo;</p>
           </div>
           <button 
             onClick={onClearSearch} 
@@ -91,7 +92,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
               <>
                 <h3 className="text-2xl font-black italic uppercase tracking-tighter">No Books Found</h3>
                 <p className="opacity-60 text-sm leading-relaxed font-medium">
-                  구글 드라이브에 <span className="text-accent-500 font-black">"web viewer"</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.epub</span> 또는 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
+                  구글 드라이브에 <span className="text-accent-500 font-black">&ldquo;web viewer&rdquo;</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.epub</span> 또는 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
                 </p>
                 <div className="flex flex-col gap-3 items-center w-full mt-2">
                   <button 

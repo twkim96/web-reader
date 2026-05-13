@@ -8,8 +8,8 @@
 - 여러 기기/Vercel 테스트가 필요할 때는 사용자가 요청하면 commit + push까지 수행한다.
 
 ## Current State
-- Phase 7 has been committed and pushed.
-- Current follow-up scope: remote progress prompt acceptance should create a local auto bookmark before moving.
+- Phase 8 has been implemented but not committed.
+- Current scope: final lint/docs cleanup plus the progress-slider follow-up.
 - Latest validation passed:
   - `npx tsc --noEmit`
   - changed-file ESLint
@@ -179,14 +179,13 @@
 - Goal: leave `EpubReader` as EPUB screen composition, not a mixed state machine.
 
 ### Deferred Follow-Up: Progress Slider Auto Bookmark
-- Current slider behavior calls `goToFraction` during `onChange`, so dragging can emit many intermediate movements.
-- Desired behavior needs a commit-on-release flow:
+- Implemented as a focused follow-up before Phase 8:
   - track slider drag start position once
   - update slider preview while dragging without creating bookmarks
-  - call `goToFraction` once on pointer/touch/key release or blur
-  - create one auto bookmark only if the final target differs meaningfully from the start position
+  - call `goToFraction` once on pointer/key release or blur
+  - create one auto bookmark only if the final target differs by more than 5% from the start position
   - save latest progress from the post-move relocate event
-- This should be handled as a focused follow-up before or during Phase 8, because it changes input interaction semantics rather than only refactoring structure.
+- This keeps slider movement aligned with the Reader Navigation Save Policy.
 
 ### Test Scope
 - Local EPUB open and return to shelf.
@@ -197,6 +196,7 @@
   - progress saves after real movement
 - Jump flows:
   - percent jump
+  - progress slider drag/release
   - CFI jump
   - TOC jump
   - search result jump
@@ -216,19 +216,46 @@
 - Settings:
   - font size, line height, font family, text alignment, theme, nav mode still apply.
 
+## Phase 8: Final Lint/Docs Cleanup
+
+### Status
+- Implemented but not committed.
+- Waiting for user testing.
+
+### Changes
+- Completed the progress slider follow-up:
+  - slider movement previews during drag
+  - `goToFraction` runs once on pointer/key release or blur
+  - auto bookmark is created at most once when final target differs by more than 5%
+  - latest progress is still saved from the post-move relocate event
+- Cleaned `src` lint errors:
+  - removed remaining `any` types in touched UI components
+  - fixed unescaped JSX quotes
+  - resolved React Compiler effect warnings
+  - removed unused Firebase catch binding
+- Updated README to match current EPUB/Foliate/Drive-original-upload architecture and the reader hook structure.
+- `public/foliate-js` remains outside `src` lint scope, so no additional vendor ignore was needed for the Phase 8 validation command.
+
+### Full Validation
+- `npx tsc --noEmit`
+- `npx eslint src`
+- `npm run build`
+- `git diff --check`
+
+### Test Scope
+- Local/cloud TXT and EPUB upload/open.
+- Progress/bookmark persistence.
+- Progress slider drag/release:
+  - no repeated jumps while dragging
+  - one auto bookmark only after a meaningful final move
+  - latest progress points to the post-release destination
+- Vercel deployment check after commit + push.
+
 ## Next Phases
 
-### Phase 8: Final Lint/Docs Cleanup
-- Clean `src` lint errors as much as practical.
-- Consider treating `public/foliate-js` as vendor code and excluding it from lint.
-- Update README to match current EPUB/Foliate/Drive-original-upload architecture.
-- Full validation:
-  - `npx tsc --noEmit`
-  - `npx eslint src`
-  - `npm run build`
-  - local/cloud TXT and EPUB upload/open
-  - progress/bookmark persistence
-  - Vercel deployment check
+### Post-Cleanup Follow-Ups
+- Use real-device testing to identify any remaining bookmark/progress sync edge cases.
+- Continue feature work such as bookmark/content sync improvements from the now-smaller Reader and sync hooks.
 
 ## Commit Strategy
 - Keep each phase as an independent commit.

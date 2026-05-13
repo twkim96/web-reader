@@ -17,6 +17,7 @@ import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
 import { useReaderChrome } from '../hooks/reader/useReaderChrome';
 import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
+import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
 
 interface EpubReaderProps {
@@ -150,6 +151,19 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     completeRemoteJump,
   });
 
+  const {
+    sliderProgress,
+    beginSliderMove,
+    previewSliderMove,
+    commitSliderMove,
+  } = useReaderProgressSlider({
+    currentCfi,
+    totalProgress,
+    createAutoBookmark,
+    markUserProgressChange,
+    goToFraction,
+  });
+
   useEffect(() => {
     updateSaveContext({
       currentCfi,
@@ -218,11 +232,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     await goToFraction(fraction);
   }, [createAutoBookmark, currentCfi, goToFraction, markUserProgressChange, totalProgress]);
 
-  const handleProgressSliderChange = useCallback((progressPercent: number) => {
-    markUserProgressChange({ forceNextRelocateSave: true });
-    void goToFraction(progressPercent / 100);
-  }, [goToFraction, markUserProgressChange]);
-
   const handleJump = useCallback(() => {
     const trimmed = chrome.jumpInput.trim();
     if (!trimmed) return;
@@ -259,6 +268,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         showControls={chrome.showControls}
         currentChapter={currentChapter}
         totalProgress={totalProgress}
+        sliderProgress={sliderProgress}
         bookmarkCount={bookmarks.length}
         onBack={chrome.handleUIBack}
         onOpenJump={chrome.openJumpInput}
@@ -267,7 +277,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onOpenTheme={() => chrome.setShowThemeModal(true)}
         onOpenBookmarks={() => chrome.setShowBookmarks(true)}
         onOpenToc={() => chrome.setShowToc(true)}
-        onProgressSliderChange={handleProgressSliderChange}
+        onProgressSliderStart={beginSliderMove}
+        onProgressSliderPreview={previewSliderMove}
+        onProgressSliderCommit={commitSliderMove}
       />
 
       {chrome.showSettings && (

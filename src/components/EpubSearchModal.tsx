@@ -1,35 +1,25 @@
 // src/components/EpubSearchModal.tsx
 import React, { useState, useEffect } from 'react';
 import { Search, X, ArrowRight, Loader2 } from 'lucide-react';
-
-interface EpubSearchResult {
-  label: string;
-  index: number;
-  total: number;
-  progress: number;
-  subitems: { 
-    cfi: string; 
-    excerpt: string | { pre: string; match: string; post: string };
-  }[];
-}
+import { SearchResultPayload } from '../hooks/foliate/types';
+import { ThemeClasses } from '../types';
 
 interface EpubSearchModalProps {
-  theme: any;
+  theme: ThemeClasses;
   onClose: () => void;
   onSelect: (cfi: string) => void;
-  onSearch: (query: string, onResult: (res: EpubSearchResult) => void, onProgress: (p: number) => void) => Promise<void>;
+  onSearch: (query: string, onResult: (res: SearchResultPayload) => void, onProgress: (p: number) => void) => Promise<void>;
   onClear: () => void;
 }
 
 export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose, onSelect, onSearch, onClear }) => {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<EpubSearchResult[]>([]);
+  const [results, setResults] = useState<SearchResultPayload[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     if (query.trim().length < 2) {
-      setResults([]);
       onClear();
       return;
     }

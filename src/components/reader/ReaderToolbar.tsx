@@ -15,6 +15,7 @@ interface ReaderToolbarProps {
   showControls: boolean;
   currentChapter: string;
   totalProgress: number;
+  sliderProgress: number;
   bookmarkCount: number;
   onBack: () => void;
   onOpenJump: () => void;
@@ -23,7 +24,9 @@ interface ReaderToolbarProps {
   onOpenTheme: () => void;
   onOpenBookmarks: () => void;
   onOpenToc: () => void;
-  onProgressSliderChange: (progressPercent: number) => void;
+  onProgressSliderStart: () => void;
+  onProgressSliderPreview: (progressPercent: number) => void;
+  onProgressSliderCommit: () => void;
 }
 
 export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
@@ -32,6 +35,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   showControls,
   currentChapter,
   totalProgress,
+  sliderProgress,
   bookmarkCount,
   onBack,
   onOpenJump,
@@ -40,7 +44,9 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   onOpenTheme,
   onOpenBookmarks,
   onOpenToc,
-  onProgressSliderChange,
+  onProgressSliderStart,
+  onProgressSliderPreview,
+  onProgressSliderCommit,
 }) => (
   <>
     <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
@@ -66,8 +72,13 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           min="0"
           max="100"
           step="0.1"
-          value={totalProgress || 0}
-          onChange={(event) => onProgressSliderChange(parseFloat(event.target.value))}
+          value={sliderProgress || 0}
+          onPointerDown={onProgressSliderStart}
+          onPointerUp={onProgressSliderCommit}
+          onKeyDown={onProgressSliderStart}
+          onKeyUp={onProgressSliderCommit}
+          onBlur={onProgressSliderCommit}
+          onChange={(event) => onProgressSliderPreview(parseFloat(event.target.value))}
           className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"
         />
         <button onClick={onOpenSearch} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">

@@ -70,7 +70,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                   >
                     <div className={`w-1.5 self-stretch rounded-full ${bm.color}`} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-serif leading-relaxed line-clamp-2 opacity-90">"{bm.name}"</p>
+                      <p className="text-sm font-serif leading-relaxed line-clamp-2 opacity-90">&ldquo;{bm.name}&rdquo;</p>
                       <p className="text-[10px] mt-2.5 font-sans flex items-center gap-2">
                         <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
                         <span className="w-1 h-1 rounded-full bg-current opacity-20" />
@@ -112,7 +112,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 >
                   <div className={`w-1.5 self-stretch rounded-full bg-slate-500`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-serif leading-relaxed line-clamp-2 opacity-90">"{bm.name}"</p>
+                    <p className="text-sm font-serif leading-relaxed line-clamp-2 opacity-90">&ldquo;{bm.name}&rdquo;</p>
                     
                     <p className="text-[10px] mt-2.5 font-sans flex items-center gap-2">
                       <span className="opacity-40">{new Date(bm.createdAt).toLocaleString()}</span>
