@@ -8,8 +8,8 @@
 - 여러 기기/Vercel 테스트가 필요할 때는 사용자가 요청하면 commit + push까지 수행한다.
 
 ## Current State
-- Phase 5 has been committed and pushed.
-- Current hotfix scope: remote progress prompt acceptance must not save the previous local position and trigger cross-device ping-pong.
+- Phase 6 has been implemented and user-tested.
+- Current scope: commit and push the Foliate adapter split.
 - Latest validation passed:
   - `npx tsc --noEmit`
   - changed-file ESLint
@@ -112,18 +112,48 @@
 - Explicit remote-progress acceptance should claim the current device after the move, even if CFI/percent are identical to the remote value.
 - Phase 7 should revisit general jump flows (TOC/search/bookmark/% jump) and make this policy explicit in reader hooks.
 
-## Next Phases
+## Phase 6: Foliate Adapter Split
 
-### Phase 6: Foliate Adapter Split
+### Status
+- Completed after user testing.
+- Commit: `Split Foliate adapter hooks`
+
+### Changes
 - Split `src/hooks/useEpubReader.ts` into Foliate-specific adapter layers.
-- Target pieces:
-  - `useFoliateView`: `/foliate-js/view.js` loading and custom element creation
-  - `useFoliateNavigation`: `goTo`, `goToFraction`, `prev`, `next`
-  - `useFoliateLayout`: style/layout injection
-  - `useFoliateSearch`: full-text search
-  - `buildTocProgress`: pure TOC progress calculation
-  - `installScrollBoundaryNavigation`: scroll/touch boundary navigation
+- Added:
+  - `src/hooks/foliate/useFoliateView.ts`: `/foliate-js/view.js` loading, custom element creation, load/relocate event binding
+  - `src/hooks/foliate/useFoliateNavigation.ts`: `openBook`, `goTo`, `goToFraction`, `prev`, `next`
+  - `src/hooks/foliate/useFoliateLayout.ts`: style/layout injection
+  - `src/hooks/foliate/useFoliateSearch.ts`: full-text search and clear search
+  - `src/hooks/foliate/toc.ts`: pure TOC progress calculation
+  - `src/hooks/foliate/scrollBoundaryNavigation.ts`: scroll/touch boundary navigation
+  - `src/hooks/foliate/types.ts` and `progress.ts`: shared Foliate adapter types/utilities
+- Kept the public `useEpubReader` return API stable so `EpubReader.tsx` behavior remains isolated from this phase.
 - Goal: make the Foliate engine boundary clear before deeper Reader work.
+- Deferred work: none from the planned Phase 6 checklist. Remaining reader navigation save-policy cleanup belongs to Phase 7 because it lives in `EpubReader.tsx`, not the Foliate adapter.
+
+### Test Scope
+- Open a local EPUB and a cloud-cached EPUB.
+- Open a TXT-origin book and confirm TXT-to-EPUB local cache still opens.
+- Page mode navigation:
+  - tap/click next and previous
+  - CFI jump
+  - percent slider jump
+- Scroll mode navigation:
+  - normal scroll
+  - top/bottom boundary wheel navigation
+  - mobile touch boundary navigation if available
+- TOC modal:
+  - TOC entries show progress
+  - TOC jump opens the expected area
+- Search modal:
+  - search returns grouped results
+  - selecting a result jumps correctly
+  - clearing search removes highlights
+- Reader settings:
+  - font size, line height, font family, text alignment, theme, nav mode still apply.
+
+## Next Phases
 
 ### Phase 7: Reader Split
 - Split `src/components/EpubReader.tsx` by feature.
