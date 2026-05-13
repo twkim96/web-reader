@@ -216,9 +216,11 @@ export default function Page() {
 
       if (shouldTryRedirect) {
         try {
+          sessionStorage.setItem('google_auth_redirect_pending', 'true');
           await signInWithRedirect(auth, googleProvider);
           return;
         } catch (redirectError) {
+          sessionStorage.removeItem('google_auth_redirect_pending');
           console.error('[Auth] Google redirect failed:', redirectError);
         }
       } else {

@@ -1,8 +1,10 @@
 import { Dispatch, MutableRefObject, SetStateAction, useEffect } from 'react';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { getRedirectResult, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { ViewState } from '../types';
 import type { RestoreLocalDataOptions } from './useLibraryData';
+
+const GOOGLE_AUTH_REDIRECT_PENDING_KEY = 'google_auth_redirect_pending';
 
 interface UseAuthBootstrapOptions {
   isGuestRef: MutableRefObject<boolean>;
@@ -32,14 +34,35 @@ export const useAuthBootstrap = ({
   useEffect(() => {
     let isActive = true;
     let authRedirectTimeout: number | undefined;
+    let redirectSettled = sessionStorage.getItem(GOOGLE_AUTH_REDIRECT_PENDING_KEY) !== 'true';
 
-    queueMicrotask(() => {
-      if (isActive) {
+    if (!redirectSettled) {
+      setView('loading');
+      setIsGuest(false);
+      isGuestRef.current = false;
+      localStorage.removeItem('isGuest');
+
+      void getRedirectResult(auth)
+        .catch((error) => {
+          console.error('[Auth] Failed to resolve Google redirect:', error);
+        })
+        .finally(() => {
+          redirectSettled = true;
+          sessionStorage.removeItem(GOOGLE_AUTH_REDIRECT_PENDING_KEY);
+          if (isActive && !auth.currentUser) {
+            setView('auth');
+          }
+        });
+    } else {
+      queueMicrotask(() => {
+        if (!isActive) return;
         restoreLocalData();
-      }
-    });
+      });
+    }
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (!firebaseUser && !redirectSettled) return;
+
       setUser(firebaseUser);
 
       if (authRedirectTimeout) {
@@ -48,8 +71,11 @@ export const useAuthBootstrap = ({
       }
 
       if (firebaseUser) {
+        sessionStorage.removeItem(GOOGLE_AUTH_REDIRECT_PENDING_KEY);
+        redirectSettled = true;
         setIsGuest(false);
         isGuestRef.current = false;
+        localStorage.removeItem('isGuest');
 
         void (async () => {
           await restoreLocalData(true);
