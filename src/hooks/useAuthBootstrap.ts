@@ -33,12 +33,6 @@ export const useAuthBootstrap = ({
     let isActive = true;
     let authRedirectTimeout: number | undefined;
 
-    queueMicrotask(() => {
-      if (isActive) {
-        restoreLocalData();
-      }
-    });
-
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
 
@@ -77,7 +71,15 @@ export const useAuthBootstrap = ({
             setView((prev) => prev === 'reader' ? 'reader' : 'shelf');
           }
         })();
-      } else if (!isGuestRef.current) {
+      } else if (isGuestRef.current) {
+        void (async () => {
+          await restoreLocalData({ replaceBooks: true });
+          if (!isActive) return;
+
+          setIsOfflineMode(true);
+          setView('shelf');
+        })();
+      } else {
         authRedirectTimeout = window.setTimeout(() => {
           setView((prev) => {
             if (prev === 'shelf') return prev;

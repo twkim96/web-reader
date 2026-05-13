@@ -17,6 +17,7 @@ import { removeBookFromLocal } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
+import { useDriveOAuthRedirect } from '../hooks/useDriveOAuthRedirect';
 import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
 import { useLibraryData } from '../hooks/useLibraryData';
 import { useNetworkLibrarySync } from '../hooks/useNetworkLibrarySync';
@@ -27,40 +28,6 @@ import { useViewerSettings } from '../hooks/useViewerSettings';
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
-
-const DRIVE_OAUTH_STATE_KEY = 'google_drive_oauth_state';
-
-const getDriveRedirectUri = () => `${window.location.origin}${window.location.pathname}`;
-
-const buildDriveOAuthUrl = (clientId: string, state: string) => {
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: getDriveRedirectUri(),
-    response_type: 'token',
-    scope: 'https://www.googleapis.com/auth/drive.file',
-    prompt: 'select_account',
-    include_granted_scopes: 'true',
-    state,
-  });
-
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-};
-
-const getDriveOAuthRedirectResult = () => {
-  const hash = window.location.hash.startsWith('#')
-    ? window.location.hash.slice(1)
-    : window.location.hash;
-  if (!hash.includes('access_token=') && !hash.includes('error=')) return null;
-
-  const params = new URLSearchParams(hash);
-  const expiresIn = params.get('expires_in');
-  return {
-    accessToken: params.get('access_token'),
-    expiresIn: expiresIn ? Number(expiresIn) : null,
-    state: params.get('state'),
-    error: params.get('error'),
-  };
-};
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -121,6 +88,13 @@ export default function Page() {
     loadLibraryFromDrive,
     syncLocalAndCloud,
   });
+  const startDriveOAuth = useDriveOAuthRedirect({
+    saveToken,
+    setIsOfflineMode,
+    setView,
+    loadLibraryFromDrive,
+    setAuthErrorMessage,
+  });
 
 
   const handleGuestMode = async () => {
@@ -151,39 +125,6 @@ export default function Page() {
     setCloudAuthExpiredMessage(message || "현재 도서는 기기에만 저장됩니다. 다시 클라우드를 연결하면 구글 드라이브 업로드를 사용할 수 있습니다.");
     void restoreLocalData({ preventRedirect: true, replaceBooks: true });
   }, [clearToken, restoreLocalData]);
-
-  useEffect(() => {
-    const result = getDriveOAuthRedirectResult();
-    if (!result) return;
-
-    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-
-    const timeoutId = window.setTimeout(() => {
-      const expectedState = sessionStorage.getItem(DRIVE_OAUTH_STATE_KEY);
-      sessionStorage.removeItem(DRIVE_OAUTH_STATE_KEY);
-
-      if (result.error || !result.accessToken || !Number.isFinite(result.expiresIn) || !result.expiresIn) {
-        setAuthErrorMessage('Google Drive 연결을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        setView('shelf');
-        return;
-      }
-
-      if (!expectedState || result.state !== expectedState) {
-        setAuthErrorMessage('Google Drive 연결 상태를 확인하지 못했습니다. 다시 시도해 주세요.');
-        setView('shelf');
-        return;
-      }
-
-      saveToken(result.accessToken, result.expiresIn, false);
-      setIsOfflineMode(false);
-      setView('loading');
-      loadLibraryFromDrive(result.accessToken).then(() => {
-        setView('shelf');
-      });
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [loadLibraryFromDrive, saveToken]);
 
   useEffect(() => {
     if (!googleToken || isOfflineMode) return;
@@ -226,9 +167,7 @@ export default function Page() {
       return;
     }
 
-    const state = crypto.randomUUID();
-    sessionStorage.setItem(DRIVE_OAUTH_STATE_KEY, state);
-    window.location.assign(buildDriveOAuthUrl(clientId, state));
+    startDriveOAuth(clientId);
   };
 
   const handleLoginTrigger = () => {
@@ -420,7 +359,7 @@ export default function Page() {
 
       {authErrorMessage && (
         <ConfirmDialog
-          message="Google 로그인을 시작하지 못했습니다."
+          message="Google 연결에 문제가 있습니다."
           subMessage={authErrorMessage}
           confirmLabel="확인"
           hideCancel

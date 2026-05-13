@@ -32,13 +32,12 @@ export const useGoogleDriveToken = () => {
 
   const getStoredToken = useCallback(() => getValidTokenFromStorage(), []);
 
-  const saveToken = useCallback((token: string, expiresIn: number, sessionOnly: boolean) => {
+  const saveToken = useCallback((token: string, expiresIn: number) => {
     const expiryTime = (Date.now() + expiresIn * 1000).toString();
-    const storage = sessionOnly ? sessionStorage : localStorage;
 
     removeTokenFromStorage();
-    storage.setItem(TOKEN_KEY, token);
-    storage.setItem(EXPIRY_KEY, expiryTime);
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(EXPIRY_KEY, expiryTime);
     setGoogleToken(token);
   }, []);
 
