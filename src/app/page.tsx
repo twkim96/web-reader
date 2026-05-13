@@ -59,7 +59,6 @@ export default function Page() {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const deviceId = useDeviceId();
 
-  const [isPublicPC, setIsPublicPC] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(true);
   const [isGuest, setIsGuest] = useState(getStoredGuestMode);
   // [Fix] Auth Effect에서 isGuest를 의존성으로 쓰면 Firebase 리스너가 재구독됨 → ref로 대체
@@ -182,7 +181,7 @@ export default function Page() {
       scope: 'https://www.googleapis.com/auth/drive.file',
       callback: (res) => {
         if (res.access_token && res.expires_in) {
-          saveToken(res.access_token, res.expires_in, isPublicPC);
+          saveToken(res.access_token, res.expires_in, false);
 
           setIsOfflineMode(false);
           setView('loading');

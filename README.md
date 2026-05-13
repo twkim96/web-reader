@@ -63,8 +63,18 @@ src/lib/                      # Google Drive, Firebase, IndexedDB, TXT->EPUB hel
 ```bash
 NEXT_PUBLIC_FIREBASE_API_KEY=...
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=...
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
 # 기타 Firebase 및 Google Cloud 설정값
 ```
+
+### Firebase Redirect Auth
+Google 로그인은 `signInWithRedirect`를 사용합니다. 배포 도메인에서 안정적으로 동작하려면 다음 설정이 필요합니다.
+
+* `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`은 실제 접속 도메인으로 설정합니다. 예: `twreader.vercel.app`
+* `next.config.ts`는 `/__/auth/*`, `/__/firebase/*` 요청을 Firebase 기본 도메인인 `${NEXT_PUBLIC_FIREBASE_PROJECT_ID}.firebaseapp.com`으로 프록시합니다.
+* Firebase Console의 Authorized domains와 Google Cloud Console OAuth redirect URI에 배포 도메인을 등록해야 합니다.
+* Google Cloud OAuth redirect URI 형식: `https://<배포도메인>/__/auth/handler`
 
 ### Installation
 ```bash
