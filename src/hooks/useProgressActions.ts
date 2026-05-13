@@ -3,7 +3,7 @@ import { User as FirebaseUser } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
 import { saveProgressToLocal } from '../lib/localDB';
-import { Book, Bookmark, UserProgress } from '../types';
+import { Book, Bookmark, SaveProgressOptions, UserProgress } from '../types';
 import { getManualBookmarks, hasProgressChanged, toProgressPercent } from './progressPolicy';
 
 interface UseProgressActionsOptions {
@@ -44,7 +44,7 @@ export const useProgressActions = ({
     }
   }, [deviceId, user]);
 
-  const saveProgress = useCallback((cfi: number | string, pct: number, bookmarks?: Bookmark[]) => {
+  const saveProgress = useCallback((cfi: number | string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => {
     if (!activeBook) return;
 
     const bookId = activeBook.id;
@@ -57,7 +57,7 @@ export const useProgressActions = ({
     const existingBookmarks = existing?.bookmarks || [];
     const finalBookmarks = bookmarks !== undefined ? bookmarks : existingBookmarks;
 
-    if (!hasProgressChanged(existing, nextCfi, safePercent, finalBookmarks)) {
+    if (!options?.force && !hasProgressChanged(existing, nextCfi, safePercent, finalBookmarks)) {
       return;
     }
 

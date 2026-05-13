@@ -35,8 +35,12 @@ export interface UserProgress {
   bookId: string;
   cfi: string;              // epub CFI (Canonical Fragment Identifier)
   progressPercent: number;
-  lastRead: any; // Firestore Timestamp
+  lastRead: number;
   bookmarks?: Bookmark[]; 
+}
+
+export interface SaveProgressOptions {
+  force?: boolean;
 }
 
 export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';

@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Book, ViewerSettings, Bookmark, UserProgress } from '../types';
+import { Book, ViewerSettings, Bookmark, SaveProgressOptions, UserProgress } from '../types';
 import { THEMES } from '../lib/constants';
 import { ChevronLeft, Search, Settings, Palette, Bookmark as BookmarkIcon, Hash, RefreshCw, List } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
@@ -21,7 +21,7 @@ interface EpubReaderProps {
   settings: ViewerSettings;
   onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onBack: () => void;
-  onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[]) => void;
+  onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => void;
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
@@ -445,20 +445,33 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     await goToFraction(fraction);
   }, [currentCfi, totalProgress, createAutoBookmark, goToFraction, markUserProgressChange]);
 
-  const jumpToRemoteProgress = useCallback(async (target: { cfi: string; percent: number; lastRead: number }) => {
+  const jumpToRemoteProgress = useCallback(async (
+    target: { cfi: string; percent: number; lastRead: number },
+    options?: { claimDevice?: boolean }
+  ) => {
     const safePercent = toClampedPercent(target.percent) ?? 0;
 
     skipNextSave.current = true;
     hasUnsavedUserChange.current = false;
-    lastSaveTime.current = target.lastRead;
+
+    await goTo(target.cfi);
+
+    const bookmarksKey = getBookmarksKey(saveContext.current.bookmarks);
+
+    if (options?.claimDevice) {
+      onSaveProgress(target.cfi, safePercent, saveContext.current.bookmarks, { force: true });
+      lastSaveTime.current = Date.now();
+    } else {
+      lastSaveTime.current = target.lastRead;
+    }
+
     lastPersistedProgress.current = {
       cfi: target.cfi,
       percent: safePercent,
-      bookmarksKey: getBookmarksKey(saveContext.current.bookmarks),
+      bookmarksKey,
     };
-
-    await goTo(target.cfi);
-  }, [goTo]);
+    hasUnsavedUserChange.current = false;
+  }, [goTo, onSaveProgress]);
 
   // 동기화 충돌 감지
   const lastProcessedRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
@@ -685,7 +698,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
               </button>
               <button
                 onClick={() => {
-                  void jumpToRemoteProgress(syncConflict);
+                  void jumpToRemoteProgress(syncConflict, { claimDevice: true });
                   setSyncConflict(null); 
                 }}
                 className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-accent-500 text-white hover:bg-accent-600 transition-colors shadow-lg shadow-accent-500/30"

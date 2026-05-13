@@ -103,11 +103,13 @@
 
 ### Hotfix: Remote Progress Accept Must Not Ping-Pong
 - When accepting a remote progress prompt, the reader must jump to the remote location without creating an auto bookmark or saving the previous local position.
-- Remote progress acceptance should update local reader refs (`lastSaveTime`, persisted CFI/percent) so the same remote update is not echoed back as a new local write.
+- After the accepted remote jump completes, the reader may save that post-move position with the current device ID to mark this device as the new active reader.
+- Remote progress acceptance should update local reader refs (`lastSaveTime`, persisted CFI/percent) so the same remote update is not echoed back as a stale local write.
 
 ## Reader Navigation Save Policy
 - For all jump/navigation flows, progress persistence should be based on the position after movement completes, not the position before movement starts.
 - Before-move state may be used for local-only auto bookmarks, but it must not update Firestore as the latest reading progress.
+- Explicit remote-progress acceptance should claim the current device after the move, even if CFI/percent are identical to the remote value.
 - Phase 7 should revisit general jump flows (TOC/search/bookmark/% jump) and make this policy explicit in reader hooks.
 
 ## Next Phases
