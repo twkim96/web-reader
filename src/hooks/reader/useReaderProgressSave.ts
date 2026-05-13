@@ -33,6 +33,7 @@ interface UseReaderProgressSaveOptions {
 
 const RELOCATE_SAVE_IDLE_MS = 1000;
 const RELOCATE_SAVE_MAX_INTERVAL_MS = 5000;
+const EXPLICIT_RELOCATE_SAVE_SETTLE_MS = 250;
 
 export const useReaderProgressSave = ({
   initialCfi,
@@ -144,7 +145,10 @@ export const useReaderProgressSave = ({
     );
   }, [saveProgressIfChanged]);
 
-  const scheduleRelocateSave = useCallback((pending: PendingRelocateSave) => {
+  const scheduleRelocateSave = useCallback((pending: PendingRelocateSave, options?: {
+    delayMs?: number;
+    useMaxInterval?: boolean;
+  }) => {
     pendingRelocateSaveRef.current = pending;
 
     const now = Date.now();
@@ -152,7 +156,7 @@ export const useReaderProgressSave = ({
       unsavedSinceRef.current = now;
     }
 
-    if (now - unsavedSinceRef.current >= RELOCATE_SAVE_MAX_INTERVAL_MS) {
+    if (options?.useMaxInterval !== false && now - unsavedSinceRef.current >= RELOCATE_SAVE_MAX_INTERVAL_MS) {
       clearRelocateSaveTimer();
       saveProgressIfChanged(pending.cfi, pending.percent, pending.bookmarks);
       return;
@@ -162,7 +166,7 @@ export const useReaderProgressSave = ({
     relocateSaveTimerRef.current = window.setTimeout(() => {
       relocateSaveTimerRef.current = null;
       savePendingRelocate();
-    }, RELOCATE_SAVE_IDLE_MS);
+    }, options?.delayMs ?? RELOCATE_SAVE_IDLE_MS);
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
   const handleRelocateForSave = useCallback((detail: ReaderRelocateDetail) => {
@@ -189,24 +193,29 @@ export const useReaderProgressSave = ({
     };
 
     if (forceNextRelocateSaveRef.current) {
-      clearRelocateSaveTimer();
-      saveProgressIfChanged(pending.cfi, pending.percent, pending.bookmarks);
+      scheduleRelocateSave(pending, {
+        delayMs: EXPLICIT_RELOCATE_SAVE_SETTLE_MS,
+        useMaxInterval: false,
+      });
       return;
     }
 
     scheduleRelocateSave(pending);
-  }, [clearRelocateSaveTimer, saveProgressIfChanged, scheduleRelocateSave]);
+  }, [scheduleRelocateSave]);
 
   const saveCurrentProgress = useCallback(() => {
     const { currentCfi, totalProgress, bookmarks } = saveContextRef.current;
     if (!currentCfi) return false;
     clearRelocateSaveTimer();
+    if (pendingRelocateSaveRef.current) {
+      return savePendingRelocate();
+    }
     return saveProgressIfChanged(
       currentCfi,
       totalProgress,
       pendingBookmarksRef.current || bookmarks
     );
-  }, [clearRelocateSaveTimer, saveProgressIfChanged]);
+  }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
   const prepareRemoteJump = useCallback(() => {
     skipNextSaveRef.current = true;

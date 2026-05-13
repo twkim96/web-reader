@@ -77,7 +77,6 @@ export const useRemoteProgressPrompt = ({
       }
     }
 
-    if (lastSaveTimeRef.current && Math.abs(remoteTime - lastSaveTimeRef.current) < 5000) return;
     if (remoteCfi === currentCfi) return;
 
     if (remoteCfi && remoteTime > lastSaveTimeRef.current) {
