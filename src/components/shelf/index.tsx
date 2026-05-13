@@ -29,6 +29,7 @@ interface ShelfProps {
   isGuest: boolean;
   onToggleCloud: () => void; 
   onDeleteProgress?: (bookId: string) => void; 
+  onDeleteBook?: (book: Book) => Promise<void>;
   onLocalBookImported?: () => void;
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
@@ -47,6 +48,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   isGuest,
   onToggleCloud,
   onDeleteProgress,
+  onDeleteBook,
   settings,
   onUpdateSettings,
   onLocalBookImported,
@@ -58,8 +60,10 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [searchKeyword, setSearchKeyword] = useState("");
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [pendingDeleteProgressId, setPendingDeleteProgressId] = useState<string | null>(null);
+  const [pendingDeleteBook, setPendingDeleteBook] = useState<Book | null>(null);
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDeletingBook, setIsDeletingBook] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,6 +83,22 @@ export const Shelf: React.FC<ShelfProps> = ({
     }
     setShowImportConfirm(show);
   }, [handleCloudAuthExpired, isCloudTokenValid, isOfflineMode]);
+
+  const handleRequestDeleteBook = useCallback((book: Book) => {
+    if (!onDeleteBook) return;
+    setPendingDeleteBook(book);
+  }, [onDeleteBook]);
+
+  const handleConfirmDeleteBook = useCallback(async () => {
+    if (!pendingDeleteBook || !onDeleteBook) return;
+    setIsDeletingBook(true);
+    try {
+      await onDeleteBook(pendingDeleteBook);
+      setPendingDeleteBook(null);
+    } finally {
+      setIsDeletingBook(false);
+    }
+  }, [onDeleteBook, pendingDeleteBook]);
 
   const stateRef = useRef({ showManage, showSearch });
   useEffect(() => {
@@ -163,6 +183,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                 theme={theme}
                 onOpen={onOpen}
                 onDeleteProgress={() => setPendingDeleteProgressId(book.id)}
+                onRequestDeleteBook={handleRequestDeleteBook}
               />
             ))}
           </div>
@@ -221,6 +242,20 @@ export const Shelf: React.FC<ShelfProps> = ({
           theme={theme}
           onConfirm={() => { onDeleteProgress(pendingDeleteProgressId); setPendingDeleteProgressId(null); }}
           onCancel={() => setPendingDeleteProgressId(null)}
+        />
+      )}
+
+      {pendingDeleteBook && onDeleteBook && (
+        <ConfirmDialog
+          message="이 도서를 삭제하시겠습니까?"
+          subMessage={isOfflineMode || pendingDeleteBook.source === 'local'
+            ? "로컬 저장소에서 영구 삭제됩니다."
+            : "구글 드라이브에서 삭제됩니다. 기기에 저장된 사본도 함께 삭제됩니다."
+          }
+          confirmLabel={isDeletingBook ? "삭제 중..." : "삭제"}
+          theme={theme}
+          onConfirm={() => { if (!isDeletingBook) void handleConfirmDeleteBook(); }}
+          onCancel={() => { if (!isDeletingBook) setPendingDeleteBook(null); }}
         />
       )}
 

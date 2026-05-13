@@ -31,11 +31,25 @@ export class GoogleDriveAuthError extends Error {
   }
 }
 
+export class GoogleDrivePermissionError extends Error {
+  constructor(message = 'Google Drive permission denied') {
+    super(message);
+    this.name = 'GoogleDrivePermissionError';
+  }
+}
+
 export const isGoogleDriveAuthError = (error: unknown) => error instanceof GoogleDriveAuthError;
+export const isGoogleDrivePermissionError = (error: unknown) => error instanceof GoogleDrivePermissionError;
 
 const throwIfGoogleDriveAuthError = (response: Response) => {
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     throw new GoogleDriveAuthError();
+  }
+};
+
+const throwIfGoogleDrivePermissionError = (response: Response) => {
+  if (response.status === 403) {
+    throw new GoogleDrivePermissionError();
   }
 };
 
@@ -53,6 +67,7 @@ export const findFolderId = async (folderName: string, token: string) => {
   
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
     return null;
   }
   const data = await response.json();
@@ -81,6 +96,7 @@ export const createFolder = async (folderName: string, token: string) => {
 
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
     throw new Error('폴더 생성 실패');
   }
   const data = await response.json();
@@ -130,6 +146,7 @@ export const uploadFile = async (
 
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
     const errorText = await response.text();
     console.error('Google Drive Upload Error:', errorText);
     throw new Error('클라우드 업로드 실패');
@@ -151,6 +168,7 @@ export const fetchDriveFiles = async (token: string, folderId?: string) => {
 
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
     throw new Error('파일 목록 조회 실패');
   }
   
@@ -167,8 +185,30 @@ export const fetchFullFile = async (fileId: string, token: string) => {
 
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
     throw new Error('파일 로드 실패');
   }
   
   return await response.arrayBuffer();
+};
+
+export const deleteDriveFile = async (fileId: string, token: string) => {
+  const response = await fetchWithTimeout(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    10000
+  );
+
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    if (response.status === 403) {
+      const errorText = await response.text();
+      console.warn('Google Drive Delete Permission Error:', errorText);
+      throw new GoogleDrivePermissionError('클라우드 도서 삭제 권한이 없습니다.');
+    }
+    throw new Error('클라우드 도서 삭제 실패');
+  }
 };

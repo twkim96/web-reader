@@ -5,6 +5,7 @@ export interface Book {
   name: string;
   mimeType: string;
   size?: string; // Display size
+  source?: 'cloud' | 'local';
 }
 
 export type ThemeType = 'light' | 'dark' | 'sepia' | 'blue';

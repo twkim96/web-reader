@@ -140,8 +140,11 @@ export const useLibraryData = ({
         if (data.files && data.files.length > 0) {
           const cloudIds = new Set(data.files.map((file: Book) => file.id));
           const localBooks = await getAllOfflineBooks();
-          const localOnly = localBooks.filter((book) => !cloudIds.has(book.id));
-          setBooks([...data.files, ...localOnly]);
+          const cloudBooks = (data.files as Book[]).map((book) => ({ ...book, source: 'cloud' as const }));
+          const localOnly = localBooks
+            .filter((book) => !cloudIds.has(book.id))
+            .map((book) => ({ ...book, source: 'local' as const }));
+          setBooks([...cloudBooks, ...localOnly]);
         }
       }
 

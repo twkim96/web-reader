@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import { BookOpen, CheckCircle2, Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
 import { getDisplayBookTitle, getProgressTime, ShelfTheme } from './bookUtils';
@@ -11,6 +11,7 @@ interface BookCardProps {
   theme: ShelfTheme;
   onOpen: (book: Book) => void;
   onDeleteProgress?: (bookId: string) => void;
+  onRequestDeleteBook?: (book: Book) => void;
 }
 
 export const BookCard: React.FC<BookCardProps> = ({
@@ -20,8 +21,12 @@ export const BookCard: React.FC<BookCardProps> = ({
   viewMode,
   theme,
   onOpen,
-  onDeleteProgress
+  onDeleteProgress,
+  onRequestDeleteBook
 }) => {
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+
   const formatDate = (timestamp: unknown) => {
     const time = getProgressTime(timestamp);
     if (!time) return 'Ready to Start';
@@ -32,11 +37,45 @@ export const BookCard: React.FC<BookCardProps> = ({
   };
 
   const percent = progress?.progressPercent || 0;
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current === null) return;
+    window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  }, []);
+
+  const startLongPress = useCallback(() => {
+    if (!onRequestDeleteBook) return;
+    clearLongPressTimer();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      onRequestDeleteBook(book);
+    }, 650);
+  }, [book, clearLongPressTimer, onRequestDeleteBook]);
+
+  const handleCardClick = useCallback(() => {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    onOpen(book);
+  }, [book, onOpen]);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    if (!onRequestDeleteBook) return;
+    event.preventDefault();
+    onRequestDeleteBook(book);
+  }, [book, onRequestDeleteBook]);
 
   if (viewMode === 'list') {
     return (
       <div 
-        onClick={() => onOpen(book)}
+        onClick={handleCardClick}
+        onContextMenu={handleContextMenu}
+        onPointerDown={startLongPress}
+        onPointerUp={clearLongPressTimer}
+        onPointerLeave={clearLongPressTimer}
+        onPointerCancel={clearLongPressTimer}
         className={`group flex items-center ${theme.secondary} border ${theme.border} rounded-3xl p-4 sm:p-5 cursor-pointer hover:border-accent-500/50 transition-all duration-300`}
       >
         <div className="w-12 h-12 bg-accent-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg group-hover:scale-105 transition-transform duration-300 mr-4">
@@ -65,6 +104,7 @@ export const BookCard: React.FC<BookCardProps> = ({
                   e.stopPropagation();
                   onDeleteProgress(book.id);
                 }}
+                onPointerDown={(e) => e.stopPropagation()}
                 className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-2 transition-colors"
                 title="Delete Progress"
               >
@@ -88,7 +128,12 @@ export const BookCard: React.FC<BookCardProps> = ({
 
   return (
     <div 
-      onClick={() => onOpen(book)}
+      onClick={handleCardClick}
+      onContextMenu={handleContextMenu}
+      onPointerDown={startLongPress}
+      onPointerUp={clearLongPressTimer}
+      onPointerLeave={clearLongPressTimer}
+      onPointerCancel={clearLongPressTimer}
       className={`group relative ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-8 cursor-pointer hover:border-accent-500/50 transition-all duration-500 hover:-translate-y-2 overflow-hidden`}
     >
       <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -127,6 +172,7 @@ export const BookCard: React.FC<BookCardProps> = ({
                     e.stopPropagation();
                     onDeleteProgress(book.id);
                   }}
+                  onPointerDown={(e) => e.stopPropagation()}
                   className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-2 transition-colors"
                   title="Delete Progress"
                 >

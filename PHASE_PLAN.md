@@ -282,6 +282,27 @@
 - Confirm device B opens or accepts sync at the same top sentence/paragraph more consistently than before.
 - Confirm older records that only have `cfi` still open normally.
 
+## Post-Refactor Improvement 2: Cloud Shelf Book Delete
+
+### Status
+- Implemented for Vercel/device testing.
+
+### Changes
+- Cloud-mode shelf cards support long-press and context-menu delete requests.
+- Local-mode shelf cards support the same long-press and context-menu delete requests.
+- Delete confirmation uses the existing modal style.
+- Cloud books are deleted from Google Drive and then removed from local cache/progress.
+- Local-only books shown in cloud mode are removed from local storage only.
+- Expired Drive sessions after confirmation route through a delete-specific cloud auth expired notice.
+
+### Test Scope
+- In cloud mode, long-press or right-click a Drive book and confirm deletion.
+- Confirm the file disappears from Google Drive `web viewer`.
+- If the book was downloaded locally, confirm it no longer opens from local cache.
+- In local mode, long-press or right-click a local book and confirm it is removed from local storage.
+- Confirm cancel leaves both cloud and local copies intact.
+- Confirm an expired Drive token shows the cloud-session-expired flow instead of silently failing.
+
 ## Next Phases
 
 ### Post-Cleanup Follow-Ups

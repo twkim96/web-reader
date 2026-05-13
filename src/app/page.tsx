@@ -12,6 +12,8 @@ const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: fals
 import { Book, ViewState } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
+import { removeBookFromLocal } from '../lib/localDB';
 import { AuthLanding, CloudModeSelector } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
@@ -64,7 +66,8 @@ export default function Page() {
   const isGuestRef = useRef(getStoredGuestMode());
 
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
-  const [showCloudAuthExpiredNotice, setShowCloudAuthExpiredNotice] = useState(false);
+  const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
+  const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
 
   const { settings, updateSettings } = useViewerSettings();
 
@@ -133,10 +136,10 @@ export default function Page() {
 
   const handleDisconnectDrive = () => setPendingAction('disconnect');
 
-  const handleCloudAuthExpired = useCallback(() => {
+  const handleCloudAuthExpired = useCallback((message?: React.ReactNode) => {
     clearToken();
     setIsOfflineMode(true);
-    setShowCloudAuthExpiredNotice(true);
+    setCloudAuthExpiredMessage(message || "현재 도서는 기기에만 저장됩니다. 다시 클라우드를 연결하면 구글 드라이브 업로드를 사용할 수 있습니다.");
     void restoreLocalData({ preventRedirect: true, replaceBooks: true });
   }, [clearToken, restoreLocalData]);
 
@@ -216,6 +219,46 @@ export default function Page() {
     deleteProgress: handleDeleteProgress,
   } = useProgressActions({ activeBook, user, deviceId, progressRef, setProgress });
 
+  const handleDeleteBook = useCallback(async (book: Book) => {
+    const shouldDeleteCloud = !isOfflineMode && Boolean(googleToken) && book.source !== 'local';
+
+    try {
+      if (shouldDeleteCloud) {
+        if (!hasValidToken() || !googleToken) {
+          handleCloudAuthExpired("클라우드 세션이 만료되어 도서를 삭제하지 못했습니다. 다시 클라우드를 연결한 뒤 삭제해 주세요.");
+          return;
+        }
+        await deleteDriveFile(book.id, googleToken);
+      }
+
+      await removeBookFromLocal(book.id);
+      if (shouldDeleteCloud) {
+        handleDeleteProgress(book.id);
+      } else {
+        setProgress((prev) => {
+          const next = { ...prev };
+          delete next[book.id];
+          progressRef.current = next;
+          return next;
+        });
+      }
+      setBooks((prev) => prev.filter((item) => item.id !== book.id));
+    } catch (error) {
+      if (isGoogleDriveAuthError(error)) {
+        handleCloudAuthExpired("클라우드 세션이 만료되어 도서를 삭제하지 못했습니다. 다시 클라우드를 연결한 뒤 삭제해 주세요.");
+        return;
+      }
+      if (isGoogleDrivePermissionError(error)) {
+        setCloudPermissionMessage("이 앱에서 삭제할 수 없는 Google Drive 파일입니다. Google Drive에서 직접 삭제하거나, 이 앱으로 업로드한 도서를 삭제해 주세요.");
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : '알 수 없는 오류';
+      console.error('[DeleteBook] failed:', error);
+      alert(`도서 삭제 실패: ${message}`);
+    }
+  }, [googleToken, handleCloudAuthExpired, handleDeleteProgress, hasValidToken, isOfflineMode, progressRef, setBooks, setProgress]);
+
   const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
   const dynamicStyles = {
     '--accent-400': accentColorObj[400],
@@ -271,6 +314,7 @@ export default function Page() {
           isGuest={isGuest}
           onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive}
           onDeleteProgress={handleDeleteProgress}
+          onDeleteBook={handleDeleteBook}
           settings={settings}
           onUpdateSettings={updateSettings}
           onLocalBookImported={() => restoreLocalData(true)}
@@ -308,16 +352,29 @@ export default function Page() {
         />
       )}
 
-      {showCloudAuthExpiredNotice && (
+      {cloudAuthExpiredMessage && (
         <ConfirmDialog
           message="클라우드 세션이 만료되었습니다."
-          subMessage="현재 도서는 기기에만 저장됩니다. 다시 클라우드를 연결하면 구글 드라이브 업로드를 사용할 수 있습니다."
+          subMessage={cloudAuthExpiredMessage}
           confirmLabel="확인"
           hideCancel
           variant="info"
           theme={theme}
-          onConfirm={() => setShowCloudAuthExpiredNotice(false)}
-          onCancel={() => setShowCloudAuthExpiredNotice(false)}
+          onConfirm={() => setCloudAuthExpiredMessage(null)}
+          onCancel={() => setCloudAuthExpiredMessage(null)}
+        />
+      )}
+
+      {cloudPermissionMessage && (
+        <ConfirmDialog
+          message="클라우드 도서 삭제 권한이 부족합니다."
+          subMessage={cloudPermissionMessage}
+          confirmLabel="확인"
+          hideCancel
+          variant="info"
+          theme={theme}
+          onConfirm={() => setCloudPermissionMessage(null)}
+          onCancel={() => setCloudPermissionMessage(null)}
         />
       )}
     </div>
