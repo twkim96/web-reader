@@ -56,6 +56,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 }) => {
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
   const themeColors = useMemo(() => THEME_COLORS[settings.theme] || THEME_COLORS.sepia, [settings.theme]);
+  const readerEdgePadding = Math.max(settings.padding || 0, settings.fontSize);
 
   const chrome = useReaderChrome({ onBack });
   const {
@@ -272,7 +273,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         </div>
       )}
 
-      <div ref={containerRef} className="w-full h-full" style={{ position: 'relative' }} />
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{
+          boxSizing: 'border-box',
+          paddingBlock: `${readerEdgePadding}px`,
+          position: 'relative',
+        }}
+      />
 
       {isLoaded && settings.navMode !== 'scroll' && (
         <div className="fixed inset-0 z-10" style={{ background: 'transparent' }} onClick={handleInteraction} />
