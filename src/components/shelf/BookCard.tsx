@@ -1,13 +1,14 @@
 import React from 'react';
 import { BookOpen, CheckCircle2, Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
+import { getDisplayBookTitle, getProgressTime, ShelfTheme } from './bookUtils';
 
 interface BookCardProps {
   book: Book;
   progress?: UserProgress;
   isDownloaded: boolean;
   viewMode: 'grid' | 'list';
-  theme: any;
+  theme: ShelfTheme;
   onOpen: (book: Book) => void;
   onDeleteProgress?: (bookId: string) => void;
 }
@@ -21,10 +22,10 @@ export const BookCard: React.FC<BookCardProps> = ({
   onOpen,
   onDeleteProgress
 }) => {
-  const formatDate = (timestamp: any) => {
-    if (!timestamp) return 'Ready to Start';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    if (isNaN(date.getTime())) return 'Ready to Start';
+  const formatDate = (timestamp: unknown) => {
+    const time = getProgressTime(timestamp);
+    if (!time) return 'Ready to Start';
+    const date = new Date(time);
     return date.toLocaleString('ko-KR', {
       year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
     });
@@ -45,7 +46,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         <div className="flex-1 min-w-0 pr-4">
           <div className="flex items-center gap-2">
             <h3 className="text-base sm:text-lg font-bold truncate group-hover:text-accent-500 transition-colors">
-              {book.name.replace(/\.epub$/i, '').replace(/\.txt$/i, '')}
+              {getDisplayBookTitle(book.name)}
             </h3>
             {isDownloaded && (
               <CheckCircle2 size={16} className="text-green-400 shrink-0" strokeWidth={3} />
@@ -109,7 +110,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         
         <div>
           <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
-            {book.name.replace(/\.epub$/i, '').replace(/\.txt$/i, '')}
+            {getDisplayBookTitle(book.name)}
           </h3>
           <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">EPUB Document</p>
         </div>

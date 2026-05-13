@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Book, UserProgress, ViewerSettings } from '../../types';
-import { getOfflineBookIds } from '../../lib/localDB';
 import { ManageModal } from '../ManageModal';
 import { ShelfSearchModal } from '../ShelfSearchModal';
 import { ThemeModal } from '../ThemeModal';
@@ -11,6 +10,9 @@ import { ShelfHeader } from './ShelfHeader';
 import { BookCard } from './BookCard';
 import { EmptyState } from './EmptyState';
 import { FileUploader } from './FileUploader';
+import { useFilteredBooks } from './useFilteredBooks';
+import { useOfflineBookIds } from './useOfflineBookIds';
+import { useShelfPreferences } from './useShelfPreferences';
 
 interface ShelfProps {
   books: Book[];
@@ -47,12 +49,9 @@ export const Shelf: React.FC<ShelfProps> = ({
   onUpdateSettings,
   onLocalBookImported
 }) => {
-  const [offlineIds, setOfflineIds] = useState<Set<string>>(new Set());
   const [showManage, setShowManage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [sortMode, setSortMode] = useState<'alpha' | 'recent'>('recent');
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [pendingDeleteProgressId, setPendingDeleteProgressId] = useState<string | null>(null);
   const [showImportConfirm, setShowImportConfirm] = useState(false);
@@ -61,26 +60,9 @@ export const Shelf: React.FC<ShelfProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
-
-  useEffect(() => {
-    const savedView = localStorage.getItem('shelf_viewMode');
-    if (savedView === 'grid' || savedView === 'list') setViewMode(savedView);
-    
-    const savedSort = localStorage.getItem('shelf_sortMode');
-    if (savedSort === 'alpha' || savedSort === 'recent') setSortMode(savedSort);
-  }, []);
-
-  const handleSetViewMode = () => {
-    const mode = viewMode === 'grid' ? 'list' : 'grid';
-    setViewMode(mode);
-    localStorage.setItem('shelf_viewMode', mode);
-  };
-
-  const handleSetSortMode = () => {
-    const mode = sortMode === 'alpha' ? 'recent' : 'alpha';
-    setSortMode(mode);
-    localStorage.setItem('shelf_sortMode', mode);
-  };
+  const { viewMode, sortMode, toggleViewMode, toggleSortMode } = useShelfPreferences();
+  const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
+  const filteredBooks = useFilteredBooks(books, searchKeyword, sortMode, progress);
 
   const stateRef = useRef({ showManage, showSearch });
   useEffect(() => {
@@ -101,50 +83,6 @@ export const Shelf: React.FC<ShelfProps> = ({
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const checkOfflineStatus = async () => {
-    const ids = await getOfflineBookIds();
-    setOfflineIds(ids);
-  };
-
-  useEffect(() => {
-    checkOfflineStatus();
-  }, [books]);
-
-  // NFD(MacOS) / NFC 유니코드 정규화 및 공백/확장자 제거를 통한 검색 정확도 향상 (메모이제이션 적용)
-  const filteredBooks = useMemo(() => {
-    return books.filter(book => {
-      if (!book.name) return false;
-      const normalizedBookName = book.name.normalize('NFC').replace('.txt', '').replace(/\s+/g, '').toLowerCase();
-      const normalizedKeyword = searchKeyword.normalize('NFC').replace(/\s+/g, '').toLowerCase();
-      return normalizedBookName.includes(normalizedKeyword);
-    }).sort((a, b) => {
-      // 0%는 안 읽은 것으로 취급
-      const isReadA = (progress[a.id]?.progressPercent || 0) > 0;
-      const isReadB = (progress[b.id]?.progressPercent || 0) > 0;
-
-      if (sortMode === 'alpha') {
-        // 읽던 책 우선 → 그 안에서 가나다순
-        if (isReadA !== isReadB) return isReadA ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      } else if (sortMode === 'recent') {
-        const getMs = (ts: any) => {
-          if (!ts) return 0;
-          const d = ts.toDate ? ts.toDate() : new Date(ts);
-          return isNaN(d.getTime()) ? 0 : d.getTime();
-        };
-        // 읽던 책 우선 → 그 안에서 최신순
-        if (isReadA !== isReadB) return isReadA ? -1 : 1;
-        const pA = getMs(progress[a.id]?.lastRead);
-        const pB = getMs(progress[b.id]?.lastRead);
-        if (pA === 0 && pB === 0) {
-          return books.indexOf(a) - books.indexOf(b); 
-        }
-        return pB - pA;
-      }
-      return 0;
-    });
-  }, [books, searchKeyword, sortMode, progress]);
-
   return (
     <div className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-20 transition-colors duration-300`}>
       <ShelfHeader 
@@ -160,8 +98,8 @@ export const Shelf: React.FC<ShelfProps> = ({
         onLogin={onLogin}
         onLogout={onLogout}
         setShowSearch={setShowSearch}
-        onToggleSortMode={handleSetSortMode}
-        onToggleViewMode={handleSetViewMode}
+        onToggleSortMode={toggleSortMode}
+        onToggleViewMode={toggleViewMode}
         setShowThemeModal={setShowThemeModal}
         setShowManage={setShowManage}
         setShowImportConfirm={setShowImportConfirm}
@@ -179,7 +117,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       {searchKeyword && (
         <div className="max-w-7xl mx-auto px-6 pt-4 pb-0">
           <div className="flex items-center gap-2 text-sm text-slate-400">
-            <span className="text-accent-400 font-bold">"{searchKeyword}"</span>
+            <span className="text-accent-400 font-bold">&quot;{searchKeyword}&quot;</span>
             <span>검색 결과</span>
             <span className="bg-white/10 px-2 py-0.5 rounded-md text-xs font-bold text-white">
               {filteredBooks.length}
@@ -228,7 +166,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       {showManage && (
         <ManageModal 
           onClose={() => setShowManage(false)} 
-          onUpdate={checkOfflineStatus}
+          onUpdate={refreshOfflineBookIds}
           theme={theme}
         />
       )}

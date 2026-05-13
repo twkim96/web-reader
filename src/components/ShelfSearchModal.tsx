@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Search, X, BookOpen, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { Book, UserProgress } from '../types';
+import { getDisplayBookTitle, getProgressTime, normalizeBookSearchText, ShelfTheme } from './shelf/bookUtils';
 
 interface ShelfSearchModalProps {
   onClose: () => void;
   onSearch: (keyword: string) => void;
   initialKeyword: string;
-  theme: any;
+  theme: ShelfTheme;
   books: Book[];
   onOpen: (book: Book) => void;
   progress: Record<string, UserProgress>;
@@ -33,18 +34,16 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
     onClose();
   };
 
-  const formatDate = (timestamp: any) => {
-    if (!timestamp) return null;
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    if (isNaN(date.getTime())) return null;
+  const formatDate = (timestamp: unknown) => {
+    const time = getProgressTime(timestamp);
+    if (!time) return null;
+    const date = new Date(time);
     return date.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
   };
 
   const filteredBooks = keyword ? books.filter(b => {
     if (!b.name) return false;
-    const normalizedBookName = b.name.normalize('NFC').replace('.txt', '').replace(/\s+/g, '').toLowerCase();
-    const normalizedKeyword = keyword.normalize('NFC').replace(/\s+/g, '').toLowerCase();
-    return normalizedBookName.includes(normalizedKeyword);
+    return normalizeBookSearchText(b.name).includes(normalizeBookSearchText(keyword));
   }).slice(0, 5) : [];
 
   return (
@@ -107,7 +106,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                        
                        <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
                          <span className="font-bold truncate text-base group-hover:text-accent-500 transition-colors">
-                           {book.name.replace('.txt', '')}
+                           {getDisplayBookTitle(book.name)}
                          </span>
                          {(lastDate || percent !== undefined) && (
                            <div className="flex items-center gap-3 shrink-0">
