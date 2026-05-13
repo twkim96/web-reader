@@ -8,20 +8,13 @@
 - 여러 기기/Vercel 테스트가 필요할 때는 사용자가 요청하면 commit + push까지 수행한다.
 
 ## Current State
-- Working tree has uncommitted Phase 5 changes. Do not commit until the user asks.
-- Phase 5 code has been implemented and reviewed once.
-- Latest Phase 5 validation passed:
+- Phase 5 has been committed and pushed.
+- Current hotfix scope: remote progress prompt acceptance must not save the previous local position and trigger cross-device ping-pong.
+- Latest validation passed:
   - `npx tsc --noEmit`
   - changed-file ESLint
   - `npm run build`
   - `git diff --check`
-- Current uncommitted files:
-  - `src/app/page.tsx`
-  - `src/hooks/useAuthBootstrap.ts`
-  - `src/hooks/useLibraryData.ts`
-  - `src/hooks/progressPolicy.ts`
-  - `src/hooks/useProgressActions.ts`
-  - `src/hooks/useProgressSync.ts`
 
 ## Completed Phases
 
@@ -75,8 +68,8 @@
 ## Phase 5: Progress Sync/Actions Split
 
 ### Status
-- Implemented but not committed.
-- Waiting for user testing.
+- Completed.
+- Commit: `c1aa644 Extract progress sync and clear expired cloud shelf`
 
 ### Changes
 - Moved progress save/delete actions out of `page.tsx` into `useProgressActions`.
@@ -107,6 +100,15 @@
   - existing sync conflict prompt behavior should remain.
 - Delete reading progress:
   - progress resets to 0 and the book sorts with unread/completed items.
+
+### Hotfix: Remote Progress Accept Must Not Ping-Pong
+- When accepting a remote progress prompt, the reader must jump to the remote location without creating an auto bookmark or saving the previous local position.
+- Remote progress acceptance should update local reader refs (`lastSaveTime`, persisted CFI/percent) so the same remote update is not echoed back as a new local write.
+
+## Reader Navigation Save Policy
+- For all jump/navigation flows, progress persistence should be based on the position after movement completes, not the position before movement starts.
+- Before-move state may be used for local-only auto bookmarks, but it must not update Firestore as the latest reading progress.
+- Phase 7 should revisit general jump flows (TOC/search/bookmark/% jump) and make this policy explicit in reader hooks.
 
 ## Next Phases
 
@@ -149,4 +151,3 @@
 - After user testing, commit and push when requested.
 - Avoid mixing future phase work into the current phase commit.
 - If a regression appears, prefer fixing inside the current phase before commit; after commit, keep rollback scope phase-sized.
-

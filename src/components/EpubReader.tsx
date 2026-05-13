@@ -84,7 +84,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const [showJumpInput, setShowJumpInput] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialBookmarks || []);
-  const [syncConflict, setSyncConflict] = useState<{ cfi: string; percent: number } | null>(null);
+  const [syncConflict, setSyncConflict] = useState<{ cfi: string; percent: number; lastRead: number } | null>(null);
   const lastSaveTime = useRef(initialTime || Date.now());
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
@@ -445,6 +445,21 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     await goToFraction(fraction);
   }, [currentCfi, totalProgress, createAutoBookmark, goToFraction, markUserProgressChange]);
 
+  const jumpToRemoteProgress = useCallback(async (target: { cfi: string; percent: number; lastRead: number }) => {
+    const safePercent = toClampedPercent(target.percent) ?? 0;
+
+    skipNextSave.current = true;
+    hasUnsavedUserChange.current = false;
+    lastSaveTime.current = target.lastRead;
+    lastPersistedProgress.current = {
+      cfi: target.cfi,
+      percent: safePercent,
+      bookmarksKey: getBookmarksKey(saveContext.current.bookmarks),
+    };
+
+    await goTo(target.cfi);
+  }, [goTo]);
+
   // 동기화 충돌 감지
   const lastProcessedRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
   const isInitialSync = useRef(true); // 최초 로딩 감지용
@@ -466,8 +481,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     if (isInitialSync.current) {
       isInitialSync.current = false;
       if (remoteCfi && remoteCfi !== currentCfi && remoteTime > lastSaveTime.current) {
-        skipNextSave.current = true;
-        goTo(remoteCfi); // 최초 로딩 시에는 자동 북마크 없이 이동
+        void jumpToRemoteProgress({
+          cfi: remoteCfi,
+          percent: remoteProgress.progressPercent,
+          lastRead: remoteTime,
+        }); // 최초 로딩 시에는 자동 북마크 없이 이동
         return;
       }
     }
@@ -481,10 +499,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       // 0.03% 이내 차이라면 알림 없이 무시
       const diff = Math.abs((remoteProgress.progressPercent || 0) - (totalProgress || 0));
       if (diff > 0.03) {
-        setSyncConflict({ cfi: remoteCfi, percent: remoteProgress.progressPercent });
+        setSyncConflict({ cfi: remoteCfi, percent: remoteProgress.progressPercent, lastRead: remoteTime });
       }
     }
-  }, [remoteProgress, isLoaded, currentCfi, totalProgress, performJump, goTo]);
+  }, [remoteProgress, isLoaded, currentCfi, totalProgress, jumpToRemoteProgress]);
 
 
   // % 또는 CFI로 이동
@@ -666,9 +684,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
                 무시
               </button>
               <button
-                onClick={() => { 
-                  skipNextSave.current = true;
-                  performJump(syncConflict.cfi); 
+                onClick={() => {
+                  void jumpToRemoteProgress(syncConflict);
                   setSyncConflict(null); 
                 }}
                 className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-accent-500 text-white hover:bg-accent-600 transition-colors shadow-lg shadow-accent-500/30"
