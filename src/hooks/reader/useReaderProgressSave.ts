@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Bookmark, SaveProgressOptions } from '../../types';
 import { getBookmarksKey, getRelocatePercent, ReaderRelocateDetail, toClampedPercent } from './progress';
 
@@ -17,6 +17,12 @@ type RemoteProgressTarget = {
   lastRead: number;
 };
 
+type PendingRelocateSave = {
+  cfi: string;
+  percent: number;
+  bookmarks: Bookmark[];
+};
+
 interface UseReaderProgressSaveOptions {
   initialCfi?: string;
   initialPercent?: number;
@@ -24,6 +30,9 @@ interface UseReaderProgressSaveOptions {
   initialBookmarks?: Bookmark[];
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => void;
 }
+
+const RELOCATE_SAVE_IDLE_MS = 1000;
+const RELOCATE_SAVE_MAX_INTERVAL_MS = 5000;
 
 export const useReaderProgressSave = ({
   initialCfi,
@@ -37,6 +46,9 @@ export const useReaderProgressSave = ({
   const hasUnsavedUserChangeRef = useRef(false);
   const forceNextRelocateSaveRef = useRef(false);
   const pendingBookmarksRef = useRef<Bookmark[] | null>(null);
+  const pendingRelocateSaveRef = useRef<PendingRelocateSave | null>(null);
+  const relocateSaveTimerRef = useRef<number | null>(null);
+  const unsavedSinceRef = useRef<number | null>(null);
   const saveContextRef = useRef<SaveContext>({
     currentCfi: '',
     totalProgress: 0,
@@ -66,11 +78,20 @@ export const useReaderProgressSave = ({
     }
   }, []);
 
+  const clearRelocateSaveTimer = useCallback(() => {
+    if (relocateSaveTimerRef.current === null) return;
+    window.clearTimeout(relocateSaveTimerRef.current);
+    relocateSaveTimerRef.current = null;
+  }, []);
+
   const clearPendingSave = useCallback(() => {
+    clearRelocateSaveTimer();
     hasUnsavedUserChangeRef.current = false;
     forceNextRelocateSaveRef.current = false;
     pendingBookmarksRef.current = null;
-  }, []);
+    pendingRelocateSaveRef.current = null;
+    unsavedSinceRef.current = null;
+  }, [clearRelocateSaveTimer]);
 
   const saveProgressIfChanged = useCallback((
     cfi: string,
@@ -105,6 +126,38 @@ export const useReaderProgressSave = ({
     return true;
   }, [clearPendingSave, onSaveProgress]);
 
+  const savePendingRelocate = useCallback(() => {
+    const pending = pendingRelocateSaveRef.current;
+    if (!pending) return false;
+
+    return saveProgressIfChanged(
+      pending.cfi,
+      pending.percent,
+      pending.bookmarks
+    );
+  }, [saveProgressIfChanged]);
+
+  const scheduleRelocateSave = useCallback((pending: PendingRelocateSave) => {
+    pendingRelocateSaveRef.current = pending;
+
+    const now = Date.now();
+    if (!unsavedSinceRef.current) {
+      unsavedSinceRef.current = now;
+    }
+
+    if (now - unsavedSinceRef.current >= RELOCATE_SAVE_MAX_INTERVAL_MS) {
+      clearRelocateSaveTimer();
+      saveProgressIfChanged(pending.cfi, pending.percent, pending.bookmarks);
+      return;
+    }
+
+    clearRelocateSaveTimer();
+    relocateSaveTimerRef.current = window.setTimeout(() => {
+      relocateSaveTimerRef.current = null;
+      savePendingRelocate();
+    }, RELOCATE_SAVE_IDLE_MS);
+  }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
+
   const handleRelocateForSave = useCallback((detail: ReaderRelocateDetail) => {
     if (!detail.cfi) return;
 
@@ -121,31 +174,40 @@ export const useReaderProgressSave = ({
     const pct = getRelocatePercent(detail, totalProgress);
     if (pct === null) return;
 
-    const now = Date.now();
-    const shouldSaveNow = forceNextRelocateSaveRef.current || now - lastSaveTimeRef.current > 5000;
-    if (!shouldSaveNow) return;
+    const pending = {
+      cfi: detail.cfi,
+      percent: pct,
+      bookmarks: pendingBookmarksRef.current || bookmarks,
+    };
 
-    saveProgressIfChanged(
-      detail.cfi,
-      pct,
-      pendingBookmarksRef.current || bookmarks
-    );
-  }, [saveProgressIfChanged]);
+    if (forceNextRelocateSaveRef.current) {
+      clearRelocateSaveTimer();
+      saveProgressIfChanged(pending.cfi, pending.percent, pending.bookmarks);
+      return;
+    }
+
+    scheduleRelocateSave(pending);
+  }, [clearRelocateSaveTimer, saveProgressIfChanged, scheduleRelocateSave]);
 
   const saveCurrentProgress = useCallback(() => {
     const { currentCfi, totalProgress, bookmarks } = saveContextRef.current;
     if (!currentCfi) return false;
+    clearRelocateSaveTimer();
     return saveProgressIfChanged(
       currentCfi,
       totalProgress,
       pendingBookmarksRef.current || bookmarks
     );
-  }, [saveProgressIfChanged]);
+  }, [clearRelocateSaveTimer, saveProgressIfChanged]);
 
   const prepareRemoteJump = useCallback(() => {
     skipNextSaveRef.current = true;
     clearPendingSave();
   }, [clearPendingSave]);
+
+  useEffect(() => () => {
+    clearRelocateSaveTimer();
+  }, [clearRelocateSaveTimer]);
 
   const completeRemoteJump = useCallback((
     target: RemoteProgressTarget,

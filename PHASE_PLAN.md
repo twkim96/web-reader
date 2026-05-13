@@ -228,6 +228,11 @@
   - `goToFraction` runs once on pointer/key release or blur
   - auto bookmark is created at most once when final target differs by more than 5%
   - latest progress is still saved from the post-move relocate event
+- Refined relocate save timing:
+  - explicit jumps and slider releases save immediately after the post-move relocate event
+  - ordinary page/scroll movement saves after 1 second of idle
+  - continuous movement is capped with a 5 second max unsaved interval
+  - visibility change/unmount still flushes the final location
 - Cleaned `src` lint errors:
   - removed remaining `any` types in touched UI components
   - fixed unescaped JSX quotes
@@ -245,6 +250,9 @@
 ### Test Scope
 - Local/cloud TXT and EPUB upload/open.
 - Progress/bookmark persistence.
+- Ordinary page/scroll movement:
+  - should save soon after movement stops
+  - should not write every tiny relocate event during continuous movement
 - Progress slider drag/release:
   - no repeated jumps while dragging
   - one auto bookmark only after a meaningful final move
