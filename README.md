@@ -77,10 +77,9 @@ Google 로그인은 `signInWithRedirect`를 사용합니다. 배포 도메인에
 * Google Cloud OAuth redirect URI 형식: `https://<배포도메인>/__/auth/handler`
 
 ### Google Drive OAuth
-Cloud Library 연결은 팝업 대신 Google Cloud OAuth redirect로 Google Drive access token을 받습니다. Firebase 로그인과 분리된 전용 콜백 경로를 사용합니다.
+Cloud Library 연결은 팝업 대신 전체 페이지 redirect로 Google Drive access token을 받습니다. Google Cloud Console에서 같은 OAuth 클라이언트에 앱 루트 URL도 승인된 리디렉션 URI로 등록해야 합니다.
 
-* Drive OAuth redirect URI 형식: `https://<배포도메인>/drive-oauth`
-* 로컬 테스트가 필요하면 같은 OAuth 클라이언트에 `http://localhost:3000/drive-oauth`도 추가합니다.
+* Drive OAuth redirect URI 형식: `https://<배포도메인>/`
 
 ### Installation
 ```bash

@@ -13,11 +13,6 @@ import { Book, ViewState } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
-import {
-  buildGoogleDriveOAuthUrl,
-  GOOGLE_DRIVE_OAUTH_ERROR_KEY,
-  GOOGLE_DRIVE_OAUTH_STATE_KEY,
-} from '../lib/googleDriveOAuth';
 import { removeBookFromLocal } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
@@ -33,10 +28,44 @@ const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
 
+const DRIVE_OAUTH_STATE_KEY = 'google_drive_oauth_state';
+
+const getDriveRedirectUri = () => `${window.location.origin}${window.location.pathname}`;
+
+const buildDriveOAuthUrl = (clientId: string, state: string) => {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: getDriveRedirectUri(),
+    response_type: 'token',
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    prompt: 'select_account',
+    include_granted_scopes: 'true',
+    state,
+  });
+
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+};
+
+const getDriveOAuthRedirectResult = () => {
+  const hash = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  if (!hash.includes('access_token=') && !hash.includes('error=')) return null;
+
+  const params = new URLSearchParams(hash);
+  const expiresIn = params.get('expires_in');
+  return {
+    accessToken: params.get('access_token'),
+    expiresIn: expiresIn ? Number(expiresIn) : null,
+    state: params.get('state'),
+    error: params.get('error'),
+  };
+};
+
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
-  const { googleToken, setGoogleToken, getStoredToken, clearToken, hasValidToken } = useGoogleDriveToken();
+  const { googleToken, setGoogleToken, getStoredToken, saveToken, clearToken, hasValidToken } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const deviceId = useDeviceId();
 
@@ -124,16 +153,37 @@ export default function Page() {
   }, [clearToken, restoreLocalData]);
 
   useEffect(() => {
-    const driveOAuthError = sessionStorage.getItem(GOOGLE_DRIVE_OAUTH_ERROR_KEY);
-    if (!driveOAuthError) return;
+    const result = getDriveOAuthRedirectResult();
+    if (!result) return;
+
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+
     const timeoutId = window.setTimeout(() => {
-      sessionStorage.removeItem(GOOGLE_DRIVE_OAUTH_ERROR_KEY);
-      setAuthErrorMessage(driveOAuthError);
-      setView((prev) => (prev === 'loading' ? 'shelf' : prev));
+      const expectedState = sessionStorage.getItem(DRIVE_OAUTH_STATE_KEY);
+      sessionStorage.removeItem(DRIVE_OAUTH_STATE_KEY);
+
+      if (result.error || !result.accessToken || !Number.isFinite(result.expiresIn) || !result.expiresIn) {
+        setAuthErrorMessage('Google Drive 연결을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        setView('shelf');
+        return;
+      }
+
+      if (!expectedState || result.state !== expectedState) {
+        setAuthErrorMessage('Google Drive 연결 상태를 확인하지 못했습니다. 다시 시도해 주세요.');
+        setView('shelf');
+        return;
+      }
+
+      saveToken(result.accessToken, result.expiresIn, false);
+      setIsOfflineMode(false);
+      setView('loading');
+      loadLibraryFromDrive(result.accessToken).then(() => {
+        setView('shelf');
+      });
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, []);
+  }, [loadLibraryFromDrive, saveToken]);
 
   useEffect(() => {
     if (!googleToken || isOfflineMode) return;
@@ -170,7 +220,6 @@ export default function Page() {
       return;
     }
 
-    setAuthErrorMessage(null);
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
     if (!clientId) {
       setAuthErrorMessage('Google Drive 연결 설정을 찾지 못했습니다.');
@@ -178,8 +227,8 @@ export default function Page() {
     }
 
     const state = crypto.randomUUID();
-    sessionStorage.setItem(GOOGLE_DRIVE_OAUTH_STATE_KEY, state);
-    window.location.assign(buildGoogleDriveOAuthUrl(clientId, window.location.origin, state));
+    sessionStorage.setItem(DRIVE_OAUTH_STATE_KEY, state);
+    window.location.assign(buildDriveOAuthUrl(clientId, state));
   };
 
   const handleLoginTrigger = () => {
