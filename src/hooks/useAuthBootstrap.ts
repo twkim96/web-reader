@@ -50,6 +50,7 @@ export const useAuthBootstrap = ({
       if (firebaseUser) {
         setIsGuest(false);
         isGuestRef.current = false;
+        localStorage.removeItem('isGuest');
 
         void (async () => {
           await restoreLocalData(true);

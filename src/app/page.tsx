@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, googleProvider } from '../lib/firebase';
-import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
+import { signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
@@ -14,7 +14,7 @@ import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
 import { removeBookFromLocal } from '../lib/localDB';
-import { AuthLanding, CloudModeSelector } from '../components/AuthScreens';
+import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
 import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
@@ -201,21 +201,13 @@ export default function Page() {
     isGuestRef.current = false;
     localStorage.removeItem('isGuest');
 
-    signInWithPopup(auth, googleProvider).catch((error) => {
-      const code = typeof error === 'object' && error && 'code' in error
-        ? String(error.code)
-        : '';
+    setView('loading');
 
-      console.error('[Auth] Google popup failed:', error);
-      const isLikelyPopupBlocked = [
-        'auth/popup-blocked',
-        'auth/cancelled-popup-request',
-        'auth/popup-closed-by-user',
-      ].includes(code);
+    signInWithRedirect(auth, googleProvider).catch((error) => {
+      console.error('[Auth] Google redirect failed:', error);
 
-      setAuthErrorMessage(isLikelyPopupBlocked
-        ? '브라우저 또는 광고 차단기가 Google 로그인 팝업을 막았습니다. AdGuard에서 이 사이트를 허용하거나 잠시 끈 뒤 다시 시도해 주세요.'
-        : 'Google 로그인을 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.'
+      setAuthErrorMessage(
+        'Google 로그인을 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.'
       );
       setView('auth');
     });
@@ -309,18 +301,7 @@ export default function Page() {
         />
       )}
 
-      {/* 2. 모드 선택 화면 */}
-      {view === 'auth' && user && (
-        <CloudModeSelector
-          theme={theme}
-          userName={user.displayName || user.email || 'Google User'}
-          isPublicPC={isPublicPC}
-          onPublicPCChange={setIsPublicPC}
-          onLogout={handleLogout}
-          onConnect={handleConnect}
-          onLocalMode={handleLocalMode}
-        />
-      )}
+      {/* 2. 모드 선택 화면 (제거됨 - 바로 책장으로 이동) */}
 
       {/* 3. 책장 */}
       {view === 'shelf' && (
