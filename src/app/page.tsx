@@ -581,6 +581,7 @@ export default function Page() {
           initialCfi={progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
           initialTime={progress[activeBook.id]?.lastRead}
+          initialBookmarks={progress[activeBook.id]?.bookmarks || []}
           remoteProgress={remoteProgress[activeBook.id]}
         />
       )}

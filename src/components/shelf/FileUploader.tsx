@@ -2,7 +2,7 @@ import React from 'react';
 import { findFolderId, createFolder, uploadFile } from '../../lib/googleDrive';
 import { saveBookToLocal } from '../../lib/localDB';
 import { Book } from '../../types';
-import { convertTxtToEpub } from '../../lib/txtToEpub';
+import { ensureEpubBook, getSupportedBookMimeType } from '../../lib/bookContent';
 
 interface FileUploaderProps {
   googleToken: string | null;
@@ -21,7 +21,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
   fileInputRef,
   setIsSyncing
 }) => {
-  const syncFileToDrive = async (fileName: string, content: ArrayBuffer) => {
+  const syncFileToDrive = async (fileName: string, content: ArrayBuffer, mimeType: string) => {
     if (!googleToken || isOfflineMode) return null;
 
     try {
@@ -34,16 +34,17 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       }
 
       if (folderId) {
-        const result = await uploadFile(fileName, content, folderId, googleToken);
+        const result = await uploadFile(fileName, content, folderId, googleToken, mimeType);
         console.log('Google Drive sync successful, ID:', result.id);
         onRefresh(); // 목록 갱신
         return result.id as string; // 구글 드라이브 ID 반환
       } else {
         throw new Error('폴더를 생성하거나 찾을 수 없습니다.');
       }
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '알 수 없는 오류';
       console.error('Sync failed:', error);
-      alert(`클라우드 동기화 실패: ${error.message || '알 수 없는 오류'}\n(파일은 기기에 로컬로 저장되었습니다.)`);
+      alert(`클라우드 동기화 실패: ${message}\n(파일은 기기에 로컬로 저장되었습니다.)`);
       return null;
     } finally {
       setIsSyncing(false);
@@ -61,36 +62,13 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       const content = event.target?.result as ArrayBuffer;
       if (!content) return;
 
-      const isTxt = file.name.toLowerCase().endsWith('.txt');
-      
-      // txt 파일이면 epub으로 자동 변환
-      let finalContent: ArrayBuffer;
-      let finalFileName: string;
-      let finalMimeType: string;
+      const originalMimeType = getSupportedBookMimeType(file.name, file.type);
 
-      if (isTxt) {
-        try {
-          const epubBlob = await convertTxtToEpub(content, file.name, 'auto');
-          finalContent = await epubBlob.arrayBuffer();
-          finalFileName = file.name.replace(/\.txt$/i, '.epub');
-          finalMimeType = 'application/epub+zip';
-        } catch (err) {
-          console.error('txt→epub 변환 실패:', err);
-          alert('txt→epub 변환에 실패했습니다.');
-          return;
-        }
-      } else {
-        // epub은 그대로
-        finalContent = content;
-        finalFileName = file.name;
-        finalMimeType = 'application/epub+zip';
-      }
-
-      let bookId = finalFileName; // 기본값은 파일명
+      let bookId = file.name; // 기본값은 파일명
       
-      // 1. 구글 드라이브 동기화 (클라우드 모드일 때 먼저 실행하여 ID 확보)
+      // 1. 구글 드라이브 동기화 (원본 txt/epub 그대로 업로드)
       if (!isOfflineMode && googleToken) {
-        const driveId = await syncFileToDrive(finalFileName, finalContent);
+        const driveId = await syncFileToDrive(file.name, content, originalMimeType);
         if (driveId) {
           bookId = driveId; // 드라이브 업로드 성공 시 해당 ID 사용
         }
@@ -102,11 +80,18 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       // 2. 로컬 저장 (확보된 bookId 사용 - 중복 방지 핵심)
       const book: Book = {
         id: bookId,
-        name: finalFileName,
-        mimeType: finalMimeType,
+        name: file.name,
+        mimeType: originalMimeType,
       };
       
-      await saveBookToLocal(book, finalContent);
+      try {
+        const epub = await ensureEpubBook(book, content);
+        await saveBookToLocal(epub.book, epub.content);
+      } catch (err) {
+        console.error('epub 변환/저장 실패:', err);
+        alert('도서를 EPUB으로 준비하는 데 실패했습니다.');
+        return;
+      }
       
       if (onLocalBookImported) {
         onLocalBookImported();

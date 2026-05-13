@@ -69,7 +69,13 @@ export const createFolder = async (folderName: string, token: string) => {
 /**
  * 파일을 구글 드라이브의 특정 폴더에 업로드합니다 (Multipart Upload).
  */
-export const uploadFile = async (fileName: string, content: ArrayBuffer, folderId: string, token: string) => {
+export const uploadFile = async (
+  fileName: string,
+  content: ArrayBuffer,
+  folderId: string,
+  token: string,
+  mimeType: string
+) => {
   const boundary = '-------antigravity_sync_boundary';
   const delimiter = `\r\n--${boundary}\r\n`;
   const closeDelimiter = `\r\n--${boundary}--`;
@@ -77,10 +83,10 @@ export const uploadFile = async (fileName: string, content: ArrayBuffer, folderI
   const metadata = {
     name: fileName,
     parents: [folderId],
-    mimeType: 'application/epub+zip',
+    mimeType,
   };
 
-  const head = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n${delimiter}Content-Type: application/epub+zip\r\n\r\n`;
+  const head = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n${delimiter}Content-Type: ${mimeType}\r\n\r\n`;
   
   const body = new Blob([
     head,
@@ -111,7 +117,7 @@ export const uploadFile = async (fileName: string, content: ArrayBuffer, folderI
 };
 
 export const fetchDriveFiles = async (token: string, folderId?: string) => {
-  let q = "mimeType='application/epub+zip' and trashed=false";
+  let q = "(mimeType='application/epub+zip' or mimeType='text/plain') and trashed=false";
   if (folderId) q = `'${folderId}' in parents and ${q}`;
   
   // 파일 목록 조회도 5초 타임아웃 (오프라인 감지용)

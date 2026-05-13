@@ -13,6 +13,7 @@ import { EpubSearchModal } from './EpubSearchModal';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { loadBookFromLocal, saveBookToLocal } from '../lib/localDB';
 import { fetchFullFile } from '../lib/googleDrive';
+import { ensureEpubBook } from '../lib/bookContent';
 
 interface EpubReaderProps {
   book: Book;
@@ -24,6 +25,7 @@ interface EpubReaderProps {
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
+  initialBookmarks?: Bookmark[];
   remoteProgress?: UserProgress;
 }
 
@@ -37,6 +39,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   initialCfi,
   initialPercent,
   initialTime,
+  initialBookmarks,
   remoteProgress,
 }) => {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -48,7 +51,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showJumpInput, setShowJumpInput] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(remoteProgress?.bookmarks || []);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialBookmarks || []);
   const [syncConflict, setSyncConflict] = useState<{ cfi: string; percent: number } | null>(null);
   const hasRestored = useRef(false);
   const lastSaveTime = useRef(initialTime || Date.now());
@@ -125,20 +128,24 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         const localData = await loadBookFromLocal(book.id);
 
         let source: Blob;
-        const isValidEpub = (buf: ArrayBuffer) => {
-          const v = new Uint8Array(buf);
-          return v[0] === 0x50 && v[1] === 0x4B;
-        };
 
-        if (localData && isValidEpub(localData)) {
-          source = new Blob([localData], { type: 'application/epub+zip' });
-        } else {
-          if (localData) console.warn('[EpubReader] Local data is not valid epub, discarding');
+        try {
+          if (!localData) throw new Error('No local cache');
+          const epub = await ensureEpubBook(book, localData);
+          source = new Blob([epub.content], { type: 'application/epub+zip' });
+          try {
+            await saveBookToLocal(epub.book, epub.content);
+          } catch (e) {
+            console.warn('[EpubReader] Failed to update local epub cache:', e);
+          }
+        } catch (localError) {
+          if (localData) console.warn('[EpubReader] Local cache is not usable, fetching remote:', localError);
           if (!googleToken) throw new Error('No Token');
           const buffer = await fetchFullFile(book.id, googleToken);
-          source = new Blob([buffer], { type: 'application/epub+zip' });
+          const epub = await ensureEpubBook(book, buffer);
+          source = new Blob([epub.content], { type: 'application/epub+zip' });
           try {
-            await saveBookToLocal(book, buffer);
+            await saveBookToLocal(epub.book, epub.content);
           } catch (e) {
             console.warn('[EpubReader] Failed to save locally:', e);
           }
@@ -239,6 +246,22 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [onBack, showSettings, showThemeModal, showBookmarks, showSearchModal, showJumpInput]);
+
+  // 서버에서 업데이트된 수동 북마크 반영 (자동 북마크는 로컬 유지)
+  useEffect(() => {
+    const serverMarks = remoteProgress?.bookmarks;
+    if (!serverMarks) return;
+
+    setBookmarks(prev => {
+      const serverManual = serverMarks.filter(b => b.type === 'manual');
+      const localAuto = prev.filter(b => b.type === 'auto');
+      const merged = [...serverManual, ...localAuto].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      
+      // 실제 변경사항이 있을 때만 업데이트
+      if (JSON.stringify(merged) === JSON.stringify(prev)) return prev;
+      return merged;
+    });
+  }, [remoteProgress?.bookmarks]);
 
 
   // 탭 네비게이션 (페이지 모드 전용)
