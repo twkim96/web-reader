@@ -50,6 +50,14 @@ const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
 
+const toProgressPercent = (value: unknown) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return null;
+  return Math.min(100, Math.max(0, numericValue));
+};
+
+const getBookmarksKey = (items?: Bookmark[]) => JSON.stringify(items || []);
+
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
@@ -211,20 +219,32 @@ export default function Page() {
     if (!activeBook) return;
 
     setProgress(prev => {
+      const bookId = activeBook.id;
+      const nextCfi = String(cfi || '');
+      if (!nextCfi) return prev;
+
+      const existing = prev[bookId];
+      const existingPercent = toProgressPercent(existing?.progressPercent);
+      const safePercent = toProgressPercent(pct) ?? existingPercent ?? 0;
       const now = Date.now();
-      const existingBookmarks = prev[activeBook.id]?.bookmarks || [];
+      const existingBookmarks = existing?.bookmarks || [];
       const finalBookmarks = bookmarks !== undefined ? bookmarks : existingBookmarks;
+      const hasChanged = !existing ||
+        existing.cfi !== nextCfi ||
+        Math.abs((existingPercent ?? 0) - safePercent) >= 0.05 ||
+        getBookmarksKey(existingBookmarks) !== getBookmarksKey(finalBookmarks);
+
+      if (!hasChanged) return prev;
 
       const progressData: UserProgress = {
-        bookId: activeBook.id,
-        cfi: String(cfi),
-        progressPercent: pct,
+        bookId,
+        cfi: nextCfi,
+        progressPercent: safePercent,
         lastRead: now,
         bookmarks: finalBookmarks
       };
 
       // 비동기 작업에 필요한 값을 미리 캡처 (activeBook이 null이 될 경우 대비)
-      const bookId = activeBook.id;
       const currentBookmarks = progressData.bookmarks || [];
 
       // Perform side-effects async

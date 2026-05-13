@@ -29,6 +29,38 @@ interface EpubReaderProps {
   remoteProgress?: UserProgress;
 }
 
+type RelocateDetail = {
+  cfi?: string;
+  fraction?: number;
+  location?: {
+    current?: number;
+    total?: number;
+  };
+};
+
+const toClampedPercent = (value: unknown) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return null;
+  return Math.min(100, Math.max(0, numericValue));
+};
+
+const getRelocatePercent = (detail: RelocateDetail, fallback: number) => {
+  if (Number.isFinite(detail.fraction)) {
+    return toClampedPercent((detail.fraction || 0) * 100);
+  }
+
+  if (detail.location) {
+    const { current, total } = detail.location;
+    if (Number.isFinite(current) && Number.isFinite(total) && total && total > 0) {
+      return toClampedPercent((Number(current) / total) * 100);
+    }
+  }
+
+  return toClampedPercent(fallback);
+};
+
+const getBookmarksKey = (items?: Bookmark[]) => JSON.stringify(items || []);
+
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
   googleToken,
@@ -53,7 +85,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const [jumpInput, setJumpInput] = useState('');
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialBookmarks || []);
   const [syncConflict, setSyncConflict] = useState<{ cfi: string; percent: number } | null>(null);
-  const hasRestored = useRef(false);
   const lastSaveTime = useRef(initialTime || Date.now());
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
@@ -68,6 +99,44 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const themeColors = THEME_COLORS[settings.theme] || THEME_COLORS.sepia;
 
   const skipNextSave = useRef(true);
+  const hasUnsavedUserChange = useRef(false);
+  const lastPersistedProgress = useRef({
+    cfi: initialCfi || '',
+    percent: toClampedPercent(initialPercent) ?? 0,
+    bookmarksKey: getBookmarksKey(initialBookmarks),
+  });
+
+  const markUserProgressChange = useCallback(() => {
+    hasUnsavedUserChange.current = true;
+  }, []);
+
+  const saveProgressIfChanged = useCallback((cfi: string, pct: number, nextBookmarks: Bookmark[]) => {
+    if (!hasUnsavedUserChange.current) return false;
+
+    const safePercent = toClampedPercent(pct);
+    if (!cfi || safePercent === null) return false;
+
+    const nextBookmarksKey = getBookmarksKey(nextBookmarks);
+    const previous = lastPersistedProgress.current;
+    const hasChanged = previous.cfi !== cfi ||
+      Math.abs(previous.percent - safePercent) >= 0.05 ||
+      previous.bookmarksKey !== nextBookmarksKey;
+
+    if (!hasChanged) {
+      hasUnsavedUserChange.current = false;
+      return false;
+    }
+
+    onSaveProgress(cfi, safePercent, nextBookmarks);
+    lastPersistedProgress.current = {
+      cfi,
+      percent: safePercent,
+      bookmarksKey: nextBookmarksKey,
+    };
+    lastSaveTime.current = Date.now();
+    hasUnsavedUserChange.current = false;
+    return true;
+  }, [onSaveProgress]);
 
   const {
     containerRef,
@@ -95,13 +164,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           return;
         }
 
-        const pct = detail.fraction !== undefined
-          ? Math.min(100, Math.max(0, detail.fraction * 100))
-          : 0;
+        if (!hasUnsavedUserChange.current) return;
+
+        const { totalProgress, bookmarks } = saveContext.current;
+        const pct = getRelocatePercent(detail, totalProgress);
+        if (pct === null) return;
+
         const now = Date.now();
-        if (now - lastSaveTime.current > 5000 && !syncConflict) {
-          onSaveProgress(detail.cfi, pct, bookmarks);
-          lastSaveTime.current = now;
+        if (now - lastSaveTime.current > 5000 && !saveContext.current.syncConflict) {
+          saveProgressIfChanged(detail.cfi, pct, bookmarks);
         }
       }
     },
@@ -110,6 +181,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       doc.addEventListener('click', () => {
         setShowControls(prev => !prev);
       });
+      doc.addEventListener('wheel', markUserProgressChange, { passive: true });
+      doc.addEventListener('touchmove', markUserProgressChange, { passive: true });
+      doc.addEventListener('keydown', markUserProgressChange);
     },
   });
 
@@ -168,7 +242,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         });
 
         setIsLoaded(true);
-        hasRestored.current = true;
       } catch (e) {
         console.error('[EpubReader] Failed to load epub:', e);
         onBack();
@@ -203,25 +276,25 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [isLoaded, settings.navMode, setLayout]);
 
   // 탭 숨김/언마운트 시 저장 (ref 통해 최신값 참조)
-  const saveContext = useRef({ onSaveProgress, currentCfi, totalProgress, bookmarks });
+  const saveContext = useRef({ currentCfi, totalProgress, bookmarks, syncConflict });
   useEffect(() => {
-    saveContext.current = { onSaveProgress, currentCfi, totalProgress, bookmarks };
-  }, [onSaveProgress, currentCfi, totalProgress, bookmarks]);
+    saveContext.current = { currentCfi, totalProgress, bookmarks, syncConflict };
+  }, [currentCfi, totalProgress, bookmarks, syncConflict]);
 
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        const { onSaveProgress, currentCfi, totalProgress, bookmarks } = saveContext.current;
-        if (currentCfi) onSaveProgress(currentCfi, totalProgress, bookmarks);
+        const { currentCfi, totalProgress, bookmarks } = saveContext.current;
+        if (currentCfi) saveProgressIfChanged(currentCfi, totalProgress, bookmarks);
       }
     };
     window.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('visibilitychange', handleVisibility);
-      const { onSaveProgress, currentCfi, totalProgress, bookmarks } = saveContext.current;
-      if (currentCfi) onSaveProgress(currentCfi, totalProgress, bookmarks);
+      const { currentCfi, totalProgress, bookmarks } = saveContext.current;
+      if (currentCfi) saveProgressIfChanged(currentCfi, totalProgress, bookmarks);
     };
-  }, []);
+  }, [saveProgressIfChanged]);
 
   // 뒤로가기 핸들링
   const historyPushed = useRef(false);
@@ -269,19 +342,19 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     const w = window.innerWidth;
     const h = window.innerHeight;
     if (settings.navMode === 'page') {
-      if (clientY > h * 0.7) { next(); return; }
-      if (clientY < h * 0.3) { prev(); return; }
+      if (clientY > h * 0.7) { markUserProgressChange(); next(); return; }
+      if (clientY < h * 0.3) { markUserProgressChange(); prev(); return; }
     } else if (settings.navMode === 'left-right') {
-      if (clientX < w * 0.3) { prev(); return; }
-      if (clientX > w * 0.7) { next(); return; }
+      if (clientX < w * 0.3) { markUserProgressChange(); prev(); return; }
+      if (clientX > w * 0.7) { markUserProgressChange(); next(); return; }
     } else if (settings.navMode === 'all-dir') {
-      if (clientY < h * 0.3) { prev(); return; }
-      if (clientY > h * 0.7) { next(); return; }
-      if (clientX < w * 0.3) { prev(); return; }
-      if (clientX > w * 0.7) { next(); return; }
+      if (clientY < h * 0.3) { markUserProgressChange(); prev(); return; }
+      if (clientY > h * 0.7) { markUserProgressChange(); next(); return; }
+      if (clientX < w * 0.3) { markUserProgressChange(); prev(); return; }
+      if (clientX > w * 0.7) { markUserProgressChange(); next(); return; }
     }
     setShowControls(c => !c);
-  }, [settings.navMode, prev, next]);
+  }, [settings.navMode, markUserProgressChange, prev, next]);
 
   const handleUIBack = () => window.history.back();
 
@@ -302,6 +375,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   // 북마크 추가 (서버 동기화 포함)
   const addBookmark = useCallback(() => {
     if (!currentCfi) return;
+    markUserProgressChange();
     const preview = getPreviewText();
     const newMark: Bookmark = {
       id: crypto.randomUUID(),
@@ -314,18 +388,20 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     };
     const updated = [newMark, ...bookmarks];
     setBookmarks(updated);
-    onSaveProgress(currentCfi, totalProgress, updated);
-  }, [currentCfi, totalProgress, bookmarks, onSaveProgress, getPreviewText]);
+    saveProgressIfChanged(currentCfi, totalProgress, updated);
+  }, [currentCfi, totalProgress, bookmarks, getPreviewText, markUserProgressChange, saveProgressIfChanged]);
 
   // 북마크 삭제
   const deleteBookmark = useCallback((id: string) => {
+    markUserProgressChange();
     const updated = bookmarks.filter(b => b.id !== id);
     setBookmarks(updated);
-    onSaveProgress(currentCfi, totalProgress, updated);
-  }, [bookmarks, currentCfi, totalProgress, onSaveProgress]);
+    saveProgressIfChanged(currentCfi, totalProgress, updated);
+  }, [bookmarks, currentCfi, totalProgress, markUserProgressChange, saveProgressIfChanged]);
 
   // 자동 북마크 생성 (로컬 전용, 최대 3개)
   const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
+    markUserProgressChange();
     const preview = getPreviewText();
     const autoMark: Bookmark = {
       id: crypto.randomUUID(),
@@ -343,27 +419,31 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     const updated = [...manual, autoMark, ...auto];
 
     setBookmarks(updated);
-    onSaveProgress(currentCfi, totalProgress, updated);
-  }, [getPreviewText, onSaveProgress, currentCfi, totalProgress, bookmarks]);
+    saveProgressIfChanged(currentCfi, totalProgress, updated);
+  }, [getPreviewText, currentCfi, totalProgress, bookmarks, markUserProgressChange, saveProgressIfChanged]);
 
   // 점프 핸들러 (자동 북마크 로직 포함)
   const performJump = useCallback(async (targetCfi: string) => {
     if (!currentCfi || targetCfi === currentCfi) return;
+    markUserProgressChange();
 
     // 현재 위치를 자동 북마크로 저장
     createAutoBookmark(currentCfi, totalProgress);
 
+    markUserProgressChange();
     await goTo(targetCfi);
-  }, [currentCfi, totalProgress, createAutoBookmark, goTo]);
+  }, [currentCfi, totalProgress, createAutoBookmark, goTo, markUserProgressChange]);
 
   const performJumpFraction = useCallback(async (fraction: number) => {
+    markUserProgressChange();
     const targetPct = fraction * 100;
     // 5% 이상 차이날 때만 자동 북마크 생성
     if (Math.abs(targetPct - totalProgress) > 5) {
       createAutoBookmark(currentCfi, totalProgress);
     }
+    markUserProgressChange();
     await goToFraction(fraction);
-  }, [currentCfi, totalProgress, createAutoBookmark, goToFraction]);
+  }, [currentCfi, totalProgress, createAutoBookmark, goToFraction, markUserProgressChange]);
 
   // 동기화 충돌 감지
   const lastProcessedRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
@@ -465,6 +545,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
             onChange={(e) => {
               const p = parseFloat(e.target.value);
               // 슬라이더 이동은 자동 북마크 없이 직접 이동
+              markUserProgressChange();
               goToFraction(p / 100);
             }}
             className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"

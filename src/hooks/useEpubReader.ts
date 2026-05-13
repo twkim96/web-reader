@@ -29,14 +29,89 @@ interface UseEpubReaderOptions {
   initialPercent?: number;
 }
 
+type FoliateSection = {
+  id?: string;
+  href?: string;
+  linear?: string;
+  size?: number;
+};
+
+type TocItem = {
+  label?: string;
+  href: string;
+  progress?: number;
+  subitems?: TocItem[];
+};
+
+type FoliateRenderer = {
+  start: number;
+  viewSize: number;
+  size: number;
+  getAttribute: (name: string) => string | null;
+  setAttribute: (name: string, value?: string) => void;
+  setStyles: (styles: string[]) => void;
+  getContents?: () => { doc?: Document }[];
+};
+
+type SearchSubitem = {
+  cfi: string;
+  excerpt: string | { pre: string; match: string; post: string };
+};
+
+type FoliateSearchResult = 'done' | {
+  progress?: number;
+  label?: string;
+  index?: number;
+  subitems?: SearchSubitem[];
+};
+
+type FoliateViewElement = HTMLElement & {
+  renderer?: FoliateRenderer;
+  book?: {
+    sections?: FoliateSection[];
+    toc?: TocItem[];
+  };
+  open: (source: Blob | File | string) => Promise<void>;
+  init: (options: { lastLocation: string | null }) => Promise<void>;
+  prev: () => void;
+  next: () => void;
+  goTo: (cfi: string) => Promise<void>;
+  goToFraction: (fraction: number) => Promise<void>;
+  resolveNavigation: (href: string) => { index?: number } | null;
+  search: (options: { query: string }) => AsyncIterable<FoliateSearchResult>;
+  clearSearch?: () => void;
+  close?: () => void;
+};
+
+const toClampedPercent = (value: unknown) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return null;
+  return Math.min(100, Math.max(0, numericValue));
+};
+
+const getProgressFromRelocateDetail = (detail: RelocateDetail) => {
+  if (Number.isFinite(detail.fraction)) {
+    return toClampedPercent(detail.fraction * 100);
+  }
+
+  if (detail.location) {
+    const { current, total } = detail.location;
+    if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
+      return toClampedPercent((current / total) * 100);
+    }
+  }
+
+  return null;
+};
+
 export const useEpubReader = (options?: UseEpubReaderOptions) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<any>(null);
+  const viewRef = useRef<FoliateViewElement | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const [totalProgress, setTotalProgress] = useState(options?.initialPercent || 0);
+  const [totalProgress, setTotalProgress] = useState(() => toClampedPercent(options?.initialPercent) ?? 0);
   const [currentCfi, setCurrentCfi] = useState<string>('');
   const [currentChapter, setCurrentChapter] = useState<string>('');
-  const [toc, setToc] = useState<any[]>([]);
+  const [toc, setToc] = useState<TocItem[]>([]);
 
   // Foliate-js 초기화 (view.js import 및 <foliate-view> 생성)
   const initView = useCallback(async () => {
@@ -71,24 +146,19 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
       });
     }
 
-    const view = document.createElement('foliate-view') as any;
+    const view = document.createElement('foliate-view') as FoliateViewElement;
     view.style.width = '100%';
     view.style.height = '100%';
 
     // relocate 이벤트: 위치가 변경될 때마다 호출
-    view.addEventListener('relocate', (e: CustomEvent) => {
+    view.addEventListener('relocate', ((e: CustomEvent<RelocateDetail>) => {
       const detail = e.detail;
       if (detail) {
         setCurrentCfi(detail.cfi || '');
 
-        // 전체 진행률 계산 (foliate-js의 detail.fraction은 0~1 사이의 전체 진행률임)
-        if (detail.fraction !== undefined) {
-          setTotalProgress(Math.min(100, Math.max(0, detail.fraction * 100)));
-        } else if (detail.location) {
-          const { current, total } = detail.location;
-          if (total > 0) {
-            setTotalProgress((current / total) * 100);
-          }
+        const progressPercent = getProgressFromRelocateDetail(detail);
+        if (progressPercent !== null) {
+          setTotalProgress(progressPercent);
         }
 
         // 현재 챕터명
@@ -98,10 +168,10 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
 
         options?.onRelocate?.(detail);
       }
-    });
+    }) as EventListener);
 
     // load 이벤트: 섹션이 로드될 때 (iframe doc 접근 가능)
-    view.addEventListener('load', (e: CustomEvent) => {
+    view.addEventListener('load', ((e: CustomEvent<{ doc?: Document }>) => {
       const { doc } = e.detail || {};
       if (doc) {
         // 스크롤 모드에서 챕터 경계 너머로 스크롤 시 이동 처리
@@ -188,7 +258,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         }, { passive: true });
       }
       options?.onLoad?.(doc);
-    });
+    }) as EventListener);
 
     containerRef.current.appendChild(view);
     viewRef.current = view;
@@ -199,9 +269,9 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
   useEffect(() => {
     return () => {
       try {
-        viewRef.current?.close();
+        viewRef.current?.close?.();
         viewRef.current?.remove();
-      } catch (e) { /* ignore */ }
+      } catch { /* ignore */ }
       viewRef.current = null;
     };
   }, []);
@@ -226,8 +296,8 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
 
       // 목차 데이터 구성 (진행률 포함)
       // view.init() 이후에 계산하여 renderer가 준비된 상태에서 진행
-      const sections = view.book.sections || [];
-      const sizes = sections.map((s: any) => (s.linear !== 'no' && s.size > 0) ? s.size : 0);
+      const sections = view.book?.sections || [];
+      const sizes = sections.map((section) => (section.linear !== 'no' && (section.size || 0) > 0) ? section.size || 0 : 0);
       const sizeTotal = sizes.reduce((a: number, b: number) => a + b, 0);
 
       const sectionFractions: number[] = [0];
@@ -239,8 +309,8 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         for (let i = 1; i <= sections.length; i++) sectionFractions.push(i / sections.length);
       }
 
-      const rawToc = view.book.toc || [];
-      const enrichTocItems = (items: any[]): any[] => {
+      const rawToc = view.book?.toc || [];
+      const enrichTocItems = (items: TocItem[]): TocItem[] => {
         return items.map(item => {
           // 1. 기본 해상도 시도
           const resolved = view.resolveNavigation(item.href);
@@ -249,7 +319,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
           // 2. 수동 검색 (경로 정규화 비교)
           if (index === 0 && item.href) {
             const hrefPath = item.href.split('#')[0].split('/').pop(); // 파일명만 추출
-            const foundIndex = sections.findIndex((s: any) => {
+            const foundIndex = sections.findIndex((s) => {
               const sPath = (s.id || s.href || '').split('/').pop();
               return sPath && hrefPath && sPath === hrefPath;
             });
@@ -404,7 +474,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
   // 검색 (foliate-js async generator 방식)
   const searchBook = useCallback(async (
     query: string,
-    onResult: (result: { label: string; index: number; total: number; progress: number; subitems: { cfi: string; excerpt: any }[] }) => void,
+    onResult: (result: { label: string; index: number; total: number; progress: number; subitems: SearchSubitem[] }) => void,
     onProgress: (p: number) => void,
   ): Promise<void> => {
     const view = viewRef.current;
