@@ -30,6 +30,10 @@ try {
 
 const googleProvider = new GoogleAuthProvider();
 
+const googleDriveProvider = new GoogleAuthProvider();
+googleDriveProvider.addScope('https://www.googleapis.com/auth/drive.file');
+googleDriveProvider.setCustomParameters({ prompt: 'consent select_account' });
+
 export const APP_ID = "private-web-novel-viewer";
 
-export { auth, db, googleProvider };
+export { auth, db, googleProvider, googleDriveProvider };
