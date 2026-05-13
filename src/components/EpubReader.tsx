@@ -1,25 +1,29 @@
 // src/components/EpubReader.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Book, ViewerSettings, Bookmark, SaveProgressOptions, UserProgress } from '../types';
+import React, { useCallback, useEffect, useMemo } from 'react';
+import { Book, Bookmark, SaveProgressOptions, UserProgress, ViewerSettings } from '../types';
 import { THEMES } from '../lib/constants';
-import { ChevronLeft, Search, Settings, Palette, Bookmark as BookmarkIcon, Hash, RefreshCw, List } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
 import { TocModal } from './TocModal';
 import { EpubSearchModal } from './EpubSearchModal';
+import { JumpDialog } from './reader/JumpDialog';
+import { ReaderToolbar } from './reader/ReaderToolbar';
+import { SyncConflictDialog } from './reader/SyncConflictDialog';
 import { useEpubReader } from '../hooks/useEpubReader';
-import { loadBookFromLocal, saveBookToLocal } from '../lib/localDB';
-import { fetchFullFile } from '../lib/googleDrive';
-import { ensureEpubBook } from '../lib/bookContent';
+import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
+import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
+import { useReaderChrome } from '../hooks/reader/useReaderChrome';
+import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
+import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
 
 interface EpubReaderProps {
   book: Book;
   googleToken: string;
   settings: ViewerSettings;
-  onUpdateSettings: (s: Partial<ViewerSettings>) => void;
+  onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
   onBack: () => void;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => void;
   initialCfi?: string;
@@ -29,37 +33,12 @@ interface EpubReaderProps {
   remoteProgress?: UserProgress;
 }
 
-type RelocateDetail = {
-  cfi?: string;
-  fraction?: number;
-  location?: {
-    current?: number;
-    total?: number;
-  };
+const THEME_COLORS: Record<string, { bg: string; text: string }> = {
+  light: { bg: '#ffffff', text: '#222222' },
+  dark: { bg: '#272728', text: '#b8b8b8' },
+  sepia: { bg: '#f4ecd8', text: '#5b4636' },
+  blue: { bg: '#eef2f7', text: '#2c3e50' },
 };
-
-const toClampedPercent = (value: unknown) => {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return null;
-  return Math.min(100, Math.max(0, numericValue));
-};
-
-const getRelocatePercent = (detail: RelocateDetail, fallback: number) => {
-  if (Number.isFinite(detail.fraction)) {
-    return toClampedPercent((detail.fraction || 0) * 100);
-  }
-
-  if (detail.location) {
-    const { current, total } = detail.location;
-    if (Number.isFinite(current) && Number.isFinite(total) && total && total > 0) {
-      return toClampedPercent((Number(current) / total) * 100);
-    }
-  }
-
-  return toClampedPercent(fallback);
-};
-
-const getBookmarksKey = (items?: Bookmark[]) => JSON.stringify(items || []);
 
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
@@ -74,69 +53,34 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   initialBookmarks,
   remoteProgress,
 }) => {
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [showControls, setShowControls] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showThemeModal, setShowThemeModal] = useState(false);
-  const [showBookmarks, setShowBookmarks] = useState(false);
-  const [showToc, setShowToc] = useState(false);
-  const [showSearchModal, setShowSearchModal] = useState(false);
-  const [showJumpInput, setShowJumpInput] = useState(false);
-  const [jumpInput, setJumpInput] = useState('');
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(initialBookmarks || []);
-  const [syncConflict, setSyncConflict] = useState<{ cfi: string; percent: number; lastRead: number } | null>(null);
-  const lastSaveTime = useRef(initialTime || Date.now());
-
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
+  const themeColors = useMemo(() => THEME_COLORS[settings.theme] || THEME_COLORS.sepia, [settings.theme]);
 
-  // 테마별 HEX 색상 (epub 내부 CSS 주입용)
-  const THEME_COLORS: Record<string, { bg: string; text: string }> = {
-    light: { bg: '#ffffff', text: '#222222' },
-    dark: { bg: '#272728', text: '#b8b8b8' },
-    sepia: { bg: '#f4ecd8', text: '#5b4636' },
-    blue: { bg: '#eef2f7', text: '#2c3e50' },
-  };
-  const themeColors = THEME_COLORS[settings.theme] || THEME_COLORS.sepia;
-
-  const skipNextSave = useRef(true);
-  const hasUnsavedUserChange = useRef(false);
-  const lastPersistedProgress = useRef({
-    cfi: initialCfi || '',
-    percent: toClampedPercent(initialPercent) ?? 0,
-    bookmarksKey: getBookmarksKey(initialBookmarks),
+  const chrome = useReaderChrome({ onBack });
+  const {
+    lastSaveTimeRef,
+    updateSaveContext,
+    markUserProgressChange,
+    saveProgressIfChanged,
+    handleRelocateForSave,
+    saveCurrentProgress,
+    prepareRemoteJump,
+    completeRemoteJump,
+  } = useReaderProgressSave({
+    initialCfi,
+    initialPercent,
+    initialTime,
+    initialBookmarks,
+    onSaveProgress,
   });
 
-  const markUserProgressChange = useCallback(() => {
-    hasUnsavedUserChange.current = true;
-  }, []);
-
-  const saveProgressIfChanged = useCallback((cfi: string, pct: number, nextBookmarks: Bookmark[]) => {
-    if (!hasUnsavedUserChange.current) return false;
-
-    const safePercent = toClampedPercent(pct);
-    if (!cfi || safePercent === null) return false;
-
-    const nextBookmarksKey = getBookmarksKey(nextBookmarks);
-    const previous = lastPersistedProgress.current;
-    const hasChanged = previous.cfi !== cfi ||
-      Math.abs(previous.percent - safePercent) >= 0.05 ||
-      previous.bookmarksKey !== nextBookmarksKey;
-
-    if (!hasChanged) {
-      hasUnsavedUserChange.current = false;
-      return false;
-    }
-
-    onSaveProgress(cfi, safePercent, nextBookmarks);
-    lastPersistedProgress.current = {
-      cfi,
-      percent: safePercent,
-      bookmarksKey: nextBookmarksKey,
-    };
-    lastSaveTime.current = Date.now();
-    hasUnsavedUserChange.current = false;
-    return true;
-  }, [onSaveProgress]);
+  const handleReaderLoad = useCallback((doc?: Document) => {
+    if (!doc) return;
+    doc.addEventListener('click', chrome.toggleControls);
+    doc.addEventListener('wheel', () => markUserProgressChange(), { passive: true });
+    doc.addEventListener('touchmove', () => markUserProgressChange(), { passive: true });
+    doc.addEventListener('keydown', () => markUserProgressChange());
+  }, [chrome.toggleControls, markUserProgressChange]);
 
   const {
     containerRef,
@@ -156,558 +100,242 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     toc,
   } = useEpubReader({
     initialPercent,
-    onRelocate: (detail) => {
-      if (detail.cfi) {
-        // 동기화 이동 직후나 초기 로드 시에는 저장을 한 번 건너뜀 (에코 루프 방지)
-        if (skipNextSave.current) {
-          skipNextSave.current = false;
-          return;
-        }
-
-        if (!hasUnsavedUserChange.current) return;
-
-        const { totalProgress, bookmarks } = saveContext.current;
-        const pct = getRelocatePercent(detail, totalProgress);
-        if (pct === null) return;
-
-        const now = Date.now();
-        if (now - lastSaveTime.current > 5000 && !saveContext.current.syncConflict) {
-          saveProgressIfChanged(detail.cfi, pct, bookmarks);
-        }
-      }
-    },
-    onLoad: (doc) => {
-      if (!doc) return;
-      doc.addEventListener('click', () => {
-        setShowControls(prev => !prev);
-      });
-      doc.addEventListener('wheel', markUserProgressChange, { passive: true });
-      doc.addEventListener('touchmove', markUserProgressChange, { passive: true });
-      doc.addEventListener('keydown', markUserProgressChange);
-    },
+    onRelocate: handleRelocateForSave,
+    onLoad: handleReaderLoad,
   });
 
-  // 초기 로드 시에는 첫 reloc을 건너뛰도록 설정 (이미 skipNextSave.current = true 로 시작함)
+  const { isLoaded } = useReaderBookSource({
+    book,
+    googleToken,
+    initialCfi,
+    settings,
+    themeColors,
+    containerRef,
+    openBook,
+    setLayout,
+    setStyle,
+    onBack,
+  });
 
-  // epub 파일 로드
-  const loadAttempted = useRef(false);
+  const {
+    bookmarks,
+    getBookmarks,
+    addBookmark,
+    deleteBookmark,
+    createAutoBookmark,
+  } = useReaderBookmarks({
+    initialBookmarks,
+    remoteBookmarks: remoteProgress?.bookmarks,
+    viewRef,
+    currentCfi,
+    totalProgress,
+    markUserProgressChange,
+    saveProgressIfChanged,
+  });
+
+  const {
+    syncConflict,
+    dismissSyncConflict,
+    acceptSyncConflict,
+  } = useRemoteProgressPrompt({
+    isLoaded,
+    remoteProgress,
+    currentCfi,
+    totalProgress,
+    lastSaveTimeRef,
+    goTo,
+    getBookmarks,
+    prepareRemoteJump,
+    completeRemoteJump,
+  });
+
   useEffect(() => {
-    if (loadAttempted.current) return;
-    if (!containerRef.current) return;
-    loadAttempted.current = true;
-
-    const loadEpub = async () => {
-      try {
-        const localData = await loadBookFromLocal(book.id);
-
-        let source: Blob;
-
-        try {
-          if (!localData) throw new Error('No local cache');
-          const epub = await ensureEpubBook(book, localData);
-          source = new Blob([epub.content], { type: 'application/epub+zip' });
-          try {
-            await saveBookToLocal(epub.book, epub.content);
-          } catch (e) {
-            console.warn('[EpubReader] Failed to update local epub cache:', e);
-          }
-        } catch (localError) {
-          if (localData) console.warn('[EpubReader] Local cache is not usable, fetching remote:', localError);
-          if (!googleToken) throw new Error('No Token');
-          const buffer = await fetchFullFile(book.id, googleToken);
-          const epub = await ensureEpubBook(book, buffer);
-          source = new Blob([epub.content], { type: 'application/epub+zip' });
-          try {
-            await saveBookToLocal(epub.book, epub.content);
-          } catch (e) {
-            console.warn('[EpubReader] Failed to save locally:', e);
-          }
-        }
-
-        await openBook(source, initialCfi);
-
-        setLayout({
-          flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
-          maxColumnCount: 1,
-          margin: 0,
-          maxInlineSize: '1000px',
-        });
-        setStyle({
-          fontSize: settings.fontSize,
-          lineHeight: settings.lineHeight,
-          fontFamily: settings.fontFamily,
-          textAlign: settings.textAlign,
-          bgColor: themeColors.bg,
-          textColor: themeColors.text,
-        });
-
-        setIsLoaded(true);
-      } catch (e) {
-        console.error('[EpubReader] Failed to load epub:', e);
-        onBack();
-      }
-    };
-
-    loadEpub();
-  }, [book.id, googleToken]);
-
-  // settings 변경 시 epub 내부 스타일 즉시 반영
-  useEffect(() => {
-    if (!isLoaded) return;
-    setStyle({
-      fontSize: settings.fontSize,
-      lineHeight: settings.lineHeight,
-      fontFamily: settings.fontFamily,
-      textAlign: settings.textAlign,
-      bgColor: themeColors.bg,
-      textColor: themeColors.text,
+    updateSaveContext({
+      currentCfi,
+      totalProgress,
+      bookmarks,
+      hasSyncConflict: Boolean(syncConflict),
     });
-  }, [isLoaded, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.textAlign, settings.theme, setStyle]);
-
-  // navMode 변경 시 렌더러 flow 변경
-  useEffect(() => {
-    if (!isLoaded) return;
-    setLayout({
-      flow: settings.navMode === 'scroll' ? 'scrolled' : 'paginated',
-      maxColumnCount: 1,
-      margin: 0,
-      maxInlineSize: '1000px',
-    });
-  }, [isLoaded, settings.navMode, setLayout]);
-
-  // 탭 숨김/언마운트 시 저장 (ref 통해 최신값 참조)
-  const saveContext = useRef({ currentCfi, totalProgress, bookmarks, syncConflict });
-  useEffect(() => {
-    saveContext.current = { currentCfi, totalProgress, bookmarks, syncConflict };
-  }, [currentCfi, totalProgress, bookmarks, syncConflict]);
+  }, [bookmarks, currentCfi, syncConflict, totalProgress, updateSaveContext]);
 
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        const { currentCfi, totalProgress, bookmarks } = saveContext.current;
-        if (currentCfi) saveProgressIfChanged(currentCfi, totalProgress, bookmarks);
+        saveCurrentProgress();
       }
     };
+
     window.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('visibilitychange', handleVisibility);
-      const { currentCfi, totalProgress, bookmarks } = saveContext.current;
-      if (currentCfi) saveProgressIfChanged(currentCfi, totalProgress, bookmarks);
+      saveCurrentProgress();
     };
-  }, [saveProgressIfChanged]);
+  }, [saveCurrentProgress]);
 
-  // 뒤로가기 핸들링
-  const historyPushed = useRef(false);
-  useEffect(() => {
-    if (!historyPushed.current) {
-      window.history.pushState({ panel: 'reader' }, '', '');
-      historyPushed.current = true;
-    }
-    const handlePopState = () => {
-      if (showSettings || showThemeModal || showBookmarks || showSearchModal || showJumpInput) {
-        window.history.pushState({ panel: 'reader' }, '', '');
-        setShowSettings(false);
-        setShowThemeModal(false);
-        setShowBookmarks(false);
-        setShowSearchModal(false);
-        setShowJumpInput(false);
-      } else {
-        onBack();
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [onBack, showSettings, showThemeModal, showBookmarks, showSearchModal, showJumpInput]);
+  const handleInteraction = useCallback((event: React.MouseEvent) => {
+    const { clientX, clientY } = event;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
 
-  // 서버에서 업데이트된 수동 북마크 반영 (자동 북마크는 로컬 유지)
-  useEffect(() => {
-    const serverMarks = remoteProgress?.bookmarks;
-    if (!serverMarks) return;
-
-    setBookmarks(prev => {
-      const serverManual = serverMarks.filter(b => b.type === 'manual');
-      const localAuto = prev.filter(b => b.type === 'auto');
-      const merged = [...serverManual, ...localAuto].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      
-      // 실제 변경사항이 있을 때만 업데이트
-      if (JSON.stringify(merged) === JSON.stringify(prev)) return prev;
-      return merged;
-    });
-  }, [remoteProgress?.bookmarks]);
-
-
-  // 탭 네비게이션 (페이지 모드 전용)
-  const handleInteraction = useCallback((e: React.MouseEvent) => {
-    const { clientX, clientY } = e;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
     if (settings.navMode === 'page') {
-      if (clientY > h * 0.7) { markUserProgressChange(); next(); return; }
-      if (clientY < h * 0.3) { markUserProgressChange(); prev(); return; }
+      if (clientY > height * 0.7) { markUserProgressChange(); next(); return; }
+      if (clientY < height * 0.3) { markUserProgressChange(); prev(); return; }
     } else if (settings.navMode === 'left-right') {
-      if (clientX < w * 0.3) { markUserProgressChange(); prev(); return; }
-      if (clientX > w * 0.7) { markUserProgressChange(); next(); return; }
+      if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
+      if (clientX > width * 0.7) { markUserProgressChange(); next(); return; }
     } else if (settings.navMode === 'all-dir') {
-      if (clientY < h * 0.3) { markUserProgressChange(); prev(); return; }
-      if (clientY > h * 0.7) { markUserProgressChange(); next(); return; }
-      if (clientX < w * 0.3) { markUserProgressChange(); prev(); return; }
-      if (clientX > w * 0.7) { markUserProgressChange(); next(); return; }
+      if (clientY < height * 0.3) { markUserProgressChange(); prev(); return; }
+      if (clientY > height * 0.7) { markUserProgressChange(); next(); return; }
+      if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
+      if (clientX > width * 0.7) { markUserProgressChange(); next(); return; }
     }
-    setShowControls(c => !c);
-  }, [settings.navMode, markUserProgressChange, prev, next]);
 
-  const handleUIBack = () => window.history.back();
+    chrome.setShowControls((current) => !current);
+  }, [chrome, markUserProgressChange, next, prev, settings.navMode]);
 
-  // 현재 페이지 본문 텍스트 추출 (북마크용)
-  const getPreviewText = useCallback(() => {
-    try {
-      const contents = viewRef.current?.renderer?.getContents?.();
-      if (!contents || contents.length === 0) return '';
-      // 첫 번째 컨텐츠(단일 페이지 또는 왼쪽 페이지)의 텍스트 추출
-      const text = contents[0]?.doc?.body?.innerText || '';
-      return text.trim().substring(0, 100).replace(/\s+/g, ' ') || '북마크';
-    } catch (e) {
-      console.warn('[EpubReader] Failed to get preview text:', e);
-      return '북마크';
-    }
-  }, []);
-
-  // 북마크 추가 (서버 동기화 포함)
-  const addBookmark = useCallback(() => {
-    if (!currentCfi) return;
-    markUserProgressChange();
-    const preview = getPreviewText();
-    const newMark: Bookmark = {
-      id: crypto.randomUUID(),
-      type: 'manual',
-      name: preview,
-      cfi: currentCfi,
-      progressPercent: totalProgress,
-      createdAt: Date.now(),
-      color: '#f59e0b',
-    };
-    const updated = [newMark, ...bookmarks];
-    setBookmarks(updated);
-    saveProgressIfChanged(currentCfi, totalProgress, updated);
-  }, [currentCfi, totalProgress, bookmarks, getPreviewText, markUserProgressChange, saveProgressIfChanged]);
-
-  // 북마크 삭제
-  const deleteBookmark = useCallback((id: string) => {
-    markUserProgressChange();
-    const updated = bookmarks.filter(b => b.id !== id);
-    setBookmarks(updated);
-    saveProgressIfChanged(currentCfi, totalProgress, updated);
-  }, [bookmarks, currentCfi, totalProgress, markUserProgressChange, saveProgressIfChanged]);
-
-  // 자동 북마크 생성 (로컬 전용, 최대 3개)
-  const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
-    markUserProgressChange();
-    const preview = getPreviewText();
-    const autoMark: Bookmark = {
-      id: crypto.randomUUID(),
-      type: 'auto',
-      name: `이전 위치: ${preview}`,
-      cfi: prevCfi,
-      progressPercent: prevPct,
-      createdAt: Date.now(),
-      color: '#64748b',
-    };
-
-    // 자동 북마크는 로컬에만 3개 유지
-    const manual = bookmarks.filter(b => b.type === 'manual');
-    const auto = bookmarks.filter(b => b.type === 'auto').slice(0, 2); // 신규 포함 3개
-    const updated = [...manual, autoMark, ...auto];
-
-    setBookmarks(updated);
-    saveProgressIfChanged(currentCfi, totalProgress, updated);
-  }, [getPreviewText, currentCfi, totalProgress, bookmarks, markUserProgressChange, saveProgressIfChanged]);
-
-  // 점프 핸들러 (자동 북마크 로직 포함)
   const performJump = useCallback(async (targetCfi: string) => {
     if (!currentCfi || targetCfi === currentCfi) return;
-    markUserProgressChange();
 
-    // 현재 위치를 자동 북마크로 저장
-    createAutoBookmark(currentCfi, totalProgress);
-
-    markUserProgressChange();
+    const updatedBookmarks = createAutoBookmark(currentCfi, totalProgress);
+    markUserProgressChange({
+      forceNextRelocateSave: true,
+      bookmarks: updatedBookmarks,
+    });
     await goTo(targetCfi);
-  }, [currentCfi, totalProgress, createAutoBookmark, goTo, markUserProgressChange]);
+  }, [createAutoBookmark, currentCfi, goTo, markUserProgressChange, totalProgress]);
 
   const performJumpFraction = useCallback(async (fraction: number) => {
-    markUserProgressChange();
     const targetPct = fraction * 100;
-    // 5% 이상 차이날 때만 자동 북마크 생성
-    if (Math.abs(targetPct - totalProgress) > 5) {
-      createAutoBookmark(currentCfi, totalProgress);
-    }
-    markUserProgressChange();
+    const updatedBookmarks = Math.abs(targetPct - totalProgress) > 5
+      ? createAutoBookmark(currentCfi, totalProgress)
+      : undefined;
+
+    markUserProgressChange({
+      forceNextRelocateSave: true,
+      bookmarks: updatedBookmarks,
+    });
     await goToFraction(fraction);
-  }, [currentCfi, totalProgress, createAutoBookmark, goToFraction, markUserProgressChange]);
+  }, [createAutoBookmark, currentCfi, goToFraction, markUserProgressChange, totalProgress]);
 
-  const jumpToRemoteProgress = useCallback(async (
-    target: { cfi: string; percent: number; lastRead: number },
-    options?: { claimDevice?: boolean }
-  ) => {
-    const safePercent = toClampedPercent(target.percent) ?? 0;
+  const handleProgressSliderChange = useCallback((progressPercent: number) => {
+    markUserProgressChange({ forceNextRelocateSave: true });
+    void goToFraction(progressPercent / 100);
+  }, [goToFraction, markUserProgressChange]);
 
-    skipNextSave.current = true;
-    hasUnsavedUserChange.current = false;
-
-    await goTo(target.cfi);
-
-    const bookmarksKey = getBookmarksKey(saveContext.current.bookmarks);
-
-    if (options?.claimDevice) {
-      onSaveProgress(target.cfi, safePercent, saveContext.current.bookmarks, { force: true });
-      lastSaveTime.current = Date.now();
-    } else {
-      lastSaveTime.current = target.lastRead;
-    }
-
-    lastPersistedProgress.current = {
-      cfi: target.cfi,
-      percent: safePercent,
-      bookmarksKey,
-    };
-    hasUnsavedUserChange.current = false;
-  }, [goTo, onSaveProgress]);
-
-  // 동기화 충돌 감지
-  const lastProcessedRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
-  const isInitialSync = useRef(true); // 최초 로딩 감지용
-
-  useEffect(() => {
-    if (!isLoaded || !remoteProgress) return;
-    const remoteTime = remoteProgress.lastRead;
-    const remoteCfi = remoteProgress.cfi;
-
-    if (
-      lastProcessedRemote.current &&
-      lastProcessedRemote.current.cfi === remoteCfi &&
-      lastProcessedRemote.current.lastRead === remoteTime
-    ) return;
-
-    lastProcessedRemote.current = { cfi: remoteCfi, lastRead: remoteTime };
-
-    // 1. 최초 로딩 시: 원격 데이터가 더 최신이면 무조건 이동 (알림 없이)
-    if (isInitialSync.current) {
-      isInitialSync.current = false;
-      if (remoteCfi && remoteCfi !== currentCfi && remoteTime > lastSaveTime.current) {
-        void jumpToRemoteProgress({
-          cfi: remoteCfi,
-          percent: remoteProgress.progressPercent,
-          lastRead: remoteTime,
-        }); // 최초 로딩 시에는 자동 북마크 없이 이동
-        return;
-      }
-    }
-
-    if (lastSaveTime.current && Math.abs(remoteTime - lastSaveTime.current) < 5000) return;
-
-    // 현재 위치와 동일하면 무시
-    if (remoteCfi === currentCfi) return;
-
-    if (remoteCfi && remoteTime > lastSaveTime.current) {
-      // 0.03% 이내 차이라면 알림 없이 무시
-      const diff = Math.abs((remoteProgress.progressPercent || 0) - (totalProgress || 0));
-      if (diff > 0.03) {
-        setSyncConflict({ cfi: remoteCfi, percent: remoteProgress.progressPercent, lastRead: remoteTime });
-      }
-    }
-  }, [remoteProgress, isLoaded, currentCfi, totalProgress, jumpToRemoteProgress]);
-
-
-  // % 또는 CFI로 이동
   const handleJump = useCallback(() => {
-    const trimmed = jumpInput.trim();
+    const trimmed = chrome.jumpInput.trim();
     if (!trimmed) return;
+
     if (trimmed.startsWith('epubcfi(')) {
-      performJump(trimmed);
+      void performJump(trimmed);
     } else {
       const pct = parseFloat(trimmed.replace('%', ''));
-      if (!isNaN(pct)) performJumpFraction(Math.min(100, Math.max(0, pct)) / 100);
+      if (!Number.isNaN(pct)) {
+        void performJumpFraction(Math.min(100, Math.max(0, pct)) / 100);
+      }
     }
-    setShowJumpInput(false);
-    setJumpInput('');
-  }, [jumpInput, performJump, performJumpFraction]);
+
+    chrome.closeJumpInput();
+  }, [chrome, performJump, performJumpFraction]);
 
   return (
     <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}>
-      {/* 로딩 오버레이 */}
       {!isLoaded && (
         <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
           Loading...
         </div>
       )}
 
-      {/* Epub Viewer Container */}
       <div ref={containerRef} className="w-full h-full" style={{ position: 'relative' }} />
 
-      {/* 탭 오버레이 (페이지 모드 전용) */}
       {isLoaded && settings.navMode !== 'scroll' && (
         <div className="fixed inset-0 z-10" style={{ background: 'transparent' }} onClick={handleInteraction} />
       )}
 
-      {/* Top Navbar */}
-      <nav className={`fixed top-0 inset-x-0 h-16 ${theme.bg} border-b ${theme.border} z-50 flex items-center justify-between px-4 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-lg' : '-translate-y-full'}`}>
-        <button onClick={handleUIBack} className="p-2 rounded-full hover:bg-black/5 transition-colors"><ChevronLeft /></button>
-        <h2 className="font-bold text-sm truncate px-4">{book.name.replace('.epub', '').replace('.txt', '')}</h2>
-        <div className="w-10" />
-      </nav>
+      <ReaderToolbar
+        theme={theme}
+        bookName={book.name}
+        showControls={chrome.showControls}
+        currentChapter={currentChapter}
+        totalProgress={totalProgress}
+        bookmarkCount={bookmarks.length}
+        onBack={chrome.handleUIBack}
+        onOpenJump={chrome.openJumpInput}
+        onOpenSearch={() => { chrome.setShowSearchModal(true); chrome.setShowControls(false); }}
+        onOpenSettings={() => chrome.setShowSettings(true)}
+        onOpenTheme={() => chrome.setShowThemeModal(true)}
+        onOpenBookmarks={() => chrome.setShowBookmarks(true)}
+        onOpenToc={() => chrome.setShowToc(true)}
+        onProgressSliderChange={handleProgressSliderChange}
+      />
 
-      {/* Bottom Controls */}
-      <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
-        {/* 진행률 표시 + % 입력 버튼 */}
-        <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-          <span className="text-[10px] font-black text-white tracking-widest font-sans">
-            {currentChapter || 'Reading'}
-            <span className="ml-2 text-accent-400">{(totalProgress || 0).toFixed(1)}%</span>
-          </span>
-          <button onClick={() => { setShowJumpInput(true); setShowControls(false); }} className="text-white/50 hover:text-white transition-colors">
-            <Hash size={14} />
-          </button>
-        </div>
+      {chrome.showSettings && (
+        <SettingsModal
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          onClose={() => chrome.setShowSettings(false)}
+          theme={theme}
+        />
+      )}
 
-        {/* 프로그레스 슬라이더 + 검색 버튼 */}
-        <div className="max-w-lg mx-auto px-6 pt-6 pb-2 flex items-center gap-4">
-          <input
-            type="range" min="0" max="100" step="0.1" value={totalProgress || 0}
-            onChange={(e) => {
-              const p = parseFloat(e.target.value);
-              // 슬라이더 이동은 자동 북마크 없이 직접 이동
-              markUserProgressChange();
-              goToFraction(p / 100);
-            }}
-            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"
-          />
-          <button onClick={() => { setShowSearchModal(true); setShowControls(false); }} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">
-            <Search size={22} />
-          </button>
-        </div>
-
-        {/* 하단 버튼들 */}
-        <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
-          <button onClick={() => setShowSettings(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
-          </button>
-          <button onClick={() => setShowThemeModal(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span>
-          </button>
-          <button
-            onClick={() => setShowBookmarks(true)}
-            className={`flex flex-col items-center gap-1.5 transition-opacity ${bookmarks.length > 0 ? 'text-accent-500 opacity-100' : 'opacity-60 hover:opacity-100'}`}
-          >
-            <BookmarkIcon size={22} />
-            <span className="text-[9px] font-bold uppercase tracking-tighter">
-              Mark{bookmarks.length > 0 ? ` (${bookmarks.length})` : ''}
-            </span>
-          </button>
-          <button onClick={() => setShowToc(true)} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <List size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Index</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 설정 모달 */}
-      {showSettings && <SettingsModal settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setShowSettings(false)} theme={theme} />}
-
-      {/* 테마 모달 */}
-      {showThemeModal && (
+      {chrome.showThemeModal && (
         <ThemeModal
           settings={settings}
           onUpdateSettings={onUpdateSettings}
-          onClose={() => setShowThemeModal(false)}
+          onClose={() => chrome.setShowThemeModal(false)}
           theme={theme}
           onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })}
         />
       )}
 
-      {/* 북마크 목록 모달 */}
-      {showBookmarks && (
+      {chrome.showBookmarks && (
         <BookmarkModal
           bookmarks={bookmarks}
           theme={theme}
-          onClose={() => setShowBookmarks(false)}
+          onClose={() => chrome.setShowBookmarks(false)}
           onAdd={addBookmark}
           onDelete={deleteBookmark}
-          onJump={(cfi) => { performJump(cfi); setShowBookmarks(false); }}
+          onJump={(cfi) => { void performJump(cfi); chrome.setShowBookmarks(false); }}
         />
       )}
 
-      {/* 목차 모달 */}
-      {showToc && (
+      {chrome.showToc && (
         <TocModal
           toc={toc}
           theme={theme}
-          onClose={() => setShowToc(false)}
-          onJump={(href) => { performJump(href); setShowToc(false); }}
+          onClose={() => chrome.setShowToc(false)}
+          onJump={(href) => { void performJump(href); chrome.setShowToc(false); }}
           currentChapter={currentChapter}
         />
       )}
 
-      {/* 검색 모달 */}
-      {showSearchModal && (
+      {chrome.showSearchModal && (
         <EpubSearchModal
           theme={theme}
-          onClose={() => setShowSearchModal(false)}
-          onSelect={(cfi) => { performJump(cfi); setShowSearchModal(false); }}
+          onClose={() => chrome.setShowSearchModal(false)}
+          onSelect={(cfi) => { void performJump(cfi); chrome.setShowSearchModal(false); }}
           onSearch={searchBook}
           onClear={clearSearch}
         />
       )}
 
-      {/* % / CFI 이동 입력창 */}
-      {showJumpInput && (
-        <div className="fixed inset-0 z-[120] flex items-end" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={() => { setShowJumpInput(false); setJumpInput(''); }}>
-          <div className={`w-full ${theme.bg} rounded-t-2xl p-6`} onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold mb-3 text-sm">위치로 이동</h3>
-            <p className="text-xs opacity-50 mb-4">퍼센트 (예: 42.5) 또는 CFI 값을 입력하세요</p>
-            <div className="flex gap-3">
-              <input
-                autoFocus
-                type="text"
-                value={jumpInput}
-                onChange={e => setJumpInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleJump(); if (e.key === 'Escape') { setShowJumpInput(false); setJumpInput(''); } }}
-                placeholder="예: 42.5 또는 epubcfi(...)"
-                className={`flex-1 px-4 py-3 rounded-xl text-sm border ${theme.border} bg-transparent outline-none focus:ring-2 focus:ring-accent-500`}
-              />
-              <button onClick={handleJump} className="px-5 py-3 rounded-xl bg-accent-500 text-white font-bold text-sm hover:bg-accent-600 transition-colors">
-                이동
-              </button>
-            </div>
-          </div>
-        </div>
+      {chrome.showJumpInput && (
+        <JumpDialog
+          theme={theme}
+          value={chrome.jumpInput}
+          onChange={chrome.setJumpInput}
+          onSubmit={handleJump}
+          onClose={chrome.closeJumpInput}
+        />
       )}
 
-      {/* 동기화 알림 다이얼로그 */}
       {syncConflict && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className={`${theme.bg} rounded-2xl p-6 shadow-2xl border border-white/10 w-full max-w-sm`}>
-            <div className="flex items-center gap-3 text-accent-500 mb-2">
-              <RefreshCw size={22} />
-              <h3 className="text-lg font-bold tracking-tight">클라우드 동기화</h3>
-            </div>
-            <p className={`text-sm opacity-80 mb-6 leading-relaxed`}>
-              다른 기기에서 <span className="font-bold text-accent-500">{syncConflict.percent.toFixed(1)}%</span>까지 읽은 기록이 있습니다.<br />해당 위치로 이동하시겠습니까?
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setSyncConflict(null)} className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-gray-500/10 hover:bg-gray-500/20 transition-colors">
-                무시
-              </button>
-              <button
-                onClick={() => {
-                  void jumpToRemoteProgress(syncConflict, { claimDevice: true });
-                  setSyncConflict(null); 
-                }}
-                className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-accent-500 text-white hover:bg-accent-600 transition-colors shadow-lg shadow-accent-500/30"
-              >
-                이동하기
-              </button>
-            </div>
-          </div>
-        </div>
+        <SyncConflictDialog
+          theme={theme}
+          syncConflict={syncConflict}
+          onDismiss={dismissSyncConflict}
+          onAccept={acceptSyncConflict}
+        />
       )}
     </div>
   );

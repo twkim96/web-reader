@@ -8,8 +8,8 @@
 - 여러 기기/Vercel 테스트가 필요할 때는 사용자가 요청하면 commit + push까지 수행한다.
 
 ## Current State
-- Phase 6 has been implemented and user-tested.
-- Current scope: commit and push the Foliate adapter split.
+- Phase 7 has been implemented but not committed.
+- Current scope: `EpubReader.tsx` now composes focused Reader hooks and UI pieces instead of owning the full reader state machine.
 - Latest validation passed:
   - `npx tsc --noEmit`
   - changed-file ESLint
@@ -153,17 +153,58 @@
 - Reader settings:
   - font size, line height, font family, text alignment, theme, nav mode still apply.
 
-## Next Phases
+## Phase 7: Reader Split
 
-### Phase 7: Reader Split
+### Status
+- Implemented but not committed.
+- Waiting for user testing.
+
+### Changes
 - Split `src/components/EpubReader.tsx` by feature.
-- Target pieces:
-  - `useReaderBookSource`: localDB/Drive source loading and TXT-to-EPUB guarantee
-  - `useReaderBookmarks`: manual/auto bookmark state and preview text
-  - `useRemoteProgressPrompt`: remote progress prompt/conflict handling
-  - `useReaderChrome`: controls, modal state, history popstate
-  - UI pieces such as `ReaderToolbar`, `JumpDialog`, `SyncConflictDialog`
+- Added:
+  - `src/hooks/reader/useReaderBookSource.ts`: localDB/Drive source loading and TXT-to-EPUB guarantee
+  - `src/hooks/reader/useReaderProgressSave.ts`: progress-save refs, relocate save policy, visibility/unmount save
+  - `src/hooks/reader/useReaderBookmarks.ts`: manual/auto bookmark state, preview text, remote manual bookmark merge
+  - `src/hooks/reader/useRemoteProgressPrompt.ts`: remote progress prompt/conflict handling
+  - `src/hooks/reader/useReaderChrome.ts`: controls, modal state, history popstate
+  - `src/components/reader/ReaderToolbar.tsx`: top/bottom reader controls
+  - `src/components/reader/JumpDialog.tsx`: percent/CFI jump input
+  - `src/components/reader/SyncConflictDialog.tsx`: remote progress prompt UI
+- Updated navigation save policy in code:
+  - TOC/search/bookmark/CFI/% jumps create local auto bookmarks from the pre-move position when needed.
+  - Progress persistence is now based on the post-move relocate location.
+  - Pre-move position is no longer saved as the latest Firestore progress during jump flows.
 - Goal: leave `EpubReader` as EPUB screen composition, not a mixed state machine.
+
+### Test Scope
+- Local EPUB open and return to shelf.
+- Cloud EPUB open and return to shelf.
+- TXT-origin book open, confirming TXT-to-EPUB cache still works.
+- Page mode:
+  - tap/click previous and next
+  - progress saves after real movement
+- Jump flows:
+  - percent jump
+  - CFI jump
+  - TOC jump
+  - search result jump
+  - bookmark jump
+  - auto bookmark should point to the pre-jump location, while latest progress should point to the post-jump location.
+- Manual bookmarks:
+  - add/delete
+  - sync to another device
+- Remote progress:
+  - prompt appears from another device
+  - accepting prompt moves and claims current device without ping-pong
+  - ignoring prompt does not move
+- Reader chrome:
+  - top/bottom controls toggle
+  - settings/theme/bookmark/TOC/search/jump modals open and close
+  - browser back closes modals first, then exits reader
+- Settings:
+  - font size, line height, font family, text alignment, theme, nav mode still apply.
+
+## Next Phases
 
 ### Phase 8: Final Lint/Docs Cleanup
 - Clean `src` lint errors as much as practical.

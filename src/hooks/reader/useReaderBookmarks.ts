@@ -1,0 +1,121 @@
+'use client';
+
+import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { Bookmark } from '../../types';
+
+type FoliateContentRef = MutableRefObject<{
+  renderer?: {
+    getContents?: () => { doc?: Document }[];
+  };
+} | null>;
+
+interface UseReaderBookmarksOptions {
+  initialBookmarks?: Bookmark[];
+  remoteBookmarks?: Bookmark[];
+  viewRef: FoliateContentRef;
+  currentCfi: string;
+  totalProgress: number;
+  markUserProgressChange: () => void;
+  saveProgressIfChanged: (cfi: string, pct: number, nextBookmarks: Bookmark[]) => boolean;
+}
+
+const sortByNewest = (items: Bookmark[]) => (
+  [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+);
+
+export const useReaderBookmarks = ({
+  initialBookmarks,
+  remoteBookmarks,
+  viewRef,
+  currentCfi,
+  totalProgress,
+  markUserProgressChange,
+  saveProgressIfChanged,
+}: UseReaderBookmarksOptions) => {
+  const [bookmarks, setBookmarksState] = useState<Bookmark[]>(initialBookmarks || []);
+  const bookmarksRef = useRef<Bookmark[]>(initialBookmarks || []);
+
+  const setBookmarks = useCallback((nextBookmarks: Bookmark[]) => {
+    bookmarksRef.current = nextBookmarks;
+    setBookmarksState(nextBookmarks);
+    return nextBookmarks;
+  }, []);
+
+  useEffect(() => {
+    if (!remoteBookmarks) return;
+
+    setBookmarksState((prev) => {
+      const serverManual = remoteBookmarks.filter((bookmark) => bookmark.type === 'manual');
+      const localAuto = prev.filter((bookmark) => bookmark.type === 'auto');
+      const merged = sortByNewest([...serverManual, ...localAuto]);
+
+      if (JSON.stringify(merged) === JSON.stringify(prev)) return prev;
+      bookmarksRef.current = merged;
+      return merged;
+    });
+  }, [remoteBookmarks]);
+
+  const getBookmarks = useCallback(() => bookmarksRef.current, []);
+
+  const getPreviewText = useCallback(() => {
+    try {
+      const contents = viewRef.current?.renderer?.getContents?.();
+      if (!contents || contents.length === 0) return '';
+      const text = contents[0]?.doc?.body?.innerText || '';
+      return text.trim().substring(0, 100).replace(/\s+/g, ' ') || '북마크';
+    } catch (error) {
+      console.warn('[EpubReader] Failed to get preview text:', error);
+      return '북마크';
+    }
+  }, [viewRef]);
+
+  const addBookmark = useCallback(() => {
+    if (!currentCfi) return;
+    markUserProgressChange();
+
+    const newMark: Bookmark = {
+      id: crypto.randomUUID(),
+      type: 'manual',
+      name: getPreviewText(),
+      cfi: currentCfi,
+      progressPercent: totalProgress,
+      createdAt: Date.now(),
+      color: '#f59e0b',
+    };
+    const updated = setBookmarks([newMark, ...bookmarksRef.current]);
+    saveProgressIfChanged(currentCfi, totalProgress, updated);
+  }, [currentCfi, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+
+  const deleteBookmark = useCallback((id: string) => {
+    markUserProgressChange();
+    const updated = setBookmarks(bookmarksRef.current.filter((bookmark) => bookmark.id !== id));
+    saveProgressIfChanged(currentCfi, totalProgress, updated);
+  }, [currentCfi, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+
+  const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
+    if (!prevCfi) return bookmarksRef.current;
+
+    const autoMark: Bookmark = {
+      id: crypto.randomUUID(),
+      type: 'auto',
+      name: `이전 위치: ${getPreviewText()}`,
+      cfi: prevCfi,
+      progressPercent: prevPct,
+      createdAt: Date.now(),
+      color: '#64748b',
+    };
+
+    const manual = bookmarksRef.current.filter((bookmark) => bookmark.type === 'manual');
+    const auto = bookmarksRef.current.filter((bookmark) => bookmark.type === 'auto').slice(0, 2);
+    return setBookmarks([...manual, autoMark, ...auto]);
+  }, [getPreviewText, setBookmarks]);
+
+  return {
+    bookmarks,
+    bookmarksRef,
+    getBookmarks,
+    addBookmark,
+    deleteBookmark,
+    createAutoBookmark,
+  };
+};
