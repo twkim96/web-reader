@@ -1,0 +1,148 @@
+import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { APP_ID, db } from '../lib/firebase';
+import { fetchDriveFiles, findFolderId, isGoogleDriveAuthError } from '../lib/googleDrive';
+import { getAllLocalProgress, getAllOfflineBooks, saveProgressToLocal } from '../lib/localDB';
+import { Book, Bookmark, UserProgress, ViewState } from '../types';
+
+export type TimestampLike = {
+  toDate?: () => Date;
+};
+
+export type RemoteProgressDoc = {
+  bookId?: string;
+  cfi?: string;
+  progressPercent?: number;
+  lastRead?: TimestampLike;
+  bookmarks?: Bookmark[];
+  deviceId?: string;
+};
+
+export const getTimestampMs = (value: unknown, fallback = Date.now()) => {
+  const timestamp = value as TimestampLike | undefined;
+  const date = timestamp?.toDate ? timestamp.toDate() : undefined;
+  return date ? date.getTime() : fallback;
+};
+
+interface UseLibraryDataOptions {
+  clearToken: () => void;
+  setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
+  setView: Dispatch<SetStateAction<ViewState>>;
+}
+
+interface UseLibraryDataResult {
+  books: Book[];
+  setBooks: Dispatch<SetStateAction<Book[]>>;
+  progress: Record<string, UserProgress>;
+  setProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
+  progressRef: MutableRefObject<Record<string, UserProgress>>;
+  remoteProgress: Record<string, UserProgress>;
+  setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
+  restoreLocalData: (preventRedirect?: boolean) => Promise<boolean>;
+  syncLocalAndCloud: (uid: string) => Promise<void>;
+  loadLibraryFromDrive: (token: string) => Promise<boolean>;
+}
+
+export const useLibraryData = ({
+  clearToken,
+  setIsOfflineMode,
+  setView,
+}: UseLibraryDataOptions): UseLibraryDataResult => {
+  const [books, setBooks] = useState<Book[]>([]);
+  const [progress, setProgress] = useState<Record<string, UserProgress>>({});
+  const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
+  const progressRef = useRef<Record<string, UserProgress>>({});
+
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
+
+  const restoreLocalData = useCallback(async (preventRedirect = false) => {
+    try {
+      if (!preventRedirect) setIsOfflineMode(true);
+
+      const [localBooks, localProgress] = await Promise.all([
+        getAllOfflineBooks(),
+        getAllLocalProgress(),
+      ]);
+
+      const localProgressByBook: Record<string, UserProgress> = {};
+      localProgress.forEach((item) => {
+        localProgressByBook[item.bookId] = item;
+      });
+
+      setProgress((prev) => ({ ...prev, ...localProgressByBook }));
+
+      if (localBooks.length > 0) {
+        setBooks((prev) => {
+          const existingIds = new Set(prev.map((book) => book.id));
+          const newBooks = localBooks.filter((book) => !existingIds.has(book.id));
+          return prev.length === 0 ? localBooks : newBooks.length > 0 ? [...prev, ...newBooks] : prev;
+        });
+        if (!preventRedirect) setView('shelf');
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Failed to restore local data:', error);
+      return false;
+    }
+  }, [setIsOfflineMode, setView]);
+
+  const syncLocalAndCloud = useCallback(async (uid: string) => {
+    if (!navigator.onLine) return;
+
+    try {
+      const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
+      const cloudSnapshot = await getDocs(cloudRef);
+
+      for (const documentSnapshot of cloudSnapshot.docs) {
+        const cloudData = documentSnapshot.data() as UserProgress;
+        const cloudTime = getTimestampMs(cloudData.lastRead, 0);
+        await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
+      }
+    } catch (error) {
+      console.warn('Background sync paused:', error);
+    }
+  }, []);
+
+  const loadLibraryFromDrive = useCallback(async (token: string) => {
+    try {
+      const folderId = await findFolderId('web viewer', token);
+
+      if (folderId) {
+        const data = await fetchDriveFiles(token, folderId);
+        if (data.files && data.files.length > 0) {
+          const cloudIds = new Set(data.files.map((file: Book) => file.id));
+          const localBooks = await getAllOfflineBooks();
+          const localOnly = localBooks.filter((book) => !cloudIds.has(book.id));
+          setBooks([...data.files, ...localOnly]);
+        }
+      }
+
+      setIsOfflineMode(false);
+      return true;
+    } catch (error) {
+      if (isGoogleDriveAuthError(error)) {
+        clearToken();
+      }
+      console.warn('Drive Library Load Failed (Offline or Error)');
+      setIsOfflineMode(true);
+      return false;
+    }
+  }, [clearToken, setIsOfflineMode]);
+
+  return {
+    books,
+    setBooks,
+    progress,
+    setProgress,
+    progressRef,
+    remoteProgress,
+    setRemoteProgress,
+    restoreLocalData,
+    syncLocalAndCloud,
+    loadLibraryFromDrive,
+  };
+};

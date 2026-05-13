@@ -3,11 +3,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
-import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
-import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
-import { findFolderId, fetchDriveFiles, isGoogleDriveAuthError } from '../lib/googleDrive';
-import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress } from '../lib/localDB';
+import { saveProgressToLocal } from '../lib/localDB';
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
 
@@ -16,22 +15,13 @@ import { Book, UserProgress, ViewState, Bookmark } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { AuthLanding, CloudModeSelector } from '../components/AuthScreens';
+import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
 import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
+import { useGoogleIdentityScript } from '../hooks/useGoogleIdentityScript';
+import { useLibraryData } from '../hooks/useLibraryData';
+import { useNetworkLibrarySync } from '../hooks/useNetworkLibrarySync';
 import { useViewerSettings } from '../hooks/useViewerSettings';
-
-type TimestampLike = {
-  toDate?: () => Date;
-};
-
-type RemoteProgressDoc = {
-  bookId?: string;
-  cfi?: string;
-  progressPercent?: number;
-  lastRead?: TimestampLike;
-  bookmarks?: Bookmark[];
-  deviceId?: string;
-};
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -60,26 +50,11 @@ const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
 
-const getTimestampMs = (value: unknown, fallback = Date.now()) => {
-  const timestamp = value as TimestampLike | undefined;
-  const date = timestamp?.toDate ? timestamp.toDate() : undefined;
-  return date ? date.getTime() : fallback;
-};
-
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
   const { googleToken, setGoogleToken, getStoredToken, saveToken, clearToken, hasValidToken } = useGoogleDriveToken();
-  const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
-  const [progress, setProgress] = useState<Record<string, UserProgress>>({});
-  const prevProgress = useRef<Record<string, UserProgress>>({});
-  
-  useEffect(() => {
-    prevProgress.current = progress;
-  }, [progress]);
-
-  const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
   const deviceId = useDeviceId();
 
   const [isPublicPC, setIsPublicPC] = useState(false);
@@ -94,247 +69,43 @@ export default function Page() {
   const { settings, updateSettings } = useViewerSettings();
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
+  const {
+    books,
+    setBooks,
+    progress,
+    setProgress,
+    progressRef,
+    remoteProgress,
+    setRemoteProgress,
+    restoreLocalData,
+    syncLocalAndCloud,
+    loadLibraryFromDrive,
+  } = useLibraryData({ clearToken, setIsOfflineMode, setView });
 
-  // [Modified] preventRedirect 인자 추가: 데이터만 로드하고 화면 전환은 하지 않는 옵션
-  const restoreLocalData = async (preventRedirect = false) => {
-    try {
-      if (!preventRedirect) setIsOfflineMode(true);
-
-      const [localBooks, localProgress] = await Promise.all([
-        getAllOfflineBooks(),
-        getAllLocalProgress()
-      ]);
-
-      const p: Record<string, UserProgress> = {};
-      localProgress.forEach(item => { p[item.bookId] = item; });
-
-      // progress는 항상 merge (덮어쓰지 않음)
-      setProgress(prev => ({ ...prev, ...p }));
-
-      if (localBooks.length > 0) {
-        // books는 기존 목록에 로컬 전용 도서만 추가 (중복 방지)
-        setBooks(prev => {
-          const existingIds = new Set(prev.map(b => b.id));
-          const newBooks = localBooks.filter(b => !existingIds.has(b.id));
-          // 목록이 비어 있으면 전체 로컬 도서로 채움, 아니면 새것만 append
-          return prev.length === 0 ? localBooks : newBooks.length > 0 ? [...prev, ...newBooks] : prev;
-        });
-        if (!preventRedirect) setView('shelf');
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error("Failed to restore local data:", e);
-      return false;
-    }
-  };
-
-  const syncLocalAndCloud = async (uid: string) => {
-    if (!navigator.onLine) return;
-
-    try {
-      const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
-      const cloudSnapshot = await getDocs(cloudRef);
-
-      // 서버 데이터를 로컬에 동기화 (서버 = 진실의 원천)
-      for (const d of cloudSnapshot.docs) {
-        const cloudData = d.data() as UserProgress;
-        const cloudTime = getTimestampMs(cloudData.lastRead, 0);
-        await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
-      }
-    } catch (e) {
-      console.warn("Background sync paused:", e);
-    }
-  };
-
-  /**
-   * 구글 드라이브에서 도서 목록을 불러옵니다.
-   */
-  const loadLibraryFromDrive = async (token: string) => {
-    try {
-      const targetFolderName = "web viewer";
-      const fid = await findFolderId(targetFolderName, token);
-
-      if (fid) {
-        const data = await fetchDriveFiles(token, fid);
-        if (data.files && data.files.length > 0) {
-          // 클라우드 도서 + 로컬 전용 도서 병합
-          const cloudIds = new Set(data.files.map((f: Book) => f.id));
-          const localBooks = await getAllOfflineBooks();
-          const localOnly = localBooks.filter(b => !cloudIds.has(b.id));
-          setBooks([...data.files, ...localOnly]);
-        }
-      }
-      setIsOfflineMode(false);
-      return true;
-    } catch (err) {
-      if (isGoogleDriveAuthError(err)) {
-        clearToken();
-      }
-      console.warn("Drive Library Load Failed (Offline or Error)");
-      setIsOfflineMode(true);
-      return false;
-    }
-  };
-
-  useEffect(() => {
-    const handleOnline = async () => {
-      if (user && googleToken) {
-        loadLibraryFromDrive(googleToken).then((isSuccess) => {
-          if (isSuccess) {
-            syncLocalAndCloud(user.uid);
-          }
-        });
-      }
-    };
-    const handleOffline = () => {
-      setIsOfflineMode(true);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [user, googleToken]);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      restoreLocalData(); // 초기 로드 시 실행 (기본 동작: 책장으로 이동)
-    });
-
-    const script = document.createElement('script');
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true; script.defer = true;
-    document.body.appendChild(script);
-
-    const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-
-      if (u) {
-        setIsGuest(false);
-        isGuestRef.current = false;
-
-        // [Fix 2] 로그인 직후 로컬 데이터 복구 (화면 전환 없이 데이터만 로드)
-        // 재로그인 시 책장이 비어보이는 현상을 방지하기 위함
-        await restoreLocalData(true);
-
-        const recoveredToken = getStoredToken();
-        if (recoveredToken) {
-          setGoogleToken(recoveredToken);
-          setIsOfflineMode(false); // [Fix] 토큰이 있다면 즉시 클라우드 모드로 전환 시도
-
-          // 읽기 모드나 책장에 있다면 로딩 화면 생략
-          setView(prev => (prev === 'shelf' || prev === 'reader') ? prev : 'loading');
-
-          loadLibraryFromDrive(recoveredToken).then((isSuccess) => {
-            if (isSuccess) {
-              syncLocalAndCloud(u.uid);
-              setIsOfflineMode(false);
-            } else {
-              setIsOfflineMode(true);
-            }
-            setView(prev => prev === 'reader' ? 'reader' : 'shelf');
-          });
-        } else {
-          setIsOfflineMode(true);
-          // 드라이브 토큰이 없어도 튕겨내지 않고 로컬 모드 책장으로 진입
-          // 이미 읽고 있는 중이라면 유지
-          setView(prev => prev === 'reader' ? 'reader' : 'shelf');
-        }
-
-        const historyRef = collection(db, 'artifacts', APP_ID, 'users', u.uid, 'readingHistory');
-        const unsubProgress = onSnapshot(historyRef, async (snapshot) => {
-          const isFromCache = snapshot.metadata.fromCache;
-          const hasPending = snapshot.metadata.hasPendingWrites;
-          const p: Record<string, UserProgress> = {};
-
-          for (const d of snapshot.docs) {
-            const raw = d.data() as RemoteProgressDoc;
-            const serverTime = getTimestampMs(raw.lastRead);
-            const serverBookmarks = (raw.bookmarks || []) as Bookmark[];
-            
-            // [중요] 하이브리드 북마크 병합: 
-            // 수동 북마크는 서버 데이터를 따르고, 자동 북마크는 현재 로컬 상태를 유지함
-            const currentLocal = prevProgress.current[raw.bookId || d.id]?.bookmarks || [];
-            const localAuto = currentLocal.filter((b: Bookmark) => b.type === 'auto');
-            const mergedBookmarks = [
-              ...serverBookmarks.filter((b: Bookmark) => b.type === 'manual'),
-              ...localAuto
-            ].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-            const bookId = raw.bookId || d.id;
-            const data: UserProgress = {
-              bookId,
-              cfi: raw.cfi || '',
-              progressPercent: raw.progressPercent || 0,
-              lastRead: serverTime,
-              bookmarks: mergedBookmarks,
-            };
-            p[bookId] = data;
-
-            // 서버 확정 데이터만 로컬 DB에 저장
-            if (!isFromCache && !hasPending) {
-              await saveProgressToLocal({ ...data, lastRead: serverTime });
-            }
-          }
-
-          // UI에는 항상 최신 데이터 표시
-          setProgress(prev => {
-            const hasChanged = Object.keys(p).some(id => {
-              const old = prev[id];
-              if (!old) return true;
-              return old.cfi !== p[id].cfi || 
-                     old.progressPercent !== p[id].progressPercent ||
-                     (old.bookmarks?.length || 0) !== (p[id].bookmarks?.length || 0);
-            }) || Object.keys(prev).length !== Object.keys(p).length;
-            
-            return hasChanged ? { ...prev, ...p } : prev;
-          });
-
-          // 원격 업데이트 감지: 서버 확정 데이터 중 다른 기기에서 온 것만 추출
-          if (!isFromCache) {
-            setRemoteProgress(prev => {
-              let changed = false;
-              const updated = { ...prev };
-              for (const d of snapshot.docs) {
-                const data = d.data() as RemoteProgressDoc;
-                if (data.deviceId && data.deviceId !== deviceId.current) {
-                  const serverTime = getTimestampMs(data.lastRead);
-                  const entry: UserProgress = {
-                    bookId: data.bookId || d.id,
-                    cfi: data.cfi || '',
-                    progressPercent: data.progressPercent || 0,
-                    lastRead: serverTime,
-                    bookmarks: data.bookmarks || [],
-                  };
-                  if (!prev[d.id] || prev[d.id].cfi !== data.cfi || prev[d.id].progressPercent !== data.progressPercent) {
-                    updated[d.id] = entry;
-                    changed = true;
-                  }
-                }
-              }
-              return changed ? updated : prev;
-            });
-          }
-        });
-
-        return () => { unsubProgress(); };
-
-      } else {
-        if (!isGuestRef.current) {
-          setTimeout(() => {
-            setView(prev => {
-              if (prev === 'shelf') return prev;
-              return 'auth';
-            });
-          }, 500);
-        }
-      }
-    });
-    return () => unsubscribeAuth();
-  }, []);
+  useGoogleIdentityScript();
+  useAuthBootstrap({
+    deviceId,
+    progressRef,
+    isGuestRef,
+    getStoredToken,
+    setGoogleToken,
+    setUser,
+    setIsGuest,
+    setIsOfflineMode,
+    setProgress,
+    setRemoteProgress,
+    setView,
+    restoreLocalData,
+    loadLibraryFromDrive,
+    syncLocalAndCloud,
+  });
+  useNetworkLibrarySync({
+    user,
+    googleToken,
+    setIsOfflineMode,
+    loadLibraryFromDrive,
+    syncLocalAndCloud,
+  });
 
 
   const handleGuestMode = async () => {
@@ -476,7 +247,7 @@ export default function Page() {
 
       return { ...prev, [bookId]: progressData };
     });
-  }, [user, activeBook, deviceId]);
+  }, [user, activeBook, deviceId, setProgress]);
 
   const handleDeleteProgress = useCallback(async (bookId: string) => {
     const now = Date.now();
@@ -503,7 +274,7 @@ export default function Page() {
         }, { merge: true });
       } catch (e) { console.error(e); }
     }
-  }, [user, deviceId]);
+  }, [user, deviceId, setProgress]);
 
   const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
   const dynamicStyles = {
