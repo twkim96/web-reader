@@ -3,7 +3,14 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, googleDriveProvider, googleProvider } from '../lib/firebase';
-import { getRedirectResult, GoogleAuthProvider, signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
+import {
+  getRedirectResult,
+  GoogleAuthProvider,
+  reauthenticateWithRedirect,
+  signInWithRedirect,
+  signOut,
+  User as FirebaseUser,
+} from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
@@ -146,7 +153,11 @@ export default function Page() {
           setIsOfflineMode(false);
           setView('loading');
 
-          loadLibraryFromDrive(accessToken).then(() => {
+          loadLibraryFromDrive(accessToken).then((isSuccess) => {
+            if (!isSuccess) {
+              clearToken();
+              setAuthErrorMessage('Google Drive 파일을 불러오지 못했습니다. Drive 권한을 다시 확인해 주세요.');
+            }
             setView('shelf');
           });
         })
@@ -158,7 +169,7 @@ export default function Page() {
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [loadLibraryFromDrive, saveToken]);
+  }, [clearToken, loadLibraryFromDrive, saveToken]);
 
   useEffect(() => {
     if (!googleToken || isOfflineMode) return;
@@ -196,10 +207,16 @@ export default function Page() {
     }
 
     setAuthErrorMessage(null);
+    const currentUser = auth.currentUser || user;
+    if (!currentUser) {
+      handleLoginTrigger();
+      return;
+    }
+
     sessionStorage.setItem(DRIVE_AUTH_REDIRECT_PENDING_KEY, 'true');
     setView('loading');
 
-    signInWithRedirect(auth, googleDriveProvider).catch((error) => {
+    reauthenticateWithRedirect(currentUser, googleDriveProvider).catch((error) => {
       console.error('[Auth] Google Drive redirect start failed:', error);
       sessionStorage.removeItem(DRIVE_AUTH_REDIRECT_PENDING_KEY);
       setAuthErrorMessage(
