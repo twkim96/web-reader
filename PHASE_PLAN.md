@@ -8,8 +8,8 @@
 - 여러 기기/Vercel 테스트가 필요할 때는 사용자가 요청하면 commit + push까지 수행한다.
 
 ## Current State
-- Phase 7 has been implemented but not committed.
-- Current scope: `EpubReader.tsx` now composes focused Reader hooks and UI pieces instead of owning the full reader state machine.
+- Phase 7 has been committed and pushed.
+- Current follow-up scope: remote progress prompt acceptance should create a local auto bookmark before moving.
 - Latest validation passed:
   - `npx tsc --noEmit`
   - changed-file ESLint
@@ -156,8 +156,8 @@
 ## Phase 7: Reader Split
 
 ### Status
-- Implemented but not committed.
-- Waiting for user testing.
+- Completed and pushed.
+- Commit: `fc5eabd Split reader state and controls`
 
 ### Changes
 - Split `src/components/EpubReader.tsx` by feature.
@@ -174,7 +174,19 @@
   - TOC/search/bookmark/CFI/% jumps create local auto bookmarks from the pre-move position when needed.
   - Progress persistence is now based on the post-move relocate location.
   - Pre-move position is no longer saved as the latest Firestore progress during jump flows.
+- Follow-up after user testing:
+  - Remote progress prompt acceptance now also creates a local auto bookmark from the pre-move position before moving.
 - Goal: leave `EpubReader` as EPUB screen composition, not a mixed state machine.
+
+### Deferred Follow-Up: Progress Slider Auto Bookmark
+- Current slider behavior calls `goToFraction` during `onChange`, so dragging can emit many intermediate movements.
+- Desired behavior needs a commit-on-release flow:
+  - track slider drag start position once
+  - update slider preview while dragging without creating bookmarks
+  - call `goToFraction` once on pointer/touch/key release or blur
+  - create one auto bookmark only if the final target differs meaningfully from the start position
+  - save latest progress from the post-move relocate event
+- This should be handled as a focused follow-up before or during Phase 8, because it changes input interaction semantics rather than only refactoring structure.
 
 ### Test Scope
 - Local EPUB open and return to shelf.
@@ -195,7 +207,7 @@
   - sync to another device
 - Remote progress:
   - prompt appears from another device
-  - accepting prompt moves and claims current device without ping-pong
+  - accepting prompt creates a local auto bookmark, moves, and claims current device without ping-pong
   - ignoring prompt does not move
 - Reader chrome:
   - top/bottom controls toggle

@@ -145,6 +145,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     lastSaveTimeRef,
     goTo,
     getBookmarks,
+    createAutoBookmark,
     prepareRemoteJump,
     completeRemoteJump,
   });

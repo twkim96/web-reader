@@ -17,6 +17,7 @@ interface UseRemoteProgressPromptOptions {
   lastSaveTimeRef: MutableRefObject<number>;
   goTo: (cfi: string) => Promise<void>;
   getBookmarks: () => Bookmark[];
+  createAutoBookmark?: (prevCfi: string, prevPct: number) => Bookmark[];
   prepareRemoteJump: () => void;
   completeRemoteJump: (
     target: SyncConflict,
@@ -33,6 +34,7 @@ export const useRemoteProgressPrompt = ({
   lastSaveTimeRef,
   goTo,
   getBookmarks,
+  createAutoBookmark,
   prepareRemoteJump,
   completeRemoteJump,
 }: UseRemoteProgressPromptOptions) => {
@@ -98,9 +100,12 @@ export const useRemoteProgressPrompt = ({
 
   const acceptSyncConflict = useCallback(() => {
     if (!syncConflict) return;
+    if (currentCfi && syncConflict.cfi !== currentCfi) {
+      createAutoBookmark?.(currentCfi, totalProgress);
+    }
     void jumpToRemoteProgress(syncConflict, { claimDevice: true });
     setSyncConflict(null);
-  }, [jumpToRemoteProgress, syncConflict]);
+  }, [createAutoBookmark, currentCfi, jumpToRemoteProgress, syncConflict, totalProgress]);
 
   return {
     syncConflict,
