@@ -1,17 +1,6 @@
 // src/app/layout.tsx
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const viewport: Viewport = {
   themeColor: "#0f172a",
@@ -51,14 +40,7 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    function(registration) {
-                      console.log('Service Worker registration successful with scope: ', registration.scope);
-                    },
-                    function(err) {
-                      console.log('Service Worker registration failed: ', err);
-                    }
-                  );
+                  navigator.serviceWorker.register('/sw.js').catch(function() {});
                 });
               }
             `,

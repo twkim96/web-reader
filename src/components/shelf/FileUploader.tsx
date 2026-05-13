@@ -35,7 +35,6 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
 
       if (folderId) {
         const result = await uploadFile(fileName, content, folderId, googleToken, mimeType);
-        console.log('Google Drive sync successful, ID:', result.id);
         onRefresh(); // 목록 갱신
         return result.id as string; // 구글 드라이브 ID 반환
       } else {

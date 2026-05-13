@@ -4,10 +4,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
 import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
-import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs, deleteDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 
 import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
-import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress, removeProgressFromLocal } from '../lib/localDB';
+import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress } from '../lib/localDB';
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
 
@@ -173,7 +173,6 @@ export default function Page() {
 
   useEffect(() => {
     const handleOnline = async () => {
-      console.log("Online detected.");
       if (user && googleToken) {
         loadLibraryFromDrive(googleToken).then((isSuccess) => {
           if (isSuccess) {
@@ -183,7 +182,6 @@ export default function Page() {
       }
     };
     const handleOffline = () => {
-      console.log("Offline detected.");
       setIsOfflineMode(true);
     };
 
@@ -260,7 +258,7 @@ export default function Page() {
             const bookId = raw.bookId || d.id;
             const data: UserProgress = {
               bookId,
-              cfi: raw.cfi || (raw.charIndex !== undefined ? String(raw.charIndex) : ''),
+              cfi: raw.cfi || '',
               progressPercent: raw.progressPercent || 0,
               lastRead: serverTime,
               bookmarks: mergedBookmarks,
@@ -501,7 +499,7 @@ export default function Page() {
           </div>
           <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
           <div className="flex flex-col gap-4 w-full max-w-xs">
-            <button onClick={() => signInWithPopup(auth, googleProvider).catch((e) => console.log('Popup cancelled or closed'))} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
+            <button onClick={() => signInWithPopup(auth, googleProvider).catch(() => undefined)} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
               Sign in with Google
             </button>
             <button onClick={handleGuestMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 transition-colors`}>
@@ -552,7 +550,6 @@ export default function Page() {
           books={books}
           progress={progress}
           googleToken={googleToken}
-          isRefreshing={false}
           onRefresh={() => !isOfflineMode && googleToken && loadLibraryFromDrive(googleToken)}
           onOpen={(b) => { setActiveBook(b); setView('reader'); }}
           onLogout={handleLogout}

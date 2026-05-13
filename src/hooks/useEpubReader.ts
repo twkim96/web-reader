@@ -45,14 +45,11 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     // view.js를 <script type="module">로 로드 (public/ 디렉토리의 static 파일)
     // Next.js의 webpack이 import()를 가로채므로 script 태그 방식 사용
     if (!customElements.get('foliate-view')) {
-      console.log('[EpubReader] Loading foliate-js view.js...');
       await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
         script.type = 'module';
         script.src = '/foliate-js/view.js';
-        script.onload = () => {
-          console.log('[EpubReader] view.js script loaded');
-        };
+        script.onload = () => undefined;
         script.onerror = (e) => {
           console.error('[EpubReader] view.js load error:', e);
           reject(e);
@@ -61,7 +58,6 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
         // module script는 비동기 실행이므로 customElements 등록 대기
         const check = setInterval(() => {
           if (customElements.get('foliate-view')) {
-            console.log('[EpubReader] foliate-view custom element registered!');
             clearInterval(check);
             resolve();
           }
@@ -73,8 +69,6 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
           resolve();
         }, 10000);
       });
-    } else {
-      console.log('[EpubReader] foliate-view already registered');
     }
 
     const view = document.createElement('foliate-view') as any;

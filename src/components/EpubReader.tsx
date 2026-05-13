@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Book, ViewerSettings, Bookmark, UserProgress } from '../types';
 import { THEMES } from '../lib/constants';
-import { ChevronLeft, Search, Settings, Palette, Bookmark as BookmarkIcon, Hash, RefreshCw, X, Trash2, List } from 'lucide-react';
+import { ChevronLeft, Search, Settings, Palette, Bookmark as BookmarkIcon, Hash, RefreshCw, List } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
@@ -71,7 +71,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const {
     containerRef,
-    isReady,
     totalProgress,
     currentCfi,
     currentChapter,

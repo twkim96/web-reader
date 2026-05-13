@@ -54,11 +54,3 @@ export const ACCENT_PALETTE: Record<string, { 400: string; 500: string; 600: str
   sky: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7' },
   yellow: { 400: '#fbdf7e', 500: '#d4af37', 600: '#9a7b0c' },
 };
-
-/**
- * Google API 설정
- */
-export const GOOGLE_DRIVE_CONFIG = {
-  CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-  SCOPES: "https://www.googleapis.com/auth/drive.readonly",
-};

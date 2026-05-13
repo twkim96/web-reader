@@ -22,7 +22,6 @@ interface ShelfProps {
   onRefresh: () => void;
   onLogout: () => void;
   onLogin: () => void; 
-  isRefreshing: boolean;
   userEmail: string;
   isOfflineMode: boolean; 
   isGuest: boolean;
@@ -39,7 +38,6 @@ export const Shelf: React.FC<ShelfProps> = ({
   onRefresh,
   onLogout,
   onLogin,
-  isRefreshing, 
   userEmail,
   isOfflineMode,
   isGuest,
@@ -91,7 +89,7 @@ export const Shelf: React.FC<ShelfProps> = ({
 
   useEffect(() => {
     window.history.pushState({ panel: 'shelf' }, '', '');
-    const handlePopState = (event: PopStateEvent) => {
+    const handlePopState = () => {
       const { showManage, showSearch } = stateRef.current;
       if (showManage || showSearch) {
         if (showManage) setShowManage(false);
