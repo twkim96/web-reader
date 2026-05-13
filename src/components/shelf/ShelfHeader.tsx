@@ -93,7 +93,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                 ? 'bg-slate-700 shadow-none hover:bg-slate-600' 
                 : 'bg-accent-600 shadow-accent-500/20 hover:bg-accent-500'
             }`}
-            title={isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
+            title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
           >
             {isOfflineMode ? (
               <WifiOff className="text-white group-hover:text-accent-300 transition-colors" size={24} />

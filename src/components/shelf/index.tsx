@@ -270,7 +270,8 @@ export const Shelf: React.FC<ShelfProps> = ({
                   onClick={(e) => { 
                     e.stopPropagation(); 
                     setShowImportConfirm(false); 
-                    onToggleCloud(); 
+                    if (isGuest) onLogin();
+                    else onToggleCloud();
                   }}
                   className="text-accent-500 underline decoration-accent-500/50 underline-offset-2 hover:text-accent-400 font-black cursor-pointer"
                 >
