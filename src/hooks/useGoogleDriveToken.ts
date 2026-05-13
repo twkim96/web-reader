@@ -1,24 +1,22 @@
 import { useCallback, useState } from 'react';
-
-const TOKEN_KEY = 'google_drive_token';
-const EXPIRY_KEY = 'google_drive_token_expiry';
+import { GOOGLE_DRIVE_TOKEN_EXPIRY_KEY, GOOGLE_DRIVE_TOKEN_KEY } from '../lib/googleDriveOAuth';
 
 const removeTokenFromStorage = () => {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(EXPIRY_KEY);
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(EXPIRY_KEY);
+  localStorage.removeItem(GOOGLE_DRIVE_TOKEN_KEY);
+  localStorage.removeItem(GOOGLE_DRIVE_TOKEN_EXPIRY_KEY);
+  sessionStorage.removeItem(GOOGLE_DRIVE_TOKEN_KEY);
+  sessionStorage.removeItem(GOOGLE_DRIVE_TOKEN_EXPIRY_KEY);
 };
 
 const getValidTokenFromStorage = () => {
-  const sessionToken = sessionStorage.getItem(TOKEN_KEY);
-  const sessionExpiry = sessionStorage.getItem(EXPIRY_KEY);
+  const sessionToken = sessionStorage.getItem(GOOGLE_DRIVE_TOKEN_KEY);
+  const sessionExpiry = sessionStorage.getItem(GOOGLE_DRIVE_TOKEN_EXPIRY_KEY);
   if (sessionToken && sessionExpiry && Date.now() < parseInt(sessionExpiry, 10)) {
     return sessionToken;
   }
 
-  const localToken = localStorage.getItem(TOKEN_KEY);
-  const localExpiry = localStorage.getItem(EXPIRY_KEY);
+  const localToken = localStorage.getItem(GOOGLE_DRIVE_TOKEN_KEY);
+  const localExpiry = localStorage.getItem(GOOGLE_DRIVE_TOKEN_EXPIRY_KEY);
   if (localToken && localExpiry && Date.now() < parseInt(localExpiry, 10)) {
     return localToken;
   }
@@ -37,8 +35,8 @@ export const useGoogleDriveToken = () => {
     const storage = sessionOnly ? sessionStorage : localStorage;
 
     removeTokenFromStorage();
-    storage.setItem(TOKEN_KEY, token);
-    storage.setItem(EXPIRY_KEY, expiryTime);
+    storage.setItem(GOOGLE_DRIVE_TOKEN_KEY, token);
+    storage.setItem(GOOGLE_DRIVE_TOKEN_EXPIRY_KEY, expiryTime);
     setGoogleToken(token);
   }, []);
 

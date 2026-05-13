@@ -2,15 +2,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { auth, googleDriveProvider, googleProvider } from '../lib/firebase';
-import {
-  getRedirectResult,
-  GoogleAuthProvider,
-  reauthenticateWithRedirect,
-  signInWithRedirect,
-  signOut,
-  User as FirebaseUser,
-} from 'firebase/auth';
+import { auth, googleProvider } from '../lib/firebase';
+import { signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
@@ -20,6 +13,11 @@ import { Book, ViewState } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
+import {
+  buildGoogleDriveOAuthUrl,
+  GOOGLE_DRIVE_OAUTH_ERROR_KEY,
+  GOOGLE_DRIVE_OAUTH_STATE_KEY,
+} from '../lib/googleDriveOAuth';
 import { removeBookFromLocal } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
@@ -35,13 +33,10 @@ const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
 
-const DRIVE_AUTH_REDIRECT_PENDING_KEY = 'google_drive_auth_redirect_pending';
-const GOOGLE_ACCESS_TOKEN_LIFETIME_SECONDS = 3600;
-
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
-  const { googleToken, setGoogleToken, getStoredToken, saveToken, clearToken, hasValidToken } = useGoogleDriveToken();
+  const { googleToken, setGoogleToken, getStoredToken, clearToken, hasValidToken } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const deviceId = useDeviceId();
 
@@ -129,47 +124,16 @@ export default function Page() {
   }, [clearToken, restoreLocalData]);
 
   useEffect(() => {
-    const wasDriveRedirect = sessionStorage.getItem(DRIVE_AUTH_REDIRECT_PENDING_KEY) === 'true';
-    if (!wasDriveRedirect) return;
-
+    const driveOAuthError = sessionStorage.getItem(GOOGLE_DRIVE_OAUTH_ERROR_KEY);
+    if (!driveOAuthError) return;
     const timeoutId = window.setTimeout(() => {
-      sessionStorage.removeItem(DRIVE_AUTH_REDIRECT_PENDING_KEY);
-
-      getRedirectResult(auth)
-        .then((result) => {
-          const credential = result ? GoogleAuthProvider.credentialFromResult(result) : null;
-          const accessToken = credential?.accessToken;
-
-          if (!accessToken) {
-            setAuthErrorMessage('Google Drive 연결 권한을 확인하지 못했습니다. 다시 시도해 주세요.');
-            setView('shelf');
-            return;
-          }
-
-          saveToken(accessToken, GOOGLE_ACCESS_TOKEN_LIFETIME_SECONDS, false);
-          setIsGuest(false);
-          isGuestRef.current = false;
-          localStorage.removeItem('isGuest');
-          setIsOfflineMode(false);
-          setView('loading');
-
-          loadLibraryFromDrive(accessToken).then((isSuccess) => {
-            if (!isSuccess) {
-              clearToken();
-              setAuthErrorMessage('Google Drive 파일을 불러오지 못했습니다. Drive 권한을 다시 확인해 주세요.');
-            }
-            setView('shelf');
-          });
-        })
-        .catch((error) => {
-          console.error('[Auth] Google Drive redirect failed:', error);
-          setAuthErrorMessage('Google Drive 연결을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
-          setView('shelf');
-        });
+      sessionStorage.removeItem(GOOGLE_DRIVE_OAUTH_ERROR_KEY);
+      setAuthErrorMessage(driveOAuthError);
+      setView((prev) => (prev === 'loading' ? 'shelf' : prev));
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [clearToken, loadLibraryFromDrive, saveToken]);
+  }, []);
 
   useEffect(() => {
     if (!googleToken || isOfflineMode) return;
@@ -207,23 +171,15 @@ export default function Page() {
     }
 
     setAuthErrorMessage(null);
-    const currentUser = auth.currentUser || user;
-    if (!currentUser) {
-      handleLoginTrigger();
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
+    if (!clientId) {
+      setAuthErrorMessage('Google Drive 연결 설정을 찾지 못했습니다.');
       return;
     }
 
-    sessionStorage.setItem(DRIVE_AUTH_REDIRECT_PENDING_KEY, 'true');
-    setView('loading');
-
-    reauthenticateWithRedirect(currentUser, googleDriveProvider).catch((error) => {
-      console.error('[Auth] Google Drive redirect start failed:', error);
-      sessionStorage.removeItem(DRIVE_AUTH_REDIRECT_PENDING_KEY);
-      setAuthErrorMessage(
-        'Google Drive 연결을 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.'
-      );
-      setView('shelf');
-    });
+    const state = crypto.randomUUID();
+    sessionStorage.setItem(GOOGLE_DRIVE_OAUTH_STATE_KEY, state);
+    window.location.assign(buildGoogleDriveOAuthUrl(clientId, window.location.origin, state));
   };
 
   const handleLoginTrigger = () => {
