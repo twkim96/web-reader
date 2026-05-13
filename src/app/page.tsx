@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, googleProvider } from '../lib/firebase';
-import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
@@ -68,6 +68,7 @@ export default function Page() {
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
   const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
+  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 
   const { settings, updateSettings } = useViewerSettings();
 
@@ -194,8 +195,39 @@ export default function Page() {
     client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
   };
 
-  const handleLoginTrigger = () => {
-    signInWithPopup(auth, googleProvider).catch(console.error);
+  const handleLoginTrigger = async () => {
+    setAuthErrorMessage(null);
+    setView('loading');
+    setIsGuest(false);
+    isGuestRef.current = false;
+    localStorage.removeItem('isGuest');
+
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      const code = typeof error === 'object' && error && 'code' in error
+        ? String(error.code)
+        : '';
+      const shouldTryRedirect = [
+        'auth/popup-blocked',
+        'auth/cancelled-popup-request',
+        'auth/popup-closed-by-user',
+      ].includes(code);
+
+      if (shouldTryRedirect) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectError) {
+          console.error('[Auth] Google redirect failed:', redirectError);
+        }
+      } else {
+        console.error('[Auth] Google popup failed:', error);
+      }
+
+      setAuthErrorMessage('Google 로그인을 시작하지 못했습니다. 광고 차단 설정을 잠시 해제하거나 새로고침 후 다시 시도해 주세요.');
+      setView('auth');
+    }
   };
 
   const handleLogout = () => setPendingAction('logout');
@@ -375,6 +407,19 @@ export default function Page() {
           theme={theme}
           onConfirm={() => setCloudPermissionMessage(null)}
           onCancel={() => setCloudPermissionMessage(null)}
+        />
+      )}
+
+      {authErrorMessage && (
+        <ConfirmDialog
+          message="Google 로그인을 시작하지 못했습니다."
+          subMessage={authErrorMessage}
+          confirmLabel="확인"
+          hideCancel
+          variant="info"
+          theme={theme}
+          onConfirm={() => setAuthErrorMessage(null)}
+          onCancel={() => setAuthErrorMessage(null)}
         />
       )}
     </div>
