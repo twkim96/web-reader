@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, googleProvider } from '../lib/firebase';
-import { GoogleAuthProvider, signInWithCredential, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
+import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
@@ -28,8 +28,6 @@ import { useViewerSettings } from '../hooks/useViewerSettings';
 type GoogleTokenResponse = {
   access_token?: string;
   expires_in?: number;
-  error?: string;
-  error_description?: string;
 };
 
 type GoogleTokenClient = {
@@ -53,16 +51,6 @@ type GoogleAccountsWindow = Window & {
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
-
-const waitForGoogleIdentity = async () => {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 3000) {
-    const google = (window as GoogleAccountsWindow).google;
-    if (google?.accounts?.oauth2) return google;
-    await new Promise((resolve) => window.setTimeout(resolve, 100));
-  }
-  return null;
-};
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -207,62 +195,30 @@ export default function Page() {
     client.requestAccessToken({ prompt: googleToken ? '' : 'select_account' });
   };
 
-  const handleLoginTrigger = async () => {
+  const handleLoginTrigger = () => {
     setAuthErrorMessage(null);
-    setView('loading');
     setIsGuest(false);
     isGuestRef.current = false;
     localStorage.removeItem('isGuest');
 
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    signInWithPopup(auth, googleProvider).catch((error) => {
       const code = typeof error === 'object' && error && 'code' in error
         ? String(error.code)
         : '';
-      const shouldTryRedirect = [
+
+      console.error('[Auth] Google popup failed:', error);
+      const isLikelyPopupBlocked = [
         'auth/popup-blocked',
         'auth/cancelled-popup-request',
         'auth/popup-closed-by-user',
       ].includes(code);
 
-      if (shouldTryRedirect) {
-        try {
-          const google = await waitForGoogleIdentity();
-          if (!google) throw new Error('Google Identity Services is not loaded');
-
-          const accessToken = await new Promise<string>((resolve, reject) => {
-            const client = google.accounts.oauth2.initTokenClient({
-              client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '',
-              scope: 'profile email',
-              callback: (res) => {
-                if (res.error) {
-                  reject(new Error(res.error_description || res.error));
-                  return;
-                }
-                if (!res.access_token) {
-                  reject(new Error('Google access token was not returned'));
-                  return;
-                }
-                resolve(res.access_token);
-              },
-            });
-            client.requestAccessToken({ prompt: 'select_account' });
-          });
-
-          const credential = GoogleAuthProvider.credential(null, accessToken);
-          await signInWithCredential(auth, credential);
-          return;
-        } catch (credentialError) {
-          console.error('[Auth] Google credential fallback failed:', credentialError);
-        }
-      } else {
-        console.error('[Auth] Google popup failed:', error);
-      }
-
-      setAuthErrorMessage('Google 로그인을 시작하지 못했습니다. 광고 차단 설정을 잠시 해제하거나 새로고침 후 다시 시도해 주세요.');
+      setAuthErrorMessage(isLikelyPopupBlocked
+        ? '브라우저 또는 광고 차단기가 Google 로그인 팝업을 막았습니다. AdGuard에서 이 사이트를 허용하거나 잠시 끈 뒤 다시 시도해 주세요.'
+        : 'Google 로그인을 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.'
+      );
       setView('auth');
-    }
+    });
   };
 
   const handleLogout = () => setPendingAction('logout');
