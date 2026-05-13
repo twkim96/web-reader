@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Book, UserProgress, ViewerSettings } from '../../types';
 import { ManageModal } from '../ManageModal';
 import { ShelfSearchModal } from '../ShelfSearchModal';
@@ -30,6 +30,8 @@ interface ShelfProps {
   onToggleCloud: () => void; 
   onDeleteProgress?: (bookId: string) => void; 
   onLocalBookImported?: () => void;
+  isCloudTokenValid?: () => boolean;
+  onCloudAuthExpired?: () => void;
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
@@ -47,7 +49,9 @@ export const Shelf: React.FC<ShelfProps> = ({
   onDeleteProgress,
   settings,
   onUpdateSettings,
-  onLocalBookImported
+  onLocalBookImported,
+  isCloudTokenValid,
+  onCloudAuthExpired
 }) => {
   const [showManage, setShowManage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -63,6 +67,18 @@ export const Shelf: React.FC<ShelfProps> = ({
   const { viewMode, sortMode, toggleViewMode, toggleSortMode } = useShelfPreferences();
   const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
   const filteredBooks = useFilteredBooks(books, searchKeyword, sortMode, progress);
+
+  const handleCloudAuthExpired = useCallback(() => {
+    onCloudAuthExpired?.();
+  }, [onCloudAuthExpired]);
+
+  const handleShowImportConfirm = useCallback((show: boolean) => {
+    if (show && !isOfflineMode && isCloudTokenValid?.() === false) {
+      handleCloudAuthExpired();
+      return;
+    }
+    setShowImportConfirm(show);
+  }, [handleCloudAuthExpired, isCloudTokenValid, isOfflineMode]);
 
   const stateRef = useRef({ showManage, showSearch });
   useEffect(() => {
@@ -102,7 +118,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         onToggleViewMode={toggleViewMode}
         setShowThemeModal={setShowThemeModal}
         setShowManage={setShowManage}
-        setShowImportConfirm={setShowImportConfirm}
+        setShowImportConfirm={handleShowImportConfirm}
       />
 
       <FileUploader 
@@ -112,6 +128,8 @@ export const Shelf: React.FC<ShelfProps> = ({
         onLocalBookImported={onLocalBookImported}
         fileInputRef={fileInputRef}
         setIsSyncing={setIsSyncing}
+        isCloudTokenValid={isCloudTokenValid}
+        onCloudAuthExpired={handleCloudAuthExpired}
       />
 
       {searchKeyword && (
@@ -156,7 +174,7 @@ export const Shelf: React.FC<ShelfProps> = ({
             theme={theme}
             onClearSearch={() => setSearchKeyword('')}
             onToggleCloud={onToggleCloud}
-            onShowImportConfirm={() => setShowImportConfirm(true)}
+            onShowImportConfirm={() => handleShowImportConfirm(true)}
             onLogin={onLogin}
             onRefresh={onRefresh}
           />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { findFolderId, createFolder, uploadFile } from '../../lib/googleDrive';
+import { createFolder, findFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
 import { saveBookToLocal } from '../../lib/localDB';
 import { Book } from '../../types';
 import { ensureEpubBook, getSupportedBookMimeType } from '../../lib/bookContent';
@@ -11,6 +11,8 @@ interface FileUploaderProps {
   onLocalBookImported?: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   setIsSyncing: (syncing: boolean) => void;
+  isCloudTokenValid?: () => boolean;
+  onCloudAuthExpired?: () => void;
 }
 
 export const FileUploader: React.FC<FileUploaderProps> = ({
@@ -19,7 +21,9 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
   onRefresh,
   onLocalBookImported,
   fileInputRef,
-  setIsSyncing
+  setIsSyncing,
+  isCloudTokenValid,
+  onCloudAuthExpired
 }) => {
   const syncFileToDrive = async (fileName: string, content: ArrayBuffer, mimeType: string) => {
     if (!googleToken || isOfflineMode) return null;
@@ -41,6 +45,11 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         throw new Error('폴더를 생성하거나 찾을 수 없습니다.');
       }
     } catch (error) {
+      if (isGoogleDriveAuthError(error)) {
+        onCloudAuthExpired?.();
+        return null;
+      }
+
       const message = error instanceof Error ? error.message : '알 수 없는 오류';
       console.error('Sync failed:', error);
       alert(`클라우드 동기화 실패: ${message}\n(파일은 기기에 로컬로 저장되었습니다.)`);
@@ -67,13 +76,16 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       
       // 1. 구글 드라이브 동기화 (원본 txt/epub 그대로 업로드)
       if (!isOfflineMode && googleToken) {
-        const driveId = await syncFileToDrive(file.name, content, originalMimeType);
-        if (driveId) {
-          bookId = driveId; // 드라이브 업로드 성공 시 해당 ID 사용
+        if (isCloudTokenValid?.() === false) {
+          onCloudAuthExpired?.();
+        } else {
+          const driveId = await syncFileToDrive(file.name, content, originalMimeType);
+          if (driveId) {
+            bookId = driveId; // 드라이브 업로드 성공 시 해당 ID 사용
+          }
         }
       } else if (!isOfflineMode && !googleToken) {
-        alert('구글 드라이브 권한이 없습니다. 로그아웃 후 다시 로그인하여 권한을 허용해 주세요.');
-        return;
+        onCloudAuthExpired?.();
       }
 
       // 2. 로컬 저장 (확보된 bookId 사용 - 중복 방지 핵심)

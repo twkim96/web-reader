@@ -7,6 +7,7 @@ interface ConfirmDialogProps {
   subMessage?: React.ReactNode; // [Modified] string -> ReactNode
   confirmLabel?: string;
   cancelLabel?: string;
+  hideCancel?: boolean;
   variant?: 'danger' | 'info';
   theme: { bg: string; text: string; border: string; secondary: string };
   onConfirm: () => void;
@@ -18,6 +19,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   subMessage,
   confirmLabel = '확인',
   cancelLabel = '취소',
+  hideCancel = false,
   variant = 'danger',
   theme,
   onConfirm,
@@ -48,15 +50,17 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           )}
         </div>
         <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-3 bg-white/5 hover:bg-white/10 font-bold rounded-2xl text-sm transition-colors active:scale-95"
-          >
-            {cancelLabel}
-          </button>
+          {!hideCancel && (
+            <button
+              onClick={onCancel}
+              className="flex-1 py-3 bg-white/5 hover:bg-white/10 font-bold rounded-2xl text-sm transition-colors active:scale-95"
+            >
+              {cancelLabel}
+            </button>
+          )}
           <button
             onClick={onConfirm}
-            className={`flex-1 py-3 font-bold rounded-2xl text-sm transition-all active:scale-95 text-white shadow-lg ${
+            className={`${hideCancel ? 'w-full' : 'flex-1'} py-3 font-bold rounded-2xl text-sm transition-all active:scale-95 text-white shadow-lg ${
               isDanger 
                 ? 'bg-red-500 hover:bg-red-400 shadow-red-500/20' 
                 : 'bg-accent-600 hover:bg-accent-500 shadow-accent-500/20'

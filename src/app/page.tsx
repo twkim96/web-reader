@@ -6,21 +6,70 @@ import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
 import { onAuthStateChanged, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 import { collection, doc, onSnapshot, setDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 
-import { findFolderId, fetchDriveFiles } from '../lib/googleDrive';
+import { findFolderId, fetchDriveFiles, isGoogleDriveAuthError } from '../lib/googleDrive';
 import { getAllOfflineBooks, saveProgressToLocal, getAllLocalProgress } from '../lib/localDB';
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
 
 const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
-import { Book, UserProgress, ViewerSettings, ViewState, Bookmark } from '../types';
+import { Book, UserProgress, ViewState, Bookmark } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
-import { HardDrive, LogOut, ShieldCheck, Wifi, WifiOff, User as UserIcon } from 'lucide-react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { AuthLanding, CloudModeSelector } from '../components/AuthScreens';
+import { useDeviceId } from '../hooks/useDeviceId';
+import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
+import { useViewerSettings } from '../hooks/useViewerSettings';
+
+type TimestampLike = {
+  toDate?: () => Date;
+};
+
+type RemoteProgressDoc = {
+  bookId?: string;
+  cfi?: string;
+  progressPercent?: number;
+  lastRead?: TimestampLike;
+  bookmarks?: Bookmark[];
+  deviceId?: string;
+};
+
+type GoogleTokenResponse = {
+  access_token?: string;
+  expires_in?: number;
+};
+
+type GoogleTokenClient = {
+  requestAccessToken: (options: { prompt: string }) => void;
+};
+
+type GoogleAccountsWindow = Window & {
+  google?: {
+    accounts: {
+      oauth2: {
+        initTokenClient: (config: {
+          client_id: string;
+          scope: string;
+          callback: (res: GoogleTokenResponse) => void;
+        }) => GoogleTokenClient;
+      };
+    };
+  };
+};
+
+const getStoredGuestMode = () => (
+  typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
+);
+
+const getTimestampMs = (value: unknown, fallback = Date.now()) => {
+  const timestamp = value as TimestampLike | undefined;
+  const date = timestamp?.toDate ? timestamp.toDate() : undefined;
+  return date ? date.getTime() : fallback;
+};
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const { googleToken, setGoogleToken, getStoredToken, saveToken, clearToken, hasValidToken } = useGoogleDriveToken();
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
@@ -31,66 +80,20 @@ export default function Page() {
   }, [progress]);
 
   const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
-  const deviceId = useRef<string>('');
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      let id = localStorage.getItem('reader_device_id');
-      if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem('reader_device_id', id);
-      }
-      deviceId.current = id;
-    }
-  }, []);
+  const deviceId = useDeviceId();
 
   const [isPublicPC, setIsPublicPC] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(true);
-  const [isGuest, setIsGuest] = useState(false);
+  const [isGuest, setIsGuest] = useState(getStoredGuestMode);
   // [Fix] Auth Effect에서 isGuest를 의존성으로 쓰면 Firebase 리스너가 재구독됨 → ref로 대체
-  const isGuestRef = useRef(false);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (localStorage.getItem('isGuest') === 'true') {
-        setIsGuest(true);
-        isGuestRef.current = true;
-      }
-    }
-  }, []);
+  const isGuestRef = useRef(getStoredGuestMode());
 
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
+  const [showCloudAuthExpiredNotice, setShowCloudAuthExpiredNotice] = useState(false);
 
-  const [settings, setSettings] = useState<ViewerSettings>({
-    fontSize: 18, lineHeight: 1.9, padding: 24, textAlign: 'justify',
-    theme: 'sepia', navMode: 'scroll', fontFamily: 'ridi',
-    accentColor: 'sky'
-  });
+  const { settings, updateSettings } = useViewerSettings();
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
-
-  useEffect(() => {
-    const savedSettings = localStorage.getItem('viewer_settings');
-    if (savedSettings) {
-      try {
-        setSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));
-      } catch (e) {
-        console.error("Failed to parse settings", e);
-      }
-    }
-  }, []);
-
-  const getStoredToken = () => {
-    const sToken = sessionStorage.getItem('google_drive_token');
-    const sExpiry = sessionStorage.getItem('google_drive_token_expiry');
-    if (sToken && sExpiry && Date.now() < parseInt(sExpiry)) return sToken;
-
-    const lToken = localStorage.getItem('google_drive_token');
-    const lExpiry = localStorage.getItem('google_drive_token_expiry');
-    if (lToken && lExpiry && Date.now() < parseInt(lExpiry)) return lToken;
-
-    return null;
-  };
 
   // [Modified] preventRedirect 인자 추가: 데이터만 로드하고 화면 전환은 하지 않는 옵션
   const restoreLocalData = async (preventRedirect = false) => {
@@ -136,7 +139,7 @@ export default function Page() {
       // 서버 데이터를 로컬에 동기화 (서버 = 진실의 원천)
       for (const d of cloudSnapshot.docs) {
         const cloudData = d.data() as UserProgress;
-        const cloudTime = cloudData.lastRead?.toDate ? cloudData.lastRead.toDate().getTime() : 0;
+        const cloudTime = getTimestampMs(cloudData.lastRead, 0);
         await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
       }
     } catch (e) {
@@ -165,6 +168,9 @@ export default function Page() {
       setIsOfflineMode(false);
       return true;
     } catch (err) {
+      if (isGoogleDriveAuthError(err)) {
+        clearToken();
+      }
       console.warn("Drive Library Load Failed (Offline or Error)");
       setIsOfflineMode(true);
       return false;
@@ -194,7 +200,9 @@ export default function Page() {
   }, [user, googleToken]);
 
   useEffect(() => {
-    restoreLocalData(); // 초기 로드 시 실행 (기본 동작: 책장으로 이동)
+    queueMicrotask(() => {
+      restoreLocalData(); // 초기 로드 시 실행 (기본 동작: 책장으로 이동)
+    });
 
     const script = document.createElement('script');
     script.src = "https://accounts.google.com/gsi/client";
@@ -206,6 +214,7 @@ export default function Page() {
 
       if (u) {
         setIsGuest(false);
+        isGuestRef.current = false;
 
         // [Fix 2] 로그인 직후 로컬 데이터 복구 (화면 전환 없이 데이터만 로드)
         // 재로그인 시 책장이 비어보이는 현상을 방지하기 위함
@@ -242,8 +251,8 @@ export default function Page() {
           const p: Record<string, UserProgress> = {};
 
           for (const d of snapshot.docs) {
-            const raw = d.data() as any;
-            const serverTime = raw.lastRead?.toDate ? raw.lastRead.toDate().getTime() : Date.now();
+            const raw = d.data() as RemoteProgressDoc;
+            const serverTime = getTimestampMs(raw.lastRead);
             const serverBookmarks = (raw.bookmarks || []) as Bookmark[];
             
             // [중요] 하이브리드 북마크 병합: 
@@ -290,10 +299,16 @@ export default function Page() {
               let changed = false;
               const updated = { ...prev };
               for (const d of snapshot.docs) {
-                const data = d.data() as UserProgress & { deviceId?: string };
+                const data = d.data() as RemoteProgressDoc;
                 if (data.deviceId && data.deviceId !== deviceId.current) {
-                  const serverTime = data.lastRead?.toDate ? data.lastRead.toDate().getTime() : Date.now();
-                  const entry: UserProgress = { ...data, lastRead: serverTime };
+                  const serverTime = getTimestampMs(data.lastRead);
+                  const entry: UserProgress = {
+                    bookId: data.bookId || d.id,
+                    cfi: data.cfi || '',
+                    progressPercent: data.progressPercent || 0,
+                    lastRead: serverTime,
+                    bookmarks: data.bookmarks || [],
+                  };
                   if (!prev[d.id] || prev[d.id].cfi !== data.cfi || prev[d.id].progressPercent !== data.progressPercent) {
                     updated[d.id] = entry;
                     changed = true;
@@ -344,20 +359,51 @@ export default function Page() {
 
   const handleDisconnectDrive = () => setPendingAction('disconnect');
 
+  const handleCloudAuthExpired = useCallback(() => {
+    clearToken();
+    setIsOfflineMode(true);
+    setShowCloudAuthExpiredNotice(true);
+  }, [clearToken]);
+
+  useEffect(() => {
+    if (!googleToken || isOfflineMode) return;
+
+    const validateCloudSession = () => {
+      if (!hasValidToken()) {
+        handleCloudAuthExpired();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        validateCloudSession();
+      }
+    };
+
+    validateCloudSession();
+    window.addEventListener('focus', validateCloudSession);
+    window.addEventListener('storage', validateCloudSession);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const intervalId = window.setInterval(validateCloudSession, 30000);
+
+    return () => {
+      window.removeEventListener('focus', validateCloudSession);
+      window.removeEventListener('storage', validateCloudSession);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [googleToken, handleCloudAuthExpired, hasValidToken, isOfflineMode]);
+
   const handleConnect = () => {
-    if (!(window as any).google) return;
-    const client = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+    const google = (window as GoogleAccountsWindow).google;
+    if (!google) return;
+
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '',
       scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: (res: any) => {
-        if (res.access_token) {
-          setGoogleToken(res.access_token);
-          const expiryTime = (Date.now() + (res.expires_in * 1000)).toString();
-          const storage = isPublicPC ? sessionStorage : localStorage;
-          localStorage.removeItem('google_drive_token');
-          sessionStorage.removeItem('google_drive_token');
-          storage.setItem('google_drive_token', res.access_token);
-          storage.setItem('google_drive_token_expiry', expiryTime);
+      callback: (res) => {
+        if (res.access_token && res.expires_in) {
+          saveToken(res.access_token, res.expires_in, isPublicPC);
 
           setIsOfflineMode(false);
           setView('loading');
@@ -379,30 +425,16 @@ export default function Page() {
   const executePendingAction = async () => {
     if (pendingAction === 'logout') {
       await signOut(auth);
-      localStorage.removeItem('google_drive_token');
-      sessionStorage.removeItem('google_drive_token');
-      setGoogleToken(null);
+      clearToken();
       setBooks([]);
       setIsGuest(false);
       setView('auth');
     } else if (pendingAction === 'disconnect') {
-      setGoogleToken(null);
-      localStorage.removeItem('google_drive_token');
-      localStorage.removeItem('google_drive_token_expiry');
-      sessionStorage.removeItem('google_drive_token');
-      sessionStorage.removeItem('google_drive_token_expiry');
+      clearToken();
       await handleLocalMode();
     }
     setPendingAction(null);
   };
-
-  const handleUpdateSettings = useCallback((newSettings: Partial<ViewerSettings>) => {
-    setSettings(prev => {
-      const updated = { ...prev, ...newSettings };
-      localStorage.setItem('viewer_settings', JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
 
   const handleSaveProgress = useCallback((cfi: number | string, pct: number, bookmarks?: Bookmark[]) => {
     if (!activeBook) return;
@@ -444,7 +476,7 @@ export default function Page() {
 
       return { ...prev, [bookId]: progressData };
     });
-  }, [user, activeBook]);
+  }, [user, activeBook, deviceId]);
 
   const handleDeleteProgress = useCallback(async (bookId: string) => {
     const now = Date.now();
@@ -471,7 +503,7 @@ export default function Page() {
         }, { merge: true });
       } catch (e) { console.error(e); }
     }
-  }, [user]);
+  }, [user, deviceId]);
 
   const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
   const dynamicStyles = {
@@ -493,55 +525,24 @@ export default function Page() {
     <div className={`min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`} style={dynamicStyles}>
       {/* 1. 로그인 화면 */}
       {view === 'auth' && !user && (
-        <div className="h-screen w-screen flex flex-col items-center justify-center gap-12 p-10 text-center">
-          <div className="p-10 bg-accent-600 text-white rounded-[3.5rem] shadow-2xl shadow-accent-500/20">
-            <HardDrive size={64} />
-          </div>
-          <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
-          <div className="flex flex-col gap-4 w-full max-w-xs">
-            <button onClick={() => signInWithPopup(auth, googleProvider).catch(() => undefined)} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
-              Sign in with Google
-            </button>
-            <button onClick={handleGuestMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-2 transition-colors`}>
-              <UserIcon size={16} />
-              <span>Guest Mode (Offline)</span>
-            </button>
-          </div>
-        </div>
+        <AuthLanding
+          theme={theme}
+          onGoogleSignIn={handleLoginTrigger}
+          onGuestMode={handleGuestMode}
+        />
       )}
 
       {/* 2. 모드 선택 화면 */}
       {view === 'auth' && user && (
-        <div className="h-screen w-screen flex flex-col items-center justify-center gap-8 p-10 text-center">
-          <div className="relative mb-4">
-            <div className="p-10 bg-accent-600 text-white rounded-[3.5rem] shadow-2xl">
-              <HardDrive size={64} />
-            </div>
-            <button onClick={handleLogout} className="absolute -top-2 -right-2 p-3 bg-red-500 rounded-full shadow-lg active:scale-90"><LogOut size={18} /></button>
-          </div>
-          <div className="space-y-1 mb-2">
-            <p className="text-accent-400 font-black text-[10px] uppercase tracking-[0.3em]">Welcome back</p>
-            <h1 className="text-xl font-bold">{user.displayName || user.email}</h1>
-          </div>
-          <div className="w-full max-w-xs space-y-4">
-            <button onClick={handleConnect} className={`group relative w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center justify-center gap-3 overflow-hidden hover:opacity-80 transition-all`}>
-              <div className="absolute inset-0 bg-accent-500 opacity-0 group-hover:opacity-10 transition-opacity" />
-              <Wifi size={18} className="text-accent-600 dark:text-accent-400" />
-              <span>Connect Cloud</span>
-            </button>
-            <button onClick={handleLocalMode} className={`w-full py-5 ${theme.secondary} opacity-70 hover:opacity-100 border ${theme.border} font-bold rounded-[2rem] text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center justify-center gap-3 transition-colors`}>
-              <WifiOff size={18} />
-              <span>Local Library Only</span>
-            </button>
-            <label className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all cursor-pointer ${isPublicPC ? 'border-accent-500 bg-accent-500/10' : `border-transparent ${theme.secondary}`}`}>
-              <input type="checkbox" checked={isPublicPC} onChange={(e) => setIsPublicPC(e.target.checked)} className="hidden" />
-              <ShieldCheck size={20} className={isPublicPC ? 'text-accent-500' : 'opacity-40'} />
-              <span className={`text-[11px] font-bold uppercase tracking-wider ${isPublicPC ? 'text-accent-500' : 'opacity-60'}`}>
-                {isPublicPC ? 'Public PC (Session Only)' : 'Private PC (Keep Logged in)'}
-              </span>
-            </label>
-          </div>
-        </div>
+        <CloudModeSelector
+          theme={theme}
+          userName={user.displayName || user.email || 'Google User'}
+          isPublicPC={isPublicPC}
+          onPublicPCChange={setIsPublicPC}
+          onLogout={handleLogout}
+          onConnect={handleConnect}
+          onLocalMode={handleLocalMode}
+        />
       )}
 
       {/* 3. 책장 */}
@@ -560,8 +561,10 @@ export default function Page() {
           onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive}
           onDeleteProgress={handleDeleteProgress}
           settings={settings}
-          onUpdateSettings={handleUpdateSettings}
+          onUpdateSettings={updateSettings}
           onLocalBookImported={() => restoreLocalData(true)}
+          isCloudTokenValid={hasValidToken}
+          onCloudAuthExpired={handleCloudAuthExpired}
         />
       )}
 
@@ -572,7 +575,7 @@ export default function Page() {
           book={activeBook}
           googleToken={googleToken || ''}
           settings={settings}
-          onUpdateSettings={handleUpdateSettings}
+          onUpdateSettings={updateSettings}
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
           onSaveProgress={handleSaveProgress}
           initialCfi={progress[activeBook.id]?.cfi}
@@ -591,6 +594,19 @@ export default function Page() {
           theme={theme}
           onConfirm={executePendingAction}
           onCancel={() => setPendingAction(null)}
+        />
+      )}
+
+      {showCloudAuthExpiredNotice && (
+        <ConfirmDialog
+          message="클라우드 세션이 만료되었습니다."
+          subMessage="현재 도서는 기기에만 저장됩니다. 다시 클라우드를 연결하면 구글 드라이브 업로드를 사용할 수 있습니다."
+          confirmLabel="확인"
+          hideCancel
+          variant="info"
+          theme={theme}
+          onConfirm={() => setShowCloudAuthExpiredNotice(false)}
+          onCancel={() => setShowCloudAuthExpiredNotice(false)}
         />
       )}
     </div>

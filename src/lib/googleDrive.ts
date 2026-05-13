@@ -14,13 +14,28 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout 
       signal: controller.signal,
     });
     return response;
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Network timeout');
     }
     throw error;
   } finally {
     clearTimeout(id);
+  }
+};
+
+export class GoogleDriveAuthError extends Error {
+  constructor(message = 'Google Drive authorization expired') {
+    super(message);
+    this.name = 'GoogleDriveAuthError';
+  }
+}
+
+export const isGoogleDriveAuthError = (error: unknown) => error instanceof GoogleDriveAuthError;
+
+const throwIfGoogleDriveAuthError = (response: Response) => {
+  if (response.status === 401 || response.status === 403) {
+    throw new GoogleDriveAuthError();
   }
 };
 
@@ -36,7 +51,10 @@ export const findFolderId = async (folderName: string, token: string) => {
     5000 
   );
   
-  if (!response.ok) return null;
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    return null;
+  }
   const data = await response.json();
   return data.files?.[0]?.id || null;
 };
@@ -61,7 +79,10 @@ export const createFolder = async (folderName: string, token: string) => {
     10000
   );
 
-  if (!response.ok) throw new Error('폴더 생성 실패');
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throw new Error('폴더 생성 실패');
+  }
   const data = await response.json();
   return data.id;
 };
@@ -108,6 +129,7 @@ export const uploadFile = async (
   );
 
   if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
     const errorText = await response.text();
     console.error('Google Drive Upload Error:', errorText);
     throw new Error('클라우드 업로드 실패');
@@ -126,6 +148,11 @@ export const fetchDriveFiles = async (token: string, folderId?: string) => {
     { headers: { Authorization: `Bearer ${token}` } },
     5000
   );
+
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throw new Error('파일 목록 조회 실패');
+  }
   
   return response.json();
 };
@@ -138,7 +165,10 @@ export const fetchFullFile = async (fileId: string, token: string) => {
     180000 
   );
 
-  if (!response.ok) throw new Error('파일 로드 실패');
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throw new Error('파일 로드 실패');
+  }
   
   return await response.arrayBuffer();
 };
