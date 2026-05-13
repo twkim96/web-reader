@@ -70,6 +70,10 @@ export const useFoliateView = ({
       onCfiChange(detail.cfi || '');
 
       const progressPercent = getProgressFromRelocateDetail(detail);
+      const relocateDetail = progressPercent !== null
+        ? { ...detail, progressPercent }
+        : detail;
+
       if (progressPercent !== null) {
         onProgressChange(progressPercent);
       }
@@ -78,7 +82,7 @@ export const useFoliateView = ({
         onChapterChange(detail.tocItem.label);
       }
 
-      onRelocate?.(detail);
+      onRelocate?.(relocateDetail);
     }) as EventListener);
 
     view.addEventListener('load', ((event: CustomEvent<{ doc?: Document }>) => {

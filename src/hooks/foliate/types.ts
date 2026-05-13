@@ -3,6 +3,7 @@
 export interface RelocateDetail {
   cfi: string;
   fraction: number;
+  progressPercent?: number;
   location: {
     current: number;
     next: number;

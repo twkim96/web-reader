@@ -219,6 +219,18 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     await goTo(targetCfi);
   }, [createAutoBookmark, currentCfi, goTo, markUserProgressChange, totalProgress]);
 
+  const performJumpToProgress = useCallback(async (targetCfi: string, expectedPercent?: number) => {
+    if (!currentCfi || targetCfi === currentCfi) return;
+
+    const updatedBookmarks = createAutoBookmark(currentCfi, totalProgress);
+    markUserProgressChange({
+      forceNextRelocateSave: true,
+      expectedPercent,
+      bookmarks: updatedBookmarks,
+    });
+    await goTo(targetCfi);
+  }, [createAutoBookmark, currentCfi, goTo, markUserProgressChange, totalProgress]);
+
   const performJumpFraction = useCallback(async (fraction: number) => {
     const targetPct = fraction * 100;
     const updatedBookmarks = Math.abs(targetPct - totalProgress) > 5
@@ -227,6 +239,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
     markUserProgressChange({
       forceNextRelocateSave: true,
+      expectedPercent: targetPct,
       bookmarks: updatedBookmarks,
     });
     await goToFraction(fraction);
@@ -308,7 +321,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onClose={() => chrome.setShowBookmarks(false)}
           onAdd={addBookmark}
           onDelete={deleteBookmark}
-          onJump={(cfi) => { void performJump(cfi); chrome.setShowBookmarks(false); }}
+          onJump={(cfi, progressPercent) => { void performJumpToProgress(cfi, progressPercent); chrome.setShowBookmarks(false); }}
         />
       )}
 
@@ -317,7 +330,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           toc={toc}
           theme={theme}
           onClose={() => chrome.setShowToc(false)}
-          onJump={(href) => { void performJump(href); chrome.setShowToc(false); }}
+          onJump={(href, progressPercent) => { void performJumpToProgress(href, progressPercent); chrome.setShowToc(false); }}
           currentChapter={currentChapter}
         />
       )}
@@ -326,7 +339,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         <EpubSearchModal
           theme={theme}
           onClose={() => chrome.setShowSearchModal(false)}
-          onSelect={(cfi) => { void performJump(cfi); chrome.setShowSearchModal(false); }}
+          onSelect={(cfi, progressPercent) => { void performJumpToProgress(cfi, progressPercent); chrome.setShowSearchModal(false); }}
           onSearch={searchBook}
           onClear={clearSearch}
         />

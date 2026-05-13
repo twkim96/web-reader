@@ -45,6 +45,7 @@ export const useReaderProgressSave = ({
   const skipNextSaveRef = useRef(true);
   const hasUnsavedUserChangeRef = useRef(false);
   const forceNextRelocateSaveRef = useRef(false);
+  const pendingExpectedPercentRef = useRef<number | null>(null);
   const pendingBookmarksRef = useRef<Bookmark[] | null>(null);
   const pendingRelocateSaveRef = useRef<PendingRelocateSave | null>(null);
   const relocateSaveTimerRef = useRef<number | null>(null);
@@ -67,11 +68,16 @@ export const useReaderProgressSave = ({
 
   const markUserProgressChange = useCallback((options?: {
     forceNextRelocateSave?: boolean;
+    expectedPercent?: number;
     bookmarks?: Bookmark[];
   }) => {
     hasUnsavedUserChangeRef.current = true;
     if (options?.forceNextRelocateSave) {
       forceNextRelocateSaveRef.current = true;
+    }
+    const safeExpectedPercent = toClampedPercent(options?.expectedPercent);
+    if (safeExpectedPercent !== null) {
+      pendingExpectedPercentRef.current = safeExpectedPercent;
     }
     if (options?.bookmarks) {
       pendingBookmarksRef.current = options.bookmarks;
@@ -88,6 +94,7 @@ export const useReaderProgressSave = ({
     clearRelocateSaveTimer();
     hasUnsavedUserChangeRef.current = false;
     forceNextRelocateSaveRef.current = false;
+    pendingExpectedPercentRef.current = null;
     pendingBookmarksRef.current = null;
     pendingRelocateSaveRef.current = null;
     unsavedSinceRef.current = null;
@@ -171,7 +178,8 @@ export const useReaderProgressSave = ({
     const { totalProgress, bookmarks, hasSyncConflict } = saveContextRef.current;
     if (hasSyncConflict) return;
 
-    const pct = getRelocatePercent(detail, totalProgress);
+    const fallbackPercent = pendingExpectedPercentRef.current ?? totalProgress;
+    const pct = getRelocatePercent(detail, fallbackPercent);
     if (pct === null) return;
 
     const pending = {

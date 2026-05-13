@@ -15,6 +15,7 @@ interface UseReaderProgressSliderOptions {
   createAutoBookmark: (prevCfi: string, prevPct: number) => Bookmark[];
   markUserProgressChange: (options?: {
     forceNextRelocateSave?: boolean;
+    expectedPercent?: number;
     bookmarks?: Bookmark[];
   }) => void;
   goToFraction: (fraction: number) => Promise<void>;
@@ -69,6 +70,7 @@ export const useReaderProgressSlider = ({
 
     markUserProgressChange({
       forceNextRelocateSave: true,
+      expectedPercent: targetPercent,
       bookmarks: updatedBookmarks,
     });
     void goToFraction(targetPercent / 100);

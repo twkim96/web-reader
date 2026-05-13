@@ -9,7 +9,7 @@ interface BookmarkModalProps {
   onClose: () => void;
   onAdd: () => void;
   onDelete: (id: string) => void;
-  onJump: (cfi: string) => void;
+  onJump: (cfi: string, progressPercent?: number) => void;
 }
 
 export const BookmarkModal: React.FC<BookmarkModalProps> = ({
@@ -65,7 +65,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               {manualBookmarks.map((bm) => (
                 <div key={bm.id} className="relative group">
                   <button 
-                    onClick={() => onJump(bm.cfi)}
+                    onClick={() => onJump(bm.cfi, bm.progressPercent)}
                     className={`w-full p-4 pr-14 rounded-2xl text-left transition-transform active:scale-95 border border-white/5 bg-white/5 hover:bg-white/10 overflow-hidden flex gap-4`}
                   >
                     <div className={`w-1.5 self-stretch rounded-full ${bm.color}`} />
@@ -107,7 +107,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               autoBookmarks.map((bm) => (
                 <button 
                   key={bm.id} // use UUID
-                  onClick={() => onJump(bm.cfi)}
+                  onClick={() => onJump(bm.cfi, bm.progressPercent)}
                   className={`w-full p-4 rounded-2xl text-left transition-transform active:scale-95 border border-white/5 bg-white/5 hover:bg-white/10 flex gap-4`}
                 >
                   <div className={`w-1.5 self-stretch rounded-full bg-slate-500`} />

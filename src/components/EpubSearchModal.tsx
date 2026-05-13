@@ -7,7 +7,7 @@ import { ThemeClasses } from '../types';
 interface EpubSearchModalProps {
   theme: ThemeClasses;
   onClose: () => void;
-  onSelect: (cfi: string) => void;
+  onSelect: (cfi: string, progressPercent?: number) => void;
   onSearch: (query: string, onResult: (res: SearchResultPayload) => void, onProgress: (p: number) => void) => Promise<void>;
   onClear: () => void;
 }
@@ -102,7 +102,7 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
                      {section.subitems.map((res, i) => (
                        <button
                          key={`${si}-${i}`}
-                         onClick={() => { onClose(); onSelect(res.cfi); }}
+                         onClick={() => { onClose(); onSelect(res.cfi, section.progress * 100); }}
                          className="w-full text-left px-6 py-4 hover:bg-accent-500/10 transition-colors group flex flex-col gap-1.5 border-b border-black/5 dark:border-white/5 last:border-none"
                        >
                          <div className="flex items-center justify-between">

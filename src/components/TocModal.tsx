@@ -7,7 +7,7 @@ interface TocModalProps {
   toc: TocItem[];
   theme: ThemeClasses;
   onClose: () => void;
-  onJump: (href: string) => void;
+  onJump: (href: string, progressPercent?: number) => void;
   currentChapter?: string;
 }
 
@@ -57,7 +57,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
             allChapters.map((item, idx) => (
               <button
                 key={idx}
-                onClick={() => onJump(item.href)}
+                onClick={() => onJump(item.href, item.progress)}
                 className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group ${currentChapter === item.label
                     ? 'bg-accent-500/10 text-accent-500'
                     : 'hover:bg-white/5'

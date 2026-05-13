@@ -6,6 +6,7 @@ import { toClampedPercent } from '../foliate/progress';
 export type ReaderRelocateDetail = {
   cfi?: string;
   fraction?: number;
+  progressPercent?: number;
   location?: {
     current?: number;
     total?: number;
@@ -13,6 +14,10 @@ export type ReaderRelocateDetail = {
 };
 
 export const getRelocatePercent = (detail: ReaderRelocateDetail, fallback: number) => {
+  if (Number.isFinite(detail.progressPercent)) {
+    return toClampedPercent(detail.progressPercent);
+  }
+
   if (Number.isFinite(detail.fraction)) {
     return toClampedPercent((detail.fraction || 0) * 100);
   }
