@@ -9,6 +9,7 @@ interface UseFoliateViewOptions {
   onRelocate?: (detail: RelocateDetail) => void;
   onLoad?: (doc?: Document) => void;
   onCfiChange: (cfi: string) => void;
+  onAnchorCfiChange: (cfi: string) => void;
   onProgressChange: (progressPercent: number) => void;
   onChapterChange: (chapter: string) => void;
 }
@@ -47,6 +48,7 @@ export const useFoliateView = ({
   onRelocate,
   onLoad,
   onCfiChange,
+  onAnchorCfiChange,
   onProgressChange,
   onChapterChange,
 }: UseFoliateViewOptions) => {
@@ -68,6 +70,7 @@ export const useFoliateView = ({
       if (!detail) return;
 
       onCfiChange(detail.cfi || '');
+      onAnchorCfiChange(detail.anchorCfi || detail.cfi || '');
 
       const progressPercent = getProgressFromRelocateDetail(detail);
       const relocateDetail = progressPercent !== null
@@ -96,7 +99,7 @@ export const useFoliateView = ({
     containerRef.current.appendChild(view);
     viewRef.current = view;
     setIsReady(true);
-  }, [onCfiChange, onChapterChange, onLoad, onProgressChange, onRelocate]);
+  }, [onAnchorCfiChange, onCfiChange, onChapterChange, onLoad, onProgressChange, onRelocate]);
 
   useEffect(() => {
     return () => {

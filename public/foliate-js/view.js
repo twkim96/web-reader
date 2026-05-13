@@ -331,7 +331,8 @@ export class View extends HTMLElement {
         const tocItem = this.#tocProgress?.getProgress(index, range)
         const pageItem = this.#pageProgress?.getProgress(index, range)
         const cfi = this.getCFI(index, range)
-        this.lastLocation = { ...progress, tocItem, pageItem, cfi, range }
+        const anchorCfi = this.getAnchorCFI(index, range)
+        this.lastLocation = { ...progress, tocItem, pageItem, cfi, anchorCfi, range }
         if (reason === 'snap' || reason === 'page' || reason === 'scroll')
             this.history.replaceState(cfi)
         this.#emit('relocate', this.lastLocation)
@@ -432,6 +433,11 @@ export class View extends HTMLElement {
         const baseCFI = this.book.sections[index].cfi ?? CFI.fake.fromIndex(index)
         if (!range) return baseCFI
         return CFI.joinIndir(baseCFI, CFI.fromRange(range))
+    }
+    getAnchorCFI(index, range) {
+        const baseCFI = this.book.sections[index].cfi ?? CFI.fake.fromIndex(index)
+        if (!range) return baseCFI
+        return CFI.joinIndir(baseCFI, CFI.collapse(CFI.fromRange(range)))
     }
     resolveCFI(cfi) {
         if (this.book.resolveCFI)

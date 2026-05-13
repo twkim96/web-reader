@@ -18,6 +18,7 @@ interface UseEpubReaderOptions {
 export const useEpubReader = (options?: UseEpubReaderOptions) => {
   const [totalProgress, setTotalProgress] = useState(() => toClampedPercent(options?.initialPercent) ?? 0);
   const [currentCfi, setCurrentCfi] = useState<string>('');
+  const [currentAnchorCfi, setCurrentAnchorCfi] = useState<string>('');
   const [currentChapter, setCurrentChapter] = useState<string>('');
   const [toc, setToc] = useState<TocItem[]>([]);
 
@@ -38,6 +39,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     onRelocate: handleRelocate,
     onLoad: handleLoad,
     onCfiChange: setCurrentCfi,
+    onAnchorCfiChange: setCurrentAnchorCfi,
     onProgressChange: setTotalProgress,
     onChapterChange: setCurrentChapter,
   });
@@ -69,6 +71,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     isReady,
     totalProgress,
     currentCfi,
+    currentAnchorCfi,
     currentChapter,
     toc,
     openBook,

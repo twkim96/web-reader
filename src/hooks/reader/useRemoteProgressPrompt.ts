@@ -5,6 +5,7 @@ import { Bookmark, UserProgress } from '../../types';
 
 export type SyncConflict = {
   cfi: string;
+  anchorCfi?: string;
   percent: number;
   lastRead: number;
 };
@@ -13,6 +14,7 @@ interface UseRemoteProgressPromptOptions {
   isLoaded: boolean;
   remoteProgress?: UserProgress;
   currentCfi: string;
+  currentAnchorCfi: string;
   totalProgress: number;
   lastSaveTimeRef: MutableRefObject<number>;
   goTo: (cfi: string) => Promise<void>;
@@ -30,6 +32,7 @@ export const useRemoteProgressPrompt = ({
   isLoaded,
   remoteProgress,
   currentCfi,
+  currentAnchorCfi,
   totalProgress,
   lastSaveTimeRef,
   goTo,
@@ -47,7 +50,7 @@ export const useRemoteProgressPrompt = ({
     options?: { claimDevice?: boolean }
   ) => {
     prepareRemoteJump();
-    await goTo(target.cfi);
+    await goTo(target.anchorCfi || target.cfi);
     completeRemoteJump(target, getBookmarks(), options);
   }, [completeRemoteJump, getBookmarks, goTo, prepareRemoteJump]);
 
@@ -56,20 +59,23 @@ export const useRemoteProgressPrompt = ({
 
     const remoteTime = remoteProgress.lastRead;
     const remoteCfi = remoteProgress.cfi;
+    const remoteAnchorCfi = remoteProgress.anchorCfi || remoteCfi;
+    const currentAnchor = currentAnchorCfi || currentCfi;
 
     if (
       lastProcessedRemote.current &&
-      lastProcessedRemote.current.cfi === remoteCfi &&
+      lastProcessedRemote.current.cfi === remoteAnchorCfi &&
       lastProcessedRemote.current.lastRead === remoteTime
     ) return;
 
-    lastProcessedRemote.current = { cfi: remoteCfi, lastRead: remoteTime };
+    lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
 
     if (isInitialSync.current) {
       isInitialSync.current = false;
-      if (remoteCfi && remoteCfi !== currentCfi && remoteTime > lastSaveTimeRef.current) {
+      if (remoteAnchorCfi && remoteAnchorCfi !== currentAnchor && remoteTime > lastSaveTimeRef.current) {
         void jumpToRemoteProgress({
           cfi: remoteCfi,
+          anchorCfi: remoteAnchorCfi,
           percent: remoteProgress.progressPercent,
           lastRead: remoteTime,
         });
@@ -77,13 +83,14 @@ export const useRemoteProgressPrompt = ({
       }
     }
 
-    if (remoteCfi === currentCfi) return;
+    if (remoteAnchorCfi === currentAnchor) return;
 
-    if (remoteCfi && remoteTime > lastSaveTimeRef.current) {
+    if (remoteAnchorCfi && remoteTime > lastSaveTimeRef.current) {
       const diff = Math.abs((remoteProgress.progressPercent || 0) - (totalProgress || 0));
       if (diff > 0.03) {
         const nextConflict = {
           cfi: remoteCfi,
+          anchorCfi: remoteAnchorCfi,
           percent: remoteProgress.progressPercent,
           lastRead: remoteTime,
         };
@@ -91,7 +98,7 @@ export const useRemoteProgressPrompt = ({
         return () => window.clearTimeout(timeoutId);
       }
     }
-  }, [currentCfi, isLoaded, jumpToRemoteProgress, lastSaveTimeRef, remoteProgress, totalProgress]);
+  }, [currentAnchorCfi, currentCfi, isLoaded, jumpToRemoteProgress, lastSaveTimeRef, remoteProgress, totalProgress]);
 
   const dismissSyncConflict = useCallback(() => {
     setSyncConflict(null);
@@ -99,12 +106,14 @@ export const useRemoteProgressPrompt = ({
 
   const acceptSyncConflict = useCallback(() => {
     if (!syncConflict) return;
-    if (currentCfi && syncConflict.cfi !== currentCfi) {
+    const currentAnchor = currentAnchorCfi || currentCfi;
+    const targetAnchor = syncConflict.anchorCfi || syncConflict.cfi;
+    if (currentCfi && targetAnchor !== currentAnchor) {
       createAutoBookmark?.(currentCfi, totalProgress);
     }
     void jumpToRemoteProgress(syncConflict, { claimDevice: true });
     setSyncConflict(null);
-  }, [createAutoBookmark, currentCfi, jumpToRemoteProgress, syncConflict, totalProgress]);
+  }, [createAutoBookmark, currentAnchorCfi, currentCfi, jumpToRemoteProgress, syncConflict, totalProgress]);
 
   return {
     syncConflict,

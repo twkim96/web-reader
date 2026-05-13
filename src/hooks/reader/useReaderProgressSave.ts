@@ -6,6 +6,7 @@ import { getBookmarksKey, getRelocatePercent, ReaderRelocateDetail, toClampedPer
 
 type SaveContext = {
   currentCfi: string;
+  currentAnchorCfi: string;
   totalProgress: number;
   bookmarks: Bookmark[];
   hasSyncConflict: boolean;
@@ -13,12 +14,14 @@ type SaveContext = {
 
 type RemoteProgressTarget = {
   cfi: string;
+  anchorCfi?: string;
   percent: number;
   lastRead: number;
 };
 
 type PendingRelocateSave = {
   cfi: string;
+  anchorCfi?: string;
   percent: number;
   bookmarks: Bookmark[];
 };
@@ -53,12 +56,14 @@ export const useReaderProgressSave = ({
   const unsavedSinceRef = useRef<number | null>(null);
   const saveContextRef = useRef<SaveContext>({
     currentCfi: '',
+    currentAnchorCfi: '',
     totalProgress: 0,
     bookmarks: initialBookmarks || [],
     hasSyncConflict: false,
   });
   const lastPersistedProgressRef = useRef({
     cfi: initialCfi || '',
+    anchorCfi: initialCfi || '',
     percent: toClampedPercent(initialPercent) ?? 0,
     bookmarksKey: getBookmarksKey(initialBookmarks),
   });
@@ -105,16 +110,18 @@ export const useReaderProgressSave = ({
     cfi: string,
     pct: number,
     nextBookmarks: Bookmark[],
-    options?: { force?: boolean }
+    options?: { force?: boolean; anchorCfi?: string }
   ) => {
     if (!options?.force && !hasUnsavedUserChangeRef.current) return false;
 
     const safePercent = toClampedPercent(pct);
     if (!cfi || safePercent === null) return false;
 
+    const anchorCfi = options?.anchorCfi || cfi;
     const nextBookmarksKey = getBookmarksKey(nextBookmarks);
     const previous = lastPersistedProgressRef.current;
     const hasChanged = previous.cfi !== cfi ||
+      previous.anchorCfi !== anchorCfi ||
       Math.abs(previous.percent - safePercent) >= 0.05 ||
       previous.bookmarksKey !== nextBookmarksKey;
 
@@ -123,9 +130,13 @@ export const useReaderProgressSave = ({
       return false;
     }
 
-    onSaveProgress(cfi, safePercent, nextBookmarks, options?.force ? { force: true } : undefined);
+    onSaveProgress(cfi, safePercent, nextBookmarks, {
+      ...(options?.force ? { force: true } : {}),
+      anchorCfi,
+    });
     lastPersistedProgressRef.current = {
       cfi,
+      anchorCfi,
       percent: safePercent,
       bookmarksKey: nextBookmarksKey,
     };
@@ -141,7 +152,8 @@ export const useReaderProgressSave = ({
     return saveProgressIfChanged(
       pending.cfi,
       pending.percent,
-      pending.bookmarks
+      pending.bookmarks,
+      { anchorCfi: pending.anchorCfi }
     );
   }, [saveProgressIfChanged]);
 
@@ -188,6 +200,7 @@ export const useReaderProgressSave = ({
 
     const pending = {
       cfi: detail.cfi,
+      anchorCfi: detail.anchorCfi || detail.cfi,
       percent: pct,
       bookmarks: pendingBookmarksRef.current || bookmarks,
     };
@@ -204,7 +217,7 @@ export const useReaderProgressSave = ({
   }, [scheduleRelocateSave]);
 
   const saveCurrentProgress = useCallback(() => {
-    const { currentCfi, totalProgress, bookmarks } = saveContextRef.current;
+    const { currentCfi, currentAnchorCfi, totalProgress, bookmarks } = saveContextRef.current;
     if (!currentCfi) return false;
     clearRelocateSaveTimer();
     if (pendingRelocateSaveRef.current) {
@@ -213,7 +226,8 @@ export const useReaderProgressSave = ({
     return saveProgressIfChanged(
       currentCfi,
       totalProgress,
-      pendingBookmarksRef.current || bookmarks
+      pendingBookmarksRef.current || bookmarks,
+      { anchorCfi: currentAnchorCfi || currentCfi }
     );
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
@@ -235,7 +249,10 @@ export const useReaderProgressSave = ({
     const bookmarksKey = getBookmarksKey(bookmarks);
 
     if (options?.claimDevice) {
-      onSaveProgress(target.cfi, safePercent, bookmarks, { force: true });
+      onSaveProgress(target.cfi, safePercent, bookmarks, {
+        force: true,
+        anchorCfi: target.anchorCfi || target.cfi,
+      });
       lastSaveTimeRef.current = Date.now();
     } else {
       lastSaveTimeRef.current = target.lastRead;
@@ -243,6 +260,7 @@ export const useReaderProgressSave = ({
 
     lastPersistedProgressRef.current = {
       cfi: target.cfi,
+      anchorCfi: target.anchorCfi || target.cfi,
       percent: safePercent,
       bookmarksKey,
     };

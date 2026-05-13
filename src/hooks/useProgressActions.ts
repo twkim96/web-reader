@@ -56,14 +56,16 @@ export const useProgressActions = ({
     const safePercent = toProgressPercent(pct) ?? existingPercent ?? 0;
     const existingBookmarks = existing?.bookmarks || [];
     const finalBookmarks = bookmarks !== undefined ? bookmarks : existingBookmarks;
+    const nextAnchorCfi = String(options?.anchorCfi || existing?.anchorCfi || nextCfi);
 
-    if (!options?.force && !hasProgressChanged(existing, nextCfi, safePercent, finalBookmarks)) {
+    if (!options?.force && !hasProgressChanged(existing, nextCfi, nextAnchorCfi, safePercent, finalBookmarks)) {
       return;
     }
 
     const progressData: UserProgress = {
       bookId,
       cfi: nextCfi,
+      anchorCfi: nextAnchorCfi,
       progressPercent: safePercent,
       lastRead: Date.now(),
       bookmarks: finalBookmarks,
@@ -78,6 +80,7 @@ export const useProgressActions = ({
     const resetData: UserProgress = {
       bookId,
       cfi: '',
+      anchorCfi: '',
       progressPercent: 0,
       lastRead: Date.now(),
       bookmarks: [],

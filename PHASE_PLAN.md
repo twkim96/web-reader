@@ -8,8 +8,9 @@
 - 여러 기기/Vercel 테스트가 필요할 때는 사용자가 요청하면 commit + push까지 수행한다.
 
 ## Current State
-- Phase 8 has been implemented but not committed.
-- Current scope: final lint/docs cleanup plus the progress-slider follow-up.
+- Phase 8 has been completed and pushed.
+- Current scope: the planned refactor/hook-splitting cleanup is complete.
+- Next recommended scope: start product-level fixes and improvements on top of the cleaner hook boundaries.
 - Latest validation passed:
   - `npx tsc --noEmit`
   - changed-file ESLint
@@ -219,8 +220,12 @@
 ## Phase 8: Final Lint/Docs Cleanup
 
 ### Status
-- Implemented but not committed.
-- Waiting for user testing.
+- Completed and pushed.
+- Main cleanup commit: `8d84f07 Finalize reader cleanup and slider commits`
+- Follow-up stabilization commits:
+  - `c24eb49 Refine reader progress save timing`
+  - `1e08980 Save relocate percent with jump progress`
+  - `b3ff343 Settle explicit reader progress saves`
 
 ### Changes
 - Completed the progress slider follow-up:
@@ -258,6 +263,24 @@
   - one auto bookmark only after a meaningful final move
   - latest progress points to the post-release destination
 - Vercel deployment check after commit + push.
+
+## Post-Refactor Improvement 1: Precision Progress Sync
+
+### Status
+- Implemented for Vercel/device testing.
+
+### Changes
+- Added `anchorCfi` as an optional progress field for viewport-start synchronization.
+- Foliate relocate events now include a collapsed start CFI derived from the visible range.
+- Progress persistence keeps the existing range `cfi` for fallback and stores `anchorCfi` for more precise resume/sync.
+- Reader startup and remote progress jumps prefer `anchorCfi` when available.
+- Existing progress records without `anchorCfi` continue to use `cfi`.
+
+### Test Scope
+- Move on device A with progress slider, tap/page navigation, and scroll navigation.
+- Confirm Firestore stores both `cfi` and `anchorCfi` after movement.
+- Confirm device B opens or accepts sync at the same top sentence/paragraph more consistently than before.
+- Confirm older records that only have `cfi` still open normally.
 
 ## Next Phases
 

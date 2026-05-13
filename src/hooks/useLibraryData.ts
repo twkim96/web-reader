@@ -120,6 +120,7 @@ export const useLibraryData = ({
         await saveProgressToLocal({
           bookId,
           cfi: cloudData.cfi || '',
+          anchorCfi: cloudData.anchorCfi || cloudData.cfi || '',
           progressPercent: toProgressPercent(cloudData.progressPercent) ?? 0,
           lastRead: cloudTime,
           bookmarks: mergeRemoteManualWithLocalAuto(cloudData.bookmarks || [], localBookmarks),

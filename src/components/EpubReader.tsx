@@ -87,6 +87,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     containerRef,
     totalProgress,
     currentCfi,
+    currentAnchorCfi,
     currentChapter,
     openBook,
     goTo,
@@ -142,6 +143,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     isLoaded,
     remoteProgress,
     currentCfi,
+    currentAnchorCfi,
     totalProgress,
     lastSaveTimeRef,
     goTo,
@@ -167,11 +169,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   useEffect(() => {
     updateSaveContext({
       currentCfi,
+      currentAnchorCfi,
       totalProgress,
       bookmarks,
       hasSyncConflict: Boolean(syncConflict),
     });
-  }, [bookmarks, currentCfi, syncConflict, totalProgress, updateSaveContext]);
+  }, [bookmarks, currentAnchorCfi, currentCfi, syncConflict, totalProgress, updateSaveContext]);
 
   useEffect(() => {
     const handleVisibility = () => {

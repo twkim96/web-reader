@@ -5,6 +5,7 @@ import { toClampedPercent } from '../foliate/progress';
 
 export type ReaderRelocateDetail = {
   cfi?: string;
+  anchorCfi?: string;
   fraction?: number;
   progressPercent?: number;
   location?: {

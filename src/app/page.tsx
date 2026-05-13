@@ -289,7 +289,7 @@ export default function Page() {
           onUpdateSettings={updateSettings}
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
           onSaveProgress={handleSaveProgress}
-          initialCfi={progress[activeBook.id]?.cfi}
+          initialCfi={progress[activeBook.id]?.anchorCfi || progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
           initialTime={progress[activeBook.id]?.lastRead}
           initialBookmarks={progress[activeBook.id]?.bookmarks || []}

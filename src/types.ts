@@ -41,6 +41,7 @@ export interface Bookmark {
 export interface UserProgress {
   bookId: string;
   cfi: string;              // epub CFI (Canonical Fragment Identifier)
+  anchorCfi?: string;       // viewport start CFI for precise cross-device resume
   progressPercent: number;
   lastRead: number;
   bookmarks?: Bookmark[]; 
@@ -48,6 +49,7 @@ export interface UserProgress {
 
 export interface SaveProgressOptions {
   force?: boolean;
+  anchorCfi?: string;
 }
 
 export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';

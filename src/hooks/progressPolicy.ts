@@ -7,6 +7,7 @@ export type TimestampLike = {
 export type RemoteProgressDoc = {
   bookId?: string;
   cfi?: string;
+  anchorCfi?: string;
   progressPercent?: number;
   lastRead?: TimestampLike;
   bookmarks?: Bookmark[];
@@ -43,6 +44,7 @@ export const mergeRemoteManualWithLocalAuto = (
 export const hasProgressChanged = (
   existing: UserProgress | undefined,
   nextCfi: string,
+  nextAnchorCfi: string | undefined,
   nextPercent: number,
   nextBookmarks: Bookmark[]
 ) => {
@@ -50,6 +52,7 @@ export const hasProgressChanged = (
 
   const existingPercent = toProgressPercent(existing.progressPercent) ?? 0;
   return existing.cfi !== nextCfi ||
+    existing.anchorCfi !== nextAnchorCfi ||
     Math.abs(existingPercent - nextPercent) >= 0.05 ||
     getBookmarksKey(existing.bookmarks) !== getBookmarksKey(nextBookmarks);
 };
@@ -60,6 +63,7 @@ export const hasRemoteProgressChanged = (
 ) => {
   if (!existing) return true;
   return existing.cfi !== next.cfi ||
+    existing.anchorCfi !== next.anchorCfi ||
     existing.progressPercent !== next.progressPercent ||
     getBookmarksKey(existing.bookmarks) !== getBookmarksKey(next.bookmarks);
 };

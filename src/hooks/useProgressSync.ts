@@ -47,6 +47,7 @@ export const useProgressSync = ({
         const data: UserProgress = {
           bookId,
           cfi: raw.cfi || '',
+          anchorCfi: raw.anchorCfi || raw.cfi || '',
           progressPercent,
           lastRead: serverTime,
           bookmarks: mergedBookmarks,
@@ -82,6 +83,7 @@ export const useProgressSync = ({
               const entry: UserProgress = {
                 bookId: data.bookId || documentSnapshot.id,
                 cfi: data.cfi || '',
+                anchorCfi: data.anchorCfi || data.cfi || '',
                 progressPercent: toProgressPercent(data.progressPercent) ?? 0,
                 lastRead: serverTime,
                 bookmarks: data.bookmarks || [],
