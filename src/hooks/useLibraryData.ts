@@ -3,32 +3,24 @@ import { collection, getDocs } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
 import { fetchDriveFiles, findFolderId, isGoogleDriveAuthError } from '../lib/googleDrive';
 import { getAllLocalProgress, getAllOfflineBooks, saveProgressToLocal } from '../lib/localDB';
-import { Book, Bookmark, UserProgress, ViewState } from '../types';
-
-export type TimestampLike = {
-  toDate?: () => Date;
-};
-
-export type RemoteProgressDoc = {
-  bookId?: string;
-  cfi?: string;
-  progressPercent?: number;
-  lastRead?: TimestampLike;
-  bookmarks?: Bookmark[];
-  deviceId?: string;
-};
-
-export const getTimestampMs = (value: unknown, fallback = Date.now()) => {
-  const timestamp = value as TimestampLike | undefined;
-  const date = timestamp?.toDate ? timestamp.toDate() : undefined;
-  return date ? date.getTime() : fallback;
-};
+import { Book, UserProgress, ViewState } from '../types';
+import {
+  getTimestampMs,
+  mergeRemoteManualWithLocalAuto,
+  RemoteProgressDoc,
+  toProgressPercent,
+} from './progressPolicy';
 
 interface UseLibraryDataOptions {
   clearToken: () => void;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
 }
+
+export type RestoreLocalDataOptions = {
+  preventRedirect?: boolean;
+  replaceBooks?: boolean;
+};
 
 interface UseLibraryDataResult {
   books: Book[];
@@ -38,10 +30,21 @@ interface UseLibraryDataResult {
   progressRef: MutableRefObject<Record<string, UserProgress>>;
   remoteProgress: Record<string, UserProgress>;
   setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
-  restoreLocalData: (preventRedirect?: boolean) => Promise<boolean>;
+  restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
   syncLocalAndCloud: (uid: string) => Promise<void>;
   loadLibraryFromDrive: (token: string) => Promise<boolean>;
 }
+
+const normalizeRestoreOptions = (options?: boolean | RestoreLocalDataOptions): Required<RestoreLocalDataOptions> => {
+  if (typeof options === 'boolean') {
+    return { preventRedirect: options, replaceBooks: false };
+  }
+
+  return {
+    preventRedirect: options?.preventRedirect ?? false,
+    replaceBooks: options?.replaceBooks ?? false,
+  };
+};
 
 export const useLibraryData = ({
   clearToken,
@@ -57,7 +60,9 @@ export const useLibraryData = ({
     progressRef.current = progress;
   }, [progress]);
 
-  const restoreLocalData = useCallback(async (preventRedirect = false) => {
+  const restoreLocalData = useCallback(async (options?: boolean | RestoreLocalDataOptions) => {
+    const { preventRedirect, replaceBooks } = normalizeRestoreOptions(options);
+
     try {
       if (!preventRedirect) setIsOfflineMode(true);
 
@@ -71,14 +76,23 @@ export const useLibraryData = ({
         localProgressByBook[item.bookId] = item;
       });
 
-      setProgress((prev) => ({ ...prev, ...localProgressByBook }));
+      setProgress((prev) => {
+        const merged = { ...prev, ...localProgressByBook };
+        progressRef.current = merged;
+        return merged;
+      });
 
-      if (localBooks.length > 0) {
+      if (replaceBooks) {
+        setBooks(localBooks);
+      } else if (localBooks.length > 0) {
         setBooks((prev) => {
           const existingIds = new Set(prev.map((book) => book.id));
           const newBooks = localBooks.filter((book) => !existingIds.has(book.id));
           return prev.length === 0 ? localBooks : newBooks.length > 0 ? [...prev, ...newBooks] : prev;
         });
+      }
+
+      if (localBooks.length > 0) {
         if (!preventRedirect) setView('shelf');
         return true;
       }
@@ -98,9 +112,18 @@ export const useLibraryData = ({
       const cloudSnapshot = await getDocs(cloudRef);
 
       for (const documentSnapshot of cloudSnapshot.docs) {
-        const cloudData = documentSnapshot.data() as UserProgress;
+        const cloudData = documentSnapshot.data() as RemoteProgressDoc;
+        const bookId = cloudData.bookId || documentSnapshot.id;
         const cloudTime = getTimestampMs(cloudData.lastRead, 0);
-        await saveProgressToLocal({ ...cloudData, lastRead: cloudTime });
+        const localBookmarks = progressRef.current[bookId]?.bookmarks || [];
+
+        await saveProgressToLocal({
+          bookId,
+          cfi: cloudData.cfi || '',
+          progressPercent: toProgressPercent(cloudData.progressPercent) ?? 0,
+          lastRead: cloudTime,
+          bookmarks: mergeRemoteManualWithLocalAuto(cloudData.bookmarks || [], localBookmarks),
+        });
       }
     } catch (error) {
       console.warn('Background sync paused:', error);

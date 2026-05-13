@@ -2,16 +2,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { auth, db, googleProvider, APP_ID } from '../lib/firebase';
+import { auth, googleProvider } from '../lib/firebase';
 import { signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
-import { saveProgressToLocal } from '../lib/localDB';
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
 
 const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
-import { Book, UserProgress, ViewState, Bookmark } from '../types';
+import { Book, ViewState } from '../types';
 import { THEMES, ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { AuthLanding, CloudModeSelector } from '../components/AuthScreens';
@@ -21,6 +19,8 @@ import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
 import { useGoogleIdentityScript } from '../hooks/useGoogleIdentityScript';
 import { useLibraryData } from '../hooks/useLibraryData';
 import { useNetworkLibrarySync } from '../hooks/useNetworkLibrarySync';
+import { useProgressActions } from '../hooks/useProgressActions';
+import { useProgressSync } from '../hooks/useProgressSync';
 import { useViewerSettings } from '../hooks/useViewerSettings';
 
 type GoogleTokenResponse = {
@@ -49,14 +49,6 @@ type GoogleAccountsWindow = Window & {
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
-
-const toProgressPercent = (value: unknown) => {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return null;
-  return Math.min(100, Math.max(0, numericValue));
-};
-
-const getBookmarksKey = (items?: Bookmark[]) => JSON.stringify(items || []);
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -92,20 +84,23 @@ export default function Page() {
 
   useGoogleIdentityScript();
   useAuthBootstrap({
-    deviceId,
-    progressRef,
     isGuestRef,
     getStoredToken,
     setGoogleToken,
     setUser,
     setIsGuest,
     setIsOfflineMode,
-    setProgress,
-    setRemoteProgress,
     setView,
     restoreLocalData,
     loadLibraryFromDrive,
     syncLocalAndCloud,
+  });
+  useProgressSync({
+    user,
+    deviceId,
+    progressRef,
+    setProgress,
+    setRemoteProgress,
   });
   useNetworkLibrarySync({
     user,
@@ -124,13 +119,13 @@ export default function Page() {
     setIsOfflineMode(true);
     setUser(null);
     setGoogleToken(null);
-    await restoreLocalData(); // 게스트 모드는 강제 책장 이동 OK
+    await restoreLocalData({ replaceBooks: true }); // 게스트 모드는 로컬 책장만 표시
     setView('shelf');
   };
 
   const handleLocalMode = async () => {
     setView('loading');
-    await restoreLocalData(); // 로컬 모드 전환 시 강제 책장 이동 OK
+    await restoreLocalData({ replaceBooks: true }); // 로컬 모드 전환 시 클라우드 캐시 제거
     setIsOfflineMode(true);
     setGoogleToken(null);
     setView('shelf');
@@ -142,7 +137,8 @@ export default function Page() {
     clearToken();
     setIsOfflineMode(true);
     setShowCloudAuthExpiredNotice(true);
-  }, [clearToken]);
+    void restoreLocalData({ preventRedirect: true, replaceBooks: true });
+  }, [clearToken, restoreLocalData]);
 
   useEffect(() => {
     if (!googleToken || isOfflineMode) return;
@@ -215,86 +211,10 @@ export default function Page() {
     setPendingAction(null);
   };
 
-  const handleSaveProgress = useCallback((cfi: number | string, pct: number, bookmarks?: Bookmark[]) => {
-    if (!activeBook) return;
-
-    setProgress(prev => {
-      const bookId = activeBook.id;
-      const nextCfi = String(cfi || '');
-      if (!nextCfi) return prev;
-
-      const existing = prev[bookId];
-      const existingPercent = toProgressPercent(existing?.progressPercent);
-      const safePercent = toProgressPercent(pct) ?? existingPercent ?? 0;
-      const now = Date.now();
-      const existingBookmarks = existing?.bookmarks || [];
-      const finalBookmarks = bookmarks !== undefined ? bookmarks : existingBookmarks;
-      const hasChanged = !existing ||
-        existing.cfi !== nextCfi ||
-        Math.abs((existingPercent ?? 0) - safePercent) >= 0.05 ||
-        getBookmarksKey(existingBookmarks) !== getBookmarksKey(finalBookmarks);
-
-      if (!hasChanged) return prev;
-
-      const progressData: UserProgress = {
-        bookId,
-        cfi: nextCfi,
-        progressPercent: safePercent,
-        lastRead: now,
-        bookmarks: finalBookmarks
-      };
-
-      // 비동기 작업에 필요한 값을 미리 캡처 (activeBook이 null이 될 경우 대비)
-      const currentBookmarks = progressData.bookmarks || [];
-
-      // Perform side-effects async
-      setTimeout(async () => {
-        try {
-          await saveProgressToLocal(progressData);
-        } catch (e) { console.error(e); }
-
-        if (user) {
-          try {
-            // Firestore에는 수동 북마크만 저장
-            const manualOnly = currentBookmarks.filter(b => b.type === 'manual');
-            const syncData = { ...progressData, bookmarks: manualOnly };
-            
-            const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId);
-            await setDoc(docRef, { ...syncData, lastRead: serverTimestamp(), deviceId: deviceId.current }, { merge: true });
-          } catch (e) { console.error('[SaveProgress] Firestore save failed:', e); }
-        }
-      }, 0);
-
-      return { ...prev, [bookId]: progressData };
-    });
-  }, [user, activeBook, deviceId, setProgress]);
-
-  const handleDeleteProgress = useCallback(async (bookId: string) => {
-    const now = Date.now();
-    const resetData: UserProgress = {
-      bookId,
-      cfi: '',
-      progressPercent: 0,
-      lastRead: now,
-      bookmarks: []
-    };
-
-    setProgress(prev => ({ ...prev, [bookId]: resetData }));
-
-    try {
-      await saveProgressToLocal(resetData);
-    } catch (e) { console.error(e); }
-
-    if (user) {
-      try {
-        await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId), { 
-          ...resetData, 
-          lastRead: serverTimestamp(),
-          deviceId: deviceId.current
-        }, { merge: true });
-      } catch (e) { console.error(e); }
-    }
-  }, [user, deviceId, setProgress]);
+  const {
+    saveProgress: handleSaveProgress,
+    deleteProgress: handleDeleteProgress,
+  } = useProgressActions({ activeBook, user, deviceId, progressRef, setProgress });
 
   const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
   const dynamicStyles = {
