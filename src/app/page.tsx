@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth, googleProvider } from '../lib/firebase';
-import { signInWithPopup, signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithCredential, signInWithPopup, signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
@@ -28,6 +28,8 @@ import { useViewerSettings } from '../hooks/useViewerSettings';
 type GoogleTokenResponse = {
   access_token?: string;
   expires_in?: number;
+  error?: string;
+  error_description?: string;
 };
 
 type GoogleTokenClient = {
@@ -51,6 +53,16 @@ type GoogleAccountsWindow = Window & {
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
 );
+
+const waitForGoogleIdentity = async () => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 3000) {
+    const google = (window as GoogleAccountsWindow).google;
+    if (google?.accounts?.oauth2) return google;
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+  return null;
+};
 
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -216,12 +228,33 @@ export default function Page() {
 
       if (shouldTryRedirect) {
         try {
-          sessionStorage.setItem('google_auth_redirect_pending', 'true');
-          await signInWithRedirect(auth, googleProvider);
+          const google = await waitForGoogleIdentity();
+          if (!google) throw new Error('Google Identity Services is not loaded');
+
+          const accessToken = await new Promise<string>((resolve, reject) => {
+            const client = google.accounts.oauth2.initTokenClient({
+              client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '',
+              scope: 'profile email',
+              callback: (res) => {
+                if (res.error) {
+                  reject(new Error(res.error_description || res.error));
+                  return;
+                }
+                if (!res.access_token) {
+                  reject(new Error('Google access token was not returned'));
+                  return;
+                }
+                resolve(res.access_token);
+              },
+            });
+            client.requestAccessToken({ prompt: 'select_account' });
+          });
+
+          const credential = GoogleAuthProvider.credential(null, accessToken);
+          await signInWithCredential(auth, credential);
           return;
-        } catch (redirectError) {
-          sessionStorage.removeItem('google_auth_redirect_pending');
-          console.error('[Auth] Google redirect failed:', redirectError);
+        } catch (credentialError) {
+          console.error('[Auth] Google credential fallback failed:', credentialError);
         }
       } else {
         console.error('[Auth] Google popup failed:', error);
