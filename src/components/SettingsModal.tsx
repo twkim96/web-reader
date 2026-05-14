@@ -17,7 +17,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
   const optionBtnStyle = `h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
   const stepperBtnStyle = `w-7 h-7 flex items-center justify-center ${theme.secondary} rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
-  const stepperGroupStyle = "flex items-center gap-1.5";
+  const stepperGroupStyle = "flex items-center gap-1.5 mr-1.5";
   const valueStyle = "font-black text-lg tabular-nums leading-none w-10 text-left";
   const paragraphSpacing = settings.paragraphSpacing ?? 1;
 
@@ -37,7 +37,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </button>
       </div>
 
-      <div className="space-y-5 w-fit">
+      <div className="space-y-5 w-fit mx-auto">
         <div>
           <label className={labelStyle}>Navigation Mode</label>
           <div className="flex flex-wrap items-center justify-start gap-2">
