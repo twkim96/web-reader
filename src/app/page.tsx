@@ -24,6 +24,8 @@ import { useNetworkLibrarySync } from '../hooks/useNetworkLibrarySync';
 import { useProgressActions } from '../hooks/useProgressActions';
 import { useProgressSync } from '../hooks/useProgressSync';
 import { useViewerSettings } from '../hooks/useViewerSettings';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+import { AppInstallPrompt } from '../components/AppInstallPrompt';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -47,6 +49,31 @@ export default function Page() {
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 
   const { settings, updateSettings } = useViewerSettings();
+  const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+
+  useEffect(() => {
+    if (view === 'shelf' && user && isInstallable && !isStandalone) {
+      const hasSeen = localStorage.getItem('hasSeenInstallPrompt');
+      if (!hasSeen) {
+        // slight delay so it doesn't jarringly pop up immediately
+        const timer = setTimeout(() => setShowInstallPrompt(true), 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [view, user, isInstallable, isStandalone]);
+
+  const handleCloseInstallPrompt = () => {
+    localStorage.setItem('hasSeenInstallPrompt', 'true');
+    setShowInstallPrompt(false);
+  };
+
+  const handleInstallApp = async () => {
+    const accepted = await promptInstall();
+    if (accepted) {
+      handleCloseInstallPrompt();
+    }
+  };
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
   const {
@@ -367,6 +394,15 @@ export default function Page() {
           theme={theme}
           onConfirm={() => setAuthErrorMessage(null)}
           onCancel={() => setAuthErrorMessage(null)}
+        />
+      )}
+
+      {showInstallPrompt && (
+        <AppInstallPrompt 
+          theme={theme} 
+          isIOS={isIOS} 
+          onClose={handleCloseInstallPrompt} 
+          onInstall={handleInstallApp} 
         />
       )}
     </div>
