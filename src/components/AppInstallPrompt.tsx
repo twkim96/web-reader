@@ -14,7 +14,7 @@ export const AppInstallPrompt: React.FC<Props> = ({ theme, isIOS, onClose, onIns
   const [doNotShowAgain, setDoNotShowAgain] = useState(false);
 
   return (
-    <ReaderModalFrame theme={theme as any} onClose={() => onClose(doNotShowAgain)} maxWidth="max-w-[20rem]" className="p-7 text-center font-sans z-[200]">
+    <ReaderModalFrame theme={theme} onClose={() => onClose(doNotShowAgain)} maxWidth="max-w-[20rem]" className="p-7 text-center font-sans" zIndex="z-[200]">
       <div className="w-16 h-16 bg-accent-500 text-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg">
         <Download size={32} />
       </div>

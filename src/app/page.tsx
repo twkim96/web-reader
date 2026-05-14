@@ -53,19 +53,19 @@ export default function Page() {
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
 
   useEffect(() => {
-    if (view === 'shelf' && user && isInstallable && !isStandalone) {
+    if (view === 'shelf' && isInstallable && !isStandalone) {
       const neverShow = localStorage.getItem('neverShowInstallPrompt');
       const lastSeen = localStorage.getItem('lastSeenInstallPrompt');
       const now = Date.now();
 
       if (neverShow === 'true') return;
-      if (lastSeen && now - parseInt(lastSeen) < 24 * 60 * 60 * 1000) return; // Hide for 24 hours if just closed
+      if (lastSeen && now - parseInt(lastSeen, 10) < 24 * 60 * 60 * 1000) return; // Hide for 24 hours if just closed
 
       // slight delay so it doesn't jarringly pop up immediately
       const timer = setTimeout(() => setShowInstallPrompt(true), 1500);
       return () => clearTimeout(timer);
     }
-  }, [view, user, isInstallable, isStandalone]);
+  }, [view, isInstallable, isStandalone]);
 
   const handleCloseInstallPrompt = (neverShow: boolean) => {
     if (neverShow) {
@@ -78,9 +78,7 @@ export default function Page() {
 
   const handleInstallApp = async () => {
     const accepted = await promptInstall();
-    if (accepted) {
-      handleCloseInstallPrompt(true); // Never show again if successfully installed
-    }
+    handleCloseInstallPrompt(accepted); // Never show again only if successfully installed.
   };
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
@@ -89,14 +87,27 @@ export default function Page() {
     // 테마 bg 클래스에서 hex 코드를 추출 (예: 'bg-[#272728]' -> '#272728')
     const match = theme.bg.match(/#([0-9a-fA-F]{6})/);
     const color = match ? `#${match[1]}` : '#ffffff';
-    
-    let metaThemeColor = document.querySelector('meta[name="theme-color"]');
-    if (!metaThemeColor) {
-      metaThemeColor = document.createElement('meta');
-      metaThemeColor.setAttribute('name', 'theme-color');
-      document.head.appendChild(metaThemeColor);
+
+    const ensureMeta = (name: string) => {
+      let meta = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', name);
+        document.head.appendChild(meta);
+      }
+      return meta;
+    };
+
+    const themeColorTags = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
+    if (themeColorTags.length === 0) {
+      ensureMeta('theme-color').setAttribute('content', color);
+    } else {
+      themeColorTags.forEach((tag) => tag.setAttribute('content', color));
     }
-    metaThemeColor.setAttribute('content', color);
+
+    ensureMeta('msapplication-navbutton-color').setAttribute('content', color);
+    document.documentElement.style.backgroundColor = color;
+    document.body.style.backgroundColor = color;
   }, [theme]);
 
   const {
