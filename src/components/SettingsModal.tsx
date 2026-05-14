@@ -54,7 +54,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div>
           <label className={labelStyle}>Paragraph Gap</label>
-          <div className="inline-flex items-center justify-start gap-2">
+          <div className="inline-flex items-center justify-start gap-0.5">
             <button aria-label="Decrease paragraph gap" onClick={() => onUpdateSettings({ paragraphSpacing: Math.max(0, parseFloat((paragraphSpacing - 0.1).toFixed(1))) })} className={stepperBtnStyle}>-</button>
             <span className={stepperValueStyle}>{paragraphSpacing.toFixed(1)}</span>
             <button aria-label="Increase paragraph gap" onClick={() => onUpdateSettings({ paragraphSpacing: Math.min(3, parseFloat((paragraphSpacing + 0.1).toFixed(1))) })} className={stepperBtnStyle}>+</button>
@@ -63,7 +63,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div>
           <label className={labelStyle}>Size</label>
-          <div className="inline-flex items-center justify-start gap-2">
+          <div className="inline-flex items-center justify-start gap-0.5">
             <button aria-label="Decrease font size" onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} className={stepperBtnStyle}>-</button>
             <span className={stepperValueStyle}>{settings.fontSize}</span>
             <button aria-label="Increase font size" onClick={() => onUpdateSettings({ fontSize: Math.min(40, settings.fontSize + 1) })} className={stepperBtnStyle}>+</button>
@@ -72,7 +72,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div>
           <label className={labelStyle}>Line</label>
-          <div className="inline-flex items-center justify-start gap-2">
+          <div className="inline-flex items-center justify-start gap-0.5">
             <button aria-label="Decrease line height" onClick={() => onUpdateSettings({ lineHeight: Math.max(1.0, parseFloat((settings.lineHeight - 0.1).toFixed(1))) })} className={stepperBtnStyle}>-</button>
             <span className={stepperValueStyle}>{settings.lineHeight.toFixed(1)}</span>
             <button aria-label="Increase line height" onClick={() => onUpdateSettings({ lineHeight: Math.min(3.0, parseFloat((settings.lineHeight + 0.1).toFixed(1))) })} className={stepperBtnStyle}>+</button>
