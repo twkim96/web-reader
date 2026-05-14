@@ -29,7 +29,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ] as const;
 
   return (
-    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-[21.25rem]" className="font-sans max-h-[85vh] overflow-y-auto p-5 sm:p-6 flex flex-col justify-center">
+    <ReaderModalFrame noBlur theme={theme} onClose={onClose} maxWidth="max-w-[21.25rem]" className="font-sans max-h-[85vh] overflow-y-auto p-5 sm:p-6 flex flex-col justify-center">
       <div className="w-fit mx-auto">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-lg">리더 설정</h2>

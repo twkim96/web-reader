@@ -13,6 +13,7 @@ interface ReaderModalFrameProps {
   maxWidth?: string;
   className?: string;
   zIndex?: string;
+  noBlur?: boolean;
 }
 
 export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
@@ -22,9 +23,10 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   maxWidth = 'max-w-sm',
   className = '',
   zIndex = 'z-[110]',
+  noBlur = false,
 }) => (
   <div
-    className={`fixed inset-0 ${zIndex} flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}
+    className={`fixed inset-0 ${zIndex} flex items-center justify-center p-4 sm:p-6 ${noBlur ? 'bg-black/20' : 'bg-black/60 backdrop-blur-sm'} animate-in fade-in duration-200`}
     onClick={onClose}
   >
     <div
