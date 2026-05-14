@@ -83,7 +83,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                       onClick={onLogin} 
                       className="text-[10px] font-bold text-accent-500/60 hover:text-accent-500 uppercase tracking-widest transition-colors"
                     >
-                      또는 클라우드 계정으로 로그인하기
+                      Google 계정 연동하기
                     </button>
                   )}
                 </div>

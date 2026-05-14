@@ -102,9 +102,19 @@ export default function Page() {
     setIsGuest(true);
     isGuestRef.current = true;
     localStorage.setItem('isGuest', 'true');
+    clearToken();
     setIsOfflineMode(true);
+
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('[Auth] Guest mode sign-out failed:', error);
+      setAuthErrorMessage('게스트 모드로 전환하지 못했습니다. 새로고침 후 다시 시도해 주세요.');
+      setView('auth');
+      return;
+    }
+
     setUser(null);
-    setGoogleToken(null);
     await restoreLocalData({ replaceBooks: true }); // 게스트 모드는 로컬 책장만 표시
     setView('shelf');
   };
