@@ -3,7 +3,7 @@ import {
   Library, 
   Search, 
   LogOut,
-  LogIn,
+  KeyRound,
   HardDrive,
   WifiOff,
   User as UserIcon,
@@ -95,7 +95,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             }`}
             title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
           >
-            {isOfflineMode ? (
+            {isGuest ? (
+              <KeyRound className="text-white group-hover:text-accent-300 transition-colors" size={24} />
+            ) : isOfflineMode ? (
               <WifiOff className="text-white group-hover:text-accent-300 transition-colors" size={24} />
             ) : (
               <Library className="text-white" size={24} />
@@ -198,7 +200,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                 className="p-4 rounded-2xl bg-accent-500/10 border border-accent-500/20 text-accent-400 hover:bg-accent-500 hover:text-white transition-all active:scale-90"
                 title="Sign In"
               >
-                <LogIn size={20} />
+                <KeyRound size={20} />
               </button>
             ) : (
               <button 

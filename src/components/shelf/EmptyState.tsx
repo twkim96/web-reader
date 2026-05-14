@@ -1,5 +1,5 @@
 import React from 'react';
-import { XCircle, WifiOff, FolderPlus, Library, FilePlus } from 'lucide-react';
+import { XCircle, WifiOff, FolderPlus, Library, FilePlus, KeyRound } from 'lucide-react';
 import { ThemeClasses } from '../../types';
 
 interface EmptyStateProps {
@@ -81,9 +81,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                   {isGuest && (
                     <button 
                       onClick={onLogin} 
-                      className="text-[10px] font-bold text-accent-500/60 hover:text-accent-500 uppercase tracking-widest transition-colors"
+                      className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
                     >
-                      Google 계정 연동하기
+                      <KeyRound size={16} />
+                      <span>Google 계정 연동하기</span>
                     </button>
                   )}
                 </div>
