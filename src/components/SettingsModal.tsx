@@ -37,7 +37,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </button>
       </div>
 
-      <div className="space-y-5 max-w-[18.25rem]">
+      <div className="space-y-5 w-fit">
         <div>
           <label className={labelStyle}>Navigation Mode</label>
           <div className="flex flex-wrap items-center justify-start gap-2">
