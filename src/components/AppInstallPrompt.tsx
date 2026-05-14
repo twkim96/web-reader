@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
 import { Download, Share, PlusSquare } from 'lucide-react';
 import { ThemeClasses } from '../types';
@@ -6,13 +6,15 @@ import { ThemeClasses } from '../types';
 interface Props {
   theme: ThemeClasses;
   isIOS: boolean;
-  onClose: () => void;
+  onClose: (neverShow: boolean) => void;
   onInstall: () => void;
 }
 
 export const AppInstallPrompt: React.FC<Props> = ({ theme, isIOS, onClose, onInstall }) => {
+  const [doNotShowAgain, setDoNotShowAgain] = useState(false);
+
   return (
-    <ReaderModalFrame theme={theme as any} onClose={onClose} maxWidth="max-w-[20rem]" className="p-7 text-center font-sans z-[200]">
+    <ReaderModalFrame theme={theme as any} onClose={() => onClose(doNotShowAgain)} maxWidth="max-w-[20rem]" className="p-7 text-center font-sans z-[200]">
       <div className="w-16 h-16 bg-accent-500 text-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg">
         <Download size={32} />
       </div>
@@ -40,9 +42,20 @@ export const AppInstallPrompt: React.FC<Props> = ({ theme, isIOS, onClose, onIns
         </button>
       )}
       
-      <button onClick={onClose} className="text-[10px] font-bold opacity-40 hover:opacity-100 uppercase tracking-widest transition-opacity mt-2">
-        다음에 할게요
-      </button>
+      <div className="flex items-center justify-between mt-3 pt-4 border-t border-black/5 dark:border-white/5">
+        <label className="flex items-center gap-2 text-[10px] opacity-60 cursor-pointer hover:opacity-100 transition-opacity font-bold">
+          <input 
+            type="checkbox" 
+            checked={doNotShowAgain} 
+            onChange={(e) => setDoNotShowAgain(e.target.checked)} 
+            className="rounded bg-black/10 border-none w-3.5 h-3.5 accent-accent-500" 
+          />
+          다시 보지 않기
+        </label>
+        <button onClick={() => onClose(doNotShowAgain)} className="text-[10px] font-bold opacity-60 hover:opacity-100 uppercase tracking-widest transition-opacity">
+          닫기
+        </button>
+      </div>
     </ReaderModalFrame>
   );
 };

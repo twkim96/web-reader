@@ -54,24 +54,32 @@ export default function Page() {
 
   useEffect(() => {
     if (view === 'shelf' && user && isInstallable && !isStandalone) {
-      const hasSeen = localStorage.getItem('hasSeenInstallPrompt');
-      if (!hasSeen) {
-        // slight delay so it doesn't jarringly pop up immediately
-        const timer = setTimeout(() => setShowInstallPrompt(true), 1500);
-        return () => clearTimeout(timer);
-      }
+      const neverShow = localStorage.getItem('neverShowInstallPrompt');
+      const lastSeen = localStorage.getItem('lastSeenInstallPrompt');
+      const now = Date.now();
+
+      if (neverShow === 'true') return;
+      if (lastSeen && now - parseInt(lastSeen) < 24 * 60 * 60 * 1000) return; // Hide for 24 hours if just closed
+
+      // slight delay so it doesn't jarringly pop up immediately
+      const timer = setTimeout(() => setShowInstallPrompt(true), 1500);
+      return () => clearTimeout(timer);
     }
   }, [view, user, isInstallable, isStandalone]);
 
-  const handleCloseInstallPrompt = () => {
-    localStorage.setItem('hasSeenInstallPrompt', 'true');
+  const handleCloseInstallPrompt = (neverShow: boolean) => {
+    if (neverShow) {
+      localStorage.setItem('neverShowInstallPrompt', 'true');
+    } else {
+      localStorage.setItem('lastSeenInstallPrompt', Date.now().toString());
+    }
     setShowInstallPrompt(false);
   };
 
   const handleInstallApp = async () => {
     const accepted = await promptInstall();
     if (accepted) {
-      handleCloseInstallPrompt();
+      handleCloseInstallPrompt(true); // Never show again if successfully installed
     }
   };
 
