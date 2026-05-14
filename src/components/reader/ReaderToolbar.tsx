@@ -56,37 +56,39 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     </nav>
 
     <div className={`fixed bottom-0 inset-x-0 ${theme.bg} border-t ${theme.border} z-50 transition-transform duration-300 ${showControls ? 'translate-y-0 shadow-2xl' : 'translate-y-full'}`}>
-      <div className={`absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md px-6 py-2.5 rounded-full border border-white/10 shadow-xl flex items-center gap-3 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        <span className="text-[10px] font-black text-white tracking-widest font-sans">
-          {currentChapter || 'Reading'}
-          <span className="ml-2 text-accent-400">{(totalProgress || 0).toFixed(1)}%</span>
-        </span>
-        <button onClick={onOpenJump} className="text-white/50 hover:text-white transition-colors">
-          <Hash size={14} />
-        </button>
+      <div className="max-w-lg mx-auto px-6 pt-4 pb-0">
+        <div className="flex items-center justify-center mb-3 gap-2">
+          <span className="text-[11px] font-black tracking-widest font-sans opacity-100 truncate max-w-[85%] text-center">
+            {currentChapter || 'Reading'}
+            <span className="ml-3 text-accent-500">{(totalProgress || 0).toFixed(1)}%</span>
+          </span>
+          <button onClick={onOpenJump} className="opacity-40 hover:opacity-100 transition-opacity p-1 shrink-0">
+            <Hash size={16} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="0.1"
+            value={sliderProgress || 0}
+            onPointerDown={onProgressSliderStart}
+            onPointerUp={onProgressSliderCommit}
+            onKeyDown={onProgressSliderStart}
+            onKeyUp={onProgressSliderCommit}
+            onBlur={onProgressSliderCommit}
+            onChange={(event) => onProgressSliderPreview(parseFloat(event.target.value))}
+            className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"
+          />
+          <button onClick={onOpenSearch} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity shrink-0">
+            <Search size={22} />
+          </button>
+        </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-6 pt-6 pb-2 flex items-center gap-4">
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="0.1"
-          value={sliderProgress || 0}
-          onPointerDown={onProgressSliderStart}
-          onPointerUp={onProgressSliderCommit}
-          onKeyDown={onProgressSliderStart}
-          onKeyUp={onProgressSliderCommit}
-          onBlur={onProgressSliderCommit}
-          onChange={(event) => onProgressSliderPreview(parseFloat(event.target.value))}
-          className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"
-        />
-        <button onClick={onOpenSearch} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity">
-          <Search size={22} />
-        </button>
-      </div>
-
-      <div className="flex justify-around p-5 max-w-lg mx-auto font-sans">
+      <div className="flex justify-around px-5 pt-3 pb-4 max-w-lg mx-auto font-sans">
         <button onClick={onOpenSettings} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
           <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
         </button>
