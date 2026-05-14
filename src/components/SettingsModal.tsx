@@ -29,18 +29,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ] as const;
 
   return (
-    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-[21.25rem]" className="font-sans max-h-[85vh] overflow-y-auto p-5 sm:p-6">
-      <div className="flex items-center justify-between mb-7">
-        <h2 className="font-bold text-lg">리더 설정</h2>
-        <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
-          <X size={20} />
-        </button>
-      </div>
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-[21.25rem]" className="font-sans max-h-[85vh] overflow-y-auto p-5 sm:p-6 flex flex-col justify-center">
+      <div className="w-fit mx-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold text-lg">리더 설정</h2>
+          <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
+            <X size={20} />
+          </button>
+        </div>
 
-      <div className="space-y-5 w-fit mx-auto">
-        <div>
-          <label className={labelStyle}>Navigation Mode</label>
-          <div className="flex flex-wrap items-center justify-start gap-2">
+        <div className="space-y-5">
+          <div>
+            <label className={labelStyle}>Navigation Mode</label>
+          <div className="flex flex-wrap items-center justify-start gap-2 pt-1.5">
             {navOptions.map(opt => (
               <button
                 key={opt.value}
@@ -52,6 +53,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             ))}
           </div>
         </div>
+
+        <div>
+          <label className={labelStyle}>Font Family</label>
+          <div className="flex flex-wrap items-center justify-start gap-2 pt-1.5">
+            {(['sans', 'serif', 'ridi'] as const).map(f => (
+              <button 
+                key={f}
+                onClick={() => onUpdateSettings({ fontFamily: f })}
+                className={`${optionBtnStyle} ${settings.fontFamily === f ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
+              >
+                {f === 'ridi' ? 'Ridi Batang' : f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="w-full h-px bg-black/10 dark:bg-white/10" />
 
         <div>
           <div className="flex items-end justify-between">
@@ -91,23 +109,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
         </div>
-
-        <div>
-          <label className={labelStyle}>Font Family</label>
-          <div className="flex flex-wrap items-center justify-start gap-2">
-            {(['sans', 'serif', 'ridi'] as const).map(f => (
-              <button 
-                key={f}
-                onClick={() => onUpdateSettings({ fontFamily: f })}
-                className={`${optionBtnStyle} ${settings.fontFamily === f ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
-              >
-                {f === 'ridi' ? 'Ridi Batang' : f}
-              </button>
-            ))}
-          </div>
         </div>
-        
-        {/* 테마 섹션 삭제됨 */}
       </div>
     </ReaderModalFrame>
   );
