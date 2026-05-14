@@ -20,6 +20,7 @@ export interface ThemeClasses {
 export interface ViewerSettings {
   fontSize: number;
   lineHeight: number;
+  paragraphSpacing: number;
   padding: number;
   textAlign: 'left' | 'justify';
   theme: string;

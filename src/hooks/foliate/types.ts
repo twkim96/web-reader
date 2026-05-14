@@ -79,6 +79,7 @@ export type FoliateViewElement = HTMLElement & {
 export type ReaderStyle = {
   fontSize?: number;
   lineHeight?: number;
+  paragraphSpacing?: number;
   fontFamily?: string;
   textAlign?: string;
   bgColor?: string;

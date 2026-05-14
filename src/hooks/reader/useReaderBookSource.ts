@@ -23,6 +23,7 @@ type ReaderLayoutSetter = (layout: {
 type ReaderStyleSetter = (styles: {
   fontSize?: number;
   lineHeight?: number;
+  paragraphSpacing?: number;
   fontFamily?: string;
   textAlign?: string;
   bgColor?: string;
@@ -52,6 +53,7 @@ const getReaderLayout = (navMode: ViewerSettings['navMode']) => ({
 const getReaderStyle = (settings: ViewerSettings, themeColors: ReaderThemeColors) => ({
   fontSize: settings.fontSize,
   lineHeight: settings.lineHeight,
+  paragraphSpacing: settings.paragraphSpacing ?? 1,
   fontFamily: settings.fontFamily,
   textAlign: settings.textAlign,
   bgColor: themeColors.bg,

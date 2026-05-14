@@ -106,7 +106,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg md:text-xl font-black tracking-tight uppercase italic whitespace-nowrap">
+              <h1 className="text-lg md:text-xl font-black tracking-tight uppercase whitespace-nowrap">
                 {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
               </h1>
               {isSyncing && (

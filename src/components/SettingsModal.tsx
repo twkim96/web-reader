@@ -16,6 +16,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const labelStyle = "text-sm font-black uppercase tracking-widest block text-center mb-3";
   const controlBtnStyle = `flex-1 py-1.5 ${theme.secondary} rounded-lg font-bold transition-transform active:scale-95 text-sm shadow-sm`;
+  const paragraphSpacing = settings.paragraphSpacing ?? 1;
 
   const navOptions = [
     { value: 'scroll', label: 'Scroll' },
@@ -34,19 +35,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
 
       <div className="space-y-9">
-        {/* 1. 화면 이동 방식 */}
-        <div>
-          <label className={labelStyle}>Navigation Mode</label>
-          <div className="grid grid-cols-4 gap-2">
-            {navOptions.map(opt => (
-              <button 
-                key={opt.value}
-                onClick={() => onUpdateSettings({ navMode: opt.value })}
-                className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.navMode === opt.value ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {/* 1. 화면 이동 방식 및 문단 간격 */}
+        <div className="grid grid-cols-1 sm:grid-cols-[1.4fr_1fr] gap-6">
+          <div>
+            <label className={labelStyle}>Navigation Mode</label>
+            <div className="grid grid-cols-2 gap-2">
+              {navOptions.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => onUpdateSettings({ navMode: opt.value })}
+                  className={`py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${settings.navMode === opt.value ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className={labelStyle}>Paragraph Gap</label>
+            <div className="flex items-center gap-2">
+              <button onClick={() => onUpdateSettings({ paragraphSpacing: Math.max(0, parseFloat((paragraphSpacing - 0.1).toFixed(1))) })} className={controlBtnStyle}>-</button>
+              <span className="w-14 text-center font-black text-xl">{paragraphSpacing.toFixed(1)}em</span>
+              <button onClick={() => onUpdateSettings({ paragraphSpacing: Math.min(3, parseFloat((paragraphSpacing + 0.1).toFixed(1))) })} className={controlBtnStyle}>+</button>
+            </div>
           </div>
         </div>
 

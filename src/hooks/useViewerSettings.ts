@@ -6,6 +6,7 @@ const SETTINGS_KEY = 'viewer_settings';
 const defaultSettings: ViewerSettings = {
   fontSize: 18,
   lineHeight: 1.9,
+  paragraphSpacing: 1,
   padding: 24,
   textAlign: 'justify',
   theme: 'sepia',

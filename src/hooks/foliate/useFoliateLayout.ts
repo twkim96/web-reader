@@ -25,6 +25,7 @@ const BEFORE_STYLE = `
 
 const buildReaderStyle = (styles: ReaderStyle) => {
   const fontStack = styles.fontFamily ? FONT_MAP[styles.fontFamily] || styles.fontFamily : '';
+  const paragraphSpacing = styles.paragraphSpacing ?? 1;
 
   return `
     html, body {
@@ -44,7 +45,7 @@ const buildReaderStyle = (styles: ReaderStyle) => {
     }
     p, div {
       margin-top: 0 !important;
-      margin-bottom: 1em !important;
+      margin-bottom: ${paragraphSpacing}em !important;
     }
     p:last-child, div:last-child {
       margin-bottom: 0 !important;
