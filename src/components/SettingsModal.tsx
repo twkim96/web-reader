@@ -14,11 +14,11 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
   settings, onUpdateSettings, onClose, theme 
 }) => {
-  const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-2 opacity-55";
+  const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
   const optionBtnStyle = `h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
-  const stepperBtnStyle = `w-8 h-8 ${theme.secondary} rounded-lg font-bold transition-transform active:scale-95 text-xs shadow-sm`;
-  const stepperGroupStyle = "flex items-center gap-1.5 self-end translate-y-1";
-  const valueStyle = "font-black text-lg tabular-nums leading-none";
+  const stepperBtnStyle = `w-7 h-7 flex items-center justify-center ${theme.secondary} rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
+  const stepperGroupStyle = "flex items-center gap-1.5";
+  const valueStyle = "font-black text-lg tabular-nums leading-none w-10 text-left";
   const paragraphSpacing = settings.paragraphSpacing ?? 1;
 
   const navOptions = [
@@ -37,7 +37,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </button>
       </div>
 
-      <div className="space-y-5 max-w-[17.75rem]">
+      <div className="space-y-5 max-w-[18.25rem]">
         <div>
           <label className={labelStyle}>Navigation Mode</label>
           <div className="flex flex-wrap items-center justify-start gap-2">
@@ -54,7 +54,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div>
-          <div className="flex items-end justify-between gap-4">
+          <div className="flex items-end justify-between">
             <div>
               <label className={labelStyle}>Paragraph Gap</label>
               <div className={valueStyle}>{paragraphSpacing.toFixed(1)}</div>
@@ -67,7 +67,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div>
-          <div className="flex items-end justify-between gap-4">
+          <div className="flex items-end justify-between">
             <div>
               <label className={labelStyle}>Size</label>
               <div className={valueStyle}>{settings.fontSize}</div>
@@ -80,7 +80,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div>
-          <div className="flex items-end justify-between gap-4">
+          <div className="flex items-end justify-between">
             <div>
               <label className={labelStyle}>Line</label>
               <div className={valueStyle}>{settings.lineHeight.toFixed(1)}</div>
