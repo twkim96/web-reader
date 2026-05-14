@@ -26,7 +26,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   };
 
   return (
-    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-sm" className="p-6">
+    <ReaderModalFrame noBlur theme={theme} onClose={onClose} maxWidth="max-w-sm" className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="font-bold text-lg">테마 설정</h2>
           <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
