@@ -287,6 +287,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         <div className="fixed inset-0 z-10" style={{ background: 'transparent' }} onClick={handleInteraction} />
       )}
 
+      {chrome.showControls && (
+        <div 
+          className="fixed inset-0 z-40 touch-none" 
+          style={{ background: 'transparent' }}
+          onClick={() => chrome.setShowControls(false)}
+          onWheel={(e) => { e.stopPropagation(); }}
+        />
+      )}
+
       <ReaderToolbar
         theme={theme}
         bookName={book.name}
