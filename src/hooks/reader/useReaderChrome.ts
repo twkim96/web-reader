@@ -35,6 +35,7 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     setShowSettings(false);
     setShowThemeModal(false);
     setShowBookmarks(false);
+    setShowToc(false);
     setShowSearchModal(false);
     setShowJumpInput(false);
   }, []);
@@ -50,7 +51,7 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     }
 
     const handlePopState = () => {
-      if (showSettings || showThemeModal || showBookmarks || showSearchModal || showJumpInput) {
+      if (showSettings || showThemeModal || showBookmarks || showToc || showSearchModal || showJumpInput) {
         window.history.pushState({ panel: 'reader' }, '', '');
         closePanels();
       } else {
@@ -60,7 +61,7 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [closePanels, onBack, showBookmarks, showJumpInput, showSearchModal, showSettings, showThemeModal]);
+  }, [closePanels, onBack, showBookmarks, showJumpInput, showSearchModal, showSettings, showThemeModal, showToc]);
 
   return {
     showControls,

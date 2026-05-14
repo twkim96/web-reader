@@ -2,6 +2,7 @@
 import React from 'react';
 import { Bookmark } from '../types';
 import { X, Trash2, Bookmark as BookmarkIcon, History } from 'lucide-react';
+import { ReaderModalFrame } from './reader/ReaderModalFrame';
 
 interface BookmarkModalProps {
   bookmarks: Bookmark[];
@@ -20,14 +21,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   const autoBookmarks = bookmarks.filter(b => b.type === 'auto').sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <div 
-      className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={onClose} 
-    >
-      <div 
-        onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-md h-[80vh] sm:h-auto sm:max-h-[80vh] ${theme.bg} ${theme.text} rounded-t-3xl sm:rounded-3xl shadow-2xl border ${theme.border} flex flex-col animate-in slide-in-from-bottom-10 duration-300`}
-      >
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="h-[80vh] sm:h-auto sm:max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className={`flex items-center justify-between p-5 border-b ${theme.border}`}>
           <div className="flex items-center gap-2">
@@ -130,7 +124,6 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
           </div>
 
         </div>
-      </div>
-    </div>
+    </ReaderModalFrame>
   );
 };

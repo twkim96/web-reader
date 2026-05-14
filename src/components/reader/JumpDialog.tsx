@@ -1,9 +1,12 @@
 'use client';
 
 import React from 'react';
+import { X } from 'lucide-react';
+import { ReaderModalFrame } from './ReaderModalFrame';
 
 type ReaderTheme = {
   bg: string;
+  text?: string;
   border: string;
 };
 
@@ -22,10 +25,14 @@ export const JumpDialog: React.FC<JumpDialogProps> = ({
   onSubmit,
   onClose,
 }) => (
-  <div className="fixed inset-0 z-[120] flex items-end" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
-    <div className={`w-full ${theme.bg} rounded-t-2xl p-6`} onClick={event => event.stopPropagation()}>
-      <h3 className="font-bold mb-3 text-sm">위치로 이동</h3>
-      <p className="text-xs opacity-50 mb-4">퍼센트 (예: 42.5) 또는 CFI 값을 입력하세요</p>
+  <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="p-6" zIndex="z-[120]">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-lg">위치로 이동</h3>
+        <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
+          <X size={20} />
+        </button>
+      </div>
+      <p className="text-xs opacity-50 mb-5">퍼센트 (예: 42.5) 또는 CFI 값을 입력하세요</p>
       <div className="flex gap-3">
         <input
           autoFocus
@@ -43,6 +50,5 @@ export const JumpDialog: React.FC<JumpDialogProps> = ({
           이동
         </button>
       </div>
-    </div>
-  </div>
+  </ReaderModalFrame>
 );

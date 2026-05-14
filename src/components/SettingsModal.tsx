@@ -1,6 +1,8 @@
 // src/components/SettingsModal.tsx
 import React from 'react';
+import { X } from 'lucide-react';
 import { ThemeClasses, ViewerSettings } from '../types';
+import { ReaderModalFrame } from './reader/ReaderModalFrame';
 
 interface SettingsModalProps {
   settings: ViewerSettings;
@@ -23,9 +25,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ] as const;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className={`w-full max-w-md rounded-t-[2.5rem] p-8 space-y-10 ${theme.bg} ${theme.text} shadow-2xl font-sans overflow-y-auto max-h-[90vh]`} onClick={e => e.stopPropagation()}>
-        
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="font-sans max-h-[85vh] overflow-y-auto p-6 sm:p-8">
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="font-bold text-lg">리더 설정</h2>
+        <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="space-y-9">
         {/* 1. 화면 이동 방식 */}
         <div>
           <label className={labelStyle}>Navigation Mode</label>
@@ -81,9 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
         
         {/* 테마 섹션 삭제됨 */}
-
-        <button onClick={onClose} className="w-full py-5 bg-slate-900 text-white font-black rounded-[1.5rem] tracking-[0.2em] uppercase text-sm shadow-xl active:scale-95 transition-transform">Done</button>
       </div>
-    </div>
+    </ReaderModalFrame>
   );
 };

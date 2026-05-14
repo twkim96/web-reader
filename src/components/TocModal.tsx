@@ -2,6 +2,7 @@ import React from 'react';
 import { X, List } from 'lucide-react';
 import { TocItem } from '../hooks/foliate/types';
 import { ThemeClasses } from '../types';
+import { ReaderModalFrame } from './reader/ReaderModalFrame';
 
 interface TocModalProps {
   toc: TocItem[];
@@ -26,13 +27,9 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
   const allChapters = flattenToc(toc);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className={`w-full max-w-md rounded-t-[2.5rem] ${theme.bg} ${theme.text} shadow-2xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-300`}
-        onClick={e => e.stopPropagation()}
-      >
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/5">
+        <div className={`flex items-center justify-between p-5 border-b ${theme.border}`}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-accent-500/10 rounded-xl text-accent-500">
               <List size={20} />
@@ -83,16 +80,6 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
             ))
           )}
         </div>
-
-        <div className="p-6">
-          <button
-            onClick={onClose}
-            className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl tracking-[0.2em] uppercase text-[10px] shadow-xl active:scale-95 transition-all"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+    </ReaderModalFrame>
   );
 };

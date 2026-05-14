@@ -2,6 +2,7 @@ import React from 'react';
 import { ViewerSettings } from '../types';
 import { X, Check } from 'lucide-react';
 import { THEMES, ACCENT_COLORS, ACCENT_PALETTE } from '../lib/constants';
+import { ReaderModalFrame } from './reader/ReaderModalFrame';
 
 interface ThemeModalProps {
   settings: ViewerSettings;
@@ -25,11 +26,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
-      <div 
-        onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-sm ${theme.bg} ${theme.text} rounded-3xl shadow-2xl border ${theme.border} p-6 animate-in zoom-in-95 duration-200`}
-      >
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-sm" className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="font-bold text-lg">테마 설정</h2>
           <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
@@ -72,7 +69,6 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
             ))}
           </div>
         </div>
-      </div>
-    </div>
+    </ReaderModalFrame>
   );
 };
