@@ -84,6 +84,21 @@ export default function Page() {
   };
 
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
+
+  useEffect(() => {
+    // 테마 bg 클래스에서 hex 코드를 추출 (예: 'bg-[#272728]' -> '#272728')
+    const match = theme.bg.match(/#([0-9a-fA-F]{6})/);
+    const color = match ? `#${match[1]}` : '#ffffff';
+    
+    let metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!metaThemeColor) {
+      metaThemeColor = document.createElement('meta');
+      metaThemeColor.setAttribute('name', 'theme-color');
+      document.head.appendChild(metaThemeColor);
+    }
+    metaThemeColor.setAttribute('content', color);
+  }, [theme]);
+
   const {
     books,
     setBooks,
