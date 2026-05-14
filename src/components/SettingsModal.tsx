@@ -16,8 +16,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-2 opacity-55";
   const optionBtnStyle = `h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
-  const stepperBtnStyle = `w-9 h-9 ${theme.secondary} rounded-xl font-bold transition-transform active:scale-95 text-xs shadow-sm`;
-  const stepperValueStyle = "w-10 h-9 flex items-center justify-center font-black text-base tabular-nums";
+  const stepperBtnStyle = `w-8 h-8 ${theme.secondary} rounded-lg font-bold transition-transform active:scale-95 text-xs shadow-sm`;
+  const stepperGroupStyle = "flex items-center gap-1.5 self-end translate-y-1";
+  const valueStyle = "font-black text-lg tabular-nums leading-none";
   const paragraphSpacing = settings.paragraphSpacing ?? 1;
 
   const navOptions = [
@@ -28,7 +29,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ] as const;
 
   return (
-    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-sm" className="font-sans max-h-[85vh] overflow-y-auto p-5 sm:p-6">
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-[21.25rem]" className="font-sans max-h-[85vh] overflow-y-auto p-5 sm:p-6">
       <div className="flex items-center justify-between mb-7">
         <h2 className="font-bold text-lg">리더 설정</h2>
         <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
@@ -36,7 +37,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </button>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-5 max-w-[17.75rem]">
         <div>
           <label className={labelStyle}>Navigation Mode</label>
           <div className="flex flex-wrap items-center justify-start gap-2">
@@ -53,29 +54,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div>
-          <label className={labelStyle}>Paragraph Gap</label>
-          <div className="inline-flex items-center justify-start gap-px">
-            <button aria-label="Decrease paragraph gap" onClick={() => onUpdateSettings({ paragraphSpacing: Math.max(0, parseFloat((paragraphSpacing - 0.1).toFixed(1))) })} className={stepperBtnStyle}>-</button>
-            <span className={stepperValueStyle}>{paragraphSpacing.toFixed(1)}</span>
-            <button aria-label="Increase paragraph gap" onClick={() => onUpdateSettings({ paragraphSpacing: Math.min(3, parseFloat((paragraphSpacing + 0.1).toFixed(1))) })} className={stepperBtnStyle}>+</button>
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <label className={labelStyle}>Paragraph Gap</label>
+              <div className={valueStyle}>{paragraphSpacing.toFixed(1)}</div>
+            </div>
+            <div className={stepperGroupStyle}>
+              <button aria-label="Decrease paragraph gap" onClick={() => onUpdateSettings({ paragraphSpacing: Math.max(0, parseFloat((paragraphSpacing - 0.1).toFixed(1))) })} className={stepperBtnStyle}>-</button>
+              <button aria-label="Increase paragraph gap" onClick={() => onUpdateSettings({ paragraphSpacing: Math.min(3, parseFloat((paragraphSpacing + 0.1).toFixed(1))) })} className={stepperBtnStyle}>+</button>
+            </div>
           </div>
         </div>
 
         <div>
-          <label className={labelStyle}>Size</label>
-          <div className="inline-flex items-center justify-start gap-px">
-            <button aria-label="Decrease font size" onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} className={stepperBtnStyle}>-</button>
-            <span className={stepperValueStyle}>{settings.fontSize}</span>
-            <button aria-label="Increase font size" onClick={() => onUpdateSettings({ fontSize: Math.min(40, settings.fontSize + 1) })} className={stepperBtnStyle}>+</button>
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <label className={labelStyle}>Size</label>
+              <div className={valueStyle}>{settings.fontSize}</div>
+            </div>
+            <div className={stepperGroupStyle}>
+              <button aria-label="Decrease font size" onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} className={stepperBtnStyle}>-</button>
+              <button aria-label="Increase font size" onClick={() => onUpdateSettings({ fontSize: Math.min(40, settings.fontSize + 1) })} className={stepperBtnStyle}>+</button>
+            </div>
           </div>
         </div>
 
         <div>
-          <label className={labelStyle}>Line</label>
-          <div className="inline-flex items-center justify-start gap-px">
-            <button aria-label="Decrease line height" onClick={() => onUpdateSettings({ lineHeight: Math.max(1.0, parseFloat((settings.lineHeight - 0.1).toFixed(1))) })} className={stepperBtnStyle}>-</button>
-            <span className={stepperValueStyle}>{settings.lineHeight.toFixed(1)}</span>
-            <button aria-label="Increase line height" onClick={() => onUpdateSettings({ lineHeight: Math.min(3.0, parseFloat((settings.lineHeight + 0.1).toFixed(1))) })} className={stepperBtnStyle}>+</button>
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <label className={labelStyle}>Line</label>
+              <div className={valueStyle}>{settings.lineHeight.toFixed(1)}</div>
+            </div>
+            <div className={stepperGroupStyle}>
+              <button aria-label="Decrease line height" onClick={() => onUpdateSettings({ lineHeight: Math.max(1.0, parseFloat((settings.lineHeight - 0.1).toFixed(1))) })} className={stepperBtnStyle}>-</button>
+              <button aria-label="Increase line height" onClick={() => onUpdateSettings({ lineHeight: Math.min(3.0, parseFloat((settings.lineHeight + 0.1).toFixed(1))) })} className={stepperBtnStyle}>+</button>
+            </div>
           </div>
         </div>
 
