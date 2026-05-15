@@ -197,14 +197,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     const height = window.innerHeight;
 
     if (settings.navMode === 'page') {
-      if (clientY > height * 0.6) { markUserProgressChange(); next(); return; }
-      if (clientY < height * 0.4) { markUserProgressChange(); prev(); return; }
+      if (clientY > height * 0.65) { markUserProgressChange(); next(); return; }
+      if (clientY < height * 0.35) { markUserProgressChange(); prev(); return; }
     } else if (settings.navMode === 'left-right') {
       if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
       if (clientX > width * 0.7) { markUserProgressChange(); next(); return; }
     } else if (settings.navMode === 'all-dir') {
-      if (clientY < height * 0.4) { markUserProgressChange(); prev(); return; }
-      if (clientY > height * 0.6) { markUserProgressChange(); next(); return; }
+      if (clientY < height * 0.35) { markUserProgressChange(); prev(); return; }
+      if (clientY > height * 0.65) { markUserProgressChange(); next(); return; }
       if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
       if (clientX > width * 0.7) { markUserProgressChange(); next(); return; }
     }
