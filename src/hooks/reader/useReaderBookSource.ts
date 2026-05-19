@@ -47,7 +47,7 @@ const getReaderLayout = (navMode: ViewerSettings['navMode']) => ({
   flow: navMode === 'scroll' ? 'scrolled' as const : 'paginated' as const,
   maxColumnCount: 1,
   margin: 0,
-  gap: '4%',
+  gap: '5%',
   maxInlineSize: '1000px',
 });
 
