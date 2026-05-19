@@ -60,12 +60,12 @@ export const useFoliateNavigation = ({
     }
   }, [viewRef]);
 
-  const prev = useCallback(() => {
-    viewRef.current?.prev();
+  const prev = useCallback((distance?: number) => {
+    viewRef.current?.prev(distance);
   }, [viewRef]);
 
-  const next = useCallback(() => {
-    viewRef.current?.next();
+  const next = useCallback((distance?: number) => {
+    viewRef.current?.next(distance);
   }, [viewRef]);
 
   return {

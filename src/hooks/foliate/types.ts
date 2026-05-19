@@ -66,8 +66,8 @@ export type FoliateViewElement = HTMLElement & {
   };
   open: (source: Blob | File | string) => Promise<void>;
   init: (options: { lastLocation: string | null }) => Promise<void>;
-  prev: () => void;
-  next: () => void;
+  prev: (distance?: number) => void;
+  next: (distance?: number) => void;
   goTo: (cfi: string) => Promise<void>;
   goToFraction: (fraction: number) => Promise<void>;
   resolveNavigation: (href: string) => { index?: number } | null;

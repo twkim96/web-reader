@@ -1,7 +1,7 @@
 // src/components/EpubReader.tsx
 'use client';
 
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Book, Bookmark, SaveProgressOptions, UserProgress, ViewerSettings } from '../types';
 import { THEMES } from '../lib/constants';
 import { SettingsModal } from './SettingsModal';
@@ -41,6 +41,24 @@ const THEME_COLORS: Record<string, { bg: string; text: string }> = {
   blue: { bg: '#eef2f7', text: '#2c3e50' },
 };
 
+const KEYBOARD_SCROLL_RATIO = 0.25;
+const MIN_KEYBOARD_SCROLL_DISTANCE = 80;
+const MAX_KEYBOARD_SCROLL_DISTANCE = 240;
+
+const isEditableKeyboardTarget = (target: EventTarget | null) => {
+  const node = target as {
+    nodeType?: number;
+    tagName?: string;
+    isContentEditable?: boolean;
+    parentElement?: HTMLElement | null;
+  } | null;
+  if (!node) return false;
+
+  const element = node.nodeType === 1 ? node : node.parentElement;
+  const tagName = element?.tagName?.toLowerCase();
+  return Boolean(element?.isContentEditable) || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+};
+
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
   googleToken,
@@ -57,6 +75,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
   const themeColors = useMemo(() => THEME_COLORS[settings.theme] || THEME_COLORS.sepia, [settings.theme]);
   const readerEdgePadding = Math.max(settings.padding || 0, settings.fontSize);
+  const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
 
   const chrome = useReaderChrome({ onBack });
   const {
@@ -81,7 +100,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     doc.addEventListener('click', chrome.toggleControls);
     doc.addEventListener('wheel', () => markUserProgressChange(), { passive: true });
     doc.addEventListener('touchmove', () => markUserProgressChange(), { passive: true });
-    doc.addEventListener('keydown', () => markUserProgressChange());
+    doc.addEventListener('keydown', (event) => keyboardNavigationRef.current(event));
   }, [chrome.toggleControls, markUserProgressChange]);
 
   const {
@@ -211,6 +230,77 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
     chrome.setShowControls((current) => !current);
   }, [chrome, markUserProgressChange, next, prev, settings.navMode]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const handleKeyboardNavigation = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (isEditableKeyboardTarget(event.target)) return;
+
+      const isReaderPanelOpen = chrome.showSettings
+        || chrome.showThemeModal
+        || chrome.showBookmarks
+        || chrome.showToc
+        || chrome.showSearchModal
+        || chrome.showJumpInput;
+      if (isReaderPanelOpen) return;
+
+      if (settings.navMode === 'scroll') {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+
+        event.preventDefault();
+        const viewportSize = viewRef.current?.renderer?.size ?? window.innerHeight;
+        const scrollDistance = Math.min(
+          MAX_KEYBOARD_SCROLL_DISTANCE,
+          Math.max(MIN_KEYBOARD_SCROLL_DISTANCE, Math.round(viewportSize * KEYBOARD_SCROLL_RATIO))
+        );
+
+        markUserProgressChange();
+        if (event.key === 'ArrowUp') prev(scrollDistance);
+        else next(scrollDistance);
+        return;
+      }
+
+      const keyMovesPrev = (settings.navMode === 'page' && event.key === 'ArrowUp')
+        || (settings.navMode === 'left-right' && event.key === 'ArrowLeft')
+        || (settings.navMode === 'all-dir' && (event.key === 'ArrowUp' || event.key === 'ArrowLeft'));
+      const keyMovesNext = (settings.navMode === 'page' && event.key === 'ArrowDown')
+        || (settings.navMode === 'left-right' && event.key === 'ArrowRight')
+        || (settings.navMode === 'all-dir' && (event.key === 'ArrowDown' || event.key === 'ArrowRight'));
+
+      if (!keyMovesPrev && !keyMovesNext) return;
+
+      event.preventDefault();
+      if (event.repeat) return;
+
+      markUserProgressChange();
+      if (keyMovesPrev) prev();
+      else next();
+    };
+
+    keyboardNavigationRef.current = handleKeyboardNavigation;
+    window.addEventListener('keydown', handleKeyboardNavigation);
+    return () => {
+      window.removeEventListener('keydown', handleKeyboardNavigation);
+      if (keyboardNavigationRef.current === handleKeyboardNavigation) {
+        keyboardNavigationRef.current = () => undefined;
+      }
+    };
+  }, [
+    chrome.showBookmarks,
+    chrome.showJumpInput,
+    chrome.showSearchModal,
+    chrome.showSettings,
+    chrome.showThemeModal,
+    chrome.showToc,
+    isLoaded,
+    markUserProgressChange,
+    next,
+    prev,
+    settings.navMode,
+    viewRef,
+  ]);
 
   const performJump = useCallback(async (targetCfi: string) => {
     if (!currentCfi || targetCfi === currentCfi) return;
