@@ -57,8 +57,12 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       >
         <ChevronLeft size={22} />
       </button>
-      <div className={`pointer-events-auto mx-auto max-w-xl rounded-xl border ${theme.bg} ${theme.border} px-14 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur`}>
-        <h2 className="truncate text-center text-sm font-bold">{bookName.replace('.epub', '').replace('.txt', '')}</h2>
+      <div className="flex justify-center">
+        <div className={`pointer-events-auto max-w-[min(36rem,calc(100%_-_7.5rem))] rounded-xl border ${theme.bg} ${theme.border} px-6 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur sm:max-w-[min(36rem,calc(100%_-_8.5rem))] sm:px-8`}>
+          <h2 className="text-center text-sm font-bold leading-tight break-words [overflow-wrap:anywhere]">
+            {bookName.replace('.epub', '').replace('.txt', '')}
+          </h2>
+        </div>
       </div>
     </nav>
 
