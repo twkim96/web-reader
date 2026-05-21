@@ -50,20 +50,18 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 }) => (
   <>
     <nav className={`pointer-events-none fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-300 sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'translate-y-0' : '-translate-y-[calc(100%+2rem)]'}`}>
-      <div className="flex w-full items-start gap-2">
+      <div className="relative mx-auto w-full max-w-xl">
         <button
           onClick={onBack}
           aria-label="Back"
-          className={`pointer-events-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${theme.bg}/90 ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+          className={`pointer-events-auto absolute left-0 top-0 z-10 flex h-10 w-10 items-center justify-center rounded-full border ${theme.bg}/90 ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
         >
           <ChevronLeft size={22} />
         </button>
-        <div className="flex min-w-0 flex-1 justify-center">
-          <div className={`pointer-events-auto w-max max-w-full rounded-xl border ${theme.bg}/90 ${theme.border} px-6 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-xl sm:px-8`}>
-            <h2 className="text-center text-sm font-bold leading-tight break-words">
-              {bookName.replace('.epub', '').replace('.txt', '')}
-            </h2>
-          </div>
+        <div className={`pointer-events-auto mx-auto w-max max-w-full rounded-xl border ${theme.bg}/90 ${theme.border} px-14 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:px-16`}>
+          <h2 className="text-center text-sm font-bold leading-tight break-words">
+            {bookName.replace('.epub', '').replace('.txt', '')}
+          </h2>
         </div>
       </div>
     </nav>
