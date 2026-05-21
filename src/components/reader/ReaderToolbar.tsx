@@ -54,12 +54,12 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         <button
           onClick={onBack}
           aria-label="Back"
-          className={`pointer-events-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${theme.bg}/80 ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+          className={`pointer-events-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${theme.bg}/90 ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
         >
           <ChevronLeft size={22} />
         </button>
         <div className="flex min-w-0 flex-1 justify-center">
-          <div className={`pointer-events-auto w-max max-w-full rounded-xl border ${theme.bg}/80 ${theme.border} px-6 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-xl sm:px-8`}>
+          <div className={`pointer-events-auto w-max max-w-full rounded-xl border ${theme.bg}/90 ${theme.border} px-6 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-xl sm:px-8`}>
             <h2 className="text-center text-sm font-bold leading-tight break-words">
               {bookName.replace('.epub', '').replace('.txt', '')}
             </h2>
@@ -69,7 +69,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     </nav>
 
     <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-50 px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] transition-transform duration-300 sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom)+16px)] ${showControls ? 'translate-y-0' : 'translate-y-[calc(100%+2rem)]'}`}>
-      <div className={`pointer-events-auto mx-auto max-w-xl overflow-hidden rounded-xl border ${theme.bg}/80 ${theme.border} shadow-[0_18px_50px_rgba(0,0,0,0.24)] backdrop-blur-md`}>
+      <div className={`pointer-events-auto mx-auto max-w-xl overflow-hidden rounded-xl border ${theme.bg}/90 ${theme.border} shadow-[0_18px_50px_rgba(0,0,0,0.24)] backdrop-blur-md`}>
         <div className="px-6 pt-4 pb-0">
           <div className="flex items-center justify-center mb-3 gap-2">
             <span className="text-[11px] font-black tracking-widest font-sans opacity-100 truncate max-w-[85%] text-center">
