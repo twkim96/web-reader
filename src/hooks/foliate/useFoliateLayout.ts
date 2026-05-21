@@ -56,6 +56,24 @@ const buildReaderStyle = (styles: ReaderStyle) => {
       height: auto !important;
       object-fit: contain !important;
     }
+    p:has(> img:only-child),
+    div:has(> img:only-child) {
+      text-indent: 0 !important;
+      text-align: center !important;
+      line-height: normal !important;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+    p:has(> img:only-child) > img,
+    div:has(> img:only-child) > img {
+      display: block !important;
+      width: auto !important;
+      height: auto !important;
+      max-width: 100% !important;
+      max-height: calc(100vh - 20px) !important;
+      margin: 0 auto !important;
+      object-fit: contain !important;
+    }
     a { color: inherit !important; }
   `;
 };

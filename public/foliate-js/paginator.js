@@ -36,6 +36,37 @@ const animate = (a, b, duration, ease, render) => new Promise(resolve => {
     requestAnimationFrame(step)
 })
 
+const normalizeSingleImageSVG = (data, type) => {
+    if (type !== 'application/xhtml+xml' && type !== 'text/html') return data
+
+    const doc = new DOMParser().parseFromString(data, type)
+    if (doc.querySelector('parsererror')) return data
+
+    let changed = false
+    for (const svg of doc.querySelectorAll('svg')) {
+        if (svg.hasAttribute('viewBox') || svg.hasAttribute('width') || svg.hasAttribute('height')) continue
+
+        const elementChildren = Array.from(svg.children)
+        if (elementChildren.length !== 1) continue
+
+        const image = elementChildren[0]
+        if (image.localName !== 'image') continue
+
+        const href = image.getAttribute('href') || image.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+        if (!href) continue
+
+        const img = type === 'text/html'
+            ? doc.createElement('img')
+            : doc.createElementNS(doc.documentElement.namespaceURI, 'img')
+        img.setAttribute('src', href)
+        img.setAttribute('alt', image.getAttribute('alt') || '')
+        svg.replaceWith(img)
+        changed = true
+    }
+
+    return changed ? new XMLSerializer().serializeToString(doc) : data
+}
+
 // collapsed range doesn't return client rects sometimes (or always?)
 // try make get a non-collapsed range or element
 const uncollapse = range => {
@@ -647,6 +678,11 @@ export class Paginator extends HTMLElement {
         this.bookDir = book.dir
         this.sections = book.sections
         book.transformTarget?.addEventListener('data', ({ detail }) => {
+            if (detail.type === 'application/xhtml+xml' || detail.type === 'text/html') {
+                detail.data = Promise.resolve(detail.data)
+                    .then(data => normalizeSingleImageSVG(data, detail.type))
+                return
+            }
             if (detail.type !== 'text/css') return
             const w = innerWidth
             const h = innerHeight
