@@ -1,6 +1,6 @@
 // public/sw.js
 
-const CACHE_NAME = 'pc-reader-v1';
+const CACHE_NAME = 'pc-reader-v1.5.0';
 const PRE_CACHE_URLS = [
   '/',
   '/manifest.json',
@@ -8,6 +8,7 @@ const PRE_CACHE_URLS = [
   '/icon-192.png',
   '/icon-512.png',
   '/logo.png',
+  '/fonts/RIDIBatang.otf',
 ];
 
 // 1. 설치(Install): 핵심 정적 파일들을 미리 캐싱

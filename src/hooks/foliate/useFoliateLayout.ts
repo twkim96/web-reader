@@ -17,7 +17,7 @@ const BEFORE_STYLE = `
   @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap');
   @font-face {
     font-family: 'RIDIBatang';
-    src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_twelve@1.1/RIDIBatang.woff') format('woff');
+    src: url('/fonts/RIDIBatang.otf') format('opentype');
     font-weight: normal;
     font-style: normal;
   }
