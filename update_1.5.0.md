@@ -7,9 +7,10 @@ iPad에서 챕터 전환 시 RIDI 바탕 폰트가 늦게 적용되는 현상을
 ## 변경 사항
 
 - 앱 버전을 `1.5.0`으로 변경했습니다.
-- Foliate 리더 본문에 주입되는 `RIDIBatang` 폰트 소스를 `/fonts/RIDIBatang.otf`로 변경했습니다.
+- Foliate 리더 본문에 주입되는 `RIDIBatang` 폰트 소스를 `/fonts/RIDIBatang.woff2` 우선, `/fonts/RIDIBatang.otf` 보조로 변경했습니다.
 - 기존 클라이언트가 새 앱 셸 캐시를 받도록 서비스워커 캐시 이름을 `pc-reader-v1.5.0`으로 올렸습니다.
-- `/fonts/RIDIBatang.otf`를 서비스워커 프리캐시 목록에 추가했습니다.
+- `/fonts/RIDIBatang.woff2`와 `/fonts/RIDIBatang.otf`를 서비스워커 프리캐시 목록에 추가했습니다.
+- 앱 전역 `@font-face`의 family 이름도 리더 본문과 동일한 `RIDIBatang`으로 정리했습니다.
 
 ## 범위
 

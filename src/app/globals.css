@@ -6,12 +6,13 @@
 }
 
 @font-face {
-  font-family: 'RidiBatang';
-  /* 파일명을 RIDIBatang.otf로 정확히 수정 */
-  src: url('/fonts/RIDIBatang.otf') format('opentype'); 
+  font-family: 'RIDIBatang';
+  src:
+    url('/fonts/RIDIBatang.woff2') format('woff2'),
+    url('/fonts/RIDIBatang.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @theme inline {

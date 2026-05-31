@@ -8,6 +8,7 @@ const PRE_CACHE_URLS = [
   '/icon-192.png',
   '/icon-512.png',
   '/logo.png',
+  '/fonts/RIDIBatang.woff2',
   '/fonts/RIDIBatang.otf',
 ];
 
