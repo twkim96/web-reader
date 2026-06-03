@@ -84,7 +84,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         </div>
       </nav>
 
-      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+0.75rem)] z-50 w-[min(23rem,calc(100vw_-_1.5rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.25rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
+      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(20.5rem,calc(100vw_-_2rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
         <div className="grid gap-y-2">
           {isSliderPreviewing && (
             <div className={`mx-auto max-w-full rounded-full border ${theme.bg} ${theme.border} px-5 py-2 text-center shadow-[0_14px_32px_rgba(0,0,0,0.2)] backdrop-blur-md transition-transform duration-150`}>
@@ -99,16 +99,16 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </div>
           )}
 
-          <div className={`relative h-12 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
+          <div className={`relative h-14 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
             <div
               className="pointer-events-none absolute inset-y-0 left-0 bg-current/20"
               style={{ width: `${safeSliderProgress}%` }}
             />
             <div
-              className="pointer-events-none absolute top-1/2 h-7 w-px -translate-y-1/2 rounded-full bg-current/45"
+              className="pointer-events-none absolute top-1/2 h-8 w-px -translate-y-1/2 rounded-full bg-current/45"
               style={{ left: `${safeSliderProgress}%` }}
             />
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-5 text-sm font-bold">
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-5 text-base font-bold">
               <span>목차 · {progressLabel}</span>
             </div>
             <button
@@ -118,7 +118,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               aria-label="목차"
               title="목차"
             >
-              <List size={22} />
+              <List size={26} />
             </button>
             <div
               className="pointer-events-none absolute inset-y-0 right-14 w-px bg-current/10"
@@ -144,42 +144,42 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           <button
             type="button"
             onClick={onOpenSearch}
-            className={`flex h-12 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+            className={`flex h-14 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-base font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
           >
             <span>책 검색</span>
-            <Search size={22} />
+            <Search size={27} />
           </button>
 
           <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={onOpenSettings}
-              className={`flex h-12 items-center justify-center gap-1.5 rounded-full border ${theme.bg} ${theme.border} px-2 text-xs font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+              className={`flex h-14 items-center justify-center gap-1 rounded-full border ${theme.bg} ${theme.border} px-2 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
             >
-              <Settings size={18} />
+              <Settings size={21} />
               <span>설정</span>
             </button>
             <button
               type="button"
               onClick={onOpenTheme}
-              className={`flex h-12 items-center justify-center gap-1.5 rounded-full border ${theme.bg} ${theme.border} px-2 text-xs font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+              className={`flex h-14 items-center justify-center gap-1 rounded-full border ${theme.bg} ${theme.border} px-2 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
               aria-label="테마"
               title="테마"
             >
-              <Palette size={18} />
+              <Palette size={21} />
               <span>테마</span>
             </button>
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-12 items-center justify-center gap-1.5 rounded-full border ${theme.bg} ${theme.border} px-2 text-xs font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
+              className={`flex h-14 items-center justify-center gap-1 rounded-full border ${theme.bg} ${theme.border} px-2 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
               aria-label="북마크"
               title="북마크"
             >
-              <BookmarkIcon size={18} />
+              <BookmarkIcon size={21} />
               <span>북마크</span>
               {bookmarkCount > 0 && (
-                <span className="text-[10px] font-black">
+                <span className="text-xs font-black">
                   {bookmarkCount}
                 </span>
               )}
