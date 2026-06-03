@@ -16,6 +16,8 @@ type ReaderTheme = {
   border: string;
 };
 
+const READER_TEXT_MAX_INLINE_SIZE = 1000;
+
 interface ReaderToolbarProps {
   theme: ReaderTheme;
   bookName: string;
@@ -84,6 +86,9 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitle(bookName);
   const surfaceStyle = getReaderSurfaceStyle(theme.bg);
+  const menuPositionStyle: React.CSSProperties = {
+    right: `max(calc(env(safe-area-inset-right) + 1rem), calc((100vw - ${READER_TEXT_MAX_INLINE_SIZE}px) / 2 + 1rem))`,
+  };
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const [titleLayout, setTitleLayout] = React.useState<'center' | 'wide'>('center');
@@ -153,7 +158,10 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         </div>
       </nav>
 
-      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(18.75rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}>
+      <div
+        className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(18.75rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
+        style={menuPositionStyle}
+      >
         <div className="relative grid gap-y-1.5">
           {isSliderPreviewing && (
             <div
