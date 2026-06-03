@@ -42,6 +42,21 @@ const getSafePercent = (progress: number) => {
   return Math.min(100, Math.max(0, progress));
 };
 
+const getReaderSurfaceBg = (bg: string) => {
+  switch (bg) {
+    case 'bg-[#272728]':
+      return 'bg-[#272728]/78';
+    case 'bg-[#f4ecd8]':
+      return 'bg-[#f4ecd8]/82';
+    case 'bg-[#eef2f7]':
+      return 'bg-[#eef2f7]/82';
+    case 'bg-[#ffffff]':
+      return 'bg-white/80';
+    default:
+      return 'bg-white/80';
+  }
+};
+
 export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   theme,
   bookName,
@@ -63,6 +78,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitle(bookName);
+  const surfaceBg = getReaderSurfaceBg(theme.bg);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const [titleLayout, setTitleLayout] = React.useState<'center' | 'wide'>('center');
@@ -76,7 +92,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
     const viewportWidth = window.innerWidth;
     const leftInset = window.matchMedia('(min-width: 640px)').matches ? 16 : 12;
-    const rightLimit = closeButton.getBoundingClientRect().left - 12;
+    const rightLimit = closeButton.getBoundingClientRect().left - 16;
     const titleWidth = titleMeasure.getBoundingClientRect().width;
     const centeredLeft = (viewportWidth - titleWidth) / 2;
     const centeredRight = (viewportWidth + titleWidth) / 2;
@@ -106,66 +122,66 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           type="button"
           onClick={onBack}
           aria-label="Close reader"
-          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+10px)] flex h-12 w-12 items-center justify-center rounded-full border ${theme.bg} ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${surfaceBg} ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
         >
-          <X size={24} />
+          <X size={22} />
         </button>
         <div
           ref={titleMeasureRef}
           aria-hidden="true"
-          className="pointer-events-none invisible fixed left-0 top-0 -z-10 w-max rounded-2xl border border-transparent px-5 py-3 sm:px-6"
+          className="pointer-events-none invisible fixed left-0 top-0 -z-10 w-max rounded-2xl border border-transparent px-[1.125rem] py-[0.65rem] sm:px-5"
         >
-          <span className="whitespace-nowrap text-base font-bold leading-snug">
+          <span className="whitespace-nowrap text-[15px] font-bold leading-snug">
             {title}
           </span>
         </div>
-        <div className={`flex ${usesWideTitleLayout ? 'justify-start pl-3 pr-[calc(env(safe-area-inset-right)+5rem)] sm:pl-4 sm:pr-[calc(env(safe-area-inset-right)+5.5rem)]' : 'justify-center px-3'}`}>
-          <div className={`pointer-events-auto w-fit rounded-2xl border ${theme.bg} ${theme.border} px-5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:px-6 ${usesWideTitleLayout ? 'max-w-full' : 'max-w-[min(40rem,calc(100vw_-_9rem))] sm:max-w-[min(40rem,calc(100vw_-_9.5rem))]'}`}>
-            <h2 className="text-center text-base font-bold leading-snug break-words">
+        <div className={`flex ${usesWideTitleLayout ? 'justify-start pl-3 pr-[calc(env(safe-area-inset-right)+4.5rem)] sm:pl-4 sm:pr-[calc(env(safe-area-inset-right)+4.75rem)]' : 'justify-center px-3'}`}>
+          <div className={`pointer-events-auto w-fit rounded-2xl border ${surfaceBg} ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl sm:px-5 ${usesWideTitleLayout ? 'max-w-full' : 'max-w-[min(38rem,calc(100vw_-_9rem))] sm:max-w-[min(38rem,calc(100vw_-_9.5rem))]'}`}>
+            <h2 className="text-center text-[15px] font-bold leading-snug break-words">
               {title}
             </h2>
           </div>
         </div>
       </nav>
 
-      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(20.5rem,calc(100vw_-_2rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
-        <div className="grid gap-y-2">
+      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(18.75rem,calc(100vw_-_2rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
+        <div className="grid gap-y-1.5">
           {isSliderPreviewing && (
-            <div className={`mx-auto grid max-h-20 w-[min(18rem,100%)] content-center overflow-hidden rounded-[1.35rem] border ${theme.bg} ${theme.border} px-4 py-2 text-center shadow-[0_14px_32px_rgba(0,0,0,0.2)] backdrop-blur-md transition-transform duration-150`}>
+            <div className={`mx-auto grid max-h-[4.5rem] w-[min(17rem,100%)] content-center overflow-hidden rounded-[1.25rem] border ${surfaceBg} ${theme.border} px-4 py-1.5 text-center shadow-[0_14px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-transform duration-150`}>
               {sliderPreviewChapter && (
-                <div className="overflow-hidden text-sm font-bold leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                <div className="overflow-hidden text-[13px] font-bold leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                   {sliderPreviewChapter}
                 </div>
               )}
-              <div className="text-[11px] font-bold text-accent-500">
+              <div className="text-[10.5px] font-bold text-accent-500">
                 {progressLabel}
               </div>
             </div>
           )}
 
-          <div className={`relative h-14 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
+          <div className={`relative h-[3.15rem] overflow-hidden rounded-full border ${surfaceBg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl`}>
             <div
               className="pointer-events-none absolute inset-y-0 left-0 bg-current/20"
               style={{ width: `${safeSliderProgress}%` }}
             />
             <div
-              className="pointer-events-none absolute top-1/2 h-8 w-px -translate-y-1/2 rounded-full bg-current/45"
+              className="pointer-events-none absolute top-1/2 h-7 w-px -translate-y-1/2 rounded-full bg-current/45"
               style={{ left: `${safeSliderProgress}%` }}
             />
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-5 text-base font-bold">
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-[1.125rem] text-[15px] font-bold">
               <span>목차 · {progressLabel}</span>
             </div>
             <button
               type="button"
               onClick={onOpenToc}
-              className="absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-center transition-opacity hover:opacity-80"
+              className="absolute inset-y-0 right-0 z-10 flex w-[3.15rem] items-center justify-center transition-opacity hover:opacity-80"
               aria-label="목차"
               title="목차"
             >
-              <List size={26} />
+              <List size={23} />
             </button>
             <div
-              className="pointer-events-none absolute inset-y-0 right-14 w-px bg-current/10"
+              className="pointer-events-none absolute inset-y-0 right-[3.15rem] w-px bg-current/10"
             />
             <input
               type="range"
@@ -180,7 +196,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               onKeyUp={onProgressSliderCommit}
               onBlur={onProgressSliderCommit}
               onChange={(event) => onProgressSliderPreview(parseFloat(event.target.value))}
-              className="absolute inset-y-0 left-0 right-14 h-full cursor-pointer opacity-0"
+              className="absolute inset-y-0 left-0 right-[3.15rem] h-full cursor-pointer opacity-0"
               aria-label="진행률"
             />
           </div>
@@ -188,42 +204,42 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           <button
             type="button"
             onClick={onOpenSearch}
-            className={`flex h-14 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-base font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+            className={`flex h-[3.15rem] items-center justify-between rounded-full border ${surfaceBg} ${theme.border} px-[1.125rem] text-[15px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
           >
             <span>책 검색</span>
-            <Search size={27} />
+            <Search size={24} />
           </button>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               onClick={onOpenSettings}
-              className={`flex h-14 items-center justify-center gap-1 rounded-full border ${theme.bg} ${theme.border} px-2 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${surfaceBg} ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
             >
-              <Settings size={21} />
+              <Settings size={19} />
               <span>설정</span>
             </button>
             <button
               type="button"
               onClick={onOpenTheme}
-              className={`flex h-14 items-center justify-center gap-1 rounded-full border ${theme.bg} ${theme.border} px-2 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${surfaceBg} ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
               aria-label="테마"
               title="테마"
             >
-              <Palette size={21} />
+              <Palette size={19} />
               <span>테마</span>
             </button>
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-14 items-center justify-center gap-1 rounded-full border ${theme.bg} ${theme.border} px-2 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${surfaceBg} ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
               aria-label="북마크"
               title="북마크"
             >
-              <BookmarkIcon size={21} />
+              <BookmarkIcon size={19} />
               <span>북마크</span>
               {bookmarkCount > 0 && (
-                <span className="text-xs font-black">
+                <span className="text-[11px] font-black">
                   {bookmarkCount}
                 </span>
               )}
