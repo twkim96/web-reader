@@ -75,9 +75,9 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         >
           <X size={20} />
         </button>
-        <div className="flex justify-center px-12">
-          <div className={`pointer-events-auto w-max max-w-[min(36rem,calc(100vw_-_7.5rem))] rounded-2xl border ${theme.bg} ${theme.border} px-4 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-[min(36rem,calc(100vw_-_8rem))] sm:px-5`}>
-            <h2 className="text-center text-sm font-bold leading-tight break-words">
+        <div className="flex justify-center px-3">
+          <div className={`pointer-events-auto w-fit max-w-[min(40rem,calc(100vw_-_6.5rem))] rounded-2xl border ${theme.bg} ${theme.border} px-5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-[min(40rem,calc(100vw_-_7rem))] sm:px-6`}>
+            <h2 className="text-center text-base font-bold leading-snug break-words">
               {title}
             </h2>
           </div>
