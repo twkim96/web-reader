@@ -131,9 +131,9 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(20.5rem,calc(100vw_-_2rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
         <div className="grid gap-y-2">
           {isSliderPreviewing && (
-            <div className={`mx-auto max-w-full rounded-full border ${theme.bg} ${theme.border} px-5 py-2 text-center shadow-[0_14px_32px_rgba(0,0,0,0.2)] backdrop-blur-md transition-transform duration-150`}>
+            <div className={`mx-auto grid max-h-20 w-[min(18rem,100%)] content-center overflow-hidden rounded-[1.35rem] border ${theme.bg} ${theme.border} px-4 py-2 text-center shadow-[0_14px_32px_rgba(0,0,0,0.2)] backdrop-blur-md transition-transform duration-150`}>
               {sliderPreviewChapter && (
-                <div className="truncate text-sm font-bold leading-tight">
+                <div className="overflow-hidden text-sm font-bold leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                   {sliderPreviewChapter}
                 </div>
               )}
