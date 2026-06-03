@@ -63,20 +63,64 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitle(bookName);
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const titleMeasureRef = React.useRef<HTMLDivElement>(null);
+  const [titleLayout, setTitleLayout] = React.useState<'center' | 'wide'>('center');
+
+  const updateTitleLayout = React.useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    const closeButton = closeButtonRef.current;
+    const titleMeasure = titleMeasureRef.current;
+    if (!closeButton || !titleMeasure) return;
+
+    const viewportWidth = window.innerWidth;
+    const leftInset = window.matchMedia('(min-width: 640px)').matches ? 16 : 12;
+    const rightLimit = closeButton.getBoundingClientRect().left - 12;
+    const titleWidth = titleMeasure.getBoundingClientRect().width;
+    const centeredLeft = (viewportWidth - titleWidth) / 2;
+    const centeredRight = (viewportWidth + titleWidth) / 2;
+    const nextLayout = centeredLeft < leftInset || centeredRight > rightLimit ? 'wide' : 'center';
+
+    setTitleLayout((currentLayout) => currentLayout === nextLayout ? currentLayout : nextLayout);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const frameId = window.requestAnimationFrame(updateTitleLayout);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [title, updateTitleLayout]);
+
+  React.useEffect(() => {
+    window.addEventListener('resize', updateTitleLayout);
+    void document.fonts?.ready.then(updateTitleLayout);
+    return () => window.removeEventListener('resize', updateTitleLayout);
+  }, [updateTitleLayout]);
+
+  const usesWideTitleLayout = titleLayout === 'wide';
 
   return (
     <>
       <nav className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-300 sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
         <button
+          ref={closeButtonRef}
           type="button"
           onClick={onBack}
           aria-label="Close reader"
-          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+12px)] flex h-10 w-10 items-center justify-center rounded-full border ${theme.bg} ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+10px)] flex h-12 w-12 items-center justify-center rounded-full border ${theme.bg} ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
         >
-          <X size={20} />
+          <X size={24} />
         </button>
-        <div className="flex justify-center px-3">
-          <div className={`pointer-events-auto w-fit max-w-[min(40rem,calc(100vw_-_6.5rem))] rounded-2xl border ${theme.bg} ${theme.border} px-5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-[min(40rem,calc(100vw_-_7rem))] sm:px-6`}>
+        <div
+          ref={titleMeasureRef}
+          aria-hidden="true"
+          className="pointer-events-none invisible fixed left-0 top-0 -z-10 w-max rounded-2xl border border-transparent px-5 py-3 sm:px-6"
+        >
+          <span className="whitespace-nowrap text-base font-bold leading-snug">
+            {title}
+          </span>
+        </div>
+        <div className={`flex ${usesWideTitleLayout ? 'justify-start pl-3 pr-[calc(env(safe-area-inset-right)+5rem)] sm:pl-4 sm:pr-[calc(env(safe-area-inset-right)+5.5rem)]' : 'justify-center px-3'}`}>
+          <div className={`pointer-events-auto w-fit rounded-2xl border ${theme.bg} ${theme.border} px-5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:px-6 ${usesWideTitleLayout ? 'max-w-full' : 'max-w-[min(40rem,calc(100vw_-_9rem))] sm:max-w-[min(40rem,calc(100vw_-_9.5rem))]'}`}>
             <h2 className="text-center text-base font-bold leading-snug break-words">
               {title}
             </h2>
