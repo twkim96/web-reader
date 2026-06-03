@@ -50,15 +50,15 @@ const getReaderSurfaceStyle = (bg: string): React.CSSProperties => {
 
   switch (bg) {
     case 'bg-[#272728]':
-      return { ...blurStyle, backgroundColor: 'rgba(39, 39, 40, 0.72)' };
+      return { ...blurStyle, backgroundColor: 'rgba(39, 39, 40, 0.54)' };
     case 'bg-[#f4ecd8]':
-      return { ...blurStyle, backgroundColor: 'rgba(244, 236, 216, 0.78)' };
+      return { ...blurStyle, backgroundColor: 'rgba(244, 236, 216, 0.62)' };
     case 'bg-[#eef2f7]':
-      return { ...blurStyle, backgroundColor: 'rgba(238, 242, 247, 0.78)' };
+      return { ...blurStyle, backgroundColor: 'rgba(238, 242, 247, 0.62)' };
     case 'bg-[#ffffff]':
-      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.76)' };
+      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.58)' };
     default:
-      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.76)' };
+      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.58)' };
   }
 };
 
@@ -153,7 +153,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         </div>
       </nav>
 
-      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(18.75rem,calc(100vw_-_2rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
+      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(18.75rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}>
         <div className="grid gap-y-1.5">
           {isSliderPreviewing && (
             <div
