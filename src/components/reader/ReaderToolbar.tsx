@@ -62,26 +62,6 @@ const getReaderSurfaceStyle = (bg: string): React.CSSProperties => {
   }
 };
 
-const getReaderGapVeilStyle = (bg: string): React.CSSProperties => {
-  const blurStyle = {
-    backdropFilter: 'blur(18px) saturate(1.12)',
-    WebkitBackdropFilter: 'blur(18px) saturate(1.12)',
-  };
-
-  switch (bg) {
-    case 'bg-[#272728]':
-      return { ...blurStyle, backgroundColor: 'rgba(39, 39, 40, 0.18)' };
-    case 'bg-[#f4ecd8]':
-      return { ...blurStyle, backgroundColor: 'rgba(244, 236, 216, 0.22)' };
-    case 'bg-[#eef2f7]':
-      return { ...blurStyle, backgroundColor: 'rgba(238, 242, 247, 0.22)' };
-    case 'bg-[#ffffff]':
-      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.2)' };
-    default:
-      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.2)' };
-  }
-};
-
 export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   theme,
   bookName,
@@ -104,7 +84,6 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitle(bookName);
   const surfaceStyle = getReaderSurfaceStyle(theme.bg);
-  const gapVeilStyle = getReaderGapVeilStyle(theme.bg);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const [titleLayout, setTitleLayout] = React.useState<'center' | 'wide'>('center');
@@ -142,7 +121,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
   return (
     <>
-      <nav className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-300 sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
+      <nav className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
         <button
           ref={closeButtonRef}
           type="button"
@@ -175,7 +154,6 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       </nav>
 
       <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(18.75rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}>
-        <div className="pointer-events-none absolute -inset-1 rounded-[1.75rem]" style={gapVeilStyle} />
         <div className="relative grid gap-y-1.5">
           {isSliderPreviewing && (
             <div
