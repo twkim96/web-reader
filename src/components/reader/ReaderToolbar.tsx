@@ -99,7 +99,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </div>
           )}
 
-          <div className={`relative h-12 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
+          <div className={`relative h-12 translate-y-1 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
             <div
               className="pointer-events-none absolute inset-y-0 left-0 bg-current/20"
               style={{ width: `${safeSliderProgress}%` }}
@@ -144,7 +144,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           <button
             type="button"
             onClick={onOpenSearch}
-            className={`flex h-12 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+            className={`flex h-12 translate-y-1 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
           >
             <span>책 검색</span>
             <Search size={22} />
