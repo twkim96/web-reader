@@ -1,7 +1,14 @@
 'use client';
 
 import React from 'react';
-import { Bookmark as BookmarkIcon, ChevronLeft, Hash, List, Palette, Search, Settings } from 'lucide-react';
+import {
+  Bookmark as BookmarkIcon,
+  List,
+  Palette,
+  Search,
+  Settings,
+  X,
+} from 'lucide-react';
 
 type ReaderTheme = {
   bg: string;
@@ -13,12 +20,11 @@ interface ReaderToolbarProps {
   theme: ReaderTheme;
   bookName: string;
   showControls: boolean;
-  currentChapter: string;
-  totalProgress: number;
   sliderProgress: number;
+  isSliderPreviewing: boolean;
+  sliderPreviewChapter?: string;
   bookmarkCount: number;
   onBack: () => void;
-  onOpenJump: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenTheme: () => void;
@@ -29,16 +35,22 @@ interface ReaderToolbarProps {
   onProgressSliderCommit: () => void;
 }
 
+const getBookTitle = (bookName: string) => bookName.replace('.epub', '').replace('.txt', '');
+
+const getSafePercent = (progress: number) => {
+  if (!Number.isFinite(progress)) return 0;
+  return Math.min(100, Math.max(0, progress));
+};
+
 export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   theme,
   bookName,
   showControls,
-  currentChapter,
-  totalProgress,
   sliderProgress,
+  isSliderPreviewing,
+  sliderPreviewChapter,
   bookmarkCount,
   onBack,
-  onOpenJump,
   onOpenSearch,
   onOpenSettings,
   onOpenTheme,
@@ -47,82 +59,134 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   onProgressSliderStart,
   onProgressSliderPreview,
   onProgressSliderCommit,
-}) => (
-  <>
-    <nav className={`pointer-events-none fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-300 sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'translate-y-0' : '-translate-y-[calc(100%+2rem)]'}`}>
-      <button
-        onClick={onBack}
-        aria-label="Back"
-        className={`pointer-events-auto absolute left-3 top-[calc(env(safe-area-inset-top)+12px)] flex h-10 w-10 items-center justify-center rounded-full border ${theme.bg}/90 ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100 sm:left-4 sm:top-[calc(env(safe-area-inset-top)+16px)]`}
-      >
-        <ChevronLeft size={22} />
-      </button>
-      <div className="flex justify-center">
-        <div className={`pointer-events-auto w-max max-w-[min(36rem,calc(100vw_-_7.5rem))] rounded-xl border ${theme.bg}/90 ${theme.border} px-4 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-[min(36rem,calc(100vw_-_8rem))] sm:px-5`}>
-          <h2 className="text-center text-sm font-bold leading-tight break-words">
-            {bookName.replace('.epub', '').replace('.txt', '')}
-          </h2>
-        </div>
-      </div>
-    </nav>
+}) => {
+  const safeSliderProgress = getSafePercent(sliderProgress || 0);
+  const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
+  const title = getBookTitle(bookName);
 
-    <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-50 px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] transition-transform duration-300 sm:px-4 sm:pb-[calc(env(safe-area-inset-bottom)+16px)] ${showControls ? 'translate-y-0' : 'translate-y-[calc(100%+2rem)]'}`}>
-      <div className={`pointer-events-auto mx-auto max-w-xl overflow-hidden rounded-xl border ${theme.bg}/90 ${theme.border} shadow-[0_18px_50px_rgba(0,0,0,0.24)] backdrop-blur-md`}>
-        <div className="px-6 pt-4 pb-0">
-          <div className="flex items-center justify-center mb-3 gap-2">
-            <span className="text-[11px] font-black tracking-widest font-sans opacity-100 truncate max-w-[85%] text-center">
-              {currentChapter || 'Reading'}
-              <span className="ml-3 text-accent-500">{(totalProgress || 0).toFixed(1)}%</span>
-            </span>
-            <button onClick={onOpenJump} className="opacity-40 hover:opacity-100 transition-opacity p-1 shrink-0">
-              <Hash size={16} />
-            </button>
+  return (
+    <>
+      <nav className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-300 sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Close reader"
+          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+12px)] flex h-10 w-10 items-center justify-center rounded-full border ${theme.bg} ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+        >
+          <X size={20} />
+        </button>
+        <div className="flex justify-center px-12">
+          <div className={`pointer-events-auto w-max max-w-[min(36rem,calc(100vw_-_7.5rem))] rounded-2xl border ${theme.bg} ${theme.border} px-4 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-md sm:max-w-[min(36rem,calc(100vw_-_8rem))] sm:px-5`}>
+            <h2 className="text-center text-sm font-bold leading-tight break-words">
+              {title}
+            </h2>
           </div>
+        </div>
+      </nav>
 
-          <div className="flex items-center gap-4">
+      <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+0.75rem)] z-50 w-[min(23rem,calc(100vw_-_1.5rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.25rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
+        <div className="flex flex-col gap-2">
+          {isSliderPreviewing && (
+            <div className={`mx-auto max-w-full rounded-full border ${theme.bg} ${theme.border} px-5 py-2 text-center shadow-[0_14px_32px_rgba(0,0,0,0.2)] backdrop-blur-md transition-transform duration-150`}>
+              {sliderPreviewChapter && (
+                <div className="truncate text-sm font-bold leading-tight">
+                  {sliderPreviewChapter}
+                </div>
+              )}
+              <div className="text-[11px] font-bold text-accent-500">
+                {progressLabel}
+              </div>
+            </div>
+          )}
+
+          <div className={`relative h-12 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
+            <div
+              className="pointer-events-none absolute inset-y-0 left-0 bg-current/20"
+              style={{ width: `${safeSliderProgress}%` }}
+            />
+            <div
+              className="pointer-events-none absolute top-1/2 h-7 w-px -translate-y-1/2 rounded-full bg-current/45"
+              style={{ left: `${safeSliderProgress}%` }}
+            />
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-5 text-sm font-bold">
+              <span>목차 · {progressLabel}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenToc}
+              className="absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-center transition-opacity hover:opacity-80"
+              aria-label="목차"
+              title="목차"
+            >
+              <List size={22} />
+            </button>
+            <div
+              className="pointer-events-none absolute inset-y-0 right-14 w-px bg-current/10"
+            />
             <input
               type="range"
               min="0"
               max="100"
               step="0.1"
-              value={sliderProgress || 0}
+              value={safeSliderProgress}
               onPointerDown={onProgressSliderStart}
               onPointerUp={onProgressSliderCommit}
+              onPointerCancel={onProgressSliderCommit}
               onKeyDown={onProgressSliderStart}
               onKeyUp={onProgressSliderCommit}
               onBlur={onProgressSliderCommit}
               onChange={(event) => onProgressSliderPreview(parseFloat(event.target.value))}
-              className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-accent-500"
+              className="absolute inset-y-0 left-0 right-14 h-full cursor-pointer opacity-0"
+              aria-label="진행률"
             />
-            <button onClick={onOpenSearch} className="p-2 -mr-2 opacity-60 hover:opacity-100 transition-opacity shrink-0">
-              <Search size={22} />
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            className={`flex h-12 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+          >
+            <span>책 검색</span>
+            <Search size={22} />
+          </button>
+
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className={`flex h-12 items-center justify-center gap-1.5 rounded-full border ${theme.bg} ${theme.border} px-2 text-xs font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+            >
+              <Settings size={18} />
+              <span>설정</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenTheme}
+              className={`flex h-12 items-center justify-center gap-1.5 rounded-full border ${theme.bg} ${theme.border} px-2 text-xs font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+              aria-label="테마"
+              title="테마"
+            >
+              <Palette size={18} />
+              <span>테마</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenBookmarks}
+              className={`flex h-12 items-center justify-center gap-1.5 rounded-full border ${theme.bg} ${theme.border} px-2 text-xs font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
+              aria-label="북마크"
+              title="북마크"
+            >
+              <BookmarkIcon size={18} />
+              <span>북마크</span>
+              {bookmarkCount > 0 && (
+                <span className="text-[10px] font-black">
+                  {bookmarkCount}
+                </span>
+              )}
             </button>
           </div>
         </div>
-
-        <div className="mx-4 mt-3 border-t border-current/10" />
-
-        <div className="flex justify-around px-5 pt-3 pb-4 font-sans">
-          <button onClick={onOpenSettings} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <Settings size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Config</span>
-          </button>
-          <button onClick={onOpenTheme} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <Palette size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Theme</span>
-          </button>
-          <button
-            onClick={onOpenBookmarks}
-            className={`flex flex-col items-center gap-1.5 transition-opacity ${bookmarkCount > 0 ? 'text-accent-500 opacity-100' : 'opacity-60 hover:opacity-100'}`}
-          >
-            <BookmarkIcon size={22} />
-            <span className="text-[9px] font-bold uppercase tracking-tighter">
-              Mark{bookmarkCount > 0 ? ` (${bookmarkCount})` : ''}
-            </span>
-          </button>
-          <button onClick={onOpenToc} className="flex flex-col items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
-            <List size={22} /><span className="text-[9px] font-bold uppercase tracking-tighter">Index</span>
-          </button>
-        </div>
       </div>
-    </div>
-  </>
-);
+    </>
+  );
+};

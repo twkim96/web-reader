@@ -27,7 +27,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
   const allChapters = flattenToc(toc);
 
   return (
-    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="flex flex-col max-h-[85vh]">
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="flex flex-col max-h-[74vh] sm:max-h-[32rem]">
         {/* Header */}
         <div className={`flex items-center justify-between p-5 border-b ${theme.border}`}>
           <div className="flex items-center gap-3">
@@ -45,7 +45,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-1 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
           {allChapters.length === 0 ? (
             <div className="py-20 text-center opacity-30 text-xs font-bold uppercase tracking-widest">
               No Chapters Found
@@ -55,7 +55,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
               <button
                 key={idx}
                 onClick={() => onJump(item.href, item.progress)}
-                className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group ${currentChapter === item.label
+                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all group ${currentChapter === item.label
                     ? 'bg-accent-500/10 text-accent-500'
                     : 'hover:bg-white/5'
                   }`}

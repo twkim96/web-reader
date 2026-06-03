@@ -14,6 +14,7 @@ interface ReaderModalFrameProps {
   className?: string;
   zIndex?: string;
   noBlur?: boolean;
+  placement?: 'upper' | 'center';
 }
 
 export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
@@ -24,16 +25,23 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   className = '',
   zIndex = 'z-[110]',
   noBlur = false,
-}) => (
-  <div
-    className={`fixed inset-0 ${zIndex} flex items-center justify-center p-4 sm:p-6 ${noBlur ? 'bg-black/20' : 'bg-black/60 backdrop-blur-sm'} animate-in fade-in duration-200`}
-    onClick={onClose}
-  >
+  placement = 'upper',
+}) => {
+  const placementClass = placement === 'center'
+    ? 'items-center justify-center p-4 sm:p-6'
+    : 'items-start justify-center overflow-y-auto p-4 pt-[18vh] sm:p-6 sm:pt-[16vh]';
+
+  return (
     <div
-      onClick={(event) => event.stopPropagation()}
-      className={`w-full ${maxWidth} ${theme.bg} ${theme.text || ''} rounded-3xl shadow-2xl border ${theme.border} overflow-hidden animate-in zoom-in-95 duration-200 ${className}`}
+      className={`fixed inset-0 ${zIndex} flex ${placementClass} ${noBlur ? 'bg-black/20' : 'bg-black/60 backdrop-blur-sm'} animate-in fade-in duration-200`}
+      onClick={onClose}
     >
-      {children}
+      <div
+        onClick={(event) => event.stopPropagation()}
+        className={`w-full ${maxWidth} ${theme.bg} ${theme.text || ''} rounded-3xl shadow-2xl border ${theme.border} overflow-hidden animate-in zoom-in-95 duration-200 ${className}`}
+      >
+        {children}
+      </div>
     </div>
-  </div>
-);
+  );
+};

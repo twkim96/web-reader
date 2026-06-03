@@ -9,6 +9,12 @@ type SliderStart = {
   percent: number;
 };
 
+export type PendingSliderMove = {
+  targetPercent: number;
+  startPercent: number;
+  startCfi: string;
+};
+
 interface UseReaderProgressSliderOptions {
   currentCfi: string;
   totalProgress: number;
@@ -31,6 +37,7 @@ export const useReaderProgressSlider = ({
   goToFraction,
 }: UseReaderProgressSliderOptions) => {
   const [draftProgress, setDraftProgress] = useState<number | null>(null);
+  const [pendingMove, setPendingMove] = useState<PendingSliderMove | null>(null);
   const draftProgressRef = useRef<number | null>(null);
   const startRef = useRef<SliderStart | null>(null);
 
@@ -63,6 +70,26 @@ export const useReaderProgressSlider = ({
 
     const startPercent = start?.percent ?? totalProgress;
     const startCfi = start?.cfi ?? currentCfi;
+    if (Math.abs(targetPercent - startPercent) < 0.05) return;
+
+    setPendingMove({
+      targetPercent,
+      startPercent,
+      startCfi,
+    });
+  }, [currentCfi, totalProgress]);
+
+  const cancelSliderMove = useCallback(() => {
+    setPendingMove(null);
+  }, []);
+
+  const confirmSliderMove = useCallback(async () => {
+    const move = pendingMove;
+    if (!move) return;
+
+    setPendingMove(null);
+
+    const { targetPercent, startPercent, startCfi } = move;
     const diff = Math.abs(targetPercent - startPercent);
     const updatedBookmarks = diff > AUTO_BOOKMARK_THRESHOLD_PERCENT
       ? createAutoBookmark(startCfi, startPercent)
@@ -73,13 +100,17 @@ export const useReaderProgressSlider = ({
       expectedPercent: targetPercent,
       bookmarks: updatedBookmarks,
     });
-    void goToFraction(targetPercent / 100);
-  }, [createAutoBookmark, currentCfi, goToFraction, markUserProgressChange, totalProgress]);
+    await goToFraction(targetPercent / 100);
+  }, [createAutoBookmark, goToFraction, markUserProgressChange, pendingMove]);
 
   return {
-    sliderProgress: draftProgress ?? totalProgress,
+    sliderProgress: draftProgress ?? pendingMove?.targetPercent ?? totalProgress,
+    isSliderPreviewing: draftProgress !== null,
+    pendingSliderMove: pendingMove,
     beginSliderMove,
     previewSliderMove,
     commitSliderMove,
+    cancelSliderMove,
+    confirmSliderMove,
   };
 };

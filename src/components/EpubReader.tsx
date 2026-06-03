@@ -10,6 +10,8 @@ import { BookmarkModal } from './BookmarkModal';
 import { TocModal } from './TocModal';
 import { EpubSearchModal } from './EpubSearchModal';
 import { JumpDialog } from './reader/JumpDialog';
+import { ProgressJumpConfirmDialog } from './reader/ProgressJumpConfirmDialog';
+import { ReaderStatusBar } from './reader/ReaderStatusBar';
 import { ReaderToolbar } from './reader/ReaderToolbar';
 import { SyncConflictDialog } from './reader/SyncConflictDialog';
 import { useEpubReader } from '../hooks/useEpubReader';
@@ -19,6 +21,7 @@ import { useReaderChrome } from '../hooks/reader/useReaderChrome';
 import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
+import type { TocItem } from '../hooks/foliate/types';
 
 interface EpubReaderProps {
   book: Book;
@@ -57,6 +60,33 @@ const isEditableKeyboardTarget = (target: EventTarget | null) => {
   const element = node.nodeType === 1 ? node : node.parentElement;
   const tagName = element?.tagName?.toLowerCase();
   return Boolean(element?.isContentEditable) || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+};
+
+const flattenTocItems = (items: TocItem[]): TocItem[] => (
+  items.flatMap((item) => [item, ...flattenTocItems(item.subitems || [])])
+);
+
+const getChapterForProgress = (items: TocItem[], progressPercent: number) => {
+  if (!Number.isFinite(progressPercent)) return undefined;
+
+  const chapters = flattenTocItems(items)
+    .filter((item): item is TocItem & { label: string; progress: number } => (
+      Boolean(item.label) && Number.isFinite(item.progress)
+    ))
+    .sort((a, b) => a.progress - b.progress);
+
+  if (chapters.length === 0) return undefined;
+
+  let match: string | undefined;
+  for (const chapter of chapters) {
+    if (chapter.progress <= progressPercent + 0.05) {
+      match = chapter.label;
+      continue;
+    }
+    break;
+  }
+
+  return match;
 };
 
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
@@ -175,9 +205,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const {
     sliderProgress,
+    isSliderPreviewing,
+    pendingSliderMove,
     beginSliderMove,
     previewSliderMove,
     commitSliderMove,
+    cancelSliderMove,
+    confirmSliderMove,
   } = useReaderProgressSlider({
     currentCfi,
     totalProgress,
@@ -185,6 +219,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     markUserProgressChange,
     goToFraction,
   });
+
+  const sliderTargetChapter = useMemo(
+    () => getChapterForProgress(toc, sliderProgress),
+    [sliderProgress, toc]
+  );
+  const pendingSliderTargetChapter = useMemo(
+    () => pendingSliderMove ? getChapterForProgress(toc, pendingSliderMove.targetPercent) : undefined,
+    [pendingSliderMove, toc]
+  );
 
   useEffect(() => {
     updateSaveContext({
@@ -386,17 +429,25 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         />
       )}
 
+      {isLoaded && (
+        <ReaderStatusBar
+          theme={theme}
+          currentChapter={currentChapter}
+          totalProgress={totalProgress}
+          onOpenJump={chrome.openJumpInput}
+        />
+      )}
+
       <ReaderToolbar
         theme={theme}
         bookName={book.name}
         showControls={chrome.showControls}
-        currentChapter={currentChapter}
-        totalProgress={totalProgress}
         sliderProgress={sliderProgress}
+        isSliderPreviewing={isSliderPreviewing}
+        sliderPreviewChapter={sliderTargetChapter}
         bookmarkCount={bookmarks.length}
         onBack={chrome.handleUIBack}
-        onOpenJump={chrome.openJumpInput}
-        onOpenSearch={() => { chrome.setShowSearchModal(true); chrome.setShowControls(false); }}
+        onOpenSearch={() => chrome.setShowSearchModal(true)}
         onOpenSettings={() => chrome.setShowSettings(true)}
         onOpenTheme={() => chrome.setShowThemeModal(true)}
         onOpenBookmarks={() => chrome.setShowBookmarks(true)}
@@ -463,6 +514,16 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onChange={chrome.setJumpInput}
           onSubmit={handleJump}
           onClose={chrome.closeJumpInput}
+        />
+      )}
+
+      {pendingSliderMove && (
+        <ProgressJumpConfirmDialog
+          theme={theme}
+          targetPercent={pendingSliderMove.targetPercent}
+          targetChapter={pendingSliderTargetChapter}
+          onCancel={cancelSliderMove}
+          onConfirm={() => { void confirmSliderMove(); }}
         />
       )}
 
