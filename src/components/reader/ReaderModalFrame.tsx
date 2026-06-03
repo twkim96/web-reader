@@ -14,7 +14,7 @@ interface ReaderModalFrameProps {
   className?: string;
   zIndex?: string;
   noBlur?: boolean;
-  placement?: 'upper' | 'center';
+  placement?: 'upper' | 'high' | 'center';
 }
 
 export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
@@ -29,7 +29,9 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
 }) => {
   const placementClass = placement === 'center'
     ? 'items-center justify-center p-4 sm:p-6'
-    : 'items-start justify-center overflow-y-auto p-4 pt-[18vh] sm:p-6 sm:pt-[16vh]';
+    : placement === 'high'
+      ? 'items-start justify-center overflow-y-auto p-4 pt-[7vh] sm:p-6 sm:pt-[8vh]'
+      : 'items-start justify-center overflow-y-auto p-4 pt-[18vh] sm:p-6 sm:pt-[16vh]';
 
   return (
     <div

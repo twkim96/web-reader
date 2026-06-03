@@ -85,7 +85,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       </nav>
 
       <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+0.75rem)] z-50 w-[min(23rem,calc(100vw_-_1.5rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.25rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
-        <div className="flex flex-col gap-2">
+        <div className="grid gap-y-2">
           {isSliderPreviewing && (
             <div className={`mx-auto max-w-full rounded-full border ${theme.bg} ${theme.border} px-5 py-2 text-center shadow-[0_14px_32px_rgba(0,0,0,0.2)] backdrop-blur-md transition-transform duration-150`}>
               {sliderPreviewChapter && (
@@ -99,7 +99,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </div>
           )}
 
-          <div className={`relative h-12 translate-y-1 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
+          <div className={`relative h-12 overflow-hidden rounded-full border ${theme.bg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md`}>
             <div
               className="pointer-events-none absolute inset-y-0 left-0 bg-current/20"
               style={{ width: `${safeSliderProgress}%` }}
@@ -144,7 +144,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           <button
             type="button"
             onClick={onOpenSearch}
-            className={`flex h-12 translate-y-1 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
+            className={`flex h-12 items-center justify-between rounded-full border ${theme.bg} ${theme.border} px-5 text-sm font-bold shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-opacity hover:opacity-100`}
           >
             <span>책 검색</span>
             <Search size={22} />

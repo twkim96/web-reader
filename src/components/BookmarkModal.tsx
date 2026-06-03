@@ -21,7 +21,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   const autoBookmarks = bookmarks.filter(b => b.type === 'auto').sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="h-[80vh] sm:h-auto sm:max-h-[80vh] flex flex-col">
+    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" placement="high" className="h-[80vh] sm:h-auto sm:max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className={`flex items-center justify-between p-5 border-b ${theme.border}`}>
           <div className="flex items-center gap-2">
