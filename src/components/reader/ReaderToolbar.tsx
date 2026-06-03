@@ -42,18 +42,23 @@ const getSafePercent = (progress: number) => {
   return Math.min(100, Math.max(0, progress));
 };
 
-const getReaderSurfaceBg = (bg: string) => {
+const getReaderSurfaceStyle = (bg: string): React.CSSProperties => {
+  const blurStyle = {
+    backdropFilter: 'blur(18px) saturate(1.18)',
+    WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+  };
+
   switch (bg) {
     case 'bg-[#272728]':
-      return 'bg-[#272728]/78';
+      return { ...blurStyle, backgroundColor: 'rgba(39, 39, 40, 0.72)' };
     case 'bg-[#f4ecd8]':
-      return 'bg-[#f4ecd8]/82';
+      return { ...blurStyle, backgroundColor: 'rgba(244, 236, 216, 0.78)' };
     case 'bg-[#eef2f7]':
-      return 'bg-[#eef2f7]/82';
+      return { ...blurStyle, backgroundColor: 'rgba(238, 242, 247, 0.78)' };
     case 'bg-[#ffffff]':
-      return 'bg-white/80';
+      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.76)' };
     default:
-      return 'bg-white/80';
+      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.76)' };
   }
 };
 
@@ -78,7 +83,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitle(bookName);
-  const surfaceBg = getReaderSurfaceBg(theme.bg);
+  const surfaceStyle = getReaderSurfaceStyle(theme.bg);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const [titleLayout, setTitleLayout] = React.useState<'center' | 'wide'>('center');
@@ -122,7 +127,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           type="button"
           onClick={onBack}
           aria-label="Close reader"
-          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${surfaceBg} ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
+          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+          style={surfaceStyle}
         >
           <X size={22} />
         </button>
@@ -136,7 +142,10 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           </span>
         </div>
         <div className={`flex ${usesWideTitleLayout ? 'justify-start pl-3 pr-[calc(env(safe-area-inset-right)+4.125rem)] sm:pl-4 sm:pr-[calc(env(safe-area-inset-right)+4.125rem)]' : 'justify-center px-3'}`}>
-          <div className={`pointer-events-auto w-fit rounded-2xl border ${surfaceBg} ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl sm:px-5 ${usesWideTitleLayout ? 'max-w-full' : 'max-w-[min(38rem,calc(100vw_-_9rem))] sm:max-w-[min(38rem,calc(100vw_-_9.5rem))]'}`}>
+          <div
+            className={`pointer-events-auto w-fit rounded-2xl border ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesWideTitleLayout ? 'max-w-full' : 'max-w-[min(38rem,calc(100vw_-_9rem))] sm:max-w-[min(38rem,calc(100vw_-_9.5rem))]'}`}
+            style={surfaceStyle}
+          >
             <h2 className="text-center text-[15px] font-bold leading-snug break-words">
               {title}
             </h2>
@@ -147,7 +156,10 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       <div className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 w-[min(18.75rem,calc(100vw_-_2rem))] font-sans transition-all duration-300 sm:right-[calc(env(safe-area-inset-right)+1.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] ${showControls ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0'}`}>
         <div className="grid gap-y-1.5">
           {isSliderPreviewing && (
-            <div className={`mx-auto grid max-h-[4.5rem] w-[min(17rem,100%)] content-center overflow-hidden rounded-[1.25rem] border ${surfaceBg} ${theme.border} px-4 py-1.5 text-center shadow-[0_14px_32px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-transform duration-150`}>
+            <div
+              className={`mx-auto grid max-h-[4.5rem] w-[min(17rem,100%)] content-center overflow-hidden rounded-[1.25rem] border ${theme.border} px-4 py-1.5 text-center shadow-[0_14px_32px_rgba(0,0,0,0.22)] transition-transform duration-150`}
+              style={surfaceStyle}
+            >
               {sliderPreviewChapter && (
                 <div className="overflow-hidden text-[13px] font-bold leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                   {sliderPreviewChapter}
@@ -159,7 +171,10 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </div>
           )}
 
-          <div className={`relative h-[3.15rem] overflow-hidden rounded-full border ${surfaceBg} ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl`}>
+          <div
+            className={`relative h-[3.15rem] overflow-hidden rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)]`}
+            style={surfaceStyle}
+          >
             <div
               className="pointer-events-none absolute inset-y-0 left-0 bg-current/20"
               style={{ width: `${safeSliderProgress}%` }}
@@ -204,7 +219,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           <button
             type="button"
             onClick={onOpenSearch}
-            className={`flex h-[3.15rem] items-center justify-between rounded-full border ${surfaceBg} ${theme.border} px-[1.125rem] text-[15px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
+            className={`flex h-[3.15rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[15px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+            style={surfaceStyle}
           >
             <span>책 검색</span>
             <Search size={24} />
@@ -214,7 +230,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenSettings}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${surfaceBg} ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              style={surfaceStyle}
             >
               <Settings size={19} />
               <span>설정</span>
@@ -222,7 +239,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenTheme}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${surfaceBg} ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              style={surfaceStyle}
               aria-label="테마"
               title="테마"
             >
@@ -232,7 +250,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${surfaceBg} ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
+              style={surfaceStyle}
               aria-label="북마크"
               title="북마크"
             >
