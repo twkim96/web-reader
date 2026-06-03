@@ -92,7 +92,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
     const viewportWidth = window.innerWidth;
     const leftInset = window.matchMedia('(min-width: 640px)').matches ? 16 : 12;
-    const rightLimit = closeButton.getBoundingClientRect().left - 16;
+    const rightLimit = closeButton.getBoundingClientRect().left - 10;
     const titleWidth = titleMeasure.getBoundingClientRect().width;
     const centeredLeft = (viewportWidth - titleWidth) / 2;
     const centeredRight = (viewportWidth + titleWidth) / 2;
@@ -135,7 +135,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             {title}
           </span>
         </div>
-        <div className={`flex ${usesWideTitleLayout ? 'justify-start pl-3 pr-[calc(env(safe-area-inset-right)+4.5rem)] sm:pl-4 sm:pr-[calc(env(safe-area-inset-right)+4.75rem)]' : 'justify-center px-3'}`}>
+        <div className={`flex ${usesWideTitleLayout ? 'justify-start pl-3 pr-[calc(env(safe-area-inset-right)+4.125rem)] sm:pl-4 sm:pr-[calc(env(safe-area-inset-right)+4.125rem)]' : 'justify-center px-3'}`}>
           <div className={`pointer-events-auto w-fit rounded-2xl border ${surfaceBg} ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl sm:px-5 ${usesWideTitleLayout ? 'max-w-full' : 'max-w-[min(38rem,calc(100vw_-_9rem))] sm:max-w-[min(38rem,calc(100vw_-_9.5rem))]'}`}>
             <h2 className="text-center text-[15px] font-bold leading-snug break-words">
               {title}
