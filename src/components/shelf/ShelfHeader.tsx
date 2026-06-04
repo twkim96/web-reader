@@ -75,8 +75,8 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   }, [showMobileMenu]);
 
   const getSortIcon = () => {
-    if (sortMode === 'alpha') return <ArrowDownAZ size={20} />;
-    return <Clock size={20} />;
+    if (sortMode === 'alpha') return <ArrowDownAZ size={24} />;
+    return <Clock size={24} />;
   };
 
   const getSortTitle = () => {
@@ -84,24 +84,28 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     return "최근에 읽은 순";
   };
 
-  const dockClass = `rounded-[1.75rem] border ${theme.border} ${theme.secondary} p-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)] backdrop-blur-xl`;
-  const dockButtonClass = "flex h-14 w-14 items-center justify-center rounded-[1.15rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
-  const activeDockButtonClass = "flex h-14 w-14 items-center justify-center rounded-[1.15rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
+  const dockIconSize = 24;
+  const dockClass = `rounded-[1.85rem] border ${theme.border} ${theme.secondary} p-2.5 shadow-[0_18px_55px_rgba(0,0,0,0.18)] backdrop-blur-xl`;
+  const mobileSideDockClass = `rounded-[1.9rem] border ${theme.border} ${theme.secondary} px-3 py-4 shadow-[0_18px_55px_rgba(0,0,0,0.22)] backdrop-blur-xl`;
+  const dockButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
+  const activeDockButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
-  const dangerDockButtonClass = "flex h-14 w-14 items-center justify-center rounded-[1.15rem] text-red-400 opacity-80 transition-all hover:opacity-100 active:scale-90";
+  const dangerDockButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] text-red-400 opacity-80 transition-all hover:opacity-100 active:scale-90";
+  const mobileSearchButtonClass = "flex h-14 w-12 items-center justify-center opacity-55 transition-opacity hover:opacity-100 active:scale-90";
+  const mobileMenuButtonClass = `flex h-16 w-16 items-center justify-center rounded-[1.25rem] border ${theme.border} ${theme.secondary} opacity-85 shadow-[0_12px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-all hover:opacity-100 active:scale-90`;
 
   const mobileDock = showMobileMenu ? (
     <div
       ref={mobileMenuDockRef}
       className="fixed right-[calc(env(safe-area-inset-right)+1rem)] top-1/2 z-[80] -translate-y-1/2 md:hidden"
     >
-      <div className={`flex flex-col gap-1.5 ${dockClass} animate-in fade-in slide-in-from-right-4 duration-200`}>
+      <div className={`flex flex-col gap-2.5 ${mobileSideDockClass} animate-in fade-in slide-in-from-right-4 duration-200`}>
         <button
           onClick={() => { setShowMobileMenu(false); setShowImportConfirm(true); }}
           className={accentDockButtonClass}
           title="Add Local Book"
         >
-          <FilePlus size={20} />
+          <FilePlus size={dockIconSize} />
         </button>
 
         <button
@@ -122,7 +126,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           className={dockButtonClass}
           title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
         >
-          {viewMode === 'grid' ? <List size={20} /> : <LayoutGrid size={20} />}
+          {viewMode === 'grid' ? <List size={dockIconSize} /> : <LayoutGrid size={dockIconSize} />}
         </button>
 
         <button
@@ -130,7 +134,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           className={dockButtonClass}
           title="Change Theme"
         >
-          <Palette size={20} />
+          <Palette size={dockIconSize} />
         </button>
 
         <button
@@ -138,7 +142,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           className={dockButtonClass}
           title="Manage Offline Books"
         >
-          <HardDrive size={20} />
+          <HardDrive size={dockIconSize} />
         </button>
 
         {isGuest ? (
@@ -147,7 +151,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             className={accentDockButtonClass}
             title="Sign In"
           >
-            <KeyRound size={20} />
+            <KeyRound size={dockIconSize} />
           </button>
         ) : (
           <button
@@ -155,7 +159,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             className={dangerDockButtonClass}
             title="Sign Out"
           >
-            <LogOut size={20} />
+            <LogOut size={dockIconSize} />
           </button>
         )}
       </div>
@@ -205,87 +209,95 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           </div>
 
           <div className="relative" ref={mobileMenuRef}>
-            <div className={`flex items-center gap-1.5 ${dockClass}`}>
+            <div className={`hidden items-center gap-1.5 md:flex ${dockClass}`}>
               <button
                 onClick={() => setShowSearch(true)}
                 className={searchKeyword ? activeDockButtonClass : dockButtonClass}
                 title="Search Books"
               >
-                <Search size={20} />
+                <Search size={dockIconSize} />
+              </button>
+
+              <button
+                onClick={() => { setShowImportConfirm(true); }}
+                className={accentDockButtonClass}
+                title="Add Local Book"
+              >
+                <FilePlus size={dockIconSize} />
+              </button>
+
+              <button
+                onClick={onToggleSortMode}
+                className={dockButtonClass}
+                title={getSortTitle()}
+              >
+                <div className="flex items-center justify-center relative">
+                  {getSortIcon()}
+                  <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
+                    {sortMode === 'alpha' ? 'A' : 'R'}
+                  </span>
+                </div>
+              </button>
+
+              <button
+                onClick={onToggleViewMode}
+                className={dockButtonClass}
+                title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
+              >
+                {viewMode === 'grid' ? <List size={dockIconSize} /> : <LayoutGrid size={dockIconSize} />}
+              </button>
+
+              <button
+                onClick={() => { setShowThemeModal(true); }}
+                className={dockButtonClass}
+                title="Change Theme"
+              >
+                <Palette size={dockIconSize} />
+              </button>
+
+              <button
+                onClick={() => { setShowManage(true); }}
+                className={dockButtonClass}
+                title="Manage Offline Books"
+              >
+                <HardDrive size={dockIconSize} />
+              </button>
+
+              {isGuest ? (
+                <button
+                  onClick={onLogin}
+                  className={accentDockButtonClass}
+                  title="Sign In"
+                >
+                  <KeyRound size={dockIconSize} />
+                </button>
+              ) : (
+                <button
+                  onClick={onLogout}
+                  className={dangerDockButtonClass}
+                  title="Sign Out"
+                >
+                  <LogOut size={dockIconSize} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 md:hidden">
+              <button
+                onClick={() => setShowSearch(true)}
+                className={mobileSearchButtonClass}
+                title="Search Books"
+              >
+                <Search size={dockIconSize} />
               </button>
 
               <button
                 onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className={`${dockButtonClass} md:hidden`}
+                className={mobileMenuButtonClass}
                 aria-label={showMobileMenu ? "Close menu" : "Open menu"}
               >
-                {showMobileMenu ? <X size={20} /> : <Menu size={20} />}
+                {showMobileMenu ? <X size={dockIconSize} /> : <Menu size={dockIconSize} />}
               </button>
-
-              <div className="hidden items-center gap-1.5 md:flex">
-                <button
-                  onClick={() => { setShowImportConfirm(true); }}
-                  className={accentDockButtonClass}
-                  title="Add Local Book"
-                >
-                  <FilePlus size={20} />
-                </button>
-
-                <button
-                  onClick={onToggleSortMode}
-                  className={dockButtonClass}
-                  title={getSortTitle()}
-                >
-                  <div className="flex items-center justify-center relative">
-                    {getSortIcon()}
-                    <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
-                      {sortMode === 'alpha' ? 'A' : 'R'}
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={onToggleViewMode}
-                  className={dockButtonClass}
-                  title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
-                >
-                  {viewMode === 'grid' ? <List size={20} /> : <LayoutGrid size={20} />}
-                </button>
-
-                <button
-                  onClick={() => { setShowThemeModal(true); }}
-                  className={dockButtonClass}
-                  title="Change Theme"
-                >
-                  <Palette size={20} />
-                </button>
-
-                <button
-                  onClick={() => { setShowManage(true); }}
-                  className={dockButtonClass}
-                  title="Manage Offline Books"
-                >
-                  <HardDrive size={20} />
-                </button>
-
-                {isGuest ? (
-                  <button
-                    onClick={onLogin}
-                    className={accentDockButtonClass}
-                    title="Sign In"
-                  >
-                    <KeyRound size={20} />
-                  </button>
-                ) : (
-                  <button
-                    onClick={onLogout}
-                    className={dangerDockButtonClass}
-                    title="Sign Out"
-                  >
-                    <LogOut size={20} />
-                  </button>
-                )}
-              </div>
             </div>
           </div>
       </div>
