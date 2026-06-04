@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { 
   Library, 
   Search, 
@@ -13,15 +12,11 @@ import {
   ArrowDownAZ,
   Clock,
   Palette,
-  Menu,
-  X,
   FilePlus,
   CloudLightning
 } from 'lucide-react';
-import { ThemeClasses } from '../../types';
 
 interface ShelfHeaderProps {
-  theme: ThemeClasses;
   shelfContentRef: React.RefObject<HTMLElement | null>;
   isOfflineMode: boolean;
   isGuest: boolean;
@@ -42,7 +37,6 @@ interface ShelfHeaderProps {
 }
 
 export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
-  theme,
   shelfContentRef,
   isOfflineMode,
   isGuest,
@@ -61,22 +55,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   setShowManage,
   setShowImportConfirm
 }) => {
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [isBottomDock, setIsBottomDock] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
-  const mobileMenuDockRef = useRef<HTMLDivElement>(null);
   const isBottomDockRef = useRef(false);
-
-  useEffect(() => {
-    if (!showMobileMenu) return;
-    const handleOutsidePointerDown = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (mobileMenuRef.current?.contains(target) || mobileMenuDockRef.current?.contains(target)) return;
-      setShowMobileMenu(false);
-    };
-    document.addEventListener('pointerdown', handleOutsidePointerDown);
-    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
-  }, [showMobileMenu]);
 
   useEffect(() => {
     let frameId = 0;
@@ -97,7 +78,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
       if (shouldMoveBottom !== isBottomDockRef.current) {
         isBottomDockRef.current = shouldMoveBottom;
-        if (shouldMoveBottom) setShowMobileMenu(false);
         setIsBottomDock(shouldMoveBottom);
       }
     };
@@ -128,50 +108,42 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   };
 
   const desktopDockIconSize = 24;
-  const bottomDockIconSize = 24;
-  const mobileDockIconSize = 28;
-  const mobileHeaderIconSize = 27;
+  const bottomDockIconSize = 25;
+  const authIconSize = 24;
   const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
-  const dockSurfaceClass = `border ${theme.border} bg-[color:var(--viewer-reader-surface)] backdrop-blur-xl`;
+  const dockSurfaceClass = "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl";
   const dockClass = `rounded-[1.65rem] ${dockSurfaceClass} p-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)]`;
   const bottomDockClass = `flex max-w-[calc(100vw-1rem)] items-center justify-center rounded-[1.55rem] ${dockSurfaceClass} px-1.5 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.28)] md:rounded-[1.9rem] md:px-3 md:py-2.5`;
-  const mobileSideDockClass = `rounded-[1.9rem] ${dockSurfaceClass} px-3 py-4 shadow-[0_18px_55px_rgba(0,0,0,0.22)]`;
   const dockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const activeDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
-  const dangerDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] text-red-400 opacity-80 transition-all hover:opacity-100 active:scale-90";
-  const bottomDockButtonClass = "flex h-10 w-10 items-center justify-center rounded-[0.9rem] opacity-70 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
-  const activeBottomDockButtonClass = "flex h-10 w-10 items-center justify-center rounded-[0.9rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
+  const bottomDockButtonClass = "flex h-[2.875rem] w-[2.875rem] items-center justify-center rounded-[0.95rem] opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
+  const activeBottomDockButtonClass = "flex h-[2.875rem] w-[2.875rem] items-center justify-center rounded-[0.95rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
   const accentBottomDockButtonClass = `${bottomDockButtonClass} text-accent-500`;
-  const dangerBottomDockButtonClass = "flex h-10 w-10 items-center justify-center rounded-[0.9rem] text-red-400 opacity-85 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
-  const mobileSideDockButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
-  const mobileSideAccentButtonClass = `${mobileSideDockButtonClass} text-accent-500`;
-  const mobileSideDangerButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] text-red-400 opacity-80 transition-all hover:opacity-100 active:scale-90";
+  const authButtonClass = `fixed z-[85] flex h-12 w-12 items-center justify-center rounded-[1.1rem] ${dockSurfaceClass} shadow-[0_14px_40px_rgba(0,0,0,0.2)] transition-all hover:bg-current/10 active:scale-90`;
+  const authDangerClass = `${authButtonClass} text-red-400`;
+  const authAccentClass = `${authButtonClass} text-accent-500`;
   const menuShellStyle: React.CSSProperties = {
+    top: 'calc(env(safe-area-inset-top) + 1.5rem)',
+    right: 'max(6.25rem, calc((100vw - 80rem) / 2 + 6.25rem))',
+  };
+  const authButtonStyle: React.CSSProperties = {
     top: 'calc(env(safe-area-inset-top) + 1.5rem)',
     right: 'max(1.5rem, calc((100vw - 80rem) / 2 + 1.5rem))',
   };
-  const mobileHeaderDockClass = `flex h-16 items-center gap-1 rounded-[1.35rem] ${dockSurfaceClass} px-2 opacity-90 shadow-[0_12px_34px_rgba(0,0,0,0.22)]`;
-  const mobileSearchButtonClass = "flex h-full w-12 items-center justify-center opacity-55 transition-opacity hover:opacity-100 active:scale-90";
-  const mobileMenuButtonClass = "flex h-14 w-14 items-center justify-center rounded-[1.05rem] opacity-85 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
 
   const renderDockActions = ({
     iconSize,
     buttonClass,
     activeButtonClass,
     accentButtonClass,
-    dangerButtonClass,
-    closeOnAction = false,
   }: {
     iconSize: number;
     buttonClass: string;
     activeButtonClass: string;
     accentButtonClass: string;
-    dangerButtonClass: string;
-    closeOnAction?: boolean;
   }) => {
     const runAction = (action: () => void) => {
-      if (closeOnAction) setShowMobileMenu(false);
       action();
     };
 
@@ -229,48 +201,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
         >
           <HardDrive size={iconSize} />
         </button>
-
-        {isGuest ? (
-          <button
-            onClick={() => runAction(onLogin)}
-            className={accentButtonClass}
-            title="Sign In"
-          >
-            <KeyRound size={iconSize} />
-          </button>
-        ) : (
-          <button
-            onClick={() => runAction(onLogout)}
-            className={dangerButtonClass}
-            title="Sign Out"
-          >
-            <LogOut size={iconSize} />
-          </button>
-        )}
       </>
     );
   };
 
-  const mobileDock = showMobileMenu && !isBottomDock ? (
-    <div
-      ref={mobileMenuDockRef}
-      className="fixed right-[calc(env(safe-area-inset-right)+1rem)] top-1/2 z-[80] -translate-y-1/2 md:hidden"
-    >
-      <div className={`flex flex-col gap-2.5 ${mobileSideDockClass} animate-in fade-in slide-in-from-right-4 duration-200`}>
-        {renderDockActions({
-          iconSize: mobileDockIconSize,
-          buttonClass: mobileSideDockButtonClass,
-          activeButtonClass: mobileSideDockButtonClass,
-          accentButtonClass: mobileSideAccentButtonClass,
-          dangerButtonClass: mobileSideDangerButtonClass,
-          closeOnAction: true,
-        })}
-      </div>
-    </div>
-  ) : null;
-
-  const bottomDock = isBottomDock ? (
-    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.85rem)] z-[80] flex justify-center px-2 pointer-events-none">
+  const bottomDock = (
+    <div className={`fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.85rem)] z-[80] flex justify-center px-2 pointer-events-none ${isBottomDock ? 'md:flex' : 'md:hidden'}`}>
       <div className={`${bottomDockClass} pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out`}>
         <div className="flex items-center gap-0.5 md:gap-2">
           {renderDockActions({
@@ -278,12 +214,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             buttonClass: bottomDockButtonClass,
             activeButtonClass: activeBottomDockButtonClass,
             accentButtonClass: accentBottomDockButtonClass,
-            dangerButtonClass: dangerBottomDockButtonClass,
           })}
         </div>
       </div>
     </div>
-  ) : null;
+  );
 
   return (
     <>
@@ -328,7 +263,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           </div>
 
           <div
-            className={`fixed z-50 transition-all duration-200 ease-out ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
+            className={`fixed z-50 hidden transition-all duration-200 ease-out md:block ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
             ref={mobileMenuRef}
             style={menuShellStyle}
           >
@@ -338,32 +273,21 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                 buttonClass: dockButtonClass,
                 activeButtonClass: activeDockButtonClass,
                 accentButtonClass: accentDockButtonClass,
-                dangerButtonClass: dangerDockButtonClass,
               })}
-            </div>
-
-            <div className={`${mobileHeaderDockClass} md:hidden`}>
-              <button
-                onClick={() => setShowSearch(true)}
-                className={mobileSearchButtonClass}
-                title="Search Books"
-              >
-                <Search size={mobileHeaderIconSize} />
-              </button>
-
-              <button
-                onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className={mobileMenuButtonClass}
-                aria-label={showMobileMenu ? "Close menu" : "Open menu"}
-              >
-                {showMobileMenu ? <X size={mobileHeaderIconSize} /> : <Menu size={mobileHeaderIconSize} />}
-              </button>
             </div>
           </div>
       </div>
       </header>
-      {typeof document !== 'undefined' && mobileDock && createPortal(mobileDock, document.body)}
-      {typeof document !== 'undefined' && bottomDock && createPortal(bottomDock, document.body)}
+      <button
+        onClick={isGuest ? onLogin : onLogout}
+        className={isGuest ? authAccentClass : authDangerClass}
+        style={authButtonStyle}
+        title={isGuest ? "Sign In" : "Sign Out"}
+        aria-label={isGuest ? "Sign In" : "Sign Out"}
+      >
+        {isGuest ? <KeyRound size={authIconSize} /> : <LogOut size={authIconSize} />}
+      </button>
+      {bottomDock}
     </>
   );
 };
