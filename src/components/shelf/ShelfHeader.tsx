@@ -109,26 +109,26 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   const desktopDockIconSize = 24;
   const bottomDockIconSize = 25;
-  const authIconSize = 24;
+  const authIconSize = 28;
   const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
   const dockSurfaceClass = "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl";
-  const dockClass = `rounded-[1.65rem] ${dockSurfaceClass} p-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)]`;
-  const bottomDockClass = `flex max-w-[calc(100vw-1rem)] items-center justify-center rounded-[1.55rem] ${dockSurfaceClass} px-1.5 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.28)] md:rounded-[1.9rem] md:px-3 md:py-2.5`;
-  const dockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
+  const dockClass = `flex h-[4.125rem] items-center rounded-[1.65rem] ${dockSurfaceClass} px-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)]`;
+  const bottomDockClass = `flex h-16 max-w-[calc(100vw-1rem)] items-center justify-center rounded-[1.55rem] ${dockSurfaceClass} px-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.28)] md:h-[4.5rem] md:rounded-[1.9rem] md:px-3`;
+  const dockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] opacity-70 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const activeDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
   const bottomDockButtonClass = "flex h-[2.875rem] w-[2.875rem] items-center justify-center rounded-[0.95rem] opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
   const activeBottomDockButtonClass = "flex h-[2.875rem] w-[2.875rem] items-center justify-center rounded-[0.95rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
   const accentBottomDockButtonClass = `${bottomDockButtonClass} text-accent-500`;
-  const authButtonClass = `fixed z-[85] flex h-12 w-12 items-center justify-center rounded-[1.1rem] ${dockSurfaceClass} shadow-[0_14px_40px_rgba(0,0,0,0.2)] transition-all hover:bg-current/10 active:scale-90`;
+  const authButtonClass = "fixed z-[85] flex h-[4.125rem] w-12 items-center justify-center bg-transparent p-0 drop-shadow-[0_12px_22px_rgba(0,0,0,0.35)] transition-all hover:opacity-100 active:scale-90";
   const authDangerClass = `${authButtonClass} text-red-400`;
   const authAccentClass = `${authButtonClass} text-accent-500`;
   const menuShellStyle: React.CSSProperties = {
-    top: 'calc(env(safe-area-inset-top) + 1.5rem)',
+    top: 'calc(env(safe-area-inset-top) + 2rem)',
     right: 'max(6.25rem, calc((100vw - 80rem) / 2 + 6.25rem))',
   };
   const authButtonStyle: React.CSSProperties = {
-    top: 'calc(env(safe-area-inset-top) + 1.5rem)',
+    top: 'calc(env(safe-area-inset-top) + 2rem)',
     right: 'max(1.5rem, calc((100vw - 80rem) / 2 + 1.5rem))',
   };
 
@@ -222,9 +222,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   return (
     <>
-      <header className="relative z-40 px-6 py-6 transition-colors duration-300">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className={`flex items-center gap-4 ${brandSurfaceClass}`}>
+      <header className="relative z-40 pt-8 pb-6 transition-colors duration-300">
+        <div className="max-w-7xl mx-auto flex h-[4.125rem] items-center justify-between px-6">
+          <div className={`flex h-full items-center gap-4 ${brandSurfaceClass}`}>
             <button
               onClick={isGuest ? onLogin : onToggleCloud}
               className={`p-3 rounded-2xl shadow-lg transition-all active:scale-90 group relative ${
