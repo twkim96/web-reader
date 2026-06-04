@@ -66,6 +66,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [isDeletingBook, setIsDeletingBook] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const shelfContentRef = useRef<HTMLElement | null>(null);
 
   const theme = getThemeClasses(settings);
   const { viewMode, sortMode, toggleViewMode, toggleSortMode } = useShelfPreferences();
@@ -120,9 +121,10 @@ export const Shelf: React.FC<ShelfProps> = ({
   }, []);
 
   return (
-    <div className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-20 transition-colors duration-300`}>
+    <div className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-36 transition-colors duration-300`}>
       <ShelfHeader 
         theme={theme}
+        shelfContentRef={shelfContentRef}
         isOfflineMode={isOfflineMode}
         isGuest={isGuest}
         isSyncing={isSyncing}
@@ -170,7 +172,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main ref={shelfContentRef} className="max-w-7xl mx-auto px-6 py-8">
         {filteredBooks.length > 0 ? (
           <div className={`grid gap-8 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
             {filteredBooks.map((book) => (

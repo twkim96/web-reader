@@ -1,6 +1,6 @@
 // public/sw.js
 
-const CACHE_NAME = 'pc-reader-v1.5.3';
+const CACHE_NAME = 'pc-reader-v1.5.4';
 const PRE_CACHE_URLS = [
   '/',
   '/manifest.json',
