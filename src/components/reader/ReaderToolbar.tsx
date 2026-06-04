@@ -51,6 +51,10 @@ const getReaderSurfaceStyle = (bg: string): React.CSSProperties => {
     WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
   };
 
+  if (bg.includes('var(--viewer-theme-bg)')) {
+    return { ...blurStyle, backgroundColor: 'var(--viewer-reader-surface)' };
+  }
+
   switch (bg) {
     case 'bg-[#272728]':
       return { ...blurStyle, backgroundColor: 'rgba(39, 39, 40, 0.54)' };

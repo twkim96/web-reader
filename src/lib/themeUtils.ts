@@ -99,6 +99,7 @@ export const getThemeCssVariables = (settings: ViewerSettings): CSSProperties =>
   const colors = getThemeColors(settings);
   const bgColor = normalizeHexColor(colors.bg, '#f4ecd8');
   const textColor = normalizeHexColor(colors.text, '#5b4636');
+  const bgRgb = getRgbString(bgColor);
   const textRgb = getRgbString(textColor);
   const secondaryColor = mixHex(bgColor, textColor, 0.09);
 
@@ -107,6 +108,7 @@ export const getThemeCssVariables = (settings: ViewerSettings): CSSProperties =>
     '--viewer-theme-text': textColor,
     '--viewer-theme-border': `rgba(${textRgb}, 0.18)`,
     '--viewer-theme-secondary': secondaryColor,
+    '--viewer-reader-surface': `rgba(${bgRgb}, 0.68)`,
     ...getTextureVars(colors.texture, textColor),
   } as CSSProperties;
 };

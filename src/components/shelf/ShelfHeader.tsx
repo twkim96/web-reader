@@ -88,8 +88,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const mobileDockIconSize = 28;
   const mobileHeaderIconSize = 27;
   const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
-  const dockClass = `rounded-[1.65rem] border ${theme.border} ${theme.secondary} p-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)] backdrop-blur-xl`;
-  const mobileSideDockClass = `rounded-[1.9rem] border ${theme.border} ${theme.secondary} px-3 py-4 shadow-[0_18px_55px_rgba(0,0,0,0.22)] backdrop-blur-xl`;
+  const dockSurfaceClass = `border ${theme.border} bg-[color:var(--viewer-reader-surface)] backdrop-blur-xl`;
+  const dockClass = `rounded-[1.65rem] ${dockSurfaceClass} p-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)]`;
+  const mobileSideDockClass = `rounded-[1.9rem] ${dockSurfaceClass} px-3 py-4 shadow-[0_18px_55px_rgba(0,0,0,0.22)]`;
   const dockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const activeDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
@@ -97,7 +98,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const mobileSideDockButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const mobileSideAccentButtonClass = `${mobileSideDockButtonClass} text-accent-500`;
   const mobileSideDangerButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] text-red-400 opacity-80 transition-all hover:opacity-100 active:scale-90";
-  const mobileHeaderDockClass = `flex h-16 items-center gap-1 rounded-[1.35rem] border ${theme.border} ${theme.secondary} px-2 opacity-90 shadow-[0_12px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl`;
+  const menuShellStyle: React.CSSProperties = {
+    top: 'calc(env(safe-area-inset-top) + 1.5rem)',
+    right: 'max(1.5rem, calc((100vw - 80rem) / 2 + 1.5rem))',
+  };
+  const mobileHeaderDockClass = `flex h-16 items-center gap-1 rounded-[1.35rem] ${dockSurfaceClass} px-2 opacity-90 shadow-[0_12px_34px_rgba(0,0,0,0.22)]`;
   const mobileSearchButtonClass = "flex h-full w-12 items-center justify-center opacity-55 transition-opacity hover:opacity-100 active:scale-90";
   const mobileMenuButtonClass = "flex h-14 w-14 items-center justify-center rounded-[1.05rem] opacity-85 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
 
@@ -175,7 +180,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   return (
     <>
-      <header className="sticky top-0 z-40 px-6 py-6 transition-colors duration-300">
+      <header className="relative z-40 px-6 py-6 transition-colors duration-300">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className={`flex items-center gap-4 ${brandSurfaceClass}`}>
             <button
@@ -215,7 +220,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             </div>
           </div>
 
-          <div className="relative" ref={mobileMenuRef}>
+          <div className="fixed z-50" ref={mobileMenuRef} style={menuShellStyle}>
             <div className={`hidden items-center gap-1.5 md:flex ${dockClass}`}>
               <button
                 onClick={() => setShowSearch(true)}

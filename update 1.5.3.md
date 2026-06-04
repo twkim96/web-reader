@@ -9,10 +9,13 @@
 - Status: 구현 완료, 로컬 검증 완료.
 - 모바일 서재 헤더의 검색 버튼과 메뉴 버튼은 같은 가로 dock 안에 배치한다. dock 높이는 기존 메뉴 버튼 높이 기준을 넘기지 않는다.
 - `LOCAL LIBRARY` 브랜드 영역은 blur 박스로 감싸지 않고, 요소 자체의 그림자로만 가시성을 보강한다.
+- shelf의 `LOCAL LIBRARY`/와이파이 아이콘 브랜드 영역은 스크롤 시 따라 내려오지 않는다.
+- PC shelf 메뉴 dock도 모바일 dock과 같은 반투명 blur surface를 사용한다.
 - 기본 테마 `light`, `dark`, `sepia`, `blue`는 수정/삭제 대상이 아닌 고정 테마로 유지한다.
 - 테마 설정 모달의 X 버튼 옆에 커스텀 테마 추가 버튼과 편집 버튼을 둔다.
 - 커스텀 테마는 제목, 배경색, 글자색, 가벼운 CSS 질감 옵션을 저장한다.
 - 색상은 직접 hex 입력과 색상표 입력을 모두 지원한다.
+- 리더 상단 제목, X 버튼, 하단 메뉴 surface도 커스텀 테마 배경색에서 파생된 색을 사용한다.
 - 앱 버전과 서비스워커 캐시는 `1.5.3`으로 갱신한다.
 
 ## Phase 1: 모바일 서재 헤더 dock 재정리
@@ -27,6 +30,8 @@
   - 모바일 검색 버튼과 메뉴 버튼을 같은 rounded dock surface 안에 둔다.
   - `LOCAL LIBRARY` 영역은 배경/보더/blur surface 없이 표시한다.
   - 스크롤 중 뒤 콘텐츠와 겹쳐도 읽히도록 브랜드 영역에는 drop shadow만 적용한다.
+  - header 전체 sticky를 제거하고, 오른쪽 메뉴 dock만 fixed 위치로 분리한다.
+  - PC/모바일 메뉴 dock은 공통 반투명 blur surface를 사용한다.
   - dock은 `h-16` 기준으로 유지하고 내부 메뉴 버튼은 더 작은 슬롯으로 둔다.
   - 모바일 오른쪽 세로 메뉴 dock 위치와 크기는 유지한다.
 
@@ -34,6 +39,8 @@
 
 - 모바일 헤더에서 검색 아이콘과 메뉴 아이콘이 하나의 가로 dock 안에 보인다.
 - `LOCAL LIBRARY`는 별도 blur 박스 안에 갇혀 보이지 않는다.
+- 스크롤 시 `LOCAL LIBRARY`/와이파이 아이콘 영역은 화면 상단에 따라 내려오지 않는다.
+- PC 메뉴 dock은 단색 불투명 박스가 아니라 모바일처럼 뒤 배경이 비치는 blur surface로 보인다.
 - 모바일 헤더 dock 높이는 이전 메뉴 버튼보다 커지지 않는다.
 - 메뉴를 누르면 기존처럼 오른쪽 중앙 세로 dock이 열린다.
 
@@ -50,7 +57,10 @@
 - `src/lib/themeUtils.ts`
   - 기본 테마와 커스텀 테마를 공통으로 읽는 helper를 둔다.
   - 커스텀 테마 색상은 Tailwind 동적 클래스 대신 CSS 변수로 적용한다.
+  - 리더 floating surface용 CSS 변수도 커스텀 테마 배경색에서 계산한다.
   - 질감은 성능 부담이 낮은 CSS gradient 패턴만 지원한다.
+- `src/components/reader/ReaderToolbar.tsx`
+  - 커스텀 테마의 CSS 변수 기반 배경 클래스는 흰색 fallback으로 보내지 않고 `--viewer-reader-surface`를 사용한다.
 - `src/hooks/useViewerSettings.ts`
   - 기본 설정에 빈 `customThemes` 배열을 추가한다.
 
@@ -59,6 +69,7 @@
 - 기존 기본 테마 4개는 그대로 남는다.
 - 커스텀 테마는 localStorage 설정에 저장된다.
 - 커스텀 테마 선택 시 shelf와 reader에 배경색/글자색이 적용된다.
+- 커스텀 테마 선택 시 리더 메뉴/상단 제목/X 버튼 surface가 흰색 fallback으로 변하지 않는다.
 
 ## Phase 3: 테마 모달 커스텀 CRUD
 
