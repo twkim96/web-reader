@@ -83,7 +83,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   };
 
   return (
-    <header className={`sticky top-0 z-40 ${theme.bg}/80 backdrop-blur-md border-b ${theme.border} px-6 py-6 transition-colors duration-300`}>
+    <header className={`sticky top-0 z-40 ${theme.bg}/80 backdrop-blur-md px-6 py-6 transition-colors duration-300`}>
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button 
@@ -123,7 +123,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           </div>
         </div>
         
-        <div className="flex items-center gap-2" ref={mobileMenuRef}>
+        <div className={`relative flex items-center gap-2 rounded-[2rem] border ${theme.border} ${theme.secondary} p-2 shadow-[0_18px_45px_rgba(0,0,0,0.12)]`} ref={mobileMenuRef}>
           <button 
             onClick={() => setShowSearch(true)}
             className={`p-4 rounded-2xl border transition-all active:scale-90 ${
@@ -144,10 +144,10 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           </button>
 
           <div className={`
-            absolute top-[88px] right-6 p-4 rounded-3xl border shadow-2xl flex flex-col gap-2 
-            md:static md:p-0 md:bg-transparent md:border-none md:shadow-none md:flex-row md:flex
+            fixed right-4 top-1/2 -translate-y-1/2 p-3 rounded-3xl border shadow-2xl flex flex-col gap-2
+            md:static md:translate-y-0 md:p-0 md:bg-transparent md:border-none md:shadow-none md:flex-row md:flex
             ${theme.bg} ${theme.border}
-            ${showMobileMenu ? 'animate-in fade-in slide-in-from-top-4 flex' : 'hidden'}
+            ${showMobileMenu ? 'animate-in fade-in slide-in-from-right-4 flex' : 'hidden'}
           `}>
             <button
               onClick={() => { setShowMobileMenu(false); setShowImportConfirm(true); }}

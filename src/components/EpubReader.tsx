@@ -432,6 +432,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       {isLoaded && (
         <ReaderStatusBar
           theme={theme}
+          bookTitle={book.name}
           currentChapter={currentChapter}
           totalProgress={totalProgress}
           onOpenJump={chrome.openJumpInput}

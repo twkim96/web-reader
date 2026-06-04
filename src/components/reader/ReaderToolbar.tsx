@@ -17,6 +17,7 @@ type ReaderTheme = {
 };
 
 const READER_TEXT_MAX_INLINE_SIZE = 1000;
+const READER_MENU_DOUBLE_WIDTH = '37.5rem';
 
 interface ReaderToolbarProps {
   theme: ReaderTheme;
@@ -87,7 +88,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const title = getBookTitle(bookName);
   const surfaceStyle = getReaderSurfaceStyle(theme.bg);
   const menuPositionStyle: React.CSSProperties = {
-    right: `max(calc(env(safe-area-inset-right) + 1rem), calc((100vw - ${READER_TEXT_MAX_INLINE_SIZE}px) / 2 + 1rem))`,
+    right: `max(calc(env(safe-area-inset-right) + 1rem), calc((100vw - (${READER_TEXT_MAX_INLINE_SIZE}px + ${READER_MENU_DOUBLE_WIDTH})) / 2))`,
   };
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
