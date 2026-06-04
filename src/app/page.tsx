@@ -10,7 +10,8 @@ import dynamic from 'next/dynamic';
 
 const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
 import { Book, ViewState } from '../types';
-import { THEMES, ACCENT_PALETTE } from '../lib/constants';
+import { ACCENT_PALETTE } from '../lib/constants';
+import { getThemeClasses, getThemeColors, getThemeCssVariables } from '../lib/themeUtils';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
 import { removeBookFromLocal } from '../lib/localDB';
@@ -81,12 +82,10 @@ export default function Page() {
     handleCloseInstallPrompt(accepted); // Never show again only if successfully installed.
   };
 
-  const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
+  const theme = getThemeClasses(settings);
 
   useEffect(() => {
-    // 테마 bg 클래스에서 hex 코드를 추출 (예: 'bg-[#272728]' -> '#272728')
-    const match = theme.bg.match(/#([0-9a-fA-F]{6})/);
-    const color = match ? `#${match[1]}` : '#ffffff';
+    const color = getThemeColors(settings).bg;
 
     const ensureMeta = (name: string) => {
       let meta = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
@@ -108,7 +107,7 @@ export default function Page() {
     ensureMeta('msapplication-navbutton-color').setAttribute('content', color);
     document.documentElement.style.backgroundColor = color;
     document.body.style.backgroundColor = color;
-  }, [theme]);
+  }, [settings]);
 
   const {
     books,
@@ -315,6 +314,7 @@ export default function Page() {
     '--accent-400': accentColorObj[400],
     '--accent-500': accentColorObj[500],
     '--accent-600': accentColorObj[600],
+    ...getThemeCssVariables(settings),
   } as React.CSSProperties;
 
   if (view === 'loading') {

@@ -3,7 +3,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Book, Bookmark, SaveProgressOptions, UserProgress, ViewerSettings } from '../types';
-import { THEMES } from '../lib/constants';
+import { getThemeClasses, getThemeColors } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
@@ -36,13 +36,6 @@ interface EpubReaderProps {
   initialBookmarks?: Bookmark[];
   remoteProgress?: UserProgress;
 }
-
-const THEME_COLORS: Record<string, { bg: string; text: string }> = {
-  light: { bg: '#ffffff', text: '#222222' },
-  dark: { bg: '#272728', text: '#b8b8b8' },
-  sepia: { bg: '#f4ecd8', text: '#5b4636' },
-  blue: { bg: '#eef2f7', text: '#2c3e50' },
-};
 
 const KEYBOARD_SCROLL_RATIO = 0.25;
 const MIN_KEYBOARD_SCROLL_DISTANCE = 80;
@@ -102,8 +95,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   initialBookmarks,
   remoteProgress,
 }) => {
-  const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
-  const themeColors = useMemo(() => THEME_COLORS[settings.theme] || THEME_COLORS.sepia, [settings.theme]);
+  const theme = getThemeClasses(settings);
+  const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const readerEdgePadding = Math.max(settings.padding || 0, settings.fontSize);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
 

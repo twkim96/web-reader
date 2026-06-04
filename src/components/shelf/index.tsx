@@ -4,7 +4,7 @@ import { ManageModal } from '../ManageModal';
 import { ShelfSearchModal } from '../ShelfSearchModal';
 import { ThemeModal } from '../ThemeModal';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { THEMES } from '../../lib/constants';
+import { getThemeClasses } from '../../lib/themeUtils';
 
 import { ShelfHeader } from './ShelfHeader';
 import { BookCard } from './BookCard';
@@ -67,7 +67,7 @@ export const Shelf: React.FC<ShelfProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const theme = THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
+  const theme = getThemeClasses(settings);
   const { viewMode, sortMode, toggleViewMode, toggleSortMode } = useShelfPreferences();
   const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
   const filteredBooks = useFilteredBooks(books, searchKeyword, sortMode, progress);

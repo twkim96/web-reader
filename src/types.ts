@@ -17,6 +17,16 @@ export interface ThemeClasses {
   secondary: string;
 }
 
+export type CustomThemeTexture = 'none' | 'paper' | 'linen';
+
+export interface CustomTheme {
+  id: string;
+  title: string;
+  bgColor: string;
+  textColor: string;
+  texture: CustomThemeTexture;
+}
+
 export interface ViewerSettings {
   fontSize: number;
   lineHeight: number;
@@ -27,6 +37,7 @@ export interface ViewerSettings {
   navMode: 'scroll' | 'page' | 'left-right' | 'all-dir';
   fontFamily: 'sans' | 'serif' | 'ridi';
   accentColor: string;
+  customThemes?: CustomTheme[];
 }
 
 // [Added] 책갈피 타입 정의

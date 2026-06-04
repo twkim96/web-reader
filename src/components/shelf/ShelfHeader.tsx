@@ -97,8 +97,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const mobileSideDockButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const mobileSideAccentButtonClass = `${mobileSideDockButtonClass} text-accent-500`;
   const mobileSideDangerButtonClass = "flex h-16 w-16 items-center justify-center rounded-[1.15rem] text-red-400 opacity-80 transition-all hover:opacity-100 active:scale-90";
-  const mobileSearchButtonClass = "flex h-14 w-12 items-center justify-center opacity-55 transition-opacity hover:opacity-100 active:scale-90";
-  const mobileMenuButtonClass = `flex h-16 w-16 items-center justify-center rounded-[1.25rem] border ${theme.border} ${theme.secondary} opacity-85 shadow-[0_12px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl transition-all hover:opacity-100 active:scale-90`;
+  const mobileHeaderDockClass = `flex h-16 items-center gap-1 rounded-[1.35rem] border ${theme.border} ${theme.secondary} px-2 opacity-90 shadow-[0_12px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl`;
+  const mobileSearchButtonClass = "flex h-full w-12 items-center justify-center opacity-55 transition-opacity hover:opacity-100 active:scale-90";
+  const mobileMenuButtonClass = "flex h-14 w-14 items-center justify-center rounded-[1.05rem] opacity-85 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
 
   const mobileDock = showMobileMenu ? (
     <div
@@ -288,7 +289,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-3 md:hidden">
+            <div className={`${mobileHeaderDockClass} md:hidden`}>
               <button
                 onClick={() => setShowSearch(true)}
                 className={mobileSearchButtonClass}

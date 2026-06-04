@@ -13,6 +13,7 @@ const defaultSettings: ViewerSettings = {
   navMode: 'scroll',
   fontFamily: 'ridi',
   accentColor: 'sky',
+  customThemes: [],
 };
 
 const getStoredViewerSettings = () => {
