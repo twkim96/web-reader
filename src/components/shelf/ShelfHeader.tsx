@@ -82,6 +82,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     return "최근에 읽은 순";
   };
 
+  const dockClass = `rounded-[2.25rem] border ${theme.border} ${theme.secondary} p-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)] backdrop-blur-xl`;
+  const dockButtonClass = "flex h-14 w-14 items-center justify-center rounded-2xl opacity-65 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
+  const activeDockButtonClass = "flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
+  const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
+  const dangerDockButtonClass = "flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-400 opacity-100 transition-all hover:bg-red-500/20 active:scale-90";
+
   return (
     <header className={`sticky top-0 z-40 ${theme.bg}/80 backdrop-blur-md px-6 py-6 transition-colors duration-300`}>
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -123,94 +129,155 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           </div>
         </div>
         
-        <div className={`relative flex items-center gap-2 rounded-[2rem] border ${theme.border} ${theme.secondary} p-2 shadow-[0_18px_45px_rgba(0,0,0,0.12)]`} ref={mobileMenuRef}>
-          <button 
-            onClick={() => setShowSearch(true)}
-            className={`p-4 rounded-2xl border transition-all active:scale-90 ${
-              searchKeyword 
-                ? 'bg-accent-600 border-accent-500 text-white shadow-lg shadow-accent-500/20' 
-                : `${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100`
-            }`}
-            title="Search Books"
-          >
-            <Search size={20} />
-          </button>
-
-          <button
-            onClick={() => setShowMobileMenu(!showMobileMenu)}
-            className={`md:hidden p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
-          >
-            {showMobileMenu ? <X size={20} /> : <Menu size={20} />}
-          </button>
-
-          <div className={`
-            fixed right-4 top-1/2 -translate-y-1/2 p-3 rounded-3xl border shadow-2xl flex flex-col gap-2
-            md:static md:translate-y-0 md:p-0 md:bg-transparent md:border-none md:shadow-none md:flex-row md:flex
-            ${theme.bg} ${theme.border}
-            ${showMobileMenu ? 'animate-in fade-in slide-in-from-right-4 flex' : 'hidden'}
-          `}>
+        <div className="relative" ref={mobileMenuRef}>
+          <div className={`flex items-center gap-1.5 ${dockClass}`}>
             <button
-              onClick={() => { setShowMobileMenu(false); setShowImportConfirm(true); }}
-              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90 text-accent-500`}
-              title="Add Local Book"
+              onClick={() => setShowSearch(true)}
+              className={searchKeyword ? activeDockButtonClass : dockButtonClass}
+              title="Search Books"
             >
-              <FilePlus size={20} />
+              <Search size={20} />
             </button>
 
             <button
-              onClick={() => { setShowMobileMenu(false); onToggleSortMode(); }}
-              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
-              title={getSortTitle()}
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className={`${dockButtonClass} md:hidden`}
+              aria-label={showMobileMenu ? "Close menu" : "Open menu"}
             >
-              <div className="flex items-center justify-center relative">
-                {getSortIcon()}
-                <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
-                  {sortMode === 'alpha' ? 'A' : 'R'}
-                </span>
-              </div>
+              {showMobileMenu ? <X size={20} /> : <Menu size={20} />}
             </button>
 
-            <button
-              onClick={() => { setShowMobileMenu(false); onToggleViewMode(); }}
-              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
-              title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
-            >
-              {viewMode === 'grid' ? <List size={20} /> : <LayoutGrid size={20} />}
-            </button>
-
-            <button
-              onClick={() => { setShowMobileMenu(false); setShowThemeModal(true); }}
-              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
-              title="Change Theme"
-            >
-              <Palette size={20} />
-            </button>
-
-            <button 
-              onClick={() => { setShowMobileMenu(false); setShowManage(true); }}
-              className={`p-4 rounded-2xl ${theme.secondary} border ${theme.border} opacity-60 hover:opacity-100 transition-all active:scale-90`}
-              title="Manage Offline Books"
-            >
-              <HardDrive size={20} />
-            </button>
-
-            {isGuest ? (
-              <button 
-                onClick={() => { setShowMobileMenu(false); onLogin(); }}
-                className="p-4 rounded-2xl bg-accent-500/10 border border-accent-500/20 text-accent-400 hover:bg-accent-500 hover:text-white transition-all active:scale-90"
-                title="Sign In"
+            <div className="hidden items-center gap-1.5 md:flex">
+              <button
+                onClick={() => { setShowImportConfirm(true); }}
+                className={accentDockButtonClass}
+                title="Add Local Book"
               >
-                <KeyRound size={20} />
+                <FilePlus size={20} />
               </button>
-            ) : (
-              <button 
-                onClick={() => { setShowMobileMenu(false); onLogout(); }}
-                className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all active:scale-90"
-                title="Sign Out"
+
+              <button
+                onClick={onToggleSortMode}
+                className={dockButtonClass}
+                title={getSortTitle()}
               >
-                <LogOut size={20} />
+                <div className="flex items-center justify-center relative">
+                  {getSortIcon()}
+                  <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
+                    {sortMode === 'alpha' ? 'A' : 'R'}
+                  </span>
+                </div>
               </button>
-            )}
+
+              <button
+                onClick={onToggleViewMode}
+                className={dockButtonClass}
+                title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
+              >
+                {viewMode === 'grid' ? <List size={20} /> : <LayoutGrid size={20} />}
+              </button>
+
+              <button
+                onClick={() => { setShowThemeModal(true); }}
+                className={dockButtonClass}
+                title="Change Theme"
+              >
+                <Palette size={20} />
+              </button>
+
+              <button
+                onClick={() => { setShowManage(true); }}
+                className={dockButtonClass}
+                title="Manage Offline Books"
+              >
+                <HardDrive size={20} />
+              </button>
+
+              {isGuest ? (
+                <button
+                  onClick={onLogin}
+                  className={accentDockButtonClass}
+                  title="Sign In"
+                >
+                  <KeyRound size={20} />
+                </button>
+              ) : (
+                <button
+                  onClick={onLogout}
+                  className={dangerDockButtonClass}
+                  title="Sign Out"
+                >
+                  <LogOut size={20} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className={`fixed inset-y-0 right-[calc(env(safe-area-inset-right)+1rem)] z-[80] items-center md:hidden ${showMobileMenu ? 'flex' : 'hidden'}`}>
+            <div className={`flex flex-col gap-1.5 ${dockClass} animate-in fade-in slide-in-from-right-4 duration-200`}>
+              <button
+                onClick={() => { setShowMobileMenu(false); setShowImportConfirm(true); }}
+                className={accentDockButtonClass}
+                title="Add Local Book"
+              >
+                <FilePlus size={20} />
+              </button>
+
+              <button
+                onClick={() => { setShowMobileMenu(false); onToggleSortMode(); }}
+                className={dockButtonClass}
+                title={getSortTitle()}
+              >
+                <div className="flex items-center justify-center relative">
+                  {getSortIcon()}
+                  <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
+                    {sortMode === 'alpha' ? 'A' : 'R'}
+                  </span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setShowMobileMenu(false); onToggleViewMode(); }}
+                className={dockButtonClass}
+                title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
+              >
+                {viewMode === 'grid' ? <List size={20} /> : <LayoutGrid size={20} />}
+              </button>
+
+              <button
+                onClick={() => { setShowMobileMenu(false); setShowThemeModal(true); }}
+                className={dockButtonClass}
+                title="Change Theme"
+              >
+                <Palette size={20} />
+              </button>
+
+              <button
+                onClick={() => { setShowMobileMenu(false); setShowManage(true); }}
+                className={dockButtonClass}
+                title="Manage Offline Books"
+              >
+                <HardDrive size={20} />
+              </button>
+
+              {isGuest ? (
+                <button
+                  onClick={() => { setShowMobileMenu(false); onLogin(); }}
+                  className={accentDockButtonClass}
+                  title="Sign In"
+                >
+                  <KeyRound size={20} />
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setShowMobileMenu(false); onLogout(); }}
+                  className={dangerDockButtonClass}
+                  title="Sign Out"
+                >
+                  <LogOut size={20} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
