@@ -120,12 +120,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const bottomDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[1rem] opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
   const activeBottomDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[1rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
   const accentBottomDockButtonClass = `${bottomDockButtonClass} text-accent-500`;
-  const authButtonClass = "absolute z-[85] flex h-[4.125rem] w-12 items-center justify-center bg-transparent p-0 drop-shadow-[0_12px_22px_rgba(0,0,0,0.35)] transition-all hover:opacity-100 active:scale-90";
+  const authButtonClass = "absolute z-[85] flex h-[4.125rem] w-12 items-center justify-center bg-transparent p-0 drop-shadow-[0_12px_22px_rgba(0,0,0,0.35)] transition-all hover:opacity-100 active:scale-90 md:hidden";
   const authDangerClass = `${authButtonClass} text-red-400`;
   const authAccentClass = `${authButtonClass} text-accent-500`;
   const menuShellStyle: React.CSSProperties = {
     top: 'calc(env(safe-area-inset-top) + 2rem)',
-    right: 'max(5.5rem, calc((100vw - 80rem) / 2 + 5.5rem))',
+    right: 'max(1.5rem, calc((100vw - 80rem) / 2 + 1.5rem))',
   };
   const authButtonStyle: React.CSSProperties = {
     top: 'calc(env(safe-area-inset-top) + 2rem)',
@@ -137,11 +137,13 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     buttonClass,
     activeButtonClass,
     accentButtonClass,
+    includeAuth = false,
   }: {
     iconSize: number;
     buttonClass: string;
     activeButtonClass: string;
     accentButtonClass: string;
+    includeAuth?: boolean;
   }) => {
     const runAction = (action: () => void) => {
       action();
@@ -201,6 +203,17 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
         >
           <HardDrive size={iconSize} />
         </button>
+
+        {includeAuth && (
+          <button
+            onClick={() => runAction(isGuest ? onLogin : onLogout)}
+            className={isGuest ? accentButtonClass : `${buttonClass} text-red-400`}
+            title={isGuest ? "Sign In" : "Sign Out"}
+            aria-label={isGuest ? "Sign In" : "Sign Out"}
+          >
+            {isGuest ? <KeyRound size={iconSize} /> : <LogOut size={iconSize} />}
+          </button>
+        )}
       </>
     );
   };
@@ -273,6 +286,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                 buttonClass: dockButtonClass,
                 activeButtonClass: activeDockButtonClass,
                 accentButtonClass: accentDockButtonClass,
+                includeAuth: true,
               })}
             </div>
           </div>
