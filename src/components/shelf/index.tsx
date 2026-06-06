@@ -68,7 +68,6 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDeletingBook, setIsDeletingBook] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const fileUploaderRef = useRef<FileUploaderHandle>(null);
   const shelfContentRef = useRef<HTMLElement | null>(null);
 
@@ -94,8 +93,8 @@ export const Shelf: React.FC<ShelfProps> = ({
     setPendingDeleteBook(book);
   }, [onDeleteBook]);
 
-  const handleImportFiles = useCallback((files: FileList | File[]) => {
-    fileUploaderRef.current?.importFiles(files);
+  const handleConfirmImportFiles = useCallback((files: File[]) => {
+    void fileUploaderRef.current?.importFiles(files);
   }, []);
 
   const handleConfirmDeleteBook = useCallback(async () => {
@@ -156,7 +155,6 @@ export const Shelf: React.FC<ShelfProps> = ({
         isOfflineMode={isOfflineMode}
         onRefresh={onRefresh}
         onLocalBookImported={onLocalBookImported}
-        fileInputRef={fileInputRef}
         setIsSyncing={setIsSyncing}
         isCloudTokenValid={isCloudTokenValid}
         onCloudAuthExpired={handleCloudAuthExpired}
@@ -276,8 +274,7 @@ export const Shelf: React.FC<ShelfProps> = ({
           isGuest={isGuest}
           maxFiles={MAX_IMPORT_FILES}
           onClose={() => setShowImportConfirm(false)}
-          onFilesSelected={handleImportFiles}
-          onUploadClick={() => fileUploaderRef.current?.openPicker()}
+          onConfirm={handleConfirmImportFiles}
           onLogin={onLogin}
           onToggleCloud={onToggleCloud}
         />

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Plus, Upload } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import type { DragEvent } from 'react';
+import { FileText, Plus, X } from 'lucide-react';
 
 interface ImportBookModalProps {
   theme: { bg: string; text: string; border: string; secondary: string };
@@ -7,8 +8,7 @@ interface ImportBookModalProps {
   isGuest: boolean;
   maxFiles: number;
   onClose: () => void;
-  onFilesSelected: (files: FileList | File[]) => void;
-  onUploadClick: () => void;
+  onConfirm: (files: File[]) => void;
   onLogin: () => void;
   onToggleCloud: () => void;
 }
@@ -19,14 +19,37 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   isGuest,
   maxFiles,
   onClose,
-  onFilesSelected,
-  onUploadClick,
+  onConfirm,
   onLogin,
   onToggleCloud,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+  const addFilesToList = (files: FileList | File[]) => {
+    const incomingFiles = Array.from(files);
+    if (incomingFiles.length === 0) return;
+
+    const supportedFiles = incomingFiles.filter((file) => {
+      const lowerName = file.name.toLowerCase();
+      return lowerName.endsWith('.txt') || lowerName.endsWith('.epub');
+    });
+
+    if (supportedFiles.length === 0) {
+      alert('지원하는 도서 파일(.txt, .epub)을 선택해 주세요.');
+      return;
+    }
+
+    if (selectedFiles.length + supportedFiles.length > maxFiles) {
+      alert(`도서는 한 번에 최대 ${maxFiles}개까지 추가할 수 있습니다.`);
+      return;
+    }
+
+    setSelectedFiles((currentFiles) => [...currentFiles, ...supportedFiles]);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
     setIsDragging(false);
@@ -34,18 +57,34 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     const files = event.dataTransfer.files;
     if (!files || files.length === 0) return;
 
-    onFilesSelected(files);
-    onClose();
+    addFilesToList(files);
   };
 
-  const handleDrag = (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDrag = (event: DragEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
   };
 
-  const handleUploadClick = () => {
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      addFilesToList(files);
+    }
+    event.target.value = '';
+  };
+
+  const removeSelectedFile = (targetIndex: number) => {
+    setSelectedFiles((currentFiles) => currentFiles.filter((_, index) => index !== targetIndex));
+  };
+
+  const handleConfirm = () => {
+    if (selectedFiles.length === 0) {
+      alert('추가할 도서 파일을 먼저 선택해 주세요.');
+      return;
+    }
+
+    onConfirm(selectedFiles);
     onClose();
-    onUploadClick();
   };
 
   return (
@@ -53,6 +92,15 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
       className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
       onClick={onClose}
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".txt,.epub"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+
       <div
         onClick={(event) => event.stopPropagation()}
         className={`w-full max-w-sm ${theme.bg} ${theme.text} rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
@@ -85,7 +133,9 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
           </p>
         </div>
 
-        <div
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
           onDrop={handleDrop}
           onDragEnter={(event) => {
             handleDrag(event);
@@ -102,13 +152,48 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
               : `${theme.border} bg-white/5 hover:bg-white/10`
           }`}
         >
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-500/15 text-accent-400">
-            <Plus size={34} strokeWidth={2.6} />
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-500/15 text-accent-400">
+            <Plus size={30} strokeWidth={2.6} />
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-black">여기에 도서 파일을 놓기</p>
+            <p className="text-sm font-black">파일 선택 또는 여기로 드래그</p>
             <p className="text-[11px] font-bold opacity-60">.txt, .epub / 최대 {maxFiles}개</p>
           </div>
+        </button>
+
+        <div className={`border-t ${theme.border} pt-4`}>
+          <div className="mb-3 flex items-center justify-between text-[11px] font-black uppercase tracking-[0.12em] opacity-60">
+            <span>선택한 도서</span>
+            <span>{selectedFiles.length}/{maxFiles}</span>
+          </div>
+          {selectedFiles.length > 0 ? (
+            <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+              {selectedFiles.map((file, index) => (
+                <div
+                  key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                  className="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2"
+                >
+                  <FileText size={16} className="shrink-0 text-accent-400" />
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="truncate text-xs font-black">{file.name}</p>
+                    <p className="text-[10px] font-bold opacity-50">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeSelectedFile(index)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 opacity-70 transition-all hover:bg-white/10 hover:opacity-100 active:scale-95"
+                    aria-label={`${file.name} 제거`}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-white/5 px-4 py-5 text-center text-xs font-bold opacity-55">
+              아직 선택한 도서가 없습니다.
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3">
@@ -119,11 +204,11 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
             취소
           </button>
           <button
-            onClick={handleUploadClick}
-            className="flex flex-1 items-center justify-center gap-2 py-3 font-bold rounded-2xl text-sm transition-all active:scale-95 text-white shadow-lg bg-accent-600 hover:bg-accent-500 shadow-accent-500/20"
+            onClick={handleConfirm}
+            className="flex flex-1 items-center justify-center gap-2 py-3 font-bold rounded-2xl text-sm transition-all active:scale-95 text-white shadow-lg bg-accent-600 hover:bg-accent-500 shadow-accent-500/20 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={selectedFiles.length === 0}
           >
-            <Upload size={17} />
-            <span>업로드</span>
+            <span>추가</span>
           </button>
         </div>
       </div>

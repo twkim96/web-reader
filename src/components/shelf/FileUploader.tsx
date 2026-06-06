@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useImperativeHandle } from 'react';
 import { createFolder, findFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
 import { saveBookToLocal } from '../../lib/localDB';
 import { Book } from '../../types';
@@ -9,15 +9,13 @@ interface FileUploaderProps {
   isOfflineMode: boolean;
   onRefresh: () => void;
   onLocalBookImported?: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
   setIsSyncing: (syncing: boolean) => void;
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
 }
 
 export interface FileUploaderHandle {
-  importFiles: (files: FileList | File[]) => void;
-  openPicker: () => void;
+  importFiles: (files: FileList | File[]) => Promise<void>;
 }
 
 const MAX_IMPORT_FILES = 10;
@@ -27,7 +25,6 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   isOfflineMode,
   onRefresh,
   onLocalBookImported,
-  fileInputRef,
   setIsSyncing,
   isCloudTokenValid,
   onCloudAuthExpired
@@ -145,27 +142,9 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
 
   useImperativeHandle(ref, () => ({
     importFiles,
-    openPicker: () => fileInputRef.current?.click(),
   }));
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    void importFiles(files);
-    e.target.value = '';
-  };
-
-  return (
-    <input 
-      type="file" 
-      accept=".txt,.epub" 
-      multiple
-      ref={fileInputRef} 
-      style={{ display: 'none' }} 
-      onChange={handleFileUpload} 
-    />
-  );
+  return null;
 });
 
 FileUploader.displayName = 'FileUploader';
