@@ -9,10 +9,13 @@ import { getThemeClasses } from '../../lib/themeUtils';
 import { ShelfHeader } from './ShelfHeader';
 import { BookCard } from './BookCard';
 import { EmptyState } from './EmptyState';
-import { FileUploader } from './FileUploader';
+import { FileUploader, FileUploaderHandle } from './FileUploader';
+import { ImportBookModal } from './ImportBookModal';
 import { useFilteredBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
+
+const MAX_IMPORT_FILES = 10;
 
 interface ShelfProps {
   books: Book[];
@@ -66,6 +69,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [isDeletingBook, setIsDeletingBook] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileUploaderRef = useRef<FileUploaderHandle>(null);
   const shelfContentRef = useRef<HTMLElement | null>(null);
 
   const theme = getThemeClasses(settings);
@@ -89,6 +93,10 @@ export const Shelf: React.FC<ShelfProps> = ({
     if (!onDeleteBook) return;
     setPendingDeleteBook(book);
   }, [onDeleteBook]);
+
+  const handleImportFiles = useCallback((files: FileList | File[]) => {
+    fileUploaderRef.current?.importFiles(files);
+  }, []);
 
   const handleConfirmDeleteBook = useCallback(async () => {
     if (!pendingDeleteBook || !onDeleteBook) return;
@@ -143,6 +151,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       />
 
       <FileUploader 
+        ref={fileUploaderRef}
         googleToken={googleToken}
         isOfflineMode={isOfflineMode}
         onRefresh={onRefresh}
@@ -261,33 +270,16 @@ export const Shelf: React.FC<ShelfProps> = ({
       )}
 
       {showImportConfirm && (
-        <ConfirmDialog
-          message="도서를 라이브러리에 추가하시겠습니까?"
-          subMessage={isOfflineMode 
-            ? (
-              <span>
-                선택한 도서가 내 기기에 저장됩니다. 원활한 동기화를 위해{" "}
-                <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    setShowImportConfirm(false); 
-                    if (isGuest) onLogin();
-                    else onToggleCloud();
-                  }}
-                  className="text-accent-500 underline decoration-accent-500/50 underline-offset-2 hover:text-accent-400 font-black cursor-pointer"
-                >
-                  {isGuest ? "클라우드 로그인" : "클라우드 서비스 연결"}
-                </button>
-                {" "}후 추가하는 것을 추천합니다.
-              </span>
-            )
-            : "선택한 도서가 내 기기에 저장되며, 구글 드라이브의 'web viewer' 폴더로 자동 업로드됩니다."
-          }
-          confirmLabel="추가"
-          variant="info"
+        <ImportBookModal
           theme={theme}
-          onConfirm={() => { setShowImportConfirm(false); fileInputRef.current?.click(); }}
-          onCancel={() => setShowImportConfirm(false)}
+          isOfflineMode={isOfflineMode}
+          isGuest={isGuest}
+          maxFiles={MAX_IMPORT_FILES}
+          onClose={() => setShowImportConfirm(false)}
+          onFilesSelected={handleImportFiles}
+          onUploadClick={() => fileUploaderRef.current?.openPicker()}
+          onLogin={onLogin}
+          onToggleCloud={onToggleCloud}
         />
       )}
     </div>

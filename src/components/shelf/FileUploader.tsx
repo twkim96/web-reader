@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef, useImperativeHandle } from 'react';
 import { createFolder, findFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
 import { saveBookToLocal } from '../../lib/localDB';
 import { Book } from '../../types';
@@ -15,7 +15,14 @@ interface FileUploaderProps {
   onCloudAuthExpired?: () => void;
 }
 
-export const FileUploader: React.FC<FileUploaderProps> = ({
+export interface FileUploaderHandle {
+  importFiles: (files: FileList | File[]) => void;
+  openPicker: () => void;
+}
+
+const MAX_IMPORT_FILES = 10;
+
+export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   googleToken,
   isOfflineMode,
   onRefresh,
@@ -24,7 +31,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
   setIsSyncing,
   isCloudTokenValid,
   onCloudAuthExpired
-}) => {
+}, ref) => {
   const syncFileToDrive = async (fileName: string, content: ArrayBuffer, mimeType: string) => {
     if (!googleToken || isOfflineMode) return null;
 
@@ -59,16 +66,14 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    e.target.value = '';
-
+  const importFile = (file: File) => new Promise<void>((resolve) => {
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const content = event.target?.result as ArrayBuffer;
-      if (!content) return;
+      const content = event.target?.result as ArrayBuffer | undefined;
+      if (!content) {
+        resolve();
+        return;
+      }
 
       const originalMimeType = getSupportedBookMimeType(file.name, file.type);
 
@@ -100,24 +105,67 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         await saveBookToLocal(epub.book, epub.content);
       } catch (err) {
         console.error('epub 변환/저장 실패:', err);
-        alert('도서를 EPUB으로 준비하는 데 실패했습니다.');
+        alert(`${file.name} 도서를 EPUB으로 준비하는 데 실패했습니다.`);
+        resolve();
         return;
       }
       
       if (onLocalBookImported) {
         onLocalBookImported();
       }
+      resolve();
+    };
+    reader.onerror = () => {
+      alert(`${file.name} 파일을 읽지 못했습니다.`);
+      resolve();
     };
     reader.readAsArrayBuffer(file);
+  });
+
+  const importFiles = async (files: FileList | File[]) => {
+    const selectedFiles = Array.from(files).filter((file) => {
+      const lowerName = file.name.toLowerCase();
+      return lowerName.endsWith('.txt') || lowerName.endsWith('.epub');
+    });
+
+    if (selectedFiles.length === 0) {
+      alert('지원하는 도서 파일(.txt, .epub)을 선택해 주세요.');
+      return;
+    }
+
+    if (selectedFiles.length > MAX_IMPORT_FILES) {
+      alert(`도서는 한 번에 최대 ${MAX_IMPORT_FILES}개까지 추가할 수 있습니다.`);
+      return;
+    }
+
+    for (const file of selectedFiles) {
+      await importFile(file);
+    }
+  };
+
+  useImperativeHandle(ref, () => ({
+    importFiles,
+    openPicker: () => fileInputRef.current?.click(),
+  }));
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    void importFiles(files);
+    e.target.value = '';
   };
 
   return (
     <input 
       type="file" 
       accept=".txt,.epub" 
+      multiple
       ref={fileInputRef} 
       style={{ display: 'none' }} 
       onChange={handleFileUpload} 
     />
   );
-};
+});
+
+FileUploader.displayName = 'FileUploader';
