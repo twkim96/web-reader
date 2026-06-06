@@ -13,6 +13,12 @@ interface ImportBookModalProps {
   onToggleCloud: () => void;
 }
 
+const BYTES_PER_MB = 1024 * 1024;
+const MAX_FILE_BYTES = 50 * BYTES_PER_MB;
+const MAX_TOTAL_BYTES = 200 * BYTES_PER_MB;
+
+const formatFileSize = (bytes: number) => `${(bytes / BYTES_PER_MB).toFixed(2)} MB`;
+
 export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   theme,
   isOfflineMode,
@@ -31,22 +37,35 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     const incomingFiles = Array.from(files);
     if (incomingFiles.length === 0) return;
 
-    const supportedFiles = incomingFiles.filter((file) => {
+    const hasUnsupportedFile = incomingFiles.some((file) => {
       const lowerName = file.name.toLowerCase();
-      return lowerName.endsWith('.txt') || lowerName.endsWith('.epub');
+      return !lowerName.endsWith('.txt') && !lowerName.endsWith('.epub');
     });
 
-    if (supportedFiles.length === 0) {
+    if (hasUnsupportedFile) {
       alert('지원하는 도서 파일(.txt, .epub)을 선택해 주세요.');
       return;
     }
 
-    if (selectedFiles.length + supportedFiles.length > maxFiles) {
+    if (selectedFiles.length + incomingFiles.length > maxFiles) {
       alert(`도서는 한 번에 최대 ${maxFiles}개까지 추가할 수 있습니다.`);
       return;
     }
 
-    setSelectedFiles((currentFiles) => [...currentFiles, ...supportedFiles]);
+    const oversizedFile = incomingFiles.find((file) => file.size > MAX_FILE_BYTES);
+    if (oversizedFile) {
+      alert(`파일 하나의 최대 용량은 50MB입니다.\n${oversizedFile.name}: ${formatFileSize(oversizedFile.size)}`);
+      return;
+    }
+
+    const currentTotalBytes = selectedFiles.reduce((total, file) => total + file.size, 0);
+    const incomingTotalBytes = incomingFiles.reduce((total, file) => total + file.size, 0);
+    if (currentTotalBytes + incomingTotalBytes > MAX_TOTAL_BYTES) {
+      alert(`한 번에 추가할 도서의 총 용량은 200MB까지입니다.`);
+      return;
+    }
+
+    setSelectedFiles((currentFiles) => [...currentFiles, ...incomingFiles]);
   };
 
   const handleDrop = (event: DragEvent<HTMLButtonElement>) => {
@@ -92,19 +111,20 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
       className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
       onClick={onClose}
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".txt,.epub"
-        multiple
-        className="hidden"
-        onChange={handleFileInputChange}
-      />
-
       <div
         onClick={(event) => event.stopPropagation()}
         className={`w-full max-w-sm ${theme.bg} ${theme.text} rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt,.epub"
+          multiple
+          className="hidden"
+          onClick={(event) => event.stopPropagation()}
+          onChange={handleFileInputChange}
+        />
+
         <div className="flex flex-col items-center text-center gap-3">
           <div className="p-3 rounded-2xl bg-accent-500/10 text-accent-400">
             <div className="w-5.5 h-5.5 border-2 border-current rounded-full flex items-center justify-center font-black text-xs">!</div>
@@ -146,18 +166,18 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
             handleDrag(event);
             setIsDragging(false);
           }}
-          className={`flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-5 py-7 text-center transition-all ${
+          className={`flex h-[8.25rem] w-full flex-col items-center justify-center gap-2.5 rounded-3xl border-2 border-dashed px-4 text-center transition-all ${
             isDragging
               ? 'border-accent-400 bg-accent-500/15 text-accent-300'
               : `${theme.border} bg-white/5 hover:bg-white/10`
           }`}
         >
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-500/15 text-accent-400">
-            <Plus size={30} strokeWidth={2.6} />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-500/15 text-accent-400">
+            <Plus size={27} strokeWidth={2.6} />
           </div>
           <div className="space-y-1">
             <p className="text-sm font-black">파일 선택 또는 여기로 드래그</p>
-            <p className="text-[11px] font-bold opacity-60">.txt, .epub / 최대 {maxFiles}개</p>
+            <p className="text-[11px] font-bold opacity-60">.txt, .epub / 최대 {maxFiles}개 / 파일 50MB / 총 200MB</p>
           </div>
         </button>
 
@@ -167,16 +187,16 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
             <span>{selectedFiles.length}/{maxFiles}</span>
           </div>
           {selectedFiles.length > 0 ? (
-            <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+            <div className="h-[11.25rem] space-y-2 overflow-y-auto pr-1">
               {selectedFiles.map((file, index) => (
                 <div
                   key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                  className="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2"
+                  className="flex h-14 items-center gap-3 rounded-2xl bg-white/5 px-3"
                 >
                   <FileText size={16} className="shrink-0 text-accent-400" />
                   <div className="min-w-0 flex-1 text-left">
                     <p className="truncate text-xs font-black">{file.name}</p>
-                    <p className="text-[10px] font-bold opacity-50">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                    <p className="text-[10px] font-bold opacity-50">{formatFileSize(file.size)}</p>
                   </div>
                   <button
                     type="button"
