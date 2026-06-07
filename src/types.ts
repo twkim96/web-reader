@@ -17,7 +17,7 @@ export interface ThemeClasses {
   secondary: string;
 }
 
-export type CustomThemeTexture = 'none' | 'paper' | 'linen';
+export type CustomThemeTexture = 'none' | 'paper' | 'linen' | 'canvas' | 'grid' | 'grain';
 
 export interface CustomTheme {
   id: string;

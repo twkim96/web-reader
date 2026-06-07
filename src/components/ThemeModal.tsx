@@ -3,7 +3,7 @@ import { CustomTheme, CustomThemeTexture, ViewerSettings } from '../types';
 import { X, Check, Plus, Pencil, Trash2 } from 'lucide-react';
 import { THEMES, ACCENT_COLORS, ACCENT_PALETTE } from '../lib/constants';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
-import { createCustomThemeId, normalizeHexColor } from '../lib/themeUtils';
+import { createCustomThemeId, getTexturePreviewStyle, normalizeHexColor } from '../lib/themeUtils';
 
 interface ThemeModalProps {
   settings: ViewerSettings;
@@ -12,6 +12,15 @@ interface ThemeModalProps {
   theme: { bg: string; text: string; border: string; secondary?: string };
   onSelectTheme?: (themeName: string) => void;
 }
+
+const TEXTURE_OPTIONS: Array<[CustomThemeTexture, string]> = [
+  ['none', '없음'],
+  ['paper', '종이'],
+  ['linen', '섬유'],
+  ['canvas', '캔버스'],
+  ['grid', '격자'],
+  ['grain', '입자'],
+];
 
 export const ThemeModal: React.FC<ThemeModalProps> = ({ 
   settings, onUpdateSettings, onClose, theme, onSelectTheme 
@@ -116,60 +125,61 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   );
 
   if (mode === 'create' || mode === 'edit') {
+    const previewBg = normalizeHexColor(form.bgColor, '#272728');
+    const previewText = normalizeHexColor(form.textColor, '#b8b8b8');
+
     return (
-      <ReaderModalFrame noBlur theme={theme} onClose={() => setMode('list')} maxWidth="max-w-sm" className="p-6">
-        <div className="flex items-center justify-between mb-6">
+      <ReaderModalFrame noBlur theme={theme} onClose={() => setMode('list')} maxWidth="max-w-sm" className="p-5">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-lg">{mode === 'create' ? '커스텀 테마 추가' : '커스텀 테마 편집'}</h2>
           <button onClick={() => setMode('list')} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
         </div>
 
-        <div className="space-y-5">
+        <div className="space-y-4">
           <label className="block">
             <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Theme Title</span>
             <input
               value={form.title}
               onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-              className={`mt-2 w-full rounded-xl border ${theme.border} ${theme.secondary || ''} px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-accent-500`}
+              className={`mt-1.5 w-full rounded-xl border ${theme.border} ${theme.secondary || ''} px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-accent-500`}
               placeholder="내 테마"
             />
           </label>
 
-          {[
-            ['배경색', 'bgColor'],
-            ['글자색', 'textColor'],
-          ].map(([label, key]) => (
-            <label key={key} className="block">
-              <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{label}</span>
-              <div className="mt-2 flex items-center gap-3">
-                <input
-                  type="color"
-                  value={normalizeHexColor(form[key as 'bgColor' | 'textColor'], key === 'bgColor' ? '#272728' : '#b8b8b8')}
-                  onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
-                  className="h-11 w-14 shrink-0 rounded-xl border-0 bg-transparent p-0"
-                  aria-label={label}
-                />
-                <input
-                  value={form[key as 'bgColor' | 'textColor']}
-                  onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
-                  className={`min-w-0 flex-1 rounded-xl border ${theme.border} ${theme.secondary || ''} px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-accent-500`}
-                  placeholder="#ededed"
-                />
-              </div>
-            </label>
-          ))}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              ['배경색', 'bgColor'],
+              ['글자색', 'textColor'],
+            ].map(([label, key]) => (
+              <label key={key} className="block min-w-0">
+                <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{label}</span>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={normalizeHexColor(form[key as 'bgColor' | 'textColor'], key === 'bgColor' ? '#272728' : '#b8b8b8')}
+                    onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                    className="h-10 w-10 shrink-0 rounded-xl border-0 bg-transparent p-0"
+                    aria-label={label}
+                  />
+                  <input
+                    value={form[key as 'bgColor' | 'textColor']}
+                    onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                    className={`min-w-0 flex-1 rounded-xl border ${theme.border} ${theme.secondary || ''} px-3 py-2.5 text-xs font-bold outline-none focus:ring-2 focus:ring-accent-500`}
+                    placeholder="#ededed"
+                  />
+                </div>
+              </label>
+            ))}
+          </div>
 
           <div>
-            <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-2">Texture</p>
+            <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-1.5">Texture</p>
             <div className="grid grid-cols-3 gap-2">
-              {[
-                ['none', '없음'],
-                ['paper', '종이'],
-                ['linen', '섬유'],
-              ].map(([value, label]) => (
+              {TEXTURE_OPTIONS.map(([value, label]) => (
                 <button
                   key={value}
                   onClick={() => setForm((prev) => ({ ...prev, texture: value as CustomThemeTexture }))}
-                  className={`h-10 rounded-xl text-xs font-bold transition-all active:scale-95 ${form.texture === value ? 'bg-accent-600 text-white' : `${theme.secondary || ''} opacity-70 hover:opacity-100`}`}
+                  className={`h-9 rounded-xl text-xs font-bold transition-all active:scale-95 ${form.texture === value ? 'bg-accent-600 text-white' : `${theme.secondary || ''} opacity-70 hover:opacity-100`}`}
                 >
                   {label}
                 </button>
@@ -177,9 +187,16 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-current/10 p-4" style={{ backgroundColor: normalizeHexColor(form.bgColor, '#272728'), color: normalizeHexColor(form.textColor, '#b8b8b8') }}>
+          <div
+            className="rounded-2xl border border-current/10 p-3"
+            style={{
+              backgroundColor: previewBg,
+              color: previewText,
+              ...getTexturePreviewStyle(form.texture, previewText),
+            }}
+          >
             <p className="text-sm font-bold">미리보기 문장입니다.</p>
-            <p className="mt-2 text-xs opacity-65">배경색, 글자색, 질감 설정을 확인하세요.</p>
+            <p className="mt-1.5 text-xs opacity-65">배경색, 글자색, 질감 설정을 확인하세요.</p>
           </div>
 
           <div className="flex gap-2 pt-1">
@@ -254,7 +271,11 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                 relative p-4 rounded-2xl border-2 text-left transition-all active:scale-95
                 ${settings.theme === customTheme.id ? 'border-accent-500 ring-2 ring-accent-500/20' : `border-transparent ${theme.border}`}
               `}
-              style={{ backgroundColor: customTheme.bgColor, color: customTheme.textColor }}
+              style={{
+                backgroundColor: customTheme.bgColor,
+                color: customTheme.textColor,
+                ...getTexturePreviewStyle(customTheme.texture || 'none', customTheme.textColor),
+              }}
             >
               <div className="font-bold mb-1 truncate">{customTheme.title}</div>
               <div className="text-[10px] opacity-60">Custom theme</div>

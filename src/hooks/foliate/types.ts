@@ -84,6 +84,8 @@ export type ReaderStyle = {
   textAlign?: string;
   bgColor?: string;
   textColor?: string;
+  bgImage?: string;
+  bgSize?: string;
 };
 
 export type ReaderLayout = {

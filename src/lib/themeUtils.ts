@@ -89,9 +89,47 @@ const getTextureVars = (texture: CustomThemeTexture, textColor: string) => {
       '--viewer-theme-texture-size': '22px 22px',
     };
   }
+  if (texture === 'canvas') {
+    return {
+      '--viewer-theme-texture': `repeating-linear-gradient(0deg, rgba(${textRgb}, 0.035) 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, rgba(${textRgb}, 0.045) 0 1px, transparent 1px 5px), linear-gradient(45deg, rgba(${textRgb}, 0.025) 25%, transparent 25%, transparent 75%, rgba(${textRgb}, 0.025) 75%)`,
+      '--viewer-theme-texture-size': '18px 18px',
+    };
+  }
+  if (texture === 'grid') {
+    return {
+      '--viewer-theme-texture': `linear-gradient(rgba(${textRgb}, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(${textRgb}, 0.08) 1px, transparent 1px)`,
+      '--viewer-theme-texture-size': '28px 28px',
+    };
+  }
+  if (texture === 'grain') {
+    return {
+      '--viewer-theme-texture': `radial-gradient(circle at 20% 30%, rgba(${textRgb}, 0.08) 0 1px, transparent 1px), radial-gradient(circle at 80% 70%, rgba(${textRgb}, 0.05) 0 1px, transparent 1px), radial-gradient(circle at 45% 80%, rgba(${textRgb}, 0.045) 0 1px, transparent 1px)`,
+      '--viewer-theme-texture-size': '14px 14px',
+    };
+  }
   return {
     '--viewer-theme-texture': 'none',
     '--viewer-theme-texture-size': 'auto',
+  };
+};
+
+export const getTexturePreviewStyle = (
+  texture: CustomThemeTexture,
+  textColor: string
+): CSSProperties => {
+  const vars = getTextureVars(texture, textColor);
+  return {
+    backgroundImage: vars['--viewer-theme-texture'],
+    backgroundSize: vars['--viewer-theme-texture-size'],
+  };
+};
+
+export const getThemeTextureCss = (settings: ViewerSettings) => {
+  const colors = getThemeColors(settings);
+  const vars = getTextureVars(colors.texture, normalizeHexColor(colors.text, '#5b4636'));
+  return {
+    image: vars['--viewer-theme-texture'],
+    size: vars['--viewer-theme-texture-size'],
   };
 };
 

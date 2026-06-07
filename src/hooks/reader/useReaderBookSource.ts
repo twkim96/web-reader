@@ -11,6 +11,11 @@ type ReaderThemeColors = {
   text: string;
 };
 
+type ReaderThemeTexture = {
+  image: string;
+  size: string;
+};
+
 type ReaderLayoutSetter = (layout: {
   flow?: 'paginated' | 'scrolled';
   margin?: number;
@@ -28,6 +33,8 @@ type ReaderStyleSetter = (styles: {
   textAlign?: string;
   bgColor?: string;
   textColor?: string;
+  bgImage?: string;
+  bgSize?: string;
 }) => void;
 
 interface UseReaderBookSourceOptions {
@@ -36,6 +43,7 @@ interface UseReaderBookSourceOptions {
   initialCfi?: string;
   settings: ViewerSettings;
   themeColors: ReaderThemeColors;
+  themeTexture: ReaderThemeTexture;
   containerRef: MutableRefObject<HTMLDivElement | null>;
   openBook: (source: Blob | File | string, initialCfi?: string) => Promise<void>;
   setLayout: ReaderLayoutSetter;
@@ -51,7 +59,11 @@ const getReaderLayout = (navMode: ViewerSettings['navMode']) => ({
   maxInlineSize: '1000px',
 });
 
-const getReaderStyle = (settings: ViewerSettings, themeColors: ReaderThemeColors) => ({
+const getReaderStyle = (
+  settings: ViewerSettings,
+  themeColors: ReaderThemeColors,
+  themeTexture: ReaderThemeTexture
+) => ({
   fontSize: settings.fontSize,
   lineHeight: settings.lineHeight,
   paragraphSpacing: settings.paragraphSpacing ?? 1,
@@ -59,6 +71,8 @@ const getReaderStyle = (settings: ViewerSettings, themeColors: ReaderThemeColors
   textAlign: settings.textAlign,
   bgColor: themeColors.bg,
   textColor: themeColors.text,
+  bgImage: themeTexture.image,
+  bgSize: themeTexture.size,
 });
 
 export const useReaderBookSource = ({
@@ -67,6 +81,7 @@ export const useReaderBookSource = ({
   initialCfi,
   settings,
   themeColors,
+  themeTexture,
   containerRef,
   openBook,
   setLayout,
@@ -113,7 +128,7 @@ export const useReaderBookSource = ({
 
         await openBook(source, initialCfi);
         setLayout(getReaderLayout(settings.navMode));
-        setStyle(getReaderStyle(settings, themeColors));
+        setStyle(getReaderStyle(settings, themeColors, themeTexture));
         setIsLoaded(true);
       } catch (error) {
         console.error('[EpubReader] Failed to load epub:', error);
@@ -122,12 +137,12 @@ export const useReaderBookSource = ({
     };
 
     void loadEpub();
-  }, [book, containerRef, googleToken, initialCfi, onBack, openBook, setLayout, setStyle, settings, themeColors]);
+  }, [book, containerRef, googleToken, initialCfi, onBack, openBook, setLayout, setStyle, settings, themeColors, themeTexture]);
 
   useEffect(() => {
     if (!isLoaded) return;
-    setStyle(getReaderStyle(settings, themeColors));
-  }, [isLoaded, setStyle, settings, themeColors]);
+    setStyle(getReaderStyle(settings, themeColors, themeTexture));
+  }, [isLoaded, setStyle, settings, themeColors, themeTexture]);
 
   useEffect(() => {
     if (!isLoaded) return;

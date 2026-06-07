@@ -63,6 +63,8 @@ const buildReaderStyle = (styles: ReaderStyle) => {
   return `
     html, body {
       ${styles.bgColor ? `background-color: ${styles.bgColor} !important;` : ''}
+      ${styles.bgImage ? `background-image: ${styles.bgImage} !important;` : ''}
+      ${styles.bgSize ? `background-size: ${styles.bgSize} !important;` : ''}
       ${styles.textColor ? `color: ${styles.textColor} !important;` : ''}
       margin: 0 !important;
       padding: 10px 2px !important;

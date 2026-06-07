@@ -3,7 +3,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Book, Bookmark, SaveProgressOptions, UserProgress, ViewerSettings } from '../types';
-import { getThemeClasses, getThemeColors } from '../lib/themeUtils';
+import { getThemeClasses, getThemeColors, getThemeTextureCss } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
@@ -97,6 +97,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 }) => {
   const theme = getThemeClasses(settings);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
+  const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
   const readerEdgePadding = Math.max(settings.padding || 0, settings.fontSize);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
 
@@ -155,6 +156,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     initialCfi,
     settings,
     themeColors,
+    themeTexture,
     containerRef,
     openBook,
     setLayout,
