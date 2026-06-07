@@ -40,6 +40,8 @@ interface EpubReaderProps {
 const KEYBOARD_SCROLL_RATIO = 0.25;
 const MIN_KEYBOARD_SCROLL_DISTANCE = 80;
 const MAX_KEYBOARD_SCROLL_DISTANCE = 240;
+const WHEEL_PAGE_TURN_MIN_DELTA = 8;
+const WHEEL_PAGE_TURN_IDLE_MS = 220;
 
 const isEditableKeyboardTarget = (target: EventTarget | null) => {
   const node = target as {
@@ -100,6 +102,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
   const readerEdgePadding = Math.max(settings.padding || 0, settings.fontSize);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
+  const wheelNavigationCycleLockedRef = useRef(false);
+  const wheelNavigationResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const chrome = useReaderChrome({ onBack });
   const {
@@ -122,7 +127,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const handleReaderLoad = useCallback((doc?: Document) => {
     if (!doc) return;
     doc.addEventListener('click', chrome.toggleControls);
-    doc.addEventListener('wheel', () => markUserProgressChange(), { passive: true });
+    doc.addEventListener('wheel', (event) => wheelNavigationRef.current(event), { passive: false });
     doc.addEventListener('touchmove', () => markUserProgressChange(), { passive: true });
     doc.addEventListener('keydown', (event) => keyboardNavigationRef.current(event));
   }, [chrome.toggleControls, markUserProgressChange]);
@@ -270,6 +275,80 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [chrome, markUserProgressChange, next, prev, settings.navMode]);
 
   useEffect(() => {
+    return () => {
+      if (wheelNavigationResetTimerRef.current) {
+        clearTimeout(wheelNavigationResetTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlockWheelNavigationAfterIdle = () => {
+      if (wheelNavigationResetTimerRef.current) {
+        clearTimeout(wheelNavigationResetTimerRef.current);
+      }
+
+      wheelNavigationResetTimerRef.current = setTimeout(() => {
+        wheelNavigationCycleLockedRef.current = false;
+        wheelNavigationResetTimerRef.current = null;
+      }, WHEEL_PAGE_TURN_IDLE_MS);
+    };
+
+    const handleWheelNavigation = (event: WheelEvent | React.WheelEvent) => {
+      if (settings.navMode === 'scroll') {
+        markUserProgressChange();
+        return;
+      }
+
+      if (isEditableKeyboardTarget(event.target)) return;
+
+      const isReaderPanelOpen = chrome.showControls
+        || chrome.showSettings
+        || chrome.showThemeModal
+        || chrome.showBookmarks
+        || chrome.showToc
+        || chrome.showSearchModal
+        || chrome.showJumpInput;
+      if (isReaderPanelOpen) return;
+
+      const absDeltaX = Math.abs(event.deltaX);
+      const absDeltaY = Math.abs(event.deltaY);
+      if (absDeltaX < WHEEL_PAGE_TURN_MIN_DELTA && absDeltaY < WHEEL_PAGE_TURN_MIN_DELTA) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      unlockWheelNavigationAfterIdle();
+
+      if (wheelNavigationCycleLockedRef.current) return;
+      wheelNavigationCycleLockedRef.current = true;
+
+      const dominantDelta = absDeltaX > absDeltaY ? event.deltaX : event.deltaY;
+      markUserProgressChange();
+      if (dominantDelta < 0) prev();
+      else next();
+    };
+
+    wheelNavigationRef.current = handleWheelNavigation;
+    return () => {
+      if (wheelNavigationRef.current === handleWheelNavigation) {
+        wheelNavigationRef.current = () => undefined;
+      }
+    };
+  }, [
+    chrome.showBookmarks,
+    chrome.showControls,
+    chrome.showJumpInput,
+    chrome.showSearchModal,
+    chrome.showSettings,
+    chrome.showThemeModal,
+    chrome.showToc,
+    markUserProgressChange,
+    next,
+    prev,
+    settings.navMode,
+  ]);
+
+  useEffect(() => {
     if (!isLoaded) return;
 
     const handleKeyboardNavigation = (event: KeyboardEvent) => {
@@ -412,7 +491,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       />
 
       {isLoaded && settings.navMode !== 'scroll' && (
-        <div className="fixed inset-0 z-10" style={{ background: 'transparent' }} onClick={handleInteraction} />
+        <div
+          className="fixed inset-0 z-10"
+          style={{ background: 'transparent' }}
+          onClick={handleInteraction}
+          onWheel={(event) => wheelNavigationRef.current(event)}
+        />
       )}
 
       {chrome.showControls && (
