@@ -180,7 +180,7 @@ export const Shelf: React.FC<ShelfProps> = ({
 
       <main ref={shelfContentRef} className="max-w-7xl mx-auto px-6 pt-5 pb-8">
         {filteredBooks.length > 0 ? (
-          <div className={`grid gap-8 ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1'}`}>
+          <div className={`grid ${viewMode === 'grid' ? 'grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1 gap-0'}`}>
             {filteredBooks.map((book) => (
               <BookCard 
                 key={book.id}

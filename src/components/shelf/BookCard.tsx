@@ -76,28 +76,32 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group flex items-center ${theme.secondary} border ${theme.border} rounded-3xl p-4 sm:p-5 cursor-pointer hover:border-accent-500/50 transition-all duration-300`}
+        className={`group grid grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-3 cursor-pointer transition-colors duration-200 hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3.5`}
       >
-        <div className="w-12 h-12 bg-accent-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg group-hover:scale-105 transition-transform duration-300 mr-4">
-          <BookOpen className="text-white" size={20} />
+        <div className="h-11 w-11 bg-accent-600 rounded-xl flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform duration-200 sm:h-12 sm:w-12">
+          <BookOpen className="text-white" size={22} />
         </div>
         
-        <div className="flex-1 min-w-0 pr-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-base sm:text-lg font-bold truncate group-hover:text-accent-500 transition-colors">
+            <h3 className="truncate text-sm font-bold leading-tight group-hover:text-accent-500 transition-colors sm:text-base">
               {getDisplayBookTitle(book.name)}
             </h3>
             {isDownloaded && (
-              <CheckCircle2 size={16} className="text-green-400 shrink-0" strokeWidth={3} />
+              <CheckCircle2 size={15} className="text-green-400 shrink-0" strokeWidth={3} />
             )}
           </div>
-          <div className="text-[10px] text-slate-500 font-bold mt-1 uppercase tracking-widest truncate">
+          <div className="mt-1 truncate text-[10px] font-bold uppercase tracking-widest text-slate-500 sm:text-[11px]">
             {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
           </div>
         </div>
 
-        <div className="w-20 sm:w-32 shrink-0 flex flex-col justify-center">
-          <div className="flex justify-end mb-1.5 items-center gap-1.5">
+        <div className="hidden min-w-0 text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block">
+          EPUB Document
+        </div>
+
+        <div className="min-w-0 flex flex-col justify-center">
+          <div className="mb-1 flex items-center justify-end gap-1.5">
             {percent > 0 && onDeleteProgress && (
               <button 
                 onClick={(e) => {
@@ -105,17 +109,17 @@ export const BookCard: React.FC<BookCardProps> = ({
                   onDeleteProgress(book.id);
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-2 transition-colors"
+                className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1.5 transition-colors"
                 title="Delete Progress"
               >
-                <Eraser size={18} strokeWidth={2.5} />
+                <Eraser size={16} strokeWidth={2.5} />
               </button>
             )}
-            <span className="text-xs font-black text-accent-400">
+            <span className="text-xs font-black text-accent-400 sm:text-sm">
               {percent.toFixed(1)}%
             </span>
           </div>
-          <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden">
+          <div className="ml-auto h-1.5 w-full max-w-24 bg-black/30 rounded-full overflow-hidden sm:max-w-32">
             <div 
               className="h-full bg-accent-500 rounded-full transition-all duration-1000 ease-out"
               style={{ width: `${percent}%` }}
