@@ -113,7 +113,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
   const dockSurfaceClass = "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl";
   const dockClass = `flex h-[4.125rem] items-center rounded-[1.65rem] ${dockSurfaceClass} px-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)]`;
-  const bottomDockClass = `flex h-[4.25rem] max-w-[calc(100vw-1rem)] items-center justify-center rounded-[1.55rem] ${dockSurfaceClass} px-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.28)] md:h-[4.5rem] md:rounded-[1.9rem] md:px-3`;
+  const bottomDockClass = `flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-md items-center justify-center rounded-[1.55rem] ${dockSurfaceClass} px-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.28)] md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:rounded-[1.9rem] md:px-3`;
   const dockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] opacity-70 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const activeDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
@@ -221,7 +221,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const bottomDock = (
     <div className={`fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.85rem)] z-[80] flex justify-center px-2 pointer-events-none ${isBottomDock ? 'md:flex' : 'md:hidden'}`}>
       <div className={`${bottomDockClass} pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out`}>
-        <div className="flex items-center gap-0.5 md:gap-2">
+        <div className="flex w-full items-center justify-between gap-0.5 md:w-auto md:justify-start md:gap-2">
           {renderDockActions({
             iconSize: bottomDockIconSize,
             buttonClass: bottomDockButtonClass,
