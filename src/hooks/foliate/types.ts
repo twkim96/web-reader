@@ -23,7 +23,7 @@ export interface RelocateDetail {
 }
 
 export type FoliateSection = {
-  id?: string;
+  id?: string | number;
   href?: string;
   linear?: string;
   size?: number;

@@ -11,6 +11,7 @@ import {
   getSourceBookFormat,
   updateImportSelection,
 } from '../src/lib/bookFormats.ts';
+import { buildTocProgress } from '../src/hooks/foliate/toc.ts';
 
 const file = (name, size, type = '') => ({ name, size, type });
 
@@ -142,4 +143,19 @@ test('blocks oversized Drive books before download', () => {
     getBookOpenLimitError('large.cbz', 'application/octet-stream', String(ARCHIVE_FILE_MAX_BYTES + 1)),
     /300MB/,
   );
+});
+
+test('builds TOC progress when an adapter exposes numeric section IDs', () => {
+  const progress = buildTocProgress({
+    book: {
+      sections: [
+        { id: 0, size: 1000 },
+        { id: 1, size: 1000 },
+      ],
+      toc: [{ href: '1', label: 'Second page' }],
+    },
+    resolveNavigation: () => ({ index: 0 }),
+  });
+
+  assert.equal(progress[0].progress, 50);
 });

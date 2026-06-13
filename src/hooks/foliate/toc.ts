@@ -1,6 +1,6 @@
 'use client';
 
-import { FoliateSection, FoliateViewElement, TocItem } from './types';
+import type { FoliateSection, FoliateViewElement, TocItem } from './types';
 
 const buildSectionFractions = (sections: FoliateSection[]) => {
   const sizes = sections.map((section) => (
@@ -26,7 +26,7 @@ const findSectionIndexByHref = (sections: FoliateSection[], href: string) => {
   if (!hrefPath) return -1;
 
   return sections.findIndex((section) => {
-    const sectionPath = (section.id || section.href || '').split('/').pop();
+    const sectionPath = String(section.id ?? section.href ?? '').split('/').pop();
     return Boolean(sectionPath && sectionPath === hrefPath);
   });
 };

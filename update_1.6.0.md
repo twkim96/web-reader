@@ -384,7 +384,7 @@ type PreparedBookSource = {
 
 #### 상태
 
-- 구현, 로컬 검증, 고정 배포 URL 검증 완료.
+- 구현과 로컬 검증 완료. 숫자 PDF 섹션 ID 회귀 수정의 고정 배포 URL 재검증 대기.
 - PDF를 사용자 선택 UI에 활성화했다.
 
 - PDF.js와 Foliate PDF 어댑터를 추가한다.
@@ -402,6 +402,11 @@ type PreparedBookSource = {
 
 #### 로컬 검증 결과
 
+- 2026-06-14 회귀 수정: PDF 어댑터의 숫자 섹션 ID가 공통 TOC 경로의 문자열 처리와 충돌해 `(e.id || e.href || "").split is not a function` 오류가 발생할 수 있던 문제를 수정함.
+- PDF 섹션 ID와 TOC 분할 키를 `page-1` 형식의 문자열로 통일하고, 공통 TOC 경계에서도 숫자 ID를 안전하게 문자열로 변환함.
+- 실제 150MB PDF를 IndexedDB에 저장하고 `FOLIATE-FXL` 인덱스 0과 iframe 내부 canvas 생성까지 확인함. 저장 크기는 157,286,400바이트이고 JS heap은 약 8.9MB에서 12.4MB로 증가함.
+- 7페이지 PDF에서 canvas와 텍스트 레이어, 4쪽 이동, 57.14% 진행률·북마크 저장, 4쪽 재개를 확인했고 런타임 오류는 0개였음.
+- 회귀 수정 후 형식 12개, Drive 14개, 압축 9개, 저장소 1개 테스트와 TypeScript, ESLint, production build, diff 검사를 모두 통과함.
 - 7페이지 PDF의 캔버스와 텍스트 레이어를 렌더링하고 마지막 페이지까지 이동함.
 - 키보드로 4쪽까지 이동한 진행률이 `epubcfi(/6/8)`, 57.14%로 저장되고 재열기 시 4쪽으로 복원됨.
 - 현재 위치 수동 북마크가 같은 CFI와 진행률로 IndexedDB에 저장됨.

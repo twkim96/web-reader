@@ -158,8 +158,9 @@ export const makePDF = async file => {
         cache.delete(index)
     }
 
+    const pageID = index => `page-${index + 1}`
     book.sections = Array.from({ length: pdf.numPages }).map((_, i) => ({
-        id: i,
+        id: pageID(i),
         load: async () => {
             if (destroyed) throw new Error('PDF source is closed')
             const cached = cache.get(i)
@@ -200,7 +201,7 @@ export const makePDF = async file => {
         const dest = typeof parsed === 'string'
             ? await pdf.getDestination(parsed) : parsed
         const index = await pdf.getPageIndex(dest[0])
-        return [index, null]
+        return [pageID(index), null]
     }
     book.getTOCFragment = doc => doc.documentElement
     book.getCover = async () => renderPage(await pdf.getPage(1), true)
