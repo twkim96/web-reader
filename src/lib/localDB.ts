@@ -164,6 +164,11 @@ export const removeBookFromLocal = async (id: string) => {
   await tx.done;
 };
 
+export const removeProgressFromLocal = async (bookId: string) => {
+  const db = await initDB();
+  await db.delete(PROGRESS_STORE, bookId);
+};
+
 export const getOfflineBookIds = async () => {
   const db = await initDB();
   const keys = await db.getAllKeys(STORE_NAME);

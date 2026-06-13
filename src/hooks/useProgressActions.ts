@@ -1,8 +1,8 @@
-import { Dispatch, MutableRefObject, SetStateAction, useCallback } from 'react';
+import { Dispatch, MutableRefObject, SetStateAction, useCallback, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
-import { saveProgressToLocal } from '../lib/localDB';
+import { removeProgressFromLocal, saveProgressToLocal } from '../lib/localDB';
 import { Book, Bookmark, SaveProgressOptions, UserProgress } from '../types';
 import { getManualBookmarks, hasProgressChanged, toProgressPercent } from './progressPolicy';
 
@@ -21,6 +21,25 @@ export const useProgressActions = ({
   progressRef,
   setProgress,
 }: UseProgressActionsOptions) => {
+  const writeTailsRef = useRef(new Map<string, Promise<void>>());
+
+  const queueProgressWrite = useCallback((
+    bookId: string,
+    write: () => Promise<void>,
+  ) => {
+    const previous = writeTailsRef.current.get(bookId) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(write);
+    writeTailsRef.current.set(bookId, current);
+
+    const cleanup = () => {
+      if (writeTailsRef.current.get(bookId) === current) {
+        writeTailsRef.current.delete(bookId);
+      }
+    };
+    void current.then(cleanup, cleanup);
+    return current;
+  }, []);
+
   const persistProgress = useCallback(async (bookId: string, progressData: UserProgress) => {
     try {
       await saveProgressToLocal(progressData);
@@ -73,8 +92,8 @@ export const useProgressActions = ({
 
     progressRef.current = { ...progressRef.current, [bookId]: progressData };
     setProgress((prev) => ({ ...prev, [bookId]: progressData }));
-    void persistProgress(bookId, progressData);
-  }, [activeBook, persistProgress, progressRef, setProgress]);
+    void queueProgressWrite(bookId, () => persistProgress(bookId, progressData));
+  }, [activeBook, persistProgress, progressRef, queueProgressWrite, setProgress]);
 
   const deleteProgress = useCallback(async (bookId: string) => {
     const resetData: UserProgress = {
@@ -89,27 +108,37 @@ export const useProgressActions = ({
     setProgress((prev) => ({ ...prev, [bookId]: resetData }));
     progressRef.current = { ...progressRef.current, [bookId]: resetData };
 
-    try {
-      await saveProgressToLocal(resetData);
-    } catch (error) {
-      console.error('[DeleteProgress] local save failed:', error);
-    }
+    await queueProgressWrite(bookId, () => persistProgress(bookId, resetData));
+  }, [persistProgress, progressRef, queueProgressWrite, setProgress]);
 
-    if (!user) return;
+  const deleteBookProgress = useCallback(async (bookId: string) => {
+    setProgress((prev) => {
+      const next = { ...prev };
+      delete next[bookId];
+      progressRef.current = next;
+      return next;
+    });
 
-    try {
-      await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId), {
-        ...resetData,
-        lastRead: serverTimestamp(),
-        deviceId: deviceId.current,
-      }, { merge: true });
-    } catch (error) {
-      console.error('[DeleteProgress] Firestore save failed:', error);
-    }
-  }, [deviceId, progressRef, setProgress, user]);
+    await queueProgressWrite(bookId, async () => {
+      try {
+        await removeProgressFromLocal(bookId);
+      } catch (error) {
+        console.error('[DeleteBookProgress] local delete failed:', error);
+      }
+
+      if (!user) return;
+
+      try {
+        await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId));
+      } catch (error) {
+        console.error('[DeleteBookProgress] Firestore delete failed:', error);
+      }
+    });
+  }, [progressRef, queueProgressWrite, setProgress, user]);
 
   return {
     saveProgress,
     deleteProgress,
+    deleteBookProgress,
   };
 };

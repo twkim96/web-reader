@@ -269,6 +269,7 @@ export default function Page() {
   const {
     saveProgress: handleSaveProgress,
     deleteProgress: handleDeleteProgress,
+    deleteBookProgress: handleDeleteBookProgress,
   } = useProgressActions({ activeBook, user, deviceId, progressRef, setProgress });
 
   const handleDeleteBook = useCallback(async (book: Book) => {
@@ -284,17 +285,9 @@ export default function Page() {
       }
 
       await removeBookFromLocal(book.id);
+      await handleDeleteBookProgress(book.id);
       forgetPickedDriveFileId(book.id);
-      if (shouldDeleteCloud) {
-        handleDeleteProgress(book.id);
-      } else {
-        setProgress((prev) => {
-          const next = { ...prev };
-          delete next[book.id];
-          progressRef.current = next;
-          return next;
-        });
-      }
+      setActiveBook((current) => current?.id === book.id ? null : current);
       setBooks((prev) => prev.filter((item) => item.id !== book.id));
     } catch (error) {
       if (isGoogleDriveAuthError(error)) {
@@ -310,7 +303,7 @@ export default function Page() {
       console.error('[DeleteBook] failed:', error);
       alert(`도서 삭제 실패: ${message}`);
     }
-  }, [googleToken, handleCloudAuthExpired, handleDeleteProgress, hasValidToken, isOfflineMode, progressRef, setBooks, setProgress]);
+  }, [googleToken, handleCloudAuthExpired, handleDeleteBookProgress, hasValidToken, isOfflineMode, setBooks]);
 
   const handleOpenBook = useCallback((book: Book) => {
     const limitError = getBookOpenLimitError(book.name, book.mimeType, book.size);
