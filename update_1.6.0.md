@@ -256,10 +256,25 @@ type PreparedBookSource = {
 
 ### Phase 2: Drive 목록과 대용량 업로드
 
+#### 상태
+
+- 구현 및 로컬 검증 완료.
+- Google Picker는 `drive.file` 범위를 유지하고 선택한 파일 ID를 브라우저에 저장해 `web viewer` 폴더 목록과 병합한다.
+- 고정 배포 URL의 실제 Google Drive 검증은 커밋과 푸시 후 진행한다.
+
 - Drive 목록 조회 필드와 클라이언트 확장자 필터를 확장한다.
 - Google Picker로 공유한 Drive 직접 업로드 PDF/압축 파일이 책장에 표시되는지 확인한다.
 - resumable upload, 청크 재시도, 진행률, 취소를 구현한다.
 - TXT/EPUB/PDF 150MB 초과와 ZIP/CBZ/7z 300MB 초과 Drive 파일은 다운로드 전에 차단한다.
+
+#### 로컬 검증 결과
+
+- `npm run test:formats`: 10개 테스트 통과.
+- `npm run test:drive`: 6개 테스트 통과.
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src tests`: 통과.
+- `npm run build`: 통과.
+- `git diff --check`: 통과.
 
 ### Phase 3: ZIP/CBZ 이미지 도서
 

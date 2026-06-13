@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useImperativeHandle, useRef } from 'react';
 import { createFolder, findFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
 import { saveBookToLocal } from '../../lib/localDB';
 import type { Book } from '../../types';
@@ -17,13 +17,20 @@ interface FileUploaderProps {
   isOfflineMode: boolean;
   onRefresh: () => void;
   onLocalBookImported?: () => void;
-  setIsSyncing: (syncing: boolean) => void;
+  setSyncStatus: (status: CloudSyncStatus) => void;
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
 }
 
+export type CloudSyncStatus = {
+  fileName: string;
+  progressPercent: number;
+  retryCount: number;
+} | null;
+
 export interface FileUploaderHandle {
   importFiles: (files: FileList | File[]) => Promise<void>;
+  cancelUpload: () => void;
 }
 
 export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
@@ -31,15 +38,17 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   isOfflineMode,
   onRefresh,
   onLocalBookImported,
-  setIsSyncing,
+  setSyncStatus,
   isCloudTokenValid,
   onCloudAuthExpired
 }, ref) => {
-  const syncFileToDrive = async (fileName: string, content: ArrayBuffer, mimeType: string) => {
+  const uploadAbortRef = useRef<AbortController | null>(null);
+
+  const syncFileToDrive = async (file: File, mimeType: string, signal: AbortSignal) => {
     if (!googleToken || isOfflineMode) return null;
 
     try {
-      setIsSyncing(true);
+      setSyncStatus({ fileName: file.name, progressPercent: 0, retryCount: 0 });
       const targetFolderName = "web viewer";
       
       let folderId = await findFolderId(targetFolderName, googleToken);
@@ -48,13 +57,24 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       }
 
       if (folderId) {
-        const result = await uploadFile(fileName, content, folderId, googleToken, mimeType);
+        const result = await uploadFile(file.name, file, folderId, googleToken, mimeType, {
+          signal,
+          onProgress: ({ uploadedBytes, totalBytes, retryCount }) => {
+            const progressPercent = totalBytes === 0
+              ? 100
+              : Math.min(100, Math.round((uploadedBytes / totalBytes) * 100));
+            setSyncStatus({ fileName: file.name, progressPercent, retryCount });
+          },
+        });
         onRefresh(); // 목록 갱신
         return result.id as string; // 구글 드라이브 ID 반환
       } else {
         throw new Error('폴더를 생성하거나 찾을 수 없습니다.');
       }
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return null;
+      }
       if (isGoogleDriveAuthError(error)) {
         onCloudAuthExpired?.();
         return null;
@@ -65,68 +85,51 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       alert(`클라우드 동기화 실패: ${message}\n(파일은 기기에 로컬로 저장되었습니다.)`);
       return null;
     } finally {
-      setIsSyncing(false);
+      setSyncStatus(null);
     }
   };
 
-  const importFile = (file: File) => new Promise<void>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const content = event.target?.result as ArrayBuffer | undefined;
-      if (!content) {
-        resolve();
-        return;
-      }
+  const importFile = async (file: File, signal: AbortSignal) => {
+    const originalMimeType = getSupportedBookMimeType(file.name, file.type);
+    const sourceFormat = getSourceBookFormat(file.name, originalMimeType);
 
-      const originalMimeType = getSupportedBookMimeType(file.name, file.type);
-      const sourceFormat = getSourceBookFormat(file.name, originalMimeType);
+    let bookId = file.name; // 기본값은 파일명
 
-      let bookId = file.name; // 기본값은 파일명
-      
-      // 1. 구글 드라이브 동기화 (원본 txt/epub 그대로 업로드)
-      if (!isOfflineMode && googleToken) {
-        if (isCloudTokenValid?.() === false) {
-          onCloudAuthExpired?.();
-        } else {
-          const driveId = await syncFileToDrive(file.name, content, originalMimeType);
-          if (driveId) {
-            bookId = driveId; // 드라이브 업로드 성공 시 해당 ID 사용
-          }
-        }
-      } else if (!isOfflineMode && !googleToken) {
+    // 1. 구글 드라이브 동기화 (원본 txt/epub 그대로 업로드)
+    if (!isOfflineMode && googleToken) {
+      if (isCloudTokenValid?.() === false) {
         onCloudAuthExpired?.();
+      } else {
+        const driveId = await syncFileToDrive(file, originalMimeType, signal);
+        if (driveId) {
+          bookId = driveId; // 드라이브 업로드 성공 시 해당 ID 사용
+        }
       }
+    } else if (!isOfflineMode && !googleToken) {
+      onCloudAuthExpired?.();
+    }
 
-      // 2. 로컬 저장 (확보된 bookId 사용 - 중복 방지 핵심)
-      const book: Book = {
-        id: bookId,
-        name: file.name,
-        mimeType: originalMimeType,
-        sourceFormat: sourceFormat ?? undefined,
-        readerFormat: sourceFormat ? getReaderFormat(sourceFormat) : undefined,
-      };
-      
-      try {
-        const epub = await ensureEpubBook(book, content);
-        await saveBookToLocal(epub.book, epub.content);
-      } catch (err) {
-        console.error('epub 변환/저장 실패:', err);
-        alert(`${file.name} 도서를 EPUB으로 준비하는 데 실패했습니다.`);
-        resolve();
-        return;
-      }
-      
-      if (onLocalBookImported) {
-        onLocalBookImported();
-      }
-      resolve();
+    // 2. 로컬 저장. Drive 전송이 끝난 뒤 한 번만 ArrayBuffer로 읽는다.
+    const book: Book = {
+      id: bookId,
+      name: file.name,
+      mimeType: originalMimeType,
+      sourceFormat: sourceFormat ?? undefined,
+      readerFormat: sourceFormat ? getReaderFormat(sourceFormat) : undefined,
     };
-    reader.onerror = () => {
-      alert(`${file.name} 파일을 읽지 못했습니다.`);
-      resolve();
-    };
-    reader.readAsArrayBuffer(file);
-  });
+
+    try {
+      const content = await file.arrayBuffer();
+      const epub = await ensureEpubBook(book, content);
+      await saveBookToLocal(epub.book, epub.content);
+    } catch (err) {
+      console.error('epub 변환/저장 실패:', err);
+      alert(`${file.name} 도서를 EPUB으로 준비하는 데 실패했습니다.`);
+      return;
+    }
+
+    onLocalBookImported?.();
+  };
 
   const importFiles = async (files: FileList | File[]) => {
     const result = updateImportSelection([], Array.from(files), {
@@ -139,13 +142,26 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       return;
     }
 
-    for (const file of result.files) {
-      await importFile(file);
+    uploadAbortRef.current?.abort();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+
+    try {
+      for (const file of result.files) {
+        await importFile(file, controller.signal);
+        if (controller.signal.aborted) break;
+      }
+    } finally {
+      if (uploadAbortRef.current === controller) {
+        uploadAbortRef.current = null;
+        setSyncStatus(null);
+      }
     }
   };
 
   useImperativeHandle(ref, () => ({
     importFiles,
+    cancelUpload: () => uploadAbortRef.current?.abort(),
   }));
 
   return null;

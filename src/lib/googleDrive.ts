@@ -1,5 +1,18 @@
 // src/lib/googleDrive.ts
 
+import type { Book } from '../types';
+import {
+  getArchiveFormat,
+  getReaderFormat,
+  getSourceBookFormat,
+  getSupportedBookMimeType,
+} from './bookFormats.ts';
+import {
+  DriveUploadHttpError,
+  uploadFileResumable,
+  type DriveUploadProgress,
+} from './driveUpload.ts';
+
 /**
  * 타임아웃 기능이 포함된 fetch 함수
  * 지정된 시간(ms) 안에 응답이 없으면 요청을 취소하고 에러를 발생시킵니다.
@@ -103,65 +116,76 @@ export const createFolder = async (folderName: string, token: string) => {
   return data.id;
 };
 
-/**
- * 파일을 구글 드라이브의 특정 폴더에 업로드합니다 (Multipart Upload).
- */
 export const uploadFile = async (
   fileName: string,
-  content: ArrayBuffer,
+  content: Blob,
   folderId: string,
   token: string,
-  mimeType: string
+  mimeType: string,
+  options: {
+    signal?: AbortSignal;
+    onProgress?: (progress: DriveUploadProgress) => void;
+  } = {},
 ) => {
-  const boundary = '-------antigravity_sync_boundary';
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelimiter = `\r\n--${boundary}--`;
+  try {
+    return await uploadFileResumable({
+      file: content,
+      fileName,
+      folderId,
+      token,
+      mimeType,
+      signal: options.signal,
+      onProgress: options.onProgress,
+    });
+  } catch (error) {
+    if (error instanceof DriveUploadHttpError) {
+      if (error.status === 401) throw new GoogleDriveAuthError();
+      if (error.status === 403) throw new GoogleDrivePermissionError();
+      console.error('Google Drive Upload Error:', error.responseText);
+      throw new Error('클라우드 업로드 실패');
+    }
+    throw error;
+  }
+};
 
-  const metadata = {
-    name: fileName,
-    parents: [folderId],
-    mimeType,
-  };
+export const normalizeDriveBooks = (files: Book[]) => files.flatMap((file) => {
+  const sourceFormat = getSourceBookFormat(file.name, file.mimeType);
+  if (!sourceFormat) return [];
 
-  const head = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n${delimiter}Content-Type: ${mimeType}\r\n\r\n`;
-  
-  const body = new Blob([
-    head,
-    new Uint8Array(content),
-    closeDelimiter
-  ]);
+  return [{
+    ...file,
+    mimeType: getSupportedBookMimeType(file.name, file.mimeType),
+    sourceFormat,
+    readerFormat: getReaderFormat(sourceFormat),
+    archiveFormat: getArchiveFormat(sourceFormat),
+  }];
+});
 
+export const fetchDriveFileMetadata = async (fileId: string, token: string) => {
   const response = await fetchWithTimeout(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-      },
-      body: body,
-    },
-    60000 
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,modifiedTime,md5Checksum`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    5000,
   );
 
+  if (response.status === 404) return null;
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
     throwIfGoogleDrivePermissionError(response);
-    const errorText = await response.text();
-    console.error('Google Drive Upload Error:', errorText);
-    throw new Error('클라우드 업로드 실패');
+    throw new Error('파일 정보 조회 실패');
   }
 
-  return response.json();
+  const [book] = normalizeDriveBooks([await response.json() as Book]);
+  return book ?? null;
 };
 
-export const fetchDriveFiles = async (token: string, folderId?: string) => {
-  let q = "(mimeType='application/epub+zip' or mimeType='text/plain') and trashed=false";
+export const fetchDriveFiles = async (token: string, folderId?: string, pickedFileIds: string[] = []) => {
+  let q = 'trashed=false';
   if (folderId) q = `'${folderId}' in parents and ${q}`;
   
   // 파일 목록 조회도 5초 타임아웃 (오프라인 감지용)
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id, name, mimeType)`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,modifiedTime,md5Checksum)`,
     { headers: { Authorization: `Bearer ${token}` } },
     5000
   );
@@ -172,7 +196,23 @@ export const fetchDriveFiles = async (token: string, folderId?: string) => {
     throw new Error('파일 목록 조회 실패');
   }
   
-  return response.json();
+  const data = await response.json() as { files?: Book[] };
+  const folderFiles = normalizeDriveBooks(data.files ?? []);
+  const pickedResults = await Promise.all(pickedFileIds.map(async (fileId) => {
+    try {
+      return await fetchDriveFileMetadata(fileId, token);
+    } catch (error) {
+      if (isGoogleDriveAuthError(error)) throw error;
+      console.warn(`Picked Drive file metadata unavailable: ${fileId}`);
+      return null;
+    }
+  }));
+  const filesById = new Map(folderFiles.map((file) => [file.id, file]));
+  pickedResults.forEach((file) => {
+    if (file) filesById.set(file.id, file);
+  });
+
+  return { ...data, files: [...filesById.values()] };
 };
 
 export const fetchFullFile = async (fileId: string, token: string) => {

@@ -27,6 +27,8 @@ import { useProgressSync } from '../hooks/useProgressSync';
 import { useViewerSettings } from '../hooks/useViewerSettings';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
+import { EXTENDED_IMPORT_FORMATS_ENABLED, getBookOpenLimitError } from '../lib/bookFormats';
+import { forgetPickedDriveFileId } from '../lib/drivePickedFiles';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -282,6 +284,7 @@ export default function Page() {
       }
 
       await removeBookFromLocal(book.id);
+      forgetPickedDriveFileId(book.id);
       if (shouldDeleteCloud) {
         handleDeleteProgress(book.id);
       } else {
@@ -308,6 +311,20 @@ export default function Page() {
       alert(`도서 삭제 실패: ${message}`);
     }
   }, [googleToken, handleCloudAuthExpired, handleDeleteProgress, hasValidToken, isOfflineMode, progressRef, setBooks, setProgress]);
+
+  const handleOpenBook = useCallback((book: Book) => {
+    const limitError = getBookOpenLimitError(book.name, book.mimeType, book.size);
+    if (limitError) {
+      alert(limitError);
+      return;
+    }
+    if (!EXTENDED_IMPORT_FORMATS_ENABLED && book.readerFormat && book.readerFormat !== 'epub') {
+      alert('PDF와 압축 도서 읽기 기능은 준비 중입니다.');
+      return;
+    }
+    setActiveBook(book);
+    setView('reader');
+  }, []);
 
   const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
   const dynamicStyles = {
@@ -346,7 +363,7 @@ export default function Page() {
           progress={progress}
           googleToken={googleToken}
           onRefresh={() => !isOfflineMode && googleToken && loadLibraryFromDrive(googleToken)}
-          onOpen={(b) => { setActiveBook(b); setView('reader'); }}
+          onOpen={handleOpenBook}
           onLogout={handleLogout}
           onLogin={handleLoginTrigger}
           userEmail={user?.email || "Guest User"}

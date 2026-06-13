@@ -13,14 +13,16 @@ import {
   Clock,
   Palette,
   FilePlus,
-  CloudLightning
+  CloudLightning,
+  X
 } from 'lucide-react';
+import type { CloudSyncStatus } from './FileUploader';
 
 interface ShelfHeaderProps {
   shelfContentRef: React.RefObject<HTMLElement | null>;
   isOfflineMode: boolean;
   isGuest: boolean;
-  isSyncing: boolean;
+  syncStatus: CloudSyncStatus;
   userEmail: string;
   searchKeyword: string;
   sortMode: 'alpha' | 'recent';
@@ -34,13 +36,14 @@ interface ShelfHeaderProps {
   setShowThemeModal: (show: boolean) => void;
   setShowManage: (show: boolean) => void;
   setShowImportConfirm: (show: boolean) => void;
+  onCancelSync: () => void;
 }
 
 export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   shelfContentRef,
   isOfflineMode,
   isGuest,
-  isSyncing,
+  syncStatus,
   userEmail,
   searchKeyword,
   sortMode,
@@ -53,7 +56,8 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   onToggleViewMode,
   setShowThemeModal,
   setShowManage,
-  setShowImportConfirm
+  setShowImportConfirm,
+  onCancelSync
 }) => {
   const [isBottomDock, setIsBottomDock] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
@@ -261,10 +265,21 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                 <h1 className="text-lg md:text-xl font-black tracking-tight uppercase whitespace-nowrap">
                   {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
                 </h1>
-                {isSyncing && (
+                {syncStatus && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500/10 border border-accent-500/20 rounded-xl text-accent-500 animate-in fade-in zoom-in duration-300">
                     <CloudLightning size={14} className="animate-bounce" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.1em] hidden sm:inline">Syncing to Cloud</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.1em]">
+                      {syncStatus.retryCount > 0 ? `재시도 ${syncStatus.retryCount}` : `${syncStatus.progressPercent}%`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onCancelSync}
+                      className="rounded p-0.5 hover:bg-accent-500/10"
+                      title="클라우드 업로드 취소"
+                      aria-label="클라우드 업로드 취소"
+                    >
+                      <X size={13} />
+                    </button>
                   </div>
                 )}
               </div>

@@ -5,6 +5,7 @@ import {
   ARCHIVE_FILE_MAX_BYTES,
   GENERAL_FILE_MAX_BYTES,
   getBookTitleFromFileName,
+  getBookOpenLimitError,
   getReaderFormat,
   getSourceBookFormat,
   updateImportSelection,
@@ -104,4 +105,19 @@ test('enforces the configured maximum file count', () => {
   });
   assert.match(result.error, /최대 10개/);
   assert.deepEqual(result.files, []);
+});
+
+test('blocks oversized Drive books before download', () => {
+  assert.match(
+    getBookOpenLimitError('large.pdf', 'application/octet-stream', GENERAL_FILE_MAX_BYTES + 1),
+    /150MB/,
+  );
+  assert.match(
+    getBookOpenLimitError('large.cbz', 'application/octet-stream', String(ARCHIVE_FILE_MAX_BYTES + 1)),
+    /300MB/,
+  );
+  assert.equal(
+    getBookOpenLimitError('book.epub', 'application/epub+zip', GENERAL_FILE_MAX_BYTES),
+    null,
+  );
 });

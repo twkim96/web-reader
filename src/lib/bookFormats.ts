@@ -86,6 +86,30 @@ export const getArchiveFormat = (format: SourceBookFormat): ArchiveFormat | unde
   format === 'zip' || format === 'cbz' || format === '7z' ? format : undefined
 );
 
+export const getBookMaxBytes = (format: SourceBookFormat) => (
+  isArchiveFormat(format) ? ARCHIVE_FILE_MAX_BYTES : GENERAL_FILE_MAX_BYTES
+);
+
+export const getBookSizeBytes = (size: string | number | undefined) => {
+  if (typeof size === 'number') return Number.isFinite(size) ? size : null;
+  if (!size) return null;
+  const parsed = Number(size);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+export const getBookOpenLimitError = (
+  fileName: string,
+  mimeType: string,
+  size: string | number | undefined,
+) => {
+  const format = getSourceBookFormat(fileName, mimeType);
+  const sizeBytes = getBookSizeBytes(size);
+  if (!format || sizeBytes === null || sizeBytes <= getBookMaxBytes(format)) return null;
+  return isArchiveFormat(format)
+    ? '이 압축 도서는 300MB 제한을 초과하여 다운로드할 수 없습니다.'
+    : '이 도서는 150MB 제한을 초과하여 다운로드할 수 없습니다.';
+};
+
 export const isArchiveFormat = (format: SourceBookFormat | null): format is ArchiveFormat => (
   format === 'zip' || format === 'cbz' || format === '7z'
 );

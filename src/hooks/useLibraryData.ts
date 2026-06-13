@@ -10,6 +10,7 @@ import {
   RemoteProgressDoc,
   toProgressPercent,
 } from './progressPolicy';
+import { getPickedDriveFileIds } from '../lib/drivePickedFiles';
 
 interface UseLibraryDataOptions {
   clearToken: () => void;
@@ -134,19 +135,14 @@ export const useLibraryData = ({
   const loadLibraryFromDrive = useCallback(async (token: string) => {
     try {
       const folderId = await findFolderId('web viewer', token);
-
-      if (folderId) {
-        const data = await fetchDriveFiles(token, folderId);
-        if (data.files && data.files.length > 0) {
-          const cloudIds = new Set(data.files.map((file: Book) => file.id));
-          const localBooks = await getAllOfflineBooks();
-          const cloudBooks = (data.files as Book[]).map((book) => ({ ...book, source: 'cloud' as const }));
-          const localOnly = localBooks
-            .filter((book) => !cloudIds.has(book.id))
-            .map((book) => ({ ...book, source: 'local' as const }));
-          setBooks([...cloudBooks, ...localOnly]);
-        }
-      }
+      const data = await fetchDriveFiles(token, folderId ?? undefined, getPickedDriveFileIds());
+      const cloudBooks = (data.files as Book[]).map((book) => ({ ...book, source: 'cloud' as const }));
+      const cloudIds = new Set(cloudBooks.map((book) => book.id));
+      const localBooks = await getAllOfflineBooks();
+      const localOnly = localBooks
+        .filter((book) => !cloudIds.has(book.id))
+        .map((book) => ({ ...book, source: 'local' as const }));
+      setBooks([...cloudBooks, ...localOnly]);
 
       setIsOfflineMode(false);
       return true;
