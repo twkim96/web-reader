@@ -1,4 +1,5 @@
 import { Book, UserProgress } from '../../types';
+import { getBookTitleFromFileName } from '../../lib/bookFormats';
 
 export type ShelfSortMode = 'alpha' | 'recent';
 export type ShelfViewMode = 'grid' | 'list';
@@ -10,7 +11,7 @@ export type ShelfTheme = {
 };
 
 export const getDisplayBookTitle = (name: string) => (
-  name.normalize('NFC').replace(/\.epub$/i, '').replace(/\.txt$/i, '')
+  getBookTitleFromFileName(name)
 );
 
 export const normalizeBookSearchText = (value: string) => (

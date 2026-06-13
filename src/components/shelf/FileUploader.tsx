@@ -1,8 +1,16 @@
 import { forwardRef, useImperativeHandle } from 'react';
 import { createFolder, findFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
 import { saveBookToLocal } from '../../lib/localDB';
-import { Book } from '../../types';
-import { ensureEpubBook, getSupportedBookMimeType } from '../../lib/bookContent';
+import type { Book } from '../../types';
+import { ensureEpubBook } from '../../lib/bookContent';
+import {
+  DEFAULT_MAX_IMPORT_FILES,
+  EXTENDED_IMPORT_FORMATS_ENABLED,
+  getReaderFormat,
+  getSourceBookFormat,
+  getSupportedBookMimeType,
+  updateImportSelection,
+} from '../../lib/bookFormats';
 
 interface FileUploaderProps {
   googleToken: string | null;
@@ -17,8 +25,6 @@ interface FileUploaderProps {
 export interface FileUploaderHandle {
   importFiles: (files: FileList | File[]) => Promise<void>;
 }
-
-const MAX_IMPORT_FILES = 10;
 
 export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   googleToken,
@@ -73,6 +79,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       }
 
       const originalMimeType = getSupportedBookMimeType(file.name, file.type);
+      const sourceFormat = getSourceBookFormat(file.name, originalMimeType);
 
       let bookId = file.name; // 기본값은 파일명
       
@@ -95,6 +102,8 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
         id: bookId,
         name: file.name,
         mimeType: originalMimeType,
+        sourceFormat: sourceFormat ?? undefined,
+        readerFormat: sourceFormat ? getReaderFormat(sourceFormat) : undefined,
       };
       
       try {
@@ -120,22 +129,17 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   });
 
   const importFiles = async (files: FileList | File[]) => {
-    const selectedFiles = Array.from(files).filter((file) => {
-      const lowerName = file.name.toLowerCase();
-      return lowerName.endsWith('.txt') || lowerName.endsWith('.epub');
+    const result = updateImportSelection([], Array.from(files), {
+      allowExtendedFormats: EXTENDED_IMPORT_FORMATS_ENABLED,
+      maxFiles: DEFAULT_MAX_IMPORT_FILES,
     });
 
-    if (selectedFiles.length === 0) {
-      alert('지원하는 도서 파일(.txt, .epub)을 선택해 주세요.');
+    if (result.error) {
+      alert(result.error);
       return;
     }
 
-    if (selectedFiles.length > MAX_IMPORT_FILES) {
-      alert(`도서는 한 번에 최대 ${MAX_IMPORT_FILES}개까지 추가할 수 있습니다.`);
-      return;
-    }
-
-    for (const file of selectedFiles) {
+    for (const file of result.files) {
       await importFile(file);
     }
   };

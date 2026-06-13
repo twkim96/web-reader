@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/epubValidation.test.mjs"
   },
   "dependencies": {
     "firebase": "^12.8.0",

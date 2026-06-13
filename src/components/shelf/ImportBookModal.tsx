@@ -1,6 +1,13 @@
 import React, { useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import { FileText, Plus, X } from 'lucide-react';
+import {
+  ACTIVE_IMPORT_ACCEPT,
+  EXTENDED_IMPORT_FORMATS_ENABLED,
+  GENERAL_FILE_MAX_BYTES,
+  GENERAL_TOTAL_MAX_BYTES,
+  updateImportSelection,
+} from '../../lib/bookFormats';
 
 interface ImportBookModalProps {
   theme: { bg: string; text: string; border: string; secondary: string };
@@ -14,8 +21,6 @@ interface ImportBookModalProps {
 }
 
 const BYTES_PER_MB = 1024 * 1024;
-const MAX_FILE_BYTES = 50 * BYTES_PER_MB;
-const MAX_TOTAL_BYTES = 200 * BYTES_PER_MB;
 
 const formatFileSize = (bytes: number) => `${(bytes / BYTES_PER_MB).toFixed(2)} MB`;
 
@@ -37,35 +42,16 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     const incomingFiles = Array.from(files);
     if (incomingFiles.length === 0) return;
 
-    const hasUnsupportedFile = incomingFiles.some((file) => {
-      const lowerName = file.name.toLowerCase();
-      return !lowerName.endsWith('.txt') && !lowerName.endsWith('.epub');
+    const result = updateImportSelection(selectedFiles, incomingFiles, {
+      allowExtendedFormats: EXTENDED_IMPORT_FORMATS_ENABLED,
+      maxFiles,
     });
-
-    if (hasUnsupportedFile) {
-      alert('지원하는 도서 파일(.txt, .epub)을 선택해 주세요.');
+    if (result.error) {
+      alert(result.error);
       return;
     }
 
-    if (selectedFiles.length + incomingFiles.length > maxFiles) {
-      alert(`도서는 한 번에 최대 ${maxFiles}개까지 추가할 수 있습니다.`);
-      return;
-    }
-
-    const oversizedFile = incomingFiles.find((file) => file.size > MAX_FILE_BYTES);
-    if (oversizedFile) {
-      alert(`파일 하나의 최대 용량은 50MB입니다.\n${oversizedFile.name}: ${formatFileSize(oversizedFile.size)}`);
-      return;
-    }
-
-    const currentTotalBytes = selectedFiles.reduce((total, file) => total + file.size, 0);
-    const incomingTotalBytes = incomingFiles.reduce((total, file) => total + file.size, 0);
-    if (currentTotalBytes + incomingTotalBytes > MAX_TOTAL_BYTES) {
-      alert(`한 번에 추가할 도서의 총 용량은 200MB까지입니다.`);
-      return;
-    }
-
-    setSelectedFiles((currentFiles) => [...currentFiles, ...incomingFiles]);
+    setSelectedFiles(result.files);
   };
 
   const handleDrop = (event: DragEvent<HTMLButtonElement>) => {
@@ -118,7 +104,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".txt,.epub"
+          accept={ACTIVE_IMPORT_ACCEPT}
           multiple
           className="hidden"
           onClick={(event) => event.stopPropagation()}
@@ -177,7 +163,9 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
           </div>
           <div className="space-y-1">
             <p className="text-sm font-black">파일 선택 또는 여기로 드래그</p>
-            <p className="text-[11px] font-bold opacity-60">.txt, .epub / 최대 {maxFiles}개 / 파일 50MB / 총 200MB</p>
+            <p className="text-[11px] font-bold opacity-60">
+              .txt, .epub / 최대 {maxFiles}개 / 파일 {GENERAL_FILE_MAX_BYTES / BYTES_PER_MB}MB / 총 {GENERAL_TOTAL_MAX_BYTES / BYTES_PER_MB}MB
+            </p>
           </div>
         </button>
 

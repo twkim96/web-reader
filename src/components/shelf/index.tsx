@@ -14,8 +14,7 @@ import { ImportBookModal } from './ImportBookModal';
 import { useFilteredBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
-
-const MAX_IMPORT_FILES = 10;
+import { DEFAULT_MAX_IMPORT_FILES } from '../../lib/bookFormats';
 
 interface ShelfProps {
   books: Book[];
@@ -272,7 +271,7 @@ export const Shelf: React.FC<ShelfProps> = ({
           theme={theme}
           isOfflineMode={isOfflineMode}
           isGuest={isGuest}
-          maxFiles={MAX_IMPORT_FILES}
+          maxFiles={DEFAULT_MAX_IMPORT_FILES}
           onClose={() => setShowImportConfirm(false)}
           onConfirm={handleConfirmImportFiles}
           onLogin={onLogin}

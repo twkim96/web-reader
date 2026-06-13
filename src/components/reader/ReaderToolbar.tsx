@@ -9,6 +9,7 @@ import {
   Settings,
   X,
 } from 'lucide-react';
+import { getBookTitleFromFileName } from '../../lib/bookFormats';
 
 type ReaderTheme = {
   bg: string;
@@ -37,8 +38,6 @@ interface ReaderToolbarProps {
   onProgressSliderPreview: (progressPercent: number) => void;
   onProgressSliderCommit: () => void;
 }
-
-const getBookTitle = (bookName: string) => bookName.replace('.epub', '').replace('.txt', '');
 
 const getSafePercent = (progress: number) => {
   if (!Number.isFinite(progress)) return 0;
@@ -89,7 +88,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 }) => {
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
-  const title = getBookTitle(bookName);
+  const title = getBookTitleFromFileName(bookName);
   const surfaceStyle = getReaderSurfaceStyle(theme.bg);
   const menuPositionStyle: React.CSSProperties = {
     right: `max(calc(env(safe-area-inset-right) + 1rem), calc((100vw - (${READER_TEXT_MAX_INLINE_SIZE}px + ${READER_MENU_DOUBLE_WIDTH})) / 2))`,

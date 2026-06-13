@@ -1,11 +1,18 @@
 // src/types.ts
 
+import type { ArchiveFormat, ReaderFormat, SourceBookFormat } from './lib/bookFormats';
+
 export interface Book {
   id: string;
   name: string;
   mimeType: string;
-  size?: string; // Display size
+  size?: string | number;
   source?: 'cloud' | 'local';
+  sourceFormat?: SourceBookFormat;
+  readerFormat?: ReaderFormat;
+  archiveFormat?: ArchiveFormat;
+  modifiedTime?: string;
+  md5Checksum?: string;
 }
 
 export type ThemeType = 'light' | 'dark' | 'sepia' | 'blue';

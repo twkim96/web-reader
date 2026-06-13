@@ -5,6 +5,7 @@ import { getAllOfflineBooks, removeBookFromLocal } from '../lib/localDB';
 import { Trash2, HardDrive, X, FileText } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ThemeClasses } from '../types';
+import { getBookTitleFromFileName } from '../lib/bookFormats';
 
 interface ManageModalProps {
   onClose: () => void;
@@ -72,7 +73,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
                 <div className="flex items-center gap-4 overflow-hidden">
                   <FileText className="text-accent-400 shrink-0" size={20} />
                   <div className="min-w-0">
-                    <h3 className="font-bold text-sm truncate">{book.name.normalize('NFC').replace(/\.epub$/i, '').replace(/\.txt$/i, '')}</h3>
+                    <h3 className="font-bold text-sm truncate">{getBookTitleFromFileName(book.name)}</h3>
                     <p className="text-[10px] opacity-60 font-bold uppercase tracking-wider">{formatSize(book.size)}</p>
                   </div>
                 </div>
