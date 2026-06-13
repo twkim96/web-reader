@@ -286,8 +286,11 @@ type PreparedBookSource = {
 #### 배포 검증 결과
 
 - 커밋 `b8c9979`까지 `main`에 푸시하고 `https://twreader.vercel.app/` 배포를 확인함.
+- 계정 격리 수정 커밋 `6fd50c2`를 배포하고 만료된 Drive 토큰을 기존 Google 세션으로 재연결해 회귀 검증함.
 - 실제 OAuth 토큰에 `drive.file`, `drive.readonly`, `drive.appdata`가 모두 포함됨.
 - 계정별 appData 설정 파일의 폴더 ID를 사용하고, 동시 로딩으로 생긴 중복 설정 2개가 1개로 정리됨.
+- 이전 버전의 브라우저 폴더 캐시에 잘못된 폴더 ID를 넣어도 해당 ID 요청은 0회였고, 현재 계정의 appData 설정을 1회 조회해 Cloud Library를 복원함.
+- 확정 폴더의 약 10.6MB TXT가 책장에 표시되고, 실제 열기에서 152개 섹션을 로드한 뒤 책장으로 복귀함.
 - Google Drive 웹에서 확정된 `web viewer` 폴더에 약 8MB 혼합 CBZ를 직접 업로드함.
 - Picker나 별도 파일 선택 없이 책장에 자동 표시되고, 최초 열기에서 원본 다운로드 1회와 이미지 6개 고정 레이아웃을 확인함.
 - 두 번째 열기에서는 추가 다운로드 없이 로컬 원본·메타데이터·압축 인덱스를 재사용함.
