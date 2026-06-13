@@ -312,8 +312,8 @@ type PreparedBookSource = {
 
 #### 상태
 
-- 구현 및 로컬 검증 완료.
-- 7z를 사용자 선택 UI에 활성화했으며 고정 배포 URL 검증은 커밋과 푸시 후 진행한다.
+- 구현, 로컬 검증, 고정 배포 URL 검증 완료.
+- 7z를 사용자 선택 UI에 활성화했다.
 
 - 7z 지원 WASM과 Worker 자산을 정적 배포한다.
 - ZIP과 같은 `ArchiveImageSource` 계약으로 7z 엔트리를 노출한다.
@@ -341,6 +341,14 @@ type PreparedBookSource = {
 - `npx eslint src tests`: 통과.
 - `npm run build`: 통과.
 - `git diff --check`: 통과.
+
+#### 배포 검증 결과
+
+- 커밋 `6492add`를 `main`에 푸시하고 `https://twreader.vercel.app/` 배포를 확인함.
+- 배포된 7z Worker, ES 모듈, WASM이 정상 MIME으로 응답함.
+- 배포 URL에서 혼합 solid 7z를 직접 추가해 이미지 6개만 자연 순서로 열고 마지막 페이지까지 이동함.
+- 도서 닫기 후 Blob URL 12개가 모두 회수되고 전용 Worker가 종료됨.
+- 이미지 없음, 암호화 헤더, 손상 파일이 서로 다른 오류로 차단되고 IndexedDB에 저장되지 않음.
 
 ### Phase 5: PDF
 
