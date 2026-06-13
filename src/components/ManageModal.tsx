@@ -4,8 +4,9 @@ import React, { useEffect, useState } from 'react';
 import { getAllOfflineBooks, removeBookFromLocal } from '../lib/localDB';
 import { Trash2, HardDrive, X, FileText } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
-import { ThemeClasses } from '../types';
+import { Book, ThemeClasses } from '../types';
 import { getBookTitleFromFileName } from '../lib/bookFormats';
+import { getBookFormatLabel } from './shelf/bookUtils';
 
 interface ManageModalProps {
   onClose: () => void;
@@ -14,7 +15,7 @@ interface ManageModalProps {
 }
 
 export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, theme }) => {
-  const [books, setBooks] = useState<{ id: string; name: string; size: number }[]>([]);
+  const [books, setBooks] = useState<(Book & { size: number })[]>([]);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const loadBooks = async () => {
@@ -23,7 +24,11 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
     setBooks(data.map(b => ({
       id: b.id,
       name: b.name,
-      size: b.size || 0
+      mimeType: b.mimeType,
+      sourceFormat: b.sourceFormat,
+      readerFormat: b.readerFormat,
+      archiveFormat: b.archiveFormat,
+      size: Number(b.size) || 0,
     })));
   };
 
@@ -64,7 +69,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
             <div className="flex flex-col items-center justify-center py-12 opacity-30 gap-4 text-center px-4">
               <HardDrive size={48} strokeWidth={1} />
               <p className="text-xs font-bold uppercase tracking-widest">
-                구글 드라이브에 <span className="text-accent-500 font-black">&ldquo;web viewer&rdquo;</span> 폴더를 생성하고, 읽고 싶은 <span className="text-accent-500 font-black">.epub</span> 또는 <span className="text-accent-500 font-black">.txt</span> 파일을 업로드해 주세요.
+                저장한 TXT, EPUB, ZIP 또는 CBZ 도서가 여기에 표시됩니다.
               </p>
             </div>
           ) : (
@@ -74,7 +79,9 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
                   <FileText className="text-accent-400 shrink-0" size={20} />
                   <div className="min-w-0">
                     <h3 className="font-bold text-sm truncate">{getBookTitleFromFileName(book.name)}</h3>
-                    <p className="text-[10px] opacity-60 font-bold uppercase tracking-wider">{formatSize(book.size)}</p>
+                    <p className="text-[10px] opacity-60 font-bold uppercase tracking-wider">
+                      {getBookFormatLabel(book)} · {formatSize(book.size)}
+                    </p>
                   </div>
                 </div>
                 <button

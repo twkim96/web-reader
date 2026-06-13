@@ -27,7 +27,7 @@ import { useProgressSync } from '../hooks/useProgressSync';
 import { useViewerSettings } from '../hooks/useViewerSettings';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
-import { EXTENDED_IMPORT_FORMATS_ENABLED, getBookOpenLimitError } from '../lib/bookFormats';
+import { getBookOpenLimitError } from '../lib/bookFormats';
 import { forgetPickedDriveFileId } from '../lib/drivePickedFiles';
 
 const getStoredGuestMode = () => (
@@ -318,7 +318,7 @@ export default function Page() {
       alert(limitError);
       return;
     }
-    if (!EXTENDED_IMPORT_FORMATS_ENABLED && book.readerFormat && book.readerFormat !== 'epub') {
+    if (book.readerFormat === 'pdf' || book.archiveFormat === '7z') {
       alert('PDF와 압축 도서 읽기 기능은 준비 중입니다.');
       return;
     }

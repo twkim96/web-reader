@@ -14,6 +14,17 @@ export const getDisplayBookTitle = (name: string) => (
   getBookTitleFromFileName(name)
 );
 
+export const getBookFormatLabel = (book: Pick<Book, 'name' | 'mimeType' | 'sourceFormat'>) => {
+  const format = book.sourceFormat;
+  if (format === 'txt') return 'TXT';
+  if (format === 'epub') return 'EPUB';
+  if (format === 'pdf') return 'PDF';
+  if (format === 'zip') return 'ZIP 이미지';
+  if (format === 'cbz') return 'CBZ 이미지';
+  if (format === '7z') return '7Z 이미지';
+  return book.name.toLowerCase().endsWith('.txt') ? 'TXT' : 'EPUB';
+};
+
 export const normalizeBookSearchText = (value: string) => (
   getDisplayBookTitle(value).replace(/\s+/g, '').toLowerCase()
 );

@@ -3,9 +3,8 @@ import type { DragEvent } from 'react';
 import { Cloud, FileText, Plus, X } from 'lucide-react';
 import {
   ACTIVE_IMPORT_ACCEPT,
+  ACTIVE_SOURCE_FORMATS,
   EXTENDED_IMPORT_FORMATS_ENABLED,
-  GENERAL_FILE_MAX_BYTES,
-  GENERAL_TOTAL_MAX_BYTES,
   updateImportSelection,
 } from '../../lib/bookFormats';
 
@@ -46,6 +45,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
 
     const result = updateImportSelection(selectedFiles, incomingFiles, {
       allowExtendedFormats: EXTENDED_IMPORT_FORMATS_ENABLED,
+      enabledFormats: ACTIVE_SOURCE_FORMATS,
       maxFiles,
     });
     if (result.error) {
@@ -166,7 +166,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
           <div className="space-y-1">
             <p className="text-sm font-black">파일 선택 또는 여기로 드래그</p>
             <p className="text-[11px] font-bold opacity-60">
-              .txt, .epub / 최대 {maxFiles}개 / 파일 {GENERAL_FILE_MAX_BYTES / BYTES_PER_MB}MB / 총 {GENERAL_TOTAL_MAX_BYTES / BYTES_PER_MB}MB
+              .txt, .epub, .zip, .cbz / 일반 최대 {maxFiles}개 · 압축 1개
             </p>
           </div>
         </button>

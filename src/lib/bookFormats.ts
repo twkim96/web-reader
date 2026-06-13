@@ -10,6 +10,7 @@ type ImportFileLike = {
 
 type ImportSelectionOptions = {
   allowExtendedFormats?: boolean;
+  enabledFormats?: ReadonlySet<SourceBookFormat>;
   maxFiles?: number;
 };
 
@@ -33,8 +34,8 @@ export const CBZ_MIME = 'application/vnd.comicbook+zip';
 export const SEVEN_Z_MIME = 'application/x-7z-compressed';
 
 const EXTENSION_FORMATS: ReadonlyArray<[string, SourceBookFormat]> = [
-  ['.epub', 'epub'],
   ['.txt', 'txt'],
+  ['.epub', 'epub'],
   ['.pdf', 'pdf'],
   ['.cbz', 'cbz'],
   ['.zip', 'zip'],
@@ -61,13 +62,16 @@ const MIME_BY_FORMAT: Record<SourceBookFormat, string> = {
 };
 
 const BASE_FORMATS = new Set<SourceBookFormat>(['txt', 'epub']);
+const ALL_FORMATS = new Set<SourceBookFormat>(EXTENSION_FORMATS.map(([, format]) => format));
+export const ACTIVE_SOURCE_FORMATS = new Set<SourceBookFormat>(['txt', 'epub', 'zip', 'cbz']);
 
 export const ALL_IMPORT_ACCEPT = EXTENSION_FORMATS.map(([extension]) => extension).join(',');
 export const BASE_IMPORT_ACCEPT = '.txt,.epub';
-export const EXTENDED_IMPORT_FORMATS_ENABLED = false;
-export const ACTIVE_IMPORT_ACCEPT = EXTENDED_IMPORT_FORMATS_ENABLED
-  ? ALL_IMPORT_ACCEPT
-  : BASE_IMPORT_ACCEPT;
+export const EXTENDED_IMPORT_FORMATS_ENABLED = ACTIVE_SOURCE_FORMATS.size > BASE_FORMATS.size;
+export const ACTIVE_IMPORT_ACCEPT = EXTENSION_FORMATS
+  .filter(([, format]) => ACTIVE_SOURCE_FORMATS.has(format))
+  .map(([extension]) => extension)
+  .join(',');
 
 export const getSourceBookFormat = (fileName: string, mimeType = ''): SourceBookFormat | null => {
   const lowerName = fileName.toLowerCase();
@@ -133,11 +137,15 @@ export const updateImportSelection = <T extends ImportFileLike>(
   if (incomingFiles.length === 0) return { files: selectedFiles, error: null };
 
   const allowExtendedFormats = options.allowExtendedFormats ?? EXTENDED_IMPORT_FORMATS_ENABLED;
+  const enabledFormats = options.enabledFormats ?? (allowExtendedFormats ? ALL_FORMATS : BASE_FORMATS);
   const maxFiles = options.maxFiles ?? DEFAULT_MAX_IMPORT_FILES;
   const incomingFormats = incomingFiles.map((file) => getSourceBookFormat(file.name, file.type));
 
-  if (incomingFormats.some((format) => !format || (!allowExtendedFormats && !BASE_FORMATS.has(format)))) {
-    const supported = allowExtendedFormats ? '.txt, .epub, .pdf, .zip, .cbz, .7z' : '.txt, .epub';
+  if (incomingFormats.some((format) => !format || !enabledFormats.has(format))) {
+    const supported = EXTENSION_FORMATS
+      .filter(([, format]) => enabledFormats.has(format))
+      .map(([extension]) => extension)
+      .join(', ');
     return {
       files: selectedFiles,
       error: `지원하는 도서 파일(${supported})을 선택해 주세요.`,

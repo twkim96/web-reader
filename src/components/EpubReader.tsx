@@ -100,7 +100,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const theme = getThemeClasses(settings);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
-  const readerEdgePadding = Math.max(settings.padding || 0, settings.fontSize);
+  const isFixedLayout = book.readerFormat === 'archive' || book.readerFormat === 'pdf';
+  const effectiveNavMode = isFixedLayout ? 'left-right' : settings.navMode;
+  const readerEdgePadding = isFixedLayout ? 0 : Math.max(settings.padding || 0, settings.fontSize);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
   const wheelNavigationCycleLockedRef = useRef(false);
@@ -258,13 +260,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    if (settings.navMode === 'page') {
+    if (effectiveNavMode === 'page') {
       if (clientY > height * 0.67) { markUserProgressChange(); next(); return; }
       if (clientY < height * 0.33) { markUserProgressChange(); prev(); return; }
-    } else if (settings.navMode === 'left-right') {
+    } else if (effectiveNavMode === 'left-right') {
       if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
       if (clientX > width * 0.7) { markUserProgressChange(); next(); return; }
-    } else if (settings.navMode === 'all-dir') {
+    } else if (effectiveNavMode === 'all-dir') {
       if (clientY < height * 0.33) { markUserProgressChange(); prev(); return; }
       if (clientY > height * 0.67) { markUserProgressChange(); next(); return; }
       if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
@@ -272,7 +274,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
 
     chrome.setShowControls((current) => !current);
-  }, [chrome, markUserProgressChange, next, prev, settings.navMode]);
+  }, [chrome, effectiveNavMode, markUserProgressChange, next, prev]);
 
   useEffect(() => {
     return () => {
@@ -295,7 +297,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     };
 
     const handleWheelNavigation = (event: WheelEvent | React.WheelEvent) => {
-      if (settings.navMode === 'scroll') {
+      if (effectiveNavMode === 'scroll') {
         markUserProgressChange();
         return;
       }
@@ -345,7 +347,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     markUserProgressChange,
     next,
     prev,
-    settings.navMode,
+    effectiveNavMode,
   ]);
 
   useEffect(() => {
@@ -363,7 +365,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         || chrome.showJumpInput;
       if (isReaderPanelOpen) return;
 
-      if (settings.navMode === 'scroll') {
+      if (effectiveNavMode === 'scroll') {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
 
         event.preventDefault();
@@ -379,12 +381,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         return;
       }
 
-      const keyMovesPrev = (settings.navMode === 'page' && event.key === 'ArrowUp')
-        || (settings.navMode === 'left-right' && event.key === 'ArrowLeft')
-        || (settings.navMode === 'all-dir' && (event.key === 'ArrowUp' || event.key === 'ArrowLeft'));
-      const keyMovesNext = (settings.navMode === 'page' && event.key === 'ArrowDown')
-        || (settings.navMode === 'left-right' && event.key === 'ArrowRight')
-        || (settings.navMode === 'all-dir' && (event.key === 'ArrowDown' || event.key === 'ArrowRight'));
+      const keyMovesPrev = (effectiveNavMode === 'page' && event.key === 'ArrowUp')
+        || (effectiveNavMode === 'left-right' && event.key === 'ArrowLeft')
+        || (effectiveNavMode === 'all-dir' && (event.key === 'ArrowUp' || event.key === 'ArrowLeft'));
+      const keyMovesNext = (effectiveNavMode === 'page' && event.key === 'ArrowDown')
+        || (effectiveNavMode === 'left-right' && event.key === 'ArrowRight')
+        || (effectiveNavMode === 'all-dir' && (event.key === 'ArrowDown' || event.key === 'ArrowRight'));
 
       if (!keyMovesPrev && !keyMovesNext) return;
 
@@ -415,7 +417,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     markUserProgressChange,
     next,
     prev,
-    settings.navMode,
+    effectiveNavMode,
     viewRef,
   ]);
 
@@ -476,7 +478,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}>
       {!isLoaded && (
         <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
-          Loading...
+          {isFixedLayout ? '압축 파일 확인 중...' : 'Loading...'}
         </div>
       )}
 
@@ -490,7 +492,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         }}
       />
 
-      {isLoaded && settings.navMode !== 'scroll' && (
+      {isLoaded && effectiveNavMode !== 'scroll' && (
         <div
           className="fixed inset-0 z-10"
           style={{ background: 'transparent' }}
@@ -525,6 +527,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         isSliderPreviewing={isSliderPreviewing}
         sliderPreviewChapter={sliderTargetChapter}
         bookmarkCount={bookmarks.length}
+        isFixedLayout={isFixedLayout}
         onBack={chrome.handleUIBack}
         onOpenSearch={() => chrome.setShowSearchModal(true)}
         onOpenSettings={() => chrome.setShowSettings(true)}
@@ -536,7 +539,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onProgressSliderCommit={commitSliderMove}
       />
 
-      {chrome.showSettings && (
+      {!isFixedLayout && chrome.showSettings && (
         <SettingsModal
           settings={settings}
           onUpdateSettings={onUpdateSettings}
@@ -576,7 +579,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         />
       )}
 
-      {chrome.showSearchModal && (
+      {!isFixedLayout && chrome.showSearchModal && (
         <EpubSearchModal
           theme={theme}
           onClose={() => chrome.setShowSearchModal(false)}

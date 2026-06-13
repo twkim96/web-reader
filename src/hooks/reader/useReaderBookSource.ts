@@ -2,9 +2,10 @@
 
 import { MutableRefObject, useEffect, useRef, useState } from 'react';
 import { Book, ViewerSettings } from '../../types';
-import { ensureEpubBook } from '../../lib/bookContent';
-import { fetchFullFile } from '../../lib/googleDrive';
+import { prepareBookSource, type StoredBookContent } from '../../lib/bookContent';
+import { fetchFullFile, fetchFullFileBlob } from '../../lib/googleDrive';
 import { loadBookFromLocal, saveBookToLocal } from '../../lib/localDB';
+import type { FoliateBook } from '../foliate/types';
 
 type ReaderThemeColors = {
   bg: string;
@@ -45,7 +46,7 @@ interface UseReaderBookSourceOptions {
   themeColors: ReaderThemeColors;
   themeTexture: ReaderThemeTexture;
   containerRef: MutableRefObject<HTMLDivElement | null>;
-  openBook: (source: Blob | File | string, initialCfi?: string) => Promise<void>;
+  openBook: (source: Blob | File | string | FoliateBook, initialCfi?: string) => Promise<void>;
   setLayout: ReaderLayoutSetter;
   setStyle: ReaderStyleSetter;
   onBack: () => void;
@@ -96,58 +97,64 @@ export const useReaderBookSource = ({
     if (!containerRef.current) return;
     loadAttempted.current = true;
 
-    const loadEpub = async () => {
+    const loadBook = async () => {
       try {
         const localData = await loadBookFromLocal(book.id);
-        let source: Blob;
+        let prepared: Awaited<ReturnType<typeof prepareBookSource>>;
 
         try {
           if (!localData) throw new Error('No local cache');
-          const epub = await ensureEpubBook(book, localData);
-          source = new Blob([epub.content], { type: 'application/epub+zip' });
+          prepared = await prepareBookSource(book, localData as StoredBookContent);
 
           try {
-            await saveBookToLocal(epub.book, epub.content);
+            await saveBookToLocal(prepared.book, prepared.cacheContent);
           } catch (error) {
-            console.warn('[EpubReader] Failed to update local epub cache:', error);
+            console.warn('[Reader] Failed to update local book cache:', error);
           }
         } catch (localError) {
-          if (localData) console.warn('[EpubReader] Local cache is not usable, fetching remote:', localError);
-          if (!googleToken) throw new Error('No Token');
+          if (localData) console.warn('[Reader] Local cache is not usable, fetching remote:', localError);
+          if (!googleToken) {
+            if (localData) throw localError;
+            throw new Error('No Token');
+          }
 
-          const buffer = await fetchFullFile(book.id, googleToken);
-          const epub = await ensureEpubBook(book, buffer);
-          source = new Blob([epub.content], { type: 'application/epub+zip' });
+          const content = book.readerFormat === 'archive'
+            ? await fetchFullFileBlob(book.id, googleToken)
+            : await fetchFullFile(book.id, googleToken);
+          prepared = await prepareBookSource(book, content);
 
           try {
-            await saveBookToLocal(epub.book, epub.content);
+            await saveBookToLocal(prepared.book, prepared.cacheContent);
           } catch (error) {
-            console.warn('[EpubReader] Failed to save locally:', error);
+            console.warn('[Reader] Failed to save locally:', error);
           }
         }
 
-        await openBook(source, initialCfi);
-        setLayout(getReaderLayout(settings.navMode));
-        setStyle(getReaderStyle(settings, themeColors, themeTexture));
+        await openBook(prepared.source, initialCfi);
+        if (prepared.format === 'epub') {
+          setLayout(getReaderLayout(settings.navMode));
+          setStyle(getReaderStyle(settings, themeColors, themeTexture));
+        }
         setIsLoaded(true);
       } catch (error) {
-        console.error('[EpubReader] Failed to load epub:', error);
+        console.error('[Reader] Failed to load book:', error);
+        alert(error instanceof Error ? error.message : '도서를 열지 못했습니다.');
         onBack();
       }
     };
 
-    void loadEpub();
+    void loadBook();
   }, [book, containerRef, googleToken, initialCfi, onBack, openBook, setLayout, setStyle, settings, themeColors, themeTexture]);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || book.readerFormat === 'archive') return;
     setStyle(getReaderStyle(settings, themeColors, themeTexture));
-  }, [isLoaded, setStyle, settings, themeColors, themeTexture]);
+  }, [book.readerFormat, isLoaded, setStyle, settings, themeColors, themeTexture]);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || book.readerFormat === 'archive') return;
     setLayout(getReaderLayout(settings.navMode));
-  }, [isLoaded, setLayout, settings.navMode]);
+  }, [book.readerFormat, isLoaded, setLayout, settings.navMode]);
 
   return { isLoaded };
 };

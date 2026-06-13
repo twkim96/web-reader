@@ -8,9 +8,11 @@
     "start": "next start",
     "lint": "eslint",
     "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/epubValidation.test.mjs",
-    "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveUpload.test.mjs tests/googleDrive.test.mjs"
+    "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveUpload.test.mjs tests/googleDrive.test.mjs",
+    "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImages.test.mjs"
   },
   "dependencies": {
+    "@zip.js/zip.js": "^2.8.26",
     "firebase": "^12.8.0",
     "idb": "^7.1.1",
     "jszip": "^3.10.1",

@@ -28,6 +28,7 @@ interface ReaderToolbarProps {
   isSliderPreviewing: boolean;
   sliderPreviewChapter?: string;
   bookmarkCount: number;
+  isFixedLayout?: boolean;
   onBack: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
@@ -76,6 +77,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   isSliderPreviewing,
   sliderPreviewChapter,
   bookmarkCount,
+  isFixedLayout = false,
   onBack,
   onOpenSearch,
   onOpenSettings,
@@ -228,26 +230,30 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             />
           </div>
 
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            className={`flex h-[3.15rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[15px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
-            style={surfaceStyle}
-          >
-            <span>책 검색</span>
-            <Search size={24} />
-          </button>
-
-          <div className="grid grid-cols-3 gap-1.5">
+          {!isFixedLayout && (
             <button
               type="button"
-              onClick={onOpenSettings}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              onClick={onOpenSearch}
+              className={`flex h-[3.15rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[15px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
               style={surfaceStyle}
             >
-              <Settings size={19} />
-              <span>설정</span>
+              <span>책 검색</span>
+              <Search size={24} />
             </button>
+          )}
+
+          <div className={`grid ${isFixedLayout ? 'grid-cols-2' : 'grid-cols-3'} gap-1.5`}>
+            {!isFixedLayout && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+                style={surfaceStyle}
+              >
+                <Settings size={19} />
+                <span>설정</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onOpenTheme}

@@ -218,7 +218,7 @@ export const fetchDriveFiles = async (token: string, folderId?: string, pickedFi
 export const fetchFullFile = async (fileId: string, token: string) => {
   // [Modified] 파일 다운로드는 대용량(10MB+)을 고려하여 3분(180초) 대기
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
     { headers: { Authorization: `Bearer ${token}` } },
     180000 
   );
@@ -230,6 +230,22 @@ export const fetchFullFile = async (fileId: string, token: string) => {
   }
   
   return await response.arrayBuffer();
+};
+
+export const fetchFullFileBlob = async (fileId: string, token: string) => {
+  const response = await fetchWithTimeout(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    180000,
+  );
+
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
+    throw new Error('파일 로드 실패');
+  }
+
+  return response.blob();
 };
 
 export const deleteDriveFile = async (fileId: string, token: string) => {

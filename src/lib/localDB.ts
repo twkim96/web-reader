@@ -1,9 +1,10 @@
 // src/lib/localDB.ts
 import { openDB } from 'idb';
 import { Book, UserProgress } from '../types';
+import type { StoredBookContent } from './bookContent';
 
 const DB_NAME = 'web-reader-db';
-const STORE_NAME = 'books';         // 책 내용(ArrayBuffer)
+const STORE_NAME = 'books';         // 책 내용(ArrayBuffer 또는 Blob)
 const META_STORE = 'metadata';      // 책 정보(Book + size)
 const PROGRESS_STORE = 'progress';
 
@@ -25,11 +26,14 @@ export const initDB = async () => {
 
 // --- Book Management ---
 
-export const saveBookToLocal = async (book: Book, content: ArrayBuffer) => {
+export const saveBookToLocal = async (book: Book, content: StoredBookContent) => {
   const db = await initDB();
   const tx = db.transaction([STORE_NAME, META_STORE], 'readwrite');
   
-  const metaData = { ...book, size: content.byteLength };
+  const metaData = {
+    ...book,
+    size: content instanceof Blob ? content.size : content.byteLength,
+  };
 
   await tx.objectStore(STORE_NAME).put(content, book.id);
   await tx.objectStore(META_STORE).put(metaData); 

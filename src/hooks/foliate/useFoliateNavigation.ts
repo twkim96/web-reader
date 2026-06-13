@@ -2,7 +2,7 @@
 
 import { Dispatch, MutableRefObject, SetStateAction, useCallback } from 'react';
 import { buildTocProgress } from './toc';
-import { FoliateViewElement, TocItem } from './types';
+import { FoliateBook, FoliateViewElement, TocItem } from './types';
 
 interface UseFoliateNavigationOptions {
   viewRef: MutableRefObject<FoliateViewElement | null>;
@@ -15,7 +15,7 @@ export const useFoliateNavigation = ({
   initView,
   setToc,
 }: UseFoliateNavigationOptions) => {
-  const openBook = useCallback(async (source: Blob | File | string, initialCfi?: string) => {
+  const openBook = useCallback(async (source: Blob | File | string | FoliateBook, initialCfi?: string) => {
     if (!viewRef.current) {
       await initView();
     }

@@ -278,10 +278,29 @@ type PreparedBookSource = {
 
 ### Phase 3: ZIP/CBZ 이미지 도서
 
+#### 상태
+
+- 구현 및 로컬 검증 완료.
+- ZIP/CBZ만 사용자에게 활성화했으며 PDF/7z는 해당 리더 Phase 전까지 선택 UI에서 숨긴다.
+- 배포 URL의 실제 열람 검증은 커밋과 푸시 후 진행한다.
+
 - 압축 엔트리 검사기와 공통 이미지 필터/정렬을 구현한다.
 - 혼합 ZIP에서 이미지 항목만 페이지로 노출한다.
 - Foliate comic-book 및 fixed-layout 모듈을 복원한다.
 - 현재 페이지 중심의 지연 추출과 Blob URL 해제를 구현한다.
+
+#### 로컬 검증 결과
+
+- 혼합 CBZ에서 이미지 6개만 `1, 2, 3, 4, 5, 10` 순서로 표시됨.
+- Foliate 고정 레이아웃 렌더러와 마지막 페이지 이동을 브라우저에서 확인함.
+- 4페이지 캐시 초과 시 Blob URL이 회수되고 도서 닫기 후 생성된 URL이 모두 회수됨.
+- `npm run test:formats`: 11개 테스트 통과.
+- `npm run test:drive`: 6개 테스트 통과.
+- `npm run test:archives`: 5개 테스트 통과.
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src tests`: 통과.
+- `npm run build`: 통과.
+- `git diff --check`: 통과.
 
 ### Phase 4: 7z 이미지 도서
 

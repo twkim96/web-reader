@@ -27,6 +27,7 @@ export type FoliateSection = {
   href?: string;
   linear?: string;
   size?: number;
+  load?: () => Promise<string> | string;
 };
 
 export type TocItem = {
@@ -34,6 +35,20 @@ export type TocItem = {
   href: string;
   progress?: number;
   subitems?: TocItem[];
+};
+
+export type FoliateBook = {
+  sections: FoliateSection[];
+  toc?: TocItem[];
+  metadata?: { title?: string };
+  rendition?: {
+    layout?: string;
+    spread?: string;
+  };
+  resolveHref: (href: string) => { index: number };
+  splitTOCHref?: (href: string) => [string, unknown];
+  getTOCFragment?: (doc: Document, fragment?: unknown) => Node;
+  destroy?: () => void;
 };
 
 export type FoliateRenderer = {
@@ -64,7 +79,7 @@ export type FoliateViewElement = HTMLElement & {
     sections?: FoliateSection[];
     toc?: TocItem[];
   };
-  open: (source: Blob | File | string) => Promise<void>;
+  open: (source: Blob | File | string | FoliateBook) => Promise<void>;
   init: (options: { lastLocation: string | null }) => Promise<void>;
   prev: (distance?: number) => void;
   next: (distance?: number) => void;

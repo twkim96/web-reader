@@ -6,6 +6,8 @@ import {
   TXT_MIME,
 } from './bookFormats';
 import { isEpubBuffer } from './epubValidation';
+import type { FoliateBook } from '../hooks/foliate/types';
+import type { ReaderFormat } from './bookFormats';
 
 export { isEpubBuffer } from './epubValidation';
 
@@ -43,5 +45,50 @@ export const ensureEpubBook = async (book: Book, content: ArrayBuffer) => {
       readerFormat: 'epub' as const,
     },
     content: await epubBlob.arrayBuffer(),
+  };
+};
+
+export type StoredBookContent = ArrayBuffer | Blob;
+
+export type PreparedBookSource = {
+  book: Book;
+  format: ReaderFormat;
+  source: Blob | FoliateBook;
+  cacheContent: StoredBookContent;
+};
+
+const toBlob = (content: StoredBookContent, mimeType: string) => (
+  content instanceof Blob ? content : new Blob([content], { type: mimeType })
+);
+
+export const prepareBookSource = async (
+  book: Book,
+  content: StoredBookContent,
+): Promise<PreparedBookSource> => {
+  const sourceFormat = book.sourceFormat ?? getSourceBookFormat(book.name, book.mimeType);
+
+  if (sourceFormat === 'zip' || sourceFormat === 'cbz') {
+    const sourceBlob = toBlob(content, book.mimeType);
+    const { createZipImageBook } = await import('./archiveImages');
+    return {
+      book: {
+        ...book,
+        sourceFormat,
+        readerFormat: 'archive',
+        archiveFormat: sourceFormat,
+      },
+      format: 'archive',
+      source: await createZipImageBook(sourceBlob, book.name),
+      cacheContent: sourceBlob,
+    };
+  }
+
+  const buffer = content instanceof Blob ? await content.arrayBuffer() : content;
+  const epub = await ensureEpubBook(book, buffer);
+  return {
+    book: epub.book,
+    format: 'epub',
+    source: new Blob([epub.content], { type: EPUB_MIME }),
+    cacheContent: epub.content,
   };
 };

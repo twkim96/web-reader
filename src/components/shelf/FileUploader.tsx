@@ -4,11 +4,14 @@ import { saveBookToLocal } from '../../lib/localDB';
 import type { Book } from '../../types';
 import { ensureEpubBook } from '../../lib/bookContent';
 import {
+  ACTIVE_SOURCE_FORMATS,
   DEFAULT_MAX_IMPORT_FILES,
   EXTENDED_IMPORT_FORMATS_ENABLED,
+  getArchiveFormat,
   getReaderFormat,
   getSourceBookFormat,
   getSupportedBookMimeType,
+  isArchiveFormat,
   updateImportSelection,
 } from '../../lib/bookFormats';
 
@@ -92,10 +95,22 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   const importFile = async (file: File, signal: AbortSignal) => {
     const originalMimeType = getSupportedBookMimeType(file.name, file.type);
     const sourceFormat = getSourceBookFormat(file.name, originalMimeType);
+    if (!sourceFormat) return;
+
+    if (isArchiveFormat(sourceFormat)) {
+      try {
+        const { inspectZipImageArchive } = await import('../../lib/archiveImages');
+        await inspectZipImageArchive(file);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '압축 파일을 확인하지 못했습니다.';
+        alert(`${file.name}\n${message}`);
+        return;
+      }
+    }
 
     let bookId = file.name; // 기본값은 파일명
 
-    // 1. 구글 드라이브 동기화 (원본 txt/epub 그대로 업로드)
+    // 1. 구글 드라이브에 원본 파일 업로드
     if (!isOfflineMode && googleToken) {
       if (isCloudTokenValid?.() === false) {
         onCloudAuthExpired?.();
@@ -109,16 +124,23 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       onCloudAuthExpired?.();
     }
 
-    // 2. 로컬 저장. Drive 전송이 끝난 뒤 한 번만 ArrayBuffer로 읽는다.
+    // 2. 로컬 저장. 압축 원본은 Blob으로 유지하고 텍스트 도서만 변환한다.
     const book: Book = {
       id: bookId,
       name: file.name,
       mimeType: originalMimeType,
-      sourceFormat: sourceFormat ?? undefined,
-      readerFormat: sourceFormat ? getReaderFormat(sourceFormat) : undefined,
+      sourceFormat,
+      readerFormat: getReaderFormat(sourceFormat),
+      archiveFormat: getArchiveFormat(sourceFormat),
     };
 
     try {
+      if (isArchiveFormat(sourceFormat)) {
+        await saveBookToLocal(book, file);
+        onLocalBookImported?.();
+        return;
+      }
+
       const content = await file.arrayBuffer();
       const epub = await ensureEpubBook(book, content);
       await saveBookToLocal(epub.book, epub.content);
@@ -134,6 +156,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   const importFiles = async (files: FileList | File[]) => {
     const result = updateImportSelection([], Array.from(files), {
       allowExtendedFormats: EXTENDED_IMPORT_FORMATS_ENABLED,
+      enabledFormats: ACTIVE_SOURCE_FORMATS,
       maxFiles: DEFAULT_MAX_IMPORT_FILES,
     });
 

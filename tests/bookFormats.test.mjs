@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   ARCHIVE_FILE_MAX_BYTES,
+  ACTIVE_SOURCE_FORMATS,
   GENERAL_FILE_MAX_BYTES,
   getBookTitleFromFileName,
   getBookOpenLimitError,
@@ -95,6 +96,23 @@ test('can keep extended formats hidden until their readers are enabled', () => {
     allowExtendedFormats: false,
   });
   assert.equal(epub.error, null);
+});
+
+test('enables ZIP and CBZ without exposing unfinished PDF and 7z readers', () => {
+  const zip = updateImportSelection([], [file('images.zip', 1)], {
+    enabledFormats: ACTIVE_SOURCE_FORMATS,
+  });
+  assert.equal(zip.error, null);
+
+  const pdf = updateImportSelection([], [file('book.pdf', 1)], {
+    enabledFormats: ACTIVE_SOURCE_FORMATS,
+  });
+  assert.match(pdf.error, /\.txt, \.epub, \.cbz, \.zip/);
+
+  const sevenZip = updateImportSelection([], [file('images.7z', 1)], {
+    enabledFormats: ACTIVE_SOURCE_FORMATS,
+  });
+  assert.match(sevenZip.error, /지원하는 도서 파일/);
 });
 
 test('enforces the configured maximum file count', () => {

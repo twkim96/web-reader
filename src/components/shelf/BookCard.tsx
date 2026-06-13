@@ -1,7 +1,7 @@
 import React, { useCallback, useRef } from 'react';
 import { BookOpen, CheckCircle2, Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
-import { getDisplayBookTitle, getProgressTime, ShelfTheme } from './bookUtils';
+import { getBookFormatLabel, getDisplayBookTitle, getProgressTime, ShelfTheme } from './bookUtils';
 
 interface BookCardProps {
   book: Book;
@@ -97,7 +97,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         </div>
 
         <div className="hidden min-w-0 text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block">
-          EPUB Document
+          {getBookFormatLabel(book)}
         </div>
 
         <div className="min-w-0 flex flex-col justify-center">
@@ -161,7 +161,9 @@ export const BookCard: React.FC<BookCardProps> = ({
           <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
             {getDisplayBookTitle(book.name)}
           </h3>
-          <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">EPUB Document</p>
+          <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">
+            {getBookFormatLabel(book)}
+          </p>
         </div>
 
         <div className="space-y-3">
