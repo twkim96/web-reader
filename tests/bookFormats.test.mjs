@@ -98,7 +98,7 @@ test('can keep extended formats hidden until their readers are enabled', () => {
   assert.equal(epub.error, null);
 });
 
-test('enables ZIP, CBZ, and 7z without exposing the unfinished PDF reader', () => {
+test('enables PDF, ZIP, CBZ, and 7z readers', () => {
   const zip = updateImportSelection([], [file('images.zip', 1)], {
     enabledFormats: ACTIVE_SOURCE_FORMATS,
   });
@@ -107,7 +107,7 @@ test('enables ZIP, CBZ, and 7z without exposing the unfinished PDF reader', () =
   const pdf = updateImportSelection([], [file('book.pdf', 1)], {
     enabledFormats: ACTIVE_SOURCE_FORMATS,
   });
-  assert.match(pdf.error, /\.txt, \.epub, \.cbz, \.zip/);
+  assert.equal(pdf.error, null);
 
   const sevenZip = updateImportSelection([], [file('images.7z', 1)], {
     enabledFormats: ACTIVE_SOURCE_FORMATS,

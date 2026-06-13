@@ -478,7 +478,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}>
       {!isLoaded && (
         <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
-          {isFixedLayout ? '압축 파일 확인 중...' : 'Loading...'}
+          {book.readerFormat === 'pdf'
+            ? 'PDF 준비 중...'
+            : isFixedLayout ? '압축 파일 확인 중...' : 'Loading...'}
         </div>
       )}
 

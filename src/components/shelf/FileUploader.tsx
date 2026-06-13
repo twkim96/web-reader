@@ -140,7 +140,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     };
 
     try {
-      if (isArchiveFormat(sourceFormat)) {
+      if (isArchiveFormat(sourceFormat) || sourceFormat === 'pdf') {
         await saveBookToLocal(book, file);
         onLocalBookImported?.();
         return;

@@ -69,7 +69,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
             <div className="flex flex-col items-center justify-center py-12 opacity-30 gap-4 text-center px-4">
               <HardDrive size={48} strokeWidth={1} />
               <p className="text-xs font-bold uppercase tracking-widest">
-                저장한 TXT, EPUB, ZIP, CBZ 또는 7Z 도서가 여기에 표시됩니다.
+                저장한 TXT, EPUB, PDF, ZIP, CBZ 또는 7Z 도서가 여기에 표시됩니다.
               </p>
             </div>
           ) : (

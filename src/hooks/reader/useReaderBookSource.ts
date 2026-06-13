@@ -118,9 +118,9 @@ export const useReaderBookSource = ({
             throw new Error('No Token');
           }
 
-          const content = book.readerFormat === 'archive'
-            ? await fetchFullFileBlob(book.id, googleToken)
-            : await fetchFullFile(book.id, googleToken);
+          const content = book.readerFormat === 'epub'
+            ? await fetchFullFile(book.id, googleToken)
+            : await fetchFullFileBlob(book.id, googleToken);
           prepared = await prepareBookSource(book, content);
 
           try {
@@ -147,12 +147,12 @@ export const useReaderBookSource = ({
   }, [book, containerRef, googleToken, initialCfi, onBack, openBook, setLayout, setStyle, settings, themeColors, themeTexture]);
 
   useEffect(() => {
-    if (!isLoaded || book.readerFormat === 'archive') return;
+    if (!isLoaded || book.readerFormat !== 'epub') return;
     setStyle(getReaderStyle(settings, themeColors, themeTexture));
   }, [book.readerFormat, isLoaded, setStyle, settings, themeColors, themeTexture]);
 
   useEffect(() => {
-    if (!isLoaded || book.readerFormat === 'archive') return;
+    if (!isLoaded || book.readerFormat !== 'epub') return;
     setLayout(getReaderLayout(settings.navMode));
   }, [book.readerFormat, isLoaded, setLayout, settings.navMode]);
 

@@ -67,6 +67,20 @@ export const prepareBookSource = async (
 ): Promise<PreparedBookSource> => {
   const sourceFormat = book.sourceFormat ?? getSourceBookFormat(book.name, book.mimeType);
 
+  if (sourceFormat === 'pdf') {
+    const sourceBlob = toBlob(content, book.mimeType);
+    return {
+      book: {
+        ...book,
+        sourceFormat,
+        readerFormat: 'pdf',
+      },
+      format: 'pdf',
+      source: sourceBlob,
+      cacheContent: sourceBlob,
+    };
+  }
+
   if (sourceFormat === 'zip' || sourceFormat === 'cbz' || sourceFormat === '7z') {
     const sourceBlob = toBlob(content, book.mimeType);
     const source = sourceFormat === '7z'

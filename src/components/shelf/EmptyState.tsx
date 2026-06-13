@@ -93,7 +93,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
               <>
                 <h3 className="text-2xl font-black italic uppercase tracking-tighter">No Books Found</h3>
                 <p className="opacity-60 text-sm leading-relaxed font-medium">
-                  구글 드라이브의 <span className="text-accent-500 font-black">&ldquo;web viewer&rdquo;</span> 폴더에 TXT, EPUB, ZIP, CBZ 또는 7Z 도서를 추가해 주세요.
+                  구글 드라이브의 <span className="text-accent-500 font-black">&ldquo;web viewer&rdquo;</span> 폴더에 TXT, EPUB, PDF, ZIP, CBZ 또는 7Z 도서를 추가해 주세요.
                 </p>
                 <div className="flex flex-col gap-3 items-center w-full mt-2">
                   <button 

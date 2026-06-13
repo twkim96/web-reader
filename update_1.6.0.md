@@ -352,10 +352,40 @@ type PreparedBookSource = {
 
 ### Phase 5: PDF
 
+#### 상태
+
+- 구현 및 로컬 검증 완료.
+- PDF를 사용자 선택 UI에 활성화했다.
+- 고정 배포 URL 검증은 커밋과 푸시 후 진행한다.
+
 - PDF.js와 Foliate PDF 어댑터를 추가한다.
 - 페이지 이동, 진행률 저장, 목차, 재개 위치를 기존 리더와 연결한다.
 - 고정 레이아웃에 맞게 설정과 검색 UI를 제한한다.
 - PDF 정적 자산의 오프라인 캐시 동작을 검증한다.
+
+#### 구현 메모
+
+- PDF.js 5.5.207 본체, 전용 Worker, CMap, 표준 폰트와 레이어 CSS를 정적 자산으로 배포한다.
+- PDF 원본은 `ArrayBuffer`로 통째로 복제하지 않고 Blob range 요청으로 PDF.js에 전달한다.
+- PDF 어댑터는 4페이지 LRU만 유지하며 페이지 이탈과 도서 닫기 때 Blob URL을 회수한다.
+- 서비스워커는 동일 출처 리더 자산만 사용 시 캐시하고 Google API 같은 외부 응답은 캐시하지 않는다.
+- PDF 검색과 EPUB 텍스트 설정은 숨기고 진행률, 목차, 테마, 북마크는 기존 리더 흐름을 재사용한다.
+
+#### 로컬 검증 결과
+
+- 7페이지 PDF의 캔버스와 텍스트 레이어를 렌더링하고 마지막 페이지까지 이동함.
+- 키보드로 4쪽까지 이동한 진행률이 `epubcfi(/6/8)`, 57.14%로 저장되고 재열기 시 4쪽으로 복원됨.
+- 현재 위치 수동 북마크가 같은 CFI와 진행률로 IndexedDB에 저장됨.
+- 두 번 열고 닫은 뒤 생성된 Blob URL 5개가 모두 회수되고 PDF Worker 2개가 모두 종료됨.
+- 새 서비스워커 캐시에서 PDF 어댑터, PDF.js 본체·Worker, 레이어 CSS와 실제 사용 CMap을 확인함.
+- 네트워크 차단 상태에서 PDF 핵심 정적 자산 5개가 모두 캐시에서 200으로 반환됨.
+- `npm run test:formats`: 11개 테스트 통과.
+- `npm run test:drive`: 6개 테스트 통과.
+- `npm run test:archives`: 6개 테스트 통과.
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src tests public/sw.js`: 통과.
+- `npm run build`: 통과.
+- `git diff --check`: 통과.
 
 ### Phase 6: 검증 캐시와 안정화
 
