@@ -408,6 +408,9 @@ type PreparedBookSource = {
 
 - 2026-06-14 회귀 수정: PDF 어댑터의 숫자 섹션 ID가 공통 TOC 경로의 문자열 처리와 충돌해 `(e.id || e.href || "").split is not a function` 오류가 발생할 수 있던 문제를 수정함.
 - PDF 섹션 ID와 TOC 분할 키를 `page-1` 형식의 문자열로 통일하고, 공통 TOC 경계에서도 숫자 ID를 안전하게 문자열로 변환함.
+- 고정 레이아웃이 모든 내비게이션 설정을 L/R로 강제하던 문제를 수정해 T/B, L/R, 4-Way 탭 설정을 유지하고 Scroll만 L/R로 대체함.
+- PDF와 압축 도서의 설정 버튼을 복원하고 설정창에는 내비게이션 옵션만 표시하며 Scroll과 EPUB 전용 글꼴·크기·문단 설정은 숨김.
+- 7페이지 PDF에서 실제 화면 좌표를 우·하·좌·상으로 탭해 페이지 인덱스가 `0 → 1 → 2 → 1 → 0`으로 이동하고 설정창에 T/B, L/R, 4-Way만 표시되는 것을 확인함.
 - 실제 150MB PDF를 IndexedDB에 저장하고 `FOLIATE-FXL` 인덱스 0과 iframe 내부 canvas 생성까지 확인함. 저장 크기는 157,286,400바이트이고 JS heap은 약 8.9MB에서 12.4MB로 증가함.
 - 7페이지 PDF에서 canvas와 텍스트 레이어, 4쪽 이동, 57.14% 진행률·북마크 저장, 4쪽 재개를 확인했고 런타임 오류는 0개였음.
 - 회귀 수정 후 형식 12개, Drive 14개, 압축 9개, 저장소 1개 테스트와 TypeScript, ESLint, production build, diff 검사를 모두 통과함.

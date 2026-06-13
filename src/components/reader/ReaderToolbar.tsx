@@ -242,18 +242,16 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
           )}
 
-          <div className={`grid ${isFixedLayout ? 'grid-cols-2' : 'grid-cols-3'} gap-1.5`}>
-            {!isFixedLayout && (
-              <button
-                type="button"
-                onClick={onOpenSettings}
-                className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
-                style={surfaceStyle}
-              >
-                <Settings size={19} />
-                <span>설정</span>
-              </button>
-            )}
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              style={surfaceStyle}
+            >
+              <Settings size={19} />
+              <span>설정</span>
+            </button>
             <button
               type="button"
               onClick={onOpenTheme}

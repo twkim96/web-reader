@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Book, Bookmark, SaveProgressOptions, UserProgress, ViewerSettings } from '../types';
+import { getEffectiveNavigationMode } from '../lib/readerNavigation';
 import { getThemeClasses, getThemeColors, getThemeTextureCss } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
@@ -101,7 +102,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
   const isFixedLayout = book.readerFormat === 'archive' || book.readerFormat === 'pdf';
-  const effectiveNavMode = isFixedLayout ? 'left-right' : settings.navMode;
+  const effectiveNavMode = getEffectiveNavigationMode(settings.navMode, isFixedLayout);
   const readerEdgePadding = isFixedLayout ? 0 : Math.max(settings.padding || 0, settings.fontSize);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
@@ -541,12 +542,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onProgressSliderCommit={commitSliderMove}
       />
 
-      {!isFixedLayout && chrome.showSettings && (
+      {chrome.showSettings && (
         <SettingsModal
           settings={settings}
           onUpdateSettings={onUpdateSettings}
           onClose={() => chrome.setShowSettings(false)}
           theme={theme}
+          isFixedLayout={isFixedLayout}
         />
       )}
 
