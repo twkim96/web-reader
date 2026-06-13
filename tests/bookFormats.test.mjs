@@ -43,7 +43,7 @@ test('accepts general books up to 150MB each and 500MB total', () => {
   assert.match(oversized.error, /150MB/);
 
   const overTotal = updateImportSelection(selected, [
-    file('c.pdf', 101 * 1024 * 1024),
+    file('c.pdf', 100 * 1024 * 1024 + 1),
     file('d.txt', 100 * 1024 * 1024),
   ], { allowExtendedFormats: true });
   assert.match(overTotal.error, /500MB/);
@@ -126,16 +126,20 @@ test('enforces the configured maximum file count', () => {
 });
 
 test('blocks oversized Drive books before download', () => {
+  assert.equal(
+    getBookOpenLimitError('book.pdf', 'application/octet-stream', GENERAL_FILE_MAX_BYTES),
+    null,
+  );
   assert.match(
     getBookOpenLimitError('large.pdf', 'application/octet-stream', GENERAL_FILE_MAX_BYTES + 1),
     /150MB/,
   );
+  assert.equal(
+    getBookOpenLimitError('images.cbz', 'application/octet-stream', String(ARCHIVE_FILE_MAX_BYTES)),
+    null,
+  );
   assert.match(
     getBookOpenLimitError('large.cbz', 'application/octet-stream', String(ARCHIVE_FILE_MAX_BYTES + 1)),
     /300MB/,
-  );
-  assert.equal(
-    getBookOpenLimitError('book.epub', 'application/epub+zip', GENERAL_FILE_MAX_BYTES),
-    null,
   );
 });
