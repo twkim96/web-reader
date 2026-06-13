@@ -263,11 +263,10 @@ type PreparedBookSource = {
 
 #### 상태
 
-- 구현 및 로컬 검증 완료.
+- 구현, 로컬 검증, 고정 배포 URL의 실제 Drive 웹 업로드 검증 완료.
 - `drive.file + drive.readonly + drive.appdata`로 `web viewer` 폴더의 Drive 웹 직접 업로드 파일을 자동 조회한다.
 - 계정별 appData 폴더 ID와 브라우저 캐시를 우선하며, 설정 없는 동명 폴더가 여러 개면 임의 선택하지 않는다.
 - Google Picker 코드와 API 키 의존성은 제거했다.
-- 고정 배포 URL의 실제 Google Drive 검증은 커밋과 푸시 후 진행한다.
 
 - Drive 목록 조회 필드와 클라이언트 확장자 필터를 확장한다.
 - Drive 웹에서 `web viewer` 폴더에 직접 올린 PDF/압축 파일이 책장에 자동 표시되는지 확인한다.
@@ -282,6 +281,18 @@ type PreparedBookSource = {
 - `npx eslint src tests`: 통과.
 - `npm run build`: 통과.
 - `git diff --check`: 통과.
+
+#### 배포 검증 결과
+
+- 커밋 `b8c9979`까지 `main`에 푸시하고 `https://twreader.vercel.app/` 배포를 확인함.
+- 실제 OAuth 토큰에 `drive.file`, `drive.readonly`, `drive.appdata`가 모두 포함됨.
+- 계정별 appData 설정 파일의 폴더 ID와 브라우저 캐시가 일치하고, 동시 로딩으로 생긴 중복 설정 2개가 1개로 정리됨.
+- Google Drive 웹에서 확정된 `web viewer` 폴더에 약 8MB 혼합 CBZ를 직접 업로드함.
+- Picker나 별도 파일 선택 없이 책장에 자동 표시되고, 최초 열기에서 원본 다운로드 1회와 이미지 6개 고정 레이아웃을 확인함.
+- 두 번째 열기에서는 추가 다운로드 없이 로컬 원본·메타데이터·압축 인덱스를 재사용함.
+- 시험 파일을 Drive 웹 휴지통으로 이동하고 API 목록, IndexedDB 캐시, 책장 카드가 모두 제거됐음을 확인함.
+- Vercel의 `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY` 환경변수는 삭제함.
+- Google Cloud의 사용 중단 Picker 전용 API 키 삭제와 Picker API 비활성화는 브라우저 외부 작업 승인 한도 때문에 관리 콘솔 잔여 작업으로 남음. 앱 런타임과 배포에는 더 이상 사용되지 않음.
 
 ### Phase 3: ZIP/CBZ 이미지 도서
 
@@ -405,8 +416,7 @@ type PreparedBookSource = {
 
 #### 상태
 
-- 구현 및 로컬 검증 완료.
-- 고정 배포 URL과 실제 Google Drive 검증은 커밋과 푸시 후 진행한다.
+- 구현, 로컬 검증, 고정 배포 URL과 실제 Google Drive 검증 완료.
 
 - Drive 파일 지문별 압축 검사 결과와 이미지 인덱스를 저장한다.
 - 수정된 Drive 파일만 재검사한다.
@@ -481,6 +491,13 @@ type PreparedBookSource = {
 - 비밀번호 입력 및 암호화 압축 해제
 - RAR, TAR 및 기타 압축 형식
 - OCR과 이미지 안의 텍스트 검색
+
+## 릴리스 전 수동 확인
+
+- 친구 계정은 각자의 Google Drive와 appData 설정을 사용한다. `drive.readonly`가 제한된 범위이므로 OAuth 앱 공개 상태와 테스트 사용자 등록 여부를 확인한다.
+- iPad Safari에서 PDF와 ZIP/CBZ/7z 페이지 이동 및 메모리 회수를 최종 확인한다.
+- 150MB 일반 도서, 총 500MB, 300MB 압축 도서의 실제 경계 파일 검증은 릴리스 직전에 한 번만 수행한다.
+- Google Cloud Console에서 `TWReader Google Picker` API 키를 삭제하고 Google Picker API를 비활성화한다.
 
 ## 참고
 
