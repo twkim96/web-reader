@@ -99,8 +99,13 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
 
     if (isArchiveFormat(sourceFormat)) {
       try {
-        const { inspectZipImageArchive } = await import('../../lib/archiveImages');
-        await inspectZipImageArchive(file);
+        if (sourceFormat === '7z') {
+          const { inspectSevenZipImageArchive } = await import('../../lib/sevenZipImages');
+          await inspectSevenZipImageArchive(file);
+        } else {
+          const { inspectZipImageArchive } = await import('../../lib/archiveImages');
+          await inspectZipImageArchive(file);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : '압축 파일을 확인하지 못했습니다.';
         alert(`${file.name}\n${message}`);

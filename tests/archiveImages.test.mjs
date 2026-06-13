@@ -9,11 +9,12 @@ import {
   selectArchiveImageEntries,
 } from '../src/lib/archiveImages.ts';
 
-const entry = (filename, options = {}) => ({
-  filename,
+const entry = (name, options = {}) => ({
+  name,
   directory: false,
   encrypted: false,
-  uncompressedSize: 10,
+  size: 10,
+  source: null,
   ...options,
 });
 
@@ -27,7 +28,7 @@ test('filters mixed archive entries and naturally sorts supported images', () =>
     entry('__MACOSX/pages/3.jpg'),
     entry('pages/.hidden.jpg'),
     entry('pages/.DS_Store'),
-    { ...entry('pages/folder/'), directory: true },
+    entry('pages/folder/', { directory: true }),
   ]);
 
   assert.deepEqual(
@@ -35,6 +36,11 @@ test('filters mixed archive entries and naturally sorts supported images', () =>
     ['pages/1.webp', 'pages/2.png', 'pages/10.JPG'],
   );
   assert.equal(inspection.totalImageBytes, 30);
+});
+
+test('normalizes leading current-directory segments from archive paths', () => {
+  const inspection = selectArchiveImageEntries([entry('././pages/1.png')]);
+  assert.equal(inspection.entries[0].normalizedName, 'pages/1.png');
 });
 
 test('rejects archives without images and encrypted image entries', () => {
@@ -51,7 +57,7 @@ test('rejects archives without images and encrypted image entries', () => {
 test('rejects an image whose expanded size exceeds the per-page guard', () => {
   assert.throws(
     () => selectArchiveImageEntries([
-      entry('huge.png', { uncompressedSize: 100 * 1024 * 1024 + 1 }),
+      entry('huge.png', { size: 100 * 1024 * 1024 + 1 }),
     ]),
     (error) => error instanceof ArchiveImageError && error.code === 'image-too-large',
   );

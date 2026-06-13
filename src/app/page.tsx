@@ -318,8 +318,8 @@ export default function Page() {
       alert(limitError);
       return;
     }
-    if (book.readerFormat === 'pdf' || book.archiveFormat === '7z') {
-      alert('PDF와 압축 도서 읽기 기능은 준비 중입니다.');
+    if (book.readerFormat === 'pdf') {
+      alert('PDF 읽기 기능은 준비 중입니다.');
       return;
     }
     setActiveBook(book);

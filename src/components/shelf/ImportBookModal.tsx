@@ -166,7 +166,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
           <div className="space-y-1">
             <p className="text-sm font-black">파일 선택 또는 여기로 드래그</p>
             <p className="text-[11px] font-bold opacity-60">
-              .txt, .epub, .zip, .cbz / 일반 최대 {maxFiles}개 · 압축 1개
+              .txt, .epub, .zip, .cbz, .7z / 일반 최대 {maxFiles}개 · 압축 1개
             </p>
           </div>
         </button>

@@ -98,7 +98,7 @@ test('can keep extended formats hidden until their readers are enabled', () => {
   assert.equal(epub.error, null);
 });
 
-test('enables ZIP and CBZ without exposing unfinished PDF and 7z readers', () => {
+test('enables ZIP, CBZ, and 7z without exposing the unfinished PDF reader', () => {
   const zip = updateImportSelection([], [file('images.zip', 1)], {
     enabledFormats: ACTIVE_SOURCE_FORMATS,
   });
@@ -112,7 +112,7 @@ test('enables ZIP and CBZ without exposing unfinished PDF and 7z readers', () =>
   const sevenZip = updateImportSelection([], [file('images.7z', 1)], {
     enabledFormats: ACTIVE_SOURCE_FORMATS,
   });
-  assert.match(sevenZip.error, /지원하는 도서 파일/);
+  assert.equal(sevenZip.error, null);
 });
 
 test('enforces the configured maximum file count', () => {

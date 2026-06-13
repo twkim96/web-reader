@@ -280,9 +280,8 @@ type PreparedBookSource = {
 
 #### 상태
 
-- 구현 및 로컬 검증 완료.
+- 구현, 로컬 검증, 고정 배포 URL 검증 완료.
 - ZIP/CBZ만 사용자에게 활성화했으며 PDF/7z는 해당 리더 Phase 전까지 선택 UI에서 숨긴다.
-- 배포 URL의 실제 열람 검증은 커밋과 푸시 후 진행한다.
 
 - 압축 엔트리 검사기와 공통 이미지 필터/정렬을 구현한다.
 - 혼합 ZIP에서 이미지 항목만 페이지로 노출한다.
@@ -302,12 +301,46 @@ type PreparedBookSource = {
 - `npm run build`: 통과.
 - `git diff --check`: 통과.
 
+#### 배포 검증 결과
+
+- 커밋 `52aa9da`를 `main`에 푸시하고 `https://twreader.vercel.app/` 배포를 확인함.
+- 배포된 Worker, WASM, 고정 레이아웃 모듈이 각각 정상 MIME으로 응답함.
+- 배포 URL에서 혼합 CBZ를 직접 추가해 이미지 6개만 자연 순서로 열고 마지막 페이지까지 이동함.
+- 도서 닫기 후 생성된 Blob URL 12개가 모두 회수됨.
+
 ### Phase 4: 7z 이미지 도서
+
+#### 상태
+
+- 구현 및 로컬 검증 완료.
+- 7z를 사용자 선택 UI에 활성화했으며 고정 배포 URL 검증은 커밋과 푸시 후 진행한다.
 
 - 7z 지원 WASM과 Worker 자산을 정적 배포한다.
 - ZIP과 같은 `ArchiveImageSource` 계약으로 7z 엔트리를 노출한다.
 - 엔트리 목록만 먼저 읽고 이미지는 페이지 단위로 추출한다.
 - Worker 실패, 암호화, 메모리 부족 오류를 사용자 메시지로 변환한다.
+
+#### 구현 메모
+
+- 7-Zip 24.09 WASM은 7z를 열 때만 전용 Worker에서 로드한다.
+- 원본 Blob은 `WORKERFS`에 마운트해 300MB 전체를 `ArrayBuffer`로 복제하지 않는다.
+- 선택한 이미지 한 장만 MEMFS에 추출하고 메인 스레드에는 Blob으로 전달한다.
+- solid 7z는 요청 이미지까지 같은 solid block을 다시 해제할 수 있으므로 4페이지 LRU 캐시로 인접 페이지 재해제를 줄인다.
+- 7z 런타임 패키지는 빌드 의존성으로 남기지 않고 필요한 정적 자산과 라이선스만 배포한다.
+
+#### 로컬 검증 결과
+
+- 이미지 6개와 텍스트가 섞인 solid 7z에서 이미지만 `1, 2, 3, 4, 5, 10` 순서로 표시됨.
+- 마지막 페이지까지 이동 후 4페이지 캐시에서 Blob URL 4개가 회수됨.
+- 도서 닫기 후 생성된 Blob URL 12개가 모두 회수되고 전용 Worker 1개가 종료됨.
+- 이미지가 없는 7z, 암호화 헤더 7z, 손상된 7z가 각각 구체적인 오류로 업로드 전에 차단되고 IndexedDB에 저장되지 않음.
+- `npm run test:formats`: 11개 테스트 통과.
+- `npm run test:drive`: 6개 테스트 통과.
+- `npm run test:archives`: 6개 테스트 통과.
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src tests`: 통과.
+- `npm run build`: 통과.
+- `git diff --check`: 통과.
 
 ### Phase 5: PDF
 

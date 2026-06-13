@@ -63,7 +63,7 @@ const MIME_BY_FORMAT: Record<SourceBookFormat, string> = {
 
 const BASE_FORMATS = new Set<SourceBookFormat>(['txt', 'epub']);
 const ALL_FORMATS = new Set<SourceBookFormat>(EXTENSION_FORMATS.map(([, format]) => format));
-export const ACTIVE_SOURCE_FORMATS = new Set<SourceBookFormat>(['txt', 'epub', 'zip', 'cbz']);
+export const ACTIVE_SOURCE_FORMATS = new Set<SourceBookFormat>(['txt', 'epub', 'zip', 'cbz', '7z']);
 
 export const ALL_IMPORT_ACCEPT = EXTENSION_FORMATS.map(([extension]) => extension).join(',');
 export const BASE_IMPORT_ACCEPT = '.txt,.epub';

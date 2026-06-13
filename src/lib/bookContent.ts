@@ -67,9 +67,15 @@ export const prepareBookSource = async (
 ): Promise<PreparedBookSource> => {
   const sourceFormat = book.sourceFormat ?? getSourceBookFormat(book.name, book.mimeType);
 
-  if (sourceFormat === 'zip' || sourceFormat === 'cbz') {
+  if (sourceFormat === 'zip' || sourceFormat === 'cbz' || sourceFormat === '7z') {
     const sourceBlob = toBlob(content, book.mimeType);
-    const { createZipImageBook } = await import('./archiveImages');
+    const source = sourceFormat === '7z'
+      ? await import('./sevenZipImages').then(({ createSevenZipImageBook }) => (
+        createSevenZipImageBook(sourceBlob, book.name)
+      ))
+      : await import('./archiveImages').then(({ createZipImageBook }) => (
+        createZipImageBook(sourceBlob, book.name)
+      ));
     return {
       book: {
         ...book,
@@ -78,7 +84,7 @@ export const prepareBookSource = async (
         archiveFormat: sourceFormat,
       },
       format: 'archive',
-      source: await createZipImageBook(sourceBlob, book.name),
+      source,
       cacheContent: sourceBlob,
     };
   }
