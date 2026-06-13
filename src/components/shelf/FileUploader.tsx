@@ -1,8 +1,14 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react';
 import { createFolder, findFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
-import { saveBookToLocal } from '../../lib/localDB';
+import {
+  LocalStorageCapacityError,
+  saveArchiveInspectionToLocal,
+  saveBookToLocal,
+} from '../../lib/localDB';
 import type { Book } from '../../types';
 import { ensureEpubBook } from '../../lib/bookContent';
+import { getBookFingerprint } from '../../lib/bookFingerprint';
+import type { ArchiveImageIndex } from '../../lib/archiveImageBook';
 import {
   ACTIVE_SOURCE_FORMATS,
   DEFAULT_MAX_IMPORT_FILES,
@@ -70,7 +76,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
           },
         });
         onRefresh(); // 목록 갱신
-        return result.id as string; // 구글 드라이브 ID 반환
+        return result;
       } else {
         throw new Error('폴더를 생성하거나 찾을 수 없습니다.');
       }
@@ -85,7 +91,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
 
       const message = error instanceof Error ? error.message : '알 수 없는 오류';
       console.error('Sync failed:', error);
-      alert(`클라우드 동기화 실패: ${message}\n(파일은 기기에 로컬로 저장되었습니다.)`);
+      alert(`클라우드 동기화 실패: ${message}\n로컬 저장을 계속합니다.`);
       return null;
     } finally {
       setSyncStatus(null);
@@ -97,14 +103,15 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     const sourceFormat = getSourceBookFormat(file.name, originalMimeType);
     if (!sourceFormat) return;
 
+    let archiveImageIndex: ArchiveImageIndex | undefined;
     if (isArchiveFormat(sourceFormat)) {
       try {
         if (sourceFormat === '7z') {
           const { inspectSevenZipImageArchive } = await import('../../lib/sevenZipImages');
-          await inspectSevenZipImageArchive(file);
+          archiveImageIndex = (await inspectSevenZipImageArchive(file)).index;
         } else {
           const { inspectZipImageArchive } = await import('../../lib/archiveImages');
-          await inspectZipImageArchive(file);
+          archiveImageIndex = (await inspectZipImageArchive(file)).index;
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : '압축 파일을 확인하지 못했습니다.';
@@ -113,49 +120,71 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       }
     }
 
-    let bookId = file.name; // 기본값은 파일명
+    let driveBook: Awaited<ReturnType<typeof syncFileToDrive>> = null;
 
     // 1. 구글 드라이브에 원본 파일 업로드
     if (!isOfflineMode && googleToken) {
       if (isCloudTokenValid?.() === false) {
         onCloudAuthExpired?.();
       } else {
-        const driveId = await syncFileToDrive(file, originalMimeType, signal);
-        if (driveId) {
-          bookId = driveId; // 드라이브 업로드 성공 시 해당 ID 사용
-        }
+        driveBook = await syncFileToDrive(file, originalMimeType, signal);
       }
     } else if (!isOfflineMode && !googleToken) {
       onCloudAuthExpired?.();
     }
+    if (signal.aborted) return;
 
     // 2. 로컬 저장. 압축 원본은 Blob으로 유지하고 텍스트 도서만 변환한다.
     const book: Book = {
-      id: bookId,
-      name: file.name,
-      mimeType: originalMimeType,
+      id: driveBook?.id ?? file.name,
+      name: driveBook?.name ?? file.name,
+      mimeType: driveBook?.mimeType ?? originalMimeType,
+      size: driveBook?.size ?? file.size,
+      source: driveBook ? 'cloud' : 'local',
       sourceFormat,
       readerFormat: getReaderFormat(sourceFormat),
       archiveFormat: getArchiveFormat(sourceFormat),
+      modifiedTime: driveBook?.modifiedTime
+        ?? (file.lastModified ? new Date(file.lastModified).toISOString() : undefined),
+      md5Checksum: driveBook?.md5Checksum,
     };
 
+    let savedLocally = false;
     try {
       if (isArchiveFormat(sourceFormat) || sourceFormat === 'pdf') {
         await saveBookToLocal(book, file);
-        onLocalBookImported?.();
-        return;
+      } else {
+        const content = await file.arrayBuffer();
+        const epub = await ensureEpubBook(book, content);
+        await saveBookToLocal(epub.book, epub.content);
       }
-
-      const content = await file.arrayBuffer();
-      const epub = await ensureEpubBook(book, content);
-      await saveBookToLocal(epub.book, epub.content);
+      savedLocally = true;
     } catch (err) {
-      console.error('epub 변환/저장 실패:', err);
-      alert(`${file.name} 도서를 EPUB으로 준비하는 데 실패했습니다.`);
-      return;
+      console.error('도서 준비/저장 실패:', err);
+      if (driveBook) {
+        alert(err instanceof LocalStorageCapacityError
+          ? `${err.message}\n클라우드에는 업로드되었으며 온라인에서 읽을 수 있습니다.`
+          : '로컬 저장에 실패했지만 클라우드에는 업로드되었습니다.');
+        onRefresh();
+      } else {
+        alert(err instanceof LocalStorageCapacityError
+          ? err.message
+          : `${file.name} 도서를 준비하거나 저장하는 데 실패했습니다.`);
+      }
     }
 
-    onLocalBookImported?.();
+    if (archiveImageIndex && (savedLocally || driveBook)) {
+      const fingerprint = getBookFingerprint(book);
+      if (fingerprint) {
+        try {
+          await saveArchiveInspectionToLocal(book.id, fingerprint, archiveImageIndex);
+        } catch (error) {
+          console.warn('[Import] Failed to cache archive index:', error);
+        }
+      }
+    }
+
+    if (savedLocally) onLocalBookImported?.();
   };
 
   const importFiles = async (files: FileList | File[]) => {

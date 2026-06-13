@@ -1,7 +1,10 @@
 import {
   ArchiveImageError,
+  createArchiveImageIndex,
   createArchiveImageBook,
+  restoreArchiveImageInspection,
   selectArchiveImageEntries,
+  type ArchiveImageIndex,
   type RawArchiveEntry,
 } from './archiveImageBook.ts';
 
@@ -99,7 +102,7 @@ class SevenZipWorkerClient {
   }
 }
 
-const prepareSevenZip = async (blob: Blob) => {
+const prepareSevenZip = async (blob: Blob, cachedIndex?: ArchiveImageIndex) => {
   const client = new SevenZipWorkerClient();
   try {
     const entries = await client.initialize(blob);
@@ -109,7 +112,9 @@ const prepareSevenZip = async (blob: Blob) => {
     }));
     return {
       client,
-      inspection: selectArchiveImageEntries(rawEntries),
+      inspection: cachedIndex
+        ? restoreArchiveImageInspection(rawEntries, cachedIndex)
+        : selectArchiveImageEntries(rawEntries),
     };
   } catch (error) {
     client.close();
@@ -124,15 +129,27 @@ export const inspectSevenZipImageArchive = async (blob: Blob) => {
     imageCount: inspection.entries.length,
     totalImageBytes: inspection.totalImageBytes,
     names: inspection.entries.map((entry) => entry.normalizedName),
+    index: createArchiveImageIndex(inspection),
   };
 };
 
-export const createSevenZipImageBook = async (blob: Blob, fileName: string) => {
-  const { client, inspection } = await prepareSevenZip(blob);
-  return createArchiveImageBook({
-    entries: inspection.entries,
-    fileName,
-    loadBlob: (entry) => client.extract(entry.source, entry.mimeType),
-    close: () => client.close(),
-  });
+export const prepareSevenZipImageBook = async (
+  blob: Blob,
+  fileName: string,
+  cachedIndex?: ArchiveImageIndex,
+) => {
+  const { client, inspection } = await prepareSevenZip(blob, cachedIndex);
+  return {
+    book: createArchiveImageBook({
+      entries: inspection.entries,
+      fileName,
+      loadBlob: (entry) => client.extract(entry.source, entry.mimeType),
+      close: () => client.close(),
+    }),
+    index: createArchiveImageIndex(inspection),
+  };
 };
+
+export const createSevenZipImageBook = async (blob: Blob, fileName: string) => (
+  prepareSevenZipImageBook(blob, fileName).then(({ book }) => book)
+);

@@ -4,7 +4,19 @@ import { MutableRefObject, useEffect, useRef, useState } from 'react';
 import { Book, ViewerSettings } from '../../types';
 import { prepareBookSource, type StoredBookContent } from '../../lib/bookContent';
 import { fetchFullFile, fetchFullFileBlob } from '../../lib/googleDrive';
-import { loadBookFromLocal, saveBookToLocal } from '../../lib/localDB';
+import {
+  loadArchiveInspectionFromLocal,
+  loadBookFromLocal,
+  loadBookMetadataFromLocal,
+  LocalStorageCapacityError,
+  saveArchiveInspectionToLocal,
+  saveBookMetadataToLocal,
+  saveBookToLocal,
+} from '../../lib/localDB';
+import {
+  getBookFingerprint,
+  shouldUseCachedBookContent,
+} from '../../lib/bookFingerprint';
 import type { FoliateBook } from '../foliate/types';
 
 type ReaderThemeColors = {
@@ -99,17 +111,56 @@ export const useReaderBookSource = ({
 
     const loadBook = async () => {
       try {
-        const localData = await loadBookFromLocal(book.id);
+        const [localData, localMetadata] = await Promise.all([
+          loadBookFromLocal(book.id),
+          loadBookMetadataFromLocal(book.id),
+        ]);
         let prepared: Awaited<ReturnType<typeof prepareBookSource>>;
+        const fingerprint = getBookFingerprint(book);
+
+        const prepareContent = async (content: StoredBookContent) => {
+          const cachedArchiveIndex = book.readerFormat === 'archive' && fingerprint
+            ? await loadArchiveInspectionFromLocal(book.id, fingerprint)
+            : undefined;
+          let usedCachedArchiveIndex = Boolean(cachedArchiveIndex);
+
+          let result: Awaited<ReturnType<typeof prepareBookSource>>;
+          try {
+            result = await prepareBookSource(book, content, {
+              archiveImageIndex: cachedArchiveIndex,
+            });
+          } catch (error) {
+            if (!cachedArchiveIndex) throw error;
+            console.warn('[Reader] Cached archive index is unusable, rebuilding:', error);
+            usedCachedArchiveIndex = false;
+            result = await prepareBookSource(book, content);
+          }
+
+          if (fingerprint && result.archiveImageIndex && !usedCachedArchiveIndex) {
+            try {
+              await saveArchiveInspectionToLocal(
+                book.id,
+                fingerprint,
+                result.archiveImageIndex,
+              );
+            } catch (error) {
+              console.warn('[Reader] Failed to cache archive index:', error);
+            }
+          }
+          return result;
+        };
 
         try {
           if (!localData) throw new Error('No local cache');
-          prepared = await prepareBookSource(book, localData as StoredBookContent);
+          if (!shouldUseCachedBookContent(book, localMetadata, navigator.onLine)) {
+            throw new Error('Local cache is stale');
+          }
+          prepared = await prepareContent(localData as StoredBookContent);
 
           try {
-            await saveBookToLocal(prepared.book, prepared.cacheContent);
+            await saveBookMetadataToLocal(prepared.book, prepared.cacheContent);
           } catch (error) {
-            console.warn('[Reader] Failed to update local book cache:', error);
+            console.warn('[Reader] Failed to update local book metadata:', error);
           }
         } catch (localError) {
           if (localData) console.warn('[Reader] Local cache is not usable, fetching remote:', localError);
@@ -121,12 +172,15 @@ export const useReaderBookSource = ({
           const content = book.readerFormat === 'epub'
             ? await fetchFullFile(book.id, googleToken)
             : await fetchFullFileBlob(book.id, googleToken);
-          prepared = await prepareBookSource(book, content);
+          prepared = await prepareContent(content);
 
           try {
             await saveBookToLocal(prepared.book, prepared.cacheContent);
           } catch (error) {
             console.warn('[Reader] Failed to save locally:', error);
+            alert(error instanceof LocalStorageCapacityError
+              ? `${error.message}\n현재 세션에서는 클라우드 원본을 계속 읽습니다.`
+              : '오프라인 저장에 실패했습니다. 현재 세션에서는 클라우드 원본을 계속 읽습니다.');
           }
         }
 

@@ -1,8 +1,11 @@
 import type { Entry, FileEntry } from '@zip.js/zip.js';
 import {
   ArchiveImageError,
+  createArchiveImageIndex,
   createArchiveImageBook,
+  restoreArchiveImageInspection,
   selectArchiveImageEntries,
+  type ArchiveImageIndex,
 } from './archiveImageBook.ts';
 
 type ZipModule = typeof import('@zip.js/zip.js');
@@ -25,19 +28,22 @@ const loadZipModule = async () => {
   return zipModulePromise;
 };
 
-const openArchive = async (blob: Blob) => {
+const openArchive = async (blob: Blob, cachedIndex?: ArchiveImageIndex) => {
   const { BlobReader, ZipReader } = await loadZipModule();
   const reader = new ZipReader(new BlobReader(blob));
 
   try {
     const entries = await reader.getEntries();
-    const inspection = selectArchiveImageEntries(entries.map((entry: Entry) => ({
+    const rawEntries = entries.map((entry: Entry) => ({
       name: entry.filename,
       directory: entry.directory,
       encrypted: entry.encrypted,
       size: entry.uncompressedSize,
       source: entry as FileEntry,
-    })));
+    }));
+    const inspection = cachedIndex
+      ? restoreArchiveImageInspection(rawEntries, cachedIndex)
+      : selectArchiveImageEntries(rawEntries);
     return { reader, inspection };
   } catch (error) {
     await reader.close().catch(() => undefined);
@@ -53,20 +59,32 @@ export const inspectZipImageArchive = async (blob: Blob) => {
     imageCount: inspection.entries.length,
     totalImageBytes: inspection.totalImageBytes,
     names: inspection.entries.map((entry) => entry.normalizedName),
+    index: createArchiveImageIndex(inspection),
   };
 };
 
-export const createZipImageBook = async (blob: Blob, fileName: string) => {
+export const prepareZipImageBook = async (
+  blob: Blob,
+  fileName: string,
+  cachedIndex?: ArchiveImageIndex,
+) => {
   const [{ BlobWriter }, { reader, inspection }] = await Promise.all([
     loadZipModule(),
-    openArchive(blob),
+    openArchive(blob, cachedIndex),
   ]);
-  return createArchiveImageBook({
-    entries: inspection.entries,
-    fileName,
-    loadBlob: (entry) => entry.source.getData(new BlobWriter(entry.mimeType)),
-    close: () => {
-      void reader.close();
-    },
-  });
+  return {
+    book: createArchiveImageBook({
+      entries: inspection.entries,
+      fileName,
+      loadBlob: (entry) => entry.source.getData(new BlobWriter(entry.mimeType)),
+      close: () => {
+        void reader.close();
+      },
+    }),
+    index: createArchiveImageIndex(inspection),
+  };
 };
+
+export const createZipImageBook = async (blob: Blob, fileName: string) => (
+  prepareZipImageBook(blob, fileName).then(({ book }) => book)
+);

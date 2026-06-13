@@ -6,8 +6,13 @@ import {
   ArchiveImageError,
   createZipImageBook,
   inspectZipImageArchive,
+  prepareZipImageBook,
   selectArchiveImageEntries,
 } from '../src/lib/archiveImages.ts';
+import {
+  createArchiveImageIndex,
+  restoreArchiveImageInspection,
+} from '../src/lib/archiveImageBook.ts';
 
 const entry = (name, options = {}) => ({
   name,
@@ -87,5 +92,66 @@ test('shares an in-flight page extraction for concurrent loads', async () => {
   ]);
 
   assert.equal(firstUrl, secondUrl);
+  book.destroy();
+});
+
+test('restores a validated image index against fresh archive entry handles', () => {
+  const firstInspection = selectArchiveImageEntries([
+    entry('10.jpg', { source: 'old-10' }),
+    entry('2.png', { source: 'old-2' }),
+  ]);
+  const index = createArchiveImageIndex(firstInspection);
+  const restored = restoreArchiveImageInspection([
+    entry('10.jpg', { source: 'new-10' }),
+    entry('2.png', { source: 'new-2' }),
+  ], index);
+
+  assert.deepEqual(
+    restored.entries.map(({ normalizedName, source }) => [normalizedName, source]),
+    [['2.png', 'new-2'], ['10.jpg', 'new-10']],
+  );
+  assert.throws(
+    () => restoreArchiveImageInspection([
+      entry('10.jpg', { source: 'changed', size: 11 }),
+      entry('2.png', { source: 'new-2' }),
+    ], index),
+    (error) => error instanceof ArchiveImageError && error.code === 'damaged',
+  );
+  assert.throws(
+    () => restoreArchiveImageInspection([
+      entry('10.jpg', { source: 'new-10' }),
+      entry('2.png', { source: 'new-2' }),
+      entry('3.webp', { source: 'unexpected' }),
+    ], index),
+    (error) => error instanceof ArchiveImageError && error.code === 'damaged',
+  );
+});
+
+test('restores duplicate archive paths without sharing entry handles', () => {
+  const firstInspection = selectArchiveImageEntries([
+    entry('1.jpg', { source: 'old-first' }),
+    entry('1.jpg', { source: 'old-second' }),
+  ]);
+  const restored = restoreArchiveImageInspection([
+    entry('1.jpg', { source: 'new-first' }),
+    entry('1.jpg', { source: 'new-second' }),
+  ], createArchiveImageIndex(firstInspection));
+
+  assert.deepEqual(
+    restored.entries.map(({ source }) => source),
+    ['new-first', 'new-second'],
+  );
+});
+
+test('opens a ZIP book from its cached serializable image index', async () => {
+  const zip = new JSZip();
+  zip.file('10.jpg', 'ten');
+  zip.file('2.png', 'two');
+  zip.file('notes.txt', 'ignored');
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const { index } = await inspectZipImageArchive(blob);
+  const { book } = await prepareZipImageBook(blob, 'cached.cbz', index);
+
+  assert.deepEqual(book.sections.map(({ id }) => id), ['2.png', '10.jpg']);
   book.destroy();
 });

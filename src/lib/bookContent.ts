@@ -8,6 +8,7 @@ import {
 import { isEpubBuffer } from './epubValidation';
 import type { FoliateBook } from '../hooks/foliate/types';
 import type { ReaderFormat } from './bookFormats';
+import type { ArchiveImageIndex } from './archiveImageBook';
 
 export { isEpubBuffer } from './epubValidation';
 
@@ -55,6 +56,11 @@ export type PreparedBookSource = {
   format: ReaderFormat;
   source: Blob | FoliateBook;
   cacheContent: StoredBookContent;
+  archiveImageIndex?: ArchiveImageIndex;
+};
+
+type PrepareBookSourceOptions = {
+  archiveImageIndex?: ArchiveImageIndex;
 };
 
 const toBlob = (content: StoredBookContent, mimeType: string) => (
@@ -64,6 +70,7 @@ const toBlob = (content: StoredBookContent, mimeType: string) => (
 export const prepareBookSource = async (
   book: Book,
   content: StoredBookContent,
+  options: PrepareBookSourceOptions = {},
 ): Promise<PreparedBookSource> => {
   const sourceFormat = book.sourceFormat ?? getSourceBookFormat(book.name, book.mimeType);
 
@@ -83,12 +90,12 @@ export const prepareBookSource = async (
 
   if (sourceFormat === 'zip' || sourceFormat === 'cbz' || sourceFormat === '7z') {
     const sourceBlob = toBlob(content, book.mimeType);
-    const source = sourceFormat === '7z'
-      ? await import('./sevenZipImages').then(({ createSevenZipImageBook }) => (
-        createSevenZipImageBook(sourceBlob, book.name)
+    const prepared = sourceFormat === '7z'
+      ? await import('./sevenZipImages').then(({ prepareSevenZipImageBook }) => (
+        prepareSevenZipImageBook(sourceBlob, book.name, options.archiveImageIndex)
       ))
-      : await import('./archiveImages').then(({ createZipImageBook }) => (
-        createZipImageBook(sourceBlob, book.name)
+      : await import('./archiveImages').then(({ prepareZipImageBook }) => (
+        prepareZipImageBook(sourceBlob, book.name, options.archiveImageIndex)
       ));
     return {
       book: {
@@ -98,8 +105,9 @@ export const prepareBookSource = async (
         archiveFormat: sourceFormat,
       },
       format: 'archive',
-      source,
+      source: prepared.book,
       cacheContent: sourceBlob,
+      archiveImageIndex: prepared.index,
     };
   }
 

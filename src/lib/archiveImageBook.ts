@@ -38,6 +38,17 @@ export type ArchiveInspection<T = unknown> = {
   totalImageBytes: number;
 };
 
+export type ArchiveImageIndex = {
+  version: 1;
+  totalImageBytes: number;
+  entries: Array<{
+    name: string;
+    normalizedName: string;
+    size: number;
+    mimeType: string;
+  }>;
+};
+
 export class ArchiveImageError extends Error {
   readonly code:
       | 'damaged'
@@ -78,32 +89,9 @@ const naturalPathCompare = new Intl.Collator(undefined, {
   sensitivity: 'base',
 }).compare;
 
-export const selectArchiveImageEntries = <T>(
-  entries: RawArchiveEntry<T>[],
+const validateImageEntries = <T>(
+  imageEntries: ArchiveImageEntry<T>[],
 ): ArchiveInspection<T> => {
-  if (entries.length > MAX_ARCHIVE_ENTRIES) {
-    throw new ArchiveImageError('too-many-entries', '압축 파일의 항목 수가 너무 많습니다.');
-  }
-
-  const imageEntries = entries.flatMap((entry): ArchiveImageEntry<T>[] => {
-    if (entry.directory) return [];
-    const normalizedName = normalizeArchivePath(entry.name);
-    const mimeType = getImageMimeType(normalizedName);
-    if (!mimeType || isIgnoredArchivePath(normalizedName)) return [];
-
-    return [{
-      name: entry.name,
-      normalizedName,
-      size: entry.size,
-      encrypted: entry.encrypted,
-      mimeType,
-      source: entry.source,
-    }];
-  }).sort((left, right) => (
-    naturalPathCompare(left.normalizedName, right.normalizedName)
-    || left.normalizedName.localeCompare(right.normalizedName)
-  ));
-
   if (imageEntries.length === 0) {
     throw new ArchiveImageError('no-images', '압축 파일에 지원하는 이미지가 없습니다.');
   }
@@ -131,6 +119,101 @@ export const selectArchiveImageEntries = <T>(
   }
 
   return { entries: imageEntries, totalImageBytes };
+};
+
+export const selectArchiveImageEntries = <T>(
+  entries: RawArchiveEntry<T>[],
+): ArchiveInspection<T> => {
+  if (entries.length > MAX_ARCHIVE_ENTRIES) {
+    throw new ArchiveImageError('too-many-entries', '압축 파일의 항목 수가 너무 많습니다.');
+  }
+
+  const imageEntries = entries.flatMap((entry): ArchiveImageEntry<T>[] => {
+    if (entry.directory) return [];
+    const normalizedName = normalizeArchivePath(entry.name);
+    const mimeType = getImageMimeType(normalizedName);
+    if (!mimeType || isIgnoredArchivePath(normalizedName)) return [];
+
+    return [{
+      name: entry.name,
+      normalizedName,
+      size: entry.size,
+      encrypted: entry.encrypted,
+      mimeType,
+      source: entry.source,
+    }];
+  }).sort((left, right) => (
+    naturalPathCompare(left.normalizedName, right.normalizedName)
+    || left.normalizedName.localeCompare(right.normalizedName)
+  ));
+
+  return validateImageEntries(imageEntries);
+};
+
+export const createArchiveImageIndex = (
+  inspection: ArchiveInspection,
+): ArchiveImageIndex => ({
+  version: 1,
+  totalImageBytes: inspection.totalImageBytes,
+  entries: inspection.entries.map((entry) => ({
+    name: entry.name,
+    normalizedName: entry.normalizedName,
+    size: entry.size,
+    mimeType: entry.mimeType,
+  })),
+});
+
+export const restoreArchiveImageInspection = <T>(
+  rawEntries: RawArchiveEntry<T>[],
+  index: ArchiveImageIndex,
+): ArchiveInspection<T> => {
+  if (index.version !== 1 || rawEntries.length > MAX_ARCHIVE_ENTRIES) {
+    throw new ArchiveImageError('damaged', '저장된 압축 파일 인덱스를 사용할 수 없습니다.');
+  }
+
+  const rawImageEntries = rawEntries.filter((entry) => {
+    if (entry.directory) return false;
+    const normalizedName = normalizeArchivePath(entry.name);
+    return Boolean(getImageMimeType(normalizedName))
+      && !isIgnoredArchivePath(normalizedName);
+  });
+  if (rawImageEntries.length !== index.entries.length) {
+    throw new ArchiveImageError('damaged', '저장된 압축 파일 인덱스가 원본과 일치하지 않습니다.');
+  }
+
+  const entriesByName = new Map<string, RawArchiveEntry<T>[]>();
+  rawImageEntries.forEach((entry) => {
+    const matches = entriesByName.get(entry.name) ?? [];
+    matches.push(entry);
+    entriesByName.set(entry.name, matches);
+  });
+  const restored = index.entries.map((cached): ArchiveImageEntry<T> => {
+    const raw = entriesByName.get(cached.name)?.shift();
+    const normalizedName = normalizeArchivePath(cached.name);
+    const mimeType = getImageMimeType(normalizedName);
+    if (
+      !raw
+      || raw.directory
+      || raw.encrypted
+      || raw.size !== cached.size
+      || normalizedName !== cached.normalizedName
+      || mimeType !== cached.mimeType
+      || isIgnoredArchivePath(normalizedName)
+    ) {
+      throw new ArchiveImageError('damaged', '저장된 압축 파일 인덱스가 원본과 일치하지 않습니다.');
+    }
+    return {
+      ...cached,
+      encrypted: false,
+      source: raw.source,
+    };
+  });
+
+  const inspection = validateImageEntries(restored);
+  if (inspection.totalImageBytes !== index.totalImageBytes) {
+    throw new ArchiveImageError('damaged', '저장된 압축 파일 인덱스가 손상되었습니다.');
+  }
+  return inspection;
 };
 
 type CachedPage = {
