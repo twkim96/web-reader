@@ -86,7 +86,7 @@ test('uses Drive checksum first and invalidates only changed cached files', () =
   }), 'metadata:2026-06-13T00:00:00Z:2048');
 });
 
-test('prefers the app-marked library folder over same-name folders', async (t) => {
+test('prefers the appData library folder over same-name folders', async (t) => {
   const requests = [];
   const originalFetch = globalThis.fetch;
   t.after(() => {
@@ -95,22 +95,31 @@ test('prefers the app-marked library folder over same-name folders', async (t) =
 
   globalThis.fetch = async (url) => {
     requests.push(String(url));
+    const requestUrl = String(url);
+    if (requestUrl.includes('spaces=appDataFolder')) {
+      return new Response(JSON.stringify({ files: [{ id: 'registry-file' }] }), { status: 200 });
+    }
+    if (requestUrl.includes('/registry-file?alt=media')) {
+      return new Response(JSON.stringify({
+        version: 1,
+        folderId: 'registered-folder',
+      }), { status: 200 });
+    }
     return new Response(JSON.stringify({
-      files: [{
-        id: 'marked-folder',
-        name: 'web viewer',
-        mimeType: 'application/vnd.google-apps.folder',
-        appProperties: { twreaderLibrary: 'v1' },
-      }],
+      id: 'registered-folder',
+      name: 'web viewer',
+      mimeType: 'application/vnd.google-apps.folder',
+      trashed: false,
     }), { status: 200 });
   };
 
-  assert.equal(await getDriveLibraryFolderId('token'), 'marked-folder');
-  assert.equal(requests.length, 1);
-  assert.match(decodeURIComponent(requests[0]), /appProperties has/);
+  assert.equal(await getDriveLibraryFolderId('token'), 'registered-folder');
+  assert.equal(requests.length, 3);
+  assert.match(requests[0], /spaces=appDataFolder/);
+  assert.doesNotMatch(requests.join('\n'), /name%20%3D%20'web%20viewer'/);
 });
 
-test('does not choose an arbitrary folder when duplicate names are unmarked', async (t) => {
+test('does not choose an arbitrary folder when duplicate names are unregistered', async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => {
     globalThis.fetch = originalFetch;
@@ -136,7 +145,7 @@ test('does not choose an arbitrary folder when duplicate names are unmarked', as
   assert.equal(requestCount, 2);
 });
 
-test('migrates one existing folder and tolerates a read-only marker update', async (t) => {
+test('stores one existing folder in appData for other devices', async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => {
     globalThis.fetch = originalFetch;
@@ -145,26 +154,51 @@ test('migrates one existing folder and tolerates a read-only marker update', asy
   const requests = [];
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options });
-    if (options.method === 'PATCH') {
-      return new Response('', { status: 403 });
+    if (String(url).includes('spaces=appDataFolder')) {
+      return new Response(JSON.stringify({ files: [] }), { status: 200 });
     }
-
-    const query = new URL(String(url)).searchParams.get('q') ?? '';
+    if (options.method === 'POST') {
+      return new Response(JSON.stringify({ id: 'registry-file' }), { status: 200 });
+    }
     return new Response(JSON.stringify({
-      files: query.includes('appProperties has')
-        ? []
-        : [{
-          id: 'existing-folder',
-          name: 'web viewer',
-          mimeType: 'application/vnd.google-apps.folder',
-        }],
+      files: [{
+        id: 'existing-folder',
+        name: 'web viewer',
+        mimeType: 'application/vnd.google-apps.folder',
+      }],
     }), { status: 200 });
   };
 
   assert.equal(await getDriveLibraryFolderId('token'), 'existing-folder');
   assert.equal(requests.length, 3);
-  assert.equal(requests[2].options.method, 'PATCH');
-  assert.match(String(requests[2].options.body), /twreaderLibrary/);
+  assert.equal(requests[2].options.method, 'POST');
+  assert.match(requests[2].url, /uploadType=multipart/);
+});
+
+test('keeps the existing folder usable with an old drive.file-only token', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).includes('spaces=appDataFolder') || options.method === 'POST') {
+      return new Response('', { status: 403 });
+    }
+    return new Response(JSON.stringify({
+      files: [{
+        id: 'existing-folder',
+        name: 'web viewer',
+        mimeType: 'application/vnd.google-apps.folder',
+      }],
+    }), { status: 200 });
+  };
+
+  assert.equal(await getDriveLibraryFolderId('token'), 'existing-folder');
+  assert.equal(requests.length, 3);
+  assert.equal(requests[2].options.method, 'POST');
 });
 
 test('lists books only from the resolved library folder', async (t) => {

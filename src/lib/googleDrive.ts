@@ -63,15 +63,14 @@ export const isGoogleDrivePermissionError = (error: unknown) => error instanceof
 
 export const DRIVE_LIBRARY_FOLDER_NAME = 'web viewer';
 const DRIVE_LIBRARY_FOLDER_ID_KEY = 'google_drive_library_folder_id';
-const DRIVE_LIBRARY_MARKER_KEY = 'twreaderLibrary';
-const DRIVE_LIBRARY_MARKER_VALUE = 'v1';
+const DRIVE_LIBRARY_REGISTRY_SYNCED_KEY = 'google_drive_library_registry_synced';
+const DRIVE_LIBRARY_REGISTRY_NAME = 'twreader-library.json';
 
 type DriveFolder = {
   id: string;
   name?: string;
   mimeType?: string;
   trashed?: boolean;
-  appProperties?: Record<string, string>;
 };
 
 const throwIfGoogleDriveAuthError = (response: Response) => {
@@ -88,7 +87,7 @@ const throwIfGoogleDrivePermissionError = (response: Response) => {
 
 const listDriveFolders = async (query: string, token: string) => {
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=drive&pageSize=100&fields=files(id,name,mimeType,trashed,appProperties)`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=drive&pageSize=100&fields=files(id,name,mimeType,trashed)`,
     { headers: { Authorization: `Bearer ${token}` } },
     5000,
   );
@@ -123,7 +122,7 @@ const forgetLibraryFolderId = () => {
 
 const fetchDriveFolder = async (folderId: string, token: string) => {
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed,appProperties`,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed`,
     { headers: { Authorization: `Bearer ${token}` } },
     5000,
   );
@@ -141,36 +140,132 @@ const fetchDriveFolder = async (folderId: string, token: string) => {
 const isUsableLibraryFolder = (folder: DriveFolder | null) => (
   folder?.mimeType === 'application/vnd.google-apps.folder'
   && folder.trashed !== true
-  && (
-    folder.name === DRIVE_LIBRARY_FOLDER_NAME
-    || folder.appProperties?.[DRIVE_LIBRARY_MARKER_KEY] === DRIVE_LIBRARY_MARKER_VALUE
-  )
+  && folder.name === DRIVE_LIBRARY_FOLDER_NAME
 );
 
-const markLibraryFolder = async (folderId: string, token: string) => {
+const readDriveLibraryRegistry = async (token: string) => {
+  const query = `name = '${DRIVE_LIBRARY_REGISTRY_NAME}' and 'appDataFolder' in parents and trashed = false`;
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=appDataFolder&pageSize=1&fields=files(id)`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    5000,
+  );
+
+  if (response.status === 403) return null;
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throw new Error('라이브러리 폴더 설정 조회 실패');
+  }
+
+  const files = (await response.json() as { files?: Array<{ id: string }> }).files ?? [];
+  if (!files[0]?.id) return null;
+
+  const contentResponse = await fetchWithTimeout(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(files[0].id)}?alt=media`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    5000,
+  );
+  if (contentResponse.status === 403 || contentResponse.status === 404) return null;
+  if (!contentResponse.ok) {
+    throwIfGoogleDriveAuthError(contentResponse);
+    throw new Error('라이브러리 폴더 설정 다운로드 실패');
+  }
+
+  const config = await contentResponse.json() as { version?: unknown; folderId?: unknown };
+  return {
+    fileId: files[0].id,
+    folderId: config.version === 1 && typeof config.folderId === 'string'
+      ? config.folderId
+      : null,
+  };
+};
+
+const writeDriveLibraryRegistry = async (
+  folderId: string,
+  token: string,
+  existingFileId?: string,
+) => {
+  const content = JSON.stringify({ version: 1, folderId });
+  if (existingFileId) {
+    const response = await fetchWithTimeout(
+      `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingFileId)}?uploadType=media`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: content,
+      },
+      10000,
+    );
+    if (!response.ok) {
+      throwIfGoogleDriveAuthError(response);
+      throw new Error('라이브러리 폴더 설정 갱신 실패');
+    }
+    return;
+  }
+
+  const boundary = 'twreader_drive_registry';
+  const metadata = JSON.stringify({
+    name: DRIVE_LIBRARY_REGISTRY_NAME,
+    parents: ['appDataFolder'],
+    mimeType: 'application/json',
+  });
+  const response = await fetchWithTimeout(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
     {
-      method: 'PATCH',
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        'Content-Type': `multipart/related; boundary=${boundary}`,
       },
-      body: JSON.stringify({
-        appProperties: {
-          [DRIVE_LIBRARY_MARKER_KEY]: DRIVE_LIBRARY_MARKER_VALUE,
-        },
-      }),
+      body: new Blob([
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+        metadata,
+        `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n`,
+        content,
+        `\r\n--${boundary}--`,
+      ]),
     },
     10000,
   );
-
-  // A folder created on Drive web can be readable through drive.readonly but
-  // not writable through drive.file. It remains usable on this browser.
-  if (response.status === 403) return;
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
-    throw new Error('라이브러리 폴더 표시 실패');
+    throw new Error('라이브러리 폴더 설정 저장 실패');
+  }
+};
+
+const hasSyncedLibraryRegistry = (folderId: string) => (
+  typeof window !== 'undefined'
+  && localStorage.getItem(DRIVE_LIBRARY_REGISTRY_SYNCED_KEY) === folderId
+);
+
+const rememberSyncedLibraryRegistry = (folderId: string) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(DRIVE_LIBRARY_REGISTRY_SYNCED_KEY, folderId);
+  }
+};
+
+const syncDriveLibraryRegistry = async (
+  folderId: string,
+  token: string,
+  registry?: Awaited<ReturnType<typeof readDriveLibraryRegistry>>,
+) => {
+  if (hasSyncedLibraryRegistry(folderId)) return;
+
+  try {
+    const currentRegistry = registry === undefined
+      ? await readDriveLibraryRegistry(token)
+      : registry;
+    if (currentRegistry?.folderId !== folderId) {
+      await writeDriveLibraryRegistry(folderId, token, currentRegistry?.fileId);
+    }
+    rememberSyncedLibraryRegistry(folderId);
+  } catch (error) {
+    if (isGoogleDriveAuthError(error)) throw error;
+    // Existing drive.file-only tokens cannot access appDataFolder. Retry after
+    // the next OAuth connection without blocking the current library.
   }
 };
 
@@ -186,9 +281,6 @@ const createLibraryFolder = async (token: string) => {
       body: JSON.stringify({
         name: DRIVE_LIBRARY_FOLDER_NAME,
         mimeType: 'application/vnd.google-apps.folder',
-        appProperties: {
-          [DRIVE_LIBRARY_MARKER_KEY]: DRIVE_LIBRARY_MARKER_VALUE,
-        },
       }),
     },
     10000
@@ -210,19 +302,20 @@ export const getDriveLibraryFolderId = async (
   const storedFolderId = getStoredLibraryFolderId();
   if (storedFolderId) {
     const storedFolder = await fetchDriveFolder(storedFolderId, token);
-    if (isUsableLibraryFolder(storedFolder)) return storedFolderId;
+    if (isUsableLibraryFolder(storedFolder)) {
+      await syncDriveLibraryRegistry(storedFolderId, token);
+      return storedFolderId;
+    }
     forgetLibraryFolderId();
   }
 
-  const markedQuery = [
-    "mimeType = 'application/vnd.google-apps.folder'",
-    'trashed = false',
-    `appProperties has { key='${DRIVE_LIBRARY_MARKER_KEY}' and value='${DRIVE_LIBRARY_MARKER_VALUE}' }`,
-  ].join(' and ');
-  const markedFolders = await listDriveFolders(markedQuery, token);
-  if (markedFolders.length === 1) return rememberLibraryFolderId(markedFolders[0].id);
-  if (markedFolders.length > 1) {
-    throw new GoogleDriveFolderConflictError('TWReader 라이브러리 폴더가 여러 개입니다.');
+  const registry = await readDriveLibraryRegistry(token);
+  if (registry?.folderId) {
+    const registeredFolder = await fetchDriveFolder(registry.folderId, token);
+    if (isUsableLibraryFolder(registeredFolder)) {
+      rememberSyncedLibraryRegistry(registry.folderId);
+      return rememberLibraryFolderId(registry.folderId);
+    }
   }
 
   const namedQuery = [
@@ -233,7 +326,7 @@ export const getDriveLibraryFolderId = async (
   const namedFolders = await listDriveFolders(namedQuery, token);
   if (namedFolders.length === 1) {
     const folderId = rememberLibraryFolderId(namedFolders[0].id);
-    await markLibraryFolder(folderId, token);
+    await syncDriveLibraryRegistry(folderId, token, registry);
     return folderId;
   }
   if (namedFolders.length > 1) {
@@ -243,7 +336,9 @@ export const getDriveLibraryFolderId = async (
   }
   if (!createIfMissing) return null;
 
-  return rememberLibraryFolderId(await createLibraryFolder(token));
+  const folderId = rememberLibraryFolderId(await createLibraryFolder(token));
+  await syncDriveLibraryRegistry(folderId, token, registry);
+  return folderId;
 };
 
 export const uploadFile = async (

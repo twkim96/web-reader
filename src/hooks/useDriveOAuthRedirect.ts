@@ -13,6 +13,7 @@ const buildDriveOAuthUrl = (clientId: string, state: string) => {
     scope: [
       'https://www.googleapis.com/auth/drive.file',
       'https://www.googleapis.com/auth/drive.readonly',
+      'https://www.googleapis.com/auth/drive.appdata',
     ].join(' '),
     prompt: 'select_account',
     include_granted_scopes: 'true',

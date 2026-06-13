@@ -107,12 +107,13 @@ type PreparedBookSource = {
 - `web viewer` 폴더에서는 MIME만으로 제한하지 않고 파일을 조회한 뒤 지원 확장자를 클라이언트에서 필터링한다.
 - Drive가 알 수 없는 형식을 `application/octet-stream`으로 기록해도 파일 확장자로 PDF/ZIP/CBZ/7z를 찾는다.
 - 목록 필드에 `size`, `modifiedTime`, `md5Checksum`을 추가한다.
-- OAuth는 앱 업로드·수정용 `drive.file`과 Drive 웹 직접 업로드 파일 조회·다운로드용 `drive.readonly`를 함께 사용한다.
+- OAuth는 앱 업로드·수정용 `drive.file`, Drive 웹 직접 업로드 파일 조회·다운로드용 `drive.readonly`, 계정별 폴더 ID 설정용 `drive.appdata`를 함께 사용한다.
 - `drive.readonly`는 제한된 범위이므로 개인·테스트 운영을 기본 전제로 하며, 불특정 다수 공개 전에는 Google OAuth 검증 요구사항을 다시 확인한다.
 - Google Picker와 선택 파일 ID 병합은 사용하지 않는다.
 - Drive 전체를 책장에 노출하지 않고 확정된 `web viewer` 폴더의 직접 자식만 조회한다.
-- 앱이 만든 라이브러리 폴더에는 전용 `appProperties` 표식을 기록하고 브라우저에도 폴더 ID를 저장한다.
-- 과거처럼 이름이 같은 폴더 중 API 첫 결과를 선택하지 않는다. 표식 없는 `web viewer` 폴더가 여러 개면 임의 선택을 중단하고 충돌 오류를 표시한다.
+- 각 Drive 계정의 canonical 폴더 ID는 숨겨진 appData 설정 파일에 저장하고 브라우저에는 빠른 조회용 캐시만 둔다.
+- 친구의 계정과 폴더 설정은 각자의 Drive appData 공간에 독립 저장되며 서로 공유되지 않는다.
+- 과거처럼 이름이 같은 폴더 중 API 첫 결과를 선택하지 않는다. appData 설정이 없는 첫 연결에서 `web viewer` 폴더가 여러 개면 임의 선택을 중단하고 충돌 오류를 표시한다.
 - 폴더 ID가 없으면 전체 Drive 조회로 폴백하지 않는다.
 - Drive 웹에서 직접 올린 파일은 읽을 수 있지만 `drive.file` 쓰기 대상이 아닐 수 있으므로, 앱 삭제가 403이면 Drive 웹에서 직접 삭제하도록 안내한다.
 - TXT, EPUB, PDF는 기존 파일 선택, 원본 업로드, TXT→EPUB 로컬 변환 흐름을 유지한다.
@@ -262,8 +263,8 @@ type PreparedBookSource = {
 #### 상태
 
 - 구현 및 로컬 검증 완료.
-- `drive.file + drive.readonly`로 `web viewer` 폴더의 Drive 웹 직접 업로드 파일을 자동 조회한다.
-- 앱 전용 폴더 표식과 브라우저 폴더 ID를 우선하며, 이름이 같은 미표식 폴더가 여러 개면 임의 선택하지 않는다.
+- `drive.file + drive.readonly + drive.appdata`로 `web viewer` 폴더의 Drive 웹 직접 업로드 파일을 자동 조회한다.
+- 계정별 appData 폴더 ID와 브라우저 캐시를 우선하며, 설정 없는 동명 폴더가 여러 개면 임의 선택하지 않는다.
 - Google Picker 코드와 API 키 의존성은 제거했다.
 - 고정 배포 URL의 실제 Google Drive 검증은 커밋과 푸시 후 진행한다.
 
@@ -275,7 +276,7 @@ type PreparedBookSource = {
 #### 로컬 검증 결과
 
 - `npm run test:formats`: 10개 테스트 통과.
-- `npm run test:drive`: 11개 테스트 통과.
+- `npm run test:drive`: 12개 테스트 통과.
 - `npx tsc --noEmit`: 통과.
 - `npx eslint src tests`: 통과.
 - `npm run build`: 통과.
@@ -447,7 +448,7 @@ type PreparedBookSource = {
 - 압축 파일 선택 후 다른 파일을 추가하면 새 파일만 거부되고 기존 압축 파일은 유지된다.
 - 앱에서 올린 혼합 ZIP/CBZ/7z는 업로드 전에 이미지 존재 여부를 확인한다.
 - Drive의 확정된 `web viewer` 폴더에 직접 올린 ZIP/CBZ/7z는 자동으로 책장에 표시되고 최초 열기 때 검증된다.
-- 이름이 같은 `web viewer` 폴더가 여러 개여도 앱 표식이 없는 임의 폴더를 선택하지 않는다.
+- 이름이 같은 `web viewer` 폴더가 여러 개여도 계정 appData에 등록되지 않은 임의 폴더를 선택하지 않는다.
 - 폴더를 확정하지 못했을 때 Drive 전체 파일을 조회하지 않는다.
 - 압축 안의 비이미지 파일은 무시되고 이미지 파일만 자연 순서로 표시된다.
 - 책장 로딩만으로 압축 원본 다운로드나 압축 해제가 발생하지 않는다.
