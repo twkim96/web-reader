@@ -113,6 +113,7 @@ type PreparedBookSource = {
 - Drive 전체를 책장에 노출하지 않고 확정된 `web viewer` 폴더의 직접 자식만 조회한다.
 - 각 Drive 계정의 canonical 폴더 ID는 숨겨진 appData 설정 파일에 저장하고 브라우저에는 빠른 조회용 캐시만 둔다.
 - 친구의 계정과 폴더 설정은 각자의 Drive appData 공간에 독립 저장되며 서로 공유되지 않는다.
+- 동시에 책장을 불러와도 appData 설정 생성은 한 요청으로 합치고 기존 중복 설정 파일은 자동 정리한다.
 - 과거처럼 이름이 같은 폴더 중 API 첫 결과를 선택하지 않는다. appData 설정이 없는 첫 연결에서 `web viewer` 폴더가 여러 개면 임의 선택을 중단하고 충돌 오류를 표시한다.
 - 폴더 ID가 없으면 전체 Drive 조회로 폴백하지 않는다.
 - Drive 웹에서 직접 올린 파일은 읽을 수 있지만 `drive.file` 쓰기 대상이 아닐 수 있으므로, 앱 삭제가 403이면 Drive 웹에서 직접 삭제하도록 안내한다.
@@ -276,7 +277,7 @@ type PreparedBookSource = {
 #### 로컬 검증 결과
 
 - `npm run test:formats`: 10개 테스트 통과.
-- `npm run test:drive`: 12개 테스트 통과.
+- `npm run test:drive`: 13개 테스트 통과.
 - `npx tsc --noEmit`: 통과.
 - `npx eslint src tests`: 통과.
 - `npm run build`: 통과.

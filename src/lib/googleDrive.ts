@@ -65,6 +65,7 @@ export const DRIVE_LIBRARY_FOLDER_NAME = 'web viewer';
 const DRIVE_LIBRARY_FOLDER_ID_KEY = 'google_drive_library_folder_id';
 const DRIVE_LIBRARY_REGISTRY_SYNCED_KEY = 'google_drive_library_registry_synced';
 const DRIVE_LIBRARY_REGISTRY_NAME = 'twreader-library.json';
+let registrySyncInFlight: { folderId: string; promise: Promise<void> } | null = null;
 
 type DriveFolder = {
   id: string;
@@ -146,7 +147,7 @@ const isUsableLibraryFolder = (folder: DriveFolder | null) => (
 const readDriveLibraryRegistry = async (token: string) => {
   const query = `name = '${DRIVE_LIBRARY_REGISTRY_NAME}' and 'appDataFolder' in parents and trashed = false`;
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=appDataFolder&pageSize=1&fields=files(id)`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=appDataFolder&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,modifiedTime)`,
     { headers: { Authorization: `Bearer ${token}` } },
     5000,
   );
@@ -158,25 +159,34 @@ const readDriveLibraryRegistry = async (token: string) => {
   }
 
   const files = (await response.json() as { files?: Array<{ id: string }> }).files ?? [];
-  if (!files[0]?.id) return null;
+  if (files.length === 0) return null;
 
-  const contentResponse = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(files[0].id)}?alt=media`,
-    { headers: { Authorization: `Bearer ${token}` } },
-    5000,
-  );
-  if (contentResponse.status === 403 || contentResponse.status === 404) return null;
-  if (!contentResponse.ok) {
-    throwIfGoogleDriveAuthError(contentResponse);
-    throw new Error('라이브러리 폴더 설정 다운로드 실패');
+  for (const [index, file] of files.entries()) {
+    const contentResponse = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      5000,
+    );
+    if (contentResponse.status === 403 || contentResponse.status === 404) continue;
+    if (!contentResponse.ok) {
+      throwIfGoogleDriveAuthError(contentResponse);
+      throw new Error('라이브러리 폴더 설정 다운로드 실패');
+    }
+
+    const config = await contentResponse.json() as { version?: unknown; folderId?: unknown };
+    if (config.version === 1 && typeof config.folderId === 'string') {
+      return {
+        fileId: file.id,
+        folderId: config.folderId,
+        duplicateFileIds: files.filter((_, fileIndex) => fileIndex !== index).map(({ id }) => id),
+      };
+    }
   }
 
-  const config = await contentResponse.json() as { version?: unknown; folderId?: unknown };
   return {
     fileId: files[0].id,
-    folderId: config.version === 1 && typeof config.folderId === 'string'
-      ? config.folderId
-      : null,
+    folderId: null,
+    duplicateFileIds: files.slice(1).map(({ id }) => id),
   };
 };
 
@@ -247,25 +257,55 @@ const rememberSyncedLibraryRegistry = (folderId: string) => {
   }
 };
 
+const deleteDuplicateDriveLibraryRegistries = async (fileIds: string[], token: string) => {
+  await Promise.all(fileIds.map(async (fileId) => {
+    const response = await fetchWithTimeout(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      10000,
+    );
+    if (response.status === 404) return;
+    if (!response.ok) throwIfGoogleDriveAuthError(response);
+  }));
+};
+
 const syncDriveLibraryRegistry = async (
   folderId: string,
   token: string,
   registry?: Awaited<ReturnType<typeof readDriveLibraryRegistry>>,
 ) => {
   if (hasSyncedLibraryRegistry(folderId)) return;
+  if (registrySyncInFlight?.folderId === folderId) {
+    await registrySyncInFlight.promise;
+    return;
+  }
 
-  try {
-    const currentRegistry = registry === undefined
-      ? await readDriveLibraryRegistry(token)
-      : registry;
-    if (currentRegistry?.folderId !== folderId) {
-      await writeDriveLibraryRegistry(folderId, token, currentRegistry?.fileId);
+  const promise = (async () => {
+    try {
+      const currentRegistry = registry === undefined
+        ? await readDriveLibraryRegistry(token)
+        : registry;
+      if (currentRegistry?.folderId !== folderId) {
+        await writeDriveLibraryRegistry(folderId, token, currentRegistry?.fileId);
+      }
+      if (currentRegistry?.duplicateFileIds.length) {
+        await deleteDuplicateDriveLibraryRegistries(currentRegistry.duplicateFileIds, token);
+      }
+      rememberSyncedLibraryRegistry(folderId);
+    } catch (error) {
+      if (isGoogleDriveAuthError(error)) throw error;
+      // Existing drive.file-only tokens cannot access appDataFolder. Retry after
+      // the next OAuth connection without blocking the current library.
     }
-    rememberSyncedLibraryRegistry(folderId);
-  } catch (error) {
-    if (isGoogleDriveAuthError(error)) throw error;
-    // Existing drive.file-only tokens cannot access appDataFolder. Retry after
-    // the next OAuth connection without blocking the current library.
+  })();
+  registrySyncInFlight = { folderId, promise };
+  try {
+    await promise;
+  } finally {
+    if (registrySyncInFlight?.promise === promise) registrySyncInFlight = null;
   }
 };
 
@@ -313,6 +353,9 @@ export const getDriveLibraryFolderId = async (
   if (registry?.folderId) {
     const registeredFolder = await fetchDriveFolder(registry.folderId, token);
     if (isUsableLibraryFolder(registeredFolder)) {
+      if (registry.duplicateFileIds.length) {
+        await deleteDuplicateDriveLibraryRegistries(registry.duplicateFileIds, token);
+      }
       rememberSyncedLibraryRegistry(registry.folderId);
       return rememberLibraryFolderId(registry.folderId);
     }
