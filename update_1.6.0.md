@@ -13,7 +13,7 @@
 
 - 앱과 서비스워커 버전을 `1.6.0`으로 일치시켰다.
 - 구현과 자동 검증, 데스크톱 Chromium 및 고정 배포 URL 검증은 완료했다.
-- 최종 릴리스 확정 전에는 아래 `릴리스 전 수동 확인` 두 항목만 남는다.
+- 최종 릴리스 확정 전에는 아래 iPad Safari 수동 확인만 남는다.
 
 ## 확정 정책
 
@@ -301,6 +301,10 @@ type PreparedBookSource = {
 - Google Drive 웹에서 확정된 `web viewer` 폴더에 약 8MB 혼합 CBZ를 직접 업로드함.
 - Picker나 별도 파일 선택 없이 책장에 자동 표시되고, 최초 열기에서 원본 다운로드 1회와 이미지 6개 고정 레이아웃을 확인함.
 - 두 번째 열기에서는 추가 다운로드 없이 로컬 원본·메타데이터·압축 인덱스를 재사용함.
+- 실제 150MB PDF를 8MiB 청크 19개로 resumable upload하고 Drive·IndexedDB의 157,286,400바이트와 MD5 일치, 첫 페이지 canvas 렌더를 확인한 뒤 Drive·로컬 테스트 데이터를 정리함.
+- 실제 300MB 혼합 CBZ를 8MiB 청크 38개로 resumable upload하고 Drive·IndexedDB의 314,572,800바이트와 MD5 일치, 이미지 6개 자연 정렬과 첫 페이지 렌더를 확인한 뒤 Drive·로컬 테스트 데이터를 정리함.
+- 실제 파일 선택에서 일반 도서 150MB와 총 500MB, 압축 도서 300MB는 정확한 경계까지 허용되고 각각 1바이트 초과는 거부되며 기존 선택이 유지됨을 확인함.
+- 실제 150MB PDF 업로드를 진행 중 취소했을 때 전송 요청이 중단되고 Drive 파일, IndexedDB 데이터와 책장 카드가 남지 않음을 확인함.
 - 시험 파일을 Drive 웹 휴지통으로 이동하고 API 목록, IndexedDB 캐시, 책장 카드가 모두 제거됐음을 확인함.
 - Vercel의 `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY` 환경변수는 삭제함.
 - Google Cloud의 `TWReader Google Picker` API 키를 삭제하고 Google Picker API를 비활성화함. Google Drive API는 활성 상태를 유지함.
@@ -515,7 +519,6 @@ type PreparedBookSource = {
 ## 릴리스 전 수동 확인
 
 - iPad Safari에서 PDF와 ZIP/CBZ/7z 페이지 이동 및 메모리 회수를 최종 확인한다.
-- 150MB 일반 도서, 총 500MB, 300MB 압축 도서의 실제 경계 파일 검증은 릴리스 직전에 한 번만 수행한다.
 
 ## 참고
 
