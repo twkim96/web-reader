@@ -9,12 +9,14 @@ type PickerResponse = {
 
 type PickerView = {
   setIncludeFolders: (includeFolders: boolean) => PickerView;
+  setMode: (mode: string) => PickerView;
   setSelectFolderEnabled: (enabled: boolean) => PickerView;
 };
 
 type PickerBuilder = {
   addView: (view: PickerView) => PickerBuilder;
   enableFeature: (feature: string) => PickerBuilder;
+  setAppId: (appId: string) => PickerBuilder;
   setCallback: (callback: (response: PickerResponse) => void) => PickerBuilder;
   setDeveloperKey: (apiKey: string) => PickerBuilder;
   setOAuthToken: (token: string) => PickerBuilder;
@@ -24,6 +26,7 @@ type PickerBuilder = {
 
 type GooglePicker = {
   Action: { PICKED: string; CANCEL: string };
+  DocsViewMode: { LIST: string };
   Feature: { MULTISELECT_ENABLED: string };
   ViewId: { DOCS: string };
   DocsView: new (viewId: string) => PickerView;
@@ -80,21 +83,40 @@ const loadPickerApi = () => {
     document.head.appendChild(script);
   });
 
-  return pickerApiPromise;
+  return pickerApiPromise.catch((error) => {
+    pickerApiPromise = null;
+    throw error;
+  });
 };
 
-export const pickGoogleDriveFiles = async (token: string, apiKey: string) => {
+export const getGooglePickerAppId = (clientId: string) => (
+  clientId.match(/^(\d+)-/)?.[1] ?? ''
+);
+
+export const pickGoogleDriveFiles = async (
+  token: string,
+  {
+    apiKey,
+    appId,
+  }: {
+    apiKey: string;
+    appId: string;
+  },
+) => {
   if (!apiKey) throw new Error('Google Picker API 키가 설정되지 않았습니다.');
+  if (!appId) throw new Error('Google Picker 프로젝트 번호를 확인할 수 없습니다.');
   const picker = await loadPickerApi();
 
   return new Promise<string[]>((resolve) => {
     const view = new picker.DocsView(picker.ViewId.DOCS)
       .setIncludeFolders(false)
+      .setMode(picker.DocsViewMode.LIST)
       .setSelectFolderEnabled(false);
 
     const instance = new picker.PickerBuilder()
       .addView(view)
       .enableFeature(picker.Feature.MULTISELECT_ENABLED)
+      .setAppId(appId)
       .setOAuthToken(token)
       .setDeveloperKey(apiKey)
       .setOrigin(window.location.origin)

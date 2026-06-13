@@ -15,7 +15,7 @@ import { useFilteredBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
 import { DEFAULT_MAX_IMPORT_FILES } from '../../lib/bookFormats';
-import { pickGoogleDriveFiles } from '../../lib/googlePicker';
+import { getGooglePickerAppId, pickGoogleDriveFiles } from '../../lib/googlePicker';
 import { rememberPickedDriveFileIds } from '../../lib/drivePickedFiles';
 
 interface ShelfProps {
@@ -105,10 +105,9 @@ export const Shelf: React.FC<ShelfProps> = ({
     }
 
     try {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY
-        || process.env.NEXT_PUBLIC_FIREBASE_API_KEY
-        || '';
-      const fileIds = await pickGoogleDriveFiles(googleToken, apiKey);
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY || '';
+      const appId = getGooglePickerAppId(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '');
+      const fileIds = await pickGoogleDriveFiles(googleToken, { apiKey, appId });
       if (fileIds.length === 0) return;
       rememberPickedDriveFileIds(fileIds);
       await Promise.resolve(onRefresh());

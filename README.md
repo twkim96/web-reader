@@ -63,6 +63,7 @@ src/lib/                      # Google Drive, Firebase, IndexedDB, TXT->EPUB hel
 ```bash
 NEXT_PUBLIC_FIREBASE_API_KEY=...
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=...
+NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=...
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
 # 기타 Firebase 및 Google Cloud 설정값
@@ -78,6 +79,15 @@ Google 로그인은 `signInWithRedirect`를 사용합니다. 배포 도메인에
 
 ### Google Drive OAuth
 Cloud Library 연결은 팝업 대신 전체 페이지 redirect로 Google Drive access token을 받습니다. Google Cloud Console에서 같은 OAuth 클라이언트에 앱 루트 URL도 승인된 리디렉션 URI로 등록해야 합니다.
+
+Google Picker로 Drive에서 직접 올린 파일을 선택하려면 OAuth 클라이언트와 같은 Google Cloud 프로젝트에서 다음 설정이 필요합니다.
+
+* Google Picker API(`picker.googleapis.com`)를 사용 설정합니다.
+* 브라우저 API 키를 만들고 Google Picker API로 제한합니다.
+* 웹사이트 제한에 `https://<배포도메인>/*`을 등록합니다.
+* 해당 키를 `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY`에 설정합니다.
+* Picker App ID는 `NEXT_PUBLIC_GOOGLE_CLIENT_ID`의 Cloud 프로젝트 번호에서 자동으로 가져옵니다.
+
 앱설치 권유
 * Drive OAuth redirect URI 형식: `https://<배포도메인>/`
 

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/epubValidation.test.mjs",
-    "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveUpload.test.mjs tests/googleDrive.test.mjs",
+    "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveUpload.test.mjs tests/googleDrive.test.mjs tests/googlePicker.test.mjs",
     "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImages.test.mjs",
     "test:storage": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/storageCapacity.test.mjs"
   },
