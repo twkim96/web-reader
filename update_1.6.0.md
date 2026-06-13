@@ -107,11 +107,14 @@ type PreparedBookSource = {
 - `web viewer` 폴더에서는 MIME만으로 제한하지 않고 파일을 조회한 뒤 지원 확장자를 클라이언트에서 필터링한다.
 - Drive가 알 수 없는 형식을 `application/octet-stream`으로 기록해도 파일 확장자로 PDF/ZIP/CBZ/7z를 찾는다.
 - 목록 필드에 `size`, `modifiedTime`, `md5Checksum`을 추가한다.
-- 현재 OAuth 범위인 `drive.file`은 앱이 만들었거나 사용자가 앱에 명시적으로 공유한 파일 단위 접근 권한이다.
-- 따라서 사용자가 Drive 웹에서 직접 올린 임의 파일이 자동으로 책장에 나타나는 동작은 `drive.file`만으로 보장하지 않는다.
-- Drive 직접 업로드 파일 지원은 다음 두 방식 중 `Google Picker + drive.file`을 기본안으로 한다.
-  - 권장: Google Picker에서 사용자가 파일을 한 번 선택해 앱에 접근 권한을 부여한다.
-  - 비권장: 전체 Drive 접근 범위로 확대해 폴더를 자동 검색한다. 제한 범위 검증과 더 넓은 권한이 필요하므로 1.6.0 기본 범위에서 제외한다.
+- OAuth는 앱 업로드·수정용 `drive.file`과 Drive 웹 직접 업로드 파일 조회·다운로드용 `drive.readonly`를 함께 사용한다.
+- `drive.readonly`는 제한된 범위이므로 개인·테스트 운영을 기본 전제로 하며, 불특정 다수 공개 전에는 Google OAuth 검증 요구사항을 다시 확인한다.
+- Google Picker와 선택 파일 ID 병합은 사용하지 않는다.
+- Drive 전체를 책장에 노출하지 않고 확정된 `web viewer` 폴더의 직접 자식만 조회한다.
+- 앱이 만든 라이브러리 폴더에는 전용 `appProperties` 표식을 기록하고 브라우저에도 폴더 ID를 저장한다.
+- 과거처럼 이름이 같은 폴더 중 API 첫 결과를 선택하지 않는다. 표식 없는 `web viewer` 폴더가 여러 개면 임의 선택을 중단하고 충돌 오류를 표시한다.
+- 폴더 ID가 없으면 전체 Drive 조회로 폴백하지 않는다.
+- Drive 웹에서 직접 올린 파일은 읽을 수 있지만 `drive.file` 쓰기 대상이 아닐 수 있으므로, 앱 삭제가 403이면 Drive 웹에서 직접 삭제하도록 안내한다.
 - TXT, EPUB, PDF는 기존 파일 선택, 원본 업로드, TXT→EPUB 로컬 변환 흐름을 유지한다.
 - 다만 150MB/500MB 정책을 안정적으로 처리하기 위해 Drive 전송 방식은 기존 단일 multipart 요청 대신 resumable upload를 사용한다.
 - 업로드 데이터는 Vercel을 거치지 않고 브라우저에서 Google Drive로 직접 전송한다.
@@ -259,18 +262,20 @@ type PreparedBookSource = {
 #### 상태
 
 - 구현 및 로컬 검증 완료.
-- Google Picker는 `drive.file` 범위를 유지하고 선택한 파일 ID를 브라우저에 저장해 `web viewer` 폴더 목록과 병합한다.
+- `drive.file + drive.readonly`로 `web viewer` 폴더의 Drive 웹 직접 업로드 파일을 자동 조회한다.
+- 앱 전용 폴더 표식과 브라우저 폴더 ID를 우선하며, 이름이 같은 미표식 폴더가 여러 개면 임의 선택하지 않는다.
+- Google Picker 코드와 API 키 의존성은 제거했다.
 - 고정 배포 URL의 실제 Google Drive 검증은 커밋과 푸시 후 진행한다.
 
 - Drive 목록 조회 필드와 클라이언트 확장자 필터를 확장한다.
-- Google Picker로 공유한 Drive 직접 업로드 PDF/압축 파일이 책장에 표시되는지 확인한다.
+- Drive 웹에서 `web viewer` 폴더에 직접 올린 PDF/압축 파일이 책장에 자동 표시되는지 확인한다.
 - resumable upload, 청크 재시도, 진행률, 취소를 구현한다.
 - TXT/EPUB/PDF 150MB 초과와 ZIP/CBZ/7z 300MB 초과 Drive 파일은 다운로드 전에 차단한다.
 
 #### 로컬 검증 결과
 
 - `npm run test:formats`: 10개 테스트 통과.
-- `npm run test:drive`: 6개 테스트 통과.
+- `npm run test:drive`: 11개 테스트 통과.
 - `npx tsc --noEmit`: 통과.
 - `npx eslint src tests`: 통과.
 - `npm run build`: 통과.
@@ -441,7 +446,9 @@ type PreparedBookSource = {
 - 일반 도서 선택 후 압축 파일을 추가하면 압축 파일만 거부되고 기존 선택은 유지된다.
 - 압축 파일 선택 후 다른 파일을 추가하면 새 파일만 거부되고 기존 압축 파일은 유지된다.
 - 앱에서 올린 혼합 ZIP/CBZ/7z는 업로드 전에 이미지 존재 여부를 확인한다.
-- Drive에 직접 올린 ZIP/CBZ/7z는 Google Picker로 앱에 공유한 뒤 책장에 표시되고 최초 열기 때 검증된다.
+- Drive의 확정된 `web viewer` 폴더에 직접 올린 ZIP/CBZ/7z는 자동으로 책장에 표시되고 최초 열기 때 검증된다.
+- 이름이 같은 `web viewer` 폴더가 여러 개여도 앱 표식이 없는 임의 폴더를 선택하지 않는다.
+- 폴더를 확정하지 못했을 때 Drive 전체 파일을 조회하지 않는다.
 - 압축 안의 비이미지 파일은 무시되고 이미지 파일만 자연 순서로 표시된다.
 - 책장 로딩만으로 압축 원본 다운로드나 압축 해제가 발생하지 않는다.
 - 압축 해제와 PDF 렌더링에 Vercel 서버 함수가 사용되지 않는다.
@@ -456,7 +463,7 @@ type PreparedBookSource = {
 - 로컬에서는 모의 Google API 응답으로 resumable upload 요청, 청크, 재시도, 취소, 오류 처리를 검증한다.
 - 커밋과 푸시 후 `https://twreader.vercel.app/`의 Vercel 배포 완료를 확인한다.
 - `https://twreader.vercel.app/`에서 실제 Drive 업로드, 다운로드, 목록 갱신, 삭제를 검증한다.
-- Google Picker로 Drive 직접 업로드 파일에 접근 권한을 부여한 뒤 책장 표시와 최초 열기를 검증한다.
+- Drive 웹에서 확정된 `web viewer` 폴더에 파일을 직접 올린 뒤 별도 선택 없이 책장 표시와 최초 열기를 검증한다.
 - 이미지 전용, 이미지와 기타 파일 혼합, 이미지 없음, 암호화, 손상 압축 파일을 검증한다.
 - 파일명이 `1, 2, 10` 순서로 자연 정렬되는지 확인한다.
 - ZIP/CBZ와 7z에서 페이지 이동 후 메모리가 계속 증가하지 않는지 확인한다.

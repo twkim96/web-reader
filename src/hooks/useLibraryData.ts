@@ -1,7 +1,12 @@
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
-import { fetchDriveFiles, findFolderId, isGoogleDriveAuthError } from '../lib/googleDrive';
+import {
+  fetchDriveFiles,
+  getDriveLibraryFolderId,
+  GoogleDriveFolderConflictError,
+  isGoogleDriveAuthError,
+} from '../lib/googleDrive';
 import { getAllLocalProgress, getAllOfflineBooks, saveProgressToLocal } from '../lib/localDB';
 import { Book, UserProgress, ViewState } from '../types';
 import {
@@ -10,12 +15,12 @@ import {
   RemoteProgressDoc,
   toProgressPercent,
 } from './progressPolicy';
-import { getPickedDriveFileIds } from '../lib/drivePickedFiles';
 
 interface UseLibraryDataOptions {
   clearToken: () => void;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
+  onLibraryError?: (message: string) => void;
 }
 
 export type RestoreLocalDataOptions = {
@@ -51,6 +56,7 @@ export const useLibraryData = ({
   clearToken,
   setIsOfflineMode,
   setView,
+  onLibraryError,
 }: UseLibraryDataOptions): UseLibraryDataResult => {
   const [books, setBooks] = useState<Book[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
@@ -134,8 +140,10 @@ export const useLibraryData = ({
 
   const loadLibraryFromDrive = useCallback(async (token: string) => {
     try {
-      const folderId = await findFolderId('web viewer', token);
-      const data = await fetchDriveFiles(token, folderId ?? undefined, getPickedDriveFileIds());
+      const folderId = await getDriveLibraryFolderId(token);
+      const data = folderId
+        ? await fetchDriveFiles(token, folderId)
+        : { files: [] };
       const cloudBooks = (data.files as Book[]).map((book) => ({ ...book, source: 'cloud' as const }));
       const cloudIds = new Set(cloudBooks.map((book) => book.id));
       const localBooks = await getAllOfflineBooks();
@@ -150,11 +158,14 @@ export const useLibraryData = ({
       if (isGoogleDriveAuthError(error)) {
         clearToken();
       }
+      if (error instanceof GoogleDriveFolderConflictError) {
+        onLibraryError?.(error.message);
+      }
       console.warn('Drive Library Load Failed (Offline or Error)');
       setIsOfflineMode(true);
       return false;
     }
-  }, [clearToken, setIsOfflineMode]);
+  }, [clearToken, onLibraryError, setIsOfflineMode]);
 
   return {
     books,

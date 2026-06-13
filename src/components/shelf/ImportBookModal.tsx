@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import { Cloud, FileText, Plus, X } from 'lucide-react';
+import { FileText, Plus, X } from 'lucide-react';
 import {
   ACTIVE_IMPORT_ACCEPT,
   ACTIVE_SOURCE_FORMATS,
@@ -17,7 +17,6 @@ interface ImportBookModalProps {
   onConfirm: (files: File[]) => void;
   onLogin: () => void;
   onToggleCloud: () => void;
-  onPickFromDrive: () => void;
 }
 
 const BYTES_PER_MB = 1024 * 1024;
@@ -33,7 +32,6 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   onConfirm,
   onLogin,
   onToggleCloud,
-  onPickFromDrive,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -221,19 +219,6 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
             <span>추가</span>
           </button>
         </div>
-        {!isOfflineMode && !isGuest && (
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onPickFromDrive();
-            }}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white/5 py-3 text-sm font-bold transition-colors hover:bg-white/10 active:scale-95"
-          >
-            <Cloud size={16} />
-            Google Drive에서 기존 파일 선택
-          </button>
-        )}
       </div>
     </div>
   );

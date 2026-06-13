@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react';
-import { createFolder, findFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
+import { getDriveLibraryFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
 import {
   LocalStorageCapacityError,
   saveArchiveInspectionToLocal,
@@ -58,12 +58,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
 
     try {
       setSyncStatus({ fileName: file.name, progressPercent: 0, retryCount: 0 });
-      const targetFolderName = "web viewer";
-      
-      let folderId = await findFolderId(targetFolderName, googleToken);
-      if (!folderId) {
-        folderId = await createFolder(targetFolderName, googleToken);
-      }
+      const folderId = await getDriveLibraryFolderId(googleToken, { createIfMissing: true });
 
       if (folderId) {
         const result = await uploadFile(file.name, file, folderId, googleToken, mimeType, {

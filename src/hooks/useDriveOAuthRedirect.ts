@@ -10,7 +10,10 @@ const buildDriveOAuthUrl = (clientId: string, state: string) => {
     client_id: clientId,
     redirect_uri: getDriveRedirectUri(),
     response_type: 'token',
-    scope: 'https://www.googleapis.com/auth/drive.file',
+    scope: [
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/drive.readonly',
+    ].join(' '),
     prompt: 'select_account',
     include_granted_scopes: 'true',
     state,

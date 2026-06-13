@@ -51,8 +51,28 @@ export class GoogleDrivePermissionError extends Error {
   }
 }
 
+export class GoogleDriveFolderConflictError extends Error {
+  constructor(message = "이름이 같은 'web viewer' 폴더가 여러 개입니다.") {
+    super(message);
+    this.name = 'GoogleDriveFolderConflictError';
+  }
+}
+
 export const isGoogleDriveAuthError = (error: unknown) => error instanceof GoogleDriveAuthError;
 export const isGoogleDrivePermissionError = (error: unknown) => error instanceof GoogleDrivePermissionError;
+
+export const DRIVE_LIBRARY_FOLDER_NAME = 'web viewer';
+const DRIVE_LIBRARY_FOLDER_ID_KEY = 'google_drive_library_folder_id';
+const DRIVE_LIBRARY_MARKER_KEY = 'twreaderLibrary';
+const DRIVE_LIBRARY_MARKER_VALUE = 'v1';
+
+type DriveFolder = {
+  id: string;
+  name?: string;
+  mimeType?: string;
+  trashed?: boolean;
+  appProperties?: Record<string, string>;
+};
 
 const throwIfGoogleDriveAuthError = (response: Response) => {
   if (response.status === 401) {
@@ -66,31 +86,95 @@ const throwIfGoogleDrivePermissionError = (response: Response) => {
   }
 };
 
-/**
- * 구글 드라이브 내 특정 이름의 폴더 ID를 조회합니다.
- */
-export const findFolderId = async (folderName: string, token: string) => {
-  const query = `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-  
+const listDriveFolders = async (query: string, token: string) => {
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=drive&pageSize=100&fields=files(id,name,mimeType,trashed,appProperties)`,
     { headers: { Authorization: `Bearer ${token}` } },
-    5000 
+    5000,
   );
-  
+
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
     throwIfGoogleDrivePermissionError(response);
-    return null;
+    throw new Error('폴더 목록 조회 실패');
   }
-  const data = await response.json();
-  return data.files?.[0]?.id || null;
+
+  const data = await response.json() as { files?: DriveFolder[] };
+  return data.files ?? [];
 };
 
-/**
- * 구글 드라이브에 새로운 폴더를 생성합니다.
- */
-export const createFolder = async (folderName: string, token: string) => {
+const getStoredLibraryFolderId = () => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(DRIVE_LIBRARY_FOLDER_ID_KEY);
+};
+
+const rememberLibraryFolderId = (folderId: string) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(DRIVE_LIBRARY_FOLDER_ID_KEY, folderId);
+  }
+  return folderId;
+};
+
+const forgetLibraryFolderId = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(DRIVE_LIBRARY_FOLDER_ID_KEY);
+  }
+};
+
+const fetchDriveFolder = async (folderId: string, token: string) => {
+  const response = await fetchWithTimeout(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed,appProperties`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    5000,
+  );
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
+    throw new Error('폴더 정보 조회 실패');
+  }
+
+  return await response.json() as DriveFolder;
+};
+
+const isUsableLibraryFolder = (folder: DriveFolder | null) => (
+  folder?.mimeType === 'application/vnd.google-apps.folder'
+  && folder.trashed !== true
+  && (
+    folder.name === DRIVE_LIBRARY_FOLDER_NAME
+    || folder.appProperties?.[DRIVE_LIBRARY_MARKER_KEY] === DRIVE_LIBRARY_MARKER_VALUE
+  )
+);
+
+const markLibraryFolder = async (folderId: string, token: string) => {
+  const response = await fetchWithTimeout(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        appProperties: {
+          [DRIVE_LIBRARY_MARKER_KEY]: DRIVE_LIBRARY_MARKER_VALUE,
+        },
+      }),
+    },
+    10000,
+  );
+
+  // A folder created on Drive web can be readable through drive.readonly but
+  // not writable through drive.file. It remains usable on this browser.
+  if (response.status === 403) return;
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throw new Error('라이브러리 폴더 표시 실패');
+  }
+};
+
+const createLibraryFolder = async (token: string) => {
   const response = await fetchWithTimeout(
     'https://www.googleapis.com/drive/v3/files',
     {
@@ -100,8 +184,11 @@ export const createFolder = async (folderName: string, token: string) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: folderName,
+        name: DRIVE_LIBRARY_FOLDER_NAME,
         mimeType: 'application/vnd.google-apps.folder',
+        appProperties: {
+          [DRIVE_LIBRARY_MARKER_KEY]: DRIVE_LIBRARY_MARKER_VALUE,
+        },
       }),
     },
     10000
@@ -114,6 +201,49 @@ export const createFolder = async (folderName: string, token: string) => {
   }
   const data = await response.json();
   return data.id;
+};
+
+export const getDriveLibraryFolderId = async (
+  token: string,
+  { createIfMissing = false }: { createIfMissing?: boolean } = {},
+) => {
+  const storedFolderId = getStoredLibraryFolderId();
+  if (storedFolderId) {
+    const storedFolder = await fetchDriveFolder(storedFolderId, token);
+    if (isUsableLibraryFolder(storedFolder)) return storedFolderId;
+    forgetLibraryFolderId();
+  }
+
+  const markedQuery = [
+    "mimeType = 'application/vnd.google-apps.folder'",
+    'trashed = false',
+    `appProperties has { key='${DRIVE_LIBRARY_MARKER_KEY}' and value='${DRIVE_LIBRARY_MARKER_VALUE}' }`,
+  ].join(' and ');
+  const markedFolders = await listDriveFolders(markedQuery, token);
+  if (markedFolders.length === 1) return rememberLibraryFolderId(markedFolders[0].id);
+  if (markedFolders.length > 1) {
+    throw new GoogleDriveFolderConflictError('TWReader 라이브러리 폴더가 여러 개입니다.');
+  }
+
+  const namedQuery = [
+    `name = '${DRIVE_LIBRARY_FOLDER_NAME}'`,
+    "mimeType = 'application/vnd.google-apps.folder'",
+    'trashed = false',
+  ].join(' and ');
+  const namedFolders = await listDriveFolders(namedQuery, token);
+  if (namedFolders.length === 1) {
+    const folderId = rememberLibraryFolderId(namedFolders[0].id);
+    await markLibraryFolder(folderId, token);
+    return folderId;
+  }
+  if (namedFolders.length > 1) {
+    throw new GoogleDriveFolderConflictError(
+      "이름이 같은 'web viewer' 폴더가 여러 개라 라이브러리를 자동 선택하지 않았습니다.",
+    );
+  }
+  if (!createIfMissing) return null;
+
+  return rememberLibraryFolderId(await createLibraryFolder(token));
 };
 
 export const uploadFile = async (
@@ -161,28 +291,9 @@ export const normalizeDriveBooks = (files: Book[]) => files.flatMap((file) => {
   }];
 });
 
-export const fetchDriveFileMetadata = async (fileId: string, token: string) => {
-  const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,modifiedTime,md5Checksum`,
-    { headers: { Authorization: `Bearer ${token}` } },
-    5000,
-  );
+export const fetchDriveFiles = async (token: string, folderId: string) => {
+  const q = `'${folderId}' in parents and trashed=false`;
 
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('파일 정보 조회 실패');
-  }
-
-  const [book] = normalizeDriveBooks([await response.json() as Book]);
-  return book ?? null;
-};
-
-export const fetchDriveFiles = async (token: string, folderId?: string, pickedFileIds: string[] = []) => {
-  let q = 'trashed=false';
-  if (folderId) q = `'${folderId}' in parents and ${q}`;
-  
   // 파일 목록 조회도 5초 타임아웃 (오프라인 감지용)
   const response = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,modifiedTime,md5Checksum)`,
@@ -197,22 +308,7 @@ export const fetchDriveFiles = async (token: string, folderId?: string, pickedFi
   }
   
   const data = await response.json() as { files?: Book[] };
-  const folderFiles = normalizeDriveBooks(data.files ?? []);
-  const pickedResults = await Promise.all(pickedFileIds.map(async (fileId) => {
-    try {
-      return await fetchDriveFileMetadata(fileId, token);
-    } catch (error) {
-      if (isGoogleDriveAuthError(error)) throw error;
-      console.warn(`Picked Drive file metadata unavailable: ${fileId}`);
-      return null;
-    }
-  }));
-  const filesById = new Map(folderFiles.map((file) => [file.id, file]));
-  pickedResults.forEach((file) => {
-    if (file) filesById.set(file.id, file);
-  });
-
-  return { ...data, files: [...filesById.values()] };
+  return { ...data, files: normalizeDriveBooks(data.files ?? []) };
 };
 
 export const fetchFullFile = async (fileId: string, token: string) => {

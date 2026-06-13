@@ -15,8 +15,6 @@ import { useFilteredBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
 import { DEFAULT_MAX_IMPORT_FILES } from '../../lib/bookFormats';
-import { getGooglePickerAppId, pickGoogleDriveFiles } from '../../lib/googlePicker';
-import { rememberPickedDriveFileIds } from '../../lib/drivePickedFiles';
 
 interface ShelfProps {
   books: Book[];
@@ -97,26 +95,6 @@ export const Shelf: React.FC<ShelfProps> = ({
   const handleConfirmImportFiles = useCallback((files: File[]) => {
     void fileUploaderRef.current?.importFiles(files);
   }, []);
-
-  const handlePickFromDrive = useCallback(async () => {
-    if (!googleToken || isOfflineMode) {
-      handleCloudAuthExpired();
-      return;
-    }
-
-    try {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY || '';
-      const appId = getGooglePickerAppId(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '');
-      const fileIds = await pickGoogleDriveFiles(googleToken, { apiKey, appId });
-      if (fileIds.length === 0) return;
-      rememberPickedDriveFileIds(fileIds);
-      await Promise.resolve(onRefresh());
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '알 수 없는 오류';
-      console.error('Google Picker failed:', error);
-      alert(`Google Drive 파일 선택 실패: ${message}`);
-    }
-  }, [googleToken, handleCloudAuthExpired, isOfflineMode, onRefresh]);
 
   const handleConfirmDeleteBook = useCallback(async () => {
     if (!pendingDeleteBook || !onDeleteBook) return;
@@ -299,7 +277,6 @@ export const Shelf: React.FC<ShelfProps> = ({
           onConfirm={handleConfirmImportFiles}
           onLogin={onLogin}
           onToggleCloud={onToggleCloud}
-          onPickFromDrive={() => { void handlePickFromDrive(); }}
         />
       )}
     </div>

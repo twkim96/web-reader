@@ -36,7 +36,7 @@ Drive에는 원본 `.txt`/`.epub` 파일을 보관하고, 실제 리더와 로�
 *   **Framework**: Next.js 16 (App Router), React 19
 *   **Language**: TypeScript
 *   **Database**: Firebase Firestore, IndexedDB (`idb`)
-*   **Storage**: Google Drive API (Drive.file Scope)
+*   **Storage**: Google Drive API (`drive.file` + `drive.readonly`)
 *   **Styling**: Tailwind CSS v4, Lucide React
 
 ---
@@ -63,7 +63,6 @@ src/lib/                      # Google Drive, Firebase, IndexedDB, TXT->EPUB hel
 ```bash
 NEXT_PUBLIC_FIREBASE_API_KEY=...
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=...
-NEXT_PUBLIC_GOOGLE_PICKER_API_KEY=...
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
 # 기타 Firebase 및 Google Cloud 설정값
@@ -80,13 +79,11 @@ Google 로그인은 `signInWithRedirect`를 사용합니다. 배포 도메인에
 ### Google Drive OAuth
 Cloud Library 연결은 팝업 대신 전체 페이지 redirect로 Google Drive access token을 받습니다. Google Cloud Console에서 같은 OAuth 클라이언트에 앱 루트 URL도 승인된 리디렉션 URI로 등록해야 합니다.
 
-Google Picker로 Drive에서 직접 올린 파일을 선택하려면 OAuth 클라이언트와 같은 Google Cloud 프로젝트에서 다음 설정이 필요합니다.
-
-* Google Picker API(`picker.googleapis.com`)를 사용 설정합니다.
-* 브라우저 API 키를 만들고 Google Picker API로 제한합니다.
-* 웹사이트 제한에 `https://<배포도메인>/*`을 등록합니다.
-* 해당 키를 `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY`에 설정합니다.
-* Picker App ID는 `NEXT_PUBLIC_GOOGLE_CLIENT_ID`의 Cloud 프로젝트 번호에서 자동으로 가져옵니다.
+* OAuth 동의 화면에 `drive.file`과 `drive.readonly` 범위를 등록합니다.
+* `drive.readonly`는 제한된 범위이므로 공개 서비스는 Google OAuth 검증 요구사항을 확인해야 합니다.
+* 앱은 Drive 전체를 목록에 표시하지 않고, 앱 표식으로 확정한 `web viewer` 폴더의 직접 자식만 조회합니다.
+* 이름이 같은 미표식 폴더가 여러 개면 임의 선택하지 않고 충돌 오류를 표시합니다.
+* Drive 웹에서 직접 넣은 파일은 자동으로 표시되지만, 앱에서 만든 파일이 아니면 앱 삭제 요청이 거부될 수 있습니다.
 
 앱설치 권유
 * Drive OAuth redirect URI 형식: `https://<배포도메인>/`

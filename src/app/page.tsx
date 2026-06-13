@@ -28,7 +28,6 @@ import { useViewerSettings } from '../hooks/useViewerSettings';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
 import { getBookOpenLimitError } from '../lib/bookFormats';
-import { forgetPickedDriveFileId } from '../lib/drivePickedFiles';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -122,7 +121,12 @@ export default function Page() {
     restoreLocalData,
     syncLocalAndCloud,
     loadLibraryFromDrive,
-  } = useLibraryData({ clearToken, setIsOfflineMode, setView });
+  } = useLibraryData({
+    clearToken,
+    setIsOfflineMode,
+    setView,
+    onLibraryError: setAuthErrorMessage,
+  });
 
   useAuthBootstrap({
     isGuestRef,
@@ -286,7 +290,6 @@ export default function Page() {
 
       await removeBookFromLocal(book.id);
       await handleDeleteBookProgress(book.id);
-      forgetPickedDriveFileId(book.id);
       setActiveBook((current) => current?.id === book.id ? null : current);
       setBooks((prev) => prev.filter((item) => item.id !== book.id));
     } catch (error) {
