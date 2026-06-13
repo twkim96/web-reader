@@ -82,6 +82,7 @@ Cloud Library 연결은 팝업 대신 전체 페이지 redirect로 Google Drive 
 * OAuth 동의 화면에 `drive.file`, `drive.readonly`, `drive.appdata` 범위를 등록합니다.
 * `drive.readonly`는 제한된 범위이므로 공개 서비스는 Google OAuth 검증 요구사항을 확인해야 합니다.
 * 각 Drive 계정의 확정된 `web viewer` 폴더 ID는 숨겨진 appData 설정에 저장되어 다른 기기에서도 재사용됩니다.
+* 브라우저 영구 폴더 캐시는 사용하지 않으며 현재 Drive 액세스 토큰의 메모리 캐시만 사용해 계정 전환 시 폴더가 섞이지 않습니다.
 * 앱은 Drive 전체를 목록에 표시하지 않고 확정된 폴더의 직접 자식만 조회합니다.
 * appData 설정이 없는 첫 연결에서 이름이 같은 폴더가 여러 개면 임의 선택하지 않고 충돌 오류를 표시합니다.
 * Drive 웹에서 직접 넣은 파일은 자동으로 표시되지만, 앱에서 만든 파일이 아니면 앱 삭제 요청이 거부될 수 있습니다.

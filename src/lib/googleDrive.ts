@@ -62,10 +62,10 @@ export const isGoogleDriveAuthError = (error: unknown) => error instanceof Googl
 export const isGoogleDrivePermissionError = (error: unknown) => error instanceof GoogleDrivePermissionError;
 
 export const DRIVE_LIBRARY_FOLDER_NAME = 'web viewer';
-const DRIVE_LIBRARY_FOLDER_ID_KEY = 'google_drive_library_folder_id';
-const DRIVE_LIBRARY_REGISTRY_SYNCED_KEY = 'google_drive_library_registry_synced';
 const DRIVE_LIBRARY_REGISTRY_NAME = 'twreader-library.json';
-let registrySyncInFlight: { folderId: string; promise: Promise<void> } | null = null;
+let libraryFolderCache: { token: string; folderId: string } | null = null;
+let syncedLibraryRegistry: { token: string; folderId: string } | null = null;
+const registrySyncInFlight = new Map<string, Promise<void>>();
 
 type DriveFolder = {
   id: string;
@@ -103,22 +103,9 @@ const listDriveFolders = async (query: string, token: string) => {
   return data.files ?? [];
 };
 
-const getStoredLibraryFolderId = () => {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(DRIVE_LIBRARY_FOLDER_ID_KEY);
-};
-
-const rememberLibraryFolderId = (folderId: string) => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(DRIVE_LIBRARY_FOLDER_ID_KEY, folderId);
-  }
+const rememberLibraryFolderId = (token: string, folderId: string) => {
+  libraryFolderCache = { token, folderId };
   return folderId;
-};
-
-const forgetLibraryFolderId = () => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(DRIVE_LIBRARY_FOLDER_ID_KEY);
-  }
 };
 
 const fetchDriveFolder = async (folderId: string, token: string) => {
@@ -246,17 +233,6 @@ const writeDriveLibraryRegistry = async (
   }
 };
 
-const hasSyncedLibraryRegistry = (folderId: string) => (
-  typeof window !== 'undefined'
-  && localStorage.getItem(DRIVE_LIBRARY_REGISTRY_SYNCED_KEY) === folderId
-);
-
-const rememberSyncedLibraryRegistry = (folderId: string) => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(DRIVE_LIBRARY_REGISTRY_SYNCED_KEY, folderId);
-  }
-};
-
 const deleteDuplicateDriveLibraryRegistries = async (fileIds: string[], token: string) => {
   await Promise.all(fileIds.map(async (fileId) => {
     const response = await fetchWithTimeout(
@@ -277,9 +253,14 @@ const syncDriveLibraryRegistry = async (
   token: string,
   registry?: Awaited<ReturnType<typeof readDriveLibraryRegistry>>,
 ) => {
-  if (hasSyncedLibraryRegistry(folderId)) return;
-  if (registrySyncInFlight?.folderId === folderId) {
-    await registrySyncInFlight.promise;
+  if (
+    syncedLibraryRegistry?.token === token
+    && syncedLibraryRegistry.folderId === folderId
+  ) return;
+  const syncKey = `${token}:${folderId}`;
+  const currentSync = registrySyncInFlight.get(syncKey);
+  if (currentSync) {
+    await currentSync;
     return;
   }
 
@@ -294,18 +275,20 @@ const syncDriveLibraryRegistry = async (
       if (currentRegistry?.duplicateFileIds.length) {
         await deleteDuplicateDriveLibraryRegistries(currentRegistry.duplicateFileIds, token);
       }
-      rememberSyncedLibraryRegistry(folderId);
+      syncedLibraryRegistry = { token, folderId };
     } catch (error) {
       if (isGoogleDriveAuthError(error)) throw error;
       // Existing drive.file-only tokens cannot access appDataFolder. Retry after
       // the next OAuth connection without blocking the current library.
     }
   })();
-  registrySyncInFlight = { folderId, promise };
+  registrySyncInFlight.set(syncKey, promise);
   try {
     await promise;
   } finally {
-    if (registrySyncInFlight?.promise === promise) registrySyncInFlight = null;
+    if (registrySyncInFlight.get(syncKey) === promise) {
+      registrySyncInFlight.delete(syncKey);
+    }
   }
 };
 
@@ -339,14 +322,19 @@ export const getDriveLibraryFolderId = async (
   token: string,
   { createIfMissing = false }: { createIfMissing?: boolean } = {},
 ) => {
-  const storedFolderId = getStoredLibraryFolderId();
-  if (storedFolderId) {
-    const storedFolder = await fetchDriveFolder(storedFolderId, token);
-    if (isUsableLibraryFolder(storedFolder)) {
-      await syncDriveLibraryRegistry(storedFolderId, token);
-      return storedFolderId;
+  const cachedFolderId = libraryFolderCache?.token === token
+    ? libraryFolderCache.folderId
+    : null;
+  if (cachedFolderId) {
+    const cachedFolder = await fetchDriveFolder(cachedFolderId, token);
+    if (isUsableLibraryFolder(cachedFolder)) {
+      await syncDriveLibraryRegistry(cachedFolderId, token);
+      return cachedFolderId;
     }
-    forgetLibraryFolderId();
+    libraryFolderCache = null;
+    if (syncedLibraryRegistry?.token === token) {
+      syncedLibraryRegistry = null;
+    }
   }
 
   const registry = await readDriveLibraryRegistry(token);
@@ -356,8 +344,8 @@ export const getDriveLibraryFolderId = async (
       if (registry.duplicateFileIds.length) {
         await deleteDuplicateDriveLibraryRegistries(registry.duplicateFileIds, token);
       }
-      rememberSyncedLibraryRegistry(registry.folderId);
-      return rememberLibraryFolderId(registry.folderId);
+      syncedLibraryRegistry = { token, folderId: registry.folderId };
+      return rememberLibraryFolderId(token, registry.folderId);
     }
   }
 
@@ -368,7 +356,7 @@ export const getDriveLibraryFolderId = async (
   ].join(' and ');
   const namedFolders = await listDriveFolders(namedQuery, token);
   if (namedFolders.length === 1) {
-    const folderId = rememberLibraryFolderId(namedFolders[0].id);
+    const folderId = rememberLibraryFolderId(token, namedFolders[0].id);
     await syncDriveLibraryRegistry(folderId, token, registry);
     return folderId;
   }
@@ -379,7 +367,7 @@ export const getDriveLibraryFolderId = async (
   }
   if (!createIfMissing) return null;
 
-  const folderId = rememberLibraryFolderId(await createLibraryFolder(token));
+  const folderId = rememberLibraryFolderId(token, await createLibraryFolder(token));
   await syncDriveLibraryRegistry(folderId, token, registry);
   return folderId;
 };

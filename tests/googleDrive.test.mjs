@@ -118,7 +118,7 @@ test('prefers the appData library folder over same-name folders', async (t) => {
     }), { status: 200 });
   };
 
-  assert.equal(await getDriveLibraryFolderId('token'), 'registered-folder');
+  assert.equal(await getDriveLibraryFolderId('token-registry'), 'registered-folder');
   assert.equal(requests.length, 4);
   assert.match(requests[0].url, /spaces=appDataFolder/);
   assert.equal(requests[3].options.method, 'DELETE');
@@ -149,7 +149,7 @@ test('does not choose an arbitrary folder when duplicate names are unregistered'
   };
 
   await assert.rejects(
-    getDriveLibraryFolderId('token'),
+    getDriveLibraryFolderId('token-duplicate'),
     GoogleDriveFolderConflictError,
   );
   assert.equal(requestCount, 2);
@@ -179,7 +179,7 @@ test('stores one existing folder in appData for other devices', async (t) => {
     }), { status: 200 });
   };
 
-  assert.equal(await getDriveLibraryFolderId('token'), 'existing-folder');
+  assert.equal(await getDriveLibraryFolderId('token-store'), 'existing-folder');
   assert.equal(requests.length, 3);
   assert.equal(requests[2].options.method, 'POST');
   assert.match(requests[2].url, /uploadType=multipart/);
@@ -206,47 +206,32 @@ test('keeps the existing folder usable with an old drive.file-only token', async
     }), { status: 200 });
   };
 
-  assert.equal(await getDriveLibraryFolderId('token'), 'existing-folder');
+  assert.equal(await getDriveLibraryFolderId('token-old-scope'), 'existing-folder');
   assert.equal(requests.length, 3);
   assert.equal(requests[2].options.method, 'POST');
 });
 
-test('coalesces concurrent appData registry writes for a cached folder', async (t) => {
+test('coalesces concurrent appData registry writes for one Drive account', async (t) => {
   const originalFetch = globalThis.fetch;
-  const originalWindow = globalThis.window;
-  const originalLocalStorage = globalThis.localStorage;
   t.after(() => {
     globalThis.fetch = originalFetch;
-    if (originalWindow === undefined) delete globalThis.window;
-    else globalThis.window = originalWindow;
-    if (originalLocalStorage === undefined) delete globalThis.localStorage;
-    else globalThis.localStorage = originalLocalStorage;
   });
-
-  const storage = new Map([
-    ['google_drive_library_folder_id', 'cached-folder'],
-  ]);
-  globalThis.window = {};
-  globalThis.localStorage = {
-    getItem: (key) => storage.get(key) ?? null,
-    setItem: (key, value) => storage.set(key, String(value)),
-    removeItem: (key) => storage.delete(key),
-  };
 
   let registryCreates = 0;
   globalThis.fetch = async (url, options = {}) => {
     const requestUrl = String(url);
-    if (requestUrl.includes('/cached-folder?fields=')) {
-      return new Response(JSON.stringify({
-        id: 'cached-folder',
-        name: 'web viewer',
-        mimeType: 'application/vnd.google-apps.folder',
-        trashed: false,
-      }), { status: 200 });
-    }
     if (requestUrl.includes('spaces=appDataFolder')) {
       await new Promise((resolve) => setTimeout(resolve, 5));
       return new Response(JSON.stringify({ files: [] }), { status: 200 });
+    }
+    if (new URL(requestUrl).searchParams.get('q')?.includes("name = 'web viewer'")) {
+      return new Response(JSON.stringify({
+        files: [{
+          id: 'account-folder',
+          name: 'web viewer',
+          mimeType: 'application/vnd.google-apps.folder',
+        }],
+      }), { status: 200 });
     }
     if (options.method === 'POST') {
       registryCreates += 1;
@@ -257,12 +242,52 @@ test('coalesces concurrent appData registry writes for a cached folder', async (
   };
 
   const results = await Promise.all([
-    getDriveLibraryFolderId('token'),
-    getDriveLibraryFolderId('token'),
+    getDriveLibraryFolderId('token-concurrent'),
+    getDriveLibraryFolderId('token-concurrent'),
   ]);
-  assert.deepEqual(results, ['cached-folder', 'cached-folder']);
+  assert.deepEqual(results, ['account-folder', 'account-folder']);
   assert.equal(registryCreates, 1);
-  assert.equal(storage.get('google_drive_library_registry_synced'), 'cached-folder');
+});
+
+test('keeps canonical folder caches isolated by Drive access token', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const appDataReads = new Map();
+  globalThis.fetch = async (url, options = {}) => {
+    const requestUrl = String(url);
+    const authorization = options.headers?.Authorization ?? '';
+    const account = authorization.endsWith('token-account-a') ? 'a' : 'b';
+
+    if (requestUrl.includes('spaces=appDataFolder')) {
+      appDataReads.set(account, (appDataReads.get(account) ?? 0) + 1);
+      return new Response(JSON.stringify({
+        files: [{ id: `registry-${account}` }],
+      }), { status: 200 });
+    }
+    if (requestUrl.includes(`/registry-${account}?alt=media`)) {
+      return new Response(JSON.stringify({
+        version: 1,
+        folderId: `folder-${account}`,
+      }), { status: 200 });
+    }
+    if (requestUrl.includes(`/folder-${account}?fields=`)) {
+      return new Response(JSON.stringify({
+        id: `folder-${account}`,
+        name: 'web viewer',
+        mimeType: 'application/vnd.google-apps.folder',
+        trashed: false,
+      }), { status: 200 });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  };
+
+  assert.equal(await getDriveLibraryFolderId('token-account-a'), 'folder-a');
+  assert.equal(await getDriveLibraryFolderId('token-account-b'), 'folder-b');
+  assert.equal(await getDriveLibraryFolderId('token-account-a'), 'folder-a');
+  assert.deepEqual(Object.fromEntries(appDataReads), { a: 2, b: 1 });
 });
 
 test('lists books only from the resolved library folder', async (t) => {
