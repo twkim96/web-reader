@@ -18,6 +18,12 @@ import {
   shouldUseCachedBookContent,
 } from '../../lib/bookFingerprint';
 import type { FoliateBook } from '../foliate/types';
+import {
+  destroyPreparedBookSource,
+  isAbortError,
+  runReaderBookOpen,
+  throwIfAborted,
+} from '../../lib/readerLoadLifecycle';
 
 type ReaderThemeColors = {
   bg: string;
@@ -102,103 +108,158 @@ export const useReaderBookSource = ({
   onBack,
 }: UseReaderBookSourceOptions) => {
   const [isLoaded, setIsLoaded] = useState(false);
-  const loadAttempted = useRef(false);
+  const loadInputsRef = useRef({
+    book,
+    googleToken,
+    initialCfi,
+    openBook,
+    onBack,
+  });
+  loadInputsRef.current = {
+    book,
+    googleToken,
+    initialCfi,
+    openBook,
+    onBack,
+  };
 
   useEffect(() => {
-    if (loadAttempted.current) return;
     if (!containerRef.current) return;
-    loadAttempted.current = true;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const {
+      book: targetBook,
+      googleToken: targetGoogleToken,
+      initialCfi: targetInitialCfi,
+      openBook: openTargetBook,
+      onBack: returnToShelf,
+    } = loadInputsRef.current;
 
     const loadBook = async () => {
       try {
-        const [localData, localMetadata] = await Promise.all([
-          loadBookFromLocal(book.id),
-          loadBookMetadataFromLocal(book.id),
-        ]);
-        let prepared: Awaited<ReturnType<typeof prepareBookSource>>;
-        const fingerprint = getBookFingerprint(book);
+        await runReaderBookOpen({
+          signal,
+          prepare: async () => {
+            const [localData, localMetadata] = await Promise.all([
+              loadBookFromLocal(targetBook.id),
+              loadBookMetadataFromLocal(targetBook.id),
+            ]);
+            throwIfAborted(signal);
 
-        const prepareContent = async (content: StoredBookContent) => {
-          const cachedArchiveIndex = book.readerFormat === 'archive' && fingerprint
-            ? await loadArchiveInspectionFromLocal(book.id, fingerprint)
-            : undefined;
-          let usedCachedArchiveIndex = Boolean(cachedArchiveIndex);
+            let prepared: Awaited<ReturnType<typeof prepareBookSource>> | null = null;
+            const discardPrepared = () => {
+              destroyPreparedBookSource(prepared);
+              prepared = null;
+            };
+            const fingerprint = getBookFingerprint(targetBook);
 
-          let result: Awaited<ReturnType<typeof prepareBookSource>>;
-          try {
-            result = await prepareBookSource(book, content, {
-              archiveImageIndex: cachedArchiveIndex,
-            });
-          } catch (error) {
-            if (!cachedArchiveIndex) throw error;
-            console.warn('[Reader] Cached archive index is unusable, rebuilding:', error);
-            usedCachedArchiveIndex = false;
-            result = await prepareBookSource(book, content);
-          }
+            const prepareContent = async (content: StoredBookContent) => {
+              const cachedArchiveIndex = targetBook.readerFormat === 'archive' && fingerprint
+                ? await loadArchiveInspectionFromLocal(targetBook.id, fingerprint)
+                : undefined;
+              throwIfAborted(signal);
+              let usedCachedArchiveIndex = Boolean(cachedArchiveIndex);
 
-          if (fingerprint && result.archiveImageIndex && !usedCachedArchiveIndex) {
+              let result: Awaited<ReturnType<typeof prepareBookSource>>;
+              try {
+                result = await prepareBookSource(targetBook, content, {
+                  archiveImageIndex: cachedArchiveIndex,
+                  signal,
+                });
+              } catch (error) {
+                if (isAbortError(error) || !cachedArchiveIndex) throw error;
+                console.warn('[Reader] Cached archive index is unusable, rebuilding:', error);
+                usedCachedArchiveIndex = false;
+                result = await prepareBookSource(targetBook, content, { signal });
+              }
+
+              try {
+                throwIfAborted(signal);
+                if (fingerprint && result.archiveImageIndex && !usedCachedArchiveIndex) {
+                  try {
+                    await saveArchiveInspectionToLocal(
+                      targetBook.id,
+                      fingerprint,
+                      result.archiveImageIndex,
+                    );
+                  } catch (error) {
+                    if (isAbortError(error)) throw error;
+                    console.warn('[Reader] Failed to cache archive index:', error);
+                  }
+                }
+                throwIfAborted(signal);
+                return result;
+              } catch (error) {
+                destroyPreparedBookSource(result);
+                throw error;
+              }
+            };
+
             try {
-              await saveArchiveInspectionToLocal(
-                book.id,
-                fingerprint,
-                result.archiveImageIndex,
-              );
-            } catch (error) {
-              console.warn('[Reader] Failed to cache archive index:', error);
+              if (!localData) throw new Error('No local cache');
+              if (!shouldUseCachedBookContent(targetBook, localMetadata, navigator.onLine)) {
+                throw new Error('Local cache is stale');
+              }
+              prepared = await prepareContent(localData as StoredBookContent);
+
+              try {
+                await saveBookMetadataToLocal(prepared.book, prepared.cacheContent);
+              } catch (error) {
+                if (isAbortError(error)) throw error;
+                console.warn('[Reader] Failed to update local book metadata:', error);
+              }
+            } catch (localError) {
+              if (isAbortError(localError)) {
+                discardPrepared();
+                throw localError;
+              }
+              if (localData) {
+                console.warn('[Reader] Local cache is not usable, fetching remote:', localError);
+              }
+              if (!targetGoogleToken) {
+                if (localData) throw localError;
+                throw new Error('No Token');
+              }
+
+              const content = targetBook.readerFormat === 'epub'
+                ? await fetchFullFile(targetBook.id, targetGoogleToken, signal)
+                : await fetchFullFileBlob(targetBook.id, targetGoogleToken, signal);
+              throwIfAborted(signal);
+              prepared = await prepareContent(content);
+
+              try {
+                await saveBookToLocal(prepared.book, prepared.cacheContent);
+              } catch (error) {
+                if (isAbortError(error) || signal.aborted) throw error;
+                console.warn('[Reader] Failed to save locally:', error);
+                alert(error instanceof LocalStorageCapacityError
+                  ? `${error.message}\n현재 세션에서는 클라우드 원본을 계속 읽습니다.`
+                  : '오프라인 저장에 실패했습니다. 현재 세션에서는 클라우드 원본을 계속 읽습니다.');
+              }
             }
-          }
-          return result;
-        };
-
-        try {
-          if (!localData) throw new Error('No local cache');
-          if (!shouldUseCachedBookContent(book, localMetadata, navigator.onLine)) {
-            throw new Error('Local cache is stale');
-          }
-          prepared = await prepareContent(localData as StoredBookContent);
-
-          try {
-            await saveBookMetadataToLocal(prepared.book, prepared.cacheContent);
-          } catch (error) {
-            console.warn('[Reader] Failed to update local book metadata:', error);
-          }
-        } catch (localError) {
-          if (localData) console.warn('[Reader] Local cache is not usable, fetching remote:', localError);
-          if (!googleToken) {
-            if (localData) throw localError;
-            throw new Error('No Token');
-          }
-
-          const content = book.readerFormat === 'epub'
-            ? await fetchFullFile(book.id, googleToken)
-            : await fetchFullFileBlob(book.id, googleToken);
-          prepared = await prepareContent(content);
-
-          try {
-            await saveBookToLocal(prepared.book, prepared.cacheContent);
-          } catch (error) {
-            console.warn('[Reader] Failed to save locally:', error);
-            alert(error instanceof LocalStorageCapacityError
-              ? `${error.message}\n현재 세션에서는 클라우드 원본을 계속 읽습니다.`
-              : '오프라인 저장에 실패했습니다. 현재 세션에서는 클라우드 원본을 계속 읽습니다.');
-          }
-        }
-
-        await openBook(prepared.source, initialCfi);
-        if (prepared.format === 'epub') {
-          setLayout(getReaderLayout(settings.navMode));
-          setStyle(getReaderStyle(settings, themeColors, themeTexture));
-        }
-        setIsLoaded(true);
+            try {
+              throwIfAborted(signal);
+              if (!prepared) throw new Error('도서 준비 결과가 없습니다.');
+              return prepared;
+            } catch (error) {
+              discardPrepared();
+              throw error;
+            }
+          },
+          open: (prepared) => openTargetBook(prepared.source, targetInitialCfi),
+          commit: () => setIsLoaded(true),
+        });
       } catch (error) {
+        if (isAbortError(error) || signal.aborted) return;
         console.error('[Reader] Failed to load book:', error);
         alert(error instanceof Error ? error.message : '도서를 열지 못했습니다.');
-        onBack();
+        returnToShelf();
       }
     };
 
     void loadBook();
-  }, [book, containerRef, googleToken, initialCfi, onBack, openBook, setLayout, setStyle, settings, themeColors, themeTexture]);
+    return () => controller.abort();
+  }, [containerRef]);
 
   useEffect(() => {
     if (!isLoaded || book.readerFormat !== 'epub') return;

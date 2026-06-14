@@ -1,11 +1,17 @@
 import type { FoliateBook } from '../hooks/foliate/types';
+import {
+  MAX_ARCHIVE_IMAGE_DIMENSION,
+  MAX_ARCHIVE_IMAGE_PIXELS,
+  exceedsArchiveImageLimits,
+  probeArchiveImageDimensions,
+} from './archiveImageDimensions.ts';
 
 const MAX_ARCHIVE_ENTRIES = 20_000;
 const MAX_IMAGE_PAGES = 10_000;
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_CACHED_PAGES = 4;
-export const MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES = 1024 * 1024 * 1024;
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   avif: 'image/avif',
@@ -62,7 +68,9 @@ export class ArchiveImageError extends Error {
       | 'too-many-entries'
       | 'too-many-images'
       | 'image-too-large'
-      | 'expanded-size-too-large';
+      | 'image-dimensions-too-large'
+      | 'expanded-size-too-large'
+      | 'timeout';
 
   constructor(code: ArchiveImageError['code'], message: string) {
     super(message);
@@ -93,6 +101,10 @@ const naturalPathCompare = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: 'base',
 }).compare;
+
+const isAbortError = (error: unknown) => (
+  error instanceof Error && error.name === 'AbortError'
+);
 
 const validateImageEntries = <T>(
   imageEntries: ArchiveImageEntry<T>[],
@@ -149,7 +161,7 @@ const validateArchiveEntrySizes = <T>(
     ) {
       throw new ArchiveImageError(
         'expanded-size-too-large',
-        '압축 해제 후 예상 전체 용량이 2GB 제한을 초과합니다.',
+        `압축 해제 후 예상 전체 용량이 ${Math.round(maxTotalExpandedBytes / (1024 * 1024))}MB 제한을 초과합니다.`,
       );
     }
   }
@@ -274,7 +286,7 @@ const createPageHtml = (imageUrl: string) => `<!DOCTYPE html>
 
 export type ArchiveImageSource<T> = {
   entries: ArchiveImageEntry<T>[];
-  loadBlob: (entry: ArchiveImageEntry<T>) => Promise<Blob>;
+  loadBlob: (entry: ArchiveImageEntry<T>, signal?: AbortSignal) => Promise<Blob>;
   close: () => void;
 };
 
@@ -289,8 +301,12 @@ export const createArchiveImageBook = <T>({
   close,
 }: CreateArchiveImageBookOptions<T>): FoliateBook => {
   const cache = new Map<number, CachedPage>();
-  const pendingPages = new Map<number, Promise<string>>();
+  const pendingPages = new Map<
+    number,
+    { promise: Promise<string>; signal?: AbortSignal }
+  >();
   let destroyed = false;
+  let sourceClosed = false;
 
   const revokePage = (index: number) => {
     const cached = cache.get(index);
@@ -300,8 +316,19 @@ export const createArchiveImageBook = <T>({
     cache.delete(index);
   };
 
-  const loadPage = async (index: number): Promise<string> => {
+  const destroySource = () => {
+    if (!destroyed) {
+      destroyed = true;
+      [...cache.keys()].forEach(revokePage);
+    }
+    if (sourceClosed) return;
+    sourceClosed = true;
+    close();
+  };
+
+  const loadPage = async (index: number, signal?: AbortSignal): Promise<string> => {
     if (destroyed) throw new Error('Archive image source is closed.');
+    if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
     const cached = cache.get(index);
     if (cached) {
       cache.delete(index);
@@ -310,19 +337,33 @@ export const createArchiveImageBook = <T>({
     }
 
     const pendingPage = pendingPages.get(index);
-    if (pendingPage) return pendingPage;
+    if (pendingPage && !pendingPage.signal?.aborted) {
+      return pendingPage.promise;
+    }
 
     const loadPromise = (async () => {
       const entry = entries[index];
       try {
-        const imageBlob = await loadBlob(entry);
+        const imageBlob = await loadBlob(entry, signal);
+        if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
         if (destroyed) throw new Error('Archive image source is closed.');
         if (imageBlob.size !== entry.size || imageBlob.size > MAX_IMAGE_BYTES) {
-          close();
-          destroyed = true;
+          destroySource();
           throw new ArchiveImageError(
             'damaged',
             `압축 해제 결과가 인덱스와 일치하지 않습니다: ${entry.normalizedName}`,
+          );
+        }
+        const dimensions = await probeArchiveImageDimensions(
+          imageBlob,
+          entry.mimeType,
+        );
+        if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
+        if (dimensions && exceedsArchiveImageLimits(dimensions)) {
+          destroySource();
+          throw new ArchiveImageError(
+            'image-dimensions-too-large',
+            `압축 이미지 해상도가 ${MAX_ARCHIVE_IMAGE_DIMENSION}px 또는 ${Math.round(MAX_ARCHIVE_IMAGE_PIXELS / (1024 * 1024))}MP 제한을 초과합니다: ${entry.normalizedName}`,
           );
         }
 
@@ -341,17 +382,19 @@ export const createArchiveImageBook = <T>({
 
         return pageUrl;
       } catch (error) {
-        if (destroyed || error instanceof ArchiveImageError) throw error;
+        if (destroyed || isAbortError(error) || error instanceof ArchiveImageError) throw error;
         throw new ArchiveImageError(
           'damaged',
           `이미지 페이지를 압축 해제하지 못했습니다: ${entry.normalizedName}`,
         );
       }
     })().finally(() => {
-      pendingPages.delete(index);
+      if (pendingPages.get(index)?.promise === loadPromise) {
+        pendingPages.delete(index);
+      }
     });
 
-    pendingPages.set(index, loadPromise);
+    pendingPages.set(index, { promise: loadPromise, signal });
     return loadPromise;
   };
 
@@ -359,7 +402,7 @@ export const createArchiveImageBook = <T>({
     id: entry.normalizedName,
     href: entry.normalizedName,
     size: entry.size,
-    load: () => loadPage(index),
+    load: (signal?: AbortSignal) => loadPage(index, signal),
   }));
 
   return {
@@ -375,11 +418,6 @@ export const createArchiveImageBook = <T>({
     }),
     splitTOCHref: (href: string) => [href, null],
     getTOCFragment: (doc: Document) => doc.documentElement,
-    destroy: () => {
-      if (destroyed) return;
-      destroyed = true;
-      [...cache.keys()].forEach(revokePage);
-      close();
-    },
+    destroy: destroySource,
   };
 };

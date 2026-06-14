@@ -25,6 +25,16 @@ const entry = (name, options = {}) => ({
   ...options,
 });
 
+const pngDimensionsBlob = (width, height) => {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  new DataView(bytes.buffer).setUint32(8, 13);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  new DataView(bytes.buffer).setUint32(16, width);
+  new DataView(bytes.buffer).setUint32(20, height);
+  return new Blob([bytes], { type: 'image/png' });
+};
+
 test('filters mixed archive entries and naturally sorts supported images', () => {
   const inspection = selectArchiveImageEntries([
     entry('pages/10.JPG'),
@@ -80,6 +90,14 @@ test('rejects negative, non-finite, and unsafe archive entry sizes', () => {
 });
 
 test('can guard total 7z expansion including non-image entries', () => {
+  const accepted = selectArchiveImageEntries([
+    entry('1.jpg', { size: 10 }),
+    entry('payload.bin', { size: MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES - 10 }),
+  ], {
+    maxTotalExpandedBytes: MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES,
+  });
+  assert.equal(accepted.entries.length, 1);
+
   assert.throws(
     () => selectArchiveImageEntries([
       entry('1.jpg', { size: 10 }),
@@ -90,6 +108,7 @@ test('can guard total 7z expansion including non-image entries', () => {
     (error) => (
       error instanceof ArchiveImageError
       && error.code === 'expanded-size-too-large'
+      && /1024MB/.test(error.message)
     ),
   );
 });
@@ -119,6 +138,102 @@ test('closes an archive source when extracted Blob size differs from its index',
   assert.equal(closed, 1);
 });
 
+test('rejects oversized image dimensions before creating Blob URLs', async () => {
+  const imageBlob = pngDimensionsBlob(8193, 8192);
+  let closed = 0;
+  let createdUrls = 0;
+  const nativeCreateObjectURL = URL.createObjectURL;
+  URL.createObjectURL = (...args) => {
+    createdUrls += 1;
+    return nativeCreateObjectURL(...args);
+  };
+  const book = createArchiveImageBook({
+    entries: [{
+      name: 'huge.png',
+      normalizedName: 'huge.png',
+      size: imageBlob.size,
+      encrypted: false,
+      mimeType: 'image/png',
+      source: null,
+    }],
+    fileName: 'oversized.cbz',
+    loadBlob: async () => imageBlob,
+    close: () => {
+      closed += 1;
+    },
+  });
+
+  try {
+    await assert.rejects(book.sections[0].load(), (error) => (
+      error instanceof ArchiveImageError
+      && error.code === 'image-dimensions-too-large'
+    ));
+    assert.equal(createdUrls, 0);
+    assert.equal(closed, 1);
+  } finally {
+    URL.createObjectURL = nativeCreateObjectURL;
+  }
+});
+
+test('revokes cached page URLs when a later image exceeds dimension limits', async () => {
+  const normalBlob = pngDimensionsBlob(1200, 1800);
+  const oversizedBlob = pngDimensionsBlob(8193, 8192);
+  let closed = 0;
+  let createdUrls = 0;
+  let revokedUrls = 0;
+  const nativeCreateObjectURL = URL.createObjectURL;
+  const nativeRevokeObjectURL = URL.revokeObjectURL;
+  URL.createObjectURL = (...args) => {
+    createdUrls += 1;
+    return nativeCreateObjectURL(...args);
+  };
+  URL.revokeObjectURL = (...args) => {
+    revokedUrls += 1;
+    return nativeRevokeObjectURL(...args);
+  };
+  const book = createArchiveImageBook({
+    entries: [
+      {
+        name: '1.png',
+        normalizedName: '1.png',
+        size: normalBlob.size,
+        encrypted: false,
+        mimeType: 'image/png',
+        source: normalBlob,
+      },
+      {
+        name: '2.png',
+        normalizedName: '2.png',
+        size: oversizedBlob.size,
+        encrypted: false,
+        mimeType: 'image/png',
+        source: oversizedBlob,
+      },
+    ],
+    fileName: 'mixed.cbz',
+    loadBlob: async (archiveEntry) => archiveEntry.source,
+    close: () => {
+      closed += 1;
+    },
+  });
+
+  try {
+    await book.sections[0].load();
+    await assert.rejects(book.sections[1].load(), (error) => (
+      error instanceof ArchiveImageError
+      && error.code === 'image-dimensions-too-large'
+    ));
+    assert.equal(createdUrls, 2);
+    assert.equal(revokedUrls, 2);
+    assert.equal(closed, 1);
+    book.destroy();
+    assert.equal(closed, 1);
+  } finally {
+    URL.createObjectURL = nativeCreateObjectURL;
+    URL.revokeObjectURL = nativeRevokeObjectURL;
+  }
+});
+
 test('inspects a real mixed ZIP without extracting non-image entries', async () => {
   const zip = new JSZip();
   zip.file('10.jpg', 'ten');
@@ -129,6 +244,21 @@ test('inspects a real mixed ZIP without extracting non-image entries', async () 
   const inspection = await inspectZipImageArchive(blob);
   assert.deepEqual(inspection.names, ['2.png', '10.jpg']);
   assert.equal(inspection.imageCount, 2);
+});
+
+test('rejects oversized dimensions from a real ZIP page extraction', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'huge.png',
+    new Uint8Array(await pngDimensionsBlob(8193, 8192).arrayBuffer()),
+  );
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const book = await createZipImageBook(blob, 'oversized.cbz');
+
+  await assert.rejects(book.sections[0].load(), (error) => (
+    error instanceof ArchiveImageError
+    && error.code === 'image-dimensions-too-large'
+  ));
 });
 
 test('shares an in-flight page extraction for concurrent loads', async () => {
@@ -143,6 +273,79 @@ test('shares an in-flight page extraction for concurrent loads', async () => {
   ]);
 
   assert.equal(firstUrl, secondUrl);
+  book.destroy();
+});
+
+test('passes page cancellation to extraction without closing the archive', async () => {
+  const controller = new AbortController();
+  let receivedSignal;
+  let closed = 0;
+  const book = createArchiveImageBook({
+    entries: [{
+      name: '1.jpg',
+      normalizedName: '1.jpg',
+      size: 5,
+      encrypted: false,
+      mimeType: 'image/jpeg',
+      source: null,
+    }],
+    fileName: 'cancel.cbz',
+    loadBlob: async (_entry, signal) => {
+      receivedSignal = signal;
+      controller.abort();
+      throw new DOMException('cancelled', 'AbortError');
+    },
+    close: () => {
+      closed += 1;
+    },
+  });
+
+  await assert.rejects(
+    book.sections[0].load(controller.signal),
+    { name: 'AbortError' },
+  );
+  assert.equal(receivedSignal, controller.signal);
+  assert.equal(closed, 0);
+  book.destroy();
+  assert.equal(closed, 1);
+});
+
+test('does not reuse an aborted pending page load', async () => {
+  const staleController = new AbortController();
+  const latestController = new AbortController();
+  let calls = 0;
+  const book = createArchiveImageBook({
+    entries: [{
+      name: '1.jpg',
+      normalizedName: '1.jpg',
+      size: 5,
+      encrypted: false,
+      mimeType: 'image/jpeg',
+      source: null,
+    }],
+    fileName: 'rapid.cb7',
+    loadBlob: (_entry, signal) => {
+      calls += 1;
+      if (calls > 1) return Promise.resolve(new Blob(['image']));
+
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('cancelled', 'AbortError')),
+          { once: true },
+        );
+      });
+    },
+    close: () => {},
+  });
+
+  const stale = book.sections[0].load(staleController.signal);
+  staleController.abort();
+  const latest = book.sections[0].load(latestController.signal);
+
+  await assert.rejects(stale, { name: 'AbortError' });
+  assert.match(await latest, /^blob:/);
+  assert.equal(calls, 2);
   book.destroy();
 });
 

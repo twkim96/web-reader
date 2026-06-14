@@ -1,16 +1,17 @@
 {
   "name": "viewer",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/epubValidation.test.mjs tests/latestTask.test.mjs tests/readerNavigation.test.mjs",
+    "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/epubValidation.test.mjs tests/latestTask.test.mjs tests/pdfPageLifecycle.test.mjs tests/readerLoadLifecycle.test.mjs tests/readerNavigation.test.mjs",
     "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveUpload.test.mjs tests/googleDrive.test.mjs tests/sequentialBatch.test.mjs",
-    "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImages.test.mjs",
-    "test:browser": "node tests/browserRegression.mjs",
+    "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImageDimensions.test.mjs tests/archiveImages.test.mjs tests/latestRequestQueue.test.mjs tests/sevenZipImages.test.mjs",
+    "test:browser": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/browserRegression.mjs",
+    "test:release": "node --test tests/releaseVersion.test.mjs",
     "test:storage": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/storageCapacity.test.mjs",
     "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/shelfBooks.test.mjs"
   },

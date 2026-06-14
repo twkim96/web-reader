@@ -21,9 +21,16 @@ export type ImportSelectionResult<T extends ImportFileLike> = {
 
 const BYTES_PER_MB = 1024 * 1024;
 
-export const GENERAL_FILE_MAX_BYTES = 150 * BYTES_PER_MB;
+export const BOOK_FILE_LIMITS_MB: Readonly<Record<SourceBookFormat, number>> = Object.freeze({
+  txt: 50,
+  epub: 100,
+  pdf: 200,
+  zip: 300,
+  cbz: 300,
+  '7z': 300,
+});
 export const GENERAL_TOTAL_MAX_BYTES = 500 * BYTES_PER_MB;
-export const ARCHIVE_FILE_MAX_BYTES = 300 * BYTES_PER_MB;
+export const ARCHIVE_FILE_MAX_BYTES = BOOK_FILE_LIMITS_MB.zip * BYTES_PER_MB;
 export const DEFAULT_MAX_IMPORT_FILES = 10;
 
 export const EPUB_MIME = 'application/epub+zip';
@@ -97,8 +104,10 @@ export const getArchiveFormat = (format: SourceBookFormat): ArchiveFormat | unde
   format === 'zip' || format === 'cbz' || format === '7z' ? format : undefined
 );
 
+export const getBookMaxMegabytes = (format: SourceBookFormat) => BOOK_FILE_LIMITS_MB[format];
+
 export const getBookMaxBytes = (format: SourceBookFormat) => (
-  isArchiveFormat(format) ? ARCHIVE_FILE_MAX_BYTES : GENERAL_FILE_MAX_BYTES
+  getBookMaxMegabytes(format) * BYTES_PER_MB
 );
 
 export const getBookSizeBytes = (size: string | number | undefined) => {
@@ -116,9 +125,8 @@ export const getBookOpenLimitError = (
   const format = getSourceBookFormat(fileName, mimeType);
   const sizeBytes = getBookSizeBytes(size);
   if (!format || sizeBytes === null || sizeBytes <= getBookMaxBytes(format)) return null;
-  return isArchiveFormat(format)
-    ? '이 압축 도서는 300MB 제한을 초과하여 다운로드할 수 없습니다.'
-    : '이 도서는 150MB 제한을 초과하여 다운로드할 수 없습니다.';
+  const label = isArchiveFormat(format) ? '압축 도서' : `${format.toUpperCase()} 도서`;
+  return `이 ${label}는 ${getBookMaxMegabytes(format)}MB 제한을 초과하여 다운로드할 수 없습니다.`;
 };
 
 export const isArchiveFormat = (format: SourceBookFormat | null): format is ArchiveFormat => (
@@ -135,6 +143,16 @@ export const getBookTitleFromFileName = (fileName: string) => (
 );
 
 const formatFileSize = (bytes: number) => `${(bytes / BYTES_PER_MB).toFixed(2)}MB`;
+
+const getImportFileSizeError = (
+  file: ImportFileLike,
+  format: SourceBookFormat,
+) => {
+  const maxBytes = getBookMaxBytes(format);
+  if (file.size <= maxBytes) return null;
+  const label = isArchiveFormat(format) ? '압축 도서' : `${format.toUpperCase()} 도서`;
+  return `${label} 하나의 최대 용량은 ${getBookMaxMegabytes(format)}MB입니다.\n${file.name}: ${formatFileSize(file.size)}`;
+};
 
 export const updateImportSelection = <T extends ImportFileLike>(
   selectedFiles: T[],
@@ -186,10 +204,11 @@ export const updateImportSelection = <T extends ImportFileLike>(
     }
 
     const archiveFile = incomingFiles[0];
-    if (archiveFile.size > ARCHIVE_FILE_MAX_BYTES) {
+    const archiveError = getImportFileSizeError(archiveFile, incomingArchives[0]);
+    if (archiveError) {
       return {
         files: selectedFiles,
-        error: `압축 도서의 최대 용량은 300MB입니다.\n${archiveFile.name}: ${formatFileSize(archiveFile.size)}`,
+        error: archiveError,
       };
     }
 
@@ -204,11 +223,16 @@ export const updateImportSelection = <T extends ImportFileLike>(
     };
   }
 
-  const oversizedFile = incomingFiles.find((file) => file.size > GENERAL_FILE_MAX_BYTES);
-  if (oversizedFile) {
+  const oversizedIndex = incomingFiles.findIndex((file, index) => {
+    const format = incomingFormats[index];
+    return format ? file.size > getBookMaxBytes(format) : false;
+  });
+  if (oversizedIndex >= 0) {
+    const oversizedFile = incomingFiles[oversizedIndex];
+    const oversizedFormat = incomingFormats[oversizedIndex]!;
     return {
       files: selectedFiles,
-      error: `일반 도서 하나의 최대 용량은 150MB입니다.\n${oversizedFile.name}: ${formatFileSize(oversizedFile.size)}`,
+      error: getImportFileSizeError(oversizedFile, oversizedFormat) ?? '파일 용량 제한을 초과했습니다.',
     };
   }
 

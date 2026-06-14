@@ -28,12 +28,24 @@ const loadZipModule = async () => {
   return zipModulePromise;
 };
 
-const openArchive = async (blob: Blob, cachedIndex?: ArchiveImageIndex) => {
+const isAbortError = (error: unknown) => (
+  error instanceof Error && error.name === 'AbortError'
+);
+
+const openArchive = async (
+  blob: Blob,
+  cachedIndex?: ArchiveImageIndex,
+  signal?: AbortSignal,
+) => {
   const { BlobReader, ZipReader } = await loadZipModule();
-  const reader = new ZipReader(new BlobReader(blob));
+  if (signal?.aborted) throw new DOMException('Archive preparation aborted', 'AbortError');
+  const reader = new ZipReader(new BlobReader(blob), { signal });
 
   try {
     const entries = await reader.getEntries();
+    if (signal?.aborted) {
+      throw new DOMException('Archive preparation aborted', 'AbortError');
+    }
     const rawEntries = entries.map((entry: Entry) => ({
       name: entry.filename,
       directory: entry.directory,
@@ -47,6 +59,7 @@ const openArchive = async (blob: Blob, cachedIndex?: ArchiveImageIndex) => {
     return { reader, inspection };
   } catch (error) {
     await reader.close().catch(() => undefined);
+    if (isAbortError(error)) throw error;
     if (error instanceof ArchiveImageError) throw error;
     throw new ArchiveImageError('damaged', '압축 파일이 손상되었거나 지원하지 않는 방식입니다.');
   }
@@ -67,16 +80,20 @@ export const prepareZipImageBook = async (
   blob: Blob,
   fileName: string,
   cachedIndex?: ArchiveImageIndex,
+  signal?: AbortSignal,
 ) => {
   const [{ BlobWriter }, { reader, inspection }] = await Promise.all([
     loadZipModule(),
-    openArchive(blob, cachedIndex),
+    openArchive(blob, cachedIndex, signal),
   ]);
   return {
     book: createArchiveImageBook({
       entries: inspection.entries,
       fileName,
-      loadBlob: (entry) => entry.source.getData(new BlobWriter(entry.mimeType)),
+      loadBlob: (entry, signal) => entry.source.getData(
+        new BlobWriter(entry.mimeType),
+        { signal },
+      ),
       close: () => {
         void reader.close();
       },

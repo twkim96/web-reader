@@ -346,7 +346,7 @@ export class FixedLayout extends HTMLElement {
             let loadedSpread
             if (spread.center) {
                 const sectionIndex = this.book.sections.indexOf(spread.center)
-                const src = await spread.center?.load?.()
+                const src = await spread.center?.load?.(task.signal)
                 if (!this.#navigation.isCurrent(task)) throw createAbortError()
                 loadedSpread = await this.#loadSpread({
                     center: { index: sectionIndex, src },
@@ -355,8 +355,8 @@ export class FixedLayout extends HTMLElement {
                 const indexL = this.book.sections.indexOf(spread.left)
                 const indexR = this.book.sections.indexOf(spread.right)
                 const [srcL, srcR] = await Promise.all([
-                    spread.left?.load?.(),
-                    spread.right?.load?.(),
+                    spread.left?.load?.(task.signal),
+                    spread.right?.load?.(task.signal),
                 ])
                 if (!this.#navigation.isCurrent(task)) throw createAbortError()
                 loadedSpread = await this.#loadSpread({

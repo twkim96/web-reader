@@ -1,10 +1,26 @@
 import assert from 'node:assert/strict';
+import JSZip from 'jszip';
+import { createSolidSevenZipFixture } from './solidSevenZipFixture.mjs';
 
 const debugUrl = process.env.CHROME_DEBUG_URL ?? 'http://127.0.0.1:9223';
 const appUrl = process.env.APP_URL ?? 'http://127.0.0.1:3000';
 const sleep = (milliseconds) => new Promise((resolve) => {
   setTimeout(resolve, milliseconds);
 });
+
+const oversizedPng = new Uint8Array(24);
+oversizedPng.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+new DataView(oversizedPng.buffer).setUint32(8, 13);
+oversizedPng.set([0x49, 0x48, 0x44, 0x52], 12);
+new DataView(oversizedPng.buffer).setUint32(16, 8193);
+new DataView(oversizedPng.buffer).setUint32(20, 8192);
+const oversizedArchive = new JSZip();
+oversizedArchive.file('huge.png', oversizedPng);
+const oversizedArchiveBase64 = Buffer.from(
+  await oversizedArchive.generateAsync({ type: 'uint8array' }),
+).toString('base64');
+const solidArchiveBytes = await createSolidSevenZipFixture();
+const solidArchiveBase64 = Buffer.from(solidArchiveBytes).toString('base64');
 
 const targets = await fetch(`${debugUrl}/json`).then((response) => response.json());
 const page = targets.find(({ type }) => type === 'page');
@@ -313,6 +329,346 @@ try {
   );
   assert.deepEqual(shelfMetrics.errors, []);
 
+  await evaluate(`(() => {
+    window.__archiveAlerts = [];
+    window.__nativeArchiveAlert = window.alert;
+    window.alert = (message) => window.__archiveAlerts.push(String(message));
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.title === 'Add Local Book');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'input[type="file"]\'))',
+    'archive import modal',
+  );
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 360,
+    height: 640,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await evaluate(`(() => {
+    const button = document.querySelector(
+      'button[aria-label^="파일 형식별 용량 제한"]',
+    );
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `document.body.innerText.includes('TXT')
+      && document.body.innerText.includes('50MB')
+      && document.body.innerText.includes('100MB')
+      && document.body.innerText.includes('200MB')
+      && document.body.innerText.includes('300MB')`,
+    'file size limit details',
+  );
+  const sizeLimitUi = await evaluate(`(() => {
+    const input = document.querySelector('input[type="file"]');
+    const modal = input?.parentElement;
+    return {
+      expanded: document.querySelector(
+        'button[aria-label^="파일 형식별 용량 제한"]',
+      )?.getAttribute('aria-expanded'),
+      overflowY: modal ? getComputedStyle(modal).overflowY : '',
+      maxHeight: modal ? getComputedStyle(modal).maxHeight : '',
+      modalHeight: modal?.getBoundingClientRect().height ?? 0,
+      viewportHeight: innerHeight,
+      visualViewportHeight: visualViewport?.height ?? 0,
+      horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
+    };
+  })()`);
+  assert.equal(sizeLimitUi.expanded, 'true');
+  assert.equal(sizeLimitUi.overflowY, 'auto');
+  assert.ok(
+    sizeLimitUi.modalHeight <= sizeLimitUi.viewportHeight,
+    JSON.stringify(sizeLimitUi),
+  );
+  assert.ok(sizeLimitUi.horizontalOverflow <= 0);
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evaluate(`(() => {
+    const bytes = Uint8Array.from(
+      atob(${JSON.stringify(oversizedArchiveBase64)}),
+      (character) => character.charCodeAt(0),
+    );
+    const file = new File([bytes], 'oversized.cbz', {
+      type: 'application/vnd.comicbook+zip',
+    });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const input = document.querySelector('input[type="file"]');
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.files.length;
+  })()`);
+  await waitFor(
+    `document.body.innerText.includes('oversized.cbz')`,
+    'oversized archive selection',
+  );
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.trim() === '추가');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `(async () => {
+      const request = indexedDB.open('web-reader-db', 4);
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const tx = db.transaction('metadata', 'readonly');
+      const get = tx.objectStore('metadata').get('oversized.cbz');
+      const value = await new Promise((resolve, reject) => {
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+      db.close();
+      return Boolean(value);
+    })()`,
+    'oversized archive import',
+  );
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.title === 'Search Books');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
+    'archive search modal',
+  );
+  assert.equal(
+    await setInputValue(
+      'input[placeholder="도서 이름으로 검색..."]',
+      'oversized',
+    ),
+    true,
+  );
+  await evaluate('document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\')?.form?.requestSubmit()');
+  await waitFor(
+    `document.querySelectorAll('main h3').length === 1
+      && document.querySelector('main h3')?.textContent?.includes('oversized')`,
+    'oversized archive search result',
+  );
+  await evaluate(`(() => {
+    window.__archiveCreatedUrls = 0;
+    window.__nativeArchiveCreateObjectURL = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (...args) => {
+      window.__archiveCreatedUrls += 1;
+      return window.__nativeArchiveCreateObjectURL(...args);
+    };
+    document.querySelector('main h3')?.closest('.group')?.click();
+  })()`);
+  await waitFor(
+    `window.__archiveAlerts.some((message) => message.includes('64MP 제한'))`,
+    'oversized archive reader rejection',
+  );
+  const archiveLimitResult = await evaluate(`(() => {
+    const result = {
+      alerts: [...window.__archiveAlerts],
+      createdUrls: window.__archiveCreatedUrls,
+    };
+    URL.createObjectURL = window.__nativeArchiveCreateObjectURL;
+    window.alert = window.__nativeArchiveAlert;
+    return result;
+  })()`);
+  assert.equal(archiveLimitResult.createdUrls, 0);
+  assert.ok(archiveLimitResult.alerts.some((message) => (
+    message.includes('64MP 제한')
+  )));
+
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.title === 'Add Local Book');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'input[type="file"]\'))',
+    'solid 7z import modal',
+  );
+  await evaluate(`(() => {
+    const bytes = Uint8Array.from(
+      atob(${JSON.stringify(solidArchiveBase64)}),
+      (character) => character.charCodeAt(0),
+    );
+    const file = new File([bytes], 'solid-pages.7z', {
+      type: 'application/x-7z-compressed',
+    });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const input = document.querySelector('input[type="file"]');
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.files.length;
+  })()`);
+  await waitFor(
+    `document.body.innerText.includes('solid-pages.7z')`,
+    'solid 7z selection',
+  );
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.trim() === '추가');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `(async () => {
+      const request = indexedDB.open('web-reader-db', 4);
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const tx = db.transaction('metadata', 'readonly');
+      const get = tx.objectStore('metadata').get('solid-pages.7z');
+      const value = await new Promise((resolve, reject) => {
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+      db.close();
+      return Boolean(value);
+    })()`,
+    'solid 7z import',
+  );
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.title === 'Search Books');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
+    'solid 7z search modal',
+  );
+  assert.equal(
+    await setInputValue(
+      'input[placeholder="도서 이름으로 검색..."]',
+      'solid-pages',
+    ),
+    true,
+  );
+  await evaluate('document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\')?.form?.requestSubmit()');
+  await waitFor(
+    `document.querySelectorAll('main h3').length === 1
+      && document.querySelector('main h3')?.textContent?.includes('solid-pages')`,
+    'solid 7z search result',
+  );
+  await evaluate(`(() => {
+    const NativeWorker = window.Worker;
+    const nativeCreateObjectURL = URL.createObjectURL.bind(URL);
+    const nativeRevokeObjectURL = URL.revokeObjectURL.bind(URL);
+    const activeUrls = new Set();
+    const stats = {
+      extracts: [],
+      initialized: 0,
+      terminated: 0,
+    };
+    window.__solidSevenZip = {
+      NativeWorker,
+      nativeCreateObjectURL,
+      nativeRevokeObjectURL,
+      activeUrls,
+      stats,
+    };
+    window.Worker = class TrackedWorker extends NativeWorker {
+      constructor(url, options) {
+        super(url, options);
+        this.__isSevenZipWorker = String(url).includes('/7z/archive-worker.js');
+      }
+      postMessage(message, ...args) {
+        if (this.__isSevenZipWorker && message?.type === 'init') {
+          stats.initialized += 1;
+        }
+        if (this.__isSevenZipWorker && message?.type === 'extract') {
+          stats.extracts.push(message.entryName);
+        }
+        return super.postMessage(message, ...args);
+      }
+      terminate() {
+        if (this.__isSevenZipWorker) stats.terminated += 1;
+        return super.terminate();
+      }
+    };
+    URL.createObjectURL = (blob) => {
+      const url = nativeCreateObjectURL(blob);
+      activeUrls.add(url);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => {
+      activeUrls.delete(url);
+      return nativeRevokeObjectURL(url);
+    };
+    document.querySelector('main h3')?.closest('.group')?.click();
+  })()`);
+  await waitFor(
+    `document.querySelector('foliate-view')?.renderer?.index === 0`,
+    'solid 7z first page',
+    60_000,
+  );
+  const solidSevenZipResult = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view.renderer;
+    const first = renderer.goToSpread(1, 'center', 'page');
+    const stale = renderer.goToSpread(5, 'center', 'page');
+    const latest = renderer.goToSpread(2, 'center', 'page');
+    const navigation = await Promise.allSettled([first, stale, latest]);
+    const deadline = performance.now() + 60_000;
+    while (
+      performance.now() < deadline
+      && (
+        renderer.index !== 2
+        || renderer.getContents().length !== 1
+        || !renderer.getContents()[0]?.doc?.querySelector('img')?.complete
+      )
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const state = window.__solidSevenZip;
+    const finalIndex = renderer.index;
+    const finalFrameCount = renderer.getContents().length;
+    const finalImageComplete = Boolean(
+      renderer.getContents()[0]?.doc?.querySelector('img')?.complete,
+    );
+    view.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const result = {
+      activeBlobUrls: state.activeUrls.size,
+      errors: [...window.__regressionErrors],
+      extracts: [...state.stats.extracts],
+      finalFrameCount,
+      finalIndex,
+      finalImageComplete,
+      initialized: state.stats.initialized,
+      navigation: navigation.map(({ status, reason }) => ({
+        status,
+        reason: reason?.name ?? null,
+      })),
+      terminated: state.stats.terminated,
+    };
+    window.Worker = state.NativeWorker;
+    URL.createObjectURL = state.nativeCreateObjectURL;
+    URL.revokeObjectURL = state.nativeRevokeObjectURL;
+    return result;
+  })()`);
+  const solidSevenZipDebug = JSON.stringify(solidSevenZipResult);
+  assert.equal(solidSevenZipResult.initialized, 1, solidSevenZipDebug);
+  assert.equal(solidSevenZipResult.finalIndex, 2, solidSevenZipDebug);
+  assert.equal(solidSevenZipResult.finalFrameCount, 1, solidSevenZipDebug);
+  assert.equal(solidSevenZipResult.finalImageComplete, true, solidSevenZipDebug);
+  assert.ok(solidSevenZipResult.extracts.some((name) => name.endsWith('02.bmp')));
+  assert.ok(solidSevenZipResult.extracts.some((name) => name.endsWith('03.bmp')));
+  assert.ok(!solidSevenZipResult.extracts.some((name) => name.endsWith('06.bmp')));
+  assert.equal(solidSevenZipResult.terminated, 1, solidSevenZipDebug);
+  assert.equal(solidSevenZipResult.activeBlobUrls, 0, solidSevenZipDebug);
+  assert.deepEqual(solidSevenZipResult.errors, [], solidSevenZipDebug);
+
   const fixedLayout = await evaluate(`(async () => {
     document.body.replaceChildren();
     const { FixedLayout } = await import('/foliate-js/fixed-layout.js');
@@ -482,6 +838,12 @@ try {
     await firstPageOnZoom({ doc: probe.contentDocument, scale: 1 });
     renderDebug.directCanvasCount = probe.contentDocument
       .querySelectorAll('#canvas canvas').length;
+    await firstPageOnZoom({ doc: probe.contentDocument, scale: 20 });
+    const highScaleCanvas = probe.contentDocument.querySelector('#canvas canvas');
+    renderDebug.highScaleCanvas = {
+      height: highScaleCanvas.height,
+      width: highScaleCanvas.width,
+    };
     firstPageOnZoom.cleanup(probe.contentDocument);
     probe.remove();
     const renderer = document.createElement('foliate-fxl');
@@ -550,15 +912,88 @@ try {
       annotation: lastDoc.querySelectorAll('.annotationLayer').length,
       endOfContent: lastDoc.querySelectorAll('.endOfContent').length,
     };
+    for (let index = 1; index <= 3; index += 1) {
+      await book.sections[index].load();
+    }
+    const firstPageReleaseCalls = renderDebug.destroys;
+    const cancelledController = new AbortController();
+    cancelledController.abort();
+    let cancelledLoadError;
+    try {
+      await book.sections[5].load(cancelledController.signal);
+    } catch (error) {
+      cancelledLoadError = error?.name;
+    }
     const result = {
       pageCount: book.sections.length,
       index: renderer.index,
       layers,
       pageZeroCanvasCount: doc.querySelectorAll('#canvas canvas').length,
+      cancelledLoadError,
+      firstPageReleaseCalls,
+      highScaleCanvas: renderDebug.highScaleCanvas,
       errorsBeforeDestroy: [...window.__regressionErrors],
     };
     renderer.destroy();
-    book.destroy();
+    await book.destroy();
+
+    const longBook = await makePDF(new File(
+      [createPdf(105)],
+      'long-regression.pdf',
+      { type: 'application/pdf' },
+    ));
+    let longPdfCleanupCalls = 0;
+    const trackedLongSources = new WeakSet();
+    for (const section of longBook.sections) {
+      const nativeLoad = section.load.bind(section);
+      section.load = async (...args) => {
+        const source = await nativeLoad(...args);
+        if (!trackedLongSources.has(source)) {
+          trackedLongSources.add(source);
+          const nativeDestroy = source.onZoom.destroy;
+          source.onZoom.destroy = (...destroyArgs) => {
+            longPdfCleanupCalls += 1;
+            return nativeDestroy(...destroyArgs);
+          };
+        }
+        return source;
+      };
+    }
+    const longRenderer = document.createElement('foliate-fxl');
+    longRenderer.style.cssText = 'display:block;width:640px;height:800px';
+    document.body.append(longRenderer);
+    longRenderer.addEventListener('error', (event) => {
+      window.__regressionErrors.push(String(
+        event.detail?.error?.stack || event.detail?.error || 'Long PDF error',
+      ));
+    });
+    longRenderer.open(longBook);
+    let longPdfMaxCanvasCount = 0;
+    const waitForLongCanvas = async () => {
+      const deadline = performance.now() + 10_000;
+      while (performance.now() < deadline) {
+        const canvasCount = longRenderer.getContents()[0]?.doc
+          ?.querySelectorAll('#canvas canvas').length ?? 0;
+        longPdfMaxCanvasCount = Math.max(longPdfMaxCanvasCount, canvasCount);
+        if (canvasCount === 1) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error('Long PDF canvas render timed out');
+    };
+    for (let index = 0; index < longBook.sections.length; index += 1) {
+      await longRenderer.goToSpread(index, 'center', 'page');
+      await waitForLongCanvas();
+    }
+    await longRenderer.goToSpread(0, 'center', 'page');
+    await waitForLongCanvas();
+    longRenderer.destroy();
+    await longBook.destroy();
+    result.longPdf = {
+      cleanupCalls: longPdfCleanupCalls,
+      maxCanvasCount: longPdfMaxCanvasCount,
+      pageCount: longBook.sections.length,
+    };
+
     const deadline = performance.now() + 5_000;
     while (
       performance.now() < deadline
@@ -583,10 +1018,96 @@ try {
     endOfContent: 1,
   });
   assert.ok(pdfResult.pageZeroCanvasCount <= 1);
+  assert.equal(pdfResult.cancelledLoadError, 'AbortError');
+  assert.ok(pdfResult.firstPageReleaseCalls >= 1);
+  assert.ok(pdfResult.highScaleCanvas.width <= 8192);
+  assert.ok(pdfResult.highScaleCanvas.height <= 8192);
+  assert.ok(
+    pdfResult.highScaleCanvas.width * pdfResult.highScaleCanvas.height
+      <= 8_388_608,
+  );
+  assert.equal(pdfResult.longPdf.pageCount, 105);
+  assert.equal(pdfResult.longPdf.maxCanvasCount, 1);
+  assert.equal(pdfResult.longPdf.cleanupCalls, 106);
   assert.equal(pdfResult.activeBlobUrls, 0);
-  assert.ok(pdfResult.workerStats.terminated >= 1);
+  assert.ok(pdfResult.workerStats.terminated >= 2);
   assert.deepEqual(pdfResult.errorsBeforeDestroy, []);
   assert.deepEqual(pdfResult.errorsAfterDestroy, []);
+
+  await command('Network.setBypassServiceWorker', { bypass: false });
+  const serviceWorkerResult = await evaluate(`(async () => {
+    const cachePrefix = 'pc-reader-';
+    const expectedCache = 'pc-reader-v1.6.2';
+    const staleCache = 'pc-reader-v1.6.1';
+    const preCacheUrls = [
+      '/',
+      '/manifest.json',
+      '/favicon.ico',
+      '/icon-192.png',
+      '/icon-512.png',
+      '/logo.png',
+      '/fonts/RIDIBatang.woff2',
+      '/fonts/RIDIBatang.otf',
+    ];
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    const existingCaches = await caches.keys();
+    await Promise.all(
+      existingCaches
+        .filter((name) => name.startsWith(cachePrefix))
+        .map((name) => caches.delete(name)),
+    );
+    const oldCache = await caches.open(staleCache);
+    await oldCache.put('/stale-cache-proof', new Response('stale'));
+
+    const registration = await navigator.serviceWorker.register(
+      '/sw.js?browser-regression=1.6.2',
+      { scope: '/' },
+    );
+    const worker = registration.installing
+      ?? registration.waiting
+      ?? registration.active;
+    if (worker && worker.state !== 'activated') {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error('Service worker activation timed out')),
+          20_000,
+        );
+        worker.addEventListener('statechange', () => {
+          if (worker.state !== 'activated') return;
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+    }
+
+    const deadline = performance.now() + 20_000;
+    let cacheNames = [];
+    while (performance.now() < deadline) {
+      cacheNames = await caches.keys();
+      if (cacheNames.includes(expectedCache) && !cacheNames.includes(staleCache)) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const releaseCache = await caches.open(expectedCache);
+    const preCacheHits = await Promise.all(
+      preCacheUrls.map(async (url) => ({
+        url,
+        cached: Boolean(await releaseCache.match(url)),
+      })),
+    );
+    const result = {
+      cacheNames: cacheNames.filter((name) => name.startsWith(cachePrefix)),
+      oldCacheDeleted: !cacheNames.includes(staleCache),
+      preCacheHits,
+      scriptUrl: registration.active?.scriptURL ?? worker?.scriptURL ?? '',
+    };
+    await registration.unregister();
+    return result;
+  })()`);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.2']);
+  assert.equal(serviceWorkerResult.oldCacheDeleted, true);
+  assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.2$/);
 
   console.log(JSON.stringify({
     shelf: {
@@ -597,8 +1118,12 @@ try {
       sortDurationMs,
       metrics: shelfMetrics,
     },
+    sizeLimitUi,
+    archiveLimit: archiveLimitResult,
+    solidSevenZip: solidSevenZipResult,
     fixedLayout,
     pdf: pdfResult,
+    serviceWorker: serviceWorkerResult,
   }, null, 2));
 } finally {
   socket.close();

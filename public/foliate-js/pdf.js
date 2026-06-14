@@ -2,6 +2,10 @@ const pdfjsPath = path => new URL(`vendor/pdfjs/${path}`, import.meta.url).toStr
 
 import './vendor/pdfjs/pdf.mjs'
 import { LatestFrame } from './latest-task.js'
+import {
+    cleanupPDFPageAfter,
+    getPDFRenderMetrics,
+} from './pdf-page-lifecycle.js'
 const pdfjsLib = globalThis.pdfjsLib
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsPath('pdf.worker.mjs')
 
@@ -25,6 +29,9 @@ const clearPageLayers = doc => {
 
 const createPageRenderer = page => {
     const states = new Map()
+    const activeRenders = new Set()
+    let destroyed = false
+    let destroyPromise = null
 
     const cleanupState = doc => {
         const state = states.get(doc)
@@ -39,8 +46,19 @@ const createPageRenderer = page => {
     }
 
     const render = async (doc, zoom, state) => {
-        const scale = zoom * devicePixelRatio
-        const renderKey = `${scale}:${devicePixelRatio}`
+        const baseViewport = page.getViewport({ scale: 1 })
+        const {
+            canvasHeight,
+            canvasWidth,
+            displayScale,
+            renderScale,
+        } = getPDFRenderMetrics({
+            width: baseViewport.width,
+            height: baseViewport.height,
+            zoom,
+            pixelRatio: devicePixelRatio,
+        })
+        const renderKey = `${renderScale}:${displayScale}`
         if (
             state.completedKey === renderKey
             && state.renderingGeneration === null
@@ -56,16 +74,16 @@ const createPageRenderer = page => {
         clearPageLayers(doc)
 
         try {
-            doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
+            doc.documentElement.style.transform = `scale(${displayScale})`
             doc.documentElement.style.transformOrigin = 'top left'
-            doc.documentElement.style.setProperty('--scale-factor', scale)
-            const viewport = page.getViewport({ scale })
+            doc.documentElement.style.setProperty('--scale-factor', renderScale)
+            const viewport = page.getViewport({ scale: renderScale })
 
             // PDF.js loads fonts into this module's owner document. Render on a
             // canvas from that document, then adopt it into the page iframe.
             const canvas = document.createElement('canvas')
-            canvas.height = viewport.height
-            canvas.width = viewport.width
+            canvas.height = canvasHeight
+            canvas.width = canvasWidth
             const canvasContext = canvas.getContext('2d')
             const renderTask = page.render({ canvasContext, viewport })
             state.renderTask = renderTask
@@ -142,6 +160,7 @@ const createPageRenderer = page => {
     }
 
     const onZoom = ({ doc, scale }) => {
+        if (destroyed) return Promise.resolve()
         let state = states.get(doc)
         if (!state) {
             state = {
@@ -157,28 +176,60 @@ const createPageRenderer = page => {
             states.set(doc, state)
         }
         state.zoom = scale
-        return state.frame.schedule(() => render(doc, state.zoom, state))
+        return state.frame.schedule(() => {
+            const operation = render(doc, state.zoom, state)
+            activeRenders.add(operation)
+            operation.then(
+                () => activeRenders.delete(operation),
+                () => activeRenders.delete(operation),
+            )
+            return operation
+        })
     }
     onZoom.cleanup = cleanupState
-    onZoom.destroy = () => [...states.keys()].forEach(cleanupState)
+    onZoom.destroy = () => {
+        if (destroyPromise) return destroyPromise
+        destroyed = true
+        for (const doc of [...states.keys()]) cleanupState(doc)
+        destroyPromise = cleanupPDFPageAfter(
+            page,
+            Promise.allSettled([...activeRenders]),
+        )
+        return destroyPromise
+    }
     return onZoom
 }
 
 const renderPage = async (page, getImageBlob) => {
-    const viewport = page.getViewport({ scale: 1 })
+    const baseViewport = page.getViewport({ scale: 1 })
     if (getImageBlob) {
+        const {
+            canvasHeight,
+            canvasWidth,
+            renderScale,
+        } = getPDFRenderMetrics({
+            width: baseViewport.width,
+            height: baseViewport.height,
+            zoom: 1,
+            pixelRatio: 1,
+        })
+        const viewport = page.getViewport({ scale: renderScale })
         const canvas = document.createElement('canvas')
-        canvas.height = viewport.height
-        canvas.width = viewport.width
+        canvas.height = canvasHeight
+        canvas.width = canvasWidth
         const canvasContext = canvas.getContext('2d')
-        await page.render({ canvasContext, viewport }).promise
-        return new Promise(resolve => canvas.toBlob(resolve))
+        try {
+            await page.render({ canvasContext, viewport }).promise
+            return await new Promise(resolve => canvas.toBlob(resolve))
+        } finally {
+            page.cleanup()
+        }
     }
     const src = URL.createObjectURL(new Blob([`
         <!DOCTYPE html>
         <html lang="en">
         <meta charset="utf-8">
-        <meta name="viewport" content="width=${viewport.width}, height=${viewport.height}">
+        <meta name="viewport" content="width=${baseViewport.width}, height=${baseViewport.height}">
         <style>
         html, body {
             margin: 0;
@@ -245,42 +296,84 @@ export const makePDF = async file => {
 
     const cache = new Map()
     const pending = new Map()
+    const cleanupTasks = new Set()
+    const auxiliaryTasks = new Set()
     let destroyed = false
+    let destroyPromise = null
+
+    const trackCleanup = task => {
+        const cleanupTask = Promise.resolve(task)
+        cleanupTasks.add(cleanupTask)
+        cleanupTask.then(
+            () => cleanupTasks.delete(cleanupTask),
+            () => cleanupTasks.delete(cleanupTask),
+        )
+        return cleanupTask
+    }
+
+    const trackAuxiliary = task => {
+        auxiliaryTasks.add(task)
+        task.then(
+            () => auxiliaryTasks.delete(task),
+            () => auxiliaryTasks.delete(task),
+        )
+        return task
+    }
+
+    const releasePage = cached => {
+        if (!cached) return
+        URL.revokeObjectURL(cached.source.src)
+        trackCleanup(cached.source.onZoom.destroy())
+    }
 
     const revokePage = index => {
         const cached = cache.get(index)
         if (!cached) return
-        cached.onZoom?.destroy?.()
-        URL.revokeObjectURL(cached.src)
         cache.delete(index)
+        releasePage(cached)
     }
 
     const pageID = index => `page-${index + 1}`
     book.sections = Array.from({ length: pdf.numPages }).map((_, i) => ({
         id: pageID(i),
-        load: async () => {
+        load: async signal => {
             if (destroyed) throw new Error('PDF source is closed')
+            if (signal?.aborted)
+                throw new DOMException('PDF page load aborted', 'AbortError')
             const cached = cache.get(i)
             if (cached) {
                 cache.delete(i)
                 cache.set(i, cached)
-                return cached
+                return cached.source
             }
             const pendingPage = pending.get(i)
-            if (pendingPage) return pendingPage
+            if (pendingPage && !pendingPage.signal?.aborted)
+                return pendingPage.promise
 
             const loadPromise = (async () => {
-                const url = await renderPage(await pdf.getPage(i + 1))
-                if (destroyed) {
-                    URL.revokeObjectURL(url.src)
+                const page = await pdf.getPage(i + 1)
+                if (destroyed || signal?.aborted) {
+                    page.cleanup()
+                    if (signal?.aborted)
+                        throw new DOMException('PDF page load aborted', 'AbortError')
                     throw new Error('PDF source is closed')
                 }
-                cache.set(i, url)
+                const source = await renderPage(page)
+                const cachedPage = { page, source }
+                if (destroyed || signal?.aborted) {
+                    releasePage(cachedPage)
+                    if (signal?.aborted)
+                        throw new DOMException('PDF page load aborted', 'AbortError')
+                    throw new Error('PDF source is closed')
+                }
+                cache.set(i, cachedPage)
                 while (cache.size > MAX_CACHED_PAGES)
                     revokePage(cache.keys().next().value)
-                return url
-            })().finally(() => pending.delete(i))
-            pending.set(i, loadPromise)
+                return source
+            })().finally(() => {
+                if (pending.get(i)?.promise === loadPromise) pending.delete(i)
+            })
+            pending.set(i, { promise: loadPromise, signal })
             return loadPromise
         },
         size: 1000,
@@ -301,12 +394,30 @@ export const makePDF = async file => {
         return [pageID(index), null]
     }
     book.getTOCFragment = doc => doc.documentElement
-    book.getCover = async () => renderPage(await pdf.getPage(1), true)
+    book.getCover = () => {
+        if (destroyed) return Promise.reject(new Error('PDF source is closed'))
+        return trackAuxiliary((async () => {
+            const page = await pdf.getPage(1)
+            if (destroyed) {
+                page.cleanup()
+                throw new Error('PDF source is closed')
+            }
+            return renderPage(page, true)
+        })())
+    }
     book.destroy = () => {
-        if (destroyed) return
+        if (destroyed) return destroyPromise
         destroyed = true
         for (const index of cache.keys()) revokePage(index)
-        pdf.destroy()
+        destroyPromise = Promise.allSettled([
+            ...[...pending.values()].map(({ promise }) => promise),
+            ...auxiliaryTasks,
+            ...cleanupTasks,
+        ]).then(async () => {
+            await Promise.allSettled([...cleanupTasks])
+            await pdf.destroy()
+        })
+        return destroyPromise
     }
     return book
 }

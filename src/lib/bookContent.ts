@@ -61,6 +61,7 @@ export type PreparedBookSource = {
 
 type PrepareBookSourceOptions = {
   archiveImageIndex?: ArchiveImageIndex;
+  signal?: AbortSignal;
 };
 
 const toBlob = (content: StoredBookContent, mimeType: string) => (
@@ -92,10 +93,20 @@ export const prepareBookSource = async (
     const sourceBlob = toBlob(content, book.mimeType);
     const prepared = sourceFormat === '7z'
       ? await import('./sevenZipImages').then(({ prepareSevenZipImageBook }) => (
-        prepareSevenZipImageBook(sourceBlob, book.name, options.archiveImageIndex)
+        prepareSevenZipImageBook(
+          sourceBlob,
+          book.name,
+          options.archiveImageIndex,
+          options.signal,
+        )
       ))
       : await import('./archiveImages').then(({ prepareZipImageBook }) => (
-        prepareZipImageBook(sourceBlob, book.name, options.archiveImageIndex)
+        prepareZipImageBook(
+          sourceBlob,
+          book.name,
+          options.archiveImageIndex,
+          options.signal,
+        )
       ));
     return {
       book: {

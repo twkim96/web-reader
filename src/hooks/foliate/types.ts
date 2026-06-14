@@ -27,7 +27,7 @@ export type FoliateSection = {
   href?: string;
   linear?: string;
   size?: number;
-  load?: () => Promise<string> | string;
+  load?: (signal?: AbortSignal) => Promise<string> | string;
 };
 
 export type TocItem = {

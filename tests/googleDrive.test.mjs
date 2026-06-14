@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  fetchFullFileBlob,
+  fetchWithTimeout,
   fetchDriveFiles,
   getDriveLibraryFolderId,
   GoogleDriveFolderConflictError,
@@ -12,6 +14,66 @@ import {
   isCachedBookCurrent,
   shouldUseCachedBookContent,
 } from '../src/lib/bookFingerprint.ts';
+
+const abortableFetch = (_url, options = {}) => new Promise((_resolve, reject) => {
+  const rejectAbort = () => reject(new DOMException('aborted', 'AbortError'));
+  if (options.signal?.aborted) {
+    rejectAbort();
+    return;
+  }
+  options.signal?.addEventListener('abort', rejectAbort, { once: true });
+});
+
+test('preserves caller cancellation separately from an internal timeout', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  globalThis.fetch = abortableFetch;
+
+  const controller = new AbortController();
+  const request = fetchWithTimeout(
+    'https://example.test/file',
+    { signal: controller.signal },
+    1000,
+  );
+  controller.abort();
+
+  await assert.rejects(request, { name: 'AbortError' });
+});
+
+test('reports an internal fetch timeout without exposing it as user cancellation', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  globalThis.fetch = abortableFetch;
+
+  await assert.rejects(
+    fetchWithTimeout('https://example.test/file', {}, 5),
+    /Network timeout/,
+  );
+});
+
+test('passes reader cancellation into a full Drive Blob download', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  let requestedUrl = '';
+  globalThis.fetch = (url, options) => {
+    requestedUrl = String(url);
+    return abortableFetch(url, options);
+  };
+
+  const controller = new AbortController();
+  const request = fetchFullFileBlob('folder/file id', 'token', controller.signal);
+  controller.abort();
+
+  await assert.rejects(request, { name: 'AbortError' });
+  assert.match(requestedUrl, /folder%2Ffile%20id/);
+});
 
 test('keeps supported Drive files by extension and preserves fingerprint metadata', () => {
   const files = normalizeDriveBooks([

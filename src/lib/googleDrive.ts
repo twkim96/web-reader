@@ -17,10 +17,25 @@ import {
  * 타임아웃 기능이 포함된 fetch 함수
  * 지정된 시간(ms) 안에 응답이 없으면 요청을 취소하고 에러를 발생시킵니다.
  */
-const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 5000) => {
+const abortError = () => new DOMException('Request aborted', 'AbortError');
+
+export const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit = {},
+  timeout = 5000,
+) => {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  
+  const callerSignal = options.signal;
+  let didTimeout = false;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+
+  if (callerSignal?.aborted) throw abortError();
+  callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  const id = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, timeout);
+
   try {
     const response = await fetch(url, {
       ...options,
@@ -28,12 +43,12 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout 
     });
     return response;
   } catch (error: unknown) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Network timeout');
-    }
+    if (callerSignal?.aborted) throw abortError();
+    if (didTimeout) throw new Error('Network timeout');
     throw error;
   } finally {
     clearTimeout(id);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
   }
 };
 
@@ -529,11 +544,14 @@ export const fetchDriveFiles = async (token: string, folderId: string) => {
   throw new Error('파일 목록 페이지 수가 제한을 초과했습니다.');
 };
 
-export const fetchFullFile = async (fileId: string, token: string) => {
+export const fetchFullFile = async (fileId: string, token: string, signal?: AbortSignal) => {
   // [Modified] 파일 다운로드는 대용량(10MB+)을 고려하여 3분(180초) 대기
   const response = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    },
     180000 
   );
 
@@ -546,10 +564,13 @@ export const fetchFullFile = async (fileId: string, token: string) => {
   return await response.arrayBuffer();
 };
 
-export const fetchFullFileBlob = async (fileId: string, token: string) => {
+export const fetchFullFileBlob = async (fileId: string, token: string, signal?: AbortSignal) => {
   const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    },
     180000,
   );
 

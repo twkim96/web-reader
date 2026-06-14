@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import {
   ARCHIVE_FILE_MAX_BYTES,
   ACTIVE_SOURCE_FORMATS,
-  GENERAL_FILE_MAX_BYTES,
+  BOOK_FILE_LIMITS_MB,
   getBookTitleFromFileName,
+  getBookMaxBytes,
   getBookOpenLimitError,
   getReaderFormat,
   getSourceBookFormat,
@@ -25,27 +26,33 @@ test('detects supported formats by extension before MIME fallback', () => {
   assert.equal(getBookTitleFromFileName('sample.CBZ'), 'sample');
 });
 
-test('accepts general books up to 150MB each and 500MB total', () => {
-  const selected = [
-    file('a.txt', GENERAL_FILE_MAX_BYTES),
-    file('b.epub', GENERAL_FILE_MAX_BYTES),
+test('enforces per-format limits and keeps the 500MB general total', () => {
+  const formats = [
+    ['txt', 'book.txt'],
+    ['epub', 'book.epub'],
+    ['pdf', 'book.pdf'],
   ];
-  const accepted = updateImportSelection(selected, [
-    file('c.pdf', 100 * 1024 * 1024),
-    file('d.txt', 100 * 1024 * 1024),
-  ], { allowExtendedFormats: true });
 
-  assert.equal(accepted.error, null);
-  assert.equal(accepted.files.length, 4);
+  for (const [format, name] of formats) {
+    const maxBytes = getBookMaxBytes(format);
+    const accepted = updateImportSelection([], [file(name, maxBytes)], {
+      allowExtendedFormats: true,
+    });
+    assert.equal(accepted.error, null);
 
-  const oversized = updateImportSelection([], [
-    file('large.pdf', GENERAL_FILE_MAX_BYTES + 1),
-  ], { allowExtendedFormats: true });
-  assert.match(oversized.error, /150MB/);
+    const oversized = updateImportSelection([], [file(name, maxBytes + 1)], {
+      allowExtendedFormats: true,
+    });
+    assert.match(oversized.error, new RegExp(`${BOOK_FILE_LIMITS_MB[format]}MB`));
+  }
 
+  const selected = [
+    file('a.pdf', getBookMaxBytes('pdf')),
+    file('b.pdf', getBookMaxBytes('pdf')),
+    file('c.txt', getBookMaxBytes('txt')),
+  ];
   const overTotal = updateImportSelection(selected, [
-    file('c.pdf', 100 * 1024 * 1024 + 1),
-    file('d.txt', 100 * 1024 * 1024),
+    file('d.epub', getBookMaxBytes('epub')),
   ], { allowExtendedFormats: true });
   assert.match(overTotal.error, /500MB/);
   assert.deepEqual(overTotal.files, selected);
@@ -127,14 +134,21 @@ test('enforces the configured maximum file count', () => {
 });
 
 test('blocks oversized Drive books before download', () => {
-  assert.equal(
-    getBookOpenLimitError('book.pdf', 'application/octet-stream', GENERAL_FILE_MAX_BYTES),
-    null,
-  );
-  assert.match(
-    getBookOpenLimitError('large.pdf', 'application/octet-stream', GENERAL_FILE_MAX_BYTES + 1),
-    /150MB/,
-  );
+  for (const [format, extension] of [
+    ['txt', 'txt'],
+    ['epub', 'epub'],
+    ['pdf', 'pdf'],
+  ]) {
+    const maxBytes = getBookMaxBytes(format);
+    assert.equal(
+      getBookOpenLimitError(`book.${extension}`, 'application/octet-stream', maxBytes),
+      null,
+    );
+    assert.match(
+      getBookOpenLimitError(`large.${extension}`, 'application/octet-stream', maxBytes + 1),
+      new RegExp(`${BOOK_FILE_LIMITS_MB[format]}MB`),
+    );
+  }
   assert.equal(
     getBookOpenLimitError('images.cbz', 'application/octet-stream', String(ARCHIVE_FILE_MAX_BYTES)),
     null,

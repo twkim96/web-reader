@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import { FileText, Plus, X } from 'lucide-react';
+import { CircleAlert, FileText, Plus, X } from 'lucide-react';
 import {
   ACTIVE_IMPORT_ACCEPT,
   ACTIVE_SOURCE_FORMATS,
+  BOOK_FILE_LIMITS_MB,
   EXTENDED_IMPORT_FORMATS_ENABLED,
   updateImportSelection,
 } from '../../lib/bookFormats';
@@ -34,6 +35,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   onToggleCloud,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [showSizeLimits, setShowSizeLimits] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -99,7 +101,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className={`w-full max-w-sm ${theme.bg} ${theme.text} rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
+        className={`max-h-full w-full max-w-sm overflow-y-auto ${theme.bg} ${theme.text} rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
       >
         <input
           ref={fileInputRef}
@@ -112,9 +114,21 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
         />
 
         <div className="flex flex-col items-center text-center gap-3">
-          <div className="p-3 rounded-2xl bg-accent-500/10 text-accent-400">
-            <div className="w-5.5 h-5.5 border-2 border-current rounded-full flex items-center justify-center font-black text-xs">!</div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowSizeLimits((visible) => !visible)}
+            className={`rounded-2xl p-3 transition-all active:scale-95 ${
+              showSizeLimits
+                ? 'bg-accent-500 text-white shadow-lg shadow-accent-500/20'
+                : 'bg-accent-500/10 text-accent-400 hover:bg-accent-500/20'
+            }`}
+            title="파일 형식별 용량 제한"
+            aria-label={`파일 형식별 용량 제한 ${showSizeLimits ? '닫기' : '보기'}`}
+            aria-expanded={showSizeLimits}
+            aria-controls="book-file-size-limits"
+          >
+            <CircleAlert size={22} strokeWidth={2.4} />
+          </button>
           <p className="text-sm font-bold leading-relaxed">도서를 라이브러리에 추가하시겠습니까?</p>
           <p className="text-xs font-bold opacity-80 leading-relaxed">
             {isOfflineMode ? (
@@ -137,6 +151,29 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
               "선택한 도서가 내 기기에 저장되며, 구글 드라이브의 'web viewer' 폴더로 자동 업로드됩니다."
             )}
           </p>
+          {showSizeLimits && (
+            <div
+              id="book-file-size-limits"
+              className={`w-full rounded-2xl border ${theme.border} bg-white/5 px-4 py-3 text-left animate-in fade-in zoom-in-95 duration-150`}
+            >
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.12em] opacity-60">
+                파일별 최대 용량
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-bold">
+                <span>TXT</span>
+                <span className="text-right">{BOOK_FILE_LIMITS_MB.txt}MB</span>
+                <span>EPUB</span>
+                <span className="text-right">{BOOK_FILE_LIMITS_MB.epub}MB</span>
+                <span>PDF</span>
+                <span className="text-right">{BOOK_FILE_LIMITS_MB.pdf}MB</span>
+                <span>ZIP · CBZ · 7Z</span>
+                <span className="text-right">{BOOK_FILE_LIMITS_MB.zip}MB</span>
+              </div>
+              <p className="mt-2 text-[10px] font-bold leading-relaxed opacity-55">
+                일반 도서는 한 번에 최대 {maxFiles}개·총 500MB, 압축 도서는 한 번에 1개만 추가할 수 있습니다.
+              </p>
+            </div>
+          )}
         </div>
 
         <button
