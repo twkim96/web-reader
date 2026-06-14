@@ -20,8 +20,8 @@
 - 일반적인 PDF와 압축 도서 사용에서 즉시 재현되는 크리티컬 오류는 확인되지 않았다.
 - 55MB 규모 실제 solid 7z의 빠른 이동과 종료 자원 회수는 로컬 production Chromium에서 통과했다.
 - 실제 Drive 청크 응답 유실은 로컬 fetch 프로토콜 시뮬레이션으로 검증했으며 외부 환경에서 강제 재현할 수 없는 경계로 남긴다.
-- 압축 이미지 해상도 사전 검사와 로컬 Phase 6 통합 검증은 완료했다.
-- 고정 배포 URL `https://twreader.vercel.app`은 현재 `sw.js`가 아직 `v1.6.1`이므로 1.6.2 배포 후 검증이 남아 있다.
+- 압축 이미지 해상도 사전 검사와 Phase 6 통합 검증을 완료했다.
+- 커밋 `a4576e6`을 `main`에 배포했으며 고정 배포 URL `https://twreader.vercel.app`의 전체 production Chromium 회귀를 통과했다.
 
 ## 확정 결정
 
@@ -319,7 +319,7 @@
 
 ### 상태
 
-- 로컬 릴리스 준비 완료. 고정 배포 URL 검증 대기.
+- 완료. 1.6.2 production 배포 및 고정 URL 검증 통과.
 
 ### 변경
 
@@ -360,7 +360,12 @@
 - 105페이지 PDF 전체 이동: 최대 활성 canvas 1개, page source release 106회.
 - PDF 2권 종료 후 활성 Blob URL 0개, PDF Worker 2개 종료.
 - 서비스워커 실제 등록: `pc-reader-v1.6.1` 캐시 삭제, `pc-reader-v1.6.2` 생성, 프리캐시 8개 확인.
-- 고정 배포 URL `https://twreader.vercel.app`: 접근 가능하지만 2026-06-14 현재 `sw.js`는 `v1.6.1`; 1.6.2 배포 후 최종 확인 대기.
+- 커밋 `a4576e6`을 `main`에 push하고 Vercel production 배포 완료.
+- 고정 배포 URL `https://twreader.vercel.app/sw.js`: `pc-reader-v1.6.2` 확인.
+- 고정 배포 URL에서 `npm run test:browser`: 통과.
+- 배포 환경에서도 실제 solid 7z 최종 index 2, Worker 종료 1회, 활성 Blob URL 0개.
+- 배포 환경에서도 105페이지 PDF 최대 활성 canvas 1개, cleanup 106회, PDF Worker 종료 2회.
+- 배포 환경 서비스워커: 이전 `v1.6.1` 캐시 삭제, `v1.6.2` 프리캐시 8개 확인.
 
 ## 제외 범위
 
