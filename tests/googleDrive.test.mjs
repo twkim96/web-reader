@@ -287,7 +287,7 @@ test('keeps canonical folder caches isolated by Drive access token', async (t) =
   assert.equal(await getDriveLibraryFolderId('token-account-a'), 'folder-a');
   assert.equal(await getDriveLibraryFolderId('token-account-b'), 'folder-b');
   assert.equal(await getDriveLibraryFolderId('token-account-a'), 'folder-a');
-  assert.deepEqual(Object.fromEntries(appDataReads), { a: 2, b: 1 });
+  assert.deepEqual(Object.fromEntries(appDataReads), { a: 1, b: 1 });
 });
 
 test('lists books only from the resolved library folder', async (t) => {
@@ -305,4 +305,170 @@ test('lists books only from the resolved library folder', async (t) => {
   await fetchDriveFiles('token', 'canonical-folder');
   const query = new URL(requestUrl).searchParams.get('q');
   assert.equal(query, "'canonical-folder' in parents and trashed=false");
+});
+
+test('single-flights concurrent empty-account folder creation', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  let folderCreates = 0;
+  let registryCreates = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const requestUrl = String(url);
+    if (requestUrl.includes('spaces=appDataFolder')) {
+      return new Response(JSON.stringify({ files: [] }), { status: 200 });
+    }
+    if (new URL(requestUrl).searchParams.get('q')?.includes("name = 'web viewer'")) {
+      return new Response(JSON.stringify({ files: [] }), { status: 200 });
+    }
+    if (requestUrl.includes('/upload/drive/v3/files')) {
+      registryCreates += 1;
+      return new Response(JSON.stringify({ id: 'registry-file' }), { status: 200 });
+    }
+    if (options.method === 'POST') {
+      folderCreates += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return new Response(JSON.stringify({ id: 'created-folder' }), { status: 200 });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  };
+
+  const results = await Promise.all([
+    getDriveLibraryFolderId('token-create-single-flight', { createIfMissing: true }),
+    getDriveLibraryFolderId('token-create-single-flight', { createIfMissing: true }),
+    getDriveLibraryFolderId('token-create-single-flight', { createIfMissing: true }),
+  ]);
+
+  assert.deepEqual(results, ['created-folder', 'created-folder', 'created-folder']);
+  assert.equal(folderCreates, 1);
+  assert.equal(registryCreates, 1);
+});
+
+test('clears a failed folder single-flight so the next call can retry', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  let appDataReads = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const requestUrl = String(url);
+    if (requestUrl.includes('spaces=appDataFolder')) {
+      appDataReads += 1;
+      if (appDataReads === 1) return new Response('temporary', { status: 500 });
+      return new Response(JSON.stringify({ files: [] }), { status: 200 });
+    }
+    if (new URL(requestUrl).searchParams.get('q')?.includes("name = 'web viewer'")) {
+      return new Response(JSON.stringify({
+        files: [{
+          id: 'retry-folder',
+          name: 'web viewer',
+          mimeType: 'application/vnd.google-apps.folder',
+        }],
+      }), { status: 200 });
+    }
+    if (requestUrl.includes('/upload/drive/v3/files') && options.method === 'POST') {
+      return new Response(JSON.stringify({ id: 'registry-file' }), { status: 200 });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  };
+
+  await assert.rejects(
+    getDriveLibraryFolderId('token-folder-retry'),
+    /라이브러리 폴더 설정 조회 실패/,
+  );
+  assert.equal(await getDriveLibraryFolderId('token-folder-retry'), 'retry-folder');
+  assert.equal(appDataReads, 2);
+});
+
+test('reads named folder candidates through every Drive page', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const folderPages = [];
+  globalThis.fetch = async (url) => {
+    const requestUrl = String(url);
+    const parsed = new URL(requestUrl);
+    if (requestUrl.includes('spaces=appDataFolder')) {
+      return new Response(JSON.stringify({ files: [] }), { status: 200 });
+    }
+    if (parsed.searchParams.get('q')?.includes("name = 'web viewer'")) {
+      folderPages.push(parsed.searchParams.get('pageToken'));
+      if (!parsed.searchParams.get('pageToken')) {
+        return new Response(JSON.stringify({
+          files: [{
+            id: 'folder-page-1',
+            name: 'web viewer',
+            mimeType: 'application/vnd.google-apps.folder',
+          }],
+          nextPageToken: 'folder-next',
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        files: [{
+          id: 'folder-page-2',
+          name: 'web viewer',
+          mimeType: 'application/vnd.google-apps.folder',
+        }],
+      }), { status: 200 });
+    }
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  };
+
+  await assert.rejects(
+    getDriveLibraryFolderId('token-folder-pages'),
+    GoogleDriveFolderConflictError,
+  );
+  assert.deepEqual(folderPages, [null, 'folder-next']);
+});
+
+test('returns supported books from all Drive list pages', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const pageTokens = [];
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(String(url));
+    const pageToken = parsed.searchParams.get('pageToken');
+    pageTokens.push(pageToken);
+    if (!pageToken) {
+      return new Response(JSON.stringify({
+        files: [{ id: 'first', name: 'first.epub', mimeType: 'application/epub+zip' }],
+        nextPageToken: 'books-next',
+      }), { status: 200 });
+    }
+    return new Response(JSON.stringify({
+      files: [
+        { id: 'second', name: 'second.pdf', mimeType: 'application/pdf' },
+        { id: 'ignored', name: 'ignored.docx', mimeType: 'application/octet-stream' },
+      ],
+    }), { status: 200 });
+  };
+
+  const result = await fetchDriveFiles('token-book-pages', 'canonical-folder');
+  assert.deepEqual(result.files.map(({ id }) => id), ['first', 'second']);
+  assert.deepEqual(pageTokens, [null, 'books-next']);
+});
+
+test('rejects a repeated Drive list page token', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    files: [],
+    nextPageToken: 'repeat-token',
+  }), { status: 200 });
+
+  await assert.rejects(
+    fetchDriveFiles('token-repeated-page', 'canonical-folder'),
+    /페이지 토큰이 반복/,
+  );
 });

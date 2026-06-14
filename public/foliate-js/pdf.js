@@ -1,6 +1,7 @@
 const pdfjsPath = path => new URL(`vendor/pdfjs/${path}`, import.meta.url).toString()
 
 import './vendor/pdfjs/pdf.mjs'
+import { LatestFrame } from './latest-task.js'
 const pdfjsLib = globalThis.pdfjsLib
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsPath('pdf.worker.mjs')
 
@@ -13,58 +14,154 @@ const textLayerBuilderCSS = await fetchText(pdfjsPath('text_layer_builder.css'))
 const annotationLayerBuilderCSS = await fetchText(pdfjsPath('annotation_layer_builder.css'))
 const MAX_CACHED_PAGES = 4
 
-const render = async (page, doc, zoom) => {
-    const scale = zoom * devicePixelRatio
-    doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
-    doc.documentElement.style.transformOrigin = 'top left'
-    doc.documentElement.style.setProperty('--scale-factor', scale)
-    const viewport = page.getViewport({ scale })
+const isRenderCancelled = error => error?.name === 'RenderingCancelledException'
+    || error?.name === 'AbortError'
 
-    // the canvas must be in the `PDFDocument`'s `ownerDocument`
-    // (`globalThis.document` by default); that's where the fonts are loaded
-    const canvas = document.createElement('canvas')
-    canvas.height = viewport.height
-    canvas.width = viewport.width
-    const canvasContext = canvas.getContext('2d')
-    await page.render({ canvasContext, viewport }).promise
-    doc.querySelector('#canvas').replaceChildren(doc.adoptNode(canvas))
+const clearPageLayers = doc => {
+    doc.querySelector('#canvas')?.replaceChildren()
+    doc.querySelector('.textLayer')?.replaceChildren()
+    doc.querySelector('.annotationLayer')?.replaceChildren()
+}
 
-    const container = doc.querySelector('.textLayer')
-    const textLayer = new pdfjsLib.TextLayer({
-        textContentSource: await page.streamTextContent(),
-        container, viewport,
-    })
-    await textLayer.render()
+const createPageRenderer = page => {
+    const states = new Map()
 
-    // hide "offscreen" canvases appended to docuemnt when rendering text layer
-    // https://github.com/mozilla/pdf.js/blob/642b9a5ae67ef642b9a8808fd9efd447e8c350e2/web/pdf_viewer.css#L51-L58
-    for (const canvas of document.querySelectorAll('.hiddenCanvasElement'))
-        Object.assign(canvas.style, {
-            position: 'absolute',
-            top: '0',
-            left: '0',
-            width: '0',
-            height: '0',
-            display: 'none',
-        })
-
-    // fix text selection
-    // https://github.com/mozilla/pdf.js/blob/642b9a5ae67ef642b9a8808fd9efd447e8c350e2/web/text_layer_builder.js#L105-L107
-    const endOfContent = document.createElement('div')
-    endOfContent.className = 'endOfContent'
-    container.append(endOfContent)
-    // TODO: this only works in Firefox; see https://github.com/mozilla/pdf.js/pull/17923
-    container.onpointerdown = () => container.classList.add('selecting')
-    container.onpointerup = () => container.classList.remove('selecting')
-
-    const div = doc.querySelector('.annotationLayer')
-    const linkService = {
-        goToDestination: () => {},
-        getDestinationHash: dest => JSON.stringify(dest),
-        addLinkAttributes: (link, url) => link.href = url,
+    const cleanupState = doc => {
+        const state = states.get(doc)
+        if (!state) return
+        state.destroyed = true
+        state.generation += 1
+        state.frame.cancel()
+        state.renderTask?.cancel()
+        state.textLayer?.cancel()
+        clearPageLayers(doc)
+        states.delete(doc)
     }
-    await new pdfjsLib.AnnotationLayer({ page, viewport, div, linkService })
-        .render({ annotations: await page.getAnnotations() })
+
+    const render = async (doc, zoom, state) => {
+        const scale = zoom * devicePixelRatio
+        const renderKey = `${scale}:${devicePixelRatio}`
+        if (
+            state.completedKey === renderKey
+            && state.renderingGeneration === null
+        ) return
+
+        const generation = ++state.generation
+        state.renderingGeneration = generation
+        state.completedKey = null
+        state.renderTask?.cancel()
+        state.textLayer?.cancel()
+        state.renderTask = null
+        state.textLayer = null
+        clearPageLayers(doc)
+
+        try {
+            doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
+            doc.documentElement.style.transformOrigin = 'top left'
+            doc.documentElement.style.setProperty('--scale-factor', scale)
+            const viewport = page.getViewport({ scale })
+
+            // PDF.js loads fonts into this module's owner document. Render on a
+            // canvas from that document, then adopt it into the page iframe.
+            const canvas = document.createElement('canvas')
+            canvas.height = viewport.height
+            canvas.width = viewport.width
+            const canvasContext = canvas.getContext('2d')
+            const renderTask = page.render({ canvasContext, viewport })
+            state.renderTask = renderTask
+            try {
+                await renderTask.promise
+            } catch (error) {
+                if (isRenderCancelled(error) || generation !== state.generation) return
+                throw error
+            } finally {
+                if (state.renderTask === renderTask) state.renderTask = null
+            }
+            if (state.destroyed || generation !== state.generation) return
+            doc.querySelector('#canvas')?.replaceChildren(doc.adoptNode(canvas))
+
+            const textContentSource = await page.streamTextContent()
+            if (state.destroyed || generation !== state.generation) return
+            const textContainer = doc.createElement('div')
+            textContainer.className = 'textLayer'
+            const textLayer = new pdfjsLib.TextLayer({
+                textContentSource,
+                container: textContainer,
+                viewport,
+            })
+            state.textLayer = textLayer
+            try {
+                await textLayer.render()
+            } catch (error) {
+                if (isRenderCancelled(error) || generation !== state.generation) return
+                throw error
+            } finally {
+                if (state.textLayer === textLayer) state.textLayer = null
+            }
+            if (state.destroyed || generation !== state.generation) return
+
+            for (const hiddenCanvas of doc.querySelectorAll('.hiddenCanvasElement'))
+                Object.assign(hiddenCanvas.style, {
+                    position: 'absolute',
+                    top: '0',
+                    left: '0',
+                    width: '0',
+                    height: '0',
+                    display: 'none',
+                })
+
+            const endOfContent = doc.createElement('div')
+            endOfContent.className = 'endOfContent'
+            textContainer.append(endOfContent)
+            textContainer.onpointerdown = () => textContainer.classList.add('selecting')
+            textContainer.onpointerup = () => textContainer.classList.remove('selecting')
+
+            const annotationContainer = doc.createElement('div')
+            annotationContainer.className = 'annotationLayer'
+            const linkService = {
+                goToDestination: () => {},
+                getDestinationHash: dest => JSON.stringify(dest),
+                addLinkAttributes: (link, url) => link.href = url,
+            }
+            await new pdfjsLib.AnnotationLayer({
+                page,
+                viewport,
+                div: annotationContainer,
+                linkService,
+            }).render({ annotations: await page.getAnnotations() })
+            if (state.destroyed || generation !== state.generation) return
+
+            doc.querySelector('.textLayer')?.replaceWith(textContainer)
+            doc.querySelector('.annotationLayer')?.replaceWith(annotationContainer)
+            state.completedKey = renderKey
+        } finally {
+            if (state.renderingGeneration === generation) {
+                state.renderingGeneration = null
+            }
+        }
+    }
+
+    const onZoom = ({ doc, scale }) => {
+        let state = states.get(doc)
+        if (!state) {
+            state = {
+                completedKey: null,
+                destroyed: false,
+                frame: new LatestFrame(),
+                generation: 0,
+                renderTask: null,
+                renderingGeneration: null,
+                textLayer: null,
+                zoom: scale,
+            }
+            states.set(doc, state)
+        }
+        state.zoom = scale
+        return state.frame.schedule(() => render(doc, state.zoom, state))
+    }
+    onZoom.cleanup = cleanupState
+    onZoom.destroy = () => [...states.keys()].forEach(cleanupState)
+    return onZoom
 }
 
 const renderPage = async (page, getImageBlob) => {
@@ -103,8 +200,7 @@ const renderPage = async (page, getImageBlob) => {
         <div class="textLayer"></div>
         <div class="annotationLayer"></div>
     `], { type: 'text/html' }))
-    const onZoom = ({ doc, scale }) => render(page, doc, scale)
-    return { src, onZoom }
+    return { src, onZoom: createPageRenderer(page) }
 }
 
 const makeTOCItem = item => ({
@@ -154,6 +250,7 @@ export const makePDF = async file => {
     const revokePage = index => {
         const cached = cache.get(index)
         if (!cached) return
+        cached.onZoom?.destroy?.()
         URL.revokeObjectURL(cached.src)
         cache.delete(index)
     }

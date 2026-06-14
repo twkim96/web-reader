@@ -5,6 +5,7 @@ const MAX_IMAGE_PAGES = 10_000;
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_CACHED_PAGES = 4;
+export const MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024;
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   avif: 'image/avif',
@@ -36,6 +37,10 @@ export type ArchiveImageEntry<T = unknown> = {
 export type ArchiveInspection<T = unknown> = {
   entries: ArchiveImageEntry<T>[];
   totalImageBytes: number;
+};
+
+type ArchiveInspectionOptions = {
+  maxTotalExpandedBytes?: number;
 };
 
 export type ArchiveImageIndex = {
@@ -121,12 +126,43 @@ const validateImageEntries = <T>(
   return { entries: imageEntries, totalImageBytes };
 };
 
+const validateArchiveEntrySizes = <T>(
+  entries: RawArchiveEntry<T>[],
+  { maxTotalExpandedBytes }: ArchiveInspectionOptions,
+) => {
+  let totalExpandedBytes = 0;
+  for (const entry of entries) {
+    if (!Number.isSafeInteger(entry.size) || entry.size < 0) {
+      throw new ArchiveImageError(
+        'damaged',
+        `압축 파일 항목의 크기 정보가 올바르지 않습니다: ${entry.name}`,
+      );
+    }
+    if (entry.directory) continue;
+    totalExpandedBytes += entry.size;
+    if (!Number.isSafeInteger(totalExpandedBytes)) {
+      throw new ArchiveImageError('damaged', '압축 파일의 전체 크기 정보가 올바르지 않습니다.');
+    }
+    if (
+      maxTotalExpandedBytes !== undefined
+      && totalExpandedBytes > maxTotalExpandedBytes
+    ) {
+      throw new ArchiveImageError(
+        'expanded-size-too-large',
+        '압축 해제 후 예상 전체 용량이 2GB 제한을 초과합니다.',
+      );
+    }
+  }
+};
+
 export const selectArchiveImageEntries = <T>(
   entries: RawArchiveEntry<T>[],
+  options: ArchiveInspectionOptions = {},
 ): ArchiveInspection<T> => {
   if (entries.length > MAX_ARCHIVE_ENTRIES) {
     throw new ArchiveImageError('too-many-entries', '압축 파일의 항목 수가 너무 많습니다.');
   }
+  validateArchiveEntrySizes(entries, options);
 
   const imageEntries = entries.flatMap((entry): ArchiveImageEntry<T>[] => {
     if (entry.directory) return [];
@@ -166,10 +202,12 @@ export const createArchiveImageIndex = (
 export const restoreArchiveImageInspection = <T>(
   rawEntries: RawArchiveEntry<T>[],
   index: ArchiveImageIndex,
+  options: ArchiveInspectionOptions = {},
 ): ArchiveInspection<T> => {
   if (index.version !== 1 || rawEntries.length > MAX_ARCHIVE_ENTRIES) {
     throw new ArchiveImageError('damaged', '저장된 압축 파일 인덱스를 사용할 수 없습니다.');
   }
+  validateArchiveEntrySizes(rawEntries, options);
 
   const rawImageEntries = rawEntries.filter((entry) => {
     if (entry.directory) return false;
@@ -279,6 +317,14 @@ export const createArchiveImageBook = <T>({
       try {
         const imageBlob = await loadBlob(entry);
         if (destroyed) throw new Error('Archive image source is closed.');
+        if (imageBlob.size !== entry.size || imageBlob.size > MAX_IMAGE_BYTES) {
+          close();
+          destroyed = true;
+          throw new ArchiveImageError(
+            'damaged',
+            `압축 해제 결과가 인덱스와 일치하지 않습니다: ${entry.normalizedName}`,
+          );
+        }
 
         const imageUrl = URL.createObjectURL(imageBlob);
         const pageUrl = URL.createObjectURL(new Blob(

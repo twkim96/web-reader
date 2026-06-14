@@ -36,10 +36,11 @@ const parseEntries = (lines) => {
 
   const finishEntry = () => {
     if (!current?.name) return;
+    const directory = current.attributes?.startsWith('D') ?? false;
     entries.push({
       name: current.name,
-      size: Number(current.size) || 0,
-      directory: current.attributes?.startsWith('D') ?? false,
+      size: directory && current.size === undefined ? 0 : Number(current.size),
+      directory,
       encrypted: current.encrypted === '+',
     });
     current = null;
@@ -85,6 +86,15 @@ const removeTree = (path) => {
     } else {
       sevenZip.FS.unlink(childPath);
     }
+  }
+};
+
+const clearOutputDirectory = (path) => {
+  try {
+    removeTree(path);
+    sevenZip.FS.rmdir(path);
+  } catch {
+    // Worker termination releases MEMFS if 7-Zip left an incomplete tree.
   }
 };
 
@@ -161,8 +171,7 @@ const extract = (requestId, entryName, mimeType) => {
     const data = sevenZip.FS.readFile(files[0]);
     return new Blob([data], { type: mimeType });
   } finally {
-    removeTree(outputDir);
-    sevenZip.FS.rmdir(outputDir);
+    clearOutputDirectory(outputDir);
   }
 };
 

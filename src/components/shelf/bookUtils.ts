@@ -1,5 +1,5 @@
-import { Book, UserProgress } from '../../types';
-import { getBookTitleFromFileName } from '../../lib/bookFormats';
+import type { Book, UserProgress } from '../../types.ts';
+import { getBookTitleFromFileName } from '../../lib/bookFormats.ts';
 
 export type ShelfSortMode = 'alpha' | 'recent';
 export type ShelfViewMode = 'grid' | 'list';
@@ -9,6 +9,18 @@ export type ShelfTheme = {
   border: string;
   secondary: string;
 };
+export type PreparedShelfBook = {
+  book: Book;
+  displayTitle: string;
+  isReading: boolean;
+  lastReadTime: number;
+  normalizedTitle: string;
+  originalIndex: number;
+};
+
+type StaticShelfBook = Omit<PreparedShelfBook, 'isReading' | 'lastReadTime'>;
+
+const titleCollator = new Intl.Collator('ko-KR');
 
 export const getDisplayBookTitle = (name: string) => (
   getBookTitleFromFileName(name)
@@ -42,33 +54,68 @@ export const isReadingProgress = (progressPercent = 0) => {
   return displayedPercent > 0 && displayedPercent < 100;
 };
 
+export const prepareShelfBooks = (books: Book[]): StaticShelfBook[] => (
+  books.flatMap((book, originalIndex) => {
+    if (!book.name) return [];
+    const displayTitle = getDisplayBookTitle(book.name);
+    return [{
+      book,
+      displayTitle,
+      normalizedTitle: displayTitle.replace(/\s+/g, '').toLowerCase(),
+      originalIndex,
+    }];
+  })
+);
+
+export const applyShelfProgress = (
+  books: StaticShelfBook[],
+  progress: Record<string, UserProgress>,
+): PreparedShelfBook[] => books.map((prepared) => {
+  const bookProgress = progress[prepared.book.id];
+  const isReading = isReadingProgress(bookProgress?.progressPercent || 0);
+  return {
+    ...prepared,
+    isReading,
+    lastReadTime: isReading ? getProgressTime(bookProgress?.lastRead) : 0,
+  };
+});
+
+const compareStableOrder = (a: PreparedShelfBook, b: PreparedShelfBook) => (
+  a.originalIndex - b.originalIndex || a.book.id.localeCompare(b.book.id)
+);
+
+export const filterAndSortPreparedBooks = (
+  books: PreparedShelfBook[],
+  searchKeyword: string,
+  sortMode: ShelfSortMode,
+) => {
+  const normalizedKeyword = normalizeBookSearchText(searchKeyword);
+
+  return books
+    .filter(({ normalizedTitle }) => (
+      !normalizedKeyword || normalizedTitle.includes(normalizedKeyword)
+    ))
+    .sort((a, b) => {
+      if (a.isReading !== b.isReading) return a.isReading ? -1 : 1;
+      if (sortMode === 'alpha') {
+        return titleCollator.compare(a.displayTitle, b.displayTitle)
+          || compareStableOrder(a, b);
+      }
+      if (a.isReading && a.lastReadTime !== b.lastReadTime) {
+        return b.lastReadTime - a.lastReadTime;
+      }
+      return compareStableOrder(a, b);
+    })
+    .map(({ book }) => book);
+};
+
 export const filterAndSortBooks = (
   books: Book[],
   searchKeyword: string,
   sortMode: ShelfSortMode,
   progress: Record<string, UserProgress>
-) => {
-  const normalizedKeyword = normalizeBookSearchText(searchKeyword);
-
-  return books
-    .filter(book => {
-      if (!book.name) return false;
-      if (!normalizedKeyword) return true;
-      return normalizeBookSearchText(book.name).includes(normalizedKeyword);
-    })
-    .sort((a, b) => {
-      const isReadA = isReadingProgress(progress[a.id]?.progressPercent || 0);
-      const isReadB = isReadingProgress(progress[b.id]?.progressPercent || 0);
-
-      if (isReadA !== isReadB) return isReadA ? -1 : 1;
-
-      if (sortMode === 'alpha') {
-        return getDisplayBookTitle(a.name).localeCompare(getDisplayBookTitle(b.name), 'ko-KR');
-      }
-
-      const pA = isReadA ? getProgressTime(progress[a.id]?.lastRead) : 0;
-      const pB = isReadB ? getProgressTime(progress[b.id]?.lastRead) : 0;
-      if (pA === 0 && pB === 0) return books.indexOf(a) - books.indexOf(b);
-      return pB - pA;
-    });
-};
+) => filterAndSortPreparedBooks(
+  applyShelfProgress(prepareShelfBooks(books), progress),
+  searchKeyword,
+  sortMode,
+);

@@ -11,10 +11,14 @@ import { BookCard } from './BookCard';
 import { EmptyState } from './EmptyState';
 import { CloudSyncStatus, FileUploader, FileUploaderHandle } from './FileUploader';
 import { ImportBookModal } from './ImportBookModal';
-import { useFilteredBooks } from './useFilteredBooks';
+import { useFilteredBooks, usePreparedShelfBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
 import { DEFAULT_MAX_IMPORT_FILES } from '../../lib/bookFormats';
+import {
+  getNextShelfVisibleCount,
+  SHELF_PAGE_SIZE,
+} from './progressiveBooks';
 
 interface ShelfProps {
   books: Book[];
@@ -66,14 +70,117 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>(null);
   const [isDeletingBook, setIsDeletingBook] = useState(false);
+  const [visibleBookCount, setVisibleBookCount] = useState(SHELF_PAGE_SIZE);
+  const [needsLoadMoreButton, setNeedsLoadMoreButton] = useState(false);
 
   const fileUploaderRef = useRef<FileUploaderHandle>(null);
   const shelfContentRef = useRef<HTMLElement | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const loadMorePendingRef = useRef(false);
+  const visibleBookCountRef = useRef(SHELF_PAGE_SIZE);
 
   const theme = getThemeClasses(settings);
   const { viewMode, sortMode, toggleViewMode, toggleSortMode } = useShelfPreferences();
   const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
-  const filteredBooks = useFilteredBooks(books, searchKeyword, sortMode, progress);
+  const preparedBooks = usePreparedShelfBooks(books, progress);
+  const filteredBooks = useFilteredBooks(preparedBooks, searchKeyword, sortMode);
+  const paginationInputsRef = useRef({
+    books,
+    isOfflineMode,
+    searchKeyword,
+    sortMode,
+    userEmail,
+    viewMode,
+  });
+  const previousPaginationInputs = paginationInputsRef.current;
+  const paginationChanged = (
+    previousPaginationInputs.books !== books
+    || previousPaginationInputs.isOfflineMode !== isOfflineMode
+    || previousPaginationInputs.searchKeyword !== searchKeyword
+    || previousPaginationInputs.sortMode !== sortMode
+    || previousPaginationInputs.userEmail !== userEmail
+    || previousPaginationInputs.viewMode !== viewMode
+  );
+  const effectiveVisibleCount = paginationChanged ? SHELF_PAGE_SIZE : visibleBookCount;
+  const visibleBooks = filteredBooks.slice(0, effectiveVisibleCount);
+  const hasMoreBooks = effectiveVisibleCount < filteredBooks.length;
+
+  const loadMoreBooks = useCallback(() => {
+    if (loadMorePendingRef.current) return;
+    const next = getNextShelfVisibleCount(
+      visibleBookCountRef.current,
+      filteredBooks.length,
+    );
+    if (next === visibleBookCountRef.current) return;
+    loadMorePendingRef.current = true;
+    visibleBookCountRef.current = next;
+    setVisibleBookCount(next);
+  }, [filteredBooks.length]);
+
+  useEffect(() => {
+    paginationInputsRef.current = {
+      books,
+      isOfflineMode,
+      searchKeyword,
+      sortMode,
+      userEmail,
+      viewMode,
+    };
+    visibleBookCountRef.current = SHELF_PAGE_SIZE;
+    loadMorePendingRef.current = false;
+    setVisibleBookCount(SHELF_PAGE_SIZE);
+  }, [books, isOfflineMode, searchKeyword, sortMode, userEmail, viewMode]);
+
+  useEffect(() => {
+    visibleBookCountRef.current = visibleBookCount;
+    loadMorePendingRef.current = false;
+  }, [visibleBookCount]);
+
+  useEffect(() => {
+    if (!hasMoreBooks) {
+      setNeedsLoadMoreButton(false);
+      return;
+    }
+    const target = loadMoreRef.current;
+    if (!target) return;
+
+    let frameId = 0;
+    const checkLoadBoundary = () => {
+      frameId = 0;
+      if (target.getBoundingClientRect().top <= window.innerHeight + 300) {
+        loadMoreBooks();
+      }
+    };
+    const scheduleBoundaryCheck = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(checkLoadBoundary);
+    };
+    window.addEventListener('scroll', scheduleBoundaryCheck, { passive: true });
+    window.addEventListener('resize', scheduleBoundaryCheck);
+    scheduleBoundaryCheck();
+
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver === 'undefined') {
+      setNeedsLoadMoreButton(true);
+    } else {
+      try {
+        observer = new IntersectionObserver(([entry]) => {
+          if (entry?.isIntersecting) loadMoreBooks();
+        }, { rootMargin: '300px 0px' });
+        observer.observe(target);
+        setNeedsLoadMoreButton(false);
+      } catch {
+        setNeedsLoadMoreButton(true);
+      }
+    }
+
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      window.removeEventListener('scroll', scheduleBoundaryCheck);
+      window.removeEventListener('resize', scheduleBoundaryCheck);
+      observer?.disconnect();
+    };
+  }, [hasMoreBooks, loadMoreBooks]);
 
   const handleCloudAuthExpired = useCallback(() => {
     onCloudAuthExpired?.();
@@ -168,6 +275,9 @@ export const Shelf: React.FC<ShelfProps> = ({
             <span className="bg-white/10 px-2 py-0.5 rounded-md text-xs font-bold text-white">
               {filteredBooks.length}
             </span>
+            <span className="text-xs">
+              {visibleBooks.length}개 표시
+            </span>
             <button 
               onClick={() => setSearchKeyword('')} 
               className="ml-auto text-xs font-bold text-slate-500 hover:text-white uppercase tracking-wider"
@@ -181,7 +291,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       <main ref={shelfContentRef} className="max-w-7xl mx-auto px-6 pt-5 pb-8">
         {filteredBooks.length > 0 ? (
           <div className={`grid ${viewMode === 'grid' ? 'grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid-cols-1 gap-0'}`}>
-            {filteredBooks.map((book) => (
+            {visibleBooks.map((book) => (
               <BookCard 
                 key={book.id}
                 book={book}
@@ -210,6 +320,20 @@ export const Shelf: React.FC<ShelfProps> = ({
         )}
       </main>
 
+      {hasMoreBooks && (
+        <div ref={loadMoreRef} className="max-w-7xl mx-auto px-6 pb-8 text-center">
+          {needsLoadMoreButton && (
+            <button
+              type="button"
+              onClick={loadMoreBooks}
+              className="rounded-full bg-accent-500 px-5 py-2 text-sm font-bold text-white"
+            >
+              더 보기
+            </button>
+          )}
+        </div>
+      )}
+
       {showManage && (
         <ManageModal 
           onClose={() => setShowManage(false)} 
@@ -224,7 +348,8 @@ export const Shelf: React.FC<ShelfProps> = ({
           onSearch={(keyword) => setSearchKeyword(keyword)}
           initialKeyword={searchKeyword}
           theme={theme}
-          books={books}
+          books={preparedBooks}
+          sortMode={sortMode}
           onOpen={onOpen}
           progress={progress}
           offlineIds={offlineIds}

@@ -1,3 +1,5 @@
+import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
+
 const parseViewport = str => str
     ?.split(/[,;\s]/) // NOTE: technically, only the comma is valid
     ?.filter(x => x)
@@ -35,6 +37,8 @@ export class FixedLayout extends HTMLElement {
     #observer = new ResizeObserver(() => this.#render())
     #spreads
     #index = -1
+    #targetIndex = -1
+    #navigation = new LatestTask()
     defaultViewport
     spread
     #portrait = false
@@ -68,7 +72,7 @@ export class FixedLayout extends HTMLElement {
                 break
         }
     }
-    async #createFrame({ index, src: srcOption }) {
+    async #createFrame({ index, src: srcOption }, container, signal) {
         const srcOptionIsString = typeof srcOption === 'string'
         const src = srcOptionIsString ? srcOption : srcOption?.src
         const onZoom = srcOptionIsString ? null : srcOption?.onZoom
@@ -86,11 +90,25 @@ export class FixedLayout extends HTMLElement {
         iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
         iframe.setAttribute('scrolling', 'no')
         iframe.setAttribute('part', 'filter')
-        this.#root.append(element)
-        if (!src) return { blank: true, element, iframe }
-        return new Promise(resolve => {
-            iframe.addEventListener('load', () => {
+        if (!src) {
+            container.append(element)
+            return { blank: true, element, iframe }
+        }
+        return new Promise((resolve, reject) => {
+            const abort = () => {
+                iframe.removeEventListener('load', handleLoad)
+                element.remove()
+                reject(createAbortError())
+            }
+            const handleLoad = () => {
                 const doc = iframe.contentDocument
+                if (!doc || doc.URL === 'about:blank' && src !== 'about:blank') return
+                iframe.removeEventListener('load', handleLoad)
+                signal.removeEventListener('abort', abort)
+                if (signal.aborted) {
+                    abort()
+                    return
+                }
                 this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
                 const { width, height } = getViewport(doc, this.defaultViewport)
                 resolve({
@@ -99,8 +117,11 @@ export class FixedLayout extends HTMLElement {
                     height: parseFloat(height),
                     onZoom,
                 })
-            }, { once: true })
+            }
+            signal.addEventListener('abort', abort, { once: true })
+            iframe.addEventListener('load', handleLoad)
             iframe.src = src
+            container.append(element)
         })
     }
     #render(side = this.#side) {
@@ -135,7 +156,15 @@ export class FixedLayout extends HTMLElement {
         const transform = frame => {
             let { element, iframe, width, height, blank, onZoom } = frame
             if (!iframe) return
-            if (onZoom) onZoom({ doc: frame.iframe.contentDocument, scale })
+            if (onZoom) Promise.resolve(onZoom({
+                doc: frame.iframe.contentDocument,
+                scale,
+            })).catch(error => {
+                if (isAbortError(error)) return
+                this.dispatchEvent(new CustomEvent('error', {
+                    detail: { error, index: frame.index },
+                }))
+            })
             const iframeScale = onZoom ? scale : 1
             Object.assign(iframe.style, {
                 width: `${width * iframeScale}px`,
@@ -163,22 +192,59 @@ export class FixedLayout extends HTMLElement {
             transform(right)
         }
     }
-    async #showSpread({ left, right, center, side }) {
-        this.#root.replaceChildren()
-        this.#left = null
-        this.#right = null
-        this.#center = null
-        if (center) {
-            this.#center = await this.#createFrame(center)
-            this.#side = 'center'
-            this.#render()
-        } else {
-            this.#left = await this.#createFrame(left)
-            this.#right = await this.#createFrame(right)
-            this.#side = this.#left.blank ? 'right'
-                : this.#right.blank ? 'left' : side
-            this.#render()
+    #cleanupFrame(frame) {
+        if (!frame) return
+        frame.onZoom?.cleanup?.(frame.iframe?.contentDocument)
+        frame.element?.remove()
+    }
+    #cleanupCurrentSpread() {
+        this.#cleanupFrame(this.#left)
+        this.#cleanupFrame(this.#right)
+        this.#cleanupFrame(this.#center)
+    }
+    async #loadSpread({ left, right, center, side }, signal) {
+        const staging = document.createElement('div')
+        staging.style.display = 'none'
+        this.#root.append(staging)
+        try {
+            if (center) {
+                const centerFrame = await this.#createFrame(center, staging, signal)
+                return {
+                    staging,
+                    left: null,
+                    right: null,
+                    center: centerFrame,
+                    side: 'center',
+                }
+            }
+            const [leftFrame, rightFrame] = await Promise.all([
+                this.#createFrame(left, staging, signal),
+                this.#createFrame(right, staging, signal),
+            ])
+            return {
+                staging,
+                left: leftFrame,
+                right: rightFrame,
+                center: null,
+                side: leftFrame.blank ? 'right'
+                    : rightFrame.blank ? 'left' : side,
+            }
+        } catch (error) {
+            staging.remove()
+            throw error
         }
+    }
+    #showSpread({ staging, left, right, center, side }) {
+        this.#cleanupCurrentSpread()
+        for (const child of [...this.#root.children]) {
+            if (child !== staging) child.remove()
+        }
+        staging.style.display = 'contents'
+        this.#left = left
+        this.#right = right
+        this.#center = center
+        this.#side = side
+        this.#render()
     }
     #goLeft() {
         if (this.#center || this.#left?.blank) return
@@ -199,7 +265,10 @@ export class FixedLayout extends HTMLElement {
         }
     }
     open(book) {
+        this.#navigation.cancel()
         this.book = book
+        this.#index = -1
+        this.#targetIndex = -1
         const { rendition } = book
         this.spread = rendition?.spread
         this.defaultViewport = rendition?.viewport
@@ -264,26 +333,53 @@ export class FixedLayout extends HTMLElement {
     }
     async goToSpread(index, side, reason) {
         if (index < 0 || index > this.#spreads.length - 1) return
+        const task = this.#navigation.begin()
+        this.#targetIndex = index
         if (index === this.#index) {
-            this.#render(side)
+            if (side) this.#side = side
+            this.#render()
+            this.#navigation.finish(task)
             return
         }
-        this.#index = index
-        const spread = this.#spreads[index]
-        if (spread.center) {
-            const index = this.book.sections.indexOf(spread.center)
-            const src = await spread.center?.load?.()
-            await this.#showSpread({ center: { index, src } })
-        } else {
-            const indexL = this.book.sections.indexOf(spread.left)
-            const indexR = this.book.sections.indexOf(spread.right)
-            const srcL = await spread.left?.load?.()
-            const srcR = await spread.right?.load?.()
-            const left = { index: indexL, src: srcL }
-            const right = { index: indexR, src: srcR }
-            await this.#showSpread({ left, right, side })
+        try {
+            const spread = this.#spreads[index]
+            let loadedSpread
+            if (spread.center) {
+                const sectionIndex = this.book.sections.indexOf(spread.center)
+                const src = await spread.center?.load?.()
+                if (!this.#navigation.isCurrent(task)) throw createAbortError()
+                loadedSpread = await this.#loadSpread({
+                    center: { index: sectionIndex, src },
+                }, task.signal)
+            } else {
+                const indexL = this.book.sections.indexOf(spread.left)
+                const indexR = this.book.sections.indexOf(spread.right)
+                const [srcL, srcR] = await Promise.all([
+                    spread.left?.load?.(),
+                    spread.right?.load?.(),
+                ])
+                if (!this.#navigation.isCurrent(task)) throw createAbortError()
+                loadedSpread = await this.#loadSpread({
+                    left: { index: indexL, src: srcL },
+                    right: { index: indexR, src: srcR },
+                    side,
+                }, task.signal)
+            }
+            if (!this.#navigation.isCurrent(task)) {
+                loadedSpread.staging.remove()
+                throw createAbortError()
+            }
+            this.#showSpread(loadedSpread)
+            this.#index = index
+            this.#reportLocation(reason)
+            this.#navigation.finish(task)
+        } catch (error) {
+            if (this.#navigation.isCurrent(task)) {
+                this.#targetIndex = this.#index
+                this.#navigation.finish(task)
+            }
+            if (!isAbortError(error)) throw error
         }
-        this.#reportLocation(reason)
     }
     async select(target) {
         await this.goTo(target)
@@ -299,11 +395,19 @@ export class FixedLayout extends HTMLElement {
     }
     async next() {
         const s = this.rtl ? this.#goLeft() : this.#goRight()
-        if (!s) return this.goToSpread(this.#index + 1, this.rtl ? 'right' : 'left', 'page')
+        if (!s) return this.goToSpread(
+            this.#targetIndex + 1,
+            this.rtl ? 'right' : 'left',
+            'page',
+        )
     }
     async prev() {
         const s = this.rtl ? this.#goRight() : this.#goLeft()
-        if (!s) return this.goToSpread(this.#index - 1, this.rtl ? 'left' : 'right', 'page')
+        if (!s) return this.goToSpread(
+            this.#targetIndex - 1,
+            this.rtl ? 'left' : 'right',
+            'page',
+        )
     }
     getContents() {
         return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
@@ -312,7 +416,10 @@ export class FixedLayout extends HTMLElement {
         }))
     }
     destroy() {
+        this.#navigation.cancel()
         this.#observer.unobserve(this)
+        this.#cleanupCurrentSpread()
+        this.#root.replaceChildren()
     }
 }
 

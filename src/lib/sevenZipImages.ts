@@ -1,5 +1,6 @@
 import {
   ArchiveImageError,
+  MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES,
   createArchiveImageIndex,
   createArchiveImageBook,
   restoreArchiveImageInspection,
@@ -55,13 +56,24 @@ class SevenZipWorkerClient {
       if (!request) return;
       this.pending.delete(event.data.id);
       if (event.data.ok) request.resolve(event.data);
-      else request.reject(toArchiveError(event.data.error));
+      else this.fail(toArchiveError(event.data.error), request);
     });
-    this.worker.addEventListener('error', () => {
-      const error = new ArchiveImageError('damaged', '7z 처리 Worker를 실행하지 못했습니다.');
-      this.pending.forEach(({ reject }) => reject(error));
-      this.pending.clear();
-    });
+    this.worker.addEventListener('error', () => this.fail(
+      new ArchiveImageError('damaged', '7z 처리 Worker를 실행하지 못했습니다.'),
+    ));
+    this.worker.addEventListener('messageerror', () => this.fail(
+      new ArchiveImageError('damaged', '7z 처리 Worker 응답을 읽지 못했습니다.'),
+    ));
+  }
+
+  private fail(error: Error, currentRequest?: PendingRequest) {
+    if (!this.closed) {
+      this.closed = true;
+      this.worker.terminate();
+    }
+    currentRequest?.reject(error);
+    this.pending.forEach(({ reject }) => reject(error));
+    this.pending.clear();
   }
 
   private request(message: Record<string, unknown>) {
@@ -80,14 +92,24 @@ class SevenZipWorkerClient {
     return response.entries ?? [];
   }
 
-  async extract(entryName: string, mimeType: string) {
+  async extract(entryName: string, mimeType: string, expectedSize: number) {
     const response = await this.request({
       type: 'extract',
       entryName,
       mimeType,
     });
     if (!response.blob) {
-      throw new ArchiveImageError('damaged', '7z 이미지 페이지를 읽지 못했습니다.');
+      const error = new ArchiveImageError('damaged', '7z 이미지 페이지를 읽지 못했습니다.');
+      this.fail(error);
+      throw error;
+    }
+    if (response.blob.size !== expectedSize) {
+      const error = new ArchiveImageError(
+        'damaged',
+        '7z 이미지의 실제 해제 크기가 인덱스와 일치하지 않습니다.',
+      );
+      this.fail(error);
+      throw error;
     }
     return response.blob;
   }
@@ -113,8 +135,12 @@ const prepareSevenZip = async (blob: Blob, cachedIndex?: ArchiveImageIndex) => {
     return {
       client,
       inspection: cachedIndex
-        ? restoreArchiveImageInspection(rawEntries, cachedIndex)
-        : selectArchiveImageEntries(rawEntries),
+        ? restoreArchiveImageInspection(rawEntries, cachedIndex, {
+            maxTotalExpandedBytes: MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES,
+          })
+        : selectArchiveImageEntries(rawEntries, {
+            maxTotalExpandedBytes: MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES,
+          }),
     };
   } catch (error) {
     client.close();
@@ -143,7 +169,7 @@ export const prepareSevenZipImageBook = async (
     book: createArchiveImageBook({
       entries: inspection.entries,
       fileName,
-      loadBlob: (entry) => client.extract(entry.source, entry.mimeType),
+      loadBlob: (entry) => client.extract(entry.source, entry.mimeType, entry.size),
       close: () => client.close(),
     }),
     index: createArchiveImageIndex(inspection),

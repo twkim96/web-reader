@@ -63,8 +63,13 @@ export const isGoogleDrivePermissionError = (error: unknown) => error instanceof
 
 export const DRIVE_LIBRARY_FOLDER_NAME = 'web viewer';
 const DRIVE_LIBRARY_REGISTRY_NAME = 'twreader-library.json';
-let libraryFolderCache: { token: string; folderId: string } | null = null;
-let syncedLibraryRegistry: { token: string; folderId: string } | null = null;
+const MAX_DRIVE_LIST_PAGES = 100;
+const libraryFolderCache = new Map<string, string>();
+const syncedLibraryRegistry = new Map<string, string>();
+const libraryFolderInFlight = new Map<string, {
+  createIfMissing: boolean;
+  promise: Promise<string | null>;
+}>();
 const registrySyncInFlight = new Map<string, Promise<void>>();
 
 type DriveFolder = {
@@ -87,24 +92,46 @@ const throwIfGoogleDrivePermissionError = (response: Response) => {
 };
 
 const listDriveFolders = async (query: string, token: string) => {
-  const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=drive&pageSize=100&fields=files(id,name,mimeType,trashed)`,
-    { headers: { Authorization: `Bearer ${token}` } },
-    5000,
-  );
+  const files: DriveFolder[] = [];
+  const seenTokens = new Set<string>();
+  let pageToken: string | undefined;
 
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('폴더 목록 조회 실패');
+  for (let page = 0; page < MAX_DRIVE_LIST_PAGES; page += 1) {
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', query);
+    url.searchParams.set('spaces', 'drive');
+    url.searchParams.set('pageSize', '100');
+    url.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,trashed)');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const response = await fetchWithTimeout(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${token}` } },
+      5000,
+    );
+
+    if (!response.ok) {
+      throwIfGoogleDriveAuthError(response);
+      throwIfGoogleDrivePermissionError(response);
+      throw new Error('폴더 목록 조회 실패');
+    }
+
+    const data = await response.json() as {
+      files?: DriveFolder[];
+      nextPageToken?: string;
+    };
+    files.push(...(data.files ?? []));
+    if (!data.nextPageToken) return files;
+    if (seenTokens.has(data.nextPageToken)) {
+      throw new Error('폴더 목록 페이지 토큰이 반복되었습니다.');
+    }
+    seenTokens.add(data.nextPageToken);
+    pageToken = data.nextPageToken;
   }
-
-  const data = await response.json() as { files?: DriveFolder[] };
-  return data.files ?? [];
+  throw new Error('폴더 목록 페이지 수가 제한을 초과했습니다.');
 };
 
 const rememberLibraryFolderId = (token: string, folderId: string) => {
-  libraryFolderCache = { token, folderId };
+  libraryFolderCache.set(token, folderId);
   return folderId;
 };
 
@@ -133,19 +160,43 @@ const isUsableLibraryFolder = (folder: DriveFolder | null) => (
 
 const readDriveLibraryRegistry = async (token: string) => {
   const query = `name = '${DRIVE_LIBRARY_REGISTRY_NAME}' and 'appDataFolder' in parents and trashed = false`;
-  const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&spaces=appDataFolder&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,modifiedTime)`,
-    { headers: { Authorization: `Bearer ${token}` } },
-    5000,
-  );
+  const files: Array<{ id: string }> = [];
+  const seenTokens = new Set<string>();
+  let pageToken: string | undefined;
+  for (let page = 0; page < MAX_DRIVE_LIST_PAGES; page += 1) {
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', query);
+    url.searchParams.set('spaces', 'appDataFolder');
+    url.searchParams.set('orderBy', 'modifiedTime desc');
+    url.searchParams.set('pageSize', '100');
+    url.searchParams.set('fields', 'nextPageToken,files(id,modifiedTime)');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const response = await fetchWithTimeout(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${token}` } },
+      5000,
+    );
 
-  if (response.status === 403) return null;
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throw new Error('라이브러리 폴더 설정 조회 실패');
+    if (response.status === 403) return null;
+    if (!response.ok) {
+      throwIfGoogleDriveAuthError(response);
+      throw new Error('라이브러리 폴더 설정 조회 실패');
+    }
+    const data = await response.json() as {
+      files?: Array<{ id: string }>;
+      nextPageToken?: string;
+    };
+    files.push(...(data.files ?? []));
+    if (!data.nextPageToken) break;
+    if (seenTokens.has(data.nextPageToken)) {
+      throw new Error('라이브러리 설정 페이지 토큰이 반복되었습니다.');
+    }
+    seenTokens.add(data.nextPageToken);
+    pageToken = data.nextPageToken;
+    if (page === MAX_DRIVE_LIST_PAGES - 1) {
+      throw new Error('라이브러리 설정 페이지 수가 제한을 초과했습니다.');
+    }
   }
-
-  const files = (await response.json() as { files?: Array<{ id: string }> }).files ?? [];
   if (files.length === 0) return null;
 
   for (const [index, file] of files.entries()) {
@@ -254,8 +305,7 @@ const syncDriveLibraryRegistry = async (
   registry?: Awaited<ReturnType<typeof readDriveLibraryRegistry>>,
 ) => {
   if (
-    syncedLibraryRegistry?.token === token
-    && syncedLibraryRegistry.folderId === folderId
+    syncedLibraryRegistry.get(token) === folderId
   ) return;
   const syncKey = `${token}:${folderId}`;
   const currentSync = registrySyncInFlight.get(syncKey);
@@ -275,7 +325,7 @@ const syncDriveLibraryRegistry = async (
       if (currentRegistry?.duplicateFileIds.length) {
         await deleteDuplicateDriveLibraryRegistries(currentRegistry.duplicateFileIds, token);
       }
-      syncedLibraryRegistry = { token, folderId };
+      syncedLibraryRegistry.set(token, folderId);
     } catch (error) {
       if (isGoogleDriveAuthError(error)) throw error;
       // Existing drive.file-only tokens cannot access appDataFolder. Retry after
@@ -318,23 +368,19 @@ const createLibraryFolder = async (token: string) => {
   return data.id;
 };
 
-export const getDriveLibraryFolderId = async (
+const resolveDriveLibraryFolderId = async (
   token: string,
   { createIfMissing = false }: { createIfMissing?: boolean } = {},
 ) => {
-  const cachedFolderId = libraryFolderCache?.token === token
-    ? libraryFolderCache.folderId
-    : null;
+  const cachedFolderId = libraryFolderCache.get(token) ?? null;
   if (cachedFolderId) {
     const cachedFolder = await fetchDriveFolder(cachedFolderId, token);
     if (isUsableLibraryFolder(cachedFolder)) {
       await syncDriveLibraryRegistry(cachedFolderId, token);
       return cachedFolderId;
     }
-    libraryFolderCache = null;
-    if (syncedLibraryRegistry?.token === token) {
-      syncedLibraryRegistry = null;
-    }
+    libraryFolderCache.delete(token);
+    syncedLibraryRegistry.delete(token);
   }
 
   const registry = await readDriveLibraryRegistry(token);
@@ -344,7 +390,7 @@ export const getDriveLibraryFolderId = async (
       if (registry.duplicateFileIds.length) {
         await deleteDuplicateDriveLibraryRegistries(registry.duplicateFileIds, token);
       }
-      syncedLibraryRegistry = { token, folderId: registry.folderId };
+      syncedLibraryRegistry.set(token, registry.folderId);
       return rememberLibraryFolderId(token, registry.folderId);
     }
   }
@@ -370,6 +416,29 @@ export const getDriveLibraryFolderId = async (
   const folderId = rememberLibraryFolderId(token, await createLibraryFolder(token));
   await syncDriveLibraryRegistry(folderId, token, registry);
   return folderId;
+};
+
+export const getDriveLibraryFolderId = async (
+  token: string,
+  options: { createIfMissing?: boolean } = {},
+): Promise<string | null> => {
+  const createIfMissing = options.createIfMissing ?? false;
+  const current = libraryFolderInFlight.get(token);
+  if (current) {
+    const folderId = await current.promise;
+    if (folderId || !createIfMissing || current.createIfMissing) return folderId;
+    return getDriveLibraryFolderId(token, { createIfMissing: true });
+  }
+
+  const promise = resolveDriveLibraryFolderId(token, { createIfMissing });
+  libraryFolderInFlight.set(token, { createIfMissing, promise });
+  try {
+    return await promise;
+  } finally {
+    if (libraryFolderInFlight.get(token)?.promise === promise) {
+      libraryFolderInFlight.delete(token);
+    }
+  }
 };
 
 export const uploadFile = async (
@@ -419,22 +488,45 @@ export const normalizeDriveBooks = (files: Book[]) => files.flatMap((file) => {
 
 export const fetchDriveFiles = async (token: string, folderId: string) => {
   const q = `'${folderId}' in parents and trashed=false`;
+  const files: Book[] = [];
+  const seenTokens = new Set<string>();
+  let pageToken: string | undefined;
 
-  // 파일 목록 조회도 5초 타임아웃 (오프라인 감지용)
-  const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,modifiedTime,md5Checksum)`,
-    { headers: { Authorization: `Bearer ${token}` } },
-    5000
-  );
+  for (let page = 0; page < MAX_DRIVE_LIST_PAGES; page += 1) {
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', q);
+    url.searchParams.set('pageSize', '100');
+    url.searchParams.set(
+      'fields',
+      'nextPageToken,files(id,name,mimeType,size,modifiedTime,md5Checksum)',
+    );
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const response = await fetchWithTimeout(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${token}` } },
+      5000,
+    );
 
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('파일 목록 조회 실패');
+    if (!response.ok) {
+      throwIfGoogleDriveAuthError(response);
+      throwIfGoogleDrivePermissionError(response);
+      throw new Error('파일 목록 조회 실패');
+    }
+    const data = await response.json() as {
+      files?: Book[];
+      nextPageToken?: string;
+    };
+    files.push(...(data.files ?? []));
+    if (!data.nextPageToken) {
+      return { files: normalizeDriveBooks(files) };
+    }
+    if (seenTokens.has(data.nextPageToken)) {
+      throw new Error('파일 목록 페이지 토큰이 반복되었습니다.');
+    }
+    seenTokens.add(data.nextPageToken);
+    pageToken = data.nextPageToken;
   }
-  
-  const data = await response.json() as { files?: Book[] };
-  return { ...data, files: normalizeDriveBooks(data.files ?? []) };
+  throw new Error('파일 목록 페이지 수가 제한을 초과했습니다.');
 };
 
 export const fetchFullFile = async (fileId: string, token: string) => {

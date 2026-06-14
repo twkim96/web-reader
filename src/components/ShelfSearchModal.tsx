@@ -1,14 +1,22 @@
-import React, { useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import { Search, X, BookOpen, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { Book, UserProgress } from '../types';
-import { getDisplayBookTitle, getProgressTime, normalizeBookSearchText, ShelfTheme } from './shelf/bookUtils';
+import {
+  filterAndSortPreparedBooks,
+  getDisplayBookTitle,
+  getProgressTime,
+  PreparedShelfBook,
+  ShelfSortMode,
+  ShelfTheme,
+} from './shelf/bookUtils';
 
 interface ShelfSearchModalProps {
   onClose: () => void;
   onSearch: (keyword: string) => void;
   initialKeyword: string;
   theme: ShelfTheme;
-  books: Book[];
+  books: PreparedShelfBook[];
+  sortMode: ShelfSortMode;
   onOpen: (book: Book) => void;
   progress: Record<string, UserProgress>;
   offlineIds: Set<string>;
@@ -24,9 +32,11 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
   onOpen,
   progress,
   offlineIds,
-  isOfflineMode
+  isOfflineMode,
+  sortMode,
 }) => {
   const [keyword, setKeyword] = useState(initialKeyword);
+  const deferredKeyword = useDeferredValue(keyword);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,10 +51,12 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
     return date.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
   };
 
-  const filteredBooks = keyword ? books.filter(b => {
-    if (!b.name) return false;
-    return normalizeBookSearchText(b.name).includes(normalizeBookSearchText(keyword));
-  }).slice(0, 5) : [];
+  const filteredBooks = useMemo(
+    () => deferredKeyword
+      ? filterAndSortPreparedBooks(books, deferredKeyword, sortMode).slice(0, 5)
+      : [],
+    [books, deferredKeyword, sortMode],
+  );
 
   return (
     <div className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[15vh] p-4 animate-in fade-in duration-200" onClick={onClose}>

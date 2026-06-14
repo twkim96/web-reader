@@ -10,6 +10,8 @@ import {
   selectArchiveImageEntries,
 } from '../src/lib/archiveImages.ts';
 import {
+  MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES,
+  createArchiveImageBook,
   createArchiveImageIndex,
   restoreArchiveImageInspection,
 } from '../src/lib/archiveImageBook.ts';
@@ -66,6 +68,55 @@ test('rejects an image whose expanded size exceeds the per-page guard', () => {
     ]),
     (error) => error instanceof ArchiveImageError && error.code === 'image-too-large',
   );
+});
+
+test('rejects negative, non-finite, and unsafe archive entry sizes', () => {
+  for (const size of [-1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => selectArchiveImageEntries([entry('1.jpg', { size })]),
+      (error) => error instanceof ArchiveImageError && error.code === 'damaged',
+    );
+  }
+});
+
+test('can guard total 7z expansion including non-image entries', () => {
+  assert.throws(
+    () => selectArchiveImageEntries([
+      entry('1.jpg', { size: 10 }),
+      entry('payload.bin', { size: MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES }),
+    ], {
+      maxTotalExpandedBytes: MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES,
+    }),
+    (error) => (
+      error instanceof ArchiveImageError
+      && error.code === 'expanded-size-too-large'
+    ),
+  );
+});
+
+test('closes an archive source when extracted Blob size differs from its index', async () => {
+  let closed = 0;
+  const book = createArchiveImageBook({
+    entries: [{
+      name: '1.jpg',
+      normalizedName: '1.jpg',
+      size: 10,
+      encrypted: false,
+      mimeType: 'image/jpeg',
+      source: null,
+    }],
+    fileName: 'damaged.cbz',
+    loadBlob: async () => new Blob(['short']),
+    close: () => {
+      closed += 1;
+    },
+  });
+
+  await assert.rejects(
+    book.sections[0].load(),
+    (error) => error instanceof ArchiveImageError && error.code === 'damaged',
+  );
+  assert.equal(closed, 1);
 });
 
 test('inspects a real mixed ZIP without extracting non-image entries', async () => {
