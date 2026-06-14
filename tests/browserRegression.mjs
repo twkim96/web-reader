@@ -518,6 +518,12 @@ try {
       .some((node) => node.textContent?.trim() === 'Offline Storage')`,
     'offline storage modal',
   );
+  await waitFor(
+    `Boolean([...document.querySelectorAll('div.fixed.inset-0')]
+      .find((node) => node.querySelector('h2')?.textContent?.trim() === 'Offline Storage')
+      ?.querySelector('button[title="Delete"]'))`,
+    'offline storage delete button',
+  );
   await evaluate(`(() => {
     const modal = [...document.querySelectorAll('div.fixed.inset-0')]
       .find((node) => node.querySelector('h2')?.textContent?.trim() === 'Offline Storage');
