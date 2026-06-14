@@ -334,6 +334,11 @@ try {
     window.__archiveAlerts = [];
     window.__nativeArchiveAlert = window.alert;
     window.alert = (message) => window.__archiveAlerts.push(String(message));
+    window.scrollTo(0, Math.min(
+      320,
+      Math.max(0, document.documentElement.scrollHeight - innerHeight),
+    ));
+    window.__modalScrollBefore = window.scrollY;
     const button = [...document.querySelectorAll('button')]
       .find((node) => node.title === 'Add Local Book');
     button?.click();
@@ -342,6 +347,33 @@ try {
   await waitFor(
     'Boolean(document.querySelector(\'input[type="file"]\'))',
     'archive import modal',
+  );
+  const modalScrollLock = await evaluate(`(() => ({
+    scrollBefore: window.__modalScrollBefore,
+    bodyPosition: document.body.style.position,
+    bodyOverflow: document.body.style.overflow,
+    bodyTop: document.body.style.top,
+    htmlOverflow: document.documentElement.style.overflow,
+  }))()`);
+  assert.ok(modalScrollLock.scrollBefore > 0, JSON.stringify(modalScrollLock));
+  assert.equal(modalScrollLock.bodyPosition, 'fixed');
+  assert.equal(modalScrollLock.bodyOverflow, 'hidden');
+  assert.equal(modalScrollLock.htmlOverflow, 'hidden');
+  assert.equal(
+    Number.parseFloat(modalScrollLock.bodyTop),
+    -modalScrollLock.scrollBefore,
+  );
+  await command('Input.dispatchMouseEvent', {
+    type: 'mouseWheel',
+    x: 10,
+    y: 10,
+    deltaX: 0,
+    deltaY: 600,
+  });
+  await sleep(100);
+  assert.equal(
+    await evaluate('document.body.style.top'),
+    modalScrollLock.bodyTop,
   );
   await command('Emulation.setDeviceMetricsOverride', {
     width: 360,
@@ -435,6 +467,101 @@ try {
     })()`,
     'oversized archive import',
   );
+  await waitFor(
+    `!document.querySelector('input[type="file"]')`,
+    'archive import modal close',
+  );
+  const modalScrollRestore = await evaluate(`(() => ({
+    bodyPosition: document.body.style.position,
+    bodyOverflow: document.body.style.overflow,
+    htmlOverflow: document.documentElement.style.overflow,
+    scrollY: window.scrollY,
+    scrollBefore: window.__modalScrollBefore,
+  }))()`);
+  assert.equal(modalScrollRestore.bodyPosition, '');
+  assert.equal(modalScrollRestore.bodyOverflow, '');
+  assert.equal(modalScrollRestore.htmlOverflow, '');
+  assert.ok(
+    Math.abs(modalScrollRestore.scrollY - modalScrollRestore.scrollBefore) <= 1,
+    JSON.stringify(modalScrollRestore),
+  );
+  await evaluate(`new Promise((resolve, reject) => {
+    const request = indexedDB.open('web-reader-db', 4);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction('metadata', 'readwrite');
+      const store = tx.objectStore('metadata');
+      const cursorRequest = store.openCursor();
+      cursorRequest.onerror = () => reject(cursorRequest.error);
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+        if (cursor.key !== 'oversized.cbz') cursor.delete();
+        cursor.continue();
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(true);
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+  })`);
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.title === 'Manage Offline Books');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `[...document.querySelectorAll('h2')]
+      .some((node) => node.textContent?.trim() === 'Offline Storage')`,
+    'offline storage modal',
+  );
+  await evaluate(`(() => {
+    const modal = [...document.querySelectorAll('div.fixed.inset-0')]
+      .find((node) => node.querySelector('h2')?.textContent?.trim() === 'Offline Storage');
+    const button = [...(modal?.querySelectorAll('button') ?? [])]
+      .find((node) => node.title === 'Delete');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `[...document.querySelectorAll('p')]
+      .some((node) => node.textContent?.trim() === '이 도서를 삭제하시겠습니까?')`,
+    'nested delete confirmation',
+  );
+  const nestedModalLock = await evaluate(`(() => ({
+    bodyPosition: document.body.style.position,
+    confirmVisible: [...document.querySelectorAll('p')]
+      .some((node) => node.textContent?.trim() === '이 도서를 삭제하시겠습니까?'),
+  }))()`);
+  assert.equal(nestedModalLock.bodyPosition, 'fixed');
+  assert.equal(nestedModalLock.confirmVisible, true);
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.trim() === '취소');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `![...document.querySelectorAll('p')]
+      .some((node) => node.textContent?.trim() === '이 도서를 삭제하시겠습니까?')`,
+    'nested delete confirmation close',
+  );
+  assert.equal(await evaluate('document.body.style.position'), 'fixed');
+  await evaluate(`(() => {
+    const heading = [...document.querySelectorAll('h2')]
+      .find((node) => node.textContent?.trim() === 'Offline Storage');
+    heading?.parentElement?.parentElement?.querySelector('button')?.click();
+    return Boolean(heading);
+  })()`);
+  await waitFor(
+    `![...document.querySelectorAll('h2')]
+      .some((node) => node.textContent?.trim() === 'Offline Storage')`,
+    'offline storage modal close',
+  );
+  assert.equal(await evaluate('document.body.style.position'), '');
   await evaluate(`(() => {
     const button = [...document.querySelectorAll('button')]
       .find((node) => node.title === 'Search Books');
@@ -644,6 +771,7 @@ try {
     const initial = {
       topBottom: getRowText('Top/Bottom'),
       leftRight: getRowText('Left/Right'),
+      bodyPosition: document.body.style.position,
     };
     const topIncrease = document.querySelector(
       'button[aria-label="Increase top and bottom tap area"]',
@@ -669,6 +797,7 @@ try {
   })()`);
   assert.match(tapSettings.initial.topBottom, /33%/);
   assert.match(tapSettings.initial.leftRight, /30%/);
+  assert.equal(tapSettings.initial.bodyPosition, 'fixed');
   assert.match(tapSettings.updated.topBottom, /35%/);
   assert.match(tapSettings.updated.leftRight, /29%/);
   assert.equal(tapSettings.stored.tapTopBottomPercent, 35);
@@ -1217,6 +1346,9 @@ try {
       metrics: shelfMetrics,
     },
     sizeLimitUi,
+    modalScrollLock,
+    modalScrollRestore,
+    nestedModalLock,
     archiveLimit: archiveLimitResult,
     solidSevenZip: solidSevenZipResult,
     tapSettings,

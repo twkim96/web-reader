@@ -8,6 +8,7 @@ import {
   EXTENDED_IMPORT_FORMATS_ENABLED,
   updateImportSelection,
 } from '../../lib/bookFormats';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface ImportBookModalProps {
   theme: { bg: string; text: string; border: string; secondary: string };
@@ -34,6 +35,8 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
   onLogin,
   onToggleCloud,
 }) => {
+  useBodyScrollLock();
+
   const [isDragging, setIsDragging] = useState(false);
   const [showSizeLimits, setShowSizeLimits] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);

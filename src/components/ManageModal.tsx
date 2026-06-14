@@ -7,6 +7,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { Book, ThemeClasses } from '../types';
 import { getBookTitleFromFileName } from '../lib/bookFormats';
 import { getBookFormatLabel } from './shelf/bookUtils';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface ManageModalProps {
   onClose: () => void;
@@ -15,6 +16,8 @@ interface ManageModalProps {
 }
 
 export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, theme }) => {
+  useBodyScrollLock();
+
   const [books, setBooks] = useState<(Book & { size: number })[]>([]);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 

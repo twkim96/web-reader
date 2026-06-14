@@ -1,6 +1,7 @@
 // src/components/ConfirmDialog.tsx
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface ConfirmDialogProps {
   message: string;
@@ -25,6 +26,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onConfirm,
   onCancel,
 }) => {
+  useBodyScrollLock();
+
   const isDanger = variant === 'danger';
 
   return (

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, X, ArrowRight, Loader2 } from 'lucide-react';
 import { SearchResultPayload } from '../hooks/foliate/types';
 import { ThemeClasses } from '../types';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface EpubSearchModalProps {
   theme: ThemeClasses;
@@ -13,6 +14,8 @@ interface EpubSearchModalProps {
 }
 
 export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose, onSelect, onSearch, onClear }) => {
+  useBodyScrollLock();
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResultPayload[]>([]);
   const [isSearching, setIsSearching] = useState(false);

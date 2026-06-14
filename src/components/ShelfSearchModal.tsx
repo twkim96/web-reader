@@ -9,6 +9,7 @@ import {
   ShelfSortMode,
   ShelfTheme,
 } from './shelf/bookUtils';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface ShelfSearchModalProps {
   onClose: () => void;
@@ -35,6 +36,8 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
   isOfflineMode,
   sortMode,
 }) => {
+  useBodyScrollLock();
+
   const [keyword, setKeyword] = useState(initialKeyword);
   const deferredKeyword = useDeferredValue(keyword);
 

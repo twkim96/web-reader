@@ -1,4 +1,5 @@
 import React from 'react';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 type ReaderModalTheme = {
   bg: string;
@@ -27,6 +28,8 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   noBlur = false,
   placement = 'upper',
 }) => {
+  useBodyScrollLock();
+
   const placementClass = placement === 'center'
     ? 'items-center justify-center p-4 sm:p-6'
     : placement === 'high'
