@@ -22,7 +22,7 @@
 - 실제 Drive 청크 응답 유실은 로컬 fetch 프로토콜 시뮬레이션으로 검증했으며 외부 환경에서 강제 재현할 수 없는 경계로 남긴다.
 - 압축 이미지 해상도 사전 검사와 Phase 6 통합 검증을 완료했다.
 - 커밋 `a4576e6`을 `main`에 배포했으며 고정 배포 URL `https://twreader.vercel.app`의 전체 production Chromium 회귀를 통과했다.
-- 배포 후 확인된 EPUB 최초 열기·도서 전환 폰트 회귀와 리더 제목 캡슐 배치 문제는 로컬 수정과 Chromium 검증을 완료했으며 아직 재배포하지 않았다.
+- EPUB 최초 열기·도서 전환 폰트 회귀와 리더 제목 캡슐 배치 수정 커밋 `fc25048`을 `main`에 배포했으며 고정 배포 URL의 전체 production Chromium 회귀를 통과했다.
 
 ## 확정 결정
 
@@ -372,8 +372,8 @@
 
 ### 상태
 
-- 로컬 구현과 검증 완료.
-- production 재배포는 아직 수행하지 않음.
+- 구현과 production 배포 완료.
+- 배포 커밋: `fc25048`.
 
 ### 원인
 
@@ -409,6 +409,7 @@
 - `npx tsc --noEmit`, 변경 파일 ESLint, `git diff --check`: 통과.
 - `npm run build`: 통과.
 - production 서버 `npm run test:browser`: 통과.
+- 고정 배포 URL `https://twreader.vercel.app`의 전체 production Chromium 회귀 통과.
 - 실제 EPUB A 최초 열기와 B 도서 전환을 프레임 단위로 2회 반복 검증했다.
 - A와 B 모두 iframe이 처음 관찰된 프레임부터 `RIDIBatang, "Noto Serif KR", serif`와 reader CSS가 적용됐고 OS 기본 폰트 프레임은 0개였다.
 - 390px 뷰포트에서 `넣어 키운 걸그룹 1-370 완결 및 후기`는 중앙 오차 0.01px 미만의 한 줄로 표시됐다.
