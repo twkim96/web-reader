@@ -17,7 +17,7 @@ import {
   getBookFingerprint,
   shouldUseCachedBookContent,
 } from '../../lib/bookFingerprint';
-import type { FoliateBook } from '../foliate/types';
+import type { FoliateBook, FoliateRenderer, FoliateViewElement } from '../foliate/types';
 import {
   destroyPreparedBookSource,
   isAbortError,
@@ -35,26 +35,32 @@ type ReaderThemeTexture = {
   size: string;
 };
 
-type ReaderLayoutSetter = (layout: {
-  flow?: 'paginated' | 'scrolled';
-  margin?: number;
-  gap?: string;
-  maxColumnCount?: number;
-  maxInlineSize?: string;
-  animated?: boolean;
-}) => void;
+type ReaderLayoutSetter = (
+  layout: {
+    flow?: 'paginated' | 'scrolled';
+    margin?: number;
+    gap?: string;
+    maxColumnCount?: number;
+    maxInlineSize?: string;
+    animated?: boolean;
+  },
+  targetRenderer?: FoliateRenderer,
+) => void;
 
-type ReaderStyleSetter = (styles: {
-  fontSize?: number;
-  lineHeight?: number;
-  paragraphSpacing?: number;
-  fontFamily?: string;
-  textAlign?: string;
-  bgColor?: string;
-  textColor?: string;
-  bgImage?: string;
-  bgSize?: string;
-}) => void;
+type ReaderStyleSetter = (
+  styles: {
+    fontSize?: number;
+    lineHeight?: number;
+    paragraphSpacing?: number;
+    fontFamily?: string;
+    textAlign?: string;
+    bgColor?: string;
+    textColor?: string;
+    bgImage?: string;
+    bgSize?: string;
+  },
+  targetRenderer?: FoliateRenderer,
+) => void;
 
 interface UseReaderBookSourceOptions {
   book: Book;
@@ -64,7 +70,11 @@ interface UseReaderBookSourceOptions {
   themeColors: ReaderThemeColors;
   themeTexture: ReaderThemeTexture;
   containerRef: MutableRefObject<HTMLDivElement | null>;
-  openBook: (source: Blob | File | string | FoliateBook, initialCfi?: string) => Promise<void>;
+  openBook: (
+    source: Blob | File | string | FoliateBook,
+    initialCfi?: string,
+    beforeInit?: (view: FoliateViewElement) => void | Promise<void>,
+  ) => Promise<void>;
   setLayout: ReaderLayoutSetter;
   setStyle: ReaderStyleSetter;
   onBack: () => void;
@@ -114,6 +124,11 @@ export const useReaderBookSource = ({
     initialCfi,
     openBook,
     onBack,
+    settings,
+    themeColors,
+    themeTexture,
+    setLayout,
+    setStyle,
   });
   loadInputsRef.current = {
     book,
@@ -121,6 +136,11 @@ export const useReaderBookSource = ({
     initialCfi,
     openBook,
     onBack,
+    settings,
+    themeColors,
+    themeTexture,
+    setLayout,
+    setStyle,
   };
 
   useEffect(() => {
@@ -246,7 +266,24 @@ export const useReaderBookSource = ({
               throw error;
             }
           },
-          open: (prepared) => openTargetBook(prepared.source, targetInitialCfi),
+          open: (prepared) => openTargetBook(
+            prepared.source,
+            targetInitialCfi,
+            prepared.format === 'epub'
+              ? (openedView) => {
+                const current = loadInputsRef.current;
+                current.setLayout(
+                  getReaderLayout(current.settings.navMode),
+                  openedView.renderer,
+                );
+                current.setStyle(getReaderStyle(
+                  current.settings,
+                  current.themeColors,
+                  current.themeTexture,
+                ), openedView.renderer);
+              }
+              : undefined,
+          ),
           commit: () => setIsLoaded(true),
         });
       } catch (error) {

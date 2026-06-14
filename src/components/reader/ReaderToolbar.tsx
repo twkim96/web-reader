@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { getBookTitleFromFileName } from '../../lib/bookFormats';
+import { getReaderTitleLayout, type ReaderTitleLayout } from '../../lib/readerTitleLayout';
 
 type ReaderTheme = {
   bg: string;
@@ -97,7 +98,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   };
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
-  const [titleLayout, setTitleLayout] = React.useState<'center' | 'wide'>('center');
+  const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
 
   const updateTitleLayout = React.useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -110,9 +111,12 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     const leftInset = window.matchMedia('(min-width: 640px)').matches ? 16 : 12;
     const rightLimit = closeButton.getBoundingClientRect().left - 6;
     const titleWidth = titleMeasure.getBoundingClientRect().width;
-    const centeredLeft = (viewportWidth - titleWidth) / 2;
-    const centeredRight = (viewportWidth + titleWidth) / 2;
-    const nextLayout = centeredLeft < leftInset || centeredRight > rightLimit ? 'wide' : 'center';
+    const nextLayout = getReaderTitleLayout({
+      viewportWidth,
+      leftInset,
+      rightLimit,
+      titleWidth,
+    });
 
     setTitleLayout((currentLayout) => currentLayout === nextLayout ? currentLayout : nextLayout);
   }, []);
@@ -128,7 +132,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     return () => window.removeEventListener('resize', updateTitleLayout);
   }, [updateTitleLayout]);
 
-  const usesWideTitleLayout = titleLayout === 'wide';
+  const usesRightTitleLayout = titleLayout === 'right';
 
   return (
     <>
@@ -152,12 +156,12 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             {title}
           </span>
         </div>
-        <div className={`flex ${usesWideTitleLayout ? 'justify-start pl-2 pr-[calc(env(safe-area-inset-right)+3.875rem)] sm:pl-3 sm:pr-[calc(env(safe-area-inset-right)+3.875rem)]' : 'justify-center px-3'}`}>
+        <div className={`flex min-w-0 ${usesRightTitleLayout ? 'justify-end pl-2 pr-[calc(env(safe-area-inset-right)+3.875rem)] sm:pl-3 sm:pr-[calc(env(safe-area-inset-right)+3.875rem)]' : 'justify-center px-3'}`}>
           <div
-            className={`pointer-events-auto w-fit rounded-2xl border ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesWideTitleLayout ? 'max-w-full' : 'max-w-[min(38rem,calc(100vw_-_9rem))] sm:max-w-[min(38rem,calc(100vw_-_9.5rem))]'}`}
+            className={`pointer-events-auto rounded-2xl border ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
             style={surfaceStyle}
           >
-            <h2 className="text-center text-[15px] font-bold leading-snug break-words">
+            <h2 className={`text-center text-[15px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
               {title}
             </h2>
           </div>

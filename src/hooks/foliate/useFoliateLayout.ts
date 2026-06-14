@@ -1,7 +1,7 @@
 'use client';
 
 import { MutableRefObject, useCallback, useEffect, useState } from 'react';
-import { FoliateViewElement, ReaderLayout, ReaderStyle } from './types';
+import { FoliateRenderer, FoliateViewElement, ReaderLayout, ReaderStyle } from './types';
 
 interface UseFoliateLayoutOptions {
   viewRef: MutableRefObject<FoliateViewElement | null>;
@@ -128,27 +128,27 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     };
   }, []);
 
-  const setStyle = useCallback((styles: ReaderStyle) => {
-    const view = viewRef.current;
-    if (!view?.renderer) return;
+  const setStyle = useCallback((styles: ReaderStyle, targetRenderer?: FoliateRenderer) => {
+    const renderer = targetRenderer ?? viewRef.current?.renderer;
+    if (!renderer) return;
 
     try {
-      view.renderer.setStyles([beforeStyle, buildReaderStyle(styles)]);
+      renderer.setStyles([beforeStyle, buildReaderStyle(styles)]);
     } catch (error) {
       console.warn('[EpubReader] Style injection failed:', error);
     }
   }, [beforeStyle, viewRef]);
 
-  const setLayout = useCallback((layout: ReaderLayout) => {
-    const view = viewRef.current;
-    if (!view?.renderer) return;
+  const setLayout = useCallback((layout: ReaderLayout, targetRenderer?: FoliateRenderer) => {
+    const renderer = targetRenderer ?? viewRef.current?.renderer;
+    if (!renderer) return;
 
-    if (layout.flow) view.renderer.setAttribute('flow', layout.flow);
-    if (layout.margin !== undefined) view.renderer.setAttribute('margin', `${layout.margin}px`);
-    if (layout.gap) view.renderer.setAttribute('gap', layout.gap);
-    if (layout.maxColumnCount) view.renderer.setAttribute('max-column-count', String(layout.maxColumnCount));
-    if (layout.maxInlineSize) view.renderer.setAttribute('max-inline-size', layout.maxInlineSize);
-    if (layout.animated) view.renderer.setAttribute('animated', '');
+    if (layout.flow) renderer.setAttribute('flow', layout.flow);
+    if (layout.margin !== undefined) renderer.setAttribute('margin', `${layout.margin}px`);
+    if (layout.gap) renderer.setAttribute('gap', layout.gap);
+    if (layout.maxColumnCount) renderer.setAttribute('max-column-count', String(layout.maxColumnCount));
+    if (layout.maxInlineSize) renderer.setAttribute('max-inline-size', layout.maxInlineSize);
+    if (layout.animated) renderer.setAttribute('animated', '');
   }, [viewRef]);
 
   return {

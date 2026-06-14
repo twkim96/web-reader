@@ -10,7 +10,7 @@
 ## 현재 상태
 
 - 1.6.1 정적 검사, 자동 테스트 61개, production build와 로컬 Chromium 회귀는 통과했다.
-- 현재 1.6.2 변경 범위의 자동 회귀 102개, 전체 ESLint, TypeScript, production build를 통과했다.
+- 현재 1.6.2 변경 범위의 자동 회귀 105개, 전체 ESLint, TypeScript, production build를 통과했다.
 - 포맷별 파일 크기 제한과 가져오기 모달 안내 UI는 구현했으며 자동 테스트와 production build를 통과했다.
 - Drive resumable 업로드 복구 절차를 공식 상태 조회 방식으로 수정했으며 자동 회귀와 production build를 통과했다.
 - 리더 닫기·도서 전환 시 Drive 다운로드와 준비 중인 압축 도서 자원을 취소·정리하도록 수정했으며 자동 회귀와 production build를 통과했다.
@@ -22,6 +22,7 @@
 - 실제 Drive 청크 응답 유실은 로컬 fetch 프로토콜 시뮬레이션으로 검증했으며 외부 환경에서 강제 재현할 수 없는 경계로 남긴다.
 - 압축 이미지 해상도 사전 검사와 Phase 6 통합 검증을 완료했다.
 - 커밋 `a4576e6`을 `main`에 배포했으며 고정 배포 URL `https://twreader.vercel.app`의 전체 production Chromium 회귀를 통과했다.
+- 배포 후 확인된 EPUB 최초 열기·도서 전환 폰트 회귀와 리더 제목 캡슐 배치 문제는 로컬 수정과 Chromium 검증을 완료했으며 아직 재배포하지 않았다.
 
 ## 확정 결정
 
@@ -366,6 +367,53 @@
 - 배포 환경에서도 실제 solid 7z 최종 index 2, Worker 종료 1회, 활성 Blob URL 0개.
 - 배포 환경에서도 105페이지 PDF 최대 활성 canvas 1개, cleanup 106회, PDF Worker 종료 2회.
 - 배포 환경 서비스워커: 이전 `v1.6.1` 캐시 삭제, `v1.6.2` 프리캐시 8개 확인.
+
+## Phase 7: EPUB 최초 렌더 폰트 및 제목 캡슐 회귀 수정
+
+### 상태
+
+- 로컬 구현과 검증 완료.
+- production 재배포는 아직 수행하지 않음.
+
+### 원인
+
+- 커밋 `a4576e6`의 리더 취소·자원 수명 정리에서 EPUB의 `setLayout()`과 `setStyle()` 호출이 `openBook()` 직후 경로에서 빠지고 `isLoaded` 이후 effect로만 이동했다.
+- Foliate가 첫 section을 OS 기본 폰트로 렌더한 뒤 React effect가 설정 폰트를 덮어쓰게 되어, 최초 열기와 도서 전환에서 기본 폰트 노출이 길어지거나 첫 적용이 누락될 수 있었다.
+- 초기 설정이 `viewRef.current`를 다시 조회하던 방식도 새 Foliate view 생성 직후 한 프레임 동안 no-op 될 수 있는 경합을 만들었다.
+
+### 대상
+
+- `src/hooks/foliate/openFoliateBook.ts`
+- `src/hooks/foliate/useFoliateNavigation.ts`
+- `src/hooks/foliate/useFoliateLayout.ts`
+- `src/hooks/reader/useReaderBookSource.ts`
+- `src/components/reader/ReaderToolbar.tsx`
+- `src/lib/readerTitleLayout.ts`
+- `tests/foliateBookOpen.test.mjs`
+- `tests/readerTitleLayout.test.mjs`
+
+### 변경
+
+- `view.open()`으로 renderer를 만든 직후, 첫 section을 표시하는 `view.init()` 전에 초기 레이아웃과 폰트 CSS를 적용한다.
+- 초기 설정 콜백에 실제로 열린 Foliate view를 전달하고 해당 renderer를 직접 사용해 React ref 갱신 경합을 제거한다.
+- 로드 후 설정 변경을 반영하는 기존 effect는 유지한다.
+- `open → 초기 스타일 설정 → init` 호출 순서를 자동 회귀로 고정한다.
+- 리더 제목의 자연스러운 한 줄 너비가 닫기 버튼을 제외한 중앙 안전 영역에 들어오면 캡슐을 화면 중앙에 둔다.
+- 중앙 배치가 안전 영역을 넘는 제목만 캡슐 오른쪽을 공통 기준선에 맞추고 왼쪽으로 확장한다.
+- 오른쪽 기준 레일에도 한 줄로 들어가지 않는 제목만 줄바꿈한다.
+
+### 검증
+
+- `npm run test:formats`: 32개 통과.
+- 전체 자동 회귀: 105개 통과.
+- `npx tsc --noEmit`, 변경 파일 ESLint, `git diff --check`: 통과.
+- `npm run build`: 통과.
+- production 서버 `npm run test:browser`: 통과.
+- 실제 EPUB A 최초 열기와 B 도서 전환을 프레임 단위로 2회 반복 검증했다.
+- A와 B 모두 iframe이 처음 관찰된 프레임부터 `RIDIBatang, "Noto Serif KR", serif`와 reader CSS가 적용됐고 OS 기본 폰트 프레임은 0개였다.
+- 390px 뷰포트에서 `넣어 키운 걸그룹 1-370 완결 및 후기`는 중앙 오차 0.01px 미만의 한 줄로 표시됐다.
+- `S급 여자들을 뉴비 때부터 따먹음 1-445`는 한 줄을 유지하며 캡슐 오른쪽 316px, 닫기 버튼과 간격 18px으로 표시됐다.
+- 더 긴 `가챠 중독자의 퓨전펑크 생활 1-192 섬게지는꽃`만 같은 오른쪽 316px 기준에서 왼쪽으로 확장되어 두 줄로 표시됐다.
 
 ## 제외 범위
 

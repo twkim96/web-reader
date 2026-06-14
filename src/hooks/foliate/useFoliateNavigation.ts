@@ -3,6 +3,7 @@
 import { Dispatch, MutableRefObject, SetStateAction, useCallback } from 'react';
 import { buildTocProgress } from './toc';
 import { FoliateBook, FoliateViewElement, TocItem } from './types';
+import { openFoliateBook } from './openFoliateBook';
 
 interface UseFoliateNavigationOptions {
   viewRef: MutableRefObject<FoliateViewElement | null>;
@@ -15,7 +16,11 @@ export const useFoliateNavigation = ({
   initView,
   setToc,
 }: UseFoliateNavigationOptions) => {
-  const openBook = useCallback(async (source: Blob | File | string | FoliateBook, initialCfi?: string) => {
+  const openBook = useCallback(async (
+    source: Blob | File | string | FoliateBook,
+    initialCfi?: string,
+    beforeInit?: (view: FoliateViewElement) => void | Promise<void>,
+  ) => {
     if (!viewRef.current) {
       await initView();
     }
@@ -24,13 +29,7 @@ export const useFoliateNavigation = ({
     if (!view) return;
 
     try {
-      let fileSource = source;
-      if (source instanceof Blob && !(source instanceof File)) {
-        fileSource = new File([source], 'book.epub', { type: 'application/epub+zip' });
-      }
-
-      await view.open(fileSource);
-      await view.init({ lastLocation: initialCfi || null });
+      await openFoliateBook(view, source, initialCfi, beforeInit);
       setToc(buildTocProgress(view));
     } catch (error) {
       console.error('Failed to open epub:', error);
