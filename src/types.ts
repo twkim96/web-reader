@@ -42,6 +42,8 @@ export interface ViewerSettings {
   textAlign: 'left' | 'justify';
   theme: string;
   navMode: 'scroll' | 'page' | 'left-right' | 'all-dir';
+  tapTopBottomPercent: number;
+  tapLeftRightPercent: number;
   fontFamily: 'sans' | 'serif' | 'ridi';
   accentColor: string;
   customThemes?: CustomTheme[];

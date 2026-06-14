@@ -3,7 +3,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Book, Bookmark, SaveProgressOptions, UserProgress, ViewerSettings } from '../types';
-import { getEffectiveNavigationMode } from '../lib/readerNavigation';
+import {
+  DEFAULT_LEFT_RIGHT_TAP_PERCENT,
+  DEFAULT_TOP_BOTTOM_TAP_PERCENT,
+  getEffectiveNavigationMode,
+  getReaderTapAction,
+} from '../lib/readerNavigation';
 import { getThemeClasses, getThemeColors, getThemeTextureCss } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
@@ -258,24 +263,33 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const handleInteraction = useCallback((event: React.MouseEvent) => {
     const { clientX, clientY } = event;
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const action = getReaderTapAction({
+      navMode: effectiveNavMode,
+      clientX,
+      clientY,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      topBottomPercent: settings.tapTopBottomPercent ?? DEFAULT_TOP_BOTTOM_TAP_PERCENT,
+      leftRightPercent: settings.tapLeftRightPercent ?? DEFAULT_LEFT_RIGHT_TAP_PERCENT,
+    });
 
-    if (effectiveNavMode === 'page') {
-      if (clientY > height * 0.67) { markUserProgressChange(); next(); return; }
-      if (clientY < height * 0.33) { markUserProgressChange(); prev(); return; }
-    } else if (effectiveNavMode === 'left-right') {
-      if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
-      if (clientX > width * 0.7) { markUserProgressChange(); next(); return; }
-    } else if (effectiveNavMode === 'all-dir') {
-      if (clientY < height * 0.33) { markUserProgressChange(); prev(); return; }
-      if (clientY > height * 0.67) { markUserProgressChange(); next(); return; }
-      if (clientX < width * 0.3) { markUserProgressChange(); prev(); return; }
-      if (clientX > width * 0.7) { markUserProgressChange(); next(); return; }
+    if (action !== 'controls') {
+      markUserProgressChange();
+      if (action === 'prev') prev();
+      else next();
+      return;
     }
 
     chrome.setShowControls((current) => !current);
-  }, [chrome, effectiveNavMode, markUserProgressChange, next, prev]);
+  }, [
+    chrome,
+    effectiveNavMode,
+    markUserProgressChange,
+    next,
+    prev,
+    settings.tapLeftRightPercent,
+    settings.tapTopBottomPercent,
+  ]);
 
   useEffect(() => {
     return () => {

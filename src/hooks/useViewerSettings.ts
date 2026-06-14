@@ -11,6 +11,8 @@ const defaultSettings: ViewerSettings = {
   textAlign: 'justify',
   theme: 'sepia',
   navMode: 'scroll',
+  tapTopBottomPercent: 33,
+  tapLeftRightPercent: 30,
   fontFamily: 'ridi',
   accentColor: 'sky',
   customThemes: [],

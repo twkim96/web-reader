@@ -138,6 +138,7 @@ try {
     localStorage.setItem('neverShowInstallPrompt', 'true');
     localStorage.setItem('shelf_viewMode', 'grid');
     localStorage.setItem('shelf_sortMode', 'recent');
+    localStorage.removeItem('viewer_settings');
     const request = indexedDB.open('web-reader-db', 4);
     request.onerror = () => reject(request.error);
     request.onupgradeneeded = () => {
@@ -612,6 +613,103 @@ try {
     'solid 7z first page',
     60_000,
   );
+  await evaluate(`(() => {
+    const clientX = innerWidth / 2;
+    const clientY = innerHeight / 2;
+    document.elementFromPoint(clientX, clientY)?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, clientX, clientY }),
+    );
+  })()`);
+  await waitFor(
+    `document.querySelector('nav')?.classList.contains('translate-y-0')`,
+    'reader controls',
+  );
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.trim() === '설정');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `document.body.innerText.includes('TOP/BOTTOM')
+      && document.body.innerText.includes('LEFT/RIGHT')`,
+    'tap area settings',
+  );
+  const tapSettings = await evaluate(`(async () => {
+    const getRowText = (label) => {
+      const labelNode = [...document.querySelectorAll('label')]
+        .find((node) => node.textContent?.trim() === label);
+      return labelNode?.parentElement?.textContent?.replace(/\\s+/g, ' ').trim() ?? '';
+    };
+    const initial = {
+      topBottom: getRowText('Top/Bottom'),
+      leftRight: getRowText('Left/Right'),
+    };
+    const topIncrease = document.querySelector(
+      'button[aria-label="Increase top and bottom tap area"]',
+    );
+    const leftDecrease = document.querySelector(
+      'button[aria-label="Decrease left and right tap area"]',
+    );
+    topIncrease?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    topIncrease?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    leftDecrease?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const updated = {
+      topBottom: getRowText('Top/Bottom'),
+      leftRight: getRowText('Left/Right'),
+    };
+    const stored = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    const heading = [...document.querySelectorAll('h2')]
+      .find((node) => node.textContent?.trim() === '리더 설정');
+    heading?.parentElement?.querySelector('button')?.click();
+    return { initial, updated, stored };
+  })()`);
+  assert.match(tapSettings.initial.topBottom, /33%/);
+  assert.match(tapSettings.initial.leftRight, /30%/);
+  assert.match(tapSettings.updated.topBottom, /35%/);
+  assert.match(tapSettings.updated.leftRight, /29%/);
+  assert.equal(tapSettings.stored.tapTopBottomPercent, 35);
+  assert.equal(tapSettings.stored.tapLeftRightPercent, 29);
+
+  await evaluate(`document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click()`);
+  await waitFor(
+    `!document.querySelector('nav')?.classList.contains('translate-y-0')`,
+    'reader controls close after tap settings',
+  );
+  const tapBoundary = await evaluate(`(async () => {
+    const dispatchTap = (xRatio) => {
+      const clientX = innerWidth * xRatio;
+      const clientY = innerHeight / 2;
+      document.elementFromPoint(clientX, clientY)?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, clientX, clientY }),
+      );
+    };
+    const controlsAreOpen = () => document.querySelector('nav')
+      ?.classList.contains('translate-y-0') ?? false;
+
+    dispatchTap(0.295);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const controlsAtTwentyNinePointFive = controlsAreOpen();
+
+    document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    dispatchTap(0.28);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const controlsAtTwentyEight = controlsAreOpen();
+    const indexAfterTwentyEight = document.querySelector('foliate-view')?.renderer?.index ?? -1;
+    return {
+      controlsAtTwentyNinePointFive,
+      controlsAtTwentyEight,
+      indexAfterTwentyEight,
+    };
+  })()`);
+  assert.equal(tapBoundary.controlsAtTwentyNinePointFive, true);
+  assert.equal(tapBoundary.controlsAtTwentyEight, false);
+  assert.equal(tapBoundary.indexAfterTwentyEight, 0);
+
   const solidSevenZipResult = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
     const renderer = view.renderer;
@@ -1037,8 +1135,8 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.2';
-    const staleCache = 'pc-reader-v1.6.1';
+    const expectedCache = 'pc-reader-v1.6.3';
+    const staleCache = 'pc-reader-v1.6.2';
     const preCacheUrls = [
       '/',
       '/manifest.json',
@@ -1061,7 +1159,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.2',
+      '/sw.js?browser-regression=1.6.3',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1104,10 +1202,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.2']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.3']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.2$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.3$/);
 
   console.log(JSON.stringify({
     shelf: {
@@ -1121,6 +1219,8 @@ try {
     sizeLimitUi,
     archiveLimit: archiveLimitResult,
     solidSevenZip: solidSevenZipResult,
+    tapSettings,
+    tapBoundary,
     fixedLayout,
     pdf: pdfResult,
     serviceWorker: serviceWorkerResult,

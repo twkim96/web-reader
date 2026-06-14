@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clampTapZonePercent,
   getEffectiveNavigationMode,
   getNavigationOptions,
+  getReaderTapAction,
 } from '../src/lib/readerNavigation.ts';
 
 test('preserves tap navigation modes for fixed-layout books', () => {
@@ -22,4 +24,57 @@ test('hides only the unsupported scroll option for fixed-layout books', () => {
     getNavigationOptions(true).map(({ value }) => value),
     ['page', 'left-right', 'all-dir'],
   );
+});
+
+test('keeps the existing 33% vertical and 30% horizontal tap zones', () => {
+  assert.equal(getReaderTapAction({
+    navMode: 'page',
+    clientX: 50,
+    clientY: 32,
+    width: 100,
+    height: 100,
+    topBottomPercent: 33,
+    leftRightPercent: 30,
+  }), 'prev');
+  assert.equal(getReaderTapAction({
+    navMode: 'page',
+    clientX: 50,
+    clientY: 50,
+    width: 100,
+    height: 100,
+    topBottomPercent: 33,
+    leftRightPercent: 30,
+  }), 'controls');
+  assert.equal(getReaderTapAction({
+    navMode: 'left-right',
+    clientX: 71,
+    clientY: 50,
+    width: 100,
+    height: 100,
+    topBottomPercent: 33,
+    leftRightPercent: 30,
+  }), 'next');
+});
+
+test('uses configurable tap zones and preserves a central controls area', () => {
+  assert.equal(getReaderTapAction({
+    navMode: 'all-dir',
+    clientX: 50,
+    clientY: 40,
+    width: 100,
+    height: 100,
+    topBottomPercent: 40,
+    leftRightPercent: 20,
+  }), 'controls');
+  assert.equal(getReaderTapAction({
+    navMode: 'all-dir',
+    clientX: 15,
+    clientY: 50,
+    width: 100,
+    height: 100,
+    topBottomPercent: 40,
+    leftRightPercent: 20,
+  }), 'prev');
+  assert.equal(clampTapZonePercent(0, 33), 10);
+  assert.equal(clampTapZonePercent(50, 30), 45);
 });

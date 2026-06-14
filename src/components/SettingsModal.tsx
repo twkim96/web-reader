@@ -3,6 +3,9 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { ThemeClasses, ViewerSettings } from '../types';
 import {
+  clampTapZonePercent,
+  DEFAULT_LEFT_RIGHT_TAP_PERCENT,
+  DEFAULT_TOP_BOTTOM_TAP_PERCENT,
   getEffectiveNavigationMode,
   getNavigationOptions,
 } from '../lib/readerNavigation';
@@ -25,6 +28,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const stepperGroupStyle = "flex items-center gap-1.5 mr-1.5";
   const valueStyle = "font-black text-lg tabular-nums leading-none w-10 text-left";
   const paragraphSpacing = settings.paragraphSpacing ?? 1;
+  const topBottomTapPercent = clampTapZonePercent(
+    settings.tapTopBottomPercent,
+    DEFAULT_TOP_BOTTOM_TAP_PERCENT,
+  );
+  const leftRightTapPercent = clampTapZonePercent(
+    settings.tapLeftRightPercent,
+    DEFAULT_LEFT_RIGHT_TAP_PERCENT,
+  );
 
   const navOptions = getNavigationOptions(isFixedLayout);
   const selectedNavMode = getEffectiveNavigationMode(settings.navMode, isFixedLayout);
@@ -114,6 +125,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </>
         )}
+
+        <div>
+          <div className="flex items-end justify-between">
+            <div>
+              <label className={labelStyle}>Top/Bottom</label>
+              <div className={valueStyle}>{topBottomTapPercent}%</div>
+            </div>
+            <div className={stepperGroupStyle}>
+              <button aria-label="Decrease top and bottom tap area" onClick={() => onUpdateSettings({ tapTopBottomPercent: clampTapZonePercent(topBottomTapPercent - 1, DEFAULT_TOP_BOTTOM_TAP_PERCENT) })} className={stepperBtnStyle}>-</button>
+              <button aria-label="Increase top and bottom tap area" onClick={() => onUpdateSettings({ tapTopBottomPercent: clampTapZonePercent(topBottomTapPercent + 1, DEFAULT_TOP_BOTTOM_TAP_PERCENT) })} className={stepperBtnStyle}>+</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-end justify-between">
+            <div>
+              <label className={labelStyle}>Left/Right</label>
+              <div className={valueStyle}>{leftRightTapPercent}%</div>
+            </div>
+            <div className={stepperGroupStyle}>
+              <button aria-label="Decrease left and right tap area" onClick={() => onUpdateSettings({ tapLeftRightPercent: clampTapZonePercent(leftRightTapPercent - 1, DEFAULT_LEFT_RIGHT_TAP_PERCENT) })} className={stepperBtnStyle}>-</button>
+              <button aria-label="Increase left and right tap area" onClick={() => onUpdateSettings({ tapLeftRightPercent: clampTapZonePercent(leftRightTapPercent + 1, DEFAULT_LEFT_RIGHT_TAP_PERCENT) })} className={stepperBtnStyle}>+</button>
+            </div>
+          </div>
+        </div>
         </div>
       </div>
     </ReaderModalFrame>
