@@ -2,8 +2,8 @@
 
 ## 상태
 
-- 로컬 구현과 검증 완료.
-- production 배포 전.
+- 구현과 production 배포 완료.
+- 배포 커밋: `6a90e99`.
 
 ## 목표
 
@@ -56,6 +56,7 @@
 - 변경 파일 ESLint와 `git diff --check`: 통과.
 - `npm run build`: 통과.
 - production 서버 `npm run test:browser`: 통과.
+- 고정 배포 URL `https://twreader.vercel.app`의 전체 production Chromium 회귀 통과.
 - 설정 모달에서 기본 `TOP/BOTTOM 33%`, `LEFT/RIGHT 30%` 표시 확인.
 - 스테퍼 변경 후 `35%`, `29%` 표시와 `viewer_settings` 저장값 일치 확인.
 - `LEFT/RIGHT 29%`에서 화면 너비 29.5% 탭은 중앙 컨트롤을 열고, 28% 탭은 이전 이동 영역으로 처리됨을 확인.
