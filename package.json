@@ -13,7 +13,7 @@
     "test:browser": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/browserRegression.mjs",
     "test:release": "node --test tests/releaseVersion.test.mjs",
     "test:storage": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/storageCapacity.test.mjs",
-    "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/shelfBooks.test.mjs"
+    "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/lastReaderSession.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs"
   },
   "dependencies": {
     "@zip.js/zip.js": "^2.8.26",

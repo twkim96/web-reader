@@ -139,6 +139,7 @@ try {
     localStorage.setItem('shelf_viewMode', 'grid');
     localStorage.setItem('shelf_sortMode', 'recent');
     localStorage.removeItem('viewer_settings');
+    localStorage.removeItem('last_reader_session');
     const request = indexedDB.open('web-reader-db', 4);
     request.onerror = () => reject(request.error);
     request.onupgradeneeded = () => {
@@ -765,10 +766,18 @@ try {
   })()`);
   await waitFor(
     `document.body.innerText.includes('TOP/BOTTOM')
-      && document.body.innerText.includes('LEFT/RIGHT')`,
-    'tap area settings',
+      && document.body.innerText.includes('LEFT/RIGHT')
+      && document.body.innerText.includes('마지막으로 읽던 책 자동 열기')`,
+    'settings modal base controls',
   );
   const tapSettings = await evaluate(`(async () => {
+    const autoOpenCheckbox = document.querySelector('input[type="checkbox"]');
+    const autoOpenInitially = autoOpenCheckbox?.checked;
+    autoOpenCheckbox?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const storedDisabled = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    autoOpenCheckbox?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     const getRowText = (label) => {
       const labelNode = [...document.querySelectorAll('label')]
         .find((node) => node.textContent?.trim() === label);
@@ -799,15 +808,18 @@ try {
     const heading = [...document.querySelectorAll('h2')]
       .find((node) => node.textContent?.trim() === '리더 설정');
     heading?.parentElement?.querySelector('button')?.click();
-    return { initial, updated, stored };
+    return { initial, updated, stored, autoOpenInitially, storedDisabled };
   })()`);
   assert.match(tapSettings.initial.topBottom, /33%/);
   assert.match(tapSettings.initial.leftRight, /30%/);
   assert.equal(tapSettings.initial.bodyPosition, 'fixed');
+  assert.equal(tapSettings.autoOpenInitially, true);
+  assert.equal(tapSettings.storedDisabled.autoOpenLastBook, false);
   assert.match(tapSettings.updated.topBottom, /35%/);
   assert.match(tapSettings.updated.leftRight, /29%/);
   assert.equal(tapSettings.stored.tapTopBottomPercent, 35);
   assert.equal(tapSettings.stored.tapLeftRightPercent, 29);
+  assert.equal(tapSettings.stored.autoOpenLastBook, true);
 
   await evaluate(`document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click()`);
   await waitFor(

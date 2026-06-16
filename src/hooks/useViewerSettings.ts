@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ViewerSettings } from '../types';
+import { useCallback, useState } from 'react';
+import type { ViewerSettings } from '../types';
 
 const SETTINGS_KEY = 'viewer_settings';
 
-const defaultSettings: ViewerSettings = {
+export const defaultSettings: ViewerSettings = {
   fontSize: 18,
   lineHeight: 1.9,
   paragraphSpacing: 1,
@@ -13,12 +13,15 @@ const defaultSettings: ViewerSettings = {
   navMode: 'scroll',
   tapTopBottomPercent: 33,
   tapLeftRightPercent: 30,
+  autoOpenLastBook: true,
   fontFamily: 'ridi',
   accentColor: 'sky',
   customThemes: [],
 };
 
-const getStoredViewerSettings = () => {
+export const getStoredViewerSettings = () => {
+  if (typeof window === 'undefined') return defaultSettings;
+
   const savedSettings = localStorage.getItem(SETTINGS_KEY);
   if (!savedSettings) return defaultSettings;
 
@@ -30,13 +33,7 @@ const getStoredViewerSettings = () => {
 };
 
 export const useViewerSettings = () => {
-  const [settings, setSettings] = useState<ViewerSettings>(defaultSettings);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      setSettings(getStoredViewerSettings());
-    });
-  }, []);
+  const [settings, setSettings] = useState<ViewerSettings>(getStoredViewerSettings);
 
   const updateSettings = useCallback((newSettings: Partial<ViewerSettings>) => {
     setSettings(prev => {

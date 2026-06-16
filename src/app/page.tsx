@@ -9,7 +9,7 @@ import { Shelf } from '../components/shelf';
 import dynamic from 'next/dynamic';
 
 const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
-import { Book, ViewState } from '../types';
+import { Book, Bookmark, SaveProgressOptions, ViewState } from '../types';
 import { ACCENT_PALETTE } from '../lib/constants';
 import { getThemeClasses, getThemeColors, getThemeCssVariables } from '../lib/themeUtils';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -28,6 +28,12 @@ import { useViewerSettings } from '../hooks/useViewerSettings';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
 import { getBookOpenLimitError } from '../lib/bookFormats';
+import {
+  clearLastReaderSession,
+  getLastReaderBookCandidate,
+  isLastReaderProgressComplete,
+  saveLastReaderSession,
+} from '../lib/lastReaderSession';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -39,6 +45,7 @@ export default function Page() {
   const { googleToken, setGoogleToken, getStoredToken, saveToken, clearToken, hasValidToken } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const deviceId = useDeviceId();
+  const hasTriedAutoOpenLastBookRef = useRef(false);
 
   const [isOfflineMode, setIsOfflineMode] = useState(true);
   const [isGuest, setIsGuest] = useState(getStoredGuestMode);
@@ -260,11 +267,13 @@ export default function Page() {
     if (pendingAction === 'logout') {
       await signOut(auth);
       clearToken();
+      clearLastReaderSession();
       setBooks([]);
       setIsGuest(false);
       setView('auth');
     } else if (pendingAction === 'disconnect') {
       clearToken();
+      clearLastReaderSession();
       await handleLocalMode();
     }
     setPendingAction(null);
@@ -275,6 +284,17 @@ export default function Page() {
     deleteProgress: handleDeleteProgress,
     deleteBookProgress: handleDeleteBookProgress,
   } = useProgressActions({ activeBook, user, deviceId, progressRef, setProgress });
+
+  const handleReaderSaveProgress = useCallback((
+    cfi: string,
+    pct: number,
+    bookmarks?: Bookmark[],
+    options?: SaveProgressOptions,
+  ) => {
+    handleSaveProgress(cfi, pct, bookmarks, options);
+    if (!activeBook || !settings.autoOpenLastBook) return;
+    saveLastReaderSession(activeBook.id, pct);
+  }, [activeBook, handleSaveProgress, settings.autoOpenLastBook]);
 
   const handleDeleteBook = useCallback(async (book: Book) => {
     const shouldDeleteCloud = !isOfflineMode && Boolean(googleToken) && book.source !== 'local';
@@ -290,6 +310,7 @@ export default function Page() {
 
       await removeBookFromLocal(book.id);
       await handleDeleteBookProgress(book.id);
+      clearLastReaderSession(undefined, book.id);
       setActiveBook((current) => current?.id === book.id ? null : current);
       setBooks((prev) => prev.filter((item) => item.id !== book.id));
     } catch (error) {
@@ -314,9 +335,44 @@ export default function Page() {
       alert(limitError);
       return;
     }
+    if (settings.autoOpenLastBook) {
+      saveLastReaderSession(book.id, progress[book.id]?.progressPercent);
+    }
     setActiveBook(book);
     setView('reader');
-  }, []);
+  }, [progress, settings.autoOpenLastBook]);
+
+  useEffect(() => {
+    if (hasTriedAutoOpenLastBookRef.current) return;
+    if (view !== 'shelf') return;
+    if (!settings.autoOpenLastBook) {
+      hasTriedAutoOpenLastBookRef.current = true;
+      return;
+    }
+    if (books.length === 0) return;
+
+    hasTriedAutoOpenLastBookRef.current = true;
+    const lastBook = getLastReaderBookCandidate(books);
+    if (!lastBook) return;
+
+    const limitError = getBookOpenLimitError(lastBook.name, lastBook.mimeType, lastBook.size);
+    if (limitError) {
+      clearLastReaderSession(undefined, lastBook.id);
+      return;
+    }
+
+    const openTimer = window.setTimeout(() => {
+      setActiveBook(lastBook);
+      setView('reader');
+    }, 0);
+    return () => window.clearTimeout(openTimer);
+  }, [books, settings.autoOpenLastBook, view]);
+
+  useEffect(() => {
+    if (!activeBook) return;
+    if (!isLastReaderProgressComplete(progress[activeBook.id]?.progressPercent)) return;
+    clearLastReaderSession(undefined, activeBook.id);
+  }, [activeBook, progress]);
 
   const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
   const dynamicStyles = {
@@ -381,7 +437,7 @@ export default function Page() {
           settings={settings}
           onUpdateSettings={updateSettings}
           onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
-          onSaveProgress={handleSaveProgress}
+          onSaveProgress={handleReaderSaveProgress}
           initialCfi={progress[activeBook.id]?.anchorCfi || progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
           initialTime={progress[activeBook.id]?.lastRead}
