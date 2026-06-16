@@ -293,3 +293,27 @@
 - `node --check tests/browserRegression.mjs`: 통과.
 - `npm run build`: 통과.
 - `npm run test:browser`: 실행 전 실패. `127.0.0.1:9223` Chrome 디버그 대상이 없어 `ECONNREFUSED`가 발생했다.
+
+## 추가 수정: 리더 종료 후 책장 테마 유지
+
+### 원인
+
+- 리더 루트에는 현재 테마 변수를 직접 주입했지만, X 버튼으로 돌아온 책장 루트는 상위 wrapper와 전역 CSS 변수 상속에 의존하고 있었다.
+- 자동 열기와 리더 직접 테마 주입 경로에서는 리더는 정상 색으로 보이지만, 리더를 닫아 새로 마운트된 책장이 기본 테마처럼 보일 수 있었다.
+
+### 변경
+
+- `Page`의 공용 `dynamicStyles`에 실제 `backgroundColor`, `color`와 테마/포인트 CSS 변수를 함께 둔다.
+- `Shelf`가 `themeStyle`을 받아 책장 최상단 DOM에 직접 적용하도록 했다.
+- production Chromium 회귀에 리더에서 다크/emerald 테마를 적용한 뒤 X로 책장에 돌아와도 책장 배경, 텍스트, root 포인트 변수가 유지되는 검증을 추가했다.
+
+### 검증
+
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src/app/page.tsx src/components/shelf/index.tsx tests/browserRegression.mjs`: 통과.
+- `node --check tests/browserRegression.mjs`: 통과.
+- `npm run test:shelf`: 11개 통과.
+- `npm run test:formats`: 36개 통과.
+- `npm run test:release`: 1개 통과.
+- `npm run build`: 통과.
+- `npm run test:browser`: 통과.

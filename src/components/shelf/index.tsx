@@ -39,6 +39,7 @@ interface ShelfProps {
   onLocalBookImported?: () => void;
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
+  themeStyle?: React.CSSProperties;
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
@@ -59,7 +60,8 @@ export const Shelf: React.FC<ShelfProps> = ({
   onUpdateSettings,
   onLocalBookImported,
   isCloudTokenValid,
-  onCloudAuthExpired
+  onCloudAuthExpired,
+  themeStyle
 }) => {
   const [showManage, setShowManage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -234,7 +236,10 @@ export const Shelf: React.FC<ShelfProps> = ({
   }, []);
 
   return (
-    <div className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-36 transition-colors duration-300`}>
+    <div
+      className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-36 transition-colors duration-300`}
+      style={themeStyle}
+    >
       <ShelfHeader 
         shelfContentRef={shelfContentRef}
         isOfflineMode={isOfflineMode}

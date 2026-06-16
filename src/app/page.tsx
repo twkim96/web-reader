@@ -410,6 +410,8 @@ export default function Page() {
   }, [activeBook, progress]);
 
   const dynamicStyles = {
+    backgroundColor: themeColors.bg,
+    color: themeColors.text,
     '--accent-400': accentColorObj[400],
     '--accent-500': accentColorObj[500],
     '--accent-600': accentColorObj[600],
@@ -456,6 +458,7 @@ export default function Page() {
           onDeleteBook={handleDeleteBook}
           settings={settings}
           onUpdateSettings={updateSettings}
+          themeStyle={dynamicStyles}
           onLocalBookImported={() => restoreLocalData(true)}
           isCloudTokenValid={hasValidToken}
           onCloudAuthExpired={handleCloudAuthExpired}

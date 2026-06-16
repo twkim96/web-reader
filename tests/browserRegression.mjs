@@ -1036,6 +1036,32 @@ try {
   assert.equal(solidSevenZipResult.activeBlobUrls, 0, solidSevenZipDebug);
   assert.deepEqual(solidSevenZipResult.errors, [], solidSevenZipDebug);
 
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    'document.querySelector("h1")?.textContent?.includes("Guest Library")',
+    'shelf after themed reader close',
+  );
+  const shelfThemeAfterReaderClose = await evaluate(`(() => {
+    const stored = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    const rootStyle = getComputedStyle(document.documentElement);
+    const shelfRoot = document.querySelector('main')?.closest('.min-h-screen');
+    const shelfStyle = shelfRoot ? getComputedStyle(shelfRoot) : null;
+    return {
+      storedTheme: stored.theme,
+      storedAccent: stored.accentColor,
+      rootAccent: rootStyle.getPropertyValue('--accent-500').trim(),
+      rootThemeBg: rootStyle.getPropertyValue('--viewer-theme-bg').trim(),
+      shelfBackground: shelfStyle?.backgroundColor ?? '',
+      shelfColor: shelfStyle?.color ?? '',
+    };
+  })()`);
+  assert.equal(shelfThemeAfterReaderClose.storedTheme, 'dark');
+  assert.equal(shelfThemeAfterReaderClose.storedAccent, 'emerald');
+  assert.equal(shelfThemeAfterReaderClose.rootAccent, '#10b981');
+  assert.equal(shelfThemeAfterReaderClose.rootThemeBg, '#272728');
+  assert.equal(shelfThemeAfterReaderClose.shelfBackground, 'rgb(39, 39, 40)');
+  assert.equal(shelfThemeAfterReaderClose.shelfColor, 'rgb(184, 184, 184)');
+
   const fixedLayout = await evaluate(`(async () => {
     document.body.replaceChildren();
     const { FixedLayout } = await import('/foliate-js/fixed-layout.js');
