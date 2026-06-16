@@ -243,3 +243,27 @@
 - `npm run test:release`: 1개 통과.
 - `npm run build`: 통과.
 - `npm run test:browser`: 통과.
+
+## 추가 수정: 앱 시작 시 테마 flash 제거
+
+### 원인
+
+- 서버가 렌더링한 최초 로딩 화면은 React가 실행되기 전 기본 테마 값을 사용한다.
+- 기본 테마를 다크로 바꾸면 첫 사용자에게는 도움이 되지만, 이미 저장된 `blue`, 커스텀 테마, 포인트 컬러가 있는 사용자는 여전히 저장값 적용 전 한 번 다른 색이 보일 수 있다.
+
+### 변경
+
+- 기본 테마를 `dark`로 변경했다.
+- `RootLayout`의 head에서 작은 bootstrap script가 `viewer_settings`를 먼저 읽고 `html/body`에 테마와 포인트 컬러 변수를 주입한다.
+- React의 정식 테마 effect가 실행되면 bootstrap용 임시 스타일을 제거한다.
+- 브라우저 회귀 테스트가 첫 로드 초기에 저장된 다크/emerald 테마가 root에 먼저 적용되는지 검증하도록 강화했다.
+
+### 검증
+
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src/app/layout.tsx src/app/page.tsx src/hooks/useViewerSettings.ts tests/browserRegression.mjs`: 통과.
+- `npm run test:formats`: 36개 통과.
+- `npm run test:shelf`: 11개 통과.
+- `npm run test:release`: 1개 통과.
+- `npm run build`: 통과.
+- `npm run test:browser`: 통과.

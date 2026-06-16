@@ -126,6 +126,8 @@ export default function Page() {
     });
     document.documentElement.style.backgroundColor = color;
     document.body.style.backgroundColor = color;
+    document.documentElement.removeAttribute('data-viewer-theme-bootstrapped');
+    document.getElementById('viewer-theme-bootstrap-style')?.remove();
   }, [accentColorObj, settings]);
 
   const {

@@ -110,6 +110,21 @@ try {
   });
   await command('Page.addScriptToEvaluateOnNewDocument', {
     source: `(() => {
+      try {
+        localStorage.setItem('viewer_settings', JSON.stringify({
+          theme: 'dark',
+          accentColor: 'emerald'
+        }));
+      } catch {}
+      requestAnimationFrame(() => {
+        const rootStyle = getComputedStyle(document.documentElement);
+        window.__themeBootstrapEarly = {
+          rootThemeBg: rootStyle.getPropertyValue('--viewer-theme-bg').trim(),
+          rootAccent: rootStyle.getPropertyValue('--accent-500').trim(),
+          rootBackground: rootStyle.backgroundColor,
+          bootstrapped: document.documentElement.dataset.viewerThemeBootstrapped,
+        };
+      });
       window.__regressionErrors = [];
       window.__regressionLongTasks = [];
       addEventListener('error', (event) => {
@@ -132,6 +147,13 @@ try {
     'document.readyState === "complete"',
     'initial production page',
   );
+  const themeBootstrapEarly = await waitFor(
+    'window.__themeBootstrapEarly',
+    'early theme bootstrap',
+  );
+  assert.equal(themeBootstrapEarly.rootThemeBg, '#272728');
+  assert.equal(themeBootstrapEarly.rootAccent, '#10b981');
+  assert.equal(themeBootstrapEarly.rootBackground, 'rgb(39, 39, 40)');
 
   await evaluate(`new Promise((resolve, reject) => {
     localStorage.setItem('isGuest', 'true');
