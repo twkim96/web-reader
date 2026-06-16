@@ -198,3 +198,21 @@
 - `npm run build`: 통과.
 - `npm run test:browser`: 통과.
 - `git diff --check`: 통과.
+
+## 추가 수정: 테마 저장과 설정 모달 섹션 정리
+
+### 변경
+
+- 기본 테마 선택이 `viewer_settings.theme`에 즉시 저장되도록 `ThemeModal`의 선택 경로를 단일화했다.
+- 테마 선택 후 새로고침해도 기본 테마로 되돌아가지 않도록 production Chromium 회귀에 저장 검증을 추가했다.
+- `Size` 행과 펼쳐지는 네 개 수치 항목이 같은 설정 섹션으로 보이도록 내부 구분선을 제거하고 행 레이아웃을 정리했다.
+
+### 검증
+
+- `npx tsc --noEmit`: 통과.
+- 변경 파일 ESLint: 통과.
+- `npm run test:formats`: 36개 통과.
+- `npm run test:shelf`: 11개 통과.
+- `npm run test:release`: 1개 통과.
+- `npm run build`: 통과.
+- `npm run test:browser`: 통과.

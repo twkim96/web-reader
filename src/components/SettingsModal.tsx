@@ -171,15 +171,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   aria-expanded={showAdvancedSizing}
                   aria-label="Toggle size details"
                   onClick={() => setShowAdvancedSizing((current) => !current)}
-                  className="flex min-w-0 flex-1 items-end gap-2 rounded-lg text-left transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                  className="flex min-w-0 flex-1 items-end gap-2 text-left transition-opacity active:opacity-70"
                 >
                   <ChevronDown
                     size={16}
                     className={`mb-1 shrink-0 transition-transform ${showAdvancedSizing ? 'rotate-0' : '-rotate-90'}`}
                   />
-                  <span>
+                  <span className="block">
                     <span className={labelStyle}>Size</span>
-                    <span className={valueStyle}>{settings.fontSize}</span>
+                    <span className={`block ${valueStyle}`}>{settings.fontSize}</span>
                   </span>
                 </button>
                 <div className={stepperGroupStyle}>
@@ -189,7 +189,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {showAdvancedSizing && (
-                <div className="space-y-4 border-t border-black/10 pt-4 dark:border-white/10">
+                <div className="space-y-4">
                   {renderStepperRow({
                     label: 'Paragraph Gap',
                     value: paragraphSpacing.toFixed(1),

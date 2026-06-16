@@ -821,6 +821,33 @@ try {
   assert.equal(tapSettings.stored.tapLeftRightPercent, 29);
   assert.equal(tapSettings.stored.autoOpenLastBook, true);
 
+  const themeSettings = await evaluate(`(async () => {
+    const themeButton = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.trim() === '테마');
+    themeButton?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const darkTheme = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.includes('dark')
+        && node.textContent?.includes('Comfortable reading'));
+    darkTheme?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const stored = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    const heading = [...document.querySelectorAll('h2')]
+      .find((node) => node.textContent?.trim() === '테마 설정');
+    heading?.parentElement?.querySelector('button[aria-label="커스텀 테마 추가"]')
+      ?.parentElement?.querySelector('button:last-child')?.click();
+    return {
+      opened: Boolean(themeButton),
+      selected: Boolean(darkTheme),
+      storedTheme: stored.theme,
+    };
+  })()`);
+  assert.equal(themeSettings.opened, true);
+  assert.equal(themeSettings.selected, true);
+  assert.equal(themeSettings.storedTheme, 'dark');
+
   await evaluate(`document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click()`);
   await waitFor(
     `!document.querySelector('nav')?.classList.contains('translate-y-0')`,

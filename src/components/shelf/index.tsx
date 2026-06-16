@@ -363,7 +363,6 @@ export const Shelf: React.FC<ShelfProps> = ({
           onUpdateSettings={onUpdateSettings}
           onClose={() => setShowThemeModal(false)}
           theme={theme}
-          onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })}
         />
       )}
 

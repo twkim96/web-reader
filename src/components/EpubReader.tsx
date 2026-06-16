@@ -565,7 +565,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onUpdateSettings={onUpdateSettings}
           onClose={() => chrome.setShowThemeModal(false)}
           theme={theme}
-          onSelectTheme={(newTheme) => onUpdateSettings({ theme: newTheme })}
         />
       )}
 

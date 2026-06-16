@@ -10,7 +10,6 @@ interface ThemeModalProps {
   onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onClose: () => void;
   theme: { bg: string; text: string; border: string; secondary?: string };
-  onSelectTheme?: (themeName: string) => void;
 }
 
 const TEXTURE_OPTIONS: Array<[CustomThemeTexture, string]> = [
@@ -22,8 +21,8 @@ const TEXTURE_OPTIONS: Array<[CustomThemeTexture, string]> = [
   ['grain', '입자'],
 ];
 
-export const ThemeModal: React.FC<ThemeModalProps> = ({ 
-  settings, onUpdateSettings, onClose, theme, onSelectTheme 
+export const ThemeModal: React.FC<ThemeModalProps> = ({
+  settings, onUpdateSettings, onClose, theme
 }) => {
   const customThemes = useMemo(() => settings.customThemes || [], [settings.customThemes]);
   const [mode, setMode] = useState<'list' | 'create' | 'edit-select' | 'edit'>('list');
@@ -41,12 +40,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   );
   
   const handleThemeClick = (themeKey: string) => {
-    if (onSelectTheme) {
-      onSelectTheme(themeKey);
-    } 
-    else {
-      onUpdateSettings({ theme: themeKey });
-    }
+    onUpdateSettings({ theme: themeKey });
   };
 
   const openCreate = () => {
