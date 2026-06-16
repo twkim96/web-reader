@@ -149,7 +149,7 @@
 ### 확장형 수치 조절 영역
 
 - 중간 수치 조절 단락의 맨 위에 `Size` 행을 배치한다.
-- `Size` 왼쪽에 아래로 펼쳐지는 chevron 아이콘을 둔다.
+- `Size` 아래에 얇은 펼침/접힘 라인을 두고, 펼친 상태에서는 해당 라인이 확장 영역 하단으로 이동한다.
 - `Size` 행의 `-`, `+`는 접힌 상태에서도 항상 노출한다.
 - `Size` 행을 누르면 아래 네 개 항목이 펼쳐지고 다시 누르면 닫힌다.
 - 접히는 네 항목은 `Paragraph Gap`, `Line`, `Top/Bottom`, `Left/Right`로 둔다.
@@ -160,8 +160,8 @@
 
 - `Size`는 자주 바꾸는 값이라 접힌 상태에서도 조절 가능하게 두는 것이 직관적이다.
 - `Size` 아래에 나머지 수치 조절을 접는 구조는 설정을 한 그룹으로 이해하기 쉽다.
-- 다만 `Size` 행 전체가 펼침 토글이면서 동시에 `-`, `+` 버튼을 가지므로, 버튼 클릭은 값 조절만 하고 행 배경 또는 chevron 클릭은 펼침 토글만 하도록 이벤트 경계를 분리한다.
-- chevron에는 열림/닫힘 상태를 시각적으로 회전시켜 현재 상태를 명확히 표시한다.
+- 다만 `Size` 행 전체가 펼침 토글이면서 동시에 `-`, `+` 버튼을 가지므로, 버튼 클릭은 값 조절만 하고 `Size` 텍스트 영역 또는 얇은 라인 클릭은 펼침 토글만 하도록 이벤트 경계를 분리한다.
+- 얇은 라인 중앙의 chevron에는 열림/닫힘 상태를 시각적으로 회전시켜 현재 상태를 명확히 표시한다.
 
 ### 하단 자동 열기 설정
 
@@ -211,6 +211,30 @@
 
 - `npx tsc --noEmit`: 통과.
 - 변경 파일 ESLint: 통과.
+- `npm run test:formats`: 36개 통과.
+- `npm run test:shelf`: 11개 통과.
+- `npm run test:release`: 1개 통과.
+- `npm run build`: 통과.
+- `npm run test:browser`: 통과.
+
+## 추가 수정: 리더 바깥 껍데기 테마 적용
+
+### 원인
+
+- 자동 열기 패치 이후 앱 시작 직후 리더로 바로 들어가는 경로가 빨라지면서, 본문 iframe에는 테마가 적용되지만 바깥 React UI가 wrapper에만 있던 CSS 변수를 안정적으로 상속하지 못하는 문제가 드러났다.
+- 모바일에서는 reader toolbar, status/shell 같은 겉 껍데기 색이 남고, PC에서는 포인트 컬러 CSS 변수 일부가 실제 UI에 늦게 적용되는 증상으로 보였다.
+
+### 변경
+
+- 현재 테마 배경, 텍스트, border, reader surface 변수와 포인트 컬러 변수를 `document.documentElement`와 `document.body`에 함께 적용한다.
+- reader toolbar의 표면색을 기본 테마별 하드코딩 값이 아니라 `--viewer-reader-surface` 단일 변수로 통일했다.
+- `Size` 왼쪽 chevron을 제거하고, `Size` 아래 얇은 펼침 라인을 사용하도록 설정 UI를 정리했다.
+- 브라우저 회귀 테스트가 저장값뿐 아니라 root 포인트 컬러 변수, body 배경색, toolbar 표면색까지 검증하도록 강화했다.
+
+### 검증
+
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src/app/page.tsx src/components/SettingsModal.tsx src/components/reader/ReaderToolbar.tsx tests/browserRegression.mjs`: 통과.
 - `npm run test:formats`: 36개 통과.
 - `npm run test:shelf`: 11개 통과.
 - `npm run test:release`: 1개 통과.

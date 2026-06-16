@@ -28,6 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const stepperBtnStyle = `w-7 h-7 flex items-center justify-center ${theme.secondary} rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
   const stepperGroupStyle = "flex items-center gap-1.5 mr-1.5";
   const valueStyle = "font-black text-lg tabular-nums leading-none w-10 text-left";
+  const toggleAdvancedSizing = () => setShowAdvancedSizing((current) => !current);
   const paragraphSpacing = settings.paragraphSpacing ?? 1;
   const topBottomTapPercent = clampTapZonePercent(
     settings.tapTopBottomPercent,
@@ -110,6 +111,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       })}
     </>
   );
+  const renderSizeDisclosureToggle = () => (
+    <button
+      type="button"
+      aria-expanded={showAdvancedSizing}
+      aria-label={showAdvancedSizing ? 'Collapse size details' : 'Expand size details'}
+      onClick={toggleAdvancedSizing}
+      className="flex w-full items-center gap-2 py-1 text-current/45 transition-opacity active:opacity-70"
+    >
+      <span className="h-px flex-1 bg-current/15" />
+      <ChevronDown
+        size={14}
+        className={`shrink-0 transition-transform ${showAdvancedSizing ? 'rotate-180' : 'rotate-0'}`}
+      />
+      <span className="h-px flex-1 bg-current/15" />
+    </button>
+  );
 
   return (
     <ReaderModalFrame
@@ -170,17 +187,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="button"
                   aria-expanded={showAdvancedSizing}
                   aria-label="Toggle size details"
-                  onClick={() => setShowAdvancedSizing((current) => !current)}
-                  className="flex min-w-0 flex-1 items-end gap-2 text-left transition-opacity active:opacity-70"
+                  onClick={toggleAdvancedSizing}
+                  className="min-w-0 flex-1 text-left transition-opacity active:opacity-70"
                 >
-                  <ChevronDown
-                    size={16}
-                    className={`mb-1 shrink-0 transition-transform ${showAdvancedSizing ? 'rotate-0' : '-rotate-90'}`}
-                  />
-                  <span className="block">
-                    <span className={labelStyle}>Size</span>
-                    <span className={`block ${valueStyle}`}>{settings.fontSize}</span>
-                  </span>
+                  <span className={labelStyle}>Size</span>
+                  <span className={`block ${valueStyle}`}>{settings.fontSize}</span>
                 </button>
                 <div className={stepperGroupStyle}>
                   <button aria-label="Decrease font size" onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} className={stepperBtnStyle}>-</button>
@@ -219,6 +230,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {tapAreaControls}
                 </div>
               )}
+
+              {renderSizeDisclosureToggle()}
             </div>
           ) : (
             <div className="space-y-4">

@@ -833,7 +833,14 @@ try {
     darkTheme?.click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
+    const emeraldAccent = document.querySelector('button[title="emerald"]');
+    emeraldAccent?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
     const stored = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    const rootStyle = getComputedStyle(document.documentElement);
+    const bodyStyle = getComputedStyle(document.body);
+    const toolbarSurface = getComputedStyle(document.querySelector('nav button')).backgroundColor;
     const heading = [...document.querySelectorAll('h2')]
       .find((node) => node.textContent?.trim() === '테마 설정');
     heading?.parentElement?.querySelector('button[aria-label="커스텀 테마 추가"]')
@@ -841,12 +848,24 @@ try {
     return {
       opened: Boolean(themeButton),
       selected: Boolean(darkTheme),
+      accentSelected: Boolean(emeraldAccent),
       storedTheme: stored.theme,
+      storedAccent: stored.accentColor,
+      rootAccent: rootStyle.getPropertyValue('--accent-500').trim(),
+      rootReaderSurface: rootStyle.getPropertyValue('--viewer-reader-surface').trim(),
+      bodyBackground: bodyStyle.backgroundColor,
+      toolbarSurface,
     };
   })()`);
   assert.equal(themeSettings.opened, true);
   assert.equal(themeSettings.selected, true);
+  assert.equal(themeSettings.accentSelected, true);
   assert.equal(themeSettings.storedTheme, 'dark');
+  assert.equal(themeSettings.storedAccent, 'emerald');
+  assert.equal(themeSettings.rootAccent, '#10b981');
+  assert.equal(themeSettings.rootReaderSurface, 'rgba(39, 39, 40, 0.68)');
+  assert.equal(themeSettings.bodyBackground, 'rgb(39, 39, 40)');
+  assert.equal(themeSettings.toolbarSurface, 'rgba(39, 39, 40, 0.68)');
 
   await evaluate(`document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click()`);
   await waitFor(

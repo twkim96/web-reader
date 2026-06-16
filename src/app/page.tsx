@@ -60,6 +60,7 @@ export default function Page() {
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
 
   useEffect(() => {
     if (view === 'shelf' && isInstallable && !isStandalone) {
@@ -94,6 +95,12 @@ export default function Page() {
 
   useEffect(() => {
     const color = getThemeColors(settings).bg;
+    const shellVariables = {
+      '--accent-400': accentColorObj[400],
+      '--accent-500': accentColorObj[500],
+      '--accent-600': accentColorObj[600],
+      ...getThemeCssVariables(settings),
+    } as React.CSSProperties;
 
     const ensureMeta = (name: string) => {
       let meta = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
@@ -113,9 +120,13 @@ export default function Page() {
     }
 
     ensureMeta('msapplication-navbutton-color').setAttribute('content', color);
+    Object.entries(shellVariables).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(key, String(value));
+      document.body.style.setProperty(key, String(value));
+    });
     document.documentElement.style.backgroundColor = color;
     document.body.style.backgroundColor = color;
-  }, [settings]);
+  }, [accentColorObj, settings]);
 
   const {
     books,
@@ -374,7 +385,6 @@ export default function Page() {
     clearLastReaderSession(undefined, activeBook.id);
   }, [activeBook, progress]);
 
-  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
   const dynamicStyles = {
     '--accent-400': accentColorObj[400],
     '--accent-500': accentColorObj[500],

@@ -46,29 +46,11 @@ const getSafePercent = (progress: number) => {
   return Math.min(100, Math.max(0, progress));
 };
 
-const getReaderSurfaceStyle = (bg: string): React.CSSProperties => {
-  const blurStyle = {
-    backdropFilter: 'blur(18px) saturate(1.18)',
-    WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
-  };
-
-  if (bg.includes('var(--viewer-theme-bg)')) {
-    return { ...blurStyle, backgroundColor: 'var(--viewer-reader-surface)' };
-  }
-
-  switch (bg) {
-    case 'bg-[#272728]':
-      return { ...blurStyle, backgroundColor: 'rgba(39, 39, 40, 0.54)' };
-    case 'bg-[#f4ecd8]':
-      return { ...blurStyle, backgroundColor: 'rgba(244, 236, 216, 0.62)' };
-    case 'bg-[#eef2f7]':
-      return { ...blurStyle, backgroundColor: 'rgba(238, 242, 247, 0.62)' };
-    case 'bg-[#ffffff]':
-      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.58)' };
-    default:
-      return { ...blurStyle, backgroundColor: 'rgba(255, 255, 255, 0.58)' };
-  }
-};
+const getReaderSurfaceStyle = (): React.CSSProperties => ({
+  backdropFilter: 'blur(18px) saturate(1.18)',
+  WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+  backgroundColor: 'var(--viewer-reader-surface)',
+});
 
 export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   theme,
@@ -92,7 +74,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitleFromFileName(bookName);
-  const surfaceStyle = getReaderSurfaceStyle(theme.bg);
+  const surfaceStyle = getReaderSurfaceStyle();
   const menuPositionStyle: React.CSSProperties = {
     right: `max(calc(env(safe-area-inset-right) + 1rem), calc((100vw - (${READER_TEXT_MAX_INLINE_SIZE}px + ${READER_MENU_DOUBLE_WIDTH})) / 2))`,
   };
