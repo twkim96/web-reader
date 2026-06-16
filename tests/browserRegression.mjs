@@ -695,6 +695,31 @@ try {
     'solid 7z import',
   );
   await evaluate(`(() => {
+    localStorage.setItem('last_reader_session', JSON.stringify({
+      bookId: 'solid-pages.7z',
+      updatedAt: Date.now()
+    }));
+  })()`);
+  await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    `document.querySelector('foliate-view')?.renderer?.index === 0`,
+    'auto-open last reader session',
+    60_000,
+  );
+  const autoOpenSession = await evaluate(`(() => ({
+    readerVisible: Boolean(document.querySelector('foliate-view')),
+    bookTitle: document.body.innerText.includes('solid-pages'),
+    storedSession: JSON.parse(localStorage.getItem('last_reader_session') || 'null')?.bookId ?? null,
+  }))()`);
+  assert.equal(autoOpenSession.readerVisible, true);
+  assert.equal(autoOpenSession.bookTitle, true);
+  assert.equal(autoOpenSession.storedSession, 'solid-pages.7z');
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    'document.querySelector("h1")?.textContent?.includes("Guest Library")',
+    'shelf after auto-open close',
+  );
+  await evaluate(`(() => {
     const button = [...document.querySelectorAll('button')]
       .find((node) => node.title === 'Search Books');
     button?.click();

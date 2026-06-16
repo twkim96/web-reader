@@ -267,3 +267,29 @@
 - `npm run test:release`: 1개 통과.
 - `npm run build`: 통과.
 - `npm run test:browser`: 통과.
+
+## 코드 리뷰 후 수정: 자동 열기 정리와 회귀 보강
+
+### 원인
+
+- 1.6.4 리뷰에서 빈 책장으로 복구된 경우 오래된 `last_reader_session` 포인터가 남을 수 있음을 확인했다.
+- 테마 DOM effect가 `settings` 전체에 의존해 폰트 크기, 탭 영역, 자동 열기 설정 변경에도 root/body CSS 변수를 다시 쓰는 구조였다.
+- 브라우저 회귀는 자동 열기 체크박스 저장만 확인하고, 실제 `last_reader_session` 기반 새로고침 자동 진입은 확인하지 않았다.
+
+### 변경
+
+- 책장 복구가 끝났고 현재 책이 하나도 없으면 마지막 리더 세션 포인터를 삭제하고 해당 앱 시작에서는 자동 열기 재시도를 끝내도록 했다.
+- 테마 색상 계산 helper가 실제로 필요한 `theme`, `customThemes`만 받도록 타입을 좁혔다.
+- `Page`의 root/body 테마 effect가 `theme`, `customThemes`, `accentColor` 변경에만 반응하도록 CSS 변수 계산을 memoized 값으로 분리했다.
+- production Chromium 회귀에 7z 도서를 로컬에 저장한 뒤 `last_reader_session`을 seed하고 reload하면 리더로 자동 진입하는 검증을 추가했다.
+
+### 검증
+
+- `npx tsc --noEmit`: 통과.
+- `npx eslint src/app/page.tsx src/lib/themeUtils.ts tests/browserRegression.mjs`: 통과.
+- `npm run test:shelf`: 11개 통과.
+- `npm run test:formats`: 36개 통과.
+- `npm run test:release`: 1개 통과.
+- `node --check tests/browserRegression.mjs`: 통과.
+- `npm run build`: 통과.
+- `npm run test:browser`: 실행 전 실패. `127.0.0.1:9223` Chrome 디버그 대상이 없어 `ECONNREFUSED`가 발생했다.

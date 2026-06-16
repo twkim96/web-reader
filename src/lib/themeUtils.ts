@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { CustomThemeTexture, ThemeClasses, ViewerSettings } from '../types';
 
 export const CUSTOM_THEME_PREFIX = 'custom:';
+export type ThemeLookupSettings = Pick<ViewerSettings, 'theme' | 'customThemes'>;
 
 export const normalizeHexColor = (value: string, fallback: string) => {
   const trimmed = value.trim();
@@ -12,7 +13,7 @@ export const normalizeHexColor = (value: string, fallback: string) => {
 
 export const createCustomThemeId = () => `${CUSTOM_THEME_PREFIX}${Date.now().toString(36)}`;
 
-export const findCustomTheme = (settings: ViewerSettings, themeId = settings.theme) => (
+export const findCustomTheme = (settings: ThemeLookupSettings, themeId = settings.theme) => (
   settings.customThemes?.find((theme) => theme.id === themeId)
 );
 
@@ -48,7 +49,7 @@ export const getCustomThemeClasses = (): ThemeClasses => ({
 
 export const getThemeClasses: (settings: ViewerSettings) => ThemeClasses = () => getCustomThemeClasses();
 
-export const getThemeColors = (settings: ViewerSettings) => {
+export const getThemeColors = (settings: ThemeLookupSettings) => {
   const customTheme = findCustomTheme(settings);
   if (customTheme) {
     return {
@@ -120,7 +121,7 @@ export const getTexturePreviewStyle = (
   };
 };
 
-export const getThemeTextureCss = (settings: ViewerSettings) => {
+export const getThemeTextureCss = (settings: ThemeLookupSettings) => {
   const colors = getThemeColors(settings);
   const vars = getTextureVars(colors.texture, normalizeHexColor(colors.text, '#5b4636'));
   return {
@@ -129,7 +130,7 @@ export const getThemeTextureCss = (settings: ViewerSettings) => {
   };
 };
 
-export const getThemeCssVariables = (settings: ViewerSettings): CSSProperties => {
+export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperties => {
   const colors = getThemeColors(settings);
   const bgColor = normalizeHexColor(colors.bg, '#f4ecd8');
   const textColor = normalizeHexColor(colors.text, '#5b4636');

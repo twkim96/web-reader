@@ -1,7 +1,7 @@
 // src/app/page.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { auth, googleProvider } from '../lib/firebase';
 import { signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
 
@@ -60,7 +60,25 @@ export default function Page() {
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
-  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
+  const accentColorObj = useMemo(
+    () => ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo,
+    [settings.accentColor],
+  );
+  const themeLookupSettings = useMemo(
+    () => ({
+      theme: settings.theme,
+      customThemes: settings.customThemes,
+    }),
+    [settings.customThemes, settings.theme],
+  );
+  const themeColors = useMemo(
+    () => getThemeColors(themeLookupSettings),
+    [themeLookupSettings],
+  );
+  const themeCssVariables = useMemo(
+    () => getThemeCssVariables(themeLookupSettings),
+    [themeLookupSettings],
+  );
 
   useEffect(() => {
     if (view === 'shelf' && isInstallable && !isStandalone) {
@@ -94,12 +112,12 @@ export default function Page() {
   const theme = getThemeClasses(settings);
 
   useEffect(() => {
-    const color = getThemeColors(settings).bg;
+    const color = themeColors.bg;
     const shellVariables = {
       '--accent-400': accentColorObj[400],
       '--accent-500': accentColorObj[500],
       '--accent-600': accentColorObj[600],
-      ...getThemeCssVariables(settings),
+      ...themeCssVariables,
     } as React.CSSProperties;
 
     const ensureMeta = (name: string) => {
@@ -128,7 +146,7 @@ export default function Page() {
     document.body.style.backgroundColor = color;
     document.documentElement.removeAttribute('data-viewer-theme-bootstrapped');
     document.getElementById('viewer-theme-bootstrap-style')?.remove();
-  }, [accentColorObj, settings]);
+  }, [accentColorObj, themeColors.bg, themeCssVariables]);
 
   const {
     books,
@@ -362,7 +380,11 @@ export default function Page() {
       hasTriedAutoOpenLastBookRef.current = true;
       return;
     }
-    if (books.length === 0) return;
+    if (books.length === 0) {
+      clearLastReaderSession();
+      hasTriedAutoOpenLastBookRef.current = true;
+      return;
+    }
 
     hasTriedAutoOpenLastBookRef.current = true;
     const lastBook = getLastReaderBookCandidate(books);
@@ -391,7 +413,7 @@ export default function Page() {
     '--accent-400': accentColorObj[400],
     '--accent-500': accentColorObj[500],
     '--accent-600': accentColorObj[600],
-    ...getThemeCssVariables(settings),
+    ...themeCssVariables,
   } as React.CSSProperties;
 
   if (view === 'loading') {
