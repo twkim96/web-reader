@@ -223,18 +223,21 @@
 
 - 자동 열기 패치 이후 앱 시작 직후 리더로 바로 들어가는 경로가 빨라지면서, 본문 iframe에는 테마가 적용되지만 바깥 React UI가 wrapper에만 있던 CSS 변수를 안정적으로 상속하지 못하는 문제가 드러났다.
 - 모바일에서는 reader toolbar, status/shell 같은 겉 껍데기 색이 남고, PC에서는 포인트 컬러 CSS 변수 일부가 실제 UI에 늦게 적용되는 증상으로 보였다.
+- 이전 수정은 전역 변수 기반을 안정화하는 방향이라 유지한다. 다만 리더 자동 진입 경로에서는 리더 루트 자체도 같은 변수를 직접 가져야 shell paint가 흔들리지 않는다.
 
 ### 변경
 
 - 현재 테마 배경, 텍스트, border, reader surface 변수와 포인트 컬러 변수를 `document.documentElement`와 `document.body`에 함께 적용한다.
+- built-in 테마와 커스텀 테마 모두 `theme.bg`, `theme.text`, `theme.border`, `theme.secondary`가 `--viewer-theme-*` 변수를 보도록 통일했다.
+- 리더 루트에 현재 테마/포인트 CSS 변수와 실제 `backgroundColor`, `color`를 직접 주입해 자동 열기로 리더가 먼저 떠도 shell이 최신 테마를 사용하게 했다.
 - reader toolbar의 표면색을 기본 테마별 하드코딩 값이 아니라 `--viewer-reader-surface` 단일 변수로 통일했다.
 - `Size` 왼쪽 chevron을 제거하고, `Size` 아래 얇은 펼침 라인을 사용하도록 설정 UI를 정리했다.
-- 브라우저 회귀 테스트가 저장값뿐 아니라 root 포인트 컬러 변수, body 배경색, toolbar 표면색까지 검증하도록 강화했다.
+- 브라우저 회귀 테스트가 저장값뿐 아니라 root 포인트 컬러 변수, body 배경색, 리더 루트 배경색, 테마 모달 배경색, toolbar 표면색까지 검증하도록 강화했다.
 
 ### 검증
 
 - `npx tsc --noEmit`: 통과.
-- `npx eslint src/app/page.tsx src/components/SettingsModal.tsx src/components/reader/ReaderToolbar.tsx tests/browserRegression.mjs`: 통과.
+- `npx eslint src/lib/themeUtils.ts src/components/EpubReader.tsx tests/browserRegression.mjs`: 통과.
 - `npm run test:formats`: 36개 통과.
 - `npm run test:shelf`: 11개 통과.
 - `npm run test:release`: 1개 통과.

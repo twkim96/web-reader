@@ -10,7 +10,8 @@ import {
   getReaderKeyboardAction,
   getReaderTapAction,
 } from '../lib/readerNavigation';
-import { getThemeClasses, getThemeColors, getThemeTextureCss } from '../lib/themeUtils';
+import { ACCENT_PALETTE } from '../lib/constants';
+import { getThemeClasses, getThemeColors, getThemeCssVariables, getThemeTextureCss } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
@@ -107,6 +108,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const theme = getThemeClasses(settings);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
+  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
+  const readerShellStyle = useMemo(() => ({
+    '--accent-400': accentColorObj[400],
+    '--accent-500': accentColorObj[500],
+    '--accent-600': accentColorObj[600],
+    ...getThemeCssVariables(settings),
+    backgroundColor: themeColors.bg,
+    color: themeColors.text,
+  }) as React.CSSProperties, [accentColorObj, settings, themeColors.bg, themeColors.text]);
   const isFixedLayout = book.readerFormat === 'archive' || book.readerFormat === 'pdf';
   const effectiveNavMode = getEffectiveNavigationMode(settings.navMode, isFixedLayout);
   const readerEdgePadding = isFixedLayout ? 0 : Math.max(settings.padding || 0, settings.fontSize);
@@ -483,7 +493,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [chrome, performJump, performJumpFraction]);
 
   return (
-    <div className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}>
+    <div
+      className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}
+      style={readerShellStyle}
+    >
       {!isLoaded && (
         <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
           {book.readerFormat === 'pdf'

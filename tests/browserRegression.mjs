@@ -836,10 +836,35 @@ try {
     const emeraldAccent = document.querySelector('button[title="emerald"]');
     emeraldAccent?.click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve, reject) => {
+      const deadline = performance.now() + 3000;
+      const waitForPaint = () => {
+        const readerRoot = document.querySelector('foliate-view')?.closest('.h-screen.w-screen');
+        const rootStyle = getComputedStyle(document.documentElement);
+        const readerRootStyle = readerRoot ? getComputedStyle(readerRoot) : null;
+        const hasThemePaint = rootStyle.getPropertyValue('--accent-500').trim() === '#10b981'
+          && rootStyle.getPropertyValue('--viewer-reader-surface').trim() === 'rgba(39, 39, 40, 0.68)'
+          && readerRootStyle?.backgroundColor === 'rgb(39, 39, 40)';
+
+        if (hasThemePaint) {
+          resolve(true);
+          return;
+        }
+        if (performance.now() > deadline) {
+          reject(new Error('Timed out waiting for reader shell theme paint'));
+          return;
+        }
+        requestAnimationFrame(waitForPaint);
+      };
+      waitForPaint();
+    });
 
     const stored = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
     const rootStyle = getComputedStyle(document.documentElement);
     const bodyStyle = getComputedStyle(document.body);
+    const readerRoot = document.querySelector('foliate-view')?.closest('.h-screen.w-screen');
+    const themeModalFrame = [...document.querySelectorAll('div.fixed.inset-0 > div')]
+      .find((node) => node.textContent?.includes('테마 설정'));
     const toolbarSurface = getComputedStyle(document.querySelector('nav button')).backgroundColor;
     const heading = [...document.querySelectorAll('h2')]
       .find((node) => node.textContent?.trim() === '테마 설정');
@@ -854,6 +879,8 @@ try {
       rootAccent: rootStyle.getPropertyValue('--accent-500').trim(),
       rootReaderSurface: rootStyle.getPropertyValue('--viewer-reader-surface').trim(),
       bodyBackground: bodyStyle.backgroundColor,
+      readerRootBackground: readerRoot ? getComputedStyle(readerRoot).backgroundColor : '',
+      themeModalBackground: themeModalFrame ? getComputedStyle(themeModalFrame).backgroundColor : '',
       toolbarSurface,
     };
   })()`);
@@ -865,6 +892,8 @@ try {
   assert.equal(themeSettings.rootAccent, '#10b981');
   assert.equal(themeSettings.rootReaderSurface, 'rgba(39, 39, 40, 0.68)');
   assert.equal(themeSettings.bodyBackground, 'rgb(39, 39, 40)');
+  assert.equal(themeSettings.readerRootBackground, 'rgb(39, 39, 40)');
+  assert.equal(themeSettings.themeModalBackground, 'rgb(39, 39, 40)');
   assert.equal(themeSettings.toolbarSurface, 'rgba(39, 39, 40, 0.68)');
 
   await evaluate(`document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click()`);

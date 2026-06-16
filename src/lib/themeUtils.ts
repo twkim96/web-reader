@@ -1,5 +1,4 @@
 import type { CSSProperties } from 'react';
-import { THEMES } from './constants';
 import { CustomThemeTexture, ThemeClasses, ViewerSettings } from '../types';
 
 export const CUSTOM_THEME_PREFIX = 'custom:';
@@ -47,10 +46,7 @@ export const getCustomThemeClasses = (): ThemeClasses => ({
   secondary: 'bg-[color:var(--viewer-theme-secondary)]',
 });
 
-export const getThemeClasses = (settings: ViewerSettings): ThemeClasses => {
-  if (findCustomTheme(settings)) return getCustomThemeClasses();
-  return THEMES[settings.theme as keyof typeof THEMES] || THEMES.sepia;
-};
+export const getThemeClasses: (settings: ViewerSettings) => ThemeClasses = () => getCustomThemeClasses();
 
 export const getThemeColors = (settings: ViewerSettings) => {
   const customTheme = findCustomTheme(settings);
