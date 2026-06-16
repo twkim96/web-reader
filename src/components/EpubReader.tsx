@@ -7,6 +7,7 @@ import {
   DEFAULT_LEFT_RIGHT_TAP_PERCENT,
   DEFAULT_TOP_BOTTOM_TAP_PERCENT,
   getEffectiveNavigationMode,
+  getReaderKeyboardAction,
   getReaderTapAction,
 } from '../lib/readerNavigation';
 import { getThemeClasses, getThemeColors, getThemeTextureCss } from '../lib/themeUtils';
@@ -380,9 +381,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         || chrome.showJumpInput;
       if (isReaderPanelOpen) return;
 
-      if (effectiveNavMode === 'scroll') {
-        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      const keyboardAction = getReaderKeyboardAction(effectiveNavMode, event.key);
+      if (!keyboardAction) return;
 
+      if (effectiveNavMode === 'scroll') {
         event.preventDefault();
         const viewportSize = viewRef.current?.renderer?.size ?? window.innerHeight;
         const scrollDistance = Math.min(
@@ -391,25 +393,16 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         );
 
         markUserProgressChange();
-        if (event.key === 'ArrowUp') prev(scrollDistance);
+        if (keyboardAction === 'prev') prev(scrollDistance);
         else next(scrollDistance);
         return;
       }
-
-      const keyMovesPrev = (effectiveNavMode === 'page' && event.key === 'ArrowUp')
-        || (effectiveNavMode === 'left-right' && event.key === 'ArrowLeft')
-        || (effectiveNavMode === 'all-dir' && (event.key === 'ArrowUp' || event.key === 'ArrowLeft'));
-      const keyMovesNext = (effectiveNavMode === 'page' && event.key === 'ArrowDown')
-        || (effectiveNavMode === 'left-right' && event.key === 'ArrowRight')
-        || (effectiveNavMode === 'all-dir' && (event.key === 'ArrowDown' || event.key === 'ArrowRight'));
-
-      if (!keyMovesPrev && !keyMovesNext) return;
 
       event.preventDefault();
       if (event.repeat) return;
 
       markUserProgressChange();
-      if (keyMovesPrev) prev();
+      if (keyboardAction === 'prev') prev();
       else next();
     };
 

@@ -2,6 +2,7 @@ import type { ViewerSettings } from '../types';
 
 export type ReaderNavigationMode = ViewerSettings['navMode'];
 export type ReaderTapAction = 'prev' | 'next' | 'controls';
+export type ReaderKeyboardAction = 'prev' | 'next' | null;
 
 export const DEFAULT_TOP_BOTTOM_TAP_PERCENT = 33;
 export const DEFAULT_LEFT_RIGHT_TAP_PERCENT = 30;
@@ -52,6 +53,35 @@ export const getReaderTapAction = ({
   }
 
   return 'controls';
+};
+
+export const getReaderKeyboardAction = (
+  navMode: ReaderNavigationMode,
+  key: string,
+): ReaderKeyboardAction => {
+  if (key === ' ' || key === 'Spacebar' || key === 'Space') return 'next';
+
+  if (navMode === 'scroll') {
+    if (key === 'ArrowUp') return 'prev';
+    if (key === 'ArrowDown') return 'next';
+    return null;
+  }
+
+  if (navMode === 'page') {
+    if (key === 'ArrowUp') return 'prev';
+    if (key === 'ArrowDown') return 'next';
+    return null;
+  }
+
+  if (navMode === 'left-right') {
+    if (key === 'ArrowLeft') return 'prev';
+    if (key === 'ArrowRight') return 'next';
+    return null;
+  }
+
+  if (key === 'ArrowUp' || key === 'ArrowLeft') return 'prev';
+  if (key === 'ArrowDown' || key === 'ArrowRight') return 'next';
+  return null;
 };
 
 export const getEffectiveNavigationMode = (

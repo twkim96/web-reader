@@ -5,6 +5,7 @@ import {
   clampTapZonePercent,
   getEffectiveNavigationMode,
   getNavigationOptions,
+  getReaderKeyboardAction,
   getReaderTapAction,
 } from '../src/lib/readerNavigation.ts';
 
@@ -77,4 +78,19 @@ test('uses configurable tap zones and preserves a central controls area', () => 
   }), 'prev');
   assert.equal(clampTapZonePercent(0, 33), 10);
   assert.equal(clampTapZonePercent(50, 30), 45);
+});
+
+test('maps spacebar to the same next action in scroll and tap modes', () => {
+  assert.equal(getReaderKeyboardAction('scroll', ' '), 'next');
+  assert.equal(getReaderKeyboardAction('page', ' '), 'next');
+  assert.equal(getReaderKeyboardAction('left-right', 'Spacebar'), 'next');
+  assert.equal(getReaderKeyboardAction('all-dir', 'Space'), 'next');
+});
+
+test('keeps arrow key navigation mode-specific', () => {
+  assert.equal(getReaderKeyboardAction('scroll', 'ArrowDown'), 'next');
+  assert.equal(getReaderKeyboardAction('page', 'ArrowDown'), 'next');
+  assert.equal(getReaderKeyboardAction('left-right', 'ArrowDown'), null);
+  assert.equal(getReaderKeyboardAction('left-right', 'ArrowRight'), 'next');
+  assert.equal(getReaderKeyboardAction('all-dir', 'ArrowLeft'), 'prev');
 });
