@@ -3,7 +3,7 @@
 ## 상태
 
 - 2026-07-06 기준 1.6.5 구현, 실기기 피드백 반영, 자동 검증, Vercel 배포 확인을 완료했다.
-- Vercel 고정 배포 URL `https://twreader.vercel.app`에서 서비스워커 캐시명 `pc-reader-v1.6.5`를 확인했다.
+- Android PWA가 기존 `pc-reader-v1.6.5` 캐시를 계속 사용할 수 있어 후속 캐시 bust 버전 `1.6.5.1`로 올렸다.
 
 ## 목표
 
@@ -14,7 +14,7 @@
 - 확대/축소 값은 저장하지 않고 페이지가 바뀌면 기본 맞춤 보기로 되돌린다.
 - 마지막 도서 자동 열기는 `last_reader_session` 포인터가 남아 있는 경우에만 실행한다.
 - 책장, 로그인, 인증 리다이렉트, 일반 새로고침 흐름에서 사용자를 원치 않게 리더로 보내지 않는다.
-- 앱과 서비스워커 버전을 1.6.5로 올린다.
+- 앱과 서비스워커 버전을 1.6.5로 올리고, Android PWA 캐시 갱신용 후속 버전은 1.6.5.1로 올린다.
 
 ## 확정 결정
 
@@ -158,15 +158,17 @@
 - 서비스워커 캐시 이름을 `pc-reader-v1.6.5`로 올린다.
 - release 버전 검사가 새 버전을 기대하도록 맞춘다.
 - browser regression의 서비스워커 캐시명, stale 캐시명, `/sw.js?browser-regression=...` 리터럴을 1.6.5 기준으로 갱신한다.
+- Android PWA 캐시 갱신을 강제하기 위해 후속 버전 `1.6.5.1`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.1`, `pc-reader-v1.6.5.1`로 올린다.
 
 ### 상태
 
 - 구현 완료.
 - 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5로 갱신했다.
+- Android PWA 캐시 bust를 위해 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.1로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.1이다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 
@@ -186,7 +188,7 @@
 
 - 자동 검증과 1차 실기기 피드백 반영 기준으로 배포 직전 상태까지 준비됐다.
 - production 서버 `http://localhost:3000`에서 브라우저 회귀를 통과했다.
-- 고정 배포 URL `https://twreader.vercel.app`에서 Vercel 응답과 `pc-reader-v1.6.5` 서비스워커를 확인했다.
+- 고정 배포 URL `https://twreader.vercel.app`에서 Vercel 응답과 서비스워커 캐시 버전을 확인한다.
 - Superloopy visual QA evidence: `.superloopy/evidence/frontend/20260706-165-reader-zoom/VISUAL_QA.md`.
 - 남은 항목은 배포 후 실제 모바일/트랙패드/마우스 환경에서 pinch, 한 손가락 pan, PDF 확대 깜빡임 완화 정도를 추가로 확인하는 실사용 테스트다.
 
