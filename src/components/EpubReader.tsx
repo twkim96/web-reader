@@ -491,21 +491,36 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const handleFixedLayoutTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const gesture = pinchGestureRef.current;
-    const panGesture = panGestureRef.current;
     if (gesture?.active && event.touches.length < 2) {
       flushPendingFixedLayoutZoom();
       if (gesture.moved) {
         suppressNextInteractionClickRef.current = true;
       }
       pinchGestureRef.current = null;
+
+      const touchPoint = getSingleTouchPoint(event.touches);
+      const renderer = getFixedLayoutRenderer();
+      if (touchPoint && renderer?.panBy && (renderer.userScale ?? 1) > 1) {
+        panGestureRef.current = {
+          active: true,
+          moved: false,
+          startX: touchPoint.x,
+          startY: touchPoint.y,
+          lastX: touchPoint.x,
+          lastY: touchPoint.y,
+        };
+        return;
+      }
     }
+
+    const panGesture = panGestureRef.current;
     if (panGesture?.active && event.touches.length === 0) {
       if (panGesture.moved) {
         suppressNextInteractionClickRef.current = true;
       }
       panGestureRef.current = null;
     }
-  }, [flushPendingFixedLayoutZoom]);
+  }, [flushPendingFixedLayoutZoom, getFixedLayoutRenderer]);
 
   useEffect(() => {
     return () => {
