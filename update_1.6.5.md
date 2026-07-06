@@ -6,6 +6,7 @@
 - Android PWA가 기존 `pc-reader-v1.6.5` 캐시를 계속 사용할 수 있어 후속 캐시 bust 버전 `1.6.5.1`로 올렸다.
 - iPad 실사용에서 확대 후 왼쪽 끝을 볼 수 없는 fixed-layout 중앙 정렬 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.2`로 올렸다.
 - fixed-layout 커스텀 엘리먼트 생성자에서 host style 속성을 만들며 일부 브라우저에서 업그레이드가 실패할 수 있는 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.3`으로 올린다.
+- 확대 상태로 탭/키보드/휠 페이지 넘김을 할 때 다음 페이지에 확대 배율과 화면 위치를 이어받도록 수정하고, 후속 캐시 bust 버전 `1.6.5.4`로 올린다.
 
 ## 목표
 
@@ -13,7 +14,7 @@
 - 확대/축소는 별도 버튼 UI 없이 모바일 pinch, PC `Ctrl`+위/아래 방향키로 처리한다.
 - PC `Ctrl`+휠은 Windows/브라우저 기본 확대와 맞물릴 수 있으므로 앱 확대 입력으로 쓰지 않고 리더 안에서는 기본 동작만 차단한다.
 - 확대 후 한 화면에 이미지가 다 들어오지 않는 경우 모바일 한 손가락 드래그로 확대된 이미지를 이동할 수 있게 한다.
-- 확대/축소 값은 저장하지 않고 페이지가 바뀌면 기본 맞춤 보기로 되돌린다.
+- 확대/축소 값은 저장하지 않되, 일반 페이지 넘김 중에는 현재 확대 배율과 화면 위치를 다음 페이지로 이어받는다.
 - 마지막 도서 자동 열기는 `last_reader_session` 포인터가 남아 있는 경우에만 실행한다.
 - 책장, 로그인, 인증 리다이렉트, 일반 새로고침 흐름에서 사용자를 원치 않게 리더로 보내지 않는다.
 - 앱과 서비스워커 버전을 1.6.5로 올리고, Android PWA 캐시 갱신용 후속 버전은 1.6.5.1로 올린다.
@@ -23,7 +24,8 @@
 - 확대 기능은 fixed-layout 도서인 PDF와 압축 이미지 도서에만 적용한다.
 - EPUB reflow 본문 확대는 기존 `Size` 설정의 책임으로 두고 이번 범위에 포함하지 않는다.
 - 확대 상태는 React state 또는 fixed-layout 런타임 상태로만 유지하고 `localStorage`, IndexedDB, Firestore, Drive에는 저장하지 않는다.
-- 페이지 이동, 도서 전환, 리더 종료 시 확대 상태를 기본값으로 초기화한다.
+- 도서 전환, 리더 종료, 명시적 reset 시 확대 상태를 기본값으로 초기화한다.
+- 일반 이전/다음 페이지 이동은 현재 fixed-layout 런타임의 확대 배율과 스크롤 위치 비율을 이어받는다.
 - 자동 열기 옵션의 설정명과 기본값은 유지하되, 자동 열기 intent는 `last_reader_session` 포인터의 존재 여부로만 판단한다.
 - 사용자가 리더에서 책장으로 나오면 `last_reader_session`을 삭제한다.
 - 부팅 과정에서 자동 열기를 판정하기 위해 임시로 `view === 'shelf'`가 되는 것은 사용자 책장 복귀로 보지 않는다.
@@ -66,7 +68,7 @@
 ### 상태
 
 - 구현 완료.
-- fixed-layout 상대 확대 API, pan API, React 오버레이 pinch/한 손가락 pan/`Ctrl` 입력 처리, 페이지 이동 초기화를 반영했다.
+- fixed-layout 상대 확대 API, pan API, React 오버레이 pinch/한 손가락 pan/`Ctrl` 입력 처리, 페이지 이동 중 확대 상태 전달을 반영했다.
 - 실기기 피드백에 따라 `Ctrl`+휠 확대를 제거하고, 확대 중 한 손가락 pan, 컨트롤 오버레이 터치 pan, pinch 입력 coalescing, pinch 후 남은 손가락의 pan 승계를 추가했다.
 - PDF 확대 렌더는 새 canvas가 준비되기 전까지 기존 레이어를 비우지 않도록 바꿔 빈 화면 깜빡임을 줄였다.
 - fixed-layout 확대 중 overflow 중앙 정렬 때문에 왼쪽 끝을 볼 수 없는 문제를 `flex-start` 정렬 전환으로 수정했다.
@@ -83,14 +85,14 @@
 - 리더 컨트롤이 표시된 상태에서도 확대된 페이지를 한 손가락으로 이동할 수 있다.
 - 확대 상태에서 왼쪽/위쪽 끝과 오른쪽/아래쪽 끝을 모두 볼 수 있다.
 - 모바일 pinch 중 브라우저 자체 페이지 확대, body scroll, pull-to-refresh가 발생하지 않는다.
-- 확대된 상태에서 페이지를 넘기면 다음 페이지는 기본 맞춤 보기로 열린다.
+- 확대된 상태에서 이전/다음 페이지를 넘기면 다음 페이지도 같은 확대 배율과 화면 위치 비율로 열린다.
 - 리더를 닫았다가 같은 책을 다시 열어도 확대 값은 유지되지 않는다.
 - `Ctrl`+휠은 앱 확대를 바꾸지 않고 브라우저 자체 페이지 zoom이나 의도치 않은 다음/이전 페이지 이동도 발생시키지 않는다.
 - PDF 고배율 렌더에서도 기존 canvas 크기 보호 한도가 유지된다.
 
 ### 검증
 
-- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 확대 중 `flex-start` 정렬, 페이지 이동 초기화, `Ctrl`+휠 확대 차단 회귀를 추가했다.
+- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 확대 중 `flex-start` 정렬, 페이지 이동 중 확대 상태 전달, `Ctrl`+휠 확대 차단 회귀를 추가했다.
 - `npm run test:formats`: 36개 통과.
 - `npm run test:archives`: 32개 통과.
 - `npm run test:browser`: 통과.
@@ -99,6 +101,8 @@
 - 같은 변경의 `npm run test:browser`는 로컬 Chrome CDP target의 early theme bootstrap 주입 대기에서 반복 실패해 이번 턴의 통과 증거로 사용하지 않는다.
 - 1.6.5.3에서는 fixed-layout host scroll style을 생성자 inline style 대신 `:host` CSS로 옮기고, `foliate-fxl`/`foliate-paginator` 등록 중복 방어와 렌더러 초기화 검증을 추가한다.
 - 1.6.5.3 fixed-layout 커스텀 엘리먼트 보정 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`를 통과했고, Chrome CDP에서 `document.createElement('foliate-fxl').open`이 `function`임을 확인했다.
+- 1.6.5.4에서는 fixed-layout 페이지 넘김 직전에 확대 배율과 스크롤 위치 비율을 캡처하고, 새 페이지 렌더 직후 같은 런타임 상태를 복원한다.
+- 1.6.5.4 fixed-layout 페이지 넘김 상태 전달 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:browser`를 통과했고, Chrome CDP에서 `next()` 후 `userScale`, `scrollLeft`, `scrollTop`이 유지됨을 확인했다.
 
 ## Phase 2: 마지막 도서 자동 열기 조건 수정
 
@@ -171,6 +175,7 @@
 - Android PWA 캐시 갱신을 강제하기 위해 후속 버전 `1.6.5.1`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.1`, `pc-reader-v1.6.5.1`로 올린다.
 - fixed-layout pan 보정 후속 버전 `1.6.5.2`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.2`, `pc-reader-v1.6.5.2`로 올린다.
 - fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 버전 `1.6.5.3`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.3`, `pc-reader-v1.6.5.3`으로 올린다.
+- fixed-layout 페이지 넘김 상태 전달 후속 버전 `1.6.5.4`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.4`, `pc-reader-v1.6.5.4`로 올린다.
 
 ### 상태
 
@@ -179,10 +184,11 @@
 - Android PWA 캐시 bust를 위해 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.1로 갱신했다.
 - fixed-layout pan 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.2로 갱신했다.
 - fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.3으로 갱신했다.
+- fixed-layout 페이지 넘김 상태 전달 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.4로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.3이다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.4다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 

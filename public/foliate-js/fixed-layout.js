@@ -238,6 +238,29 @@ export class FixedLayout extends HTMLElement {
             y: Number.isFinite(top) ? top - rect.top : 0,
         }
     }
+    #getPageTurnViewState() {
+        if (this.#userScale <= this.constructor.minUserScale) return null
+        const maxScrollLeft = Math.max(0, this.scrollWidth - this.clientWidth)
+        const maxScrollTop = Math.max(0, this.scrollHeight - this.clientHeight)
+        return {
+            userScale: this.#userScale,
+            scrollLeftRatio: maxScrollLeft > 0 ? this.scrollLeft / maxScrollLeft : 0,
+            scrollTopRatio: maxScrollTop > 0 ? this.scrollTop / maxScrollTop : 0,
+        }
+    }
+    #applyPageTurnViewState(viewState) {
+        this.#userScale = viewState?.userScale ?? 1
+        this.#render()
+        if (!viewState) {
+            this.scrollLeft = 0
+            this.scrollTop = 0
+            return
+        }
+        const maxScrollLeft = Math.max(0, this.scrollWidth - this.clientWidth)
+        const maxScrollTop = Math.max(0, this.scrollHeight - this.clientHeight)
+        this.scrollLeft = Math.max(0, maxScrollLeft * viewState.scrollLeftRatio)
+        this.scrollTop = Math.max(0, maxScrollTop * viewState.scrollTopRatio)
+    }
     async #loadSpread({ left, right, center, side }, signal) {
         const staging = document.createElement('div')
         staging.style.display = 'none'
@@ -270,7 +293,7 @@ export class FixedLayout extends HTMLElement {
             throw error
         }
     }
-    #showSpread({ staging, left, right, center, side }) {
+    #showSpread({ staging, left, right, center, side }, viewState) {
         this.#cleanupCurrentSpread()
         for (const child of [...this.#root.children]) {
             if (child !== staging) child.remove()
@@ -280,19 +303,14 @@ export class FixedLayout extends HTMLElement {
         this.#right = right
         this.#center = center
         this.#side = side
-        this.#userScale = 1
-        this.#render()
-        this.scrollLeft = 0
-        this.scrollTop = 0
+        this.#applyPageTurnViewState(viewState)
     }
     #goLeft() {
         if (this.#center || this.#left?.blank) return
         if (this.#portrait && this.#left?.element?.style?.display === 'none') {
-            this.#userScale = 1
+            const viewState = this.#getPageTurnViewState()
             this.#side = 'left'
-            this.#render()
-            this.scrollLeft = 0
-            this.scrollTop = 0
+            this.#applyPageTurnViewState(viewState)
             this.#reportLocation('page')
             return true
         }
@@ -300,11 +318,9 @@ export class FixedLayout extends HTMLElement {
     #goRight() {
         if (this.#center || this.#right?.blank) return
         if (this.#portrait && this.#right?.element?.style?.display === 'none') {
-            this.#userScale = 1
+            const viewState = this.#getPageTurnViewState()
             this.#side = 'right'
-            this.#render()
-            this.scrollLeft = 0
-            this.scrollTop = 0
+            this.#applyPageTurnViewState(viewState)
             this.#reportLocation('page')
             return true
         }
@@ -379,15 +395,13 @@ export class FixedLayout extends HTMLElement {
     async goToSpread(index, side, reason) {
         if (index < 0 || index > this.#spreads.length - 1) return
         const task = this.#navigation.begin()
+        const viewState = reason === 'page' ? this.#getPageTurnViewState() : null
         this.#targetIndex = index
         if (index === this.#index) {
             if (side && side !== this.#side) {
-                this.#userScale = 1
                 this.#side = side
-                this.scrollLeft = 0
-                this.scrollTop = 0
             }
-            this.#render()
+            this.#applyPageTurnViewState(viewState)
             this.#navigation.finish(task)
             return
         }
@@ -419,7 +433,7 @@ export class FixedLayout extends HTMLElement {
                 loadedSpread.staging.remove()
                 throw createAbortError()
             }
-            this.#showSpread(loadedSpread)
+            this.#showSpread(loadedSpread, viewState)
             this.#index = index
             this.#reportLocation(reason)
             this.#navigation.finish(task)

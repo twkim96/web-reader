@@ -22,8 +22,10 @@ const oversizedArchiveBase64 = Buffer.from(
 const solidArchiveBytes = await createSolidSevenZipFixture();
 const solidArchiveBase64 = Buffer.from(solidArchiveBytes).toString('base64');
 
-const targets = await fetch(`${debugUrl}/json`).then((response) => response.json());
-const page = targets.find(({ type }) => type === 'page');
+const page = await fetch(
+  `${debugUrl}/json/new?${appUrl}/?browser-regression=${Date.now()}`,
+  { method: 'PUT' },
+).then((response) => response.json());
 if (!page?.webSocketDebuggerUrl) {
   throw new Error(`Chrome page target not found at ${debugUrl}`);
 }
@@ -1262,15 +1264,34 @@ try {
     const afterPan = zoomRenderer.panBy(40, 50);
     await zoomRenderer.next();
     await sleep(30);
+    const afterPageTurn = {
+      scrollLeft: zoomRenderer.scrollLeft,
+      scrollTop: zoomRenderer.scrollTop,
+    };
+    const pageTurnScale = zoomRenderer.userScale;
+    const pageTurnIndex = zoomRenderer.index;
+    const pageTurnAlignment = {
+      justifyContent: getComputedStyle(zoomRenderer).justifyContent,
+      alignItems: getComputedStyle(zoomRenderer).alignItems,
+    };
+    const afterResetScale = zoomRenderer.resetUserScale();
     result.zoom = {
       baseScale,
       zoomedScale,
       zoomedEffectiveScale,
+      zoomedAlignment,
       beforePan,
       afterPan,
-      resetScale: zoomRenderer.userScale,
-      resetIndex: zoomRenderer.index,
-      resetAlignment: {
+      pageTurnScale,
+      pageTurnIndex,
+      pageTurnScroll: afterPageTurn,
+      pageTurnAlignment,
+      afterResetScale,
+      afterResetScroll: {
+        scrollLeft: zoomRenderer.scrollLeft,
+        scrollTop: zoomRenderer.scrollTop,
+      },
+      afterResetAlignment: {
         justifyContent: getComputedStyle(zoomRenderer).justifyContent,
         alignItems: getComputedStyle(zoomRenderer).alignItems,
       },
@@ -1288,10 +1309,17 @@ try {
   assert.equal(fixedLayout.zoom.zoomedAlignment.alignItems, 'flex-start');
   assert.ok(fixedLayout.zoom.afterPan.scrollLeft > fixedLayout.zoom.beforePan.scrollLeft);
   assert.ok(fixedLayout.zoom.afterPan.scrollTop > fixedLayout.zoom.beforePan.scrollTop);
-  assert.equal(fixedLayout.zoom.resetScale, 1);
-  assert.equal(fixedLayout.zoom.resetIndex, 1);
-  assert.equal(fixedLayout.zoom.resetAlignment.justifyContent, 'center');
-  assert.equal(fixedLayout.zoom.resetAlignment.alignItems, 'center');
+  assert.equal(fixedLayout.zoom.pageTurnScale, 2);
+  assert.equal(fixedLayout.zoom.pageTurnIndex, 1);
+  assert.equal(fixedLayout.zoom.pageTurnAlignment.justifyContent, 'flex-start');
+  assert.equal(fixedLayout.zoom.pageTurnAlignment.alignItems, 'flex-start');
+  assert.ok(Math.abs(fixedLayout.zoom.pageTurnScroll.scrollLeft - fixedLayout.zoom.afterPan.scrollLeft) <= 1);
+  assert.ok(Math.abs(fixedLayout.zoom.pageTurnScroll.scrollTop - fixedLayout.zoom.afterPan.scrollTop) <= 1);
+  assert.equal(fixedLayout.zoom.afterResetScale, 1);
+  assert.equal(fixedLayout.zoom.afterResetScroll.scrollLeft, 0);
+  assert.equal(fixedLayout.zoom.afterResetScroll.scrollTop, 0);
+  assert.equal(fixedLayout.zoom.afterResetAlignment.justifyContent, 'center');
+  assert.equal(fixedLayout.zoom.afterResetAlignment.alignItems, 'center');
 
   const pdfResult = await evaluate(`(async () => {
     document.body.replaceChildren();
@@ -1608,7 +1636,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.5.3';
+    const expectedCache = 'pc-reader-v1.6.5.4';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1632,7 +1660,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.5.3',
+      '/sw.js?browser-regression=1.6.5.4',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1675,10 +1703,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.3']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.4']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.3$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.4$/);
 
   console.log(JSON.stringify({
     shelf: {
