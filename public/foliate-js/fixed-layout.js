@@ -468,6 +468,14 @@ export class FixedLayout extends HTMLElement {
     adjustUserScale(factor, focalPoint) {
         return this.setUserScale(this.#userScale * (Number(factor) || 1), focalPoint)
     }
+    panBy(deltaX = 0, deltaY = 0) {
+        if (this.#userScale <= this.constructor.minUserScale) {
+            return { scrollLeft: this.scrollLeft, scrollTop: this.scrollTop }
+        }
+        this.scrollLeft = Math.max(0, this.scrollLeft + (Number(deltaX) || 0))
+        this.scrollTop = Math.max(0, this.scrollTop + (Number(deltaY) || 0))
+        return { scrollLeft: this.scrollLeft, scrollTop: this.scrollTop }
+    }
     resetUserScale() {
         this.#userScale = 1
         this.#render()

@@ -52,6 +52,7 @@ const WHEEL_PAGE_TURN_MIN_DELTA = 8;
 const WHEEL_PAGE_TURN_IDLE_MS = 220;
 const FIXED_LAYOUT_ZOOM_STEP = 1.15;
 const PINCH_MOVE_THRESHOLD_PX = 4;
+const PAN_MOVE_THRESHOLD_PX = 6;
 
 const isEditableKeyboardTarget = (target: EventTarget | null) => {
   const node = target as {
@@ -109,6 +110,12 @@ const getTouchMetrics = (touches: React.TouchList) => {
   };
 };
 
+const getSingleTouchPoint = (touches: React.TouchList) => {
+  if (touches.length !== 1) return null;
+  const touch = touches[0];
+  return { x: touch.clientX, y: touch.clientY };
+};
+
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
   googleToken,
@@ -149,6 +156,19 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     startDistance: number;
     startScale: number;
   } | null>(null);
+  const panGestureRef = useRef<{
+    active: boolean;
+    moved: boolean;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+  } | null>(null);
+  const pendingFixedLayoutZoomRef = useRef<{
+    scale: number;
+    focalPoint?: { x: number; y: number };
+  } | null>(null);
+  const fixedLayoutZoomFrameRef = useRef<number | null>(null);
   const suppressNextInteractionClickRef = useRef(false);
 
   const handleReaderBack = useCallback(() => {
@@ -381,59 +401,118 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     return true;
   }, [getFixedLayoutRenderer]);
 
-  const handleFixedLayoutWheelZoom = useCallback((event: WheelEvent | React.WheelEvent) => {
-    if (!isFixedLayout || !event.ctrlKey) return false;
+  const flushPendingFixedLayoutZoom = useCallback(() => {
+    const pendingZoom = pendingFixedLayoutZoomRef.current;
+    pendingFixedLayoutZoomRef.current = null;
+    if (!pendingZoom) return;
+    setFixedLayoutZoom(pendingZoom.scale, pendingZoom.focalPoint);
+  }, [setFixedLayoutZoom]);
 
-    event.preventDefault();
-    event.stopPropagation();
-    const zoomFactor = event.deltaY < 0 ? FIXED_LAYOUT_ZOOM_STEP : 1 / FIXED_LAYOUT_ZOOM_STEP;
-    return adjustFixedLayoutZoom(zoomFactor, {
-      x: event.clientX,
-      y: event.clientY,
+  const scheduleFixedLayoutZoom = useCallback((
+    scale: number,
+    focalPoint?: { x: number; y: number },
+  ) => {
+    pendingFixedLayoutZoomRef.current = { scale, focalPoint };
+    if (fixedLayoutZoomFrameRef.current !== null) return;
+    fixedLayoutZoomFrameRef.current = window.requestAnimationFrame(() => {
+      fixedLayoutZoomFrameRef.current = null;
+      flushPendingFixedLayoutZoom();
     });
-  }, [adjustFixedLayoutZoom, isFixedLayout]);
+  }, [flushPendingFixedLayoutZoom]);
 
   const handleFixedLayoutTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (!isFixedLayout) return;
-    const metrics = getTouchMetrics(event.touches);
     const renderer = getFixedLayoutRenderer();
-    if (!metrics || !renderer) return;
+    if (!renderer) return;
 
-    event.preventDefault();
-    event.stopPropagation();
-    pinchGestureRef.current = {
+    const metrics = getTouchMetrics(event.touches);
+    if (metrics) {
+      panGestureRef.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+      pinchGestureRef.current = {
+        active: true,
+        moved: false,
+        startDistance: metrics.distance,
+        startScale: renderer.userScale ?? 1,
+      };
+      return;
+    }
+
+    const touchPoint = getSingleTouchPoint(event.touches);
+    if (!touchPoint || (renderer.userScale ?? 1) <= 1 || !renderer.panBy) return;
+
+    panGestureRef.current = {
       active: true,
       moved: false,
-      startDistance: metrics.distance,
-      startScale: renderer.userScale ?? 1,
+      startX: touchPoint.x,
+      startY: touchPoint.y,
+      lastX: touchPoint.x,
+      lastY: touchPoint.y,
     };
   }, [getFixedLayoutRenderer, isFixedLayout]);
 
   const handleFixedLayoutTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const gesture = pinchGestureRef.current;
-    if (!gesture?.active) return;
-    const metrics = getTouchMetrics(event.touches);
-    if (!metrics || gesture.startDistance <= 0) return;
+    if (gesture?.active) {
+      const metrics = getTouchMetrics(event.touches);
+      if (!metrics || gesture.startDistance <= 0) return;
 
+      event.preventDefault();
+      event.stopPropagation();
+      if (Math.abs(metrics.distance - gesture.startDistance) >= PINCH_MOVE_THRESHOLD_PX) {
+        gesture.moved = true;
+        suppressNextInteractionClickRef.current = true;
+      }
+      scheduleFixedLayoutZoom(
+        gesture.startScale * (metrics.distance / gesture.startDistance),
+        metrics.focalPoint,
+      );
+      return;
+    }
+
+    const panGesture = panGestureRef.current;
+    if (!panGesture?.active) return;
+    const touchPoint = getSingleTouchPoint(event.touches);
+    const renderer = getFixedLayoutRenderer();
+    if (!touchPoint || !renderer?.panBy || (renderer.userScale ?? 1) <= 1) return;
+
+    const movedDistance = Math.hypot(touchPoint.x - panGesture.startX, touchPoint.y - panGesture.startY);
+    if (!panGesture.moved && movedDistance < PAN_MOVE_THRESHOLD_PX) return;
+
+    panGesture.moved = true;
+    suppressNextInteractionClickRef.current = true;
     event.preventDefault();
     event.stopPropagation();
-    if (Math.abs(metrics.distance - gesture.startDistance) >= PINCH_MOVE_THRESHOLD_PX) {
-      gesture.moved = true;
-      suppressNextInteractionClickRef.current = true;
-    }
-    setFixedLayoutZoom(
-      gesture.startScale * (metrics.distance / gesture.startDistance),
-      metrics.focalPoint,
-    );
-  }, [setFixedLayoutZoom]);
+    renderer.panBy(panGesture.lastX - touchPoint.x, panGesture.lastY - touchPoint.y);
+    panGesture.lastX = touchPoint.x;
+    panGesture.lastY = touchPoint.y;
+  }, [getFixedLayoutRenderer, scheduleFixedLayoutZoom]);
 
   const handleFixedLayoutTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const gesture = pinchGestureRef.current;
-    if (!gesture?.active || event.touches.length >= 2) return;
-    if (gesture.moved) {
-      suppressNextInteractionClickRef.current = true;
+    const panGesture = panGestureRef.current;
+    if (gesture?.active && event.touches.length < 2) {
+      flushPendingFixedLayoutZoom();
+      if (gesture.moved) {
+        suppressNextInteractionClickRef.current = true;
+      }
+      pinchGestureRef.current = null;
     }
-    pinchGestureRef.current = null;
+    if (panGesture?.active && event.touches.length === 0) {
+      if (panGesture.moved) {
+        suppressNextInteractionClickRef.current = true;
+      }
+      panGestureRef.current = null;
+    }
+  }, [flushPendingFixedLayoutZoom]);
+
+  useEffect(() => {
+    return () => {
+      if (fixedLayoutZoomFrameRef.current !== null) {
+        window.cancelAnimationFrame(fixedLayoutZoomFrameRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -451,12 +530,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
     const handleControlsOverlayWheel = (event: WheelEvent) => {
       if (event.ctrlKey) {
-        if (isFixedLayout) {
-          wheelNavigationRef.current(event);
-        } else {
-          event.preventDefault();
-          event.stopPropagation();
-        }
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
       event.stopPropagation();
@@ -466,7 +541,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     return () => {
       controlsOverlay.removeEventListener('wheel', handleControlsOverlayWheel);
     };
-  }, [chrome.showControls, isFixedLayout]);
+  }, [chrome.showControls]);
 
   useEffect(() => {
     const unlockWheelNavigationAfterIdle = () => {
@@ -481,7 +556,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     };
 
     const handleWheelNavigation = (event: WheelEvent | React.WheelEvent) => {
-      if (handleFixedLayoutWheelZoom(event)) return;
+      if (event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
 
       if (effectiveNavMode === 'scroll') {
         markUserProgressChange();
@@ -534,7 +613,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     next,
     prev,
     effectiveNavMode,
-    handleFixedLayoutWheelZoom,
   ]);
 
   useEffect(() => {

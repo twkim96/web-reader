@@ -898,7 +898,7 @@ try {
   assert.equal(tapSettings.stored.autoOpenLastBook, true);
   assert.equal(tapSettings.scaleAfterModalKey, tapSettings.scaleBeforeModalKey);
 
-  const controlsOverlayZoom = await evaluate(`(async () => {
+  const controlsOverlayWheel = await evaluate(`(async () => {
     const renderer = document.querySelector('foliate-view')?.renderer;
     if (!renderer) return null;
     const navVisible = document.querySelector('nav')?.classList.contains('translate-y-0');
@@ -931,8 +931,8 @@ try {
       overlay: target?.className ?? '',
     };
   })()`);
-  assert.ok(controlsOverlayZoom.after > controlsOverlayZoom.before);
-  assert.equal(controlsOverlayZoom.defaultPrevented, true);
+  assert.equal(controlsOverlayWheel.after, controlsOverlayWheel.before);
+  assert.equal(controlsOverlayWheel.defaultPrevented, true);
 
   const themeSettings = await evaluate(`(async () => {
     const themeButton = [...document.querySelectorAll('button')]
@@ -1188,12 +1188,19 @@ try {
     zoomRenderer.setUserScale(2, { x: 350, y: 400 });
     const zoomedScale = zoomRenderer.userScale;
     const zoomedEffectiveScale = zoomRenderer.effectiveScale;
+    const beforePan = {
+      scrollLeft: zoomRenderer.scrollLeft,
+      scrollTop: zoomRenderer.scrollTop,
+    };
+    const afterPan = zoomRenderer.panBy(40, 50);
     await zoomRenderer.next();
     await sleep(30);
     result.zoom = {
       baseScale,
       zoomedScale,
       zoomedEffectiveScale,
+      beforePan,
+      afterPan,
       resetScale: zoomRenderer.userScale,
       resetIndex: zoomRenderer.index,
     };
@@ -1206,6 +1213,8 @@ try {
   assert.deepEqual(fixedLayout.relocations, [0, 2]);
   assert.equal(fixedLayout.zoom.zoomedScale, 2);
   assert.ok(fixedLayout.zoom.zoomedEffectiveScale > fixedLayout.zoom.baseScale);
+  assert.ok(fixedLayout.zoom.afterPan.scrollLeft > fixedLayout.zoom.beforePan.scrollLeft);
+  assert.ok(fixedLayout.zoom.afterPan.scrollTop > fixedLayout.zoom.beforePan.scrollTop);
   assert.equal(fixedLayout.zoom.resetScale, 1);
   assert.equal(fixedLayout.zoom.resetIndex, 1);
 
