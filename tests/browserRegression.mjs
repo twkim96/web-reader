@@ -696,6 +696,7 @@ try {
   );
   await evaluate(`(() => {
     localStorage.setItem('last_reader_session', JSON.stringify({
+      version: 2,
       bookId: 'solid-pages.7z',
       updatedAt: Date.now()
     }));
@@ -718,6 +719,16 @@ try {
   await waitFor(
     'document.querySelector("h1")?.textContent?.includes("Guest Library")',
     'shelf after auto-open close',
+  );
+  await waitFor(
+    `localStorage.getItem('last_reader_session') === null`,
+    'last reader intent cleared after reader close',
+  );
+  await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    `document.querySelector("h1")?.textContent?.includes("Guest Library")
+      && !document.querySelector('foliate-view')`,
+    'shelf remains after reader close reload',
   );
   await evaluate(`(() => {
     const button = [...document.querySelectorAll('button')]
@@ -852,10 +863,28 @@ try {
       leftRight: getRowText('Left/Right'),
     };
     const stored = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    const renderer = document.querySelector('foliate-view')?.renderer;
+    const scaleBeforeModalKey = renderer?.userScale ?? null;
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowUp',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const scaleAfterModalKey = renderer?.userScale ?? null;
     const heading = [...document.querySelectorAll('h2')]
       .find((node) => node.textContent?.trim() === '리더 설정');
     heading?.parentElement?.querySelector('button')?.click();
-    return { initial, updated, stored, autoOpenInitially, storedDisabled };
+    return {
+      initial,
+      updated,
+      stored,
+      autoOpenInitially,
+      storedDisabled,
+      scaleBeforeModalKey,
+      scaleAfterModalKey,
+    };
   })()`);
   assert.match(tapSettings.initial.topBottom, /33%/);
   assert.match(tapSettings.initial.leftRight, /30%/);
@@ -867,6 +896,43 @@ try {
   assert.equal(tapSettings.stored.tapTopBottomPercent, 35);
   assert.equal(tapSettings.stored.tapLeftRightPercent, 29);
   assert.equal(tapSettings.stored.autoOpenLastBook, true);
+  assert.equal(tapSettings.scaleAfterModalKey, tapSettings.scaleBeforeModalKey);
+
+  const controlsOverlayZoom = await evaluate(`(async () => {
+    const renderer = document.querySelector('foliate-view')?.renderer;
+    if (!renderer) return null;
+    const navVisible = document.querySelector('nav')?.classList.contains('translate-y-0');
+    if (!navVisible) {
+      const clientX = innerWidth / 2;
+      const clientY = innerHeight / 2;
+      document.elementFromPoint(clientX, clientY)?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, clientX, clientY }),
+      );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const before = renderer.userScale;
+    const clientX = innerWidth / 2;
+    const clientY = innerHeight / 2;
+    const target = document.elementFromPoint(clientX, clientY);
+    const event = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+      clientX,
+      clientY,
+    });
+    target?.dispatchEvent(event);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    return {
+      before,
+      after: renderer.userScale,
+      defaultPrevented: event.defaultPrevented,
+      overlay: target?.className ?? '',
+    };
+  })()`);
+  assert.ok(controlsOverlayZoom.after > controlsOverlayZoom.before);
+  assert.equal(controlsOverlayZoom.defaultPrevented, true);
 
   const themeSettings = await evaluate(`(async () => {
     const themeButton = [...document.querySelectorAll('button')]
@@ -1108,12 +1174,40 @@ try {
       relocations,
     };
     renderer.destroy();
+
+    const zoomRenderer = new FixedLayout();
+    zoomRenderer.style.cssText = 'display:block;width:700px;height:800px';
+    document.body.append(zoomRenderer);
+    zoomRenderer.open({
+      rendition: { layout: 'pre-paginated', spread: 'none' },
+      sections,
+      dir: 'ltr',
+    });
+    await zoomRenderer.goToSpread(0, 'center', 'initial');
+    const baseScale = zoomRenderer.effectiveScale;
+    zoomRenderer.setUserScale(2, { x: 350, y: 400 });
+    const zoomedScale = zoomRenderer.userScale;
+    const zoomedEffectiveScale = zoomRenderer.effectiveScale;
+    await zoomRenderer.next();
+    await sleep(30);
+    result.zoom = {
+      baseScale,
+      zoomedScale,
+      zoomedEffectiveScale,
+      resetScale: zoomRenderer.userScale,
+      resetIndex: zoomRenderer.index,
+    };
+    zoomRenderer.destroy();
     pageUrls.forEach((url) => URL.revokeObjectURL(url));
     return result;
   })()`);
   assert.equal(fixedLayout.index, 2);
   assert.equal(fixedLayout.frameCount, 1);
   assert.deepEqual(fixedLayout.relocations, [0, 2]);
+  assert.equal(fixedLayout.zoom.zoomedScale, 2);
+  assert.ok(fixedLayout.zoom.zoomedEffectiveScale > fixedLayout.zoom.baseScale);
+  assert.equal(fixedLayout.zoom.resetScale, 1);
+  assert.equal(fixedLayout.zoom.resetIndex, 1);
 
   const pdfResult = await evaluate(`(async () => {
     document.body.replaceChildren();
@@ -1430,8 +1524,8 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.4';
-    const staleCache = 'pc-reader-v1.6.3';
+    const expectedCache = 'pc-reader-v1.6.5';
+    const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
       '/manifest.json',
@@ -1454,7 +1548,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.4',
+      '/sw.js?browser-regression=1.6.5',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1497,10 +1591,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.4']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.4$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5$/);
 
   console.log(JSON.stringify({
     shelf: {

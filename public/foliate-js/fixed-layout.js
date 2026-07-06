@@ -33,6 +33,8 @@ const getViewport = (doc, viewport) => {
 
 export class FixedLayout extends HTMLElement {
     static observedAttributes = ['zoom']
+    static minUserScale = 1
+    static maxUserScale = 4
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => this.#render())
     #spreads
@@ -47,6 +49,9 @@ export class FixedLayout extends HTMLElement {
     #center
     #side
     #zoom
+    #userScale = 1
+    #lastBaseScale = 1
+    #lastScale = 1
     constructor() {
         super()
 
@@ -136,7 +141,7 @@ export class FixedLayout extends HTMLElement {
         const blankWidth = left.width ?? right.width ?? 0
         const blankHeight = left.height ?? right.height ?? 0
 
-        const scale = typeof this.#zoom === 'number' && !isNaN(this.#zoom)
+        const baseScale = typeof this.#zoom === 'number' && !isNaN(this.#zoom)
             ? this.#zoom
             : (this.#zoom === 'fit-width'
                 ? (portrait || this.#center
@@ -152,6 +157,9 @@ export class FixedLayout extends HTMLElement {
                             left.height ?? blankHeight,
                             right.height ?? blankHeight)))
             ) || 1
+        const scale = baseScale * this.#userScale
+        this.#lastBaseScale = baseScale
+        this.#lastScale = scale
 
         const transform = frame => {
             let { element, iframe, width, height, blank, onZoom } = frame
@@ -244,13 +252,19 @@ export class FixedLayout extends HTMLElement {
         this.#right = right
         this.#center = center
         this.#side = side
+        this.#userScale = 1
         this.#render()
+        this.scrollLeft = 0
+        this.scrollTop = 0
     }
     #goLeft() {
         if (this.#center || this.#left?.blank) return
         if (this.#portrait && this.#left?.element?.style?.display === 'none') {
+            this.#userScale = 1
             this.#side = 'left'
             this.#render()
+            this.scrollLeft = 0
+            this.scrollTop = 0
             this.#reportLocation('page')
             return true
         }
@@ -258,8 +272,11 @@ export class FixedLayout extends HTMLElement {
     #goRight() {
         if (this.#center || this.#right?.blank) return
         if (this.#portrait && this.#right?.element?.style?.display === 'none') {
+            this.#userScale = 1
             this.#side = 'right'
             this.#render()
+            this.scrollLeft = 0
+            this.scrollTop = 0
             this.#reportLocation('page')
             return true
         }
@@ -336,7 +353,12 @@ export class FixedLayout extends HTMLElement {
         const task = this.#navigation.begin()
         this.#targetIndex = index
         if (index === this.#index) {
-            if (side) this.#side = side
+            if (side && side !== this.#side) {
+                this.#userScale = 1
+                this.#side = side
+                this.scrollLeft = 0
+                this.scrollTop = 0
+            }
             this.#render()
             this.#navigation.finish(task)
             return
@@ -408,6 +430,50 @@ export class FixedLayout extends HTMLElement {
             this.rtl ? 'left' : 'right',
             'page',
         )
+    }
+    get userScale() {
+        return this.#userScale
+    }
+    get baseScale() {
+        return this.#lastBaseScale
+    }
+    get effectiveScale() {
+        return this.#lastScale
+    }
+    setUserScale(value, focalPoint) {
+        const minScale = this.constructor.minUserScale
+        const maxScale = this.constructor.maxUserScale
+        const nextUserScale = Math.min(maxScale, Math.max(minScale, Number(value) || 1))
+        if (nextUserScale === this.#userScale) return this.#userScale
+
+        const rect = this.getBoundingClientRect()
+        const focalX = Number.isFinite(focalPoint?.x)
+            ? focalPoint.x - rect.left
+            : rect.width / 2
+        const focalY = Number.isFinite(focalPoint?.y)
+            ? focalPoint.y - rect.top
+            : rect.height / 2
+        const previousScale = this.#lastScale || 1
+        const contentX = (this.scrollLeft + focalX) / previousScale
+        const contentY = (this.scrollTop + focalY) / previousScale
+
+        this.#userScale = nextUserScale
+        this.#render()
+
+        const nextScale = this.#lastScale || previousScale
+        this.scrollLeft = Math.max(0, contentX * nextScale - focalX)
+        this.scrollTop = Math.max(0, contentY * nextScale - focalY)
+        return this.#userScale
+    }
+    adjustUserScale(factor, focalPoint) {
+        return this.setUserScale(this.#userScale * (Number(factor) || 1), focalPoint)
+    }
+    resetUserScale() {
+        this.#userScale = 1
+        this.#render()
+        this.scrollLeft = 0
+        this.scrollTop = 0
+        return this.#userScale
     }
     getContents() {
         return Array.from(this.#root.querySelectorAll('iframe'), frame => ({

@@ -73,6 +73,7 @@ export interface UserProgress {
 export interface SaveProgressOptions {
   force?: boolean;
   anchorCfi?: string;
+  suppressLastReaderSession?: boolean;
 }
 
 export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';

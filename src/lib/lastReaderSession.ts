@@ -1,7 +1,9 @@
 export const LAST_READER_SESSION_KEY = 'last_reader_session';
 export const LAST_READER_COMPLETE_PERCENT = 99.9;
+export const LAST_READER_SESSION_VERSION = 2;
 
 export type LastReaderSession = {
+  version: typeof LAST_READER_SESSION_VERSION;
   bookId: string;
   updatedAt: number;
 };
@@ -28,8 +30,16 @@ export const readLastReaderSession = (
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as Partial<LastReaderSession>;
-    if (typeof parsed.bookId !== 'string' || parsed.bookId.trim() === '') return null;
+    if (parsed.version !== LAST_READER_SESSION_VERSION) {
+      storage.removeItem(LAST_READER_SESSION_KEY);
+      return null;
+    }
+    if (typeof parsed.bookId !== 'string' || parsed.bookId.trim() === '') {
+      storage.removeItem(LAST_READER_SESSION_KEY);
+      return null;
+    }
     return {
+      version: LAST_READER_SESSION_VERSION,
       bookId: parsed.bookId,
       updatedAt: typeof parsed.updatedAt === 'number' && Number.isFinite(parsed.updatedAt)
         ? parsed.updatedAt
@@ -66,7 +76,11 @@ export const saveLastReaderSession = (
 
   storage.setItem(
     LAST_READER_SESSION_KEY,
-    JSON.stringify({ bookId, updatedAt: Date.now() }),
+    JSON.stringify({
+      version: LAST_READER_SESSION_VERSION,
+      bookId,
+      updatedAt: Date.now(),
+    }),
   );
 };
 

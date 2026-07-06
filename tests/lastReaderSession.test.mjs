@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   LAST_READER_SESSION_KEY,
+  LAST_READER_SESSION_VERSION,
   clearLastReaderSession,
   getLastReaderBookCandidate,
   readLastReaderSession,
@@ -25,7 +26,31 @@ test('stores and reads the last reader book locally', () => {
   const session = readLastReaderSession(storage);
 
   assert.equal(session.bookId, 'book-1');
+  assert.equal(session.version, LAST_READER_SESSION_VERSION);
   assert.equal(typeof session.updatedAt, 'number');
+});
+
+test('clears legacy sessions without using them as auto-open intent', () => {
+  const storage = createStorage();
+  storage.setItem(LAST_READER_SESSION_KEY, JSON.stringify({
+    bookId: 'book-1',
+    updatedAt: Date.now(),
+  }));
+
+  assert.equal(readLastReaderSession(storage), null);
+  assert.equal(storage.getItem(LAST_READER_SESSION_KEY), null);
+});
+
+test('clears malformed sessions without keeping stale intent', () => {
+  const storage = createStorage();
+  storage.setItem(LAST_READER_SESSION_KEY, JSON.stringify({
+    version: LAST_READER_SESSION_VERSION,
+    bookId: ' ',
+    updatedAt: Date.now(),
+  }));
+
+  assert.equal(readLastReaderSession(storage), null);
+  assert.equal(storage.getItem(LAST_READER_SESSION_KEY), null);
 });
 
 test('does not keep a completed book as the last reader session', () => {

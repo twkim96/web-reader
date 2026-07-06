@@ -55,10 +55,16 @@ export type FoliateRenderer = {
   start: number;
   viewSize: number;
   size: number;
+  userScale?: number;
+  baseScale?: number;
+  effectiveScale?: number;
   getAttribute: (name: string) => string | null;
   setAttribute: (name: string, value?: string) => void;
   setStyles: (styles: string[]) => void;
   getContents?: () => { doc?: Document }[];
+  setUserScale?: (value: number, focalPoint?: { x: number; y: number }) => number;
+  adjustUserScale?: (factor: number, focalPoint?: { x: number; y: number }) => number;
+  resetUserScale?: () => number;
 };
 
 export type SearchSubitem = {

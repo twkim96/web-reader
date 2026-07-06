@@ -323,7 +323,7 @@ export default function Page() {
     options?: SaveProgressOptions,
   ) => {
     handleSaveProgress(cfi, pct, bookmarks, options);
-    if (!activeBook || !settings.autoOpenLastBook) return;
+    if (!activeBook || !settings.autoOpenLastBook || options?.suppressLastReaderSession) return;
     saveLastReaderSession(activeBook.id, pct);
   }, [activeBook, handleSaveProgress, settings.autoOpenLastBook]);
 
@@ -372,6 +372,14 @@ export default function Page() {
     setActiveBook(book);
     setView('reader');
   }, [progress, settings.autoOpenLastBook]);
+
+  const handleReaderBack = useCallback(() => {
+    if (activeBook) {
+      clearLastReaderSession(undefined, activeBook.id);
+    }
+    setView('shelf');
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  }, [activeBook]);
 
   useEffect(() => {
     if (hasTriedAutoOpenLastBookRef.current) return;
@@ -473,7 +481,7 @@ export default function Page() {
           googleToken={googleToken || ''}
           settings={settings}
           onUpdateSettings={updateSettings}
-          onBack={() => { setView('shelf'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' })); }}
+          onBack={handleReaderBack}
           onSaveProgress={handleReaderSaveProgress}
           initialCfi={progress[activeBook.id]?.anchorCfi || progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}

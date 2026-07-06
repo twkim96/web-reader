@@ -110,7 +110,7 @@ export const useReaderProgressSave = ({
     cfi: string,
     pct: number,
     nextBookmarks: Bookmark[],
-    options?: { force?: boolean; anchorCfi?: string }
+    options?: SaveProgressOptions
   ) => {
     if (!options?.force && !hasUnsavedUserChangeRef.current) return false;
 
@@ -133,6 +133,7 @@ export const useReaderProgressSave = ({
     onSaveProgress(cfi, safePercent, nextBookmarks, {
       ...(options?.force ? { force: true } : {}),
       anchorCfi,
+      ...(options?.suppressLastReaderSession ? { suppressLastReaderSession: true } : {}),
     });
     lastPersistedProgressRef.current = {
       cfi,
@@ -145,7 +146,7 @@ export const useReaderProgressSave = ({
     return true;
   }, [clearPendingSave, onSaveProgress]);
 
-  const savePendingRelocate = useCallback(() => {
+  const savePendingRelocate = useCallback((options?: SaveProgressOptions) => {
     const pending = pendingRelocateSaveRef.current;
     if (!pending) return false;
 
@@ -153,7 +154,7 @@ export const useReaderProgressSave = ({
       pending.cfi,
       pending.percent,
       pending.bookmarks,
-      { anchorCfi: pending.anchorCfi }
+      { ...options, anchorCfi: pending.anchorCfi }
     );
   }, [saveProgressIfChanged]);
 
@@ -216,18 +217,18 @@ export const useReaderProgressSave = ({
     scheduleRelocateSave(pending);
   }, [scheduleRelocateSave]);
 
-  const saveCurrentProgress = useCallback(() => {
+  const saveCurrentProgress = useCallback((options?: SaveProgressOptions) => {
     const { currentCfi, currentAnchorCfi, totalProgress, bookmarks } = saveContextRef.current;
     if (!currentCfi) return false;
     clearRelocateSaveTimer();
     if (pendingRelocateSaveRef.current) {
-      return savePendingRelocate();
+      return savePendingRelocate(options);
     }
     return saveProgressIfChanged(
       currentCfi,
       totalProgress,
       pendingBookmarksRef.current || bookmarks,
-      { anchorCfi: currentAnchorCfi || currentCfi }
+      { ...options, anchorCfi: currentAnchorCfi || currentCfi }
     );
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
