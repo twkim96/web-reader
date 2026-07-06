@@ -934,6 +934,65 @@ try {
   assert.equal(controlsOverlayWheel.after, controlsOverlayWheel.before);
   assert.equal(controlsOverlayWheel.defaultPrevented, true);
 
+  const controlsOverlayTouchPan = await evaluate(`(async () => {
+    const renderer = document.querySelector('foliate-view')?.renderer;
+    const overlay = document.querySelector('[data-reader-controls-overlay="true"]');
+    if (!renderer || !overlay || typeof Touch !== 'function') return null;
+    renderer.setUserScale(2, { x: innerWidth / 2, y: innerHeight / 2 });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    renderer.scrollLeft = 0;
+    renderer.scrollTop = 0;
+    const before = {
+      scrollLeft: renderer.scrollLeft,
+      scrollTop: renderer.scrollTop,
+    };
+    const makeTouch = (identifier, clientX, clientY) => new Touch({
+      identifier,
+      target: overlay,
+      clientX,
+      clientY,
+      screenX: clientX,
+      screenY: clientY,
+      pageX: clientX,
+      pageY: clientY,
+    });
+    const startTouch = makeTouch(1, innerWidth / 2, innerHeight / 2);
+    overlay.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [startTouch],
+      targetTouches: [startTouch],
+      changedTouches: [startTouch],
+    }));
+    const moveTouch = makeTouch(1, innerWidth / 2 - 80, innerHeight / 2 - 70);
+    const moveEvent = new TouchEvent('touchmove', {
+      bubbles: true,
+      cancelable: true,
+      touches: [moveTouch],
+      targetTouches: [moveTouch],
+      changedTouches: [moveTouch],
+    });
+    overlay.dispatchEvent(moveEvent);
+    overlay.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      targetTouches: [],
+      changedTouches: [moveTouch],
+    }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    return {
+      before,
+      after: {
+        scrollLeft: renderer.scrollLeft,
+        scrollTop: renderer.scrollTop,
+      },
+    };
+  })()`);
+  assert.ok(controlsOverlayTouchPan);
+  assert.ok(controlsOverlayTouchPan.after.scrollLeft > controlsOverlayTouchPan.before.scrollLeft);
+  assert.ok(controlsOverlayTouchPan.after.scrollTop > controlsOverlayTouchPan.before.scrollTop);
+
   const themeSettings = await evaluate(`(async () => {
     const themeButton = [...document.querySelectorAll('button')]
       .find((node) => node.textContent?.trim() === '테마');
@@ -1009,7 +1068,11 @@ try {
   assert.equal(themeSettings.themeModalBackground, 'rgb(39, 39, 40)');
   assert.equal(themeSettings.toolbarSurface, 'rgba(39, 39, 40, 0.68)');
 
-  await evaluate(`document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click()`);
+  await evaluate(`(async () => {
+    document.querySelector('[data-reader-controls-overlay="true"]')?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    document.querySelector('[data-reader-controls-overlay="true"]')?.click();
+  })()`);
   await waitFor(
     `!document.querySelector('nav')?.classList.contains('translate-y-0')`,
     'reader controls close after tap settings',

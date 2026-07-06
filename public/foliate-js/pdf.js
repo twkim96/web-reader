@@ -66,12 +66,10 @@ const createPageRenderer = page => {
 
         const generation = ++state.generation
         state.renderingGeneration = generation
-        state.completedKey = null
         state.renderTask?.cancel()
         state.textLayer?.cancel()
         state.renderTask = null
         state.textLayer = null
-        clearPageLayers(doc)
 
         try {
             doc.documentElement.style.transform = `scale(${displayScale})`

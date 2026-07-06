@@ -50,12 +50,13 @@
 - 모바일 브라우저의 기본 pinch zoom, pull scroll, viewport scroll로 빠지지 않도록 오버레이와 관련 handler에 `touch-action` 정책과 non-passive `preventDefault()` 경계를 둔다.
 - 확대 상태에서는 모바일 한 손가락 드래그로 fixed-layout 스크롤 위치를 이동해 이미지를 팬한다.
 - 핀치 후 손가락 하나를 화면에 남긴 채 바로 움직이는 실제 사용 경로에서도 pan 상태로 이어지게 한다.
+- 리더 컨트롤이 표시되어 z-40 컨트롤 오버레이가 떠 있는 상태에서도 같은 터치 pan 경로가 동작하게 한다.
 - PC `Ctrl`+마우스 휠은 확대/축소로 사용하지 않고, 브라우저 기본 페이지 zoom과 리더 페이지 넘김으로 새지 않게 막는다.
 - PC에서는 `Ctrl`+`ArrowUp`을 확대, `Ctrl`+`ArrowDown`을 축소로 처리한다.
 - 확대 중에는 현재 터치/마우스 포인터 주변이 화면에 유지되도록 scroll offset을 보정한다.
 - 최소 배율은 기본 맞춤 배율, 최대 배율은 실제 이미지와 PDF canvas 보호 한도를 고려해 정한다.
 - PDF는 기존 `onZoom` 렌더 경로와 canvas 8MP/8192px 제한을 유지한다.
-- PDF 확대 중 깜빡임은 canvas 재렌더 구조상 완전히 제거하지 않고 입력 coalescing으로 완화한다. 완전 제거는 CSS 임시 확대와 지연 고품질 재렌더를 분리하는 별도 렌더 전략이 필요하다.
+- PDF 확대 중 깜빡임은 입력 coalescing과 기존 canvas/text/annotation 레이어 유지 후 완성된 새 렌더로 교체하는 방식으로 완화한다.
 - 압축 이미지는 기존 이미지 blob/cache 수명 정책을 유지하고 CSS 배율만 조정한다.
 - 확대 상태에서 일반 탭, 스페이스바, 화살표 이동, 휠 페이지 넘김의 기존 동작이 깨지지 않게 입력 우선순위를 정리한다.
 
@@ -63,7 +64,8 @@
 
 - 구현 완료.
 - fixed-layout 상대 확대 API, pan API, React 오버레이 pinch/한 손가락 pan/`Ctrl` 입력 처리, 페이지 이동 초기화를 반영했다.
-- 실기기 피드백에 따라 `Ctrl`+휠 확대를 제거하고, 확대 중 한 손가락 pan, pinch 입력 coalescing, pinch 후 남은 손가락의 pan 승계를 추가했다.
+- 실기기 피드백에 따라 `Ctrl`+휠 확대를 제거하고, 확대 중 한 손가락 pan, 컨트롤 오버레이 터치 pan, pinch 입력 coalescing, pinch 후 남은 손가락의 pan 승계를 추가했다.
+- PDF 확대 렌더는 새 canvas가 준비되기 전까지 기존 레이어를 비우지 않도록 바꿔 빈 화면 깜빡임을 줄였다.
 - 로컬 자동 검증과 production 브라우저 회귀를 통과했다.
 
 ### 완료 조건
@@ -73,6 +75,7 @@
 - 탭 이동용 투명 오버레이가 켜진 상태에서도 모바일 pinch가 실제 사용자 경로에서 동작한다.
 - 확대 상태에서 모바일 한 손가락 드래그로 확대된 페이지를 이동할 수 있다.
 - 핀치 직후 손가락 하나를 떼지 않고 움직여도 확대된 페이지를 이동할 수 있다.
+- 리더 컨트롤이 표시된 상태에서도 확대된 페이지를 한 손가락으로 이동할 수 있다.
 - 모바일 pinch 중 브라우저 자체 페이지 확대, body scroll, pull-to-refresh가 발생하지 않는다.
 - 확대된 상태에서 페이지를 넘기면 다음 페이지는 기본 맞춤 보기로 열린다.
 - 리더를 닫았다가 같은 책을 다시 열어도 확대 값은 유지되지 않는다.
@@ -81,7 +84,7 @@
 
 ### 검증
 
-- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 페이지 이동 초기화, `Ctrl`+휠 확대 차단 회귀를 추가했다.
+- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 페이지 이동 초기화, `Ctrl`+휠 확대 차단 회귀를 추가했다.
 - `npm run test:formats`: 36개 통과.
 - `npm run test:archives`: 32개 통과.
 - `npm run test:browser`: 통과.
@@ -185,11 +188,11 @@
 - production 서버 `http://localhost:3000`에서 브라우저 회귀를 통과했다.
 - 고정 배포 URL `https://twreader.vercel.app`에서 Vercel 응답과 `pc-reader-v1.6.5` 서비스워커를 확인했다.
 - Superloopy visual QA evidence: `.superloopy/evidence/frontend/20260706-165-reader-zoom/VISUAL_QA.md`.
-- 남은 항목은 실제 모바일/트랙패드/마우스 환경에서 pinch와 한 손가락 pan 감각을 추가로 확인하는 실사용 테스트다.
+- 남은 항목은 배포 후 실제 모바일/트랙패드/마우스 환경에서 pinch, 한 손가락 pan, PDF 확대 깜빡임 완화 정도를 추가로 확인하는 실사용 테스트다.
 
 ## 보류 항목
 
 - 도서별 확대/축소 값을 `localStorage`에 저장하는 옵션은 이번 버전에서 구현하지 않는다.
 - 확대 버튼, 축소 버튼, 배율 표시 UI는 이번 버전에서 추가하지 않는다.
 - EPUB reflow 본문의 pinch zoom은 이번 버전에서 다루지 않는다.
-- PDF 확대 중 canvas 재렌더 깜빡임을 완전히 없애는 렌더 전략 변경은 이번 버전에서 다루지 않는다.
+- PDF 확대 중 저해상도 임시 확대와 지연 고품질 렌더를 완전히 분리하는 별도 렌더 전략은 이번 버전에서 다루지 않는다.

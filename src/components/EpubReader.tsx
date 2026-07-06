@@ -522,6 +522,17 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
   }, [flushPendingFixedLayoutZoom, getFixedLayoutRenderer]);
 
+  const handleControlsOverlayClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (suppressNextInteractionClickRef.current) {
+      suppressNextInteractionClickRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    chrome.setShowControls(false);
+  }, [chrome]);
+
   useEffect(() => {
     return () => {
       if (fixedLayoutZoomFrameRef.current !== null) {
@@ -803,9 +814,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       {chrome.showControls && (
         <div
           ref={controlsOverlayRef}
+          data-reader-controls-overlay="true"
           className="fixed inset-0 z-40 touch-none"
           style={{ background: 'transparent' }}
-          onClick={() => chrome.setShowControls(false)}
+          onClick={handleControlsOverlayClick}
+          onTouchStart={handleFixedLayoutTouchStart}
+          onTouchMove={handleFixedLayoutTouchMove}
+          onTouchEnd={handleFixedLayoutTouchEnd}
+          onTouchCancel={handleFixedLayoutTouchEnd}
         />
       )}
 
