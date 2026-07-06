@@ -4,6 +4,7 @@
 
 - 2026-07-06 기준 1.6.5 구현, 실기기 피드백 반영, 자동 검증, Vercel 배포 확인을 완료했다.
 - Android PWA가 기존 `pc-reader-v1.6.5` 캐시를 계속 사용할 수 있어 후속 캐시 bust 버전 `1.6.5.1`로 올렸다.
+- iPad 실사용에서 확대 후 왼쪽 끝을 볼 수 없는 fixed-layout 중앙 정렬 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.2`로 올렸다.
 
 ## 목표
 
@@ -51,6 +52,7 @@
 - 확대 상태에서는 모바일 한 손가락 드래그로 fixed-layout 스크롤 위치를 이동해 이미지를 팬한다.
 - 핀치 후 손가락 하나를 화면에 남긴 채 바로 움직이는 실제 사용 경로에서도 pan 상태로 이어지게 한다.
 - 리더 컨트롤이 표시되어 z-40 컨트롤 오버레이가 떠 있는 상태에서도 같은 터치 pan 경로가 동작하게 한다.
+- 확대 상태에서는 fixed-layout 정렬을 중앙에서 좌상단 기준으로 바꿔 왼쪽/위쪽 끝까지 스크롤 접근 가능하게 한다.
 - PC `Ctrl`+마우스 휠은 확대/축소로 사용하지 않고, 브라우저 기본 페이지 zoom과 리더 페이지 넘김으로 새지 않게 막는다.
 - PC에서는 `Ctrl`+`ArrowUp`을 확대, `Ctrl`+`ArrowDown`을 축소로 처리한다.
 - 확대 중에는 현재 터치/마우스 포인터 주변이 화면에 유지되도록 scroll offset을 보정한다.
@@ -66,6 +68,8 @@
 - fixed-layout 상대 확대 API, pan API, React 오버레이 pinch/한 손가락 pan/`Ctrl` 입력 처리, 페이지 이동 초기화를 반영했다.
 - 실기기 피드백에 따라 `Ctrl`+휠 확대를 제거하고, 확대 중 한 손가락 pan, 컨트롤 오버레이 터치 pan, pinch 입력 coalescing, pinch 후 남은 손가락의 pan 승계를 추가했다.
 - PDF 확대 렌더는 새 canvas가 준비되기 전까지 기존 레이어를 비우지 않도록 바꿔 빈 화면 깜빡임을 줄였다.
+- fixed-layout 확대 중 overflow 중앙 정렬 때문에 왼쪽 끝을 볼 수 없는 문제를 `flex-start` 정렬 전환으로 수정했다.
+- 확대/축소 감각은 transform compositing 힌트와 모바일 overflow 안정화로 개선했다. 사진 앱 수준의 관성/고무줄 물리는 별도 제스처 엔진 범위로 남긴다.
 - 로컬 자동 검증과 production 브라우저 회귀를 통과했다.
 
 ### 완료 조건
@@ -76,6 +80,7 @@
 - 확대 상태에서 모바일 한 손가락 드래그로 확대된 페이지를 이동할 수 있다.
 - 핀치 직후 손가락 하나를 떼지 않고 움직여도 확대된 페이지를 이동할 수 있다.
 - 리더 컨트롤이 표시된 상태에서도 확대된 페이지를 한 손가락으로 이동할 수 있다.
+- 확대 상태에서 왼쪽/위쪽 끝과 오른쪽/아래쪽 끝을 모두 볼 수 있다.
 - 모바일 pinch 중 브라우저 자체 페이지 확대, body scroll, pull-to-refresh가 발생하지 않는다.
 - 확대된 상태에서 페이지를 넘기면 다음 페이지는 기본 맞춤 보기로 열린다.
 - 리더를 닫았다가 같은 책을 다시 열어도 확대 값은 유지되지 않는다.
@@ -84,11 +89,13 @@
 
 ### 검증
 
-- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 페이지 이동 초기화, `Ctrl`+휠 확대 차단 회귀를 추가했다.
+- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 확대 중 `flex-start` 정렬, 페이지 이동 초기화, `Ctrl`+휠 확대 차단 회귀를 추가했다.
 - `npm run test:formats`: 36개 통과.
 - `npm run test:archives`: 32개 통과.
 - `npm run test:browser`: 통과.
 - 실사용 모바일 테스트에서 pinch 확대 후 한 손가락 pan 필요성을 확인했고, 후속 변경에 반영했다.
+- 1.6.5.2 fixed-layout 정렬 보정 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`를 통과했다.
+- 같은 변경의 `npm run test:browser`는 로컬 Chrome CDP target의 early theme bootstrap 주입 대기에서 반복 실패해 이번 턴의 통과 증거로 사용하지 않는다.
 
 ## Phase 2: 마지막 도서 자동 열기 조건 수정
 
@@ -159,16 +166,18 @@
 - release 버전 검사가 새 버전을 기대하도록 맞춘다.
 - browser regression의 서비스워커 캐시명, stale 캐시명, `/sw.js?browser-regression=...` 리터럴을 1.6.5 기준으로 갱신한다.
 - Android PWA 캐시 갱신을 강제하기 위해 후속 버전 `1.6.5.1`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.1`, `pc-reader-v1.6.5.1`로 올린다.
+- fixed-layout pan 보정 후속 버전 `1.6.5.2`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.2`, `pc-reader-v1.6.5.2`로 올린다.
 
 ### 상태
 
 - 구현 완료.
 - 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5로 갱신했다.
 - Android PWA 캐시 bust를 위해 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.1로 갱신했다.
+- fixed-layout pan 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.2로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.1이다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.2다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 
@@ -190,7 +199,7 @@
 - production 서버 `http://localhost:3000`에서 브라우저 회귀를 통과했다.
 - 고정 배포 URL `https://twreader.vercel.app`에서 Vercel 응답과 서비스워커 캐시 버전을 확인한다.
 - Superloopy visual QA evidence: `.superloopy/evidence/frontend/20260706-165-reader-zoom/VISUAL_QA.md`.
-- 남은 항목은 배포 후 실제 모바일/트랙패드/마우스 환경에서 pinch, 한 손가락 pan, PDF 확대 깜빡임 완화 정도를 추가로 확인하는 실사용 테스트다.
+- 남은 항목은 배포 후 실제 Android/iPad/트랙패드/마우스 환경에서 pinch, 한 손가락 pan, 왼쪽 끝 접근, PDF 확대 깜빡임 완화 정도를 추가로 확인하는 실사용 테스트다.
 
 ## 보류 항목
 

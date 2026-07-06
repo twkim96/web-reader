@@ -66,6 +66,10 @@ export class FixedLayout extends HTMLElement {
             overflow: auto;
         }`)
 
+        Object.assign(this.style, {
+            overscrollBehavior: 'contain',
+        })
+        this.style.setProperty('-webkit-overflow-scrolling', 'touch')
         this.#observer.observe(this)
     }
     attributeChangedCallback(name, _, value) {
@@ -160,6 +164,11 @@ export class FixedLayout extends HTMLElement {
         const scale = baseScale * this.#userScale
         this.#lastBaseScale = baseScale
         this.#lastScale = scale
+        const isUserZoomed = this.#userScale > this.constructor.minUserScale
+        Object.assign(this.style, {
+            justifyContent: isUserZoomed ? 'flex-start' : 'center',
+            alignItems: isUserZoomed ? 'flex-start' : 'center',
+        })
 
         const transform = frame => {
             let { element, iframe, width, height, blank, onZoom } = frame
@@ -180,6 +189,8 @@ export class FixedLayout extends HTMLElement {
                 transform: onZoom ? 'none' : `scale(${scale})`,
                 transformOrigin: 'top left',
                 display: blank ? 'none' : 'block',
+                backfaceVisibility: 'hidden',
+                willChange: onZoom ? 'width, height' : 'transform',
             })
             Object.assign(element.style, {
                 width: `${(width ?? blankWidth) * scale}px`,
@@ -187,7 +198,8 @@ export class FixedLayout extends HTMLElement {
                 overflow: 'hidden',
                 display: 'block',
                 flexShrink: '0',
-                marginBlock: 'auto',
+                marginBlock: isUserZoomed ? '0' : 'auto',
+                willChange: 'width, height',
             })
             if (portrait && frame !== target) {
                 element.style.display = 'none'
@@ -209,6 +221,24 @@ export class FixedLayout extends HTMLElement {
         this.#cleanupFrame(this.#left)
         this.#cleanupFrame(this.#right)
         this.#cleanupFrame(this.#center)
+    }
+    #getVisibleFrames() {
+        const frames = this.#center ? [this.#center] : [this.#left, this.#right]
+        return frames.filter(frame =>
+            frame?.element
+            && !frame.blank
+            && frame.element.style.display !== 'none')
+    }
+    #getContentOffset() {
+        const rect = this.getBoundingClientRect()
+        const frames = this.#getVisibleFrames()
+        const boxes = frames.map(frame => frame.element.getBoundingClientRect())
+        const left = Math.min(...boxes.map(box => box.left))
+        const top = Math.min(...boxes.map(box => box.top))
+        return {
+            x: Number.isFinite(left) ? left - rect.left : 0,
+            y: Number.isFinite(top) ? top - rect.top : 0,
+        }
     }
     async #loadSpread({ left, right, center, side }, signal) {
         const staging = document.createElement('div')
@@ -454,8 +484,9 @@ export class FixedLayout extends HTMLElement {
             ? focalPoint.y - rect.top
             : rect.height / 2
         const previousScale = this.#lastScale || 1
-        const contentX = (this.scrollLeft + focalX) / previousScale
-        const contentY = (this.scrollTop + focalY) / previousScale
+        const contentOffset = this.#getContentOffset()
+        const contentX = (focalX - contentOffset.x) / previousScale
+        const contentY = (focalY - contentOffset.y) / previousScale
 
         this.#userScale = nextUserScale
         this.#render()

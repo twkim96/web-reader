@@ -1210,7 +1210,7 @@ try {
       },
     }));
     const renderer = new FixedLayout();
-    renderer.style.cssText = 'display:block;width:700px;height:800px';
+    renderer.style.cssText = 'width:700px;height:800px';
     document.body.append(renderer);
     const relocations = [];
     renderer.addEventListener('relocate', (event) => {
@@ -1239,7 +1239,7 @@ try {
     renderer.destroy();
 
     const zoomRenderer = new FixedLayout();
-    zoomRenderer.style.cssText = 'display:block;width:700px;height:800px';
+    zoomRenderer.style.cssText = 'width:700px;height:800px';
     document.body.append(zoomRenderer);
     zoomRenderer.open({
       rendition: { layout: 'pre-paginated', spread: 'none' },
@@ -1251,6 +1251,10 @@ try {
     zoomRenderer.setUserScale(2, { x: 350, y: 400 });
     const zoomedScale = zoomRenderer.userScale;
     const zoomedEffectiveScale = zoomRenderer.effectiveScale;
+    const zoomedAlignment = {
+      justifyContent: getComputedStyle(zoomRenderer).justifyContent,
+      alignItems: getComputedStyle(zoomRenderer).alignItems,
+    };
     const beforePan = {
       scrollLeft: zoomRenderer.scrollLeft,
       scrollTop: zoomRenderer.scrollTop,
@@ -1266,6 +1270,10 @@ try {
       afterPan,
       resetScale: zoomRenderer.userScale,
       resetIndex: zoomRenderer.index,
+      resetAlignment: {
+        justifyContent: getComputedStyle(zoomRenderer).justifyContent,
+        alignItems: getComputedStyle(zoomRenderer).alignItems,
+      },
     };
     zoomRenderer.destroy();
     pageUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -1276,10 +1284,14 @@ try {
   assert.deepEqual(fixedLayout.relocations, [0, 2]);
   assert.equal(fixedLayout.zoom.zoomedScale, 2);
   assert.ok(fixedLayout.zoom.zoomedEffectiveScale > fixedLayout.zoom.baseScale);
+  assert.equal(fixedLayout.zoom.zoomedAlignment.justifyContent, 'flex-start');
+  assert.equal(fixedLayout.zoom.zoomedAlignment.alignItems, 'flex-start');
   assert.ok(fixedLayout.zoom.afterPan.scrollLeft > fixedLayout.zoom.beforePan.scrollLeft);
   assert.ok(fixedLayout.zoom.afterPan.scrollTop > fixedLayout.zoom.beforePan.scrollTop);
   assert.equal(fixedLayout.zoom.resetScale, 1);
   assert.equal(fixedLayout.zoom.resetIndex, 1);
+  assert.equal(fixedLayout.zoom.resetAlignment.justifyContent, 'center');
+  assert.equal(fixedLayout.zoom.resetAlignment.alignItems, 'center');
 
   const pdfResult = await evaluate(`(async () => {
     document.body.replaceChildren();
@@ -1596,7 +1608,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.5.1';
+    const expectedCache = 'pc-reader-v1.6.5.2';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1620,7 +1632,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.5.1',
+      '/sw.js?browser-regression=1.6.5.2',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1663,10 +1675,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.1']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.2']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.1$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.2$/);
 
   console.log(JSON.stringify({
     shelf: {
