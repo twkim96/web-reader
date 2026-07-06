@@ -64,12 +64,10 @@ export class FixedLayout extends HTMLElement {
             justify-content: center;
             align-items: center;
             overflow: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }`)
 
-        Object.assign(this.style, {
-            overscrollBehavior: 'contain',
-        })
-        this.style.setProperty('-webkit-overflow-scrolling', 'touch')
         this.#observer.observe(this)
     }
     attributeChangedCallback(name, _, value) {
@@ -528,4 +526,6 @@ export class FixedLayout extends HTMLElement {
     }
 }
 
-customElements.define('foliate-fxl', FixedLayout)
+if (!customElements.get('foliate-fxl')) {
+    customElements.define('foliate-fxl', FixedLayout)
+}

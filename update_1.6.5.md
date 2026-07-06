@@ -5,6 +5,7 @@
 - 2026-07-06 기준 1.6.5 구현, 실기기 피드백 반영, 자동 검증, Vercel 배포 확인을 완료했다.
 - Android PWA가 기존 `pc-reader-v1.6.5` 캐시를 계속 사용할 수 있어 후속 캐시 bust 버전 `1.6.5.1`로 올렸다.
 - iPad 실사용에서 확대 후 왼쪽 끝을 볼 수 없는 fixed-layout 중앙 정렬 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.2`로 올렸다.
+- fixed-layout 커스텀 엘리먼트 생성자에서 host style 속성을 만들며 일부 브라우저에서 업그레이드가 실패할 수 있는 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.3`으로 올린다.
 
 ## 목표
 
@@ -96,6 +97,8 @@
 - 실사용 모바일 테스트에서 pinch 확대 후 한 손가락 pan 필요성을 확인했고, 후속 변경에 반영했다.
 - 1.6.5.2 fixed-layout 정렬 보정 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`를 통과했다.
 - 같은 변경의 `npm run test:browser`는 로컬 Chrome CDP target의 early theme bootstrap 주입 대기에서 반복 실패해 이번 턴의 통과 증거로 사용하지 않는다.
+- 1.6.5.3에서는 fixed-layout host scroll style을 생성자 inline style 대신 `:host` CSS로 옮기고, `foliate-fxl`/`foliate-paginator` 등록 중복 방어와 렌더러 초기화 검증을 추가한다.
+- 1.6.5.3 fixed-layout 커스텀 엘리먼트 보정 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`를 통과했고, Chrome CDP에서 `document.createElement('foliate-fxl').open`이 `function`임을 확인했다.
 
 ## Phase 2: 마지막 도서 자동 열기 조건 수정
 
@@ -167,6 +170,7 @@
 - browser regression의 서비스워커 캐시명, stale 캐시명, `/sw.js?browser-regression=...` 리터럴을 1.6.5 기준으로 갱신한다.
 - Android PWA 캐시 갱신을 강제하기 위해 후속 버전 `1.6.5.1`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.1`, `pc-reader-v1.6.5.1`로 올린다.
 - fixed-layout pan 보정 후속 버전 `1.6.5.2`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.2`, `pc-reader-v1.6.5.2`로 올린다.
+- fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 버전 `1.6.5.3`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.3`, `pc-reader-v1.6.5.3`으로 올린다.
 
 ### 상태
 
@@ -174,10 +178,11 @@
 - 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5로 갱신했다.
 - Android PWA 캐시 bust를 위해 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.1로 갱신했다.
 - fixed-layout pan 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.2로 갱신했다.
+- fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.3으로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.2다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.3이다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 

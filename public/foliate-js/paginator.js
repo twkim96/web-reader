@@ -1163,4 +1163,6 @@ export class Paginator extends HTMLElement {
     }
 }
 
-customElements.define('foliate-paginator', Paginator)
+if (!customElements.get('foliate-paginator')) {
+    customElements.define('foliate-paginator', Paginator)
+}
