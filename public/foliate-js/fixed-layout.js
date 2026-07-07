@@ -163,9 +163,19 @@ export class FixedLayout extends HTMLElement {
         this.#lastBaseScale = baseScale
         this.#lastScale = scale
         const isUserZoomed = this.#userScale > this.constructor.minUserScale
+        const getFrameWidth = frame => frame.width ?? blankWidth
+        const getFrameHeight = frame => frame.height ?? blankHeight
+        const contentWidth = (portrait || this.#center
+            ? getFrameWidth(target)
+            : getFrameWidth(left) + getFrameWidth(right)) * scale
+        const contentHeight = (portrait || this.#center
+            ? getFrameHeight(target)
+            : Math.max(getFrameHeight(left), getFrameHeight(right))) * scale
+        const overflowsX = isUserZoomed && contentWidth > width + 0.5
+        const overflowsY = isUserZoomed && contentHeight > height + 0.5
         Object.assign(this.style, {
-            justifyContent: isUserZoomed ? 'flex-start' : 'center',
-            alignItems: isUserZoomed ? 'flex-start' : 'center',
+            justifyContent: overflowsX ? 'flex-start' : 'center',
+            alignItems: overflowsY ? 'flex-start' : 'center',
         })
 
         const transform = frame => {

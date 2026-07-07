@@ -1297,6 +1297,29 @@ try {
       },
     };
     zoomRenderer.destroy();
+
+    const centeredZoomRenderer = new FixedLayout();
+    centeredZoomRenderer.style.cssText = 'width:1200px;height:800px';
+    document.body.append(centeredZoomRenderer);
+    centeredZoomRenderer.open({
+      rendition: { layout: 'pre-paginated', spread: 'none' },
+      sections,
+      dir: 'ltr',
+    });
+    await centeredZoomRenderer.goToSpread(0, 'center', 'initial');
+    centeredZoomRenderer.setUserScale(1.5, { x: 600, y: 400 });
+    result.centeredZoom = {
+      userScale: centeredZoomRenderer.userScale,
+      scrollWidth: centeredZoomRenderer.scrollWidth,
+      clientWidth: centeredZoomRenderer.clientWidth,
+      scrollHeight: centeredZoomRenderer.scrollHeight,
+      clientHeight: centeredZoomRenderer.clientHeight,
+      alignment: {
+        justifyContent: getComputedStyle(centeredZoomRenderer).justifyContent,
+        alignItems: getComputedStyle(centeredZoomRenderer).alignItems,
+      },
+    };
+    centeredZoomRenderer.destroy();
     pageUrls.forEach((url) => URL.revokeObjectURL(url));
     return result;
   })()`);
@@ -1320,6 +1343,11 @@ try {
   assert.equal(fixedLayout.zoom.afterResetScroll.scrollTop, 0);
   assert.equal(fixedLayout.zoom.afterResetAlignment.justifyContent, 'center');
   assert.equal(fixedLayout.zoom.afterResetAlignment.alignItems, 'center');
+  assert.equal(fixedLayout.centeredZoom.userScale, 1.5);
+  assert.ok(fixedLayout.centeredZoom.scrollWidth <= fixedLayout.centeredZoom.clientWidth);
+  assert.ok(fixedLayout.centeredZoom.scrollHeight > fixedLayout.centeredZoom.clientHeight);
+  assert.equal(fixedLayout.centeredZoom.alignment.justifyContent, 'center');
+  assert.equal(fixedLayout.centeredZoom.alignment.alignItems, 'flex-start');
 
   const pdfResult = await evaluate(`(async () => {
     document.body.replaceChildren();
@@ -1636,7 +1664,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.5.4';
+    const expectedCache = 'pc-reader-v1.6.5.5';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1660,7 +1688,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.5.4',
+      '/sw.js?browser-regression=1.6.5.5',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1703,10 +1731,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.4']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.5']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.4$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.5$/);
 
   console.log(JSON.stringify({
     shelf: {

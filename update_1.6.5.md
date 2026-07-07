@@ -7,6 +7,7 @@
 - iPad 실사용에서 확대 후 왼쪽 끝을 볼 수 없는 fixed-layout 중앙 정렬 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.2`로 올렸다.
 - fixed-layout 커스텀 엘리먼트 생성자에서 host style 속성을 만들며 일부 브라우저에서 업그레이드가 실패할 수 있는 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.3`으로 올린다.
 - 확대 상태로 탭/키보드/휠 페이지 넘김을 할 때 다음 페이지에 확대 배율과 화면 위치를 이어받도록 수정하고, 후속 캐시 bust 버전 `1.6.5.4`로 올린다.
+- 확대 상태라도 가로 또는 세로로 넘치지 않는 축은 중앙 정렬을 유지하도록 수정하고, 후속 캐시 bust 버전 `1.6.5.5`로 올린다.
 
 ## 목표
 
@@ -55,7 +56,7 @@
 - 확대 상태에서는 모바일 한 손가락 드래그로 fixed-layout 스크롤 위치를 이동해 이미지를 팬한다.
 - 핀치 후 손가락 하나를 화면에 남긴 채 바로 움직이는 실제 사용 경로에서도 pan 상태로 이어지게 한다.
 - 리더 컨트롤이 표시되어 z-40 컨트롤 오버레이가 떠 있는 상태에서도 같은 터치 pan 경로가 동작하게 한다.
-- 확대 상태에서는 fixed-layout 정렬을 중앙에서 좌상단 기준으로 바꿔 왼쪽/위쪽 끝까지 스크롤 접근 가능하게 한다.
+- 확대 상태에서는 화면보다 넘치는 축만 좌상단 기준으로 바꿔 왼쪽/위쪽 끝까지 스크롤 접근 가능하게 하고, 넘치지 않는 축은 중앙 정렬을 유지한다.
 - PC `Ctrl`+마우스 휠은 확대/축소로 사용하지 않고, 브라우저 기본 페이지 zoom과 리더 페이지 넘김으로 새지 않게 막는다.
 - PC에서는 `Ctrl`+`ArrowUp`을 확대, `Ctrl`+`ArrowDown`을 축소로 처리한다.
 - 확대 중에는 현재 터치/마우스 포인터 주변이 화면에 유지되도록 scroll offset을 보정한다.
@@ -72,6 +73,7 @@
 - 실기기 피드백에 따라 `Ctrl`+휠 확대를 제거하고, 확대 중 한 손가락 pan, 컨트롤 오버레이 터치 pan, pinch 입력 coalescing, pinch 후 남은 손가락의 pan 승계를 추가했다.
 - PDF 확대 렌더는 새 canvas가 준비되기 전까지 기존 레이어를 비우지 않도록 바꿔 빈 화면 깜빡임을 줄였다.
 - fixed-layout 확대 중 overflow 중앙 정렬 때문에 왼쪽 끝을 볼 수 없는 문제를 `flex-start` 정렬 전환으로 수정했다.
+- fixed-layout 확대 중 실제로 넘치지 않는 축까지 `flex-start`가 되어 가로 화면에서 페이지가 왼쪽에 붙는 문제를 축별 overflow 정렬로 수정했다.
 - 확대/축소 감각은 transform compositing 힌트와 모바일 overflow 안정화로 개선했다. 사진 앱 수준의 관성/고무줄 물리는 별도 제스처 엔진 범위로 남긴다.
 - 로컬 자동 검증과 production 브라우저 회귀를 통과했다.
 
@@ -83,6 +85,7 @@
 - 확대 상태에서 모바일 한 손가락 드래그로 확대된 페이지를 이동할 수 있다.
 - 핀치 직후 손가락 하나를 떼지 않고 움직여도 확대된 페이지를 이동할 수 있다.
 - 리더 컨트롤이 표시된 상태에서도 확대된 페이지를 한 손가락으로 이동할 수 있다.
+- 확대 상태라도 화면보다 넘치지 않는 가로/세로 축은 중앙에 놓인다.
 - 확대 상태에서 왼쪽/위쪽 끝과 오른쪽/아래쪽 끝을 모두 볼 수 있다.
 - 모바일 pinch 중 브라우저 자체 페이지 확대, body scroll, pull-to-refresh가 발생하지 않는다.
 - 확대된 상태에서 이전/다음 페이지를 넘기면 다음 페이지도 같은 확대 배율과 화면 위치 비율로 열린다.
@@ -92,7 +95,7 @@
 
 ### 검증
 
-- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 확대 중 `flex-start` 정렬, 페이지 이동 중 확대 상태 전달, `Ctrl`+휠 확대 차단 회귀를 추가했다.
+- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 확대 중 축별 overflow 정렬, 페이지 이동 중 확대 상태 전달, `Ctrl`+휠 확대 차단 회귀를 추가했다.
 - `npm run test:formats`: 36개 통과.
 - `npm run test:archives`: 32개 통과.
 - `npm run test:browser`: 통과.
@@ -103,6 +106,8 @@
 - 1.6.5.3 fixed-layout 커스텀 엘리먼트 보정 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`를 통과했고, Chrome CDP에서 `document.createElement('foliate-fxl').open`이 `function`임을 확인했다.
 - 1.6.5.4에서는 fixed-layout 페이지 넘김 직전에 확대 배율과 스크롤 위치 비율을 캡처하고, 새 페이지 렌더 직후 같은 런타임 상태를 복원한다.
 - 1.6.5.4 fixed-layout 페이지 넘김 상태 전달 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:browser`를 통과했고, Chrome CDP에서 `next()` 후 `userScale`, `scrollLeft`, `scrollTop`이 유지됨을 확인했다.
+- 1.6.5.5에서는 fixed-layout 확대 정렬을 축별 overflow 기준으로 바꿔, 가로로 넘치지 않는 확대 페이지가 왼쪽에 붙지 않고 중앙에 놓이게 한다.
+- 1.6.5.5 fixed-layout 축별 overflow 정렬 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:browser`를 통과했고, Chrome 회귀에서 가로로 넘치지 않는 확대 페이지의 `justifyContent`가 `center`임을 확인했다.
 
 ## Phase 2: 마지막 도서 자동 열기 조건 수정
 
@@ -176,6 +181,7 @@
 - fixed-layout pan 보정 후속 버전 `1.6.5.2`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.2`, `pc-reader-v1.6.5.2`로 올린다.
 - fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 버전 `1.6.5.3`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.3`, `pc-reader-v1.6.5.3`으로 올린다.
 - fixed-layout 페이지 넘김 상태 전달 후속 버전 `1.6.5.4`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.4`, `pc-reader-v1.6.5.4`로 올린다.
+- fixed-layout 축별 overflow 정렬 후속 버전 `1.6.5.5`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.5`, `pc-reader-v1.6.5.5`로 올린다.
 
 ### 상태
 
@@ -185,10 +191,11 @@
 - fixed-layout pan 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.2로 갱신했다.
 - fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.3으로 갱신했다.
 - fixed-layout 페이지 넘김 상태 전달 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.4로 갱신했다.
+- fixed-layout 축별 overflow 정렬 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.5로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.4다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.5다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 
