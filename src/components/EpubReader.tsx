@@ -164,6 +164,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     lastX: number;
     lastY: number;
   } | null>(null);
+  const mousePanGestureRef = useRef<{
+    active: boolean;
+    moved: boolean;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+  } | null>(null);
   const pendingFixedLayoutZoomRef = useRef<{
     scale: number;
     focalPoint?: { x: number; y: number };
@@ -538,6 +547,74 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
   }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, getFixedLayoutRenderer]);
 
+  const handleFixedLayoutPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isFixedLayout || event.pointerType !== 'mouse' || event.button !== 0) return;
+    const renderer = getFixedLayoutRenderer();
+    if (!renderer?.panBy || (renderer.userScale ?? 1) <= 1) return;
+
+    mousePanGestureRef.current = {
+      active: true,
+      moved: false,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }, [getFixedLayoutRenderer, isFixedLayout]);
+
+  const handleFixedLayoutPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse') return;
+    const gesture = mousePanGestureRef.current;
+    if (!gesture?.active || gesture.pointerId !== event.pointerId) return;
+
+    if ((event.buttons & 1) !== 1) {
+      mousePanGestureRef.current = null;
+      return;
+    }
+
+    const renderer = getFixedLayoutRenderer();
+    if (!renderer?.panBy || (renderer.userScale ?? 1) <= 1) {
+      mousePanGestureRef.current = null;
+      return;
+    }
+
+    const movedDistance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+    if (!gesture.moved && movedDistance < PAN_MOVE_THRESHOLD_PX) return;
+
+    gesture.moved = true;
+    suppressNextInteractionClickRef.current = true;
+    event.preventDefault();
+    event.stopPropagation();
+    renderer.panBy(gesture.lastX - event.clientX, gesture.lastY - event.clientY);
+    gesture.lastX = event.clientX;
+    gesture.lastY = event.clientY;
+  }, [getFixedLayoutRenderer]);
+
+  const handleFixedLayoutPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse') return;
+    const gesture = mousePanGestureRef.current;
+    if (!gesture?.active || gesture.pointerId !== event.pointerId) return;
+
+    if (gesture.moved) {
+      suppressNextInteractionClickRef.current = true;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    mousePanGestureRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+  }, []);
+
+  const handleFixedLayoutLostPointerCapture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = mousePanGestureRef.current;
+    if (event.pointerType === 'mouse' && gesture?.pointerId === event.pointerId) {
+      mousePanGestureRef.current = null;
+    }
+  }, []);
+
   const handleControlsOverlayClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (suppressNextInteractionClickRef.current) {
       suppressNextInteractionClickRef.current = false;
@@ -823,6 +900,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onTouchMove={handleFixedLayoutTouchMove}
           onTouchEnd={handleFixedLayoutTouchEnd}
           onTouchCancel={handleFixedLayoutTouchEnd}
+          onPointerDown={handleFixedLayoutPointerDown}
+          onPointerMove={handleFixedLayoutPointerMove}
+          onPointerUp={handleFixedLayoutPointerEnd}
+          onPointerCancel={handleFixedLayoutPointerEnd}
+          onLostPointerCapture={handleFixedLayoutLostPointerCapture}
           onWheel={(event) => wheelNavigationRef.current(event)}
         />
       )}
@@ -838,6 +920,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onTouchMove={handleFixedLayoutTouchMove}
           onTouchEnd={handleFixedLayoutTouchEnd}
           onTouchCancel={handleFixedLayoutTouchEnd}
+          onPointerDown={handleFixedLayoutPointerDown}
+          onPointerMove={handleFixedLayoutPointerMove}
+          onPointerUp={handleFixedLayoutPointerEnd}
+          onPointerCancel={handleFixedLayoutPointerEnd}
+          onLostPointerCapture={handleFixedLayoutLostPointerCapture}
         />
       )}
 

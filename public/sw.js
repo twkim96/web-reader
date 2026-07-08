@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.6.5.6`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.6.5.7`;
 const PRE_CACHE_URLS = [
   '/',
   '/manifest.json',
