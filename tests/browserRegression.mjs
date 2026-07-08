@@ -1431,6 +1431,7 @@ try {
     const trackedOnZoom = (...args) => {
       renderDebug.calls += 1;
       renderDebug.scales = [...(renderDebug.scales || []), args[0]?.scale];
+      renderDebug.previewFlags = [...(renderDebug.previewFlags || []), Boolean(args[0]?.preview)];
       return firstPageOnZoom(...args).then(
         (value) => {
           renderDebug.resolved += 1;
@@ -1463,8 +1464,21 @@ try {
       probe.src = firstPageSource.src;
     });
     await firstPageOnZoom({ doc: probe.contentDocument, scale: 1 });
+    const directCanvas = probe.contentDocument.querySelector('#canvas canvas');
     renderDebug.directCanvasCount = probe.contentDocument
       .querySelectorAll('#canvas canvas').length;
+    renderDebug.previewBefore = {
+      height: directCanvas.height,
+      transform: probe.contentDocument.documentElement.style.transform,
+      width: directCanvas.width,
+    };
+    await firstPageOnZoom({ doc: probe.contentDocument, preview: true, scale: 2 });
+    const previewCanvas = probe.contentDocument.querySelector('#canvas canvas');
+    renderDebug.previewAfter = {
+      height: previewCanvas.height,
+      transform: probe.contentDocument.documentElement.style.transform,
+      width: previewCanvas.width,
+    };
     await firstPageOnZoom({ doc: probe.contentDocument, scale: 20 });
     const highScaleCanvas = probe.contentDocument.querySelector('#canvas canvas');
     renderDebug.highScaleCanvas = {
@@ -1522,6 +1536,33 @@ try {
       );
     };
     await waitForCanvas();
+    const previewDoc = renderer.getContents()[0]?.doc;
+    const previewCanvasBefore = previewDoc.querySelector('#canvas canvas');
+    const previewCallsBefore = renderDebug.calls;
+    renderer.setUserScale(1.2, { x: 320, y: 400 }, { preview: true });
+    renderer.setUserScale(1.4, { x: 320, y: 400 }, { preview: true });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const previewCanvasDuring = previewDoc.querySelector('#canvas canvas');
+    renderer.commitUserScale();
+    const previewCommitDeadline = performance.now() + 20_000;
+    while (
+      performance.now() < previewCommitDeadline
+      && previewDoc.querySelector('#canvas canvas')?.width === previewCanvasBefore.width
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const previewCanvasAfterCommit = previewDoc.querySelector('#canvas canvas');
+    renderDebug.previewGesture = {
+      callsDuringPreview: renderDebug.calls - previewCallsBefore,
+      duringHeight: previewCanvasDuring.height,
+      duringTransform: previewDoc.documentElement.style.transform,
+      duringWidth: previewCanvasDuring.width,
+      finalHeight: previewCanvasAfterCommit.height,
+      finalTransform: previewDoc.documentElement.style.transform,
+      finalWidth: previewCanvasAfterCommit.width,
+      initialHeight: previewCanvasBefore.height,
+      initialWidth: previewCanvasBefore.width,
+    };
     renderer.style.width = '500px';
     renderer.style.height = '700px';
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -1559,6 +1600,10 @@ try {
       cancelledLoadError,
       firstPageReleaseCalls,
       highScaleCanvas: renderDebug.highScaleCanvas,
+      previewAfter: renderDebug.previewAfter,
+      previewBefore: renderDebug.previewBefore,
+      previewFlags: renderDebug.previewFlags,
+      previewGesture: renderDebug.previewGesture,
       errorsBeforeDestroy: [...window.__regressionErrors],
     };
     renderer.destroy();
@@ -1653,6 +1698,15 @@ try {
     pdfResult.highScaleCanvas.width * pdfResult.highScaleCanvas.height
       <= 8_388_608,
   );
+  assert.equal(pdfResult.previewAfter.width, pdfResult.previewBefore.width);
+  assert.equal(pdfResult.previewAfter.height, pdfResult.previewBefore.height);
+  assert.notEqual(pdfResult.previewAfter.transform, pdfResult.previewBefore.transform);
+  assert.ok(pdfResult.previewFlags.includes(true));
+  assert.ok(pdfResult.previewGesture.callsDuringPreview >= 2);
+  assert.equal(pdfResult.previewGesture.duringWidth, pdfResult.previewGesture.initialWidth);
+  assert.equal(pdfResult.previewGesture.duringHeight, pdfResult.previewGesture.initialHeight);
+  assert.ok(pdfResult.previewGesture.finalWidth > pdfResult.previewGesture.initialWidth);
+  assert.ok(pdfResult.previewGesture.finalHeight > pdfResult.previewGesture.initialHeight);
   assert.equal(pdfResult.longPdf.pageCount, 105);
   assert.equal(pdfResult.longPdf.maxCanvasCount, 1);
   assert.equal(pdfResult.longPdf.cleanupCalls, 106);
@@ -1664,7 +1718,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.5.5';
+    const expectedCache = 'pc-reader-v1.6.5.6';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1688,7 +1742,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.5.5',
+      '/sw.js?browser-regression=1.6.5.6',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1731,10 +1785,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.5']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.6']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.5$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.6$/);
 
   console.log(JSON.stringify({
     shelf: {

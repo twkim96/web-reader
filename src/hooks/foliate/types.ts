@@ -62,8 +62,13 @@ export type FoliateRenderer = {
   setAttribute: (name: string, value?: string) => void;
   setStyles: (styles: string[]) => void;
   getContents?: () => { doc?: Document }[];
-  setUserScale?: (value: number, focalPoint?: { x: number; y: number }) => number;
+  setUserScale?: (
+    value: number,
+    focalPoint?: { x: number; y: number },
+    options?: { preview?: boolean },
+  ) => number;
   adjustUserScale?: (factor: number, focalPoint?: { x: number; y: number }) => number;
+  commitUserScale?: () => number;
   panBy?: (deltaX: number, deltaY: number) => { scrollLeft: number; scrollTop: number };
   resetUserScale?: () => number;
 };

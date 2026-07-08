@@ -394,18 +394,27 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const setFixedLayoutZoom = useCallback((
     scale: number,
     focalPoint?: { x: number; y: number },
+    options?: { preview?: boolean },
   ) => {
     const renderer = getFixedLayoutRenderer();
     if (!renderer) return false;
-    renderer.setUserScale?.(scale, focalPoint);
+    renderer.setUserScale?.(scale, focalPoint, options);
     return true;
   }, [getFixedLayoutRenderer]);
 
-  const flushPendingFixedLayoutZoom = useCallback(() => {
+  const commitFixedLayoutZoom = useCallback(() => {
+    const renderer = getFixedLayoutRenderer();
+    if (!renderer) return false;
+    renderer.commitUserScale?.();
+    return true;
+  }, [getFixedLayoutRenderer]);
+
+  const flushPendingFixedLayoutZoom = useCallback((options?: { preview?: boolean }) => {
     const pendingZoom = pendingFixedLayoutZoomRef.current;
     pendingFixedLayoutZoomRef.current = null;
-    if (!pendingZoom) return;
-    setFixedLayoutZoom(pendingZoom.scale, pendingZoom.focalPoint);
+    if (!pendingZoom) return false;
+    setFixedLayoutZoom(pendingZoom.scale, pendingZoom.focalPoint, options);
+    return true;
   }, [setFixedLayoutZoom]);
 
   const scheduleFixedLayoutZoom = useCallback((
@@ -416,7 +425,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     if (fixedLayoutZoomFrameRef.current !== null) return;
     fixedLayoutZoomFrameRef.current = window.requestAnimationFrame(() => {
       fixedLayoutZoomFrameRef.current = null;
-      flushPendingFixedLayoutZoom();
+      flushPendingFixedLayoutZoom({ preview: true });
     });
   }, [flushPendingFixedLayoutZoom]);
 
@@ -492,7 +501,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const handleFixedLayoutTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const gesture = pinchGestureRef.current;
     if (gesture?.active && event.touches.length < 2) {
-      flushPendingFixedLayoutZoom();
+      if (fixedLayoutZoomFrameRef.current !== null) {
+        window.cancelAnimationFrame(fixedLayoutZoomFrameRef.current);
+        fixedLayoutZoomFrameRef.current = null;
+      }
+      const committedPendingZoom = flushPendingFixedLayoutZoom();
+      if (!committedPendingZoom) {
+        commitFixedLayoutZoom();
+      }
       if (gesture.moved) {
         suppressNextInteractionClickRef.current = true;
       }
@@ -520,7 +536,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       }
       panGestureRef.current = null;
     }
-  }, [flushPendingFixedLayoutZoom, getFixedLayoutRenderer]);
+  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, getFixedLayoutRenderer]);
 
   const handleControlsOverlayClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (suppressNextInteractionClickRef.current) {

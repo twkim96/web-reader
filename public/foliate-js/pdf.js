@@ -33,6 +33,25 @@ const createPageRenderer = page => {
     let destroyed = false
     let destroyPromise = null
 
+    const applyDocumentScale = (doc, displayScale, renderScale) => {
+        doc.documentElement.style.transform = `scale(${displayScale})`
+        doc.documentElement.style.transformOrigin = 'top left'
+        doc.documentElement.style.setProperty('--scale-factor', renderScale)
+    }
+
+    const applyPreviewScale = (doc, scale, state) => {
+        let renderScale = state.renderScale
+        if (!renderScale) {
+            const canvas = doc.querySelector('#canvas canvas')
+            const baseViewport = page.getViewport({ scale: 1 })
+            renderScale = canvas?.width / baseViewport.width
+            if (!Number.isFinite(renderScale) || renderScale <= 0) return false
+            state.renderScale = renderScale
+        }
+        applyDocumentScale(doc, scale / renderScale, renderScale)
+        return true
+    }
+
     const cleanupState = doc => {
         const state = states.get(doc)
         if (!state) return
@@ -72,9 +91,10 @@ const createPageRenderer = page => {
         state.textLayer = null
 
         try {
-            doc.documentElement.style.transform = `scale(${displayScale})`
-            doc.documentElement.style.transformOrigin = 'top left'
-            doc.documentElement.style.setProperty('--scale-factor', renderScale)
+            const hasCompletedRender = state.completedKey !== null
+            if (!hasCompletedRender) {
+                applyDocumentScale(doc, displayScale, renderScale)
+            }
             const viewport = page.getViewport({ scale: renderScale })
 
             // PDF.js loads fonts into this module's owner document. Render on a
@@ -94,7 +114,10 @@ const createPageRenderer = page => {
                 if (state.renderTask === renderTask) state.renderTask = null
             }
             if (state.destroyed || generation !== state.generation) return
-            doc.querySelector('#canvas')?.replaceChildren(doc.adoptNode(canvas))
+            const renderedCanvas = doc.adoptNode(canvas)
+            if (!hasCompletedRender) {
+                doc.querySelector('#canvas')?.replaceChildren(renderedCanvas)
+            }
 
             const textContentSource = await page.streamTextContent()
             if (state.destroyed || generation !== state.generation) return
@@ -147,9 +170,14 @@ const createPageRenderer = page => {
             }).render({ annotations: await page.getAnnotations() })
             if (state.destroyed || generation !== state.generation) return
 
+            applyDocumentScale(doc, displayScale, renderScale)
+            if (hasCompletedRender) {
+                doc.querySelector('#canvas')?.replaceChildren(renderedCanvas)
+            }
             doc.querySelector('.textLayer')?.replaceWith(textContainer)
             doc.querySelector('.annotationLayer')?.replaceWith(annotationContainer)
             state.completedKey = renderKey
+            state.renderScale = renderScale
         } finally {
             if (state.renderingGeneration === generation) {
                 state.renderingGeneration = null
@@ -157,7 +185,7 @@ const createPageRenderer = page => {
         }
     }
 
-    const onZoom = ({ doc, scale }) => {
+    const onZoom = ({ doc, scale, preview }) => {
         if (destroyed) return Promise.resolve()
         let state = states.get(doc)
         if (!state) {
@@ -168,12 +196,17 @@ const createPageRenderer = page => {
                 generation: 0,
                 renderTask: null,
                 renderingGeneration: null,
+                renderScale: null,
                 textLayer: null,
                 zoom: scale,
             }
             states.set(doc, state)
         }
         state.zoom = scale
+        if (preview) {
+            applyPreviewScale(doc, scale, state)
+            return Promise.resolve()
+        }
         return state.frame.schedule(() => {
             const operation = render(doc, state.zoom, state)
             activeRenders.add(operation)

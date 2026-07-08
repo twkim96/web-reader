@@ -8,6 +8,7 @@
 - fixed-layout 커스텀 엘리먼트 생성자에서 host style 속성을 만들며 일부 브라우저에서 업그레이드가 실패할 수 있는 문제를 수정하고, 후속 캐시 bust 버전 `1.6.5.3`으로 올린다.
 - 확대 상태로 탭/키보드/휠 페이지 넘김을 할 때 다음 페이지에 확대 배율과 화면 위치를 이어받도록 수정하고, 후속 캐시 bust 버전 `1.6.5.4`로 올린다.
 - 확대 상태라도 가로 또는 세로로 넘치지 않는 축은 중앙 정렬을 유지하도록 수정하고, 후속 캐시 bust 버전 `1.6.5.5`로 올린다.
+- PDF pinch 확대 중에는 기존 layer를 transform으로 preview하고 손을 뗀 뒤 최종 배율을 렌더하도록 수정하고, 후속 캐시 bust 버전 `1.6.5.6`으로 올린다.
 
 ## 목표
 
@@ -63,6 +64,7 @@
 - 최소 배율은 기본 맞춤 배율, 최대 배율은 실제 이미지와 PDF canvas 보호 한도를 고려해 정한다.
 - PDF는 기존 `onZoom` 렌더 경로와 canvas 8MP/8192px 제한을 유지한다.
 - PDF 확대 중 깜빡임은 입력 coalescing과 기존 canvas/text/annotation 레이어 유지 후 완성된 새 렌더로 교체하는 방식으로 완화한다.
+- PDF pinch 제스처가 진행 중일 때는 새 canvas 렌더를 반복하지 않고 기존 canvas/text/annotation layer를 transform으로 preview한 뒤, 제스처 종료 시 최종 배율을 한 번 commit 렌더한다.
 - 압축 이미지는 기존 이미지 blob/cache 수명 정책을 유지하고 CSS 배율만 조정한다.
 - 확대 상태에서 일반 탭, 스페이스바, 화살표 이동, 휠 페이지 넘김의 기존 동작이 깨지지 않게 입력 우선순위를 정리한다.
 
@@ -74,7 +76,8 @@
 - PDF 확대 렌더는 새 canvas가 준비되기 전까지 기존 레이어를 비우지 않도록 바꿔 빈 화면 깜빡임을 줄였다.
 - fixed-layout 확대 중 overflow 중앙 정렬 때문에 왼쪽 끝을 볼 수 없는 문제를 `flex-start` 정렬 전환으로 수정했다.
 - fixed-layout 확대 중 실제로 넘치지 않는 축까지 `flex-start`가 되어 가로 화면에서 페이지가 왼쪽에 붙는 문제를 축별 overflow 정렬로 수정했다.
-- 확대/축소 감각은 transform compositing 힌트와 모바일 overflow 안정화로 개선했다. 사진 앱 수준의 관성/고무줄 물리는 별도 제스처 엔진 범위로 남긴다.
+- PDF pinch 확대 중에는 transform preview를 사용하고, 손을 떼면 최종 배율로 고해상도 렌더를 한 번 수행하도록 바꿨다.
+- 확대/축소 감각은 transform preview, transform compositing 힌트, 모바일 overflow 안정화로 개선했다. 사진 앱 수준의 관성/고무줄 물리는 별도 제스처 엔진 범위로 남긴다.
 - 로컬 자동 검증과 production 브라우저 회귀를 통과했다.
 
 ### 완료 조건
@@ -95,7 +98,7 @@
 
 ### 검증
 
-- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 확대 중 축별 overflow 정렬, 페이지 이동 중 확대 상태 전달, `Ctrl`+휠 확대 차단 회귀를 추가했다.
+- `tests/browserRegression.mjs`에 fixed-layout 확대 API, pan API, 컨트롤 오버레이 pan, 확대 중 축별 overflow 정렬, PDF preview/commit 렌더 분리, 페이지 이동 중 확대 상태 전달, `Ctrl`+휠 확대 차단 회귀를 추가했다.
 - `npm run test:formats`: 36개 통과.
 - `npm run test:archives`: 32개 통과.
 - `npm run test:browser`: 통과.
@@ -108,6 +111,8 @@
 - 1.6.5.4 fixed-layout 페이지 넘김 상태 전달 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:browser`를 통과했고, Chrome CDP에서 `next()` 후 `userScale`, `scrollLeft`, `scrollTop`이 유지됨을 확인했다.
 - 1.6.5.5에서는 fixed-layout 확대 정렬을 축별 overflow 기준으로 바꿔, 가로로 넘치지 않는 확대 페이지가 왼쪽에 붙지 않고 중앙에 놓이게 한다.
 - 1.6.5.5 fixed-layout 축별 overflow 정렬 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:browser`를 통과했고, Chrome 회귀에서 가로로 넘치지 않는 확대 페이지의 `justifyContent`가 `center`임을 확인했다.
+- 1.6.5.6에서는 PDF 확대 중 preview 호출이 canvas 크기를 바꾸지 않고 transform만 바꾸며, `commitUserScale()` 후에만 최종 canvas 크기가 바뀌도록 한다.
+- 1.6.5.6 PDF transform preview 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:browser`를 통과했고, Chrome 회귀에서 preview 중 canvas 크기 유지와 commit 후 최종 canvas 교체를 확인했다.
 
 ## Phase 2: 마지막 도서 자동 열기 조건 수정
 
@@ -182,6 +187,7 @@
 - fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 버전 `1.6.5.3`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.3`, `pc-reader-v1.6.5.3`으로 올린다.
 - fixed-layout 페이지 넘김 상태 전달 후속 버전 `1.6.5.4`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.4`, `pc-reader-v1.6.5.4`로 올린다.
 - fixed-layout 축별 overflow 정렬 후속 버전 `1.6.5.5`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.5`, `pc-reader-v1.6.5.5`로 올린다.
+- PDF transform preview 후속 버전 `1.6.5.6`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.6`, `pc-reader-v1.6.5.6`으로 올린다.
 
 ### 상태
 
@@ -192,10 +198,11 @@
 - fixed-layout 커스텀 엘리먼트 업그레이드 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.3으로 갱신했다.
 - fixed-layout 페이지 넘김 상태 전달 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.4로 갱신했다.
 - fixed-layout 축별 overflow 정렬 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.5로 갱신했다.
+- PDF transform preview 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.6으로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.5다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.6이다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 
@@ -224,4 +231,4 @@
 - 도서별 확대/축소 값을 `localStorage`에 저장하는 옵션은 이번 버전에서 구현하지 않는다.
 - 확대 버튼, 축소 버튼, 배율 표시 UI는 이번 버전에서 추가하지 않는다.
 - EPUB reflow 본문의 pinch zoom은 이번 버전에서 다루지 않는다.
-- PDF 확대 중 저해상도 임시 확대와 지연 고품질 렌더를 완전히 분리하는 별도 렌더 전략은 이번 버전에서 다루지 않는다.
+- PDF 확대 중 저해상도 transform preview와 지연 고품질 렌더를 분리하는 전략은 1.6.5.6에서 적용한다.

@@ -131,7 +131,7 @@ export class FixedLayout extends HTMLElement {
             container.append(element)
         })
     }
-    #render(side = this.#side) {
+    #render(side = this.#side, { previewZoom = false } = {}) {
         if (!side) return
         const left = this.#left ?? {}
         const right = this.#center ?? this.#right ?? {}
@@ -183,6 +183,7 @@ export class FixedLayout extends HTMLElement {
             if (!iframe) return
             if (onZoom) Promise.resolve(onZoom({
                 doc: frame.iframe.contentDocument,
+                preview: previewZoom,
                 scale,
             })).catch(error => {
                 if (isAbortError(error)) return
@@ -492,7 +493,7 @@ export class FixedLayout extends HTMLElement {
     get effectiveScale() {
         return this.#lastScale
     }
-    setUserScale(value, focalPoint) {
+    setUserScale(value, focalPoint, { preview = false } = {}) {
         const minScale = this.constructor.minUserScale
         const maxScale = this.constructor.maxUserScale
         const nextUserScale = Math.min(maxScale, Math.max(minScale, Number(value) || 1))
@@ -511,7 +512,7 @@ export class FixedLayout extends HTMLElement {
         const contentY = (focalY - contentOffset.y) / previousScale
 
         this.#userScale = nextUserScale
-        this.#render()
+        this.#render(this.#side, { previewZoom: preview })
 
         const nextScale = this.#lastScale || previousScale
         this.scrollLeft = Math.max(0, contentX * nextScale - focalX)
@@ -520,6 +521,10 @@ export class FixedLayout extends HTMLElement {
     }
     adjustUserScale(factor, focalPoint) {
         return this.setUserScale(this.#userScale * (Number(factor) || 1), focalPoint)
+    }
+    commitUserScale() {
+        this.#render()
+        return this.#userScale
     }
     panBy(deltaX = 0, deltaY = 0) {
         if (this.#userScale <= this.constructor.minUserScale) {
