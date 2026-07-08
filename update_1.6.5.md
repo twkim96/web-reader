@@ -10,6 +10,7 @@
 - 확대 상태라도 가로 또는 세로로 넘치지 않는 축은 중앙 정렬을 유지하도록 수정하고, 후속 캐시 bust 버전 `1.6.5.5`로 올린다.
 - PDF pinch 확대 중에는 기존 layer를 transform으로 preview하고 손을 뗀 뒤 최종 배율을 렌더하도록 수정하고, 후속 캐시 bust 버전 `1.6.5.6`으로 올린다.
 - PC에서 확대된 fixed-layout PDF/압축 이미지 페이지를 마우스 좌클릭 드래그로 이동할 수 있게 수정하고, 후속 캐시 bust 버전 `1.6.5.7`로 올린다.
+- PC에서는 `Ctrl`+좌클릭 드래그, Mac에서는 `Cmd`+좌클릭 드래그 위/아래 이동으로 fixed-layout 페이지를 확대/축소할 수 있게 수정하고, 후속 캐시 bust 버전 `1.6.5.8`로 올린다.
 
 ## 목표
 
@@ -18,6 +19,7 @@
 - PC `Ctrl`+휠은 Windows/브라우저 기본 확대와 맞물릴 수 있으므로 앱 확대 입력으로 쓰지 않고 리더 안에서는 기본 동작만 차단한다.
 - 확대 후 한 화면에 이미지가 다 들어오지 않는 경우 모바일 한 손가락 드래그로 확대된 이미지를 이동할 수 있게 한다.
 - PC에서는 확대 상태에서 마우스 좌클릭을 누른 채 드래그해 확대된 이미지를 이동할 수 있게 한다.
+- PC에서는 `Ctrl`, Mac에서는 `Cmd`를 누른 채 마우스 좌클릭을 위/아래로 드래그해 확대/축소할 수 있게 한다.
 - 확대/축소 값은 저장하지 않되, 일반 페이지 넘김 중에는 현재 확대 배율과 화면 위치를 다음 페이지로 이어받는다.
 - 마지막 도서 자동 열기는 `last_reader_session` 포인터가 남아 있는 경우에만 실행한다.
 - 책장, 로그인, 인증 리다이렉트, 일반 새로고침 흐름에서 사용자를 원치 않게 리더로 보내지 않는다.
@@ -60,8 +62,11 @@
 - 핀치 후 손가락 하나를 화면에 남긴 채 바로 움직이는 실제 사용 경로에서도 pan 상태로 이어지게 한다.
 - 리더 컨트롤이 표시되어 z-40 컨트롤 오버레이가 떠 있는 상태에서도 같은 터치 pan 경로가 동작하게 한다.
 - PC 마우스 드래그 pan은 `pointerType === 'mouse'`, 좌클릭, fixed-layout 확대 상태, `panBy` 지원 조건을 모두 만족할 때만 시작한다.
+- PC/Mac 마우스 드래그 확대/축소는 `pointerType === 'mouse'`, 좌클릭, fixed-layout, 플랫폼별 보조키(Windows/Linux `Ctrl`, macOS 계열 `Cmd`) 조건을 모두 만족할 때만 시작한다.
+- 보조키 드래그 확대/축소는 시작 위치를 focal point로 고정하고, 위로 끌면 확대, 아래로 끌면 축소한다.
 - 마우스 이동량이 pan 임계값을 넘기 전에는 기존 클릭/페이지 넘김/컨트롤 토글 동작을 유지한다.
 - 마우스 드래그 pan으로 판정된 뒤에는 후속 click을 한 번 억제해 의도치 않은 페이지 이동이나 컨트롤 토글을 막는다.
+- 보조키 드래그 확대/축소 경로에서는 movement가 없더라도 후속 click을 억제해 `Cmd`/`Ctrl` 클릭이 페이지 넘김이나 컨트롤 토글로 새지 않게 한다.
 - 리더 컨트롤이 표시되어 z-40 컨트롤 오버레이가 떠 있는 상태에서도 확대된 페이지의 마우스 드래그 pan이 동작하게 한다.
 - 확대 상태에서는 화면보다 넘치는 축만 좌상단 기준으로 바꿔 왼쪽/위쪽 끝까지 스크롤 접근 가능하게 하고, 넘치지 않는 축은 중앙 정렬을 유지한다.
 - PC `Ctrl`+마우스 휠은 확대/축소로 사용하지 않고, 브라우저 기본 페이지 zoom과 리더 페이지 넘김으로 새지 않게 막는다.
@@ -84,6 +89,7 @@
 - fixed-layout 확대 중 실제로 넘치지 않는 축까지 `flex-start`가 되어 가로 화면에서 페이지가 왼쪽에 붙는 문제를 축별 overflow 정렬로 수정했다.
 - PDF pinch 확대 중에는 transform preview를 사용하고, 손을 떼면 최종 배율로 고해상도 렌더를 한 번 수행하도록 바꿨다.
 - PC 확대 상태에서는 투명 리더 오버레이와 컨트롤 오버레이에서 마우스 좌클릭 드래그로 fixed-layout `panBy`를 호출하도록 추가했다.
+- PC/Mac 보조키 드래그 확대/축소는 같은 투명 오버레이에서 처리하되, Windows/Linux는 `Ctrl`, macOS 계열은 `Cmd`만 확대 드래그 modifier로 사용하도록 분기했다.
 - 확대/축소 감각은 transform preview, transform compositing 힌트, 모바일 overflow 안정화로 개선했다. 사진 앱 수준의 관성/고무줄 물리는 별도 제스처 엔진 범위로 남긴다.
 - 로컬 자동 검증과 production 브라우저 회귀를 통과했다.
 
@@ -99,6 +105,9 @@
 - PC에서 확대된 ZIP/CBZ/7z 이미지 페이지를 마우스 좌클릭 드래그로 이동할 수 있다.
 - PC 마우스 드래그 이동이 아닌 일반 클릭은 기존 페이지 넘김/컨트롤 토글 동작을 유지한다.
 - 리더 컨트롤이 표시된 상태에서도 확대된 페이지를 마우스 좌클릭 드래그로 이동할 수 있다.
+- Windows/Linux PC에서 `Ctrl`+좌클릭 위/아래 드래그로 fixed-layout PDF/압축 이미지 페이지를 확대/축소할 수 있다.
+- Mac에서 `Cmd`+좌클릭 위/아래 드래그로 fixed-layout PDF/압축 이미지 페이지를 확대/축소할 수 있다.
+- 보조키 확대/축소 드래그가 일반 클릭, 기존 pan, 모바일 pinch/pan과 충돌하지 않는다.
 - 확대 상태라도 화면보다 넘치지 않는 가로/세로 축은 중앙에 놓인다.
 - 확대 상태에서 왼쪽/위쪽 끝과 오른쪽/아래쪽 끝을 모두 볼 수 있다.
 - 모바일 pinch 중 브라우저 자체 페이지 확대, body scroll, pull-to-refresh가 발생하지 않는다.
@@ -126,6 +135,8 @@
 - 1.6.5.6 PDF transform preview 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:browser`를 통과했고, Chrome 회귀에서 preview 중 canvas 크기 유지와 commit 후 최종 canvas 교체를 확인했다.
 - 1.6.5.7에서는 PC 마우스 좌클릭 드래그로 확대된 fixed-layout PDF/압축 이미지 페이지를 이동할 수 있게 한다.
 - 1.6.5.7 PC 마우스 드래그 pan 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:archives`, `npm run test:browser`, `git diff --check`를 통과했고, Chrome 회귀에서 서비스워커 캐시가 `pc-reader-v1.6.5.7`임을 확인했다.
+- 1.6.5.8에서는 PC/Mac 보조키 좌클릭 위/아래 드래그로 fixed-layout PDF/압축 이미지 페이지를 확대/축소할 수 있게 한다.
+- 1.6.5.8 PC/Mac 보조키 드래그 확대/축소 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:archives`, `npm run test:browser`, `git diff --check`를 통과했고, Chrome 회귀에서 Mac `Cmd` 드래그 확대와 후속 click 억제를 확인했다.
 
 ## Phase 2: 마지막 도서 자동 열기 조건 수정
 
@@ -202,6 +213,7 @@
 - fixed-layout 축별 overflow 정렬 후속 버전 `1.6.5.5`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.5`, `pc-reader-v1.6.5.5`로 올린다.
 - PDF transform preview 후속 버전 `1.6.5.6`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.6`, `pc-reader-v1.6.5.6`으로 올린다.
 - PC 마우스 드래그 pan 후속 버전 `1.6.5.7`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.7`, `pc-reader-v1.6.5.7`로 올린다.
+- PC/Mac 보조키 드래그 확대/축소 후속 버전 `1.6.5.8`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.8`, `pc-reader-v1.6.5.8`로 올린다.
 
 ### 상태
 
@@ -214,10 +226,11 @@
 - fixed-layout 축별 overflow 정렬 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.5로 갱신했다.
 - PDF transform preview 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.6으로 갱신했다.
 - PC 마우스 드래그 pan 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.7로 갱신했다.
+- PC/Mac 보조키 드래그 확대/축소 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.8로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.7이다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.8이다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 

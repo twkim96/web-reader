@@ -53,6 +53,7 @@ const WHEEL_PAGE_TURN_IDLE_MS = 220;
 const FIXED_LAYOUT_ZOOM_STEP = 1.15;
 const PINCH_MOVE_THRESHOLD_PX = 4;
 const PAN_MOVE_THRESHOLD_PX = 6;
+const MOUSE_DRAG_ZOOM_DISTANCE_PX = 220;
 
 const isEditableKeyboardTarget = (target: EventTarget | null) => {
   const node = target as {
@@ -116,6 +117,33 @@ const getSingleTouchPoint = (touches: React.TouchList) => {
   return { x: touch.clientX, y: touch.clientY };
 };
 
+const isMacLikePlatform = () => (
+  typeof navigator !== 'undefined'
+  && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+);
+
+const isFixedLayoutMouseZoomModifier = (event: React.PointerEvent<HTMLDivElement>) => (
+  isMacLikePlatform() ? event.metaKey : event.ctrlKey
+);
+
+const capturePointerSafely = (element: HTMLElement, pointerId: number) => {
+  try {
+    element.setPointerCapture?.(pointerId);
+  } catch {
+    // Synthetic pointer events in tests may not be active pointers.
+  }
+};
+
+const releasePointerCaptureSafely = (element: HTMLElement, pointerId: number) => {
+  try {
+    if (element.hasPointerCapture?.(pointerId)) {
+      element.releasePointerCapture?.(pointerId);
+    }
+  } catch {
+    // The browser may already have released the pointer.
+  }
+};
+
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
   googleToken,
@@ -172,6 +200,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     startY: number;
     lastX: number;
     lastY: number;
+  } | null>(null);
+  const mouseZoomGestureRef = useRef<{
+    active: boolean;
+    moved: boolean;
+    pointerId: number;
+    startY: number;
+    startScale: number;
+    focalPoint: { x: number; y: number };
   } | null>(null);
   const pendingFixedLayoutZoomRef = useRef<{
     scale: number;
@@ -550,8 +586,28 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const handleFixedLayoutPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!isFixedLayout || event.pointerType !== 'mouse' || event.button !== 0) return;
     const renderer = getFixedLayoutRenderer();
+    if (!renderer) return;
+
+    if (isFixedLayoutMouseZoomModifier(event)) {
+      mousePanGestureRef.current = null;
+      mouseZoomGestureRef.current = {
+        active: true,
+        moved: false,
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startScale: renderer.userScale ?? 1,
+        focalPoint: { x: event.clientX, y: event.clientY },
+      };
+      suppressNextInteractionClickRef.current = true;
+      event.preventDefault();
+      event.stopPropagation();
+      capturePointerSafely(event.currentTarget, event.pointerId);
+      return;
+    }
+
     if (!renderer?.panBy || (renderer.userScale ?? 1) <= 1) return;
 
+    mouseZoomGestureRef.current = null;
     mousePanGestureRef.current = {
       active: true,
       moved: false,
@@ -561,11 +617,38 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       lastX: event.clientX,
       lastY: event.clientY,
     };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    capturePointerSafely(event.currentTarget, event.pointerId);
   }, [getFixedLayoutRenderer, isFixedLayout]);
 
   const handleFixedLayoutPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'mouse') return;
+    const zoomGesture = mouseZoomGestureRef.current;
+    if (zoomGesture?.active && zoomGesture.pointerId === event.pointerId) {
+      if ((event.buttons & 1) !== 1) {
+        mouseZoomGestureRef.current = null;
+        return;
+      }
+
+      const renderer = getFixedLayoutRenderer();
+      if (!renderer) {
+        mouseZoomGestureRef.current = null;
+        return;
+      }
+
+      const deltaY = zoomGesture.startY - event.clientY;
+      if (!zoomGesture.moved && Math.abs(deltaY) < PAN_MOVE_THRESHOLD_PX) return;
+
+      zoomGesture.moved = true;
+      suppressNextInteractionClickRef.current = true;
+      event.preventDefault();
+      event.stopPropagation();
+      scheduleFixedLayoutZoom(
+        zoomGesture.startScale * Math.exp(deltaY / MOUSE_DRAG_ZOOM_DISTANCE_PX),
+        zoomGesture.focalPoint,
+      );
+      return;
+    }
+
     const gesture = mousePanGestureRef.current;
     if (!gesture?.active || gesture.pointerId !== event.pointerId) return;
 
@@ -590,10 +673,28 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     renderer.panBy(gesture.lastX - event.clientX, gesture.lastY - event.clientY);
     gesture.lastX = event.clientX;
     gesture.lastY = event.clientY;
-  }, [getFixedLayoutRenderer]);
+  }, [getFixedLayoutRenderer, scheduleFixedLayoutZoom]);
 
   const handleFixedLayoutPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'mouse') return;
+    const zoomGesture = mouseZoomGestureRef.current;
+    if (zoomGesture?.active && zoomGesture.pointerId === event.pointerId) {
+      if (fixedLayoutZoomFrameRef.current !== null) {
+        window.cancelAnimationFrame(fixedLayoutZoomFrameRef.current);
+        fixedLayoutZoomFrameRef.current = null;
+      }
+      const committedPendingZoom = flushPendingFixedLayoutZoom();
+      if (!committedPendingZoom && zoomGesture.moved) {
+        commitFixedLayoutZoom();
+      }
+      suppressNextInteractionClickRef.current = true;
+      event.preventDefault();
+      event.stopPropagation();
+      mouseZoomGestureRef.current = null;
+      releasePointerCaptureSafely(event.currentTarget, event.pointerId);
+      return;
+    }
+
     const gesture = mousePanGestureRef.current;
     if (!gesture?.active || gesture.pointerId !== event.pointerId) return;
 
@@ -603,15 +704,17 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       event.stopPropagation();
     }
     mousePanGestureRef.current = null;
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
-    }
-  }, []);
+    releasePointerCaptureSafely(event.currentTarget, event.pointerId);
+  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom]);
 
   const handleFixedLayoutLostPointerCapture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const gesture = mousePanGestureRef.current;
-    if (event.pointerType === 'mouse' && gesture?.pointerId === event.pointerId) {
+    const panGesture = mousePanGestureRef.current;
+    const zoomGesture = mouseZoomGestureRef.current;
+    if (event.pointerType === 'mouse' && panGesture?.pointerId === event.pointerId) {
       mousePanGestureRef.current = null;
+    }
+    if (event.pointerType === 'mouse' && zoomGesture?.pointerId === event.pointerId) {
+      mouseZoomGestureRef.current = null;
     }
   }, []);
 

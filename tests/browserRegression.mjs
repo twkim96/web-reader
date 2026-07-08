@@ -1110,6 +1110,67 @@ try {
   assert.equal(tapBoundary.controlsAtTwentyEight, false);
   assert.equal(tapBoundary.indexAfterTwentyEight, 0);
 
+  const fixedLayoutMouseZoomDrag = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const overlay = document.querySelector('[data-reader-interaction-overlay="true"]');
+    if (!renderer || !overlay) return { missing: true };
+
+    await renderer.goToSpread(0, 'center', 'mouse-zoom-drag-test');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    renderer.resetUserScale();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+    const pointerId = 765;
+    const clientX = Math.round(innerWidth / 2);
+    const clientY = Math.round(innerHeight / 2);
+    const modifier = isMac ? { metaKey: true } : { ctrlKey: true };
+    const dispatchPointer = (type, y, buttons) => overlay.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: 'mouse',
+      button: 0,
+      buttons,
+      clientX,
+      clientY: y,
+      ...modifier,
+    }));
+
+    dispatchPointer('pointerdown', clientY, 1);
+    dispatchPointer('pointermove', clientY - 110, 1);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    dispatchPointer('pointerup', clientY - 110, 0);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const scaleAfterDrag = renderer.userScale;
+    const indexBeforeSuppressedClick = renderer.index;
+    overlay.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: Math.round(innerWidth * 0.9),
+      clientY,
+      ...modifier,
+    }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const indexAfterSuppressedClick = renderer.index;
+
+    return {
+      isMac,
+      scaleAfterDrag,
+      indexBeforeSuppressedClick,
+      indexAfterSuppressedClick,
+    };
+  })()`);
+  assert.equal(fixedLayoutMouseZoomDrag.missing, undefined);
+  assert.ok(fixedLayoutMouseZoomDrag.scaleAfterDrag > 1);
+  assert.equal(
+    fixedLayoutMouseZoomDrag.indexAfterSuppressedClick,
+    fixedLayoutMouseZoomDrag.indexBeforeSuppressedClick,
+  );
+
   const solidSevenZipResult = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
     const renderer = view.renderer;
@@ -1718,7 +1779,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.5.7';
+    const expectedCache = 'pc-reader-v1.6.5.8';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1742,7 +1803,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.5.7',
+      '/sw.js?browser-regression=1.6.5.8',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1785,10 +1846,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.7']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.8']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.7$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.8$/);
 
   console.log(JSON.stringify({
     shelf: {
@@ -1807,6 +1868,7 @@ try {
     solidSevenZip: solidSevenZipResult,
     tapSettings,
     tapBoundary,
+    fixedLayoutMouseZoomDrag,
     fixedLayout,
     pdf: pdfResult,
     serviceWorker: serviceWorkerResult,
