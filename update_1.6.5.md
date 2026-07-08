@@ -11,6 +11,7 @@
 - PDF pinch 확대 중에는 기존 layer를 transform으로 preview하고 손을 뗀 뒤 최종 배율을 렌더하도록 수정하고, 후속 캐시 bust 버전 `1.6.5.6`으로 올린다.
 - PC에서 확대된 fixed-layout PDF/압축 이미지 페이지를 마우스 좌클릭 드래그로 이동할 수 있게 수정하고, 후속 캐시 bust 버전 `1.6.5.7`로 올린다.
 - PC에서는 `Ctrl`+좌클릭 드래그, Mac에서는 `Cmd`+좌클릭 드래그 위/아래 이동으로 fixed-layout 페이지를 확대/축소할 수 있게 수정하고, 후속 캐시 bust 버전 `1.6.5.8`로 올린다.
+- PC/Mac 보조키 드래그 확대/축소가 `buttons` lost 또는 `lostpointercapture`로 끝나도 PDF preview가 commit되도록 수정하고, 후속 캐시 bust 버전 `1.6.5.9`로 올린다.
 
 ## 목표
 
@@ -90,6 +91,7 @@
 - PDF pinch 확대 중에는 transform preview를 사용하고, 손을 떼면 최종 배율로 고해상도 렌더를 한 번 수행하도록 바꿨다.
 - PC 확대 상태에서는 투명 리더 오버레이와 컨트롤 오버레이에서 마우스 좌클릭 드래그로 fixed-layout `panBy`를 호출하도록 추가했다.
 - PC/Mac 보조키 드래그 확대/축소는 같은 투명 오버레이에서 처리하되, Windows/Linux는 `Ctrl`, macOS 계열은 `Cmd`만 확대 드래그 modifier로 사용하도록 분기했다.
+- 보조키 드래그 확대/축소 종료 처리를 공통화해 `pointerup`, `buttons` lost, `lostpointercapture` 경로 모두 pending preview flush 또는 최종 commit을 실행하게 했다.
 - 확대/축소 감각은 transform preview, transform compositing 힌트, 모바일 overflow 안정화로 개선했다. 사진 앱 수준의 관성/고무줄 물리는 별도 제스처 엔진 범위로 남긴다.
 - 로컬 자동 검증과 production 브라우저 회귀를 통과했다.
 
@@ -108,6 +110,7 @@
 - Windows/Linux PC에서 `Ctrl`+좌클릭 위/아래 드래그로 fixed-layout PDF/압축 이미지 페이지를 확대/축소할 수 있다.
 - Mac에서 `Cmd`+좌클릭 위/아래 드래그로 fixed-layout PDF/압축 이미지 페이지를 확대/축소할 수 있다.
 - 보조키 확대/축소 드래그가 일반 클릭, 기존 pan, 모바일 pinch/pan과 충돌하지 않는다.
+- 보조키 확대/축소 드래그가 비정상 pointer 종료로 끝나도 PDF preview가 저해상도 transform 상태로 남지 않는다.
 - 확대 상태라도 화면보다 넘치지 않는 가로/세로 축은 중앙에 놓인다.
 - 확대 상태에서 왼쪽/위쪽 끝과 오른쪽/아래쪽 끝을 모두 볼 수 있다.
 - 모바일 pinch 중 브라우저 자체 페이지 확대, body scroll, pull-to-refresh가 발생하지 않는다.
@@ -137,6 +140,8 @@
 - 1.6.5.7 PC 마우스 드래그 pan 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:archives`, `npm run test:browser`, `git diff --check`를 통과했고, Chrome 회귀에서 서비스워커 캐시가 `pc-reader-v1.6.5.7`임을 확인했다.
 - 1.6.5.8에서는 PC/Mac 보조키 좌클릭 위/아래 드래그로 fixed-layout PDF/압축 이미지 페이지를 확대/축소할 수 있게 한다.
 - 1.6.5.8 PC/Mac 보조키 드래그 확대/축소 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:archives`, `npm run test:browser`, `git diff --check`를 통과했고, Chrome 회귀에서 Mac `Cmd` 드래그 확대와 후속 click 억제를 확인했다.
+- 1.6.5.9에서는 보조키 드래그 확대/축소의 비정상 pointer 종료 경로도 최종 commit을 실행하도록 보정한다.
+- 1.6.5.9 보조키 드래그 비정상 종료 보정 후에는 `npx tsc --noEmit`, 변경 파일 ESLint, `npm run test:release`, `npm run build`, `npm run test:formats`, `npm run test:archives`, `npm run test:browser`, `git diff --check`를 통과했고, Chrome 회귀에서 `lostpointercapture` 종료 후에도 확대 배율이 유지됨을 확인했다.
 
 ## Phase 2: 마지막 도서 자동 열기 조건 수정
 
@@ -214,6 +219,7 @@
 - PDF transform preview 후속 버전 `1.6.5.6`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.6`, `pc-reader-v1.6.5.6`으로 올린다.
 - PC 마우스 드래그 pan 후속 버전 `1.6.5.7`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.7`, `pc-reader-v1.6.5.7`로 올린다.
 - PC/Mac 보조키 드래그 확대/축소 후속 버전 `1.6.5.8`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.8`, `pc-reader-v1.6.5.8`로 올린다.
+- 보조키 드래그 확대/축소 비정상 종료 보정 후속 버전 `1.6.5.9`에서는 앱/lockfile 버전과 서비스워커 캐시명을 `1.6.5.9`, `pc-reader-v1.6.5.9`로 올린다.
 
 ### 상태
 
@@ -227,10 +233,11 @@
 - PDF transform preview 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.6으로 갱신했다.
 - PC 마우스 드래그 pan 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.7로 갱신했다.
 - PC/Mac 보조키 드래그 확대/축소 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.8로 갱신했다.
+- 보조키 드래그 확대/축소 비정상 종료 보정 후속 변경에서 앱, lockfile, 서비스워커 캐시명, release 검사, browser regression 리터럴을 1.6.5.9로 갱신했다.
 
 ### 완료 조건
 
-- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.8이다.
+- 앱, lockfile, 서비스워커 캐시 버전이 모두 1.6.5.9이다.
 - 기존 EPUB, PDF, 압축 이미지, 책장, 자동 열기 회귀가 통과한다.
 - 확대 기능과 자동 열기 조건 변경이 서로 간섭하지 않는다.
 
@@ -259,4 +266,3 @@
 - 도서별 확대/축소 값을 `localStorage`에 저장하는 옵션은 이번 버전에서 구현하지 않는다.
 - 확대 버튼, 축소 버튼, 배율 표시 UI는 이번 버전에서 추가하지 않는다.
 - EPUB reflow 본문의 pinch zoom은 이번 버전에서 다루지 않는다.
-- PDF 확대 중 저해상도 transform preview와 지연 고품질 렌더를 분리하는 전략은 1.6.5.6에서 적용한다.

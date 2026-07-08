@@ -1157,15 +1157,36 @@ try {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const indexAfterSuppressedClick = renderer.index;
 
+    renderer.resetUserScale();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    dispatchPointer('pointerdown', clientY, 1);
+    dispatchPointer('pointermove', clientY - 90, 1);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    overlay.dispatchEvent(new PointerEvent('lostpointercapture', {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: 'mouse',
+      button: 0,
+      buttons: 0,
+      clientX,
+      clientY: clientY - 90,
+      ...modifier,
+    }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const scaleAfterLostCapture = renderer.userScale;
+
     return {
       isMac,
       scaleAfterDrag,
+      scaleAfterLostCapture,
       indexBeforeSuppressedClick,
       indexAfterSuppressedClick,
     };
   })()`);
   assert.equal(fixedLayoutMouseZoomDrag.missing, undefined);
   assert.ok(fixedLayoutMouseZoomDrag.scaleAfterDrag > 1);
+  assert.ok(fixedLayoutMouseZoomDrag.scaleAfterLostCapture > 1);
   assert.equal(
     fixedLayoutMouseZoomDrag.indexAfterSuppressedClick,
     fixedLayoutMouseZoomDrag.indexBeforeSuppressedClick,
@@ -1779,7 +1800,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.6.5.8';
+    const expectedCache = 'pc-reader-v1.6.5.9';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1803,7 +1824,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.6.5.8',
+      '/sw.js?browser-regression=1.6.5.9',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1846,10 +1867,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.8']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.6.5.9']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.8$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.6\.5\.9$/);
 
   console.log(JSON.stringify({
     shelf: {

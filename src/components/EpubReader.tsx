@@ -583,6 +583,32 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
   }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, getFixedLayoutRenderer]);
 
+  const finishFixedLayoutMouseZoomGesture = useCallback((
+    event?: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    const zoomGesture = mouseZoomGestureRef.current;
+    if (!zoomGesture || (event && zoomGesture.pointerId !== event.pointerId)) return false;
+
+    if (fixedLayoutZoomFrameRef.current !== null) {
+      window.cancelAnimationFrame(fixedLayoutZoomFrameRef.current);
+      fixedLayoutZoomFrameRef.current = null;
+    }
+    const committedPendingZoom = flushPendingFixedLayoutZoom();
+    if (!committedPendingZoom && zoomGesture.moved) {
+      commitFixedLayoutZoom();
+    }
+    suppressNextInteractionClickRef.current = true;
+    mouseZoomGestureRef.current = null;
+
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      releasePointerCaptureSafely(event.currentTarget, event.pointerId);
+    }
+
+    return true;
+  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom]);
+
   const handleFixedLayoutPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!isFixedLayout || event.pointerType !== 'mouse' || event.button !== 0) return;
     const renderer = getFixedLayoutRenderer();
@@ -625,13 +651,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     const zoomGesture = mouseZoomGestureRef.current;
     if (zoomGesture?.active && zoomGesture.pointerId === event.pointerId) {
       if ((event.buttons & 1) !== 1) {
-        mouseZoomGestureRef.current = null;
+        finishFixedLayoutMouseZoomGesture(event);
         return;
       }
 
       const renderer = getFixedLayoutRenderer();
       if (!renderer) {
-        mouseZoomGestureRef.current = null;
+        finishFixedLayoutMouseZoomGesture(event);
         return;
       }
 
@@ -673,25 +699,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     renderer.panBy(gesture.lastX - event.clientX, gesture.lastY - event.clientY);
     gesture.lastX = event.clientX;
     gesture.lastY = event.clientY;
-  }, [getFixedLayoutRenderer, scheduleFixedLayoutZoom]);
+  }, [finishFixedLayoutMouseZoomGesture, getFixedLayoutRenderer, scheduleFixedLayoutZoom]);
 
   const handleFixedLayoutPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'mouse') return;
-    const zoomGesture = mouseZoomGestureRef.current;
-    if (zoomGesture?.active && zoomGesture.pointerId === event.pointerId) {
-      if (fixedLayoutZoomFrameRef.current !== null) {
-        window.cancelAnimationFrame(fixedLayoutZoomFrameRef.current);
-        fixedLayoutZoomFrameRef.current = null;
-      }
-      const committedPendingZoom = flushPendingFixedLayoutZoom();
-      if (!committedPendingZoom && zoomGesture.moved) {
-        commitFixedLayoutZoom();
-      }
-      suppressNextInteractionClickRef.current = true;
-      event.preventDefault();
-      event.stopPropagation();
-      mouseZoomGestureRef.current = null;
-      releasePointerCaptureSafely(event.currentTarget, event.pointerId);
+    if (finishFixedLayoutMouseZoomGesture(event)) {
       return;
     }
 
@@ -705,7 +717,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
     mousePanGestureRef.current = null;
     releasePointerCaptureSafely(event.currentTarget, event.pointerId);
-  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom]);
+  }, [finishFixedLayoutMouseZoomGesture]);
 
   const handleFixedLayoutLostPointerCapture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const panGesture = mousePanGestureRef.current;
@@ -714,9 +726,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       mousePanGestureRef.current = null;
     }
     if (event.pointerType === 'mouse' && zoomGesture?.pointerId === event.pointerId) {
-      mouseZoomGestureRef.current = null;
+      finishFixedLayoutMouseZoomGesture(event);
     }
-  }, []);
+  }, [finishFixedLayoutMouseZoomGesture]);
 
   const handleControlsOverlayClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (suppressNextInteractionClickRef.current) {
