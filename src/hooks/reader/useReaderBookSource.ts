@@ -21,6 +21,8 @@ import type { FoliateBook, FoliateRenderer, FoliateViewElement } from '../foliat
 import {
   destroyPreparedBookSource,
   isAbortError,
+  ReaderLoadTimeoutError,
+  runWithTimeout,
   runReaderBookOpen,
   throwIfAborted,
 } from '../../lib/readerLoadLifecycle';
@@ -34,6 +36,9 @@ type ReaderThemeTexture = {
   image: string;
   size: string;
 };
+
+const ARCHIVE_LOAD_TIMEOUT_MS = 90_000;
+const ARCHIVE_LOAD_TIMEOUT_MESSAGE = '압축 파일을 90초 안에 열지 못했습니다. 서재로 돌아갑니다.';
 
 type ReaderLayoutSetter = (
   layout: {
@@ -156,6 +161,12 @@ export const useReaderBookSource = ({
     } = loadInputsRef.current;
 
     const loadBook = async () => {
+      const deferredPersistence: Array<() => void> = [];
+      const runDeferredPersistence = () => {
+        const tasks = deferredPersistence.splice(0);
+        window.setTimeout(() => tasks.forEach((task) => task()), 0);
+      };
+
       try {
         await runReaderBookOpen({
           signal,
@@ -182,30 +193,42 @@ export const useReaderBookSource = ({
 
               let result: Awaited<ReturnType<typeof prepareBookSource>>;
               try {
-                result = await prepareBookSource(targetBook, content, {
+                const prepare = prepareBookSource(targetBook, content, {
                   archiveImageIndex: cachedArchiveIndex,
                   signal,
                 });
+                result = targetBook.readerFormat === 'archive'
+                  ? await runWithTimeout(prepare, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE)
+                  : await prepare;
               } catch (error) {
-                if (isAbortError(error) || !cachedArchiveIndex) throw error;
+                if (
+                  isAbortError(error)
+                  || error instanceof ReaderLoadTimeoutError
+                  || !cachedArchiveIndex
+                ) throw error;
                 console.warn('[Reader] Cached archive index is unusable, rebuilding:', error);
                 usedCachedArchiveIndex = false;
-                result = await prepareBookSource(targetBook, content, { signal });
+                const prepare = prepareBookSource(targetBook, content, { signal });
+                result = targetBook.readerFormat === 'archive'
+                  ? await runWithTimeout(prepare, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE)
+                  : await prepare;
               }
 
               try {
                 throwIfAborted(signal);
                 if (fingerprint && result.archiveImageIndex && !usedCachedArchiveIndex) {
-                  try {
-                    await saveArchiveInspectionToLocal(
+                  const archiveImageIndex = result.archiveImageIndex;
+                  deferredPersistence.push(() => {
+                    void saveArchiveInspectionToLocal(
                       targetBook.id,
                       fingerprint,
-                      result.archiveImageIndex,
-                    );
-                  } catch (error) {
-                    if (isAbortError(error)) throw error;
-                    console.warn('[Reader] Failed to cache archive index:', error);
-                  }
+                      archiveImageIndex,
+                    ).catch((error) => {
+                      if (!isAbortError(error)) {
+                        console.warn('[Reader] Failed to cache archive index:', error);
+                      }
+                    });
+                  });
                 }
                 throwIfAborted(signal);
                 return result;
@@ -220,14 +243,19 @@ export const useReaderBookSource = ({
               if (!shouldUseCachedBookContent(targetBook, localMetadata, navigator.onLine)) {
                 throw new Error('Local cache is stale');
               }
-              prepared = await prepareContent(localData as StoredBookContent);
+              const preparedFromLocal = await prepareContent(localData as StoredBookContent);
+              prepared = preparedFromLocal;
 
-              try {
-                await saveBookMetadataToLocal(prepared.book, prepared.cacheContent);
-              } catch (error) {
-                if (isAbortError(error)) throw error;
-                console.warn('[Reader] Failed to update local book metadata:', error);
-              }
+              deferredPersistence.push(() => {
+                void saveBookMetadataToLocal(
+                  preparedFromLocal.book,
+                  preparedFromLocal.cacheContent,
+                ).catch((error) => {
+                  if (!isAbortError(error)) {
+                    console.warn('[Reader] Failed to update local book metadata:', error);
+                  }
+                });
+              });
             } catch (localError) {
               if (isAbortError(localError)) {
                 discardPrepared();
@@ -245,17 +273,21 @@ export const useReaderBookSource = ({
                 ? await fetchFullFile(targetBook.id, targetGoogleToken, signal)
                 : await fetchFullFileBlob(targetBook.id, targetGoogleToken, signal);
               throwIfAborted(signal);
-              prepared = await prepareContent(content);
+              const preparedFromRemote = await prepareContent(content);
+              prepared = preparedFromRemote;
 
-              try {
-                await saveBookToLocal(prepared.book, prepared.cacheContent);
-              } catch (error) {
-                if (isAbortError(error) || signal.aborted) throw error;
-                console.warn('[Reader] Failed to save locally:', error);
-                alert(error instanceof LocalStorageCapacityError
-                  ? `${error.message}\n현재 세션에서는 클라우드 원본을 계속 읽습니다.`
-                  : '오프라인 저장에 실패했습니다. 현재 세션에서는 클라우드 원본을 계속 읽습니다.');
-              }
+              deferredPersistence.push(() => {
+                void saveBookToLocal(
+                  preparedFromRemote.book,
+                  preparedFromRemote.cacheContent,
+                ).catch((error) => {
+                  if (isAbortError(error) || signal.aborted) return;
+                  console.warn('[Reader] Failed to save locally:', error);
+                  alert(error instanceof LocalStorageCapacityError
+                    ? `${error.message}\n현재 세션에서는 클라우드 원본을 계속 읽습니다.`
+                    : '오프라인 저장에 실패했습니다. 현재 세션에서는 클라우드 원본을 계속 읽습니다.');
+                });
+              });
             }
             try {
               throwIfAborted(signal);
@@ -266,25 +298,35 @@ export const useReaderBookSource = ({
               throw error;
             }
           },
-          open: (prepared) => openTargetBook(
-            prepared.source,
-            targetInitialCfi,
-            prepared.format === 'epub'
-              ? (openedView) => {
-                const current = loadInputsRef.current;
-                current.setLayout(
-                  getReaderLayout(current.settings.navMode),
-                  openedView.renderer,
-                );
-                current.setStyle(getReaderStyle(
-                  current.settings,
-                  current.themeColors,
-                  current.themeTexture,
-                ), openedView.renderer);
-              }
-              : undefined,
-          ),
-          commit: () => setIsLoaded(true),
+          open: async (prepared) => {
+            const open = openTargetBook(
+              prepared.source,
+              targetInitialCfi,
+              prepared.format === 'epub'
+                ? (openedView) => {
+                  const current = loadInputsRef.current;
+                  current.setLayout(
+                    getReaderLayout(current.settings.navMode),
+                    openedView.renderer,
+                  );
+                  current.setStyle(getReaderStyle(
+                    current.settings,
+                    current.themeColors,
+                    current.themeTexture,
+                  ), openedView.renderer);
+                }
+                : undefined,
+            );
+            if (prepared.format === 'archive') {
+              await runWithTimeout(open, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE);
+              return;
+            }
+            await open;
+          },
+          commit: () => {
+            setIsLoaded(true);
+            runDeferredPersistence();
+          },
         });
       } catch (error) {
         if (isAbortError(error) || signal.aborted) return;

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ReaderLoadTimeoutError,
   runReaderBookOpen,
+  runWithTimeout,
 } from '../src/lib/readerLoadLifecycle.ts';
 
 const deferred = () => {
@@ -28,6 +30,14 @@ const archivePrepared = (destroy) => ({
     destroy,
   },
   cacheContent: new Blob(),
+});
+
+test('fails a reader operation that never settles', async () => {
+  await assert.rejects(
+    runWithTimeout(new Promise(() => {}), 1, 'Reader operation timed out'),
+    (error) => error instanceof ReaderLoadTimeoutError
+      && error.message === 'Reader operation timed out',
+  );
 });
 
 test('destroys a prepared archive and skips open after cancellation during prepare', async () => {

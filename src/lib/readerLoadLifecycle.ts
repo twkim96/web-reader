@@ -11,6 +11,30 @@ export const throwIfAborted = (signal: AbortSignal) => {
   if (signal.aborted) throw createAbortError();
 };
 
+export class ReaderLoadTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReaderLoadTimeoutError';
+  }
+}
+
+export const runWithTimeout = async <T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new ReaderLoadTimeoutError(message)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([task, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
 export const destroyPreparedBookSource = (prepared: PreparedBookSource | null | undefined) => {
   if (!prepared || prepared.format !== 'archive') return;
   try {

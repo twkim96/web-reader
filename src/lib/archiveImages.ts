@@ -9,16 +9,37 @@ import {
 } from './archiveImageBook.ts';
 
 type ZipModule = typeof import('@zip.js/zip.js');
+type BrowserNavigator = Pick<Navigator, 'maxTouchPoints' | 'platform' | 'userAgent'>;
 
 export { ArchiveImageError, selectArchiveImageEntries } from './archiveImageBook.ts';
 
 let zipModulePromise: Promise<ZipModule> | null = null;
 
+const getBrowserNavigator = (): BrowserNavigator | undefined => (
+  typeof navigator === 'undefined' ? undefined : navigator
+);
+
+export const shouldUseZipWebWorkers = (
+  workerAvailable = typeof Worker !== 'undefined',
+  browserNavigator: BrowserNavigator | undefined = getBrowserNavigator(),
+) => {
+  if (!workerAvailable) return false;
+
+  const userAgent = browserNavigator?.userAgent ?? '';
+  const platform = browserNavigator?.platform ?? '';
+  const isAppleMobile = /iPad|iPhone|iPod/.test(userAgent)
+    || (platform === 'MacIntel' && (browserNavigator?.maxTouchPoints ?? 0) > 1);
+
+  // iPad browsers all use WebKit. zip.js worker/stream transfers can stall there,
+  // so use zip.js's same-thread fallback for a reliable first-page extraction.
+  return !isAppleMobile;
+};
+
 const loadZipModule = async () => {
   if (!zipModulePromise) {
     zipModulePromise = import('@zip.js/zip.js').then((zip) => {
       zip.configure({
-        useWebWorkers: typeof Worker !== 'undefined',
+        useWebWorkers: shouldUseZipWebWorkers(),
         workerURI: '/zip/zip-web-worker.js',
         wasmURI: '/zip/zip-module.wasm',
       });

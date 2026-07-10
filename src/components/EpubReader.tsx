@@ -985,10 +985,19 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       style={readerShellStyle}
     >
       {!isLoaded && (
-        <div className={`absolute inset-0 z-[100] flex items-center justify-center ${theme.bg} text-xs font-black uppercase opacity-20 tracking-widest`}>
-          {book.readerFormat === 'pdf'
-            ? 'PDF 준비 중...'
-            : isFixedLayout ? '압축 파일 확인 중...' : 'Loading...'}
+        <div className={`absolute inset-0 z-[100] flex flex-col items-center justify-center gap-5 ${theme.bg} text-xs font-black uppercase tracking-widest`}>
+          <p className="opacity-50" role="status" aria-live="polite">
+            {book.readerFormat === 'pdf'
+              ? 'PDF 준비 중...'
+              : isFixedLayout ? '압축 파일 확인 중...' : 'Loading...'}
+          </p>
+          <button
+            type="button"
+            onClick={handleReaderBack}
+            className={`rounded-xl border ${theme.border} px-4 py-3 text-xs font-bold normal-case tracking-normal opacity-100`}
+          >
+            서재로 돌아가기
+          </button>
         </div>
       )}
 

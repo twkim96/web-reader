@@ -8,6 +8,7 @@ import {
   inspectZipImageArchive,
   prepareZipImageBook,
   selectArchiveImageEntries,
+  shouldUseZipWebWorkers,
 } from '../src/lib/archiveImages.ts';
 import {
   MAX_SEVEN_ZIP_TOTAL_EXPANDED_BYTES,
@@ -34,6 +35,24 @@ const pngDimensionsBlob = (width, height) => {
   new DataView(bytes.buffer).setUint32(20, height);
   return new Blob([bytes], { type: 'image/png' });
 };
+
+test('uses the same-thread ZIP decoder on iPad Safari, including desktop-mode iPads', () => {
+  assert.equal(shouldUseZipWebWorkers(true, {
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)',
+    platform: 'iPad',
+    maxTouchPoints: 5,
+  }), false);
+  assert.equal(shouldUseZipWebWorkers(true, {
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    platform: 'MacIntel',
+    maxTouchPoints: 5,
+  }), false);
+  assert.equal(shouldUseZipWebWorkers(true, {
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    platform: 'MacIntel',
+    maxTouchPoints: 0,
+  }), true);
+});
 
 test('filters mixed archive entries and naturally sorts supported images', () => {
   const inspection = selectArchiveImageEntries([
