@@ -2,6 +2,7 @@ import * as CFI from './epubcfi.js'
 import { TOCProgress, SectionProgress } from './progress.js'
 import { Overlayer } from './overlayer.js'
 import { textWalker } from './text-walker.js'
+import { findContentByIndex, isCJKLanguage } from './view-policy.js'
 
 const SEARCH_PREFIX = 'foliate-search:'
 
@@ -201,7 +202,7 @@ const languageInfo = lang => {
     try {
         const canonical = Intl.getCanonicalLocales(lang)[0]
         const locale = new Intl.Locale(canonical)
-        const isCJK = ['zh', 'ja', 'kr'].includes(locale.language)
+        const isCJK = isCJKLanguage(canonical)
         const direction = (locale.getTextInfo?.() ?? locale.textInfo)?.direction
         return { canonical, locale, isCJK, direction }
     } catch (e) {
@@ -280,8 +281,10 @@ export class View extends HTMLElement {
                 const resolved = this.resolveNavigation(e.detail.text)
                 this.renderer.goTo(resolved)
                     .then(() => {
-                        const { doc } = this.renderer.getContents()
-                            .find(x => x.index = resolved.index)
+                        const content = findContentByIndex(
+                            this.renderer.getContents(), resolved.index)
+                        if (!content?.doc) return
+                        const { doc } = content
                         const el = resolved.anchor(doc)
                         el.classList.add(activeClass)
                         if (playbackActiveClass) el.ownerDocument

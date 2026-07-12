@@ -5,14 +5,15 @@ import { Book, ViewerSettings } from '../../types';
 import { prepareBookSource, type StoredBookContent } from '../../lib/bookContent';
 import { fetchFullFile, fetchFullFileBlob } from '../../lib/googleDrive';
 import {
-  loadArchiveInspectionFromLocal,
-  loadBookFromLocal,
-  loadBookMetadataFromLocal,
-  LocalStorageCapacityError,
-  saveArchiveInspectionToLocal,
-  saveBookMetadataToLocal,
-  saveBookToLocal,
-} from '../../lib/localDB';
+  loadArchiveInspectionFromLocalV5,
+  loadBookFromLocalV5,
+  loadBookMetadataFromLocalV5,
+  saveArchiveInspectionToLocalV5,
+  saveBookMetadataToLocalV5,
+  saveBookToLocalV5,
+} from '../../lib/localDBV5';
+import { LocalStorageCapacityError } from '../../lib/localDB';
+import { ownerRuntime } from '../../lib/ownerRuntime';
 import {
   getBookFingerprint,
   shouldUseCachedBookContent,
@@ -150,6 +151,8 @@ export const useReaderBookSource = ({
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
     const controller = new AbortController();
     const { signal } = controller;
     const {
@@ -172,9 +175,10 @@ export const useReaderBookSource = ({
           signal,
           prepare: async () => {
             const [localData, localMetadata] = await Promise.all([
-              loadBookFromLocal(targetBook.id),
-              loadBookMetadataFromLocal(targetBook.id),
+              loadBookFromLocalV5(owner.ownerKey, targetBook.id),
+              loadBookMetadataFromLocalV5(owner.ownerKey, targetBook.id),
             ]);
+            if (!ownerRuntime.isCurrent(owner)) throw new DOMException('Owner changed', 'AbortError');
             throwIfAborted(signal);
 
             let prepared: Awaited<ReturnType<typeof prepareBookSource>> | null = null;
@@ -186,8 +190,9 @@ export const useReaderBookSource = ({
 
             const prepareContent = async (content: StoredBookContent) => {
               const cachedArchiveIndex = targetBook.readerFormat === 'archive' && fingerprint
-                ? await loadArchiveInspectionFromLocal(targetBook.id, fingerprint)
+                ? await loadArchiveInspectionFromLocalV5(owner.ownerKey, targetBook.id, fingerprint)
                 : undefined;
+              if (!ownerRuntime.isCurrent(owner)) throw new DOMException('Owner changed', 'AbortError');
               throwIfAborted(signal);
               let usedCachedArchiveIndex = Boolean(cachedArchiveIndex);
 
@@ -219,7 +224,9 @@ export const useReaderBookSource = ({
                 if (fingerprint && result.archiveImageIndex && !usedCachedArchiveIndex) {
                   const archiveImageIndex = result.archiveImageIndex;
                   deferredPersistence.push(() => {
-                    void saveArchiveInspectionToLocal(
+                    if (!ownerRuntime.isCurrent(owner)) return;
+                    void saveArchiveInspectionToLocalV5(
+                      owner.ownerKey,
                       targetBook.id,
                       fingerprint,
                       archiveImageIndex,
@@ -247,7 +254,9 @@ export const useReaderBookSource = ({
               prepared = preparedFromLocal;
 
               deferredPersistence.push(() => {
-                void saveBookMetadataToLocal(
+                if (!ownerRuntime.isCurrent(owner)) return;
+                void saveBookMetadataToLocalV5(
+                  owner.ownerKey,
                   preparedFromLocal.book,
                   preparedFromLocal.cacheContent,
                 ).catch((error) => {
@@ -277,7 +286,9 @@ export const useReaderBookSource = ({
               prepared = preparedFromRemote;
 
               deferredPersistence.push(() => {
-                void saveBookToLocal(
+                if (!ownerRuntime.isCurrent(owner)) return;
+                void saveBookToLocalV5(
+                  owner.ownerKey,
                   preparedFromRemote.book,
                   preparedFromRemote.cacheContent,
                 ).catch((error) => {
@@ -324,6 +335,7 @@ export const useReaderBookSource = ({
             await open;
           },
           commit: () => {
+            if (!ownerRuntime.isCurrent(owner)) return;
             setIsLoaded(true);
             runDeferredPersistence();
           },
@@ -337,7 +349,11 @@ export const useReaderBookSource = ({
     };
 
     void loadBook();
-    return () => controller.abort();
+    const unregister = ownerRuntime.registerDisposer(() => controller.abort());
+    return () => {
+      unregister();
+      controller.abort();
+    };
   }, [containerRef]);
 
   useEffect(() => {

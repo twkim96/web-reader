@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated and third-party browser runtimes are covered by integration
+    // tests rather than linted as application source.
+    "public/7z/**",
+    "public/zip/**",
+    "public/foliate-js/vendor/**",
   ]),
 ]);
 

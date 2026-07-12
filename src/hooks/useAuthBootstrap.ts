@@ -3,6 +3,13 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { ViewState } from '../types';
 import type { RestoreLocalDataOptions } from './useLibraryData';
+import {
+  getOrCreateGuestInstallId,
+  makeFirebaseOwnerKey,
+  makeGuestOwnerKey,
+  makeOwnerKey,
+} from '../lib/ownerIdentity';
+import { ownerRuntime } from '../lib/ownerRuntime';
 
 interface UseAuthBootstrapOptions {
   isGuestRef: MutableRefObject<boolean>;
@@ -15,6 +22,7 @@ interface UseAuthBootstrapOptions {
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
   loadLibraryFromDrive: (token: string) => Promise<boolean>;
   syncLocalAndCloud: (uid: string) => Promise<void>;
+  resetLibraryState: () => void;
 }
 
 export const useAuthBootstrap = ({
@@ -28,12 +36,30 @@ export const useAuthBootstrap = ({
   restoreLocalData,
   loadLibraryFromDrive,
   syncLocalAndCloud,
+  resetLibraryState,
 }: UseAuthBootstrapOptions) => {
   useEffect(() => {
     let isActive = true;
     let authRedirectTimeout: number | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      const previousOwner = ownerRuntime.capture();
+      if (firebaseUser) {
+        const nextOwner = ownerRuntime.activate(makeOwnerKey(
+          makeFirebaseOwnerKey(firebaseUser.uid),
+          'library:local',
+        ));
+        if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
+      } else if (isGuestRef.current) {
+        const nextOwner = ownerRuntime.activate(makeOwnerKey(
+          makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)),
+          'library:local',
+        ));
+        if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
+      } else {
+        ownerRuntime.clear();
+        resetLibraryState();
+      }
       setUser(firebaseUser);
 
       if (authRedirectTimeout) {
@@ -101,6 +127,7 @@ export const useAuthBootstrap = ({
     isGuestRef,
     loadLibraryFromDrive,
     restoreLocalData,
+    resetLibraryState,
     setGoogleToken,
     setIsGuest,
     setIsOfflineMode,

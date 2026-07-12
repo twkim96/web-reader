@@ -14,7 +14,7 @@ import { ACCENT_PALETTE } from '../lib/constants';
 import { getThemeClasses, getThemeColors, getThemeCssVariables } from '../lib/themeUtils';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
-import { removeBookFromLocal } from '../lib/localDB';
+import { removeBookFromLocalV5 } from '../lib/localDBV5';
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
@@ -34,6 +34,12 @@ import {
   isLastReaderProgressComplete,
   saveLastReaderSession,
 } from '../lib/lastReaderSession';
+import {
+  getOrCreateGuestInstallId,
+  makeGuestOwnerKey,
+  makeOwnerKey,
+} from '../lib/ownerIdentity';
+import { ownerRuntime } from '../lib/ownerRuntime';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -159,6 +165,7 @@ export default function Page() {
     restoreLocalData,
     syncLocalAndCloud,
     loadLibraryFromDrive,
+    resetLibraryState,
   } = useLibraryData({
     clearToken,
     setIsOfflineMode,
@@ -177,6 +184,7 @@ export default function Page() {
     restoreLocalData,
     loadLibraryFromDrive,
     syncLocalAndCloud,
+    resetLibraryState,
   });
   useProgressSync({
     user,
@@ -202,6 +210,12 @@ export default function Page() {
 
 
   const handleGuestMode = async () => {
+    ownerRuntime.activate(makeOwnerKey(
+      makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)),
+      'library:local',
+    ));
+    resetLibraryState();
+    setActiveBook(null);
     setView('loading');
     setIsGuest(true);
     isGuestRef.current = true;
@@ -275,6 +289,9 @@ export default function Page() {
   };
 
   const handleLoginTrigger = () => {
+    ownerRuntime.clear();
+    resetLibraryState();
+    setActiveBook(null);
     setAuthErrorMessage(null);
     setIsGuest(false);
     isGuestRef.current = false;
@@ -296,6 +313,9 @@ export default function Page() {
 
   const executePendingAction = async () => {
     if (pendingAction === 'logout') {
+      ownerRuntime.clear();
+      resetLibraryState();
+      setActiveBook(null);
       await signOut(auth);
       clearToken();
       clearLastReaderSession();
@@ -339,7 +359,8 @@ export default function Page() {
         await deleteDriveFile(book.id, googleToken);
       }
 
-      await removeBookFromLocal(book.id);
+      const owner = ownerRuntime.require();
+      await removeBookFromLocalV5(owner.ownerKey, book.id);
       await handleDeleteBookProgress(book.id);
       clearLastReaderSession(undefined, book.id);
       setActiveBook((current) => current?.id === book.id ? null : current);

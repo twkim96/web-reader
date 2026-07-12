@@ -1,7 +1,8 @@
 // src/components/ManageModal.tsx
 import React, { useEffect, useState } from 'react';
 // [Fixed] 올바른 함수명으로 import 수정
-import { getAllOfflineBooks, removeBookFromLocal } from '../lib/localDB';
+import { getAllOfflineBooksV5, removeBookFromLocalV5 } from '../lib/localDBV5';
+import { ownerRuntime } from '../lib/ownerRuntime';
 import { Trash2, HardDrive, X, FileText } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Book, ThemeClasses } from '../types';
@@ -22,7 +23,9 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const loadBooks = async () => {
-    const data = await getAllOfflineBooks();
+    const owner = ownerRuntime.require();
+    const data = await getAllOfflineBooksV5(owner.ownerKey);
+    if (!ownerRuntime.isCurrent(owner)) return;
     // [Modified] 이제 data에 size 정보가 포함되어 있음 (내용을 로드하지 않아 빠름)
     setBooks(data.map(b => ({
       id: b.id,
@@ -41,7 +44,9 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
   }, []);
 
   const handleDelete = async (id: string) => {
-    await removeBookFromLocal(id);
+    const owner = ownerRuntime.require();
+    await removeBookFromLocalV5(owner.ownerKey, id);
+    if (!ownerRuntime.isCurrent(owner)) return;
     await loadBooks();
     onUpdate();
   };

@@ -2,7 +2,8 @@ import { Dispatch, MutableRefObject, SetStateAction, useEffect } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
-import { saveProgressToLocal } from '../lib/localDB';
+import { saveProgressToLocalV5 } from '../lib/localDBV5';
+import { ownerRuntime } from '../lib/ownerRuntime';
 import { UserProgress } from '../types';
 import {
   getTimestampMs,
@@ -29,9 +30,12 @@ export const useProgressSync = ({
 }: UseProgressSyncOptions) => {
   useEffect(() => {
     if (!user) return;
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
 
     const historyRef = collection(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory');
-    return onSnapshot(historyRef, async (snapshot) => {
+    const unsubscribe = onSnapshot(historyRef, async (snapshot) => {
+      if (!ownerRuntime.isCurrent(owner)) return;
       const isFromCache = snapshot.metadata.fromCache;
       const hasPending = snapshot.metadata.hasPendingWrites;
       const nextProgress: Record<string, UserProgress> = {};
@@ -55,11 +59,13 @@ export const useProgressSync = ({
         nextProgress[bookId] = data;
 
         if (!isFromCache && !hasPending) {
-          await saveProgressToLocal({ ...data, lastRead: serverTime });
+          await saveProgressToLocalV5(owner.ownerKey, { ...data, lastRead: serverTime });
+          if (!ownerRuntime.isCurrent(owner)) return;
         }
       }
 
       setProgress((prev) => {
+        if (!ownerRuntime.isCurrent(owner)) return prev;
         const hasChanged = Object.keys(nextProgress).some((id) => (
           hasRemoteProgressChanged(prev[id], nextProgress[id])
         )) || Object.keys(prev).length !== Object.keys(nextProgress).length;
@@ -73,6 +79,7 @@ export const useProgressSync = ({
 
       if (!isFromCache) {
         setRemoteProgress((prev) => {
+          if (!ownerRuntime.isCurrent(owner)) return prev;
           let changed = false;
           const updated = { ...prev };
 
@@ -100,5 +107,10 @@ export const useProgressSync = ({
         });
       }
     });
+    const unregister = ownerRuntime.registerDisposer(unsubscribe);
+    return () => {
+      unregister();
+      unsubscribe();
+    };
   }, [deviceId, progressRef, setProgress, setRemoteProgress, user]);
 };

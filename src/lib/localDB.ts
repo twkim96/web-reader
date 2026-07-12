@@ -4,13 +4,36 @@ import { Book, UserProgress } from '../types';
 import type { StoredBookContent } from './bookContent';
 import type { ArchiveImageIndex } from './archiveImageBook';
 import { hasEnoughStorageForWrite } from './storageCapacity';
+import {
+  LEGACY_ARCHIVE_INSPECTIONS_STORE as ARCHIVE_INSPECTION_STORE,
+  LEGACY_BOOKS_STORE as STORE_NAME,
+  LEGACY_METADATA_STORE as META_STORE,
+  LEGACY_PROGRESS_STORE as PROGRESS_STORE,
+  LOCAL_DB_NAME,
+  LOCAL_DB_VERSION,
+  upgradeLocalDB,
+} from './localDBSchema';
 
-const DB_NAME = 'web-reader-db';
-const STORE_NAME = 'books';         // 책 내용(ArrayBuffer 또는 Blob)
-const META_STORE = 'metadata';      // 책 정보(Book + size)
-const PROGRESS_STORE = 'progress';
-const ARCHIVE_INSPECTION_STORE = 'archive-inspections';
 let dbPromise: ReturnType<typeof openDB> | undefined;
+let currentDB: Awaited<ReturnType<typeof openDB>> | undefined;
+
+export type LocalDBLifecycleEvent =
+  | { type: 'blocked'; currentVersion: number; targetVersion: number | null }
+  | { type: 'blocking'; currentVersion: number; targetVersion: number | null }
+  | { type: 'terminated' };
+
+const lifecycleListeners = new Set<(event: LocalDBLifecycleEvent) => void>();
+
+const emitLifecycle = (event: LocalDBLifecycleEvent) => {
+  for (const listener of lifecycleListeners) listener(event);
+};
+
+export const subscribeLocalDBLifecycle = (
+  listener: (event: LocalDBLifecycleEvent) => void,
+) => {
+  lifecycleListeners.add(listener);
+  return () => lifecycleListeners.delete(listener);
+};
 
 type StoredBookMetadata = Book & {
   cachedSize?: number;
@@ -45,27 +68,41 @@ const isQuotaExceededError = (error: unknown) => (
 
 export const initDB = async () => {
   if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, 4, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME);
-        }
-        if (!db.objectStoreNames.contains(META_STORE)) {
-          db.createObjectStore(META_STORE, { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains(PROGRESS_STORE)) {
-          db.createObjectStore(PROGRESS_STORE, { keyPath: 'bookId' });
-        }
-        if (!db.objectStoreNames.contains(ARCHIVE_INSPECTION_STORE)) {
-          db.createObjectStore(ARCHIVE_INSPECTION_STORE, { keyPath: 'bookId' });
-        }
+    dbPromise = openDB(LOCAL_DB_NAME, LOCAL_DB_VERSION, {
+      upgrade(db, _oldVersion, _newVersion, transaction) {
+        upgradeLocalDB(db, transaction);
       },
+      blocked(currentVersion, targetVersion) {
+        emitLifecycle({ type: 'blocked', currentVersion, targetVersion });
+      },
+      blocking(currentVersion, targetVersion) {
+        emitLifecycle({ type: 'blocking', currentVersion, targetVersion });
+        currentDB?.close();
+        currentDB = undefined;
+        dbPromise = undefined;
+      },
+      terminated() {
+        emitLifecycle({ type: 'terminated' });
+        currentDB = undefined;
+        dbPromise = undefined;
+      },
+    }).then((db) => {
+      currentDB = db;
+      return db;
     }).catch((error) => {
+      currentDB = undefined;
       dbPromise = undefined;
       throw error;
     });
   }
   return dbPromise;
+};
+
+export const closeLocalDB = async () => {
+  const db = currentDB ?? (dbPromise ? await dbPromise.catch(() => undefined) : undefined);
+  db?.close();
+  currentDB = undefined;
+  dbPromise = undefined;
 };
 
 // --- Book Management ---

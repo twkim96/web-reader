@@ -1,3 +1,5 @@
+import { PUBLICATION_SANDBOX } from './sandbox-policy.js'
+
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const debounce = (f, wait, immediate) => {
@@ -270,9 +272,7 @@ class View {
             display: 'none',
             width: '100%', height: '100%',
         })
-        // `allow-scripts` is needed for events because of WebKit bug
-        // https://bugs.webkit.org/show_bug.cgi?id=218086
-        this.#iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
+        this.#iframe.setAttribute('sandbox', PUBLICATION_SANDBOX)
         this.#iframe.setAttribute('scrolling', 'no')
     }
     get element() {

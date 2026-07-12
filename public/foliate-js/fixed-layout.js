@@ -1,4 +1,5 @@
 import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
+import { PUBLICATION_SANDBOX } from './sandbox-policy.js'
 
 const parseViewport = str => str
     ?.split(/[,;\s]/) // NOTE: technically, only the comma is valid
@@ -92,14 +93,12 @@ export class FixedLayout extends HTMLElement {
             display: 'none',
             overflow: 'hidden',
         })
-        // `allow-scripts` is needed for events because of WebKit bug
-        // https://bugs.webkit.org/show_bug.cgi?id=218086
-        iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
+        iframe.setAttribute('sandbox', PUBLICATION_SANDBOX)
         iframe.setAttribute('scrolling', 'no')
         iframe.setAttribute('part', 'filter')
         if (!src) {
             container.append(element)
-            return { blank: true, element, iframe }
+            return { blank: true, element, iframe, index }
         }
         return new Promise((resolve, reject) => {
             const abort = () => {
@@ -119,7 +118,7 @@ export class FixedLayout extends HTMLElement {
                 this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
                 const { width, height } = getViewport(doc, this.defaultViewport)
                 resolve({
-                    element, iframe,
+                    element, iframe, index,
                     width: parseFloat(width),
                     height: parseFloat(height),
                     onZoom,
@@ -542,9 +541,9 @@ export class FixedLayout extends HTMLElement {
         return this.#userScale
     }
     getContents() {
-        return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
-            doc: frame.contentDocument,
-            // TODO: index, overlayer
+        return this.#getVisibleFrames().map(frame => ({
+            doc: frame.iframe.contentDocument,
+            index: frame.index,
         }))
     }
     destroy() {

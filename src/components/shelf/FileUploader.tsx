@@ -1,10 +1,11 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react';
 import { getDriveLibraryFolderId, isGoogleDriveAuthError, uploadFile } from '../../lib/googleDrive';
 import {
-  LocalStorageCapacityError,
-  saveArchiveInspectionToLocal,
-  saveBookToLocal,
-} from '../../lib/localDB';
+  saveArchiveInspectionToLocalV5,
+  saveBookToLocalV5,
+} from '../../lib/localDBV5';
+import { LocalStorageCapacityError } from '../../lib/localDB';
+import { ownerRuntime, type OwnerSnapshot } from '../../lib/ownerRuntime';
 import type { Book } from '../../types';
 import { ensureEpubBook } from '../../lib/bookContent';
 import { getBookFingerprint } from '../../lib/bookFingerprint';
@@ -126,7 +127,12 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     }
   };
 
-  const importFile = async (file: File, signal: AbortSignal, generation: number) => {
+  const importFile = async (
+    file: File,
+    signal: AbortSignal,
+    generation: number,
+    owner: OwnerSnapshot,
+  ) => {
     const originalMimeType = getSupportedBookMimeType(file.name, file.type);
     const sourceFormat = getSourceBookFormat(file.name, originalMimeType);
     if (!sourceFormat) return { refresh: false, stop: false };
@@ -147,7 +153,11 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
         return { refresh: false, stop: false };
       }
     }
-    if (signal.aborted || uploadGenerationRef.current !== generation) {
+    if (
+      signal.aborted
+      || uploadGenerationRef.current !== generation
+      || !ownerRuntime.isCurrent(owner)
+    ) {
       return { refresh: false, stop: true };
     }
 
@@ -193,11 +203,11 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     let savedLocally = false;
     try {
       if (isArchiveFormat(sourceFormat) || sourceFormat === 'pdf') {
-        await saveBookToLocal(book, file);
+        await saveBookToLocalV5(owner.ownerKey, book, file);
       } else {
         const content = await file.arrayBuffer();
         const epub = await ensureEpubBook(book, content);
-        await saveBookToLocal(epub.book, epub.content);
+        await saveBookToLocalV5(owner.ownerKey, epub.book, epub.content);
       }
       savedLocally = true;
     } catch (err) {
@@ -217,7 +227,12 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       const fingerprint = getBookFingerprint(book);
       if (fingerprint) {
         try {
-          await saveArchiveInspectionToLocal(book.id, fingerprint, archiveImageIndex);
+          await saveArchiveInspectionToLocalV5(
+            owner.ownerKey,
+            book.id,
+            fingerprint,
+            archiveImageIndex,
+          );
         } catch (error) {
           console.warn('[Import] Failed to cache archive index:', error);
         }
@@ -229,6 +244,8 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   };
 
   const importFiles = async (files: FileList | File[]) => {
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
     const result = updateImportSelection([], Array.from(files), {
       allowExtendedFormats: EXTENDED_IMPORT_FORMATS_ENABLED,
       enabledFormats: ACTIVE_SOURCE_FORMATS,
@@ -249,7 +266,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       await runSequentialBatch(
         result.files,
         controller.signal,
-        (file) => importFile(file, controller.signal, generation),
+        (file) => importFile(file, controller.signal, generation, owner),
         onRefresh,
       );
     } finally {

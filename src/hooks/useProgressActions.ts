@@ -2,7 +2,8 @@ import { Dispatch, MutableRefObject, SetStateAction, useCallback, useRef } from 
 import { User as FirebaseUser } from 'firebase/auth';
 import { deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
-import { removeProgressFromLocal, saveProgressToLocal } from '../lib/localDB';
+import { removeProgressFromLocalV5, saveProgressToLocalV5 } from '../lib/localDBV5';
+import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import { Book, Bookmark, SaveProgressOptions, UserProgress } from '../types';
 import { getManualBookmarks, hasProgressChanged, toProgressPercent } from './progressPolicy';
 
@@ -40,14 +41,18 @@ export const useProgressActions = ({
     return current;
   }, []);
 
-  const persistProgress = useCallback(async (bookId: string, progressData: UserProgress) => {
+  const persistProgress = useCallback(async (
+    owner: OwnerSnapshot,
+    bookId: string,
+    progressData: UserProgress,
+  ) => {
     try {
-      await saveProgressToLocal(progressData);
+      await saveProgressToLocalV5(owner.ownerKey, progressData);
     } catch (error) {
       console.error('[SaveProgress] local save failed:', error);
     }
 
-    if (!user) return;
+    if (!user || !ownerRuntime.isCurrent(owner)) return;
 
     try {
       const remoteData = {
@@ -65,6 +70,8 @@ export const useProgressActions = ({
 
   const saveProgress = useCallback((cfi: number | string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => {
     if (!activeBook) return;
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
 
     const bookId = activeBook.id;
     const nextCfi = String(cfi || '');
@@ -92,10 +99,12 @@ export const useProgressActions = ({
 
     progressRef.current = { ...progressRef.current, [bookId]: progressData };
     setProgress((prev) => ({ ...prev, [bookId]: progressData }));
-    void queueProgressWrite(bookId, () => persistProgress(bookId, progressData));
+    void queueProgressWrite(bookId, () => persistProgress(owner, bookId, progressData));
   }, [activeBook, persistProgress, progressRef, queueProgressWrite, setProgress]);
 
   const deleteProgress = useCallback(async (bookId: string) => {
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
     const resetData: UserProgress = {
       bookId,
       cfi: '',
@@ -108,10 +117,12 @@ export const useProgressActions = ({
     setProgress((prev) => ({ ...prev, [bookId]: resetData }));
     progressRef.current = { ...progressRef.current, [bookId]: resetData };
 
-    await queueProgressWrite(bookId, () => persistProgress(bookId, resetData));
+    await queueProgressWrite(bookId, () => persistProgress(owner, bookId, resetData));
   }, [persistProgress, progressRef, queueProgressWrite, setProgress]);
 
   const deleteBookProgress = useCallback(async (bookId: string) => {
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
     setProgress((prev) => {
       const next = { ...prev };
       delete next[bookId];
@@ -121,12 +132,12 @@ export const useProgressActions = ({
 
     await queueProgressWrite(bookId, async () => {
       try {
-        await removeProgressFromLocal(bookId);
+        await removeProgressFromLocalV5(owner.ownerKey, bookId);
       } catch (error) {
         console.error('[DeleteBookProgress] local delete failed:', error);
       }
 
-      if (!user) return;
+      if (!user || !ownerRuntime.isCurrent(owner)) return;
 
       try {
         await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId));
