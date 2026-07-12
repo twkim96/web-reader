@@ -4,9 +4,9 @@
 >
 > 구현 시작 기준 커밋: `b0427177e49e603a4121a9205e2da1164899e4c3`
 >
-> 기준 앱 버전: `1.6.6`
+> 릴리스 앱 버전: `1.7.0`
 >
-> 문서 상태: 구현 중
+> 문서 상태: Vercel 실기기 검증 대기
 
 ## 문서 목적
 
@@ -17,7 +17,7 @@
 - Phase 하나를 구현·검증한 뒤 다음 Phase로 진행한다.
 - 완료 조건과 현재 증거가 모두 맞을 때만 상태를 완료로 바꾼다.
 - 사용자 데이터 원본, 기존 v4 IndexedDB, v1 Firestore 문서는 1.7.0에서 삭제하지 않는다.
-- 버전 문자열은 마지막 릴리스 Phase 전까지 `1.6.6`을 유지한다.
+- 버전 문자열은 마지막 릴리스 Phase에서만 `1.7.0`으로 변경한다.
 - 관련 없는 리팩터링, 의존성 일괄 업그레이드, UI 전면 재설계는 하지 않는다.
 - 보안·동기화 테스트를 삭제·skip·완화해서 완료 조건을 맞추지 않는다.
 
@@ -547,12 +547,12 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 | --- | --- | --- | --- |
 | 1. 기준선·직접 결함·EPUB 게이트 | 자동 검증 완료 | `test:formats` 42개, lint/typecheck/Node 전체, production build, Chromium/WebKit sandbox fixture와 CDP 회귀 통과; WebKit bug 218086 대응 renderer sanitizer/CSP 경계 확정 | 없음 |
 | 2. owner storage·migration·auth lifecycle | 자동 검증 완료 | v5 schema/CRUD, v4 보존 migration·lease·검증, generation guard, 선택 dialog와 loading 가시성; fake IndexedDB 테스트와 1100권 v4→v5 CDP migration 회귀 통과 | 실기기 저장공간/quota 확인은 실기기 단계 |
-| 3. Firestore schema와 Rules | 자동 검증 완료 | v1/v2 strict schema와 호환 Rules, progress/bookmark atomic receipt·revision·tombstone·권한 거부, 실제 transaction 동시 conflict/replay를 demo emulator 8개 테스트로 통과 | production Rules 기준선 확인·백업·배포는 push 전에 별도 승인 필요 |
+| 3. Firestore schema와 Rules | production 선배포 완료 | v1/v2 strict schema와 호환 Rules, progress/bookmark atomic receipt·revision·tombstone·권한 거부, 실제 transaction 동시 conflict/replay를 demo emulator 8개 테스트로 통과; production 기준선 백업 후 2026-07-13 08:26 KST 선배포 확인 | 실제 계정·다중 기기 동작은 Vercel 실기기 단계 |
 | 4. 진행률 sync core·멀티탭 lease | 자동 검증 완료 | 원자 enqueue, revision chain/coalescing, conflict, retry, IndexedDB lease/epoch, stale claim 회수, receipt idempotency, generation guard와 실제 emulator transaction 통과 | 실제 다중 기기 네트워크 전환은 실기기 단계 |
 | 5. listener·bookmark·v1 bridge·runtime | 자동 검증 완료 | bookmark별 revision/tombstone, active-book listener, `docChanges()` 직렬 처리·`remote_missing`, v1 fingerprint bridge, 충돌 3선택 UI; storage/sync 44개와 emulator/CDP 회귀 통과 | production의 1.6.6/1.7.0 실제 동시 탭은 배포 후 실기기 단계 |
 | 6. EPUB 실행 경계 | 자동 검증 완료 | DOM sanitizer/CSP와 renderer fail-closed 재검증, script·handler·nested document·위험 URL·CSS escape 차단; format 42개 및 Chromium/WebKit 보안·입력 E2E 통과 | 다양한 실제 EPUB 호환성은 실기기 단계 |
 | 7. GIS token과 Drive cache | 자동 검증 완료 | GIS single-flight, memory-only token/expiry, legacy key·fragment 정리, permissionId+canonical folder owner 전환, owner/session cache 폐기와 reload offline namespace; Drive 41개 및 CDP 회귀 통과 | 실제 Google consent·계정 교체는 Vercel 배포 후 실기기 단계 |
 | 8. Service Worker | 자동 검증 완료 | 정적 allowlist, 인증·Range·API·private/no-store 우회, WebKit-safe `waitUntil`, 사용자 승인 update와 local commit 대기; 정책 6개, Chromium/WebKit Cache Storage·waiting-worker E2E, CDP 회귀 통과 | 실제 PWA update UX는 실기기 단계 |
-| 9. CI와 릴리스 | 실기기 전 자동 검증 완료 | `check:full`, 분리 CI, Node/build, Rules emulator 8개, Playwright Chromium/WebKit 10개, CDP production 회귀 모두 통과 | production Rules 기준선·배포, 1.7.0 version 일괄 변경, commit push/Vercel/실기기 테스트는 사용자 호출 후 진행 |
+| 9. CI와 릴리스 | 실기기 전 자동 검증 완료 | `check:full` 구성요소, 분리 CI, Node/build, Rules emulator 8개, Playwright Chromium/WebKit 10개, CDP production 회귀와 `pc-reader-v1.7.0` cache 검증 통과; production Rules 선배포와 1.7.0 version 일괄 변경 완료 | commit·push/Vercel 반영 후 실기기 테스트는 사용자 진행 |
 
 각 Phase를 완료할 때 실제 변경 파일, 실행한 명령과 결과, 미실행 검증, 남은 문제를 해당 Phase 아래 또는 구현 상태 표에 기록한다.

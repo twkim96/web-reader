@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 실제 데이터베이스 경로에 맞춘 규칙
+    match /artifacts/{appId}/users/{userId}/{document=**} {
+      // 로그인 상태이며, 요청하는 UID가 문서 경로의 userId와 일치할 때만 허용
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

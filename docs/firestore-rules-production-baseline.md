@@ -2,17 +2,25 @@
 
 ## 상태
 
-- 프로젝트: 아직 production project ID와 배포 Rules를 확인하지 않음
-- 확인 날짜: 미확인
-- Rules hash: 미확인
-- 1.7.0 Rules 배포: **차단**
+- production 프로젝트: `web-novel-viewer`
+- 데이터베이스: `(default)`, `asia-northeast3`
+- 기준선 확인: 2026-07-13 08:24 KST
+- 기존 배포 시각: 2026-02-23 09:39 KST
+- 기존 Rules 백업: `docs/backups/firestore.rules.production-2026-07-13.rules`
+- 기존 Rules SHA-256: `136abebd45ae3538aa668371f69b1d69e53b6d1373d6e6d05930cb8c9b0778b4`
+- 1.7.0 후보 SHA-256: `039bdbd893ceb815b6b491ec57e28808b898dd7253dd4bcb93cd677d61e8e1ab`
+- 1.7.0 Rules 배포: **완료**, Firebase Console 배포 이력 `2026-07-13 08:26 KST`
 
-현재 개발 환경에는 production Firebase 자격 증명이나 배포된 Rules를 읽었다는 증거가 없다. 따라서 `firestore.rules`는 demo project emulator 검증용 후보이며 production에 배포하지 않는다.
+## 검증 증거
 
-## 릴리스 전 필수 절차
+- 기존 production Rules 원문을 배포 전에 별도 파일로 보존했다.
+- 후보 Rules는 기존 `readingHistory/{bookId}` v1 소유자 read/create/update/delete를 유지한다.
+- 후보 Rules는 v2 progress/bookmark/receipt의 strict schema, revision, tombstone, 소유권을 추가한다.
+- demo emulator Rules 8개 테스트에서 본인 접근, 다른 UID 거부, transaction conflict, receipt replay, reset/delete tombstone을 통과했다.
+- 게시 후 Firebase Console을 새로고침해 최신 이력과 `readingHistoryV2` 후보 원문이 유지되는 것을 확인했다.
 
-1. Firebase Console 또는 권한이 있는 CLI로 실제 project ID와 현재 배포 Rules를 읽는다.
-2. 원문을 별도 안전한 위치에 백업하고 확인 시각과 SHA-256을 이 문서에 기록한다.
-3. 기존 1.6.x v1 읽기·쓰기·삭제가 후보 Rules에서 유지되는지 demo emulator와 staging smoke test로 확인한다.
-4. v1/v2 호환 Rules를 앱보다 먼저 배포하고 본인 접근 허용·다른 UID 접근 거부를 확인한다.
-5. 배포 ID와 rollback 명령을 기록한 뒤에만 1.7.0 앱 배포를 허용한다.
+production의 실제 로그인·다중 기기 write/read smoke test는 Vercel 실기기 테스트에서 수행한다.
+
+## 롤백
+
+Firebase Console의 Firestore `(default)` → 규칙에서 백업 원문을 다시 붙여넣고 게시한다. 롤백하더라도 v1/v2 데이터와 IndexedDB v4/v5는 삭제하지 않는다.
