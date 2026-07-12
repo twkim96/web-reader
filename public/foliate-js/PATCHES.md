@@ -15,9 +15,25 @@ their regression tests when updating from upstream.
 
 ## 1.7.0 publication sandbox gate
 
-- `paginator.js` and `fixed-layout.js` share `sandbox-policy.js` and omit
-  `allow-scripts` from publication frames.
+- `paginator.js` and `fixed-layout.js` share `sandbox-policy.js`. WebKit bug
+  218086 prevents parent-realm listeners when `allow-scripts` is absent, so the
+  renderer prepares every document through the sanitizer/CSP boundary before
+  using `allow-same-origin allow-scripts`.
 - Automated Chromium/WebKit coverage verifies that publication scripts and
   inline handlers are blocked while parent-controlled click, keyboard, touch,
   selection, navigation, and fixed-layout events continue to work.
-- Gate result: pending the Phase 1 browser run.
+- This is not a return to the old raw `allow-scripts` boundary: an unsupported
+  or unreadable publication document fails closed before iframe navigation.
+- Gate result: pending the full Chromium/WebKit rerun.
+
+## 1.7.0 publication sanitizer and CSP
+
+- `publication-sanitizer.js` removes executable and nested-document elements,
+  inline event handlers, refresh/base directives, dangerous URL schemes, remote
+  CSS URLs/imports, and injects a restrictive publication CSP.
+- `epub.js` sanitizes both replacement-loader documents and direct EPUB section
+  documents before serialization or rendering.
+- Node DOM fixtures cover script/handler removal, URL filtering, safe package
+  links, external anchor hardening, and CSS token bypasses.
+- Browser security and compatibility proof remains gated on the Chromium/WebKit
+  sandbox run; failure keeps the 1.7.0 release blocked.

@@ -4,12 +4,18 @@ import { APP_ID, db } from '../lib/firebase';
 import {
   fetchDriveFiles,
   getDriveLibraryFolderId,
+  getDriveUserPermissionId,
   GoogleDriveFolderConflictError,
+  invalidateDriveCache,
+  invalidateDriveCachesForOwner,
   isGoogleDriveAuthError,
 } from '../lib/googleDrive';
 import {
   getAllLocalProgressV5,
   getAllOfflineBooksV5,
+  getOwnerBindingsV5,
+  putOwnerBindingV5,
+  putOwnerSessionV5,
   saveProgressToLocalV5,
 } from '../lib/localDBV5';
 import { getAllLocalProgress, getAllOfflineBooks } from '../lib/localDB';
@@ -22,6 +28,11 @@ import {
 } from '../lib/localDBMigration';
 import { getMigrationMetaV5 } from '../lib/localDBV5';
 import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
+import {
+  makeDriveScopeKey,
+  makeOwnerKey,
+  splitOwnerKey,
+} from '../lib/ownerIdentity';
 import { Book, UserProgress, ViewState } from '../types';
 import {
   getTimestampMs,
@@ -40,6 +51,7 @@ interface UseLibraryDataOptions {
     inventory: LegacyInventory,
     previousError?: string,
   ) => Promise<'migrate' | 'legacy-readonly' | 'empty'>;
+  driveSessionId: string | null;
 }
 
 export type RestoreLocalDataOptions = {
@@ -57,7 +69,7 @@ interface UseLibraryDataResult {
   setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
   syncLocalAndCloud: (uid: string) => Promise<void>;
-  loadLibraryFromDrive: (token: string) => Promise<boolean>;
+  loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
   resetLibraryState: () => void;
 }
 
@@ -78,6 +90,7 @@ export const useLibraryData = ({
   setView,
   onLibraryError,
   requestLegacyMigration,
+  driveSessionId,
 }: UseLibraryDataOptions): UseLibraryDataResult => {
   const [books, setBooks] = useState<Book[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
@@ -223,12 +236,45 @@ export const useLibraryData = ({
     }
   }, []);
 
-  const loadLibraryFromDrive = useCallback(async (token: string) => {
-    const owner = ownerRuntime.capture();
-    if (!owner) return false;
+  const loadLibraryFromDrive = useCallback(async (
+    token: string,
+    requestedDriveSessionId?: string,
+  ) => {
+    const previousOwner = ownerRuntime.capture();
+    if (!previousOwner) return false;
+    const sessionId = requestedDriveSessionId ?? driveSessionId;
+    if (!sessionId) return false;
     try {
-      const folderId = await getDriveLibraryFolderId(token);
-      if (!ownerRuntime.isCurrent(owner)) return false;
+      const permissionId = await getDriveUserPermissionId(token);
+      if (!ownerRuntime.isCurrent(previousOwner)) return false;
+      const { authOwnerKey } = splitOwnerKey(previousOwner.ownerKey);
+      const libraryScopeKey = makeDriveScopeKey(permissionId);
+      const ownerKey = makeOwnerKey(authOwnerKey, libraryScopeKey);
+      const cacheKey = `${ownerKey}::${sessionId}`;
+      const previousBinding = (await getOwnerBindingsV5(authOwnerKey))
+        .find((binding) => binding.libraryScopeKey === libraryScopeKey);
+      if (!ownerRuntime.isCurrent(previousOwner)) return false;
+      const folderId = await getDriveLibraryFolderId(token, { cacheKey });
+      if (!ownerRuntime.isCurrent(previousOwner)) return false;
+
+      if (previousBinding?.folderId && previousBinding.folderId !== folderId) {
+        invalidateDriveCachesForOwner(ownerKey, cacheKey);
+      }
+
+      await Promise.all([
+        putOwnerBindingV5({
+          authOwnerKey,
+          libraryScopeKey,
+          permissionId,
+          folderId: folderId ?? undefined,
+          verifiedAt: Date.now(),
+        }),
+        putOwnerSessionV5({ authOwnerKey, ownerKey, updatedAt: Date.now() }),
+      ]);
+      if (!ownerRuntime.isCurrent(previousOwner)) return false;
+      const owner = ownerRuntime.activate(ownerKey);
+      if (previousOwner.ownerKey !== owner.ownerKey) resetLibraryState();
+
       const data = folderId
         ? await fetchDriveFiles(token, folderId)
         : { files: [] };
@@ -248,6 +294,10 @@ export const useLibraryData = ({
       return true;
     } catch (error) {
       if (isGoogleDriveAuthError(error)) {
+        const activeOwner = ownerRuntime.capture();
+        if (activeOwner && sessionId) {
+          invalidateDriveCache(`${activeOwner.ownerKey}::${sessionId}`);
+        }
         clearToken();
       }
       if (error instanceof GoogleDriveFolderConflictError) {
@@ -257,7 +307,7 @@ export const useLibraryData = ({
       setIsOfflineMode(true);
       return false;
     }
-  }, [clearToken, onLibraryError, setIsOfflineMode]);
+  }, [clearToken, driveSessionId, onLibraryError, resetLibraryState, setIsOfflineMode]);
 
   return {
     books,

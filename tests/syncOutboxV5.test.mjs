@@ -9,12 +9,15 @@ const {
   acknowledgeProgressEventV5,
   acquireSyncLeaseV5,
   claimNextProgressEventV5,
+  enqueueBookmarkEventV5,
   enqueueProgressEventV5,
   getOutboxEventsV5,
   getRetryDelayMs,
   getSyncMetaV5,
   recoverExpiredInFlightEventsV5,
   recordProgressConflictV5,
+  resolveSyncConflictKeepLocalV5,
+  resolveSyncConflictUseRemoteV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const {
   makeFirebaseOwnerKey,
@@ -164,4 +167,127 @@ test('retry delay uses bounded exponential backoff with jitter', () => {
   assert.equal(getRetryDelayMs(1, 0), 1_000);
   assert.equal(getRetryDelayMs(2, 0.5), 2_200);
   assert.equal(getRetryDelayMs(20, 1), 60_000);
+});
+
+test('bookmark targets have independent chains and same-id edits are ordered', async () => {
+  const mark = (bookmarkId, eventId, name, occurredAtClient) => enqueueBookmarkEventV5(ownerA, {
+    bookId: 'book-1',
+    bookmarkId,
+    operation: 'bookmark.upsert',
+    payload: {
+      bookmarkId,
+      cfi: `cfi-${bookmarkId}`,
+      name,
+      color: '#fff',
+      progressPercent: 10,
+      createdAtClient: 1,
+      updatedAtClient: occurredAtClient,
+    },
+    localBookmarks: [],
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    eventId,
+    occurredAtClient,
+  });
+  await mark('a', 'a-1', 'A', 2);
+  await mark('b', 'b-1', 'B', 3);
+  await mark('a', 'a-2', 'A edited', 4);
+  const events = await getOutboxEventsV5(ownerA);
+  const aEvents = events.filter(({ targetKey }) => targetKey === 'bookmark:book-1:a');
+  const bEvents = events.filter(({ targetKey }) => targetKey === 'bookmark:book-1:b');
+  assert.deepEqual(aEvents.map(({ baseRevision }) => baseRevision), [0, 1]);
+  assert.deepEqual(aEvents.map(({ sequence }) => sequence), [1, 2]);
+  assert.deepEqual(bEvents.map(({ baseRevision }) => baseRevision), [0]);
+  assert.deepEqual(bEvents.map(({ sequence }) => sequence), [1]);
+});
+
+test('using remote resolves and supersedes a conflicting progress chain', async () => {
+  await enqueue(ownerA, { eventId: 'event-1' });
+  await enqueue(ownerA, {
+    eventId: 'event-2',
+    sessionId: 'session-2',
+    occurredAtClient: 2,
+  });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  await recordProgressConflictV5(ownerA, 'event-1', remote, 3);
+  const local = await resolveSyncConflictUseRemoteV5(ownerA, 'event-1', 4);
+  assert.equal(local.progressPercent, 70);
+  assert.deepEqual(
+    (await getOutboxEventsV5(ownerA)).map(({ status }) => status),
+    ['superseded', 'superseded'],
+  );
+});
+
+test('keeping local creates a new event at the current remote revision', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 2,
+    acceptedEventId: 'remote-2',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  await recordProgressConflictV5(ownerA, 'event-1', remote, 3);
+  const replacement = await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 4);
+  assert.equal(replacement.baseRevision, 2);
+  assert.equal(replacement.payload.progressPercent, 30);
+  assert.equal(replacement.status, 'pending');
+  assert.notEqual(replacement.eventId, 'event-1');
+});
+
+test('restoring a remotely deleted bookmark assigns a new bookmark id', async () => {
+  await enqueueBookmarkEventV5(ownerA, {
+    bookId: 'book-1',
+    bookmarkId: 'old-mark',
+    operation: 'bookmark.upsert',
+    payload: {
+      bookmarkId: 'old-mark',
+      cfi: 'cfi-old',
+      name: 'old',
+      color: '#fff',
+      progressPercent: 10,
+      createdAtClient: 1,
+      updatedAtClient: 2,
+    },
+    localBookmarks: [],
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    eventId: 'bookmark-event',
+    occurredAtClient: 2,
+  });
+  const remoteDelete = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    bookmarkId: 'old-mark',
+    revision: 2,
+    acceptedEventId: 'remote-delete',
+    operation: 'delete',
+    bookmark: null,
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: {},
+  };
+  await recordProgressConflictV5(ownerA, 'bookmark-event', remoteDelete, 3);
+  const replacement = await resolveSyncConflictKeepLocalV5(ownerA, 'bookmark-event', 4);
+  assert.equal(replacement.target.kind, 'bookmark');
+  assert.notEqual(replacement.target.bookmarkId, 'old-mark');
+  assert.equal(replacement.payload.bookmarkId, replacement.target.bookmarkId);
+  assert.equal(replacement.baseRevision, 0);
 });

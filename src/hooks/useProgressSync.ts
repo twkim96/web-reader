@@ -1,12 +1,21 @@
 import { Dispatch, MutableRefObject, SetStateAction, useEffect, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { UserProgress } from '../types';
 import { splitOwnerKey } from '../lib/ownerIdentity';
-import { getV2HistoryPath, parseProgressHeadV2 } from '../lib/progressV2Schema';
-import { recordRemoteMissingV5, storeRemoteProgressHeadV5 } from '../lib/syncOutboxV5';
+import { getV2HistoryPath, parseBookmarkHeadV2, parseProgressHeadV2 } from '../lib/progressV2Schema';
+import {
+  recordRemoteBookmarkMissingV5,
+  recordRemoteMissingV5,
+  storeRemoteBookmarkHeadV5,
+  storeRemoteProgressHeadV5,
+} from '../lib/syncOutboxV5';
+import {
+  claimLegacyV1CandidateV5,
+  fingerprintLegacyV1Document,
+} from '../lib/legacyV1Bridge';
 import {
   getTimestampMs,
   mergeRemoteManualWithLocalAuto,
@@ -19,6 +28,8 @@ interface UseProgressSyncOptions {
   deviceId: MutableRefObject<string>;
   progressRef: MutableRefObject<Record<string, UserProgress>>;
   setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
+  activeBookId?: string;
+  ownerKey: string | null;
 }
 
 export const useProgressSync = ({
@@ -26,6 +37,8 @@ export const useProgressSync = ({
   deviceId,
   progressRef,
   setRemoteProgress,
+  activeBookId,
+  ownerKey,
 }: UseProgressSyncOptions) => {
   const snapshotTailRef = useRef(Promise.resolve());
 
@@ -94,6 +107,8 @@ export const useProgressSync = ({
           if (change.type === 'removed' || change.doc.metadata.hasPendingWrites) continue;
           const raw = change.doc.data() as RemoteProgressDoc;
           const bookId = raw.bookId || change.doc.id;
+          const fingerprint = fingerprintLegacyV1Document(bookId, raw);
+          if (!await claimLegacyV1CandidateV5(owner.ownerKey, bookId, fingerprint)) continue;
           const localBookmarks = progressRef.current[bookId]?.bookmarks ?? [];
           legacyCandidates[bookId] = {
             bookId,
@@ -109,14 +124,79 @@ export const useProgressSync = ({
       });
     }, (error) => console.error('[ProgressV1Bridge] listener failed:', error));
 
+    const unsubscribeBookmarks = activeBookId
+      ? onSnapshot(
+        collection(doc(db, getV2HistoryPath(APP_ID, user.uid, libraryScopeKey), activeBookId), 'bookmarks'),
+        { includeMetadataChanges: true },
+        (snapshot) => {
+          enqueueSnapshot(async () => {
+            if (!ownerRuntime.isCurrent(owner) || snapshot.metadata.fromCache) return;
+            const current = progressRef.current[activeBookId]?.bookmarks ?? [];
+            const manual = new Map(current
+              .filter((bookmark) => bookmark.type === 'manual')
+              .map((bookmark) => [bookmark.id, bookmark]));
+            let changed = false;
+            for (const change of snapshot.docChanges()) {
+              if (change.doc.metadata.hasPendingWrites) continue;
+              if (change.type === 'removed') {
+                await recordRemoteBookmarkMissingV5(
+                  owner.ownerKey,
+                  activeBookId,
+                  change.doc.id,
+                );
+                continue;
+              }
+              try {
+                const head = parseBookmarkHeadV2(change.doc.data());
+                await storeRemoteBookmarkHeadV5(owner.ownerKey, head);
+                if (head.acceptedDeviceId === deviceId.current) continue;
+                changed = true;
+                if (head.operation === 'delete') {
+                  manual.delete(head.bookmarkId);
+                } else {
+                  manual.set(head.bookmarkId, {
+                    id: head.bookmarkId,
+                    type: 'manual',
+                    name: head.bookmark!.name,
+                    cfi: head.bookmark!.cfi,
+                    progressPercent: head.bookmark!.progressPercent ?? undefined,
+                    createdAt: head.bookmark!.createdAtClient,
+                    color: head.bookmark!.color,
+                  });
+                }
+              } catch (error) {
+                console.error('[BookmarkV2] Invalid remote head:', error);
+              }
+            }
+            if (!changed || !ownerRuntime.isCurrent(owner)) return;
+            const auto = current.filter((bookmark) => bookmark.type === 'auto');
+            setRemoteProgress((prev) => ({
+              ...prev,
+              [activeBookId]: {
+                ...(prev[activeBookId] ?? progressRef.current[activeBookId] ?? {
+                  bookId: activeBookId,
+                  cfi: '',
+                  progressPercent: 0,
+                  lastRead: 0,
+                }),
+                bookmarks: [...manual.values(), ...auto],
+              },
+            }));
+          });
+        },
+        (error) => console.error('[BookmarkV2] listener failed:', error),
+      )
+      : () => undefined;
+
     const dispose = () => {
       unsubscribeV2();
       unsubscribeV1();
+      unsubscribeBookmarks();
     };
     const unregister = ownerRuntime.registerDisposer(dispose);
     return () => {
       unregister();
       dispose();
     };
-  }, [deviceId, progressRef, setRemoteProgress, user]);
+  }, [activeBookId, deviceId, ownerKey, progressRef, setRemoteProgress, user]);
 };

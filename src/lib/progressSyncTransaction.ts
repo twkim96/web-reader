@@ -21,6 +21,14 @@ export type ProgressTransactionDecision =
   | { status: 'already_applied'; head: ProgressHeadV2; receipt: EventReceiptV2 }
   | { status: 'conflict'; remoteHead: ProgressHeadV2 | null };
 
+type ProgressFirestoreSDK = {
+  doc: typeof doc;
+  runTransaction: typeof runTransaction;
+  serverTimestamp: typeof serverTimestamp;
+};
+
+const defaultFirestoreSDK: ProgressFirestoreSDK = { doc, runTransaction, serverTimestamp };
+
 export const decideProgressTransaction = ({
   event,
   storedHead,
@@ -89,17 +97,19 @@ export const applyProgressEventTransaction = async ({
   uid,
   libraryScopeKey,
   firestore,
+  sdk = defaultFirestoreSDK,
 }: {
   event: ProgressOutboxEventV5;
   uid: string;
   libraryScopeKey: LibraryScopeKey;
   firestore: Firestore;
+  sdk?: ProgressFirestoreSDK;
 }) => {
   const historyPath = getV2HistoryPath(APP_ID, uid, libraryScopeKey);
-  const headRef = doc(firestore, historyPath, event.target.bookId);
-  const receiptRef = doc(headRef, 'eventReceipts', event.eventId);
+  const headRef = sdk.doc(firestore, historyPath, event.target.bookId);
+  const receiptRef = sdk.doc(headRef, 'eventReceipts', event.eventId);
 
-  return runTransaction(firestore, async (transaction) => {
+  return sdk.runTransaction(firestore, async (transaction) => {
     const [receiptSnapshot, headSnapshot] = await Promise.all([
       transaction.get(receiptRef),
       transaction.get(headRef),
@@ -108,7 +118,7 @@ export const applyProgressEventTransaction = async ({
       event,
       storedHead: headSnapshot.exists() ? headSnapshot.data() : undefined,
       storedReceipt: receiptSnapshot.exists() ? receiptSnapshot.data() : undefined,
-      serverTime: serverTimestamp(),
+      serverTime: sdk.serverTimestamp(),
     });
     if (decision.status !== 'apply') return decision;
     transaction.set(headRef, decision.head);

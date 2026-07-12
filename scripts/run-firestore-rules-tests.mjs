@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import { delimiter, resolve } from 'node:path';
 
 const env = {
@@ -27,7 +28,8 @@ const result = spawnSync(firebaseBinary, [
   'firestore',
   '--project',
   'demo-web-reader',
-  'node --test tests/firestoreRules.test.mjs',
+  'node --import tsx --test tests/firestoreRules.test.mjs',
 ], { env, stdio: 'inherit' });
 
+rmSync(resolve('firestore-debug.log'), { force: true });
 process.exit(result.status ?? 1);

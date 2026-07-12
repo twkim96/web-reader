@@ -1,4 +1,4 @@
-import { PUBLICATION_SANDBOX } from './sandbox-policy.js'
+import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -251,6 +251,7 @@ class View {
     #column = true
     #size
     #layout = {}
+    #publicationURL
     constructor({ container, onExpand }) {
         this.container = container
         this.onExpand = onExpand
@@ -283,6 +284,9 @@ class View {
     }
     async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(`${src} is not string`)
+        const publicationURL = await preparePublicationURL(src)
+        this.#publicationURL?.revoke()
+        this.#publicationURL = publicationURL
         return new Promise(resolve => {
             this.#iframe.addEventListener('load', () => {
                 const doc = this.document
@@ -310,7 +314,7 @@ class View {
 
                 resolve()
             }, { once: true })
-            this.#iframe.src = src
+            this.#iframe.src = publicationURL.url
         })
     }
     render(layout) {
@@ -448,6 +452,8 @@ class View {
     }
     destroy() {
         if (this.document) this.#observer.unobserve(this.document.body)
+        this.#publicationURL?.revoke()
+        this.#publicationURL = null
     }
 }
 

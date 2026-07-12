@@ -104,12 +104,12 @@ service cloud.firestore {
       return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/eventReceipts/$(eventId);
     }
 
-    function matchingReceiptAfter(appId, uid, scopeId, bookId, data, targetKind, bookmarkId, targetKey) {
-      let receipt = getAfter(receiptPath(appId, uid, scopeId, bookId, data.acceptedEventId)).data;
+    function matchingReceiptAfter(appId, uid, scopeId, data, targetKind, bookmarkId, targetKey) {
+      let receipt = getAfter(receiptPath(appId, uid, scopeId, data.bookId, data.acceptedEventId)).data;
       return receipt.schemaVersion == 2
         && receipt.eventId == data.acceptedEventId
         && receipt.targetKind == targetKind
-        && receipt.bookId == bookId
+        && receipt.bookId == data.bookId
         && receipt.bookmarkId == bookmarkId
         && receipt.targetKey == targetKey
         && receipt.revision == data.revision
@@ -146,14 +146,14 @@ service cloud.firestore {
         && validProgressHead(request.resource.data, bookId)
         && request.resource.data.revision == 1
         && matchingReceiptAfter(
-          appId, uid, scopeId, bookId, request.resource.data,
+          appId, uid, scopeId, request.resource.data,
           'progress', null, 'progress:' + bookId
         );
       allow update: if owns(uid)
         && validProgressHead(request.resource.data, bookId)
         && request.resource.data.revision == resource.data.revision + 1
         && matchingReceiptAfter(
-          appId, uid, scopeId, bookId, request.resource.data,
+          appId, uid, scopeId, request.resource.data,
           'progress', null, 'progress:' + bookId
         );
       allow delete: if false;
@@ -164,14 +164,14 @@ service cloud.firestore {
           && validBookmarkHead(request.resource.data, bookId, bookmarkId)
           && request.resource.data.revision == 1
           && matchingReceiptAfter(
-            appId, uid, scopeId, bookId, request.resource.data,
+            appId, uid, scopeId, request.resource.data,
             'bookmark', bookmarkId, 'bookmark:' + bookId + ':' + bookmarkId
           );
         allow update: if owns(uid)
           && validBookmarkHead(request.resource.data, bookId, bookmarkId)
           && request.resource.data.revision == resource.data.revision + 1
           && matchingReceiptAfter(
-            appId, uid, scopeId, bookId, request.resource.data,
+            appId, uid, scopeId, request.resource.data,
             'bookmark', bookmarkId, 'bookmark:' + bookId + ':' + bookmarkId
           );
         allow delete: if false;

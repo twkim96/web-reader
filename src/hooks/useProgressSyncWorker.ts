@@ -4,12 +4,14 @@ import { db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { splitOwnerKey } from '../lib/ownerIdentity';
 import { applyProgressEventTransaction } from '../lib/progressSyncTransaction';
+import { applyBookmarkEventTransaction } from '../lib/bookmarkSyncTransaction';
 import { ProgressSyncWorker } from '../lib/progressSyncWorker';
+import { isProgressOutboxEventV5 } from '../lib/syncOutboxV5';
 
 const ACTIVE_DELAY_MS = 100;
 const IDLE_DELAY_MS = 2_000;
 
-export const useProgressSyncWorker = (user: FirebaseUser | null) => {
+export const useProgressSyncWorker = (user: FirebaseUser | null, ownerKey: string | null) => {
   useEffect(() => {
     if (!user) return;
     const owner = ownerRuntime.capture();
@@ -20,12 +22,19 @@ export const useProgressSyncWorker = (user: FirebaseUser | null) => {
     const worker = new ProgressSyncWorker(
       owner,
       crypto.randomUUID(),
-      (event) => applyProgressEventTransaction({
-        event,
-        uid: user.uid,
-        libraryScopeKey,
-        firestore: db,
-      }),
+      (event) => isProgressOutboxEventV5(event)
+        ? applyProgressEventTransaction({
+          event,
+          uid: user.uid,
+          libraryScopeKey,
+          firestore: db,
+        })
+        : applyBookmarkEventTransaction({
+          event,
+          uid: user.uid,
+          libraryScopeKey,
+          firestore: db,
+        }),
     );
     let timer: number | undefined;
     let running = false;
@@ -63,5 +72,5 @@ export const useProgressSyncWorker = (user: FirebaseUser | null) => {
       if (timer !== undefined) window.clearTimeout(timer);
       void worker.dispose();
     };
-  }, [user]);
+  }, [ownerKey, user]);
 };

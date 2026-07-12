@@ -24,6 +24,7 @@ interface ShelfProps {
   books: Book[];
   progress: Record<string, UserProgress>;
   googleToken: string | null;
+  driveCacheKey: string | null;
   settings: ViewerSettings;
   onUpdateSettings: (s: Partial<ViewerSettings>) => void;
   onOpen: (book: Book) => void;
@@ -46,6 +47,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   books, 
   progress, 
   googleToken,
+  driveCacheKey,
   onOpen, 
   onRefresh,
   onLogout,
@@ -264,6 +266,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       <FileUploader 
         ref={fileUploaderRef}
         googleToken={googleToken}
+        driveCacheKey={driveCacheKey}
         isOfflineMode={isOfflineMode}
         onRefresh={onRefresh}
         onLocalBookImported={onLocalBookImported}

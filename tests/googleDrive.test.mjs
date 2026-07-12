@@ -6,7 +6,10 @@ import {
   fetchWithTimeout,
   fetchDriveFiles,
   getDriveLibraryFolderId,
+  getDriveUserPermissionId,
   GoogleDriveFolderConflictError,
+  GoogleDriveAuthError,
+  invalidateDriveCachesForOwner,
   normalizeDriveBooks,
 } from '../src/lib/googleDrive.ts';
 import {
@@ -14,6 +17,24 @@ import {
   isCachedBookCurrent,
   shouldUseCachedBookContent,
 } from '../src/lib/bookFingerprint.ts';
+
+test('resolves a stable Drive permission id before opening an owner namespace', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (url, options) => {
+    assert.match(String(url), /\/drive\/v3\/about\?fields=user%28permissionId%29|\/drive\/v3\/about\?fields=user\(permissionId\)/);
+    assert.equal(options.headers.Authorization, 'Bearer permission-token');
+    return new Response(JSON.stringify({ user: { permissionId: 'permission-123' } }), { status: 200 });
+  };
+  assert.equal(await getDriveUserPermissionId('permission-token'), 'permission-123');
+});
+
+test('preserves Drive authorization expiry while resolving permission id', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async () => new Response('', { status: 401 });
+  await assert.rejects(getDriveUserPermissionId('expired-token'), GoogleDriveAuthError);
+});
 
 const abortableFetch = (_url, options = {}) => new Promise((_resolve, reject) => {
   const rejectAbort = () => reject(new DOMException('aborted', 'AbortError'));
@@ -180,7 +201,7 @@ test('prefers the appData library folder over same-name folders', async (t) => {
     }), { status: 200 });
   };
 
-  assert.equal(await getDriveLibraryFolderId('token-registry'), 'registered-folder');
+  assert.equal(await getDriveLibraryFolderId('token-registry', { cacheKey: 'registry-session' }), 'registered-folder');
   assert.equal(requests.length, 4);
   assert.match(requests[0].url, /spaces=appDataFolder/);
   assert.equal(requests[3].options.method, 'DELETE');
@@ -211,7 +232,7 @@ test('does not choose an arbitrary folder when duplicate names are unregistered'
   };
 
   await assert.rejects(
-    getDriveLibraryFolderId('token-duplicate'),
+    getDriveLibraryFolderId('token-duplicate', { cacheKey: 'duplicate-session' }),
     GoogleDriveFolderConflictError,
   );
   assert.equal(requestCount, 2);
@@ -241,7 +262,7 @@ test('stores one existing folder in appData for other devices', async (t) => {
     }), { status: 200 });
   };
 
-  assert.equal(await getDriveLibraryFolderId('token-store'), 'existing-folder');
+  assert.equal(await getDriveLibraryFolderId('token-store', { cacheKey: 'store-session' }), 'existing-folder');
   assert.equal(requests.length, 3);
   assert.equal(requests[2].options.method, 'POST');
   assert.match(requests[2].url, /uploadType=multipart/);
@@ -268,7 +289,7 @@ test('keeps the existing folder usable with an old drive.file-only token', async
     }), { status: 200 });
   };
 
-  assert.equal(await getDriveLibraryFolderId('token-old-scope'), 'existing-folder');
+  assert.equal(await getDriveLibraryFolderId('token-old-scope', { cacheKey: 'old-scope-session' }), 'existing-folder');
   assert.equal(requests.length, 3);
   assert.equal(requests[2].options.method, 'POST');
 });
@@ -304,14 +325,14 @@ test('coalesces concurrent appData registry writes for one Drive account', async
   };
 
   const results = await Promise.all([
-    getDriveLibraryFolderId('token-concurrent'),
-    getDriveLibraryFolderId('token-concurrent'),
+    getDriveLibraryFolderId('token-concurrent', { cacheKey: 'concurrent-session' }),
+    getDriveLibraryFolderId('token-concurrent', { cacheKey: 'concurrent-session' }),
   ]);
   assert.deepEqual(results, ['account-folder', 'account-folder']);
   assert.equal(registryCreates, 1);
 });
 
-test('keeps canonical folder caches isolated by Drive access token', async (t) => {
+test('keeps canonical folder caches isolated by owner session without using token keys', async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => {
     globalThis.fetch = originalFetch;
@@ -346,10 +367,41 @@ test('keeps canonical folder caches isolated by Drive access token', async (t) =
     throw new Error(`Unexpected request: ${requestUrl}`);
   };
 
-  assert.equal(await getDriveLibraryFolderId('token-account-a'), 'folder-a');
-  assert.equal(await getDriveLibraryFolderId('token-account-b'), 'folder-b');
-  assert.equal(await getDriveLibraryFolderId('token-account-a'), 'folder-a');
+  assert.equal(await getDriveLibraryFolderId('token-account-a', { cacheKey: 'owner-a::session' }), 'folder-a');
+  assert.equal(await getDriveLibraryFolderId('token-account-b', { cacheKey: 'owner-b::session' }), 'folder-b');
+  assert.equal(await getDriveLibraryFolderId('token-account-a', { cacheKey: 'owner-a::session' }), 'folder-a');
   assert.deepEqual(Object.fromEntries(appDataReads), { a: 1, b: 1 });
+});
+
+test('purges every stale session cache for one owner without touching another owner', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let registryReads = 0;
+  globalThis.fetch = async (url) => {
+    const requestUrl = String(url);
+    if (requestUrl.includes('spaces=appDataFolder')) {
+      registryReads += 1;
+      return new Response(JSON.stringify({ files: [{ id: 'purge-registry' }] }), { status: 200 });
+    }
+    if (requestUrl.includes('/purge-registry?alt=media')) {
+      return new Response(JSON.stringify({ version: 1, folderId: 'purge-folder' }), { status: 200 });
+    }
+    return new Response(JSON.stringify({
+      id: 'purge-folder',
+      name: 'web viewer',
+      mimeType: 'application/vnd.google-apps.folder',
+      trashed: false,
+    }), { status: 200 });
+  };
+
+  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:a|drive:p::session-1' });
+  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:a|drive:p::session-2' });
+  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:b|drive:p::session-1' });
+  assert.equal(registryReads, 3);
+  invalidateDriveCachesForOwner('firebase:a|drive:p');
+  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:a|drive:p::session-2' });
+  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:b|drive:p::session-1' });
+  assert.equal(registryReads, 4);
 });
 
 test('lists books only from the resolved library folder', async (t) => {
@@ -398,9 +450,9 @@ test('single-flights concurrent empty-account folder creation', async (t) => {
   };
 
   const results = await Promise.all([
-    getDriveLibraryFolderId('token-create-single-flight', { createIfMissing: true }),
-    getDriveLibraryFolderId('token-create-single-flight', { createIfMissing: true }),
-    getDriveLibraryFolderId('token-create-single-flight', { createIfMissing: true }),
+    getDriveLibraryFolderId('token-create-single-flight', { cacheKey: 'create-session', createIfMissing: true }),
+    getDriveLibraryFolderId('token-create-single-flight', { cacheKey: 'create-session', createIfMissing: true }),
+    getDriveLibraryFolderId('token-create-single-flight', { cacheKey: 'create-session', createIfMissing: true }),
   ]);
 
   assert.deepEqual(results, ['created-folder', 'created-folder', 'created-folder']);
@@ -438,10 +490,10 @@ test('clears a failed folder single-flight so the next call can retry', async (t
   };
 
   await assert.rejects(
-    getDriveLibraryFolderId('token-folder-retry'),
+    getDriveLibraryFolderId('token-folder-retry', { cacheKey: 'retry-session' }),
     /라이브러리 폴더 설정 조회 실패/,
   );
-  assert.equal(await getDriveLibraryFolderId('token-folder-retry'), 'retry-folder');
+  assert.equal(await getDriveLibraryFolderId('token-folder-retry', { cacheKey: 'retry-session' }), 'retry-folder');
   assert.equal(appDataReads, 2);
 });
 
@@ -482,7 +534,7 @@ test('reads named folder candidates through every Drive page', async (t) => {
   };
 
   await assert.rejects(
-    getDriveLibraryFolderId('token-folder-pages'),
+    getDriveLibraryFolderId('token-folder-pages', { cacheKey: 'pages-session' }),
     GoogleDriveFolderConflictError,
   );
   assert.deepEqual(folderPages, [null, 'folder-next']);

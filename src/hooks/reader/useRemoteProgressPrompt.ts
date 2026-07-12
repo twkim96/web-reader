@@ -73,13 +73,14 @@ export const useRemoteProgressPrompt = ({
     if (isInitialSync.current) {
       isInitialSync.current = false;
       if (remoteAnchorCfi && remoteAnchorCfi !== currentAnchor && remoteTime > lastSaveTimeRef.current) {
-        void jumpToRemoteProgress({
+        const initialConflict = {
           cfi: remoteCfi,
           anchorCfi: remoteAnchorCfi,
           percent: remoteProgress.progressPercent,
           lastRead: remoteTime,
-        });
-        return;
+        };
+        const timeoutId = window.setTimeout(() => setSyncConflict(initialConflict), 0);
+        return () => window.clearTimeout(timeoutId);
       }
     }
 

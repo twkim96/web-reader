@@ -1,8 +1,9 @@
+importScripts('/sw-policy.js');
+
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.6.6`;
-const PRE_CACHE_URLS = [
-  '/',
-  '/manifest.json',
+const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
+const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',
   '/icon-192.png',
   '/icon-512.png',
@@ -10,100 +11,61 @@ const PRE_CACHE_URLS = [
   '/fonts/RIDIBatang.woff2',
   '/fonts/RIDIBatang.otf',
 ];
-
-const RUNTIME_ASSET_PREFIXES = [
-  '/_next/static/',
-  '/7z/',
-  '/foliate-js/',
-  '/fonts/',
-  '/zip/',
-];
-
-const isCacheableResponse = (response) =>
-  response?.ok && response.type !== 'opaque' && response.type !== 'opaqueredirect';
+const policy = self.PCReaderSWPolicy;
 
 const putInCache = async (request, response) => {
-  if (!isCacheableResponse(response)) return;
-  const responseToCache = response.clone();
+  if (!policy.isCacheableResponse(response)) return;
   const cache = await caches.open(CACHE_NAME);
-  await cache.put(request, responseToCache);
+  await cache.put(request, response.clone());
 };
 
 const cacheFirst = (event) => {
-  const cachedResponse = caches.match(event.request);
-  const networkResponse = cachedResponse.then((cached) =>
-    cached ? null : fetch(event.request));
-
-  event.waitUntil(
-    networkResponse
-      .then((response) => response && putInCache(event.request, response))
-      .catch(() => undefined)
-  );
-
-  return cachedResponse.then(async (cached) => {
+  const response = caches.match(event.request).then(async (cached) => {
     if (cached) return cached;
-    const response = await networkResponse;
-    if (!response) throw new Error('Static asset is unavailable');
-    return response;
+    const networkResponse = await fetch(event.request);
+    await putInCache(event.request, networkResponse);
+    return networkResponse;
   });
+  event.waitUntil(response.then(() => undefined).catch(() => undefined));
+  return response;
 };
 
-const networkFirst = (event, fallbackUrl) => {
-  const networkResponse = fetch(event.request);
-
-  event.waitUntil(
-    networkResponse
-      .then((response) => putInCache(event.request, response))
-      .catch(() => undefined)
-  );
-
-  return networkResponse.catch(async () => {
-    const cached = await caches.match(event.request);
-    if (cached) return cached;
-    if (fallbackUrl) {
-      const fallback = await caches.match(fallbackUrl);
-      if (fallback) return fallback;
-    }
-    return Response.error();
-  });
+const navigationNetworkFirst = async (event) => {
+  try {
+    return await fetch(event.request);
+  } catch {
+    return (await caches.match('/')) ?? Response.error();
+  }
 };
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRE_CACHE_URLS))
-  );
-
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(REQUIRED_PRECACHE_URLS);
+    await Promise.allSettled(OPTIONAL_PRECACHE_URLS.map((url) => cache.add(url)));
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => Promise.all(
-      cacheNames
-        .filter((cacheName) =>
-          cacheName.startsWith(CACHE_PREFIX) && cacheName !== CACHE_NAME)
-        .map((cacheName) => caches.delete(cacheName))
-    ))
-  );
+  event.waitUntil(caches.keys().then((cacheNames) => Promise.all(
+    cacheNames
+      .filter((cacheName) => cacheName.startsWith(CACHE_PREFIX) && cacheName !== CACHE_NAME)
+      .map((cacheName) => caches.delete(cacheName)),
+  )));
+});
 
-  return self.clients.claim();
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') void self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
-
+  if (policy.isPrivateRequest(event.request, url, self.location.origin)) return;
   if (event.request.mode === 'navigate') {
-    event.respondWith(networkFirst(event, '/'));
+    event.respondWith(navigationNetworkFirst(event));
     return;
   }
-
-  if (RUNTIME_ASSET_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
+  if (policy.isStaticAssetPath(url.pathname)) {
     event.respondWith(cacheFirst(event));
-    return;
   }
-
-  event.respondWith(networkFirst(event));
 });

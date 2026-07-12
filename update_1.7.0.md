@@ -33,7 +33,7 @@ Phase 1을 시작하기 전에 `git status --short`, `git rev-parse HEAD`, Node/
 | outbox payload와 revision chain | 보강, P0 | 기존 계획의 event 타입에는 실제 payload와 연속 event의 `baseRevision` 계산이 빠졌다. | operation별 payload, 예상 revision chain, coalescing·충돌 해결 규칙 고정 |
 | 멀티탭 worker 중복 | 보강, P0 | 운영 Firestore와 앱 IndexedDB가 여러 탭에 공유되어 탭마다 worker가 시작될 수 있다. | IndexedDB lease/epoch로 active leader를 하나로 제한하고 receipt로 최종 중복 방지 |
 | 북마크 배열 동시 쓰기 유실 | 수용, P0 | 수동 북마크 배열 전체를 진행률 문서에 함께 쓴다. | 수동 북마크별 revision 문서와 tombstone |
-| EPUB 실행 경계 | 수용, P0 | publication iframe이 `allow-same-origin allow-scripts`이고 inline script 제거 경계가 없다. | DOM sanitizer, CSP, 무스크립트 sandbox, 악성 EPUB 브라우저 테스트 |
+| EPUB 실행 경계 | 수용, P0 | publication iframe이 `allow-same-origin allow-scripts`이고 inline script 제거 경계가 없다. | renderer-boundary DOM sanitizer와 CSP, WebKit listener 호환 sandbox, 악성 EPUB 브라우저 테스트 |
 | 원격 삭제·리스너 순서·오류 | 수용, P1 | `snapshot.docs`를 비동기 순회해 이전 state와 merge하며 `removed`와 오류 callback이 없다. | `docChanges()`, 직렬 Promise tail, 삭제·오류 처리 |
 | 계정별 IndexedDB 분리 | 수용, P1 | DB와 key가 고정이고 로그인 후 전체 로컬 데이터를 복원한다. | owner-scoped v5 병렬 store와 generation guard |
 | IndexedDB upgrade 탭 경합 | 보강, P1 | 다른 탭이 v4 연결을 유지하면 v5 open이 blocked될 수 있다. | `blocking`/`blocked`/`terminated` 처리와 migration lease·복구 UI |
@@ -76,7 +76,7 @@ Phase 1을 시작하기 전에 `git status --short`, `git rev-parse HEAD`, Node/
 - tombstone·event receipt 자동 GC
 - 관련 없는 Next.js/React/Firebase 업그레이드
 
-Phase 1의 조기 호환성 게이트에서 `allow-scripts` 제거와 필수 WebKit 동작을 함께 만족할 경로를 찾지 못하면 sandbox를 완화하지 않는다. 별도 origin 전환이 필요하다고 판정되면 범위를 다시 승인하기 전까지 후속 Phase와 1.7.0 릴리스를 중단한다.
+Phase 1의 조기 호환성 게이트 결과 WebKit bug 218086 때문에 `allow-scripts` 없는 same-origin frame에서는 parent-realm listener도 실행되지 않는 C 판정이 확인됐다. raw publication에 `allow-scripts`를 되돌리지 않고, paginator/fixed-layout 진입점에서 모든 HTML/XHTML/SVG를 다시 sanitize하고 `script-src 'none'` CSP를 강제한 문서만 `allow-same-origin allow-scripts` frame으로 넘긴다. 읽기·sanitize에 실패하거나 지원하지 않는 문서 MIME은 iframe navigation 전에 실패 처리한다.
 
 ## 고정 설계 결정
 
@@ -262,7 +262,7 @@ DB 이름은 `web-reader-db`를 유지하고 version을 5로 올린다. v4 keyPa
 
 ### 목표
 
-현재 1.6.6 동작을 고정하고 Foliate의 확정 결함 2건을 최소 diff로 수정한다. 데이터 구조 변경 전에 publication `allow-scripts` 제거 가능성을 판정한다.
+현재 1.6.6 동작을 고정하고 Foliate의 확정 결함 2건을 최소 diff로 수정한다. 데이터 구조 변경 전에 publication script 차단과 WebKit parent listener를 함께 만족하는 경계를 판정한다.
 
 ### 작업
 
@@ -271,7 +271,7 @@ DB 이름은 `web-reader-db`를 유지하고 version을 5로 올린다. v4 keyPa
 - `public/foliate-js/view.js`의 `kr`을 `ko`로, media-overlay 대입 연산자를 `===`로 수정한다.
 - `ko`, `ko-KR`, `ja`, `zh-CN`, `en-US`와 index 0, 양수, 없음, 원본 배열 불변을 테스트한다.
 - vendored 수정 이유와 회귀 테스트를 `public/foliate-js/PATCHES.md`에 기록한다.
-- paginator와 fixed-layout 각각에서 `allow-scripts`를 제거한 fixture로 Chromium과 Playwright WebKit의 page/scroll 이동, click/touch/keyboard, selection, 내부 링크, fixed layout과 media-overlay event를 확인한다.
+- paginator와 fixed-layout 각각에서 무스크립트 sandbox를 먼저 검증하고, WebKit bug 218086 재현 시 renderer-boundary sanitizer/CSP를 통과한 frame에 한해 listener 실행 권한을 허용해 Chromium/WebKit의 page/scroll 이동, click/touch/keyboard, selection, 내부 링크, fixed layout과 media-overlay event를 확인한다.
 - 최소 악성 publication fixture로 현재 sandbox의 script·inline handler·parent/storage 접근 여부와 no-script 상태의 차단 여부를 기록한다.
 - 결과를 A(제거만으로 동작), B(parent-controlled WebKit event 보완 필요), C(same-origin no-script로 안전성과 핵심 기능을 함께 만족하지 못함)로 판정한다.
 
@@ -280,7 +280,7 @@ DB 이름은 `web-reader-db`를 유지하고 version을 5로 올린다. v4 keyPa
 - `npm run test:formats`, `npm run check`, `git diff --check`가 통과한다.
 - 앱 버전과 Service Worker cache는 계속 `1.6.6`이다.
 - Foliate 전체 업데이트나 주변 vendored formatting diff가 없다.
-- paginator와 fixed-layout 양쪽의 sandbox 판정과 재현 fixture가 남는다. C 판정이면 후속 Phase를 진행하지 않는다.
+- paginator와 fixed-layout 양쪽의 sandbox 판정과 재현 fixture가 남는다. C 판정이면 renderer-boundary sanitizer/CSP의 fail-closed 보완이 Chromium/WebKit에서 증명되기 전까지 후속 Phase를 진행하지 않는다.
 
 ## Phase 2: owner-scoped IndexedDB와 안전한 migration
 
@@ -399,14 +399,14 @@ v4 원본을 보존하면서 owner-scoped v5 저장소로 런타임을 전환하
 ### 작업
 
 - `DOMParser`와 DOM traversal을 사용하는 공통 sanitizer를 publication document 직렬화 직전에 적용한다. regex-only sanitizer는 사용하지 않는다.
-- Phase 1의 A/B 판정을 구현 기준으로 사용한다. C 판정이면 이 Phase를 억지로 진행하지 않는다.
+- Phase 1의 판정을 구현 기준으로 사용한다. C 판정에서는 renderer-boundary sanitizer/CSP와 WebKit listener 권한을 결합한 fail-closed 경계를 먼저 증명한다.
 - script, inline `on*`, object/embed/iframe/srcdoc, meta refresh, SVG `foreignObject`, 위험한 URL과 form navigation을 제거한다.
 - package resource는 resolver가 만든 안전한 blob/data URL만 허용하고 원격 subresource는 차단한다. 외부 anchor는 사용자 click에서 http/https만 `noopener,noreferrer`로 연다.
 - `<style>`과 inline `style`은 CSS parser/tokenizer로 검사해 `url()`, `@import`, `@font-face src`, 위험한 data/SVG URL과 원격 stylesheet를 차단한다. 단순 정규식 하나로 CSS를 정화하지 않는다.
 - `href`, `xlink:href`, `src`, `srcset`, `poster`, preload/prefetch와 SVG URL도 동일한 protocol·package 경계에서 검증한다.
 - generated document에 `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`, `object-src 'none'`, `form-action 'none'`을 포함한 CSP를 넣는다.
-- publication iframe에서 `allow-scripts`를 제거한다. DOM 접근을 위해 `allow-same-origin`이 필요하면 이유를 PATCHES 문서에 남긴다.
-- Phase 1 B 판정이면 필요한 WebKit event를 parent-controlled listener/workaround로 구현한다.
+- renderer가 받은 HTML/XHTML/SVG URL을 iframe navigation 직전에 다시 읽고 공통 sanitizer/CSP를 적용한다. 지원하지 않는 MIME과 읽기 실패는 fail-closed 처리한다.
+- WebKit bug 218086 때문에 parent listener 실행에 필요한 `allow-scripts`는 renderer-boundary `script-src 'none'` CSP가 주입된 문서에만 허용하며 이유와 위협 경계를 PATCHES 문서에 남긴다.
 - 악성 EPUB에서 parent/storage/top navigation/fetch/beacon/popup/sandbox 제거/inline handler/SVG/meta refresh를 각각 검증한다.
 - 기존 CDP 회귀는 유지하고 Playwright Chromium/WebKit 보안·호환성 테스트를 추가한다.
 
@@ -414,7 +414,7 @@ v4 원본을 보존하면서 owner-scoped v5 저장소로 런타임을 전환하
 
 - 악성 fixture의 script, storage, navigation, popup, CSS/URL 우회와 외부 요청이 모두 차단된다.
 - 일반·세로쓰기·fixed layout·media overlay·SVG/MathML·내부 링크·package 미디어가 Chromium/WebKit에서 동작한다.
-- `allow-scripts` 없이 기존 `test:formats`, sanitizer 단위 테스트, EPUB e2e, typecheck, build가 통과한다.
+- raw publication script 실행 없이 기존 `test:formats`, sanitizer 단위 테스트, Chromium/WebKit EPUB e2e, typecheck, build가 통과한다.
 - WebKit에서 안전성을 증명할 수 없거나 핵심 기능이 깨지면 sandbox를 되돌리지 않고 릴리스를 중단한다.
 
 ## Phase 7: GIS token과 Drive cache 격리
@@ -545,14 +545,14 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 
 | Phase | 상태 | 핵심 증거 | 비고 |
 | --- | --- | --- | --- |
-| 1. 기준선·직접 결함·EPUB 게이트 | 부분 완료 | `test:formats` 39개, lint/typecheck/Node 전체 통과; Foliate patch와 Chromium/WebKit fixture 추가 | 로컬 서버 bind가 `EPERM`이라 Playwright gate 재실행 대기. production build도 sandbox process/port 제한으로 재검증 대기 |
-| 2. owner storage·migration·auth lifecycle | 완료 | v5 schema/CRUD, v4 보존 migration·lease·검증, generation guard, 이전/읽기 전용/빈 namespace 선택 UI; fake IndexedDB·owner runtime 포함 storage 테스트 통과 | production build는 Phase 1과 같은 sandbox 제약으로 최종 재검증 대기 |
-| 3. Firestore schema와 Rules | 진행 중 | v1/v2 path·strict parser, v1/v2 호환 Rules, demo emulator 테스트와 JDK 21 CI job 추가; schema 테스트 통과 | 로컬 sandbox가 emulator port bind를 차단해 Rules 실행은 CI/권한 환경 대기. production Rules 기준선 미확인으로 배포 차단 |
-| 4. 진행률 sync core·멀티탭 lease | 진행 중 | 원자 enqueue, 예상 revision chain/coalescing, conflict chain, retry, IndexedDB lease/epoch, stale claim 회수, receipt idempotency와 worker generation guard; storage/sync 테스트 통과 | Firestore emulator transaction 통합과 runtime cutover는 port 권한 환경 검증 및 Phase 5 연결을 남김 |
-| 5. listener·bookmark·v1 bridge·runtime | 진행 중 | 진행률 저장을 v2 outbox/lease worker로 cutover, v2 `docChanges()` 직렬 listener와 `remote_missing` 격리, server-confirmed v1 read bridge 연결 | bookmark별 event/tombstone, legacy fingerprint와 충돌 선택 동작을 남김 |
-| 6. EPUB 실행 경계 | 미착수 |  |  |
-| 7. GIS token과 Drive cache | 미착수 |  |  |
-| 8. Service Worker | 미착수 |  |  |
-| 9. CI와 릴리스 | 미착수 |  |  |
+| 1. 기준선·직접 결함·EPUB 게이트 | 자동 검증 완료 | `test:formats` 42개, lint/typecheck/Node 전체, production build, Chromium/WebKit sandbox fixture와 CDP 회귀 통과; WebKit bug 218086 대응 renderer sanitizer/CSP 경계 확정 | 없음 |
+| 2. owner storage·migration·auth lifecycle | 자동 검증 완료 | v5 schema/CRUD, v4 보존 migration·lease·검증, generation guard, 선택 dialog와 loading 가시성; fake IndexedDB 테스트와 1100권 v4→v5 CDP migration 회귀 통과 | 실기기 저장공간/quota 확인은 실기기 단계 |
+| 3. Firestore schema와 Rules | 자동 검증 완료 | v1/v2 strict schema와 호환 Rules, progress/bookmark atomic receipt·revision·tombstone·권한 거부, 실제 transaction 동시 conflict/replay를 demo emulator 8개 테스트로 통과 | production Rules 기준선 확인·백업·배포는 push 전에 별도 승인 필요 |
+| 4. 진행률 sync core·멀티탭 lease | 자동 검증 완료 | 원자 enqueue, revision chain/coalescing, conflict, retry, IndexedDB lease/epoch, stale claim 회수, receipt idempotency, generation guard와 실제 emulator transaction 통과 | 실제 다중 기기 네트워크 전환은 실기기 단계 |
+| 5. listener·bookmark·v1 bridge·runtime | 자동 검증 완료 | bookmark별 revision/tombstone, active-book listener, `docChanges()` 직렬 처리·`remote_missing`, v1 fingerprint bridge, 충돌 3선택 UI; storage/sync 44개와 emulator/CDP 회귀 통과 | production의 1.6.6/1.7.0 실제 동시 탭은 배포 후 실기기 단계 |
+| 6. EPUB 실행 경계 | 자동 검증 완료 | DOM sanitizer/CSP와 renderer fail-closed 재검증, script·handler·nested document·위험 URL·CSS escape 차단; format 42개 및 Chromium/WebKit 보안·입력 E2E 통과 | 다양한 실제 EPUB 호환성은 실기기 단계 |
+| 7. GIS token과 Drive cache | 자동 검증 완료 | GIS single-flight, memory-only token/expiry, legacy key·fragment 정리, permissionId+canonical folder owner 전환, owner/session cache 폐기와 reload offline namespace; Drive 41개 및 CDP 회귀 통과 | 실제 Google consent·계정 교체는 Vercel 배포 후 실기기 단계 |
+| 8. Service Worker | 자동 검증 완료 | 정적 allowlist, 인증·Range·API·private/no-store 우회, WebKit-safe `waitUntil`, 사용자 승인 update와 local commit 대기; 정책 6개, Chromium/WebKit Cache Storage·waiting-worker E2E, CDP 회귀 통과 | 실제 PWA update UX는 실기기 단계 |
+| 9. CI와 릴리스 | 실기기 전 자동 검증 완료 | `check:full`, 분리 CI, Node/build, Rules emulator 8개, Playwright Chromium/WebKit 10개, CDP production 회귀 모두 통과 | production Rules 기준선·배포, 1.7.0 version 일괄 변경, commit push/Vercel/실기기 테스트는 사용자 호출 후 진행 |
 
 각 Phase를 완료할 때 실제 변경 파일, 실행한 명령과 결과, 미실행 검증, 남은 문제를 해당 Phase 아래 또는 구현 상태 표에 기록한다.

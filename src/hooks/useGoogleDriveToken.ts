@@ -1,62 +1,66 @@
-import { useCallback, useState } from 'react';
-
-const TOKEN_KEY = 'google_drive_token';
-const EXPIRY_KEY = 'google_drive_token_expiry';
-
-const removeTokenFromStorage = () => {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(EXPIRY_KEY);
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(EXPIRY_KEY);
-};
-
-const getValidTokenFromStorage = () => {
-  const sessionToken = sessionStorage.getItem(TOKEN_KEY);
-  const sessionExpiry = sessionStorage.getItem(EXPIRY_KEY);
-  if (sessionToken && sessionExpiry && Date.now() < parseInt(sessionExpiry, 10)) {
-    return sessionToken;
-  }
-
-  const localToken = localStorage.getItem(TOKEN_KEY);
-  const localExpiry = localStorage.getItem(EXPIRY_KEY);
-  if (localToken && localExpiry && Date.now() < parseInt(localExpiry, 10)) {
-    return localToken;
-  }
-
-  removeTokenFromStorage();
-  return null;
-};
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  clearLegacyDriveTokenArtifacts,
+  DriveTokenMemory,
+  hasLegacyOAuthFragment,
+} from '../lib/driveTokenMemory';
 
 export const useGoogleDriveToken = () => {
   const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [driveSessionId, setDriveSessionId] = useState<string | null>(null);
+  const memoryRef = useRef<DriveTokenMemory | null>(null);
+  if (memoryRef.current == null) memoryRef.current = new DriveTokenMemory();
 
-  const getStoredToken = useCallback(() => getValidTokenFromStorage(), []);
+  useEffect(() => {
+    clearLegacyDriveTokenArtifacts(localStorage, sessionStorage);
+    const hash = window.location.hash;
+    if (hasLegacyOAuthFragment(hash)) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+  }, []);
 
   const saveToken = useCallback((token: string, expiresIn: number) => {
-    const expiryTime = (Date.now() + expiresIn * 1000).toString();
-
-    removeTokenFromStorage();
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(EXPIRY_KEY, expiryTime);
+    clearLegacyDriveTokenArtifacts(localStorage, sessionStorage);
+    const sessionId = memoryRef.current!.save(token, expiresIn);
+    setDriveSessionId(sessionId);
     setGoogleToken(token);
+    return sessionId;
   }, []);
 
   const clearToken = useCallback(() => {
-    removeTokenFromStorage();
+    clearLegacyDriveTokenArtifacts(localStorage, sessionStorage);
+    memoryRef.current!.clear();
+    setDriveSessionId(null);
     setGoogleToken(null);
   }, []);
 
   const hasValidToken = useCallback(() => {
-    if (!googleToken) return false;
-    return getValidTokenFromStorage() === googleToken;
+    return memoryRef.current!.isValid();
+  }, []);
+
+  const revokeToken = useCallback(async () => {
+    const token = googleToken;
+    if (!token) return;
+    await new Promise<void>((resolve) => {
+      const revoke = window.google?.accounts?.oauth2?.revoke;
+      if (!revoke) return resolve();
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      revoke(token, finish);
+      window.setTimeout(finish, 1_500);
+    });
   }, [googleToken]);
 
   return {
     googleToken,
-    setGoogleToken,
-    getStoredToken,
+    driveSessionId,
     saveToken,
     clearToken,
     hasValidToken,
+    revokeToken,
   };
 };

@@ -76,6 +76,26 @@ export class GoogleDriveFolderConflictError extends Error {
 export const isGoogleDriveAuthError = (error: unknown) => error instanceof GoogleDriveAuthError;
 export const isGoogleDrivePermissionError = (error: unknown) => error instanceof GoogleDrivePermissionError;
 
+export const getDriveUserPermissionId = async (token: string) => {
+  const response = await fetchWithTimeout(
+    'https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',
+    { headers: { Authorization: `Bearer ${token}` } },
+    5000,
+  );
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
+    throw new Error('Drive 사용자 식별 정보 조회 실패');
+  }
+
+  const data = await response.json() as { user?: { permissionId?: unknown } };
+  const permissionId = data.user?.permissionId;
+  if (typeof permissionId !== 'string' || !permissionId.trim()) {
+    throw new Error('Drive 사용자 식별 정보가 없습니다.');
+  }
+  return permissionId.trim();
+};
+
 export const DRIVE_LIBRARY_FOLDER_NAME = 'web viewer';
 const DRIVE_LIBRARY_REGISTRY_NAME = 'twreader-library.json';
 const MAX_DRIVE_LIST_PAGES = 100;
@@ -145,8 +165,8 @@ const listDriveFolders = async (query: string, token: string) => {
   throw new Error('폴더 목록 페이지 수가 제한을 초과했습니다.');
 };
 
-const rememberLibraryFolderId = (token: string, folderId: string) => {
-  libraryFolderCache.set(token, folderId);
+const rememberLibraryFolderId = (cacheKey: string, folderId: string) => {
+  libraryFolderCache.set(cacheKey, folderId);
   return folderId;
 };
 
@@ -317,12 +337,13 @@ const deleteDuplicateDriveLibraryRegistries = async (fileIds: string[], token: s
 const syncDriveLibraryRegistry = async (
   folderId: string,
   token: string,
+  cacheKey: string,
   registry?: Awaited<ReturnType<typeof readDriveLibraryRegistry>>,
 ) => {
   if (
-    syncedLibraryRegistry.get(token) === folderId
+    syncedLibraryRegistry.get(cacheKey) === folderId
   ) return;
-  const syncKey = `${token}:${folderId}`;
+  const syncKey = `${cacheKey}:${folderId}`;
   const currentSync = registrySyncInFlight.get(syncKey);
   if (currentSync) {
     await currentSync;
@@ -340,7 +361,7 @@ const syncDriveLibraryRegistry = async (
       if (currentRegistry?.duplicateFileIds.length) {
         await deleteDuplicateDriveLibraryRegistries(currentRegistry.duplicateFileIds, token);
       }
-      syncedLibraryRegistry.set(token, folderId);
+      syncedLibraryRegistry.set(cacheKey, folderId);
     } catch (error) {
       if (isGoogleDriveAuthError(error)) throw error;
       // Existing drive.file-only tokens cannot access appDataFolder. Retry after
@@ -385,17 +406,18 @@ const createLibraryFolder = async (token: string) => {
 
 const resolveDriveLibraryFolderId = async (
   token: string,
+  cacheKey: string,
   { createIfMissing = false }: { createIfMissing?: boolean } = {},
 ) => {
-  const cachedFolderId = libraryFolderCache.get(token) ?? null;
+  const cachedFolderId = libraryFolderCache.get(cacheKey) ?? null;
   if (cachedFolderId) {
     const cachedFolder = await fetchDriveFolder(cachedFolderId, token);
     if (isUsableLibraryFolder(cachedFolder)) {
-      await syncDriveLibraryRegistry(cachedFolderId, token);
+      await syncDriveLibraryRegistry(cachedFolderId, token, cacheKey);
       return cachedFolderId;
     }
-    libraryFolderCache.delete(token);
-    syncedLibraryRegistry.delete(token);
+    libraryFolderCache.delete(cacheKey);
+    syncedLibraryRegistry.delete(cacheKey);
   }
 
   const registry = await readDriveLibraryRegistry(token);
@@ -405,8 +427,8 @@ const resolveDriveLibraryFolderId = async (
       if (registry.duplicateFileIds.length) {
         await deleteDuplicateDriveLibraryRegistries(registry.duplicateFileIds, token);
       }
-      syncedLibraryRegistry.set(token, registry.folderId);
-      return rememberLibraryFolderId(token, registry.folderId);
+      syncedLibraryRegistry.set(cacheKey, registry.folderId);
+      return rememberLibraryFolderId(cacheKey, registry.folderId);
     }
   }
 
@@ -417,8 +439,8 @@ const resolveDriveLibraryFolderId = async (
   ].join(' and ');
   const namedFolders = await listDriveFolders(namedQuery, token);
   if (namedFolders.length === 1) {
-    const folderId = rememberLibraryFolderId(token, namedFolders[0].id);
-    await syncDriveLibraryRegistry(folderId, token, registry);
+    const folderId = rememberLibraryFolderId(cacheKey, namedFolders[0].id);
+    await syncDriveLibraryRegistry(folderId, token, cacheKey, registry);
     return folderId;
   }
   if (namedFolders.length > 1) {
@@ -428,31 +450,53 @@ const resolveDriveLibraryFolderId = async (
   }
   if (!createIfMissing) return null;
 
-  const folderId = rememberLibraryFolderId(token, await createLibraryFolder(token));
-  await syncDriveLibraryRegistry(folderId, token, registry);
+  const folderId = rememberLibraryFolderId(cacheKey, await createLibraryFolder(token));
+  await syncDriveLibraryRegistry(folderId, token, cacheKey, registry);
   return folderId;
 };
 
 export const getDriveLibraryFolderId = async (
   token: string,
-  options: { createIfMissing?: boolean } = {},
+  options: { cacheKey: string; createIfMissing?: boolean },
 ): Promise<string | null> => {
+  const { cacheKey } = options;
   const createIfMissing = options.createIfMissing ?? false;
-  const current = libraryFolderInFlight.get(token);
+  const current = libraryFolderInFlight.get(cacheKey);
   if (current) {
     const folderId = await current.promise;
     if (folderId || !createIfMissing || current.createIfMissing) return folderId;
-    return getDriveLibraryFolderId(token, { createIfMissing: true });
+    return getDriveLibraryFolderId(token, { cacheKey, createIfMissing: true });
   }
 
-  const promise = resolveDriveLibraryFolderId(token, { createIfMissing });
-  libraryFolderInFlight.set(token, { createIfMissing, promise });
+  const promise = resolveDriveLibraryFolderId(token, cacheKey, { createIfMissing });
+  libraryFolderInFlight.set(cacheKey, { createIfMissing, promise });
   try {
     return await promise;
   } finally {
-    if (libraryFolderInFlight.get(token)?.promise === promise) {
-      libraryFolderInFlight.delete(token);
+    if (libraryFolderInFlight.get(cacheKey)?.promise === promise) {
+      libraryFolderInFlight.delete(cacheKey);
     }
+  }
+};
+
+export const invalidateDriveCache = (cacheKey: string) => {
+  libraryFolderCache.delete(cacheKey);
+  syncedLibraryRegistry.delete(cacheKey);
+  libraryFolderInFlight.delete(cacheKey);
+  for (const key of registrySyncInFlight.keys()) {
+    if (key.startsWith(`${cacheKey}:`)) registrySyncInFlight.delete(key);
+  }
+};
+
+export const invalidateDriveCachesForOwner = (ownerKey: string, exceptCacheKey?: string) => {
+  const prefix = `${ownerKey}::`;
+  const keys = new Set([
+    ...libraryFolderCache.keys(),
+    ...syncedLibraryRegistry.keys(),
+    ...libraryFolderInFlight.keys(),
+  ]);
+  for (const key of keys) {
+    if (key.startsWith(prefix) && key !== exceptCacheKey) invalidateDriveCache(key);
   }
 };
 

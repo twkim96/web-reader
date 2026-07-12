@@ -13,8 +13,13 @@ import { Book, Bookmark, SaveProgressOptions, ViewState } from '../types';
 import { ACCENT_PALETTE } from '../lib/constants';
 import { getThemeClasses, getThemeColors, getThemeCssVariables } from '../lib/themeUtils';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
-import { removeBookFromLocalV5 } from '../lib/localDBV5';
+import {
+  deleteDriveFile,
+  invalidateDriveCache,
+  isGoogleDriveAuthError,
+  isGoogleDrivePermissionError,
+} from '../lib/googleDrive';
+import { putOwnerSessionV5, removeBookFromLocalV5 } from '../lib/localDBV5';
 import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
@@ -30,6 +35,7 @@ import { useViewerSettings } from '../hooks/useViewerSettings';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
 import { LegacyMigrationDialog } from '../components/LegacyMigrationDialog';
+import { SyncConflictResolutionDialog } from '../components/SyncConflictResolutionDialog';
 import { getBookOpenLimitError } from '../lib/bookFormats';
 import {
   clearLastReaderSession,
@@ -41,10 +47,13 @@ import {
   getOrCreateGuestInstallId,
   makeGuestOwnerKey,
   makeOwnerKey,
+  splitOwnerKey,
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import type { OwnerSnapshot } from '../lib/ownerRuntime';
 import type { LegacyInventory } from '../lib/localDBMigration';
+import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
+import { useServiceWorkerUpdate } from '../hooks/useServiceWorkerUpdate';
 
 type LegacyMigrationChoice = 'migrate' | 'legacy-readonly' | 'empty';
 
@@ -61,7 +70,14 @@ const getStoredGuestMode = () => (
 export default function Page() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [view, setView] = useState<ViewState>('loading');
-  const { googleToken, setGoogleToken, getStoredToken, saveToken, clearToken, hasValidToken } = useGoogleDriveToken();
+  const {
+    googleToken,
+    driveSessionId,
+    saveToken,
+    clearToken,
+    hasValidToken,
+    revokeToken,
+  } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const deviceId = useDeviceId();
   const hasTriedAutoOpenLastBookRef = useRef(false);
@@ -85,6 +101,7 @@ export default function Page() {
 
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
+  const serviceWorkerUpdate = useServiceWorkerUpdate();
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const accentColorObj = useMemo(
     () => ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo,
@@ -136,6 +153,10 @@ export default function Page() {
   };
 
   const theme = getThemeClasses(settings);
+  const activeOwnerKey = ownerRuntime.capture()?.ownerKey ?? null;
+  const driveCacheKey = googleToken && driveSessionId && activeOwnerKey
+    ? `${activeOwnerKey}::${driveSessionId}`
+    : null;
 
   useEffect(() => subscribeLocalDBLifecycle(setLocalDBLifecycleEvent), []);
 
@@ -220,12 +241,11 @@ export default function Page() {
     setView,
     onLibraryError: setAuthErrorMessage,
     requestLegacyMigration,
+    driveSessionId,
   });
 
   useAuthBootstrap({
     isGuestRef,
-    getStoredToken,
-    setGoogleToken,
     setUser,
     setIsGuest,
     setIsOfflineMode,
@@ -240,8 +260,17 @@ export default function Page() {
     deviceId,
     progressRef,
     setRemoteProgress,
+    activeBookId: activeBook?.id,
+    ownerKey: activeOwnerKey,
   });
-  useProgressSyncWorker(user);
+  useProgressSyncWorker(user, activeOwnerKey);
+  const syncConflictResolution = useSyncConflictResolution({
+    user,
+    progressRef,
+    setProgress,
+    setRemoteProgress,
+    ownerKey: activeOwnerKey,
+  });
   useNetworkLibrarySync({
     user,
     googleToken,
@@ -271,27 +300,39 @@ export default function Page() {
     localStorage.setItem('isGuest', 'true');
     setIsOfflineMode(true);
     setUser(null);
-    setGoogleToken(null);
+    clearToken();
     await restoreLocalData({ replaceBooks: true }); // 게스트 모드는 로컬 책장만 표시
     setView('shelf');
   };
 
   const handleLocalMode = async () => {
     setView('loading');
+    const currentOwner = ownerRuntime.capture();
+    if (currentOwner) {
+      const { authOwnerKey } = splitOwnerKey(currentOwner.ownerKey);
+      const localOwner = ownerRuntime.activate(makeOwnerKey(authOwnerKey, 'library:local'));
+      if (localOwner.ownerKey !== currentOwner.ownerKey) resetLibraryState();
+      await putOwnerSessionV5({
+        authOwnerKey,
+        ownerKey: localOwner.ownerKey,
+        updatedAt: Date.now(),
+      });
+    }
     await restoreLocalData({ replaceBooks: true }); // 로컬 모드 전환 시 클라우드 캐시 제거
     setIsOfflineMode(true);
-    setGoogleToken(null);
+    clearToken();
     setView('shelf');
   };
 
   const handleDisconnectDrive = () => setPendingAction('disconnect');
 
   const handleCloudAuthExpired = useCallback((message?: React.ReactNode) => {
+    if (driveCacheKey) invalidateDriveCache(driveCacheKey);
     clearToken();
     setIsOfflineMode(true);
     setCloudAuthExpiredMessage(message || "현재 도서는 기기에만 저장됩니다. 다시 클라우드를 연결하면 구글 드라이브 업로드를 사용할 수 있습니다.");
     void restoreLocalData({ preventRedirect: true, replaceBooks: true });
-  }, [clearToken, restoreLocalData]);
+  }, [clearToken, driveCacheKey, restoreLocalData]);
 
   useEffect(() => {
     if (!googleToken || isOfflineMode) return;
@@ -362,6 +403,7 @@ export default function Page() {
 
   const executePendingAction = async () => {
     if (pendingAction === 'logout') {
+      if (driveCacheKey) invalidateDriveCache(driveCacheKey);
       ownerRuntime.clear();
       resetLibraryState();
       setActiveBook(null);
@@ -372,6 +414,8 @@ export default function Page() {
       setIsGuest(false);
       setView('auth');
     } else if (pendingAction === 'disconnect') {
+      await revokeToken();
+      if (driveCacheKey) invalidateDriveCache(driveCacheKey);
       clearToken();
       clearLastReaderSession();
       await handleLocalMode();
@@ -505,6 +549,14 @@ export default function Page() {
       <div className={`h-screen w-screen flex flex-col items-center justify-center ${theme.bg} ${theme.text} gap-4 transition-colors duration-300`} style={dynamicStyles}>
         <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
         <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
+        {legacyMigrationRequest && (
+          <LegacyMigrationDialog
+            inventory={legacyMigrationRequest.inventory}
+            previousError={legacyMigrationRequest.previousError}
+            theme={theme}
+            onChoose={resolveLegacyMigration}
+          />
+        )}
       </div>
     );
   }
@@ -528,6 +580,7 @@ export default function Page() {
           books={books}
           progress={progress}
           googleToken={googleToken}
+          driveCacheKey={driveCacheKey}
           onRefresh={() => !isOfflineMode && googleToken && loadLibraryFromDrive(googleToken)}
           onOpen={handleOpenBook}
           onLogout={handleLogout}
@@ -648,6 +701,29 @@ export default function Page() {
           onConfirm={() => window.location.reload()}
           onCancel={() => setLocalDBLifecycleEvent(null)}
         />
+      )}
+
+      {syncConflictResolution.conflict && (
+        <SyncConflictResolutionDialog
+          conflict={syncConflictResolution.conflict}
+          theme={theme}
+          onKeepLocal={() => void syncConflictResolution.keepLocal()}
+          onUseRemote={() => void syncConflictResolution.useRemote()}
+          onDefer={syncConflictResolution.defer}
+        />
+      )}
+
+      {serviceWorkerUpdate.updateAvailable && (
+        <div className="fixed bottom-4 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-2xl">
+          <span>새 버전을 사용할 수 있습니다.</span>
+          <button
+            type="button"
+            className="rounded-xl bg-white px-3 py-2 font-bold text-slate-900"
+            onClick={() => void serviceWorkerUpdate.applyUpdate()}
+          >
+            저장 후 적용
+          </button>
+        </div>
       )}
     </div>
   );

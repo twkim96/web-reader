@@ -4,7 +4,9 @@ import { removeProgressFromLocalV5, saveProgressToLocalV5 } from '../lib/localDB
 import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import { Book, Bookmark, SaveProgressOptions, UserProgress } from '../types';
 import { hasProgressChanged, toProgressPercent } from './progressPolicy';
-import { enqueueProgressEventV5 } from '../lib/syncOutboxV5';
+import { enqueueBookmarkEventV5, enqueueProgressEventV5 } from '../lib/syncOutboxV5';
+import { diffManualBookmarks, type BookmarkSyncChange } from '../lib/bookmarkSyncPolicy';
+import { trackLocalCommit } from '../lib/localCommitTracker';
 
 interface UseProgressActionsOptions {
   activeBook: Book | null;
@@ -38,13 +40,15 @@ export const useProgressActions = ({
       }
     };
     void current.then(cleanup, cleanup);
-    return current;
+    return trackLocalCommit(current);
   }, []);
 
   const persistProgress = useCallback(async (
     owner: OwnerSnapshot,
     bookId: string,
     progressData: UserProgress,
+    bookmarkChanges: BookmarkSyncChange[],
+    syncPosition: boolean,
   ) => {
     if (owner.storageMode === 'legacy-readonly' || !ownerRuntime.isCurrent(owner)) return;
     try {
@@ -52,21 +56,38 @@ export const useProgressActions = ({
         await saveProgressToLocalV5(owner.ownerKey, progressData);
         return;
       }
-      await enqueueProgressEventV5(owner.ownerKey, {
-        bookId,
-        operation: progressData.cfi ? 'progress.set' : 'progress.reset',
-        position: progressData.cfi
-          ? {
-            cfi: progressData.cfi,
-            anchorCfi: progressData.anchorCfi ?? null,
-            progressPercent: progressData.progressPercent,
-          }
-          : null,
-        deviceId: deviceId.current,
-        sessionId: sessionIdRef.current,
-        occurredAtClient: progressData.lastRead,
-        localBookmarks: progressData.bookmarks,
-      });
+      if (syncPosition) {
+        await enqueueProgressEventV5(owner.ownerKey, {
+          bookId,
+          operation: progressData.cfi ? 'progress.set' : 'progress.reset',
+          position: progressData.cfi
+            ? {
+              cfi: progressData.cfi,
+              anchorCfi: progressData.anchorCfi ?? null,
+              progressPercent: progressData.progressPercent,
+            }
+            : null,
+          deviceId: deviceId.current,
+          sessionId: sessionIdRef.current,
+          occurredAtClient: progressData.lastRead,
+          localBookmarks: progressData.bookmarks,
+        });
+      }
+      for (const change of bookmarkChanges) {
+        await enqueueBookmarkEventV5(owner.ownerKey, {
+          bookId,
+          bookmarkId: change.bookmarkId,
+          operation: change.operation,
+          payload: change.payload,
+          localBookmarks: progressData.bookmarks ?? [],
+          deviceId: deviceId.current,
+          sessionId: sessionIdRef.current,
+          occurredAtClient: progressData.lastRead,
+        });
+      }
+      if (!syncPosition && bookmarkChanges.length === 0) {
+        await saveProgressToLocalV5(owner.ownerKey, progressData);
+      }
     } catch (error) {
       console.error('[SaveProgress] local outbox save failed:', error);
     }
@@ -93,18 +114,33 @@ export const useProgressActions = ({
       return;
     }
 
+    const now = Date.now();
     const progressData: UserProgress = {
       bookId,
       cfi: nextCfi,
       anchorCfi: nextAnchorCfi,
       progressPercent: safePercent,
-      lastRead: Date.now(),
+      lastRead: now,
       bookmarks: finalBookmarks,
     };
+    const bookmarkChanges = diffManualBookmarks(existingBookmarks, finalBookmarks, now);
+    const syncPosition = Boolean(
+      options?.force
+      || !existing
+      || existing.cfi !== nextCfi
+      || (existing.anchorCfi ?? existing.cfi) !== nextAnchorCfi
+      || existingPercent !== safePercent,
+    );
 
     progressRef.current = { ...progressRef.current, [bookId]: progressData };
     setProgress((prev) => ({ ...prev, [bookId]: progressData }));
-    void queueProgressWrite(bookId, () => persistProgress(owner, bookId, progressData));
+    void queueProgressWrite(bookId, () => persistProgress(
+      owner,
+      bookId,
+      progressData,
+      bookmarkChanges,
+      syncPosition,
+    ));
   }, [activeBook, persistProgress, progressRef, queueProgressWrite, setProgress]);
 
   const deleteProgress = useCallback(async (bookId: string) => {
@@ -119,17 +155,42 @@ export const useProgressActions = ({
       lastRead: Date.now(),
       bookmarks: [],
     };
+    const bookmarkChanges = diffManualBookmarks(
+      progressRef.current[bookId]?.bookmarks,
+      [],
+      resetData.lastRead,
+    );
 
     setProgress((prev) => ({ ...prev, [bookId]: resetData }));
     progressRef.current = { ...progressRef.current, [bookId]: resetData };
 
-    await queueProgressWrite(bookId, () => persistProgress(owner, bookId, resetData));
+    await queueProgressWrite(bookId, () => persistProgress(
+      owner,
+      bookId,
+      resetData,
+      bookmarkChanges,
+      true,
+    ));
   }, [persistProgress, progressRef, queueProgressWrite, setProgress]);
 
   const deleteBookProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
     if (owner.storageMode === 'legacy-readonly') return;
+    const existing = progressRef.current[bookId];
+    const resetData: UserProgress = {
+      bookId,
+      cfi: '',
+      anchorCfi: '',
+      progressPercent: 0,
+      lastRead: Date.now(),
+      bookmarks: [],
+    };
+    const bookmarkChanges = diffManualBookmarks(
+      existing?.bookmarks,
+      [],
+      resetData.lastRead,
+    );
     setProgress((prev) => {
       const next = { ...prev };
       delete next[bookId];
@@ -144,20 +205,19 @@ export const useProgressActions = ({
           await removeProgressFromLocalV5(owner.ownerKey, bookId);
           return;
         }
-        await enqueueProgressEventV5(owner.ownerKey, {
+        await persistProgress(
+          owner,
           bookId,
-          operation: 'progress.reset',
-          position: null,
-          deviceId: deviceId.current,
-          sessionId: sessionIdRef.current,
-          occurredAtClient: Date.now(),
-          localBookmarks: [],
-        });
+          resetData,
+          bookmarkChanges,
+          true,
+        );
+        await removeProgressFromLocalV5(owner.ownerKey, bookId);
       } catch (error) {
         console.error('[DeleteBookProgress] outbox reset failed:', error);
       }
     });
-  }, [deviceId, progressRef, queueProgressWrite, setProgress, user]);
+  }, [persistProgress, progressRef, queueProgressWrite, setProgress, user]);
 
   return {
     saveProgress,

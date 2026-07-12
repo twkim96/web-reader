@@ -1,6 +1,5 @@
 import type { OwnerSnapshot } from './ownerRuntime';
 import { ownerRuntime } from './ownerRuntime';
-import type { ProgressTransactionDecision } from './progressSyncTransaction';
 import {
   acknowledgeProgressEventV5,
   acquireSyncLeaseV5,
@@ -11,13 +10,18 @@ import {
   recoverExpiredInFlightEventsV5,
   releaseSyncLeaseV5,
   scheduleProgressEventRetryV5,
-  type ProgressOutboxEventV5,
+  type SyncHeadV2,
+  type SyncOutboxEventV5,
   type SyncLeaseV5,
 } from './syncOutboxV5';
 
+export type SyncTransactionDecision =
+  | { status: 'apply' | 'already_applied'; head: SyncHeadV2; receipt: unknown }
+  | { status: 'conflict'; remoteHead: SyncHeadV2 | null };
+
 type ProgressTransport = (
-  event: ProgressOutboxEventV5,
-) => Promise<ProgressTransactionDecision>;
+  event: SyncOutboxEventV5,
+) => Promise<SyncTransactionDecision>;
 
 type WorkerDependencies = {
   acknowledge?: typeof acknowledgeProgressEventV5;

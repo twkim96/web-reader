@@ -25,6 +25,7 @@ import { runSequentialBatch } from '../../lib/sequentialBatch';
 
 interface FileUploaderProps {
   googleToken: string | null;
+  driveCacheKey: string | null;
   isOfflineMode: boolean;
   onRefresh: () => void;
   onLocalBookImported?: () => void;
@@ -46,6 +47,7 @@ export interface FileUploaderHandle {
 
 export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   googleToken,
+  driveCacheKey,
   isOfflineMode,
   onRefresh,
   onLocalBookImported,
@@ -84,7 +86,11 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     };
     try {
       setCurrentSyncStatus({ fileName: file.name, progressPercent: 0, retryCount: 0 });
-      const folderId = await getDriveLibraryFolderId(googleToken, { createIfMissing: true });
+      if (!driveCacheKey) throw new Error('Drive session is not ready.');
+      const folderId = await getDriveLibraryFolderId(googleToken, {
+        cacheKey: driveCacheKey,
+        createIfMissing: true,
+      });
       if (signal.aborted || uploadGenerationRef.current !== generation) {
         return { book: null, stopBatch: true };
       }

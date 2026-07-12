@@ -149,6 +149,10 @@ try {
     'document.readyState === "complete"',
     'initial production page',
   );
+  assert.equal(
+    await evaluate(`fetch('/sw-update-fixture.js').then((response) => response.status)`),
+    404,
+  );
   const themeBootstrapEarly = await waitFor(
     'window.__themeBootstrapEarly',
     'early theme bootstrap',
@@ -232,6 +236,17 @@ try {
   })`);
 
   await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    `[...document.querySelectorAll('button')].some((button) =>
+      button.textContent?.includes('현재 계정으로 데이터 이전'))`,
+    'legacy migration choice',
+  );
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')].find((candidate) =>
+      candidate.textContent?.includes('현재 계정으로 데이터 이전'));
+    button?.click();
+    return Boolean(button);
+  })()`);
   await waitFor(
     'document.querySelector("h1")?.textContent?.includes("Guest Library")',
     'guest shelf',
@@ -476,13 +491,15 @@ try {
   })()`);
   await waitFor(
     `(async () => {
-      const request = indexedDB.open('web-reader-db', 4);
+      const request = indexedDB.open('web-reader-db');
       const db = await new Promise((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const tx = db.transaction('metadata', 'readonly');
-      const get = tx.objectStore('metadata').get('oversized.cbz');
+      const ownerKey = 'guest:' + localStorage.getItem('web_reader_guest_install_id')
+        + '|library:local';
+      const tx = db.transaction('metadata-v5', 'readonly');
+      const get = tx.objectStore('metadata-v5').get([ownerKey, 'oversized.cbz']);
       const value = await new Promise((resolve, reject) => {
         get.onsuccess = () => resolve(get.result);
         get.onerror = () => reject(get.error);
@@ -511,18 +528,22 @@ try {
     JSON.stringify(modalScrollRestore),
   );
   await evaluate(`new Promise((resolve, reject) => {
-    const request = indexedDB.open('web-reader-db', 4);
+    const request = indexedDB.open('web-reader-db');
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
-      const tx = db.transaction('metadata', 'readwrite');
-      const store = tx.objectStore('metadata');
+      const ownerKey = 'guest:' + localStorage.getItem('web_reader_guest_install_id')
+        + '|library:local';
+      const tx = db.transaction('metadata-v5', 'readwrite');
+      const store = tx.objectStore('metadata-v5');
       const cursorRequest = store.openCursor();
       cursorRequest.onerror = () => reject(cursorRequest.error);
       cursorRequest.onsuccess = () => {
         const cursor = cursorRequest.result;
         if (!cursor) return;
-        if (cursor.key !== 'oversized.cbz') cursor.delete();
+        if (cursor.value.ownerKey === ownerKey && cursor.value.id !== 'oversized.cbz') {
+          cursor.delete();
+        }
         cursor.continue();
       };
       tx.oncomplete = () => {
@@ -680,13 +701,15 @@ try {
   })()`);
   await waitFor(
     `(async () => {
-      const request = indexedDB.open('web-reader-db', 4);
+      const request = indexedDB.open('web-reader-db');
       const db = await new Promise((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const tx = db.transaction('metadata', 'readonly');
-      const get = tx.objectStore('metadata').get('solid-pages.7z');
+      const ownerKey = 'guest:' + localStorage.getItem('web_reader_guest_install_id')
+        + '|library:local';
+      const tx = db.transaction('metadata-v5', 'readonly');
+      const get = tx.objectStore('metadata-v5').get([ownerKey, 'solid-pages.7z']);
       const value = await new Promise((resolve, reject) => {
         get.onsuccess = () => resolve(get.result);
         get.onerror = () => reject(get.error);

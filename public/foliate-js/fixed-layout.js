@@ -1,5 +1,5 @@
 import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
-import { PUBLICATION_SANDBOX } from './sandbox-policy.js'
+import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
 
 const parseViewport = str => str
     ?.split(/[,;\s]/) // NOTE: technically, only the comma is valid
@@ -100,10 +100,12 @@ export class FixedLayout extends HTMLElement {
             container.append(element)
             return { blank: true, element, iframe, index }
         }
+        const publicationURL = await preparePublicationURL(src, signal)
         return new Promise((resolve, reject) => {
             const abort = () => {
                 iframe.removeEventListener('load', handleLoad)
                 element.remove()
+                publicationURL.revoke()
                 reject(createAbortError())
             }
             const handleLoad = () => {
@@ -122,11 +124,12 @@ export class FixedLayout extends HTMLElement {
                     width: parseFloat(width),
                     height: parseFloat(height),
                     onZoom,
+                    revokePublicationURL: publicationURL.revoke,
                 })
             }
             signal.addEventListener('abort', abort, { once: true })
             iframe.addEventListener('load', handleLoad)
-            iframe.src = src
+            iframe.src = publicationURL.url
             container.append(element)
         })
     }
@@ -223,6 +226,7 @@ export class FixedLayout extends HTMLElement {
     #cleanupFrame(frame) {
         if (!frame) return
         frame.onZoom?.cleanup?.(frame.iframe?.contentDocument)
+        frame.revokePublicationURL?.()
         frame.element?.remove()
     }
     #cleanupCurrentSpread() {

@@ -1,5 +1,6 @@
 // src/app/layout.tsx
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 const themeBootstrapScript = `
@@ -152,20 +153,9 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{ __html: themeBootstrapScript }}
         />
-        {/* 서비스 워커 등록 스크립트 추가 */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').catch(function() {});
-                });
-              }
-            `,
-          }}
-        />
       </head>
       <body className="antialiased">
+        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         {children}
       </body>
     </html>
