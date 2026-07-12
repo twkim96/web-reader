@@ -1,0 +1,144 @@
+import type { OwnerSnapshot } from './ownerRuntime';
+import { ownerRuntime } from './ownerRuntime';
+import type { ProgressTransactionDecision } from './progressSyncTransaction';
+import {
+  acknowledgeProgressEventV5,
+  acquireSyncLeaseV5,
+  claimNextProgressEventV5,
+  isSyncLeaseCurrentV5,
+  pauseProgressEventV5,
+  recordProgressConflictV5,
+  recoverExpiredInFlightEventsV5,
+  releaseSyncLeaseV5,
+  scheduleProgressEventRetryV5,
+  type ProgressOutboxEventV5,
+  type SyncLeaseV5,
+} from './syncOutboxV5';
+
+type ProgressTransport = (
+  event: ProgressOutboxEventV5,
+) => Promise<ProgressTransactionDecision>;
+
+type WorkerDependencies = {
+  acknowledge?: typeof acknowledgeProgressEventV5;
+  acquireLease?: typeof acquireSyncLeaseV5;
+  claimNext?: typeof claimNextProgressEventV5;
+  isLeaseCurrent?: typeof isSyncLeaseCurrentV5;
+  pause?: typeof pauseProgressEventV5;
+  recordConflict?: typeof recordProgressConflictV5;
+  recover?: typeof recoverExpiredInFlightEventsV5;
+  releaseLease?: typeof releaseSyncLeaseV5;
+  scheduleRetry?: typeof scheduleProgressEventRetryV5;
+};
+
+const retryableCodes = new Set([
+  'aborted',
+  'deadline-exceeded',
+  'internal',
+  'resource-exhausted',
+  'unavailable',
+  'unknown',
+]);
+
+const errorCode = (error: unknown) => {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    return String(error.code).replace(/^firestore\//, '');
+  }
+  if (error instanceof TypeError) return 'network-error';
+  return error instanceof Error ? error.name : 'unknown';
+};
+
+export const isRetryableProgressSyncError = (error: unknown) => {
+  const code = errorCode(error);
+  return code === 'network-error' || retryableCodes.has(code);
+};
+
+export class ProgressSyncWorker {
+  private readonly acknowledge;
+  private readonly acquireLease;
+  private readonly claimNext;
+  private readonly isLeaseCurrent;
+  private readonly pause;
+  private readonly recordConflict;
+  private readonly recover;
+  private readonly releaseLease;
+  private readonly scheduleRetry;
+  private lease: SyncLeaseV5 | null = null;
+  private disposed = false;
+
+  constructor(
+    private readonly owner: OwnerSnapshot,
+    private readonly tabId: string,
+    private readonly transport: ProgressTransport,
+    dependencies: WorkerDependencies = {},
+  ) {
+    this.acknowledge = dependencies.acknowledge ?? acknowledgeProgressEventV5;
+    this.acquireLease = dependencies.acquireLease ?? acquireSyncLeaseV5;
+    this.claimNext = dependencies.claimNext ?? claimNextProgressEventV5;
+    this.isLeaseCurrent = dependencies.isLeaseCurrent ?? isSyncLeaseCurrentV5;
+    this.pause = dependencies.pause ?? pauseProgressEventV5;
+    this.recordConflict = dependencies.recordConflict ?? recordProgressConflictV5;
+    this.recover = dependencies.recover ?? recoverExpiredInFlightEventsV5;
+    this.releaseLease = dependencies.releaseLease ?? releaseSyncLeaseV5;
+    this.scheduleRetry = dependencies.scheduleRetry ?? scheduleProgressEventRetryV5;
+  }
+
+  async flushOne(now = Date.now()) {
+    if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
+    this.lease = await this.acquireLease(this.owner.ownerKey, this.tabId, now);
+    if (!this.lease) return 'not_leader' as const;
+    await this.recover(this.owner.ownerKey, this.tabId, this.lease.epoch, now);
+    const event = await this.claimNext(
+      this.owner.ownerKey,
+      this.tabId,
+      this.lease.epoch,
+      now,
+    );
+    if (!event) return 'idle' as const;
+
+    try {
+      const result = await this.transport(event);
+      if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
+      const leaseStillCurrent = await this.isLeaseCurrent(
+        this.owner.ownerKey,
+        this.tabId,
+        this.lease.epoch,
+        now,
+      );
+      if (!leaseStillCurrent) return 'stale_lease' as const;
+
+      if (result.status === 'conflict') {
+        await this.recordConflict(
+          this.owner.ownerKey,
+          event.eventId,
+          result.remoteHead,
+          now,
+        );
+        return 'conflict' as const;
+      }
+      await this.acknowledge(this.owner.ownerKey, event.eventId, result.head, now);
+      return result.status;
+    } catch (error) {
+      if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
+      const code = errorCode(error);
+      if (isRetryableProgressSyncError(error)) {
+        await this.scheduleRetry(this.owner.ownerKey, event.eventId, code, now);
+        return 'retry_scheduled' as const;
+      }
+      await this.pause(this.owner.ownerKey, event.eventId, code);
+      return 'paused' as const;
+    }
+  }
+
+  async dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.lease) {
+      await this.releaseLease(
+        this.owner.ownerKey,
+        this.tabId,
+        this.lease.epoch,
+      );
+    }
+  }
+}

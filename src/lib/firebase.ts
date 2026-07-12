@@ -2,6 +2,7 @@
 import { getApps, initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { Firestore, getFirestore, initializeFirestore, memoryLocalCache, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+export { APP_ID } from './appIdentity';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -29,7 +30,5 @@ try {
 }
 
 const googleProvider = new GoogleAuthProvider();
-
-export const APP_ID = "private-web-novel-viewer";
 
 export { auth, db, googleProvider };
