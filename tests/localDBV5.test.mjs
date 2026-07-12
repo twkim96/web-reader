@@ -8,6 +8,7 @@ const {
   closeLocalDB,
   initDB,
   LocalStorageCapacityError,
+  subscribeLocalDBLifecycle,
 } = await import('../src/lib/localDB.ts');
 const {
   deleteOwnerLocalDataV5,
@@ -27,6 +28,7 @@ const {
   inspectLegacyInventory,
   inspectOwnerInventoryV5,
   migrateLegacyDataToOwnerV5,
+  MigrationLeaseUnavailableError,
 } = await import('../src/lib/localDBMigration.ts');
 const schema = await import('../src/lib/localDBSchema.ts');
 const {
@@ -222,4 +224,57 @@ test('failed batch rolls back and a retry resumes idempotently', async () => {
   });
   assert.equal(retried.status, 'completed');
   assert.deepEqual(await inspectOwnerInventoryV5(ownerA), await inspectLegacyInventory());
+});
+
+test('an unexpired migration lease prevents a second tab from copying', async () => {
+  await seedLegacyV4();
+  const db = await initDB();
+  await db.put(schema.V5_MIGRATION_META_STORE, {
+    migrationId: `v4-to-v5:${ownerA}`,
+    ownerKey: ownerA,
+    status: 'copying',
+    sourceCounts: {},
+    copiedCounts: {},
+    sourceContentBytes: 0,
+    copiedContentBytes: 0,
+    startedAt: 1,
+    leaseHolder: 'other-tab',
+    leaseEpoch: 1,
+    leaseExpiresAt: 50_000,
+  });
+
+  await assert.rejects(
+    migrateLegacyDataToOwnerV5(ownerA, {
+      leaseHolder: 'this-tab',
+      now: () => 10_000,
+    }),
+    MigrationLeaseUnavailableError,
+  );
+  assert.equal((await inspectLegacyInventory()).counts.books, 2);
+});
+
+test('blocked v5 open is reported and resumes after the old connection closes', async () => {
+  const oldConnection = await openDB(schema.LOCAL_DB_NAME, 4, {
+    upgrade(database) {
+      database.createObjectStore(schema.LEGACY_BOOKS_STORE);
+      database.createObjectStore(schema.LEGACY_METADATA_STORE, { keyPath: 'id' });
+      database.createObjectStore(schema.LEGACY_PROGRESS_STORE, { keyPath: 'bookId' });
+      database.createObjectStore(schema.LEGACY_ARCHIVE_INSPECTIONS_STORE, { keyPath: 'bookId' });
+    },
+  });
+  let blockedEvent;
+  const blocked = new Promise((resolve) => {
+    const unsubscribe = subscribeLocalDBLifecycle((event) => {
+      if (event.type !== 'blocked') return;
+      blockedEvent = event;
+      unsubscribe();
+      resolve();
+    });
+  });
+
+  const opening = initDB();
+  await blocked;
+  assert.equal(blockedEvent.targetVersion, 5);
+  oldConnection.close();
+  assert.equal((await opening).version, 5);
 });

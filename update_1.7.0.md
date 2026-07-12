@@ -546,7 +546,7 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 | Phase | 상태 | 핵심 증거 | 비고 |
 | --- | --- | --- | --- |
 | 1. 기준선·직접 결함·EPUB 게이트 | 부분 완료 | `test:formats` 39개, lint/typecheck/Node 전체 통과; Foliate patch와 Chromium/WebKit fixture 추가 | 로컬 서버 bind가 `EPERM`이라 Playwright gate 재실행 대기. production build도 sandbox process/port 제한으로 재검증 대기 |
-| 2. owner storage·migration·auth lifecycle | 진행 중 | v5 schema/CRUD, v4 보존 migration·lease·검증, generation guard; fake IndexedDB 포함 storage 8개 통과 | migration 선택/복구 UI와 최종 runtime 회귀를 남김 |
+| 2. owner storage·migration·auth lifecycle | 완료 | v5 schema/CRUD, v4 보존 migration·lease·검증, generation guard, 이전/읽기 전용/빈 namespace 선택 UI; fake IndexedDB·owner runtime 포함 storage 테스트 통과 | production build는 Phase 1과 같은 sandbox 제약으로 최종 재검증 대기 |
 | 3. Firestore schema와 Rules | 미착수 |  |  |
 | 4. 진행률 sync core·멀티탭 lease | 미착수 |  |  |
 | 5. listener·bookmark·v1 bridge·runtime | 미착수 |  |  |

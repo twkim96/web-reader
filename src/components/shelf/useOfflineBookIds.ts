@@ -8,7 +8,9 @@ export const useOfflineBookIds = (books: Book[]) => {
 
   const refreshOfflineBookIds = useCallback(async () => {
     const owner = ownerRuntime.require();
-    const ids = await getOfflineBookIdsV5(owner.ownerKey);
+    const ids = owner.storageMode === 'legacy-readonly'
+      ? await import('../../lib/localDB').then(({ getOfflineBookIds }) => getOfflineBookIds())
+      : await getOfflineBookIdsV5(owner.ownerKey);
     if (!ownerRuntime.isCurrent(owner)) return;
     setOfflineIds(ids);
   }, []);
@@ -18,7 +20,10 @@ export const useOfflineBookIds = (books: Book[]) => {
 
     const owner = ownerRuntime.capture();
     if (!owner) return;
-    getOfflineBookIdsV5(owner.ownerKey).then(ids => {
+    const getIds = owner.storageMode === 'legacy-readonly'
+      ? import('../../lib/localDB').then(({ getOfflineBookIds }) => getOfflineBookIds())
+      : getOfflineBookIdsV5(owner.ownerKey);
+    getIds.then(ids => {
       if (!cancelled && ownerRuntime.isCurrent(owner)) setOfflineIds(ids);
     });
 

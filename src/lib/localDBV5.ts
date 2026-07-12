@@ -50,6 +50,8 @@ export type MigrationStatusV5 =
   | 'copying'
   | 'verifying'
   | 'completed'
+  | 'declined_empty'
+  | 'legacy_read_only'
   | 'failed';
 
 export type MigrationMetaV5 = {

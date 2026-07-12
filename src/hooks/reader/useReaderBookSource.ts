@@ -13,6 +13,11 @@ import {
   saveBookToLocalV5,
 } from '../../lib/localDBV5';
 import { LocalStorageCapacityError } from '../../lib/localDB';
+import {
+  loadArchiveInspectionFromLocal,
+  loadBookFromLocal,
+  loadBookMetadataFromLocal,
+} from '../../lib/localDB';
 import { ownerRuntime } from '../../lib/ownerRuntime';
 import {
   getBookFingerprint,
@@ -175,8 +180,12 @@ export const useReaderBookSource = ({
           signal,
           prepare: async () => {
             const [localData, localMetadata] = await Promise.all([
-              loadBookFromLocalV5(owner.ownerKey, targetBook.id),
-              loadBookMetadataFromLocalV5(owner.ownerKey, targetBook.id),
+              owner.storageMode === 'legacy-readonly'
+                ? loadBookFromLocal(targetBook.id)
+                : loadBookFromLocalV5(owner.ownerKey, targetBook.id),
+              owner.storageMode === 'legacy-readonly'
+                ? loadBookMetadataFromLocal(targetBook.id)
+                : loadBookMetadataFromLocalV5(owner.ownerKey, targetBook.id),
             ]);
             if (!ownerRuntime.isCurrent(owner)) throw new DOMException('Owner changed', 'AbortError');
             throwIfAborted(signal);
@@ -190,7 +199,9 @@ export const useReaderBookSource = ({
 
             const prepareContent = async (content: StoredBookContent) => {
               const cachedArchiveIndex = targetBook.readerFormat === 'archive' && fingerprint
-                ? await loadArchiveInspectionFromLocalV5(owner.ownerKey, targetBook.id, fingerprint)
+                ? await (owner.storageMode === 'legacy-readonly'
+                  ? loadArchiveInspectionFromLocal(targetBook.id, fingerprint)
+                  : loadArchiveInspectionFromLocalV5(owner.ownerKey, targetBook.id, fingerprint))
                 : undefined;
               if (!ownerRuntime.isCurrent(owner)) throw new DOMException('Owner changed', 'AbortError');
               throwIfAborted(signal);
@@ -224,6 +235,7 @@ export const useReaderBookSource = ({
                 if (fingerprint && result.archiveImageIndex && !usedCachedArchiveIndex) {
                   const archiveImageIndex = result.archiveImageIndex;
                   deferredPersistence.push(() => {
+                    if (owner.storageMode === 'legacy-readonly') return;
                     if (!ownerRuntime.isCurrent(owner)) return;
                     void saveArchiveInspectionToLocalV5(
                       owner.ownerKey,
@@ -254,6 +266,7 @@ export const useReaderBookSource = ({
               prepared = preparedFromLocal;
 
               deferredPersistence.push(() => {
+                if (owner.storageMode === 'legacy-readonly') return;
                 if (!ownerRuntime.isCurrent(owner)) return;
                 void saveBookMetadataToLocalV5(
                   owner.ownerKey,
@@ -286,6 +299,7 @@ export const useReaderBookSource = ({
               prepared = preparedFromRemote;
 
               deferredPersistence.push(() => {
+                if (owner.storageMode === 'legacy-readonly') return;
                 if (!ownerRuntime.isCurrent(owner)) return;
                 void saveBookToLocalV5(
                   owner.ownerKey,

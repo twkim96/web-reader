@@ -53,7 +53,34 @@ export class MigrationLeaseUnavailableError extends Error {
   }
 }
 
-const migrationIdFor = (ownerKey: OwnerKey) => `v4-to-v5:${ownerKey}`;
+export const migrationIdFor = (ownerKey: OwnerKey) => `v4-to-v5:${ownerKey}`;
+
+export const recordLegacyMigrationDecision = async (
+  ownerKey: OwnerKey,
+  status: 'declined_empty' | 'legacy_read_only',
+) => {
+  const db = await initDB();
+  const source = await inspectLegacyInventory(db);
+  const existing = await db.get(
+    V5_MIGRATION_META_STORE,
+    migrationIdFor(ownerKey),
+  ) as MigrationMetaV5 | undefined;
+  const record: MigrationMetaV5 = {
+    migrationId: migrationIdFor(ownerKey),
+    ownerKey,
+    status,
+    sourceCounts: source.counts,
+    copiedCounts: existing?.copiedCounts ?? {},
+    sourceContentBytes: source.contentBytes,
+    copiedContentBytes: existing?.copiedContentBytes ?? 0,
+    sourceKeyDigest: source.keyDigest,
+    copiedKeyDigest: existing?.copiedKeyDigest,
+    startedAt: existing?.startedAt ?? Date.now(),
+    completedAt: Date.now(),
+  };
+  await db.put(V5_MIGRATION_META_STORE, record);
+  return record;
+};
 
 const contentSize = (value: unknown) => {
   if (value instanceof Blob) return value.size;

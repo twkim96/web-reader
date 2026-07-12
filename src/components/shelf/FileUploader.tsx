@@ -246,6 +246,10 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   const importFiles = async (files: FileList | File[]) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
+    if (owner.storageMode === 'legacy-readonly') {
+      alert('읽기 전용 복구 모드에서는 도서를 추가할 수 없습니다.');
+      return;
+    }
     const result = updateImportSelection([], Array.from(files), {
       allowExtendedFormats: EXTENDED_IMPORT_FORMATS_ENABLED,
       enabledFormats: ACTIVE_SOURCE_FORMATS,

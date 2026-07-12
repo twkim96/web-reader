@@ -33,3 +33,13 @@ test('reactivating the same owner preserves its generation', () => {
   runtime.clear();
   assert.equal(runtime.isCurrent(first), false);
 });
+
+test('legacy recovery invalidates v5 work and remains read-only', () => {
+  const runtime = new OwnerRuntime();
+  const v5 = runtime.activate(ownerA);
+  const legacy = runtime.useLegacyReadOnly(v5);
+  assert.equal(runtime.isCurrent(v5), false);
+  assert.equal(runtime.isCurrent(legacy), true);
+  assert.equal(legacy.storageMode, 'legacy-readonly');
+  assert.equal(runtime.activate(ownerA), legacy);
+});

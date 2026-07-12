@@ -32,7 +32,9 @@ export const subscribeLocalDBLifecycle = (
   listener: (event: LocalDBLifecycleEvent) => void,
 ) => {
   lifecycleListeners.add(listener);
-  return () => lifecycleListeners.delete(listener);
+  return () => {
+    lifecycleListeners.delete(listener);
+  };
 };
 
 type StoredBookMetadata = Book & {

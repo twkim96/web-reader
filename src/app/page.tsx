@@ -15,6 +15,7 @@ import { getThemeClasses, getThemeColors, getThemeCssVariables } from '../lib/th
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { deleteDriveFile, isGoogleDriveAuthError, isGoogleDrivePermissionError } from '../lib/googleDrive';
 import { removeBookFromLocalV5 } from '../lib/localDBV5';
+import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
@@ -27,6 +28,7 @@ import { useProgressSync } from '../hooks/useProgressSync';
 import { useViewerSettings } from '../hooks/useViewerSettings';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
+import { LegacyMigrationDialog } from '../components/LegacyMigrationDialog';
 import { getBookOpenLimitError } from '../lib/bookFormats';
 import {
   clearLastReaderSession,
@@ -40,6 +42,16 @@ import {
   makeOwnerKey,
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import type { OwnerSnapshot } from '../lib/ownerRuntime';
+import type { LegacyInventory } from '../lib/localDBMigration';
+
+type LegacyMigrationChoice = 'migrate' | 'legacy-readonly' | 'empty';
+
+type LegacyMigrationRequest = {
+  owner: OwnerSnapshot;
+  inventory: LegacyInventory;
+  previousError?: string;
+};
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -62,6 +74,13 @@ export default function Page() {
   const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+  const [legacyMigrationRequest, setLegacyMigrationRequest] = useState<LegacyMigrationRequest | null>(null);
+  const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
+  const legacyMigrationPromptRef = useRef<{
+    owner: OwnerSnapshot;
+    promise: Promise<LegacyMigrationChoice>;
+    resolve: (choice: LegacyMigrationChoice) => void;
+  } | null>(null);
 
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
@@ -117,6 +136,34 @@ export default function Page() {
 
   const theme = getThemeClasses(settings);
 
+  useEffect(() => subscribeLocalDBLifecycle(setLocalDBLifecycleEvent), []);
+
+  const requestLegacyMigration = useCallback((
+    owner: OwnerSnapshot,
+    inventory: LegacyInventory,
+    previousError?: string,
+  ) => {
+    const existing = legacyMigrationPromptRef.current;
+    if (existing && existing.owner.ownerKey === owner.ownerKey) return existing.promise;
+    existing?.resolve('empty');
+
+    let resolvePrompt!: (choice: LegacyMigrationChoice) => void;
+    const promise = new Promise<LegacyMigrationChoice>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    legacyMigrationPromptRef.current = { owner, promise, resolve: resolvePrompt };
+    setLegacyMigrationRequest({ owner, inventory, previousError });
+    return promise;
+  }, []);
+
+  const resolveLegacyMigration = useCallback((choice: LegacyMigrationChoice) => {
+    const pending = legacyMigrationPromptRef.current;
+    legacyMigrationPromptRef.current = null;
+    setLegacyMigrationRequest(null);
+    if (!pending) return;
+    pending.resolve(ownerRuntime.isCurrent(pending.owner) ? choice : 'empty');
+  }, []);
+
   useEffect(() => {
     const color = themeColors.bg;
     const shellVariables = {
@@ -171,6 +218,7 @@ export default function Page() {
     setIsOfflineMode,
     setView,
     onLibraryError: setAuthErrorMessage,
+    requestLegacyMigration,
   });
 
   useAuthBootstrap({
@@ -348,6 +396,10 @@ export default function Page() {
   }, [activeBook, handleSaveProgress, settings.autoOpenLastBook]);
 
   const handleDeleteBook = useCallback(async (book: Book) => {
+    if (ownerRuntime.capture()?.storageMode === 'legacy-readonly') {
+      alert('읽기 전용 복구 모드에서는 도서를 삭제할 수 없습니다.');
+      return;
+    }
     const shouldDeleteCloud = !isOfflineMode && Boolean(googleToken) && book.source !== 'local';
 
     try {
@@ -568,6 +620,32 @@ export default function Page() {
           isIOS={isIOS} 
           onClose={handleCloseInstallPrompt} 
           onInstall={handleInstallApp} 
+        />
+      )}
+
+      {legacyMigrationRequest && (
+        <LegacyMigrationDialog
+          inventory={legacyMigrationRequest.inventory}
+          previousError={legacyMigrationRequest.previousError}
+          theme={theme}
+          onChoose={resolveLegacyMigration}
+        />
+      )}
+
+      {localDBLifecycleEvent && (
+        <ConfirmDialog
+          message={localDBLifecycleEvent.type === 'blocked'
+            ? '다른 탭이 로컬 서재 업데이트를 막고 있습니다.'
+            : '로컬 서재 연결을 다시 열어야 합니다.'}
+          subMessage={localDBLifecycleEvent.type === 'blocked'
+            ? '다른 웹리더 탭을 닫은 뒤 이 탭을 다시 불러와 주세요.'
+            : '안전하게 연결을 닫았습니다. 페이지를 다시 불러오면 복구를 계속합니다.'}
+          confirmLabel="다시 불러오기"
+          hideCancel
+          variant="info"
+          theme={theme}
+          onConfirm={() => window.location.reload()}
+          onCancel={() => setLocalDBLifecycleEvent(null)}
         />
       )}
     </div>

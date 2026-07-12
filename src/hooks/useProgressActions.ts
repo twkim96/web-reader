@@ -46,6 +46,7 @@ export const useProgressActions = ({
     bookId: string,
     progressData: UserProgress,
   ) => {
+    if (owner.storageMode === 'legacy-readonly') return;
     try {
       await saveProgressToLocalV5(owner.ownerKey, progressData);
     } catch (error) {
@@ -72,6 +73,7 @@ export const useProgressActions = ({
     if (!activeBook) return;
     const owner = ownerRuntime.capture();
     if (!owner) return;
+    if (owner.storageMode === 'legacy-readonly') return;
 
     const bookId = activeBook.id;
     const nextCfi = String(cfi || '');
@@ -105,6 +107,7 @@ export const useProgressActions = ({
   const deleteProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
+    if (owner.storageMode === 'legacy-readonly') return;
     const resetData: UserProgress = {
       bookId,
       cfi: '',
@@ -123,6 +126,7 @@ export const useProgressActions = ({
   const deleteBookProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
+    if (owner.storageMode === 'legacy-readonly') return;
     setProgress((prev) => {
       const next = { ...prev };
       delete next[bookId];

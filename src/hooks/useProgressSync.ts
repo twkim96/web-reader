@@ -32,6 +32,7 @@ export const useProgressSync = ({
     if (!user) return;
     const owner = ownerRuntime.capture();
     if (!owner) return;
+    if (owner.storageMode === 'legacy-readonly') return;
 
     const historyRef = collection(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory');
     const unsubscribe = onSnapshot(historyRef, async (snapshot) => {

@@ -12,7 +12,16 @@ import {
   getAllOfflineBooksV5,
   saveProgressToLocalV5,
 } from '../lib/localDBV5';
-import { ownerRuntime } from '../lib/ownerRuntime';
+import { getAllLocalProgress, getAllOfflineBooks } from '../lib/localDB';
+import {
+  inspectLegacyInventory,
+  migrateLegacyDataToOwnerV5,
+  migrationIdFor,
+  recordLegacyMigrationDecision,
+  type LegacyInventory,
+} from '../lib/localDBMigration';
+import { getMigrationMetaV5 } from '../lib/localDBV5';
+import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import { Book, UserProgress, ViewState } from '../types';
 import {
   getTimestampMs,
@@ -26,6 +35,11 @@ interface UseLibraryDataOptions {
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
   onLibraryError?: (message: string) => void;
+  requestLegacyMigration: (
+    owner: OwnerSnapshot,
+    inventory: LegacyInventory,
+    previousError?: string,
+  ) => Promise<'migrate' | 'legacy-readonly' | 'empty'>;
 }
 
 export type RestoreLocalDataOptions = {
@@ -63,6 +77,7 @@ export const useLibraryData = ({
   setIsOfflineMode,
   setView,
   onLibraryError,
+  requestLegacyMigration,
 }: UseLibraryDataOptions): UseLibraryDataResult => {
   const [books, setBooks] = useState<Book[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
@@ -80,17 +95,64 @@ export const useLibraryData = ({
     setRemoteProgress({});
   }, []);
 
+  const prepareOwnerStorage = useCallback(async (owner: OwnerSnapshot) => {
+    if (owner.storageMode === 'legacy-readonly') return owner;
+    const inventory = await inspectLegacyInventory();
+    if (!ownerRuntime.isCurrent(owner)) return null;
+    const totalLegacyRecords = Object.values(inventory.counts)
+      .reduce((total, count) => total + count, 0);
+    if (totalLegacyRecords === 0) return owner;
+
+    const migration = await getMigrationMetaV5(migrationIdFor(owner.ownerKey));
+    if (!ownerRuntime.isCurrent(owner)) return null;
+    if (migration?.status === 'completed' || migration?.status === 'declined_empty') {
+      return owner;
+    }
+    if (migration?.status === 'legacy_read_only') {
+      return ownerRuntime.useLegacyReadOnly(owner);
+    }
+
+    const choice = await requestLegacyMigration(
+      owner,
+      inventory,
+      migration?.status === 'failed' ? migration.errorMessage : undefined,
+    );
+    if (!ownerRuntime.isCurrent(owner)) return null;
+
+    if (choice === 'migrate') {
+      await migrateLegacyDataToOwnerV5(owner.ownerKey, {
+        leaseHolder: crypto.randomUUID(),
+      });
+      return ownerRuntime.isCurrent(owner) ? owner : null;
+    }
+
+    await recordLegacyMigrationDecision(
+      owner.ownerKey,
+      choice === 'legacy-readonly' ? 'legacy_read_only' : 'declined_empty',
+    );
+    if (!ownerRuntime.isCurrent(owner)) return null;
+    return choice === 'legacy-readonly'
+      ? ownerRuntime.useLegacyReadOnly(owner)
+      : owner;
+  }, [requestLegacyMigration]);
+
   const restoreLocalData = useCallback(async (options?: boolean | RestoreLocalDataOptions) => {
     const { preventRedirect, replaceBooks } = normalizeRestoreOptions(options);
-    const owner = ownerRuntime.capture();
-    if (!owner) return false;
+    const capturedOwner = ownerRuntime.capture();
+    if (!capturedOwner) return false;
 
     try {
+      const owner = await prepareOwnerStorage(capturedOwner);
+      if (!owner) return false;
       if (!preventRedirect) setIsOfflineMode(true);
 
       const [localBooks, localProgress] = await Promise.all([
-        getAllOfflineBooksV5(owner.ownerKey),
-        getAllLocalProgressV5(owner.ownerKey),
+        owner.storageMode === 'legacy-readonly'
+          ? getAllOfflineBooks()
+          : getAllOfflineBooksV5(owner.ownerKey),
+        owner.storageMode === 'legacy-readonly'
+          ? getAllLocalProgress()
+          : getAllLocalProgressV5(owner.ownerKey),
       ]);
       if (!ownerRuntime.isCurrent(owner)) return false;
 
@@ -127,12 +189,13 @@ export const useLibraryData = ({
       console.error('Failed to restore local data:', error);
       return false;
     }
-  }, [setIsOfflineMode, setView]);
+  }, [prepareOwnerStorage, setIsOfflineMode, setView]);
 
   const syncLocalAndCloud = useCallback(async (uid: string) => {
     if (!navigator.onLine) return;
     const owner = ownerRuntime.capture();
     if (!owner) return;
+    if (owner.storageMode === 'legacy-readonly') return;
 
     try {
       const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
@@ -172,7 +235,9 @@ export const useLibraryData = ({
       if (!ownerRuntime.isCurrent(owner)) return false;
       const cloudBooks = (data.files as Book[]).map((book) => ({ ...book, source: 'cloud' as const }));
       const cloudIds = new Set(cloudBooks.map((book) => book.id));
-      const localBooks = await getAllOfflineBooksV5(owner.ownerKey);
+      const localBooks = owner.storageMode === 'legacy-readonly'
+        ? await getAllOfflineBooks()
+        : await getAllOfflineBooksV5(owner.ownerKey);
       if (!ownerRuntime.isCurrent(owner)) return false;
       const localOnly = localBooks
         .filter((book) => !cloudIds.has(book.id))
