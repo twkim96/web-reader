@@ -1,0 +1,214 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owns(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function boundedString(value, maxSize, allowEmpty) {
+      return value is string
+        && value.size() <= maxSize
+        && (allowEmpty || value.size() > 0);
+    }
+
+    function validClientTime(value) {
+      return value is int && value >= 0;
+    }
+
+    function validPosition(position) {
+      return position is map
+        && position.keys().hasOnly(['cfi', 'anchorCfi', 'progressPercent'])
+        && boundedString(position.cfi, 8192, false)
+        && (position.anchorCfi == null || boundedString(position.anchorCfi, 8192, false))
+        && position.progressPercent is number
+        && position.progressPercent >= 0
+        && position.progressPercent <= 100;
+    }
+
+    function validProgressHead(data, bookId) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'bookId', 'revision', 'acceptedEventId', 'operation',
+          'position', 'acceptedDeviceId', 'occurredAtClient', 'updatedAtServer',
+          'deletedAtServer'
+        ])
+        && data.schemaVersion == 2
+        && data.bookId == bookId
+        && boundedString(data.bookId, 512, false)
+        && data.revision is int
+        && data.revision >= 1
+        && boundedString(data.acceptedEventId, 128, false)
+        && boundedString(data.acceptedDeviceId, 128, false)
+        && validClientTime(data.occurredAtClient)
+        && data.updatedAtServer == request.time
+        && (
+          (data.operation == 'set' && validPosition(data.position) && data.deletedAtServer == null)
+          ||
+          (data.operation == 'reset' && data.position == null && data.deletedAtServer == request.time)
+        );
+    }
+
+    function validBookmarkPayload(bookmark, bookmarkId) {
+      return bookmark is map
+        && bookmark.keys().hasOnly([
+          'bookmarkId', 'cfi', 'name', 'color', 'progressPercent',
+          'createdAtClient', 'updatedAtClient'
+        ])
+        && bookmark.bookmarkId == bookmarkId
+        && boundedString(bookmark.bookmarkId, 128, false)
+        && boundedString(bookmark.cfi, 8192, false)
+        && boundedString(bookmark.name, 512, true)
+        && boundedString(bookmark.color, 64, false)
+        && (
+          bookmark.progressPercent == null
+          || (
+            bookmark.progressPercent is number
+            && bookmark.progressPercent >= 0
+            && bookmark.progressPercent <= 100
+          )
+        )
+        && validClientTime(bookmark.createdAtClient)
+        && validClientTime(bookmark.updatedAtClient)
+        && bookmark.updatedAtClient >= bookmark.createdAtClient;
+    }
+
+    function validBookmarkHead(data, bookId, bookmarkId) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'bookId', 'bookmarkId', 'revision', 'acceptedEventId',
+          'operation', 'bookmark', 'acceptedDeviceId', 'occurredAtClient',
+          'updatedAtServer', 'deletedAtServer'
+        ])
+        && data.schemaVersion == 2
+        && data.bookId == bookId
+        && data.bookmarkId == bookmarkId
+        && boundedString(data.bookId, 512, false)
+        && boundedString(data.bookmarkId, 128, false)
+        && data.revision is int
+        && data.revision >= 1
+        && boundedString(data.acceptedEventId, 128, false)
+        && boundedString(data.acceptedDeviceId, 128, false)
+        && validClientTime(data.occurredAtClient)
+        && data.updatedAtServer == request.time
+        && (
+          (
+            data.operation == 'upsert'
+            && validBookmarkPayload(data.bookmark, bookmarkId)
+            && data.deletedAtServer == null
+          )
+          ||
+          (data.operation == 'delete' && data.bookmark == null && data.deletedAtServer == request.time)
+        );
+    }
+
+    function receiptPath(appId, uid, scopeId, bookId, eventId) {
+      return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/eventReceipts/$(eventId);
+    }
+
+    function matchingReceiptAfter(appId, uid, scopeId, bookId, data, targetKind, bookmarkId, targetKey) {
+      let receipt = getAfter(receiptPath(appId, uid, scopeId, bookId, data.acceptedEventId)).data;
+      return receipt.schemaVersion == 2
+        && receipt.eventId == data.acceptedEventId
+        && receipt.targetKind == targetKind
+        && receipt.bookId == bookId
+        && receipt.bookmarkId == bookmarkId
+        && receipt.targetKey == targetKey
+        && receipt.revision == data.revision
+        && receipt.createdAtServer == request.time;
+    }
+
+    function validV1(data, bookId) {
+      return data.keys().hasOnly([
+          'bookId', 'cfi', 'anchorCfi', 'progressPercent', 'lastRead',
+          'bookmarks', 'deviceId'
+        ])
+        && (!('bookId' in data) || data.bookId == bookId)
+        && (!('cfi' in data) || boundedString(data.cfi, 8192, true))
+        && (!('anchorCfi' in data) || boundedString(data.anchorCfi, 8192, true))
+        && (!('progressPercent' in data) || (
+          data.progressPercent is number
+          && data.progressPercent >= 0
+          && data.progressPercent <= 100
+        ))
+        && (!('lastRead' in data) || data.lastRead is timestamp)
+        && (!('bookmarks' in data) || (data.bookmarks is list && data.bookmarks.size() <= 500))
+        && (!('deviceId' in data) || boundedString(data.deviceId, 128, false));
+    }
+
+    match /artifacts/{appId}/users/{uid}/readingHistory/{bookId} {
+      allow read: if owns(uid);
+      allow create, update: if owns(uid) && validV1(request.resource.data, bookId);
+      allow delete: if owns(uid);
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/readingHistoryV2/{bookId} {
+      allow read: if owns(uid);
+      allow create: if owns(uid)
+        && validProgressHead(request.resource.data, bookId)
+        && request.resource.data.revision == 1
+        && matchingReceiptAfter(
+          appId, uid, scopeId, bookId, request.resource.data,
+          'progress', null, 'progress:' + bookId
+        );
+      allow update: if owns(uid)
+        && validProgressHead(request.resource.data, bookId)
+        && request.resource.data.revision == resource.data.revision + 1
+        && matchingReceiptAfter(
+          appId, uid, scopeId, bookId, request.resource.data,
+          'progress', null, 'progress:' + bookId
+        );
+      allow delete: if false;
+
+      match /bookmarks/{bookmarkId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid)
+          && validBookmarkHead(request.resource.data, bookId, bookmarkId)
+          && request.resource.data.revision == 1
+          && matchingReceiptAfter(
+            appId, uid, scopeId, bookId, request.resource.data,
+            'bookmark', bookmarkId, 'bookmark:' + bookId + ':' + bookmarkId
+          );
+        allow update: if owns(uid)
+          && validBookmarkHead(request.resource.data, bookId, bookmarkId)
+          && request.resource.data.revision == resource.data.revision + 1
+          && matchingReceiptAfter(
+            appId, uid, scopeId, bookId, request.resource.data,
+            'bookmark', bookmarkId, 'bookmark:' + bookId + ':' + bookmarkId
+          );
+        allow delete: if false;
+      }
+
+      match /eventReceipts/{eventId} {
+        allow read: if owns(uid);
+        allow create: if owns(uid)
+          && request.resource.data.keys().hasOnly([
+            'schemaVersion', 'eventId', 'targetKind', 'bookId', 'bookmarkId',
+            'targetKey', 'revision', 'createdAtServer'
+          ])
+          && request.resource.data.schemaVersion == 2
+          && request.resource.data.eventId == eventId
+          && request.resource.data.bookId == bookId
+          && request.resource.data.revision is int
+          && request.resource.data.revision >= 1
+          && request.resource.data.createdAtServer == request.time
+          && (
+            (
+              request.resource.data.targetKind == 'progress'
+              && request.resource.data.bookmarkId == null
+              && request.resource.data.targetKey == 'progress:' + bookId
+              && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)).data.acceptedEventId == eventId
+              && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)).data.revision == request.resource.data.revision
+            )
+            ||
+            (
+              request.resource.data.targetKind == 'bookmark'
+              && boundedString(request.resource.data.bookmarkId, 128, false)
+              && request.resource.data.targetKey == 'bookmark:' + bookId + ':' + request.resource.data.bookmarkId
+              && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/bookmarks/$(request.resource.data.bookmarkId)).data.acceptedEventId == eventId
+              && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/bookmarks/$(request.resource.data.bookmarkId)).data.revision == request.resource.data.revision
+            )
+          );
+        allow update, delete: if false;
+      }
+    }
+  }
+}

@@ -547,7 +547,7 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 | --- | --- | --- | --- |
 | 1. 기준선·직접 결함·EPUB 게이트 | 부분 완료 | `test:formats` 39개, lint/typecheck/Node 전체 통과; Foliate patch와 Chromium/WebKit fixture 추가 | 로컬 서버 bind가 `EPERM`이라 Playwright gate 재실행 대기. production build도 sandbox process/port 제한으로 재검증 대기 |
 | 2. owner storage·migration·auth lifecycle | 완료 | v5 schema/CRUD, v4 보존 migration·lease·검증, generation guard, 이전/읽기 전용/빈 namespace 선택 UI; fake IndexedDB·owner runtime 포함 storage 테스트 통과 | production build는 Phase 1과 같은 sandbox 제약으로 최종 재검증 대기 |
-| 3. Firestore schema와 Rules | 미착수 |  |  |
+| 3. Firestore schema와 Rules | 진행 중 | v1/v2 path·strict parser, v1/v2 호환 Rules, demo emulator 테스트와 JDK 21 CI job 추가; schema 테스트 통과 | 로컬 sandbox가 emulator port bind를 차단해 Rules 실행은 CI/권한 환경 대기. production Rules 기준선 미확인으로 배포 차단 |
 | 4. 진행률 sync core·멀티탭 lease | 미착수 |  |  |
 | 5. listener·bookmark·v1 bridge·runtime | 미착수 |  |  |
 | 6. EPUB 실행 경계 | 미착수 |  |  |

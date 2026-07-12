@@ -13,11 +13,12 @@
     "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImageDimensions.test.mjs tests/archiveImages.test.mjs tests/latestRequestQueue.test.mjs tests/sevenZipImages.test.mjs",
     "test:browser": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/browserRegression.mjs",
     "test:release": "node --test tests/releaseVersion.test.mjs",
-    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs",
+    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs",
     "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/lastReaderSession.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs",
     "test:node": "npm run test:formats && npm run test:drive && npm run test:archives && npm run test:storage && npm run test:shelf && npm run test:release",
     "test:all": "npm run test:node",
     "test:epub-sandbox": "playwright test tests/e2e/foliateSandboxCompatibility.spec.ts",
+    "test:rules": "node scripts/run-firestore-rules-tests.mjs",
     "check": "npm run lint && npm run typecheck && npm run test:node && npm run build"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -39,6 +41,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "fake-indexeddb": "^6.2.5",
+    "firebase-tools": "^15.23.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.0",
     "typescript": "^5"
