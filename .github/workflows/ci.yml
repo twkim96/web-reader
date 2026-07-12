@@ -7,6 +7,15 @@ on:
 permissions:
   contents: read
 
+env:
+  NEXT_PUBLIC_FIREBASE_API_KEY: ci-test-api-key
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: localhost
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: demo-web-reader
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: demo-web-reader.appspot.com
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "1234567890"
+  NEXT_PUBLIC_FIREBASE_APP_ID: "1:1234567890:web:ci-test"
+  NEXT_PUBLIC_GOOGLE_CLIENT_ID: ci-test.apps.googleusercontent.com
+
 jobs:
   static-node-build:
     runs-on: ubuntu-latest
