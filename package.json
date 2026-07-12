@@ -13,7 +13,7 @@
     "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImageDimensions.test.mjs tests/archiveImages.test.mjs tests/latestRequestQueue.test.mjs tests/sevenZipImages.test.mjs",
     "test:browser": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/browserRegression.mjs",
     "test:release": "node --test tests/releaseVersion.test.mjs",
-    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs tests/syncOutboxV5.test.mjs tests/progressSyncTransaction.test.mjs tests/progressSyncWorker.test.mjs",
+    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs tests/bookmarkSyncPolicy.test.mjs tests/syncOutboxV5.test.mjs tests/progressSyncTransaction.test.mjs tests/progressSyncWorker.test.mjs",
     "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/lastReaderSession.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs",
     "test:node": "npm run test:formats && npm run test:drive && npm run test:archives && npm run test:storage && npm run test:shelf && npm run test:release",
     "test:all": "npm run test:node",
