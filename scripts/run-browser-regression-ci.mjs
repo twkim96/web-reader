@@ -33,6 +33,21 @@ const waitForExit = (child) => new Promise((resolve, reject) => {
   });
 });
 
+const terminateAndWait = async (child) => {
+  if (child.exitCode != null || child.signalCode != null) return;
+
+  child.kill('SIGTERM');
+  await new Promise((resolve) => {
+    const forceTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    const fallbackTimer = setTimeout(resolve, 10_000);
+    child.once('exit', () => {
+      clearTimeout(forceTimer);
+      clearTimeout(fallbackTimer);
+      resolve();
+    });
+  });
+};
+
 try {
   start('npm', ['run', 'start', '--', '--hostname', '127.0.0.1', '--port', '3000']);
   await waitForUrl('http://127.0.0.1:3000', 'Next production server');
@@ -56,8 +71,11 @@ try {
     },
   }));
 } finally {
-  for (const child of processes.reverse()) {
-    if (child.exitCode == null && child.signalCode == null) child.kill('SIGTERM');
-  }
-  await rm(userDataDir, { recursive: true, force: true });
+  await Promise.all(processes.reverse().map(terminateAndWait));
+  await rm(userDataDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 200,
+  });
 }
