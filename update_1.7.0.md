@@ -549,7 +549,7 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 | 2. owner storage·migration·auth lifecycle | 완료 | v5 schema/CRUD, v4 보존 migration·lease·검증, generation guard, 이전/읽기 전용/빈 namespace 선택 UI; fake IndexedDB·owner runtime 포함 storage 테스트 통과 | production build는 Phase 1과 같은 sandbox 제약으로 최종 재검증 대기 |
 | 3. Firestore schema와 Rules | 진행 중 | v1/v2 path·strict parser, v1/v2 호환 Rules, demo emulator 테스트와 JDK 21 CI job 추가; schema 테스트 통과 | 로컬 sandbox가 emulator port bind를 차단해 Rules 실행은 CI/권한 환경 대기. production Rules 기준선 미확인으로 배포 차단 |
 | 4. 진행률 sync core·멀티탭 lease | 진행 중 | 원자 enqueue, 예상 revision chain/coalescing, conflict chain, retry, IndexedDB lease/epoch, stale claim 회수, receipt idempotency와 worker generation guard; storage/sync 테스트 통과 | Firestore emulator transaction 통합과 runtime cutover는 port 권한 환경 검증 및 Phase 5 연결을 남김 |
-| 5. listener·bookmark·v1 bridge·runtime | 미착수 |  |  |
+| 5. listener·bookmark·v1 bridge·runtime | 진행 중 | 진행률 저장을 v2 outbox/lease worker로 cutover, v2 `docChanges()` 직렬 listener와 `remote_missing` 격리, server-confirmed v1 read bridge 연결 | bookmark별 event/tombstone, legacy fingerprint와 충돌 선택 동작을 남김 |
 | 6. EPUB 실행 경계 | 미착수 |  |  |
 | 7. GIS token과 Drive cache | 미착수 |  |  |
 | 8. Service Worker | 미착수 |  |  |

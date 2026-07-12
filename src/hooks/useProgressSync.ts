@@ -1,13 +1,14 @@
-import { Dispatch, MutableRefObject, SetStateAction, useEffect } from 'react';
+import { Dispatch, MutableRefObject, SetStateAction, useEffect, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
-import { saveProgressToLocalV5 } from '../lib/localDBV5';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { UserProgress } from '../types';
+import { splitOwnerKey } from '../lib/ownerIdentity';
+import { getV2HistoryPath, parseProgressHeadV2 } from '../lib/progressV2Schema';
+import { recordRemoteMissingV5, storeRemoteProgressHeadV5 } from '../lib/syncOutboxV5';
 import {
   getTimestampMs,
-  hasRemoteProgressChanged,
   mergeRemoteManualWithLocalAuto,
   RemoteProgressDoc,
   toProgressPercent,
@@ -17,7 +18,6 @@ interface UseProgressSyncOptions {
   user: FirebaseUser | null;
   deviceId: MutableRefObject<string>;
   progressRef: MutableRefObject<Record<string, UserProgress>>;
-  setProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
   setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
 }
 
@@ -25,93 +25,98 @@ export const useProgressSync = ({
   user,
   deviceId,
   progressRef,
-  setProgress,
   setRemoteProgress,
 }: UseProgressSyncOptions) => {
+  const snapshotTailRef = useRef(Promise.resolve());
+
   useEffect(() => {
     if (!user) return;
     const owner = ownerRuntime.capture();
     if (!owner) return;
     if (owner.storageMode === 'legacy-readonly') return;
 
-    const historyRef = collection(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory');
-    const unsubscribe = onSnapshot(historyRef, async (snapshot) => {
-      if (!ownerRuntime.isCurrent(owner)) return;
-      const isFromCache = snapshot.metadata.fromCache;
-      const hasPending = snapshot.metadata.hasPendingWrites;
-      const nextProgress: Record<string, UserProgress> = {};
+    const { libraryScopeKey } = splitOwnerKey(owner.ownerKey);
+    const v2Ref = collection(db, getV2HistoryPath(APP_ID, user.uid, libraryScopeKey));
+    const v1Ref = collection(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory');
 
-      for (const documentSnapshot of snapshot.docs) {
-        const raw = documentSnapshot.data() as RemoteProgressDoc;
-        const bookId = raw.bookId || documentSnapshot.id;
-        const serverTime = getTimestampMs(raw.lastRead);
-        const currentLocal = progressRef.current[bookId]?.bookmarks || [];
-        const mergedBookmarks = mergeRemoteManualWithLocalAuto(raw.bookmarks || [], currentLocal);
-        const progressPercent = toProgressPercent(raw.progressPercent) ?? 0;
+    const enqueueSnapshot = (work: () => Promise<void>) => {
+      snapshotTailRef.current = snapshotTailRef.current
+        .catch(() => undefined)
+        .then(work);
+    };
 
-        const data: UserProgress = {
-          bookId,
-          cfi: raw.cfi || '',
-          anchorCfi: raw.anchorCfi || raw.cfi || '',
-          progressPercent,
-          lastRead: serverTime,
-          bookmarks: mergedBookmarks,
-        };
-        nextProgress[bookId] = data;
-
-        if (!isFromCache && !hasPending) {
-          await saveProgressToLocalV5(owner.ownerKey, { ...data, lastRead: serverTime });
-          if (!ownerRuntime.isCurrent(owner)) return;
-        }
-      }
-
-      setProgress((prev) => {
-        if (!ownerRuntime.isCurrent(owner)) return prev;
-        const hasChanged = Object.keys(nextProgress).some((id) => (
-          hasRemoteProgressChanged(prev[id], nextProgress[id])
-        )) || Object.keys(prev).length !== Object.keys(nextProgress).length;
-
-        if (!hasChanged) return prev;
-
-        const merged = { ...prev, ...nextProgress };
-        progressRef.current = merged;
-        return merged;
-      });
-
-      if (!isFromCache) {
-        setRemoteProgress((prev) => {
-          if (!ownerRuntime.isCurrent(owner)) return prev;
-          let changed = false;
-          const updated = { ...prev };
-
-          for (const documentSnapshot of snapshot.docs) {
-            const data = documentSnapshot.data() as RemoteProgressDoc;
-            if (data.deviceId && data.deviceId !== deviceId.current) {
-              const serverTime = getTimestampMs(data.lastRead);
-              const entry: UserProgress = {
-                bookId: data.bookId || documentSnapshot.id,
-                cfi: data.cfi || '',
-                anchorCfi: data.anchorCfi || data.cfi || '',
-                progressPercent: toProgressPercent(data.progressPercent) ?? 0,
-                lastRead: serverTime,
-                bookmarks: data.bookmarks || [],
-              };
-
-              if (hasRemoteProgressChanged(prev[documentSnapshot.id], entry)) {
-                updated[documentSnapshot.id] = entry;
-                changed = true;
-              }
-            }
+    const unsubscribeV2 = onSnapshot(v2Ref, { includeMetadataChanges: true }, (snapshot) => {
+      enqueueSnapshot(async () => {
+        if (!ownerRuntime.isCurrent(owner) || snapshot.metadata.fromCache) return;
+        const remoteUpdates: Record<string, UserProgress> = {};
+        for (const change of snapshot.docChanges()) {
+          if (change.doc.metadata.hasPendingWrites) continue;
+          if (change.type === 'removed') {
+            await recordRemoteMissingV5(owner.ownerKey, change.doc.id);
+            continue;
           }
+          try {
+            const head = parseProgressHeadV2(change.doc.data());
+            await storeRemoteProgressHeadV5(owner.ownerKey, head);
+            if (head.acceptedDeviceId === deviceId.current) continue;
+            const serverTime = getTimestampMs(head.updatedAtServer, 0);
+            remoteUpdates[head.bookId] = head.operation === 'reset'
+              ? {
+                bookId: head.bookId,
+                cfi: '',
+                anchorCfi: '',
+                progressPercent: 0,
+                lastRead: serverTime,
+                bookmarks: progressRef.current[head.bookId]?.bookmarks ?? [],
+              }
+              : {
+                bookId: head.bookId,
+                cfi: head.position!.cfi,
+                anchorCfi: head.position!.anchorCfi ?? head.position!.cfi,
+                progressPercent: head.position!.progressPercent,
+                lastRead: serverTime,
+                bookmarks: progressRef.current[head.bookId]?.bookmarks ?? [],
+              };
+          } catch (error) {
+            console.error('[ProgressV2] Invalid remote head:', error);
+          }
+        }
+        if (!ownerRuntime.isCurrent(owner) || Object.keys(remoteUpdates).length === 0) return;
+        setRemoteProgress((prev) => ({ ...prev, ...remoteUpdates }));
+      });
+    }, (error) => console.error('[ProgressV2] listener failed:', error));
 
-          return changed ? updated : prev;
-        });
-      }
-    });
-    const unregister = ownerRuntime.registerDisposer(unsubscribe);
+    const unsubscribeV1 = onSnapshot(v1Ref, { includeMetadataChanges: true }, (snapshot) => {
+      enqueueSnapshot(async () => {
+        if (!ownerRuntime.isCurrent(owner) || snapshot.metadata.fromCache) return;
+        const legacyCandidates: Record<string, UserProgress> = {};
+        for (const change of snapshot.docChanges()) {
+          if (change.type === 'removed' || change.doc.metadata.hasPendingWrites) continue;
+          const raw = change.doc.data() as RemoteProgressDoc;
+          const bookId = raw.bookId || change.doc.id;
+          const localBookmarks = progressRef.current[bookId]?.bookmarks ?? [];
+          legacyCandidates[bookId] = {
+            bookId,
+            cfi: raw.cfi || '',
+            anchorCfi: raw.anchorCfi || raw.cfi || '',
+            progressPercent: toProgressPercent(raw.progressPercent) ?? 0,
+            lastRead: getTimestampMs(raw.lastRead, 0),
+            bookmarks: mergeRemoteManualWithLocalAuto(raw.bookmarks || [], localBookmarks),
+          };
+        }
+        if (!ownerRuntime.isCurrent(owner) || Object.keys(legacyCandidates).length === 0) return;
+        setRemoteProgress((prev) => ({ ...prev, ...legacyCandidates }));
+      });
+    }, (error) => console.error('[ProgressV1Bridge] listener failed:', error));
+
+    const dispose = () => {
+      unsubscribeV2();
+      unsubscribeV1();
+    };
+    const unregister = ownerRuntime.registerDisposer(dispose);
     return () => {
       unregister();
-      unsubscribe();
+      dispose();
     };
-  }, [deviceId, progressRef, setProgress, setRemoteProgress, user]);
+  }, [deviceId, progressRef, setRemoteProgress, user]);
 };

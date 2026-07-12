@@ -1,5 +1,5 @@
 import type { IDBPDatabase } from 'idb';
-import type { UserProgress } from '../types';
+import type { Bookmark, UserProgress } from '../types';
 import { initDB } from './localDB';
 import {
   V5_OUTBOX_STORE,
@@ -65,13 +65,66 @@ export type SyncConflictV5 = {
   ownerKey: OwnerKey;
   conflictId: string;
   targetKey: string;
-  state: 'open' | 'resolved_local' | 'resolved_remote' | 'deferred';
-  event: ProgressOutboxEventV5;
+  state: 'open' | 'resolved_local' | 'resolved_remote' | 'deferred' | 'remote_missing';
+  event: ProgressOutboxEventV5 | null;
   remoteHead: ProgressHeadV2 | null;
   latestLocalPosition: ProgressPositionV2 | null;
   blockedEventIds: string[];
   createdAt: number;
   resolvedAt?: number;
+};
+
+export const storeRemoteProgressHeadV5 = async (
+  ownerKey: OwnerKey,
+  head: ProgressHeadV2,
+  now = Date.now(),
+) => {
+  const targetKey = progressTargetKeyV2(head.bookId);
+  const db = await initDB();
+  const tx = db.transaction([V5_REMOTE_HEADS_STORE, V5_SYNC_META_STORE], 'readwrite');
+  const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
+  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const [existingRemote, existingMeta] = await Promise.all([
+    remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+    metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+  ]);
+  if (!existingRemote || head.revision >= existingRemote.revision) {
+    await remoteStore.put({
+      ownerKey,
+      targetKey,
+      revision: head.revision,
+      head,
+      updatedAt: now,
+    } satisfies RemoteHeadCacheV5);
+  }
+  await metaStore.put({
+    ...(existingMeta ?? defaultSyncMeta(ownerKey, targetKey, now)),
+    knownRevision: Math.max(existingMeta?.knownRevision ?? 0, head.revision),
+    updatedAt: now,
+  });
+  await tx.done;
+};
+
+export const recordRemoteMissingV5 = async (
+  ownerKey: OwnerKey,
+  bookId: string,
+  now = Date.now(),
+) => {
+  const targetKey = progressTargetKeyV2(bookId);
+  const db = await initDB();
+  const conflict: SyncConflictV5 = {
+    ownerKey,
+    conflictId: `remote-missing:${bookId}`,
+    targetKey,
+    state: 'remote_missing',
+    event: null,
+    remoteHead: null,
+    latestLocalPosition: null,
+    blockedEventIds: [],
+    createdAt: now,
+  };
+  await db.put(V5_SYNC_CONFLICTS_STORE, conflict);
+  return conflict;
 };
 
 export type SyncLeaseV5 = {
@@ -82,7 +135,7 @@ export type SyncLeaseV5 = {
   heartbeatAt: number;
 };
 
-type EnqueueProgressInput = {
+export type EnqueueProgressInput = {
   bookId: string;
   operation: 'progress.set' | 'progress.reset';
   position: ProgressPositionV2 | null;
@@ -90,6 +143,7 @@ type EnqueueProgressInput = {
   sessionId: string;
   occurredAtClient?: number;
   eventId?: string;
+  localBookmarks?: Bookmark[];
 };
 
 const activeStatuses = new Set<OutboxStatusV5>([
@@ -151,7 +205,7 @@ const toLocalProgress = (
     anchorCfi: input.position!.anchorCfi ?? input.position!.cfi,
     progressPercent: input.position!.progressPercent,
     lastRead: occurredAtClient,
-    bookmarks: existing?.bookmarks ?? [],
+    bookmarks: input.localBookmarks ?? existing?.bookmarks ?? [],
   }
   : {
     bookId: input.bookId,
@@ -159,7 +213,7 @@ const toLocalProgress = (
     anchorCfi: '',
     progressPercent: 0,
     lastRead: occurredAtClient,
-    bookmarks: existing?.bookmarks ?? [],
+    bookmarks: input.localBookmarks ?? existing?.bookmarks ?? [],
   };
 
 export const enqueueProgressEventV5 = async (

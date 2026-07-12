@@ -25,6 +25,7 @@ import { useLibraryData } from '../hooks/useLibraryData';
 import { useNetworkLibrarySync } from '../hooks/useNetworkLibrarySync';
 import { useProgressActions } from '../hooks/useProgressActions';
 import { useProgressSync } from '../hooks/useProgressSync';
+import { useProgressSyncWorker } from '../hooks/useProgressSyncWorker';
 import { useViewerSettings } from '../hooks/useViewerSettings';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
@@ -238,9 +239,9 @@ export default function Page() {
     user,
     deviceId,
     progressRef,
-    setProgress,
     setRemoteProgress,
   });
+  useProgressSyncWorker(user);
   useNetworkLibrarySync({
     user,
     googleToken,

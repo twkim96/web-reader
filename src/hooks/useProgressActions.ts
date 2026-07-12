@@ -1,11 +1,10 @@
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { APP_ID, db } from '../lib/firebase';
 import { removeProgressFromLocalV5, saveProgressToLocalV5 } from '../lib/localDBV5';
 import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import { Book, Bookmark, SaveProgressOptions, UserProgress } from '../types';
-import { getManualBookmarks, hasProgressChanged, toProgressPercent } from './progressPolicy';
+import { hasProgressChanged, toProgressPercent } from './progressPolicy';
+import { enqueueProgressEventV5 } from '../lib/syncOutboxV5';
 
 interface UseProgressActionsOptions {
   activeBook: Book | null;
@@ -23,6 +22,7 @@ export const useProgressActions = ({
   setProgress,
 }: UseProgressActionsOptions) => {
   const writeTailsRef = useRef(new Map<string, Promise<void>>());
+  const sessionIdRef = useRef(crypto.randomUUID());
 
   const queueProgressWrite = useCallback((
     bookId: string,
@@ -46,26 +46,29 @@ export const useProgressActions = ({
     bookId: string,
     progressData: UserProgress,
   ) => {
-    if (owner.storageMode === 'legacy-readonly') return;
+    if (owner.storageMode === 'legacy-readonly' || !ownerRuntime.isCurrent(owner)) return;
     try {
-      await saveProgressToLocalV5(owner.ownerKey, progressData);
-    } catch (error) {
-      console.error('[SaveProgress] local save failed:', error);
-    }
-
-    if (!user || !ownerRuntime.isCurrent(owner)) return;
-
-    try {
-      const remoteData = {
-        ...progressData,
-        bookmarks: getManualBookmarks(progressData.bookmarks),
-        lastRead: serverTimestamp(),
+      if (!user) {
+        await saveProgressToLocalV5(owner.ownerKey, progressData);
+        return;
+      }
+      await enqueueProgressEventV5(owner.ownerKey, {
+        bookId,
+        operation: progressData.cfi ? 'progress.set' : 'progress.reset',
+        position: progressData.cfi
+          ? {
+            cfi: progressData.cfi,
+            anchorCfi: progressData.anchorCfi ?? null,
+            progressPercent: progressData.progressPercent,
+          }
+          : null,
         deviceId: deviceId.current,
-      };
-      const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId);
-      await setDoc(docRef, remoteData, { merge: true });
+        sessionId: sessionIdRef.current,
+        occurredAtClient: progressData.lastRead,
+        localBookmarks: progressData.bookmarks,
+      });
     } catch (error) {
-      console.error('[SaveProgress] Firestore save failed:', error);
+      console.error('[SaveProgress] local outbox save failed:', error);
     }
   }, [deviceId, user]);
 
@@ -135,21 +138,26 @@ export const useProgressActions = ({
     });
 
     await queueProgressWrite(bookId, async () => {
+      if (!ownerRuntime.isCurrent(owner)) return;
       try {
-        await removeProgressFromLocalV5(owner.ownerKey, bookId);
+        if (!user) {
+          await removeProgressFromLocalV5(owner.ownerKey, bookId);
+          return;
+        }
+        await enqueueProgressEventV5(owner.ownerKey, {
+          bookId,
+          operation: 'progress.reset',
+          position: null,
+          deviceId: deviceId.current,
+          sessionId: sessionIdRef.current,
+          occurredAtClient: Date.now(),
+          localBookmarks: [],
+        });
       } catch (error) {
-        console.error('[DeleteBookProgress] local delete failed:', error);
-      }
-
-      if (!user || !ownerRuntime.isCurrent(owner)) return;
-
-      try {
-        await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory', bookId));
-      } catch (error) {
-        console.error('[DeleteBookProgress] Firestore delete failed:', error);
+        console.error('[DeleteBookProgress] outbox reset failed:', error);
       }
     });
-  }, [progressRef, queueProgressWrite, setProgress, user]);
+  }, [deviceId, progressRef, queueProgressWrite, setProgress, user]);
 
   return {
     saveProgress,
