@@ -1,6 +1,6 @@
 {
   "name": "viewer",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,13 +9,13 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/epubValidation.test.mjs tests/foliateBookOpen.test.mjs tests/foliateViewRegression.test.mjs tests/publicationSanitizer.test.mjs tests/latestTask.test.mjs tests/pdfPageLifecycle.test.mjs tests/readerLoadLifecycle.test.mjs tests/readerNavigation.test.mjs tests/readerTitleLayout.test.mjs",
-    "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveTokenMemory.test.mjs tests/driveUpload.test.mjs tests/googleDrive.test.mjs tests/sequentialBatch.test.mjs",
+    "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveTokenMemory.test.mjs tests/googleIdentityHeaders.test.mjs tests/driveUpload.test.mjs tests/googleDrive.test.mjs tests/sequentialBatch.test.mjs",
     "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImageDimensions.test.mjs tests/archiveImages.test.mjs tests/latestRequestQueue.test.mjs tests/sevenZipImages.test.mjs",
     "test:browser": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/browserRegression.mjs",
     "test:browser:ci": "node scripts/run-browser-regression-ci.mjs",
     "test:e2e": "playwright test",
     "test:release": "node --test tests/releaseVersion.test.mjs",
-    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs tests/bookmarkSyncPolicy.test.mjs tests/remoteBookmarkAccumulator.test.mjs tests/legacyV1Bridge.test.mjs tests/v1SyncBoundary.test.mjs tests/firebaseSyncScopeMigrationV170.test.mjs tests/syncOutboxV5.test.mjs tests/progressSyncTransaction.test.mjs tests/bookmarkSyncTransaction.test.mjs tests/progressSyncWorker.test.mjs tests/progressSyncPolling.test.mjs",
+    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs tests/bookmarkSyncPolicy.test.mjs tests/remoteBookmarkAccumulator.test.mjs tests/firebaseSyncBoundary.test.mjs tests/syncOutboxV5.test.mjs tests/progressSyncTransaction.test.mjs tests/bookmarkSyncTransaction.test.mjs tests/progressSyncWorker.test.mjs tests/progressSyncPolling.test.mjs tests/contentNamespace.test.mjs",
     "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/lastReaderSession.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs",
     "test:sw": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/localCommitTracker.test.mjs tests/serviceWorkerPolicy.test.mjs",
     "test:node": "npm run test:formats && npm run test:drive && npm run test:archives && npm run test:storage && npm run test:shelf && npm run test:sw && npm run test:release",

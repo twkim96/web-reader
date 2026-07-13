@@ -4,16 +4,6 @@ export type TimestampLike = {
   toDate?: () => Date;
 };
 
-export type RemoteProgressDoc = {
-  bookId?: string;
-  cfi?: string;
-  anchorCfi?: string;
-  progressPercent?: number;
-  lastRead?: TimestampLike;
-  bookmarks?: Bookmark[];
-  deviceId?: string;
-};
-
 export const getTimestampMs = (value: unknown, fallback = Date.now()) => {
   const timestamp = value as TimestampLike | undefined;
   const date = timestamp?.toDate ? timestamp.toDate() : undefined;
@@ -31,15 +21,6 @@ export const getBookmarksKey = (items?: Bookmark[]) => JSON.stringify(items || [
 export const getManualBookmarks = (items?: Bookmark[]) => (
   (items || []).filter((bookmark) => bookmark.type === 'manual')
 );
-
-export const mergeRemoteManualWithLocalAuto = (
-  remoteBookmarks: Bookmark[] = [],
-  localBookmarks: Bookmark[] = []
-) => {
-  const remoteManual = remoteBookmarks.filter((bookmark) => bookmark.type === 'manual');
-  const localAuto = localBookmarks.filter((bookmark) => bookmark.type === 'auto');
-  return [...remoteManual, ...localAuto].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-};
 
 export const hasProgressChanged = (
   existing: UserProgress | undefined,

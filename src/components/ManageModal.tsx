@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 // [Fixed] 올바른 함수명으로 import 수정
 import { getAllOfflineBooksV5, removeBookFromLocalV5 } from '../lib/localDBV5';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import { DEVICE_CONTENT_OWNER_KEY } from '../lib/ownerIdentity';
 import { Trash2, HardDrive, X, FileText } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Book, ThemeClasses } from '../types';
@@ -24,9 +25,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
 
   const loadBooks = async () => {
     const owner = ownerRuntime.require();
-    const data = owner.storageMode === 'legacy-readonly'
-      ? await import('../lib/localDB').then(({ getAllOfflineBooks }) => getAllOfflineBooks())
-      : await getAllOfflineBooksV5(owner.ownerKey);
+    const data = await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY);
     if (!ownerRuntime.isCurrent(owner)) return;
     // [Modified] 이제 data에 size 정보가 포함되어 있음 (내용을 로드하지 않아 빠름)
     setBooks(data.map(b => ({
@@ -47,11 +46,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
 
   const handleDelete = async (id: string) => {
     const owner = ownerRuntime.require();
-    if (owner.storageMode === 'legacy-readonly') {
-      alert('읽기 전용 복구 모드에서는 도서를 삭제할 수 없습니다.');
-      return;
-    }
-    await removeBookFromLocalV5(owner.ownerKey, id);
+    await removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, id);
     if (!ownerRuntime.isCurrent(owner)) return;
     await loadBooks();
     onUpdate();

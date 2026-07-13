@@ -359,10 +359,10 @@ test('runs bookmark transaction receipt replay, tombstone, and stale edit confli
   assert.equal(stale.remoteHead.revision, 2);
 });
 
-test('keeps compatible v1 reads, writes and deletes scoped to the uid', async () => {
+test('rejects retired v1 progress documents', async () => {
   const path = `artifacts/${appId}/users/alice/readingHistory/book-1`;
   const own = database();
-  await assertSucceeds(setDoc(doc(own, path), {
+  await assertFails(setDoc(doc(own, path), {
     bookId: 'book-1',
     cfi: '',
     progressPercent: 0,
@@ -370,10 +370,9 @@ test('keeps compatible v1 reads, writes and deletes scoped to the uid', async ()
     bookmarks: [],
     deviceId: 'old-device',
   }));
-  await assertSucceeds(deleteDoc(doc(own, path)));
-  await assertFails(setDoc(doc(database('mallory'), path), {
-    bookId: 'book-1',
-    progressPercent: 10,
-  }));
-  assert.ok(true);
+});
+
+test('rejects Drive-scoped progress paths even for the owning Firebase uid', async () => {
+  const drivePath = `artifacts/${appId}/users/alice/libraries/drive-account/readingHistoryV2/book-1`;
+  await assertFails(getDoc(doc(database(), drivePath)));
 });

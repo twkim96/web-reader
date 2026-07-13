@@ -6,6 +6,7 @@ import {
 } from '../../lib/localDBV5';
 import { LocalStorageCapacityError } from '../../lib/localDB';
 import { ownerRuntime, type OwnerSnapshot } from '../../lib/ownerRuntime';
+import { DEVICE_CONTENT_OWNER_KEY } from '../../lib/ownerIdentity';
 import type { Book } from '../../types';
 import { ensureEpubBook } from '../../lib/bookContent';
 import { getBookFingerprint } from '../../lib/bookFingerprint';
@@ -209,11 +210,11 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     let savedLocally = false;
     try {
       if (isArchiveFormat(sourceFormat) || sourceFormat === 'pdf') {
-        await saveBookToLocalV5(owner.ownerKey, book, file);
+        await saveBookToLocalV5(DEVICE_CONTENT_OWNER_KEY, book, file);
       } else {
         const content = await file.arrayBuffer();
         const epub = await ensureEpubBook(book, content);
-        await saveBookToLocalV5(owner.ownerKey, epub.book, epub.content);
+        await saveBookToLocalV5(DEVICE_CONTENT_OWNER_KEY, epub.book, epub.content);
       }
       savedLocally = true;
     } catch (err) {
@@ -234,7 +235,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       if (fingerprint) {
         try {
           await saveArchiveInspectionToLocalV5(
-            owner.ownerKey,
+            DEVICE_CONTENT_OWNER_KEY,
             book.id,
             fingerprint,
             archiveImageIndex,
@@ -252,10 +253,6 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   const importFiles = async (files: FileList | File[]) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
-    if (owner.storageMode === 'legacy-readonly') {
-      alert('읽기 전용 복구 모드에서는 도서를 추가할 수 없습니다.');
-      return;
-    }
     const result = updateImportSelection([], Array.from(files), {
       allowExtendedFormats: EXTENDED_IMPORT_FORMATS_ENABLED,
       enabledFormats: ACTIVE_SOURCE_FORMATS,

@@ -4,8 +4,6 @@ import assert from 'node:assert/strict';
 import {
   bookmarkTargetKeyV2,
   getFirebaseSyncHistoryPath,
-  getV1HistoryPath,
-  getV2HistoryPath,
   isBookmarkHeadV2,
   isEventReceiptV2,
   isProgressHeadV2,
@@ -27,12 +25,7 @@ const progress = {
   deletedAtServer: null,
 };
 
-test('builds v1 and owner-scoped v2 paths without raw separators', () => {
-  assert.equal(getV1HistoryPath('app', 'user'), 'artifacts/app/users/user/readingHistory');
-  assert.equal(
-    getV2HistoryPath('app', 'user', 'drive:permission/id'),
-    'artifacts/app/users/user/libraries/permission%2Fid/readingHistoryV2',
-  );
+test('builds only the Firebase account canonical history path', () => {
   assert.equal(
     getFirebaseSyncHistoryPath('app', 'user'),
     'artifacts/app/users/user/libraries/local/readingHistoryV2',

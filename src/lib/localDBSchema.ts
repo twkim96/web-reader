@@ -1,7 +1,7 @@
 import type { IDBPDatabase, IDBPTransaction } from 'idb';
 
 export const LOCAL_DB_NAME = 'web-reader-db';
-export const LOCAL_DB_VERSION = 5;
+export const LOCAL_DB_VERSION = 6;
 
 export const LEGACY_BOOKS_STORE = 'books';
 export const LEGACY_METADATA_STORE = 'metadata';
@@ -17,9 +17,6 @@ export const V5_REMOTE_HEADS_STORE = 'remote-heads-v5';
 export const V5_SYNC_META_STORE = 'sync-meta-v5';
 export const V5_SYNC_CONFLICTS_STORE = 'sync-conflicts-v5';
 export const V5_SYNC_LEASES_STORE = 'sync-leases-v5';
-export const V5_OWNER_BINDINGS_STORE = 'owner-bindings-v5';
-export const V5_OWNER_SESSION_STORE = 'owner-session-v5';
-export const V5_MIGRATION_META_STORE = 'migration-meta-v5';
 
 const createStore = (
   db: IDBPDatabase<unknown>,
@@ -44,10 +41,22 @@ export const upgradeLocalDB = (
   db: IDBPDatabase<unknown>,
   transaction: IDBPTransaction<unknown, string[], 'versionchange'>,
 ) => {
-  createStore(db, LEGACY_BOOKS_STORE);
-  createStore(db, LEGACY_METADATA_STORE, { keyPath: 'id' });
-  createStore(db, LEGACY_PROGRESS_STORE, { keyPath: 'bookId' });
-  createStore(db, LEGACY_ARCHIVE_INSPECTIONS_STORE, { keyPath: 'bookId' });
+  for (const obsoleteStore of [
+    LEGACY_BOOKS_STORE,
+    LEGACY_METADATA_STORE,
+    LEGACY_PROGRESS_STORE,
+    LEGACY_ARCHIVE_INSPECTIONS_STORE,
+    // 1.7.1 content records were partitioned by account. 1.7.2 intentionally
+    // starts one clean device cache instead of copying those records.
+    V5_BOOKS_STORE,
+    V5_METADATA_STORE,
+    V5_ARCHIVE_INSPECTIONS_STORE,
+    'owner-bindings-v5',
+    'owner-session-v5',
+    'migration-meta-v5',
+  ]) {
+    if (db.objectStoreNames.contains(obsoleteStore)) db.deleteObjectStore(obsoleteStore);
+  }
 
   createStore(db, V5_BOOKS_STORE);
 
@@ -94,14 +103,4 @@ export const upgradeLocalDB = (
   ]);
 
   createStore(db, V5_SYNC_LEASES_STORE, { keyPath: 'ownerKey' });
-  const ownerBindings = createStore(db, V5_OWNER_BINDINGS_STORE, {
-    keyPath: ['authOwnerKey', 'libraryScopeKey'],
-  }) ?? transaction.objectStore(V5_OWNER_BINDINGS_STORE);
-  createIndex(ownerBindings, 'by-auth-owner', 'authOwnerKey');
-  createStore(db, V5_OWNER_SESSION_STORE, { keyPath: 'authOwnerKey' });
-
-  const migrationMeta = createStore(db, V5_MIGRATION_META_STORE, {
-    keyPath: 'migrationId',
-  }) ?? transaction.objectStore(V5_MIGRATION_META_STORE);
-  createIndex(migrationMeta, 'by-status', 'status');
 };

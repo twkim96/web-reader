@@ -17,14 +17,7 @@ import {
   storeRemoteProgressHeadV5,
 } from '../lib/syncOutboxV5';
 import {
-  claimLegacyV1CandidateV5,
-  fingerprintLegacyV1Document,
-} from '../lib/legacyV1Bridge';
-import {
   getTimestampMs,
-  mergeRemoteManualWithLocalAuto,
-  RemoteProgressDoc,
-  toProgressPercent,
 } from './progressPolicy';
 import {
   applyRemoteBookmarkHeadChanges,
@@ -55,14 +48,12 @@ export const useProgressSync = ({
     if (!user) return;
     const owner = ownerRuntime.capture();
     if (!owner) return;
-    if (owner.storageMode === 'legacy-readonly') return;
 
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
     const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
     const firebaseHistoryPath = getFirebaseSyncHistoryPath(APP_ID, user.uid);
     const v2Ref = collection(db, firebaseHistoryPath);
-    const v1Ref = collection(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory');
 
     const enqueueSnapshot = (work: () => Promise<void>) => {
       snapshotTailRef.current = snapshotTailRef.current
@@ -110,31 +101,6 @@ export const useProgressSync = ({
         setRemoteProgress((prev) => ({ ...prev, ...remoteUpdates }));
       });
     }, (error) => console.error('[ProgressV2] listener failed:', error));
-
-    const unsubscribeV1 = onSnapshot(v1Ref, { includeMetadataChanges: true }, (snapshot) => {
-      enqueueSnapshot(async () => {
-        if (!ownerRuntime.isCurrent(owner) || snapshot.metadata.fromCache) return;
-        const legacyCandidates: Record<string, UserProgress> = {};
-        for (const change of snapshot.docChanges()) {
-          if (change.type === 'removed' || change.doc.metadata.hasPendingWrites) continue;
-          const raw = change.doc.data() as RemoteProgressDoc;
-          const bookId = raw.bookId || change.doc.id;
-          const fingerprint = fingerprintLegacyV1Document(bookId, raw);
-          if (!await claimLegacyV1CandidateV5(syncOwnerKey, bookId, fingerprint)) continue;
-          const localBookmarks = progressRef.current[bookId]?.bookmarks ?? [];
-          legacyCandidates[bookId] = {
-            bookId,
-            cfi: raw.cfi || '',
-            anchorCfi: raw.anchorCfi || raw.cfi || '',
-            progressPercent: toProgressPercent(raw.progressPercent) ?? 0,
-            lastRead: getTimestampMs(raw.lastRead, 0),
-            bookmarks: mergeRemoteManualWithLocalAuto(raw.bookmarks || [], localBookmarks),
-          };
-        }
-        if (!ownerRuntime.isCurrent(owner) || Object.keys(legacyCandidates).length === 0) return;
-        setRemoteProgress((prev) => ({ ...prev, ...legacyCandidates }));
-      });
-    }, (error) => console.error('[ProgressV1Bridge] listener failed:', error));
 
     let remoteBookmarkHeads = new Map();
     const unsubscribeBookmarks = activeBookId
@@ -193,7 +159,6 @@ export const useProgressSync = ({
 
     const dispose = () => {
       unsubscribeV2();
-      unsubscribeV1();
       unsubscribeBookmarks();
     };
     const unregister = ownerRuntime.registerDisposer(dispose);

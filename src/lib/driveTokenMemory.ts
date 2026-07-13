@@ -59,7 +59,9 @@ export class DriveTokenRequestSingleFlight {
 
   run(start: () => Promise<void>) {
     if (this.pending) return this.pending;
-    const pending = Promise.resolve().then(start).finally(() => {
+    // GIS popup APIs must run in the original user activation stack. Deferring
+    // start() to a microtask makes Safari and some Android browsers block it.
+    const pending = start().finally(() => {
       if (this.pending === pending) this.pending = null;
     });
     this.pending = pending;

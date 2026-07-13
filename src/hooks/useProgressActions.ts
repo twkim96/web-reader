@@ -51,7 +51,7 @@ export const useProgressActions = ({
     bookmarkChanges: BookmarkSyncChange[],
     syncPosition: boolean,
   ) => {
-    if (owner.storageMode === 'legacy-readonly' || !ownerRuntime.isCurrent(owner)) return;
+    if (!ownerRuntime.isCurrent(owner)) return;
     const progressOwnerKey = getSyncOwnerKey(owner.ownerKey);
     try {
       if (!user) {
@@ -99,7 +99,6 @@ export const useProgressActions = ({
     if (!activeBook) return;
     const owner = ownerRuntime.capture();
     if (!owner) return;
-    if (owner.storageMode === 'legacy-readonly') return;
 
     const bookId = activeBook.id;
     const nextCfi = String(cfi || '');
@@ -148,7 +147,6 @@ export const useProgressActions = ({
   const deleteProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
-    if (owner.storageMode === 'legacy-readonly') return;
     const resetData: UserProgress = {
       bookId,
       cfi: '',
@@ -178,7 +176,6 @@ export const useProgressActions = ({
   const deleteBookProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
-    if (owner.storageMode === 'legacy-readonly') return;
     const existing = progressRef.current[bookId];
     const resetData: UserProgress = {
       bookId,

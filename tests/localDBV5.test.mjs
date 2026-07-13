@@ -7,41 +7,26 @@ import { openDB } from 'idb';
 const {
   closeLocalDB,
   initDB,
-  LocalStorageCapacityError,
   subscribeLocalDBLifecycle,
 } = await import('../src/lib/localDB.ts');
 const {
   deleteOwnerLocalDataV5,
   getAllLocalProgressV5,
   getAllOfflineBooksV5,
-  getMigrationMetaV5,
-  getOwnerBindingsV5,
-  getOwnerSessionV5,
   loadBookFromLocalV5,
-  putOwnerBindingV5,
-  putOwnerSessionV5,
   saveArchiveInspectionToLocalV5,
   saveBookToLocalV5,
   saveProgressToLocalV5,
 } = await import('../src/lib/localDBV5.ts');
-const {
-  inspectLegacyInventory,
-  inspectOwnerInventoryV5,
-  migrateLegacyDataToOwnerV5,
-  MigrationLeaseUnavailableError,
-} = await import('../src/lib/localDBMigration.ts');
 const schema = await import('../src/lib/localDBSchema.ts');
 const {
-  makeDriveScopeKey,
+  DEVICE_CONTENT_OWNER_KEY,
   makeFirebaseOwnerKey,
   makeOwnerKey,
 } = await import('../src/lib/ownerIdentity.ts');
 
 const ownerA = makeOwnerKey(makeFirebaseOwnerKey('alice'), 'library:local');
-const ownerB = makeOwnerKey(
-  makeFirebaseOwnerKey('bob'),
-  makeDriveScopeKey('drive-account-b'),
-);
+const ownerB = makeOwnerKey(makeFirebaseOwnerKey('bob'), 'library:local');
 
 const deleteDatabase = async () => {
   await closeLocalDB();
@@ -97,16 +82,12 @@ const seedLegacyV4 = async ({ invalidMetadata = false } = {}) => {
 test.beforeEach(deleteDatabase);
 test.after(deleteDatabase);
 
-test('v4 upgrade preserves legacy data and creates the complete v5 schema', async () => {
+test('v4 upgrade discards retired stores and creates the active schema', async () => {
   await seedLegacyV4();
   const db = await initDB();
 
-  assert.equal(db.version, 5);
+  assert.equal(db.version, 6);
   for (const storeName of [
-    schema.LEGACY_BOOKS_STORE,
-    schema.LEGACY_METADATA_STORE,
-    schema.LEGACY_PROGRESS_STORE,
-    schema.LEGACY_ARCHIVE_INSPECTIONS_STORE,
     schema.V5_BOOKS_STORE,
     schema.V5_METADATA_STORE,
     schema.V5_PROGRESS_STORE,
@@ -116,141 +97,109 @@ test('v4 upgrade preserves legacy data and creates the complete v5 schema', asyn
     schema.V5_SYNC_META_STORE,
     schema.V5_SYNC_CONFLICTS_STORE,
     schema.V5_SYNC_LEASES_STORE,
-    schema.V5_OWNER_BINDINGS_STORE,
-    schema.V5_OWNER_SESSION_STORE,
-    schema.V5_MIGRATION_META_STORE,
   ]) {
     assert.equal(db.objectStoreNames.contains(storeName), true, storeName);
   }
-  assert.equal((await db.get(schema.LEGACY_METADATA_STORE, 'same-id')).name, 'Alpha');
-  assert.equal(
-    db.transaction(schema.V5_OWNER_BINDINGS_STORE).store.indexNames.contains('by-auth-owner'),
-    true,
-  );
+  for (const obsoleteStore of [
+    schema.LEGACY_BOOKS_STORE,
+    schema.LEGACY_METADATA_STORE,
+    schema.LEGACY_PROGRESS_STORE,
+    schema.LEGACY_ARCHIVE_INSPECTIONS_STORE,
+    'owner-bindings-v5',
+    'owner-session-v5',
+    'migration-meta-v5',
+  ]) {
+    assert.equal(db.objectStoreNames.contains(obsoleteStore), false, obsoleteStore);
+  }
 });
 
-test('owner-scoped CRUD isolates identical book ids and owner deletion', async () => {
-  await saveBookToLocalV5(ownerA, makeBook('same-id', 'A'), new Blob(['owner-a']));
-  await saveBookToLocalV5(ownerB, makeBook('same-id', 'B'), new Blob(['owner-b']));
+test('v5 upgrade resets account-scoped book caches but preserves Firebase progress', async () => {
+  const db = await openDB(schema.LOCAL_DB_NAME, 5, {
+    upgrade(database) {
+      database.createObjectStore(schema.V5_BOOKS_STORE);
+      const metadata = database.createObjectStore(schema.V5_METADATA_STORE, {
+        keyPath: ['ownerKey', 'id'],
+      });
+      metadata.createIndex('by-owner', 'ownerKey');
+      const progress = database.createObjectStore(schema.V5_PROGRESS_STORE, {
+        keyPath: ['ownerKey', 'bookId'],
+      });
+      progress.createIndex('by-owner', 'ownerKey');
+      const inspections = database.createObjectStore(schema.V5_ARCHIVE_INSPECTIONS_STORE, {
+        keyPath: ['ownerKey', 'bookId'],
+      });
+      inspections.createIndex('by-owner', 'ownerKey');
+    },
+  });
+  const tx = db.transaction([
+    schema.V5_BOOKS_STORE,
+    schema.V5_METADATA_STORE,
+    schema.V5_PROGRESS_STORE,
+    schema.V5_ARCHIVE_INSPECTIONS_STORE,
+  ], 'readwrite');
+  await tx.objectStore(schema.V5_BOOKS_STORE).put(new Blob(['old-cache']), [ownerA, 'book-1']);
+  await tx.objectStore(schema.V5_METADATA_STORE).put({
+    ...makeBook('book-1', 'Old Account Cache'),
+    ownerKey: ownerA,
+  });
+  await tx.objectStore(schema.V5_PROGRESS_STORE).put({
+    ownerKey: ownerA,
+    bookId: 'book-1',
+    cfi: 'preserved',
+    progressPercent: 42,
+    lastRead: 1,
+  });
+  await tx.objectStore(schema.V5_ARCHIVE_INSPECTIONS_STORE).put({
+    ownerKey: ownerA,
+    bookId: 'book-1',
+    fingerprint: 'old-cache',
+    index: { entries: [] },
+  });
+  await tx.done;
+  db.close();
+
+  await initDB();
+  assert.equal((await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY)).length, 0);
+  assert.equal(await loadBookFromLocalV5(ownerA, 'book-1'), undefined);
+  assert.deepEqual((await getAllLocalProgressV5(ownerA)).map(({ cfi }) => cfi), ['preserved']);
+});
+
+test('device books survive Firebase progress owner deletion', async () => {
+  await saveBookToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['device-book']),
+  );
   await saveProgressToLocalV5(ownerA, {
     bookId: 'same-id', cfi: 'a', progressPercent: 10, lastRead: 1,
   });
   await saveProgressToLocalV5(ownerB, {
     bookId: 'same-id', cfi: 'b', progressPercent: 90, lastRead: 2,
   });
-  await saveArchiveInspectionToLocalV5(ownerA, 'same-id', 'a', { entries: [] });
-  await saveArchiveInspectionToLocalV5(ownerB, 'same-id', 'b', { entries: [] });
+  await saveArchiveInspectionToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    'same-id',
+    'device',
+    { entries: [] },
+  );
 
-  assert.equal(await (await loadBookFromLocalV5(ownerA, 'same-id')).text(), 'owner-a');
-  assert.equal(await (await loadBookFromLocalV5(ownerB, 'same-id')).text(), 'owner-b');
-  assert.deepEqual((await getAllOfflineBooksV5(ownerA)).map(({ name }) => name), ['A']);
+  assert.equal(
+    await (await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id')).text(),
+    'device-book',
+  );
+  assert.deepEqual(
+    (await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY)).map(({ name }) => name),
+    ['Device Book'],
+  );
   assert.deepEqual((await getAllLocalProgressV5(ownerB)).map(({ cfi }) => cfi), ['b']);
 
   await deleteOwnerLocalDataV5(ownerA);
-  assert.equal(await loadBookFromLocalV5(ownerA, 'same-id'), undefined);
-  assert.equal(await (await loadBookFromLocalV5(ownerB, 'same-id')).text(), 'owner-b');
-  assert.equal((await getAllOfflineBooksV5(ownerB)).length, 1);
+  assert.equal(
+    await (await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id')).text(),
+    'device-book',
+  );
+  assert.equal((await getAllLocalProgressV5(ownerA)).length, 0);
   assert.equal((await getAllLocalProgressV5(ownerB)).length, 1);
-});
-
-test('owner bindings and last session are partitioned by authenticated owner', async () => {
-  const authA = makeFirebaseOwnerKey('alice');
-  const authB = makeFirebaseOwnerKey('bob');
-  await putOwnerBindingV5({
-    authOwnerKey: authA,
-    libraryScopeKey: 'library:local',
-    verifiedAt: 1,
-  });
-  await putOwnerBindingV5({
-    authOwnerKey: authB,
-    libraryScopeKey: makeDriveScopeKey('drive-account-b'),
-    verifiedAt: 2,
-  });
-  await putOwnerSessionV5({ authOwnerKey: authA, ownerKey: ownerA, updatedAt: 3 });
-
-  assert.deepEqual((await getOwnerBindingsV5(authA)).map(({ authOwnerKey }) => authOwnerKey), [authA]);
-  assert.equal((await getOwnerSessionV5(authA)).ownerKey, ownerA);
-  assert.equal(await getOwnerSessionV5(authB), undefined);
-});
-
-test('migration copies and verifies every legacy store without changing v4', async () => {
-  await seedLegacyV4();
-  const sourceBefore = await inspectLegacyInventory();
-  const result = await migrateLegacyDataToOwnerV5(ownerA, {
-    leaseHolder: 'tab-a',
-    batchSize: 1,
-  });
-  const sourceAfter = await inspectLegacyInventory();
-  const copied = await inspectOwnerInventoryV5(ownerA);
-
-  assert.equal(result.status, 'completed');
-  assert.deepEqual(sourceAfter, sourceBefore);
-  assert.deepEqual(copied, sourceBefore);
-  assert.equal((await getAllOfflineBooksV5(ownerA)).length, 2);
-  assert.equal((await getAllOfflineBooksV5(ownerB)).length, 0);
-
-  const repeated = await migrateLegacyDataToOwnerV5(ownerA, {
-    leaseHolder: 'tab-b',
-  });
-  assert.equal(repeated.status, 'completed');
-  assert.deepEqual(await inspectOwnerInventoryV5(ownerA), copied);
-});
-
-test('failed batch rolls back and a retry resumes idempotently', async () => {
-  await seedLegacyV4();
-  let injected = false;
-  await assert.rejects(
-    migrateLegacyDataToOwnerV5(ownerA, {
-      leaseHolder: 'tab-a',
-      batchSize: 1,
-      beforeBatchCommit(store, count) {
-        if (!injected && store === schema.LEGACY_BOOKS_STORE && count === 1) {
-          injected = true;
-          throw new DOMException('quota', 'QuotaExceededError');
-        }
-      },
-    }),
-    LocalStorageCapacityError,
-  );
-
-  const failed = await getMigrationMetaV5(`v4-to-v5:${ownerA}`);
-  assert.equal(failed.status, 'failed');
-  assert.equal((await inspectOwnerInventoryV5(ownerA)).counts.books, 0);
-  assert.equal((await inspectLegacyInventory()).counts.books, 2);
-
-  const retried = await migrateLegacyDataToOwnerV5(ownerA, {
-    leaseHolder: 'tab-b',
-    batchSize: 1,
-  });
-  assert.equal(retried.status, 'completed');
-  assert.deepEqual(await inspectOwnerInventoryV5(ownerA), await inspectLegacyInventory());
-});
-
-test('an unexpired migration lease prevents a second tab from copying', async () => {
-  await seedLegacyV4();
-  const db = await initDB();
-  await db.put(schema.V5_MIGRATION_META_STORE, {
-    migrationId: `v4-to-v5:${ownerA}`,
-    ownerKey: ownerA,
-    status: 'copying',
-    sourceCounts: {},
-    copiedCounts: {},
-    sourceContentBytes: 0,
-    copiedContentBytes: 0,
-    startedAt: 1,
-    leaseHolder: 'other-tab',
-    leaseEpoch: 1,
-    leaseExpiresAt: 50_000,
-  });
-
-  await assert.rejects(
-    migrateLegacyDataToOwnerV5(ownerA, {
-      leaseHolder: 'this-tab',
-      now: () => 10_000,
-    }),
-    MigrationLeaseUnavailableError,
-  );
-  assert.equal((await inspectLegacyInventory()).counts.books, 2);
 });
 
 test('blocked v5 open is reported and resumes after the old connection closes', async () => {
@@ -274,7 +223,7 @@ test('blocked v5 open is reported and resumes after the old connection closes', 
 
   const opening = initDB();
   await blocked;
-  assert.equal(blockedEvent.targetVersion, 5);
+  assert.equal(blockedEvent.targetVersion, 6);
   oldConnection.close();
-  assert.equal((await opening).version, 5);
+  assert.equal((await opening).version, 6);
 });

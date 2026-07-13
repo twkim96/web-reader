@@ -3,7 +3,6 @@ import type { OwnerKey } from './ownerIdentity';
 export type OwnerSnapshot = Readonly<{
   ownerKey: OwnerKey;
   generation: number;
-  storageMode: 'v5' | 'legacy-readonly';
 }>;
 
 type OwnerDisposer = () => void;
@@ -19,19 +18,6 @@ export class OwnerRuntime {
     this.snapshot = Object.freeze({
       ownerKey,
       generation: this.generation,
-      storageMode: 'v5' as const,
-    });
-    return this.snapshot;
-  }
-
-  useLegacyReadOnly(candidate: OwnerSnapshot) {
-    if (!this.isCurrent(candidate)) throw new Error('활성 서재가 변경되었습니다.');
-    if (candidate.storageMode === 'legacy-readonly') return candidate;
-    this.invalidate();
-    this.snapshot = Object.freeze({
-      ownerKey: candidate.ownerKey,
-      generation: this.generation,
-      storageMode: 'legacy-readonly' as const,
     });
     return this.snapshot;
   }

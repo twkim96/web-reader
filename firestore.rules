@@ -6,6 +6,10 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    function isCanonicalScope(scopeId) {
+      return scopeId == 'local';
+    }
+
     function boundedString(value, maxSize, allowEmpty) {
       return value is string
         && value.size() <= maxSize
@@ -116,40 +120,16 @@ service cloud.firestore {
         && receipt.createdAtServer == request.time;
     }
 
-    function validV1(data, bookId) {
-      return data.keys().hasOnly([
-          'bookId', 'cfi', 'anchorCfi', 'progressPercent', 'lastRead',
-          'bookmarks', 'deviceId'
-        ])
-        && (!('bookId' in data) || data.bookId == bookId)
-        && (!('cfi' in data) || boundedString(data.cfi, 8192, true))
-        && (!('anchorCfi' in data) || boundedString(data.anchorCfi, 8192, true))
-        && (!('progressPercent' in data) || (
-          data.progressPercent is number
-          && data.progressPercent >= 0
-          && data.progressPercent <= 100
-        ))
-        && (!('lastRead' in data) || data.lastRead is timestamp)
-        && (!('bookmarks' in data) || (data.bookmarks is list && data.bookmarks.size() <= 500))
-        && (!('deviceId' in data) || boundedString(data.deviceId, 128, false));
-    }
-
-    match /artifacts/{appId}/users/{uid}/readingHistory/{bookId} {
-      allow read: if owns(uid);
-      allow create, update: if owns(uid) && validV1(request.resource.data, bookId);
-      allow delete: if owns(uid);
-    }
-
     match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/readingHistoryV2/{bookId} {
-      allow read: if owns(uid);
-      allow create: if owns(uid)
+      allow read: if owns(uid) && isCanonicalScope(scopeId);
+      allow create: if owns(uid) && isCanonicalScope(scopeId)
         && validProgressHead(request.resource.data, bookId)
         && request.resource.data.revision == 1
         && matchingReceiptAfter(
           appId, uid, scopeId, request.resource.data,
           'progress', null, 'progress:' + bookId
         );
-      allow update: if owns(uid)
+      allow update: if owns(uid) && isCanonicalScope(scopeId)
         && validProgressHead(request.resource.data, bookId)
         && request.resource.data.revision == resource.data.revision + 1
         && matchingReceiptAfter(
@@ -159,15 +139,15 @@ service cloud.firestore {
       allow delete: if false;
 
       match /bookmarks/{bookmarkId} {
-        allow read: if owns(uid);
-        allow create: if owns(uid)
+        allow read: if owns(uid) && isCanonicalScope(scopeId);
+        allow create: if owns(uid) && isCanonicalScope(scopeId)
           && validBookmarkHead(request.resource.data, bookId, bookmarkId)
           && request.resource.data.revision == 1
           && matchingReceiptAfter(
             appId, uid, scopeId, request.resource.data,
             'bookmark', bookmarkId, 'bookmark:' + bookId + ':' + bookmarkId
           );
-        allow update: if owns(uid)
+        allow update: if owns(uid) && isCanonicalScope(scopeId)
           && validBookmarkHead(request.resource.data, bookId, bookmarkId)
           && request.resource.data.revision == resource.data.revision + 1
           && matchingReceiptAfter(
@@ -178,8 +158,8 @@ service cloud.firestore {
       }
 
       match /eventReceipts/{eventId} {
-        allow read: if owns(uid);
-        allow create: if owns(uid)
+        allow read: if owns(uid) && isCanonicalScope(scopeId);
+        allow create: if owns(uid) && isCanonicalScope(scopeId)
           && request.resource.data.keys().hasOnly([
             'schemaVersion', 'eventId', 'targetKind', 'bookId', 'bookmarkId',
             'targetKey', 'revision', 'createdAtServer'

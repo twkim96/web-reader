@@ -8,10 +8,8 @@ import {
   makeFirebaseOwnerKey,
   makeGuestOwnerKey,
   makeOwnerKey,
-  splitOwnerKey,
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
-import { getOwnerSessionV5 } from '../lib/localDBV5';
 
 interface UseAuthBootstrapOptions {
   isGuestRef: MutableRefObject<boolean>;
@@ -20,7 +18,6 @@ interface UseAuthBootstrapOptions {
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
-  loadLibraryFromDrive: (token: string) => Promise<boolean>;
   resetLibraryState: () => void;
 }
 
@@ -31,7 +28,6 @@ export const useAuthBootstrap = ({
   setIsOfflineMode,
   setView,
   restoreLocalData,
-  loadLibraryFromDrive,
   resetLibraryState,
 }: UseAuthBootstrapOptions) => {
   useEffect(() => {
@@ -48,19 +44,6 @@ export const useAuthBootstrap = ({
         if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
 
         void (async () => {
-          const lastSession = await getOwnerSessionV5(authOwnerKey).catch(() => undefined);
-          if (!isActive || callbackGeneration !== authGeneration) return;
-          if (lastSession?.authOwnerKey === authOwnerKey) {
-            try {
-              const sessionIdentity = splitOwnerKey(lastSession.ownerKey);
-              if (sessionIdentity.authOwnerKey === authOwnerKey) {
-                const sessionOwner = ownerRuntime.activate(lastSession.ownerKey);
-                if (sessionOwner.ownerKey !== nextOwner.ownerKey) resetLibraryState();
-              }
-            } catch {
-              // Ignore malformed persisted identity and keep the local namespace.
-            }
-          }
           await restoreLocalData({ preventRedirect: true, replaceBooks: true });
           if (!isActive || callbackGeneration !== authGeneration) return;
           setIsOfflineMode(true);
@@ -115,7 +98,6 @@ export const useAuthBootstrap = ({
     };
   }, [
     isGuestRef,
-    loadLibraryFromDrive,
     restoreLocalData,
     resetLibraryState,
     setIsGuest,

@@ -394,13 +394,13 @@ test('purges every stale session cache for one owner without touching another ow
     }), { status: 200 });
   };
 
-  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:a|drive:p::session-1' });
-  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:a|drive:p::session-2' });
-  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:b|drive:p::session-1' });
+  await getDriveLibraryFolderId('token', { cacheKey: 'drive:p::session-1' });
+  await getDriveLibraryFolderId('token', { cacheKey: 'drive:p::session-2' });
+  await getDriveLibraryFolderId('token', { cacheKey: 'drive:q::session-1' });
   assert.equal(registryReads, 3);
-  invalidateDriveCachesForOwner('firebase:a|drive:p');
-  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:a|drive:p::session-2' });
-  await getDriveLibraryFolderId('token', { cacheKey: 'firebase:b|drive:p::session-1' });
+  invalidateDriveCachesForOwner('drive:p');
+  await getDriveLibraryFolderId('token', { cacheKey: 'drive:p::session-2' });
+  await getDriveLibraryFolderId('token', { cacheKey: 'drive:q::session-1' });
   assert.equal(registryReads, 4);
 });
 

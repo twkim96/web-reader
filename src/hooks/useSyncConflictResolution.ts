@@ -31,7 +31,7 @@ export const useSyncConflictResolution = ({
 
   const refresh = useCallback(async () => {
     const owner = ownerRuntime.capture();
-    if (!user || !owner || owner.storageMode === 'legacy-readonly') {
+    if (!user || !owner) {
       setConflict(null);
       return;
     }

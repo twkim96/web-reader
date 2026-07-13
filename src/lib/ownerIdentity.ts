@@ -1,6 +1,10 @@
 export type AuthOwnerKey = `firebase:${string}` | `guest:${string}`;
-export type LibraryScopeKey = `drive:${string}` | 'library:local';
+export type LibraryScopeKey = 'library:local';
 export type OwnerKey = `${AuthOwnerKey}|${LibraryScopeKey}`;
+
+// Books cached in IndexedDB belong to this browser profile, not to Firebase or
+// to whichever Google Drive account happens to be connected.
+export const DEVICE_CONTENT_OWNER_KEY: OwnerKey = 'guest:device-library|library:local';
 
 // Realtime reading state is owned only by the Firebase account. Drive scopes
 // remain valid for book inventory, downloads, and device-local file caches.
@@ -22,9 +26,6 @@ export const makeFirebaseOwnerKey = (uid: string): AuthOwnerKey =>
 export const makeGuestOwnerKey = (installId: string): AuthOwnerKey =>
   `guest:${requireIdentifier(installId, 'Guest install id')}`;
 
-export const makeDriveScopeKey = (permissionId: string): LibraryScopeKey =>
-  `drive:${requireIdentifier(permissionId, 'Drive permission id')}`;
-
 export const makeOwnerKey = (
   authOwnerKey: AuthOwnerKey,
   libraryScopeKey: LibraryScopeKey,
@@ -33,11 +34,6 @@ export const makeOwnerKey = (
 export const getSyncOwnerKey = (ownerKey: OwnerKey): OwnerKey => {
   const { authOwnerKey } = splitOwnerKey(ownerKey);
   return makeOwnerKey(authOwnerKey, FIREBASE_SYNC_SCOPE_KEY);
-};
-
-export const getLibraryScopeId = (libraryScopeKey: LibraryScopeKey) => {
-  if (libraryScopeKey === 'library:local') return 'local';
-  return encodeURIComponent(libraryScopeKey.slice('drive:'.length));
 };
 
 export const isGuestOwner = (ownerKey: OwnerKey) => ownerKey.startsWith('guest:');

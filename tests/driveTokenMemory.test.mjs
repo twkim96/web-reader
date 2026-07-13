@@ -49,7 +49,7 @@ test('coalesces concurrent GIS token requests and permits a later retry', async 
   });
   const concurrent = requester.run(async () => { starts += 1; });
   assert.equal(first, concurrent);
-  await Promise.resolve();
+  // Popup initialization must stay in the original click activation stack.
   assert.equal(starts, 1);
   release();
   await first;

@@ -161,42 +161,39 @@ try {
   assert.equal(themeBootstrapEarly.rootAccent, '#10b981');
   assert.equal(themeBootstrapEarly.rootBackground, 'rgb(39, 39, 40)');
 
-  await evaluate(`new Promise((resolve, reject) => {
+  await evaluate(`(() => {
     localStorage.setItem('isGuest', 'true');
+    localStorage.setItem('web_reader_guest_install_id', 'browser-regression');
     localStorage.setItem('neverShowInstallPrompt', 'true');
     localStorage.setItem('shelf_viewMode', 'grid');
     localStorage.setItem('shelf_sortMode', 'recent');
     localStorage.removeItem('viewer_settings');
     localStorage.removeItem('last_reader_session');
-    const request = indexedDB.open('web-reader-db', 4);
+    return true;
+  })()`);
+
+  await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    'document.querySelector("h1")?.textContent?.includes("Guest Library")',
+    'empty guest shelf',
+  );
+
+  await evaluate(`new Promise((resolve, reject) => {
+    const request = indexedDB.open('web-reader-db');
     request.onerror = () => reject(request.error);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains('books')) db.createObjectStore('books');
-      if (!db.objectStoreNames.contains('metadata')) {
-        db.createObjectStore('metadata', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('progress')) {
-        db.createObjectStore('progress', { keyPath: 'bookId' });
-      }
-      if (!db.objectStoreNames.contains('archive-inspections')) {
-        db.createObjectStore('archive-inspections', { keyPath: 'bookId' });
-      }
-    };
     request.onsuccess = () => {
       const db = request.result;
       const tx = db.transaction(
-        ['books', 'metadata', 'progress', 'archive-inspections'],
+        ['metadata-v5', 'progress-v5'],
         'readwrite',
       );
-      tx.objectStore('books').clear();
-      tx.objectStore('metadata').clear();
-      tx.objectStore('progress').clear();
-      tx.objectStore('archive-inspections').clear();
-      const metadata = tx.objectStore('metadata');
+      tx.objectStore('metadata-v5').clear();
+      tx.objectStore('progress-v5').clear();
+      const metadata = tx.objectStore('metadata-v5');
       for (let index = 0; index < 1100; index += 1) {
         const suffix = String(index).padStart(4, '0');
         metadata.put({
+          ownerKey: 'guest:device-library|library:local',
           id: 'book-' + suffix,
           name: 'Book ' + suffix + '.epub',
           mimeType: 'application/epub+zip',
@@ -206,23 +203,27 @@ try {
           readerFormat: 'epub',
         });
       }
-      const progress = tx.objectStore('progress');
+      const progress = tx.objectStore('progress-v5');
       progress.put({
+        ownerKey: 'guest:browser-regression|library:local',
         bookId: 'book-0100',
         progressPercent: 50,
         lastRead: Date.parse('2026-06-14T10:00:00Z'),
       });
       progress.put({
+        ownerKey: 'guest:browser-regression|library:local',
         bookId: 'book-0900',
         progressPercent: 50,
         lastRead: Date.parse('2026-06-14T11:00:00Z'),
       });
       progress.put({
+        ownerKey: 'guest:browser-regression|library:local',
         bookId: 'book-0999',
         progressPercent: 100,
         lastRead: Date.parse('2026-06-14T12:00:00Z'),
       });
       progress.put({
+        ownerKey: 'guest:browser-regression|library:local',
         bookId: 'book-0800',
         progressPercent: 0,
         lastRead: Date.parse('2026-06-14T13:00:00Z'),
@@ -236,17 +237,6 @@ try {
   })`);
 
   await command('Page.reload', { ignoreCache: true });
-  await waitFor(
-    `[...document.querySelectorAll('button')].some((button) =>
-      button.textContent?.includes('현재 계정으로 데이터 이전'))`,
-    'legacy migration choice',
-  );
-  await evaluate(`(() => {
-    const button = [...document.querySelectorAll('button')].find((candidate) =>
-      candidate.textContent?.includes('현재 계정으로 데이터 이전'));
-    button?.click();
-    return Boolean(button);
-  })()`);
   await waitFor(
     'document.querySelector("h1")?.textContent?.includes("Guest Library")',
     'guest shelf',
@@ -496,8 +486,7 @@ try {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const ownerKey = 'guest:' + localStorage.getItem('web_reader_guest_install_id')
-        + '|library:local';
+      const ownerKey = 'guest:device-library|library:local';
       const tx = db.transaction('metadata-v5', 'readonly');
       const get = tx.objectStore('metadata-v5').get([ownerKey, 'oversized.cbz']);
       const value = await new Promise((resolve, reject) => {
@@ -532,8 +521,7 @@ try {
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
-      const ownerKey = 'guest:' + localStorage.getItem('web_reader_guest_install_id')
-        + '|library:local';
+      const ownerKey = 'guest:device-library|library:local';
       const tx = db.transaction('metadata-v5', 'readwrite');
       const store = tx.objectStore('metadata-v5');
       const cursorRequest = store.openCursor();
@@ -706,8 +694,7 @@ try {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const ownerKey = 'guest:' + localStorage.getItem('web_reader_guest_install_id')
-        + '|library:local';
+      const ownerKey = 'guest:device-library|library:local';
       const tx = db.transaction('metadata-v5', 'readonly');
       const get = tx.objectStore('metadata-v5').get([ownerKey, 'solid-pages.7z']);
       const value = await new Promise((resolve, reject) => {
@@ -1823,7 +1810,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.7.1';
+    const expectedCache = 'pc-reader-v1.7.2';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1847,7 +1834,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.7.1',
+      '/sw.js?browser-regression=1.7.2',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1890,10 +1877,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.7.1']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.7.2']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.7\.1$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.7\.2$/);
 
   console.log(JSON.stringify({
     shelf: {

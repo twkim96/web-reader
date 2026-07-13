@@ -6,9 +6,6 @@ import {
   V5_ARCHIVE_INSPECTIONS_STORE,
   V5_BOOKS_STORE,
   V5_METADATA_STORE,
-  V5_MIGRATION_META_STORE,
-  V5_OWNER_BINDINGS_STORE,
-  V5_OWNER_SESSION_STORE,
   V5_PROGRESS_STORE,
   V5_REMOTE_HEADS_STORE,
   V5_SYNC_CONFLICTS_STORE,
@@ -17,11 +14,7 @@ import {
   V5_OUTBOX_STORE,
 } from './localDBSchema';
 import type { ArchiveImageIndex } from './archiveImageBook';
-import type {
-  AuthOwnerKey,
-  LibraryScopeKey,
-  OwnerKey,
-} from './ownerIdentity';
+import type { OwnerKey } from './ownerIdentity';
 import { hasEnoughStorageForWrite } from './storageCapacity';
 
 export type StoredBookMetadataV5 = Book & {
@@ -31,49 +24,6 @@ export type StoredBookMetadataV5 = Book & {
 
 export type StoredProgressV5 = UserProgress & { ownerKey: OwnerKey };
 
-export type OwnerBindingV5 = {
-  authOwnerKey: AuthOwnerKey;
-  libraryScopeKey: LibraryScopeKey;
-  permissionId?: string;
-  folderId?: string;
-  verifiedAt: number;
-};
-
-export type OwnerSessionV5 = {
-  authOwnerKey: AuthOwnerKey;
-  ownerKey: OwnerKey;
-  updatedAt: number;
-};
-
-export type MigrationStatusV5 =
-  | 'pending_owner_confirmation'
-  | 'copying'
-  | 'verifying'
-  | 'completed'
-  | 'declined_empty'
-  | 'legacy_read_only'
-  | 'failed';
-
-export type MigrationMetaV5 = {
-  migrationId: string;
-  ownerKey: OwnerKey;
-  status: MigrationStatusV5;
-  sourceCounts: Record<string, number>;
-  copiedCounts: Record<string, number>;
-  sourceContentBytes: number;
-  copiedContentBytes: number;
-  sourceKeyDigest?: string;
-  copiedKeyDigest?: string;
-  lastStore?: string;
-  lastKey?: IDBValidKey;
-  errorName?: string;
-  errorMessage?: string;
-  startedAt: number;
-  completedAt?: number;
-  leaseHolder?: string;
-  leaseEpoch?: number;
-  leaseExpiresAt?: number;
-};
 
 const getContentSize = (content: StoredBookContent) =>
   content instanceof Blob ? content.size : content.byteLength;
@@ -282,39 +232,4 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
   const tx = db.transaction(V5_SYNC_LEASES_STORE, 'readwrite');
   await tx.objectStore(V5_SYNC_LEASES_STORE).delete(ownerKey);
   await tx.done;
-};
-
-export const putOwnerBindingV5 = async (binding: OwnerBindingV5) => {
-  const db = await initDB();
-  await db.put(V5_OWNER_BINDINGS_STORE, binding);
-};
-
-export const getOwnerBindingsV5 = async (authOwnerKey: AuthOwnerKey) => {
-  const db = await initDB();
-  return db.getAllFromIndex(
-    V5_OWNER_BINDINGS_STORE,
-    'by-auth-owner',
-    authOwnerKey,
-  ) as Promise<OwnerBindingV5[]>;
-};
-
-export const putOwnerSessionV5 = async (session: OwnerSessionV5) => {
-  const db = await initDB();
-  await db.put(V5_OWNER_SESSION_STORE, session);
-};
-
-export const getOwnerSessionV5 = async (authOwnerKey: AuthOwnerKey) => {
-  const db = await initDB();
-  return db.get(V5_OWNER_SESSION_STORE, authOwnerKey) as Promise<OwnerSessionV5 | undefined>;
-};
-
-export const putMigrationMetaV5 = async (meta: MigrationMetaV5) => {
-  const db = await initDB();
-  await db.put(V5_MIGRATION_META_STORE, meta);
-};
-
-export const getMigrationMetaV5 = async (migrationId: string) => {
-  const db = await initDB();
-  return db.get(V5_MIGRATION_META_STORE, migrationId) as
-    Promise<MigrationMetaV5 | undefined>;
 };
