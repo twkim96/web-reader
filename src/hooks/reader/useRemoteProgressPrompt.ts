@@ -2,6 +2,7 @@
 
 import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { Bookmark, UserProgress } from '../../types';
+import { decideRemoteProgressAction } from './remoteProgressPolicy';
 
 export type SyncConflict = {
   cfi: string;
@@ -70,35 +71,32 @@ export const useRemoteProgressPrompt = ({
 
     lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
 
-    if (isInitialSync.current) {
-      isInitialSync.current = false;
-      if (remoteAnchorCfi && remoteAnchorCfi !== currentAnchor && remoteTime > lastSaveTimeRef.current) {
-        const initialConflict = {
-          cfi: remoteCfi,
-          anchorCfi: remoteAnchorCfi,
-          percent: remoteProgress.progressPercent,
-          lastRead: remoteTime,
-        };
-        const timeoutId = window.setTimeout(() => setSyncConflict(initialConflict), 0);
-        return () => window.clearTimeout(timeoutId);
-      }
+    const wasInitialSync = isInitialSync.current;
+    isInitialSync.current = false;
+    const action = decideRemoteProgressAction({
+      isInitialSync: wasInitialSync,
+      remoteAnchorCfi,
+      currentAnchorCfi: currentAnchor,
+      remoteTime,
+      lastSaveTime: lastSaveTimeRef.current,
+      remotePercent: remoteProgress.progressPercent,
+      currentPercent: totalProgress,
+    });
+    if (action === 'ignore') return;
+
+    const target = {
+      cfi: remoteCfi,
+      anchorCfi: remoteAnchorCfi,
+      percent: remoteProgress.progressPercent,
+      lastRead: remoteTime,
+    };
+    if (action === 'jump') {
+      void jumpToRemoteProgress(target);
+      return;
     }
 
-    if (remoteAnchorCfi === currentAnchor) return;
-
-    if (remoteAnchorCfi && remoteTime > lastSaveTimeRef.current) {
-      const diff = Math.abs((remoteProgress.progressPercent || 0) - (totalProgress || 0));
-      if (diff > 0.03) {
-        const nextConflict = {
-          cfi: remoteCfi,
-          anchorCfi: remoteAnchorCfi,
-          percent: remoteProgress.progressPercent,
-          lastRead: remoteTime,
-        };
-        const timeoutId = window.setTimeout(() => setSyncConflict(nextConflict), 0);
-        return () => window.clearTimeout(timeoutId);
-      }
-    }
+    const timeoutId = window.setTimeout(() => setSyncConflict(target), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [currentAnchorCfi, currentCfi, isLoaded, jumpToRemoteProgress, lastSaveTimeRef, remoteProgress, totalProgress]);
 
   const dismissSyncConflict = useCallback(() => {
