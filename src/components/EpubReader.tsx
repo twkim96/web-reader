@@ -302,6 +302,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     remoteBookmarks: remoteProgress?.bookmarks,
     viewRef,
     currentCfi,
+    currentAnchorCfi,
     totalProgress,
     markUserProgressChange,
     saveProgressIfChanged,
@@ -927,32 +928,34 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   ]);
 
   const performJump = useCallback(async (targetCfi: string) => {
-    if (!currentCfi || targetCfi === currentCfi) return;
+    const currentLocationCfi = currentAnchorCfi || currentCfi;
+    if (!currentCfi || targetCfi === currentCfi || targetCfi === currentLocationCfi) return;
 
-    const updatedBookmarks = createAutoBookmark(currentCfi, totalProgress);
+    const updatedBookmarks = createAutoBookmark(currentLocationCfi, totalProgress);
     markUserProgressChange({
       forceNextRelocateSave: true,
       bookmarks: updatedBookmarks,
     });
     await goTo(targetCfi);
-  }, [createAutoBookmark, currentCfi, goTo, markUserProgressChange, totalProgress]);
+  }, [createAutoBookmark, currentAnchorCfi, currentCfi, goTo, markUserProgressChange, totalProgress]);
 
   const performJumpToProgress = useCallback(async (targetCfi: string, expectedPercent?: number) => {
-    if (!currentCfi || targetCfi === currentCfi) return;
+    const currentLocationCfi = currentAnchorCfi || currentCfi;
+    if (!currentCfi || targetCfi === currentCfi || targetCfi === currentLocationCfi) return;
 
-    const updatedBookmarks = createAutoBookmark(currentCfi, totalProgress);
+    const updatedBookmarks = createAutoBookmark(currentLocationCfi, totalProgress);
     markUserProgressChange({
       forceNextRelocateSave: true,
       expectedPercent,
       bookmarks: updatedBookmarks,
     });
     await goTo(targetCfi);
-  }, [createAutoBookmark, currentCfi, goTo, markUserProgressChange, totalProgress]);
+  }, [createAutoBookmark, currentAnchorCfi, currentCfi, goTo, markUserProgressChange, totalProgress]);
 
   const performJumpFraction = useCallback(async (fraction: number) => {
     const targetPct = fraction * 100;
     const updatedBookmarks = Math.abs(targetPct - totalProgress) > 5
-      ? createAutoBookmark(currentCfi, totalProgress)
+      ? createAutoBookmark(currentAnchorCfi || currentCfi, totalProgress)
       : undefined;
 
     markUserProgressChange({
@@ -961,7 +964,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       bookmarks: updatedBookmarks,
     });
     await goToFraction(fraction);
-  }, [createAutoBookmark, currentCfi, goToFraction, markUserProgressChange, totalProgress]);
+  }, [createAutoBookmark, currentAnchorCfi, currentCfi, goToFraction, markUserProgressChange, totalProgress]);
 
   const handleJump = useCallback(() => {
     const trimmed = chrome.jumpInput.trim();

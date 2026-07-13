@@ -108,7 +108,7 @@ export const useRemoteProgressPrompt = ({
     const currentAnchor = currentAnchorCfi || currentCfi;
     const targetAnchor = syncConflict.anchorCfi || syncConflict.cfi;
     if (currentCfi && targetAnchor !== currentAnchor) {
-      createAutoBookmark?.(currentCfi, totalProgress);
+      createAutoBookmark?.(currentAnchor, totalProgress);
     }
     void jumpToRemoteProgress(syncConflict, { claimDevice: true });
     setSyncConflict(null);

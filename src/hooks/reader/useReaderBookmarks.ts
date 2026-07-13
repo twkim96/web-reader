@@ -1,7 +1,8 @@
 'use client';
 
 import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'react';
-import { Bookmark } from '../../types';
+import { Bookmark, SaveProgressOptions } from '../../types';
+import { getAutoBookmarkName, getBookmarkPosition } from './bookmarkPositionPolicy';
 
 type FoliateContentRef = MutableRefObject<{
   renderer?: {
@@ -14,26 +15,41 @@ interface UseReaderBookmarksOptions {
   remoteBookmarks?: Bookmark[];
   viewRef: FoliateContentRef;
   currentCfi: string;
+  currentAnchorCfi: string;
   totalProgress: number;
   markUserProgressChange: () => void;
-  saveProgressIfChanged: (cfi: string, pct: number, nextBookmarks: Bookmark[]) => boolean;
+  saveProgressIfChanged: (
+    cfi: string,
+    pct: number,
+    nextBookmarks: Bookmark[],
+    options?: SaveProgressOptions,
+  ) => boolean;
 }
 
 const sortByNewest = (items: Bookmark[]) => (
   [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 );
 
+const normalizeAutoBookmarkNames = (items: Bookmark[]) => items.map((bookmark) => (
+  bookmark.type === 'auto'
+    ? { ...bookmark, name: getAutoBookmarkName(bookmark.name) }
+    : bookmark
+));
+
 export const useReaderBookmarks = ({
   initialBookmarks,
   remoteBookmarks,
   viewRef,
   currentCfi,
+  currentAnchorCfi,
   totalProgress,
   markUserProgressChange,
   saveProgressIfChanged,
 }: UseReaderBookmarksOptions) => {
-  const [bookmarks, setBookmarksState] = useState<Bookmark[]>(initialBookmarks || []);
-  const bookmarksRef = useRef<Bookmark[]>(initialBookmarks || []);
+  const [bookmarks, setBookmarksState] = useState<Bookmark[]>(() => (
+    normalizeAutoBookmarkNames(initialBookmarks || [])
+  ));
+  const bookmarksRef = useRef<Bookmark[]>(normalizeAutoBookmarkNames(initialBookmarks || []));
 
   const setBookmarks = useCallback((nextBookmarks: Bookmark[]) => {
     bookmarksRef.current = nextBookmarks;
@@ -72,25 +88,31 @@ export const useReaderBookmarks = ({
   const addBookmark = useCallback(() => {
     if (!currentCfi) return;
     markUserProgressChange();
+    const position = getBookmarkPosition(currentCfi, currentAnchorCfi);
 
     const newMark: Bookmark = {
       id: crypto.randomUUID(),
       type: 'manual',
       name: getPreviewText(),
-      cfi: currentCfi,
+      cfi: position.bookmarkCfi,
       progressPercent: totalProgress,
       createdAt: Date.now(),
       color: '#f59e0b',
     };
     const updated = setBookmarks([newMark, ...bookmarksRef.current]);
-    saveProgressIfChanged(currentCfi, totalProgress, updated);
-  }, [currentCfi, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+    saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
+      anchorCfi: position.anchorCfi,
+    });
+  }, [currentAnchorCfi, currentCfi, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
 
   const deleteBookmark = useCallback((id: string) => {
     markUserProgressChange();
     const updated = setBookmarks(bookmarksRef.current.filter((bookmark) => bookmark.id !== id));
-    saveProgressIfChanged(currentCfi, totalProgress, updated);
-  }, [currentCfi, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+    const position = getBookmarkPosition(currentCfi, currentAnchorCfi);
+    saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
+      anchorCfi: position.anchorCfi,
+    });
+  }, [currentAnchorCfi, currentCfi, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
 
   const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
     if (!prevCfi) return bookmarksRef.current;
@@ -98,7 +120,7 @@ export const useReaderBookmarks = ({
     const autoMark: Bookmark = {
       id: crypto.randomUUID(),
       type: 'auto',
-      name: `이전 위치: ${getPreviewText()}`,
+      name: getAutoBookmarkName(getPreviewText()),
       cfi: prevCfi,
       progressPercent: prevPct,
       createdAt: Date.now(),

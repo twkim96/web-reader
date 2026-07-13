@@ -1,4 +1,4 @@
-# Web Reader 1.7.5 동기화 경쟁 조건 및 1.7.5.1 이어읽기 UX
+# Web Reader 1.7.5 동기화 안정화와 1.7.5.2 북마크 위치 보정
 
 작성일: 2026-07-13
 
@@ -28,6 +28,15 @@
 | GitHub Actions Node runtime 경고 | 보류 | 런타임 결함이 아니며 workflow 수정은 push 권한 범위를 다시 요구하므로 별도 CI 정리로 분리 |
 
 ## 구현
+
+### 1.7.5.2 북마크 정밀 위치
+
+- 수동 북마크는 화면 범위 CFI가 아니라 viewport 시작점을 나타내는 `anchorCfi`를 우선 저장한다.
+- 북마크 추가·삭제 시 진행률의 range `cfi`와 정밀 `anchorCfi`를 분리해 저장하여 재개 위치를 덮어쓰지 않는다.
+- TOC·검색·슬라이더·원격 위치 선택 전에 만드는 자동 북마크도 `anchorCfi`를 우선 사용한다.
+- 자동 북마크 이름에서 `이전 위치:` 접두어를 제거한다.
+- anchor가 없는 구형 relocate 이벤트는 기존 range CFI로 안전하게 fallback한다.
+- Service Worker cache를 `pc-reader-v1.7.5.2`로 올린다.
 
 ### 1.7.5.1 첫 원격 이어읽기 복원
 
@@ -75,6 +84,7 @@
 - [x] 동일 Drive session single-flight 및 이전 session abort/generation 테스트
 - [x] warm cache 뒤 최초 server full hydration 테스트
 - [x] 첫 원격 진행률 자동 이동과 후속 확인창 정책 테스트
+- [x] 수동·자동 북마크 anchor 우선 및 접두어 제거 정책 테스트
 - [x] IndexedDB v7 인덱스 기반 claim/recovery/conflict 기존 회귀 테스트
 - [x] TypeScript typecheck
 - [x] ESLint 오류 0건(기존 Foliate vendor 경고 2건)
@@ -85,11 +95,11 @@
 
 ## 자동검증 결과
 
-- 전체 Node 테스트 204개 통과(저장소·동기화 56개, 이어읽기 정책 4개 포함)
-- Next.js 1.7.5.1 production build 통과
+- 전체 Node 테스트 207개 통과(저장소·동기화 56개, 이어읽기 4개, 북마크 위치 3개 포함)
+- Next.js 1.7.5.2 production build 통과
 - Firestore Emulator rules/transaction 테스트 9개 통과
 - Playwright Chromium/WebKit 10개 통과
-- production Chrome browser regression 최종 통과 및 `pc-reader-v1.7.5.1` service worker cache 확인
+- production Chrome browser regression 통과 및 `pc-reader-v1.7.5.2` service worker cache 확인
 - 샌드박스 내부에서는 로컬 포트 제한으로 build helper·emulator·browser server가 차단되어, 동일 명령을 권한 확장 환경에서 재실행해 통과 확인
 
 ## 실기기 확인
