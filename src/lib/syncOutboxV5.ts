@@ -1175,7 +1175,14 @@ export const getPausedSyncSummaryV5 = async (
   };
 };
 
-const resumableAuthCodes = new Set(['unauthenticated', 'auth/user-token-expired']);
+// A permission error may be caused by an app/rules deployment race. Retry it
+// once when a fresh app session or online transition starts; persistent errors
+// pause again and remain visible instead of polling continuously.
+const resumableAuthCodes = new Set([
+  'unauthenticated',
+  'auth/user-token-expired',
+  'permission-denied',
+]);
 
 export const resumePausedAuthEventsV5 = async (
   ownerKey: OwnerKey,

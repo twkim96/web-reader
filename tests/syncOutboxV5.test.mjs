@@ -94,7 +94,7 @@ test('coalesces only the last same-session pending progress.set', async () => {
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).nextSequence, 2);
 });
 
-test('reports paused sync and resumes authentication failures only', async () => {
+test('reports paused sync and resumes recoverable auth or rules deployment failures', async () => {
   await enqueue(ownerA, { eventId: 'auth-event' });
   const authClaim = await claimNext(10);
   await pauseProgressEventV5(
@@ -120,10 +120,10 @@ test('reports paused sync and resumes authentication failures only', async () =>
     count: 2,
     errorCodes: ['unauthenticated', 'permission-denied'],
   });
-  assert.equal(await resumePausedAuthEventsV5(ownerA, 20), 1);
+  assert.equal(await resumePausedAuthEventsV5(ownerA, 20), 2);
   const events = await getOutboxEventsV5(ownerA);
   assert.equal(events.find(({ eventId }) => eventId === 'auth-event').status, 'pending');
-  assert.equal(events.find(({ eventId }) => eventId === 'permission-event').status, 'paused');
+  assert.equal(events.find(({ eventId }) => eventId === 'permission-event').status, 'pending');
 });
 
 test('adopts a verified remote position locally without creating an outbox event', async () => {
