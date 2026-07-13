@@ -1,19 +1,56 @@
-import { Dispatch, SetStateAction, useEffect } from 'react';
+import { Dispatch, SetStateAction, useEffect, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
+import { ViewState } from '../types';
 
 interface UseNetworkLibrarySyncOptions {
   user: FirebaseUser | null;
   googleToken: string | null;
+  driveSessionId: string | null;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
-  loadLibraryFromDrive: (token: string) => Promise<boolean>;
+  setView: Dispatch<SetStateAction<ViewState>>;
+  loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
 }
 
 export const useNetworkLibrarySync = ({
   user,
   googleToken,
+  driveSessionId,
   setIsOfflineMode,
+  setView,
   loadLibraryFromDrive,
 }: UseNetworkLibrarySyncOptions) => {
+  const loadedDriveSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      !user
+      || !googleToken
+      || !driveSessionId
+      || loadedDriveSessionRef.current === driveSessionId
+    ) return;
+    loadedDriveSessionRef.current = driveSessionId;
+    let active = true;
+    window.queueMicrotask(() => {
+      if (!active) return;
+      setView('loading');
+      void loadLibraryFromDrive(googleToken, driveSessionId).then((isSuccess) => {
+        if (!active) return;
+        if (!isSuccess) setIsOfflineMode(true);
+        setView('shelf');
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    driveSessionId,
+    googleToken,
+    loadLibraryFromDrive,
+    setIsOfflineMode,
+    setView,
+    user,
+  ]);
+
   useEffect(() => {
     const handleOnline = () => {
       if (!user || !googleToken) return;

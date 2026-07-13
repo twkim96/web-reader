@@ -4,8 +4,6 @@ import assert from 'node:assert/strict';
 import {
   clearLegacyDriveTokenArtifacts,
   DriveTokenMemory,
-  DriveTokenRequestSingleFlight,
-  hasLegacyOAuthFragment,
 } from '../src/lib/driveTokenMemory.ts';
 
 const fakeStorage = () => {
@@ -27,39 +25,28 @@ test('clears only the exact legacy Drive token keys from both web storages', () 
   assert.deepEqual(session.removed, expected);
 });
 
-test('keeps bearer token and expiry only in memory with a safety margin', () => {
+test('snapshots and restores a short-lived Drive session with a safety margin', () => {
   const memory = new DriveTokenMemory();
   assert.equal(memory.save('secret-token', 120, 1_000, () => 'session-1'), 'session-1');
   assert.equal(memory.getToken(), 'secret-token');
   assert.equal(memory.getSessionId(), 'session-1');
   assert.equal(memory.isValid(90_999), true);
   assert.equal(memory.isValid(91_000), false);
+  const snapshot = memory.snapshot();
+  const restored = new DriveTokenMemory();
+  assert.equal(restored.restore(snapshot, 90_999), true);
+  assert.equal(restored.getToken(), 'secret-token');
+  assert.equal(restored.getSessionId(), 'session-1');
+  assert.equal(restored.restore(snapshot, 91_000), false);
+  assert.equal(restored.getToken(), null);
   memory.clear();
   assert.equal(memory.getToken(), null);
   assert.equal(memory.getSessionId(), null);
 });
 
-test('coalesces concurrent GIS token requests and permits a later retry', async () => {
-  const requester = new DriveTokenRequestSingleFlight();
-  let starts = 0;
-  let release;
-  const first = requester.run(() => {
-    starts += 1;
-    return new Promise((resolve) => { release = resolve; });
-  });
-  const concurrent = requester.run(async () => { starts += 1; });
-  assert.equal(first, concurrent);
-  // Popup initialization must stay in the original click activation stack.
-  assert.equal(starts, 1);
-  release();
-  await first;
-  await requester.run(async () => { starts += 1; });
-  assert.equal(starts, 2);
-});
-
-test('recognizes only legacy OAuth result fragments that require removal', () => {
-  assert.equal(hasLegacyOAuthFragment('#access_token=secret&state=x'), true);
-  assert.equal(hasLegacyOAuthFragment('#error=access_denied'), true);
-  assert.equal(hasLegacyOAuthFragment('#chapter-3'), false);
-  assert.equal(hasLegacyOAuthFragment('#chapter-error=example'), false);
+test('rejects malformed persisted Drive sessions', () => {
+  const memory = new DriveTokenMemory();
+  assert.equal(memory.restore({ token: 'secret', expiresAt: 'later', sessionId: 's' }, 1), false);
+  assert.equal(memory.restore({ token: '', expiresAt: 100, sessionId: 's' }, 1), false);
+  assert.equal(memory.restore({ token: 'secret', expiresAt: 100, sessionId: '' }, 1), false);
 });

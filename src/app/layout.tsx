@@ -1,6 +1,5 @@
 // src/app/layout.tsx
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 import "./globals.css";
 
 const themeBootstrapScript = `
@@ -155,7 +154,6 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         {children}
       </body>
     </html>

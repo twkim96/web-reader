@@ -1,5 +1,12 @@
 export const LEGACY_DRIVE_TOKEN_KEY = 'google_drive_token';
 export const LEGACY_DRIVE_EXPIRY_KEY = 'google_drive_token_expiry';
+export const DRIVE_TOKEN_SESSION_KEY = 'google_drive_session_v2';
+
+export type DriveTokenSnapshot = {
+  token: string;
+  expiresAt: number;
+  sessionId: string;
+};
 
 type TokenStorage = Pick<Storage, 'removeItem'>;
 
@@ -11,11 +18,6 @@ export const clearLegacyDriveTokenArtifacts = (
     storage.removeItem(LEGACY_DRIVE_TOKEN_KEY);
     storage.removeItem(LEGACY_DRIVE_EXPIRY_KEY);
   }
-};
-
-export const hasLegacyOAuthFragment = (hash: string) => {
-  const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
-  return params.has('access_token') || params.has('error');
 };
 
 export class DriveTokenMemory {
@@ -41,6 +43,39 @@ export class DriveTokenMemory {
     this.sessionId = null;
   }
 
+  restore(snapshot: unknown, now = Date.now()) {
+    if (
+      typeof snapshot !== 'object'
+      || snapshot === null
+      || !('token' in snapshot)
+      || typeof snapshot.token !== 'string'
+      || snapshot.token.length === 0
+      || !('expiresAt' in snapshot)
+      || typeof snapshot.expiresAt !== 'number'
+      || !Number.isFinite(snapshot.expiresAt)
+      || snapshot.expiresAt <= now
+      || !('sessionId' in snapshot)
+      || typeof snapshot.sessionId !== 'string'
+      || snapshot.sessionId.length === 0
+    ) {
+      this.clear();
+      return false;
+    }
+    this.token = snapshot.token;
+    this.expiresAt = snapshot.expiresAt;
+    this.sessionId = snapshot.sessionId;
+    return true;
+  }
+
+  snapshot(): DriveTokenSnapshot | null {
+    if (!this.token || !this.sessionId || this.expiresAt <= 0) return null;
+    return {
+      token: this.token,
+      expiresAt: this.expiresAt,
+      sessionId: this.sessionId,
+    };
+  }
+
   getToken() {
     return this.token;
   }
@@ -51,20 +86,5 @@ export class DriveTokenMemory {
 
   isValid(now = Date.now()) {
     return Boolean(this.token && now < this.expiresAt);
-  }
-}
-
-export class DriveTokenRequestSingleFlight {
-  private pending: Promise<void> | null = null;
-
-  run(start: () => Promise<void>) {
-    if (this.pending) return this.pending;
-    // GIS popup APIs must run in the original user activation stack. Deferring
-    // start() to a microtask makes Safari and some Android browsers block it.
-    const pending = start().finally(() => {
-      if (this.pending === pending) this.pending = null;
-    });
-    this.pending = pending;
-    return pending;
   }
 }

@@ -4,15 +4,6 @@ const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'web-no
 const firebaseAuthHost = `${firebaseProjectId}.firebaseapp.com`;
 
 const nextConfig: NextConfig = {
-  async headers() {
-    return [{
-      source: '/:path*',
-      headers: [{
-        key: 'Cross-Origin-Opener-Policy',
-        value: 'same-origin-allow-popups',
-      }],
-    }];
-  },
   async rewrites() {
     return [
       {

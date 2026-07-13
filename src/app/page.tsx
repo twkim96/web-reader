@@ -24,7 +24,7 @@ import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/lo
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
-import { useGoogleDriveConnection } from '../hooks/useGoogleDriveConnection';
+import { useDriveOAuthRedirect } from '../hooks/useDriveOAuthRedirect';
 import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
 import { useLibraryData } from '../hooks/useLibraryData';
 import { useNetworkLibrarySync } from '../hooks/useNetworkLibrarySync';
@@ -51,6 +51,7 @@ import {
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
 import { useServiceWorkerUpdate } from '../hooks/useServiceWorkerUpdate';
+import { mergeLatestProgressForDisplay } from '../lib/progressDisplay';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -195,6 +196,10 @@ export default function Page() {
     onLibraryError: setAuthErrorMessage,
     driveSessionId,
   });
+  const shelfProgress = useMemo(
+    () => mergeLatestProgressForDisplay(progress, remoteProgress),
+    [progress, remoteProgress],
+  );
 
   useAuthBootstrap({
     isGuestRef,
@@ -224,14 +229,15 @@ export default function Page() {
   useNetworkLibrarySync({
     user,
     googleToken,
-    setIsOfflineMode,
-    loadLibraryFromDrive,
-  });
-  const startDriveOAuth = useGoogleDriveConnection({
-    saveToken,
+    driveSessionId,
     setIsOfflineMode,
     setView,
     loadLibraryFromDrive,
+  });
+  const startDriveOAuth = useDriveOAuthRedirect({
+    saveToken,
+    setIsOfflineMode,
+    setView,
     setAuthErrorMessage,
   });
 
@@ -503,7 +509,7 @@ export default function Page() {
       {view === 'shelf' && (
         <Shelf
           books={books}
-          progress={progress}
+          progress={shelfProgress}
           googleToken={googleToken}
           driveCacheKey={driveCacheKey}
           onRefresh={() => !isOfflineMode && googleToken && loadLibraryFromDrive(googleToken)}

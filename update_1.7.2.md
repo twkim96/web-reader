@@ -1,5 +1,7 @@
 # Web Reader 1.7.2 개발·검증 계획
 
+> 2026-07-13: 실기기에서 확인된 shelf remote 표시와 Drive popup 회귀는 [update_1.7.3.md](./update_1.7.3.md)에서 수정했다.
+
 작성일: 2026-07-13
 목표: 마이그레이션을 종료하고 Google Drive 도서 저장소와 Firebase 읽기 상태 동기화를 완전히 분리한다.
 

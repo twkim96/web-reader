@@ -77,15 +77,15 @@ Google 로그인은 `signInWithRedirect`를 사용합니다. 배포 도메인에
 * Google Cloud OAuth redirect URI 형식: `https://<배포도메인>/__/auth/handler`
 
 ### Google Drive OAuth
-Cloud Library 연결은 Google Identity Services token client의 계정 선택 팝업으로 access token을 요청합니다. Drive 연결에는 OAuth redirect URI보다 배포 도메인을 Google Cloud OAuth 클라이언트의 **승인된 JavaScript 원본**에 등록하는 것이 핵심입니다.
+Cloud Library 연결은 설치형 브라우저와 팝업 차단 환경을 위해 Google OAuth 페이지로 이동하는 redirect 방식으로 access token을 요청합니다.
 
-* Drive token client는 백엔드 token 교환 없이 access token을 받는 팝업 방식입니다. Firebase의 페이지 redirect 로그인과는 서로 다른 인증 흐름입니다.
-* `next.config.ts`는 팝업과 원래 창의 통신이 브라우저 COOP 정책에 차단되지 않도록 `Cross-Origin-Opener-Policy: same-origin-allow-popups`를 설정합니다.
+* Google Cloud OAuth 클라이언트의 승인된 redirect URI에 배포 주소를 등록합니다. 예: `https://twreader.vercel.app/`
+* 연결 버튼을 누르면 같은 창에서 Google 계정 선택 페이지로 이동하고, 완료 뒤 원래 앱으로 돌아옵니다. GIS 팝업과 `window.closed` 통신은 사용하지 않습니다.
 * OAuth 동의 화면에 `drive.file`, `drive.readonly`, `drive.appdata` 범위를 등록합니다.
 * `drive.readonly`는 제한된 범위이므로 공개 서비스는 Google OAuth 검증 요구사항을 확인해야 합니다.
 * 각 Drive 계정의 확정된 `web viewer` 폴더 ID는 숨겨진 appData 설정에 저장되어 다른 기기에서도 재사용됩니다.
-* Drive access token과 만료 시각은 메모리에만 유지하며 localStorage, sessionStorage와 IndexedDB에 저장하지 않습니다.
-* 새로고침이나 token 만료·401 뒤에도 검증된 로컬 서재와 Firebase 진행률은 사용할 수 있지만, Drive 목록 갱신·다운로드·업로드에는 팝업 재연결이 필요할 수 있습니다.
+* Drive access token과 만료 시각은 현재 탭의 `sessionStorage`에만 보관합니다. 같은 탭의 새로고침에서는 Drive 목록을 자동 복구하지만 탭을 닫거나 token이 만료되면 다시 연결해야 하며, `localStorage`와 IndexedDB에는 저장하지 않습니다.
+* token 만료·401 뒤에도 검증된 로컬 서재와 Firebase 진행률은 사용할 수 있지만, Drive 목록 갱신·다운로드·업로드에는 팝업 재연결이 필요합니다.
 * token이 바뀌거나 만료되면 Drive session cache를 폐기하며 계정 전환 시 폴더가 섞이지 않습니다.
 * Drive 연결·해제·계정 교체는 도서 목록과 Drive 요청에만 영향을 주며 Firebase 진행률 listener, outbox, conflict 상태는 유지됩니다.
 * 앱은 Drive 전체를 목록에 표시하지 않고 확정된 폴더의 직접 자식만 조회합니다.
