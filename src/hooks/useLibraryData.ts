@@ -31,6 +31,7 @@ import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import {
   makeDriveScopeKey,
   makeOwnerKey,
+  getSyncOwnerKey,
   splitOwnerKey,
 } from '../lib/ownerIdentity';
 import { Book, UserProgress, ViewState } from '../types';
@@ -40,6 +41,7 @@ import {
   RemoteProgressDoc,
   toProgressPercent,
 } from './progressPolicy';
+import { FIREBASE_SYNC_SCOPE_MIGRATED_EVENT_V170 } from '../lib/firebaseSyncScopeMigrationV170';
 
 interface UseLibraryDataOptions {
   clearToken: () => void;
@@ -100,6 +102,31 @@ export const useLibraryData = ({
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
+  useEffect(() => {
+    const handleMigration = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        targetOwnerKey?: string;
+        progress?: UserProgress[];
+      }>).detail;
+      const owner = ownerRuntime.capture();
+      if (!owner || detail?.targetOwnerKey !== getSyncOwnerKey(owner.ownerKey)) return;
+      const migrated = detail.progress ?? [];
+      if (migrated.length === 0) return;
+      setProgress((previous) => {
+        const next = { ...previous };
+        for (const item of migrated) {
+          if (!next[item.bookId] || item.lastRead > next[item.bookId].lastRead) {
+            next[item.bookId] = item;
+          }
+        }
+        progressRef.current = next;
+        return next;
+      });
+    };
+    window.addEventListener(FIREBASE_SYNC_SCOPE_MIGRATED_EVENT_V170, handleMigration);
+    return () => window.removeEventListener(FIREBASE_SYNC_SCOPE_MIGRATED_EVENT_V170, handleMigration);
+  }, []);
 
   const resetLibraryState = useCallback(() => {
     progressRef.current = {};
@@ -165,7 +192,7 @@ export const useLibraryData = ({
           : getAllOfflineBooksV5(owner.ownerKey),
         owner.storageMode === 'legacy-readonly'
           ? getAllLocalProgress()
-          : getAllLocalProgressV5(owner.ownerKey),
+          : getAllLocalProgressV5(getSyncOwnerKey(owner.ownerKey)),
       ]);
       if (!ownerRuntime.isCurrent(owner)) return false;
 
@@ -221,7 +248,7 @@ export const useLibraryData = ({
         const cloudTime = getTimestampMs(cloudData.lastRead, 0);
         const localBookmarks = progressRef.current[bookId]?.bookmarks || [];
 
-        await saveProgressToLocalV5(owner.ownerKey, {
+        await saveProgressToLocalV5(getSyncOwnerKey(owner.ownerKey), {
           bookId,
           cfi: cloudData.cfi || '',
           anchorCfi: cloudData.anchorCfi || cloudData.cfi || '',

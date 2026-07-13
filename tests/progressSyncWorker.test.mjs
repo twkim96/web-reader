@@ -11,10 +11,16 @@ const {
   enqueueProgressEventV5,
   getOutboxEventsV5,
 } = await import('../src/lib/syncOutboxV5.ts');
-const { makeFirebaseOwnerKey, makeOwnerKey } = await import('../src/lib/ownerIdentity.ts');
+const {
+  getSyncOwnerKey,
+  makeDriveScopeKey,
+  makeFirebaseOwnerKey,
+  makeOwnerKey,
+} = await import('../src/lib/ownerIdentity.ts');
 
 const ownerA = makeOwnerKey(makeFirebaseOwnerKey('a'), 'library:local');
 const ownerB = makeOwnerKey(makeFirebaseOwnerKey('b'), 'library:local');
+const driveOwnerA = makeOwnerKey(makeFirebaseOwnerKey('a'), makeDriveScopeKey('drive-a'));
 const position = { cfi: 'cfi', anchorCfi: null, progressPercent: 10 };
 
 const resetDatabase = async () => {
@@ -121,4 +127,18 @@ test('a second tab cannot claim while the first lease is live', async () => {
   assert.equal(await first.flushOne(10), 'apply');
   await seed();
   assert.equal(await second.flushOne(11), 'not_leader');
+});
+
+test('a Drive content owner flushes the Firebase canonical sync queue', async () => {
+  await seed();
+  const owner = ownerRuntime.activate(driveOwnerA);
+  const worker = new ProgressSyncWorker(
+    owner,
+    'tab-a',
+    async () => applied,
+    {},
+    getSyncOwnerKey(driveOwnerA),
+  );
+  assert.equal(await worker.flushOne(10), 'apply');
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
 });

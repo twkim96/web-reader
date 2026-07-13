@@ -4,8 +4,12 @@ import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { UserProgress } from '../types';
-import { splitOwnerKey } from '../lib/ownerIdentity';
-import { getV2HistoryPath, parseBookmarkHeadV2, parseProgressHeadV2 } from '../lib/progressV2Schema';
+import { getSyncOwnerKey, splitOwnerKey } from '../lib/ownerIdentity';
+import {
+  getFirebaseSyncHistoryPath,
+  parseBookmarkHeadV2,
+  parseProgressHeadV2,
+} from '../lib/progressV2Schema';
 import {
   recordRemoteBookmarkMissingV5,
   recordRemoteMissingV5,
@@ -48,8 +52,11 @@ export const useProgressSync = ({
     if (!owner) return;
     if (owner.storageMode === 'legacy-readonly') return;
 
-    const { libraryScopeKey } = splitOwnerKey(owner.ownerKey);
-    const v2Ref = collection(db, getV2HistoryPath(APP_ID, user.uid, libraryScopeKey));
+    const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
+    if (authOwnerKey !== `firebase:${user.uid}`) return;
+    const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
+    const firebaseHistoryPath = getFirebaseSyncHistoryPath(APP_ID, user.uid);
+    const v2Ref = collection(db, firebaseHistoryPath);
     const v1Ref = collection(db, 'artifacts', APP_ID, 'users', user.uid, 'readingHistory');
 
     const enqueueSnapshot = (work: () => Promise<void>) => {
@@ -65,12 +72,12 @@ export const useProgressSync = ({
         for (const change of snapshot.docChanges()) {
           if (change.doc.metadata.hasPendingWrites) continue;
           if (change.type === 'removed') {
-            await recordRemoteMissingV5(owner.ownerKey, change.doc.id);
+            await recordRemoteMissingV5(syncOwnerKey, change.doc.id);
             continue;
           }
           try {
             const head = parseProgressHeadV2(change.doc.data());
-            await storeRemoteProgressHeadV5(owner.ownerKey, head);
+            await storeRemoteProgressHeadV5(syncOwnerKey, head);
             if (head.acceptedDeviceId === deviceId.current) continue;
             const serverTime = getTimestampMs(head.updatedAtServer, 0);
             remoteUpdates[head.bookId] = head.operation === 'reset'
@@ -108,7 +115,7 @@ export const useProgressSync = ({
           const raw = change.doc.data() as RemoteProgressDoc;
           const bookId = raw.bookId || change.doc.id;
           const fingerprint = fingerprintLegacyV1Document(bookId, raw);
-          if (!await claimLegacyV1CandidateV5(owner.ownerKey, bookId, fingerprint)) continue;
+          if (!await claimLegacyV1CandidateV5(syncOwnerKey, bookId, fingerprint)) continue;
           const localBookmarks = progressRef.current[bookId]?.bookmarks ?? [];
           legacyCandidates[bookId] = {
             bookId,
@@ -126,7 +133,7 @@ export const useProgressSync = ({
 
     const unsubscribeBookmarks = activeBookId
       ? onSnapshot(
-        collection(doc(db, getV2HistoryPath(APP_ID, user.uid, libraryScopeKey), activeBookId), 'bookmarks'),
+        collection(doc(db, firebaseHistoryPath, activeBookId), 'bookmarks'),
         { includeMetadataChanges: true },
         (snapshot) => {
           enqueueSnapshot(async () => {
@@ -140,7 +147,7 @@ export const useProgressSync = ({
               if (change.doc.metadata.hasPendingWrites) continue;
               if (change.type === 'removed') {
                 await recordRemoteBookmarkMissingV5(
-                  owner.ownerKey,
+                  syncOwnerKey,
                   activeBookId,
                   change.doc.id,
                 );
@@ -148,7 +155,7 @@ export const useProgressSync = ({
               }
               try {
                 const head = parseBookmarkHeadV2(change.doc.data());
-                await storeRemoteBookmarkHeadV5(owner.ownerKey, head);
+                await storeRemoteBookmarkHeadV5(syncOwnerKey, head);
                 if (head.acceptedDeviceId === deviceId.current) continue;
                 changed = true;
                 if (head.operation === 'delete') {

@@ -1,5 +1,5 @@
 import type { LibraryScopeKey } from './ownerIdentity';
-import { getLibraryScopeId } from './ownerIdentity';
+import { FIREBASE_SYNC_SCOPE_KEY, getLibraryScopeId } from './ownerIdentity';
 
 export type ProgressPositionV2 = {
   cfi: string;
@@ -213,6 +213,10 @@ export const getV2HistoryPath = (
   uid: string,
   libraryScopeKey: LibraryScopeKey,
 ) => `artifacts/${appId}/users/${uid}/libraries/${getLibraryScopeId(libraryScopeKey)}/readingHistoryV2`;
+
+export const getFirebaseSyncHistoryPath = (appId: string, uid: string) => (
+  getV2HistoryPath(appId, uid, FIREBASE_SYNC_SCOPE_KEY)
+);
 
 export const progressTargetKeyV2 = (bookId: string) => `progress:${bookId}`;
 export const bookmarkTargetKeyV2 = (bookId: string, bookmarkId: string) => (

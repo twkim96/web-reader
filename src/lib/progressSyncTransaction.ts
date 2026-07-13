@@ -5,9 +5,8 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
-import type { LibraryScopeKey } from './ownerIdentity';
 import {
-  getV2HistoryPath,
+  getFirebaseSyncHistoryPath,
   isEventReceiptV2,
   isProgressHeadV2,
   progressTargetKeyV2,
@@ -95,17 +94,15 @@ export const decideProgressTransaction = ({
 export const applyProgressEventTransaction = async ({
   event,
   uid,
-  libraryScopeKey,
   firestore,
   sdk = defaultFirestoreSDK,
 }: {
   event: ProgressOutboxEventV5;
   uid: string;
-  libraryScopeKey: LibraryScopeKey;
   firestore: Firestore;
   sdk?: ProgressFirestoreSDK;
 }) => {
-  const historyPath = getV2HistoryPath(APP_ID, uid, libraryScopeKey);
+  const historyPath = getFirebaseSyncHistoryPath(APP_ID, uid);
   const headRef = sdk.doc(firestore, historyPath, event.target.bookId);
   const receiptRef = sdk.doc(headRef, 'eventReceipts', event.eventId);
 

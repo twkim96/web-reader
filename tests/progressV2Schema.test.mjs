@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   bookmarkTargetKeyV2,
+  getFirebaseSyncHistoryPath,
   getV1HistoryPath,
   getV2HistoryPath,
   isBookmarkHeadV2,
@@ -31,6 +32,10 @@ test('builds v1 and owner-scoped v2 paths without raw separators', () => {
   assert.equal(
     getV2HistoryPath('app', 'user', 'drive:permission/id'),
     'artifacts/app/users/user/libraries/permission%2Fid/readingHistoryV2',
+  );
+  assert.equal(
+    getFirebaseSyncHistoryPath('app', 'user'),
+    'artifacts/app/users/user/libraries/local/readingHistoryV2',
   );
   assert.equal(progressTargetKeyV2('b'), 'progress:b');
   assert.equal(bookmarkTargetKeyV2('b', 'm'), 'bookmark:b:m');

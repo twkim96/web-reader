@@ -2,6 +2,10 @@ export type AuthOwnerKey = `firebase:${string}` | `guest:${string}`;
 export type LibraryScopeKey = `drive:${string}` | 'library:local';
 export type OwnerKey = `${AuthOwnerKey}|${LibraryScopeKey}`;
 
+// Realtime reading state is owned only by the Firebase account. Drive scopes
+// remain valid for book inventory, downloads, and device-local file caches.
+export const FIREBASE_SYNC_SCOPE_KEY: LibraryScopeKey = 'library:local';
+
 export const GUEST_INSTALL_ID_KEY = 'web_reader_guest_install_id';
 
 const requireIdentifier = (value: string, label: string) => {
@@ -25,6 +29,11 @@ export const makeOwnerKey = (
   authOwnerKey: AuthOwnerKey,
   libraryScopeKey: LibraryScopeKey,
 ): OwnerKey => `${authOwnerKey}|${libraryScopeKey}`;
+
+export const getSyncOwnerKey = (ownerKey: OwnerKey): OwnerKey => {
+  const { authOwnerKey } = splitOwnerKey(ownerKey);
+  return makeOwnerKey(authOwnerKey, FIREBASE_SYNC_SCOPE_KEY);
+};
 
 export const getLibraryScopeId = (libraryScopeKey: LibraryScopeKey) => {
   if (libraryScopeKey === 'library:local') return 'local';

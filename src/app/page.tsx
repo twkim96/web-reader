@@ -263,7 +263,7 @@ export default function Page() {
     activeBookId: activeBook?.id,
     ownerKey: activeOwnerKey,
   });
-  useProgressSyncWorker(user, activeOwnerKey);
+  useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
   const syncConflictResolution = useSyncConflictResolution({
     user,
     progressRef,

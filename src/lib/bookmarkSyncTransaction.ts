@@ -1,9 +1,8 @@
 import { doc, runTransaction, serverTimestamp, type Firestore } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
-import type { LibraryScopeKey } from './ownerIdentity';
 import {
   bookmarkTargetKeyV2,
-  getV2HistoryPath,
+  getFirebaseSyncHistoryPath,
   isBookmarkHeadV2,
   isEventReceiptV2,
   type BookmarkHeadV2,
@@ -86,17 +85,15 @@ export const decideBookmarkTransaction = ({
 export const applyBookmarkEventTransaction = async ({
   event,
   uid,
-  libraryScopeKey,
   firestore,
   sdk = defaultFirestoreSDK,
 }: {
   event: BookmarkOutboxEventV5;
   uid: string;
-  libraryScopeKey: LibraryScopeKey;
   firestore: Firestore;
   sdk?: BookmarkFirestoreSDK;
 }) => {
-  const historyPath = getV2HistoryPath(APP_ID, uid, libraryScopeKey);
+  const historyPath = getFirebaseSyncHistoryPath(APP_ID, uid);
   const bookRef = sdk.doc(firestore, historyPath, event.target.bookId);
   const bookmarkRef = sdk.doc(bookRef, 'bookmarks', event.target.bookmarkId);
   const receiptRef = sdk.doc(bookRef, 'eventReceipts', event.eventId);

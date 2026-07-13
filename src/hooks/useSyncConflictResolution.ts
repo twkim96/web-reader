@@ -9,6 +9,7 @@ import {
   resolveSyncConflictUseRemoteV5,
   type SyncConflictV5,
 } from '../lib/syncOutboxV5';
+import { getSyncOwnerKey } from '../lib/ownerIdentity';
 
 type UseSyncConflictResolutionOptions = {
   user: FirebaseUser | null;
@@ -34,7 +35,7 @@ export const useSyncConflictResolution = ({
       setConflict(null);
       return;
     }
-    const conflicts = await getOpenSyncConflictsV5(owner.ownerKey);
+    const conflicts = await getOpenSyncConflictsV5(getSyncOwnerKey(owner.ownerKey));
     if (!ownerRuntime.isCurrent(owner)) return;
     const next = conflicts.find((candidate) => !dismissedRef.current.has(candidate.conflictId)) ?? null;
     setConflict(next);
@@ -53,7 +54,7 @@ export const useSyncConflictResolution = ({
   const keepLocal = useCallback(async () => {
     const owner = ownerRuntime.capture();
     if (!owner || !conflict) return;
-    await resolveSyncConflictKeepLocalV5(owner.ownerKey, conflict.conflictId);
+    await resolveSyncConflictKeepLocalV5(getSyncOwnerKey(owner.ownerKey), conflict.conflictId);
     setConflict(null);
     await refresh();
   }, [conflict, refresh]);
@@ -62,7 +63,7 @@ export const useSyncConflictResolution = ({
     const owner = ownerRuntime.capture();
     if (!owner || !conflict) return;
     const nextProgress = await resolveSyncConflictUseRemoteV5(
-      owner.ownerKey,
+      getSyncOwnerKey(owner.ownerKey),
       conflict.conflictId,
     );
     if (!ownerRuntime.isCurrent(owner)) return;

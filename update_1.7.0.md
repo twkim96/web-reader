@@ -86,17 +86,19 @@ Phase 1의 조기 호환성 게이트 결과 WebKit bug 218086 때문에 `allow-
 type AuthOwnerKey = `firebase:${string}` | `guest:${string}`;
 type LibraryScopeKey = `drive:${string}` | 'library:local';
 type OwnerKey = `${AuthOwnerKey}|${LibraryScopeKey}`;
+type SyncOwnerKey = `${AuthOwnerKey}|library:local`;
 ```
 
 - Firebase 로그인 사용자는 UID를, guest는 설치별 UUID를 사용한다.
 - Drive 연결 성공 뒤 Drive `about.get`으로 안정적인 `user.permissionId`를 확인하고 appData registry가 가리키는 canonical folderId도 검증한다. email, 표시 이름, access token과 folderId는 owner key에 쓰지 않는다.
-- Drive가 연결된 서재는 `drive:{permissionId}`, Drive를 쓰지 않는 로컬 서재는 `library:local` scope를 사용한다.
+- Drive가 연결된 서재는 `drive:{permissionId}`, Drive를 쓰지 않는 로컬 서재는 `library:local` content scope를 사용한다.
+- 책 Blob·metadata·archive cache에는 content `OwnerKey`를 사용하고, 진행률·수동 북마크·outbox·remote head·conflict·lease에는 Firebase 계정 기준 `SyncOwnerKey`를 사용한다.
 - folderId는 owner가 아니라 검증된 binding과 Drive cache 무효화 기준이다. 같은 계정에서 폴더가 복구·교체되면 기존 로컬 namespace는 유지하고 cloud listing, folder cache와 이전 in-flight 요청만 폐기한다.
-- **Firebase 로그인 + `library:local`은 Firestore 진행률 동기화를 허용한다.** 수정본의 `drive:none` 동기화 금지는 현재의 로컬 책 진행률 동작을 잃게 하므로 채택하지 않는다.
+- Firebase 로그인 사용자의 Firestore 진행률 동기화는 Drive 연결 여부와 무관하게 canonical `library:local` scope만 사용한다.
 - guest는 로컬 저장만 사용하고 Firestore를 읽거나 쓰지 않는다.
-- 같은 Firebase UID에서 Drive 계정이 바뀌면 owner 전환으로 처리한다. 기존 state, listener, worker를 먼저 정리한 뒤 새 namespace를 연다.
+- 같은 Firebase UID에서 Drive 계정이 바뀌면 content owner 전환으로 처리한다. 도서 state와 Drive 작업은 교체하지만 canonical progress listener와 sync data는 같은 Firebase 계정 범위를 유지한다.
 - token 없는 새로고침은 마지막으로 검증된 binding의 로컬 namespace를 열 수 있지만 Drive 요청과 새 scope 확정은 재연결 전까지 금지한다.
-- `library:local` 데이터를 Drive scope로 자동 합치지 않는다. 사용자가 귀속을 확인해야 한다.
+- 로컬 도서 파일과 Drive 도서 cache는 자동 합치지 않는다. 진행률·수동 북마크만 1.7.0 한정 bridge로 Drive-scoped 과거 record에서 canonical Firebase sync scope로 복사한다.
 
 ### 인증 generation
 
@@ -109,12 +111,12 @@ type OwnerKey = `${AuthOwnerKey}|${LibraryScopeKey}`;
 ### 원격 경로
 
 ```text
-artifacts/{APP_ID}/users/{uid}/libraries/{libraryScopeId}/readingHistoryV2/{bookId}
-artifacts/{APP_ID}/users/{uid}/libraries/{libraryScopeId}/readingHistoryV2/{bookId}/bookmarks/{bookmarkId}
-artifacts/{APP_ID}/users/{uid}/libraries/{libraryScopeId}/readingHistoryV2/{bookId}/eventReceipts/{eventId}
+artifacts/{APP_ID}/users/{uid}/libraries/local/readingHistoryV2/{bookId}
+artifacts/{APP_ID}/users/{uid}/libraries/local/readingHistoryV2/{bookId}/bookmarks/{bookmarkId}
+artifacts/{APP_ID}/users/{uid}/libraries/local/readingHistoryV2/{bookId}/eventReceipts/{eventId}
 ```
 
-- `libraryScopeId`는 `local` 또는 안전하게 인코딩한 Drive permissionId다.
+- 새 progress/bookmark write의 `libraryScopeId`는 항상 `local`이다. 기존 Drive permissionId 경로는 1.7.0 전환 원본과 rollback 자료로만 보존한다.
 - v2 앱은 v2 경로에만 쓴다.
 - 기존 `readingHistory/{bookId}`는 1.7.x 전환 기간 동안 읽기 전용 bridge로 유지한다.
 - 진행률 삭제는 문서 물리 삭제가 아니라 revision을 증가시키는 `reset` event다.
@@ -124,7 +126,7 @@ artifacts/{APP_ID}/users/{uid}/libraries/{libraryScopeId}/readingHistoryV2/{book
 
 - Firestore persistent cache를 임의로 지우거나 v1 pending write를 폐기하지 않는다.
 - v1 listener는 `{ includeMetadataChanges: true }`로 구독한다. `fromCache === false`이고 문서의 `hasPendingWrites === false`인 서버 확정 값만 import 또는 legacy conflict 근거로 사용한다.
-- v1 데이터에는 library scope가 없으므로 같은 Firebase UID에 여러 scope가 있으면 사용자가 destination을 선택한다.
+- v1 데이터의 destination도 같은 Firebase UID의 canonical `library:local` sync scope다.
 - 최초 import 뒤 서버에서 확인된 v1 변경은 v2를 자동 덮어쓰지 않고 `legacy_v1` conflict 후보로 보존한다.
 - 1.6.6 탭·기기의 후속 write와 기존 progress 문서 delete를 허용하는 v1 listener·Rules를 1.7.x 동안 유지한다. v1 물리 삭제를 v2 reset으로 자동 변환하지 않는다.
 
@@ -233,20 +235,20 @@ DB 이름은 `web-reader-db`를 유지하고 version을 5로 올린다. v4 keyPa
 
 | store | key | 용도 |
 | --- | --- | --- |
-| `books-v5` | `[ownerKey, bookId]` | 책 Blob/ArrayBuffer |
-| `metadata-v5` | `[ownerKey, id]` | 책 metadata |
-| `progress-v5` | `[ownerKey, bookId]` | 로컬 현재 위치와 자동 북마크 |
-| `archive-inspections-v5` | `[ownerKey, bookId]` | archive cache |
-| `outbox-v5` | `[ownerKey, eventId]` | 전송 대기 event |
-| `remote-heads-v5` | `[ownerKey, targetKey]` | 원격 progress/bookmark head cache |
-| `sync-meta-v5` | `[ownerKey, targetKey]` | known revision과 next sequence |
-| `sync-conflicts-v5` | `[ownerKey, conflictId]` | 양쪽 payload, blocked chain과 해결 상태 |
-| `sync-leases-v5` | `ownerKey` | active tab, epoch, expiry와 heartbeat |
+| `books-v5` | `[contentOwnerKey, bookId]` | 책 Blob/ArrayBuffer |
+| `metadata-v5` | `[contentOwnerKey, id]` | 책 metadata |
+| `progress-v5` | `[syncOwnerKey, bookId]` | 로컬 현재 위치와 자동 북마크 |
+| `archive-inspections-v5` | `[contentOwnerKey, bookId]` | archive cache |
+| `outbox-v5` | `[syncOwnerKey, eventId]` | 전송 대기 event |
+| `remote-heads-v5` | `[syncOwnerKey, targetKey]` | 원격 progress/bookmark head cache |
+| `sync-meta-v5` | `[syncOwnerKey, targetKey]` | known revision과 next sequence |
+| `sync-conflicts-v5` | `[syncOwnerKey, conflictId]` | 양쪽 payload, blocked chain과 해결 상태 |
+| `sync-leases-v5` | `syncOwnerKey` | active tab, epoch, expiry와 heartbeat |
 | `owner-bindings-v5` | `[authOwnerKey, libraryScopeKey]` | 검증된 Drive account/folder binding |
 | `owner-session-v5` | `authOwnerKey` | 마지막 활성 owner |
 | `migration-meta-v5` | `migrationId` | inventory, destination, checkpoint, 검증 결과와 migration lease |
 
-모든 v5 API는 첫 인수로 `ownerKey`를 받는다. owner를 생략하는 overload나 default owner를 만들지 않는다.
+모든 v5 API는 첫 인수로 담당 범위의 owner key를 받는다. 도서 저장 API는 `contentOwnerKey`, 진행 상태 API는 `syncOwnerKey`를 명시하며 owner를 생략하는 overload나 default owner를 만들지 않는다.
 
 ### migration과 멀티탭 lease
 
@@ -293,7 +295,7 @@ v4 원본을 보존하면서 owner-scoped v5 저장소로 런타임을 전환하
 - v5 병렬 store와 필요한 owner/status/sequence index를 추가한다.
 - `upgrade()`는 schema 생성만 수행하고 migration은 post-open batch job으로 분리한다.
 - 책 content+metadata, progress+outbox+sync meta처럼 함께 성공해야 하는 쓰기는 단일 transaction API로 제공한다.
-- Firebase UID, Drive permissionId 또는 `library:local`로 owner를 확정하고 generation guard를 적용한다.
+- Firebase UID와 Drive permissionId 또는 `library:local`로 content owner를 확정하고, Firebase UID의 canonical local sync owner와 generation guard를 적용한다.
 - owner 변경 순서를 generation 증가 → listener/worker/fetch 취소 → 메모리 state 초기화 → 새 owner 복원으로 고정한다.
 - v4 inventory, idempotent batch copy, checkpoint, count/key/size·digest 검증과 migration lease를 구현한다.
 - v4 데이터가 있으면 현재 owner 귀속을 확인한다. 취소하거나 실패하면 v4를 보존하고 migration 재시도, legacy read-only recovery, 빈 v5 namespace를 구분해 제공한다.
@@ -318,7 +320,7 @@ v4 원본을 보존하면서 owner-scoped v5 저장소로 런타임을 전환하
 
 - v1/v2 path helper와 v2 serialize/parse/validate 함수를 만든다.
 - production에 배포된 현재 Rules를 Console/CLI로 확인해 project, 날짜와 hash를 별도 기준선으로 보존한다. 조회 권한이 없으면 production Rules 배포를 차단하는 선행 조건으로 남긴다.
-- Rules에서 UID 일치, library scope, 허용 필드, 타입·길이, `progressPercent` 0~100, create revision 1, update revision +1을 검증한다.
+- Rules에서 UID 일치, canonical local library scope, 허용 필드, 타입·길이, `progressPercent` 0~100, create revision 1, update revision +1을 검증한다.
 - set/reset payload와 tombstone 조합, bookmark path/bookId 일치, server timestamp를 검증한다.
 - head 변경과 matching receipt 생성을 같은 atomic write로 강제하고 receipt overwrite/delete를 금지한다.
 - v1 path는 1.6.x 전환을 위해 현재 payload만 허용하는 호환 규칙을 유지한다.
@@ -375,7 +377,7 @@ v4 원본을 보존하면서 owner-scoped v5 저장소로 런타임을 전환하
 - invalid timestamp는 `Date.now()`로 승격하지 않고 null/0과 오류 상태로 격리한다.
 - 기존 충돌 dialog를 일반 원격 이어읽기와 실제 revision 충돌 모드로 확장한다.
 - 충돌 선택은 “이 기기 유지”, “다른 기기 사용”, “나중에”로 제공한다. 리더 사용 중 자동 jump하지 않는다.
-- v1은 서버 확정 snapshot만 사용자 확인 후 최초 한 번 v2 event로 import하고 fingerprint로 중복 import를 막는다. 여러 library scope가 있으면 destination을 선택하게 한다.
+- v1은 서버 확정 snapshot만 사용자 확인 후 최초 한 번 canonical v2 event로 import하고 fingerprint로 중복 import를 막는다.
 - 1.6.6 pending v1 write가 나중에 도착하거나 구버전 탭이 계속 쓰면 v2를 덮지 않고 legacy conflict 후보로 보존한다.
 - 기존 direct `setDoc`/`deleteDoc` v1 write를 제거하고 v2 outbox, worker, listener를 같은 runtime 전환에서 활성화한다.
 
@@ -497,6 +499,39 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 
 ## 핵심 검증 시나리오
 
+## 1.7.0 한정 전환: Drive 범위 진행 상태를 Firebase 계정 범위로 통합
+
+### 배경과 목표
+
+1.7.0 최초 배포본은 진행률·북마크의 v2 Firestore 경로와 로컬 sync queue까지 Drive `permissionId` 범위로 나눴다. 그 결과 같은 Firebase 계정이어도 Drive 연결 여부와 마지막 로컬 세션에 따라 `library:local`과 `drive:<permissionId>`가 서로 다른 동기화 계정처럼 동작했다.
+
+Google Drive는 도서 목록·파일·다운로드 cache만 관리한다. 진행률·수동 북마크·outbox·remote head·conflict·lease는 Firebase UID의 canonical `library:local` 범위만 사용한다. Drive token 만료, 미연결, 재연결은 이 실시간 상태의 소유권이나 Firestore 경로를 바꾸지 않는다.
+
+### 1.7.0 한정 전환 작업
+
+- `contentOwnerKey`는 기존처럼 Firebase/guest owner와 Drive `permissionId`를 결합해 도서 파일과 Drive cache를 격리한다.
+- `syncOwnerKey`는 인증 owner와 `library:local`만 결합한다. Firebase 사용자는 모든 기기에서 `firebase:<uid>|library:local`을 사용한다.
+- progress/bookmark 로컬 저장, outbox, listener cache, conflict, lease와 Firestore transaction을 모두 `syncOwnerKey`로 통일한다.
+- 기존 기기는 현재 Drive-scoped owner뿐 아니라 같은 Firebase 계정에 저장된 Drive binding 전체를 확인하고, 각 owner의 로컬 진행률과 수동 북마크를 canonical Firebase outbox에 한 번 재등록한다. 명시적 로컬 모드와 만료된 Drive session도 전환 대상을 놓치지 않는다.
+- 전환 event ID와 migration marker를 결정적으로 만들어 reload·중단 후 재실행해도 pending event를 중복 생성하지 않는다.
+- canonical 로컬 상태가 더 최신이면 기존 Drive-scoped 상태로 덮어쓰지 않는다.
+- 기존 Drive-scoped IndexedDB record와 Firestore v2 문서는 삭제하지 않는다. rollback과 수동 복구 자료로 보존한다.
+- 전환 결과는 즉시 현재 UI state에도 합쳐 새로고침 없이 표시한다.
+
+### 제거 조건
+
+- 이 bridge와 migration marker는 1.7.0 계열에서만 유지한다.
+- 기존 주 사용 기기에서 1.7.0 전환 완료 및 canonical Firebase 경로의 다기기 실기기 검증이 끝난 뒤 다음 기능 버전에서 `firebaseSyncScopeMigrationV170`과 관련 UI event를 제거한다.
+- 제거 시에도 과거 Drive-scoped 원격·로컬 원본을 자동 삭제하지 않는다. 별도 백업 확인 없는 cleanup은 하지 않는다.
+
+### 완료 조건과 검증
+
+- 같은 Firebase UID의 Drive 연결 기기와 미연결 신규 기기가 동일 canonical 진행률·북마크를 본다.
+- Drive token 만료·로그아웃·재연결 전후에도 sync path와 local outbox owner가 바뀌지 않는다.
+- 기존 Drive-scoped 원본이 보존되고 전환을 두 번 실행해도 canonical outbox event 수가 늘지 않는다.
+- 더 최신 canonical 로컬 진행률은 전환 대상에서 제외된다.
+- storage 단위 테스트, Firestore Rules, browser regression과 전체 `check:full`이 통과한다.
+
 | ID | 시나리오 | 기대 결과 |
 | --- | --- | --- |
 | V01 | A 30% offline → B 70% → A reconnect | 자동 덮어쓰기 없이 conflict 표시 |
@@ -520,6 +555,9 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 | V19 | 리더를 연 상태에서 새 worker 설치 | local commit 뒤 prompt 적용·reload 1회 |
 | V20 | TXT/EPUB/PDF/ZIP/CBZ/7z 기본 열기 | 기존 포맷 회귀 없음 |
 | V21 | Chromium/WebKit 통과 후 실제 iPad Safari | 일반·fixed layout·media-overlay 유지 |
+| V22 | 기존 Drive 연결 기기에서 1.7.0 전환 후 신규 미연결 기기 로그인 | 같은 Firebase canonical 진행률·북마크 표시 |
+| V23 | Drive token 만료·로그아웃·재연결 | 도서 접근만 영향, 진행 상태 sync owner/path 유지 |
+| V24 | Drive-scoped 전환 중 reload 후 재실행 | 원본 보존, pending event 중복 없이 완료 |
 
 ## 릴리스 차단 조건
 
@@ -554,5 +592,6 @@ Drive bearer token을 영구 저장소와 cache key에서 제거하고 명시적
 | 7. GIS token과 Drive cache | 자동 검증 완료 | GIS single-flight, memory-only token/expiry, legacy key·fragment 정리, permissionId+canonical folder owner 전환, owner/session cache 폐기와 reload offline namespace; Drive 41개 및 CDP 회귀 통과 | 실제 Google consent·계정 교체는 Vercel 배포 후 실기기 단계 |
 | 8. Service Worker | 자동 검증 완료 | 정적 allowlist, 인증·Range·API·private/no-store 우회, WebKit-safe `waitUntil`, 사용자 승인 update와 local commit 대기; 정책 6개, Chromium/WebKit Cache Storage·waiting-worker E2E, CDP 회귀 통과 | 실제 PWA update UX는 실기기 단계 |
 | 9. CI와 릴리스 | 실기기 전 자동 검증 완료 | `check:full` 구성요소, 분리 CI, Node/build, Rules emulator 8개, Playwright Chromium/WebKit 10개, CDP production 회귀와 `pc-reader-v1.7.0` cache 검증 통과; production Rules 선배포와 1.7.0 version 일괄 변경 완료 | commit·push/Vercel 반영 후 실기기 테스트는 사용자 진행 |
+| 1.7.0 한정 Firebase sync scope 전환 | 실기기 전 자동 검증 완료 | Drive와 progress owner 분리, canonical Firestore path, 기존 Drive-scoped 로컬 상태의 보존형·멱등 bridge, 신규 전환·worker 회귀 포함 storage 47개·Rules 8개·Chromium/WebKit 10개·production build·CDP browser 회귀 통과 | 기존 기기 1회 접속 후 신규 기기 실기기 검증 필요; 다음 기능 버전에서 bridge 제거 |
 
 각 Phase를 완료할 때 실제 변경 파일, 실행한 명령과 결과, 미실행 검증, 남은 문제를 해당 Phase 아래 또는 구현 상태 표에 기록한다.

@@ -1,5 +1,6 @@
 import type { OwnerSnapshot } from './ownerRuntime';
 import { ownerRuntime } from './ownerRuntime';
+import type { OwnerKey } from './ownerIdentity';
 import {
   acknowledgeProgressEventV5,
   acquireSyncLeaseV5,
@@ -75,6 +76,7 @@ export class ProgressSyncWorker {
     private readonly tabId: string,
     private readonly transport: ProgressTransport,
     dependencies: WorkerDependencies = {},
+    private readonly syncOwnerKey: OwnerKey = owner.ownerKey,
   ) {
     this.acknowledge = dependencies.acknowledge ?? acknowledgeProgressEventV5;
     this.acquireLease = dependencies.acquireLease ?? acquireSyncLeaseV5;
@@ -89,11 +91,11 @@ export class ProgressSyncWorker {
 
   async flushOne(now = Date.now()) {
     if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
-    this.lease = await this.acquireLease(this.owner.ownerKey, this.tabId, now);
+    this.lease = await this.acquireLease(this.syncOwnerKey, this.tabId, now);
     if (!this.lease) return 'not_leader' as const;
-    await this.recover(this.owner.ownerKey, this.tabId, this.lease.epoch, now);
+    await this.recover(this.syncOwnerKey, this.tabId, this.lease.epoch, now);
     const event = await this.claimNext(
-      this.owner.ownerKey,
+      this.syncOwnerKey,
       this.tabId,
       this.lease.epoch,
       now,
@@ -104,7 +106,7 @@ export class ProgressSyncWorker {
       const result = await this.transport(event);
       if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
       const leaseStillCurrent = await this.isLeaseCurrent(
-        this.owner.ownerKey,
+        this.syncOwnerKey,
         this.tabId,
         this.lease.epoch,
         now,
@@ -113,23 +115,23 @@ export class ProgressSyncWorker {
 
       if (result.status === 'conflict') {
         await this.recordConflict(
-          this.owner.ownerKey,
+          this.syncOwnerKey,
           event.eventId,
           result.remoteHead,
           now,
         );
         return 'conflict' as const;
       }
-      await this.acknowledge(this.owner.ownerKey, event.eventId, result.head, now);
+      await this.acknowledge(this.syncOwnerKey, event.eventId, result.head, now);
       return result.status;
     } catch (error) {
       if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
       const code = errorCode(error);
       if (isRetryableProgressSyncError(error)) {
-        await this.scheduleRetry(this.owner.ownerKey, event.eventId, code, now);
+        await this.scheduleRetry(this.syncOwnerKey, event.eventId, code, now);
         return 'retry_scheduled' as const;
       }
-      await this.pause(this.owner.ownerKey, event.eventId, code);
+      await this.pause(this.syncOwnerKey, event.eventId, code);
       return 'paused' as const;
     }
   }
@@ -139,7 +141,7 @@ export class ProgressSyncWorker {
     this.disposed = true;
     if (this.lease) {
       await this.releaseLease(
-        this.owner.ownerKey,
+        this.syncOwnerKey,
         this.tabId,
         this.lease.epoch,
       );
