@@ -10,6 +10,7 @@ const { ProgressSyncWorker } = await import('../src/lib/progressSyncWorker.ts');
 const {
   enqueueProgressEventV5,
   getOutboxEventsV5,
+  getSyncMetaV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const {
   getSyncOwnerKey,
@@ -106,6 +107,41 @@ test('local ack failure retries and receipt replay avoids duplicate apply', asyn
   assert.equal(await worker.flushOne(2_000), 'already_applied');
   assert.equal(remoteCalls, 2);
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
+});
+
+test('receipt replay acknowledges the latest head after another device advances it', async () => {
+  await seed();
+  const owner = ownerRuntime.activate(ownerA);
+  let remoteCalls = 0;
+  let ackCalls = 0;
+  const latest = {
+    ...applied,
+    status: 'already_applied',
+    head: {
+      ...applied.head,
+      revision: 2,
+      acceptedEventId: 'event-2',
+      acceptedDeviceId: 'device-2',
+      occurredAtClient: 2,
+    },
+  };
+  const worker = new ProgressSyncWorker(
+    owner,
+    'tab-a',
+    async () => (++remoteCalls === 1 ? applied : latest),
+    {
+      async acknowledge(...args) {
+        ackCalls += 1;
+        if (ackCalls === 1) throw Object.assign(new Error('idb failed'), { code: 'unavailable' });
+        const { acknowledgeProgressEventV5 } = await import('../src/lib/syncOutboxV5.ts');
+        return acknowledgeProgressEventV5(...args);
+      },
+    },
+  );
+  assert.equal(await worker.flushOne(10), 'retry_scheduled');
+  assert.equal(await worker.flushOne(2_000), 'already_applied');
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
+  assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
 });
 
 test('late response after owner switch cannot acknowledge the old owner', async () => {

@@ -6,7 +6,6 @@ interface UseNetworkLibrarySyncOptions {
   googleToken: string | null;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   loadLibraryFromDrive: (token: string) => Promise<boolean>;
-  syncLocalAndCloud: (uid: string) => Promise<void>;
 }
 
 export const useNetworkLibrarySync = ({
@@ -14,16 +13,13 @@ export const useNetworkLibrarySync = ({
   googleToken,
   setIsOfflineMode,
   loadLibraryFromDrive,
-  syncLocalAndCloud,
 }: UseNetworkLibrarySyncOptions) => {
   useEffect(() => {
     const handleOnline = () => {
       if (!user || !googleToken) return;
 
       loadLibraryFromDrive(googleToken).then((isSuccess) => {
-        if (isSuccess) {
-          syncLocalAndCloud(user.uid);
-        }
+        if (!isSuccess) setIsOfflineMode(true);
       });
     };
 
@@ -37,5 +33,5 @@ export const useNetworkLibrarySync = ({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [googleToken, loadLibraryFromDrive, setIsOfflineMode, syncLocalAndCloud, user]);
+  }, [googleToken, loadLibraryFromDrive, setIsOfflineMode, user]);
 };

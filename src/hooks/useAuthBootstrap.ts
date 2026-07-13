@@ -21,7 +21,6 @@ interface UseAuthBootstrapOptions {
   setView: Dispatch<SetStateAction<ViewState>>;
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
   loadLibraryFromDrive: (token: string) => Promise<boolean>;
-  syncLocalAndCloud: (uid: string) => Promise<void>;
   resetLibraryState: () => void;
 }
 
@@ -33,7 +32,6 @@ export const useAuthBootstrap = ({
   setView,
   restoreLocalData,
   loadLibraryFromDrive,
-  syncLocalAndCloud,
   resetLibraryState,
 }: UseAuthBootstrapOptions) => {
   useEffect(() => {
@@ -124,6 +122,5 @@ export const useAuthBootstrap = ({
     setIsOfflineMode,
     setUser,
     setView,
-    syncLocalAndCloud,
   ]);
 };

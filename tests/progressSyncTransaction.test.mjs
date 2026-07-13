@@ -88,11 +88,37 @@ test('treats a matching immutable receipt as already applied', () => {
   assert.equal(result.head.revision, 1);
 });
 
-test('rejects an inconsistent receipt/head pair', () => {
+test('treats an older immutable receipt as applied after the head advances', () => {
+  const latest = head({
+    revision: 2,
+    acceptedEventId: 'event-2',
+    occurredAtClient: 2,
+  });
+  const result = decideProgressTransaction({
+    event: event(),
+    storedHead: latest,
+    storedReceipt: receipt(),
+    serverTime: {},
+  });
+  assert.equal(result.status, 'already_applied');
+  assert.equal(result.head.revision, 2);
+  assert.equal(result.receipt.revision, 1);
+});
+
+test('rejects a receipt whose revision is ahead of the current head', () => {
   assert.throws(() => decideProgressTransaction({
     event: event(),
-    storedHead: head({ acceptedEventId: 'other' }),
-    storedReceipt: receipt(),
+    storedHead: head(),
+    storedReceipt: receipt({ revision: 2 }),
+    serverTime: {},
+  }));
+});
+
+test('rejects a receipt for a different progress target', () => {
+  assert.throws(() => decideProgressTransaction({
+    event: event(),
+    storedHead: head(),
+    storedReceipt: receipt({ bookId: 'other', targetKey: 'progress:other' }),
     serverTime: {},
   }));
 });

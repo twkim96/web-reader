@@ -4,7 +4,7 @@ import { removeProgressFromLocalV5, saveProgressToLocalV5 } from '../lib/localDB
 import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import { Book, Bookmark, SaveProgressOptions, UserProgress } from '../types';
 import { hasProgressChanged, toProgressPercent } from './progressPolicy';
-import { enqueueBookmarkEventV5, enqueueProgressEventV5 } from '../lib/syncOutboxV5';
+import { enqueueProgressMutationBatchV5 } from '../lib/syncOutboxV5';
 import { diffManualBookmarks, type BookmarkSyncChange } from '../lib/bookmarkSyncPolicy';
 import { trackLocalCommit } from '../lib/localCommitTracker';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
@@ -58,8 +58,10 @@ export const useProgressActions = ({
         await saveProgressToLocalV5(progressOwnerKey, progressData);
         return;
       }
-      if (syncPosition) {
-        await enqueueProgressEventV5(progressOwnerKey, {
+      if (syncPosition || bookmarkChanges.length > 0) {
+        await enqueueProgressMutationBatchV5(progressOwnerKey, {
+          progress: progressData,
+          progressEvent: syncPosition ? {
           bookId,
           operation: progressData.cfi ? 'progress.set' : 'progress.reset',
           position: progressData.cfi
@@ -73,21 +75,19 @@ export const useProgressActions = ({
           sessionId: sessionIdRef.current,
           occurredAtClient: progressData.lastRead,
           localBookmarks: progressData.bookmarks,
+          } : null,
+          bookmarkEvents: bookmarkChanges.map((change) => ({
+            bookId,
+            bookmarkId: change.bookmarkId,
+            operation: change.operation,
+            payload: change.payload,
+            localBookmarks: progressData.bookmarks ?? [],
+            deviceId: deviceId.current,
+            sessionId: sessionIdRef.current,
+            occurredAtClient: progressData.lastRead,
+          })),
         });
-      }
-      for (const change of bookmarkChanges) {
-        await enqueueBookmarkEventV5(progressOwnerKey, {
-          bookId,
-          bookmarkId: change.bookmarkId,
-          operation: change.operation,
-          payload: change.payload,
-          localBookmarks: progressData.bookmarks ?? [],
-          deviceId: deviceId.current,
-          sessionId: sessionIdRef.current,
-          occurredAtClient: progressData.lastRead,
-        });
-      }
-      if (!syncPosition && bookmarkChanges.length === 0) {
+      } else {
         await saveProgressToLocalV5(progressOwnerKey, progressData);
       }
     } catch (error) {

@@ -243,6 +243,12 @@ export type EnqueueBookmarkInput = {
   eventId?: string;
 };
 
+export type EnqueueProgressMutationBatchInput = {
+  progress: UserProgress;
+  progressEvent: EnqueueProgressInput | null;
+  bookmarkEvents: EnqueueBookmarkInput[];
+};
+
 const activeStatuses = new Set<OutboxStatusV5>([
   'pending', 'in_flight', 'blocked', 'conflict', 'paused',
 ]);
@@ -291,6 +297,18 @@ const validateEnqueueInput = (input: EnqueueProgressInput) => {
   }
 };
 
+const validateBookmarkEnqueueInput = (input: EnqueueBookmarkInput) => {
+  if (!input.bookId || !input.bookmarkId || !input.deviceId || !input.sessionId) {
+    throw new Error('북마크 event 식별자가 비어 있습니다.');
+  }
+  if (
+    input.operation === 'bookmark.upsert'
+      ? !isManualBookmarkPayloadV2(input.payload)
+        || input.payload.bookmarkId !== input.bookmarkId
+      : input.payload !== null
+  ) throw new Error('북마크 event payload가 올바르지 않습니다.');
+};
+
 const toLocalProgress = (
   input: EnqueueProgressInput,
   existing: UserProgress | undefined,
@@ -327,6 +345,9 @@ export const enqueueProgressEventV5 = async (
     V5_SYNC_META_STORE,
     V5_SYNC_CONFLICTS_STORE,
   ], 'readwrite');
+  // Individual request errors reject before tx.done; attach a handler so an
+  // automatic rollback never becomes a second unhandled rejection.
+  void tx.done.catch(() => undefined);
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
   const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
@@ -424,15 +445,7 @@ export const enqueueBookmarkEventV5 = async (
   ownerKey: OwnerKey,
   input: EnqueueBookmarkInput,
 ) => {
-  if (!input.bookId || !input.bookmarkId || !input.deviceId || !input.sessionId) {
-    throw new Error('북마크 event 식별자가 비어 있습니다.');
-  }
-  if (
-    input.operation === 'bookmark.upsert'
-      ? !isManualBookmarkPayloadV2(input.payload)
-        || input.payload.bookmarkId !== input.bookmarkId
-      : input.payload !== null
-  ) throw new Error('북마크 event payload가 올바르지 않습니다.');
+  validateBookmarkEnqueueInput(input);
 
   const now = input.occurredAtClient ?? Date.now();
   const targetKey = bookmarkTargetKeyV2(input.bookId, input.bookmarkId);
@@ -443,6 +456,7 @@ export const enqueueBookmarkEventV5 = async (
     V5_SYNC_META_STORE,
     V5_SYNC_CONFLICTS_STORE,
   ], 'readwrite');
+  void tx.done.catch(() => undefined);
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
   const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
@@ -514,6 +528,177 @@ export const enqueueBookmarkEventV5 = async (
   ]);
   await tx.done;
   return { event, deferredByConflict: false };
+};
+
+export const enqueueProgressMutationBatchV5 = async (
+  ownerKey: OwnerKey,
+  input: EnqueueProgressMutationBatchInput,
+) => {
+  if (input.progressEvent) validateEnqueueInput(input.progressEvent);
+  input.bookmarkEvents.forEach(validateBookmarkEnqueueInput);
+  if (
+    input.progressEvent?.bookId !== undefined
+    && input.progressEvent.bookId !== input.progress.bookId
+  ) throw new Error('progress batch의 bookId가 일치하지 않습니다.');
+  if (
+    input.progressEvent?.operation === 'progress.reset'
+    && (input.progress.cfi !== '' || input.progress.progressPercent !== 0)
+  ) throw new Error('progress reset batch의 로컬 상태가 일치하지 않습니다.');
+  if (
+    input.progressEvent?.operation === 'progress.set'
+    && (
+      input.progress.cfi !== input.progressEvent.position?.cfi
+      || input.progress.progressPercent !== input.progressEvent.position?.progressPercent
+    )
+  ) throw new Error('progress set batch의 로컬 상태가 일치하지 않습니다.');
+  if (input.bookmarkEvents.some(({ bookId }) => bookId !== input.progress.bookId)) {
+    throw new Error('bookmark batch의 bookId가 일치하지 않습니다.');
+  }
+
+  const db = await initDB();
+  const tx = db.transaction([
+    V5_PROGRESS_STORE,
+    V5_OUTBOX_STORE,
+    V5_SYNC_META_STORE,
+    V5_SYNC_CONFLICTS_STORE,
+  ], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const progressStore = tx.objectStore(V5_PROGRESS_STORE);
+  const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
+  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+
+  if (input.progressEvent) {
+    const eventInput = input.progressEvent;
+    const occurredAtClient = eventInput.occurredAtClient ?? Date.now();
+    const targetKey = progressTargetKeyV2(eventInput.bookId);
+    const [storedMeta, targetEvents, openConflicts] = await Promise.all([
+      metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+      outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+        [ownerKey, targetKey, 0],
+        [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+      )) as Promise<ProgressOutboxEventV5[]>,
+      conflictStore.index('by-owner-target-state').getAll([
+        ownerKey,
+        targetKey,
+        'open',
+      ]) as Promise<SyncConflictV5[]>,
+    ]);
+    const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, occurredAtClient);
+    const unresolved = targetEvents
+      .filter((event) => activeStatuses.has(event.status))
+      .sort(eventSort);
+    const coalesced = eventInput.operation === 'progress.set'
+      ? [...unresolved].reverse().find((event) => (
+        event.operation === 'progress.set'
+        && event.status === 'pending'
+        && event.sessionId === eventInput.sessionId
+        && event.claimedByTabId === null
+      ))
+      : undefined;
+    const openConflict = openConflicts[0];
+    if (openConflict) {
+      await conflictStore.put({ ...openConflict, latestLocalPosition: eventInput.position });
+    } else if (coalesced) {
+      await outboxStore.put({
+        ...coalesced,
+        payload: eventInput.position,
+        occurredAtClient,
+        nextAttemptAt: occurredAtClient,
+        lastErrorCode: null,
+      });
+    } else {
+      const event: ProgressOutboxEventV5 = {
+        ownerKey,
+        eventId: eventInput.eventId ?? crypto.randomUUID(),
+        target: { kind: 'progress', bookId: eventInput.bookId },
+        targetKey,
+        operation: eventInput.operation,
+        payload: eventInput.position,
+        deviceId: eventInput.deviceId,
+        sessionId: eventInput.sessionId,
+        sequence: meta.nextSequence,
+        baseRevision: meta.knownRevision + unresolved.length,
+        occurredAtClient,
+        status: unresolved.some((candidate) => (
+          candidate.status === 'blocked' || candidate.status === 'conflict'
+        )) ? 'blocked' : 'pending',
+        attempts: 0,
+        nextAttemptAt: occurredAtClient,
+        lastErrorCode: null,
+        claimedByTabId: null,
+        claimedLeaseEpoch: null,
+      };
+      await Promise.all([
+        outboxStore.add(event),
+        metaStore.put({
+          ...meta,
+          nextSequence: meta.nextSequence + 1,
+          updatedAt: occurredAtClient,
+        }),
+      ]);
+    }
+  }
+
+  for (const eventInput of input.bookmarkEvents) {
+    const now = eventInput.occurredAtClient ?? Date.now();
+    const targetKey = bookmarkTargetKeyV2(eventInput.bookId, eventInput.bookmarkId);
+    const [storedMeta, targetEvents, openConflicts] = await Promise.all([
+      metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+      outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+        [ownerKey, targetKey, 0],
+        [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+      )) as Promise<SyncOutboxEventV5[]>,
+      conflictStore.index('by-owner-target-state').getAll([
+        ownerKey,
+        targetKey,
+        'open',
+      ]) as Promise<SyncConflictV5[]>,
+    ]);
+    const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, now);
+    const unresolved = targetEvents.filter((event) => activeStatuses.has(event.status));
+    const openConflict = openConflicts[0];
+    if (openConflict) {
+      await conflictStore.put({ ...openConflict, latestLocalPosition: eventInput.payload });
+      continue;
+    }
+    const event: BookmarkOutboxEventV5 = {
+      ownerKey,
+      eventId: eventInput.eventId ?? crypto.randomUUID(),
+      target: {
+        kind: 'bookmark',
+        bookId: eventInput.bookId,
+        bookmarkId: eventInput.bookmarkId,
+      },
+      targetKey,
+      operation: eventInput.operation,
+      payload: eventInput.payload,
+      deviceId: eventInput.deviceId,
+      sessionId: eventInput.sessionId,
+      sequence: meta.nextSequence,
+      baseRevision: meta.knownRevision + unresolved.length,
+      occurredAtClient: now,
+      status: unresolved.some((candidate) => (
+        candidate.status === 'blocked' || candidate.status === 'conflict'
+      )) ? 'blocked' : 'pending',
+      attempts: 0,
+      nextAttemptAt: now,
+      lastErrorCode: null,
+      claimedByTabId: null,
+      claimedLeaseEpoch: null,
+    };
+    await Promise.all([
+      outboxStore.add(event),
+      metaStore.put({
+        ...meta,
+        nextSequence: meta.nextSequence + 1,
+        updatedAt: now,
+      }),
+    ]);
+  }
+
+  await progressStore.put({ ...input.progress, ownerKey });
+  await tx.done;
 };
 
 export const getOutboxEventsV5 = async (
@@ -786,7 +971,10 @@ export const releaseSyncLeaseV5 = async (
   const tx = db.transaction(V5_SYNC_LEASES_STORE, 'readwrite');
   const store = tx.objectStore(V5_SYNC_LEASES_STORE);
   const lease = await store.get(ownerKey) as SyncLeaseV5 | undefined;
-  if (lease?.holderTabId === tabId && lease.epoch === epoch) await store.delete(ownerKey);
+  if (lease?.holderTabId === tabId && lease.epoch === epoch) {
+    // Keep the generation record so a later tab can never reuse this epoch.
+    await store.put({ ...lease, expiresAt: 0, heartbeatAt: Date.now() });
+  }
   await tx.done;
 };
 
@@ -870,6 +1058,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
     V5_PROGRESS_STORE,
     V5_OUTBOX_STORE,
     V5_SYNC_CONFLICTS_STORE,
+    V5_SYNC_META_STORE,
+    V5_REMOTE_HEADS_STORE,
   ], 'readwrite');
   const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
   const conflict = await conflictStore.get([ownerKey, conflictId]) as SyncConflictV5 | undefined;
@@ -881,6 +1071,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   await supersedeConflictEvents(outbox, conflict);
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
+  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
   const bookId = conflict.event.target.bookId;
   const existing = await progressStore.get([ownerKey, bookId]) as
     (UserProgress & { ownerKey: OwnerKey }) | undefined;
@@ -938,8 +1130,21 @@ export const resolveSyncConflictUseRemoteV5 = async (
       ],
     };
   }
+  const meta = await metaStore.get([ownerKey, conflict.targetKey]) as SyncMetaV5 | undefined;
   await Promise.all([
     progressStore.put(nextProgress),
+    metaStore.put({
+      ...(meta ?? defaultSyncMeta(ownerKey, conflict.targetKey, now)),
+      knownRevision: Math.max(meta?.knownRevision ?? 0, conflict.remoteHead.revision),
+      updatedAt: now,
+    }),
+    remoteStore.put({
+      ownerKey,
+      targetKey: conflict.targetKey,
+      revision: conflict.remoteHead.revision,
+      head: conflict.remoteHead,
+      updatedAt: now,
+    } satisfies RemoteHeadCacheV5),
     conflictStore.put({ ...conflict, state: 'resolved_remote', resolvedAt: now }),
   ]);
   await tx.done;

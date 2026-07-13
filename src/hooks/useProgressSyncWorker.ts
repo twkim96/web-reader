@@ -13,9 +13,7 @@ import { applyBookmarkEventTransaction } from '../lib/bookmarkSyncTransaction';
 import { ProgressSyncWorker } from '../lib/progressSyncWorker';
 import { isProgressOutboxEventV5 } from '../lib/syncOutboxV5';
 import { migrateDriveProgressToFirebaseScopeV170 } from '../lib/firebaseSyncScopeMigrationV170';
-
-const ACTIVE_DELAY_MS = 100;
-const IDLE_DELAY_MS = 2_000;
+import { runProgressSyncPoll } from '../lib/progressSyncPolling';
 
 export const useProgressSyncWorker = (
   user: FirebaseUser | null,
@@ -60,9 +58,11 @@ export const useProgressSyncWorker = (
       if (disposed || running || !navigator.onLine) return;
       running = true;
       try {
-        const result = await worker.flushOne();
-        const active = result === 'apply' || result === 'already_applied';
-        schedule(active ? ACTIVE_DELAY_MS : IDLE_DELAY_MS);
+        const nextDelay = await runProgressSyncPoll(
+          () => worker.flushOne(),
+          (error) => console.error('[ProgressSyncWorker] local polling failed:', error),
+        );
+        schedule(nextDelay);
       } finally {
         running = false;
       }

@@ -77,18 +77,17 @@ Google 로그인은 `signInWithRedirect`를 사용합니다. 배포 도메인에
 * Google Cloud OAuth redirect URI 형식: `https://<배포도메인>/__/auth/handler`
 
 ### Google Drive OAuth
-Cloud Library 연결은 팝업 대신 전체 페이지 redirect로 Google Drive access token을 받습니다. Google Cloud Console에서 같은 OAuth 클라이언트에 앱 루트 URL도 승인된 리디렉션 URI로 등록해야 합니다.
+Cloud Library 연결은 Google Identity Services token client의 계정 선택 팝업으로 access token을 요청합니다. Drive 연결에는 OAuth redirect URI보다 배포 도메인을 Google Cloud OAuth 클라이언트의 **승인된 JavaScript 원본**에 등록하는 것이 핵심입니다.
 
 * OAuth 동의 화면에 `drive.file`, `drive.readonly`, `drive.appdata` 범위를 등록합니다.
 * `drive.readonly`는 제한된 범위이므로 공개 서비스는 Google OAuth 검증 요구사항을 확인해야 합니다.
 * 각 Drive 계정의 확정된 `web viewer` 폴더 ID는 숨겨진 appData 설정에 저장되어 다른 기기에서도 재사용됩니다.
-* 브라우저 영구 폴더 캐시는 사용하지 않으며 현재 Drive 액세스 토큰의 메모리 캐시만 사용해 계정 전환 시 폴더가 섞이지 않습니다.
+* Drive access token과 만료 시각은 메모리에만 유지하며 localStorage, sessionStorage와 IndexedDB에 저장하지 않습니다.
+* 새로고침이나 token 만료·401 뒤에도 검증된 로컬 서재와 Firebase 진행률은 사용할 수 있지만, Drive 목록 갱신·다운로드·업로드에는 팝업 재연결이 필요할 수 있습니다.
+* token이 바뀌거나 만료되면 Drive session cache를 폐기하며 계정 전환 시 폴더가 섞이지 않습니다.
 * 앱은 Drive 전체를 목록에 표시하지 않고 확정된 폴더의 직접 자식만 조회합니다.
 * appData 설정이 없는 첫 연결에서 이름이 같은 폴더가 여러 개면 임의 선택하지 않고 충돌 오류를 표시합니다.
 * Drive 웹에서 직접 넣은 파일은 자동으로 표시되지만, 앱에서 만든 파일이 아니면 앱 삭제 요청이 거부될 수 있습니다.
-
-앱설치 권유
-* Drive OAuth redirect URI 형식: `https://<배포도메인>/`
 
 ### Installation
 ```bash

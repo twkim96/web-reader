@@ -41,8 +41,12 @@ export const decideBookmarkTransaction = ({
     if (
       storedReceipt.eventId !== event.eventId
       || storedReceipt.targetKey !== event.targetKey
-      || storedReceipt.revision !== storedHead.revision
-      || storedHead.acceptedEventId !== event.eventId
+      || storedReceipt.targetKind !== 'bookmark'
+      || storedReceipt.bookId !== event.target.bookId
+      || storedReceipt.bookmarkId !== event.target.bookmarkId
+      || storedHead.bookId !== event.target.bookId
+      || storedHead.bookmarkId !== event.target.bookmarkId
+      || storedHead.revision < storedReceipt.revision
     ) throw new Error('bookmark receipt가 요청 event와 일치하지 않습니다.');
     return { status: 'already_applied', head: storedHead, receipt: storedReceipt };
   }

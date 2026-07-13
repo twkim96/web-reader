@@ -24,7 +24,7 @@ import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/lo
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
-import { useDriveOAuthRedirect } from '../hooks/useDriveOAuthRedirect';
+import { useGoogleDriveConnection } from '../hooks/useGoogleDriveConnection';
 import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
 import { useLibraryData } from '../hooks/useLibraryData';
 import { useNetworkLibrarySync } from '../hooks/useNetworkLibrarySync';
@@ -232,7 +232,6 @@ export default function Page() {
     remoteProgress,
     setRemoteProgress,
     restoreLocalData,
-    syncLocalAndCloud,
     loadLibraryFromDrive,
     resetLibraryState,
   } = useLibraryData({
@@ -252,7 +251,6 @@ export default function Page() {
     setView,
     restoreLocalData,
     loadLibraryFromDrive,
-    syncLocalAndCloud,
     resetLibraryState,
   });
   useProgressSync({
@@ -276,9 +274,8 @@ export default function Page() {
     googleToken,
     setIsOfflineMode,
     loadLibraryFromDrive,
-    syncLocalAndCloud,
   });
-  const startDriveOAuth = useDriveOAuthRedirect({
+  const startDriveOAuth = useGoogleDriveConnection({
     saveToken,
     setIsOfflineMode,
     setView,

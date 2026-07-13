@@ -10,11 +10,13 @@ const {
   acquireSyncLeaseV5,
   claimNextProgressEventV5,
   enqueueBookmarkEventV5,
+  enqueueProgressMutationBatchV5,
   enqueueProgressEventV5,
   getOutboxEventsV5,
   getRetryDelayMs,
   getSyncMetaV5,
   recoverExpiredInFlightEventsV5,
+  releaseSyncLeaseV5,
   recordProgressConflictV5,
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
@@ -133,7 +135,7 @@ test('ack advances known revision monotonically and removes only its event', asy
   const head = {
     schemaVersion: 2,
     bookId: 'book-1',
-    revision: 1,
+    revision: 5,
     acceptedEventId: 'event-1',
     operation: 'set',
     position: position(10),
@@ -144,7 +146,15 @@ test('ack advances known revision monotonically and removes only its event', asy
   };
   assert.equal(await acknowledgeProgressEventV5(ownerA, 'event-1', head, 2), true);
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
-  assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 1);
+  assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 5);
+  await enqueue(ownerA, {
+    eventId: 'event-after-remote',
+    sessionId: 'session-after-remote',
+    occurredAtClient: 5,
+  });
+  const next = (await getOutboxEventsV5(ownerA))
+    .find(({ eventId }) => eventId === 'event-after-remote');
+  assert.equal(next.baseRevision, 5);
 });
 
 test('does not claim behind in-flight work and recovers only after lease takeover', async () => {
@@ -161,6 +171,28 @@ test('does not claim behind in-flight work and recovers only after lease takeove
   const nextLease = await acquireSyncLeaseV5(ownerA, 'tab-b', 151, 50);
   assert.equal(await recoverExpiredInFlightEventsV5(ownerA, 'tab-b', nextLease.epoch, 152), 1);
   assert.equal((await claimNextProgressEventV5(ownerA, 'tab-b', nextLease.epoch, 153)).eventId, 'event-1');
+});
+
+test('release preserves the lease generation so a new tab recovers the stale claim', async () => {
+  await enqueue(ownerA, { eventId: 'event-1' });
+  const firstLease = await acquireSyncLeaseV5(ownerA, 'tab-a', 100, 50);
+  await claimNextProgressEventV5(ownerA, 'tab-a', firstLease.epoch, 101);
+  await releaseSyncLeaseV5(ownerA, 'tab-a', firstLease.epoch);
+
+  const nextLease = await acquireSyncLeaseV5(ownerA, 'tab-b', 102, 50);
+  assert.ok(nextLease.epoch > firstLease.epoch);
+  assert.equal(await recoverExpiredInFlightEventsV5(
+    ownerA,
+    'tab-b',
+    nextLease.epoch,
+    103,
+  ), 1);
+  assert.equal((await claimNextProgressEventV5(
+    ownerA,
+    'tab-b',
+    nextLease.epoch,
+    104,
+  )).eventId, 'event-1');
 });
 
 test('retry delay uses bounded exponential backoff with jitter', () => {
@@ -227,6 +259,136 @@ test('using remote resolves and supersedes a conflicting progress chain', async 
     (await getOutboxEventsV5(ownerA)).map(({ status }) => status),
     ['superseded', 'superseded'],
   );
+  assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 1);
+});
+
+test('atomic progress mutation rolls back local progress and every event on failure', async () => {
+  const progress = {
+    bookId: 'book-1',
+    cfi: 'epubcfi(/6/40)',
+    anchorCfi: 'epubcfi(/6/40)',
+    progressPercent: 40,
+    lastRead: 10,
+    bookmarks: [],
+  };
+  const bookmarkEvent = (bookmarkId) => ({
+    bookId: 'book-1',
+    bookmarkId,
+    operation: 'bookmark.delete',
+    payload: null,
+    localBookmarks: [],
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    occurredAtClient: 10,
+    eventId: 'duplicate-event-id',
+  });
+
+  await assert.rejects(enqueueProgressMutationBatchV5(ownerA, {
+    progress,
+    progressEvent: {
+      bookId: 'book-1',
+      operation: 'progress.set',
+      position: position(40),
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      occurredAtClient: 10,
+      eventId: 'progress-event',
+      localBookmarks: [],
+    },
+    bookmarkEvents: [bookmarkEvent('mark-1'), bookmarkEvent('mark-2')],
+  }));
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
+  const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
+  assert.equal((await getAllLocalProgressV5(ownerA)).length, 0);
+  assert.equal(await getSyncMetaV5(ownerA, 'progress:book-1'), undefined);
+});
+
+test('atomic progress mutation commits progress and every bookmark event together', async () => {
+  const progress = {
+    bookId: 'book-1',
+    cfi: '',
+    anchorCfi: '',
+    progressPercent: 0,
+    lastRead: 10,
+    bookmarks: [],
+  };
+  await enqueueProgressMutationBatchV5(ownerA, {
+    progress,
+    progressEvent: {
+      bookId: 'book-1',
+      operation: 'progress.reset',
+      position: null,
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      occurredAtClient: 10,
+      eventId: 'progress-reset',
+      localBookmarks: [],
+    },
+    bookmarkEvents: ['a', 'b', 'c'].map((bookmarkId) => ({
+      bookId: 'book-1',
+      bookmarkId,
+      operation: 'bookmark.delete',
+      payload: null,
+      localBookmarks: [],
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      occurredAtClient: 10,
+      eventId: `delete-${bookmarkId}`,
+    })),
+  });
+  const events = await getOutboxEventsV5(ownerA);
+  assert.equal(events.length, 4);
+  assert.deepEqual(events.map(({ eventId }) => eventId).sort(), [
+    'delete-a', 'delete-b', 'delete-c', 'progress-reset',
+  ]);
+  const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 0);
+});
+
+test('using a remote bookmark advances its target meta atomically', async () => {
+  await enqueueBookmarkEventV5(ownerA, {
+    bookId: 'book-1',
+    bookmarkId: 'mark-1',
+    operation: 'bookmark.upsert',
+    payload: {
+      bookmarkId: 'mark-1',
+      cfi: 'local-cfi',
+      name: 'local',
+      color: '#fff',
+      progressPercent: 10,
+      createdAtClient: 1,
+      updatedAtClient: 1,
+    },
+    localBookmarks: [],
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    eventId: 'bookmark-local',
+    occurredAtClient: 1,
+  });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    bookmarkId: 'mark-1',
+    revision: 5,
+    acceptedEventId: 'bookmark-remote',
+    operation: 'upsert',
+    bookmark: {
+      bookmarkId: 'mark-1',
+      cfi: 'remote-cfi',
+      name: 'remote',
+      color: '#000',
+      progressPercent: 50,
+      createdAtClient: 2,
+      updatedAtClient: 2,
+    },
+    acceptedDeviceId: 'device-2',
+    occurredAtClient: 2,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  await recordProgressConflictV5(ownerA, 'bookmark-local', remote, 3);
+  await resolveSyncConflictUseRemoteV5(ownerA, 'bookmark-local', 4);
+  assert.equal((await getSyncMetaV5(ownerA, 'bookmark:book-1:mark-1')).knownRevision, 5);
 });
 
 test('keeping local creates a new event at the current remote revision', async () => {

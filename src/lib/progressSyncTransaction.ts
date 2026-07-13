@@ -46,8 +46,11 @@ export const decideProgressTransaction = ({
     if (
       storedReceipt.eventId !== event.eventId
       || storedReceipt.targetKey !== event.targetKey
-      || storedReceipt.revision !== storedHead.revision
-      || storedHead.acceptedEventId !== event.eventId
+      || storedReceipt.targetKind !== 'progress'
+      || storedReceipt.bookId !== event.target.bookId
+      || storedReceipt.bookmarkId !== null
+      || storedHead.bookId !== event.target.bookId
+      || storedHead.revision < storedReceipt.revision
     ) {
       throw new Error('event receipt가 요청 event와 일치하지 않습니다.');
     }

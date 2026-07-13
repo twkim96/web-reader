@@ -1,6 +1,4 @@
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { APP_ID, db } from '../lib/firebase';
 import {
   fetchDriveFiles,
   getDriveLibraryFolderId,
@@ -16,7 +14,6 @@ import {
   getOwnerBindingsV5,
   putOwnerBindingV5,
   putOwnerSessionV5,
-  saveProgressToLocalV5,
 } from '../lib/localDBV5';
 import { getAllLocalProgress, getAllOfflineBooks } from '../lib/localDB';
 import {
@@ -35,12 +32,6 @@ import {
   splitOwnerKey,
 } from '../lib/ownerIdentity';
 import { Book, UserProgress, ViewState } from '../types';
-import {
-  getTimestampMs,
-  mergeRemoteManualWithLocalAuto,
-  RemoteProgressDoc,
-  toProgressPercent,
-} from './progressPolicy';
 import { FIREBASE_SYNC_SCOPE_MIGRATED_EVENT_V170 } from '../lib/firebaseSyncScopeMigrationV170';
 
 interface UseLibraryDataOptions {
@@ -70,7 +61,6 @@ interface UseLibraryDataResult {
   remoteProgress: Record<string, UserProgress>;
   setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
-  syncLocalAndCloud: (uid: string) => Promise<void>;
   loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
   resetLibraryState: () => void;
 }
@@ -231,38 +221,6 @@ export const useLibraryData = ({
     }
   }, [prepareOwnerStorage, setIsOfflineMode, setView]);
 
-  const syncLocalAndCloud = useCallback(async (uid: string) => {
-    if (!navigator.onLine) return;
-    const owner = ownerRuntime.capture();
-    if (!owner) return;
-    if (owner.storageMode === 'legacy-readonly') return;
-
-    try {
-      const cloudRef = collection(db, 'artifacts', APP_ID, 'users', uid, 'readingHistory');
-      const cloudSnapshot = await getDocs(cloudRef);
-      if (!ownerRuntime.isCurrent(owner)) return;
-
-      for (const documentSnapshot of cloudSnapshot.docs) {
-        const cloudData = documentSnapshot.data() as RemoteProgressDoc;
-        const bookId = cloudData.bookId || documentSnapshot.id;
-        const cloudTime = getTimestampMs(cloudData.lastRead, 0);
-        const localBookmarks = progressRef.current[bookId]?.bookmarks || [];
-
-        await saveProgressToLocalV5(getSyncOwnerKey(owner.ownerKey), {
-          bookId,
-          cfi: cloudData.cfi || '',
-          anchorCfi: cloudData.anchorCfi || cloudData.cfi || '',
-          progressPercent: toProgressPercent(cloudData.progressPercent) ?? 0,
-          lastRead: cloudTime,
-          bookmarks: mergeRemoteManualWithLocalAuto(cloudData.bookmarks || [], localBookmarks),
-        });
-        if (!ownerRuntime.isCurrent(owner)) return;
-      }
-    } catch (error) {
-      console.warn('Background sync paused:', error);
-    }
-  }, []);
-
   const loadLibraryFromDrive = useCallback(async (
     token: string,
     requestedDriveSessionId?: string,
@@ -345,7 +303,6 @@ export const useLibraryData = ({
     remoteProgress,
     setRemoteProgress,
     restoreLocalData,
-    syncLocalAndCloud,
     loadLibraryFromDrive,
     resetLibraryState,
   };

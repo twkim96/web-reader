@@ -101,3 +101,32 @@ test('uses an immutable receipt to avoid duplicate bookmark revision', () => {
   });
   assert.equal(result.status, 'already_applied');
 });
+
+test('accepts an older bookmark receipt after a later upsert advances the head', () => {
+  const result = decideBookmarkTransaction({
+    event: event(),
+    storedHead: head({ revision: 2, acceptedEventId: 'event-2' }),
+    storedReceipt: receipt,
+    serverTime: {},
+  });
+  assert.equal(result.status, 'already_applied');
+  assert.equal(result.head.revision, 2);
+  assert.equal(result.receipt.revision, 1);
+});
+
+test('accepts an older bookmark receipt after a tombstone advances the head', () => {
+  const result = decideBookmarkTransaction({
+    event: event(),
+    storedHead: head({
+      revision: 2,
+      acceptedEventId: 'event-2',
+      operation: 'delete',
+      bookmark: null,
+      deletedAtServer: {},
+    }),
+    storedReceipt: receipt,
+    serverTime: {},
+  });
+  assert.equal(result.status, 'already_applied');
+  assert.equal(result.head.operation, 'delete');
+});

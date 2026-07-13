@@ -8,7 +8,7 @@ const DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.appdata',
 ].join(' ');
 
-interface UseDriveOAuthRedirectOptions {
+interface UseGoogleDriveConnectionOptions {
   saveToken: (token: string, expiresIn: number) => string;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
@@ -16,13 +16,13 @@ interface UseDriveOAuthRedirectOptions {
   setAuthErrorMessage: Dispatch<SetStateAction<string | null>>;
 }
 
-export const useDriveOAuthRedirect = ({
+export const useGoogleDriveConnection = ({
   saveToken,
   setIsOfflineMode,
   setView,
   loadLibraryFromDrive,
   setAuthErrorMessage,
-}: UseDriveOAuthRedirectOptions) => {
+}: UseGoogleDriveConnectionOptions) => {
   const requesterRef = useRef<DriveTokenRequestSingleFlight | null>(null);
   if (requesterRef.current == null) requesterRef.current = new DriveTokenRequestSingleFlight();
 

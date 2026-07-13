@@ -26,6 +26,11 @@ import {
   RemoteProgressDoc,
   toProgressPercent,
 } from './progressPolicy';
+import {
+  applyRemoteBookmarkHeadChanges,
+  mergeAccumulatedRemoteBookmarks,
+  type RemoteBookmarkHeadChange,
+} from '../lib/remoteBookmarkAccumulator';
 
 interface UseProgressSyncOptions {
   user: FirebaseUser | null;
@@ -131,6 +136,7 @@ export const useProgressSync = ({
       });
     }, (error) => console.error('[ProgressV1Bridge] listener failed:', error));
 
+    let remoteBookmarkHeads = new Map();
     const unsubscribeBookmarks = activeBookId
       ? onSnapshot(
         collection(doc(db, firebaseHistoryPath, activeBookId), 'bookmarks'),
@@ -139,13 +145,12 @@ export const useProgressSync = ({
           enqueueSnapshot(async () => {
             if (!ownerRuntime.isCurrent(owner) || snapshot.metadata.fromCache) return;
             const current = progressRef.current[activeBookId]?.bookmarks ?? [];
-            const manual = new Map(current
-              .filter((bookmark) => bookmark.type === 'manual')
-              .map((bookmark) => [bookmark.id, bookmark]));
             let changed = false;
+            const accumulatedChanges: RemoteBookmarkHeadChange[] = [];
             for (const change of snapshot.docChanges()) {
               if (change.doc.metadata.hasPendingWrites) continue;
               if (change.type === 'removed') {
+                accumulatedChanges.push({ type: 'remove', bookmarkId: change.doc.id });
                 await recordRemoteBookmarkMissingV5(
                   syncOwnerKey,
                   activeBookId,
@@ -156,27 +161,18 @@ export const useProgressSync = ({
               try {
                 const head = parseBookmarkHeadV2(change.doc.data());
                 await storeRemoteBookmarkHeadV5(syncOwnerKey, head);
+                accumulatedChanges.push({ type: 'upsert', head });
                 if (head.acceptedDeviceId === deviceId.current) continue;
                 changed = true;
-                if (head.operation === 'delete') {
-                  manual.delete(head.bookmarkId);
-                } else {
-                  manual.set(head.bookmarkId, {
-                    id: head.bookmarkId,
-                    type: 'manual',
-                    name: head.bookmark!.name,
-                    cfi: head.bookmark!.cfi,
-                    progressPercent: head.bookmark!.progressPercent ?? undefined,
-                    createdAt: head.bookmark!.createdAtClient,
-                    color: head.bookmark!.color,
-                  });
-                }
               } catch (error) {
                 console.error('[BookmarkV2] Invalid remote head:', error);
               }
             }
+            remoteBookmarkHeads = applyRemoteBookmarkHeadChanges(
+              remoteBookmarkHeads,
+              accumulatedChanges,
+            );
             if (!changed || !ownerRuntime.isCurrent(owner)) return;
-            const auto = current.filter((bookmark) => bookmark.type === 'auto');
             setRemoteProgress((prev) => ({
               ...prev,
               [activeBookId]: {
@@ -186,7 +182,7 @@ export const useProgressSync = ({
                   progressPercent: 0,
                   lastRead: 0,
                 }),
-                bookmarks: [...manual.values(), ...auto],
+                bookmarks: mergeAccumulatedRemoteBookmarks(current, remoteBookmarkHeads),
               },
             }));
           });
