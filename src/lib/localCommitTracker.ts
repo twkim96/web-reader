@@ -8,9 +8,11 @@ export const trackLocalCommit = <T>(promise: Promise<T>) => {
 };
 
 export const waitForCurrentLocalCommits = async () => {
-  const current = [...pendingLocalCommits];
-  if (current.length === 0) return;
-  await Promise.allSettled(current);
+  while (pendingLocalCommits.size > 0) {
+    await Promise.allSettled([...pendingLocalCommits]);
+    // Let continuations register follow-up commits before deciding the drain is complete.
+    await Promise.resolve();
+  }
 };
 
 export const getPendingLocalCommitCount = () => pendingLocalCommits.size;

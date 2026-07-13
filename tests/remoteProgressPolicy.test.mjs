@@ -11,11 +11,19 @@ const decide = (overrides = {}) => decideRemoteProgressAction({
   lastSaveTime: 100,
   remotePercent: 50,
   currentPercent: 10,
+  isQuietResumeEligible: true,
   ...overrides,
 });
 
 test('silently jumps to a newer remote position on the first sync', () => {
   assert.equal(decide({ isInitialSync: true }), 'jump');
+});
+
+test('does not silently override the user or a pending local save on first sync', () => {
+  assert.equal(decide({
+    isInitialSync: true,
+    isQuietResumeEligible: false,
+  }), 'prompt');
 });
 
 test('prompts for a meaningful newer remote update after initial sync', () => {

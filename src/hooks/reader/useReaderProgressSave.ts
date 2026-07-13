@@ -31,7 +31,7 @@ interface UseReaderProgressSaveOptions {
   initialPercent?: number;
   initialTime?: number;
   initialBookmarks?: Bookmark[];
-  onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => void;
+  onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
 }
 
 const RELOCATE_SAVE_IDLE_MS = 1000;
@@ -47,7 +47,10 @@ export const useReaderProgressSave = ({
 }: UseReaderProgressSaveOptions) => {
   const lastSaveTimeRef = useRef(initialTime || 0);
   const skipNextSaveRef = useRef(true);
+  const hasUserInteractedRef = useRef(false);
   const hasUnsavedUserChangeRef = useRef(false);
+  const interactionGenerationRef = useRef(0);
+  const inFlightCommitCountRef = useRef(0);
   const forceNextRelocateSaveRef = useRef(false);
   const pendingExpectedPercentRef = useRef<number | null>(null);
   const pendingBookmarksRef = useRef<Bookmark[] | null>(null);
@@ -77,7 +80,9 @@ export const useReaderProgressSave = ({
     expectedPercent?: number;
     bookmarks?: Bookmark[];
   }) => {
+    hasUserInteractedRef.current = true;
     hasUnsavedUserChangeRef.current = true;
+    interactionGenerationRef.current += 1;
     if (options?.forceNextRelocateSave) {
       forceNextRelocateSaveRef.current = true;
     }
@@ -106,7 +111,7 @@ export const useReaderProgressSave = ({
     unsavedSinceRef.current = null;
   }, [clearRelocateSaveTimer]);
 
-  const saveProgressIfChanged = useCallback((
+  const saveProgressIfChanged = useCallback(async (
     cfi: string,
     pct: number,
     nextBookmarks: Bookmark[],
@@ -130,11 +135,20 @@ export const useReaderProgressSave = ({
       return false;
     }
 
-    onSaveProgress(cfi, safePercent, nextBookmarks, {
-      ...(options?.force ? { force: true } : {}),
-      anchorCfi,
-      ...(options?.suppressLastReaderSession ? { suppressLastReaderSession: true } : {}),
-    });
+    const saveGeneration = interactionGenerationRef.current;
+    inFlightCommitCountRef.current += 1;
+    let committed = false;
+    try {
+      committed = await onSaveProgress(cfi, safePercent, nextBookmarks, {
+        ...(options?.force ? { force: true } : {}),
+        anchorCfi,
+        ...(options?.suppressLastReaderSession ? { suppressLastReaderSession: true } : {}),
+      });
+    } finally {
+      inFlightCommitCountRef.current = Math.max(0, inFlightCommitCountRef.current - 1);
+    }
+    if (!committed) return false;
+
     lastPersistedProgressRef.current = {
       cfi,
       anchorCfi,
@@ -142,7 +156,9 @@ export const useReaderProgressSave = ({
       bookmarksKey: nextBookmarksKey,
     };
     lastSaveTimeRef.current = Date.now();
-    clearPendingSave();
+    if (interactionGenerationRef.current === saveGeneration) {
+      clearPendingSave();
+    }
     return true;
   }, [clearPendingSave, onSaveProgress]);
 
@@ -171,14 +187,14 @@ export const useReaderProgressSave = ({
 
     if (options?.useMaxInterval !== false && now - unsavedSinceRef.current >= RELOCATE_SAVE_MAX_INTERVAL_MS) {
       clearRelocateSaveTimer();
-      saveProgressIfChanged(pending.cfi, pending.percent, pending.bookmarks);
+      void saveProgressIfChanged(pending.cfi, pending.percent, pending.bookmarks);
       return;
     }
 
     clearRelocateSaveTimer();
     relocateSaveTimerRef.current = window.setTimeout(() => {
       relocateSaveTimerRef.current = null;
-      savePendingRelocate();
+      void savePendingRelocate();
     }, options?.delayMs ?? RELOCATE_SAVE_IDLE_MS);
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
@@ -237,11 +253,18 @@ export const useReaderProgressSave = ({
     clearPendingSave();
   }, [clearPendingSave]);
 
+  const isQuietResumeEligible = useCallback(() => (
+    !hasUserInteractedRef.current
+    && !hasUnsavedUserChangeRef.current
+    && !pendingRelocateSaveRef.current
+    && inFlightCommitCountRef.current === 0
+  ), []);
+
   useEffect(() => () => {
     clearRelocateSaveTimer();
   }, [clearRelocateSaveTimer]);
 
-  const completeRemoteJump = useCallback((
+  const completeRemoteJump = useCallback(async (
     target: RemoteProgressTarget,
     bookmarks: Bookmark[],
     options?: { claimDevice?: boolean }
@@ -250,10 +273,11 @@ export const useReaderProgressSave = ({
     const bookmarksKey = getBookmarksKey(bookmarks);
 
     if (options?.claimDevice) {
-      onSaveProgress(target.cfi, safePercent, bookmarks, {
+      const committed = await onSaveProgress(target.cfi, safePercent, bookmarks, {
         force: true,
         anchorCfi: target.anchorCfi || target.cfi,
       });
+      if (!committed) return false;
       lastSaveTimeRef.current = Date.now();
     } else {
       lastSaveTimeRef.current = target.lastRead;
@@ -266,6 +290,7 @@ export const useReaderProgressSave = ({
       bookmarksKey,
     };
     clearPendingSave();
+    return true;
   }, [clearPendingSave, onSaveProgress]);
 
   return {
@@ -276,6 +301,7 @@ export const useReaderProgressSave = ({
     handleRelocateForSave,
     saveCurrentProgress,
     prepareRemoteJump,
+    isQuietResumeEligible,
     completeRemoteJump,
   };
 };

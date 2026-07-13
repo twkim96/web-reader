@@ -37,7 +37,7 @@ interface EpubReaderProps {
   settings: ViewerSettings;
   onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
   onBack: () => void;
-  onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => void;
+  onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
@@ -237,6 +237,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     handleRelocateForSave,
     saveCurrentProgress,
     prepareRemoteJump,
+    isQuietResumeEligible,
     completeRemoteJump,
   } = useReaderProgressSave({
     initialCfi,
@@ -323,6 +324,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     getBookmarks,
     createAutoBookmark,
     prepareRemoteJump,
+    isQuietResumeEligible,
     completeRemoteJump,
   });
 

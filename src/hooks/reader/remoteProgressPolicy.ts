@@ -8,6 +8,7 @@ type RemoteProgressDecisionInput = {
   lastSaveTime: number;
   remotePercent: number;
   currentPercent: number;
+  isQuietResumeEligible: boolean;
 };
 
 export const decideRemoteProgressAction = ({
@@ -18,6 +19,7 @@ export const decideRemoteProgressAction = ({
   lastSaveTime,
   remotePercent,
   currentPercent,
+  isQuietResumeEligible,
 }: RemoteProgressDecisionInput): RemoteProgressDecision => {
   if (
     !remoteAnchorCfi
@@ -25,7 +27,7 @@ export const decideRemoteProgressAction = ({
     || remoteTime <= lastSaveTime
   ) return 'ignore';
 
-  if (isInitialSync) return 'jump';
+  if (isInitialSync && isQuietResumeEligible) return 'jump';
 
   return Math.abs((remotePercent || 0) - (currentPercent || 0)) > 0.03
     ? 'prompt'

@@ -39,8 +39,8 @@ export class LocalStorageCapacityError extends Error {
 export const initDB = async () => {
   if (!dbPromise) {
     dbPromise = openDB(LOCAL_DB_NAME, LOCAL_DB_VERSION, {
-      upgrade(db, _oldVersion, _newVersion, transaction) {
-        upgradeLocalDB(db, transaction);
+      upgrade(db, oldVersion, _newVersion, transaction) {
+        upgradeLocalDB(db, transaction, oldVersion);
       },
       blocked(currentVersion, targetVersion) {
         emitLifecycle({ type: 'blocked', currentVersion, targetVersion });

@@ -79,6 +79,73 @@ const seedLegacyV4 = async ({ invalidMetadata = false } = {}) => {
   db.close();
 };
 
+const seedDeviceGlobalV6 = async () => {
+  const db = await openDB(schema.LOCAL_DB_NAME, 6, {
+    upgrade(database) {
+      database.createObjectStore(schema.V5_BOOKS_STORE);
+      const metadata = database.createObjectStore(schema.V5_METADATA_STORE, {
+        keyPath: ['ownerKey', 'id'],
+      });
+      metadata.createIndex('by-owner', 'ownerKey');
+      const progress = database.createObjectStore(schema.V5_PROGRESS_STORE, {
+        keyPath: ['ownerKey', 'bookId'],
+      });
+      progress.createIndex('by-owner', 'ownerKey');
+      const inspections = database.createObjectStore(schema.V5_ARCHIVE_INSPECTIONS_STORE, {
+        keyPath: ['ownerKey', 'bookId'],
+      });
+      inspections.createIndex('by-owner', 'ownerKey');
+      const outbox = database.createObjectStore(schema.V5_OUTBOX_STORE, {
+        keyPath: ['ownerKey', 'eventId'],
+      });
+      outbox.createIndex('by-owner-status-next-attempt', ['ownerKey', 'status', 'nextAttemptAt']);
+      outbox.createIndex('by-owner-target-sequence', ['ownerKey', 'targetKey', 'sequence']);
+      const heads = database.createObjectStore(schema.V5_REMOTE_HEADS_STORE, {
+        keyPath: ['ownerKey', 'targetKey'],
+      });
+      heads.createIndex('by-owner', 'ownerKey');
+      const meta = database.createObjectStore(schema.V5_SYNC_META_STORE, {
+        keyPath: ['ownerKey', 'targetKey'],
+      });
+      meta.createIndex('by-owner', 'ownerKey');
+      const conflicts = database.createObjectStore(schema.V5_SYNC_CONFLICTS_STORE, {
+        keyPath: ['ownerKey', 'conflictId'],
+      });
+      conflicts.createIndex('by-owner-target-state', ['ownerKey', 'targetKey', 'state']);
+      database.createObjectStore(schema.V5_SYNC_LEASES_STORE, { keyPath: 'ownerKey' });
+    },
+  });
+  const tx = db.transaction([
+    schema.V5_BOOKS_STORE,
+    schema.V5_METADATA_STORE,
+    schema.V5_PROGRESS_STORE,
+    schema.V5_ARCHIVE_INSPECTIONS_STORE,
+  ], 'readwrite');
+  await tx.objectStore(schema.V5_BOOKS_STORE).put(
+    new Blob(['device-book']),
+    [DEVICE_CONTENT_OWNER_KEY, 'book-6'],
+  );
+  await tx.objectStore(schema.V5_METADATA_STORE).put({
+    ...makeBook('book-6', 'Device Global Book'),
+    ownerKey: DEVICE_CONTENT_OWNER_KEY,
+  });
+  await tx.objectStore(schema.V5_PROGRESS_STORE).put({
+    ownerKey: ownerA,
+    bookId: 'book-6',
+    cfi: 'v6-progress',
+    progressPercent: 61,
+    lastRead: 6,
+  });
+  await tx.objectStore(schema.V5_ARCHIVE_INSPECTIONS_STORE).put({
+    ownerKey: DEVICE_CONTENT_OWNER_KEY,
+    bookId: 'book-6',
+    fingerprint: 'v6-inspection',
+    index: { entries: [{ filename: '001.jpg' }] },
+  });
+  await tx.done;
+  db.close();
+};
+
 test.beforeEach(deleteDatabase);
 test.after(deleteDatabase);
 
@@ -162,6 +229,61 @@ test('v5 upgrade resets account-scoped book caches but preserves Firebase progre
   assert.equal((await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY)).length, 0);
   assert.equal(await loadBookFromLocalV5(ownerA, 'book-1'), undefined);
   assert.deepEqual((await getAllLocalProgressV5(ownerA)).map(({ cfi }) => cfi), ['preserved']);
+});
+
+test('v6 upgrade preserves device-global books, metadata, inspections, and progress', async () => {
+  await seedDeviceGlobalV6();
+
+  const db = await initDB();
+  assert.equal(await (await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'book-6')).text(), 'device-book');
+  assert.deepEqual(
+    (await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY)).map(({ name }) => name),
+    ['Device Global Book'],
+  );
+  assert.deepEqual((await getAllLocalProgressV5(ownerA)).map(({ cfi }) => cfi), ['v6-progress']);
+
+  const tx = db.transaction([
+    schema.V5_ARCHIVE_INSPECTIONS_STORE,
+    schema.V5_OUTBOX_STORE,
+    schema.V5_SYNC_CONFLICTS_STORE,
+  ]);
+  assert.equal(
+    (await tx.objectStore(schema.V5_ARCHIVE_INSPECTIONS_STORE).get([
+      DEVICE_CONTENT_OWNER_KEY,
+      'book-6',
+    ])).fingerprint,
+    'v6-inspection',
+  );
+  assert.equal(tx.objectStore(schema.V5_OUTBOX_STORE).indexNames.contains('by-owner-status'), true);
+  assert.equal(
+    tx.objectStore(schema.V5_SYNC_CONFLICTS_STORE).indexNames.contains('by-owner-state-created-at'),
+    true,
+  );
+});
+
+test('a future index-only upgrade preserves all current active content stores', async () => {
+  await seedDeviceGlobalV6();
+  await initDB();
+  await closeLocalDB();
+
+  const db = await openDB(schema.LOCAL_DB_NAME, 8, {
+    upgrade(database, oldVersion, _newVersion, transaction) {
+      schema.upgradeLocalDB(database, transaction, oldVersion);
+    },
+  });
+  assert.equal(
+    await (await db.get(schema.V5_BOOKS_STORE, [DEVICE_CONTENT_OWNER_KEY, 'book-6'])).text(),
+    'device-book',
+  );
+  assert.equal(
+    (await db.get(schema.V5_METADATA_STORE, [DEVICE_CONTENT_OWNER_KEY, 'book-6'])).name,
+    'Device Global Book',
+  );
+  assert.equal(
+    (await db.get(schema.V5_ARCHIVE_INSPECTIONS_STORE, [DEVICE_CONTENT_OWNER_KEY, 'book-6'])).fingerprint,
+    'v6-inspection',
+  );
+  db.close();
 });
 
 test('device books survive Firebase progress owner deletion', async () => {

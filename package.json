@@ -1,6 +1,6 @@
 {
   "name": "viewer",
-  "version": "1.7.5.2",
+  "version": "1.7.6",
   "private": true,
   "scripts": {
     "dev": "next dev",

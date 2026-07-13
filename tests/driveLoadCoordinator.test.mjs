@@ -48,3 +48,29 @@ test('a newer Drive session invalidates and aborts the older session', async () 
   oldGate.resolve();
   assert.equal(await oldRun, false);
 });
+
+test('cancel followed by an immediate same-session retry starts new work', async () => {
+  const coordinator = new DriveLoadCoordinator();
+  const oldGate = deferred();
+  let runs = 0;
+  let oldContext;
+
+  const oldRun = coordinator.run('session-a', async (context) => {
+    runs += 1;
+    oldContext = context;
+    await oldGate.promise;
+    return coordinator.isCurrent(context);
+  });
+  coordinator.cancel();
+  const retry = coordinator.run('session-a', async (context) => {
+    runs += 1;
+    return coordinator.isCurrent(context);
+  });
+
+  assert.equal(oldContext.signal.aborted, true);
+  assert.notEqual(retry, oldRun);
+  assert.equal(await retry, true);
+  assert.equal(runs, 2);
+  oldGate.resolve();
+  assert.equal(await oldRun, false);
+});

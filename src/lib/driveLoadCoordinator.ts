@@ -8,7 +8,10 @@ export class DriveLoadCoordinator {
   private generation = 0;
   private active: DriveLoadContext | null = null;
   private controller: AbortController | null = null;
-  private inFlight = new Map<string, Promise<boolean>>();
+  private inFlight = new Map<string, {
+    context: DriveLoadContext;
+    promise: Promise<boolean>;
+  }>();
 
   isCurrent(context: DriveLoadContext) {
     return this.active?.generation === context.generation
@@ -21,7 +24,8 @@ export class DriveLoadCoordinator {
     work: (context: DriveLoadContext) => Promise<boolean>,
   ): Promise<boolean> {
     const current = this.inFlight.get(key);
-    if (current) return current;
+    if (current && this.isCurrent(current.context)) return current.promise;
+    if (current) this.inFlight.delete(key);
 
     this.controller?.abort();
     const controller = new AbortController();
@@ -35,14 +39,15 @@ export class DriveLoadCoordinator {
     this.active = context;
 
     const promise = work(context).finally(() => {
-      if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
+      if (this.inFlight.get(key)?.promise === promise) this.inFlight.delete(key);
     });
-    this.inFlight.set(key, promise);
+    this.inFlight.set(key, { context, promise });
     return promise;
   }
 
   cancel() {
     this.controller?.abort();
+    if (this.active) this.inFlight.delete(this.active.key);
     this.controller = null;
     this.active = null;
     this.generation += 1;

@@ -22,11 +22,12 @@ interface UseRemoteProgressPromptOptions {
   getBookmarks: () => Bookmark[];
   createAutoBookmark?: (prevCfi: string, prevPct: number) => Bookmark[];
   prepareRemoteJump: () => void;
+  isQuietResumeEligible: () => boolean;
   completeRemoteJump: (
     target: SyncConflict,
     bookmarks: Bookmark[],
     options?: { claimDevice?: boolean }
-  ) => void;
+  ) => Promise<boolean>;
 }
 
 export const useRemoteProgressPrompt = ({
@@ -40,19 +41,35 @@ export const useRemoteProgressPrompt = ({
   getBookmarks,
   createAutoBookmark,
   prepareRemoteJump,
+  isQuietResumeEligible,
   completeRemoteJump,
 }: UseRemoteProgressPromptOptions) => {
   const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
   const lastProcessedRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
   const isInitialSync = useRef(true);
+  const jumpGeneration = useRef(0);
+  const jumpingRemote = useRef<{ cfi: string; lastRead: number } | null>(null);
+  const jumpTail = useRef<Promise<void>>(Promise.resolve());
 
   const jumpToRemoteProgress = useCallback(async (
     target: SyncConflict,
     options?: { claimDevice?: boolean }
   ) => {
+    const generation = jumpGeneration.current + 1;
+    jumpGeneration.current = generation;
     prepareRemoteJump();
-    await goTo(target.anchorCfi || target.cfi);
-    completeRemoteJump(target, getBookmarks(), options);
+    try {
+      const navigation = jumpTail.current
+        .catch(() => undefined)
+        .then(() => goTo(target.anchorCfi || target.cfi));
+      jumpTail.current = navigation;
+      await navigation;
+      if (jumpGeneration.current !== generation) return false;
+      return await completeRemoteJump(target, getBookmarks(), options);
+    } catch (error) {
+      console.warn('[RemoteProgress] jump failed:', error);
+      return false;
+    }
   }, [completeRemoteJump, getBookmarks, goTo, prepareRemoteJump]);
 
   useEffect(() => {
@@ -68,11 +85,16 @@ export const useRemoteProgressPrompt = ({
       lastProcessedRemote.current.cfi === remoteAnchorCfi &&
       lastProcessedRemote.current.lastRead === remoteTime
     ) return;
+    if (
+      jumpingRemote.current
+      && jumpingRemote.current.cfi === remoteAnchorCfi
+      && jumpingRemote.current.lastRead === remoteTime
+    ) return;
 
-    lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
+    // A different remote head invalidates any slower jump still in progress.
+    jumpGeneration.current += 1;
 
     const wasInitialSync = isInitialSync.current;
-    isInitialSync.current = false;
     const action = decideRemoteProgressAction({
       isInitialSync: wasInitialSync,
       remoteAnchorCfi,
@@ -81,8 +103,13 @@ export const useRemoteProgressPrompt = ({
       lastSaveTime: lastSaveTimeRef.current,
       remotePercent: remoteProgress.progressPercent,
       currentPercent: totalProgress,
+      isQuietResumeEligible: isQuietResumeEligible(),
     });
-    if (action === 'ignore') return;
+    if (action === 'ignore') {
+      lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
+      isInitialSync.current = false;
+      return;
+    }
 
     const target = {
       cfi: remoteCfi,
@@ -91,13 +118,26 @@ export const useRemoteProgressPrompt = ({
       lastRead: remoteTime,
     };
     if (action === 'jump') {
-      void jumpToRemoteProgress(target);
+      jumpingRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
+      void jumpToRemoteProgress(target).then((completed) => {
+        if (
+          jumpingRemote.current?.cfi === remoteAnchorCfi
+          && jumpingRemote.current.lastRead === remoteTime
+        ) {
+          jumpingRemote.current = null;
+        }
+        if (!completed) return;
+        lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
+        isInitialSync.current = false;
+      });
       return;
     }
 
+    lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
+    isInitialSync.current = false;
     const timeoutId = window.setTimeout(() => setSyncConflict(target), 0);
     return () => window.clearTimeout(timeoutId);
-  }, [currentAnchorCfi, currentCfi, isLoaded, jumpToRemoteProgress, lastSaveTimeRef, remoteProgress, totalProgress]);
+  }, [currentAnchorCfi, currentCfi, isLoaded, isQuietResumeEligible, jumpToRemoteProgress, lastSaveTimeRef, remoteProgress, totalProgress]);
 
   const dismissSyncConflict = useCallback(() => {
     setSyncConflict(null);
@@ -110,8 +150,9 @@ export const useRemoteProgressPrompt = ({
     if (currentCfi && targetAnchor !== currentAnchor) {
       createAutoBookmark?.(currentAnchor, totalProgress);
     }
-    void jumpToRemoteProgress(syncConflict, { claimDevice: true });
-    setSyncConflict(null);
+    void jumpToRemoteProgress(syncConflict, { claimDevice: true }).then((completed) => {
+      if (completed) setSyncConflict(null);
+    });
   }, [createAutoBookmark, currentAnchorCfi, currentCfi, jumpToRemoteProgress, syncConflict, totalProgress]);
 
   return {

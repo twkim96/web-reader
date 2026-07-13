@@ -83,6 +83,7 @@ export default function Page() {
   const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+  const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
   const shouldHoldShelfForDrive = useCallback(() => (
     hasPendingGoogleDriveOAuth(sessionStorage, window.location.hash)
@@ -379,17 +380,27 @@ export default function Page() {
     saveProgress: handleSaveProgress,
     deleteProgress: handleDeleteProgress,
     deleteBookProgress: handleDeleteBookProgress,
-  } = useProgressActions({ activeBook, user, deviceId, progressRef, setProgress });
+  } = useProgressActions({
+    activeBook,
+    user,
+    deviceId,
+    progressRef,
+    setProgress,
+    onPersistenceError: setProgressPersistenceError,
+  });
 
   const handleReaderSaveProgress = useCallback((
     cfi: string,
     pct: number,
     bookmarks?: Bookmark[],
     options?: SaveProgressOptions,
-  ) => {
-    handleSaveProgress(cfi, pct, bookmarks, options);
-    if (!activeBook || !settings.autoOpenLastBook || options?.suppressLastReaderSession) return;
-    saveLastReaderSession(activeBook.id, pct);
+  ): Promise<boolean> => {
+    const commit = handleSaveProgress(cfi, pct, bookmarks, options);
+    if (!activeBook || !settings.autoOpenLastBook || options?.suppressLastReaderSession) return commit;
+    return commit.then((committed) => {
+      if (committed) saveLastReaderSession(activeBook.id, pct);
+      return committed;
+    });
   }, [activeBook, handleSaveProgress, settings.autoOpenLastBook]);
 
   const handleDeleteBook = useCallback(async (book: Book) => {
@@ -605,6 +616,19 @@ export default function Page() {
           onConfirm={() => setAuthErrorMessage(null)}
           onCancel={() => setAuthErrorMessage(null)}
         />
+      )}
+
+      {progressPersistenceError && (
+        <div className="fixed bottom-4 left-1/2 z-[110] flex w-[min(92vw,36rem)] -translate-x-1/2 items-center gap-3 rounded-2xl bg-rose-700 px-4 py-3 text-sm text-white shadow-2xl">
+          <span className="flex-1">{progressPersistenceError}</span>
+          <button
+            type="button"
+            className="shrink-0 rounded-xl bg-white px-3 py-2 font-bold text-rose-700"
+            onClick={() => setProgressPersistenceError(null)}
+          >
+            확인
+          </button>
+        </div>
       )}
 
       {showInstallPrompt && (

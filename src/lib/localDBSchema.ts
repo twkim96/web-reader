@@ -40,22 +40,34 @@ const createIndex = (
 export const upgradeLocalDB = (
   db: IDBPDatabase<unknown>,
   transaction: IDBPTransaction<unknown, string[], 'versionchange'>,
+  oldVersion: number,
 ) => {
   for (const obsoleteStore of [
     LEGACY_BOOKS_STORE,
     LEGACY_METADATA_STORE,
     LEGACY_PROGRESS_STORE,
     LEGACY_ARCHIVE_INSPECTIONS_STORE,
-    // 1.7.1 content records were partitioned by account. 1.7.2 intentionally
-    // starts one clean device cache instead of copying those records.
-    V5_BOOKS_STORE,
-    V5_METADATA_STORE,
-    V5_ARCHIVE_INSPECTIONS_STORE,
     'owner-bindings-v5',
     'owner-session-v5',
     'migration-meta-v5',
   ]) {
     if (db.objectStoreNames.contains(obsoleteStore)) db.deleteObjectStore(obsoleteStore);
+  }
+
+  // Version 5 content records were partitioned by account. Version 6 changed
+  // them to one device-global cache, so only that exact legacy transition may
+  // discard the incompatible content stores. Version 6+ stores are active user
+  // data and must survive index-only and all future schema upgrades.
+  if (oldVersion > 0 && oldVersion < 6) {
+    for (const incompatibleStore of [
+      V5_BOOKS_STORE,
+      V5_METADATA_STORE,
+      V5_ARCHIVE_INSPECTIONS_STORE,
+    ]) {
+      if (db.objectStoreNames.contains(incompatibleStore)) {
+        db.deleteObjectStore(incompatibleStore);
+      }
+    }
   }
 
   createStore(db, V5_BOOKS_STORE);

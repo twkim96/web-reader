@@ -23,7 +23,7 @@ interface UseReaderBookmarksOptions {
     pct: number,
     nextBookmarks: Bookmark[],
     options?: SaveProgressOptions,
-  ) => boolean;
+  ) => Promise<boolean>;
 }
 
 const sortByNewest = (items: Bookmark[]) => (
@@ -100,7 +100,7 @@ export const useReaderBookmarks = ({
       color: '#f59e0b',
     };
     const updated = setBookmarks([newMark, ...bookmarksRef.current]);
-    saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
+    void saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
       anchorCfi: position.anchorCfi,
     });
   }, [currentAnchorCfi, currentCfi, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
@@ -109,7 +109,7 @@ export const useReaderBookmarks = ({
     markUserProgressChange();
     const updated = setBookmarks(bookmarksRef.current.filter((bookmark) => bookmark.id !== id));
     const position = getBookmarkPosition(currentCfi, currentAnchorCfi);
-    saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
+    void saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
       anchorCfi: position.anchorCfi,
     });
   }, [currentAnchorCfi, currentCfi, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
