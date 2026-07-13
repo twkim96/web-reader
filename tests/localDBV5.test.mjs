@@ -86,7 +86,7 @@ test('v4 upgrade discards retired stores and creates the active schema', async (
   await seedLegacyV4();
   const db = await initDB();
 
-  assert.equal(db.version, 6);
+  assert.equal(db.version, schema.LOCAL_DB_VERSION);
   for (const storeName of [
     schema.V5_BOOKS_STORE,
     schema.V5_METADATA_STORE,
@@ -202,7 +202,7 @@ test('device books survive Firebase progress owner deletion', async () => {
   assert.equal((await getAllLocalProgressV5(ownerB)).length, 1);
 });
 
-test('blocked v5 open is reported and resumes after the old connection closes', async () => {
+test('blocked current-schema open is reported and resumes after the old connection closes', async () => {
   const oldConnection = await openDB(schema.LOCAL_DB_NAME, 4, {
     upgrade(database) {
       database.createObjectStore(schema.LEGACY_BOOKS_STORE);
@@ -223,7 +223,7 @@ test('blocked v5 open is reported and resumes after the old connection closes', 
 
   const opening = initDB();
   await blocked;
-  assert.equal(blockedEvent.targetVersion, 6);
+  assert.equal(blockedEvent.targetVersion, schema.LOCAL_DB_VERSION);
   oldConnection.close();
-  assert.equal((await opening).version, 6);
+  assert.equal((await opening).version, schema.LOCAL_DB_VERSION);
 });

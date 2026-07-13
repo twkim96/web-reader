@@ -1,5 +1,5 @@
 export const ACTIVE_SYNC_POLL_DELAY_MS = 100;
-export const IDLE_SYNC_POLL_DELAY_MS = 2_000;
+export const IDLE_SYNC_POLL_DELAY_MS = 30_000;
 
 export const runProgressSyncPoll = async (
   flushOne: () => Promise<string>,

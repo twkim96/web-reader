@@ -1,4 +1,13 @@
-import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Dispatch,
+  MutableRefObject,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   fetchDriveFiles,
   getDriveLibraryFolderId,
@@ -17,6 +26,7 @@ import {
   DEVICE_CONTENT_OWNER_KEY,
   getSyncOwnerKey,
 } from '../lib/ownerIdentity';
+import { DriveLoadCoordinator } from '../lib/driveLoadCoordinator';
 import { Book, UserProgress, ViewState } from '../types';
 
 interface UseLibraryDataOptions {
@@ -69,12 +79,22 @@ export const useLibraryData = ({
   const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
   const [driveCacheKey, setDriveCacheKey] = useState<string | null>(null);
   const progressRef = useRef<Record<string, UserProgress>>({});
+  const driveLoadCoordinatorRef = useRef(new DriveLoadCoordinator());
+  const driveSessionIdRef = useRef(driveSessionId);
 
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
 
+  useLayoutEffect(() => {
+    const coordinator = driveLoadCoordinatorRef.current;
+    driveSessionIdRef.current = driveSessionId;
+    coordinator.cancel();
+    return () => coordinator.cancel();
+  }, [driveSessionId]);
+
   const resetLibraryState = useCallback(() => {
+    driveLoadCoordinatorRef.current.cancel();
     progressRef.current = {};
     setBooks([]);
     setProgress({});
@@ -139,46 +159,59 @@ export const useLibraryData = ({
     if (!previousOwner) return false;
     const sessionId = requestedDriveSessionId ?? driveSessionId;
     if (!sessionId) return false;
-    let attemptedCacheKey: string | null = null;
-    try {
-      const permissionId = await getDriveUserPermissionId(token);
-      if (!ownerRuntime.isCurrent(previousOwner)) return false;
-      const driveNamespace = `drive:${encodeURIComponent(permissionId)}`;
-      const cacheKey = `${driveNamespace}::${sessionId}`;
-      attemptedCacheKey = cacheKey;
-      const folderId = await getDriveLibraryFolderId(token, { cacheKey });
-      if (!ownerRuntime.isCurrent(previousOwner)) return false;
-      invalidateDriveCachesForOwner(driveNamespace, cacheKey);
-      setDriveCacheKey(cacheKey);
+    const requestKey = sessionId;
+    return driveLoadCoordinatorRef.current.run(requestKey, async (request) => {
+      const isCurrent = () => (
+        driveLoadCoordinatorRef.current.isCurrent(request)
+        && ownerRuntime.isCurrent(previousOwner)
+        && driveSessionIdRef.current === sessionId
+      );
+      let attemptedCacheKey: string | null = null;
+      try {
+        const permissionId = await getDriveUserPermissionId(token, request.signal);
+        if (!isCurrent()) return false;
+        const driveNamespace = `drive:${encodeURIComponent(permissionId)}`;
+        const cacheKey = `${driveNamespace}::${sessionId}`;
+        attemptedCacheKey = cacheKey;
+        const folderId = await getDriveLibraryFolderId(token, {
+          cacheKey,
+          signal: request.signal,
+        });
+        if (!isCurrent()) return false;
+        invalidateDriveCachesForOwner(driveNamespace, cacheKey);
+        setDriveCacheKey(cacheKey);
 
-      const data = folderId
-        ? await fetchDriveFiles(token, folderId)
-        : { files: [] };
-      if (!ownerRuntime.isCurrent(previousOwner)) return false;
-      const cloudBooks = (data.files as Book[]).map((book) => ({ ...book, source: 'cloud' as const }));
-      const cloudIds = new Set(cloudBooks.map((book) => book.id));
-      const localBooks = await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY);
-      if (!ownerRuntime.isCurrent(previousOwner)) return false;
-      const localOnly = localBooks
-        .filter((book) => !cloudIds.has(book.id))
-        .map((book) => ({ ...book, source: 'local' as const }));
-      setBooks([...cloudBooks, ...localOnly]);
+        const data = folderId
+          ? await fetchDriveFiles(token, folderId, request.signal)
+          : { files: [] };
+        if (!isCurrent()) return false;
+        const cloudBooks = (data.files as Book[])
+          .map((book) => ({ ...book, source: 'cloud' as const }));
+        const cloudIds = new Set(cloudBooks.map((book) => book.id));
+        const localBooks = await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY);
+        if (!isCurrent()) return false;
+        const localOnly = localBooks
+          .filter((book) => !cloudIds.has(book.id))
+          .map((book) => ({ ...book, source: 'local' as const }));
+        setBooks([...cloudBooks, ...localOnly]);
 
-      setIsOfflineMode(false);
-      return true;
-    } catch (error) {
-      if (isGoogleDriveAuthError(error)) {
-        if (attemptedCacheKey) invalidateDriveCache(attemptedCacheKey);
-        setDriveCacheKey(null);
-        clearToken();
+        setIsOfflineMode(false);
+        return true;
+      } catch (error) {
+        if (!isCurrent()) return false;
+        if (isGoogleDriveAuthError(error)) {
+          if (attemptedCacheKey) invalidateDriveCache(attemptedCacheKey);
+          setDriveCacheKey(null);
+          clearToken();
+        }
+        if (error instanceof GoogleDriveFolderConflictError) {
+          onLibraryError?.(error.message);
+        }
+        console.warn('Drive Library Load Failed (Offline or Error)');
+        setIsOfflineMode(true);
+        return false;
       }
-      if (error instanceof GoogleDriveFolderConflictError) {
-        onLibraryError?.(error.message);
-      }
-      console.warn('Drive Library Load Failed (Offline or Error)');
-      setIsOfflineMode(true);
-      return false;
-    }
+    });
   }, [clearToken, driveSessionId, onLibraryError, setIsOfflineMode]);
 
   return {

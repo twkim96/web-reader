@@ -76,10 +76,10 @@ export class GoogleDriveFolderConflictError extends Error {
 export const isGoogleDriveAuthError = (error: unknown) => error instanceof GoogleDriveAuthError;
 export const isGoogleDrivePermissionError = (error: unknown) => error instanceof GoogleDrivePermissionError;
 
-export const getDriveUserPermissionId = async (token: string) => {
+export const getDriveUserPermissionId = async (token: string, signal?: AbortSignal) => {
   const response = await fetchWithTimeout(
     'https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',
-    { headers: { Authorization: `Bearer ${token}` } },
+    { headers: { Authorization: `Bearer ${token}` }, signal },
     5000,
   );
   if (!response.ok) {
@@ -126,7 +126,7 @@ const throwIfGoogleDrivePermissionError = (response: Response) => {
   }
 };
 
-const listDriveFolders = async (query: string, token: string) => {
+const listDriveFolders = async (query: string, token: string, signal?: AbortSignal) => {
   const files: DriveFolder[] = [];
   const seenTokens = new Set<string>();
   let pageToken: string | undefined;
@@ -140,7 +140,7 @@ const listDriveFolders = async (query: string, token: string) => {
     if (pageToken) url.searchParams.set('pageToken', pageToken);
     const response = await fetchWithTimeout(
       url.toString(),
-      { headers: { Authorization: `Bearer ${token}` } },
+      { headers: { Authorization: `Bearer ${token}` }, signal },
       5000,
     );
 
@@ -170,10 +170,10 @@ const rememberLibraryFolderId = (cacheKey: string, folderId: string) => {
   return folderId;
 };
 
-const fetchDriveFolder = async (folderId: string, token: string) => {
+const fetchDriveFolder = async (folderId: string, token: string, signal?: AbortSignal) => {
   const response = await fetchWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    { headers: { Authorization: `Bearer ${token}` }, signal },
     5000,
   );
 
@@ -193,7 +193,7 @@ const isUsableLibraryFolder = (folder: DriveFolder | null) => (
   && folder.name === DRIVE_LIBRARY_FOLDER_NAME
 );
 
-const readDriveLibraryRegistry = async (token: string) => {
+const readDriveLibraryRegistry = async (token: string, signal?: AbortSignal) => {
   const query = `name = '${DRIVE_LIBRARY_REGISTRY_NAME}' and 'appDataFolder' in parents and trashed = false`;
   const files: Array<{ id: string }> = [];
   const seenTokens = new Set<string>();
@@ -208,7 +208,7 @@ const readDriveLibraryRegistry = async (token: string) => {
     if (pageToken) url.searchParams.set('pageToken', pageToken);
     const response = await fetchWithTimeout(
       url.toString(),
-      { headers: { Authorization: `Bearer ${token}` } },
+      { headers: { Authorization: `Bearer ${token}` }, signal },
       5000,
     );
 
@@ -237,7 +237,7 @@ const readDriveLibraryRegistry = async (token: string) => {
   for (const [index, file] of files.entries()) {
     const contentResponse = await fetchWithTimeout(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`,
-      { headers: { Authorization: `Bearer ${token}` } },
+      { headers: { Authorization: `Bearer ${token}` }, signal },
       5000,
     );
     if (contentResponse.status === 403 || contentResponse.status === 404) continue;
@@ -267,6 +267,7 @@ const writeDriveLibraryRegistry = async (
   folderId: string,
   token: string,
   existingFileId?: string,
+  signal?: AbortSignal,
 ) => {
   const content = JSON.stringify({ version: 1, folderId });
   if (existingFileId) {
@@ -279,6 +280,7 @@ const writeDriveLibraryRegistry = async (
           'Content-Type': 'application/json',
         },
         body: content,
+        signal,
       },
       10000,
     );
@@ -310,6 +312,7 @@ const writeDriveLibraryRegistry = async (
         content,
         `\r\n--${boundary}--`,
       ]),
+      signal,
     },
     10000,
   );
@@ -319,13 +322,18 @@ const writeDriveLibraryRegistry = async (
   }
 };
 
-const deleteDuplicateDriveLibraryRegistries = async (fileIds: string[], token: string) => {
+const deleteDuplicateDriveLibraryRegistries = async (
+  fileIds: string[],
+  token: string,
+  signal?: AbortSignal,
+) => {
   await Promise.all(fileIds.map(async (fileId) => {
     const response = await fetchWithTimeout(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
       {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       },
       10000,
     );
@@ -339,6 +347,7 @@ const syncDriveLibraryRegistry = async (
   token: string,
   cacheKey: string,
   registry?: Awaited<ReturnType<typeof readDriveLibraryRegistry>>,
+  signal?: AbortSignal,
 ) => {
   if (
     syncedLibraryRegistry.get(cacheKey) === folderId
@@ -353,13 +362,13 @@ const syncDriveLibraryRegistry = async (
   const promise = (async () => {
     try {
       const currentRegistry = registry === undefined
-        ? await readDriveLibraryRegistry(token)
+        ? await readDriveLibraryRegistry(token, signal)
         : registry;
       if (currentRegistry?.folderId !== folderId) {
-        await writeDriveLibraryRegistry(folderId, token, currentRegistry?.fileId);
+        await writeDriveLibraryRegistry(folderId, token, currentRegistry?.fileId, signal);
       }
       if (currentRegistry?.duplicateFileIds.length) {
-        await deleteDuplicateDriveLibraryRegistries(currentRegistry.duplicateFileIds, token);
+        await deleteDuplicateDriveLibraryRegistries(currentRegistry.duplicateFileIds, token, signal);
       }
       syncedLibraryRegistry.set(cacheKey, folderId);
     } catch (error) {
@@ -378,7 +387,7 @@ const syncDriveLibraryRegistry = async (
   }
 };
 
-const createLibraryFolder = async (token: string) => {
+const createLibraryFolder = async (token: string, signal?: AbortSignal) => {
   const response = await fetchWithTimeout(
     'https://www.googleapis.com/drive/v3/files',
     {
@@ -391,6 +400,7 @@ const createLibraryFolder = async (token: string) => {
         name: DRIVE_LIBRARY_FOLDER_NAME,
         mimeType: 'application/vnd.google-apps.folder',
       }),
+      signal,
     },
     10000
   );
@@ -407,25 +417,25 @@ const createLibraryFolder = async (token: string) => {
 const resolveDriveLibraryFolderId = async (
   token: string,
   cacheKey: string,
-  { createIfMissing = false }: { createIfMissing?: boolean } = {},
+  { createIfMissing = false, signal }: { createIfMissing?: boolean; signal?: AbortSignal } = {},
 ) => {
   const cachedFolderId = libraryFolderCache.get(cacheKey) ?? null;
   if (cachedFolderId) {
-    const cachedFolder = await fetchDriveFolder(cachedFolderId, token);
+    const cachedFolder = await fetchDriveFolder(cachedFolderId, token, signal);
     if (isUsableLibraryFolder(cachedFolder)) {
-      await syncDriveLibraryRegistry(cachedFolderId, token, cacheKey);
+      await syncDriveLibraryRegistry(cachedFolderId, token, cacheKey, undefined, signal);
       return cachedFolderId;
     }
     libraryFolderCache.delete(cacheKey);
     syncedLibraryRegistry.delete(cacheKey);
   }
 
-  const registry = await readDriveLibraryRegistry(token);
+  const registry = await readDriveLibraryRegistry(token, signal);
   if (registry?.folderId) {
-    const registeredFolder = await fetchDriveFolder(registry.folderId, token);
+    const registeredFolder = await fetchDriveFolder(registry.folderId, token, signal);
     if (isUsableLibraryFolder(registeredFolder)) {
       if (registry.duplicateFileIds.length) {
-        await deleteDuplicateDriveLibraryRegistries(registry.duplicateFileIds, token);
+        await deleteDuplicateDriveLibraryRegistries(registry.duplicateFileIds, token, signal);
       }
       syncedLibraryRegistry.set(cacheKey, registry.folderId);
       return rememberLibraryFolderId(cacheKey, registry.folderId);
@@ -437,10 +447,10 @@ const resolveDriveLibraryFolderId = async (
     "mimeType = 'application/vnd.google-apps.folder'",
     'trashed = false',
   ].join(' and ');
-  const namedFolders = await listDriveFolders(namedQuery, token);
+  const namedFolders = await listDriveFolders(namedQuery, token, signal);
   if (namedFolders.length === 1) {
     const folderId = rememberLibraryFolderId(cacheKey, namedFolders[0].id);
-    await syncDriveLibraryRegistry(folderId, token, cacheKey, registry);
+    await syncDriveLibraryRegistry(folderId, token, cacheKey, registry, signal);
     return folderId;
   }
   if (namedFolders.length > 1) {
@@ -450,14 +460,14 @@ const resolveDriveLibraryFolderId = async (
   }
   if (!createIfMissing) return null;
 
-  const folderId = rememberLibraryFolderId(cacheKey, await createLibraryFolder(token));
-  await syncDriveLibraryRegistry(folderId, token, cacheKey, registry);
+  const folderId = rememberLibraryFolderId(cacheKey, await createLibraryFolder(token, signal));
+  await syncDriveLibraryRegistry(folderId, token, cacheKey, registry, signal);
   return folderId;
 };
 
 export const getDriveLibraryFolderId = async (
   token: string,
-  options: { cacheKey: string; createIfMissing?: boolean },
+  options: { cacheKey: string; createIfMissing?: boolean; signal?: AbortSignal },
 ): Promise<string | null> => {
   const { cacheKey } = options;
   const createIfMissing = options.createIfMissing ?? false;
@@ -465,10 +475,17 @@ export const getDriveLibraryFolderId = async (
   if (current) {
     const folderId = await current.promise;
     if (folderId || !createIfMissing || current.createIfMissing) return folderId;
-    return getDriveLibraryFolderId(token, { cacheKey, createIfMissing: true });
+    return getDriveLibraryFolderId(token, {
+      cacheKey,
+      createIfMissing: true,
+      signal: options.signal,
+    });
   }
 
-  const promise = resolveDriveLibraryFolderId(token, cacheKey, { createIfMissing });
+  const promise = resolveDriveLibraryFolderId(token, cacheKey, {
+    createIfMissing,
+    signal: options.signal,
+  });
   libraryFolderInFlight.set(cacheKey, { createIfMissing, promise });
   try {
     return await promise;
@@ -545,7 +562,11 @@ export const normalizeDriveBooks = (files: Book[]) => files.flatMap((file) => {
   }];
 });
 
-export const fetchDriveFiles = async (token: string, folderId: string) => {
+export const fetchDriveFiles = async (
+  token: string,
+  folderId: string,
+  signal?: AbortSignal,
+) => {
   const q = `'${folderId}' in parents and trashed=false`;
   const files: Book[] = [];
   const seenTokens = new Set<string>();
@@ -562,7 +583,7 @@ export const fetchDriveFiles = async (token: string, folderId: string) => {
     if (pageToken) url.searchParams.set('pageToken', pageToken);
     const response = await fetchWithTimeout(
       url.toString(),
-      { headers: { Authorization: `Bearer ${token}` } },
+      { headers: { Authorization: `Bearer ${token}` }, signal },
       5000,
     );
 

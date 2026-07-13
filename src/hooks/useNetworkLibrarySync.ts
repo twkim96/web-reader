@@ -57,9 +57,9 @@ export const useNetworkLibrarySync = ({
 
   useEffect(() => {
     const handleOnline = () => {
-      if (!user || !googleToken) return;
+      if (!user || !googleToken || !driveSessionId) return;
 
-      loadLibraryFromDrive(googleToken).then((isSuccess) => {
+      loadLibraryFromDrive(googleToken, driveSessionId).then((isSuccess) => {
         if (!isSuccess) setIsOfflineMode(true);
       });
     };
@@ -74,5 +74,5 @@ export const useNetworkLibrarySync = ({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [googleToken, loadLibraryFromDrive, setIsOfflineMode, user]);
+  }, [driveSessionId, googleToken, loadLibraryFromDrive, setIsOfflineMode, user]);
 };

@@ -2,6 +2,8 @@
 
 작성일: 2026-07-13
 
+후속 안정화: 동기화 경쟁 조건과 Firestore 최초 수화 문제는 `update_1.7.5.md`에서 처리한다.
+
 ## 원인
 
 Drive OAuth redirect 또는 저장된 Drive session 복구 중에도 Firebase bootstrap이 로컬 복구 완료만 보고 `isOfflineMode=true`, `view=shelf`를 먼저 적용했다. 이후 Drive session loader가 다시 `view=loading`을 거쳐 cloud shelf를 열어 중간 offline shelf와 화면 깜빡임이 발생했다.

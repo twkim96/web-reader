@@ -11,6 +11,7 @@ import { applyBookmarkEventTransaction } from '../lib/bookmarkSyncTransaction';
 import { ProgressSyncWorker } from '../lib/progressSyncWorker';
 import { isProgressOutboxEventV5 } from '../lib/syncOutboxV5';
 import { runProgressSyncPoll } from '../lib/progressSyncPolling';
+import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 
 export const useProgressSyncWorker = (
   user: FirebaseUser | null,
@@ -49,6 +50,10 @@ export const useProgressSyncWorker = (
     const schedule = (delay: number) => {
       if (disposed) return;
       if (timer !== undefined) window.clearTimeout(timer);
+      if (document.visibilityState === 'hidden' && delay > 0) {
+        timer = undefined;
+        return;
+      }
       timer = window.setTimeout(() => void pump(), delay);
     };
     const pump = async () => {
@@ -65,7 +70,12 @@ export const useProgressSyncWorker = (
       }
     };
     const handleOnline = () => schedule(0);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') schedule(0);
+    };
+    const unsubscribeWork = subscribeProgressSyncWork(syncOwnerKey, () => schedule(0));
     window.addEventListener('online', handleOnline);
+    document.addEventListener('visibilitychange', handleVisibility);
     schedule(0);
 
     const unregister = ownerRuntime.registerDisposer(() => {
@@ -76,7 +86,9 @@ export const useProgressSyncWorker = (
     return () => {
       disposed = true;
       unregister();
+      unsubscribeWork();
       window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVisibility);
       if (timer !== undefined) window.clearTimeout(timer);
       void worker.dispose();
     };

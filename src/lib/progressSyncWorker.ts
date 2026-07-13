@@ -5,6 +5,7 @@ import {
   acknowledgeProgressEventV5,
   acquireSyncLeaseV5,
   claimNextProgressEventV5,
+  getExpectedClaimV5,
   isSyncLeaseCurrentV5,
   pauseProgressEventV5,
   recordProgressConflictV5,
@@ -34,6 +35,7 @@ type WorkerDependencies = {
   recover?: typeof recoverExpiredInFlightEventsV5;
   releaseLease?: typeof releaseSyncLeaseV5;
   scheduleRetry?: typeof scheduleProgressEventRetryV5;
+  now?: () => number;
 };
 
 const retryableCodes = new Set([
@@ -68,7 +70,9 @@ export class ProgressSyncWorker {
   private readonly recover;
   private readonly releaseLease;
   private readonly scheduleRetry;
+  private readonly now;
   private lease: SyncLeaseV5 | null = null;
+  private recoveredLeaseEpoch: number | null = null;
   private disposed = false;
 
   constructor(
@@ -87,13 +91,17 @@ export class ProgressSyncWorker {
     this.recover = dependencies.recover ?? recoverExpiredInFlightEventsV5;
     this.releaseLease = dependencies.releaseLease ?? releaseSyncLeaseV5;
     this.scheduleRetry = dependencies.scheduleRetry ?? scheduleProgressEventRetryV5;
+    this.now = dependencies.now ?? Date.now;
   }
 
-  async flushOne(now = Date.now()) {
+  async flushOne(now = this.now()) {
     if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
     this.lease = await this.acquireLease(this.syncOwnerKey, this.tabId, now);
     if (!this.lease) return 'not_leader' as const;
-    await this.recover(this.syncOwnerKey, this.tabId, this.lease.epoch, now);
+    if (this.recoveredLeaseEpoch !== this.lease.epoch) {
+      await this.recover(this.syncOwnerKey, this.tabId, this.lease.epoch, now);
+      this.recoveredLeaseEpoch = this.lease.epoch;
+    }
     const event = await this.claimNext(
       this.syncOwnerKey,
       this.tabId,
@@ -101,37 +109,70 @@ export class ProgressSyncWorker {
       now,
     );
     if (!event) return 'idle' as const;
+    const expectedClaim = getExpectedClaimV5(event);
+    if (!expectedClaim) return 'stale_claim' as const;
 
     try {
       const result = await this.transport(event);
       if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
+      const completedAt = this.now();
       const leaseStillCurrent = await this.isLeaseCurrent(
         this.syncOwnerKey,
         this.tabId,
         this.lease.epoch,
-        now,
+        completedAt,
       );
       if (!leaseStillCurrent) return 'stale_lease' as const;
 
       if (result.status === 'conflict') {
-        await this.recordConflict(
+        const recorded = await this.recordConflict(
           this.syncOwnerKey,
           event.eventId,
           result.remoteHead,
-          now,
+          expectedClaim,
+          completedAt,
         );
+        if (!recorded) return 'stale_claim' as const;
         return 'conflict' as const;
       }
-      await this.acknowledge(this.syncOwnerKey, event.eventId, result.head, now);
+      const acknowledged = await this.acknowledge(
+        this.syncOwnerKey,
+        event.eventId,
+        result.head,
+        expectedClaim,
+        completedAt,
+      );
+      if (!acknowledged) return 'stale_claim' as const;
       return result.status;
     } catch (error) {
       if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
+      const completedAt = this.now();
+      const leaseStillCurrent = await this.isLeaseCurrent(
+        this.syncOwnerKey,
+        this.tabId,
+        this.lease.epoch,
+        completedAt,
+      );
+      if (!leaseStillCurrent) return 'stale_lease' as const;
       const code = errorCode(error);
       if (isRetryableProgressSyncError(error)) {
-        await this.scheduleRetry(this.syncOwnerKey, event.eventId, code, now);
+        const scheduled = await this.scheduleRetry(
+          this.syncOwnerKey,
+          event.eventId,
+          code,
+          expectedClaim,
+          completedAt,
+        );
+        if (!scheduled) return 'stale_claim' as const;
         return 'retry_scheduled' as const;
       }
-      await this.pause(this.syncOwnerKey, event.eventId, code);
+      const paused = await this.pause(
+        this.syncOwnerKey,
+        event.eventId,
+        code,
+        expectedClaim,
+      );
+      if (!paused) return 'stale_claim' as const;
       return 'paused' as const;
     }
   }

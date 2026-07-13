@@ -1,7 +1,7 @@
 import type { IDBPDatabase, IDBPTransaction } from 'idb';
 
 export const LOCAL_DB_NAME = 'web-reader-db';
-export const LOCAL_DB_VERSION = 6;
+export const LOCAL_DB_VERSION = 7;
 
 export const LEGACY_BOOKS_STORE = 'books';
 export const LEGACY_METADATA_STORE = 'metadata';
@@ -81,6 +81,7 @@ export const upgradeLocalDB = (
   createIndex(outbox, 'by-owner-status-next-attempt', [
     'ownerKey', 'status', 'nextAttemptAt',
   ]);
+  createIndex(outbox, 'by-owner-status', ['ownerKey', 'status']);
   createIndex(outbox, 'by-owner-target-sequence', [
     'ownerKey', 'targetKey', 'sequence',
   ]);
@@ -100,6 +101,9 @@ export const upgradeLocalDB = (
   }) ?? transaction.objectStore(V5_SYNC_CONFLICTS_STORE);
   createIndex(conflicts, 'by-owner-target-state', [
     'ownerKey', 'targetKey', 'state',
+  ]);
+  createIndex(conflicts, 'by-owner-state-created-at', [
+    'ownerKey', 'state', 'createdAt',
   ]);
 
   createStore(db, V5_SYNC_LEASES_STORE, { keyPath: 'ownerKey' });

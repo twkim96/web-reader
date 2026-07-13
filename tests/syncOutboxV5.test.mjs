@@ -12,14 +12,17 @@ const {
   enqueueBookmarkEventV5,
   enqueueProgressMutationBatchV5,
   enqueueProgressEventV5,
+  getExpectedClaimV5,
   getOutboxEventsV5,
   getRetryDelayMs,
   getSyncMetaV5,
   recoverExpiredInFlightEventsV5,
   releaseSyncLeaseV5,
   recordProgressConflictV5,
+  pauseProgressEventV5,
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
+  scheduleProgressEventRetryV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const {
   makeFirebaseOwnerKey,
@@ -52,6 +55,20 @@ const enqueue = (ownerKey, overrides = {}) => enqueueProgressEventV5(ownerKey, {
   occurredAtClient: 1,
   ...overrides,
 });
+
+const claimNext = async (now = 10, tabId = 'tab-a') => {
+  const lease = await acquireSyncLeaseV5(ownerA, tabId, now, 50);
+  const event = await claimNextProgressEventV5(
+    ownerA,
+    tabId,
+    lease.epoch,
+    now + 1,
+    () => `${tabId}-claim-${now}`,
+  );
+  const expectedClaim = getExpectedClaimV5(event);
+  assert.ok(expectedClaim);
+  return { event, expectedClaim, lease };
+};
 
 test.beforeEach(resetDatabase);
 test.after(resetDatabase);
@@ -114,7 +131,14 @@ test('conflict preserves the event and blocks its later chain', async () => {
     sessionId: 'session-2',
     occurredAtClient: 2,
   });
-  const conflict = await recordProgressConflictV5(ownerA, 'event-1', null, 3);
+  const { expectedClaim } = await claimNext();
+  const conflict = await recordProgressConflictV5(
+    ownerA,
+    'event-1',
+    null,
+    expectedClaim,
+    12,
+  );
   const events = await getOutboxEventsV5(ownerA);
   assert.equal(conflict.state, 'open');
   assert.deepEqual(conflict.blockedEventIds, ['event-2']);
@@ -144,7 +168,14 @@ test('ack advances known revision monotonically and removes only its event', asy
     updatedAtServer: {},
     deletedAtServer: null,
   };
-  assert.equal(await acknowledgeProgressEventV5(ownerA, 'event-1', head, 2), true);
+  const { expectedClaim } = await claimNext();
+  assert.equal(await acknowledgeProgressEventV5(
+    ownerA,
+    'event-1',
+    head,
+    expectedClaim,
+    12,
+  ), true);
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 5);
   await enqueue(ownerA, {
@@ -193,6 +224,62 @@ test('release preserves the lease generation so a new tab recovers the stale cla
     nextLease.epoch,
     104,
   )).eventId, 'event-1');
+});
+
+test('late mutations cannot change an event reclaimed by a newer lease', async () => {
+  await enqueue(ownerA, { eventId: 'event-1' });
+  const leaseA = await acquireSyncLeaseV5(ownerA, 'tab-a', 100, 50);
+  const eventA = await claimNextProgressEventV5(
+    ownerA,
+    'tab-a',
+    leaseA.epoch,
+    101,
+    () => 'claim-a',
+  );
+  const expectedA = getExpectedClaimV5(eventA);
+  assert.ok(expectedA);
+
+  const leaseB = await acquireSyncLeaseV5(ownerA, 'tab-b', 151, 50);
+  await recoverExpiredInFlightEventsV5(ownerA, 'tab-b', leaseB.epoch, 152);
+  const eventB = await claimNextProgressEventV5(
+    ownerA,
+    'tab-b',
+    leaseB.epoch,
+    153,
+    () => 'claim-b',
+  );
+  const head = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'event-1',
+    operation: 'set',
+    position: position(10),
+    acceptedDeviceId: 'device-1',
+    occurredAtClient: 1,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+
+  assert.equal(await acknowledgeProgressEventV5(
+    ownerA, 'event-1', head, expectedA, 154,
+  ), false);
+  assert.equal(await scheduleProgressEventRetryV5(
+    ownerA, 'event-1', 'unavailable', expectedA, 154, 0,
+  ), null);
+  assert.equal(await pauseProgressEventV5(
+    ownerA, 'event-1', 'permission-denied', expectedA,
+  ), null);
+  assert.equal(await recordProgressConflictV5(
+    ownerA, 'event-1', head, expectedA, 154,
+  ), false);
+
+  const current = (await getOutboxEventsV5(ownerA))[0];
+  assert.equal(current.status, 'in_flight');
+  assert.equal(current.claimedByTabId, 'tab-b');
+  assert.equal(current.claimedLeaseEpoch, leaseB.epoch);
+  assert.equal(current.claimToken, 'claim-b');
+  assert.equal(eventB.claimToken, 'claim-b');
 });
 
 test('retry delay uses bounded exponential backoff with jitter', () => {
@@ -252,7 +339,8 @@ test('using remote resolves and supersedes a conflicting progress chain', async 
     updatedAtServer: {},
     deletedAtServer: null,
   };
-  await recordProgressConflictV5(ownerA, 'event-1', remote, 3);
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
   const local = await resolveSyncConflictUseRemoteV5(ownerA, 'event-1', 4);
   assert.equal(local.progressPercent, 70);
   assert.deepEqual(
@@ -386,7 +474,8 @@ test('using a remote bookmark advances its target meta atomically', async () => 
     updatedAtServer: {},
     deletedAtServer: null,
   };
-  await recordProgressConflictV5(ownerA, 'bookmark-local', remote, 3);
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'bookmark-local', remote, expectedClaim, 12);
   await resolveSyncConflictUseRemoteV5(ownerA, 'bookmark-local', 4);
   assert.equal((await getSyncMetaV5(ownerA, 'bookmark:book-1:mark-1')).knownRevision, 5);
 });
@@ -405,7 +494,8 @@ test('keeping local creates a new event at the current remote revision', async (
     updatedAtServer: {},
     deletedAtServer: null,
   };
-  await recordProgressConflictV5(ownerA, 'event-1', remote, 3);
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
   const replacement = await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 4);
   assert.equal(replacement.baseRevision, 2);
   assert.equal(replacement.payload.progressPercent, 30);
@@ -446,7 +536,14 @@ test('restoring a remotely deleted bookmark assigns a new bookmark id', async ()
     updatedAtServer: {},
     deletedAtServer: {},
   };
-  await recordProgressConflictV5(ownerA, 'bookmark-event', remoteDelete, 3);
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(
+    ownerA,
+    'bookmark-event',
+    remoteDelete,
+    expectedClaim,
+    12,
+  );
   const replacement = await resolveSyncConflictKeepLocalV5(ownerA, 'bookmark-event', 4);
   assert.equal(replacement.target.kind, 'bookmark');
   assert.notEqual(replacement.target.bookmarkId, 'old-mark');

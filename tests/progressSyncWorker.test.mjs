@@ -20,8 +20,10 @@ const {
 const ownerA = makeOwnerKey(makeFirebaseOwnerKey('a'), 'library:local');
 const ownerB = makeOwnerKey(makeFirebaseOwnerKey('b'), 'library:local');
 const position = { cfi: 'cfi', anchorCfi: null, progressPercent: 10 };
+let clockNow = 10;
 
 const resetDatabase = async () => {
+  clockNow = 10;
   ownerRuntime.clear();
   await closeLocalDB();
   await new Promise((resolve, reject) => {
@@ -73,7 +75,12 @@ test.after(resetDatabase);
 test('leader applies and acknowledges one event', async () => {
   await seed();
   const owner = ownerRuntime.activate(ownerA);
-  const worker = new ProgressSyncWorker(owner, 'tab-a', async () => applied);
+  const worker = new ProgressSyncWorker(
+    owner,
+    'tab-a',
+    async () => applied,
+    { now: () => clockNow },
+  );
   assert.equal(await worker.flushOne(10), 'apply');
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
   await worker.dispose();
@@ -92,6 +99,7 @@ test('local ack failure retries and receipt replay avoids duplicate apply', asyn
       return remoteCalls === 1 ? applied : { ...applied, status: 'already_applied' };
     },
     {
+      now: () => clockNow,
       async acknowledge(...args) {
         ackCalls += 1;
         if (ackCalls === 1) throw Object.assign(new Error('idb failed'), { code: 'unavailable' });
@@ -101,6 +109,7 @@ test('local ack failure retries and receipt replay avoids duplicate apply', asyn
     },
   );
   assert.equal(await worker.flushOne(10), 'retry_scheduled');
+  clockNow = 2_000;
   assert.equal(await worker.flushOne(2_000), 'already_applied');
   assert.equal(remoteCalls, 2);
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
@@ -127,6 +136,7 @@ test('receipt replay acknowledges the latest head after another device advances 
     'tab-a',
     async () => (++remoteCalls === 1 ? applied : latest),
     {
+      now: () => clockNow,
       async acknowledge(...args) {
         ackCalls += 1;
         if (ackCalls === 1) throw Object.assign(new Error('idb failed'), { code: 'unavailable' });
@@ -136,6 +146,7 @@ test('receipt replay acknowledges the latest head after another device advances 
     },
   );
   assert.equal(await worker.flushOne(10), 'retry_scheduled');
+  clockNow = 2_000;
   assert.equal(await worker.flushOne(2_000), 'already_applied');
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
@@ -144,10 +155,15 @@ test('receipt replay acknowledges the latest head after another device advances 
 test('late response after owner switch cannot acknowledge the old owner', async () => {
   await seed();
   const owner = ownerRuntime.activate(ownerA);
-  const worker = new ProgressSyncWorker(owner, 'tab-a', async () => {
-    ownerRuntime.activate(ownerB);
-    return applied;
-  });
+  const worker = new ProgressSyncWorker(
+    owner,
+    'tab-a',
+    async () => {
+      ownerRuntime.activate(ownerB);
+      return applied;
+    },
+    { now: () => clockNow },
+  );
   assert.equal(await worker.flushOne(10), 'stale_owner');
   assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'in_flight');
 });
@@ -155,8 +171,18 @@ test('late response after owner switch cannot acknowledge the old owner', async 
 test('a second tab cannot claim while the first lease is live', async () => {
   await seed();
   const owner = ownerRuntime.activate(ownerA);
-  const first = new ProgressSyncWorker(owner, 'tab-a', async () => applied);
-  const second = new ProgressSyncWorker(owner, 'tab-b', async () => applied);
+  const first = new ProgressSyncWorker(
+    owner,
+    'tab-a',
+    async () => applied,
+    { now: () => clockNow },
+  );
+  const second = new ProgressSyncWorker(
+    owner,
+    'tab-b',
+    async () => applied,
+    { now: () => clockNow },
+  );
   assert.equal(await first.flushOne(10), 'apply');
   await seed();
   assert.equal(await second.flushOne(11), 'not_leader');

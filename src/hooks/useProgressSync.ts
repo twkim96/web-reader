@@ -1,6 +1,12 @@
 import { Dispatch, MutableRefObject, SetStateAction, useEffect, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { collection, doc, onSnapshot } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+} from 'firebase/firestore';
 import { APP_ID, db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { UserProgress } from '../types';
@@ -13,8 +19,7 @@ import {
 import {
   recordRemoteBookmarkMissingV5,
   recordRemoteMissingV5,
-  storeRemoteBookmarkHeadV5,
-  storeRemoteProgressHeadV5,
+  storeRemoteHeadsBatchV5,
 } from '../lib/syncOutboxV5';
 import {
   getTimestampMs,
@@ -24,6 +29,7 @@ import {
   mergeAccumulatedRemoteBookmarks,
   type RemoteBookmarkHeadChange,
 } from '../lib/remoteBookmarkAccumulator';
+import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 
 interface UseProgressSyncOptions {
   user: FirebaseUser | null;
@@ -42,7 +48,8 @@ export const useProgressSync = ({
   activeBookId,
   ownerKey,
 }: UseProgressSyncOptions) => {
-  const snapshotTailRef = useRef(Promise.resolve());
+  const progressSnapshotTailRef = useRef(Promise.resolve());
+  const bookmarkSnapshotTailRef = useRef(Promise.resolve());
 
   useEffect(() => {
     if (!user) return;
@@ -55,17 +62,23 @@ export const useProgressSync = ({
     const firebaseHistoryPath = getFirebaseSyncHistoryPath(APP_ID, user.uid);
     const v2Ref = collection(db, firebaseHistoryPath);
 
+    const hydrator = new ServerSnapshotHydrator<
+      QueryDocumentSnapshot<DocumentData, DocumentData>
+    >();
     const enqueueSnapshot = (work: () => Promise<void>) => {
-      snapshotTailRef.current = snapshotTailRef.current
+      progressSnapshotTailRef.current = progressSnapshotTailRef.current
         .catch(() => undefined)
         .then(work);
     };
 
     const unsubscribeV2 = onSnapshot(v2Ref, { includeMetadataChanges: true }, (snapshot) => {
       enqueueSnapshot(async () => {
-        if (!ownerRuntime.isCurrent(owner) || snapshot.metadata.fromCache) return;
+        if (!ownerRuntime.isCurrent(owner)) return;
+        const changes = hydrator.select(snapshot);
+        if (!changes) return;
         const remoteUpdates: Record<string, UserProgress> = {};
-        for (const change of snapshot.docChanges()) {
+        const heads = [];
+        for (const change of changes) {
           if (change.doc.metadata.hasPendingWrites) continue;
           if (change.type === 'removed') {
             await recordRemoteMissingV5(syncOwnerKey, change.doc.id);
@@ -73,7 +86,7 @@ export const useProgressSync = ({
           }
           try {
             const head = parseProgressHeadV2(change.doc.data());
-            await storeRemoteProgressHeadV5(syncOwnerKey, head);
+            heads.push(head);
             if (head.acceptedDeviceId === deviceId.current) continue;
             const serverTime = getTimestampMs(head.updatedAtServer, 0);
             remoteUpdates[head.bookId] = head.operation === 'reset'
@@ -97,74 +110,97 @@ export const useProgressSync = ({
             console.error('[ProgressV2] Invalid remote head:', error);
           }
         }
+        await storeRemoteHeadsBatchV5(syncOwnerKey, heads);
         if (!ownerRuntime.isCurrent(owner) || Object.keys(remoteUpdates).length === 0) return;
         setRemoteProgress((prev) => ({ ...prev, ...remoteUpdates }));
       });
     }, (error) => console.error('[ProgressV2] listener failed:', error));
 
-    let remoteBookmarkHeads = new Map();
-    const unsubscribeBookmarks = activeBookId
-      ? onSnapshot(
-        collection(doc(db, firebaseHistoryPath, activeBookId), 'bookmarks'),
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          enqueueSnapshot(async () => {
-            if (!ownerRuntime.isCurrent(owner) || snapshot.metadata.fromCache) return;
-            const current = progressRef.current[activeBookId]?.bookmarks ?? [];
-            let changed = false;
-            const accumulatedChanges: RemoteBookmarkHeadChange[] = [];
-            for (const change of snapshot.docChanges()) {
-              if (change.doc.metadata.hasPendingWrites) continue;
-              if (change.type === 'removed') {
-                accumulatedChanges.push({ type: 'remove', bookmarkId: change.doc.id });
-                await recordRemoteBookmarkMissingV5(
-                  syncOwnerKey,
-                  activeBookId,
-                  change.doc.id,
-                );
-                continue;
-              }
-              try {
-                const head = parseBookmarkHeadV2(change.doc.data());
-                await storeRemoteBookmarkHeadV5(syncOwnerKey, head);
-                accumulatedChanges.push({ type: 'upsert', head });
-                if (head.acceptedDeviceId === deviceId.current) continue;
-                changed = true;
-              } catch (error) {
-                console.error('[BookmarkV2] Invalid remote head:', error);
-              }
-            }
-            remoteBookmarkHeads = applyRemoteBookmarkHeadChanges(
-              remoteBookmarkHeads,
-              accumulatedChanges,
-            );
-            if (!changed || !ownerRuntime.isCurrent(owner)) return;
-            setRemoteProgress((prev) => ({
-              ...prev,
-              [activeBookId]: {
-                ...(prev[activeBookId] ?? progressRef.current[activeBookId] ?? {
-                  bookId: activeBookId,
-                  cfi: '',
-                  progressPercent: 0,
-                  lastRead: 0,
-                }),
-                bookmarks: mergeAccumulatedRemoteBookmarks(current, remoteBookmarkHeads),
-              },
-            }));
-          });
-        },
-        (error) => console.error('[BookmarkV2] listener failed:', error),
-      )
-      : () => undefined;
-
     const dispose = () => {
       unsubscribeV2();
-      unsubscribeBookmarks();
     };
     const unregister = ownerRuntime.registerDisposer(dispose);
     return () => {
       unregister();
       dispose();
+    };
+  }, [deviceId, ownerKey, progressRef, setRemoteProgress, user]);
+
+  useEffect(() => {
+    if (!user || !activeBookId) return;
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
+    const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
+    if (authOwnerKey !== `firebase:${user.uid}`) return;
+
+    const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
+    const firebaseHistoryPath = getFirebaseSyncHistoryPath(APP_ID, user.uid);
+    const hydrator = new ServerSnapshotHydrator<
+      QueryDocumentSnapshot<DocumentData, DocumentData>
+    >();
+    let remoteBookmarkHeads = new Map();
+    const enqueueSnapshot = (work: () => Promise<void>) => {
+      bookmarkSnapshotTailRef.current = bookmarkSnapshotTailRef.current
+        .catch(() => undefined)
+        .then(work);
+    };
+
+    const unsubscribe = onSnapshot(
+      collection(doc(db, firebaseHistoryPath, activeBookId), 'bookmarks'),
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        enqueueSnapshot(async () => {
+          if (!ownerRuntime.isCurrent(owner)) return;
+          const changes = hydrator.select(snapshot);
+          if (!changes) return;
+          const current = progressRef.current[activeBookId]?.bookmarks ?? [];
+          let changed = false;
+          const heads = [];
+          const accumulatedChanges: RemoteBookmarkHeadChange[] = [];
+          for (const change of changes) {
+            if (change.doc.metadata.hasPendingWrites) continue;
+            if (change.type === 'removed') {
+              changed = true;
+              accumulatedChanges.push({ type: 'remove', bookmarkId: change.doc.id });
+              await recordRemoteBookmarkMissingV5(syncOwnerKey, activeBookId, change.doc.id);
+              continue;
+            }
+            try {
+              const head = parseBookmarkHeadV2(change.doc.data());
+              heads.push(head);
+              accumulatedChanges.push({ type: 'upsert', head });
+              if (head.acceptedDeviceId !== deviceId.current) changed = true;
+            } catch (error) {
+              console.error('[BookmarkV2] Invalid remote head:', error);
+            }
+          }
+          await storeRemoteHeadsBatchV5(syncOwnerKey, heads);
+          remoteBookmarkHeads = applyRemoteBookmarkHeadChanges(
+            remoteBookmarkHeads,
+            accumulatedChanges,
+          );
+          if (!changed || !ownerRuntime.isCurrent(owner)) return;
+          setRemoteProgress((prev) => ({
+            ...prev,
+            [activeBookId]: {
+              ...(prev[activeBookId] ?? progressRef.current[activeBookId] ?? {
+                bookId: activeBookId,
+                cfi: '',
+                progressPercent: 0,
+                lastRead: 0,
+              }),
+              bookmarks: mergeAccumulatedRemoteBookmarks(current, remoteBookmarkHeads),
+            },
+          }));
+        });
+      },
+      (error) => console.error('[BookmarkV2] listener failed:', error),
+    );
+
+    const unregister = ownerRuntime.registerDisposer(unsubscribe);
+    return () => {
+      unregister();
+      unsubscribe();
     };
   }, [activeBookId, deviceId, ownerKey, progressRef, setRemoteProgress, user]);
 };

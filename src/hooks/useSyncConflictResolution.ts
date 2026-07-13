@@ -10,6 +10,7 @@ import {
   type SyncConflictV5,
 } from '../lib/syncOutboxV5';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
+import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 
 type UseSyncConflictResolutionOptions = {
   user: FirebaseUser | null;
@@ -28,26 +29,43 @@ export const useSyncConflictResolution = ({
 }: UseSyncConflictResolutionOptions) => {
   const [conflict, setConflict] = useState<SyncConflictV5 | null>(null);
   const dismissedRef = useRef(new Set<string>());
+  const refreshGenerationRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const generation = refreshGenerationRef.current + 1;
+    refreshGenerationRef.current = generation;
     const owner = ownerRuntime.capture();
     if (!user || !owner) {
       setConflict(null);
       return;
     }
     const conflicts = await getOpenSyncConflictsV5(getSyncOwnerKey(owner.ownerKey));
-    if (!ownerRuntime.isCurrent(owner)) return;
+    if (!ownerRuntime.isCurrent(owner) || refreshGenerationRef.current !== generation) return;
     const next = conflicts.find((candidate) => !dismissedRef.current.has(candidate.conflictId)) ?? null;
     setConflict(next);
   }, [user]);
 
   useEffect(() => {
     dismissedRef.current.clear();
+    const owner = ownerRuntime.capture();
+    const syncOwnerKey = owner ? getSyncOwnerKey(owner.ownerKey) : null;
     const initial = window.setTimeout(() => void refresh(), 0);
-    const interval = window.setInterval(() => void refresh(), 1_500);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh();
+    }, 30_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    const unsubscribeWork = syncOwnerKey
+      ? subscribeProgressSyncWork(syncOwnerKey, () => void refresh())
+      : () => undefined;
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
+      refreshGenerationRef.current += 1;
       window.clearTimeout(initial);
       window.clearInterval(interval);
+      unsubscribeWork();
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [ownerKey, refresh]);
 

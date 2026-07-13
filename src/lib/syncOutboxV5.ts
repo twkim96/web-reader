@@ -11,6 +11,10 @@ import {
 } from './localDBSchema';
 import type { OwnerKey } from './ownerIdentity';
 import {
+  notifyProgressSyncWork,
+  notifyProgressSyncWorkAfter,
+} from './progressSyncWake';
+import {
   bookmarkTargetKeyV2,
   isManualBookmarkPayloadV2,
   isProgressPositionV2,
@@ -47,6 +51,7 @@ export type ProgressOutboxEventV5 = {
   lastErrorCode: string | null;
   claimedByTabId: string | null;
   claimedLeaseEpoch: number | null;
+  claimToken: string | null;
 };
 
 export type BookmarkOutboxEventV5 = {
@@ -67,10 +72,42 @@ export type BookmarkOutboxEventV5 = {
   lastErrorCode: string | null;
   claimedByTabId: string | null;
   claimedLeaseEpoch: number | null;
+  claimToken: string | null;
 };
 
 export type SyncOutboxEventV5 = ProgressOutboxEventV5 | BookmarkOutboxEventV5;
 export type SyncHeadV2 = ProgressHeadV2 | BookmarkHeadV2;
+
+export type ExpectedClaimV5 = {
+  tabId: string;
+  leaseEpoch: number;
+  claimToken: string;
+};
+
+export const getExpectedClaimV5 = (
+  event: SyncOutboxEventV5,
+): ExpectedClaimV5 | null => (
+  event.status === 'in_flight'
+  && event.claimedByTabId
+  && event.claimedLeaseEpoch !== null
+  && event.claimToken
+    ? {
+      tabId: event.claimedByTabId,
+      leaseEpoch: event.claimedLeaseEpoch,
+      claimToken: event.claimToken,
+    }
+    : null
+);
+
+const ownsExpectedClaim = (
+  event: SyncOutboxEventV5,
+  expected: ExpectedClaimV5,
+) => (
+  event.status === 'in_flight'
+  && event.claimedByTabId === expected.tabId
+  && event.claimedLeaseEpoch === expected.leaseEpoch
+  && event.claimToken === expected.claimToken
+);
 
 export const isProgressOutboxEventV5 = (
   event: SyncOutboxEventV5,
@@ -105,67 +142,66 @@ export type SyncConflictV5 = {
   resolvedAt?: number;
 };
 
-export const storeRemoteProgressHeadV5 = async (
+export const storeRemoteHeadsBatchV5 = async (
   ownerKey: OwnerKey,
-  head: ProgressHeadV2,
+  heads: SyncHeadV2[],
   now = Date.now(),
 ) => {
-  const targetKey = progressTargetKeyV2(head.bookId);
+  if (heads.length === 0) return;
   const db = await initDB();
   const tx = db.transaction([V5_REMOTE_HEADS_STORE, V5_SYNC_META_STORE], 'readwrite');
   const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
-  const [existingRemote, existingMeta] = await Promise.all([
+  const entries = heads.map((head) => ({
+    head,
+    targetKey: 'bookmarkId' in head
+      ? bookmarkTargetKeyV2(head.bookId, head.bookmarkId)
+      : progressTargetKeyV2(head.bookId),
+  }));
+  const existingEntries = await Promise.all(entries.map(async ({ targetKey }) => Promise.all([
     remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
     metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
-  ]);
-  if (!existingRemote || head.revision >= existingRemote.revision) {
-    await remoteStore.put({
-      ownerKey,
-      targetKey,
-      revision: head.revision,
-      head,
-      updatedAt: now,
-    } satisfies RemoteHeadCacheV5);
+  ])));
+  for (const [index, { head, targetKey }] of entries.entries()) {
+    const [existingRemote, existingMeta] = existingEntries[index];
+    const isSameHead = existingRemote?.revision === head.revision
+      && existingRemote.head.acceptedEventId === head.acceptedEventId;
+    if (!isSameHead && (!existingRemote || head.revision >= existingRemote.revision)) {
+      await remoteStore.put({
+        ownerKey,
+        targetKey,
+        revision: head.revision,
+        head,
+        updatedAt: now,
+      } satisfies RemoteHeadCacheV5);
+    }
+    const knownRevision = Math.max(
+      existingMeta?.knownRevision ?? 0,
+      existingRemote?.revision ?? 0,
+      head.revision,
+    );
+    if (!existingMeta || knownRevision > existingMeta.knownRevision) {
+      await metaStore.put({
+        ...(existingMeta ?? defaultSyncMeta(ownerKey, targetKey, now)),
+        knownRevision,
+        updatedAt: now,
+      });
+    }
   }
-  await metaStore.put({
-    ...(existingMeta ?? defaultSyncMeta(ownerKey, targetKey, now)),
-    knownRevision: Math.max(existingMeta?.knownRevision ?? 0, head.revision),
-    updatedAt: now,
-  });
   await tx.done;
 };
+
+export const storeRemoteProgressHeadV5 = async (
+  ownerKey: OwnerKey,
+  head: ProgressHeadV2,
+  now = Date.now(),
+) => storeRemoteHeadsBatchV5(ownerKey, [head], now);
 
 export const storeRemoteBookmarkHeadV5 = async (
   ownerKey: OwnerKey,
   head: BookmarkHeadV2,
   now = Date.now(),
-) => {
-  const targetKey = bookmarkTargetKeyV2(head.bookId, head.bookmarkId);
-  const db = await initDB();
-  const tx = db.transaction([V5_REMOTE_HEADS_STORE, V5_SYNC_META_STORE], 'readwrite');
-  const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
-  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
-  const [existingRemote, existingMeta] = await Promise.all([
-    remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
-    metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
-  ]);
-  if (!existingRemote || head.revision >= existingRemote.revision) {
-    await remoteStore.put({
-      ownerKey,
-      targetKey,
-      revision: head.revision,
-      head,
-      updatedAt: now,
-    } satisfies RemoteHeadCacheV5);
-  }
-  await metaStore.put({
-    ...(existingMeta ?? defaultSyncMeta(ownerKey, targetKey, now)),
-    knownRevision: Math.max(existingMeta?.knownRevision ?? 0, head.revision),
-    updatedAt: now,
-  });
-  await tx.done;
-};
+) => storeRemoteHeadsBatchV5(ownerKey, [head], now);
 
 export const recordRemoteMissingV5 = async (
   ownerKey: OwnerKey,
@@ -186,6 +222,7 @@ export const recordRemoteMissingV5 = async (
     createdAt: now,
   };
   await db.put(V5_SYNC_CONFLICTS_STORE, conflict);
+  notifyProgressSyncWork(ownerKey);
   return conflict;
 };
 
@@ -209,6 +246,7 @@ export const recordRemoteBookmarkMissingV5 = async (
     createdAt: now,
   };
   await db.put(V5_SYNC_CONFLICTS_STORE, conflict);
+  notifyProgressSyncWork(ownerKey);
   return conflict;
 };
 
@@ -405,6 +443,7 @@ export const enqueueProgressEventV5 = async (
     };
     await outboxStore.put(updated);
     await tx.done;
+    notifyProgressSyncWork(ownerKey);
     return { event: updated, coalesced: true, deferredByConflict: false };
   }
 
@@ -428,6 +467,7 @@ export const enqueueProgressEventV5 = async (
     lastErrorCode: null,
     claimedByTabId: null,
     claimedLeaseEpoch: null,
+    claimToken: null,
   };
   await Promise.all([
     outboxStore.add(event),
@@ -438,6 +478,7 @@ export const enqueueProgressEventV5 = async (
     }),
   ]);
   await tx.done;
+  notifyProgressSyncWork(ownerKey);
   return { event, coalesced: false, deferredByConflict: false };
 };
 
@@ -517,6 +558,7 @@ export const enqueueBookmarkEventV5 = async (
     lastErrorCode: null,
     claimedByTabId: null,
     claimedLeaseEpoch: null,
+    claimToken: null,
   };
   await Promise.all([
     outboxStore.add(event),
@@ -527,6 +569,7 @@ export const enqueueBookmarkEventV5 = async (
     }),
   ]);
   await tx.done;
+  notifyProgressSyncWork(ownerKey);
   return { event, deferredByConflict: false };
 };
 
@@ -628,6 +671,7 @@ export const enqueueProgressMutationBatchV5 = async (
         lastErrorCode: null,
         claimedByTabId: null,
         claimedLeaseEpoch: null,
+        claimToken: null,
       };
       await Promise.all([
         outboxStore.add(event),
@@ -686,6 +730,7 @@ export const enqueueProgressMutationBatchV5 = async (
       lastErrorCode: null,
       claimedByTabId: null,
       claimedLeaseEpoch: null,
+      claimToken: null,
     };
     await Promise.all([
       outboxStore.add(event),
@@ -699,6 +744,9 @@ export const enqueueProgressMutationBatchV5 = async (
 
   await progressStore.put({ ...input.progress, ownerKey });
   await tx.done;
+  if (input.progressEvent || input.bookmarkEvents.length > 0) {
+    notifyProgressSyncWork(ownerKey);
+  }
 };
 
 export const getOutboxEventsV5 = async (
@@ -720,6 +768,7 @@ export const acknowledgeProgressEventV5 = async (
   ownerKey: OwnerKey,
   eventId: string,
   head: SyncHeadV2,
+  expectedClaim: ExpectedClaimV5,
   now = Date.now(),
 ) => {
   const db = await initDB();
@@ -730,7 +779,7 @@ export const acknowledgeProgressEventV5 = async (
   ], 'readwrite');
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   const event = await outbox.get([ownerKey, eventId]) as SyncOutboxEventV5 | undefined;
-  if (!event) {
+  if (!event || !ownsExpectedClaim(event, expectedClaim)) {
     await tx.done;
     return false;
   }
@@ -759,13 +808,17 @@ export const recordProgressConflictV5 = async (
   ownerKey: OwnerKey,
   eventId: string,
   remoteHead: SyncHeadV2 | null,
+  expectedClaim: ExpectedClaimV5,
   now = Date.now(),
 ) => {
   const db = await initDB();
   const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE], 'readwrite');
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   const event = await outbox.get([ownerKey, eventId]) as SyncOutboxEventV5 | undefined;
-  if (!event) throw new Error('충돌 event를 찾지 못했습니다.');
+  if (!event || !ownsExpectedClaim(event, expectedClaim)) {
+    await tx.done;
+    return false;
+  }
   const events = await outbox.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
     [ownerKey, event.targetKey, event.sequence],
     [ownerKey, event.targetKey, Number.MAX_SAFE_INTEGER],
@@ -778,6 +831,7 @@ export const recordProgressConflictV5 = async (
         status: 'conflict',
         claimedByTabId: null,
         claimedLeaseEpoch: null,
+        claimToken: null,
       });
     } else if (activeStatuses.has(candidate.status)) {
       blockedEventIds.push(candidate.eventId);
@@ -786,6 +840,7 @@ export const recordProgressConflictV5 = async (
         status: 'blocked',
         claimedByTabId: null,
         claimedLeaseEpoch: null,
+        claimToken: null,
       });
     }
   }
@@ -802,6 +857,7 @@ export const recordProgressConflictV5 = async (
   };
   await tx.objectStore(V5_SYNC_CONFLICTS_STORE).put(conflict);
   await tx.done;
+  notifyProgressSyncWork(ownerKey);
   return conflict;
 };
 
@@ -842,6 +898,7 @@ export const claimNextProgressEventV5 = async (
   tabId: string,
   leaseEpoch: number,
   now = Date.now(),
+  createClaimToken = () => crypto.randomUUID(),
 ) => {
   const db = await initDB();
   const tx = db.transaction([V5_SYNC_LEASES_STORE, V5_OUTBOX_STORE], 'readwrite');
@@ -856,19 +913,26 @@ export const claimNextProgressEventV5 = async (
     return null;
   }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
-  const allEvents = (await outbox.getAll() as SyncOutboxEventV5[])
-    .filter((event) => event.ownerKey === ownerKey)
-    .sort(eventSort);
-  const events = allEvents.filter((event) => (
-      event.ownerKey === ownerKey
-      && event.status === 'pending'
-      && (event.nextAttemptAt === null || event.nextAttemptAt <= now)
-    ));
-  const candidate = events.find((event) => !allEvents.some((earlier) => (
-    earlier.targetKey === event.targetKey
-    && earlier.sequence < event.sequence
-    && activeStatuses.has(earlier.status)
-  )));
+  const events = await outbox.index('by-owner-status-next-attempt').getAll(
+    IDBKeyRange.bound(
+      [ownerKey, 'pending', 0],
+      [ownerKey, 'pending', now],
+    ),
+  ) as SyncOutboxEventV5[];
+  events.sort(eventSort);
+  let candidate: SyncOutboxEventV5 | undefined;
+  for (const event of events) {
+    const targetEvents = await outbox.index('by-owner-target-sequence').getAll(
+      IDBKeyRange.bound(
+        [ownerKey, event.targetKey, 0],
+        [ownerKey, event.targetKey, event.sequence - 1],
+      ),
+    ) as SyncOutboxEventV5[];
+    if (!targetEvents.some((earlier) => activeStatuses.has(earlier.status))) {
+      candidate = event;
+      break;
+    }
+  }
   if (!candidate) {
     await tx.done;
     return null;
@@ -879,6 +943,7 @@ export const claimNextProgressEventV5 = async (
     attempts: candidate.attempts + 1,
     claimedByTabId: tabId,
     claimedLeaseEpoch: leaseEpoch,
+    claimToken: createClaimToken(),
   };
   await outbox.put(claimed);
   await tx.done;
@@ -904,13 +969,14 @@ export const recoverExpiredInFlightEventsV5 = async (
     return 0;
   }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
-  const events = await outbox.getAll() as SyncOutboxEventV5[];
+  const events = await outbox.index('by-owner-status').getAll([
+    ownerKey,
+    'in_flight',
+  ]) as SyncOutboxEventV5[];
   let recovered = 0;
   for (const event of events) {
     if (
-      event.ownerKey !== ownerKey
-      || event.status !== 'in_flight'
-      || event.claimedLeaseEpoch === leaseEpoch
+      event.claimedLeaseEpoch === leaseEpoch
     ) continue;
     recovered += 1;
     await outbox.put({
@@ -919,6 +985,7 @@ export const recoverExpiredInFlightEventsV5 = async (
       nextAttemptAt: now,
       claimedByTabId: null,
       claimedLeaseEpoch: null,
+      claimToken: null,
     });
   }
   await tx.done;
@@ -938,6 +1005,7 @@ export const scheduleProgressEventRetryV5 = async (
   ownerKey: OwnerKey,
   eventId: string,
   errorCode: string,
+  expectedClaim: ExpectedClaimV5,
   now = Date.now(),
   random = Math.random(),
 ) => {
@@ -945,7 +1013,7 @@ export const scheduleProgressEventRetryV5 = async (
   const tx = db.transaction(V5_OUTBOX_STORE, 'readwrite');
   const store = tx.objectStore(V5_OUTBOX_STORE);
   const event = await store.get([ownerKey, eventId]) as SyncOutboxEventV5 | undefined;
-  if (!event) {
+  if (!event || !ownsExpectedClaim(event, expectedClaim)) {
     await tx.done;
     return null;
   }
@@ -956,9 +1024,11 @@ export const scheduleProgressEventRetryV5 = async (
     lastErrorCode: errorCode,
     claimedByTabId: null,
     claimedLeaseEpoch: null,
+    claimToken: null,
   };
   await store.put(updated);
   await tx.done;
+  notifyProgressSyncWorkAfter(ownerKey, updated.nextAttemptAt! - Date.now());
   return updated;
 };
 
@@ -998,12 +1068,13 @@ export const pauseProgressEventV5 = async (
   ownerKey: OwnerKey,
   eventId: string,
   errorCode: string,
+  expectedClaim: ExpectedClaimV5,
 ) => {
   const db = await initDB();
   const tx = db.transaction(V5_OUTBOX_STORE, 'readwrite');
   const store = tx.objectStore(V5_OUTBOX_STORE);
   const event = await store.get([ownerKey, eventId]) as SyncOutboxEventV5 | undefined;
-  if (!event) {
+  if (!event || !ownsExpectedClaim(event, expectedClaim)) {
     await tx.done;
     return null;
   }
@@ -1014,6 +1085,7 @@ export const pauseProgressEventV5 = async (
     lastErrorCode: errorCode,
     claimedByTabId: null,
     claimedLeaseEpoch: null,
+    claimToken: null,
   };
   await store.put(paused);
   await tx.done;
@@ -1022,12 +1094,20 @@ export const pauseProgressEventV5 = async (
 
 export const getOpenSyncConflictsV5 = async (ownerKey: OwnerKey) => {
   const db = await initDB();
-  const conflicts = await db.getAll(V5_SYNC_CONFLICTS_STORE) as SyncConflictV5[];
-  return conflicts
-    .filter((conflict) => conflict.ownerKey === ownerKey && (
-      conflict.state === 'open' || conflict.state === 'deferred'
-    ))
-    .sort((left, right) => left.createdAt - right.createdAt);
+  const tx = db.transaction(V5_SYNC_CONFLICTS_STORE, 'readonly');
+  const index = tx.objectStore(V5_SYNC_CONFLICTS_STORE).index('by-owner-state-created-at');
+  const [open, deferred] = await Promise.all([
+    index.getAll(IDBKeyRange.bound(
+      [ownerKey, 'open', 0],
+      [ownerKey, 'open', Number.MAX_SAFE_INTEGER],
+    )) as Promise<SyncConflictV5[]>,
+    index.getAll(IDBKeyRange.bound(
+      [ownerKey, 'deferred', 0],
+      [ownerKey, 'deferred', Number.MAX_SAFE_INTEGER],
+    )) as Promise<SyncConflictV5[]>,
+  ]);
+  await tx.done;
+  return [...open, ...deferred].sort((left, right) => left.createdAt - right.createdAt);
 };
 
 const supersedeConflictEvents = async (
@@ -1044,6 +1124,7 @@ const supersedeConflictEvents = async (
       status: 'superseded',
       claimedByTabId: null,
       claimedLeaseEpoch: null,
+      claimToken: null,
     });
   }
 };
@@ -1210,6 +1291,7 @@ export const resolveSyncConflictKeepLocalV5 = async (
       lastErrorCode: null,
       claimedByTabId: null,
       claimedLeaseEpoch: null,
+      claimToken: null,
     }
     : {
       ...conflict.event,
@@ -1227,6 +1309,7 @@ export const resolveSyncConflictKeepLocalV5 = async (
       lastErrorCode: null,
       claimedByTabId: null,
       claimedLeaseEpoch: null,
+      claimToken: null,
     };
   await Promise.all([
     outbox.add(replacement),
@@ -1262,5 +1345,6 @@ export const resolveSyncConflictKeepLocalV5 = async (
     }
   }
   await tx.done;
+  notifyProgressSyncWork(ownerKey);
   return replacement;
 };
