@@ -88,3 +88,16 @@ export class DriveTokenMemory {
     return Boolean(this.token && now < this.expiresAt);
   }
 }
+
+export const hasRestorableDriveTokenSession = (
+  storage: Pick<Storage, 'getItem'>,
+  now = Date.now(),
+) => {
+  try {
+    const serialized = storage.getItem(DRIVE_TOKEN_SESSION_KEY);
+    if (!serialized) return false;
+    return new DriveTokenMemory().restore(JSON.parse(serialized), now);
+  } catch {
+    return false;
+  }
+};

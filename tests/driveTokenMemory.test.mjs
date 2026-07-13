@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   clearLegacyDriveTokenArtifacts,
   DriveTokenMemory,
+  DRIVE_TOKEN_SESSION_KEY,
+  hasRestorableDriveTokenSession,
 } from '../src/lib/driveTokenMemory.ts';
 
 const fakeStorage = () => {
@@ -49,4 +51,16 @@ test('rejects malformed persisted Drive sessions', () => {
   assert.equal(memory.restore({ token: 'secret', expiresAt: 'later', sessionId: 's' }, 1), false);
   assert.equal(memory.restore({ token: '', expiresAt: 100, sessionId: 's' }, 1), false);
   assert.equal(memory.restore({ token: 'secret', expiresAt: 100, sessionId: '' }, 1), false);
+});
+
+test('detects only an unexpired stored Drive session for bootstrap gating', () => {
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) ?? null };
+  values.set(DRIVE_TOKEN_SESSION_KEY, JSON.stringify({
+    token: 'secret',
+    expiresAt: 100,
+    sessionId: 'session-1',
+  }));
+  assert.equal(hasRestorableDriveTokenSession(storage, 99), true);
+  assert.equal(hasRestorableDriveTokenSession(storage, 100), false);
 });

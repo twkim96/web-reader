@@ -52,6 +52,8 @@ import { ownerRuntime } from '../lib/ownerRuntime';
 import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
 import { useServiceWorkerUpdate } from '../hooks/useServiceWorkerUpdate';
 import { mergeLatestProgressForDisplay } from '../lib/progressDisplay';
+import { hasPendingGoogleDriveOAuth } from '../lib/googleDriveOAuth';
+import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -82,6 +84,10 @@ export default function Page() {
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
+  const shouldHoldShelfForDrive = useCallback(() => (
+    hasPendingGoogleDriveOAuth(sessionStorage, window.location.hash)
+    || hasRestorableDriveTokenSession(sessionStorage)
+  ), []);
 
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
@@ -201,7 +207,7 @@ export default function Page() {
     [progress, remoteProgress],
   );
 
-  useAuthBootstrap({
+  const isAuthenticatedLibraryReady = useAuthBootstrap({
     isGuestRef,
     setUser,
     setIsGuest,
@@ -209,6 +215,7 @@ export default function Page() {
     setView,
     restoreLocalData,
     resetLibraryState,
+    shouldHoldShelfForDrive,
   });
   useProgressSync({
     user,
@@ -230,6 +237,7 @@ export default function Page() {
     user,
     googleToken,
     driveSessionId,
+    isAuthenticatedLibraryReady,
     setIsOfflineMode,
     setView,
     loadLibraryFromDrive,

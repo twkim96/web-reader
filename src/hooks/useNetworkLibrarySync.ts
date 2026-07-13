@@ -6,6 +6,7 @@ interface UseNetworkLibrarySyncOptions {
   user: FirebaseUser | null;
   googleToken: string | null;
   driveSessionId: string | null;
+  isAuthenticatedLibraryReady: boolean;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
   loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
@@ -15,6 +16,7 @@ export const useNetworkLibrarySync = ({
   user,
   googleToken,
   driveSessionId,
+  isAuthenticatedLibraryReady,
   setIsOfflineMode,
   setView,
   loadLibraryFromDrive,
@@ -24,6 +26,7 @@ export const useNetworkLibrarySync = ({
   useEffect(() => {
     if (
       !user
+      || !isAuthenticatedLibraryReady
       || !googleToken
       || !driveSessionId
       || loadedDriveSessionRef.current === driveSessionId
@@ -45,6 +48,7 @@ export const useNetworkLibrarySync = ({
   }, [
     driveSessionId,
     googleToken,
+    isAuthenticatedLibraryReady,
     loadLibraryFromDrive,
     setIsOfflineMode,
     setView,

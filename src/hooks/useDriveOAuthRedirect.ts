@@ -2,10 +2,9 @@ import { Dispatch, SetStateAction, useCallback, useEffect } from 'react';
 import { ViewState } from '../types';
 import {
   buildGoogleDriveOAuthUrl,
+  GOOGLE_DRIVE_OAUTH_STATE_KEY,
   parseGoogleDriveOAuthResult,
 } from '../lib/googleDriveOAuth';
-
-const DRIVE_OAUTH_STATE_KEY = 'google_drive_oauth_state_v2';
 
 interface UseDriveOAuthRedirectOptions {
   saveToken: (token: string, expiresIn: number) => string;
@@ -27,8 +26,8 @@ export const useDriveOAuthRedirect = ({
     let active = true;
 
     window.queueMicrotask(() => {
-      const expectedState = sessionStorage.getItem(DRIVE_OAUTH_STATE_KEY);
-      sessionStorage.removeItem(DRIVE_OAUTH_STATE_KEY);
+      const expectedState = sessionStorage.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
+      sessionStorage.removeItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
       if (!active) return;
 
       if (
@@ -59,7 +58,7 @@ export const useDriveOAuthRedirect = ({
 
   return useCallback((clientId: string) => {
     const state = crypto.randomUUID();
-    sessionStorage.setItem(DRIVE_OAUTH_STATE_KEY, state);
+    sessionStorage.setItem(GOOGLE_DRIVE_OAUTH_STATE_KEY, state);
     const redirectUri = `${window.location.origin}${window.location.pathname}`;
     window.location.assign(buildGoogleDriveOAuthUrl(clientId, redirectUri, state));
   }, []);

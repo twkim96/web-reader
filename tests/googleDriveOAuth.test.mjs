@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   buildGoogleDriveOAuthUrl,
+  GOOGLE_DRIVE_OAUTH_STATE_KEY,
+  hasPendingGoogleDriveOAuth,
   parseGoogleDriveOAuthResult,
 } from '../src/lib/googleDriveOAuth.ts';
 
@@ -21,6 +23,18 @@ test('builds a same-page Drive redirect without GIS popup parameters', () => {
   assert.equal(url.searchParams.get('display'), null);
   assert.match(url.searchParams.get('scope'), /drive\.readonly/);
   assert.match(url.searchParams.get('scope'), /drive\.appdata/);
+});
+
+test('detects a pending redirect state for the shared bootstrap gate', () => {
+  const storage = {
+    getItem: (key) => key === GOOGLE_DRIVE_OAUTH_STATE_KEY ? 'state-1' : null,
+  };
+  assert.equal(hasPendingGoogleDriveOAuth(storage, '#access_token=token&state=state-1'), true);
+  assert.equal(hasPendingGoogleDriveOAuth(storage, ''), false);
+  assert.equal(hasPendingGoogleDriveOAuth(
+    { getItem: () => null },
+    '#access_token=token&state=state-1',
+  ), false);
 });
 
 test('parses a Drive redirect fragment and ignores ordinary reader hashes', () => {

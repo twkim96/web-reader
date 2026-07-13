@@ -4,6 +4,16 @@ const DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.appdata',
 ].join(' ');
 
+export const GOOGLE_DRIVE_OAUTH_STATE_KEY = 'google_drive_oauth_state_v2';
+
+export const hasPendingGoogleDriveOAuth = (
+  storage: Pick<Storage, 'getItem'>,
+  hash: string,
+) => Boolean(
+  storage.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY)
+  && parseGoogleDriveOAuthResult(hash),
+);
+
 export const buildGoogleDriveOAuthUrl = (
   clientId: string,
   redirectUri: string,

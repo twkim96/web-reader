@@ -1,5 +1,7 @@
 # Web Reader 1.7.3 실기기 회귀 수정
 
+> 2026-07-13: Drive redirect 복귀 시 중간 offline shelf가 노출되는 bootstrap 경쟁은 [update_1.7.4.md](./update_1.7.4.md)에서 수정했다.
+
 작성일: 2026-07-13
 
 ## 확인된 원인
