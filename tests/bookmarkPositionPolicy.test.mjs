@@ -6,9 +6,9 @@ import {
   getBookmarkPosition,
 } from '../src/hooks/reader/bookmarkPositionPolicy.ts';
 
-test('stores a bookmark at the precise viewport anchor', () => {
+test('stores the measurable viewport range CFI while keeping the progress anchor', () => {
   assert.deepEqual(getBookmarkPosition('range-cfi', 'anchor-cfi'), {
-    bookmarkCfi: 'anchor-cfi',
+    bookmarkCfi: 'range-cfi',
     progressCfi: 'range-cfi',
     anchorCfi: 'anchor-cfi',
   });

@@ -86,6 +86,7 @@ export type FoliateSearchResult = 'done' | {
 };
 
 export type FoliateViewElement = HTMLElement & {
+  lastLocation?: RelocateDetail;
   renderer?: FoliateRenderer;
   book?: {
     sections?: FoliateSection[];

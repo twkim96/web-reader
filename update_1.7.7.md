@@ -76,7 +76,9 @@
 - 새 head는 `acceptedSessionId`를 기록하고 legacy head도 계속 읽는다. 같은 device의 다른 탭/PWA session은 원격 변경으로 처리하고 현재 session echo만 무시한다.
 - 양쪽 revision을 알 수 있으면 shelf와 reader 판정에서 timestamp보다 revision을 우선한다. legacy 데이터는 기존 timestamp fallback을 유지한다.
 - paused auth event는 새 로그인/online 복귀 시 pending으로 되돌리고, permission/schema 정지는 작은 상태 배너로 표시한다.
+- Rules 배포 시차로 발생한 `permission-denied` paused event도 새 앱 세션에서 한 번 재시도해, 규칙 배포 후 자동 복구할 수 있게 한다.
 - 물리 삭제된 remote head는 로컬 remote cache와 UI candidate에서 제거한다.
+- 북마크는 React relocation state 대신 생성 순간 Foliate `lastLocation.cfi`를 사용하고, 이름도 현재 visible range에서 추출한다. 북마크 이동에는 접힌 `anchorCfi`가 아니라 화면 범위를 포함한 CFI를 저장해 Chromium에서 같은 챕터의 첫 페이지로 수렴하는 문제를 막고, 진행률 동기화용 앵커는 별도로 유지한다.
 
 ## 자동검증 결과
 
@@ -87,7 +89,7 @@
 - Next.js 1.7.7 production build 통과
 - Playwright Chromium/WebKit 10개 통과
 - production Chrome browser regression 통과, `pc-reader-v1.7.7` cache와 이전 cache 제거 확인
-- 현재 Codex 실행 한도 때문에 Firestore Emulator 권한 확장만 거부되어 Rules/transaction 테스트는 이번 세션에서 실행하지 못했다.
+- Firestore Emulator Rules/transaction 테스트 9개 통과
 - `acceptedSessionId`를 허용하는 `firestore.rules` 변경은 1.7.7 앱 배포와 함께 배포해야 한다.
 
 ## 실기기 확인

@@ -5,6 +5,11 @@ import { Bookmark, SaveProgressOptions } from '../../types';
 import { getAutoBookmarkName, getBookmarkPosition } from './bookmarkPositionPolicy';
 
 type FoliateContentRef = MutableRefObject<{
+  lastLocation?: {
+    cfi?: string;
+    anchorCfi?: string;
+    range?: Range;
+  };
   renderer?: {
     getContents?: () => { doc?: Document }[];
   };
@@ -73,8 +78,18 @@ export const useReaderBookmarks = ({
 
   const getBookmarks = useCallback(() => bookmarksRef.current, []);
 
+  const getLivePosition = useCallback(() => {
+    const live = viewRef.current?.lastLocation;
+    return getBookmarkPosition(
+      live?.cfi || currentCfi,
+      live?.anchorCfi || currentAnchorCfi,
+    );
+  }, [currentAnchorCfi, currentCfi, viewRef]);
+
   const getPreviewText = useCallback(() => {
     try {
+      const visibleText = viewRef.current?.lastLocation?.range?.toString()?.trim();
+      if (visibleText) return visibleText.substring(0, 100).replace(/\s+/g, ' ');
       const contents = viewRef.current?.renderer?.getContents?.();
       if (!contents || contents.length === 0) return '';
       const text = contents[0]?.doc?.body?.innerText || '';
@@ -88,7 +103,7 @@ export const useReaderBookmarks = ({
   const addBookmark = useCallback(() => {
     if (!currentCfi) return;
     markUserProgressChange();
-    const position = getBookmarkPosition(currentCfi, currentAnchorCfi);
+    const position = getLivePosition();
 
     const newMark: Bookmark = {
       id: crypto.randomUUID(),
@@ -103,25 +118,26 @@ export const useReaderBookmarks = ({
     void saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
       anchorCfi: position.anchorCfi,
     });
-  }, [currentAnchorCfi, currentCfi, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+  }, [currentCfi, getLivePosition, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
 
   const deleteBookmark = useCallback((id: string) => {
     markUserProgressChange();
     const updated = setBookmarks(bookmarksRef.current.filter((bookmark) => bookmark.id !== id));
-    const position = getBookmarkPosition(currentCfi, currentAnchorCfi);
+    const position = getLivePosition();
     void saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
       anchorCfi: position.anchorCfi,
     });
-  }, [currentAnchorCfi, currentCfi, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+  }, [getLivePosition, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
 
   const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
     if (!prevCfi) return bookmarksRef.current;
 
+    const live = getLivePosition();
     const autoMark: Bookmark = {
       id: crypto.randomUUID(),
       type: 'auto',
       name: getAutoBookmarkName(getPreviewText()),
-      cfi: prevCfi,
+      cfi: live.progressCfi || prevCfi,
       progressPercent: prevPct,
       createdAt: Date.now(),
       color: '#64748b',
@@ -130,7 +146,7 @@ export const useReaderBookmarks = ({
     const manual = bookmarksRef.current.filter((bookmark) => bookmark.type === 'manual');
     const auto = bookmarksRef.current.filter((bookmark) => bookmark.type === 'auto').slice(0, 2);
     return setBookmarks([...manual, autoMark, ...auto]);
-  }, [getPreviewText, setBookmarks]);
+  }, [getLivePosition, getPreviewText, setBookmarks]);
 
   return {
     bookmarks,

@@ -10,7 +10,10 @@ export const getBookmarkPosition = (
 ): BookmarkPosition => {
   const anchorCfi = currentAnchorCfi || currentCfi;
   return {
-    bookmarkCfi: anchorCfi,
+    // Foliate's range CFI has a measurable rectangle when reopening it.
+    // A collapsed anchor CFI can resolve only as far as the section and leave
+    // Chromium at the first page of the chapter.
+    bookmarkCfi: currentCfi || anchorCfi,
     progressCfi: currentCfi,
     anchorCfi,
   };
