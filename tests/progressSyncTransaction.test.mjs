@@ -61,6 +61,7 @@ test('applies a new event at exactly base revision plus one', () => {
   assert.equal(result.head.revision, 1);
   assert.equal(result.receipt.revision, 1);
   assert.equal(result.head.updatedAtServer, 'server-time');
+  assert.equal(result.head.acceptedSessionId, 'session-1');
 });
 
 test('returns conflict without rewriting an old event base revision', () => {

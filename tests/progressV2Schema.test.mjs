@@ -10,6 +10,7 @@ import {
   parseProgressHeadV2,
   progressTargetKeyV2,
 } from '../src/lib/progressV2Schema.ts';
+import { isExactSyncSessionEcho } from '../src/lib/syncSession.ts';
 
 const timestamp = { seconds: 1, nanoseconds: 0 };
 const progress = {
@@ -49,6 +50,14 @@ test('accepts exact progress schema and set/reset invariants', () => {
     deletedAtServer: timestamp,
   }), true);
   assert.throws(() => parseProgressHeadV2({ ...progress, operation: 'reset' }));
+  assert.equal(isProgressHeadV2({ ...progress, acceptedSessionId: 'session-1' }), true);
+  assert.equal(isProgressHeadV2({ ...progress, acceptedSessionId: '' }), false);
+});
+
+test('treats only the exact tab session as a local echo', () => {
+  assert.equal(isExactSyncSessionEcho('session-a', 'session-a'), true);
+  assert.equal(isExactSyncSessionEcho('session-b', 'session-a'), false);
+  assert.equal(isExactSyncSessionEcho(undefined, 'session-a'), false);
 });
 
 test('validates bookmark payload identity and tombstones', () => {

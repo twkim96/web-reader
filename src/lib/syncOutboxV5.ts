@@ -203,6 +203,47 @@ export const storeRemoteBookmarkHeadV5 = async (
   now = Date.now(),
 ) => storeRemoteHeadsBatchV5(ownerKey, [head], now);
 
+export const adoptRemoteProgressLocallyV5 = async (
+  ownerKey: OwnerKey,
+  progress: UserProgress,
+  now = Date.now(),
+) => {
+  if (!progress.syncRevision || !progress.acceptedEventId) return false;
+  const targetKey = progressTargetKeyV2(progress.bookId);
+  const db = await initDB();
+  const tx = db.transaction([
+    V5_PROGRESS_STORE,
+    V5_REMOTE_HEADS_STORE,
+    V5_SYNC_META_STORE,
+  ], 'readwrite');
+  const remote = await tx.objectStore(V5_REMOTE_HEADS_STORE).get([
+    ownerKey,
+    targetKey,
+  ]) as RemoteHeadCacheV5 | undefined;
+  if (
+    !remote
+    || remote.revision !== progress.syncRevision
+    || remote.head.acceptedEventId !== progress.acceptedEventId
+    || 'bookmarkId' in remote.head
+  ) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    return false;
+  }
+  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const meta = await metaStore.get([ownerKey, targetKey]) as SyncMetaV5 | undefined;
+  await Promise.all([
+    tx.objectStore(V5_PROGRESS_STORE).put({ ...progress, ownerKey }),
+    metaStore.put({
+      ...(meta ?? defaultSyncMeta(ownerKey, targetKey, now)),
+      knownRevision: Math.max(meta?.knownRevision ?? 0, progress.syncRevision),
+      updatedAt: now,
+    }),
+  ]);
+  await tx.done;
+  return true;
+};
+
 export const recordRemoteMissingV5 = async (
   ownerKey: OwnerKey,
   bookId: string,
@@ -221,7 +262,12 @@ export const recordRemoteMissingV5 = async (
     blockedEventIds: [],
     createdAt: now,
   };
-  await db.put(V5_SYNC_CONFLICTS_STORE, conflict);
+  const tx = db.transaction([V5_SYNC_CONFLICTS_STORE, V5_REMOTE_HEADS_STORE], 'readwrite');
+  await Promise.all([
+    tx.objectStore(V5_SYNC_CONFLICTS_STORE).put(conflict),
+    tx.objectStore(V5_REMOTE_HEADS_STORE).delete([ownerKey, targetKey]),
+  ]);
+  await tx.done;
   notifyProgressSyncWork(ownerKey);
   return conflict;
 };
@@ -245,7 +291,12 @@ export const recordRemoteBookmarkMissingV5 = async (
     blockedEventIds: [],
     createdAt: now,
   };
-  await db.put(V5_SYNC_CONFLICTS_STORE, conflict);
+  const tx = db.transaction([V5_SYNC_CONFLICTS_STORE, V5_REMOTE_HEADS_STORE], 'readwrite');
+  await Promise.all([
+    tx.objectStore(V5_SYNC_CONFLICTS_STORE).put(conflict),
+    tx.objectStore(V5_REMOTE_HEADS_STORE).delete([ownerKey, targetKey]),
+  ]);
+  await tx.done;
   notifyProgressSyncWork(ownerKey);
   return conflict;
 };
@@ -774,6 +825,7 @@ export const acknowledgeProgressEventV5 = async (
   const db = await initDB();
   const tx = db.transaction([
     V5_OUTBOX_STORE,
+    V5_PROGRESS_STORE,
     V5_REMOTE_HEADS_STORE,
     V5_SYNC_META_STORE,
   ], 'readwrite');
@@ -785,6 +837,11 @@ export const acknowledgeProgressEventV5 = async (
   }
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
   const meta = await metaStore.get([ownerKey, event.targetKey]) as SyncMetaV5 | undefined;
+  const progressStore = tx.objectStore(V5_PROGRESS_STORE);
+  const progress = event.target.kind === 'progress' && 'position' in head
+    ? await progressStore.get([ownerKey, event.target.bookId]) as
+      (UserProgress & { ownerKey: OwnerKey }) | undefined
+    : undefined;
   await Promise.all([
     outbox.delete([ownerKey, eventId]),
     tx.objectStore(V5_REMOTE_HEADS_STORE).put({
@@ -799,6 +856,13 @@ export const acknowledgeProgressEventV5 = async (
       knownRevision: Math.max(meta?.knownRevision ?? 0, head.revision),
       updatedAt: now,
     }),
+    progress
+      ? progressStore.put({
+        ...progress,
+        syncRevision: head.revision,
+        acceptedEventId: head.acceptedEventId,
+      })
+      : Promise.resolve(),
   ]);
   await tx.done;
   return true;
@@ -1092,6 +1156,57 @@ export const pauseProgressEventV5 = async (
   return paused;
 };
 
+export type PausedSyncSummaryV5 = {
+  count: number;
+  errorCodes: string[];
+};
+
+export const getPausedSyncSummaryV5 = async (
+  ownerKey: OwnerKey,
+): Promise<PausedSyncSummaryV5> => {
+  const db = await initDB();
+  const events = await db.getAllFromIndex(V5_OUTBOX_STORE, 'by-owner-status', [
+    ownerKey,
+    'paused',
+  ]) as SyncOutboxEventV5[];
+  return {
+    count: events.length,
+    errorCodes: [...new Set(events.map((event) => event.lastErrorCode ?? 'unknown'))],
+  };
+};
+
+const resumableAuthCodes = new Set(['unauthenticated', 'auth/user-token-expired']);
+
+export const resumePausedAuthEventsV5 = async (
+  ownerKey: OwnerKey,
+  now = Date.now(),
+) => {
+  const db = await initDB();
+  const tx = db.transaction(V5_OUTBOX_STORE, 'readwrite');
+  const store = tx.objectStore(V5_OUTBOX_STORE);
+  const events = await store.index('by-owner-status').getAll([
+    ownerKey,
+    'paused',
+  ]) as SyncOutboxEventV5[];
+  let resumed = 0;
+  for (const event of events) {
+    if (!event.lastErrorCode || !resumableAuthCodes.has(event.lastErrorCode)) continue;
+    resumed += 1;
+    await store.put({
+      ...event,
+      status: 'pending',
+      nextAttemptAt: now,
+      lastErrorCode: null,
+      claimedByTabId: null,
+      claimedLeaseEpoch: null,
+      claimToken: null,
+    });
+  }
+  await tx.done;
+  if (resumed > 0) notifyProgressSyncWork(ownerKey);
+  return resumed;
+};
+
 export const getOpenSyncConflictsV5 = async (ownerKey: OwnerKey) => {
   const db = await initDB();
   const tx = db.transaction(V5_SYNC_CONFLICTS_STORE, 'readonly');
@@ -1169,6 +1284,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
         progressPercent: 0,
         lastRead: now,
         bookmarks: existing?.bookmarks ?? [],
+        syncRevision: conflict.remoteHead.revision,
+        acceptedEventId: conflict.remoteHead.acceptedEventId,
       }
       : {
         ownerKey,
@@ -1179,6 +1296,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
         progressPercent: conflict.remoteHead.position!.progressPercent,
         lastRead: now,
         bookmarks: existing?.bookmarks ?? [],
+        syncRevision: conflict.remoteHead.revision,
+        acceptedEventId: conflict.remoteHead.acceptedEventId,
       };
   } else {
     const bookmarks = new Map((existing?.bookmarks ?? [])
@@ -1209,6 +1328,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
         ...bookmarks.values(),
         ...(existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'auto'),
       ],
+      syncRevision: existing?.syncRevision,
+      acceptedEventId: existing?.acceptedEventId,
     };
   }
   const meta = await metaStore.get([ownerKey, conflict.targetKey]) as SyncMetaV5 | undefined;

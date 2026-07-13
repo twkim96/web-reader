@@ -23,6 +23,7 @@ export type ProgressHeadV2 = {
   operation: 'set' | 'reset';
   position: ProgressPositionV2 | null;
   acceptedDeviceId: string;
+  acceptedSessionId?: string;
   occurredAtClient: number;
   updatedAtServer: unknown;
   deletedAtServer: unknown | null;
@@ -37,6 +38,7 @@ export type BookmarkHeadV2 = {
   operation: 'upsert' | 'delete';
   bookmark: ManualBookmarkPayloadV2 | null;
   acceptedDeviceId: string;
+  acceptedSessionId?: string;
   occurredAtClient: number;
   updatedAtServer: unknown;
   deletedAtServer: unknown | null;
@@ -120,11 +122,15 @@ export const isManualBookmarkPayloadV2 = (
 };
 
 export const isProgressHeadV2 = (value: unknown): value is ProgressHeadV2 => {
-  if (!isRecord(value) || !hasExactKeys(value, [
+  if (!isRecord(value) || (!hasExactKeys(value, [
     'schemaVersion', 'bookId', 'revision', 'acceptedEventId', 'operation',
     'position', 'acceptedDeviceId', 'occurredAtClient', 'updatedAtServer',
     'deletedAtServer',
-  ])) return false;
+  ]) && !hasExactKeys(value, [
+    'schemaVersion', 'bookId', 'revision', 'acceptedEventId', 'operation',
+    'position', 'acceptedDeviceId', 'acceptedSessionId', 'occurredAtClient',
+    'updatedAtServer', 'deletedAtServer',
+  ]))) return false;
   const operationMatches = value.operation === 'set'
     ? isProgressPositionV2(value.position) && value.deletedAtServer === null
     : value.operation === 'reset'
@@ -135,6 +141,7 @@ export const isProgressHeadV2 = (value: unknown): value is ProgressHeadV2 => {
     && isRevision(value.revision)
     && isBoundedString(value.acceptedEventId, 128)
     && isBoundedString(value.acceptedDeviceId, 128)
+    && (value.acceptedSessionId === undefined || isBoundedString(value.acceptedSessionId, 128))
     && isClientTime(value.occurredAtClient)
     && value.updatedAtServer !== null
     && value.updatedAtServer !== undefined
@@ -142,11 +149,15 @@ export const isProgressHeadV2 = (value: unknown): value is ProgressHeadV2 => {
 };
 
 export const isBookmarkHeadV2 = (value: unknown): value is BookmarkHeadV2 => {
-  if (!isRecord(value) || !hasExactKeys(value, [
+  if (!isRecord(value) || (!hasExactKeys(value, [
     'schemaVersion', 'bookId', 'bookmarkId', 'revision', 'acceptedEventId',
     'operation', 'bookmark', 'acceptedDeviceId', 'occurredAtClient',
     'updatedAtServer', 'deletedAtServer',
-  ])) return false;
+  ]) && !hasExactKeys(value, [
+    'schemaVersion', 'bookId', 'bookmarkId', 'revision', 'acceptedEventId',
+    'operation', 'bookmark', 'acceptedDeviceId', 'acceptedSessionId',
+    'occurredAtClient', 'updatedAtServer', 'deletedAtServer',
+  ]))) return false;
   const operationMatches = value.operation === 'upsert'
     ? isManualBookmarkPayloadV2(value.bookmark)
       && value.bookmark.bookmarkId === value.bookmarkId
@@ -160,6 +171,7 @@ export const isBookmarkHeadV2 = (value: unknown): value is BookmarkHeadV2 => {
     && isRevision(value.revision)
     && isBoundedString(value.acceptedEventId, 128)
     && isBoundedString(value.acceptedDeviceId, 128)
+    && (value.acceptedSessionId === undefined || isBoundedString(value.acceptedSessionId, 128))
     && isClientTime(value.occurredAtClient)
     && value.updatedAtServer !== null
     && value.updatedAtServer !== undefined

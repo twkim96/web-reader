@@ -85,6 +85,7 @@ export default function Page() {
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
+  const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const shouldHoldShelfForDrive = useCallback(() => (
     hasPendingGoogleDriveOAuth(sessionStorage, window.location.hash)
     || hasRestorableDriveTokenSession(sessionStorage)
@@ -92,7 +93,12 @@ export default function Page() {
 
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
-  const serviceWorkerUpdate = useServiceWorkerUpdate();
+  const serviceWorkerUpdate = useServiceWorkerUpdate({
+    flushCurrentProgress: useCallback(async () => (
+      readerProgressFlushRef.current ? readerProgressFlushRef.current() : true
+    ), []),
+    onPersistenceError: setProgressPersistenceError,
+  });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const accentColorObj = useMemo(
     () => ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo,
@@ -226,7 +232,7 @@ export default function Page() {
     activeBookId: activeBook?.id,
     ownerKey: activeOwnerKey,
   });
-  useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
+  const syncHealth = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
   const syncConflictResolution = useSyncConflictResolution({
     user,
     progressRef,
@@ -380,6 +386,7 @@ export default function Page() {
     saveProgress: handleSaveProgress,
     deleteProgress: handleDeleteProgress,
     deleteBookProgress: handleDeleteBookProgress,
+    adoptRemoteProgress: handleAdoptRemoteProgress,
   } = useProgressActions({
     activeBook,
     user,
@@ -407,16 +414,18 @@ export default function Page() {
     const shouldDeleteCloud = !isOfflineMode && Boolean(googleToken) && book.source !== 'local';
 
     try {
-      if (shouldDeleteCloud) {
-        if (!hasValidToken() || !googleToken) {
-          handleCloudAuthExpired("클라우드 세션이 만료되어 도서를 삭제하지 못했습니다. 다시 클라우드를 연결한 뒤 삭제해 주세요.");
-          return;
-        }
+      if (shouldDeleteCloud && (!hasValidToken() || !googleToken)) {
+        handleCloudAuthExpired("클라우드 세션이 만료되어 도서를 삭제하지 못했습니다. 다시 클라우드를 연결한 뒤 삭제해 주세요.");
+        return;
+      }
+      const progressReset = await handleDeleteBookProgress(book.id);
+      if (!progressReset) return;
+
+      if (shouldDeleteCloud && googleToken) {
         await deleteDriveFile(book.id, googleToken);
       }
 
       await removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, book.id);
-      await handleDeleteBookProgress(book.id);
       clearLastReaderSession(undefined, book.id);
       setActiveBook((current) => current?.id === book.id ? null : current);
       setBooks((prev) => prev.filter((item) => item.id !== book.id));
@@ -560,11 +569,16 @@ export default function Page() {
           onUpdateSettings={updateSettings}
           onBack={handleReaderBack}
           onSaveProgress={handleReaderSaveProgress}
+          onAdoptRemoteProgress={handleAdoptRemoteProgress}
           initialCfi={progress[activeBook.id]?.anchorCfi || progress[activeBook.id]?.cfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
           initialTime={progress[activeBook.id]?.lastRead}
           initialBookmarks={progress[activeBook.id]?.bookmarks || []}
+          initialRevision={progress[activeBook.id]?.syncRevision}
           remoteProgress={remoteProgress[activeBook.id]}
+          onRegisterProgressFlush={(flush) => {
+            readerProgressFlushRef.current = flush;
+          }}
         />
       )}
 
@@ -677,6 +691,16 @@ export default function Page() {
           >
             저장 후 적용
           </button>
+        </div>
+      )}
+
+      {syncHealth !== 'healthy' && (
+        <div className="fixed bottom-4 right-4 z-[95] max-w-sm rounded-2xl bg-amber-700 px-4 py-3 text-sm text-white shadow-2xl">
+          {syncHealth === 'paused-auth'
+            ? 'Firebase 인증이 만료되어 동기화가 멈췄습니다. 다시 로그인하면 자동으로 재개됩니다.'
+            : syncHealth === 'blocked-permission'
+              ? 'Firestore 권한 문제로 일부 도서의 동기화가 멈췄습니다.'
+              : '동기화 데이터 형식 오류로 일부 도서의 전송이 멈췄습니다.'}
         </div>
       )}
     </div>

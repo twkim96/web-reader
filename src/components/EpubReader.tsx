@@ -38,11 +38,14 @@ interface EpubReaderProps {
   onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
   onBack: () => void;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
+  onAdoptRemoteProgress: (progress: UserProgress) => Promise<boolean>;
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
   initialBookmarks?: Bookmark[];
+  initialRevision?: number;
   remoteProgress?: UserProgress;
+  onRegisterProgressFlush?: (flush: (() => Promise<boolean>) | null) => void;
 }
 
 const KEYBOARD_SCROLL_RATIO = 0.25;
@@ -151,11 +154,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   onUpdateSettings,
   onBack,
   onSaveProgress,
+  onAdoptRemoteProgress,
   initialCfi,
   initialPercent,
   initialTime,
   initialBookmarks,
+  initialRevision,
   remoteProgress,
+  onRegisterProgressFlush,
 }) => {
   const theme = getThemeClasses(settings);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
@@ -236,6 +242,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     saveProgressIfChanged,
     handleRelocateForSave,
     saveCurrentProgress,
+    flushCurrentProgress,
     prepareRemoteJump,
     isQuietResumeEligible,
     completeRemoteJump,
@@ -245,7 +252,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     initialTime,
     initialBookmarks,
     onSaveProgress,
+    onAdoptRemoteProgress,
   });
+
+  useEffect(() => {
+    onRegisterProgressFlush?.(flushCurrentProgress);
+    return () => onRegisterProgressFlush?.(null);
+  }, [flushCurrentProgress, onRegisterProgressFlush]);
 
   const handleReaderLoad = useCallback((doc?: Document) => {
     if (!doc) return;
@@ -319,6 +332,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     currentCfi,
     currentAnchorCfi,
     totalProgress,
+    localRevision: initialRevision,
     lastSaveTimeRef,
     goTo,
     getBookmarks,

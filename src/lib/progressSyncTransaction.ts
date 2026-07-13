@@ -77,6 +77,7 @@ export const decideProgressTransaction = ({
     operation: isReset ? 'reset' : 'set',
     position: isReset ? null : event.payload,
     acceptedDeviceId: event.deviceId,
+    acceptedSessionId: event.sessionId,
     occurredAtClient: event.occurredAtClient,
     updatedAtServer: serverTime,
     deletedAtServer: isReset ? serverTime : null,

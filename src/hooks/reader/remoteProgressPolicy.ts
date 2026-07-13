@@ -9,6 +9,8 @@ type RemoteProgressDecisionInput = {
   remotePercent: number;
   currentPercent: number;
   isQuietResumeEligible: boolean;
+  remoteRevision?: number;
+  localRevision?: number;
 };
 
 export const decideRemoteProgressAction = ({
@@ -20,12 +22,19 @@ export const decideRemoteProgressAction = ({
   remotePercent,
   currentPercent,
   isQuietResumeEligible,
+  remoteRevision,
+  localRevision,
 }: RemoteProgressDecisionInput): RemoteProgressDecision => {
   if (
     !remoteAnchorCfi
     || remoteAnchorCfi === currentAnchorCfi
-    || remoteTime <= lastSaveTime
   ) return 'ignore';
+
+  const hasComparableRevisions = Number.isSafeInteger(remoteRevision)
+    && Number.isSafeInteger(localRevision);
+  if (hasComparableRevisions) {
+    if (remoteRevision! <= localRevision!) return 'ignore';
+  } else if (remoteTime <= lastSaveTime) return 'ignore';
 
   if (isInitialSync && isQuietResumeEligible) return 'jump';
 

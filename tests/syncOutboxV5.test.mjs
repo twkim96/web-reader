@@ -7,6 +7,7 @@ const { closeLocalDB } = await import('../src/lib/localDB.ts');
 const { LOCAL_DB_NAME } = await import('../src/lib/localDBSchema.ts');
 const {
   acknowledgeProgressEventV5,
+  adoptRemoteProgressLocallyV5,
   acquireSyncLeaseV5,
   claimNextProgressEventV5,
   enqueueBookmarkEventV5,
@@ -14,15 +15,18 @@ const {
   enqueueProgressEventV5,
   getExpectedClaimV5,
   getOutboxEventsV5,
+  getPausedSyncSummaryV5,
   getRetryDelayMs,
   getSyncMetaV5,
   recoverExpiredInFlightEventsV5,
   releaseSyncLeaseV5,
   recordProgressConflictV5,
   pauseProgressEventV5,
+  resumePausedAuthEventsV5,
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
   scheduleProgressEventRetryV5,
+  storeRemoteProgressHeadV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const {
   makeFirebaseOwnerKey,
@@ -88,6 +92,69 @@ test('coalesces only the last same-session pending progress.set', async () => {
   assert.equal(events[0].payload.progressPercent, 30);
   assert.equal(events[0].baseRevision, 0);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).nextSequence, 2);
+});
+
+test('reports paused sync and resumes authentication failures only', async () => {
+  await enqueue(ownerA, { eventId: 'auth-event' });
+  const authClaim = await claimNext(10);
+  await pauseProgressEventV5(
+    ownerA,
+    authClaim.event.eventId,
+    'unauthenticated',
+    authClaim.expectedClaim,
+  );
+  await enqueue(ownerA, {
+    eventId: 'permission-event',
+    bookId: 'book-2',
+    occurredAtClient: 2,
+  });
+  const permissionClaim = await claimNext(12);
+  await pauseProgressEventV5(
+    ownerA,
+    permissionClaim.event.eventId,
+    'permission-denied',
+    permissionClaim.expectedClaim,
+  );
+
+  assert.deepEqual(await getPausedSyncSummaryV5(ownerA), {
+    count: 2,
+    errorCodes: ['unauthenticated', 'permission-denied'],
+  });
+  assert.equal(await resumePausedAuthEventsV5(ownerA, 20), 1);
+  const events = await getOutboxEventsV5(ownerA);
+  assert.equal(events.find(({ eventId }) => eventId === 'auth-event').status, 'pending');
+  assert.equal(events.find(({ eventId }) => eventId === 'permission-event').status, 'paused');
+});
+
+test('adopts a verified remote position locally without creating an outbox event', async () => {
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 7,
+    acceptedEventId: 'remote-7',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other-device',
+    acceptedSessionId: 'other-session',
+    occurredAtClient: 7,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  await storeRemoteProgressHeadV5(ownerA, remote, 10);
+  assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+    bookId: 'book-1',
+    cfi: remote.position.cfi,
+    anchorCfi: remote.position.cfi,
+    progressPercent: 70,
+    lastRead: 10,
+    syncRevision: 7,
+    acceptedEventId: 'remote-7',
+  }), true);
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
+  const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
+  const [saved] = await getAllLocalProgressV5(ownerA);
+  assert.equal(saved.progressPercent, 70);
+  assert.equal(saved.syncRevision, 7);
 });
 
 test('builds an expected revision chain for distinct sessions and reset', async () => {
@@ -178,6 +245,10 @@ test('ack advances known revision monotonically and removes only its event', asy
   ), true);
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 5);
+  const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
+  const [saved] = await getAllLocalProgressV5(ownerA);
+  assert.equal(saved.syncRevision, 5);
+  assert.equal(saved.acceptedEventId, 'event-1');
   await enqueue(ownerA, {
     eventId: 'event-after-remote',
     sessionId: 'session-after-remote',

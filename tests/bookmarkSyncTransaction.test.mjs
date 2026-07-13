@@ -64,6 +64,7 @@ test('applies bookmark upsert and matching receipt at revision one', () => {
   assert.equal(result.status, 'apply');
   assert.equal(result.head.revision, 1);
   assert.equal(result.head.bookmark.bookmarkId, 'mark-1');
+  assert.equal(result.head.acceptedSessionId, 'session-1');
 });
 
 test('turns bookmark deletion into a tombstone', () => {

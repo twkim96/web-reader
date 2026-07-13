@@ -69,6 +69,7 @@ export const decideBookmarkTransaction = ({
     operation: deleting ? 'delete' : 'upsert',
     bookmark: deleting ? null : event.payload,
     acceptedDeviceId: event.deviceId,
+    acceptedSessionId: event.sessionId,
     occurredAtClient: event.occurredAtClient,
     updatedAtServer: serverTime,
     deletedAtServer: deleting ? serverTime : null,

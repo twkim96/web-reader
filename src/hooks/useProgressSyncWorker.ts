@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
@@ -9,7 +9,11 @@ import {
 import { applyProgressEventTransaction } from '../lib/progressSyncTransaction';
 import { applyBookmarkEventTransaction } from '../lib/bookmarkSyncTransaction';
 import { ProgressSyncWorker } from '../lib/progressSyncWorker';
-import { isProgressOutboxEventV5 } from '../lib/syncOutboxV5';
+import {
+  getPausedSyncSummaryV5,
+  isProgressOutboxEventV5,
+  resumePausedAuthEventsV5,
+} from '../lib/syncOutboxV5';
 import { runProgressSyncPoll } from '../lib/progressSyncPolling';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 
@@ -18,8 +22,15 @@ export const useProgressSyncWorker = (
   ownerKey: string | null,
   deviceId: string,
 ) => {
+  const [syncHealth, setSyncHealth] = useState<
+    'healthy' | 'paused-auth' | 'blocked-permission' | 'blocked-schema'
+  >('healthy');
+
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setSyncHealth('healthy');
+      return;
+    }
     const owner = ownerRuntime.capture();
     if (!owner) return;
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
@@ -47,6 +58,15 @@ export const useProgressSyncWorker = (
     let running = false;
     let disposed = false;
 
+    const refreshHealth = async () => {
+      const summary = await getPausedSyncSummaryV5(syncOwnerKey);
+      if (disposed || !ownerRuntime.isCurrent(owner)) return;
+      if (summary.count === 0) setSyncHealth('healthy');
+      else if (summary.errorCodes.includes('unauthenticated')) setSyncHealth('paused-auth');
+      else if (summary.errorCodes.includes('permission-denied')) setSyncHealth('blocked-permission');
+      else setSyncHealth('blocked-schema');
+    };
+
     const schedule = (delay: number) => {
       if (disposed) return;
       if (timer !== undefined) window.clearTimeout(timer);
@@ -64,12 +84,18 @@ export const useProgressSyncWorker = (
           () => worker.flushOne(),
           (error) => console.error('[ProgressSyncWorker] local polling failed:', error),
         );
+        await refreshHealth();
         schedule(nextDelay);
       } finally {
         running = false;
       }
     };
-    const handleOnline = () => schedule(0);
+    const handleOnline = () => {
+      void resumePausedAuthEventsV5(syncOwnerKey).then(() => {
+        schedule(0);
+        return refreshHealth();
+      });
+    };
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') schedule(0);
     };
@@ -77,6 +103,7 @@ export const useProgressSyncWorker = (
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
     schedule(0);
+    void resumePausedAuthEventsV5(syncOwnerKey).then(refreshHealth);
 
     const unregister = ownerRuntime.registerDisposer(() => {
       disposed = true;
@@ -93,4 +120,6 @@ export const useProgressSyncWorker = (
       void worker.dispose();
     };
   }, [deviceId, ownerKey, user]);
+
+  return syncHealth;
 };

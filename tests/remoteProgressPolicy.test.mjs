@@ -12,6 +12,8 @@ const decide = (overrides = {}) => decideRemoteProgressAction({
   remotePercent: 50,
   currentPercent: 10,
   isQuietResumeEligible: true,
+  remoteRevision: undefined,
+  localRevision: undefined,
   ...overrides,
 });
 
@@ -37,4 +39,20 @@ test('ignores a negligible remote movement after initial sync', () => {
 test('ignores equal positions and non-newer remote updates', () => {
   assert.equal(decide({ currentAnchorCfi: 'remote-cfi' }), 'ignore');
   assert.equal(decide({ remoteTime: 100 }), 'ignore');
+});
+
+test('prefers comparable revisions over skewed timestamps', () => {
+  assert.equal(decide({
+    isInitialSync: true,
+    remoteRevision: 4,
+    localRevision: 3,
+    remoteTime: 1,
+    lastSaveTime: 999_999,
+  }), 'jump');
+  assert.equal(decide({
+    remoteRevision: 3,
+    localRevision: 4,
+    remoteTime: 999_999,
+    lastSaveTime: 1,
+  }), 'ignore');
 });

@@ -11,6 +11,7 @@ import {
 } from '../lib/syncOutboxV5';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
+import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 
 type UseSyncConflictResolutionOptions = {
   user: FirebaseUser | null;
@@ -85,6 +86,7 @@ export const useSyncConflictResolution = ({
       conflict.conflictId,
     );
     if (!ownerRuntime.isCurrent(owner)) return;
+    rebaseProgressCommitBaseline(owner.ownerKey, nextProgress.bookId, nextProgress);
     setProgress((prev) => {
       const next = { ...prev, [nextProgress.bookId]: nextProgress };
       progressRef.current = next;

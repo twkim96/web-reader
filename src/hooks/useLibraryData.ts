@@ -28,6 +28,7 @@ import {
 } from '../lib/ownerIdentity';
 import { DriveLoadCoordinator } from '../lib/driveLoadCoordinator';
 import { Book, UserProgress, ViewState } from '../types';
+import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 
 interface UseLibraryDataOptions {
   clearToken: () => void;
@@ -119,6 +120,7 @@ export const useLibraryData = ({
       const localProgressByBook: Record<string, UserProgress> = {};
       localProgress.forEach((item) => {
         localProgressByBook[item.bookId] = item;
+        rebaseProgressCommitBaseline(owner.ownerKey, item.bookId, item);
       });
 
       setProgress((prev) => {

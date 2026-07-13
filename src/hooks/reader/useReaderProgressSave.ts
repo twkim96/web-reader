@@ -13,10 +13,13 @@ type SaveContext = {
 };
 
 type RemoteProgressTarget = {
+  bookId: string;
   cfi: string;
   anchorCfi?: string;
   percent: number;
   lastRead: number;
+  syncRevision?: number;
+  acceptedEventId?: string;
 };
 
 type PendingRelocateSave = {
@@ -32,6 +35,16 @@ interface UseReaderProgressSaveOptions {
   initialTime?: number;
   initialBookmarks?: Bookmark[];
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
+  onAdoptRemoteProgress: (progress: {
+    bookId: string;
+    cfi: string;
+    anchorCfi?: string;
+    progressPercent: number;
+    lastRead: number;
+    bookmarks: Bookmark[];
+    syncRevision?: number;
+    acceptedEventId?: string;
+  }) => Promise<boolean>;
 }
 
 const RELOCATE_SAVE_IDLE_MS = 1000;
@@ -44,6 +57,7 @@ export const useReaderProgressSave = ({
   initialTime,
   initialBookmarks,
   onSaveProgress,
+  onAdoptRemoteProgress,
 }: UseReaderProgressSaveOptions) => {
   const lastSaveTimeRef = useRef(initialTime || 0);
   const skipNextSaveRef = useRef(true);
@@ -260,6 +274,21 @@ export const useReaderProgressSave = ({
     && inFlightCommitCountRef.current === 0
   ), []);
 
+  const flushCurrentProgress = useCallback(async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const generation = interactionGenerationRef.current;
+      const committed = await saveCurrentProgress({ force: true });
+      if (!committed) return false;
+      if (
+        interactionGenerationRef.current === generation
+        && !hasUnsavedUserChangeRef.current
+        && !pendingRelocateSaveRef.current
+        && inFlightCommitCountRef.current === 0
+      ) return true;
+    }
+    return false;
+  }, [saveCurrentProgress]);
+
   useEffect(() => () => {
     clearRelocateSaveTimer();
   }, [clearRelocateSaveTimer]);
@@ -280,6 +309,17 @@ export const useReaderProgressSave = ({
       if (!committed) return false;
       lastSaveTimeRef.current = Date.now();
     } else {
+      const adopted = await onAdoptRemoteProgress({
+        bookId: target.bookId,
+        cfi: target.cfi,
+        anchorCfi: target.anchorCfi || target.cfi,
+        progressPercent: safePercent,
+        lastRead: target.lastRead,
+        bookmarks,
+        syncRevision: target.syncRevision,
+        acceptedEventId: target.acceptedEventId,
+      });
+      if (!adopted) return false;
       lastSaveTimeRef.current = target.lastRead;
     }
 
@@ -291,7 +331,7 @@ export const useReaderProgressSave = ({
     };
     clearPendingSave();
     return true;
-  }, [clearPendingSave, onSaveProgress]);
+  }, [clearPendingSave, onAdoptRemoteProgress, onSaveProgress]);
 
   return {
     lastSaveTimeRef,
@@ -300,6 +340,7 @@ export const useReaderProgressSave = ({
     saveProgressIfChanged,
     handleRelocateForSave,
     saveCurrentProgress,
+    flushCurrentProgress,
     prepareRemoteJump,
     isQuietResumeEligible,
     completeRemoteJump,

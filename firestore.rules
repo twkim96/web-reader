@@ -33,7 +33,7 @@ service cloud.firestore {
     function validProgressHead(data, bookId) {
       return data.keys().hasOnly([
           'schemaVersion', 'bookId', 'revision', 'acceptedEventId', 'operation',
-          'position', 'acceptedDeviceId', 'occurredAtClient', 'updatedAtServer',
+          'position', 'acceptedDeviceId', 'acceptedSessionId', 'occurredAtClient', 'updatedAtServer',
           'deletedAtServer'
         ])
         && data.schemaVersion == 2
@@ -43,6 +43,7 @@ service cloud.firestore {
         && data.revision >= 1
         && boundedString(data.acceptedEventId, 128, false)
         && boundedString(data.acceptedDeviceId, 128, false)
+        && boundedString(data.acceptedSessionId, 128, false)
         && validClientTime(data.occurredAtClient)
         && data.updatedAtServer == request.time
         && (
@@ -79,7 +80,7 @@ service cloud.firestore {
     function validBookmarkHead(data, bookId, bookmarkId) {
       return data.keys().hasOnly([
           'schemaVersion', 'bookId', 'bookmarkId', 'revision', 'acceptedEventId',
-          'operation', 'bookmark', 'acceptedDeviceId', 'occurredAtClient',
+          'operation', 'bookmark', 'acceptedDeviceId', 'acceptedSessionId', 'occurredAtClient',
           'updatedAtServer', 'deletedAtServer'
         ])
         && data.schemaVersion == 2
@@ -91,6 +92,7 @@ service cloud.firestore {
         && data.revision >= 1
         && boundedString(data.acceptedEventId, 128, false)
         && boundedString(data.acceptedDeviceId, 128, false)
+        && boundedString(data.acceptedSessionId, 128, false)
         && validClientTime(data.occurredAtClient)
         && data.updatedAtServer == request.time
         && (

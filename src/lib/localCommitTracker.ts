@@ -8,11 +8,14 @@ export const trackLocalCommit = <T>(promise: Promise<T>) => {
 };
 
 export const waitForCurrentLocalCommits = async () => {
+  let rejected = 0;
   while (pendingLocalCommits.size > 0) {
-    await Promise.allSettled([...pendingLocalCommits]);
+    const results = await Promise.allSettled([...pendingLocalCommits]);
+    rejected += results.filter((result) => result.status === 'rejected').length;
     // Let continuations register follow-up commits before deciding the drain is complete.
     await Promise.resolve();
   }
+  return { ok: rejected === 0, rejected };
 };
 
 export const getPendingLocalCommitCount = () => pendingLocalCommits.size;

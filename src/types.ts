@@ -68,6 +68,8 @@ export interface UserProgress {
   progressPercent: number;
   lastRead: number;
   bookmarks?: Bookmark[]; 
+  syncRevision?: number;   // authoritative Firebase head revision when known
+  acceptedEventId?: string;
 }
 
 export interface SaveProgressOptions {

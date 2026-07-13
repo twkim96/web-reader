@@ -5,10 +5,13 @@ import { Bookmark, UserProgress } from '../../types';
 import { decideRemoteProgressAction } from './remoteProgressPolicy';
 
 export type SyncConflict = {
+  bookId: string;
   cfi: string;
   anchorCfi?: string;
   percent: number;
   lastRead: number;
+  syncRevision?: number;
+  acceptedEventId?: string;
 };
 
 interface UseRemoteProgressPromptOptions {
@@ -17,6 +20,7 @@ interface UseRemoteProgressPromptOptions {
   currentCfi: string;
   currentAnchorCfi: string;
   totalProgress: number;
+  localRevision?: number;
   lastSaveTimeRef: MutableRefObject<number>;
   goTo: (cfi: string) => Promise<void>;
   getBookmarks: () => Bookmark[];
@@ -36,6 +40,7 @@ export const useRemoteProgressPrompt = ({
   currentCfi,
   currentAnchorCfi,
   totalProgress,
+  localRevision,
   lastSaveTimeRef,
   goTo,
   getBookmarks,
@@ -104,6 +109,8 @@ export const useRemoteProgressPrompt = ({
       remotePercent: remoteProgress.progressPercent,
       currentPercent: totalProgress,
       isQuietResumeEligible: isQuietResumeEligible(),
+      remoteRevision: remoteProgress.syncRevision,
+      localRevision,
     });
     if (action === 'ignore') {
       lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
@@ -112,10 +119,13 @@ export const useRemoteProgressPrompt = ({
     }
 
     const target = {
+      bookId: remoteProgress.bookId,
       cfi: remoteCfi,
       anchorCfi: remoteAnchorCfi,
       percent: remoteProgress.progressPercent,
       lastRead: remoteTime,
+      syncRevision: remoteProgress.syncRevision,
+      acceptedEventId: remoteProgress.acceptedEventId,
     };
     if (action === 'jump') {
       jumpingRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
@@ -137,7 +147,7 @@ export const useRemoteProgressPrompt = ({
     isInitialSync.current = false;
     const timeoutId = window.setTimeout(() => setSyncConflict(target), 0);
     return () => window.clearTimeout(timeoutId);
-  }, [currentAnchorCfi, currentCfi, isLoaded, isQuietResumeEligible, jumpToRemoteProgress, lastSaveTimeRef, remoteProgress, totalProgress]);
+  }, [currentAnchorCfi, currentCfi, isLoaded, isQuietResumeEligible, jumpToRemoteProgress, lastSaveTimeRef, localRevision, remoteProgress, totalProgress]);
 
   const dismissSyncConflict = useCallback(() => {
     setSyncConflict(null);

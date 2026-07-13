@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { waitForCurrentLocalCommits } from '../lib/localCommitTracker';
+import { prepareServiceWorkerUpdate } from '../lib/serviceWorkerUpdatePolicy';
 
-export const useServiceWorkerUpdate = () => {
+type UseServiceWorkerUpdateOptions = {
+  flushCurrentProgress?: () => Promise<boolean>;
+  onPersistenceError?: (message: string) => void;
+};
+
+export const useServiceWorkerUpdate = ({
+  flushCurrentProgress,
+  onPersistenceError,
+}: UseServiceWorkerUpdateOptions = {}) => {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const applyingRef = useRef(false);
 
@@ -43,11 +52,25 @@ export const useServiceWorkerUpdate = () => {
   }, []);
 
   const applyUpdate = useCallback(async () => {
-    if (!waitingWorker || applyingRef.current) return;
+    if (!waitingWorker || applyingRef.current) return false;
     applyingRef.current = true;
-    await waitForCurrentLocalCommits();
-    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-  }, [waitingWorker]);
+    let activating = false;
+    try {
+      const ready = await prepareServiceWorkerUpdate({
+        flushCurrentProgress,
+        drainLocalCommits: waitForCurrentLocalCommits,
+      });
+      if (!ready) {
+        onPersistenceError?.('저장 작업 중 오류가 발생해 업데이트 적용을 중단했습니다. 다시 시도해 주세요.');
+        return false;
+      }
+      activating = true;
+      waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+      return true;
+    } finally {
+      if (!activating) applyingRef.current = false;
+    }
+  }, [flushCurrentProgress, onPersistenceError, waitingWorker]);
 
   return { updateAvailable: Boolean(waitingWorker), applyUpdate };
 };

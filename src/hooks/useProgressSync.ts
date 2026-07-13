@@ -30,6 +30,7 @@ import {
   type RemoteBookmarkHeadChange,
 } from '../lib/remoteBookmarkAccumulator';
 import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
+import { getSyncSessionId, isExactSyncSessionEcho } from '../lib/syncSession';
 
 interface UseProgressSyncOptions {
   user: FirebaseUser | null;
@@ -59,6 +60,7 @@ export const useProgressSync = ({
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
     const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
+    const syncSessionId = getSyncSessionId();
     const firebaseHistoryPath = getFirebaseSyncHistoryPath(APP_ID, user.uid);
     const v2Ref = collection(db, firebaseHistoryPath);
 
@@ -77,17 +79,19 @@ export const useProgressSync = ({
         const changes = hydrator.select(snapshot);
         if (!changes) return;
         const remoteUpdates: Record<string, UserProgress> = {};
+        const removedBookIds = new Set<string>();
         const heads = [];
         for (const change of changes) {
           if (change.doc.metadata.hasPendingWrites) continue;
           if (change.type === 'removed') {
             await recordRemoteMissingV5(syncOwnerKey, change.doc.id);
+            removedBookIds.add(change.doc.id);
             continue;
           }
           try {
             const head = parseProgressHeadV2(change.doc.data());
             heads.push(head);
-            if (head.acceptedDeviceId === deviceId.current) continue;
+            if (isExactSyncSessionEcho(head.acceptedSessionId, syncSessionId)) continue;
             const serverTime = getTimestampMs(head.updatedAtServer, 0);
             remoteUpdates[head.bookId] = head.operation === 'reset'
               ? {
@@ -97,6 +101,8 @@ export const useProgressSync = ({
                 progressPercent: 0,
                 lastRead: serverTime,
                 bookmarks: progressRef.current[head.bookId]?.bookmarks ?? [],
+                syncRevision: head.revision,
+                acceptedEventId: head.acceptedEventId,
               }
               : {
                 bookId: head.bookId,
@@ -105,14 +111,21 @@ export const useProgressSync = ({
                 progressPercent: head.position!.progressPercent,
                 lastRead: serverTime,
                 bookmarks: progressRef.current[head.bookId]?.bookmarks ?? [],
+                syncRevision: head.revision,
+                acceptedEventId: head.acceptedEventId,
               };
           } catch (error) {
             console.error('[ProgressV2] Invalid remote head:', error);
           }
         }
         await storeRemoteHeadsBatchV5(syncOwnerKey, heads);
-        if (!ownerRuntime.isCurrent(owner) || Object.keys(remoteUpdates).length === 0) return;
-        setRemoteProgress((prev) => ({ ...prev, ...remoteUpdates }));
+        if (!ownerRuntime.isCurrent(owner)) return;
+        if (Object.keys(remoteUpdates).length === 0 && removedBookIds.size === 0) return;
+        setRemoteProgress((prev) => {
+          const next = { ...prev, ...remoteUpdates };
+          for (const bookId of removedBookIds) delete next[bookId];
+          return next;
+        });
       });
     }, (error) => console.error('[ProgressV2] listener failed:', error));
 
@@ -134,6 +147,7 @@ export const useProgressSync = ({
     if (authOwnerKey !== `firebase:${user.uid}`) return;
 
     const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
+    const syncSessionId = getSyncSessionId();
     const firebaseHistoryPath = getFirebaseSyncHistoryPath(APP_ID, user.uid);
     const hydrator = new ServerSnapshotHydrator<
       QueryDocumentSnapshot<DocumentData, DocumentData>
@@ -169,7 +183,7 @@ export const useProgressSync = ({
               const head = parseBookmarkHeadV2(change.doc.data());
               heads.push(head);
               accumulatedChanges.push({ type: 'upsert', head });
-              if (head.acceptedDeviceId !== deviceId.current) changed = true;
+              if (!isExactSyncSessionEcho(head.acceptedSessionId, syncSessionId)) changed = true;
             } catch (error) {
               console.error('[BookmarkV2] Invalid remote head:', error);
             }
