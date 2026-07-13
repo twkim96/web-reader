@@ -1,6 +1,6 @@
 {
   "name": "viewer",
-  "version": "1.7.7",
+  "version": "1.7.8",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,8 +15,8 @@
     "test:browser:ci": "node scripts/run-browser-regression-ci.mjs",
     "test:e2e": "playwright test",
     "test:release": "node --test tests/releaseVersion.test.mjs",
-    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs tests/progressCommitBaseline.test.mjs tests/bookmarkSyncPolicy.test.mjs tests/remoteBookmarkAccumulator.test.mjs tests/serverSnapshotHydrator.test.mjs tests/firebaseSyncBoundary.test.mjs tests/syncOutboxV5.test.mjs tests/progressSyncTransaction.test.mjs tests/bookmarkSyncTransaction.test.mjs tests/progressSyncWorker.test.mjs tests/progressSyncPolling.test.mjs tests/contentNamespace.test.mjs",
-    "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookmarkPositionPolicy.test.mjs tests/lastReaderSession.test.mjs tests/progressDisplay.test.mjs tests/remoteProgressPolicy.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs",
+    "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs tests/progressCommitBaseline.test.mjs tests/bookmarkSyncPolicy.test.mjs tests/remoteBookmarkAccumulator.test.mjs tests/serverSnapshotHydrator.test.mjs tests/firebaseSyncBoundary.test.mjs tests/syncOutboxV5.test.mjs tests/progressSyncTransaction.test.mjs tests/bookmarkSyncTransaction.test.mjs tests/progressSyncWorker.test.mjs tests/progressSyncPolling.test.mjs tests/progressSyncPump.test.mjs tests/contentNamespace.test.mjs",
+    "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookDeletion.test.mjs tests/bookmarkPositionPolicy.test.mjs tests/lastReaderSession.test.mjs tests/progressDisplay.test.mjs tests/remoteProgressPolicy.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs",
     "test:sw": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/localCommitTracker.test.mjs tests/serviceWorkerPolicy.test.mjs",
     "test:node": "npm run test:formats && npm run test:drive && npm run test:archives && npm run test:storage && npm run test:shelf && npm run test:sw && npm run test:release",
     "test:all": "npm run test:node",

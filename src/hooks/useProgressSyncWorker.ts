@@ -16,6 +16,7 @@ import {
 } from '../lib/syncOutboxV5';
 import { runProgressSyncPoll } from '../lib/progressSyncPolling';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
+import { ProgressSyncPumpController } from '../lib/progressSyncPump';
 
 export const useProgressSyncWorker = (
   user: FirebaseUser | null,
@@ -54,8 +55,6 @@ export const useProgressSyncWorker = (
       {},
       syncOwnerKey,
     );
-    let timer: number | undefined;
-    let running = false;
     let disposed = false;
 
     const refreshHealth = async () => {
@@ -67,47 +66,39 @@ export const useProgressSyncWorker = (
       else setSyncHealth('blocked-schema');
     };
 
-    const schedule = (delay: number) => {
-      if (disposed) return;
-      if (timer !== undefined) window.clearTimeout(timer);
-      if (document.visibilityState === 'hidden' && delay > 0) {
-        timer = undefined;
-        return;
-      }
-      timer = window.setTimeout(() => void pump(), delay);
-    };
-    const pump = async () => {
-      if (disposed || running || !navigator.onLine) return;
-      running = true;
-      try {
-        const nextDelay = await runProgressSyncPoll(
+    const pump = new ProgressSyncPumpController({
+      poll: () => runProgressSyncPoll(
           () => worker.flushOne(),
           (error) => console.error('[ProgressSyncWorker] local polling failed:', error),
-        );
-        await refreshHealth();
-        schedule(nextDelay);
+      ),
+      refreshHealth,
+      reportHealthError: (error) => console.error('[ProgressSyncWorker] health refresh failed:', error),
+      isOnline: () => navigator.onLine,
+      isVisible: () => document.visibilityState !== 'hidden',
+    });
+    const resumePausedAndRequest = async () => {
+      try {
+        await resumePausedAuthEventsV5(syncOwnerKey);
+      } catch (error) {
+        console.error('[ProgressSyncWorker] paused event resume failed:', error);
       } finally {
-        running = false;
+        pump.request();
       }
     };
     const handleOnline = () => {
-      void resumePausedAuthEventsV5(syncOwnerKey).then(() => {
-        schedule(0);
-        return refreshHealth();
-      });
+      void resumePausedAndRequest();
     };
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') schedule(0);
+      if (document.visibilityState === 'visible') pump.request();
     };
-    const unsubscribeWork = subscribeProgressSyncWork(syncOwnerKey, () => schedule(0));
+    const unsubscribeWork = subscribeProgressSyncWork(syncOwnerKey, () => pump.request());
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
-    schedule(0);
-    void resumePausedAuthEventsV5(syncOwnerKey).then(refreshHealth);
+    void resumePausedAndRequest();
 
     const unregister = ownerRuntime.registerDisposer(() => {
       disposed = true;
-      if (timer !== undefined) window.clearTimeout(timer);
+      pump.dispose();
       void worker.dispose();
     });
     return () => {
@@ -116,7 +107,7 @@ export const useProgressSyncWorker = (
       unsubscribeWork();
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
-      if (timer !== undefined) window.clearTimeout(timer);
+      pump.dispose();
       void worker.dispose();
     };
   }, [deviceId, ownerKey, user]);

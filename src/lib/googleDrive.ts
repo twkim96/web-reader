@@ -658,6 +658,10 @@ export const deleteDriveFile = async (fileId: string, token: string) => {
     10000
   );
 
+  // A previous attempt may have deleted the Drive file before local progress
+  // reset failed. Treat the missing file as an idempotent deletion success so
+  // the retained local book can finish cleanup on retry.
+  if (response.status === 404) return;
   if (!response.ok) {
     throwIfGoogleDriveAuthError(response);
     if (response.status === 403) {

@@ -19,6 +19,16 @@ export const getBookmarkPosition = (
   };
 };
 
+export const getLiveBookmarkPosition = (
+  liveCfi: string | undefined,
+  liveAnchorCfi: string | undefined,
+  currentCfi: string,
+  currentAnchorCfi: string,
+) => getBookmarkPosition(
+  liveCfi || currentCfi,
+  liveAnchorCfi || currentAnchorCfi,
+);
+
 export const getAutoBookmarkName = (previewText: string) => (
   previewText.replace(/^이전\s*위치\s*:\s*/, '').trim() || '북마크'
 );

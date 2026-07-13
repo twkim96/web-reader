@@ -168,6 +168,31 @@ test('late response after owner switch cannot acknowledge the old owner', async 
   assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'in_flight');
 });
 
+test('same worker recovers an in-flight event after its lease expires during transport', async () => {
+  await seed();
+  const owner = ownerRuntime.activate(ownerA);
+  let remoteCalls = 0;
+  const worker = new ProgressSyncWorker(
+    owner,
+    'tab-a',
+    async () => {
+      remoteCalls += 1;
+      if (remoteCalls === 1) {
+        clockNow = 16_000;
+        return applied;
+      }
+      return { ...applied, status: 'already_applied' };
+    },
+    { now: () => clockNow },
+  );
+
+  assert.equal(await worker.flushOne(10), 'stale_lease');
+  assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'in_flight');
+  assert.equal(await worker.flushOne(16_000), 'already_applied');
+  assert.equal(remoteCalls, 2);
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
+});
+
 test('a second tab cannot claim while the first lease is live', async () => {
   await seed();
   const owner = ownerRuntime.activate(ownerA);

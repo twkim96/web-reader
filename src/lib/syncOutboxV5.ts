@@ -78,6 +78,10 @@ export type BookmarkOutboxEventV5 = {
 export type SyncOutboxEventV5 = ProgressOutboxEventV5 | BookmarkOutboxEventV5;
 export type SyncHeadV2 = ProgressHeadV2 | BookmarkHeadV2;
 
+const activeStatuses = new Set<OutboxStatusV5>([
+  'pending', 'in_flight', 'blocked', 'conflict', 'paused',
+]);
+
 export type ExpectedClaimV5 = {
   tabId: string;
   leaseEpoch: number;
@@ -215,7 +219,32 @@ export const adoptRemoteProgressLocallyV5 = async (
     V5_PROGRESS_STORE,
     V5_REMOTE_HEADS_STORE,
     V5_SYNC_META_STORE,
+    V5_OUTBOX_STORE,
+    V5_SYNC_CONFLICTS_STORE,
   ], 'readwrite');
+  const [targetEvents, openConflicts, deferredConflicts] = await Promise.all([
+    tx.objectStore(V5_OUTBOX_STORE)
+      .index('by-owner-target-sequence')
+      .getAll(IDBKeyRange.bound(
+        [ownerKey, targetKey, 0],
+        [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+      )) as Promise<SyncOutboxEventV5[]>,
+    tx.objectStore(V5_SYNC_CONFLICTS_STORE)
+      .index('by-owner-target-state')
+      .getAll([ownerKey, targetKey, 'open']) as Promise<SyncConflictV5[]>,
+    tx.objectStore(V5_SYNC_CONFLICTS_STORE)
+      .index('by-owner-target-state')
+      .getAll([ownerKey, targetKey, 'deferred']) as Promise<SyncConflictV5[]>,
+  ]);
+  if (
+    targetEvents.some((event) => activeStatuses.has(event.status))
+    || openConflicts.length > 0
+    || deferredConflicts.length > 0
+  ) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    return false;
+  }
   const remote = await tx.objectStore(V5_REMOTE_HEADS_STORE).get([
     ownerKey,
     targetKey,
@@ -242,6 +271,33 @@ export const adoptRemoteProgressLocallyV5 = async (
   ]);
   await tx.done;
   return true;
+};
+
+export const hasActiveProgressTargetWorkV5 = async (
+  ownerKey: OwnerKey,
+  bookId: string,
+) => {
+  const targetKey = progressTargetKeyV2(bookId);
+  const db = await initDB();
+  const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE], 'readonly');
+  const [targetEvents, openConflicts, deferredConflicts] = await Promise.all([
+    tx.objectStore(V5_OUTBOX_STORE)
+      .index('by-owner-target-sequence')
+      .getAll(IDBKeyRange.bound(
+        [ownerKey, targetKey, 0],
+        [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+      )) as Promise<SyncOutboxEventV5[]>,
+    tx.objectStore(V5_SYNC_CONFLICTS_STORE)
+      .index('by-owner-target-state')
+      .getAll([ownerKey, targetKey, 'open']) as Promise<SyncConflictV5[]>,
+    tx.objectStore(V5_SYNC_CONFLICTS_STORE)
+      .index('by-owner-target-state')
+      .getAll([ownerKey, targetKey, 'deferred']) as Promise<SyncConflictV5[]>,
+  ]);
+  await tx.done;
+  return targetEvents.some((event) => activeStatuses.has(event.status))
+    || openConflicts.length > 0
+    || deferredConflicts.length > 0;
 };
 
 export const recordRemoteMissingV5 = async (
@@ -337,10 +393,6 @@ export type EnqueueProgressMutationBatchInput = {
   progressEvent: EnqueueProgressInput | null;
   bookmarkEvents: EnqueueBookmarkInput[];
 };
-
-const activeStatuses = new Set<OutboxStatusV5>([
-  'pending', 'in_flight', 'blocked', 'conflict', 'paused',
-]);
 
 const eventSort = (a: SyncOutboxEventV5, b: SyncOutboxEventV5) => (
   a.sequence - b.sequence
@@ -943,10 +995,12 @@ export const acquireSyncLeaseV5 = async (
     await tx.done;
     return null;
   }
+  const continuesLiveLease = existing?.holderTabId === tabId
+    && existing.expiresAt > now;
   const lease: SyncLeaseV5 = {
     ownerKey,
     holderTabId: tabId,
-    epoch: existing?.holderTabId === tabId
+    epoch: continuesLiveLease
       ? existing.epoch
       : (existing?.epoch ?? 0) + 1,
     expiresAt: now + durationMs,

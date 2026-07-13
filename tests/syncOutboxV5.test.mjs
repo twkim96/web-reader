@@ -157,6 +157,42 @@ test('adopts a verified remote position locally without creating an outbox event
   assert.equal(saved.syncRevision, 7);
 });
 
+test('refuses quiet remote adoption while the progress target has local outbox intent', async () => {
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 7,
+    acceptedEventId: 'remote-7',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other-device',
+    acceptedSessionId: 'other-session',
+    occurredAtClient: 7,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  await storeRemoteProgressHeadV5(ownerA, remote, 10);
+  await enqueue(ownerA, {
+    eventId: 'local-30',
+    position: position(30),
+    occurredAtClient: 11,
+  });
+
+  assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+    bookId: 'book-1',
+    cfi: remote.position.cfi,
+    anchorCfi: remote.position.cfi,
+    progressPercent: 70,
+    lastRead: 10,
+    syncRevision: 7,
+    acceptedEventId: 'remote-7',
+  }), false);
+  assert.equal((await getOutboxEventsV5(ownerA))[0].payload.progressPercent, 30);
+  const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
+  const [saved] = await getAllLocalProgressV5(ownerA);
+  assert.equal(saved.progressPercent, 30);
+});
+
 test('builds an expected revision chain for distinct sessions and reset', async () => {
   await enqueue(ownerA, { eventId: 'event-1' });
   await enqueue(ownerA, {
@@ -189,6 +225,15 @@ test('isolates owner outboxes and allows only one live lease holder', async () =
   assert.equal(leaseB.epoch, 2);
   assert.equal(await claimNextProgressEventV5(ownerA, 'tab-a', 1, 152), null);
   assert.equal((await claimNextProgressEventV5(ownerA, 'tab-b', 2, 152)).eventId, 'a');
+});
+
+test('issues a new epoch when the same tab reacquires an expired lease', async () => {
+  const first = await acquireSyncLeaseV5(ownerA, 'tab-a', 100, 50);
+  const renewed = await acquireSyncLeaseV5(ownerA, 'tab-a', 120, 50);
+  const reacquired = await acquireSyncLeaseV5(ownerA, 'tab-a', 171, 50);
+  assert.equal(first.epoch, 1);
+  assert.equal(renewed.epoch, 1);
+  assert.equal(reacquired.epoch, 2);
 });
 
 test('conflict preserves the event and blocks its later chain', async () => {

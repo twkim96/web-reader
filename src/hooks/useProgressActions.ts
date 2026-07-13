@@ -7,6 +7,7 @@ import { hasProgressChanged, toProgressPercent } from './progressPolicy';
 import {
   adoptRemoteProgressLocallyV5,
   enqueueProgressMutationBatchV5,
+  hasActiveProgressTargetWorkV5,
 } from '../lib/syncOutboxV5';
 import { diffManualBookmarks, type BookmarkSyncChange } from '../lib/bookmarkSyncPolicy';
 import { trackLocalCommit } from '../lib/localCommitTracker';
@@ -289,7 +290,9 @@ export const useProgressActions = ({
     try {
       const committed = await queueProgressWrite(remote.bookId, async () => {
         if (!ownerRuntime.isCurrent(owner)) return false;
-        return adoptRemoteProgressLocallyV5(getSyncOwnerKey(owner.ownerKey), adopted);
+        const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
+        if (await hasActiveProgressTargetWorkV5(syncOwnerKey, remote.bookId)) return false;
+        return adoptRemoteProgressLocallyV5(syncOwnerKey, adopted);
       });
       if (!committed) return false;
       rebaseProgressCommitBaseline(owner.ownerKey, remote.bookId, adopted);

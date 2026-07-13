@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   getAutoBookmarkName,
   getBookmarkPosition,
+  getLiveBookmarkPosition,
 } from '../src/hooks/reader/bookmarkPositionPolicy.ts';
 
 test('stores the measurable viewport range CFI while keeping the progress anchor', () => {
@@ -11,6 +12,19 @@ test('stores the measurable viewport range CFI while keeping the progress anchor
     bookmarkCfi: 'range-cfi',
     progressCfi: 'range-cfi',
     anchorCfi: 'anchor-cfi',
+  });
+});
+
+test('uses Foliate live location even before React currentCfi is populated', () => {
+  assert.deepEqual(getLiveBookmarkPosition(
+    'live-range-cfi',
+    'live-anchor-cfi',
+    '',
+    '',
+  ), {
+    bookmarkCfi: 'live-range-cfi',
+    progressCfi: 'live-range-cfi',
+    anchorCfi: 'live-anchor-cfi',
   });
 });
 

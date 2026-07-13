@@ -2,18 +2,11 @@
 
 import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { Bookmark, SaveProgressOptions } from '../../types';
-import { getAutoBookmarkName, getBookmarkPosition } from './bookmarkPositionPolicy';
+import { getProgressFromRelocateDetail } from '../foliate/progress';
+import type { FoliateViewElement } from '../foliate/types';
+import { getAutoBookmarkName, getLiveBookmarkPosition } from './bookmarkPositionPolicy';
 
-type FoliateContentRef = MutableRefObject<{
-  lastLocation?: {
-    cfi?: string;
-    anchorCfi?: string;
-    range?: Range;
-  };
-  renderer?: {
-    getContents?: () => { doc?: Document }[];
-  };
-} | null>;
+type FoliateContentRef = MutableRefObject<FoliateViewElement | null>;
 
 interface UseReaderBookmarksOptions {
   initialBookmarks?: Bookmark[];
@@ -80,10 +73,15 @@ export const useReaderBookmarks = ({
 
   const getLivePosition = useCallback(() => {
     const live = viewRef.current?.lastLocation;
-    return getBookmarkPosition(
-      live?.cfi || currentCfi,
-      live?.anchorCfi || currentAnchorCfi,
-    );
+    return {
+      ...getLiveBookmarkPosition(
+        live?.cfi,
+        live?.anchorCfi,
+        currentCfi,
+        currentAnchorCfi,
+      ),
+      progressPercent: live ? getProgressFromRelocateDetail(live) : null,
+    };
   }, [currentAnchorCfi, currentCfi, viewRef]);
 
   const getPreviewText = useCallback(() => {
@@ -101,30 +99,32 @@ export const useReaderBookmarks = ({
   }, [viewRef]);
 
   const addBookmark = useCallback(() => {
-    if (!currentCfi) return;
-    markUserProgressChange();
     const position = getLivePosition();
+    if (!position.progressCfi) return;
+    markUserProgressChange();
+    const progressPercent = position.progressPercent ?? totalProgress;
 
     const newMark: Bookmark = {
       id: crypto.randomUUID(),
       type: 'manual',
       name: getPreviewText(),
       cfi: position.bookmarkCfi,
-      progressPercent: totalProgress,
+      progressPercent,
       createdAt: Date.now(),
       color: '#f59e0b',
     };
     const updated = setBookmarks([newMark, ...bookmarksRef.current]);
-    void saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
+    void saveProgressIfChanged(position.progressCfi, progressPercent, updated, {
       anchorCfi: position.anchorCfi,
     });
-  }, [currentCfi, getLivePosition, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+  }, [getLivePosition, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
 
   const deleteBookmark = useCallback((id: string) => {
     markUserProgressChange();
     const updated = setBookmarks(bookmarksRef.current.filter((bookmark) => bookmark.id !== id));
     const position = getLivePosition();
-    void saveProgressIfChanged(position.progressCfi, totalProgress, updated, {
+    const progressPercent = position.progressPercent ?? totalProgress;
+    void saveProgressIfChanged(position.progressCfi, progressPercent, updated, {
       anchorCfi: position.anchorCfi,
     });
   }, [getLivePosition, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
@@ -133,12 +133,13 @@ export const useReaderBookmarks = ({
     if (!prevCfi) return bookmarksRef.current;
 
     const live = getLivePosition();
+    const progressPercent = live.progressPercent ?? prevPct;
     const autoMark: Bookmark = {
       id: crypto.randomUUID(),
       type: 'auto',
       name: getAutoBookmarkName(getPreviewText()),
       cfi: live.progressCfi || prevCfi,
-      progressPercent: prevPct,
+      progressPercent,
       createdAt: Date.now(),
       color: '#64748b',
     };

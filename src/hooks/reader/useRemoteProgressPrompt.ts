@@ -3,6 +3,7 @@
 import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { Bookmark, UserProgress } from '../../types';
 import { decideRemoteProgressAction } from './remoteProgressPolicy';
+import { executeRemoteProgressJump } from './remoteProgressJump';
 
 export type SyncConflict = {
   bookId: string;
@@ -62,15 +63,20 @@ export const useRemoteProgressPrompt = ({
   ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
-    prepareRemoteJump();
     try {
-      const navigation = jumpTail.current
-        .catch(() => undefined)
-        .then(() => goTo(target.anchorCfi || target.cfi));
-      jumpTail.current = navigation;
-      await navigation;
-      if (jumpGeneration.current !== generation) return false;
-      return await completeRemoteJump(target, getBookmarks(), options);
+      return await executeRemoteProgressJump({
+        claimDevice: Boolean(options?.claimDevice),
+        isCurrent: () => jumpGeneration.current === generation,
+        prepare: prepareRemoteJump,
+        navigate: async () => {
+          const navigation = jumpTail.current
+            .catch(() => undefined)
+            .then(() => goTo(target.anchorCfi || target.cfi));
+          jumpTail.current = navigation;
+          await navigation;
+        },
+        complete: () => completeRemoteJump(target, getBookmarks(), options),
+      });
     } catch (error) {
       console.warn('[RemoteProgress] jump failed:', error);
       return false;
@@ -130,13 +136,20 @@ export const useRemoteProgressPrompt = ({
     if (action === 'jump') {
       jumpingRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
       void jumpToRemoteProgress(target).then((completed) => {
-        if (
+        const isSameJump = Boolean(
           jumpingRemote.current?.cfi === remoteAnchorCfi
           && jumpingRemote.current.lastRead === remoteTime
-        ) {
+        );
+        if (isSameJump) {
           jumpingRemote.current = null;
         }
-        if (!completed) return;
+        if (!completed) {
+          if (!isSameJump) return;
+          lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
+          isInitialSync.current = false;
+          setSyncConflict(target);
+          return;
+        }
         lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
         isInitialSync.current = false;
       });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  deleteDriveFile,
   fetchFullFileBlob,
   fetchWithTimeout,
   fetchDriveFiles,
@@ -17,6 +18,16 @@ import {
   isCachedBookCurrent,
   shouldUseCachedBookContent,
 } from '../src/lib/bookFingerprint.ts';
+
+test('treats an already missing Drive file as a successful idempotent delete', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(options.method, 'DELETE');
+    return new Response('', { status: 404 });
+  };
+  await assert.doesNotReject(deleteDriveFile('already-deleted', 'token'));
+});
 
 test('resolves a stable Drive permission id before opening an owner namespace', async (t) => {
   const originalFetch = globalThis.fetch;

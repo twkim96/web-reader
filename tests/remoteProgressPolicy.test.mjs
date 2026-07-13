@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { decideRemoteProgressAction } from '../src/hooks/reader/remoteProgressPolicy.ts';
+import { executeRemoteProgressJump } from '../src/hooks/reader/remoteProgressJump.ts';
 
 const decide = (overrides = {}) => decideRemoteProgressAction({
   isInitialSync: false,
@@ -55,4 +56,32 @@ test('prefers comparable revisions over skewed timestamps', () => {
     remoteTime: 999_999,
     lastSaveTime: 1,
   }), 'ignore');
+});
+
+test('quiet resume adopts before navigation and does not move when adoption is blocked', async () => {
+  const blockedCalls = [];
+  assert.equal(await executeRemoteProgressJump({
+    claimDevice: false,
+    isCurrent: () => true,
+    prepare: () => blockedCalls.push('prepare'),
+    navigate: async () => { blockedCalls.push('navigate'); },
+    complete: async () => {
+      blockedCalls.push('adopt');
+      return false;
+    },
+  }), false);
+  assert.deepEqual(blockedCalls, ['adopt']);
+
+  const successCalls = [];
+  assert.equal(await executeRemoteProgressJump({
+    claimDevice: false,
+    isCurrent: () => true,
+    prepare: () => successCalls.push('prepare'),
+    navigate: async () => { successCalls.push('navigate'); },
+    complete: async () => {
+      successCalls.push('adopt');
+      return true;
+    },
+  }), true);
+  assert.deepEqual(successCalls, ['adopt', 'prepare', 'navigate']);
 });

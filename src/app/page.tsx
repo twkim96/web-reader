@@ -20,6 +20,7 @@ import {
   isGoogleDrivePermissionError,
 } from '../lib/googleDrive';
 import { removeBookFromLocalV5 } from '../lib/localDBV5';
+import { deleteBookInSafeOrder } from '../lib/bookDeletion';
 import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
@@ -418,14 +419,15 @@ export default function Page() {
         handleCloudAuthExpired("클라우드 세션이 만료되어 도서를 삭제하지 못했습니다. 다시 클라우드를 연결한 뒤 삭제해 주세요.");
         return;
       }
-      const progressReset = await handleDeleteBookProgress(book.id);
-      if (!progressReset) return;
+      const deleted = await deleteBookInSafeOrder({
+        deleteDrive: shouldDeleteCloud && googleToken
+          ? () => deleteDriveFile(book.id, googleToken)
+          : undefined,
+        resetProgress: () => handleDeleteBookProgress(book.id),
+        removeLocalContent: () => removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, book.id),
+      });
+      if (!deleted) return;
 
-      if (shouldDeleteCloud && googleToken) {
-        await deleteDriveFile(book.id, googleToken);
-      }
-
-      await removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, book.id);
       clearLastReaderSession(undefined, book.id);
       setActiveBook((current) => current?.id === book.id ? null : current);
       setBooks((prev) => prev.filter((item) => item.id !== book.id));
