@@ -1235,6 +1235,7 @@ export const getPausedSyncSummaryV5 = async (
 const resumableAuthCodes = new Set([
   'unauthenticated',
   'auth/user-token-expired',
+  'auth/id-token-expired',
   'permission-denied',
 ]);
 

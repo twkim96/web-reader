@@ -115,15 +115,28 @@ test('reports paused sync and resumes recoverable auth or rules deployment failu
     'permission-denied',
     permissionClaim.expectedClaim,
   );
+  await enqueue(ownerA, {
+    eventId: 'id-token-event',
+    bookId: 'book-3',
+    occurredAtClient: 3,
+  });
+  const idTokenClaim = await claimNext(14);
+  await pauseProgressEventV5(
+    ownerA,
+    idTokenClaim.event.eventId,
+    'auth/id-token-expired',
+    idTokenClaim.expectedClaim,
+  );
 
   assert.deepEqual(await getPausedSyncSummaryV5(ownerA), {
-    count: 2,
-    errorCodes: ['unauthenticated', 'permission-denied'],
+    count: 3,
+    errorCodes: ['unauthenticated', 'auth/id-token-expired', 'permission-denied'],
   });
-  assert.equal(await resumePausedAuthEventsV5(ownerA, 20), 2);
+  assert.equal(await resumePausedAuthEventsV5(ownerA, 20), 3);
   const events = await getOutboxEventsV5(ownerA);
   assert.equal(events.find(({ eventId }) => eventId === 'auth-event').status, 'pending');
   assert.equal(events.find(({ eventId }) => eventId === 'permission-event').status, 'pending');
+  assert.equal(events.find(({ eventId }) => eventId === 'id-token-event').status, 'pending');
 });
 
 test('adopts a verified remote position locally without creating an outbox event', async () => {

@@ -7,7 +7,7 @@ export const runProgressSyncPoll = async (
 ) => {
   try {
     const result = await flushOne();
-    return result === 'apply' || result === 'already_applied'
+    return result === 'apply' || result === 'already_applied' || result === 'stale_lease'
       ? ACTIVE_SYNC_POLL_DELAY_MS
       : IDLE_SYNC_POLL_DELAY_MS;
   } catch (error) {

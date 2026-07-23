@@ -19,3 +19,10 @@ test('a local polling error backs off and a later poll can recover', async () =>
   assert.equal(await runProgressSyncPoll(flush, (error) => errors.push(error)), ACTIVE_SYNC_POLL_DELAY_MS);
   assert.equal(errors.length, 1);
 });
+
+test('a stale lease uses the active delay so receipt recovery is not held for 30 seconds', async () => {
+  assert.equal(
+    await runProgressSyncPoll(async () => 'stale_lease', () => undefined),
+    ACTIVE_SYNC_POLL_DELAY_MS,
+  );
+});

@@ -55,6 +55,7 @@ import { useServiceWorkerUpdate } from '../hooks/useServiceWorkerUpdate';
 import { mergeLatestProgressForDisplay } from '../lib/progressDisplay';
 import { hasPendingGoogleDriveOAuth } from '../lib/googleDriveOAuth';
 import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
+import { mergeSyncHealth } from '../lib/syncHealth';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -225,7 +226,7 @@ export default function Page() {
     resetLibraryState,
     shouldHoldShelfForDrive,
   });
-  useProgressSync({
+  const receiveSyncHealth = useProgressSync({
     user,
     deviceId,
     progressRef,
@@ -233,7 +234,8 @@ export default function Page() {
     activeBookId: activeBook?.id,
     ownerKey: activeOwnerKey,
   });
-  const syncHealth = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
+  const sendSyncHealth = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
+  const syncHealth = mergeSyncHealth(receiveSyncHealth, sendSyncHealth);
   const syncConflictResolution = useSyncConflictResolution({
     user,
     progressRef,
@@ -698,11 +700,13 @@ export default function Page() {
 
       {syncHealth !== 'healthy' && (
         <div className="fixed bottom-4 right-4 z-[95] max-w-sm rounded-2xl bg-amber-700 px-4 py-3 text-sm text-white shadow-2xl">
-          {syncHealth === 'paused-auth'
-            ? 'Firebase 인증이 만료되어 동기화가 멈췄습니다. 다시 로그인하면 자동으로 재개됩니다.'
-            : syncHealth === 'blocked-permission'
-              ? 'Firestore 권한 문제로 일부 도서의 동기화가 멈췄습니다.'
-              : '동기화 데이터 형식 오류로 일부 도서의 전송이 멈췄습니다.'}
+          {syncHealth === 'retrying-receive'
+            ? '다른 기기의 읽기 기록을 다시 연결하고 있습니다. 이 기기에 저장된 변경은 보존됩니다.'
+            : syncHealth === 'paused-auth'
+              ? 'Firebase 인증이 만료되어 동기화가 멈췄습니다. 다시 로그인하면 자동으로 재개됩니다.'
+              : syncHealth === 'blocked-permission'
+                ? 'Firestore 권한 문제로 일부 도서의 동기화가 멈췄습니다.'
+                : '동기화 데이터 형식 오류로 일부 도서의 송수신이 멈췄습니다.'}
         </div>
       )}
     </div>
