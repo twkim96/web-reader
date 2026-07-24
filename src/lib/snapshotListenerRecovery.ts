@@ -132,7 +132,12 @@ export class SnapshotListenerRecovery<T> {
     this.failed = true;
     this.detachSubscription();
     const health = classifySnapshotListenerError(error);
-    this.setHealth(health);
+    // Firestore can report one transient listener failure while a fresh app
+    // session is restoring its network/auth state. Keep that first recoverable
+    // failure silent and surface it only if the retry also fails.
+    if (health === 'blocked-schema' || this.retryAttempt > 0) {
+      this.setHealth(health);
+    }
     this.options.onError?.(error);
     if (health !== 'blocked-schema') this.scheduleRetry();
   }

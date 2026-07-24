@@ -71,6 +71,7 @@
 - progress와 active-book bookmark listener를 `SnapshotListenerRecovery`로 통합했다. terminal listener error와 비동기 snapshot 처리 실패는 현재 세대를 폐기하고, 1/5/15/30/60초 capped backoff로 새 listener를 붙인다.
 - controller가 snapshot 처리를 세대별로 직렬화한다. 실패한 snapshot 뒤에 이미 대기하던 이전 세대 callback은 실행 전에 폐기되며, 재구독마다 server hydrator와 bookmark accumulator를 초기화한다.
 - authoritative server snapshot이 정상 처리된 뒤에만 수신 health를 `healthy`로 되돌린다. warm cache는 기존처럼 로컬 intent를 덮지 않는다.
+- 앱 재실행 직후 네트워크·인증 복원 과정에서 발생하는 첫 recoverable listener 오류는 조용히 한 번 재시도한다. 재시도도 실패한 지속 장애만 상태 배너에 표시하며, 자동 복구 불가능한 schema 오류는 즉시 표시한다.
 - progress·bookmark 수신 health와 기존 outbox 송신 health를 하나의 우선순위 상태로 합치고, 재연결·인증·권한·schema 오류를 하단 배너에 표시한다.
 - online·foreground·Firebase ID token 변경에서 실패한 수신 listener와 paused auth/permission event를 즉시 재시도한다. `unauthenticated`와 두 Firebase token-expired 코드를 같은 인증 health로 처리하며, owner가 바뀐 뒤의 늦은 callback은 기존 owner outbox를 깨우지 않는다.
 - `stale_lease`는 100ms active poll로 새 epoch 획득과 immutable receipt replay를 빠르게 이어간다.
@@ -80,7 +81,7 @@
 
 - ESLint: 앱 코드 오류 0건, 기존 Foliate vendor 경고 2건
 - TypeScript typecheck 통과
-- Node 회귀 테스트 240개 통과
+- Node 회귀 테스트 241개 통과
 - Next.js 1.7.9 production build 통과
 - Firestore Emulator Rules/transaction 테스트 9개 통과
 - Playwright Chromium/WebKit 보안·Service Worker 테스트 10개 통과

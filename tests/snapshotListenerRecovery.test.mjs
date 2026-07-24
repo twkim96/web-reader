@@ -57,18 +57,32 @@ test('re-subscribes after a terminal error and clears health on authoritative da
 
   harness.subscriptions[0].onError({ code: 'firestore/permission-denied' });
   assert.equal(harness.subscriptions[0].disposed, true);
-  assert.deepEqual(harness.health, ['healthy', 'blocked-permission']);
+  assert.deepEqual(harness.health, ['healthy']);
   const retry = harness.takeTimer();
   assert.equal(retry.delay, 1_000);
   retry.callback();
   assert.equal(harness.subscriptions.length, 2);
   harness.subscriptions[1].onSnapshot({ authoritative: false });
   await flushTasks();
-  assert.deepEqual(harness.health, ['healthy', 'blocked-permission']);
+  assert.deepEqual(harness.health, ['healthy']);
   harness.subscriptions[1].onSnapshot({ authoritative: true });
   await flushTasks();
-  assert.deepEqual(harness.health, ['healthy', 'blocked-permission', 'healthy']);
+  assert.deepEqual(harness.health, ['healthy']);
   assert.equal(harness.timers.size, 0);
+});
+
+test('surfaces a recoverable listener error only when the retry also fails', () => {
+  const harness = createHarness();
+  harness.controller.start();
+  harness.subscriptions[0].onError({ code: 'unavailable' });
+  assert.deepEqual(harness.health, ['healthy']);
+
+  const retry = harness.takeTimer();
+  assert.equal(retry.delay, 1_000);
+  retry.callback();
+  harness.subscriptions[1].onError({ code: 'unavailable' });
+  assert.deepEqual(harness.health, ['healthy', 'retrying-receive']);
+  assert.equal(harness.takeTimer().delay, 5_000);
 });
 
 test('ignores callbacks from an old generation and disposes the active subscription', () => {
@@ -79,7 +93,7 @@ test('ignores callbacks from an old generation and disposes the active subscript
   assert.equal(harness.subscriptions.length, 2);
 
   harness.subscriptions[0].onError({ code: 'permission-denied' });
-  assert.deepEqual(harness.health, ['healthy', 'retrying-receive']);
+  assert.deepEqual(harness.health, ['healthy']);
   harness.controller.dispose();
   assert.equal(harness.subscriptions[1].disposed, true);
   assert.equal(harness.timers.size, 0);
@@ -108,14 +122,14 @@ test('re-subscribes when asynchronous snapshot processing fails', async () => {
   harness.controller.start();
   harness.subscriptions[0].onSnapshot({ authoritative: true });
   await flushTasks();
-  assert.deepEqual(harness.health, ['healthy', 'retrying-receive']);
+  assert.deepEqual(harness.health, ['healthy']);
   assert.equal(harness.subscriptions[0].disposed, true);
 
   shouldFail = false;
   harness.takeTimer().callback();
   harness.subscriptions[1].onSnapshot({ authoritative: true });
   await flushTasks();
-  assert.deepEqual(harness.health, ['healthy', 'retrying-receive', 'healthy']);
+  assert.deepEqual(harness.health, ['healthy']);
 });
 
 test('drops snapshots queued behind a failed subscription generation', async () => {
