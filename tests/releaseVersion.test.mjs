@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const EXPECTED_VERSION = '1.7.9';
+const EXPECTED_VERSION = '1.7.10';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
   const [packageText, lockText, serviceWorker, browserRegression] = await Promise.all([
@@ -29,6 +29,12 @@ test('keeps package metadata and service worker cache on the release version', a
   );
   assert.equal(
     browserRegression.includes(`/sw.js?browser-regression=${EXPECTED_VERSION}`),
+    true,
+  );
+  assert.equal(
+    browserRegression.includes(
+      `browser-regression=${EXPECTED_VERSION.replaceAll('.', '\\.')}$/`,
+    ),
     true,
   );
 });

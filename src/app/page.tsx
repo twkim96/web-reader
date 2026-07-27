@@ -88,6 +88,11 @@ export default function Page() {
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
   const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const readerQuietResumeEligibilityRef = useRef<(() => boolean) | null>(null);
+  const canQuietlyResolveProgressConflict = useCallback(
+    () => readerQuietResumeEligibilityRef.current?.() ?? false,
+    [],
+  );
   const shouldHoldShelfForDrive = useCallback(() => (
     hasPendingGoogleDriveOAuth(sessionStorage, window.location.hash)
     || hasRestorableDriveTokenSession(sessionStorage)
@@ -242,6 +247,8 @@ export default function Page() {
     setProgress,
     setRemoteProgress,
     ownerKey: activeOwnerKey,
+    activeBookId: activeBook?.id,
+    canQuietlyResolveProgressConflict,
   });
   useNetworkLibrarySync({
     user,
@@ -580,8 +587,14 @@ export default function Page() {
           initialBookmarks={progress[activeBook.id]?.bookmarks || []}
           initialRevision={progress[activeBook.id]?.syncRevision}
           remoteProgress={remoteProgress[activeBook.id]}
+          resolvedRemoteProgress={syncConflictResolution.resolvedRemoteProgress?.bookId === activeBook.id
+            ? syncConflictResolution.resolvedRemoteProgress
+            : null}
           onRegisterProgressFlush={(flush) => {
             readerProgressFlushRef.current = flush;
+          }}
+          onRegisterQuietResumeEligibility={(check) => {
+            readerQuietResumeEligibilityRef.current = check;
           }}
         />
       )}

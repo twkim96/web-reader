@@ -71,6 +71,11 @@ export const useReaderBookmarks = ({
 
   const getBookmarks = useCallback(() => bookmarksRef.current, []);
 
+  const adoptResolvedBookmarks = useCallback((items: Bookmark[]) => {
+    const next = sortByNewest(normalizeAutoBookmarkNames(items));
+    return setBookmarks(next);
+  }, [setBookmarks]);
+
   const getLivePosition = useCallback(() => {
     const live = viewRef.current?.lastLocation;
     return {
@@ -153,6 +158,7 @@ export const useReaderBookmarks = ({
     bookmarks,
     bookmarksRef,
     getBookmarks,
+    adoptResolvedBookmarks,
     addBookmark,
     deleteBookmark,
     createAutoBookmark,

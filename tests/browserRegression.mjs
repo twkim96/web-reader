@@ -1810,7 +1810,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.7.9';
+    const expectedCache = 'pc-reader-v1.7.10';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1834,7 +1834,7 @@ try {
     await oldCache.put('/stale-cache-proof', new Response('stale'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.7.9',
+      '/sw.js?browser-regression=1.7.10',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1877,10 +1877,10 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.7.9']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.7.10']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.7\.9$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.7\.10$/);
 
   console.log(JSON.stringify({
     shelf: {

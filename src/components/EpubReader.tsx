@@ -45,7 +45,9 @@ interface EpubReaderProps {
   initialBookmarks?: Bookmark[];
   initialRevision?: number;
   remoteProgress?: UserProgress;
+  resolvedRemoteProgress?: UserProgress | null;
   onRegisterProgressFlush?: (flush: (() => Promise<boolean>) | null) => void;
+  onRegisterQuietResumeEligibility?: (check: (() => boolean) | null) => void;
 }
 
 const KEYBOARD_SCROLL_RATIO = 0.25;
@@ -161,7 +163,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   initialBookmarks,
   initialRevision,
   remoteProgress,
+  resolvedRemoteProgress,
   onRegisterProgressFlush,
+  onRegisterQuietResumeEligibility,
 }) => {
   const theme = getThemeClasses(settings);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
@@ -256,6 +260,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   });
 
   useEffect(() => {
+    onRegisterQuietResumeEligibility?.(isQuietResumeEligible);
+    return () => onRegisterQuietResumeEligibility?.(null);
+  }, [isQuietResumeEligible, onRegisterQuietResumeEligibility]);
+
+  useEffect(() => {
     onRegisterProgressFlush?.(flushCurrentProgress);
     return () => onRegisterProgressFlush?.(null);
   }, [flushCurrentProgress, onRegisterProgressFlush]);
@@ -308,6 +317,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const {
     bookmarks,
     getBookmarks,
+    adoptResolvedBookmarks,
     addBookmark,
     deleteBookmark,
     createAutoBookmark,
@@ -329,6 +339,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   } = useRemoteProgressPrompt({
     isLoaded,
     remoteProgress,
+    resolvedRemoteProgress,
     currentCfi,
     currentAnchorCfi,
     totalProgress,
@@ -336,6 +347,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     lastSaveTimeRef,
     goTo,
     getBookmarks,
+    adoptResolvedBookmarks,
     createAutoBookmark,
     prepareRemoteJump,
     isQuietResumeEligible,

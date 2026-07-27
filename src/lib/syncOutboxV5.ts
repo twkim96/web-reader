@@ -1310,6 +1310,7 @@ export const resolveSyncConflictUseRemoteV5 = async (
   ownerKey: OwnerKey,
   conflictId: string,
   now = Date.now(),
+  preserveLocalProgress = false,
 ) => {
   const db = await initDB();
   const tx = db.transaction([
@@ -1335,6 +1336,40 @@ export const resolveSyncConflictUseRemoteV5 = async (
   const existing = await progressStore.get([ownerKey, bookId]) as
     (UserProgress & { ownerKey: OwnerKey }) | undefined;
 
+  const latestLocalPosition = conflict.latestLocalPosition
+    && 'anchorCfi' in conflict.latestLocalPosition
+      ? conflict.latestLocalPosition
+      : null;
+  const localPosition = conflict.event.target.kind === 'progress'
+    && conflict.event.operation === 'progress.set'
+    && conflict.event.payload
+      ? latestLocalPosition ?? conflict.event.payload
+      : null;
+  const shouldPreserveLocalPosition = Boolean(
+    preserveLocalProgress
+    && localPosition
+    && 'position' in conflict.remoteHead
+    && conflict.remoteHead.operation === 'set'
+    && conflict.remoteHead.position
+    && (localPosition!.anchorCfi ?? localPosition!.cfi)
+      !== (conflict.remoteHead.position.anchorCfi ?? conflict.remoteHead.position.cfi),
+  );
+  const recoveryBookmarks: Bookmark[] = shouldPreserveLocalPosition
+    ? [
+      ...(existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'manual'),
+      {
+        id: crypto.randomUUID(),
+        type: 'auto',
+        name: '충돌 전 위치',
+        cfi: localPosition!.cfi,
+        progressPercent: localPosition!.progressPercent,
+        createdAt: now,
+        color: '#64748b',
+      },
+      ...(existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'auto').slice(0, 2),
+    ]
+    : existing?.bookmarks ?? [];
+
   let nextProgress: UserProgress & { ownerKey: OwnerKey };
   if ('position' in conflict.remoteHead) {
     nextProgress = conflict.remoteHead.operation === 'reset'
@@ -1344,8 +1379,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
         cfi: '',
         anchorCfi: '',
         progressPercent: 0,
-        lastRead: now,
-        bookmarks: existing?.bookmarks ?? [],
+        lastRead: conflict.remoteHead.occurredAtClient,
+        bookmarks: recoveryBookmarks,
         syncRevision: conflict.remoteHead.revision,
         acceptedEventId: conflict.remoteHead.acceptedEventId,
       }
@@ -1356,8 +1391,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
         anchorCfi: conflict.remoteHead.position!.anchorCfi
           ?? conflict.remoteHead.position!.cfi,
         progressPercent: conflict.remoteHead.position!.progressPercent,
-        lastRead: now,
-        bookmarks: existing?.bookmarks ?? [],
+        lastRead: conflict.remoteHead.occurredAtClient,
+        bookmarks: recoveryBookmarks,
         syncRevision: conflict.remoteHead.revision,
         acceptedEventId: conflict.remoteHead.acceptedEventId,
       };
@@ -1412,6 +1447,7 @@ export const resolveSyncConflictUseRemoteV5 = async (
     conflictStore.put({ ...conflict, state: 'resolved_remote', resolvedAt: now }),
   ]);
   await tx.done;
+  notifyProgressSyncWork(ownerKey);
   return nextProgress;
 };
 

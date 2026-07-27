@@ -13,11 +13,13 @@ export type SyncConflict = {
   lastRead: number;
   syncRevision?: number;
   acceptedEventId?: string;
+  bookmarks?: Bookmark[];
 };
 
 interface UseRemoteProgressPromptOptions {
   isLoaded: boolean;
   remoteProgress?: UserProgress;
+  resolvedRemoteProgress?: UserProgress | null;
   currentCfi: string;
   currentAnchorCfi: string;
   totalProgress: number;
@@ -25,6 +27,7 @@ interface UseRemoteProgressPromptOptions {
   lastSaveTimeRef: MutableRefObject<number>;
   goTo: (cfi: string) => Promise<void>;
   getBookmarks: () => Bookmark[];
+  adoptResolvedBookmarks: (bookmarks: Bookmark[]) => Bookmark[];
   createAutoBookmark?: (prevCfi: string, prevPct: number) => Bookmark[];
   prepareRemoteJump: () => void;
   isQuietResumeEligible: () => boolean;
@@ -38,6 +41,7 @@ interface UseRemoteProgressPromptOptions {
 export const useRemoteProgressPrompt = ({
   isLoaded,
   remoteProgress,
+  resolvedRemoteProgress,
   currentCfi,
   currentAnchorCfi,
   totalProgress,
@@ -45,6 +49,7 @@ export const useRemoteProgressPrompt = ({
   lastSaveTimeRef,
   goTo,
   getBookmarks,
+  adoptResolvedBookmarks,
   createAutoBookmark,
   prepareRemoteJump,
   isQuietResumeEligible,
@@ -75,13 +80,49 @@ export const useRemoteProgressPrompt = ({
           jumpTail.current = navigation;
           await navigation;
         },
-        complete: () => completeRemoteJump(target, getBookmarks(), options),
+        complete: () => completeRemoteJump(target, target.bookmarks ?? getBookmarks(), options),
       });
     } catch (error) {
       console.warn('[RemoteProgress] jump failed:', error);
       return false;
     }
   }, [completeRemoteJump, getBookmarks, goTo, prepareRemoteJump]);
+
+  const handledResolution = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoaded || !resolvedRemoteProgress?.cfi) return;
+    const resolutionKey = resolvedRemoteProgress.acceptedEventId
+      ?? `${resolvedRemoteProgress.syncRevision ?? 0}:${resolvedRemoteProgress.lastRead}`;
+    if (handledResolution.current === resolutionKey) return;
+    handledResolution.current = resolutionKey;
+
+    const remoteAnchorCfi = resolvedRemoteProgress.anchorCfi || resolvedRemoteProgress.cfi;
+    const target: SyncConflict = {
+      bookId: resolvedRemoteProgress.bookId,
+      cfi: resolvedRemoteProgress.cfi,
+      anchorCfi: remoteAnchorCfi,
+      percent: resolvedRemoteProgress.progressPercent,
+      lastRead: resolvedRemoteProgress.lastRead,
+      syncRevision: resolvedRemoteProgress.syncRevision,
+      acceptedEventId: resolvedRemoteProgress.acceptedEventId,
+      bookmarks: adoptResolvedBookmarks(resolvedRemoteProgress.bookmarks ?? getBookmarks()),
+    };
+    jumpingRemote.current = { cfi: remoteAnchorCfi, lastRead: target.lastRead };
+    void jumpToRemoteProgress(target).then((completed) => {
+      if (
+        jumpingRemote.current?.cfi === remoteAnchorCfi
+        && jumpingRemote.current.lastRead === target.lastRead
+      ) jumpingRemote.current = null;
+      if (!completed) {
+        setSyncConflict(target);
+        return;
+      }
+      setSyncConflict(null);
+      lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: target.lastRead };
+      isInitialSync.current = false;
+    });
+  }, [adoptResolvedBookmarks, getBookmarks, isLoaded, jumpToRemoteProgress, resolvedRemoteProgress]);
 
   useEffect(() => {
     if (!isLoaded || !remoteProgress) return;
@@ -145,6 +186,7 @@ export const useRemoteProgressPrompt = ({
         }
         if (!completed) {
           if (!isSameJump) return;
+          if (wasInitialSync) return;
           lastProcessedRemote.current = { cfi: remoteAnchorCfi, lastRead: remoteTime };
           isInitialSync.current = false;
           setSyncConflict(target);

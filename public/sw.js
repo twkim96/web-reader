@@ -1,7 +1,7 @@
 importScripts('/sw-policy.js');
 
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.7.9`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.7.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

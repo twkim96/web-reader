@@ -449,8 +449,8 @@ test('bookmark targets have independent chains and same-id edits are ordered', a
   assert.deepEqual(bEvents.map(({ sequence }) => sequence), [1]);
 });
 
-test('using remote resolves and supersedes a conflicting progress chain', async () => {
-  await enqueue(ownerA, { eventId: 'event-1' });
+test('using remote resolves, preserves the local position, and supersedes a conflicting progress chain', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
   await enqueue(ownerA, {
     eventId: 'event-2',
     sessionId: 'session-2',
@@ -470,8 +470,23 @@ test('using remote resolves and supersedes a conflicting progress chain', async 
   };
   const { expectedClaim } = await claimNext();
   await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
-  const local = await resolveSyncConflictUseRemoteV5(ownerA, 'event-1', 4);
+  await enqueue(ownerA, {
+    eventId: 'deferred-latest',
+    sessionId: 'session-3',
+    position: position(35),
+    occurredAtClient: 13,
+  });
+  const local = await resolveSyncConflictUseRemoteV5(ownerA, 'event-1', 4, true);
   assert.equal(local.progressPercent, 70);
+  assert.equal(local.lastRead, remote.occurredAtClient);
+  assert.deepEqual(
+    local.bookmarks.filter(({ type }) => type === 'auto').map(({ cfi, progressPercent, name }) => ({
+      cfi,
+      progressPercent,
+      name,
+    })),
+    [{ cfi: position(35).cfi, progressPercent: 35, name: '충돌 전 위치' }],
+  );
   assert.deepEqual(
     (await getOutboxEventsV5(ownerA)).map(({ status }) => status),
     ['superseded', 'superseded'],
