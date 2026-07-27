@@ -88,14 +88,23 @@ export const filterAndSortPreparedBooks = (
   books: PreparedShelfBook[],
   searchKeyword: string,
   sortMode: ShelfSortMode,
+  priorityBookIds: readonly string[] = [],
 ) => {
   const normalizedKeyword = normalizeBookSearchText(searchKeyword);
+  const priorityRanks = new Map(priorityBookIds.map((bookId, index) => [bookId, index]));
 
   return books
     .filter(({ normalizedTitle }) => (
       !normalizedKeyword || normalizedTitle.includes(normalizedKeyword)
     ))
     .sort((a, b) => {
+      const aPriority = priorityRanks.get(a.book.id);
+      const bPriority = priorityRanks.get(b.book.id);
+      if (aPriority !== undefined || bPriority !== undefined) {
+        if (aPriority === undefined) return 1;
+        if (bPriority === undefined) return -1;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+      }
       if (a.isReading !== b.isReading) return a.isReading ? -1 : 1;
       if (sortMode === 'alpha') {
         return titleCollator.compare(a.displayTitle, b.displayTitle)
@@ -113,9 +122,11 @@ export const filterAndSortBooks = (
   books: Book[],
   searchKeyword: string,
   sortMode: ShelfSortMode,
-  progress: Record<string, UserProgress>
+  progress: Record<string, UserProgress>,
+  priorityBookIds: readonly string[] = [],
 ) => filterAndSortPreparedBooks(
   applyShelfProgress(prepareShelfBooks(books), progress),
   searchKeyword,
   sortMode,
+  priorityBookIds,
 );

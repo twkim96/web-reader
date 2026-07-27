@@ -23,9 +23,10 @@ export const useFilteredBooks = (
   books: PreparedShelfBook[],
   searchKeyword: string,
   sortMode: ShelfSortMode,
+  priorityBookIds: string[] = [],
 ) => (
   useMemo(
-    () => filterAndSortPreparedBooks(books, searchKeyword, sortMode),
-    [books, searchKeyword, sortMode],
+    () => filterAndSortPreparedBooks(books, searchKeyword, sortMode, priorityBookIds),
+    [books, priorityBookIds, searchKeyword, sortMode],
   )
 );

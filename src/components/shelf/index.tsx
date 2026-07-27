@@ -37,7 +37,8 @@ interface ShelfProps {
   onToggleCloud: () => void; 
   onDeleteProgress?: (bookId: string) => void; 
   onDeleteBook?: (book: Book) => Promise<void>;
-  onLocalBookImported?: () => void;
+  recentlyImportedBookIds?: string[];
+  onBookImported?: (book: Book, savedLocally: boolean) => void;
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
   themeStyle?: React.CSSProperties;
@@ -60,7 +61,8 @@ export const Shelf: React.FC<ShelfProps> = ({
   onDeleteBook,
   settings,
   onUpdateSettings,
-  onLocalBookImported,
+  recentlyImportedBookIds = [],
+  onBookImported,
   isCloudTokenValid,
   onCloudAuthExpired,
   themeStyle
@@ -87,7 +89,12 @@ export const Shelf: React.FC<ShelfProps> = ({
   const { viewMode, sortMode, toggleViewMode, toggleSortMode } = useShelfPreferences();
   const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
   const preparedBooks = usePreparedShelfBooks(books, progress);
-  const filteredBooks = useFilteredBooks(preparedBooks, searchKeyword, sortMode);
+  const filteredBooks = useFilteredBooks(
+    preparedBooks,
+    searchKeyword,
+    sortMode,
+    recentlyImportedBookIds,
+  );
   const paginationInputsRef = useRef({
     books,
     isOfflineMode,
@@ -269,7 +276,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         driveCacheKey={driveCacheKey}
         isOfflineMode={isOfflineMode}
         onRefresh={onRefresh}
-        onLocalBookImported={onLocalBookImported}
+        onBookImported={onBookImported}
         setSyncStatus={setSyncStatus}
         isCloudTokenValid={isCloudTokenValid}
         onCloudAuthExpired={handleCloudAuthExpired}

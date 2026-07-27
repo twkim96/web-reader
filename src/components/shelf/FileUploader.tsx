@@ -29,7 +29,7 @@ interface FileUploaderProps {
   driveCacheKey: string | null;
   isOfflineMode: boolean;
   onRefresh: () => void;
-  onLocalBookImported?: () => void;
+  onBookImported?: (book: Book, savedLocally: boolean) => void;
   setSyncStatus: (status: CloudSyncStatus) => void;
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
@@ -51,7 +51,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   driveCacheKey,
   isOfflineMode,
   onRefresh,
-  onLocalBookImported,
+  onBookImported,
   setSyncStatus,
   isCloudTokenValid,
   onCloudAuthExpired
@@ -246,7 +246,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       }
     }
 
-    if (savedLocally) onLocalBookImported?.();
+    if (savedLocally || driveBook) onBookImported?.(book, savedLocally);
     return { refresh: Boolean(driveBook), stop: stopBatch };
   };
 

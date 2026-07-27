@@ -99,3 +99,25 @@ test('preserves source order for equal recent-sort groups', () => {
     ['first', 'second', 'third'],
   );
 });
+
+test('keeps books imported during this page lifetime above either saved sort mode', () => {
+  const books = [
+    book('reading', '다'),
+    book('first-import', '라'),
+    book('unread', '가'),
+    book('second-import', '나'),
+  ];
+  const prepared = applyShelfProgress(prepareShelfBooks(books), {
+    reading: { progressPercent: 50, lastRead: timestamp('2026-07-27T01:00:00Z') },
+  });
+  const imported = ['first-import', 'second-import'];
+
+  assert.deepEqual(
+    filterAndSortPreparedBooks(prepared, '', 'recent', imported).map(({ id }) => id),
+    ['first-import', 'second-import', 'reading', 'unread'],
+  );
+  assert.deepEqual(
+    filterAndSortPreparedBooks(prepared, '', 'alpha', imported).map(({ id }) => id),
+    ['first-import', 'second-import', 'reading', 'unread'],
+  );
+});

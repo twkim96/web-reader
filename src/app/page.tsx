@@ -87,6 +87,7 @@ export default function Page() {
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
+  const [recentlyImportedBookIds, setRecentlyImportedBookIds] = useState<string[]>([]);
   const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const readerQuietResumeEligibilityRef = useRef<(() => boolean) | null>(null);
   const canQuietlyResolveProgressConflict = useCallback(
@@ -220,6 +221,12 @@ export default function Page() {
     () => mergeLatestProgressForDisplay(progress, remoteProgress),
     [progress, remoteProgress],
   );
+  const handleBookImported = useCallback((book: Book, savedLocally: boolean) => {
+    setRecentlyImportedBookIds((current) => (
+      current.includes(book.id) ? current : [...current, book.id]
+    ));
+    if (savedLocally) void restoreLocalData(true);
+  }, [restoreLocalData]);
 
   const isAuthenticatedLibraryReady = useAuthBootstrap({
     isGuestRef,
@@ -564,7 +571,8 @@ export default function Page() {
           settings={settings}
           onUpdateSettings={updateSettings}
           themeStyle={dynamicStyles}
-          onLocalBookImported={() => restoreLocalData(true)}
+          recentlyImportedBookIds={recentlyImportedBookIds}
+          onBookImported={handleBookImported}
           isCloudTokenValid={hasValidToken}
           onCloudAuthExpired={handleCloudAuthExpired}
         />
