@@ -1819,6 +1819,7 @@ try {
       '/icon-192.png',
       '/icon-512.png',
       '/logo.png',
+      '/fonts/SUIT-Variable.woff2',
       '/fonts/RIDIBatang.woff2',
       '/fonts/RIDIBatang.otf',
     ];

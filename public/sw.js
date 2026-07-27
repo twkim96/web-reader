@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.7.10 follow-up: refresh the app shell for session-only imported-book priority.
+// 1.7.10 follow-up: refresh the app shell for imported-book priority and the bundled SUIT UI font.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.7.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
@@ -9,6 +9,7 @@ const OPTIONAL_PRECACHE_URLS = [
   '/icon-192.png',
   '/icon-512.png',
   '/logo.png',
+  '/fonts/SUIT-Variable.woff2',
   '/fonts/RIDIBatang.woff2',
   '/fonts/RIDIBatang.otf',
 ];

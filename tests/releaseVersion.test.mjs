@@ -38,3 +38,19 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
 });
+
+test('bundles and precaches the SUIT UI font with its license', async () => {
+  const [globalStyles, serviceWorker, font, license] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../public/sw.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/fonts/SUIT-Variable.woff2', import.meta.url)),
+    readFile(new URL('../public/fonts/SUIT-OFL.txt', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(globalStyles, /font-family: 'SUIT';/);
+  assert.match(globalStyles, /font-weight: 100 900;/);
+  assert.match(globalStyles, /--font-sans: 'SUIT', Arial, Helvetica, sans-serif;/);
+  assert.match(serviceWorker, /'\/fonts\/SUIT-Variable\.woff2'/);
+  assert.ok(font.byteLength > 100_000);
+  assert.match(license, /SIL OPEN FONT LICENSE Version 1\.1/);
+});
