@@ -226,6 +226,17 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const fixedLayoutZoomFrameRef = useRef<number | null>(null);
   const suppressNextInteractionClickRef = useRef(false);
 
+  useLayoutEffect(() => {
+    if (effectiveNavMode === 'scroll') return;
+
+    const roots = [document.documentElement, document.body];
+    roots.forEach((root) => root.classList.add('reader-paged-navigation'));
+
+    return () => {
+      roots.forEach((root) => root.classList.remove('reader-paged-navigation'));
+    };
+  }, [effectiveNavMode]);
+
   const handleReaderBack = useCallback(() => {
     suppressLastReaderSessionOnExitRef.current = true;
     onBack();

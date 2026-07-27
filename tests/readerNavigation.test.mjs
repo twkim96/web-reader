@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   clampTapZonePercent,
@@ -93,4 +94,19 @@ test('keeps arrow key navigation mode-specific', () => {
   assert.equal(getReaderKeyboardAction('left-right', 'ArrowDown'), null);
   assert.equal(getReaderKeyboardAction('left-right', 'ArrowRight'), 'next');
   assert.equal(getReaderKeyboardAction('all-dir', 'ArrowLeft'), 'prev');
+});
+
+test('scopes pull-to-refresh suppression to paged reader modes', async () => {
+  const [readerSource, globalStyles] = await Promise.all([
+    readFile(new URL('../src/components/EpubReader.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(readerSource, /if \(effectiveNavMode === 'scroll'\) return;/);
+  assert.match(readerSource, /classList\.add\('reader-paged-navigation'\)/);
+  assert.match(readerSource, /classList\.remove\('reader-paged-navigation'\)/);
+  assert.match(
+    globalStyles,
+    /html\.reader-paged-navigation,\s*body\.reader-paged-navigation\s*\{\s*overscroll-behavior-y: none;/,
+  );
 });
