@@ -23,7 +23,7 @@ export const ReaderStatusBar: React.FC<ReaderStatusBarProps> = ({
   onOpenJump,
 }) => (
   <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-[45] flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+2px)] font-sans ${theme.text}`}>
-    <div className="flex max-w-[calc(100vw-2rem)] items-center gap-2 text-[12px] font-black tracking-widest">
+    <div className="flex max-w-[calc(100vw-2rem)] items-center gap-2 text-[11px] font-black tracking-widest">
       <span className="max-w-[42vw] truncate opacity-70">
         {currentChapter || 'Reading'}
       </span>

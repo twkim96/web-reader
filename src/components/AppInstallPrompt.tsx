@@ -24,7 +24,7 @@ export const AppInstallPrompt: React.FC<Props> = ({ theme, isIOS, onClose, onIns
       </p>
 
       {isIOS ? (
-        <div className="bg-black/5 dark:bg-white/5 rounded-xl p-5 text-left text-[12px] mb-6 space-y-3 font-medium">
+        <div className="bg-black/5 dark:bg-white/5 rounded-xl p-5 text-left text-[11px] mb-6 space-y-3 font-medium">
           <p className="font-bold opacity-100 mb-2">iOS 설치 방법:</p>
           <div className="flex items-center gap-3 opacity-70">
             <Share size={16} className="shrink-0" /> 하단의 <b>공유</b> 버튼을 누르고
@@ -43,7 +43,7 @@ export const AppInstallPrompt: React.FC<Props> = ({ theme, isIOS, onClose, onIns
       )}
       
       <div className="flex items-center justify-between mt-3 pt-4 border-t border-black/5 dark:border-white/5">
-        <label className="flex items-center gap-2 text-[11px] opacity-60 cursor-pointer hover:opacity-100 transition-opacity font-bold">
+        <label className="flex items-center gap-2 text-[10px] opacity-60 cursor-pointer hover:opacity-100 transition-opacity font-bold">
           <input 
             type="checkbox" 
             checked={doNotShowAgain} 
@@ -52,7 +52,7 @@ export const AppInstallPrompt: React.FC<Props> = ({ theme, isIOS, onClose, onIns
           />
           다시 보지 않기
         </label>
-        <button onClick={() => onClose(doNotShowAgain)} className="text-[11px] font-bold opacity-60 hover:opacity-100 uppercase tracking-widest transition-opacity">
+        <button onClick={() => onClose(doNotShowAgain)} className="text-[10px] font-bold opacity-60 hover:opacity-100 uppercase tracking-widest transition-opacity">
           닫기
         </button>
       </div>

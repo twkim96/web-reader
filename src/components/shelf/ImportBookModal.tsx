@@ -159,7 +159,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
               id="book-file-size-limits"
               className={`w-full rounded-2xl border ${theme.border} bg-white/5 px-4 py-3 text-left animate-in fade-in zoom-in-95 duration-150`}
             >
-              <p className="mb-2 text-[12px] font-black uppercase tracking-[0.12em] opacity-60">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.12em] opacity-60">
                 파일별 최대 용량
               </p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-bold">
@@ -172,7 +172,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
                 <span>ZIP · CBZ · 7Z</span>
                 <span className="text-right">{BOOK_FILE_LIMITS_MB.zip}MB</span>
               </div>
-              <p className="mt-2 text-[11px] font-bold leading-relaxed opacity-55">
+              <p className="mt-2 text-[10px] font-bold leading-relaxed opacity-55">
                 일반 도서는 한 번에 최대 {maxFiles}개·총 500MB, 압축 도서는 한 번에 1개만 추가할 수 있습니다.
               </p>
             </div>
@@ -203,14 +203,14 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
           </div>
           <div className="space-y-1">
             <p className="text-sm font-black">파일 선택 또는 여기로 드래그</p>
-            <p className="text-[12px] font-bold opacity-60">
+            <p className="text-[11px] font-bold opacity-60">
               .txt, .epub, .pdf, .zip, .cbz, .7z / 일반 최대 {maxFiles}개 · 압축 1개
             </p>
           </div>
         </button>
 
         <div className={`border-t ${theme.border} pt-4`}>
-          <div className="mb-3 flex items-center justify-between text-[12px] font-black uppercase tracking-[0.12em] opacity-60">
+          <div className="mb-3 flex items-center justify-between text-[11px] font-black uppercase tracking-[0.12em] opacity-60">
             <span>선택한 도서</span>
             <span>{selectedFiles.length}/{maxFiles}</span>
           </div>
@@ -224,7 +224,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
                   <FileText size={16} className="shrink-0 text-accent-400" />
                   <div className="min-w-0 flex-1 text-left">
                     <p className="truncate text-xs font-black">{file.name}</p>
-                    <p className="text-[11px] font-bold opacity-50">{formatFileSize(file.size)}</p>
+                    <p className="text-[10px] font-bold opacity-50">{formatFileSize(file.size)}</p>
                   </div>
                   <button
                     type="button"

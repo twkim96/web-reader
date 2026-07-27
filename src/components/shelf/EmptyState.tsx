@@ -59,7 +59,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                   {!isGuest && isOfflineMode && (
                     <button 
                       onClick={onToggleCloud} 
-                      className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[12px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
+                      className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
                     >
                       <Library size={16} />
                       <span>Cloud Library 연결하기</span>
@@ -68,7 +68,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
                   <button 
                     onClick={onShowImportConfirm} 
-                    className={`w-full max-w-[240px] py-4 rounded-full font-black text-[12px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${
+                    className={`w-full max-w-[240px] py-4 rounded-full font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${
                       !isGuest && isOfflineMode 
                         ? `bg-white/5 border-2 ${theme.border} hover:bg-white/10 opacity-70` 
                         : "bg-accent-600 text-white hover:bg-accent-500"
@@ -81,7 +81,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                   {isGuest && (
                     <button 
                       onClick={onLogin} 
-                      className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[12px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
+                      className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
                     >
                       <KeyRound size={16} />
                       <span>Google 계정 연동하기</span>
@@ -98,7 +98,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                 <div className="flex flex-col gap-3 items-center w-full mt-2">
                   <button 
                     onClick={onShowImportConfirm} 
-                    className="w-full max-w-[240px] py-4 bg-slate-700 text-white rounded-full font-black text-[12px] uppercase tracking-widest hover:bg-slate-600 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                    className="w-full max-w-[240px] py-4 bg-slate-700 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-slate-600 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
                   >
                     <FilePlus size={16} />
                     <span>도서 직접 추가하기</span>
@@ -107,7 +107,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                     href="https://drive.google.com/" 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className={`w-full max-w-[240px] py-4 border-2 border-accent-500/30 bg-accent-500/5 ${theme.text} rounded-full font-black text-[12px] uppercase tracking-widest hover:bg-accent-500/10 transition-all flex items-center justify-center gap-3 active:scale-95 shadow-sm`}
+                    className={`w-full max-w-[240px] py-4 border-2 border-accent-500/30 bg-accent-500/5 ${theme.text} rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500/10 transition-all flex items-center justify-center gap-3 active:scale-95 shadow-sm`}
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M7.74023 6L4.64023 11.38L8.60023 18.25L11.7002 12.87L7.74023 6Z" fill="#0066DA"/>
@@ -128,7 +128,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                   </a>
                   <button 
                     onClick={onRefresh} 
-                    className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[12px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95"
+                    className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95"
                   >
                     Refresh Library
                   </button>

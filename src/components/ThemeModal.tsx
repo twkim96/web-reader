@@ -109,7 +109,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       `}
     >
       <div className="font-bold capitalize mb-1 truncate">{label}</div>
-      <div className="text-[11px] opacity-60">Comfortable reading</div>
+      <div className="text-[10px] opacity-60">Comfortable reading</div>
       {settings.theme === key && (
         <div className="absolute top-3 right-3 text-accent-500">
           <Check size={16} strokeWidth={3} />
@@ -131,7 +131,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
         <div className="space-y-4">
           <label className="block">
-            <span className="text-[11px] font-bold opacity-40 uppercase tracking-widest">Theme Title</span>
+            <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Theme Title</span>
             <input
               value={form.title}
               onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
@@ -146,7 +146,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
               ['글자색', 'textColor'],
             ].map(([label, key]) => (
               <label key={key} className="block min-w-0">
-                <span className="text-[11px] font-bold opacity-40 uppercase tracking-widest">{label}</span>
+                <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{label}</span>
                 <div className="mt-1.5 flex items-center gap-2">
                   <input
                     type="color"
@@ -167,7 +167,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           </div>
 
           <div>
-            <p className="text-[11px] font-bold opacity-40 uppercase tracking-widest mb-1.5">Texture</p>
+            <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-1.5">Texture</p>
             <div className="grid grid-cols-3 gap-2">
               {TEXTURE_OPTIONS.map(([value, label]) => (
                 <button
@@ -272,7 +272,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
               }}
             >
               <div className="font-bold mb-1 truncate">{customTheme.title}</div>
-              <div className="text-[11px] opacity-60">Custom theme</div>
+              <div className="text-[10px] opacity-60">Custom theme</div>
               {settings.theme === customTheme.id && (
                 <div className="absolute top-3 right-3 text-accent-500">
                   <Check size={16} strokeWidth={3} />
@@ -284,7 +284,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
         {/* 포인트 컬러 설정 섹션 */}
         <div>
-          <p className="text-[11px] font-bold opacity-40 uppercase tracking-widest mb-3">Point Color</p>
+          <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-3">Point Color</p>
           <div className="flex items-center gap-3.5">
             {ACCENT_COLORS.map(color => (
               <button

@@ -88,7 +88,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
                   <FileText className="text-accent-400 shrink-0" size={20} />
                   <div className="min-w-0">
                     <h3 className="font-bold text-sm truncate">{getBookTitleFromFileName(book.name)}</h3>
-                    <p className="text-[11px] opacity-60 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] opacity-60 font-bold uppercase tracking-wider">
                       {getBookFormatLabel(book)} · {formatSize(book.size)}
                     </p>
                   </div>

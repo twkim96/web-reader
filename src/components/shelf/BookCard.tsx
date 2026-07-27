@@ -91,12 +91,12 @@ export const BookCard: React.FC<BookCardProps> = ({
               <CheckCircle2 size={15} className="text-green-400 shrink-0" strokeWidth={3} />
             )}
           </div>
-          <div className="mt-1 truncate text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:text-[12px]">
+          <div className="mt-1 truncate text-[10px] font-bold uppercase tracking-widest text-slate-500 sm:text-[11px]">
             {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
           </div>
         </div>
 
-        <div className="hidden min-w-0 text-[12px] font-bold uppercase tracking-widest text-slate-500 sm:block">
+        <div className="hidden min-w-0 text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block">
           {getBookFormatLabel(book)}
         </div>
 
@@ -168,7 +168,7 @@ export const BookCard: React.FC<BookCardProps> = ({
 
         <div className="space-y-3">
           <div className="flex justify-between items-end">
-            <span className="text-[11px] font-black uppercase text-slate-500 tracking-tighter">
+            <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
               {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
             </span>
             <div className="flex items-center gap-1.5">
