@@ -178,7 +178,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
         >
           <div className="flex items-center justify-center relative">
             {getSortIcon(iconSize)}
-            <span className="absolute -bottom-1 -right-1 text-[8px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
+            <span className="absolute -bottom-1 -right-1 text-[9px] font-bold bg-accent-500 text-white rounded-sm px-0.5 pointer-events-none">
               {sortMode === 'alpha' ? 'A' : 'R'}
             </span>
           </div>
@@ -268,7 +268,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                 {syncStatus && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500/10 border border-accent-500/20 rounded-xl text-accent-500 animate-in fade-in zoom-in duration-300">
                     <CloudLightning size={14} className="animate-bounce" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.1em]">
+                    <span className="text-[11px] font-black uppercase tracking-[0.1em]">
                       {syncStatus.retryCount > 0 ? `재시도 ${syncStatus.retryCount}` : `${syncStatus.progressPercent}%`}
                     </span>
                     <button
@@ -283,7 +283,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] opacity-60 font-bold uppercase tracking-widest">
+              <div className="flex items-center gap-1.5 text-[11px] opacity-60 font-bold uppercase tracking-widest">
                 {isGuest && <UserIcon size={10} />}
                 <span>{userEmail}</span>
               </div>

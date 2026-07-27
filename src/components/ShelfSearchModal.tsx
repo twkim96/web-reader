@@ -94,7 +94,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
            <div className={`border-t ${theme.border}`}>
              {filteredBooks.length > 0 ? (
                <div className="py-2">
-                 <div className="px-6 py-2 text-[10px] font-black uppercase tracking-widest text-accent-500">Books</div>
+                 <div className="px-6 py-2 text-[11px] font-black uppercase tracking-widest text-accent-500">Books</div>
                  {filteredBooks.map(book => {
                    const bookProgress = progress[book.id];
                    const isDownloaded = isOfflineMode || offlineIds.has(book.id);
@@ -125,7 +125,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                          </span>
                          {(lastDate || percent !== undefined) && (
                            <div className="flex items-center gap-3 shrink-0">
-                             {lastDate && <span className="opacity-40 text-[10px] font-bold uppercase tracking-tight">{lastDate}</span>}
+                             {lastDate && <span className="opacity-40 text-[11px] font-bold uppercase tracking-tight">{lastDate}</span>}
                              {percent !== undefined && percent > 0 && (
                                <span className="text-accent-500 text-xs font-black bg-accent-500/10 px-2 py-0.5 rounded-md">
                                  {percent.toFixed(1)}%
@@ -148,7 +148,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
              
              {filteredBooks.length > 0 && (
                 <div className={`p-4 border-t ${theme.border} ${theme.secondary} text-center flex justify-center`}>
-                  <button type="submit" onClick={handleSubmit} className="text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 bg-black/5 px-4 py-2 rounded-full transition-all flex items-center gap-2">
+                  <button type="submit" onClick={handleSubmit} className="text-[11px] font-black uppercase tracking-widest opacity-60 hover:opacity-100 bg-black/5 px-4 py-2 rounded-full transition-all flex items-center gap-2">
                     <Search size={14} /> 전체 검색 결과 화면 보기
                   </button>
                 </div>

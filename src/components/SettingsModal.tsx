@@ -23,8 +23,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings, onUpdateSettings, onClose, theme, isFixedLayout = false,
 }) => {
   const [showAdvancedSizing, setShowAdvancedSizing] = useState(false);
-  const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
-  const optionBtnStyle = `h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
+  const labelStyle = "text-[11px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
+  const optionBtnStyle = `h-9 px-4 rounded-xl text-[10px] font-bold uppercase transition-all active:scale-95`;
   const stepperBtnStyle = `w-7 h-7 flex items-center justify-center ${theme.secondary} rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
   const stepperGroupStyle = "flex items-center gap-1.5 mr-1.5";
   const valueStyle = "font-black text-lg tabular-nums leading-none w-10 text-left";
@@ -242,7 +242,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="w-full h-px bg-black/10 dark:bg-white/10" />
 
           <label className="flex items-center justify-between gap-4 rounded-xl py-1 text-left">
-            <span className="text-[11px] font-bold leading-snug">
+            <span className="text-[12px] font-bold leading-snug">
               마지막으로 읽던 책 자동 열기
             </span>
             <input

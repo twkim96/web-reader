@@ -28,7 +28,7 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
     <div className="space-y-4 text-center">
       <div>
         {targetChapter && (
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] opacity-55">
+          <p className="text-[11px] font-black uppercase tracking-[0.16em] opacity-55">
             {targetChapter}
           </p>
         )}

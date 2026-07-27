@@ -90,15 +90,15 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
              {results.length > 0 ? (
                <div className="py-2">
                  <div className="px-6 py-2 flex items-center justify-between">
-                   <div className="text-[10px] font-black uppercase tracking-widest text-accent-500">Search Results</div>
-                   <div className="text-[10px] font-black uppercase tracking-widest opacity-40">
+                   <div className="text-[11px] font-black uppercase tracking-widest text-accent-500">Search Results</div>
+                   <div className="text-[11px] font-black uppercase tracking-widest opacity-40">
                      {results.reduce((acc, r) => acc + r.subitems.length, 0)} found
                    </div>
                  </div>
                  {results.map((section, si) => (
                    <div key={si}>
                      {section.label && (
-                       <div className="px-6 py-2 bg-black/5 dark:bg-white/5 text-[10px] font-bold opacity-40 uppercase tracking-tighter sticky top-0 z-10 backdrop-blur-md border-y border-black/5 dark:border-white/5">
+                       <div className="px-6 py-2 bg-black/5 dark:bg-white/5 text-[11px] font-bold opacity-40 uppercase tracking-tighter sticky top-0 z-10 backdrop-blur-md border-y border-black/5 dark:border-white/5">
                          {section.label}
                        </div>
                      )}
@@ -110,8 +110,8 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
                        >
                          <div className="flex items-center justify-between">
                            <div className="flex items-center gap-2">
-                             <span className="text-[9px] font-bold uppercase tracking-widest opacity-20 group-hover:opacity-40 transition-opacity">MATCH {i + 1}</span>
-                             <span className="text-[9px] font-bold text-accent-500/40 group-hover:text-accent-500/60 transition-colors">{(section.progress * 100).toFixed(1)}%</span>
+                             <span className="text-[10px] font-bold uppercase tracking-widest opacity-20 group-hover:opacity-40 transition-opacity">MATCH {i + 1}</span>
+                             <span className="text-[10px] font-bold text-accent-500/40 group-hover:text-accent-500/60 transition-colors">{(section.progress * 100).toFixed(1)}%</span>
                            </div>
                            <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-accent-500" />
                          </div>

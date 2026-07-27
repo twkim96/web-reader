@@ -134,7 +134,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           aria-hidden="true"
           className="pointer-events-none invisible fixed left-0 top-0 -z-10 w-max rounded-2xl border border-transparent px-[1.125rem] py-[0.65rem] sm:px-5"
         >
-          <span className="whitespace-nowrap text-[15px] font-bold leading-snug">
+          <span className="whitespace-nowrap text-[16px] font-bold leading-snug">
             {title}
           </span>
         </div>
@@ -143,7 +143,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             className={`pointer-events-auto rounded-2xl border ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
             style={surfaceStyle}
           >
-            <h2 className={`text-center text-[15px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
+            <h2 className={`text-center text-[16px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
               {title}
             </h2>
           </div>
@@ -161,7 +161,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               style={surfaceStyle}
             >
               {sliderPreviewChapter && (
-                <div className="overflow-hidden text-[13px] font-bold leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                <div className="overflow-hidden text-[14px] font-bold leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                   {sliderPreviewChapter}
                 </div>
               )}
@@ -183,7 +183,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               className="pointer-events-none absolute top-1/2 h-7 w-px -translate-y-1/2 rounded-full bg-current/45"
               style={{ left: `${safeSliderProgress}%` }}
             />
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-[1.125rem] text-[15px] font-bold">
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-[1.125rem] text-[16px] font-bold">
               <span>목차 · {progressLabel}</span>
             </div>
             <button
@@ -220,7 +220,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenSearch}
-              className={`flex h-[3.15rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[15px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              className={`flex h-[3.15rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[16px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
               style={surfaceStyle}
             >
               <span>책 검색</span>
@@ -232,7 +232,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenSettings}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[14px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
               style={surfaceStyle}
             >
               <Settings size={19} />
@@ -241,7 +241,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenTheme}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[14px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
               style={surfaceStyle}
               aria-label="테마"
               title="테마"
@@ -252,7 +252,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[13px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-2 text-[14px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
               style={surfaceStyle}
               aria-label="북마크"
               title="북마크"
@@ -260,7 +260,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               <BookmarkIcon size={19} />
               <span>북마크</span>
               {bookmarkCount > 0 && (
-                <span className="text-[11px] font-black">
+                <span className="text-[12px] font-black">
                   {bookmarkCount}
                 </span>
               )}

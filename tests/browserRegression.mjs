@@ -1819,7 +1819,7 @@ try {
       '/icon-192.png',
       '/icon-512.png',
       '/logo.png',
-      '/fonts/SUIT-Variable.woff2',
+      '/fonts/PretendardVariable.woff2',
       '/fonts/RIDIBatang.woff2',
       '/fonts/RIDIBatang.otf',
     ];
@@ -1833,6 +1833,8 @@ try {
     );
     const oldCache = await caches.open(staleCache);
     await oldCache.put('/stale-cache-proof', new Response('stale'));
+    const existingReleaseCache = await caches.open(expectedCache);
+    await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
       '/sw.js?browser-regression=1.7.10',
@@ -1872,6 +1874,7 @@ try {
     const result = {
       cacheNames: cacheNames.filter((name) => name.startsWith(cachePrefix)),
       oldCacheDeleted: !cacheNames.includes(staleCache),
+      legacyFontDeleted: !await releaseCache.match('/fonts/SUIT-Variable.woff2'),
       preCacheHits,
       scriptUrl: registration.active?.scriptURL ?? worker?.scriptURL ?? '',
     };
@@ -1880,6 +1883,7 @@ try {
   })()`);
   assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.7.10']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
+  assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
   assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.7\.10$/);
 

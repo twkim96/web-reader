@@ -16,9 +16,9 @@
 }
 
 @font-face {
-  font-family: 'SUIT';
-  src: url('/fonts/SUIT-Variable.woff2') format('woff2');
-  font-weight: 100 900;
+  font-family: 'Pretendard Variable';
+  src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+  font-weight: 45 920;
   font-style: normal;
   font-display: swap;
 }
@@ -26,8 +26,22 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: 'SUIT', Arial, Helvetica, sans-serif;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.1875rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5625rem;
+  --text-2xl--line-height: 2rem;
+  --text-4xl: 2.3125rem;
+  --text-4xl--line-height: 2.5rem;
   
   /* Dynamic Accent Colors */
   --color-accent-400: var(--accent-400, var(--color-sky-400));
@@ -45,7 +59,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: 'SUIT', Arial, Helvetica, sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
 }
 
 .viewer-theme-texture {

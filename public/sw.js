@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.7.10 follow-up: refresh the app shell for imported-book priority and the bundled SUIT UI font.
+// 1.7.10 follow-up: refresh the app shell for imported-book priority and the bundled Pretendard UI font.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.7.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
@@ -9,10 +9,11 @@ const OPTIONAL_PRECACHE_URLS = [
   '/icon-192.png',
   '/icon-512.png',
   '/logo.png',
-  '/fonts/SUIT-Variable.woff2',
+  '/fonts/PretendardVariable.woff2',
   '/fonts/RIDIBatang.woff2',
   '/fonts/RIDIBatang.otf',
 ];
+const OBSOLETE_PRECACHE_URLS = ['/fonts/SUIT-Variable.woff2'];
 const policy = self.PCReaderSWPolicy;
 
 const putInCache = async (request, response) => {
@@ -45,6 +46,7 @@ self.addEventListener('install', (event) => {
     const cache = await caches.open(CACHE_NAME);
     await cache.addAll(REQUIRED_PRECACHE_URLS);
     await Promise.allSettled(OPTIONAL_PRECACHE_URLS.map((url) => cache.add(url)));
+    await Promise.all(OBSOLETE_PRECACHE_URLS.map((url) => cache.delete(url)));
   })());
 });
 

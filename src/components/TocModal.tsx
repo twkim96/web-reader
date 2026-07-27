@@ -36,7 +36,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
             </div>
             <div>
               <h3 className="font-bold tracking-tight">목차</h3>
-              <p className="text-[10px] opacity-40 font-bold uppercase tracking-widest mt-0.5">Table of Contents</p>
+              <p className="text-[11px] opacity-40 font-bold uppercase tracking-widest mt-0.5">Table of Contents</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors opacity-40 hover:opacity-100">
@@ -61,7 +61,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
                   }`}
               >
                 <div className="flex items-center gap-4 min-w-0 flex-1">
-                  <span className={`text-[10px] font-black w-5 text-accent-500 ${currentChapter === item.label ? 'opacity-100' : 'opacity-40'} group-hover:opacity-100 transition-opacity`}>
+                  <span className={`text-[11px] font-black w-5 text-accent-500 ${currentChapter === item.label ? 'opacity-100' : 'opacity-40'} group-hover:opacity-100 transition-opacity`}>
                     {(idx + 1).toString().padStart(2, '0')}
                   </span>
                   <span className={`text-sm font-bold truncate ${currentChapter === item.label ? 'text-accent-500' : 'opacity-80'}`}>
@@ -69,7 +69,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
                   </span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <span className={`text-[10px] font-bold text-accent-500 ${currentChapter === item.label ? 'opacity-100' : 'opacity-30'} group-hover:opacity-100 transition-opacity`}>
+                  <span className={`text-[11px] font-bold text-accent-500 ${currentChapter === item.label ? 'opacity-100' : 'opacity-30'} group-hover:opacity-100 transition-opacity`}>
                     {(item.progress || 0).toFixed(1)}%
                   </span>
                   {currentChapter === item.label && (
