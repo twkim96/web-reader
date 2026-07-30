@@ -6,8 +6,10 @@ type RendererProbe = {
   inlineHandlerRan: boolean;
   firstLoadMatched: boolean;
   loadedIndexes: number[];
+  relocateReasons?: Array<string | null>;
   sandbox: string | null;
   scriptRan: boolean;
+  selectionTouchMovePrevented?: boolean;
 };
 
 const preparePage = async (page: import('@playwright/test').Page) => {
@@ -32,6 +34,7 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
        <body onload="parent.__publicationInlineHandlerRan = true">
          <button id="probe">Page ${index}</button>
          <p id="selection">Selectable text ${index}</p>
+         <p id="late-selection">${'Late selectable text '.repeat(500)}</p>
          <script>parent.__publicationScriptRan = true</script>
        </body></html>`,
     ], { type: 'text/html' })));
@@ -50,6 +53,10 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
     const events = { click: 0, keydown: 0, selectionchange: 0, touchstart: 0 };
     const loadedIndexes: number[] = [];
     const loadedDocuments: Document[] = [];
+    const relocateReasons: Array<string | null> = [];
+    renderer.addEventListener('relocate', ((event: CustomEvent) => {
+      relocateReasons.push(event.detail?.reason ?? null);
+    }) as EventListener);
     renderer.addEventListener('load', ((event: CustomEvent) => {
       const { doc, index } = event.detail;
       loadedIndexes.push(index);
@@ -78,6 +85,40 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
       firstDoc.getSelection()?.removeAllRanges();
       firstDoc.getSelection()?.addRange(range);
       firstDoc.dispatchEvent(new frameWindow.Event('selectionchange'));
+
+      firstDoc.dispatchEvent(new frameWindow.KeyboardEvent('keydown', { bubbles: true, key: 'Shift' }));
+      firstDoc.dispatchEvent(new frameWindow.Event('selectionchange'));
+      firstDoc.dispatchEvent(new frameWindow.KeyboardEvent('keyup', { bubbles: true, key: 'Shift' }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const lateSelectionNode = firstDoc.querySelector('#late-selection')?.firstChild;
+    if (lateSelectionNode) {
+      lateSelectionNode.parentElement?.dispatchEvent(new frameWindow.PointerEvent('pointerdown', { bubbles: true }));
+      const range = firstDoc.createRange();
+      range.selectNodeContents(lateSelectionNode);
+      firstDoc.getSelection()?.removeAllRanges();
+      firstDoc.getSelection()?.addRange(range);
+      firstDoc.dispatchEvent(new frameWindow.Event('selectionchange'));
+      await new Promise((resolve) => setTimeout(resolve, 1300));
+      lateSelectionNode.parentElement?.dispatchEvent(new frameWindow.PointerEvent('pointerup', { bubbles: true }));
+    }
+    const selectionElement = firstDoc.querySelector('#selection');
+    let selectionTouchMovePrevented = false;
+    if (selectionElement) {
+      const touch = { screenX: 100, screenY: 120 };
+      const touchStart = new frameWindow.Event('touchstart', { bubbles: true, cancelable: true });
+      Object.defineProperty(touchStart, 'changedTouches', { value: [touch] });
+      Object.defineProperty(touchStart, 'touches', { value: [touch] });
+      selectionElement.dispatchEvent(touchStart);
+      const touchMove = new frameWindow.Event('touchmove', { bubbles: true, cancelable: true });
+      Object.defineProperty(touchMove, 'changedTouches', { value: [touch] });
+      Object.defineProperty(touchMove, 'touches', { value: [touch] });
+      selectionElement.dispatchEvent(touchMove);
+      selectionTouchMovePrevented = touchMove.defaultPrevented;
+      const touchEnd = new frameWindow.Event('touchend', { bubbles: true, cancelable: true });
+      Object.defineProperty(touchEnd, 'changedTouches', { value: [touch] });
+      Object.defineProperty(touchEnd, 'touches', { value: [] });
+      selectionElement.dispatchEvent(touchEnd);
     }
     await renderer.nextSection();
     const contents = renderer.getContents();
@@ -88,7 +129,9 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
       firstLoadMatched,
       inlineHandlerRan: Boolean((window as typeof window & { __publicationInlineHandlerRan?: boolean }).__publicationInlineHandlerRan),
       loadedIndexes,
+      relocateReasons,
       sandbox,
+      selectionTouchMovePrevented,
       scriptRan: Boolean((window as typeof window & { __publicationScriptRan?: boolean }).__publicationScriptRan),
     };
     renderer.destroy();
@@ -104,9 +147,12 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
   expect(result.contentIndexes).toEqual([1]);
   expect(result.firstLoadMatched).toBe(true);
   expect(result.events.click).toBe(1);
-  expect(result.events.keydown).toBe(1);
-  expect(result.events.touchstart).toBe(1);
+  expect(result.events.keydown).toBe(2);
+  expect(result.events.touchstart).toBe(2);
   expect(result.events.selectionchange).toBeGreaterThanOrEqual(1);
+  expect(result.selectionTouchMovePrevented).toBe(false);
+  expect(result.relocateReasons).toContain('selection-anchor');
+  expect(result.relocateReasons).toContain('selection-page');
 });
 
 test('fixed layout blocks publication scripts and preserves navigation indexes', async ({ page }) => {

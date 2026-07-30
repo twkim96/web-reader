@@ -1,8 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { Bookmark, SaveProgressOptions } from '../../types';
-import { getBookmarksKey, getRelocatePercent, ReaderRelocateDetail, toClampedPercent } from './progress';
+import type { Bookmark, SaveProgressOptions } from '../../types';
+import {
+  getBookmarksKey,
+  toClampedPercent,
+  updatePersistableReaderLocation,
+} from './progress';
+import type { PersistableReaderLocation, ReaderRelocateDetail } from './progress';
 
 type SaveContext = {
   currentCfi: string;
@@ -83,6 +88,11 @@ export const useReaderProgressSave = ({
     anchorCfi: initialCfi || '',
     percent: toClampedPercent(initialPercent) ?? 0,
     bookmarksKey: getBookmarksKey(initialBookmarks),
+  });
+  const lastPersistableLocationRef = useRef<PersistableReaderLocation>({
+    cfi: initialCfi || '',
+    anchorCfi: initialCfi || '',
+    percent: toClampedPercent(initialPercent) ?? 0,
   });
 
   const updateSaveContext = useCallback((context: SaveContext) => {
@@ -213,7 +223,16 @@ export const useReaderProgressSave = ({
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
   const handleRelocateForSave = useCallback((detail: ReaderRelocateDetail) => {
-    if (!detail.cfi) return;
+    const { totalProgress, bookmarks, hasSyncConflict } = saveContextRef.current;
+    const fallbackPercent = pendingExpectedPercentRef.current ?? totalProgress;
+    const previousPersistableLocation = lastPersistableLocationRef.current;
+    const persistableLocation = updatePersistableReaderLocation(
+      previousPersistableLocation,
+      detail,
+      fallbackPercent,
+    );
+    if (persistableLocation === previousPersistableLocation) return;
+    lastPersistableLocationRef.current = persistableLocation;
 
     if (skipNextSaveRef.current) {
       skipNextSaveRef.current = false;
@@ -222,17 +241,10 @@ export const useReaderProgressSave = ({
 
     if (!hasUnsavedUserChangeRef.current) return;
 
-    const { totalProgress, bookmarks, hasSyncConflict } = saveContextRef.current;
     if (hasSyncConflict) return;
 
-    const fallbackPercent = pendingExpectedPercentRef.current ?? totalProgress;
-    const pct = getRelocatePercent(detail, fallbackPercent);
-    if (pct === null) return;
-
     const pending = {
-      cfi: detail.cfi,
-      anchorCfi: detail.anchorCfi || detail.cfi,
-      percent: pct,
+      ...persistableLocation,
       bookmarks: pendingBookmarksRef.current || bookmarks,
     };
 
@@ -248,17 +260,18 @@ export const useReaderProgressSave = ({
   }, [scheduleRelocateSave]);
 
   const saveCurrentProgress = useCallback((options?: SaveProgressOptions) => {
-    const { currentCfi, currentAnchorCfi, totalProgress, bookmarks } = saveContextRef.current;
-    if (!currentCfi) return false;
+    const { bookmarks } = saveContextRef.current;
+    const { cfi, anchorCfi, percent } = lastPersistableLocationRef.current;
+    if (!cfi) return false;
     clearRelocateSaveTimer();
     if (pendingRelocateSaveRef.current) {
       return savePendingRelocate(options);
     }
     return saveProgressIfChanged(
-      currentCfi,
-      totalProgress,
+      cfi,
+      percent,
       pendingBookmarksRef.current || bookmarks,
-      { ...options, anchorCfi: currentAnchorCfi || currentCfi }
+      { ...options, anchorCfi }
     );
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
@@ -328,6 +341,11 @@ export const useReaderProgressSave = ({
       anchorCfi: target.anchorCfi || target.cfi,
       percent: safePercent,
       bookmarksKey,
+    };
+    lastPersistableLocationRef.current = {
+      cfi: target.cfi,
+      anchorCfi: target.anchorCfi || target.cfi,
+      percent: safePercent,
     };
     clearPendingSave();
     return true;

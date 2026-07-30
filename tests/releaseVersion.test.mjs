@@ -2,14 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const EXPECTED_VERSION = '1.7.10';
+const EXPECTED_VERSION = '1.8.0';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
-  const [packageText, lockText, serviceWorker, browserRegression] = await Promise.all([
+  const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime] = await Promise.all([
     readFile(new URL('../package.json', import.meta.url), 'utf8'),
     readFile(new URL('../package-lock.json', import.meta.url), 'utf8'),
     readFile(new URL('../public/sw.js', import.meta.url), 'utf8'),
     readFile(new URL('./browserRegression.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/lib/foliateRuntimeCache.ts', import.meta.url), 'utf8'),
   ]);
   const packageJson = JSON.parse(packageText);
   const packageLock = JSON.parse(lockText);
@@ -35,6 +36,14 @@ test('keeps package metadata and service worker cache on the release version', a
     browserRegression.includes(
       `browser-regression=${EXPECTED_VERSION.replaceAll('.', '\\.')}$/`,
     ),
+    true,
+  );
+  assert.equal(
+    foliateRuntime.includes(`FOLIATE_RUNTIME_VERSION = '${EXPECTED_VERSION}'`),
+    true,
+  );
+  assert.equal(
+    foliateRuntime.includes('FOLIATE_ENTRY_URL = `/foliate-js/view.js?v=${FOLIATE_RUNTIME_VERSION}`'),
     true,
   );
 });

@@ -113,7 +113,9 @@ try {
   await command('Page.addScriptToEvaluateOnNewDocument', {
     source: `(() => {
       try {
+        const storedSettings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
         localStorage.setItem('viewer_settings', JSON.stringify({
+          ...storedSettings,
           theme: 'dark',
           accentColor: 'emerald'
         }));
@@ -651,6 +653,432 @@ try {
   assert.ok(archiveLimitResult.alerts.some((message) => (
     message.includes('64MP 제한')
   )));
+
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.title === 'Add Local Book');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'input[type="file"]\'))',
+    'selection TXT import modal',
+  );
+  await evaluate(`(() => {
+    const text = Array.from({ length: 180 }, (_, index) => (
+      'Selection probe paragraph ' + index + ' allows text range testing in paged reading mode.'
+    )).join('\\n\\n');
+    const file = new File([text], 'selection-probe.txt', { type: 'text/plain' });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const input = document.querySelector('input[type="file"]');
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.files.length;
+  })()`);
+  await waitFor(
+    `document.body.innerText.includes('selection-probe.txt')`,
+    'selection TXT selection',
+  );
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.trim() === '추가');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    `(async () => {
+      const request = indexedDB.open('web-reader-db');
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const tx = db.transaction('metadata-v5', 'readonly');
+      const get = tx.objectStore('metadata-v5').get([
+        'guest:device-library|library:local',
+        'selection-probe.txt',
+      ]);
+      const value = await new Promise((resolve, reject) => {
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+      db.close();
+      return Boolean(value);
+    })()`,
+    'selection TXT import',
+  );
+  await evaluate(`(() => {
+    const settings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    localStorage.setItem('viewer_settings', JSON.stringify({
+      ...settings,
+      navMode: 'left-right',
+    }));
+    localStorage.removeItem('last_reader_session');
+  })()`);
+  await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    `document.querySelector("h1")?.textContent?.includes("Guest Library")
+      && !document.querySelector('foliate-view')`,
+    'selection TXT shelf reload',
+  );
+  await evaluate(`(async () => {
+    const staleCache = await caches.open('pc-reader-v1.7.10');
+    await staleCache.put('/foliate-js/view.js', new Response(
+      'throw new Error("stale Foliate runtime loaded")',
+      { headers: { 'Content-Type': 'text/javascript' } },
+    ));
+    return Boolean(await staleCache.match('/foliate-js/view.js'));
+  })()`);
+  await evaluate(`(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (text) => { window.__selectionCopiedText = text; } },
+    });
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async ({ text }) => { window.__selectionSharedText = text; },
+    });
+  })()`);
+  await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.title === 'Search Books');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
+    'selection TXT search modal',
+  );
+  assert.equal(
+    await setInputValue('input[placeholder="도서 이름으로 검색..."]', 'selection-probe'),
+    true,
+  );
+  await evaluate('document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\')?.form?.requestSubmit()');
+  await waitFor(
+    `document.querySelectorAll('main h3').length === 1
+      && document.querySelector('main h3')?.textContent?.includes('selection-probe')`,
+    'selection TXT search result',
+  );
+  await evaluate(`document.querySelector('main h3')?.closest('.group')?.click()`);
+  await waitFor(
+    `(() => {
+      const view = document.querySelector('foliate-view');
+      const doc = view?.renderer?.getContents?.()[0]?.doc;
+      return Boolean(doc?.body?.innerText?.includes('Selection probe paragraph'));
+    })()`,
+    'selection TXT reader',
+    60_000,
+  );
+  await waitFor(
+    `![...document.querySelectorAll('[role="status"]')]
+      .some((node) => node.textContent?.trim() === 'Loading...')`,
+    'selection TXT reader ready',
+  );
+  const actualTextTapProbe = await evaluate(`(() => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const doc = renderer?.getContents?.()[0]?.doc;
+    const frame = doc?.defaultView?.frameElement;
+    if (!renderer || !doc || !frame) return { missing: true };
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let tapRect = null;
+    let fallbackTapRect = null;
+    while (walker.nextNode()) {
+      if (!walker.currentNode.textContent?.includes('Selection probe paragraph')) continue;
+      const range = doc.createRange();
+      range.selectNodeContents(walker.currentNode);
+      const visibleRects = [...range.getClientRects()].filter((rect) => (
+        rect.width > 40
+        && rect.height > 0
+        && rect.bottom > 0
+        && rect.top < doc.defaultView.innerHeight
+      ));
+      fallbackTapRect ??= visibleRects[0] ?? null;
+      tapRect = visibleRects.find((rect) => (
+        rect.top >= doc.defaultView.innerHeight * 0.3
+        && rect.bottom <= doc.defaultView.innerHeight * 0.7
+      )) ?? null;
+      if (tapRect) break;
+    }
+    tapRect ??= fallbackTapRect;
+    if (!tapRect) return { missingRect: true };
+    const frameRect = frame.getBoundingClientRect();
+    const scaleX = frameRect.width / frame.clientWidth;
+    const scaleY = frameRect.height / frame.clientHeight;
+    const frameX = tapRect.left + tapRect.width / 2;
+    const frameY = tapRect.top + tapRect.height / 2;
+    const x = frameRect.left + frameX * scaleX;
+    const y = frameRect.top + frameY * scaleY;
+    window.__actualTextTapEvents = [];
+    for (const name of ['pointerdown', 'mousedown', 'selectstart', 'selectionchange', 'pointerup', 'mouseup', 'click']) {
+      doc.addEventListener(name, (event) => {
+        window.__actualTextTapEvents.push({
+          name,
+          target: event.target?.nodeName ?? null,
+          selection: doc.getSelection()?.toString() ?? '',
+          collapsed: doc.getSelection()?.isCollapsed ?? null,
+          defaultPrevented: event.defaultPrevented,
+        });
+      });
+    }
+    return {
+      x,
+      y,
+      frameX,
+      frameY,
+      frameTarget: doc.elementFromPoint(frameX, frameY)?.nodeName ?? null,
+      topTarget: document.elementFromPoint(x, y)?.nodeName ?? null,
+      beforeStart: renderer.start,
+      controlsOpenBefore: document.querySelector('nav')?.classList.contains('translate-y-0'),
+    };
+  })()`);
+  assert.equal(actualTextTapProbe.missing, undefined);
+  assert.equal(actualTextTapProbe.missingRect, undefined);
+  const dispatchActualTextClick = async () => {
+    await command('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: actualTextTapProbe.x,
+      y: actualTextTapProbe.y,
+      button: 'left',
+      clickCount: 1,
+    });
+    await command('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: actualTextTapProbe.x,
+      y: actualTextTapProbe.y,
+      button: 'left',
+      clickCount: 1,
+    });
+    await sleep(100);
+  };
+  await dispatchActualTextClick();
+  const actualTextTapOpened = await evaluate(`(() => ({
+    controlsOpen: document.querySelector('nav')?.classList.contains('translate-y-0'),
+    start: document.querySelector('foliate-view')?.renderer?.start,
+    events: window.__actualTextTapEvents,
+  }))()`);
+  assert.equal(
+    actualTextTapOpened.controlsOpen,
+    !actualTextTapProbe.controlsOpenBefore,
+    JSON.stringify({ actualTextTapProbe, actualTextTapOpened }),
+  );
+  assert.equal(actualTextTapOpened.start, actualTextTapProbe.beforeStart);
+  await dispatchActualTextClick();
+  const actualTextTapClosed = await evaluate(`(() => ({
+    controlsClosed: !document.querySelector('nav')?.classList.contains('translate-y-0'),
+    start: document.querySelector('foliate-view')?.renderer?.start,
+    staleFoliateRemoved: false,
+    versionedEntry: [...document.scripts].some((script) => (
+      script.src.endsWith('/foliate-js/view.js?v=1.8.0')
+    )),
+  }))()`);
+  actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
+    const staleCache = await caches.open('pc-reader-v1.7.10');
+    return !(await staleCache.match('/foliate-js/view.js'));
+  })()`);
+  assert.equal(
+    actualTextTapClosed.controlsClosed,
+    !actualTextTapProbe.controlsOpenBefore,
+    JSON.stringify({ actualTextTapProbe, actualTextTapClosed }),
+  );
+  assert.equal(actualTextTapClosed.start, actualTextTapProbe.beforeStart);
+  assert.equal(actualTextTapClosed.staleFoliateRemoved, true);
+  assert.equal(actualTextTapClosed.versionedEntry, true);
+  const selectionActions = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const doc = renderer?.getContents?.()[0]?.doc;
+    if (!view || !renderer || !doc) return { missing: true };
+    const relocateReasons = [];
+    view.addEventListener('relocate', (event) => {
+      relocateReasons.push(event.detail?.reason ?? null);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let textNode = null;
+    while (walker.nextNode()) {
+      if (!walker.currentNode.textContent?.includes('Selection probe paragraph')) continue;
+      const probe = doc.createRange();
+      probe.selectNodeContents(walker.currentNode);
+      const probeRect = probe.getBoundingClientRect();
+      if (probeRect.width > 0
+        && probeRect.height > 0
+        && probeRect.bottom > 0
+        && probeRect.top < doc.defaultView.innerHeight) {
+        textNode = walker.currentNode;
+        break;
+      }
+    }
+    if (!textNode) return { missingText: true };
+    const text = textNode.textContent;
+    const selectionProbe = ' probe paragraph ';
+    const start = text.indexOf(selectionProbe);
+    const range = doc.createRange();
+    range.setStart(textNode, start);
+    range.setEnd(textNode, start + selectionProbe.length);
+    const selectedText = range.toString();
+    const selection = doc.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const menuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < menuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const menu = document.querySelector('[data-reader-selection-menu="true"]');
+    const menuRect = menu?.getBoundingClientRect();
+    const beforeSuppressedClick = renderer.start;
+    const selectedRect = range.getBoundingClientRect();
+    textNode.parentElement?.dispatchEvent(new doc.defaultView.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: selectedRect.left + selectedRect.width / 2,
+      clientY: selectedRect.top + selectedRect.height / 2,
+    }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const afterSuppressedClick = renderer.start;
+    const currentMenu = document.querySelector('[data-reader-selection-menu="true"]');
+    const actionRects = [...(currentMenu?.querySelectorAll('button') ?? [])]
+      .map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+    const copyButton = [...(currentMenu?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.includes('복사'));
+    copyButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const shareButton = [...(document.querySelector('[data-reader-selection-menu="true"]')
+      ?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.includes('공유'));
+    shareButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    document.querySelector('[data-reader-selection-menu="true"]')
+      ?.querySelector('button[aria-label="선택 메뉴 닫기"]')?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const beforeTap = renderer.start;
+    const frame = doc.defaultView.frameElement;
+    const frameRect = frame?.getBoundingClientRect();
+    const tapClientX = frame && frameRect
+      ? (innerWidth * 0.95 - frameRect.left) * frame.clientWidth / frameRect.width
+      : doc.defaultView.innerWidth * 0.95;
+    const tapClientY = frame && frameRect
+      ? (innerHeight / 2 - frameRect.top) * frame.clientHeight / frameRect.height
+      : doc.defaultView.innerHeight / 2;
+    const tapTarget = doc.elementFromPoint(tapClientX, tapClientY)
+      ?? doc.body;
+    tapTarget.dispatchEvent(new doc.defaultView.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: tapClientX,
+      clientY: tapClientY,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const afterTap = renderer.start;
+    const toFramePoint = (topX, topY) => {
+      const currentFrameRect = frame?.getBoundingClientRect();
+      return {
+        x: frame && currentFrameRect
+          ? (topX - currentFrameRect.left) * frame.clientWidth / currentFrameRect.width
+          : topX,
+        y: frame && currentFrameRect
+          ? (topY - currentFrameRect.top) * frame.clientHeight / currentFrameRect.height
+          : topY,
+      };
+    };
+    const dispatchDocumentClick = ({ x, y }) => {
+      const target = doc.elementFromPoint(x, y) ?? doc.body;
+      target.dispatchEvent(new doc.defaultView.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+      }));
+    };
+    dispatchDocumentClick(toFramePoint(innerWidth / 2, innerHeight / 2));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const controlsOpened = document.querySelector('nav')?.classList.contains('translate-y-0');
+    const beforeControlsCloseTap = renderer.start;
+    dispatchDocumentClick(toFramePoint(innerWidth * 0.95, innerHeight / 2));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const controlsClosed = !document.querySelector('nav')?.classList.contains('translate-y-0');
+    const afterControlsCloseTap = renderer.start;
+    return {
+      selectedText,
+      selectionStyleInstalled: Boolean(doc.querySelector('style[data-reader-text-selection]')),
+      copyButtonFound: Boolean(copyButton),
+      actionRects,
+      shareButtonFound: Boolean(shareButton),
+      clipboardAvailable: typeof navigator.clipboard?.writeText === 'function',
+      shareAvailable: typeof navigator.share === 'function',
+      overlayAbsent: !document.querySelector('[data-reader-interaction-overlay="true"]'),
+      menuVisible: Boolean(menu),
+      menuInViewport: Boolean(menuRect
+        && menuRect.left >= 0
+        && menuRect.top >= 0
+        && menuRect.right <= innerWidth
+        && menuRect.bottom <= innerHeight),
+      beforeSuppressedClick,
+      afterSuppressedClick,
+      copiedText: window.__selectionCopiedText,
+      sharedText: window.__selectionSharedText,
+      selectionCleared: !document.querySelector('[data-reader-selection-menu="true"]')
+        && !doc.getSelection()?.toString(),
+      navMode: JSON.parse(localStorage.getItem('viewer_settings') || '{}').navMode,
+      tapClientX,
+      tapClientY,
+      frameRect: frameRect ? {
+        left: frameRect.left,
+        top: frameRect.top,
+        width: frameRect.width,
+        height: frameRect.height,
+      } : null,
+      frameClientWidth: frame?.clientWidth,
+      frameClientHeight: frame?.clientHeight,
+      rendererPages: renderer.pages,
+      rendererSize: renderer.size,
+      controlsOpenAfterTap: document.querySelector('nav')?.classList.contains('translate-y-0'),
+      beforeTap,
+      afterTap,
+      controlsOpened,
+      controlsClosed,
+      beforeControlsCloseTap,
+      afterControlsCloseTap,
+      relocateReasons,
+    };
+  })()`);
+  assert.equal(selectionActions.missing, undefined);
+  assert.equal(selectionActions.missingText, undefined);
+  assert.equal(selectionActions.overlayAbsent, true);
+  assert.equal(selectionActions.menuVisible, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.menuInViewport, true);
+  assert.ok(
+    selectionActions.actionRects.every(({ width, height }) => width >= 44 && height >= 44),
+    JSON.stringify(selectionActions.actionRects),
+  );
+  assert.equal(selectionActions.afterSuppressedClick, selectionActions.beforeSuppressedClick);
+  assert.equal(selectionActions.copiedText, selectionActions.selectedText, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.sharedText, selectionActions.selectedText);
+  assert.equal(selectionActions.selectionCleared, true);
+  assert.notEqual(selectionActions.afterTap, selectionActions.beforeTap, JSON.stringify(selectionActions));
+  assert.ok(selectionActions.relocateReasons.includes('page'), JSON.stringify(selectionActions));
+  assert.equal(selectionActions.controlsOpened, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.controlsClosed, true, JSON.stringify(selectionActions));
+  assert.equal(
+    selectionActions.afterControlsCloseTap,
+    selectionActions.beforeControlsCloseTap,
+    JSON.stringify(selectionActions),
+  );
+  await evaluate(`(() => {
+    delete navigator.clipboard;
+    delete navigator.share;
+    document.querySelector('button[aria-label="Close reader"]')?.click();
+  })()`);
+  await waitFor(
+    `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
+    'shelf after selection TXT reader',
+  );
+  await evaluate(`caches.delete('pc-reader-v1.7.10')`);
 
   await evaluate(`(() => {
     const button = [...document.querySelectorAll('button')]
@@ -1810,7 +2238,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.7.10';
+    const expectedCache = 'pc-reader-v1.8.0';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -1837,7 +2265,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.7.10',
+      '/sw.js?browser-regression=1.8.0',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -1881,11 +2309,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.7.10']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.0']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.7\.10$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.0$/);
 
   console.log(JSON.stringify({
     shelf: {
@@ -1901,6 +2329,8 @@ try {
     modalScrollRestore,
     nestedModalLock,
     archiveLimit: archiveLimitResult,
+    actualTextTap: { actualTextTapProbe, actualTextTapOpened, actualTextTapClosed },
+    selectionActions,
     solidSevenZip: solidSevenZipResult,
     tapSettings,
     tapBoundary,

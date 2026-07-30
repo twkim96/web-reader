@@ -1,0 +1,121 @@
+'use client';
+
+import React, { useLayoutEffect, useRef } from 'react';
+import { Copy, Share2, X } from 'lucide-react';
+import type { ThemeClasses } from '../../types';
+import type { ReaderTextSelection } from '../../hooks/reader/useReaderTextSelection';
+
+interface TextSelectionMenuProps {
+  selection: ReaderTextSelection;
+  feedback: string;
+  canShare: boolean;
+  theme: ThemeClasses;
+  onCopy: () => void;
+  onShare: () => void;
+  onClose: () => void;
+}
+
+const VIEWPORT_MARGIN = 12;
+const ANCHOR_GAP = 10;
+
+export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
+  selection,
+  feedback,
+  canShare,
+  theme,
+  onCopy,
+  onShare,
+  onClose,
+}) => {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+
+    const positionMenu = () => {
+      const viewport = window.visualViewport;
+      const viewportLeft = viewport?.offsetLeft ?? 0;
+      const viewportTop = viewport?.offsetTop ?? 0;
+      const viewportWidth = viewport?.width ?? window.innerWidth;
+      const viewportHeight = viewport?.height ?? window.innerHeight;
+      const width = menu.offsetWidth;
+      const height = menu.offsetHeight;
+      const minLeft = viewportLeft + VIEWPORT_MARGIN;
+      const maxLeft = Math.max(minLeft, viewportLeft + viewportWidth - width - VIEWPORT_MARGIN);
+      const left = Math.min(maxLeft, Math.max(minLeft, selection.x - width / 2));
+      const maxTop = Math.max(
+        viewportTop + VIEWPORT_MARGIN,
+        viewportTop + viewportHeight - height - VIEWPORT_MARGIN,
+      );
+      const below = selection.bottom + ANCHOR_GAP;
+      const above = selection.top - height - ANCHOR_GAP;
+      const top = below + height <= viewportTop + viewportHeight - VIEWPORT_MARGIN
+        ? below
+        : Math.min(maxTop, Math.max(viewportTop + VIEWPORT_MARGIN, above));
+
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+    };
+
+    positionMenu();
+    const viewport = window.visualViewport;
+    viewport?.addEventListener('resize', positionMenu);
+    viewport?.addEventListener('scroll', positionMenu);
+    window.addEventListener('resize', positionMenu);
+    return () => {
+      viewport?.removeEventListener('resize', positionMenu);
+      viewport?.removeEventListener('scroll', positionMenu);
+      window.removeEventListener('resize', positionMenu);
+    };
+  }, [feedback, selection]);
+
+  const stopPropagation = (event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  };
+
+  return (
+    <div
+      ref={menuRef}
+      data-reader-selection-menu="true"
+      role="toolbar"
+      aria-label="선택한 텍스트 작업"
+      className={`fixed z-[80] flex min-h-11 max-w-[calc(100vw-24px)] items-center gap-1 rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} p-1.5 shadow-2xl`}
+      onPointerDown={stopPropagation}
+      onTouchStart={stopPropagation}
+      onClick={stopPropagation}
+    >
+      <button
+        type="button"
+        onClick={onCopy}
+        className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+      >
+        <Copy size={15} />
+        복사
+      </button>
+      {canShare && (
+        <button
+          type="button"
+          onClick={onShare}
+          className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+        >
+          <Share2 size={15} />
+          공유
+        </button>
+      )}
+      {feedback && (
+        <span className="whitespace-nowrap px-2 text-[11px] font-bold text-accent-500" role="status" aria-live="polite">
+          {feedback}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="선택 메뉴 닫기"
+        className="flex size-11 items-center justify-center rounded-xl opacity-60 hover:bg-black/5 hover:opacity-100 active:scale-95 dark:hover:bg-white/10"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+};

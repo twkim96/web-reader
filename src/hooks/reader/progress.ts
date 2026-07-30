@@ -1,17 +1,25 @@
 'use client';
 
-import { Bookmark } from '../../types';
+import type { Bookmark } from '../../types';
 import { toClampedPercent } from '../foliate/progress';
+import { isSelectionRelocateReason } from '../../lib/readerTextSelection';
 
 export type ReaderRelocateDetail = {
   cfi?: string;
   anchorCfi?: string;
+  reason?: string;
   fraction?: number;
   progressPercent?: number;
   location?: {
     current?: number;
     total?: number;
   };
+};
+
+export type PersistableReaderLocation = {
+  cfi: string;
+  anchorCfi: string;
+  percent: number;
 };
 
 export const getRelocatePercent = (detail: ReaderRelocateDetail, fallback: number) => {
@@ -31,6 +39,21 @@ export const getRelocatePercent = (detail: ReaderRelocateDetail, fallback: numbe
   }
 
   return toClampedPercent(fallback);
+};
+
+export const updatePersistableReaderLocation = (
+  current: PersistableReaderLocation,
+  detail: ReaderRelocateDetail,
+  fallbackPercent: number,
+) => {
+  if (!detail.cfi || isSelectionRelocateReason(detail.reason)) return current;
+  const percent = getRelocatePercent(detail, fallbackPercent);
+  if (percent === null) return current;
+  return {
+    cfi: detail.cfi,
+    anchorCfi: detail.anchorCfi || detail.cfi,
+    percent,
+  };
 };
 
 export const getBookmarksKey = (items?: Bookmark[]) => JSON.stringify(items || []);

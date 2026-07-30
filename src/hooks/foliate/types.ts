@@ -2,6 +2,7 @@
 
 export interface RelocateDetail {
   cfi: string;
+  reason?: string;
   anchorCfi?: string;
   fraction: number;
   progressPercent?: number;

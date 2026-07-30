@@ -1,0 +1,806 @@
+# Web Reader 1.8.x 전체 개발 계획
+
+작성일: 2026-07-27
+
+기준 버전: `1.7.10`
+
+기준 커밋: `0101604`
+
+전체 상태: 1.8.0 구현·수정·자동검증 완료, Web GPT 재검토·실기기 검증 대기
+
+## 1. 문서의 역할
+
+이 문서는 Web Reader 1.8.x 전체 개발 방향, 버전 간 의존성, 호환성 계약, 공통 검증 기준을 정의하는 마스터 계획이다.
+
+- 실제 구현을 시작할 때마다 `update_1.8.0.md`, `update_1.8.1.md`와 같은 개별 버전 문서를 새로 만든다.
+- 개별 버전 문서는 해당 릴리스의 실제 기준 커밋, 수용·보류·제외 항목, 구현 phase, 완료 조건, 자동검증과 실기기 증거를 기록하는 실행 문서다.
+- 이 마스터 계획은 전체 순서와 경계를 관리하고, 개별 버전 문서는 실제 구현 범위의 최종 기준이 된다.
+- 코드가 작성됐다는 이유만으로 상태를 완료로 바꾸지 않는다. 자동검증과 해당 버전의 실기기 검증이 끝나야 완료로 기록한다.
+- 사용자 실기기 검증과 요청 전에는 커밋·푸시를 완료 조건으로 간주하지 않는다.
+
+## 2. 개발 목표
+
+1.8.x의 목표는 기존의 안정적인 읽기·복구·기기간 진행률 동기화를 유지하면서 Web Reader를 다음 흐름을 갖는 독서 도구로 확장하는 것이다.
+
+```text
+텍스트 선택
+  -> 하이라이트와 메모
+  -> 기기 간 주석 동기화
+  -> 검색과 내보내기
+  -> 번역·사전·TTS
+  -> 단어장과 복습
+  -> 신뢰 가능한 독서 통계
+```
+
+개발 원칙은 다음과 같다.
+
+- 한 버전에는 코드 경계와 실기기 실패 원인이 유사한 기능만 묶는다.
+- 선택, 로컬 주석, 원격 동기화, 외부 제공자, TTS, 통계를 한 패치에서 동시에 바꾸지 않는다.
+- 기존 진행률·책갈피·자동 복구 계약을 새 기능 때문에 재작성하지 않는다.
+- 고위험 버전은 실제 독서 안정화 기간을 거친 뒤 다음 기능으로 넘어간다.
+- 실기기에서 발견된 결함은 다음 기능과 합치지 않고 안정화 전용 패치로 먼저 처리한다.
+
+## 3. 예정 릴리스 순서
+
+| 예정 버전 | 기능 묶음 | 주 검증 대상 | 위험도 | 상태 |
+| --- | --- | --- | --- | --- |
+| 1.8.0 | 텍스트 선택 기반·복사·공유 | iPad 선택과 탭 이동 충돌 | 중상 | 자동검증 완료·재검토 대기 |
+| 1.8.1 | 로컬 범위 하이라이트 엔진 | 저장·복원·기존 책갈피 호환 | 높음 | 대기 |
+| 1.8.2 | 메모·팔레트·주석 관리 UI | 5색·대량 목록·검색·정렬 | 중간 | 대기 |
+| 1.8.3 | 하이라이트·메모·팔레트 동기화 | PC↔iPad·오프라인·충돌 | 매우 높음 | 대기 |
+| 1.8.4 | 라이브러리 전체 주석 검색·내보내기 | 대량 조회·파일 저장·공유 | 중간 | 대기 |
+| 1.8.5 | 번역·사전 다중 경로 | 제공자 지원 차이와 fallback | 중간 | 대기 |
+| 1.8.6 | 선택·현재 위치 기본 TTS | 기기별 음성·재생 제어 | 중간 | 대기 |
+| 1.8.7 | 현재 장 연속 TTS | 문장 추적·자동 이동·복귀 | 높음 | 대기 |
+| 1.8.8 | 단어장·복습 | 중복·동기화·복습 상태 | 중상 | 대기 |
+| 1.8.9 | 독서 통계 | 활성 시간과 기기 중복 정확성 | 높음 | 대기 |
+
+예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
+
+## 4. 1.7.x에서 반드시 보존할 계약
+
+### 4.1 저장소 역할
+
+- Google Drive는 도서 원본 저장소다.
+- IndexedDB는 도서 캐시, 로컬 진행률, 자동 책갈피, 오프라인 작업 큐를 담당한다.
+- Firebase/Firestore는 진행률, 수동 책갈피와 1.8.x에서 추가될 동기화 데이터를 담당한다.
+- 도서 원본을 주석 동기화나 통계 때문에 Firestore에 복제하지 않는다.
+
+### 4.2 진행률과 책갈피
+
+- 기존 `UserProgress`와 progress v2 문서의 의미를 유지한다.
+- 기존 수동 책갈피는 위치 책갈피로 계속 열고 이동·삭제할 수 있어야 한다.
+- 기존 수동 책갈피를 범위 하이라이트로 자동 변환하지 않는다.
+- 자동 책갈피는 대량 이동·원격 채택 전 위치를 복구하기 위한 로컬 전용 기록으로 유지한다.
+- 하이라이트 수 증가가 진행률 문서의 bookmark 배열 크기나 저장 빈도를 증가시키지 않게 한다.
+
+### 4.3 동기화 안전성
+
+- 기존 revision chain, immutable receipt, tombstone, lease epoch, outbox 충돌 보존 계약을 유지한다.
+- warm cache snapshot을 authoritative server snapshot처럼 채택하지 않는다.
+- owner 전환 뒤 이전 owner의 늦은 callback과 응답은 새 owner 상태를 변경하지 못해야 한다.
+- 읽기 수신 장애는 복구 가능 상태와 schema·permission 차단 상태를 구분한다.
+- 새 mutation은 서버 반영이 확인되지 않았는데 성공한 것처럼 표시하지 않는다.
+
+### 4.4 기존 리더 동작
+
+- 페이지·스크롤·좌우·전체 방향 탐색 모드를 유지한다.
+- TOC, 검색, 퍼센트·CFI 이동, 진행률 슬라이더와 원격 진행률 채택의 저장 정책을 유지한다.
+- 폰트, 줄 간격, 문단 간격, 여백, 정렬, 테마와 사용자 정의 테마를 유지한다.
+- 로컬·Drive EPUB과 TXT 원본의 TXT-to-EPUB 경로를 유지한다.
+- 텍스트 선택이 불가능한 이미지·고정 레이아웃 형식에서는 관련 액션을 숨기거나 명확히 비활성화한다.
+
+## 5. 주석 도메인 기본 계약
+
+하이라이트는 기존 책갈피에 필드를 추가한 형태가 아니라 별도의 주석 도메인으로 설계한다.
+
+초기 논리 모델은 다음 정보를 보존해야 한다.
+
+```ts
+type Annotation = {
+  id: string;
+  bookId: string;
+  type: 'highlight';
+  rangeCfi: string;
+  quote: string;
+  prefix: string;
+  suffix: string;
+  colorId: string;
+  note: string;
+  progressPercent: number | null;
+  chapter: string;
+  createdAtClient: number;
+  updatedAtClient: number;
+};
+```
+
+실제 필드명과 길이 제한은 `update_1.8.1.md`와 `update_1.8.3.md`에서 현재 Foliate CFI, IndexedDB, Firestore Rules 제약을 다시 확인해 확정한다.
+
+기본 정책은 다음과 같다.
+
+- `rangeCfi`는 정확한 범위 이동과 렌더링을 위한 1차 anchor다.
+- `quote`, `prefix`, `suffix`는 CFI 복원이 실패하거나 도서 내용이 미세하게 변한 경우의 검증·복구 자료다.
+- 색상은 raw HEX만 저장하지 않고 안정적인 `colorId`로 저장한다.
+- 팔레트 의미 변경은 과거 모든 하이라이트에 반영되도록 사용자별 팔레트 설정에서 관리한다.
+- 색상은 시각적 구분 수단이면서 라벨·개수·메모 표시를 함께 제공해 색상만으로 의미를 전달하지 않는다.
+- 색상은 5개, 색상당 최대 20개, 책당 최대 100개를 기본 제품 계약으로 한다.
+- 제한 도달 시 오래된 항목을 자동 삭제하지 않는다. 추가를 막고 해당 색상의 정리 화면으로 안내한다.
+- 겹치는 선택은 자동 병합하지 않고 기존 범위 확장 또는 별도 생성 여부를 명시적으로 결정한다.
+
+## 6. 공통 UI·개인정보 원칙
+
+- 짧은 탭은 기존 탐색, 길게 누르기와 선택 손잡이 조작은 텍스트 선택으로 판정한다.
+- non-collapsed selection이 있거나 선택 손잡이를 조작 중일 때는 탭·스와이프 페이지 이동을 억제한다.
+- 선택 액션 메뉴는 selection rect, viewport, safe area와 소프트 키보드를 고려해 위·아래 방향을 자동 전환한다.
+- 기본 브라우저 선택 기능을 완전히 제거하지 않고 복구·접근성 fallback으로 남긴다.
+- 생성·삭제·색상 변경처럼 되돌릴 수 있는 작업은 실행 취소 경로를 제공한다.
+- 선택 원문은 사용자가 번역·사전·공유를 명시적으로 실행할 때만 외부 제공자에 전달한다.
+- 외부 전달 전 현재 제공자와 네트워크 필요 여부를 UI에서 식별할 수 있어야 한다.
+- TTS의 현재 문장 강조는 저장되는 하이라이트와 다른 임시 오버레이로 표현한다.
+
+## 1.8.0 — 텍스트 선택 기반
+
+상태: 구현·수정·자동검증 완료, Web GPT 재검토·실기기 검증 대기 — 세부 실행 문서 `update_1.8.0.md`
+
+### 목표
+
+탭 이동을 유지하면서 iPad Safari와 PC Chrome에서 텍스트를 길게 눌러 안정적으로 선택하고, 이후 모든 선택 기능이 공통으로 사용하는 액션 메뉴 계약을 만든다.
+
+### 포함
+
+- reflow EPUB/TXT 문서의 텍스트 선택 감지
+- 탭·스와이프 탐색과 long-press selection arbitration
+- iframe selection range와 화면 좌표 변환
+- 선택 액션 메뉴의 위치·반전·닫기 정책
+- 복사
+- 지원 환경의 시스템 공유
+- 바깥 탭, 스크롤, 페이지 이동, `Escape`에 따른 정리
+- 선택 불가능 형식의 기능 숨김·비활성화
+
+### 제외
+
+- 하이라이트 저장
+- 메모
+- 번역·사전
+- TTS
+- IndexedDB·Firestore schema 변경
+
+### 주요 영역
+
+- `src/components/EpubReader.tsx`
+- `src/hooks/foliate/useFoliateView.ts`
+- `src/hooks/foliate/types.ts`
+- `src/lib/readerNavigation.ts`
+- 신규 selection hook과 action menu component
+- 필요한 경우에만 `public/foliate-js` adapter event
+
+### 완료 조건
+
+- 네 탐색 모드에서 짧은 탭은 기존 동작을 유지한다.
+- 선택이 시작된 뒤 탭·스와이프가 페이지를 이동시키지 않는다.
+- 선택 손잡이 이동 후 메뉴가 현재 범위 근처에 다시 배치된다.
+- 복사·공유 뒤 selection cleanup 정책이 일관된다.
+- 기존 reader chrome, 링크, 검색과 키보드 탐색 회귀가 없다.
+
+### 실기기 게이트
+
+- PC Chrome
+- iPad Safari 브라우저 탭
+- iPad 홈 화면 PWA
+- 단어·문장·여러 문단·페이지 경계 선택
+- 화면 상하단·좌우단 selection과 회전
+- 모달·툴바·소프트 키보드와의 중첩
+
+## 1.8.1 — 로컬 범위 하이라이트 엔진
+
+상태: 대기
+
+### 목표
+
+1.8.0의 선택 범위를 5색 하이라이트로 저장·복원하고, 기존 수동·자동 책갈피를 변경하지 않는 로컬 주석 기반을 완성한다.
+
+### 포함
+
+- annotation type과 validation
+- 범위 CFI·원문·앞뒤 문맥 생성
+- IndexedDB annotation store와 migration
+- Foliate annotation overlay 연결
+- 5색 생성·색상 변경·삭제
+- 실행 취소
+- 겹치는 범위 처리
+- 책 재진입·레이아웃 변경 후 복원
+- 기존 수동·자동 책갈피 UI와 저장 정책 회귀 보호
+
+### 제외
+
+- 원격 동기화
+- 메모와 관리 목록
+- 팔레트 의미 편집
+- 전체 라이브러리 검색
+
+### 주요 영역
+
+- `src/types.ts`
+- `src/lib/localDB.ts`, `src/lib/localDBV5.ts`, `src/lib/localDBSchema.ts`
+- 신규 annotation schema·repository·anchor policy
+- 신규 `useReaderAnnotations`
+- `src/hooks/foliate/types.ts`
+- Foliate `addAnnotation`, `deleteAnnotation`, `draw-annotation`, `create-overlay` adapter
+
+### 완료 조건
+
+- 생성·변경·삭제가 원자적으로 로컬 저장된다.
+- 앱 강제 종료와 재실행 뒤 같은 범위가 복원된다.
+- 폰트·줄 간격·여백·테마·탐색 모드 변경 후 하이라이트가 다시 그려진다.
+- 복원이 실패한 annotation은 조용히 잘못된 위치에 칠하지 않고 검토 가능 상태로 남는다.
+- 기존 manual bookmark와 auto bookmark의 저장·이동·제한 정책이 변하지 않는다.
+
+### 실기기 게이트
+
+- 온라인·오프라인 생성·수정·삭제
+- 종료·재실행·PWA update 전후 복원
+- 중복·부분 중첩·포함 범위
+- 5색 각각 제한 도달
+- 기존 1.7.x 진행률·책갈피가 있는 도서
+- 최소 2~3일 실제 독서 안정화
+
+## 1.8.2 — 메모·팔레트·주석 관리 UI
+
+상태: 대기
+
+### 목표
+
+로컬 하이라이트를 메모 가능한 주석으로 확장하고, 색상별로 찾고 정리할 수 있는 관리 화면을 제공한다.
+
+### 포함
+
+- 하이라이트 메모 작성·편집
+- 5색 팔레트 의미와 표시명 설정
+- 색상별 접기·펼치기
+- 색상별 현재 개수와 최대 개수
+- 책 내부 하이라이트·메모 검색
+- 독서 순서·최근 생성순·최근 수정순 정렬
+- 메모 있는 항목만 보기
+- 항목 이동 후 임시 강조
+- 선택 항목의 일괄 색상 변경·삭제
+- 팔레트의 로컬 저장
+
+### 제외
+
+- 기기 간 동기화
+- 라이브러리 전체 검색
+- 내보내기
+- 번역 결과 UI
+
+### 주요 영역
+
+- 신규 annotation modal·list·editor components
+- `src/components/BookmarkModal.tsx`와의 역할 분리 또는 안전한 통합
+- `src/components/SettingsModal.tsx`
+- `src/hooks/useViewerSettings.ts` 또는 별도 annotation palette settings
+- annotation query·sort utilities
+
+### 완료 조건
+
+- 기존 책갈피와 새 하이라이트의 용어와 목록이 혼동되지 않는다.
+- 총 100개 데이터에서 접기·검색·정렬·이동이 iPad에서 실사용 가능하다.
+- 메모 저장 중 소프트 키보드와 reader chrome이 입력을 방해하지 않는다.
+- 팔레트 이름을 바꾸면 과거 항목의 그룹 라벨이 일관되게 변경된다.
+
+### 실기기 게이트
+
+- 색상당 20개, 총 100개 fixture
+- 긴 한글·영문·일문 메모
+- 다크·라이트·세피아·블루 테마
+- iPad 소프트 키보드와 화면 회전
+- 목록 항목에서 정확한 범위 이동
+
+## 1.8.3 — 하이라이트·메모·팔레트 동기화
+
+상태: 대기
+
+### 목표
+
+기존 progress/bookmark v2를 변경하지 않고 annotation과 사용자 팔레트를 PC와 iPad 사이에서 오프라인 우선 방식으로 동기화한다.
+
+### 포함
+
+- annotation 전용 Firestore payload·head·receipt schema
+- annotation 전용 Rules validation과 ownership
+- annotation target의 outbox enqueue·claim·acknowledge·conflict
+- revision transaction과 tombstone
+- active-book annotation snapshot listener
+- generation isolation과 authoritative snapshot hydration
+- 로컬 annotation의 최초 멱등 업로드
+- 원격 생성·색상·메모·삭제 반영
+- 사용자별 annotation palette 동기화
+- sync health와 재시도 상태 통합
+
+### 제외
+
+- 기존 수동 책갈피의 annotation 변환
+- 서로 다른 메모 문자열의 자동 병합
+- 모든 책의 annotation listener 상시 실행
+- 목록·검색·내보내기 UX 확장
+- 번역·TTS
+
+### 충돌 기본 정책
+
+- 다른 annotation ID는 독립 revision chain으로 처리한다.
+- 동일 annotation의 동시 수정은 사용자 의도가 명확하지 않으면 기존 충돌 UI 원칙을 따른다.
+- delete 대 edit를 자동 병합하지 않는다.
+- 삭제 tombstone이 authoritative하게 확인되기 전에는 로컬 데이터를 영구 제거한 것으로 간주하지 않는다.
+- 팔레트 충돌 정책은 단일 사용자 설정 문서 또는 독립 색상 항목 중 실제 transaction 비용과 충돌 범위를 비교해 개별 버전 문서에서 확정한다.
+
+### 주요 영역
+
+- 신규 annotation sync schema·policy·transaction·accumulator
+- IndexedDB outbox target 확장 또는 annotation 전용 queue
+- `src/hooks/useProgressSync.ts`, `src/hooks/useProgressSyncWorker.ts`
+- `src/lib/snapshotListenerRecovery.ts`, `src/lib/syncHealth.ts`
+- `firestore.rules`
+- Rules·transaction·outbox·listener tests
+
+### 완료 조건
+
+- 오프라인 생성·수정·삭제가 재연결 후 한 번만 적용된다.
+- receipt replay가 중복 revision을 만들지 않는다.
+- 삭제된 annotation이 오래된 기기 재접속 뒤 부활하지 않는다.
+- local-only auto bookmark와 기존 manual bookmark가 annotation hydration에 의해 사라지거나 변경되지 않는다.
+- active book 변경과 owner 전환 뒤 stale callback이 이전 책·사용자 주석을 적용하지 않는다.
+- 로컬 최초 업로드가 중단·재개돼도 중복 문서를 만들지 않는다.
+
+### 실기기 게이트
+
+- PC 생성 → iPad 수신, iPad 수정 → PC 수신
+- 한쪽 offline edit와 다른 쪽 online delete
+- 동일 메모의 양쪽 동시 수정
+- background·foreground·network·token 복구
+- 100개 annotation의 최초 수화 시간과 Firestore read 관찰
+- 팔레트 의미 변경의 양방향 반영
+- 최소 2~3일 실제 양기기 독서 안정화
+
+## 1.8.4 — 라이브러리 전체 주석 검색·내보내기
+
+상태: 대기
+
+### 목표
+
+동기화된 하이라이트와 메모를 책을 열지 않고 라이브러리 단위로 찾고, 사람이 읽을 수 있는 Markdown과 복구 가능한 JSON으로 내보낸다.
+
+### 포함
+
+- 라이브러리 전체 quote·note 검색
+- 책·색상·메모 유무 필터
+- 검색 결과에서 책과 범위로 이동
+- 단일 책·전체 라이브러리 Markdown export
+- 전체 필드를 보존하는 versioned JSON export
+- 지원 환경의 파일 다운로드·시스템 공유
+- offline local export
+
+### 제외
+
+- JSON import와 merge
+- 전문 검색 서버
+- 자동 백업 업로드
+- 단어장 export
+
+### 주요 영역
+
+- annotation repository의 cross-book query
+- 검색 index 또는 정규화 cache
+- annotation search/export modal
+- Markdown escaping과 versioned JSON serializer
+- download/share adapter
+
+### 완료 조건
+
+- tombstone과 복원 실패 항목의 포함 정책이 명확하다.
+- 따옴표·개행·Markdown 기호·emoji를 손상 없이 내보낸다.
+- JSON export가 schema validator로 다시 파싱된다.
+- iPad Safari/PWA에서 파일 저장 또는 공유 fallback이 동작한다.
+
+### 실기기 게이트
+
+- 여러 책과 100개 이상 annotation fixture
+- 한글 부분 검색과 동일 문장 중복 결과
+- offline 검색·내보내기
+- iPad 다운로드·공유
+- 결과 이동 후 원래 검색 상태 복귀
+
+## 1.8.5 — 번역·사전 다중 경로
+
+상태: 대기
+
+### 목표
+
+선택 텍스트를 브라우저·기기 능력에 따라 번역하거나 사전에서 찾고, 지원되지 않는 환경에서도 명확한 fallback을 제공한다.
+
+### 포함
+
+- translator·dictionary provider abstraction
+- 브라우저 내장 기능 feature detection
+- 설정 가능한 외부 번역·사전 제공자
+- 시스템 기본 선택 메뉴 fallback 유지
+- 원문·결과 복사
+- 번역 결과를 annotation note로 저장
+- 언어별 기본 사전 설정
+- provider 오류·미지원·offline 상태
+
+### 제외
+
+- 서버에서 제공하는 무료 번역 proxy
+- 앱이 API key를 보관하는 공용 번역 서비스
+- 책 전체 자동 번역
+- 번역 결과의 자동 영구 저장
+
+### 주요 영역
+
+- selection action menu
+- 신규 translation/dictionary provider layer
+- settings UI
+- result popover/modal
+- annotation note update path
+
+### 완료 조건
+
+- 현재 환경에서 사용할 수 없는 provider를 성공 가능한 것처럼 표시하지 않는다.
+- 선택 원문은 사용자가 실행한 provider 외에는 전송하지 않는다.
+- popup 차단·network failure 뒤 리더 위치와 selection 상태가 안전하게 정리된다.
+- 결과를 메모로 저장하면 기존 annotation sync 계약을 사용한다.
+
+### 실기기 게이트
+
+- PC Chrome, iPad Safari, iPad PWA
+- 한국어·영어·일본어
+- 내장 API 지원·미지원 환경
+- popup 차단·offline·provider 오류
+- 긴 선택문 제한과 결과 복사
+- 외부 페이지 왕복 후 reader 위치 유지
+
+## 1.8.6 — 선택·현재 위치 기본 TTS
+
+상태: 대기
+
+### 목표
+
+브라우저 Web Speech 기반으로 선택한 텍스트와 현재 위치의 짧은 구간을 안정적으로 듣고 제어한다.
+
+### 포함
+
+- 선택 부분 듣기
+- 현재 문장 또는 현재 위치부터 듣기
+- 재생·일시정지·재개·중지
+- 이전·다음 문장
+- voice·language·rate 설정
+- 현재 발화 문장 임시 강조
+- 기기별 voice 목록 갱신
+- reader 종료·책 전환 시 speech cleanup
+
+### 제외
+
+- 장 전체 자동 큐
+- 자동 페이지 이동
+- TTS cursor 영속 복원
+- lock-screen 재생 보장
+- cloud TTS
+
+### 주요 영역
+
+- 신규 speech synthesis adapter
+- 신규 `useReaderTts`
+- reader TTS controls
+- text segmentation utility
+- Foliate ephemeral annotation adapter
+
+### 완료 조건
+
+- speech queue가 책 전환·리더 종료 뒤 남지 않는다.
+- 저장된 하이라이트와 TTS 임시 강조가 서로 수정되지 않는다.
+- TTS 제어가 독서 진행률이나 자동 책갈피를 잘못 생성하지 않는다.
+- voice 목록이 늦게 로드되는 환경에서도 선택 UI가 갱신된다.
+
+### 실기기 게이트
+
+- PC Chrome과 iPad Safari voice 차이
+- 한글·영문·일문 및 혼합 문장
+- play·pause·resume·cancel 반복
+- 블루투스 오디오 연결 변경과 다른 오디오 interruption
+- 모달·앱 전환·책 전환 중 cleanup
+
+## 1.8.7 — 현재 장 연속 TTS
+
+상태: 대기
+
+### 목표
+
+기본 TTS 위에서 현재 장을 문장 단위로 연속 재생하고, 발화 위치에 맞춰 화면을 이동·복원한다.
+
+### 포함
+
+- 현재 장 전체 text traversal
+- sentence/paragraph chunk queue
+- 현재 발화 범위 추적
+- 다음 문장과 다음 화면 자동 이동
+- 장 끝 동작 설정
+- 마지막 TTS cursor 저장·복원
+- 10·20·30분 sleep timer
+- background → foreground 상태 재검증
+- 실패 chunk 재시도·건너뛰기
+
+### 제외
+
+- OS lock-screen media control 보장
+- 다음 책 자동 재생
+- cloud voice와 audio file cache
+- TTS 재생 시간을 독서 통계에 합치는 최종 정책
+
+### 주요 영역
+
+- chapter text walker와 segmentation
+- TTS queue state machine
+- CFI↔sentence cursor mapping
+- reader navigation와 progress save policy
+- visibility/page lifecycle handling
+
+### 완료 조건
+
+- 긴 장을 작은 chunk로 재생하고 queue 중복·정지가 없다.
+- 자동 이동이 auto bookmark 폭증이나 잘못된 progress write를 만들지 않는다.
+- 사용자가 수동 탐색하면 자동 이동과 TTS cursor의 우선순위가 명확하다.
+- background 복귀 시 실제 speech 상태를 다시 확인하고 UI만 재생 중으로 남지 않는다.
+
+### 실기기 게이트
+
+- 20~30분 이상의 긴 장
+- 네 탐색 모드와 화면 회전
+- 글자 크기·줄 간격 변경
+- background·foreground·화면 잠금 후 실제 지원 범위 기록
+- sleep timer
+- 최소 2~3일 실제 듣기 안정화
+
+## 1.8.8 — 단어장·복습
+
+상태: 대기
+
+### 목표
+
+사전 조회 결과와 원문 문맥을 단어장으로 저장하고, 간단하고 설명 가능한 복습 흐름을 제공한다.
+
+### 포함
+
+- 선택 단어·뜻·원문·책·장·annotation 연결 저장
+- 단어 normalization과 중복 정책
+- 단어장 검색·수정·삭제
+- 사용자별 단어장 동기화
+- `모름`, `애매함`, `앎` 3단계 복습
+- 복습 queue와 마지막 결과 저장
+- Markdown·JSON export 확장
+- 원문 위치로 이동
+
+### 제외
+
+- 형태소 분석 기반 자동 표제어 결정
+- 복잡한 spaced repetition 알고리즘
+- 외부 단어장 서비스 연동
+- 자동 예문 생성
+
+### 주요 영역
+
+- vocabulary local schema·repository
+- vocabulary sync schema·transaction·Rules
+- dictionary result integration
+- review scheduler와 UI
+- export schema 확장
+
+### 완료 조건
+
+- 같은 단어의 대소문자·공백·언어별 normalization 정책이 테스트로 고정된다.
+- 서로 다른 책의 같은 단어를 합칠지 분리할지 사용자가 예측할 수 있다.
+- offline save와 양기기 edit/delete가 annotation과 같은 안전 기준을 만족한다.
+- 복습 도중 종료·재실행해도 결과가 중복 반영되지 않는다.
+
+### 실기기 게이트
+
+- 같은 단어를 여러 책·문장에서 저장
+- offline 저장 후 재연결
+- PC↔iPad 동시 수정·삭제
+- 날짜 변경과 기기 시간대
+- 복습 중 앱 종료·재개
+- 원문 위치 이동
+
+## 1.8.9 — 독서 통계
+
+상태: 대기
+
+### 목표
+
+진행률 write 횟수가 아니라 실제 활성 독서 세션을 바탕으로 책별·일별·주별 통계를 계산한다.
+
+### 포함
+
+- active reading session 시작·중단·종료
+- 책별 읽은 시간과 읽은 날짜
+- 일·주·월 집계
+- 진행률 변화와 완독 기록
+- 화면 독서와 TTS 듣기 시간 분리
+- 기기 간 session ID와 중복 제거
+- offline session 업로드
+- 통계 Markdown·JSON export
+
+### 제외
+
+- 건강·집중도 추정
+- 백그라운드에 둔 시간의 독서 시간 포함
+- 경쟁·소셜 기능
+- 기존 progress timestamp로 과거 시간을 역산
+
+### 주요 영역
+
+- reading session local schema
+- activity·visibility·reader lifecycle tracker
+- session sync와 aggregate policy
+- statistics query·UI·export
+
+### 완료 조건
+
+- 화면을 켜 둔 채 입력이 없는 시간을 무제한 누적하지 않는다.
+- background, 책 전환, 리더 종료, 브라우저 종료 경계가 멱등적이다.
+- PC와 iPad 동시 실행을 하나의 세션으로 잘못 합치거나 두 배로 집계하지 않는다.
+- 자정·시간대·기기 시각 변경 정책이 테스트로 고정된다.
+
+### 실기기 게이트
+
+- 짧은 세션·장시간 idle·background
+- 자정 통과와 시간대 변경
+- PC와 iPad 동시 독서
+- offline session 재연결
+- TTS만 재생한 시간 분리
+- 빠른 앱 종료와 재실행
+- 최소 2~3일 실제 사용 후 수기 시간과 비교
+
+## 7. 공통 자동검증 게이트
+
+각 개별 버전은 기본적으로 다음 검증을 통과해야 한다.
+
+```bash
+npm run check:full
+```
+
+현재 `check:full`은 다음을 포함한다.
+
+- ESLint
+- TypeScript typecheck
+- 전체 Node 회귀 테스트
+- production build
+- Firestore Rules/transaction 테스트
+- Playwright Chromium·WebKit 테스트
+- production Chrome browser regression
+
+변경 위험에 따라 다음을 별도로 추가한다.
+
+- IndexedDB migration과 future-version preservation
+- annotation/vocabulary/session schema validator
+- outbox lease·receipt replay·tombstone·conflict
+- Foliate iframe selection·overlay lifecycle
+- Service Worker update 승인과 local commit drain
+- release version, lockfile, Service Worker cache name과 browser fixture 일치
+
+자동검증 결과는 개별 버전 문서에 실제 명령, 테스트 개수, build 결과, 알려진 환경성 재시도 여부와 함께 기록한다. 이전 버전의 통과 기록을 현재 버전 증거로 재사용하지 않는다.
+
+## 8. 공통 실기기 검증 게이트
+
+Playwright WebKit은 Desktop Safari profile이므로 실제 iPad Safari와 홈 화면 PWA를 대체하지 않는다.
+
+### 기본 기기
+
+- PC production Chrome
+- iPad Safari 브라우저 탭
+- iPad 홈 화면 PWA
+- 동기화 버전에서는 PC와 iPad 동시 로그인
+
+### 모든 버전의 공통 회귀
+
+- 로컬 EPUB 열기·닫기
+- Drive EPUB 열기·닫기
+- TXT 원본 업로드·TXT-to-EPUB cache 재사용
+- 마지막 위치 자동 재개
+- 페이지·스크롤·좌우·전체 방향 탐색
+- TOC·검색·퍼센트·CFI·슬라이더 이동
+- 수동 책갈피 생성·이동·삭제
+- 자동 책갈피 생성과 복구
+- 원격 진행률 수신·채택·충돌
+- offline → online 복귀
+- background → foreground 복귀
+- PWA update 승인 전후 progress·local mutation flush
+
+### 안정화 기간
+
+- 중간 이하 위험: 집중 실기기 세션 1~2회 후 판정한다.
+- 중상 위험: PC와 iPad에서 실제 책 1권 이상을 읽고 재실행·복귀를 확인한다.
+- 높음 이상 위험: 최소 2~3일 실제 사용과 양기기 왕복을 거친다.
+- 안정화 중 데이터 손실, 삭제 부활, 잘못된 자동 이동, 반복 알림이 한 번이라도 재현되면 다음 기능으로 넘어가지 않는다.
+
+## 9. 개별 버전 문서 규칙
+
+새 버전 작업을 시작할 때 먼저 해당 문서를 만든다.
+
+예:
+
+```text
+update_1.8.0.md
+update_1.8.1.md
+update_1.8.2.md
+```
+
+개별 문서는 최소한 다음 구조를 가진다.
+
+```markdown
+# Web Reader 1.8.0 제목
+
+작성일:
+기준 커밋:
+상위 계획: update_1.8.x_plan.md
+
+## 목표
+## 리뷰 판정
+## 범위
+## 명시적 제외
+## Phase 1 — ...
+상태: 대기
+## 완료 조건
+## 자동검증 계획
+## 실기기 테스트 계획
+## 구현 결과
+## 자동검증 결과
+## 실기기 검증 결과
+## 보류·후속 버전
+```
+
+작성·갱신 규칙은 다음과 같다.
+
+- 시작 시점의 실제 HEAD를 기준 커밋으로 기록한다.
+- 마스터 계획을 그대로 복사하지 않고 해당 버전의 실제 설계 결정과 파일 경계를 구체화한다.
+- 수용·보류·제외 항목을 `리뷰 판정` 표로 고정한다.
+- phase는 서로 독립적으로 검증 가능한 크기로 나눈다.
+- 코드 수정 후 자동검증이 끝나도 실기기 항목은 `검증 대기`로 유지한다.
+- 실기기에서 발견된 결함과 수정 결과를 같은 문서에 append하고 전체 회귀를 다시 확인한다.
+- 사용자 요청에 따라 커밋·푸시한 경우 commit ID와 local/remote HEAD 확인을 기록한다.
+- 릴리스가 끝나면 이 마스터 계획의 상태와 실제 다음 예정 버전을 갱신한다.
+
+## 10. 버전 변경과 안정화 패치 정책
+
+- 출시 전 발견된 결함은 해당 버전 문서의 phase로 해결한다.
+- 출시 후 발견된 결함은 다음 patch를 안정화 전용으로 사용할 수 있다.
+- 안정화 patch에는 다음 예정 기능을 끼워 넣지 않는다.
+- 안정화로 버전 번호가 밀리면 이 문서의 예정 릴리스 표와 이후 개별 문서명을 함께 갱신한다.
+- 실제 사용에서 필요성이 낮아진 기능은 억지로 유지하지 않고 보류 사유와 재개 조건을 기록한다.
+- 범위가 커진 기능은 더 작은 patch로 분리하고 완료되지 않은 항목을 완료로 표시하지 않는다.
+
+## 11. 주요 위험과 중단 조건
+
+| 위험 | 주요 버전 | 중단 조건 | 대응 원칙 |
+| --- | --- | --- | --- |
+| 선택 손잡이와 탭 이동 충돌 | 1.8.0 | 선택 중 페이지 이동 | gesture arbitration을 먼저 수정 |
+| CFI drift와 잘못된 하이라이트 | 1.8.1 | 다른 문장에 표시 | quote/context 검증, 실패 항목 분리 |
+| 기존 책갈피 손실 | 1.8.1~1.8.3 | manual/auto 누락 | annotation과 bookmark 저장 경계 재검증 |
+| 삭제된 주석 부활 | 1.8.3 | stale 기기 재접속 후 복원 | tombstone·authoritative hydration 수정 |
+| 초기 업로드 중복 | 1.8.3 | 동일 ID·내용 중복 | event ID·receipt 멱등성 수정 |
+| 번역 제공자 오동작 | 1.8.5 | 무응답·잘못된 성공 표시 | capability·fallback 상태 분리 |
+| speech 상태와 UI 불일치 | 1.8.6~1.8.7 | 정지했는데 재생 표시 | 실제 synthesizer 상태 재검증 |
+| TTS 자동 이동이 진행률 오염 | 1.8.7 | auto bookmark/write 폭증 | navigation save policy 분리 |
+| 단어 중복·복습 손실 | 1.8.8 | 재접속 뒤 중복·누락 | normalization·receipt 계약 수정 |
+| 독서 시간 과대 집계 | 1.8.9 | idle/background 포함 | session boundary와 idle cutoff 수정 |
+
+## 12. 현재 다음 단계
+
+`1.8.0 — 텍스트 선택 기반`의 구현과 Web GPT 1차 finding 수정, 자동검증은 완료했다.
+
+현재 다음 단계는 다음 순서로 진행한다.
+
+1. 사용자가 수정 diff와 검증 증거를 Web GPT에 전달해 중요 finding이 남는지 재검토한다.
+2. 중요 finding이 없으면 iPad Safari browser tab과 home-screen PWA 실기기 항목을 검증한다.
+3. 재검토와 실기기 결과를 `update_1.8.0.md`에 기록한 뒤 1.8.0을 commit한다.
+4. 그 뒤에만 `update_1.8.1.md`를 만들고 local annotation schema 구현을 시작한다.
+
+1.8.0의 재검토·실기기 검증·commit이 끝나기 전에는 1.8.1 로컬 annotation schema를 적용하지 않는다.

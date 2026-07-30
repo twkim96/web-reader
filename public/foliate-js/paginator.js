@@ -190,6 +190,13 @@ const selectionIsBackward = sel => {
     return range.collapsed
 }
 
+const hasActiveTextSelection = event => {
+    const target = event?.target
+    const doc = target?.nodeType === Node.DOCUMENT_NODE ? target : target?.ownerDocument
+    const selection = doc?.getSelection?.()
+    return Boolean(selection?.rangeCount && !selection.isCollapsed)
+}
+
 const setSelectionTo = (target, collapse) => {
     let range
     if (target.startContainer) range = target.cloneRange()
@@ -625,9 +632,9 @@ export class Paginator extends HTMLElement {
             const selRange = sel.getRangeAt(0)
             const backward = selectionIsBackward(sel)
             if (backward && selRange.compareBoundaryPoints(Range.START_TO_START, range) < 0)
-                this.prev()
+                this.#turnPage(-1, undefined, 'selection-page')
             else if (!backward && selRange.compareBoundaryPoints(Range.END_TO_END, range) > 0)
-                this.next()
+                this.#turnPage(1, undefined, 'selection-page')
         }, 700)
         this.addEventListener('load', ({ detail: { doc } }) => {
             let isPointerSelecting = false
@@ -648,7 +655,7 @@ export class Paginator extends HTMLElement {
                     const selRange = sel.getRangeAt(0).cloneRange()
                     const backward = selectionIsBackward(sel)
                     if (!backward) selRange.collapse()
-                    this.#scrollToAnchor(selRange)
+                    this.#scrollToAnchor(selRange, 'selection-anchor')
                 }
             })
             doc.addEventListener('focusin', e => this.scrolled ? null :
@@ -872,6 +879,11 @@ export class Paginator extends HTMLElement {
     }
     #onTouchMove(e) {
         const state = this.#touchState
+        if (!state) return
+        if (hasActiveTextSelection(e)) {
+            state.selecting = true
+            return
+        }
         if (state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
         if (this.scrolled || state.pinched) return
@@ -892,8 +904,12 @@ export class Paginator extends HTMLElement {
         this.#touchScrolled = true
         this.scrollBy(dx, dy)
     }
-    #onTouchEnd() {
+    #onTouchEnd(e) {
         this.#touchScrolled = false
+        if (this.#touchState?.selecting || hasActiveTextSelection(e)) {
+            this.#touchState = null
+            return
+        }
         if (this.scrolled) return
 
         // XXX: Firefox seems to report scale as 1... sometimes...?
@@ -995,7 +1011,11 @@ export class Paginator extends HTMLElement {
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
-        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor')
+        if (reason !== 'selection'
+            && reason !== 'selection-page'
+            && reason !== 'selection-anchor'
+            && reason !== 'navigation'
+            && reason !== 'anchor')
             this.#anchor = range
         else this.#justAnchored = true
 
@@ -1066,7 +1086,7 @@ export class Paginator extends HTMLElement {
         const resolved = await target
         if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
     }
-    #scrollPrev(distance) {
+    #scrollPrev(distance, reason = 'page') {
         if (!this.#view) return true
         if (this.scrolled) {
             if (this.start > 0) return this.#scrollTo(
@@ -1075,9 +1095,9 @@ export class Paginator extends HTMLElement {
         }
         if (this.atStart) return
         const page = this.page - 1
-        return this.#scrollToPage(page, 'page', true).then(() => page <= 0)
+        return this.#scrollToPage(page, reason, true).then(() => page <= 0)
     }
-    #scrollNext(distance) {
+    #scrollNext(distance, reason = 'page') {
         if (!this.#view) return true
         if (this.scrolled) {
             if (this.viewSize - this.end > 2) return this.#scrollTo(
@@ -1087,7 +1107,7 @@ export class Paginator extends HTMLElement {
         if (this.atEnd) return
         const page = this.page + 1
         const pages = this.pages
-        return this.#scrollToPage(page, 'page', true).then(() => page >= pages - 1)
+        return this.#scrollToPage(page, reason, true).then(() => page >= pages - 1)
     }
     get atStart() {
         return this.#adjacentIndex(-1) == null && this.page <= 1
@@ -1099,11 +1119,18 @@ export class Paginator extends HTMLElement {
         for (let index = this.#index + dir; this.#canGoToIndex(index); index += dir)
             if (this.sections[index]?.linear !== 'no') return index
     }
-    async #turnPage(dir, distance) {
+    async #turnPage(dir, distance, reason = 'page') {
         if (this.#locked) return
         this.#locked = true
         const prev = dir === -1
-        const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
+        const isSelectionPage = reason === 'selection-page'
+        if (isSelectionPage && (prev ? this.page <= 1 : this.page >= this.pages - 2)) {
+            this.#locked = false
+            return
+        }
+        const shouldGo = await (prev
+            ? this.#scrollPrev(distance, reason)
+            : this.#scrollNext(distance, reason))
         if (shouldGo) await this.#goTo({
             index: this.#adjacentIndex(dir),
             anchor: prev ? () => 1 : () => 0,

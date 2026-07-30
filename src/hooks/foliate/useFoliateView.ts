@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getProgressFromRelocateDetail } from './progress';
 import { installScrollBoundaryNavigation } from './scrollBoundaryNavigation';
 import { FoliateViewElement, RelocateDetail } from './types';
+import {
+  clearStaleFoliateRuntimeEntries,
+  createRetryablePreparation,
+  FOLIATE_ENTRY_URL,
+} from '../../lib/foliateRuntimeCache';
 
 interface UseFoliateViewOptions {
   onRelocate?: (detail: RelocateDetail) => void;
@@ -14,13 +19,19 @@ interface UseFoliateViewOptions {
   onChapterChange: (chapter: string) => void;
 }
 
+const prepareFoliateRuntime = createRetryablePreparation(async () => {
+  if (!('caches' in window)) return;
+  await clearStaleFoliateRuntimeEntries(window.caches, window.location.origin);
+});
+
 const waitForFoliateViewRegistration = async () => {
+  await prepareFoliateRuntime();
   if (customElements.get('foliate-view')) return;
 
   await new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/foliate-js/view.js';
+    script.src = FOLIATE_ENTRY_URL;
     script.onload = () => undefined;
     script.onerror = (event) => {
       console.error('[EpubReader] view.js load error:', event);

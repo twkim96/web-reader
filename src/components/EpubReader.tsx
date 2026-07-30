@@ -10,6 +10,7 @@ import {
   getReaderKeyboardAction,
   getReaderTapAction,
 } from '../lib/readerNavigation';
+import { isSelectionRelocateReason } from '../lib/readerTextSelection';
 import { ACCENT_PALETTE } from '../lib/constants';
 import { getThemeClasses, getThemeColors, getThemeCssVariables, getThemeTextureCss } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
@@ -22,14 +23,16 @@ import { ProgressJumpConfirmDialog } from './reader/ProgressJumpConfirmDialog';
 import { ReaderStatusBar } from './reader/ReaderStatusBar';
 import { ReaderToolbar } from './reader/ReaderToolbar';
 import { SyncConflictDialog } from './reader/SyncConflictDialog';
+import { TextSelectionMenu } from './reader/TextSelectionMenu';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
 import { useReaderChrome } from '../hooks/reader/useReaderChrome';
 import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
+import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
-import type { TocItem } from '../hooks/foliate/types';
+import type { RelocateDetail, TocItem } from '../hooks/foliate/types';
 
 interface EpubReaderProps {
   book: Book;
@@ -185,6 +188,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const suppressLastReaderSessionOnExitRef = useRef(false);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
+  const documentTapRef = useRef<(point: { x: number; y: number }) => void>(() => undefined);
   const controlsOverlayRef = useRef<HTMLDivElement | null>(null);
   const wheelNavigationCycleLockedRef = useRef(false);
   const wheelNavigationResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -250,6 +254,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || chrome.showSearchModal
     || chrome.showJumpInput;
   const isReaderPanelOpenRef = useRef(false);
+  const showControlsRef = useRef(chrome.showControls);
   const {
     lastSaveTimeRef,
     updateSaveContext,
@@ -270,6 +275,23 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     onAdoptRemoteProgress,
   });
 
+  const handleDocumentTap = useCallback((point: { x: number; y: number }) => {
+    documentTapRef.current(point);
+  }, []);
+  const {
+    selection: selectedText,
+    feedback: selectionFeedback,
+    canShare: canShareSelection,
+    hasSelectionRef,
+    bindDocument: bindSelectionDocument,
+    clearSelection: clearTextSelection,
+    copySelection,
+    shareSelection,
+  } = useReaderTextSelection({
+    enabled: !isFixedLayout,
+    onDocumentTap: handleDocumentTap,
+  });
+
   useEffect(() => {
     onRegisterQuietResumeEligibility?.(isQuietResumeEligible);
     return () => onRegisterQuietResumeEligibility?.(null);
@@ -282,11 +304,25 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const handleReaderLoad = useCallback((doc?: Document) => {
     if (!doc) return;
-    doc.addEventListener('click', chrome.toggleControls);
+    bindSelectionDocument(doc);
     doc.addEventListener('wheel', (event) => wheelNavigationRef.current(event), { passive: false });
-    doc.addEventListener('touchmove', () => markUserProgressChange(), { passive: true });
+    doc.addEventListener('touchmove', (event) => {
+      if (showControlsRef.current && !hasSelectionRef.current) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (!hasSelectionRef.current) markUserProgressChange();
+    }, { passive: false, capture: true });
     doc.addEventListener('keydown', (event) => keyboardNavigationRef.current(event));
-  }, [chrome.toggleControls, markUserProgressChange]);
+  }, [bindSelectionDocument, hasSelectionRef, markUserProgressChange]);
+
+  const handleReaderRelocate = useCallback((detail: RelocateDetail) => {
+    if (!isSelectionRelocateReason(detail.reason)) {
+      clearTextSelection();
+    }
+    handleRelocateForSave(detail);
+  }, [clearTextSelection, handleRelocateForSave]);
 
   const {
     containerRef,
@@ -307,7 +343,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     toc,
   } = useEpubReader({
     initialPercent,
-    onRelocate: handleRelocateForSave,
+    onRelocate: handleReaderRelocate,
     onLoad: handleReaderLoad,
   });
 
@@ -395,6 +431,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     isReaderPanelOpenRef.current = isReaderPanelOpen;
   }, [isReaderPanelOpen]);
 
+  useLayoutEffect(() => {
+    showControlsRef.current = chrome.showControls;
+  }, [chrome.showControls]);
+
+  useEffect(() => {
+    if (isReaderPanelOpen) clearTextSelection();
+  }, [clearTextSelection, isReaderPanelOpen]);
+
   useEffect(() => {
     updateSaveContext({
       currentCfi,
@@ -423,19 +467,16 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     };
   }, [saveCurrentProgress]);
 
-  const handleInteraction = useCallback((event: React.MouseEvent) => {
-    if (suppressNextInteractionClickRef.current) {
-      suppressNextInteractionClickRef.current = false;
-      event.preventDefault();
-      event.stopPropagation();
+  const handleInteractionAtPoint = useCallback(({ x, y }: { x: number; y: number }) => {
+    if (hasSelectionRef.current) return;
+    if (chrome.showControls) {
+      chrome.setShowControls(false);
       return;
     }
-
-    const { clientX, clientY } = event;
     const action = getReaderTapAction({
       navMode: effectiveNavMode,
-      clientX,
-      clientY,
+      clientX: x,
+      clientY: y,
       width: window.innerWidth,
       height: window.innerHeight,
       topBottomPercent: settings.tapTopBottomPercent ?? DEFAULT_TOP_BOTTOM_TAP_PERCENT,
@@ -458,7 +499,23 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     prev,
     settings.tapLeftRightPercent,
     settings.tapTopBottomPercent,
+    hasSelectionRef,
   ]);
+
+  useLayoutEffect(() => {
+    documentTapRef.current = handleInteractionAtPoint;
+  }, [handleInteractionAtPoint]);
+
+  const handleInteraction = useCallback((event: React.MouseEvent) => {
+    if (suppressNextInteractionClickRef.current) {
+      suppressNextInteractionClickRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    handleInteractionAtPoint({ x: event.clientX, y: event.clientY });
+  }, [handleInteractionAtPoint]);
 
   const getFixedLayoutRenderer = useCallback(() => {
     const renderer = viewRef.current?.renderer;
@@ -837,6 +894,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       }
 
       if (effectiveNavMode === 'scroll') {
+        if (hasSelectionRef.current) clearTextSelection();
         markUserProgressChange();
         return;
       }
@@ -850,7 +908,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         || chrome.showToc
         || chrome.showSearchModal
         || chrome.showJumpInput;
-      if (isReaderPanelOpen) return;
+      if (isReaderPanelOpen) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
 
       const absDeltaX = Math.abs(event.deltaX);
       const absDeltaY = Math.abs(event.deltaY);
@@ -864,6 +926,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       wheelNavigationCycleLockedRef.current = true;
 
       const dominantDelta = absDeltaX > absDeltaY ? event.deltaX : event.deltaY;
+      if (hasSelectionRef.current) clearTextSelection();
       markUserProgressChange();
       if (dominantDelta < 0) prev();
       else next();
@@ -887,6 +950,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     next,
     prev,
     effectiveNavMode,
+    clearTextSelection,
+    hasSelectionRef,
   ]);
 
   useEffect(() => {
@@ -918,6 +983,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
       const keyboardAction = getReaderKeyboardAction(effectiveNavMode, event.key);
       if (!keyboardAction) return;
+
+      if (hasSelectionRef.current) clearTextSelection();
 
       if (effectiveNavMode === 'scroll') {
         event.preventDefault();
@@ -963,6 +1030,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     next,
     prev,
     effectiveNavMode,
+    clearTextSelection,
+    hasSelectionRef,
     viewRef,
   ]);
 
@@ -1053,7 +1122,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         }}
       />
 
-      {isLoaded && effectiveNavMode !== 'scroll' && (
+      {isLoaded && isFixedLayout && effectiveNavMode !== 'scroll' && (
         <div
           data-reader-interaction-overlay="true"
           className="fixed inset-0 z-10"
@@ -1075,7 +1144,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         />
       )}
 
-      {chrome.showControls && (
+      {chrome.showControls && isFixedLayout && (
         <div
           ref={controlsOverlayRef}
           data-reader-controls-overlay="true"
@@ -1091,6 +1160,18 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onPointerUp={handleFixedLayoutPointerEnd}
           onPointerCancel={handleFixedLayoutPointerEnd}
           onLostPointerCapture={handleFixedLayoutLostPointerCapture}
+        />
+      )}
+
+      {isLoaded && selectedText && !isReaderPanelOpen && !isFixedLayout && (
+        <TextSelectionMenu
+          selection={selectedText}
+          feedback={selectionFeedback}
+          canShare={canShareSelection}
+          theme={theme}
+          onCopy={() => void copySelection()}
+          onShare={() => void shareSelection()}
+          onClose={clearTextSelection}
         />
       )}
 
