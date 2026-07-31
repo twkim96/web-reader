@@ -24,6 +24,16 @@ export type SelectionViewportAnchor = {
   bottom: number;
 };
 
+export const getDocumentFrameMetrics = (doc: Document): FrameMetrics | null => {
+  const frame = doc.defaultView?.frameElement as HTMLElement | null;
+  if (!frame || typeof frame.getBoundingClientRect !== 'function') return null;
+  return {
+    rect: frame.getBoundingClientRect(),
+    clientWidth: frame.clientWidth,
+    clientHeight: frame.clientHeight,
+  };
+};
+
 const isUsableRect = (rect: RectLike) => (
   Number.isFinite(rect.left)
   && Number.isFinite(rect.top)
@@ -103,6 +113,39 @@ export const mapSelectionRectToViewport = (
     top: mapped.top,
     bottom: mapped.bottom,
   };
+};
+
+export const getRangeViewportAnchor = (
+  range: Range,
+  frame: FrameMetrics | null,
+  viewportWidth: number,
+  viewportHeight: number,
+) => {
+  const rects = (Array.from(range.getClientRects()) as RectLike[])
+    .map((rect) => mapFrameRectToViewport(rect, frame));
+  const anchorRect = pickSelectionAnchorRect(rects, viewportWidth, viewportHeight);
+  return anchorRect ? mapSelectionRectToViewport(anchorRect, null) : null;
+};
+
+export const getRangeTextContext = (
+  range: Range,
+  root: Node,
+  limit = 80,
+) => {
+  try {
+    const before = range.cloneRange();
+    before.selectNodeContents(root);
+    before.setEnd(range.startContainer, range.startOffset);
+    const after = range.cloneRange();
+    after.selectNodeContents(root);
+    after.setStart(range.endContainer, range.endOffset);
+    return {
+      prefix: before.toString().slice(-limit),
+      suffix: after.toString().slice(0, limit),
+    };
+  } catch {
+    return { prefix: '', suffix: '' };
+  }
 };
 
 export const hasNonCollapsedSelection = (selection: Selection | null) => (

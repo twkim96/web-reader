@@ -227,9 +227,11 @@ export const useProgressActions = ({
     }
   }, [getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
 
-  const deleteBookProgress = useCallback(async (bookId: string) => {
-    const owner = ownerRuntime.capture();
-    if (!owner) return false;
+  const deleteBookProgress = useCallback(async (
+    bookId: string,
+    owner: OwnerSnapshot,
+  ) => {
+    if (!ownerRuntime.isCurrent(owner)) return false;
     const existing = getCommittedProgress(owner, bookId);
     const resetData: UserProgress = {
       bookId,
@@ -265,13 +267,15 @@ export const useProgressActions = ({
       });
       if (!committed) return false;
       clearProgressCommitBaseline(owner.ownerKey, bookId);
+      if (!ownerRuntime.isCurrent(owner)) return false;
       setProgress((prev) => {
+        if (!ownerRuntime.isCurrent(owner)) return prev;
         const next = { ...prev };
         delete next[bookId];
         progressRef.current = next;
         return next;
       });
-      return true;
+      return ownerRuntime.isCurrent(owner);
     } catch (error) {
       console.error('[DeleteBookProgress] outbox reset failed:', error);
       reportPersistenceError(error);

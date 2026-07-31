@@ -3,18 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   hasNonCollapsedSelection,
+  getDocumentFrameMetrics,
+  getRangeTextContext,
+  getRangeViewportAnchor,
   isPublicationLinkTarget,
   mapFrameClientPoint,
-  mapFrameRectToViewport,
-  mapSelectionRectToViewport,
-  pickSelectionAnchorRect,
-  type FrameMetrics,
-  type RectLike,
   type SelectionViewportAnchor,
 } from '../../lib/readerTextSelection';
 
 export type ReaderTextSelection = SelectionViewportAnchor & {
   text: string;
+  range: Range;
+  index: number;
+  prefix: string;
+  suffix: string;
 };
 
 type DocumentTapHandler = (point: { x: number; y: number }) => void;
@@ -27,19 +29,9 @@ interface UseReaderTextSelectionOptions {
 type DocumentBinding = {
   cleanup: () => void;
   frameRequest: number | null;
+  index: number;
   selectionGesture: boolean;
   suppressNextClick: boolean;
-};
-
-const getFrameMetrics = (doc: Document): FrameMetrics | null => {
-  const frame = doc.defaultView?.frameElement;
-  if (!(frame instanceof HTMLElement)) return null;
-  const rect = frame.getBoundingClientRect();
-  return {
-    rect,
-    clientWidth: frame.clientWidth,
-    clientHeight: frame.clientHeight,
-  };
 };
 
 const installSelectionStyles = (doc: Document) => {
@@ -52,6 +44,9 @@ const installSelectionStyles = (doc: Document) => {
     html, body {
       -webkit-user-select: text !important;
       user-select: text !important;
+      -webkit-touch-callout: none !important;
+    }
+    a[href] {
       -webkit-touch-callout: default;
     }
   `;
@@ -137,14 +132,19 @@ export const useReaderTextSelection = ({
       return;
     }
 
-    const range = current!.getRangeAt(0);
+    const range = current!.getRangeAt(0).cloneRange();
     if (!doc.documentElement.contains(range.commonAncestorContainer)) return;
 
-    const frame = getFrameMetrics(doc);
-    const rects = (Array.from(range.getClientRects()) as RectLike[])
-      .map((rect) => mapFrameRectToViewport(rect, frame));
-    const anchorRect = pickSelectionAnchorRect(rects, window.innerWidth, window.innerHeight);
-    if (!anchorRect) return;
+    const anchor = getRangeViewportAnchor(
+      range,
+      getDocumentFrameMetrics(doc),
+      window.innerWidth,
+      window.innerHeight,
+    );
+    if (!anchor) return;
+    const binding = bindingsRef.current.get(doc);
+    if (!binding) return;
+    const context = getRangeTextContext(range, doc.body || doc.documentElement);
 
     const previousDocument = activeDocumentRef.current;
     if (previousDocument && previousDocument !== doc) {
@@ -159,8 +159,11 @@ export const useReaderTextSelection = ({
     activeDocumentRef.current = doc;
     hasSelectionRef.current = true;
     setSelection({
-      text: current!.toString(),
-      ...mapSelectionRectToViewport(anchorRect, null),
+      text: range.toString(),
+      range,
+      index: binding.index,
+      ...context,
+      ...anchor,
     });
   }, [enabled, resetBindingGesture]);
 
@@ -175,12 +178,13 @@ export const useReaderTextSelection = ({
     });
   }, [readSelection]);
 
-  const bindDocument = useCallback((doc: Document) => {
+  const bindDocument = useCallback((doc: Document, index = -1) => {
     if (!enabled || bindingsRef.current.has(doc)) return;
     const style = installSelectionStyles(doc);
     const binding: DocumentBinding = {
       cleanup: () => undefined,
       frameRequest: null,
+      index,
       selectionGesture: false,
       suppressNextClick: false,
     };
@@ -198,6 +202,13 @@ export const useReaderTextSelection = ({
     };
     const handlePointerUp = () => scheduleRead(doc);
     const handleTouchEnd = () => scheduleRead(doc);
+    const handleContextMenu = (event: Event) => {
+      if (
+        activeDocumentRef.current !== doc
+        && !hasNonCollapsedSelection(doc.getSelection())
+      ) return;
+      event.preventDefault();
+    };
     const handleScroll = () => {
       if (activeDocumentRef.current === doc) dismissMenu();
     };
@@ -215,9 +226,11 @@ export const useReaderTextSelection = ({
       if (event.defaultPrevented || isPublicationLinkTarget(event.target)) return;
       const point = mapFrameClientPoint(
         { x: event.clientX, y: event.clientY },
-        getFrameMetrics(doc),
+        getDocumentFrameMetrics(doc),
       );
-      onDocumentTap(point);
+      queueMicrotask(() => {
+        if (!event.defaultPrevented) onDocumentTap(point);
+      });
     };
 
     const cleanup = () => {
@@ -225,6 +238,7 @@ export const useReaderTextSelection = ({
       doc.removeEventListener('pointerdown', handlePointerDown, true);
       doc.removeEventListener('pointerup', handlePointerUp, true);
       doc.removeEventListener('touchend', handleTouchEnd, true);
+      doc.removeEventListener('contextmenu', handleContextMenu, true);
       doc.removeEventListener('scroll', handleScroll, true);
       doc.removeEventListener('click', handleClick, true);
       doc.defaultView?.removeEventListener('unload', cleanup);
@@ -246,6 +260,7 @@ export const useReaderTextSelection = ({
     doc.addEventListener('pointerdown', handlePointerDown, true);
     doc.addEventListener('pointerup', handlePointerUp, true);
     doc.addEventListener('touchend', handleTouchEnd, true);
+    doc.addEventListener('contextmenu', handleContextMenu, true);
     doc.addEventListener('scroll', handleScroll, true);
     doc.addEventListener('click', handleClick, true);
     doc.defaultView?.addEventListener('unload', cleanup, { once: true });

@@ -30,3 +30,16 @@ test('rebases after remote adoption and can clear a deleted book', () => {
   clearProgressCommitBaseline('owner-a', 'book-1');
   assert.equal(getProgressCommitBaseline('owner-a', 'book-1', undefined), undefined);
 });
+
+test('clears the committed owner after deletion without touching the newly active owner baseline', () => {
+  rebaseProgressCommitBaseline('owner-a', 'book-1', progress('deleted-owner'));
+  rebaseProgressCommitBaseline('owner-b', 'book-1', progress('current-owner'));
+
+  clearProgressCommitBaseline('owner-a', 'book-1');
+
+  assert.equal(getProgressCommitBaseline('owner-a', 'book-1', undefined), undefined);
+  assert.equal(
+    getProgressCommitBaseline('owner-b', 'book-1', undefined).cfi,
+    'current-owner',
+  );
+});

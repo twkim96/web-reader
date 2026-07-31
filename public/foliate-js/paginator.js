@@ -811,6 +811,9 @@ export class Paginator extends HTMLElement {
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
     }
+    get swipeNavigation() {
+        return this.getAttribute('swipe-navigation') !== 'false'
+    }
     get scrollProp() {
         const { scrolled } = this
         return this.#vertical ? (scrolled ? 'scrollLeft' : 'scrollTop')
@@ -887,6 +890,7 @@ export class Paginator extends HTMLElement {
         if (state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
         if (this.scrolled || state.pinched) return
+        if (!this.swipeNavigation) return
         if (e.touches.length > 1) {
             if (this.#touchScrolled) e.preventDefault()
             return
@@ -911,6 +915,10 @@ export class Paginator extends HTMLElement {
             return
         }
         if (this.scrolled) return
+        if (!this.swipeNavigation) {
+            this.#touchState = null
+            return
+        }
 
         // XXX: Firefox seems to report scale as 1... sometimes...?
         // at this point I'm basically throwing `requestAnimationFrame` at

@@ -2,8 +2,9 @@
 
 import React, { useLayoutEffect, useRef } from 'react';
 import { Copy, Share2, X } from 'lucide-react';
-import type { ThemeClasses } from '../../types';
+import type { HighlightColorId, ThemeClasses } from '../../types';
 import type { ReaderTextSelection } from '../../hooks/reader/useReaderTextSelection';
+import { HIGHLIGHT_COLORS } from '../../lib/annotationPolicy';
 
 interface TextSelectionMenuProps {
   selection: ReaderTextSelection;
@@ -12,6 +13,7 @@ interface TextSelectionMenuProps {
   theme: ThemeClasses;
   onCopy: () => void;
   onShare: () => void;
+  onHighlight: (colorId: HighlightColorId) => void;
   onClose: () => void;
 }
 
@@ -25,6 +27,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
   theme,
   onCopy,
   onShare,
+  onHighlight,
   onClose,
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -80,42 +83,60 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
       data-reader-selection-menu="true"
       role="toolbar"
       aria-label="선택한 텍스트 작업"
-      className={`fixed z-[80] flex min-h-11 max-w-[calc(100vw-24px)] items-center gap-1 rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} p-1.5 shadow-2xl`}
+      className={`fixed z-[80] flex max-w-[calc(100vw-24px)] flex-col items-stretch gap-1 rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} p-1.5 shadow-2xl`}
       onPointerDown={stopPropagation}
       onTouchStart={stopPropagation}
       onClick={stopPropagation}
     >
-      <button
-        type="button"
-        onClick={onCopy}
-        className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
-      >
-        <Copy size={15} />
-        복사
-      </button>
-      {canShare && (
+      <div className="flex items-center justify-center gap-0.5" aria-label="하이라이트 색상">
+        {HIGHLIGHT_COLORS.map((color) => (
+          <button
+            key={color.id}
+            type="button"
+            aria-label={`${color.label} 하이라이트 추가`}
+            onClick={() => onHighlight(color.id)}
+            className="flex size-11 items-center justify-center rounded-xl hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+          >
+            <span
+              className="size-6 rounded-full border border-black/15 dark:border-white/20"
+              style={{ backgroundColor: color.color }}
+            />
+          </button>
+        ))}
+      </div>
+      <div className="flex min-h-11 items-center gap-1">
         <button
           type="button"
-          onClick={onShare}
+          onClick={onCopy}
           className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
         >
-          <Share2 size={15} />
-          공유
+          <Copy size={15} />
+          복사
         </button>
-      )}
-      {feedback && (
-        <span className="whitespace-nowrap px-2 text-[11px] font-bold text-accent-500" role="status" aria-live="polite">
-          {feedback}
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="선택 메뉴 닫기"
-        className="flex size-11 items-center justify-center rounded-xl opacity-60 hover:bg-black/5 hover:opacity-100 active:scale-95 dark:hover:bg-white/10"
-      >
-        <X size={16} />
-      </button>
+        {canShare && (
+          <button
+            type="button"
+            onClick={onShare}
+            className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+          >
+            <Share2 size={15} />
+            공유
+          </button>
+        )}
+        {feedback && (
+          <span className="whitespace-nowrap px-2 text-[11px] font-bold text-accent-500" role="status" aria-live="polite">
+            {feedback}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="선택 메뉴 닫기"
+          className="flex size-11 items-center justify-center rounded-xl opacity-60 hover:bg-black/5 hover:opacity-100 active:scale-95 dark:hover:bg-white/10"
+        >
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 };

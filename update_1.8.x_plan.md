@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.0 구현·수정·자동검증 완료, Web GPT 재검토·실기기 검증 대기
+전체 상태: 1.8.1 개발·Web GPT 3차 리뷰·전체 gate·commit·push 완료, 실기기 검증 대기
 
 ## 1. 문서의 역할
 
@@ -44,8 +44,8 @@
 
 | 예정 버전 | 기능 묶음 | 주 검증 대상 | 위험도 | 상태 |
 | --- | --- | --- | --- | --- |
-| 1.8.0 | 텍스트 선택 기반·복사·공유 | iPad 선택과 탭 이동 충돌 | 중상 | 자동검증 완료·재검토 대기 |
-| 1.8.1 | 로컬 범위 하이라이트 엔진 | 저장·복원·기존 책갈피 호환 | 높음 | 대기 |
+| 1.8.0 | 텍스트 선택 기반·복사·공유 | iPad 선택과 탭 이동 충돌 | 중상 | 개발·리뷰·푸시 완료, 실기기 검증 진행 |
+| 1.8.1 | 로컬 범위 하이라이트 엔진 | 저장·복원·기존 책갈피 호환 | 높음 | 개발·3차 리뷰·full gate·push 완료, 실기기 검증 대기 |
 | 1.8.2 | 메모·팔레트·주석 관리 UI | 5색·대량 목록·검색·정렬 | 중간 | 대기 |
 | 1.8.3 | 하이라이트·메모·팔레트 동기화 | PC↔iPad·오프라인·충돌 | 매우 높음 | 대기 |
 | 1.8.4 | 라이브러리 전체 주석 검색·내보내기 | 대량 조회·파일 저장·공유 | 중간 | 대기 |
@@ -101,6 +101,7 @@ type Annotation = {
   id: string;
   bookId: string;
   type: 'highlight';
+  sectionIndex: number;
   rangeCfi: string;
   quote: string;
   prefix: string;
@@ -111,6 +112,7 @@ type Annotation = {
   chapter: string;
   createdAtClient: number;
   updatedAtClient: number;
+  anchorState: 'active' | 'unresolved';
 };
 ```
 
@@ -140,7 +142,7 @@ type Annotation = {
 
 ## 1.8.0 — 텍스트 선택 기반
 
-상태: 구현·수정·자동검증 완료, Web GPT 재검토·실기기 검증 대기 — 세부 실행 문서 `update_1.8.0.md`
+상태: 개발·리뷰·커밋·푸시 완료, 실기기 검증 진행 — 세부 실행 문서 `update_1.8.0.md`
 
 ### 목표
 
@@ -193,7 +195,7 @@ type Annotation = {
 
 ## 1.8.1 — 로컬 범위 하이라이트 엔진
 
-상태: 대기
+상태: 개발·Web GPT 3차 리뷰·full gate·commit·push 완료, 실기기 검증 대기 — 세부 실행 문서 `update_1.8.1.md`
 
 ### 목표
 
@@ -794,13 +796,13 @@ update_1.8.2.md
 
 ## 12. 현재 다음 단계
 
-`1.8.0 — 텍스트 선택 기반`의 구현과 Web GPT 1차 finding 수정, 자동검증은 완료했다.
+`1.8.0 — 텍스트 선택 기반`은 제품 코드 중요 finding 없이 `3faf93e`로 commit·push했고 사용자가 실제 iPad Safari/PWA를 검증 중이다.
 
 현재 다음 단계는 다음 순서로 진행한다.
 
-1. 사용자가 수정 diff와 검증 증거를 Web GPT에 전달해 중요 finding이 남는지 재검토한다.
-2. 중요 finding이 없으면 iPad Safari browser tab과 home-screen PWA 실기기 항목을 검증한다.
-3. 재검토와 실기기 결과를 `update_1.8.0.md`에 기록한 뒤 1.8.0을 commit한다.
-4. 그 뒤에만 `update_1.8.1.md`를 만들고 local annotation schema 구현을 시작한다.
+1. push된 1.8.1을 문제가 확인된 Android 브라우저에서 길게 누르기·선택 손잡이·native toolbar 중첩·탭 모드 swipe 차단까지 검증한다.
+2. iPad Safari browser tab과 home-screen PWA에서 생성·5색 변경·삭제·undo·재진입·PWA update 전후 복원을 검증한다.
+3. 결함이 있으면 다음 기능과 섞지 않고 영향 범위와 안정화 patch 여부를 먼저 판단한다.
+4. 실기기 안정화 뒤 `update_1.8.2.md`를 만들고 메모·팔레트·주석 관리 UI를 시작한다.
 
-1.8.0의 재검토·실기기 검증·commit이 끝나기 전에는 1.8.1 로컬 annotation schema를 적용하지 않는다.
+1.8.0 실기기에서 결함이 발견되면 1.8.1 기능과 섞어 숨기지 않고 영향 범위와 안정화 patch 여부를 먼저 판단한다.

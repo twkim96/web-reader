@@ -14,10 +14,16 @@ const {
   getAllLocalProgressV5,
   getAllOfflineBooksV5,
   loadBookFromLocalV5,
+  removeBookAndAnnotationsV8,
   saveArchiveInspectionToLocalV5,
   saveBookToLocalV5,
   saveProgressToLocalV5,
 } = await import('../src/lib/localDBV5.ts');
+const {
+  getLocalAnnotationsV8,
+  saveLocalAnnotationV8,
+} = await import('../src/lib/localAnnotations.ts');
+const { getPendingLocalCommitCount } = await import('../src/lib/localCommitTracker.ts');
 const schema = await import('../src/lib/localDBSchema.ts');
 const {
   DEVICE_CONTENT_OWNER_KEY,
@@ -43,6 +49,24 @@ const makeBook = (id, name = id) => ({
   name,
   mimeType: 'application/epub+zip',
   source: 'local',
+});
+
+const makeAnnotation = (ownerBookId, id, colorId = 'yellow') => ({
+  id,
+  bookId: ownerBookId,
+  type: 'highlight',
+  sectionIndex: 0,
+  rangeCfi: `epubcfi(/6/2!/4/2,/1:${id.length},/1:${id.length + 1})`,
+  quote: `quote ${id}`,
+  prefix: 'before',
+  suffix: 'after',
+  colorId,
+  note: '',
+  progressPercent: 10,
+  chapter: 'Chapter 1',
+  createdAtClient: 100,
+  updatedAtClient: 100,
+  anchorState: 'active',
 });
 
 const seedLegacyV4 = async ({ invalidMetadata = false } = {}) => {
@@ -135,6 +159,10 @@ const seedDeviceGlobalV6 = async () => {
     cfi: 'v6-progress',
     progressPercent: 61,
     lastRead: 6,
+    bookmarks: [
+      { id: 'manual-1', type: 'manual', name: 'Manual', cfi: 'm', createdAt: 1, color: 'yellow' },
+      { id: 'auto-1', type: 'auto', name: 'Auto', cfi: 'a', createdAt: 2, color: 'blue' },
+    ],
   });
   await tx.objectStore(schema.V5_ARCHIVE_INSPECTIONS_STORE).put({
     ownerKey: DEVICE_CONTENT_OWNER_KEY,
@@ -164,6 +192,7 @@ test('v4 upgrade discards retired stores and creates the active schema', async (
     schema.V5_SYNC_META_STORE,
     schema.V5_SYNC_CONFLICTS_STORE,
     schema.V5_SYNC_LEASES_STORE,
+    schema.V8_ANNOTATIONS_STORE,
   ]) {
     assert.equal(db.objectStoreNames.contains(storeName), true, storeName);
   }
@@ -241,6 +270,13 @@ test('v6 upgrade preserves device-global books, metadata, inspections, and progr
     ['Device Global Book'],
   );
   assert.deepEqual((await getAllLocalProgressV5(ownerA)).map(({ cfi }) => cfi), ['v6-progress']);
+  assert.deepEqual(
+    (await getAllLocalProgressV5(ownerA))[0].bookmarks.map(({ id, type }) => ({ id, type })),
+    [
+      { id: 'manual-1', type: 'manual' },
+      { id: 'auto-1', type: 'auto' },
+    ],
+  );
 
   const tx = db.transaction([
     schema.V5_ARCHIVE_INSPECTIONS_STORE,
@@ -266,7 +302,7 @@ test('a future index-only upgrade preserves all current active content stores', 
   await initDB();
   await closeLocalDB();
 
-  const db = await openDB(schema.LOCAL_DB_NAME, 8, {
+  const db = await openDB(schema.LOCAL_DB_NAME, 9, {
     upgrade(database, oldVersion, _newVersion, transaction) {
       schema.upgradeLocalDB(database, transaction, oldVersion);
     },
@@ -322,6 +358,67 @@ test('device books survive Firebase progress owner deletion', async () => {
   );
   assert.equal((await getAllLocalProgressV5(ownerA)).length, 0);
   assert.equal((await getAllLocalProgressV5(ownerB)).length, 1);
+});
+
+test('atomically removes one device book and only the current owner annotations', async () => {
+  await saveBookToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['device-book']),
+  );
+  await saveArchiveInspectionToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    'same-id',
+    'device',
+    { entries: [] },
+  );
+  await saveLocalAnnotationV8(ownerA, makeAnnotation('same-id', 'owner-a'));
+  await saveLocalAnnotationV8(ownerA, makeAnnotation('other-id', 'other-book'));
+  await saveLocalAnnotationV8(ownerB, makeAnnotation('same-id', 'owner-b', 'blue'));
+
+  const removing = removeBookAndAnnotationsV8(
+    ownerA,
+    DEVICE_CONTENT_OWNER_KEY,
+    'same-id',
+  );
+  assert.equal(getPendingLocalCommitCount(), 1);
+  assert.deepEqual(await removing, { annotationsDeleted: 1 });
+  assert.equal(getPendingLocalCommitCount(), 0);
+  assert.equal(await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id'), undefined);
+  assert.deepEqual(await getLocalAnnotationsV8(ownerA, 'same-id'), []);
+  assert.equal((await getLocalAnnotationsV8(ownerA, 'other-id')).length, 1);
+  assert.equal((await getLocalAnnotationsV8(ownerB, 'same-id')).length, 1);
+});
+
+test('aborts the combined book deletion when one store operation fails', async () => {
+  await saveBookToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['device-book']),
+  );
+  await saveLocalAnnotationV8(ownerA, makeAnnotation('same-id', 'owner-a'));
+
+  const originalDelete = IDBObjectStore.prototype.delete;
+  IDBObjectStore.prototype.delete = function deleteWithFailure(key) {
+    if (this.name === schema.V5_METADATA_STORE) {
+      throw new Error('injected metadata delete failure');
+    }
+    return originalDelete.call(this, key);
+  };
+  try {
+    await assert.rejects(
+      removeBookAndAnnotationsV8(ownerA, DEVICE_CONTENT_OWNER_KEY, 'same-id'),
+      /injected metadata delete failure/,
+    );
+  } finally {
+    IDBObjectStore.prototype.delete = originalDelete;
+  }
+
+  assert.equal(
+    await (await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id')).text(),
+    'device-book',
+  );
+  assert.equal((await getLocalAnnotationsV8(ownerA, 'same-id')).length, 1);
 });
 
 test('blocked current-schema open is reported and resumes after the old connection closes', async () => {

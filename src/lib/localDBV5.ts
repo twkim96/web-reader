@@ -12,10 +12,12 @@ import {
   V5_SYNC_LEASES_STORE,
   V5_SYNC_META_STORE,
   V5_OUTBOX_STORE,
+  V8_ANNOTATIONS_STORE,
 } from './localDBSchema';
 import type { ArchiveImageIndex } from './archiveImageBook';
 import type { OwnerKey } from './ownerIdentity';
 import { hasEnoughStorageForWrite } from './storageCapacity';
+import { trackLocalCommit } from './localCommitTracker';
 
 export type StoredBookMetadataV5 = Book & {
   ownerKey: OwnerKey;
@@ -183,6 +185,49 @@ export const removeBookFromLocalV5 = async (
   await tx.done;
 };
 
+export const removeBookAndAnnotationsV8 = (
+  annotationOwnerKey: OwnerKey,
+  contentOwnerKey: OwnerKey,
+  bookId: string,
+) => trackLocalCommit((async () => {
+  const db = await initDB();
+  const tx = db.transaction([
+    V5_BOOKS_STORE,
+    V5_METADATA_STORE,
+    V5_PROGRESS_STORE,
+    V5_ARCHIVE_INSPECTIONS_STORE,
+    V8_ANNOTATIONS_STORE,
+  ], 'readwrite');
+  try {
+    const annotationStore = tx.objectStore(V8_ANNOTATIONS_STORE);
+    const annotationKeys = await annotationStore.index('by-owner-book').getAllKeys([
+      annotationOwnerKey,
+      bookId,
+    ]);
+    await Promise.all([
+      ...annotationKeys.map((key) => annotationStore.delete(key)),
+      tx.objectStore(V5_BOOKS_STORE).delete([contentOwnerKey, bookId]),
+      tx.objectStore(V5_METADATA_STORE).delete([contentOwnerKey, bookId]),
+      tx.objectStore(V5_PROGRESS_STORE).delete([contentOwnerKey, bookId]),
+      tx.objectStore(V5_ARCHIVE_INSPECTIONS_STORE).delete([contentOwnerKey, bookId]),
+    ]);
+    await tx.done;
+    return { annotationsDeleted: annotationKeys.length };
+  } catch (error) {
+    try {
+      tx.abort();
+    } catch {
+      // A failed request may already have aborted the transaction.
+    }
+    try {
+      await tx.done;
+    } catch {
+      // Preserve the original operation error below.
+    }
+    throw error;
+  }
+})());
+
 const deleteByOwnerIndex = async (
   transaction: IDBPTransaction<unknown, [string], 'readwrite'>,
   storeName: string,
@@ -214,6 +259,7 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
     V5_ARCHIVE_INSPECTIONS_STORE,
     V5_REMOTE_HEADS_STORE,
     V5_SYNC_META_STORE,
+    V8_ANNOTATIONS_STORE,
   ];
   for (const storeName of indexedStores) {
     const tx = db.transaction(storeName, 'readwrite');

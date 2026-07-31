@@ -61,6 +61,28 @@ export interface Bookmark {
   color: string;     // Color code (Tailwind class or Hex)
 }
 
+export type HighlightColorId = 'yellow' | 'green' | 'blue' | 'pink' | 'purple';
+
+export type AnnotationAnchorState = 'active' | 'unresolved';
+
+export interface Annotation {
+  id: string;
+  bookId: string;
+  type: 'highlight';
+  sectionIndex: number;
+  rangeCfi: string;
+  quote: string;
+  prefix: string;
+  suffix: string;
+  colorId: HighlightColorId;
+  note: string;
+  progressPercent: number | null;
+  chapter: string;
+  createdAtClient: number;
+  updatedAtClient: number;
+  anchorState: AnnotationAnchorState;
+}
+
 export interface UserProgress {
   bookId: string;
   cfi: string;              // epub CFI (Canonical Fragment Identifier)

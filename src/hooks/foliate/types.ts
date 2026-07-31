@@ -102,7 +102,38 @@ export type FoliateViewElement = HTMLElement & {
   resolveNavigation: (href: string) => { index?: number } | null;
   search: (options: { query: string }) => AsyncIterable<FoliateSearchResult>;
   clearSearch?: () => void;
+  getCFI: (index: number, range?: Range) => string;
+  addAnnotation: (annotation: FoliateAnnotationPayload) => Promise<{
+    index: number;
+    label: string;
+  } | undefined>;
+  deleteAnnotation: (annotation: FoliateAnnotationPayload) => Promise<unknown>;
   close?: () => void;
+};
+
+export type FoliateAnnotationPayload = {
+  value: string;
+  annotationId: string;
+};
+
+export type FoliateDrawAnnotationDetail = {
+  annotation: FoliateAnnotationPayload;
+  doc: Document;
+  range: Range;
+  draw: (
+    renderer: (rects: DOMRectList, options: { color: string }) => SVGElement,
+    options: { color: string },
+  ) => void;
+};
+
+export type FoliateShowAnnotationDetail = {
+  value: string;
+  index: number;
+  range: Range;
+};
+
+export type FoliateCreateOverlayDetail = {
+  index: number;
 };
 
 export type ReaderStyle = {
@@ -119,6 +150,7 @@ export type ReaderStyle = {
 
 export type ReaderLayout = {
   flow?: 'paginated' | 'scrolled';
+  swipeNavigation?: boolean;
   margin?: number;
   gap?: string;
   maxColumnCount?: number;

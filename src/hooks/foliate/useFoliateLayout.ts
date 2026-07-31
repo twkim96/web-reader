@@ -144,6 +144,9 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     if (!renderer) return;
 
     if (layout.flow) renderer.setAttribute('flow', layout.flow);
+    if (layout.swipeNavigation !== undefined) {
+      renderer.setAttribute('swipe-navigation', String(layout.swipeNavigation));
+    }
     if (layout.margin !== undefined) renderer.setAttribute('margin', `${layout.margin}px`);
     if (layout.gap) renderer.setAttribute('gap', layout.gap);
     if (layout.maxColumnCount) renderer.setAttribute('max-column-count', String(layout.maxColumnCount));

@@ -869,7 +869,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.0')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.1')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -928,6 +928,16 @@ try {
     }
     const menu = document.querySelector('[data-reader-selection-menu="true"]');
     const menuRect = menu?.getBoundingClientRect();
+    const selectionStyle = doc.querySelector('style[data-reader-text-selection]');
+    const selectedContextMenuEvent = new doc.defaultView.MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+    });
+    const selectedContextMenuDispatch = textNode.parentElement?.dispatchEvent(
+      selectedContextMenuEvent,
+    );
+    const nativeContextMenuSuppressed = selectedContextMenuDispatch === false
+      && selectedContextMenuEvent.defaultPrevented;
     const beforeSuppressedClick = renderer.start;
     const selectedRect = range.getBoundingClientRect();
     textNode.parentElement?.dispatchEvent(new doc.defaultView.MouseEvent('click', {
@@ -953,9 +963,136 @@ try {
       .find((button) => button.textContent?.includes('공유'));
     shareButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 50));
-    document.querySelector('[data-reader-selection-menu="true"]')
-      ?.querySelector('button[aria-label="선택 메뉴 닫기"]')?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const yellowHighlightButton = document.querySelector(
+      '[data-reader-selection-menu="true"] button[aria-label="노랑 하이라이트 추가"]',
+    );
+    yellowHighlightButton?.click();
+    const highlightDeadline = performance.now() + 3000;
+    while (document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < highlightDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const readAnnotations = async () => {
+      const request = indexedDB.open('web-reader-db');
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const tx = db.transaction('annotations-v8', 'readonly');
+      const getAll = tx.objectStore('annotations-v8').getAll();
+      const records = await new Promise((resolve, reject) => {
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
+      });
+      db.close();
+      return records.filter((record) => record.bookId === 'selection-probe.txt');
+    };
+    const hasHighlightOverlay = () => renderer.getContents().some(({ overlayer }) => (
+      overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+    ));
+    const createdAnnotations = await readAnnotations();
+    const createdOverlay = hasHighlightOverlay();
+    const beforeHighlightClick = renderer.start;
+    const controlsBeforeHighlightClick = document.querySelector('nav')?.classList.contains('translate-y-0');
+    textNode.parentElement?.dispatchEvent(new doc.defaultView.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: selectedRect.left + selectedRect.width / 2,
+      clientY: selectedRect.top + selectedRect.height / 2,
+    }));
+    const highlightMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-highlight-menu="true"]')
+      && performance.now() < highlightMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const highlightMenu = document.querySelector('[data-reader-highlight-menu="true"]');
+    const highlightMenuRect = highlightMenu?.getBoundingClientRect();
+    const highlightActionRects = [...(highlightMenu?.querySelectorAll('button') ?? [])]
+      .map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+    const afterHighlightClick = renderer.start;
+    const controlsAfterHighlightClick = document.querySelector('nav')?.classList.contains('translate-y-0');
+    document.querySelector(
+      '[data-reader-highlight-menu="true"] button[aria-label="파랑 하이라이트"]',
+    )?.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const recoloredAnnotations = await readAnnotations();
+    const recoloredOverlay = hasHighlightOverlay();
+    document.querySelector(
+      '[data-reader-highlight-menu="true"] button[aria-label="하이라이트 삭제"]',
+    )?.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const deletedAnnotations = await readAnnotations();
+    [...document.querySelectorAll('[data-reader-annotation-feedback="true"] button')]
+      .find((button) => button.textContent?.includes('실행 취소'))?.click();
+    const restoredOverlayDeadline = performance.now() + 2000;
+    while (!hasHighlightOverlay()
+      && performance.now() < restoredOverlayDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const restoredAnnotations = await readAnnotations();
+    const restoredOverlay = hasHighlightOverlay();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const duplicateMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < duplicateMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    document.querySelector(
+      '[data-reader-selection-menu="true"] button[aria-label="초록 하이라이트 추가"]',
+    )?.click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const exactRangeAnnotations = await readAnnotations();
+    textNode.parentElement?.dispatchEvent(new doc.defaultView.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: selectedRect.left + selectedRect.width / 2,
+      clientY: selectedRect.top + selectedRect.height / 2,
+    }));
+    const overlayFailureMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-highlight-menu="true"]')
+      && performance.now() < overlayFailureMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const originalDeleteAnnotation = view.deleteAnnotation.bind(view);
+    view.deleteAnnotation = async () => {
+      throw new Error('injected overlay delete failure');
+    };
+    document.querySelector(
+      '[data-reader-highlight-menu="true"] button[aria-label="하이라이트 삭제"]',
+    )?.click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const overlayFailureDeletedAnnotations = await readAnnotations();
+    const overlayFailureDeleteFeedback = document.querySelector(
+      '[data-reader-annotation-feedback="true"]',
+    )?.textContent ?? '';
+    const overlayFailureUndoButton = [...document.querySelectorAll(
+      '[data-reader-annotation-feedback="true"] button',
+    )].find((button) => button.textContent?.includes('실행 취소'));
+    view.deleteAnnotation = originalDeleteAnnotation;
+    const originalAddAnnotation = view.addAnnotation.bind(view);
+    view.addAnnotation = async () => {
+      throw new Error('injected overlay restore failure');
+    };
+    overlayFailureUndoButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const overlayFailureRestoredAnnotations = await readAnnotations();
+    const overlayFailureUndoFeedback = document.querySelector(
+      '[data-reader-annotation-feedback="true"]',
+    )?.textContent ?? '';
+    view.addAnnotation = originalAddAnnotation;
+    renderer.setStyles(['', 'body { font-size: 21px !important; line-height: 2 !important; }']);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const overlayAfterStyleChange = hasHighlightOverlay();
+    renderer.setAttribute('flow', 'scrolled');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const overlayAfterLayoutChange = hasHighlightOverlay();
+    renderer.setAttribute('flow', 'paginated');
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const beforeTap = renderer.start;
     const frame = doc.defaultView.frameElement;
     const frameRect = frame?.getBoundingClientRect();
@@ -1003,12 +1140,58 @@ try {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const controlsClosed = !document.querySelector('nav')?.classList.contains('translate-y-0');
     const afterControlsCloseTap = renderer.start;
+    const inactiveContextMenuEvent = new doc.defaultView.MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+    });
+    const inactiveContextMenuAllowed = doc.body.dispatchEvent(inactiveContextMenuEvent)
+      && !inactiveContextMenuEvent.defaultPrevented;
     return {
       selectedText,
-      selectionStyleInstalled: Boolean(doc.querySelector('style[data-reader-text-selection]')),
+      selectionStyleInstalled: Boolean(selectionStyle),
+      nativeCalloutStyleSuppressed: selectionStyle?.textContent?.includes(
+        '-webkit-touch-callout: none !important',
+      ) ?? false,
+      nativeContextMenuSuppressed,
+      inactiveContextMenuAllowed,
       copyButtonFound: Boolean(copyButton),
       actionRects,
       shareButtonFound: Boolean(shareButton),
+      highlightButtonFound: Boolean(yellowHighlightButton),
+      createdAnnotationCount: createdAnnotations.length,
+      createdColor: createdAnnotations[0]?.colorId ?? null,
+      createdAnchorState: createdAnnotations[0]?.anchorState ?? null,
+      createdOverlay,
+      highlightMenuVisible: Boolean(document.querySelector('[data-reader-highlight-menu="true"]')),
+      highlightMenuShown: Boolean(highlightMenu),
+      highlightMenuInViewport: Boolean(highlightMenuRect
+        && highlightMenuRect.left >= 0
+        && highlightMenuRect.top >= 0
+        && highlightMenuRect.right <= innerWidth
+        && highlightMenuRect.bottom <= innerHeight),
+      highlightActionRects,
+      beforeHighlightClick,
+      afterHighlightClick,
+      controlsBeforeHighlightClick,
+      controlsAfterHighlightClick,
+      recoloredColor: recoloredAnnotations[0]?.colorId ?? null,
+      recoloredAnchorState: recoloredAnnotations[0]?.anchorState ?? null,
+      recoloredOverlay,
+      deletedAnnotationCount: deletedAnnotations.length,
+      restoredAnnotationCount: restoredAnnotations.length,
+      restoredColor: restoredAnnotations[0]?.colorId ?? null,
+      restoredAnchorState: restoredAnnotations[0]?.anchorState ?? null,
+      restoredOverlay,
+      exactRangeAnnotationCount: exactRangeAnnotations.length,
+      exactRangeColor: exactRangeAnnotations[0]?.colorId ?? null,
+      overlayFailureDeletedAnnotationCount: overlayFailureDeletedAnnotations.length,
+      overlayFailureDeleteFeedback,
+      overlayFailureUndoAvailable: Boolean(overlayFailureUndoButton),
+      overlayFailureRestoredAnnotationCount: overlayFailureRestoredAnnotations.length,
+      overlayFailureRestoredColor: overlayFailureRestoredAnnotations[0]?.colorId ?? null,
+      overlayFailureUndoFeedback,
+      overlayAfterStyleChange,
+      overlayAfterLayoutChange,
       clipboardAvailable: typeof navigator.clipboard?.writeText === 'function',
       shareAvailable: typeof navigator.share === 'function',
       overlayAbsent: !document.querySelector('[data-reader-interaction-overlay="true"]'),
@@ -1025,6 +1208,7 @@ try {
       selectionCleared: !document.querySelector('[data-reader-selection-menu="true"]')
         && !doc.getSelection()?.toString(),
       navMode: JSON.parse(localStorage.getItem('viewer_settings') || '{}').navMode,
+      swipeNavigation: renderer.getAttribute('swipe-navigation'),
       tapClientX,
       tapClientY,
       frameRect: frameRect ? {
@@ -1052,6 +1236,9 @@ try {
   assert.equal(selectionActions.overlayAbsent, true);
   assert.equal(selectionActions.menuVisible, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.menuInViewport, true);
+  assert.equal(selectionActions.nativeCalloutStyleSuppressed, true);
+  assert.equal(selectionActions.nativeContextMenuSuppressed, true);
+  assert.equal(selectionActions.inactiveContextMenuAllowed, true);
   assert.ok(
     selectionActions.actionRects.every(({ width, height }) => width >= 44 && height >= 44),
     JSON.stringify(selectionActions.actionRects),
@@ -1059,7 +1246,36 @@ try {
   assert.equal(selectionActions.afterSuppressedClick, selectionActions.beforeSuppressedClick);
   assert.equal(selectionActions.copiedText, selectionActions.selectedText, JSON.stringify(selectionActions));
   assert.equal(selectionActions.sharedText, selectionActions.selectedText);
+  assert.equal(selectionActions.highlightButtonFound, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.createdAnnotationCount, 1, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.createdColor, 'yellow');
+  assert.equal(selectionActions.createdOverlay, true);
+  assert.equal(selectionActions.highlightMenuShown, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.highlightMenuInViewport, true, JSON.stringify(selectionActions));
+  assert.ok(
+    selectionActions.highlightActionRects.every(({ width, height }) => width >= 44 && height >= 44),
+    JSON.stringify(selectionActions.highlightActionRects),
+  );
+  assert.equal(selectionActions.beforeHighlightClick, selectionActions.afterHighlightClick);
+  assert.equal(selectionActions.controlsBeforeHighlightClick, selectionActions.controlsAfterHighlightClick);
+  assert.equal(selectionActions.recoloredColor, 'blue');
+  assert.equal(selectionActions.deletedAnnotationCount, 0);
+  assert.equal(selectionActions.restoredAnnotationCount, 1);
+  assert.equal(selectionActions.restoredColor, 'blue');
+  assert.equal(selectionActions.restoredOverlay, true);
+  assert.equal(selectionActions.exactRangeAnnotationCount, 1);
+  assert.equal(selectionActions.exactRangeColor, 'green');
+  assert.equal(selectionActions.overlayFailureDeletedAnnotationCount, 0);
+  assert.match(selectionActions.overlayFailureDeleteFeedback, /하이라이트 삭제됨/);
+  assert.equal(selectionActions.overlayFailureUndoAvailable, true);
+  assert.equal(selectionActions.overlayFailureRestoredAnnotationCount, 1);
+  assert.equal(selectionActions.overlayFailureRestoredColor, 'green');
+  assert.match(selectionActions.overlayFailureUndoFeedback, /실행 취소됨/);
+  assert.equal(selectionActions.overlayAfterStyleChange, true);
+  assert.equal(selectionActions.overlayAfterLayoutChange, true);
   assert.equal(selectionActions.selectionCleared, true);
+  assert.equal(selectionActions.navMode, 'left-right');
+  assert.equal(selectionActions.swipeNavigation, 'false');
   assert.notEqual(selectionActions.afterTap, selectionActions.beforeTap, JSON.stringify(selectionActions));
   assert.ok(selectionActions.relocateReasons.includes('page'), JSON.stringify(selectionActions));
   assert.equal(selectionActions.controlsOpened, true, JSON.stringify(selectionActions));
@@ -1077,6 +1293,377 @@ try {
   await waitFor(
     `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
     'shelf after selection TXT reader',
+  );
+  await evaluate(`(() => {
+    const title = [...document.querySelectorAll('main h3')]
+      .find((node) => node.textContent?.includes('selection-probe'));
+    title?.closest('.group')?.click();
+    return Boolean(title);
+  })()`);
+  await waitFor(
+    `(() => {
+      const view = document.querySelector('foliate-view');
+      return Boolean(view?.renderer?.getContents?.().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+      )));
+    })()`,
+    'persisted local highlight after reader reopen',
+    60_000,
+  );
+  const highlightReopen = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const hasOverlay = view?.renderer?.getContents?.().some(({ overlayer }) => (
+      overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+    ));
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const getAll = db.transaction('annotations-v8', 'readonly')
+      .objectStore('annotations-v8').getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    db.close();
+    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    return {
+      overlayVisible: Boolean(hasOverlay),
+      savedCount: records.filter((record) => record.bookId === 'selection-probe.txt').length,
+      colorId: saved?.colorId ?? null,
+      sectionIndex: saved?.sectionIndex ?? null,
+      anchorState: saved?.anchorState ?? null,
+      quote: saved?.quote ?? null,
+    };
+  })()`);
+  assert.equal(highlightReopen.overlayVisible, true, JSON.stringify(highlightReopen));
+  assert.equal(highlightReopen.savedCount, 1);
+  assert.equal(highlightReopen.colorId, 'green');
+  assert.equal(highlightReopen.sectionIndex, 0);
+  assert.equal(highlightReopen.anchorState, 'active');
+  assert.equal(highlightReopen.quote, selectionActions.selectedText);
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
+    'shelf after highlight reopen',
+  );
+  await evaluate(`(async () => {
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const tx = db.transaction('annotations-v8', 'readwrite');
+    const store = tx.objectStore('annotations-v8');
+    const getAll = store.getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    const annotation = records.find((record) => record.bookId === 'selection-probe.txt');
+    await new Promise((resolve, reject) => {
+      const put = store.put({ ...annotation, sectionIndex: 99 });
+      put.onsuccess = () => resolve();
+      put.onerror = () => reject(put.error);
+    });
+    db.close();
+  })()`);
+  await evaluate(`(() => {
+    const title = [...document.querySelectorAll('main h3')]
+      .find((node) => node.textContent?.includes('selection-probe'));
+    title?.closest('.group')?.click();
+  })()`);
+  await waitFor(
+    `(async () => {
+      const view = document.querySelector('foliate-view');
+      const overlayVisible = view?.renderer?.getContents?.().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+      ));
+      const request = indexedDB.open('web-reader-db');
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const getAll = db.transaction('annotations-v8', 'readonly')
+        .objectStore('annotations-v8').getAll();
+      const records = await new Promise((resolve, reject) => {
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
+      });
+      db.close();
+      return overlayVisible
+        && records.find((record) => record.bookId === 'selection-probe.txt')?.sectionIndex === 0;
+    })()`,
+    'resolved annotation section index reconciled',
+    60_000,
+  );
+  const highlightResolution = await evaluate(`(async () => {
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const getAll = db.transaction('annotations-v8', 'readonly')
+      .objectStore('annotations-v8').getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    db.close();
+    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    return {
+      sectionIndex: saved?.sectionIndex ?? null,
+      colorId: saved?.colorId ?? null,
+      quote: saved?.quote ?? null,
+      anchorState: saved?.anchorState ?? null,
+    };
+  })()`);
+  assert.equal(highlightResolution.sectionIndex, 0);
+  assert.equal(highlightResolution.colorId, 'green');
+  assert.equal(highlightResolution.quote, selectionActions.selectedText);
+  assert.equal(highlightResolution.anchorState, 'active');
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
+    'shelf after annotation section reconciliation',
+  );
+  await evaluate(`(async () => {
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const tx = db.transaction('annotations-v8', 'readwrite');
+    const store = tx.objectStore('annotations-v8');
+    const getAll = store.getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    const annotation = records.find((record) => record.bookId === 'selection-probe.txt');
+    if (!annotation) throw new Error('annotation fixture missing');
+    const invalidRangeCfi = annotation.rangeCfi.replace(/:\\d+/g, ':999999');
+    if (invalidRangeCfi === annotation.rangeCfi) {
+      throw new Error('annotation CFI offset fixture missing');
+    }
+    store.put({
+      ...annotation,
+      id: 'invalid-cfi-probe',
+      rangeCfi: invalidRangeCfi,
+      createdAtClient: annotation.createdAtClient + 1,
+      updatedAtClient: annotation.updatedAtClient + 1,
+      anchorState: 'active',
+    });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+  })()`);
+  await evaluate(`(() => {
+    const title = [...document.querySelectorAll('main h3')]
+      .find((node) => node.textContent?.includes('selection-probe'));
+    title?.closest('.group')?.click();
+  })()`);
+  await waitFor(
+    `(async () => {
+      const view = document.querySelector('foliate-view');
+      const overlayVisible = view?.renderer?.getContents?.().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+      ));
+      const request = indexedDB.open('web-reader-db');
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const getAll = db.transaction('annotations-v8', 'readonly')
+        .objectStore('annotations-v8').getAll();
+      const records = await new Promise((resolve, reject) => {
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
+      });
+      db.close();
+      const invalid = records.find((record) => record.id === 'invalid-cfi-probe');
+      const normal = records.find((record) => (
+        record.bookId === 'selection-probe.txt' && record.id !== 'invalid-cfi-probe'
+      ));
+      return overlayVisible
+        && invalid?.anchorState === 'unresolved'
+        && normal?.anchorState === 'active';
+    })()`,
+    'invalid CFI marked unresolved beside active highlight',
+    60_000,
+  );
+  const invalidCfiResolution = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const overlayVisible = view?.renderer?.getContents?.().some(({ overlayer }) => (
+      overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+    ));
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const getAll = db.transaction('annotations-v8', 'readonly')
+      .objectStore('annotations-v8').getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    db.close();
+    const invalid = records.find((record) => record.id === 'invalid-cfi-probe');
+    const normal = records.find((record) => (
+      record.bookId === 'selection-probe.txt' && record.id !== 'invalid-cfi-probe'
+    ));
+    return {
+      overlayVisible: Boolean(overlayVisible),
+      invalidAnchorState: invalid?.anchorState ?? null,
+      normalAnchorState: normal?.anchorState ?? null,
+    };
+  })()`);
+  assert.equal(invalidCfiResolution.overlayVisible, true, JSON.stringify(invalidCfiResolution));
+  assert.equal(invalidCfiResolution.invalidAnchorState, 'unresolved');
+  assert.equal(invalidCfiResolution.normalAnchorState, 'active');
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
+    'shelf after invalid CFI check',
+  );
+  await evaluate(`(async () => {
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const tx = db.transaction('annotations-v8', 'readwrite');
+    const store = tx.objectStore('annotations-v8');
+    const getAll = store.getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    const invalid = records.find((record) => record.id === 'invalid-cfi-probe');
+    const annotation = records.find((record) => (
+      record.bookId === 'selection-probe.txt' && record.id !== 'invalid-cfi-probe'
+    ));
+    if (!annotation || !invalid) throw new Error('annotation CFI fixtures missing');
+    store.delete([invalid.ownerKey, invalid.bookId, invalid.id]);
+    store.put({
+      ...annotation,
+      quote: 'different text at the same CFI',
+      anchorState: 'active',
+    });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+  })()`);
+  await evaluate(`(() => {
+    const title = [...document.querySelectorAll('main h3')]
+      .find((node) => node.textContent?.includes('selection-probe'));
+    title?.closest('.group')?.click();
+  })()`);
+  await waitFor(
+    `(async () => {
+      const request = indexedDB.open('web-reader-db');
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const getAll = db.transaction('annotations-v8', 'readonly')
+        .objectStore('annotations-v8').getAll();
+      const records = await new Promise((resolve, reject) => {
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
+      });
+      db.close();
+      return records.find((record) => record.bookId === 'selection-probe.txt')
+        ?.anchorState === 'unresolved';
+    })()`,
+    'mismatched annotation marked unresolved',
+    60_000,
+  );
+  const highlightDrift = await evaluate(`(() => {
+    const view = document.querySelector('foliate-view');
+    return {
+      overlayVisible: Boolean(view?.renderer?.getContents?.().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+      ))),
+    };
+  })()`);
+  assert.equal(highlightDrift.overlayVisible, false, JSON.stringify(highlightDrift));
+  const highlightRepair = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const doc = renderer?.getContents?.()[0]?.doc;
+    if (!renderer || !doc) return { missing: true };
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let textNode = null;
+    while (walker.nextNode()) {
+      if (walker.currentNode.textContent?.includes('Selection probe paragraph')) {
+        textNode = walker.currentNode;
+        break;
+      }
+    }
+    if (!textNode) return { missingText: true };
+    const selectionProbe = ' probe paragraph ';
+    const start = textNode.textContent.indexOf(selectionProbe);
+    const range = doc.createRange();
+    range.setStart(textNode, start);
+    range.setEnd(textNode, start + selectionProbe.length);
+    const selection = doc.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const menuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < menuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    document.querySelector(
+      '[data-reader-selection-menu="true"] button[aria-label="초록 하이라이트 추가"]',
+    )?.click();
+    const overlayDeadline = performance.now() + 3000;
+    const hasOverlay = () => renderer.getContents().some(({ overlayer }) => (
+      overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+    ));
+    while (!hasOverlay() && performance.now() < overlayDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const getAll = db.transaction('annotations-v8', 'readonly')
+      .objectStore('annotations-v8').getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    db.close();
+    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    return {
+      overlayVisible: Boolean(hasOverlay()),
+      savedCount: records.filter((record) => record.bookId === 'selection-probe.txt').length,
+      colorId: saved?.colorId ?? null,
+      anchorState: saved?.anchorState ?? null,
+      quote: saved?.quote ?? null,
+    };
+  })()`);
+  assert.equal(highlightRepair.overlayVisible, true, JSON.stringify(highlightRepair));
+  assert.equal(highlightRepair.savedCount, 1);
+  assert.equal(highlightRepair.colorId, 'green');
+  assert.equal(highlightRepair.anchorState, 'active');
+  assert.equal(highlightRepair.quote, selectionActions.selectedText);
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
+    'shelf after unresolved highlight check',
   );
   await evaluate(`caches.delete('pc-reader-v1.7.10')`);
 
@@ -2238,7 +2825,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.0';
+    const expectedCache = 'pc-reader-v1.8.1';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -2265,7 +2852,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.0',
+      '/sw.js?browser-regression=1.8.1',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -2309,11 +2896,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.0']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.1']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.0$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.1$/);
 
   console.log(JSON.stringify({
     shelf: {
@@ -2331,6 +2918,10 @@ try {
     archiveLimit: archiveLimitResult,
     actualTextTap: { actualTextTapProbe, actualTextTapOpened, actualTextTapClosed },
     selectionActions,
+    highlightReopen,
+    highlightResolution,
+    highlightDrift,
+    highlightRepair,
     solidSevenZip: solidSevenZipResult,
     tapSettings,
     tapBoundary,

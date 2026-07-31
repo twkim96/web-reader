@@ -1,7 +1,7 @@
 import type { IDBPDatabase, IDBPTransaction } from 'idb';
 
 export const LOCAL_DB_NAME = 'web-reader-db';
-export const LOCAL_DB_VERSION = 7;
+export const LOCAL_DB_VERSION = 8;
 
 export const LEGACY_BOOKS_STORE = 'books';
 export const LEGACY_METADATA_STORE = 'metadata';
@@ -17,6 +17,7 @@ export const V5_REMOTE_HEADS_STORE = 'remote-heads-v5';
 export const V5_SYNC_META_STORE = 'sync-meta-v5';
 export const V5_SYNC_CONFLICTS_STORE = 'sync-conflicts-v5';
 export const V5_SYNC_LEASES_STORE = 'sync-leases-v5';
+export const V8_ANNOTATIONS_STORE = 'annotations-v8';
 
 const createStore = (
   db: IDBPDatabase<unknown>,
@@ -26,15 +27,20 @@ const createStore = (
 
 type UpgradeStore = {
   readonly indexNames: { contains(name: string): boolean };
-  createIndex(name: string, keyPath: string | string[]): unknown;
+  createIndex(
+    name: string,
+    keyPath: string | string[],
+    options?: IDBIndexParameters,
+  ): unknown;
 };
 
 const createIndex = (
   store: UpgradeStore | null,
   name: string,
   keyPath: string | string[],
+  options?: IDBIndexParameters,
 ) => {
-  if (store && !store.indexNames.contains(name)) store.createIndex(name, keyPath);
+  if (store && !store.indexNames.contains(name)) store.createIndex(name, keyPath, options);
 };
 
 export const upgradeLocalDB = (
@@ -119,4 +125,17 @@ export const upgradeLocalDB = (
   ]);
 
   createStore(db, V5_SYNC_LEASES_STORE, { keyPath: 'ownerKey' });
+
+  const annotations = createStore(db, V8_ANNOTATIONS_STORE, {
+    keyPath: ['ownerKey', 'bookId', 'id'],
+  }) ?? transaction.objectStore(V8_ANNOTATIONS_STORE);
+  createIndex(annotations, 'by-owner', 'ownerKey');
+  createIndex(annotations, 'by-owner-book', ['ownerKey', 'bookId']);
+  createIndex(annotations, 'by-owner-book-color', ['ownerKey', 'bookId', 'colorId']);
+  createIndex(
+    annotations,
+    'by-owner-book-range',
+    ['ownerKey', 'bookId', 'rangeCfi'],
+    { unique: true },
+  );
 };

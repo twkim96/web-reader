@@ -24,6 +24,7 @@ import { ReaderStatusBar } from './reader/ReaderStatusBar';
 import { ReaderToolbar } from './reader/ReaderToolbar';
 import { SyncConflictDialog } from './reader/SyncConflictDialog';
 import { TextSelectionMenu } from './reader/TextSelectionMenu';
+import { HighlightActionMenu } from './reader/HighlightActionMenu';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
@@ -31,11 +32,14 @@ import { useReaderChrome } from '../hooks/reader/useReaderChrome';
 import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
 import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
+import { useReaderAnnotations } from '../hooks/reader/useReaderAnnotations';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
 import type { RelocateDetail, TocItem } from '../hooks/foliate/types';
+import type { OwnerKey } from '../lib/ownerIdentity';
 
 interface EpubReaderProps {
   book: Book;
+  ownerKey: OwnerKey;
   googleToken: string;
   settings: ViewerSettings;
   onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
@@ -154,6 +158,7 @@ const releasePointerCaptureSafely = (element: HTMLElement, pointerId: number) =>
 
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
+  ownerKey,
   googleToken,
   settings,
   onUpdateSettings,
@@ -189,6 +194,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
   const documentTapRef = useRef<(point: { x: number; y: number }) => void>(() => undefined);
+  const annotationMenuCloseRef = useRef<() => void>(() => undefined);
   const controlsOverlayRef = useRef<HTMLDivElement | null>(null);
   const wheelNavigationCycleLockedRef = useRef(false);
   const wheelNavigationResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -302,9 +308,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     return () => onRegisterProgressFlush?.(null);
   }, [flushCurrentProgress, onRegisterProgressFlush]);
 
-  const handleReaderLoad = useCallback((doc?: Document) => {
+  const handleReaderLoad = useCallback((doc?: Document, index?: number) => {
     if (!doc) return;
-    bindSelectionDocument(doc);
+    bindSelectionDocument(doc, index);
     doc.addEventListener('wheel', (event) => wheelNavigationRef.current(event), { passive: false });
     doc.addEventListener('touchmove', (event) => {
       if (showControlsRef.current && !hasSelectionRef.current) {
@@ -320,6 +326,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const handleReaderRelocate = useCallback((detail: RelocateDetail) => {
     if (!isSelectionRelocateReason(detail.reason)) {
       clearTextSelection();
+      annotationMenuCloseRef.current();
     }
     handleRelocateForSave(detail);
   }, [clearTextSelection, handleRelocateForSave]);
@@ -360,6 +367,33 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     setStyle,
     onBack,
   });
+
+  const {
+    activeHighlight,
+    feedback: annotationFeedback,
+    canUndo: canUndoAnnotation,
+    createHighlight,
+    changeActiveColor,
+    deleteActiveHighlight,
+    closeActiveHighlight,
+    undoLastMutation,
+  } = useReaderAnnotations({
+    enabled: !isFixedLayout,
+    ownerKey,
+    bookId: book.id,
+    viewRef,
+    isLoaded,
+    currentProgress: totalProgress,
+    currentChapter,
+    clearTextSelection,
+  });
+
+  useLayoutEffect(() => {
+    annotationMenuCloseRef.current = closeActiveHighlight;
+    return () => {
+      annotationMenuCloseRef.current = () => undefined;
+    };
+  }, [closeActiveHighlight]);
 
   const {
     bookmarks,
@@ -436,8 +470,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [chrome.showControls]);
 
   useEffect(() => {
-    if (isReaderPanelOpen) clearTextSelection();
-  }, [clearTextSelection, isReaderPanelOpen]);
+    if (isReaderPanelOpen) {
+      clearTextSelection();
+      closeActiveHighlight();
+    }
+  }, [clearTextSelection, closeActiveHighlight, isReaderPanelOpen]);
+
+  useEffect(() => {
+    if (selectedText) closeActiveHighlight();
+  }, [closeActiveHighlight, selectedText]);
 
   useEffect(() => {
     updateSaveContext({
@@ -1171,8 +1212,42 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           theme={theme}
           onCopy={() => void copySelection()}
           onShare={() => void shareSelection()}
+          onHighlight={(colorId) => void createHighlight(selectedText, colorId)}
           onClose={clearTextSelection}
         />
+      )}
+
+      {isLoaded && activeHighlight && !isReaderPanelOpen && !isFixedLayout && (
+        <HighlightActionMenu
+          annotation={activeHighlight.annotation}
+          theme={theme}
+          x={activeHighlight.x}
+          top={activeHighlight.top}
+          bottom={activeHighlight.bottom}
+          onChangeColor={(colorId) => void changeActiveColor(colorId)}
+          onDelete={() => void deleteActiveHighlight()}
+          onClose={closeActiveHighlight}
+        />
+      )}
+
+      {annotationFeedback && (
+        <div
+          data-reader-annotation-feedback="true"
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.5rem)] left-1/2 z-[82] flex max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-2 rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} px-4 py-2 text-center text-xs font-bold shadow-2xl`}
+        >
+          <span>{annotationFeedback}</span>
+          {canUndoAnnotation && (
+            <button
+              type="button"
+              onClick={() => void undoLastMutation()}
+              className="min-h-11 shrink-0 rounded-full px-3 text-accent-500 hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+            >
+              실행 취소
+            </button>
+          )}
+        </div>
       )}
 
       {isLoaded && (

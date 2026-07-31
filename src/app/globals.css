@@ -66,5 +66,5 @@ html, body {
 
 html.reader-paged-navigation,
 body.reader-paged-navigation {
-  overscroll-behavior-y: none;
+  overscroll-behavior: none;
 }

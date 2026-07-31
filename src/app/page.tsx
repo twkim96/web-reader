@@ -19,7 +19,7 @@ import {
   isGoogleDriveAuthError,
   isGoogleDrivePermissionError,
 } from '../lib/googleDrive';
-import { removeBookFromLocalV5 } from '../lib/localDBV5';
+import { removeBookAndAnnotationsV8 } from '../lib/localDBV5';
 import { deleteBookInSafeOrder } from '../lib/bookDeletion';
 import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
@@ -429,20 +429,27 @@ export default function Page() {
 
   const handleDeleteBook = useCallback(async (book: Book) => {
     const shouldDeleteCloud = !isOfflineMode && Boolean(googleToken) && book.source !== 'local';
+    const annotationOwner = ownerRuntime.capture();
 
     try {
+      if (!annotationOwner) return;
       if (shouldDeleteCloud && (!hasValidToken() || !googleToken)) {
         handleCloudAuthExpired("클라우드 세션이 만료되어 도서를 삭제하지 못했습니다. 다시 클라우드를 연결한 뒤 삭제해 주세요.");
         return;
       }
       const deleted = await deleteBookInSafeOrder({
+        isCurrent: () => ownerRuntime.isCurrent(annotationOwner),
         deleteDrive: shouldDeleteCloud && googleToken
           ? () => deleteDriveFile(book.id, googleToken)
           : undefined,
-        resetProgress: () => handleDeleteBookProgress(book.id),
-        removeLocalContent: () => removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, book.id),
+        resetProgress: () => handleDeleteBookProgress(book.id, annotationOwner),
+        removeLocalContent: () => removeBookAndAnnotationsV8(
+          annotationOwner.ownerKey,
+          DEVICE_CONTENT_OWNER_KEY,
+          book.id,
+        ).then(() => undefined),
       });
-      if (!deleted) return;
+      if (!deleted || !ownerRuntime.isCurrent(annotationOwner)) return;
 
       clearLastReaderSession(undefined, book.id);
       setActiveBook((current) => current?.id === book.id ? null : current);
@@ -579,10 +586,11 @@ export default function Page() {
       )}
 
       {/* 4. 리더 (epub 전용) */}
-      {view === 'reader' && activeBook && (
+      {view === 'reader' && activeBook && activeOwnerKey && (
         <EpubReader
-          key={activeBook.id}
+          key={`${activeOwnerKey}:${activeBook.id}`}
           book={activeBook}
+          ownerKey={activeOwnerKey}
           googleToken={googleToken || ''}
           settings={settings}
           onUpdateSettings={updateSettings}

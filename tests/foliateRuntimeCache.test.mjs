@@ -67,21 +67,21 @@ const createCacheStorage = (entriesByCache) => {
 };
 
 test('uses one release version for the Foliate entry and current runtime cache', () => {
-  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.0');
-  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.0');
-  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.0');
+  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.1');
+  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.1');
+  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.1');
 });
 
 test('removes only Foliate entries from stale release caches', async () => {
   const origin = 'https://reader.test';
   const cacheStorage = createCacheStorage({
-    'pc-reader-v1.7.10': [
+    'pc-reader-v1.8.0': [
       `${origin}/foliate-js/view.js`,
       `${origin}/foliate-js/paginator.js?old=1`,
       `${origin}/fonts/reader.woff2`,
     ],
-    'pc-reader-v1.8.0': [
-      `${origin}/foliate-js/view.js?v=1.8.0`,
+    'pc-reader-v1.8.1': [
+      `${origin}/foliate-js/view.js?v=1.8.1`,
     ],
     'unrelated-cache': [
       `${origin}/foliate-js/view.js`,
@@ -89,11 +89,11 @@ test('removes only Foliate entries from stale release caches', async () => {
   });
 
   assert.equal(await clearStaleFoliateRuntimeEntries(cacheStorage, origin), 2);
-  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.7.10')], [
+  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.0')], [
     `${origin}/fonts/reader.woff2`,
   ]);
-  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.0')], [
-    `${origin}/foliate-js/view.js?v=1.8.0`,
+  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.1')], [
+    `${origin}/foliate-js/view.js?v=1.8.1`,
   ]);
   assert.deepEqual([...cacheStorage.stores.get('unrelated-cache')], [
     `${origin}/foliate-js/view.js`,

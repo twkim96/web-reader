@@ -176,6 +176,8 @@
 
 자동화된 Desktop WebKit과 production Chrome 검증은 완료했다. 실제 iPad Safari browser tab과 home-screen PWA는 아직 미검증이며 다음을 확인해야 한다.
 
+- 2026-07-31 Android 휴대폰 브라우저에서 텍스트 선택 시 브라우저 native 선택 툴바와 Web Reader 메뉴가 동시에 표시되는 것을 확인했다. 선택 손잡이를 유지하면서 native UI를 웹이 완전히 통제할 수는 없으므로 1.8.1 working tree에서 WebKit callout 억제와 선택 중 `contextmenu.preventDefault()`를 함께 적용했고 같은 기기 재검증을 대기한다.
+
 - controls가 열린 상태의 long-press 시작과 첫 selection handle 이동
 - 페이지 상·하단 경계 selection과 같은 spine document 안의 자동 page 이동
 - 회전·주소창 축소·standalone safe area에서 메뉴 위치

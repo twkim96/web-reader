@@ -12,7 +12,7 @@ import {
 
 interface UseFoliateViewOptions {
   onRelocate?: (detail: RelocateDetail) => void;
-  onLoad?: (doc?: Document) => void;
+  onLoad?: (doc?: Document, index?: number) => void;
   onCfiChange: (cfi: string) => void;
   onAnchorCfiChange: (cfi: string) => void;
   onProgressChange: (progressPercent: number) => void;
@@ -99,12 +99,12 @@ export const useFoliateView = ({
       onRelocate?.(relocateDetail);
     }) as EventListener);
 
-    view.addEventListener('load', ((event: CustomEvent<{ doc?: Document }>) => {
-      const { doc } = event.detail || {};
+    view.addEventListener('load', ((event: CustomEvent<{ doc?: Document; index?: number }>) => {
+      const { doc, index } = event.detail || {};
       if (doc) {
         installScrollBoundaryNavigation(viewRef, doc);
       }
-      onLoad?.(doc);
+      onLoad?.(doc, index);
     }) as EventListener);
 
     containerRef.current.appendChild(view);

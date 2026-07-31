@@ -89,6 +89,7 @@ interface UseReaderBookSourceOptions {
 
 const getReaderLayout = (navMode: ViewerSettings['navMode']) => ({
   flow: navMode === 'scroll' ? 'scrolled' as const : 'paginated' as const,
+  swipeNavigation: navMode === 'scroll',
   maxColumnCount: 1,
   margin: 0,
   gap: '5%',

@@ -44,3 +44,30 @@ test('removes local content only after the preceding deletion stages succeed', a
   }), true);
   assert.deepEqual(calls, ['drive', 'reset', 'local']);
 });
+
+test('stops a delayed deletion before touching the newly active owner or device content', async () => {
+  const calls = [];
+  let current = true;
+  let releaseDrive;
+  const driveFinished = new Promise((resolve) => {
+    releaseDrive = resolve;
+  });
+  const deletion = deleteBookInSafeOrder({
+    isCurrent: () => current,
+    deleteDrive: async () => {
+      calls.push('drive');
+      await driveFinished;
+    },
+    resetProgress: async () => {
+      calls.push('reset');
+      return true;
+    },
+    removeLocalContent: async () => { calls.push('local'); },
+  });
+
+  current = false;
+  releaseDrive();
+
+  assert.equal(await deletion, false);
+  assert.deepEqual(calls, ['drive']);
+});

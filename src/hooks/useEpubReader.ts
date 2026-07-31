@@ -11,7 +11,7 @@ import { useFoliateView } from './foliate/useFoliateView';
 
 interface UseEpubReaderOptions {
   onRelocate?: (detail: RelocateDetail) => void;
-  onLoad?: (doc?: Document) => void;
+  onLoad?: (doc?: Document, index?: number) => void;
   initialPercent?: number;
 }
 
@@ -26,8 +26,8 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     options?.onRelocate?.(detail);
   }, [options]);
 
-  const handleLoad = useCallback((doc?: Document) => {
-    options?.onLoad?.(doc);
+  const handleLoad = useCallback((doc?: Document, index?: number) => {
+    options?.onLoad?.(doc, index);
   }, [options]);
 
   const {
