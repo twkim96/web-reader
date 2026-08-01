@@ -4,7 +4,7 @@
 
 기준 커밋: `3faf93e`
 
-상위 계획: `update_1.8.x_plan.md`
+상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 상태: 개발·Web GPT 3차 리뷰·자동검증 완료. 2026-08-01 빠른 연속 탭 안정화 패치·자동검증 반영, 실기기 재검증 대기. 진행률 충돌 알림 후속 안정화는 `update_1.8.1-hotfix.1.md`와 `update_1.8.1-hotfix.2.md`에서 별도 관리
 

@@ -52,6 +52,7 @@ src/hooks/foliate/            # Foliate custom element adapter
 src/hooks/reader/             # Reader source/bookmark/progress/chrome hooks
 src/hooks/progressPolicy.ts   # Shared sync/bookmark persistence policy
 src/lib/                      # Google Drive, Firebase, IndexedDB, TXT->EPUB helpers
+docs/updates/                 # Version plans, implementation records, hotfix logs
 ```
 
 ---

@@ -4,7 +4,7 @@
 
 기준 커밋: `b98c659`
 
-상위 계획: `update_1.8.x_plan.md`
+상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 상태: 개발·독립 리뷰·자동검증 완료, 실제 iPad Safari/PWA 검증 대기
 

@@ -4,7 +4,7 @@
 
 기준 커밋: `383fcca`
 
-상위 계획: `update_1.8.x_plan.md`
+상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 구현 커밋: `1740956 fix(sync): settle negligible cross-device conflicts`
 

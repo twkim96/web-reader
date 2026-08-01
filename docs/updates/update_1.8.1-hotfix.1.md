@@ -4,7 +4,7 @@
 
 기준 커밋: `ed5e297`
 
-상위 계획: `update_1.8.x_plan.md`
+상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 상태: 구현·전체 자동검증 완료, 실기기 검증 대기
 

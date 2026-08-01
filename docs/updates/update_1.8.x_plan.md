@@ -12,7 +12,7 @@
 
 이 문서는 Web Reader 1.8.x 전체 개발 방향, 버전 간 의존성, 호환성 계약, 공통 검증 기준을 정의하는 마스터 계획이다.
 
-- 실제 구현을 시작할 때마다 `update_1.8.0.md`, `update_1.8.1.md`와 같은 개별 버전 문서를 새로 만든다.
+- 실제 구현을 시작할 때마다 `docs/updates/update_1.8.0.md`, `docs/updates/update_1.8.1.md`와 같은 개별 버전 문서를 새로 만든다.
 - 개별 버전 문서는 해당 릴리스의 실제 기준 커밋, 수용·보류·제외 항목, 구현 phase, 완료 조건, 자동검증과 실기기 증거를 기록하는 실행 문서다.
 - 이 마스터 계획은 전체 순서와 경계를 관리하고, 개별 버전 문서는 실제 구현 범위의 최종 기준이 된다.
 - 코드가 작성됐다는 이유만으로 상태를 완료로 바꾸지 않는다. 자동검증과 해당 버전의 실기기 검증이 끝나야 완료로 기록한다.
@@ -727,14 +727,14 @@ Playwright WebKit은 Desktop Safari profile이므로 실제 iPad Safari와 홈 �
 
 ## 9. 개별 버전 문서 규칙
 
-새 버전 작업을 시작할 때 먼저 해당 문서를 만든다.
+새 버전 작업을 시작할 때 `docs/updates/` 아래에 먼저 해당 문서를 만든다. 저장소 루트에는 새 `update*` 문서를 두지 않는다.
 
 예:
 
 ```text
-update_1.8.0.md
-update_1.8.1.md
-update_1.8.2.md
+docs/updates/update_1.8.0.md
+docs/updates/update_1.8.1.md
+docs/updates/update_1.8.2.md
 ```
 
 개별 문서는 최소한 다음 구조를 가진다.
@@ -744,7 +744,7 @@ update_1.8.2.md
 
 작성일:
 기준 커밋:
-상위 계획: update_1.8.x_plan.md
+상위 계획: docs/updates/update_1.8.x_plan.md
 
 ## 목표
 ## 리뷰 판정
@@ -806,6 +806,6 @@ update_1.8.2.md
 2. push된 1.8.1을 문제가 확인된 Android 브라우저에서 길게 누르기·선택 손잡이·native toolbar 중첩·탭 모드 swipe 차단까지 검증한다.
 3. iPad Safari browser tab과 home-screen PWA에서 생성·5색 변경·삭제·undo·재진입·PWA update 전후 복원을 검증한다.
 4. 결함이 있으면 다음 기능과 섞지 않고 영향 범위와 안정화 patch 여부를 먼저 판단한다.
-5. 실기기 안정화 뒤 `update_1.8.2.md`를 만들고 메모·팔레트·주석 관리 UI를 시작한다.
+5. 실기기 안정화 뒤 `docs/updates/update_1.8.2.md`를 만들고 메모·팔레트·주석 관리 UI를 시작한다.
 
 1.8.0 실기기에서 결함이 발견되면 1.8.1 기능과 섞어 숨기지 않고 영향 범위와 안정화 patch 여부를 먼저 판단한다.
