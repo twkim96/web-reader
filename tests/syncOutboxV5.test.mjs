@@ -494,6 +494,45 @@ test('using remote resolves, preserves the local position, and supersedes a conf
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 1);
 });
 
+test('quiet remote resolution aborts if local reading moved after the policy snapshot', async () => {
+  const originalPosition = position(30);
+  await enqueue(ownerA, { eventId: 'event-1', position: originalPosition });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
+  await enqueue(ownerA, {
+    eventId: 'deferred-latest',
+    sessionId: 'session-2',
+    position: position(35),
+    occurredAtClient: 13,
+  });
+
+  assert.equal(await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'event-1',
+    14,
+    true,
+    originalPosition,
+  ), null);
+  assert.deepEqual(
+    (await getOutboxEventsV5(ownerA)).map(({ status }) => status),
+    ['conflict'],
+  );
+  const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 35);
+});
+
 test('atomic progress mutation rolls back local progress and every event on failure', async () => {
   const progress = {
     bookId: 'book-1',

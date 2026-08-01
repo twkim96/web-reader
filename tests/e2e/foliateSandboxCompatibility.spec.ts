@@ -168,7 +168,7 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.1-hotfix.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

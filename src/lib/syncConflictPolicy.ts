@@ -1,24 +1,36 @@
 import type { SyncConflictV5 } from './syncOutboxV5';
+import type { ProgressPositionV2 } from './progressV2Schema';
 
-type QuietStartupConflictInput = {
+type QuietProgressConflictInput = {
   conflict: SyncConflictV5;
   activeBookId?: string;
   currentSessionId: string;
 };
 
-export const isQuietStartupProgressConflict = ({
+export type QuietProgressConflictReason =
+  | 'previous-session'
+  | 'equivalent-position'
+  | 'newer-same-device';
+
+const positionAnchor = (position: ProgressPositionV2) => (
+  position.anchorCfi ?? position.cfi
+);
+
+export const isEquivalentProgressPosition = (
+  left: ProgressPositionV2,
+  right: ProgressPositionV2,
+) => positionAnchor(left) === positionAnchor(right);
+
+export const getQuietProgressConflictReason = ({
   conflict,
   activeBookId,
   currentSessionId,
-}: QuietStartupConflictInput) => {
+}: QuietProgressConflictInput): QuietProgressConflictReason | null => {
   const { event, remoteHead } = conflict;
   if (
-    !activeBookId
-    || !event
+    !event
     || event.target.kind !== 'progress'
-    || event.target.bookId !== activeBookId
     || event.operation !== 'progress.set'
-    || event.sessionId === currentSessionId
     || !event.payload
     || conflict.blockedEventIds.length > 0
     || !conflict.latestLocalPosition
@@ -30,7 +42,26 @@ export const isQuietStartupProgressConflict = ({
     || 'bookmarkId' in remoteHead
     || remoteHead.operation !== 'set'
     || !remoteHead.position
-  ) return false;
+    || remoteHead.revision <= event.baseRevision
+  ) return null;
 
-  return remoteHead.revision > event.baseRevision;
+  if (isEquivalentProgressPosition(event.payload, remoteHead.position)) {
+    return 'equivalent-position';
+  }
+
+  if (
+    event.sessionId !== currentSessionId
+    && event.target.bookId === activeBookId
+  ) {
+    return 'previous-session';
+  }
+
+  if (
+    remoteHead.acceptedDeviceId === event.deviceId
+    && remoteHead.occurredAtClient > event.occurredAtClient
+  ) {
+    return 'newer-same-device';
+  }
+
+  return null;
 };

@@ -1,6 +1,6 @@
 {
   "name": "viewer",
-  "version": "1.8.1",
+  "version": "1.8.1-hotfix.1",
   "private": true,
   "scripts": {
     "dev": "next dev",

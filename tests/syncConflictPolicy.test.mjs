@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isQuietStartupProgressConflict } from '../src/lib/syncConflictPolicy.ts';
+import {
+  getQuietProgressConflictReason,
+  isEquivalentProgressPosition,
+} from '../src/lib/syncConflictPolicy.ts';
 
 const progressEvent = (overrides = {}) => ({
   ownerKey: 'firebase:a|library:local',
@@ -53,35 +56,66 @@ const conflict = (overrides = {}) => ({
   ...overrides,
 });
 
-const eligible = (target, overrides = {}) => isQuietStartupProgressConflict({
+const reason = (target, overrides = {}) => getQuietProgressConflictReason({
   conflict: target,
   activeBookId: 'book-1',
   currentSessionId: 'current-session',
   ...overrides,
 });
 
-test('quietly resolves only an older-session active-book position behind a valid remote head', () => {
-  assert.equal(eligible(conflict()), true);
-  assert.equal(eligible(conflict(), { activeBookId: 'book-2' }), false);
-  assert.equal(eligible(conflict(), { currentSessionId: 'previous-session' }), false);
-  assert.equal(eligible(conflict({
+test('quietly adopts a valid newer remote position for an unchanged previous-session event', () => {
+  assert.equal(reason(conflict()), 'previous-session');
+  assert.equal(reason(conflict(), { activeBookId: 'book-2' }), null);
+  assert.equal(reason(conflict(), { currentSessionId: 'previous-session' }), null);
+  assert.equal(reason(conflict({
     remoteHead: remoteHead({ revision: 2 }),
-  })), false);
-  assert.equal(eligible(conflict({ blockedEventIds: ['later-local-event'] })), false);
-  assert.equal(eligible(conflict({
+  })), null);
+  assert.equal(reason(conflict({ blockedEventIds: ['later-local-event'] })), null);
+  assert.equal(reason(conflict({
     latestLocalPosition: { cfi: 'new-local-cfi', anchorCfi: null, progressPercent: 31 },
-  })), false);
+  })), null);
+});
+
+test('quietly adopts equivalent positions and a strictly newer same-device position', () => {
+  const currentSessionEvent = progressEvent({ sessionId: 'current-session' });
+  assert.equal(reason(conflict({
+    event: currentSessionEvent,
+    remoteHead: remoteHead({
+      position: { cfi: 'local-cfi', anchorCfi: 'local-cfi', progressPercent: 31 },
+      occurredAtClient: 5,
+    }),
+  })), 'equivalent-position');
+  assert.equal(reason(conflict({
+    event: currentSessionEvent,
+    remoteHead: remoteHead({ acceptedDeviceId: 'device-1', occurredAtClient: 11 }),
+  })), 'newer-same-device');
+  assert.equal(reason(conflict({
+    event: currentSessionEvent,
+    remoteHead: remoteHead({ acceptedDeviceId: 'device-1', occurredAtClient: 9 }),
+  })), null);
+  assert.equal(reason(conflict({ event: currentSessionEvent })), null);
+});
+
+test('compares the stable anchor instead of layout-dependent percentages', () => {
+  assert.equal(isEquivalentProgressPosition(
+    { cfi: 'page-cfi-a', anchorCfi: 'anchor-cfi', progressPercent: 30 },
+    { cfi: 'page-cfi-b', anchorCfi: 'anchor-cfi', progressPercent: 31 },
+  ), true);
+  assert.equal(isEquivalentProgressPosition(
+    { cfi: 'page-cfi-a', anchorCfi: null, progressPercent: 30 },
+    { cfi: 'page-cfi-b', anchorCfi: null, progressPercent: 30 },
+  ), false);
 });
 
 test('keeps destructive progress and bookmark conflicts user-visible', () => {
-  assert.equal(eligible(conflict({
+  assert.equal(reason(conflict({
     event: progressEvent({ operation: 'progress.reset', payload: null }),
-  })), false);
-  assert.equal(eligible(conflict({
+  })), null);
+  assert.equal(reason(conflict({
     remoteHead: remoteHead({ operation: 'reset', position: null }),
-  })), false);
-  assert.equal(eligible(conflict({ remoteHead: null })), false);
-  assert.equal(eligible(conflict({
+  })), null);
+  assert.equal(reason(conflict({ remoteHead: null })), null);
+  assert.equal(reason(conflict({
     event: {
       ...progressEvent(),
       target: { kind: 'bookmark', bookId: 'book-1', bookmarkId: 'mark-1' },
@@ -89,5 +123,5 @@ test('keeps destructive progress and bookmark conflicts user-visible', () => {
       operation: 'bookmark.delete',
       payload: null,
     },
-  })), false);
+  })), null);
 });

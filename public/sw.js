@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.1: refresh the app shell for local range highlights and annotation storage.
+// 1.8.1-hotfix.1: reduce safe reading-position conflict prompts without weakening revision checks.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.1`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.1-hotfix.1`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

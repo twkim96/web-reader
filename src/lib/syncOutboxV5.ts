@@ -1311,6 +1311,7 @@ export const resolveSyncConflictUseRemoteV5 = async (
   conflictId: string,
   now = Date.now(),
   preserveLocalProgress = false,
+  expectedLocalPosition?: ProgressPositionV2,
 ) => {
   const db = await initDB();
   const tx = db.transaction([
@@ -1326,6 +1327,22 @@ export const resolveSyncConflictUseRemoteV5 = async (
     tx.abort();
     await tx.done.catch(() => undefined);
     throw new Error('적용할 원격 충돌 데이터가 없습니다.');
+  }
+  if (expectedLocalPosition) {
+    const latest = conflict.latestLocalPosition;
+    const stillMatches = Boolean(
+      (conflict.state === 'open' || conflict.state === 'deferred')
+      && latest
+      && 'anchorCfi' in latest
+      && latest.cfi === expectedLocalPosition.cfi
+      && (latest.anchorCfi ?? null) === (expectedLocalPosition.anchorCfi ?? null)
+      && latest.progressPercent === expectedLocalPosition.progressPercent,
+    );
+    if (!stillMatches) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      return null;
+    }
   }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   await supersedeConflictEvents(outbox, conflict);

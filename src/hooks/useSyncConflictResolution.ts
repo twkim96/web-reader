@@ -13,7 +13,8 @@ import { getSyncOwnerKey, type OwnerKey } from '../lib/ownerIdentity';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { getSyncSessionId } from '../lib/syncSession';
-import { isQuietStartupProgressConflict } from '../lib/syncConflictPolicy';
+import { getQuietProgressConflictReason } from '../lib/syncConflictPolicy';
+import type { ProgressPositionV2 } from '../lib/progressV2Schema';
 
 type UseSyncConflictResolutionOptions = {
   user: FirebaseUser | null;
@@ -45,15 +46,20 @@ export const useSyncConflictResolution = ({
     ownerKeySnapshot: OwnerKey,
     target: SyncConflictV5,
     preserveLocalProgress: boolean,
+    expectedLocalPosition?: ProgressPositionV2,
+    canApplyRuntime?: () => boolean,
   ) => {
     const nextProgress = await resolveSyncConflictUseRemoteV5(
       getSyncOwnerKey(ownerKeySnapshot),
       target.conflictId,
       Date.now(),
       preserveLocalProgress,
+      expectedLocalPosition,
     );
+    if (!nextProgress) return null;
     const owner = ownerRuntime.capture();
     if (!owner || owner.ownerKey !== ownerKeySnapshot) return null;
+    if (canApplyRuntime && !canApplyRuntime()) return nextProgress;
     rebaseProgressCommitBaseline(owner.ownerKey, nextProgress.bookId, nextProgress);
     setProgress((prev) => {
       const next = { ...prev, [nextProgress.bookId]: nextProgress };
@@ -81,15 +87,44 @@ export const useSyncConflictResolution = ({
     const conflicts = await getOpenSyncConflictsV5(getSyncOwnerKey(owner.ownerKey));
     if (!ownerRuntime.isCurrent(owner) || refreshGenerationRef.current !== generation) return;
     const next = conflicts.find((candidate) => !dismissedRef.current.has(candidate.conflictId)) ?? null;
-    if (next && canQuietlyResolveProgressConflict?.() && isQuietStartupProgressConflict({
+    const targetIsActiveBook = Boolean(
+      next?.event?.target.kind === 'progress'
+      && next.event.target.bookId === activeBookId,
+    );
+    const readerIsQuiet = !targetIsActiveBook || canQuietlyResolveProgressConflict?.() === true;
+    const quietReason = next ? getQuietProgressConflictReason({
       conflict: next,
       activeBookId,
       currentSessionId: sessionIdRef.current,
-    })) {
+    }) : null;
+    const expectedLocalPosition = next?.latestLocalPosition
+      && 'anchorCfi' in next.latestLocalPosition
+      ? next.latestLocalPosition
+      : undefined;
+    if (next && readerIsQuiet && quietReason && expectedLocalPosition) {
       if (resolvingRef.current.has(next.conflictId)) return;
       resolvingRef.current.add(next.conflictId);
       try {
-        await applyRemote(owner.ownerKey, next, true);
+        const resolved = await applyRemote(
+          owner.ownerKey,
+          next,
+          true,
+          expectedLocalPosition,
+          targetIsActiveBook ? canQuietlyResolveProgressConflict : undefined,
+        );
+        if (!resolved) {
+          const latestConflicts = await getOpenSyncConflictsV5(
+            getSyncOwnerKey(owner.ownerKey),
+          );
+          if (ownerRuntime.isCurrent(owner) && refreshGenerationRef.current === generation) {
+            setConflict(
+              latestConflicts.find((candidate) => (
+                !dismissedRef.current.has(candidate.conflictId)
+              )) ?? null,
+            );
+          }
+          return;
+        }
         if (ownerRuntime.isCurrent(owner)) setConflict(null);
       } catch (error) {
         console.error('[SyncConflict] quiet startup resolution failed:', error);
