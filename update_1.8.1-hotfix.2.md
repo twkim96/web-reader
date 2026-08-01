@@ -6,7 +6,9 @@
 
 상위 계획: `update_1.8.x_plan.md`
 
-상태: 구현·전체 자동검증 완료, 실기기 검증 대기
+구현 커밋: `1740956 fix(sync): settle negligible cross-device conflicts`
+
+상태: 구현·전체 자동검증·commit·push 완료, 실기기 검증 대기
 
 ## 목표
 
@@ -110,3 +112,5 @@
 - `git diff --check`: 통과
 
 첫 sandbox 실행은 제품 테스트와 typecheck까지 통과한 뒤 Turbopack PostCSS 보조 프로세스의 port bind가 차단되어 build에서 중단됐다. 같은 소스를 정상 로컬 권한으로 `check:full` 전체 재실행해 마지막 production Chrome까지 통과했으며 제품 실패로 판정하지 않는다.
+
+구현 커밋 `1740956`을 `origin/main`에 push했고, push 직후 local HEAD와 `origin/main`이 `174095691ae73bc74523ba1c4992a1e6754205d4`로 일치함을 확인했다.
