@@ -152,6 +152,37 @@ export const hasNonCollapsedSelection = (selection: Selection | null) => (
   Boolean(selection && selection.rangeCount > 0 && !selection.isCollapsed && selection.toString().trim())
 );
 
+export type ReaderPointerGesture = {
+  durationMs: number;
+  distancePx: number;
+};
+
+export type ReaderNavigationTap = {
+  x: number;
+  y: number;
+  at: number;
+};
+
+export const isShortReaderTapGesture = ({
+  durationMs,
+  distancePx,
+}: ReaderPointerGesture) => (
+  durationMs >= 0
+  && durationMs <= 280
+  && distancePx <= 14
+);
+
+export const isRapidReaderNavigationTap = (
+  previous: ReaderNavigationTap | null,
+  current: { x: number; y: number },
+  now: number,
+) => {
+  if (!previous) return false;
+  const elapsed = now - previous.at;
+  if (elapsed < 0 || elapsed > 650) return false;
+  return Math.hypot(current.x - previous.x, current.y - previous.y) <= 96;
+};
+
 export const isSelectionRelocateReason = (reason?: string) => (
   reason === 'selection'
   || reason === 'selection-page'

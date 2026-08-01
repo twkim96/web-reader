@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   hasNonCollapsedSelection,
+  isRapidReaderNavigationTap,
+  isShortReaderTapGesture,
   isPublicationLinkTarget,
   isSelectionRelocateReason,
   mapFrameClientPoint,
@@ -88,6 +90,20 @@ test('requires a non-collapsed selection with actual text', () => {
   assert.equal(hasNonCollapsedSelection(selection(false, '   ')), false);
   assert.equal(hasNonCollapsedSelection(selection(false, 'selected', 0)), false);
   assert.equal(hasNonCollapsedSelection(null), false);
+});
+
+test('classifies only short stationary pointer gestures as reader taps', () => {
+  assert.equal(isShortReaderTapGesture({ durationMs: 120, distancePx: 4 }), true);
+  assert.equal(isShortReaderTapGesture({ durationMs: 420, distancePx: 4 }), false);
+  assert.equal(isShortReaderTapGesture({ durationMs: 120, distancePx: 24 }), false);
+});
+
+test('recognizes a rapid same-area navigation tap across page relocation', () => {
+  const previous = { x: 120, y: 80, at: 1_000 };
+  assert.equal(isRapidReaderNavigationTap(previous, { x: 128, y: 86 }, 1_420), true);
+  assert.equal(isRapidReaderNavigationTap(previous, { x: 128, y: 86 }, 1_800), false);
+  assert.equal(isRapidReaderNavigationTap(previous, { x: 260, y: 80 }, 1_420), false);
+  assert.equal(isRapidReaderNavigationTap(null, { x: 120, y: 80 }, 1_420), false);
 });
 
 test('recognizes publication links without relying on same-realm instanceof', () => {

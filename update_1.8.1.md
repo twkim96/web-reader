@@ -6,7 +6,7 @@
 
 상위 계획: `update_1.8.x_plan.md`
 
-상태: 개발·Web GPT 3차 리뷰·전체 자동검증·commit·push 완료, 실기기 검증 대기
+상태: 개발·Web GPT 3차 리뷰·자동검증 완료. 2026-08-01 빠른 연속 탭 안정화 패치·자동검증 반영, 실기기 재검증 대기
 
 ## 목표
 
@@ -203,6 +203,30 @@ Android 브라우저의 선택 툴바는 browser-native UI이므로 DOM 자동�
 - 자동 회귀: Chromium·WebKit에서 60px 가로 touch drag 후 renderer 시작 위치 불변, touch event default 허용을 확인한다. production reader에서는 `left-right` 모드의 실제 renderer attribute를 확인한다.
 - 검증: 최종 `npm run check:full` 통과. 첫 전체 실행과 첫 production 단독 재시도는 기존 guest auth bootstrap P3의 `LOADING LIBRARY...` timeout으로 reader 진입 전에 실패했고, 다음 production 단독 실행과 전체 명령 재실행은 끝까지 통과했다.
 - 실기기 확인 대기: 동일 휴대폰에서 좌우 drag 시 본문이 따라 움직이지 않는지, 길게 누르기와 선택 손잡이는 계속 동작하는지 확인한다.
+
+### 2026-08-01 실기기 후속 finding — 빠른 연속 탭의 단어 선택·지연 이동
+
+- finding 1: 탭 이동 영역의 같은 화면 좌표를 페이지 전환 직후 다시 빠르게 누르면, 사용자가 보기에는 서로 다른 페이지의 단일 탭이지만 브라우저가 연속 탭으로 판정해 단어 선택을 만들 수 있었다.
+- finding 2: 빠르게 입력한 탭이 합성 `click`으로 늦게 전달되면 사용자가 탭을 멈춘 뒤에도 페이지가 추가로 넘어가는 것처럼 보였다.
+- 원인: publication document는 네이티브 긴 누르기 선택을 위해 `user-select: text`를 유지한다. 기존 입력은 네이티브 `selectionchange`와 지연 합성 `click` 뒤에 처리했으므로, 브라우저의 단어 선택이 먼저 확정되면 페이지 탭이 선택으로 오인됐다. Foliate renderer에는 이동 중 호출을 버리는 잠금이 이미 있으며 앱이 별도의 무제한 페이지 이동 큐를 두고 있던 것은 아니다.
+- 수정: pointer 시작 시각과 최대 이동 거리를 기록해 280ms 이하·14px 이하의 짧은 탭을 `pointerup`에서 즉시 처리한다. 이 탭 뒤에 생성되는 합성 `click`은 한 번만 소비해 중복 이동과 지연 실행을 막는다.
+- 수정: 직전 페이지 이동 탭으로부터 650ms 안, 화면상 96px 안에서 발생한 두 번째 빠른 탭에 브라우저 단어 선택이 생겼다면 그 선택만 제거하고 페이지 탭을 계속 실행한다. 좌표는 Foliate의 넓은 iframe 내부 좌표가 아니라 매 이벤트 시점의 상위 viewport 좌표로 환산한다.
+- 보존: 280ms를 넘는 긴 누르기, 14px를 넘는 드래그 선택, 직전 페이지 탭과 무관한 선택, publication link는 즉시 탭 경로에서 제외한다. `touch-action: manipulation`으로 불필요한 더블탭 지연을 줄이되 네이티브 텍스트 선택과 scroll 모드는 유지한다.
+- 자동 회귀:
+  - tap classifier 단위 테스트는 짧은 탭·긴 누르기·드래그와 동일 영역 연속 탭의 시간·거리 경계를 검증한다.
+  - production Chrome에서 첫 탭으로 한 페이지를 이동한 뒤 브라우저 단어 선택을 강제로 만든 상태에서 같은 화면 좌표를 다시 탭한다. 두 번째 페이지 이동이 실행되고 Range와 자체 선택 메뉴가 모두 제거되는 것을 확인한다.
+  - `npm run lint`: 오류 0, 기존 Foliate vendor 경고 2개.
+  - `npm run typecheck`: 통과.
+  - Node 전체 테스트: 통과. formats는 새 2건을 포함해 57/57, storage 95/95, shelf 32/32.
+  - production build: 통과.
+  - Playwright Chromium/WebKit 직렬 실행: 12/12 통과.
+  - production Chrome regression: 통과.
+- 검증 환경 메모: 샌드박스 안 `npm run check`의 마지막 Turbopack build는 PostCSS 보조 프로세스 port bind 권한으로 중단됐다. 앞 단계 lint·typecheck·Node 전체는 통과했고, 동일 소스의 production build를 정상 로컬 권한으로 재실행해 통과했다.
+- 실기기 재검증 대기:
+  - 같은 상단/하단 영역을 빠르게 연속 탭해도 단어 선택이 생기지 않는지 확인한다.
+  - 탭을 멈춘 뒤 지연된 페이지 이동이 이어지지 않는지 확인한다.
+  - 길게 누르기, 선택 손잡이 드래그, 여러 문단 선택, 링크 탭·긴 누르기가 유지되는지 확인한다.
+  - Android Chrome browser/PWA와 iPad Safari browser tab/home-screen PWA에서 각각 확인한다.
 
 ## Web GPT 1차 리뷰 결과
 

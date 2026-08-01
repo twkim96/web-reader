@@ -193,7 +193,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const suppressLastReaderSessionOnExitRef = useRef(false);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
-  const documentTapRef = useRef<(point: { x: number; y: number }) => void>(() => undefined);
+  const documentTapRef = useRef<(point: { x: number; y: number }) => boolean>(() => false);
   const annotationMenuCloseRef = useRef<() => void>(() => undefined);
   const controlsOverlayRef = useRef<HTMLDivElement | null>(null);
   const wheelNavigationCycleLockedRef = useRef(false);
@@ -282,7 +282,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   });
 
   const handleDocumentTap = useCallback((point: { x: number; y: number }) => {
-    documentTapRef.current(point);
+    return documentTapRef.current(point);
   }, []);
   const {
     selection: selectedText,
@@ -509,10 +509,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [saveCurrentProgress]);
 
   const handleInteractionAtPoint = useCallback(({ x, y }: { x: number; y: number }) => {
-    if (hasSelectionRef.current) return;
+    if (hasSelectionRef.current) return false;
     if (chrome.showControls) {
       chrome.setShowControls(false);
-      return;
+      return false;
     }
     const action = getReaderTapAction({
       navMode: effectiveNavMode,
@@ -528,10 +528,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       markUserProgressChange();
       if (action === 'prev') prev();
       else next();
-      return;
+      return true;
     }
 
     chrome.setShowControls((current) => !current);
+    return false;
   }, [
     chrome,
     effectiveNavMode,

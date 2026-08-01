@@ -1140,6 +1140,45 @@ try {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const controlsClosed = !document.querySelector('nav')?.classList.contains('translate-y-0');
     const afterControlsCloseTap = renderer.start;
+    const dispatchPointerTap = (pointerId) => {
+      const rapidTapPoint = toFramePoint(innerWidth * 0.95, innerHeight / 2);
+      const target = doc.body;
+      target.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId,
+        pointerType: 'touch',
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: rapidTapPoint.x,
+        clientY: rapidTapPoint.y,
+      }));
+      target.dispatchEvent(new doc.defaultView.PointerEvent('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        pointerId,
+        pointerType: 'touch',
+        isPrimary: true,
+        button: 0,
+        buttons: 0,
+        clientX: rapidTapPoint.x,
+        clientY: rapidTapPoint.y,
+      }));
+    };
+    const beforeRapidTaps = renderer.start;
+    dispatchPointerTap(401);
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const nativeSelectionBeforeRapidSecondTap = selection.toString();
+    dispatchPointerTap(402);
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    const afterRapidTaps = renderer.start;
+    const rapidTapSelectionCleared = !selection.toString()
+      && !document.querySelector('[data-reader-selection-menu="true"]');
     const inactiveContextMenuEvent = new doc.defaultView.MouseEvent('contextmenu', {
       bubbles: true,
       cancelable: true,
@@ -1151,6 +1190,9 @@ try {
       selectionStyleInstalled: Boolean(selectionStyle),
       nativeCalloutStyleSuppressed: selectionStyle?.textContent?.includes(
         '-webkit-touch-callout: none !important',
+      ) ?? false,
+      touchActionManipulation: selectionStyle?.textContent?.includes(
+        'touch-action: manipulation',
       ) ?? false,
       nativeContextMenuSuppressed,
       inactiveContextMenuAllowed,
@@ -1228,6 +1270,10 @@ try {
       controlsClosed,
       beforeControlsCloseTap,
       afterControlsCloseTap,
+      beforeRapidTaps,
+      afterRapidTaps,
+      nativeSelectionBeforeRapidSecondTap,
+      rapidTapSelectionCleared,
       relocateReasons,
     };
   })()`);
@@ -1237,8 +1283,9 @@ try {
   assert.equal(selectionActions.menuVisible, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.menuInViewport, true);
   assert.equal(selectionActions.nativeCalloutStyleSuppressed, true);
+  assert.equal(selectionActions.touchActionManipulation, true);
   assert.equal(selectionActions.nativeContextMenuSuppressed, true);
-  assert.equal(selectionActions.inactiveContextMenuAllowed, true);
+  assert.equal(selectionActions.inactiveContextMenuAllowed, true, JSON.stringify(selectionActions));
   assert.ok(
     selectionActions.actionRects.every(({ width, height }) => width >= 44 && height >= 44),
     JSON.stringify(selectionActions.actionRects),
@@ -1285,6 +1332,9 @@ try {
     selectionActions.beforeControlsCloseTap,
     JSON.stringify(selectionActions),
   );
+  assert.ok(selectionActions.nativeSelectionBeforeRapidSecondTap.length > 0);
+  assert.equal(selectionActions.rapidTapSelectionCleared, true, JSON.stringify(selectionActions));
+  assert.notEqual(selectionActions.afterRapidTaps, selectionActions.beforeRapidTaps, JSON.stringify(selectionActions));
   await evaluate(`(() => {
     delete navigator.clipboard;
     delete navigator.share;

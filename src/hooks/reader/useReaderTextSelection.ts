@@ -6,9 +6,12 @@ import {
   getDocumentFrameMetrics,
   getRangeTextContext,
   getRangeViewportAnchor,
+  isRapidReaderNavigationTap,
+  isShortReaderTapGesture,
   isPublicationLinkTarget,
   mapFrameClientPoint,
   type SelectionViewportAnchor,
+  type ReaderNavigationTap,
 } from '../../lib/readerTextSelection';
 
 export type ReaderTextSelection = SelectionViewportAnchor & {
@@ -19,7 +22,7 @@ export type ReaderTextSelection = SelectionViewportAnchor & {
   suffix: string;
 };
 
-type DocumentTapHandler = (point: { x: number; y: number }) => void;
+type DocumentTapHandler = (point: { x: number; y: number }) => boolean;
 
 interface UseReaderTextSelectionOptions {
   enabled: boolean;
@@ -30,6 +33,13 @@ type DocumentBinding = {
   cleanup: () => void;
   frameRequest: number | null;
   index: number;
+  pointerGesture: {
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startTime: number;
+    maxDistance: number;
+  } | null;
   selectionGesture: boolean;
   suppressNextClick: boolean;
 };
@@ -45,6 +55,7 @@ const installSelectionStyles = (doc: Document) => {
       -webkit-user-select: text !important;
       user-select: text !important;
       -webkit-touch-callout: none !important;
+      touch-action: manipulation;
     }
     a[href] {
       -webkit-touch-callout: default;
@@ -80,6 +91,7 @@ export const useReaderTextSelection = ({
   const bindingsRef = useRef(new Map<Document, DocumentBinding>());
   const activeDocumentRef = useRef<Document | null>(null);
   const hasSelectionRef = useRef(false);
+  const lastNavigationTapRef = useRef<ReaderNavigationTap | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
 
   const showFeedback = useCallback((message: string) => {
@@ -185,6 +197,7 @@ export const useReaderTextSelection = ({
       cleanup: () => undefined,
       frameRequest: null,
       index,
+      pointerGesture: null,
       selectionGesture: false,
       suppressNextClick: false,
     };
@@ -195,12 +208,93 @@ export const useReaderTextSelection = ({
       }
       scheduleRead(doc);
     };
-    const handlePointerDown = () => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.button !== 0
+        || (binding.pointerGesture && binding.pointerGesture.pointerId !== event.pointerId)
+      ) return;
+      binding.suppressNextClick = false;
+      binding.pointerGesture = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startTime: event.timeStamp,
+        maxDistance: 0,
+      };
       if (hasNonCollapsedSelection(doc.getSelection())) {
         binding.suppressNextClick = true;
       }
     };
-    const handlePointerUp = () => scheduleRead(doc);
+    const handlePointerMove = (event: PointerEvent) => {
+      const gesture = binding.pointerGesture;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      gesture.maxDistance = Math.max(
+        gesture.maxDistance,
+        Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY),
+      );
+    };
+    const resetPointerGesture = (event: PointerEvent) => {
+      if (binding.pointerGesture?.pointerId === event.pointerId) {
+        binding.pointerGesture = null;
+      }
+    };
+    const clearRapidTapSelection = () => {
+      try {
+        doc.getSelection()?.removeAllRanges();
+      } catch {
+        // Ignore a selection whose publication frame was replaced mid-gesture.
+      }
+      resetBindingGesture(doc);
+      activeDocumentRef.current = null;
+      hasSelectionRef.current = false;
+      setSelection(null);
+      setFeedback('');
+    };
+    const handlePointerUp = (event: PointerEvent) => {
+      const gesture = binding.pointerGesture;
+      if (!gesture || gesture.pointerId !== event.pointerId) {
+        scheduleRead(doc);
+        return;
+      }
+      binding.pointerGesture = null;
+
+      if (event.defaultPrevented || isPublicationLinkTarget(event.target)) {
+        lastNavigationTapRef.current = null;
+        scheduleRead(doc);
+        return;
+      }
+
+      const point = mapFrameClientPoint(
+        { x: event.clientX, y: event.clientY },
+        getDocumentFrameMetrics(doc),
+      );
+      const now = performance.now();
+      const activeSelection = hasNonCollapsedSelection(doc.getSelection());
+      const rapidNavigationContinuation = activeSelection
+        && isRapidReaderNavigationTap(lastNavigationTapRef.current, point, now);
+      const shortTap = isShortReaderTapGesture({
+        durationMs: event.timeStamp - gesture.startTime,
+        distancePx: gesture.maxDistance,
+      });
+
+      if (!shortTap && !rapidNavigationContinuation) {
+        scheduleRead(doc);
+        return;
+      }
+      if (activeSelection && !rapidNavigationContinuation) {
+        scheduleRead(doc);
+        return;
+      }
+      if (rapidNavigationContinuation) clearRapidTapSelection();
+
+      event.preventDefault();
+      event.stopPropagation();
+      binding.selectionGesture = false;
+      binding.suppressNextClick = true;
+      const navigated = onDocumentTap(point);
+      lastNavigationTapRef.current = navigated ? { ...point, at: now } : null;
+      scheduleRead(doc);
+    };
     const handleTouchEnd = () => scheduleRead(doc);
     const handleContextMenu = (event: Event) => {
       if (
@@ -213,12 +307,17 @@ export const useReaderTextSelection = ({
       if (activeDocumentRef.current === doc) dismissMenu();
     };
     const handleClick = (event: MouseEvent) => {
+      if (binding.suppressNextClick) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        binding.suppressNextClick = false;
+        return;
+      }
       const active = hasNonCollapsedSelection(doc.getSelection());
-      if (binding.selectionGesture || binding.suppressNextClick || active) {
+      if (binding.selectionGesture || active) {
         event.preventDefault();
         event.stopImmediatePropagation();
         binding.selectionGesture = false;
-        binding.suppressNextClick = false;
         scheduleRead(doc);
         return;
       }
@@ -229,14 +328,20 @@ export const useReaderTextSelection = ({
         getDocumentFrameMetrics(doc),
       );
       queueMicrotask(() => {
-        if (!event.defaultPrevented) onDocumentTap(point);
+        if (!event.defaultPrevented) {
+          const now = performance.now();
+          const navigated = onDocumentTap(point);
+          lastNavigationTapRef.current = navigated ? { ...point, at: now } : null;
+        }
       });
     };
 
     const cleanup = () => {
       doc.removeEventListener('selectionchange', handleSelectionChange);
       doc.removeEventListener('pointerdown', handlePointerDown, true);
+      doc.removeEventListener('pointermove', handlePointerMove, true);
       doc.removeEventListener('pointerup', handlePointerUp, true);
+      doc.removeEventListener('pointercancel', resetPointerGesture, true);
       doc.removeEventListener('touchend', handleTouchEnd, true);
       doc.removeEventListener('contextmenu', handleContextMenu, true);
       doc.removeEventListener('scroll', handleScroll, true);
@@ -258,13 +363,15 @@ export const useReaderTextSelection = ({
     bindingsRef.current.set(doc, binding);
     doc.addEventListener('selectionchange', handleSelectionChange);
     doc.addEventListener('pointerdown', handlePointerDown, true);
+    doc.addEventListener('pointermove', handlePointerMove, true);
     doc.addEventListener('pointerup', handlePointerUp, true);
+    doc.addEventListener('pointercancel', resetPointerGesture, true);
     doc.addEventListener('touchend', handleTouchEnd, true);
     doc.addEventListener('contextmenu', handleContextMenu, true);
     doc.addEventListener('scroll', handleScroll, true);
     doc.addEventListener('click', handleClick, true);
     doc.defaultView?.addEventListener('unload', cleanup, { once: true });
-  }, [dismissMenu, enabled, onDocumentTap, scheduleRead]);
+  }, [dismissMenu, enabled, onDocumentTap, resetBindingGesture, scheduleRead]);
 
   const copySelection = useCallback(async () => {
     const text = selection?.text;
