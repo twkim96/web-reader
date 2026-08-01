@@ -1,5 +1,6 @@
 import type { SyncConflictV5 } from './syncOutboxV5';
 import type { ProgressPositionV2 } from './progressV2Schema';
+import { hasMeaningfulProgressDelta } from './progressDistancePolicy.ts';
 
 type QuietProgressConflictInput = {
   conflict: SyncConflictV5;
@@ -10,7 +11,8 @@ type QuietProgressConflictInput = {
 export type QuietProgressConflictReason =
   | 'previous-session'
   | 'equivalent-position'
-  | 'newer-same-device';
+  | 'newer-same-device'
+  | 'nearby-position';
 
 const positionAnchor = (position: ProgressPositionV2) => (
   position.anchorCfi ?? position.cfi
@@ -61,6 +63,13 @@ export const getQuietProgressConflictReason = ({
     && remoteHead.occurredAtClient > event.occurredAtClient
   ) {
     return 'newer-same-device';
+  }
+
+  if (!hasMeaningfulProgressDelta(
+    event.payload.progressPercent,
+    remoteHead.position.progressPercent,
+  )) {
+    return 'nearby-position';
   }
 
   return null;

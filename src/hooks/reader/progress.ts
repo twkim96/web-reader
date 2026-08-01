@@ -22,6 +22,26 @@ export type PersistableReaderLocation = {
   percent: number;
 };
 
+type ReaderProgressPersistenceState = {
+  hasUnsavedUserChange: boolean;
+  hasPendingRelocateSave: boolean;
+  inFlightCommitCount: number;
+};
+
+export const isReaderProgressPersistenceSettled = ({
+  hasUnsavedUserChange,
+  hasPendingRelocateSave,
+  inFlightCommitCount,
+}: ReaderProgressPersistenceState) => (
+  !hasUnsavedUserChange
+  && !hasPendingRelocateSave
+  && inFlightCommitCount === 0
+);
+
+export const isQuietReaderResumeEligible = (
+  state: ReaderProgressPersistenceState & { hasUserInteracted: boolean },
+) => !state.hasUserInteracted && isReaderProgressPersistenceSettled(state);
+
 export const getRelocatePercent = (detail: ReaderRelocateDetail, fallback: number) => {
   if (Number.isFinite(detail.progressPercent)) {
     return toClampedPercent(detail.progressPercent);

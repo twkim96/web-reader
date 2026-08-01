@@ -55,6 +55,7 @@ interface EpubReaderProps {
   resolvedRemoteProgress?: UserProgress | null;
   onRegisterProgressFlush?: (flush: (() => Promise<boolean>) | null) => void;
   onRegisterQuietResumeEligibility?: (check: (() => boolean) | null) => void;
+  onRegisterProgressConflictAutoResolveEligibility?: (check: (() => boolean) | null) => void;
 }
 
 const KEYBOARD_SCROLL_RATIO = 0.25;
@@ -174,6 +175,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   resolvedRemoteProgress,
   onRegisterProgressFlush,
   onRegisterQuietResumeEligibility,
+  onRegisterProgressConflictAutoResolveEligibility,
 }) => {
   const theme = getThemeClasses(settings);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
@@ -271,6 +273,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     flushCurrentProgress,
     prepareRemoteJump,
     isQuietResumeEligible,
+    isProgressConflictAutoResolveEligible,
     completeRemoteJump,
   } = useReaderProgressSave({
     initialCfi,
@@ -302,6 +305,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     onRegisterQuietResumeEligibility?.(isQuietResumeEligible);
     return () => onRegisterQuietResumeEligibility?.(null);
   }, [isQuietResumeEligible, onRegisterQuietResumeEligibility]);
+
+  useEffect(() => {
+    onRegisterProgressConflictAutoResolveEligibility?.(isProgressConflictAutoResolveEligible);
+    return () => onRegisterProgressConflictAutoResolveEligibility?.(null);
+  }, [isProgressConflictAutoResolveEligible, onRegisterProgressConflictAutoResolveEligibility]);
 
   useEffect(() => {
     onRegisterProgressFlush?.(flushCurrentProgress);

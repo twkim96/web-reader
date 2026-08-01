@@ -24,6 +24,7 @@ type UseSyncConflictResolutionOptions = {
   ownerKey: string | null;
   activeBookId?: string;
   canQuietlyResolveProgressConflict?: () => boolean;
+  canAutoResolveSettledProgressConflict?: () => boolean;
 };
 
 export const useSyncConflictResolution = ({
@@ -34,6 +35,7 @@ export const useSyncConflictResolution = ({
   ownerKey,
   activeBookId,
   canQuietlyResolveProgressConflict,
+  canAutoResolveSettledProgressConflict,
 }: UseSyncConflictResolutionOptions) => {
   const [conflict, setConflict] = useState<SyncConflictV5 | null>(null);
   const [resolvedRemoteProgress, setResolvedRemoteProgress] = useState<UserProgress | null>(null);
@@ -91,17 +93,20 @@ export const useSyncConflictResolution = ({
       next?.event?.target.kind === 'progress'
       && next.event.target.bookId === activeBookId,
     );
-    const readerIsQuiet = !targetIsActiveBook || canQuietlyResolveProgressConflict?.() === true;
     const quietReason = next ? getQuietProgressConflictReason({
       conflict: next,
       activeBookId,
       currentSessionId: sessionIdRef.current,
     }) : null;
+    const runtimeEligibility = quietReason === 'previous-session'
+      ? canQuietlyResolveProgressConflict
+      : canAutoResolveSettledProgressConflict;
+    const readerCanAutoResolve = !targetIsActiveBook || runtimeEligibility?.() === true;
     const expectedLocalPosition = next?.latestLocalPosition
       && 'anchorCfi' in next.latestLocalPosition
       ? next.latestLocalPosition
       : undefined;
-    if (next && readerIsQuiet && quietReason && expectedLocalPosition) {
+    if (next && readerCanAutoResolve && quietReason && expectedLocalPosition) {
       if (resolvingRef.current.has(next.conflictId)) return;
       resolvingRef.current.add(next.conflictId);
       try {
@@ -110,7 +115,7 @@ export const useSyncConflictResolution = ({
           next,
           true,
           expectedLocalPosition,
-          targetIsActiveBook ? canQuietlyResolveProgressConflict : undefined,
+          targetIsActiveBook ? runtimeEligibility : undefined,
         );
         if (!resolved) {
           const latestConflicts = await getOpenSyncConflictsV5(
@@ -127,7 +132,7 @@ export const useSyncConflictResolution = ({
         }
         if (ownerRuntime.isCurrent(owner)) setConflict(null);
       } catch (error) {
-        console.error('[SyncConflict] quiet startup resolution failed:', error);
+        console.error('[SyncConflict] automatic progress resolution failed:', error);
         if (ownerRuntime.isCurrent(owner)) setConflict(next);
       } finally {
         resolvingRef.current.delete(next.conflictId);
@@ -135,7 +140,13 @@ export const useSyncConflictResolution = ({
       return;
     }
     setConflict(next);
-  }, [activeBookId, applyRemote, canQuietlyResolveProgressConflict, user]);
+  }, [
+    activeBookId,
+    applyRemote,
+    canAutoResolveSettledProgressConflict,
+    canQuietlyResolveProgressConflict,
+    user,
+  ]);
 
   useEffect(() => {
     setResolvedRemoteProgress(null);

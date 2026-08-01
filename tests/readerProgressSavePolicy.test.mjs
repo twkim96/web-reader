@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { updatePersistableReaderLocation } from '../src/hooks/reader/progress.ts';
+import {
+  isQuietReaderResumeEligible,
+  isReaderProgressPersistenceSettled,
+  updatePersistableReaderLocation,
+} from '../src/hooks/reader/progress.ts';
 
 test('force-save baseline ignores selection relocates and follows normal relocates', () => {
   const positionA = {
@@ -41,4 +45,23 @@ test('initial and remote-jump relocates refresh the force-save baseline before s
     anchorCfi: 'epubcfi(/6/2[start])',
     percent: 12.5,
   });
+});
+
+test('separates startup quiet resume from a settled active-reader save state', () => {
+  const settledAfterInteraction = {
+    hasUserInteracted: true,
+    hasUnsavedUserChange: false,
+    hasPendingRelocateSave: false,
+    inFlightCommitCount: 0,
+  };
+  assert.equal(isQuietReaderResumeEligible(settledAfterInteraction), false);
+  assert.equal(isReaderProgressPersistenceSettled(settledAfterInteraction), true);
+
+  for (const unsettled of [
+    { ...settledAfterInteraction, hasUnsavedUserChange: true },
+    { ...settledAfterInteraction, hasPendingRelocateSave: true },
+    { ...settledAfterInteraction, inFlightCommitCount: 1 },
+  ]) {
+    assert.equal(isReaderProgressPersistenceSettled(unsettled), false);
+  }
 });

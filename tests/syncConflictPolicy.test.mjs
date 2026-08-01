@@ -96,6 +96,25 @@ test('quietly adopts equivalent positions and a strictly newer same-device posit
   assert.equal(reason(conflict({ event: currentSessionEvent })), null);
 });
 
+test('quietly adopts a negligible current-session position race across devices', () => {
+  const currentSessionEvent = progressEvent({
+    sessionId: 'current-session',
+    payload: { cfi: 'local-cfi', anchorCfi: null, progressPercent: 30 },
+  });
+  assert.equal(reason(conflict({
+    event: currentSessionEvent,
+    remoteHead: remoteHead({
+      position: { cfi: 'nearby-remote-cfi', anchorCfi: null, progressPercent: 30.02 },
+    }),
+  })), 'nearby-position');
+  assert.equal(reason(conflict({
+    event: currentSessionEvent,
+    remoteHead: remoteHead({
+      position: { cfi: 'meaningful-remote-cfi', anchorCfi: null, progressPercent: 30.04 },
+    }),
+  })), null);
+});
+
 test('compares the stable anchor instead of layout-dependent percentages', () => {
   assert.equal(isEquivalentProgressPosition(
     { cfi: 'page-cfi-a', anchorCfi: 'anchor-cfi', progressPercent: 30 },

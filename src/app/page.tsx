@@ -90,8 +90,13 @@ export default function Page() {
   const [recentlyImportedBookIds, setRecentlyImportedBookIds] = useState<string[]>([]);
   const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const readerQuietResumeEligibilityRef = useRef<(() => boolean) | null>(null);
+  const readerProgressConflictAutoResolveEligibilityRef = useRef<(() => boolean) | null>(null);
   const canQuietlyResolveProgressConflict = useCallback(
     () => readerQuietResumeEligibilityRef.current?.() ?? false,
+    [],
+  );
+  const canAutoResolveSettledProgressConflict = useCallback(
+    () => readerProgressConflictAutoResolveEligibilityRef.current?.() ?? false,
     [],
   );
   const shouldHoldShelfForDrive = useCallback(() => (
@@ -256,6 +261,7 @@ export default function Page() {
     ownerKey: activeOwnerKey,
     activeBookId: activeBook?.id,
     canQuietlyResolveProgressConflict,
+    canAutoResolveSettledProgressConflict,
   });
   useNetworkLibrarySync({
     user,
@@ -611,6 +617,9 @@ export default function Page() {
           }}
           onRegisterQuietResumeEligibility={(check) => {
             readerQuietResumeEligibilityRef.current = check;
+          }}
+          onRegisterProgressConflictAutoResolveEligibility={(check) => {
+            readerProgressConflictAutoResolveEligibilityRef.current = check;
           }}
         />
       )}

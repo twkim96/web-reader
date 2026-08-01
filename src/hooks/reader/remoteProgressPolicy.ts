@@ -1,3 +1,5 @@
+import { hasMeaningfulProgressDelta } from '../../lib/progressDistancePolicy.ts';
+
 export type RemoteProgressDecision = 'ignore' | 'jump' | 'prompt';
 
 type RemoteProgressDecisionInput = {
@@ -38,7 +40,7 @@ export const decideRemoteProgressAction = ({
 
   if (isInitialSync && isQuietResumeEligible) return 'jump';
 
-  return Math.abs((remotePercent || 0) - (currentPercent || 0)) > 0.03
+  return hasMeaningfulProgressDelta(remotePercent, currentPercent)
     ? 'prompt'
     : 'ignore';
 };

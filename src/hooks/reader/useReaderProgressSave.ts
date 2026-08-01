@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { Bookmark, SaveProgressOptions } from '../../types';
 import {
   getBookmarksKey,
+  isQuietReaderResumeEligible,
+  isReaderProgressPersistenceSettled,
   toClampedPercent,
   updatePersistableReaderLocation,
 } from './progress';
@@ -280,12 +282,20 @@ export const useReaderProgressSave = ({
     clearPendingSave();
   }, [clearPendingSave]);
 
-  const isQuietResumeEligible = useCallback(() => (
-    !hasUserInteractedRef.current
-    && !hasUnsavedUserChangeRef.current
-    && !pendingRelocateSaveRef.current
-    && inFlightCommitCountRef.current === 0
-  ), []);
+  const getPersistenceState = useCallback(() => ({
+    hasUnsavedUserChange: hasUnsavedUserChangeRef.current,
+    hasPendingRelocateSave: pendingRelocateSaveRef.current !== null,
+    inFlightCommitCount: inFlightCommitCountRef.current,
+  }), []);
+
+  const isQuietResumeEligible = useCallback(() => isQuietReaderResumeEligible({
+    ...getPersistenceState(),
+    hasUserInteracted: hasUserInteractedRef.current,
+  }), [getPersistenceState]);
+
+  const isProgressConflictAutoResolveEligible = useCallback(() => (
+    isReaderProgressPersistenceSettled(getPersistenceState())
+  ), [getPersistenceState]);
 
   const flushCurrentProgress = useCallback(async () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -361,6 +371,7 @@ export const useReaderProgressSave = ({
     flushCurrentProgress,
     prepareRemoteJump,
     isQuietResumeEligible,
+    isProgressConflictAutoResolveEligible,
     completeRemoteJump,
   };
 };
