@@ -1451,7 +1451,14 @@ try {
     `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
     'combined records modal after reader reopen',
   );
-  await evaluate(`document.querySelector('[data-reader-records-tab="annotations"]')?.click()`);
+  const compactRecordsModal = await evaluate(`(() => {
+    const bookmarkPanel = document.querySelector('[data-reader-bookmark-panel="true"]');
+    const width = bookmarkPanel?.getBoundingClientRect().width ?? null;
+    document.querySelector('[data-reader-records-tab="annotations"]')?.click();
+    return { width };
+  })()`);
+  assert.equal(typeof compactRecordsModal.width, 'number', JSON.stringify(compactRecordsModal));
+  assert.ok(compactRecordsModal.width <= 340, JSON.stringify(compactRecordsModal));
   await waitFor(
     `Boolean(document.querySelector('[data-reader-annotation-modal="true"]'))`,
     'annotation manager after reader reopen',
@@ -1459,6 +1466,11 @@ try {
   const annotationManager = await evaluate(`(async () => {
     const initialItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     const greenGroup = document.querySelector('[data-reader-annotation-group="green"]');
+    const modalWidth = document.querySelector('[data-reader-annotation-modal="true"]')
+      ?.getBoundingClientRect().width ?? null;
+    const searchHeight = document.querySelector('[data-reader-annotation-search="true"]')
+      ?.closest('label')?.getBoundingClientRect().height ?? null;
+    const collapsedGroupHeight = greenGroup?.getBoundingClientRect().height ?? null;
     const initiallyCollapsed = greenGroup?.getAttribute('aria-expanded') === 'false';
     greenGroup?.click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -1533,6 +1545,9 @@ try {
     db.close();
     return {
       initialItemCount,
+      modalWidth,
+      searchHeight,
+      collapsedGroupHeight,
       initiallyCollapsed,
       expandedItemCount,
       searchedItemCount,
@@ -1545,6 +1560,12 @@ try {
     };
   })()`);
   assert.equal(annotationManager.initialItemCount, 0, JSON.stringify(annotationManager));
+  assert.equal(typeof annotationManager.modalWidth, 'number', JSON.stringify(annotationManager));
+  assert.equal(typeof annotationManager.searchHeight, 'number', JSON.stringify(annotationManager));
+  assert.equal(typeof annotationManager.collapsedGroupHeight, 'number', JSON.stringify(annotationManager));
+  assert.ok(annotationManager.modalWidth <= 340, JSON.stringify(annotationManager));
+  assert.ok(annotationManager.searchHeight <= 40, JSON.stringify(annotationManager));
+  assert.ok(annotationManager.collapsedGroupHeight <= 40, JSON.stringify(annotationManager));
   assert.equal(annotationManager.initiallyCollapsed, true, JSON.stringify(annotationManager));
   assert.equal(annotationManager.expandedItemCount, 1, JSON.stringify(annotationManager));
   assert.equal(annotationManager.searchedItemCount, 1, JSON.stringify(annotationManager));

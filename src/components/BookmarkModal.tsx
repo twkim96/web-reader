@@ -74,11 +74,11 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
     <ReaderModalFrame
       theme={theme}
       onClose={onClose}
-      maxWidth="max-w-xl"
+      maxWidth="max-w-[21.25rem]"
       placement="center"
-      className="flex h-[min(76vh,42rem)] flex-col"
+      className="flex h-[34rem] max-h-[85vh] flex-col"
     >
-      <div className={`flex shrink-0 items-center justify-between border-b ${theme.border} px-4 py-2.5`}>
+      <div className={`flex shrink-0 items-center justify-between border-b ${theme.border} px-4 py-2`}>
         <div className="flex min-w-0 items-center gap-2">
           {activeTab === 'annotations'
             ? <Highlighter className="shrink-0 text-accent-500" size={19} />
@@ -98,7 +98,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
       <div
         role="tablist"
         aria-label="책갈피와 주석"
-        className={`grid shrink-0 ${annotationsEnabled ? 'grid-cols-2' : 'grid-cols-1'} border-b ${theme.border} px-3`}
+        className={`grid shrink-0 ${annotationsEnabled ? 'grid-cols-2' : 'grid-cols-1'} border-b ${theme.border} px-2.5`}
       >
         <button
           type="button"
@@ -143,7 +143,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
           onJump={onJumpToAnnotation}
         />
       ) : (
-        <div data-reader-bookmark-panel="true" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <div data-reader-bookmark-panel="true" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
           <section className="space-y-2">
             <div className="flex items-end justify-between">
               <span className="text-xs font-bold uppercase tracking-wider opacity-50">나만의 책갈피 ({manualBookmarks.length}/5)</span>
@@ -153,7 +153,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               type="button"
               onClick={onAdd}
               disabled={manualBookmarks.length >= 5}
-              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-3 py-2.5 font-bold transition-all ${manualBookmarks.length >= 5
+              className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed px-3 py-2 text-sm font-bold transition-all ${manualBookmarks.length >= 5
                 ? 'cursor-not-allowed border-gray-500/20 text-gray-500/40'
                 : 'border-accent-500/30 text-accent-500 hover:bg-accent-500/5 active:scale-95'
               }`}
@@ -161,21 +161,21 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               {manualBookmarks.length >= 5 ? '슬롯이 가득 찼습니다' : '+ 현재 위치 추가하기'}
             </button>
 
-            <div className="mt-3 space-y-2">
+            <div className="mt-2 space-y-1.5">
               {manualBookmarks.map((bookmark) => (
                 <div key={bookmark.id} className="group relative">
                   <button
                     type="button"
                     onClick={() => onJump(bookmark.cfi, bookmark.progressPercent)}
-                    className="flex w-full gap-3 overflow-hidden rounded-2xl border border-white/5 bg-white/5 p-3 pr-14 text-left transition-transform hover:bg-white/10 active:scale-95"
+                    className="flex w-full gap-2.5 overflow-hidden rounded-xl border border-white/5 bg-white/5 p-2.5 pr-12 text-left transition-transform hover:bg-white/10 active:scale-95"
                   >
                     <div className={`w-1.5 self-stretch rounded-full ${bookmark.color}`} />
                     <div className="min-w-0 flex-1">
-                      <p className="line-clamp-2 font-serif text-sm leading-snug opacity-90">&ldquo;{bookmark.name}&rdquo;</p>
-                      <p className="mt-1.5 flex items-center gap-2 font-sans text-[10px]">
+                      <p className="line-clamp-2 font-serif text-xs leading-snug opacity-90">&ldquo;{bookmark.name}&rdquo;</p>
+                      <p className="mt-1 flex items-center gap-1.5 font-sans text-[9px]">
                         <span className="opacity-40">{new Date(bookmark.createdAt).toLocaleString()}</span>
                         <span className="size-1 rounded-full bg-current opacity-20" />
-                        <span className="rounded bg-accent-500/10 px-1.5 py-0.5 text-[11px] font-bold text-accent-500">
+                        <span className="rounded bg-accent-500/10 px-1.5 py-0.5 text-[10px] font-bold text-accent-500">
                           {bookmark.progressPercent !== undefined ? `${bookmark.progressPercent.toFixed(1)}%` : 'CFI'}
                         </span>
                       </p>
@@ -188,14 +188,14 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                       onDelete(bookmark.id);
                     }}
                     aria-label="책갈피 삭제"
-                    className="absolute right-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/20 text-red-400 opacity-60 hover:opacity-100"
+                    className="absolute right-1.5 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/20 text-red-400 opacity-60 hover:opacity-100"
                   >
                     <Trash2 size={16} />
                   </button>
                 </div>
               ))}
               {manualBookmarks.length === 0 && (
-                <p className="py-3 text-center text-xs opacity-30">저장된 책갈피가 없습니다.</p>
+                <p className="py-2 text-center text-[11px] opacity-30">저장된 책갈피가 없습니다.</p>
               )}
             </div>
           </section>
@@ -213,22 +213,22 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 type="button"
                 key={bookmark.id}
                 onClick={() => onJump(bookmark.cfi, bookmark.progressPercent)}
-                className="flex w-full gap-3 rounded-2xl border border-white/5 bg-white/5 p-3 text-left transition-transform hover:bg-white/10 active:scale-95"
+                className="flex w-full gap-2.5 rounded-xl border border-white/5 bg-white/5 p-2.5 text-left transition-transform hover:bg-white/10 active:scale-95"
               >
                 <div className="w-1.5 self-stretch rounded-full bg-slate-500" />
                 <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 font-serif text-sm leading-snug opacity-90">&ldquo;{bookmark.name}&rdquo;</p>
-                  <p className="mt-1.5 flex items-center gap-2 font-sans text-[10px]">
+                  <p className="line-clamp-2 font-serif text-xs leading-snug opacity-90">&ldquo;{bookmark.name}&rdquo;</p>
+                  <p className="mt-1 flex items-center gap-1.5 font-sans text-[9px]">
                     <span className="opacity-40">{new Date(bookmark.createdAt).toLocaleString()}</span>
                     <span className="size-1 rounded-full bg-current opacity-20" />
-                    <span className="rounded bg-accent-500/10 px-1.5 py-0.5 text-[11px] font-bold text-accent-500">
+                    <span className="rounded bg-accent-500/10 px-1.5 py-0.5 text-[10px] font-bold text-accent-500">
                       {bookmark.progressPercent !== undefined ? `${bookmark.progressPercent.toFixed(1)}%` : 'CFI'}
                     </span>
                   </p>
                 </div>
               </button>
             )) : (
-              <p className="rounded-2xl bg-black/5 py-3 text-center text-xs opacity-30">대량 이동 시 자동으로 생성됩니다.</p>
+              <p className="rounded-xl bg-black/5 py-2.5 text-center text-[11px] opacity-30">대량 이동 시 자동으로 생성됩니다.</p>
             )}
           </section>
         </div>
