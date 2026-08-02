@@ -23,10 +23,15 @@ export type ReaderTextSelection = SelectionViewportAnchor & {
 };
 
 type DocumentTapHandler = (point: { x: number; y: number }) => boolean;
+type HighlightTapHandler = (
+  doc: Document,
+  point: { x: number; y: number },
+) => boolean;
 
 interface UseReaderTextSelectionOptions {
   enabled: boolean;
   onDocumentTap: DocumentTapHandler;
+  onHighlightTap?: HighlightTapHandler;
 }
 
 type DocumentBinding = {
@@ -85,6 +90,7 @@ const fallbackCopy = (text: string) => {
 export const useReaderTextSelection = ({
   enabled,
   onDocumentTap,
+  onHighlightTap,
 }: UseReaderTextSelectionOptions) => {
   const [selection, setSelection] = useState<ReaderTextSelection | null>(null);
   const [feedback, setFeedback] = useState('');
@@ -258,7 +264,7 @@ export const useReaderTextSelection = ({
       }
       binding.pointerGesture = null;
 
-      if (event.defaultPrevented || isPublicationLinkTarget(event.target)) {
+      if (event.defaultPrevented) {
         lastNavigationTapRef.current = null;
         scheduleRead(doc);
         return;
@@ -286,6 +292,25 @@ export const useReaderTextSelection = ({
         return;
       }
       if (rapidNavigationContinuation) clearRapidTapSelection();
+
+      if (
+        !rapidNavigationContinuation
+        && onHighlightTap?.(doc, { x: event.clientX, y: event.clientY })
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        binding.selectionGesture = false;
+        binding.suppressNextClick = true;
+        lastNavigationTapRef.current = null;
+        scheduleRead(doc);
+        return;
+      }
+
+      if (isPublicationLinkTarget(event.target)) {
+        lastNavigationTapRef.current = null;
+        scheduleRead(doc);
+        return;
+      }
 
       event.preventDefault();
       event.stopPropagation();
@@ -371,7 +396,7 @@ export const useReaderTextSelection = ({
     doc.addEventListener('scroll', handleScroll, true);
     doc.addEventListener('click', handleClick, true);
     doc.defaultView?.addEventListener('unload', cleanup, { once: true });
-  }, [dismissMenu, enabled, onDocumentTap, resetBindingGesture, scheduleRead]);
+  }, [dismissMenu, enabled, onDocumentTap, onHighlightTap, resetBindingGesture, scheduleRead]);
 
   const copySelection = useCallback(async () => {
     const text = selection?.text;

@@ -200,6 +200,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
   const documentTapRef = useRef<(point: { x: number; y: number }) => boolean>(() => false);
   const annotationMenuCloseRef = useRef<() => void>(() => undefined);
+  const annotationTapRef = useRef<(
+    doc: Document,
+    point: { x: number; y: number },
+  ) => boolean>(() => false);
   const controlsOverlayRef = useRef<HTMLDivElement | null>(null);
   const wheelNavigationCycleLockedRef = useRef(false);
   const wheelNavigationResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -294,6 +298,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const handleDocumentTap = useCallback((point: { x: number; y: number }) => {
     return documentTapRef.current(point);
   }, []);
+  const handleAnnotationTap = useCallback((
+    doc: Document,
+    point: { x: number; y: number },
+  ) => annotationTapRef.current(doc, point), []);
   const {
     selection: selectedText,
     feedback: selectionFeedback,
@@ -306,6 +314,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   } = useReaderTextSelection({
     enabled: !isFixedLayout,
     onDocumentTap: handleDocumentTap,
+    onHighlightTap: handleAnnotationTap,
   });
 
   useEffect(() => {
@@ -397,6 +406,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     deleteAnnotations,
     flashAnnotation,
     closeActiveHighlight,
+    openHighlightAtPoint,
     undoLastMutation,
   } = useReaderAnnotations({
     enabled: !isFixedLayout,
@@ -424,6 +434,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       annotationMenuCloseRef.current = () => undefined;
     };
   }, [closeActiveHighlight]);
+
+  useLayoutEffect(() => {
+    annotationTapRef.current = openHighlightAtPoint;
+    return () => {
+      annotationTapRef.current = () => false;
+    };
+  }, [openHighlightAtPoint]);
 
   const {
     bookmarks,

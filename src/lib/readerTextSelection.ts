@@ -24,6 +24,23 @@ export type SelectionViewportAnchor = {
   bottom: number;
 };
 
+export const isPointInsideRects = (
+  rects: Iterable<Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>>,
+  point: { x: number; y: number },
+  hitSlop = 0,
+) => {
+  const safeHitSlop = Number.isFinite(hitSlop) ? Math.max(0, hitSlop) : 0;
+  for (const rect of rects) {
+    if (
+      point.x >= rect.left - safeHitSlop
+      && point.x < rect.right + safeHitSlop
+      && point.y >= rect.top - safeHitSlop
+      && point.y < rect.bottom + safeHitSlop
+    ) return true;
+  }
+  return false;
+};
+
 export const getDocumentFrameMetrics = (doc: Document): FrameMetrics | null => {
   const frame = doc.defaultView?.frameElement as HTMLElement | null;
   if (!frame || typeof frame.getBoundingClientRect !== 'function') return null;

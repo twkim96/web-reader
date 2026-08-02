@@ -994,6 +994,43 @@ try {
     const createdOverlay = hasHighlightOverlay();
     const beforeHighlightClick = renderer.start;
     const controlsBeforeHighlightClick = document.querySelector('nav')?.classList.contains('translate-y-0');
+    const highlightTapInit = {
+      bubbles: true,
+      cancelable: true,
+      clientX: selectedRect.left + selectedRect.width / 2,
+      clientY: selectedRect.top + selectedRect.height / 2,
+      pointerId: 41,
+      pointerType: 'touch',
+      isPrimary: true,
+      button: 0,
+    };
+    textNode.parentElement?.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+      ...highlightTapInit,
+      buttons: 1,
+    }));
+    textNode.parentElement?.dispatchEvent(new doc.defaultView.PointerEvent('pointerup', {
+      ...highlightTapInit,
+      buttons: 0,
+    }));
+    textNode.parentElement?.dispatchEvent(new doc.defaultView.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: highlightTapInit.clientX,
+      clientY: highlightTapInit.clientY,
+    }));
+    const touchHighlightMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-highlight-menu="true"]')
+      && performance.now() < touchHighlightMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const highlightTouchMenuShown = Boolean(
+      document.querySelector('[data-reader-highlight-menu="true"]'),
+    );
+    const afterHighlightTouch = renderer.start;
+    document.querySelector(
+      '[data-reader-highlight-menu="true"] button[aria-label="하이라이트 메뉴 닫기"]',
+    )?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     textNode.parentElement?.dispatchEvent(new doc.defaultView.MouseEvent('click', {
       bubbles: true,
       cancelable: true,
@@ -1006,6 +1043,7 @@ try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
     }
     const highlightMenu = document.querySelector('[data-reader-highlight-menu="true"]');
+    const highlightMouseMenuShown = Boolean(highlightMenu);
     const highlightMenuRect = highlightMenu?.getBoundingClientRect();
     const highlightActionRects = [...(highlightMenu?.querySelectorAll('button') ?? [])]
       .map((button) => {
@@ -1246,6 +1284,8 @@ try {
       createdOverlay,
       highlightMenuVisible: Boolean(document.querySelector('[data-reader-highlight-menu="true"]')),
       highlightMenuShown: Boolean(highlightMenu),
+      highlightTouchMenuShown,
+      highlightMouseMenuShown,
       highlightMenuInViewport: Boolean(highlightMenuRect
         && highlightMenuRect.left >= 0
         && highlightMenuRect.top >= 0
@@ -1253,6 +1293,7 @@ try {
         && highlightMenuRect.bottom <= innerHeight),
       highlightActionRects,
       beforeHighlightClick,
+      afterHighlightTouch,
       afterHighlightClick,
       controlsBeforeHighlightClick,
       controlsAfterHighlightClick,
@@ -1344,12 +1385,15 @@ try {
   assert.equal(selectionActions.createdColor, 'yellow');
   assert.equal(selectionActions.createdOverlay, true);
   assert.equal(selectionActions.highlightMenuShown, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.highlightTouchMenuShown, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.highlightMouseMenuShown, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.highlightMenuInViewport, true, JSON.stringify(selectionActions));
   assert.ok(
     selectionActions.highlightActionRects.every(({ width, height }) => width >= 44 && height >= 44),
     JSON.stringify(selectionActions.highlightActionRects),
   );
   assert.equal(selectionActions.beforeHighlightClick, selectionActions.afterHighlightClick);
+  assert.equal(selectionActions.beforeHighlightClick, selectionActions.afterHighlightTouch);
   assert.equal(selectionActions.controlsBeforeHighlightClick, selectionActions.controlsAfterHighlightClick);
   assert.equal(selectionActions.recoloredColor, 'blue');
   assert.equal(selectionActions.deletedAnnotationCount, 0);

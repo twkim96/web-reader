@@ -40,11 +40,14 @@ import {
   getDocumentFrameMetrics,
   getRangeTextContext,
   getRangeViewportAnchor,
+  isPointInsideRects,
   type SelectionViewportAnchor,
 } from '../../lib/readerTextSelection';
 import { toClampedPercent } from '../foliate/progress';
 
 type ActiveHighlight = SelectionViewportAnchor & { annotation: Annotation };
+
+const HIGHLIGHT_TAP_SLOP_PX = 6;
 
 type AnnotationUndo =
   | { type: 'create'; annotations: Annotation[] }
@@ -91,6 +94,7 @@ export const useReaderAnnotations = ({
   const mutationInFlightRef = useRef(false);
   const flashTimerRef = useRef<number | null>(null);
   const flashCleanupRef = useRef<(() => void) | null>(null);
+  const renderedRangesRef = useRef<WeakMap<Document, Map<string, Range>>>(new WeakMap());
 
   const replaceAnnotations = useCallback((next: Annotation[]) => {
     annotationsRef.current = next;
@@ -111,6 +115,42 @@ export const useReaderAnnotations = ({
   const closeActiveHighlight = useCallback(() => {
     setActiveHighlight(null);
   }, []);
+
+  const openHighlightAtPoint = useCallback((
+    doc: Document,
+    point: { x: number; y: number },
+  ) => {
+    const ranges = renderedRangesRef.current.get(doc);
+    if (!ranges) return false;
+    for (let index = annotationsRef.current.length - 1; index >= 0; index -= 1) {
+      const annotation = annotationsRef.current[index];
+      if (annotation.anchorState === 'unresolved') continue;
+      const range = ranges.get(annotation.id);
+      if (!range) continue;
+      let hit = false;
+      try {
+        hit = isPointInsideRects(
+          Array.from(range.getClientRects()),
+          point,
+          HIGHLIGHT_TAP_SLOP_PX,
+        );
+      } catch {
+        continue;
+      }
+      if (!hit) continue;
+      const anchor = getRangeViewportAnchor(
+        range,
+        getDocumentFrameMetrics(doc),
+        window.innerWidth,
+        window.innerHeight,
+      );
+      if (!anchor) continue;
+      clearTextSelection();
+      setActiveHighlight({ annotation, ...anchor });
+      return true;
+    }
+    return false;
+  }, [clearTextSelection]);
 
   const removeAnnotationOverlay = useCallback(async (annotation: Annotation) => {
     const view = viewRef.current;
@@ -200,6 +240,7 @@ export const useReaderAnnotations = ({
 
   useEffect(() => {
     const generation = ++loadGenerationRef.current;
+    renderedRangesRef.current = new WeakMap();
     setActiveHighlight(null);
     setUndoMutation(null);
     setFeedback('');
@@ -246,6 +287,9 @@ export const useReaderAnnotations = ({
         void markAnchorState(annotation.id, 'unresolved');
         return;
       }
+      const renderedRanges = renderedRangesRef.current.get(detail.doc) ?? new Map<string, Range>();
+      renderedRanges.set(annotation.id, detail.range.cloneRange());
+      renderedRangesRef.current.set(detail.doc, renderedRanges);
       detail.draw((rects, options) => {
         const group = drawHighlightRects(rects, options);
         group.setAttribute('data-reader-annotation-id', annotation.id);
@@ -735,6 +779,7 @@ export const useReaderAnnotations = ({
     deleteAnnotations,
     flashAnnotation,
     closeActiveHighlight,
+    openHighlightAtPoint,
     undoLastMutation,
   };
 };

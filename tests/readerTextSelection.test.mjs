@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   hasNonCollapsedSelection,
+  isPointInsideRects,
   isRapidReaderNavigationTap,
   isShortReaderTapGesture,
   isPublicationLinkTarget,
@@ -65,6 +66,14 @@ test('maps a selected range to a parent viewport menu anchor', () => {
     mapSelectionRectToViewport(rect(30, 50, 80, 20), frame),
     { x: 90, top: 90, bottom: 110 },
   );
+});
+
+test('uses a small hit slop for finger taps near a highlight without matching distant text', () => {
+  const highlight = rect(40, 60, 80, 20);
+  assert.equal(isPointInsideRects([highlight], { x: 70, y: 70 }, 6), true);
+  assert.equal(isPointInsideRects([highlight], { x: 35, y: 70 }, 6), true);
+  assert.equal(isPointInsideRects([highlight], { x: 33, y: 70 }, 6), false);
+  assert.equal(isPointInsideRects([highlight], { x: 70, y: 87 }, 6), false);
 });
 
 test('maps an iframe range rect before testing parent viewport visibility', () => {
