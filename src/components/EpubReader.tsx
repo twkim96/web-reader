@@ -16,7 +16,6 @@ import { getThemeClasses, getThemeColors, getThemeCssVariables, getThemeTextureC
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
-import { AnnotationModal } from './AnnotationModal';
 import { TocModal } from './TocModal';
 import { EpubSearchModal } from './EpubSearchModal';
 import { JumpDialog } from './reader/JumpDialog';
@@ -265,7 +264,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const isReaderPanelOpen = chrome.showSettings
     || chrome.showThemeModal
     || chrome.showBookmarks
-    || chrome.showAnnotations
     || chrome.showToc
     || chrome.showSearchModal
     || chrome.showJumpInput
@@ -1306,14 +1304,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         isSliderPreviewing={isSliderPreviewing}
         sliderPreviewChapter={sliderTargetChapter}
         bookmarkCount={bookmarks.length}
-        annotationCount={annotations.length}
         isFixedLayout={isFixedLayout}
         onBack={chrome.handleUIBack}
         onOpenSearch={() => chrome.setShowSearchModal(true)}
         onOpenSettings={() => chrome.setShowSettings(true)}
         onOpenTheme={() => chrome.setShowThemeModal(true)}
         onOpenBookmarks={() => chrome.setShowBookmarks(true)}
-        onOpenAnnotations={() => chrome.setShowAnnotations(true)}
         onOpenToc={() => chrome.setShowToc(true)}
         onProgressSliderStart={beginSliderMove}
         onProgressSliderPreview={previewSliderMove}
@@ -1345,29 +1341,23 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       {chrome.showBookmarks && (
         <BookmarkModal
           bookmarks={bookmarks}
+          annotations={annotations}
+          annotationPalette={palette}
+          annotationsEnabled={!isFixedLayout}
           theme={theme}
           onClose={() => chrome.setShowBookmarks(false)}
           onAdd={addBookmark}
           onDelete={deleteBookmark}
           onJump={(cfi, progressPercent) => { void performJumpToProgress(cfi, progressPercent); chrome.setShowBookmarks(false); }}
-        />
-      )}
-
-      {!isFixedLayout && chrome.showAnnotations && (
-        <AnnotationModal
-          annotations={annotations}
-          palette={palette}
-          theme={theme}
-          onClose={() => chrome.setShowAnnotations(false)}
-          onEditNote={(annotation) => setEditingAnnotationId(annotation.id)}
-          onChangeColors={(ids, colorId) => changeAnnotationColors(ids, colorId)}
-          onDelete={(ids) => deleteAnnotations(ids)}
-          mutationBusy={isAnnotationMutating}
-          feedback={annotationFeedback}
-          canUndo={canUndoAnnotation}
-          onUndo={() => { void undoLastMutation(); }}
-          onJump={(annotation) => {
-            chrome.setShowAnnotations(false);
+          onEditAnnotationNote={(annotation) => setEditingAnnotationId(annotation.id)}
+          onChangeAnnotationColors={(ids, colorId) => changeAnnotationColors(ids, colorId)}
+          onDeleteAnnotations={(ids) => deleteAnnotations(ids)}
+          annotationMutationBusy={isAnnotationMutating}
+          annotationFeedback={annotationFeedback}
+          canUndoAnnotation={canUndoAnnotation}
+          onUndoAnnotation={() => { void undoLastMutation(); }}
+          onJumpToAnnotation={(annotation) => {
+            chrome.setShowBookmarks(false);
             void performJumpToProgress(
               annotation.rangeCfi,
               annotation.progressPercent ?? undefined,

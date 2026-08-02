@@ -5,7 +5,6 @@ import {
   CheckSquare,
   ChevronDown,
   Edit3,
-  Highlighter,
   Search,
   Trash2,
   X,
@@ -16,16 +15,18 @@ import type {
   HighlightColorId,
   ThemeClasses,
 } from '../types';
-import { ANNOTATION_COLOR_LIMIT, getHighlightColor } from '../lib/annotationPolicy';
+import {
+  ANNOTATION_COLOR_LIMIT,
+  getHighlightColor,
+  HIGHLIGHT_COLORS,
+} from '../lib/annotationPolicy';
 import { groupAnnotationsByColor, queryAnnotations, type AnnotationSort } from '../lib/annotationQuery';
 import { getAnnotationPaletteItem } from '../lib/annotationPalette';
-import { ReaderModalFrame } from './reader/ReaderModalFrame';
 
-interface AnnotationModalProps {
+export interface AnnotationPanelProps {
   annotations: Annotation[];
   palette: AnnotationPaletteItem[];
   theme: ThemeClasses;
-  onClose: () => void;
   onJump: (annotation: Annotation) => void;
   onEditNote: (annotation: Annotation) => void;
   onChangeColors: (annotationIds: string[], colorId: HighlightColorId) => Promise<boolean>;
@@ -51,11 +52,10 @@ const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
 
 const formatDate = (timestamp: number) => dateFormatter.format(timestamp);
 
-export const AnnotationModal: React.FC<AnnotationModalProps> = ({
+export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
   annotations,
   palette,
   theme,
-  onClose,
   onJump,
   onEditNote,
   onChangeColors,
@@ -68,7 +68,9 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<AnnotationSort>('reading');
   const [noteOnly, setNoteOnly] = useState(false);
-  const [collapsed, setCollapsed] = useState<Set<HighlightColorId>>(() => new Set());
+  const [collapsed, setCollapsed] = useState<Set<HighlightColorId>>(() => (
+    new Set(HIGHLIGHT_COLORS.map(({ id }) => id))
+  ));
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -131,28 +133,8 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
   };
 
   return (
-    <>
-      <ReaderModalFrame
-        theme={theme}
-        onClose={onClose}
-        placement="center"
-        maxWidth="max-w-3xl"
-        className="flex h-[min(88vh,52rem)] flex-col font-sans"
-      >
-        <div data-reader-annotation-modal="true" className={`flex shrink-0 items-center justify-between gap-3 border-b ${theme.border} px-4 py-3 sm:px-5`}>
-          <div className="flex min-w-0 items-center gap-2">
-            <Highlighter size={20} className="shrink-0 text-accent-500" />
-            <div className="min-w-0">
-              <h2 className="truncate text-lg font-black">하이라이트·메모</h2>
-              <p className="text-[10px] font-bold opacity-45">이 책 {annotations.length}/100</p>
-            </div>
-          </div>
-          <button type="button" onClick={onClose} aria-label="하이라이트 목록 닫기" className="flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className={`shrink-0 space-y-2 border-b ${theme.border} px-4 py-3 sm:px-5`}>
+      <div data-reader-annotation-modal="true" className="flex min-h-0 flex-1 flex-col font-sans">
+        <div className={`shrink-0 space-y-2 border-b ${theme.border} px-3 py-2.5 sm:px-4`}>
           <label className={`flex min-h-11 items-center gap-2 rounded-xl border ${theme.border} bg-black/5 px-3 dark:bg-white/5`}>
             <Search size={17} className="shrink-0 opacity-45" />
             <input
@@ -237,8 +219,8 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <div className="space-y-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4">
+          <div className="space-y-2">
             {groups.map(({ colorId, annotations: items }) => {
               const paletteItem = getAnnotationPaletteItem(palette, colorId);
               const color = getHighlightColor(colorId);
@@ -256,7 +238,7 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
                       else next.add(colorId);
                       return next;
                     })}
-                    className="flex min-h-12 w-full items-center gap-3 px-3 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                    className="flex min-h-11 w-full items-center gap-2.5 px-3 py-1 text-left hover:bg-black/5 dark:hover:bg-white/5"
                   >
                     <span className="size-4 shrink-0 rounded-full" style={{ backgroundColor: color.color }} />
                     <span className="min-w-0 flex-1">
@@ -272,9 +254,9 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
                   {!isCollapsed && (
                     <div className={`border-t ${theme.border}`}>
                       {items.length === 0 ? (
-                        <p className="px-4 py-5 text-center text-xs font-bold opacity-30">해당 항목이 없습니다.</p>
+                        <p className="px-4 py-3 text-center text-xs font-bold opacity-30">해당 항목이 없습니다.</p>
                       ) : items.map((annotation) => (
-                        <article key={annotation.id} data-reader-annotation-item={annotation.id} className={`flex gap-2 border-b ${theme.border} p-3 last:border-b-0`}>
+                        <article key={annotation.id} data-reader-annotation-item={annotation.id} className={`flex gap-1.5 border-b ${theme.border} px-2 py-1.5 last:border-b-0`}>
                           <label className="flex size-11 shrink-0 items-center justify-center" title="항목 선택">
                             <input
                               type="checkbox"
@@ -289,11 +271,11 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
                             type="button"
                             disabled={busy || mutationBusy || annotation.anchorState === 'unresolved'}
                             onClick={() => onJump(annotation)}
-                            className="min-w-0 flex-1 rounded-xl px-1 py-1 text-left active:scale-[0.99] disabled:cursor-not-allowed"
+                            className="min-w-0 flex-1 rounded-xl px-1 py-1.5 text-left active:scale-[0.99] disabled:cursor-not-allowed"
                           >
-                            <p className="line-clamp-3 font-serif text-sm leading-relaxed">“{annotation.quote}”</p>
-                            {annotation.note && <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed opacity-65">{annotation.note}</p>}
-                            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold opacity-40">
+                            <p className="line-clamp-2 font-serif text-sm leading-snug">“{annotation.quote}”</p>
+                            {annotation.note && <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-snug opacity-65">{annotation.note}</p>}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold opacity-40">
                               {annotation.chapter && <span className="max-w-48 truncate">{annotation.chapter}</span>}
                               {annotation.progressPercent !== null && <span>{annotation.progressPercent.toFixed(1)}%</span>}
                               <span>{formatDate(annotation.updatedAtClient)}</span>
@@ -318,8 +300,6 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
             })}
           </div>
         </div>
-      </ReaderModalFrame>
-
-    </>
+      </div>
   );
 };

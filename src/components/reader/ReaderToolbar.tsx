@@ -3,7 +3,6 @@
 import React from 'react';
 import {
   Bookmark as BookmarkIcon,
-  Highlighter,
   List,
   Palette,
   Search,
@@ -30,14 +29,12 @@ interface ReaderToolbarProps {
   isSliderPreviewing: boolean;
   sliderPreviewChapter?: string;
   bookmarkCount: number;
-  annotationCount: number;
   isFixedLayout?: boolean;
   onBack: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenTheme: () => void;
   onOpenBookmarks: () => void;
-  onOpenAnnotations: () => void;
   onOpenToc: () => void;
   onProgressSliderStart: () => void;
   onProgressSliderPreview: (progressPercent: number) => void;
@@ -63,14 +60,12 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   isSliderPreviewing,
   sliderPreviewChapter,
   bookmarkCount,
-  annotationCount,
   isFixedLayout = false,
   onBack,
   onOpenSearch,
   onOpenSettings,
   onOpenTheme,
   onOpenBookmarks,
-  onOpenAnnotations,
   onOpenToc,
   onProgressSliderStart,
   onProgressSliderPreview,
@@ -233,7 +228,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
           )}
 
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               onClick={onOpenSettings}
@@ -256,19 +251,6 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
             <button
               type="button"
-              onClick={onOpenAnnotations}
-              disabled={isFixedLayout}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 ${annotationCount > 0 ? 'text-accent-500' : ''}`}
-              style={surfaceStyle}
-              aria-label="하이라이트와 메모"
-              title="하이라이트와 메모"
-            >
-              <Highlighter size={18} />
-              <span>주석</span>
-              {annotationCount > 0 && <span className="text-[10px] font-black">{annotationCount}</span>}
-            </button>
-            <button
-              type="button"
               onClick={onOpenBookmarks}
               className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
               style={surfaceStyle}
@@ -276,7 +258,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               title="북마크"
             >
               <BookmarkIcon size={19} />
-              <span>북마크</span>
+              <span>책갈피</span>
               {bookmarkCount > 0 && (
                 <span className="text-[11px] font-black">
                   {bookmarkCount}

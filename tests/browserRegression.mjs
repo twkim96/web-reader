@@ -1441,13 +1441,28 @@ try {
   assert.equal(highlightReopen.sectionIndex, 0);
   assert.equal(highlightReopen.anchorState, 'active');
   assert.equal(highlightReopen.quote, selectionActions.selectedText);
-  await evaluate(`document.querySelector('button[aria-label="하이라이트와 메모"]')?.click()`);
+  const annotationEntry = await evaluate(`(() => {
+    const separateAnnotationButton = document.querySelector('button[aria-label="하이라이트와 메모"]');
+    document.querySelector('button[aria-label="북마크"]')?.click();
+    return { separateAnnotationButton: Boolean(separateAnnotationButton) };
+  })()`);
+  assert.equal(annotationEntry.separateAnnotationButton, false, JSON.stringify(annotationEntry));
+  await waitFor(
+    `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
+    'combined records modal after reader reopen',
+  );
+  await evaluate(`document.querySelector('[data-reader-records-tab="annotations"]')?.click()`);
   await waitFor(
     `Boolean(document.querySelector('[data-reader-annotation-modal="true"]'))`,
     'annotation manager after reader reopen',
   );
   const annotationManager = await evaluate(`(async () => {
     const initialItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
+    const greenGroup = document.querySelector('[data-reader-annotation-group="green"]');
+    const initiallyCollapsed = greenGroup?.getAttribute('aria-expanded') === 'false';
+    greenGroup?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const expandedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     document.querySelector('[data-reader-annotation-item] button[aria-label="메모 편집"]')?.click();
     const noteDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-annotation-note-dialog="true"]')
@@ -1499,7 +1514,6 @@ try {
     search?.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const searchedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
-    const greenGroup = document.querySelector('[data-reader-annotation-group="green"]');
     greenGroup?.click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const collapsedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
@@ -1519,6 +1533,8 @@ try {
     db.close();
     return {
       initialItemCount,
+      initiallyCollapsed,
+      expandedItemCount,
       searchedItemCount,
       collapsedItemCount,
       note: records.find((record) => record.bookId === 'selection-probe.txt')?.note ?? null,
@@ -1528,7 +1544,9 @@ try {
       modalFeedback,
     };
   })()`);
-  assert.equal(annotationManager.initialItemCount, 1, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.initialItemCount, 0, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.initiallyCollapsed, true, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.expandedItemCount, 1, JSON.stringify(annotationManager));
   assert.equal(annotationManager.searchedItemCount, 1, JSON.stringify(annotationManager));
   assert.equal(annotationManager.collapsedItemCount, 0, JSON.stringify(annotationManager));
   assert.equal(annotationManager.note, annotationManager.noteDraft);
@@ -1536,15 +1554,22 @@ try {
   assert.equal(annotationManager.managerStayedOpenAfterBack, true);
   assert.match(annotationManager.modalFeedback, /메모 저장됨/);
   assert.match(annotationManager.modalFeedback, /실행 취소/);
-  await evaluate(`(() => {
-    document.querySelector('button[aria-label="하이라이트 목록 닫기"]')?.click();
-    document.querySelector('button[aria-label="하이라이트와 메모"]')?.click();
-  })()`);
+  await evaluate(`document.querySelector('button[aria-label="책갈피와 주석 닫기"]')?.click()`);
+  await waitFor(
+    `!document.querySelector('[data-reader-annotation-modal="true"]')`,
+    'combined records modal close before reopen',
+  );
+  await evaluate(`document.querySelector('button[aria-label="북마크"]')?.click()`);
+  await waitFor(
+    `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
+    'combined records modal reopen',
+  );
+  await evaluate(`document.querySelector('[data-reader-records-tab="annotations"]')?.click()`);
   await waitFor(
     `Boolean(document.querySelector('[data-reader-annotation-modal="true"]'))`,
     'annotation manager reopen',
   );
-  await evaluate(`document.querySelector('button[aria-label="하이라이트 목록 닫기"]')?.click()`);
+  await evaluate(`document.querySelector('button[aria-label="책갈피와 주석 닫기"]')?.click()`);
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
     `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
