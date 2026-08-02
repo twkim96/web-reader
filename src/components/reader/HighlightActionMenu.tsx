@@ -1,15 +1,23 @@
 'use client';
 
 import React, { useLayoutEffect, useRef } from 'react';
-import { Trash2, X } from 'lucide-react';
-import type { Annotation, HighlightColorId, ThemeClasses } from '../../types';
+import { Edit3, Trash2, X } from 'lucide-react';
+import type {
+  Annotation,
+  AnnotationPaletteItem,
+  HighlightColorId,
+  ThemeClasses,
+} from '../../types';
 import { HIGHLIGHT_COLORS } from '../../lib/annotationPolicy';
+import { getAnnotationPaletteItem } from '../../lib/annotationPalette';
 import type { SelectionViewportAnchor } from '../../lib/readerTextSelection';
 
 type HighlightActionMenuProps = SelectionViewportAnchor & {
   annotation: Annotation;
   theme: ThemeClasses;
+  palette: AnnotationPaletteItem[];
   onChangeColor: (colorId: HighlightColorId) => void;
+  onEditNote: () => void;
   onDelete: () => void;
   onClose: () => void;
 };
@@ -17,10 +25,12 @@ type HighlightActionMenuProps = SelectionViewportAnchor & {
 export const HighlightActionMenu: React.FC<HighlightActionMenuProps> = ({
   annotation,
   theme,
+  palette,
   x,
   top,
   bottom,
   onChangeColor,
+  onEditNote,
   onDelete,
   onClose,
 }) => {
@@ -73,7 +83,8 @@ export const HighlightActionMenu: React.FC<HighlightActionMenuProps> = ({
           <button
             key={color.id}
             type="button"
-            aria-label={`${color.label} 하이라이트`}
+            aria-label={`${getAnnotationPaletteItem(palette, color.id).label} 하이라이트`}
+            title={getAnnotationPaletteItem(palette, color.id).meaning || color.label}
             aria-pressed={annotation.colorId === color.id}
             onClick={() => onChangeColor(color.id)}
             className="flex size-11 items-center justify-center rounded-xl hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
@@ -86,6 +97,15 @@ export const HighlightActionMenu: React.FC<HighlightActionMenuProps> = ({
         ))}
       </div>
       <div className="flex items-center justify-end gap-1">
+        <button
+          type="button"
+          aria-label="하이라이트 메모 편집"
+          onClick={onEditNote}
+          className={`flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10 ${annotation.note ? 'text-accent-500' : ''}`}
+        >
+          <Edit3 size={17} />
+          메모
+        </button>
         <button
           type="button"
           aria-label="하이라이트 삭제"

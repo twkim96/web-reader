@@ -869,7 +869,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.1-hotfix.2')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.2')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -1034,6 +1034,46 @@ try {
     }
     const restoredAnnotations = await readAnnotations();
     const restoredOverlay = hasHighlightOverlay();
+
+    const failureProbe = 'Selection';
+    const failureStart = text.indexOf(failureProbe);
+    const failureRange = doc.createRange();
+    failureRange.setStart(textNode, failureStart);
+    failureRange.setEnd(textNode, failureStart + failureProbe.length);
+    selection.removeAllRanges();
+    selection.addRange(failureRange);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const creationFailureMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < creationFailureMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const originalCreationAddAnnotation = view.addAnnotation.bind(view);
+    view.addAnnotation = async () => {
+      throw new Error('injected creation overlay failure');
+    };
+    document.querySelector(
+      '[data-reader-selection-menu="true"] button[aria-label="분홍 하이라이트 추가"]',
+    )?.click();
+    const creationFailureDeadline = performance.now() + 3000;
+    let creationFailureAnnotations = await readAnnotations();
+    while (!creationFailureAnnotations.some((annotation) => (
+      annotation.quote === failureProbe && annotation.anchorState === 'unresolved'
+    )) && performance.now() < creationFailureDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      creationFailureAnnotations = await readAnnotations();
+    }
+    [...document.querySelectorAll('[data-reader-annotation-feedback="true"] button')]
+      .find((button) => button.textContent?.includes('실행 취소'))?.click();
+    const creationFailureUndoDeadline = performance.now() + 3000;
+    let creationFailureUndoAnnotations = await readAnnotations();
+    while (creationFailureUndoAnnotations.some(({ quote }) => quote === failureProbe)
+      && performance.now() < creationFailureUndoDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      creationFailureUndoAnnotations = await readAnnotations();
+    }
+    view.addAnnotation = originalCreationAddAnnotation;
+
     selection.removeAllRanges();
     selection.addRange(range);
     doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
@@ -1224,6 +1264,12 @@ try {
       restoredColor: restoredAnnotations[0]?.colorId ?? null,
       restoredAnchorState: restoredAnnotations[0]?.anchorState ?? null,
       restoredOverlay,
+      creationFailureAnchorState: creationFailureAnnotations.find(
+        ({ quote }) => quote === failureProbe,
+      )?.anchorState ?? null,
+      creationFailureUndoCount: creationFailureUndoAnnotations.filter(
+        ({ quote }) => quote === failureProbe,
+      ).length,
       exactRangeAnnotationCount: exactRangeAnnotations.length,
       exactRangeColor: exactRangeAnnotations[0]?.colorId ?? null,
       overlayFailureDeletedAnnotationCount: overlayFailureDeletedAnnotations.length,
@@ -1310,6 +1356,8 @@ try {
   assert.equal(selectionActions.restoredAnnotationCount, 1);
   assert.equal(selectionActions.restoredColor, 'blue');
   assert.equal(selectionActions.restoredOverlay, true);
+  assert.equal(selectionActions.creationFailureAnchorState, 'unresolved');
+  assert.equal(selectionActions.creationFailureUndoCount, 0);
   assert.equal(selectionActions.exactRangeAnnotationCount, 1);
   assert.equal(selectionActions.exactRangeColor, 'green');
   assert.equal(selectionActions.overlayFailureDeletedAnnotationCount, 0);
@@ -1393,6 +1441,110 @@ try {
   assert.equal(highlightReopen.sectionIndex, 0);
   assert.equal(highlightReopen.anchorState, 'active');
   assert.equal(highlightReopen.quote, selectionActions.selectedText);
+  await evaluate(`document.querySelector('button[aria-label="하이라이트와 메모"]')?.click()`);
+  await waitFor(
+    `Boolean(document.querySelector('[data-reader-annotation-modal="true"]'))`,
+    'annotation manager after reader reopen',
+  );
+  const annotationManager = await evaluate(`(async () => {
+    const initialItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
+    document.querySelector('[data-reader-annotation-item] button[aria-label="메모 편집"]')?.click();
+    const noteDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-annotation-note-dialog="true"]')
+      && performance.now() < noteDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    history.back();
+    const backDeadline = performance.now() + 2000;
+    while (document.querySelector('[data-reader-annotation-note-dialog="true"]')
+      && performance.now() < backDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const managerStayedOpenAfterBack = Boolean(
+      document.querySelector('[data-reader-annotation-modal="true"]'),
+    );
+    document.querySelector('[data-reader-annotation-item] button[aria-label="메모 편집"]')?.click();
+    const reopenDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-annotation-note-dialog="true"]')
+      && performance.now() < reopenDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const textarea = document.querySelector('[data-reader-annotation-note-dialog="true"] textarea');
+    const noteDraft = \`회귀 메모 \${Date.now()}\`;
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value',
+    )?.set;
+    valueSetter?.call(textarea, noteDraft);
+    textarea?.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    document.querySelector('[data-reader-annotation-note-dialog="true"]')?.requestSubmit();
+    const saveDeadline = performance.now() + 3000;
+    while (document.querySelector('[data-reader-annotation-note-dialog="true"]')
+      && performance.now() < saveDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const feedbackDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-annotation-modal-feedback="true"]')
+      && performance.now() < feedbackDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const modalFeedback = document.querySelector(
+      '[data-reader-annotation-modal-feedback="true"]',
+    )?.textContent ?? '';
+
+    const search = document.querySelector('[data-reader-annotation-search="true"]');
+    const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    inputSetter?.call(search, '회귀 메모');
+    search?.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const searchedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
+    const greenGroup = document.querySelector('[data-reader-annotation-group="green"]');
+    greenGroup?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const collapsedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
+    greenGroup?.click();
+
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const getAll = db.transaction('annotations-v8', 'readonly')
+      .objectStore('annotations-v8').getAll();
+    const records = await new Promise((resolve, reject) => {
+      getAll.onsuccess = () => resolve(getAll.result);
+      getAll.onerror = () => reject(getAll.error);
+    });
+    db.close();
+    return {
+      initialItemCount,
+      searchedItemCount,
+      collapsedItemCount,
+      note: records.find((record) => record.bookId === 'selection-probe.txt')?.note ?? null,
+      noteDraft,
+      noteDialogClosed: !document.querySelector('[data-reader-annotation-note-dialog="true"]'),
+      managerStayedOpenAfterBack,
+      modalFeedback,
+    };
+  })()`);
+  assert.equal(annotationManager.initialItemCount, 1, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.searchedItemCount, 1, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.collapsedItemCount, 0, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.note, annotationManager.noteDraft);
+  assert.equal(annotationManager.noteDialogClosed, true);
+  assert.equal(annotationManager.managerStayedOpenAfterBack, true);
+  assert.match(annotationManager.modalFeedback, /메모 저장됨/);
+  assert.match(annotationManager.modalFeedback, /실행 취소/);
+  await evaluate(`(() => {
+    document.querySelector('button[aria-label="하이라이트 목록 닫기"]')?.click();
+    document.querySelector('button[aria-label="하이라이트와 메모"]')?.click();
+  })()`);
+  await waitFor(
+    `Boolean(document.querySelector('[data-reader-annotation-modal="true"]'))`,
+    'annotation manager reopen',
+  );
+  await evaluate(`document.querySelector('button[aria-label="하이라이트 목록 닫기"]')?.click()`);
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
     `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
@@ -2875,7 +3027,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.1-hotfix.2';
+    const expectedCache = 'pc-reader-v1.8.2';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -2902,7 +3054,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.1-hotfix.2',
+      '/sw.js?browser-regression=1.8.2',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -2946,11 +3098,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.1-hotfix.2']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.2']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.1-hotfix\.2$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.2$/);
 
   console.log(JSON.stringify({
     shelf: {

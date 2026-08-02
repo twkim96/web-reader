@@ -20,6 +20,7 @@ export const ANNOTATION_BOOK_LIMIT = 100;
 export const ANNOTATION_COLOR_LIMIT = 20;
 export const ANNOTATION_CONTEXT_LENGTH = 80;
 export const ANNOTATION_QUOTE_MAX_LENGTH = 4000;
+export const ANNOTATION_NOTE_MAX_LENGTH = 4000;
 export const ANNOTATION_RANGE_CFI_MAX_LENGTH = 16000;
 
 const colorIds = new Set(HIGHLIGHT_COLORS.map(({ id }) => id));
@@ -29,6 +30,10 @@ const epubCfiWrapperPattern = /^epubcfi\(.+\)$/;
 export const normalizeAnnotationText = (value: string) => value
   .replace(/\s+/g, ' ')
   .trim();
+
+export const isHighlightColorId = (value: unknown): value is HighlightColorId => (
+  typeof value === 'string' && colorIds.has(value as HighlightColorId)
+);
 
 export const isAnnotation = (value: unknown): value is Annotation => {
   if (!value || typeof value !== 'object') return false;
@@ -53,10 +58,9 @@ export const isAnnotation = (value: unknown): value is Annotation => {
     && annotation.prefix.length <= ANNOTATION_CONTEXT_LENGTH
     && typeof annotation.suffix === 'string'
     && annotation.suffix.length <= ANNOTATION_CONTEXT_LENGTH
-    && typeof annotation.colorId === 'string'
-    && colorIds.has(annotation.colorId as HighlightColorId)
+    && isHighlightColorId(annotation.colorId)
     && typeof annotation.note === 'string'
-    && annotation.note.length <= 4000
+    && annotation.note.length <= ANNOTATION_NOTE_MAX_LENGTH
     && (
       annotation.progressPercent === null
       || typeof annotation.progressPercent === 'number'

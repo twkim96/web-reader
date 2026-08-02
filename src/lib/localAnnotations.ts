@@ -3,8 +3,11 @@ import type { OwnerKey } from './ownerIdentity';
 import {
   ANNOTATION_BOOK_LIMIT,
   ANNOTATION_COLOR_LIMIT,
+  ANNOTATION_NOTE_MAX_LENGTH,
   isAnnotation,
+  isHighlightColorId,
 } from './annotationPolicy';
+import type { HighlightColorId } from '../types';
 import { initDB } from './localDB';
 import { V8_ANNOTATIONS_STORE } from './localDBSchema';
 import { trackLocalCommit } from './localCommitTracker';
@@ -17,10 +20,99 @@ export type SaveLocalAnnotationResult =
   | { status: 'color-limit' }
   | { status: 'duplicate-range'; annotation: Annotation };
 
+export type AnnotationMutableFields = Pick<
+  Annotation,
+  | 'sectionIndex'
+  | 'rangeCfi'
+  | 'quote'
+  | 'prefix'
+  | 'suffix'
+  | 'colorId'
+  | 'note'
+  | 'progressPercent'
+  | 'chapter'
+  | 'anchorState'
+>;
+
+export type AnnotationFieldPatchV8 = {
+  id: string;
+  fields: Partial<AnnotationMutableFields>;
+  expected?: Partial<AnnotationMutableFields>;
+};
+
+export type UpdateLocalAnnotationFieldsResult =
+  | { status: 'saved'; before: Annotation; annotation: Annotation }
+  | { status: 'unchanged'; annotation: Annotation }
+  | { status: 'missing' }
+  | { status: 'color-limit' }
+  | { status: 'duplicate-range'; annotation: Annotation };
+
+export type RestoreLocalAnnotationFieldsResult =
+  | { status: 'saved'; annotations: Annotation[] }
+  | { status: 'conflict' }
+  | { status: 'color-limit' }
+  | { status: 'duplicate-range' };
+
+export type RestoreLocalAnnotationsResult =
+  | { status: 'saved'; annotations: Annotation[] }
+  | { status: 'conflict' }
+  | { status: 'book-limit' }
+  | { status: 'color-limit' }
+  | { status: 'duplicate-range' };
+
+export type DeleteLocalAnnotationsIfUnchangedResult =
+  | { status: 'deleted'; annotations: Annotation[] }
+  | { status: 'conflict' };
+
 const withoutOwner = ({ ownerKey, ...annotation }: StoredAnnotationV8): Annotation => {
   void ownerKey;
   return annotation;
 };
+
+const fieldEntries = (fields: Partial<AnnotationMutableFields>) => (
+  Object.entries(fields) as Array<[
+    keyof AnnotationMutableFields,
+    AnnotationMutableFields[keyof AnnotationMutableFields],
+  ]>
+);
+
+const hasExpectedFields = (
+  annotation: StoredAnnotationV8,
+  expected: Partial<AnnotationMutableFields> | undefined,
+) => !expected || fieldEntries(expected).every(([field, value]) => annotation[field] === value);
+
+const validateAnnotationSet = (annotations: ReadonlyArray<Annotation>) => {
+  if (annotations.some((annotation) => !isAnnotation(annotation))) return 'conflict' as const;
+  if (annotations.length > ANNOTATION_BOOK_LIMIT) return 'book-limit' as const;
+  const ranges = new Set<string>();
+  const colorCounts = new Map<HighlightColorId, number>();
+  for (const annotation of annotations) {
+    if (ranges.has(annotation.rangeCfi)) return 'duplicate-range' as const;
+    ranges.add(annotation.rangeCfi);
+    const colorCount = (colorCounts.get(annotation.colorId) ?? 0) + 1;
+    if (colorCount > ANNOTATION_COLOR_LIMIT) return 'color-limit' as const;
+    colorCounts.set(annotation.colorId, colorCount);
+  }
+  return null;
+};
+
+// Creation undo must ignore renderer-owned resolution fields. They can change
+// immediately after save without representing a newer user decision.
+const sameUserManagedAnnotation = (left: Annotation, right: Annotation) => (
+  left.id === right.id
+  && left.bookId === right.bookId
+  && left.type === right.type
+  && left.rangeCfi === right.rangeCfi
+  && left.quote === right.quote
+  && left.prefix === right.prefix
+  && left.suffix === right.suffix
+  && left.colorId === right.colorId
+  && left.note === right.note
+  && left.progressPercent === right.progressPercent
+  && left.chapter === right.chapter
+  && left.createdAtClient === right.createdAtClient
+  && left.updatedAtClient === right.updatedAtClient
+);
 
 export const getLocalAnnotationsV8 = async (
   ownerKey: OwnerKey,
@@ -85,6 +177,139 @@ export const saveLocalAnnotationV8 = (
   return { status: 'saved', annotation };
 })());
 
+export const updateLocalAnnotationFieldsV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  annotationId: string,
+  fields: Partial<AnnotationMutableFields>,
+): Promise<UpdateLocalAnnotationFieldsResult> => trackLocalCommit((async () => {
+  const db = await initDB();
+  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const store = tx.objectStore(V8_ANNOTATIONS_STORE);
+  const key = [ownerKey, bookId, annotationId];
+  const existing = await store.get(key) as StoredAnnotationV8 | undefined;
+  if (!existing || !isAnnotation(existing)) {
+    await tx.done;
+    return { status: 'missing' };
+  }
+  if (fieldEntries(fields).every(([field, value]) => existing[field] === value)) {
+    await tx.done;
+    return { status: 'unchanged', annotation: withoutOwner(existing) };
+  }
+  const next: StoredAnnotationV8 = {
+    ...existing,
+    ...fields,
+    updatedAtClient: Math.max(Date.now(), existing.updatedAtClient + 1),
+  };
+  if (!isAnnotation(next)) throw new TypeError('Invalid local annotation field update');
+  const duplicate = await store.index('by-owner-book-range').get([
+    ownerKey,
+    bookId,
+    next.rangeCfi,
+  ]) as StoredAnnotationV8 | undefined;
+  if (duplicate && duplicate.id !== annotationId) {
+    await tx.done;
+    return { status: 'duplicate-range', annotation: withoutOwner(duplicate) };
+  }
+  if (existing.colorId !== next.colorId) {
+    const targetCount = await store.index('by-owner-book-color').count([
+      ownerKey,
+      bookId,
+      next.colorId,
+    ]);
+    if (targetCount >= ANNOTATION_COLOR_LIMIT) {
+      await tx.done;
+      return { status: 'color-limit' };
+    }
+  }
+  await store.put(next);
+  await tx.done;
+  return {
+    status: 'saved',
+    before: withoutOwner(existing),
+    annotation: withoutOwner(next),
+  };
+})());
+
+export const restoreLocalAnnotationFieldsV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  patches: ReadonlyArray<AnnotationFieldPatchV8>,
+): Promise<RestoreLocalAnnotationFieldsResult> => trackLocalCommit((async () => {
+  const uniquePatches = new Map(patches.filter(({ id }) => Boolean(id)).map((patch) => [patch.id, patch]));
+  if (uniquePatches.size === 0) return { status: 'saved', annotations: [] };
+  const db = await initDB();
+  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const store = tx.objectStore(V8_ANNOTATIONS_STORE);
+  const stored = await store.index('by-owner-book').getAll([ownerKey, bookId]) as StoredAnnotationV8[];
+  const records = stored.filter(isAnnotation);
+  const recordsById = new Map(records.map((annotation) => [annotation.id, annotation]));
+  const now = Date.now();
+  const updated: StoredAnnotationV8[] = [];
+  let offset = 0;
+  for (const patch of uniquePatches.values()) {
+    const existing = recordsById.get(patch.id);
+    if (!existing || !hasExpectedFields(existing, patch.expected)) {
+      await tx.done;
+      return { status: 'conflict' };
+    }
+    const next: StoredAnnotationV8 = {
+      ...existing,
+      ...patch.fields,
+      updatedAtClient: Math.max(now + offset, existing.updatedAtClient + 1),
+    };
+    offset += 1;
+    recordsById.set(next.id, next);
+    updated.push(next);
+  }
+  const validation = validateAnnotationSet([...recordsById.values()].map(withoutOwner));
+  if (validation) {
+    await tx.done;
+    return { status: validation === 'book-limit' ? 'conflict' : validation };
+  }
+  for (const annotation of updated) await store.put(annotation);
+  await tx.done;
+  return { status: 'saved', annotations: updated.map(withoutOwner) };
+})());
+
+export const restoreLocalAnnotationsV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  annotations: ReadonlyArray<Annotation>,
+): Promise<RestoreLocalAnnotationsResult> => trackLocalCommit((async () => {
+  const unique = new Map(annotations.map((annotation) => [annotation.id, annotation]));
+  if (unique.size === 0) return { status: 'saved', annotations: [] };
+  if ([...unique.values()].some((annotation) => (
+    annotation.bookId !== bookId || !isAnnotation(annotation)
+  ))) throw new TypeError('Invalid local annotations to restore');
+  const db = await initDB();
+  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const store = tx.objectStore(V8_ANNOTATIONS_STORE);
+  const stored = await store.index('by-owner-book').getAll([ownerKey, bookId]) as StoredAnnotationV8[];
+  const current = stored.filter(isAnnotation).map(withoutOwner);
+  const currentIds = new Set(current.map(({ id }) => id));
+  const currentRanges = new Set(current.map(({ rangeCfi }) => rangeCfi));
+  if ([...unique.values()].some(({ id, rangeCfi }) => (
+    currentIds.has(id) || currentRanges.has(rangeCfi)
+  ))) {
+    await tx.done;
+    return { status: 'conflict' };
+  }
+  const now = Date.now();
+  const restored = [...unique.values()].map((annotation, index) => ({
+    ...annotation,
+    updatedAtClient: Math.max(now + index, annotation.updatedAtClient + 1),
+  }));
+  const validation = validateAnnotationSet([...current, ...restored]);
+  if (validation) {
+    await tx.done;
+    return { status: validation };
+  }
+  for (const annotation of restored) await store.put({ ...annotation, ownerKey });
+  await tx.done;
+  return { status: 'saved', annotations: restored };
+})());
+
 export const deleteLocalAnnotationV8 = (
   ownerKey: OwnerKey,
   bookId: string,
@@ -98,6 +323,135 @@ export const deleteLocalAnnotationV8 = (
   if (existing) await store.delete(key);
   await tx.done;
   return existing ? withoutOwner(existing) : null;
+})());
+
+export const deleteLocalAnnotationsV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  annotationIds: ReadonlyArray<string>,
+) => trackLocalCommit((async () => {
+  const ids = [...new Set(annotationIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const db = await initDB();
+  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const store = tx.objectStore(V8_ANNOTATIONS_STORE);
+  const deleted: Annotation[] = [];
+  for (const annotationId of ids) {
+    const key = [ownerKey, bookId, annotationId];
+    const existing = await store.get(key) as StoredAnnotationV8 | undefined;
+    if (!existing || !isAnnotation(existing)) continue;
+    deleted.push(withoutOwner(existing));
+    await store.delete(key);
+  }
+  await tx.done;
+  return deleted;
+})());
+
+export const deleteLocalAnnotationsIfUnchangedV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  expectedAnnotations: ReadonlyArray<Annotation>,
+): Promise<DeleteLocalAnnotationsIfUnchangedResult> => trackLocalCommit((async () => {
+  const unique = new Map(expectedAnnotations.map((annotation) => [annotation.id, annotation]));
+  if (unique.size === 0) return { status: 'deleted', annotations: [] };
+  const db = await initDB();
+  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const store = tx.objectStore(V8_ANNOTATIONS_STORE);
+  const current: StoredAnnotationV8[] = [];
+  for (const expected of unique.values()) {
+    const existing = await store.get([ownerKey, bookId, expected.id]) as StoredAnnotationV8 | undefined;
+    if (
+      !existing
+      || !isAnnotation(existing)
+      || !sameUserManagedAnnotation(withoutOwner(existing), expected)
+    ) {
+      await tx.done;
+      return { status: 'conflict' };
+    }
+    current.push(existing);
+  }
+  for (const annotation of current) {
+    await store.delete([ownerKey, bookId, annotation.id]);
+  }
+  await tx.done;
+  return { status: 'deleted', annotations: current.map(withoutOwner) };
+})());
+
+export const updateLocalAnnotationNoteV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  annotationId: string,
+  note: string,
+) => trackLocalCommit((async () => {
+  if (typeof note !== 'string' || note.length > ANNOTATION_NOTE_MAX_LENGTH) {
+    throw new TypeError('Invalid annotation note');
+  }
+  const db = await initDB();
+  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const store = tx.objectStore(V8_ANNOTATIONS_STORE);
+  const key = [ownerKey, bookId, annotationId];
+  const existing = await store.get(key) as StoredAnnotationV8 | undefined;
+  if (!existing || !isAnnotation(existing)) {
+    await tx.done;
+    return null;
+  }
+  const next: StoredAnnotationV8 = {
+    ...existing,
+    note,
+    updatedAtClient: Math.max(Date.now(), existing.updatedAtClient + 1),
+  };
+  await store.put(next);
+  await tx.done;
+  return withoutOwner(next);
+})());
+
+export type UpdateLocalAnnotationColorsResult =
+  | { status: 'saved'; before: Annotation[]; annotations: Annotation[] }
+  | { status: 'color-limit' };
+
+export const updateLocalAnnotationColorsV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  annotationIds: ReadonlyArray<string>,
+  colorId: HighlightColorId,
+): Promise<UpdateLocalAnnotationColorsResult> => trackLocalCommit((async () => {
+  if (!isHighlightColorId(colorId)) throw new TypeError('Invalid highlight color');
+  const ids = [...new Set(annotationIds.filter(Boolean))];
+  if (ids.length === 0) return { status: 'saved', before: [], annotations: [] };
+  const db = await initDB();
+  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const store = tx.objectStore(V8_ANNOTATIONS_STORE);
+  const records: StoredAnnotationV8[] = [];
+  for (const annotationId of ids) {
+    const existing = await store.get([ownerKey, bookId, annotationId]) as StoredAnnotationV8 | undefined;
+    if (existing && isAnnotation(existing)) records.push(existing);
+  }
+  const movingRecords = records.filter((annotation) => annotation.colorId !== colorId);
+  const movingCount = movingRecords.length;
+  if (movingCount > 0) {
+    const targetCount = await store.index('by-owner-book-color').count([
+      ownerKey,
+      bookId,
+      colorId,
+    ]);
+    if (targetCount + movingCount > ANNOTATION_COLOR_LIMIT) {
+      await tx.done;
+      return { status: 'color-limit' };
+    }
+  }
+  const now = Date.now();
+  const updated = movingRecords.map((annotation, index) => ({
+    ...annotation,
+    colorId,
+    updatedAtClient: Math.max(now + index, annotation.updatedAtClient + 1),
+  }));
+  for (const annotation of updated) await store.put(annotation);
+  await tx.done;
+  return {
+    status: 'saved',
+    before: movingRecords.map(withoutOwner),
+    annotations: updated.map(withoutOwner),
+  };
 })());
 
 export const deleteLocalAnnotationsForBookV8 = (

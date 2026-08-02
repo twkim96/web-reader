@@ -2,14 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { User as FirebaseUser } from 'firebase/auth';
 import type { UserProgress } from '../types';
-import { ownerRuntime } from '../lib/ownerRuntime';
+import {
+  ownerRuntime,
+  runForOwnerSnapshot,
+  type OwnerSnapshot,
+} from '../lib/ownerRuntime';
 import {
   getOpenSyncConflictsV5,
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
   type SyncConflictV5,
 } from '../lib/syncOutboxV5';
-import { getSyncOwnerKey, type OwnerKey } from '../lib/ownerIdentity';
+import { getSyncOwnerKey } from '../lib/ownerIdentity';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { getSyncSessionId } from '../lib/syncSession';
@@ -45,35 +49,38 @@ export const useSyncConflictResolution = ({
   const sessionIdRef = useRef(getSyncSessionId());
 
   const applyRemote = useCallback(async (
-    ownerKeySnapshot: OwnerKey,
+    owner: OwnerSnapshot,
     target: SyncConflictV5,
     preserveLocalProgress: boolean,
     expectedLocalPosition?: ProgressPositionV2,
     canApplyRuntime?: () => boolean,
   ) => {
-    const nextProgress = await resolveSyncConflictUseRemoteV5(
-      getSyncOwnerKey(ownerKeySnapshot),
-      target.conflictId,
-      Date.now(),
-      preserveLocalProgress,
-      expectedLocalPosition,
+    const nextProgress = await runForOwnerSnapshot(
+      ownerRuntime,
+      owner,
+      () => resolveSyncConflictUseRemoteV5(
+        getSyncOwnerKey(owner.ownerKey),
+        target.conflictId,
+        Date.now(),
+        preserveLocalProgress,
+        expectedLocalPosition,
+      ),
     );
     if (!nextProgress) return null;
-    const owner = ownerRuntime.capture();
-    if (!owner || owner.ownerKey !== ownerKeySnapshot) return null;
     if (canApplyRuntime && !canApplyRuntime()) return nextProgress;
     rebaseProgressCommitBaseline(owner.ownerKey, nextProgress.bookId, nextProgress);
     setProgress((prev) => {
+      if (!ownerRuntime.isCurrent(owner)) return prev;
       const next = { ...prev, [nextProgress.bookId]: nextProgress };
       progressRef.current = next;
       return next;
     });
-    setRemoteProgress((prev) => ({
+    setRemoteProgress((prev) => ownerRuntime.isCurrent(owner) ? ({
       ...prev,
       [nextProgress.bookId]: nextProgress,
-    }));
+    }) : prev);
     if (target.event?.target.kind === 'progress') {
-      setResolvedRemoteProgress(nextProgress);
+      if (ownerRuntime.isCurrent(owner)) setResolvedRemoteProgress(nextProgress);
     }
     return nextProgress;
   }, [progressRef, setProgress, setRemoteProgress]);
@@ -111,7 +118,7 @@ export const useSyncConflictResolution = ({
       resolvingRef.current.add(next.conflictId);
       try {
         const resolved = await applyRemote(
-          owner.ownerKey,
+          owner,
           next,
           true,
           expectedLocalPosition,
@@ -180,6 +187,7 @@ export const useSyncConflictResolution = ({
     const owner = ownerRuntime.capture();
     if (!owner || !conflict) return;
     await resolveSyncConflictKeepLocalV5(getSyncOwnerKey(owner.ownerKey), conflict.conflictId);
+    if (!ownerRuntime.isCurrent(owner)) return;
     setConflict(null);
     await refresh();
   }, [conflict, refresh]);
@@ -187,7 +195,7 @@ export const useSyncConflictResolution = ({
   const useRemote = useCallback(async () => {
     const owner = ownerRuntime.capture();
     if (!owner || !conflict) return;
-    await applyRemote(owner.ownerKey, conflict, conflict.event?.target.kind === 'progress');
+    await applyRemote(owner, conflict, conflict.event?.target.kind === 'progress');
     if (!ownerRuntime.isCurrent(owner)) return;
     setConflict(null);
     await refresh();

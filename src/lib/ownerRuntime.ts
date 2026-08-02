@@ -65,4 +65,14 @@ export class OwnerRuntime {
   }
 }
 
+export const runForOwnerSnapshot = async <T>(
+  runtime: OwnerRuntime,
+  owner: OwnerSnapshot,
+  operation: () => Promise<T>,
+) => {
+  if (!runtime.isCurrent(owner)) return null;
+  const result = await operation();
+  return runtime.isCurrent(owner) ? result : null;
+};
+
 export const ownerRuntime = new OwnerRuntime();

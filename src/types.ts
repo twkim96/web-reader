@@ -63,6 +63,12 @@ export interface Bookmark {
 
 export type HighlightColorId = 'yellow' | 'green' | 'blue' | 'pink' | 'purple';
 
+export interface AnnotationPaletteItem {
+  id: HighlightColorId;
+  label: string;
+  meaning: string;
+}
+
 export type AnnotationAnchorState = 'active' | 'unresolved';
 
 export interface Annotation {

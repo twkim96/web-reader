@@ -1,7 +1,12 @@
 // src/components/SettingsModal.tsx
 import React, { useState } from 'react';
-import { ChevronDown, X } from 'lucide-react';
-import { ThemeClasses, ViewerSettings } from '../types';
+import { ChevronDown, RotateCcw, X } from 'lucide-react';
+import type {
+  AnnotationPaletteItem,
+  HighlightColorId,
+  ThemeClasses,
+  ViewerSettings,
+} from '../types';
 import {
   clampTapZonePercent,
   DEFAULT_LEFT_RIGHT_TAP_PERCENT,
@@ -10,6 +15,11 @@ import {
   getNavigationOptions,
 } from '../lib/readerNavigation';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
+import { getHighlightColor } from '../lib/annotationPolicy';
+import {
+  ANNOTATION_PALETTE_LABEL_MAX_LENGTH,
+  ANNOTATION_PALETTE_MEANING_MAX_LENGTH,
+} from '../lib/annotationPalette';
 
 interface SettingsModalProps {
   settings: ViewerSettings;
@@ -17,12 +27,26 @@ interface SettingsModalProps {
   onClose: () => void;
   theme: ThemeClasses;
   isFixedLayout?: boolean;
+  annotationPalette: AnnotationPaletteItem[];
+  onUpdatePaletteItem: (
+    colorId: HighlightColorId,
+    patch: Partial<Pick<AnnotationPaletteItem, 'label' | 'meaning'>>,
+  ) => void;
+  onResetPalette: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
-  settings, onUpdateSettings, onClose, theme, isFixedLayout = false,
+  settings,
+  onUpdateSettings,
+  onClose,
+  theme,
+  isFixedLayout = false,
+  annotationPalette,
+  onUpdatePaletteItem,
+  onResetPalette,
 }) => {
   const [showAdvancedSizing, setShowAdvancedSizing] = useState(false);
+  const [showAnnotationPalette, setShowAnnotationPalette] = useState(false);
   const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
   const optionBtnStyle = `h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
   const stepperBtnStyle = `w-7 h-7 flex items-center justify-center ${theme.secondary} rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
@@ -139,7 +163,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     >
       <div className="flex shrink-0 items-center justify-between px-5 pt-5 pb-3 sm:px-6 sm:pt-6">
           <h2 className="font-bold text-lg">리더 설정</h2>
-          <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
+          <button aria-label="리더 설정 닫기" onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
             <X size={20} />
           </button>
         </div>
@@ -252,6 +276,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="h-4 w-4 shrink-0 accent-accent-600"
             />
           </label>
+
+          {!isFixedLayout && (
+            <div className={`overflow-hidden rounded-2xl border ${theme.border}`}>
+              <button
+                type="button"
+                aria-expanded={showAnnotationPalette}
+                onClick={() => setShowAnnotationPalette((current) => !current)}
+                className="flex min-h-12 w-full items-center gap-3 px-3 text-left hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-black">형광펜 의미 설정</span>
+                  <span className="block text-[9px] font-bold opacity-45">표시명과 색상별 용도를 정합니다</span>
+                </span>
+                <ChevronDown size={16} className={`transition-transform ${showAnnotationPalette ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showAnnotationPalette && (
+                <div className={`space-y-3 border-t ${theme.border} p-3`}>
+                  {annotationPalette.map((item) => (
+                    <div key={item.id} className="grid grid-cols-[auto_minmax(0,0.8fr)_minmax(0,1.2fr)] items-center gap-2">
+                      <span className="size-4 rounded-full" style={{ backgroundColor: getHighlightColor(item.id).color }} />
+                      <input
+                        key={`${item.id}:${item.label}`}
+                        defaultValue={item.label}
+                        maxLength={ANNOTATION_PALETTE_LABEL_MAX_LENGTH}
+                        aria-label={`${getHighlightColor(item.id).label} 표시명`}
+                        onBlur={(event) => onUpdatePaletteItem(item.id, { label: event.target.value })}
+                        className={`min-w-0 rounded-lg border ${theme.border} bg-black/5 px-2 py-2 text-xs font-bold outline-none focus:border-accent-500 dark:bg-white/5`}
+                      />
+                      <input
+                        value={item.meaning}
+                        maxLength={ANNOTATION_PALETTE_MEANING_MAX_LENGTH}
+                        aria-label={`${getHighlightColor(item.id).label} 의미`}
+                        placeholder="의미"
+                        onChange={(event) => onUpdatePaletteItem(item.id, { meaning: event.target.value })}
+                        className={`min-w-0 rounded-lg border ${theme.border} bg-black/5 px-2 py-2 text-xs outline-none focus:border-accent-500 dark:bg-white/5`}
+                      />
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={onResetPalette}
+                    className="flex min-h-10 items-center gap-1.5 rounded-xl px-3 text-[10px] font-bold opacity-55 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
+                  >
+                    <RotateCcw size={13} /> 기본값으로 되돌리기
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </ReaderModalFrame>

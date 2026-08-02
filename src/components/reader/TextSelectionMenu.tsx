@@ -2,15 +2,17 @@
 
 import React, { useLayoutEffect, useRef } from 'react';
 import { Copy, Share2, X } from 'lucide-react';
-import type { HighlightColorId, ThemeClasses } from '../../types';
+import type { AnnotationPaletteItem, HighlightColorId, ThemeClasses } from '../../types';
 import type { ReaderTextSelection } from '../../hooks/reader/useReaderTextSelection';
 import { HIGHLIGHT_COLORS } from '../../lib/annotationPolicy';
+import { getAnnotationPaletteItem } from '../../lib/annotationPalette';
 
 interface TextSelectionMenuProps {
   selection: ReaderTextSelection;
   feedback: string;
   canShare: boolean;
   theme: ThemeClasses;
+  palette: AnnotationPaletteItem[];
   onCopy: () => void;
   onShare: () => void;
   onHighlight: (colorId: HighlightColorId) => void;
@@ -25,6 +27,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
   feedback,
   canShare,
   theme,
+  palette,
   onCopy,
   onShare,
   onHighlight,
@@ -93,7 +96,8 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
           <button
             key={color.id}
             type="button"
-            aria-label={`${color.label} 하이라이트 추가`}
+            aria-label={`${getAnnotationPaletteItem(palette, color.id).label} 하이라이트 추가`}
+            title={getAnnotationPaletteItem(palette, color.id).meaning || color.label}
             onClick={() => onHighlight(color.id)}
             className="flex size-11 items-center justify-center rounded-xl hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
           >

@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.1-hotfix.2: quietly settle negligible cross-device position races after local saves complete.
+// 1.8.2: add local annotation notes, palette semantics, and per-book management UI.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.1-hotfix.2`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.2`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

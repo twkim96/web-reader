@@ -11,9 +11,11 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
+  const [showAnnotations, setShowAnnotations] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showJumpInput, setShowJumpInput] = useState(false);
+  const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [jumpInput, setJumpInput] = useState('');
   const historyPushed = useRef(false);
 
@@ -35,9 +37,11 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     setShowSettings(false);
     setShowThemeModal(false);
     setShowBookmarks(false);
+    setShowAnnotations(false);
     setShowToc(false);
     setShowSearchModal(false);
     setShowJumpInput(false);
+    setEditingAnnotationId(null);
   }, []);
 
   const handleUIBack = useCallback(() => {
@@ -51,7 +55,10 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     }
 
     const handlePopState = () => {
-      if (showSettings || showThemeModal || showBookmarks || showToc || showSearchModal || showJumpInput) {
+      if (editingAnnotationId !== null) {
+        window.history.pushState({ panel: 'reader' }, '', '');
+        setEditingAnnotationId(null);
+      } else if (showSettings || showThemeModal || showBookmarks || showAnnotations || showToc || showSearchModal || showJumpInput) {
         window.history.pushState({ panel: 'reader' }, '', '');
         closePanels();
       } else {
@@ -61,7 +68,7 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [closePanels, onBack, showBookmarks, showJumpInput, showSearchModal, showSettings, showThemeModal, showToc]);
+  }, [closePanels, editingAnnotationId, onBack, showAnnotations, showBookmarks, showJumpInput, showSearchModal, showSettings, showThemeModal, showToc]);
 
   return {
     showControls,
@@ -73,12 +80,16 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     setShowThemeModal,
     showBookmarks,
     setShowBookmarks,
+    showAnnotations,
+    setShowAnnotations,
     showToc,
     setShowToc,
     showSearchModal,
     setShowSearchModal,
     showJumpInput,
     setShowJumpInput,
+    editingAnnotationId,
+    setEditingAnnotationId,
     jumpInput,
     setJumpInput,
     openJumpInput,

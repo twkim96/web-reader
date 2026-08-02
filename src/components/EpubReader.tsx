@@ -16,6 +16,7 @@ import { getThemeClasses, getThemeColors, getThemeCssVariables, getThemeTextureC
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
+import { AnnotationModal } from './AnnotationModal';
 import { TocModal } from './TocModal';
 import { EpubSearchModal } from './EpubSearchModal';
 import { JumpDialog } from './reader/JumpDialog';
@@ -25,6 +26,7 @@ import { ReaderToolbar } from './reader/ReaderToolbar';
 import { SyncConflictDialog } from './reader/SyncConflictDialog';
 import { TextSelectionMenu } from './reader/TextSelectionMenu';
 import { HighlightActionMenu } from './reader/HighlightActionMenu';
+import { AnnotationNoteDialog } from './reader/AnnotationNoteDialog';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
@@ -33,9 +35,11 @@ import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
 import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
 import { useReaderAnnotations } from '../hooks/reader/useReaderAnnotations';
+import { useAnnotationPalette } from '../hooks/useAnnotationPalette';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
 import type { RelocateDetail, TocItem } from '../hooks/foliate/types';
 import type { OwnerKey } from '../lib/ownerIdentity';
+import { getAnnotationPaletteItem } from '../lib/annotationPalette';
 
 interface EpubReaderProps {
   book: Book;
@@ -237,6 +241,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   } | null>(null);
   const fixedLayoutZoomFrameRef = useRef<number | null>(null);
   const suppressNextInteractionClickRef = useRef(false);
+  const { palette, updatePaletteItem, resetPalette } = useAnnotationPalette(ownerKey);
 
   useLayoutEffect(() => {
     if (effectiveNavMode === 'scroll') return;
@@ -255,12 +260,16 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [onBack]);
 
   const chrome = useReaderChrome({ onBack: handleReaderBack });
+  const editingAnnotationId = chrome.editingAnnotationId;
+  const setEditingAnnotationId = chrome.setEditingAnnotationId;
   const isReaderPanelOpen = chrome.showSettings
     || chrome.showThemeModal
     || chrome.showBookmarks
+    || chrome.showAnnotations
     || chrome.showToc
     || chrome.showSearchModal
-    || chrome.showJumpInput;
+    || chrome.showJumpInput
+    || editingAnnotationId !== null;
   const isReaderPanelOpenRef = useRef(false);
   const showControlsRef = useRef(chrome.showControls);
   const {
@@ -377,12 +386,18 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   });
 
   const {
+    annotations,
     activeHighlight,
     feedback: annotationFeedback,
     canUndo: canUndoAnnotation,
+    isMutating: isAnnotationMutating,
     createHighlight,
     changeActiveColor,
     deleteActiveHighlight,
+    updateAnnotationNote,
+    changeAnnotationColors,
+    deleteAnnotations,
+    flashAnnotation,
     closeActiveHighlight,
     undoLastMutation,
   } = useReaderAnnotations({
@@ -395,6 +410,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     currentChapter,
     clearTextSelection,
   });
+
+  useEffect(() => {
+    if (
+      editingAnnotationId
+      && !annotations.some(({ id }) => id === editingAnnotationId)
+    ) {
+      setEditingAnnotationId(null);
+    }
+  }, [annotations, editingAnnotationId, setEditingAnnotationId]);
 
   useLayoutEffect(() => {
     annotationMenuCloseRef.current = closeActiveHighlight;
@@ -1219,6 +1243,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           feedback={selectionFeedback}
           canShare={canShareSelection}
           theme={theme}
+          palette={palette}
           onCopy={() => void copySelection()}
           onShare={() => void shareSelection()}
           onHighlight={(colorId) => void createHighlight(selectedText, colorId)}
@@ -1230,10 +1255,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         <HighlightActionMenu
           annotation={activeHighlight.annotation}
           theme={theme}
+          palette={palette}
           x={activeHighlight.x}
           top={activeHighlight.top}
           bottom={activeHighlight.bottom}
           onChangeColor={(colorId) => void changeActiveColor(colorId)}
+          onEditNote={() => {
+            setEditingAnnotationId(activeHighlight.annotation.id);
+            closeActiveHighlight();
+          }}
           onDelete={() => void deleteActiveHighlight()}
           onClose={closeActiveHighlight}
         />
@@ -1276,12 +1306,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         isSliderPreviewing={isSliderPreviewing}
         sliderPreviewChapter={sliderTargetChapter}
         bookmarkCount={bookmarks.length}
+        annotationCount={annotations.length}
         isFixedLayout={isFixedLayout}
         onBack={chrome.handleUIBack}
         onOpenSearch={() => chrome.setShowSearchModal(true)}
         onOpenSettings={() => chrome.setShowSettings(true)}
         onOpenTheme={() => chrome.setShowThemeModal(true)}
         onOpenBookmarks={() => chrome.setShowBookmarks(true)}
+        onOpenAnnotations={() => chrome.setShowAnnotations(true)}
         onOpenToc={() => chrome.setShowToc(true)}
         onProgressSliderStart={beginSliderMove}
         onProgressSliderPreview={previewSliderMove}
@@ -1295,6 +1327,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onClose={() => chrome.setShowSettings(false)}
           theme={theme}
           isFixedLayout={isFixedLayout}
+          annotationPalette={palette}
+          onUpdatePaletteItem={updatePaletteItem}
+          onResetPalette={resetPalette}
         />
       )}
 
@@ -1317,6 +1352,44 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onJump={(cfi, progressPercent) => { void performJumpToProgress(cfi, progressPercent); chrome.setShowBookmarks(false); }}
         />
       )}
+
+      {!isFixedLayout && chrome.showAnnotations && (
+        <AnnotationModal
+          annotations={annotations}
+          palette={palette}
+          theme={theme}
+          onClose={() => chrome.setShowAnnotations(false)}
+          onEditNote={(annotation) => setEditingAnnotationId(annotation.id)}
+          onChangeColors={(ids, colorId) => changeAnnotationColors(ids, colorId)}
+          onDelete={(ids) => deleteAnnotations(ids)}
+          mutationBusy={isAnnotationMutating}
+          feedback={annotationFeedback}
+          canUndo={canUndoAnnotation}
+          onUndo={() => { void undoLastMutation(); }}
+          onJump={(annotation) => {
+            chrome.setShowAnnotations(false);
+            void performJumpToProgress(
+              annotation.rangeCfi,
+              annotation.progressPercent ?? undefined,
+            ).then(() => {
+              window.requestAnimationFrame(() => flashAnnotation(annotation.id));
+            });
+          }}
+        />
+      )}
+
+      {editingAnnotationId && (() => {
+        const annotation = annotations.find(({ id }) => id === editingAnnotationId);
+        return annotation ? (
+          <AnnotationNoteDialog
+            annotation={annotation}
+            paletteItem={getAnnotationPaletteItem(palette, annotation.colorId)}
+            theme={theme}
+            onClose={() => setEditingAnnotationId(null)}
+            onSave={(note) => updateAnnotationNote(annotation.id, note)}
+          />
+        ) : null;
+      })()}
 
       {chrome.showToc && (
         <TocModal
