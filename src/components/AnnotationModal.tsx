@@ -91,6 +91,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
     sort,
   }), [annotations, noteOnly, palette, query, sort]);
   const groups = useMemo(() => groupAnnotationsByColor(visible), [visible]);
+  const filtering = query.trim().length > 0 || noteOnly;
   const totalCounts = useMemo(() => new Map(groupAnnotationsByColor(annotations).map((group) => (
     [group.colorId, group.annotations.length]
   ))), [annotations]);
@@ -160,7 +161,13 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
               {sortLabels.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
             <label className={`flex min-h-9 items-center gap-1.5 rounded-lg border ${theme.border} px-2 text-[11px] font-bold`}>
-              <input type="checkbox" checked={noteOnly} onChange={(event) => setNoteOnly(event.target.checked)} className="accent-accent-600" />
+              <input
+                type="checkbox"
+                data-reader-annotation-note-filter="true"
+                checked={noteOnly}
+                onChange={(event) => setNoteOnly(event.target.checked)}
+                className="accent-accent-600"
+              />
               메모 있음
             </label>
             <span className="ml-auto text-[10px] font-bold opacity-45">{visible.length}개</span>
@@ -224,7 +231,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
             {groups.map(({ colorId, annotations: items }) => {
               const paletteItem = getAnnotationPaletteItem(palette, colorId);
               const color = getHighlightColor(colorId);
-              const isCollapsed = collapsed.has(colorId);
+              const isCollapsed = collapsed.has(colorId) && (!filtering || items.length === 0);
               const total = totalCounts.get(colorId) ?? 0;
               return (
                 <section key={colorId} className={`overflow-hidden rounded-xl border ${theme.border}`}>

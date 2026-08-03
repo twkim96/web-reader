@@ -29,6 +29,7 @@ interface ReaderToolbarProps {
   isSliderPreviewing: boolean;
   sliderPreviewChapter?: string;
   bookmarkCount: number;
+  annotationCount: number;
   isFixedLayout?: boolean;
   onBack: () => void;
   onOpenSearch: () => void;
@@ -60,6 +61,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   isSliderPreviewing,
   sliderPreviewChapter,
   bookmarkCount,
+  annotationCount,
   isFixedLayout = false,
   onBack,
   onOpenSearch,
@@ -75,6 +77,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitleFromFileName(bookName);
   const surfaceStyle = getReaderSurfaceStyle();
+  const hasReaderRecords = bookmarkCount > 0 || annotationCount > 0;
   const menuPositionStyle: React.CSSProperties = {
     right: `max(calc(env(safe-area-inset-right) + 1rem), calc((100vw - (${READER_TEXT_MAX_INLINE_SIZE}px + ${READER_MENU_DOUBLE_WIDTH})) / 2))`,
   };
@@ -252,10 +255,11 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${bookmarkCount > 0 ? 'text-accent-500' : ''}`}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${hasReaderRecords ? 'text-accent-500' : ''}`}
               style={surfaceStyle}
-              aria-label="북마크"
-              title="북마크"
+              aria-label="책갈피와 주석"
+              aria-describedby="reader-record-counts"
+              title={`책갈피 ${bookmarkCount}개 · 주석 ${annotationCount}개`}
             >
               <BookmarkIcon size={19} />
               <span>책갈피</span>
@@ -264,6 +268,16 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
                   {bookmarkCount}
                 </span>
               )}
+              {annotationCount > 0 && (
+                <span
+                  data-reader-annotation-indicator="true"
+                  aria-hidden="true"
+                  className="size-1.5 shrink-0 rounded-full bg-current"
+                />
+              )}
+              <span id="reader-record-counts" className="sr-only">
+                책갈피 {bookmarkCount}개, 주석 {annotationCount}개
+              </span>
             </button>
           </div>
         </div>

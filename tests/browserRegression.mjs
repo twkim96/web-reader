@@ -1487,10 +1487,19 @@ try {
   assert.equal(highlightReopen.quote, selectionActions.selectedText);
   const annotationEntry = await evaluate(`(() => {
     const separateAnnotationButton = document.querySelector('button[aria-label="하이라이트와 메모"]');
-    document.querySelector('button[aria-label="북마크"]')?.click();
-    return { separateAnnotationButton: Boolean(separateAnnotationButton) };
+    const recordsButton = document.querySelector('button[aria-label="책갈피와 주석"]');
+    recordsButton?.click();
+    return {
+      separateAnnotationButton: Boolean(separateAnnotationButton),
+      recordsButtonTitle: recordsButton?.getAttribute('title') ?? '',
+      annotationIndicator: Boolean(recordsButton?.querySelector('[data-reader-annotation-indicator="true"]')),
+      recordCounts: document.querySelector('#reader-record-counts')?.textContent ?? '',
+    };
   })()`);
   assert.equal(annotationEntry.separateAnnotationButton, false, JSON.stringify(annotationEntry));
+  assert.match(annotationEntry.recordsButtonTitle, /주석 1개/);
+  assert.equal(annotationEntry.annotationIndicator, true, JSON.stringify(annotationEntry));
+  assert.match(annotationEntry.recordCounts, /책갈피 \d+개, 주석 1개/);
   await waitFor(
     `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
     'combined records modal after reader reopen',
@@ -1516,6 +1525,17 @@ try {
       ?.closest('label')?.getBoundingClientRect().height ?? null;
     const collapsedGroupHeight = greenGroup?.getBoundingClientRect().height ?? null;
     const initiallyCollapsed = greenGroup?.getAttribute('aria-expanded') === 'false';
+    const search = document.querySelector('[data-reader-annotation-search="true"]');
+    const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    inputSetter?.call(search, 'probe paragraph');
+    search?.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const initialSearchItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
+    const initialSearchExpanded = greenGroup?.getAttribute('aria-expanded') === 'true';
+    inputSetter?.call(search, '');
+    search?.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const collapsedStateRestoredAfterSearch = greenGroup?.getAttribute('aria-expanded') === 'false';
     greenGroup?.click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const expandedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
@@ -1564,12 +1584,27 @@ try {
       '[data-reader-annotation-modal-feedback="true"]',
     )?.textContent ?? '';
 
-    const search = document.querySelector('[data-reader-annotation-search="true"]');
-    const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    greenGroup?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const noteFilter = document.querySelector('[data-reader-annotation-note-filter="true"]');
+    noteFilter?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const noteFilterItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
+    const noteFilterExpanded = greenGroup?.getAttribute('aria-expanded') === 'true';
+    noteFilter?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const noteFilterCollapsedStateRestored = greenGroup?.getAttribute('aria-expanded') === 'false';
+    greenGroup?.click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
     inputSetter?.call(search, '회귀 메모');
     search?.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const searchedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
+    inputSetter?.call(search, '');
+    search?.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const manualExpandedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     greenGroup?.click();
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const collapsedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
@@ -1593,8 +1628,15 @@ try {
       searchHeight,
       collapsedGroupHeight,
       initiallyCollapsed,
+      initialSearchItemCount,
+      initialSearchExpanded,
+      collapsedStateRestoredAfterSearch,
       expandedItemCount,
+      noteFilterItemCount,
+      noteFilterExpanded,
+      noteFilterCollapsedStateRestored,
       searchedItemCount,
+      manualExpandedItemCount,
       collapsedItemCount,
       note: records.find((record) => record.bookId === 'selection-probe.txt')?.note ?? null,
       noteDraft,
@@ -1611,8 +1653,15 @@ try {
   assert.ok(annotationManager.searchHeight <= 40, JSON.stringify(annotationManager));
   assert.ok(annotationManager.collapsedGroupHeight <= 40, JSON.stringify(annotationManager));
   assert.equal(annotationManager.initiallyCollapsed, true, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.initialSearchItemCount, 1, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.initialSearchExpanded, true, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.collapsedStateRestoredAfterSearch, true, JSON.stringify(annotationManager));
   assert.equal(annotationManager.expandedItemCount, 1, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.noteFilterItemCount, 1, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.noteFilterExpanded, true, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.noteFilterCollapsedStateRestored, true, JSON.stringify(annotationManager));
   assert.equal(annotationManager.searchedItemCount, 1, JSON.stringify(annotationManager));
+  assert.equal(annotationManager.manualExpandedItemCount, 1, JSON.stringify(annotationManager));
   assert.equal(annotationManager.collapsedItemCount, 0, JSON.stringify(annotationManager));
   assert.equal(annotationManager.note, annotationManager.noteDraft);
   assert.equal(annotationManager.noteDialogClosed, true);
@@ -1624,7 +1673,7 @@ try {
     `!document.querySelector('[data-reader-annotation-modal="true"]')`,
     'combined records modal close before reopen',
   );
-  await evaluate(`document.querySelector('button[aria-label="북마크"]')?.click()`);
+  await evaluate(`document.querySelector('button[aria-label="책갈피와 주석"]')?.click()`);
   await waitFor(
     `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
     'combined records modal reopen',

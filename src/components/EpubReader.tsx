@@ -1321,6 +1321,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         isSliderPreviewing={isSliderPreviewing}
         sliderPreviewChapter={sliderTargetChapter}
         bookmarkCount={bookmarks.length}
+        annotationCount={annotations.length}
         isFixedLayout={isFixedLayout}
         onBack={chrome.handleUIBack}
         onOpenSearch={() => chrome.setShowSearchModal(true)}
