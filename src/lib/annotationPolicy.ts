@@ -22,10 +22,12 @@ export const ANNOTATION_CONTEXT_LENGTH = 80;
 export const ANNOTATION_QUOTE_MAX_LENGTH = 4000;
 export const ANNOTATION_NOTE_MAX_LENGTH = 4000;
 export const ANNOTATION_RANGE_CFI_MAX_LENGTH = 16000;
+export const ANNOTATION_BOOK_DELETE_MARKER_ID = 'book_delete_marker_v1';
 
 const colorIds = new Set(HIGHLIGHT_COLORS.map(({ id }) => id));
 const anchorStates = new Set<AnnotationAnchorState>(['active', 'unresolved']);
 const epubCfiWrapperPattern = /^epubcfi\(.+\)$/;
+const annotationIdPattern = /^[A-Za-z0-9_-]+$/;
 
 export const normalizeAnnotationText = (value: string) => value
   .replace(/\s+/g, ' ')
@@ -41,9 +43,11 @@ export const isAnnotation = (value: unknown): value is Annotation => {
   return typeof annotation.id === 'string'
     && annotation.id.length > 0
     && annotation.id.length <= 128
+    && annotationIdPattern.test(annotation.id)
+    && annotation.id !== ANNOTATION_BOOK_DELETE_MARKER_ID
     && typeof annotation.bookId === 'string'
     && annotation.bookId.length > 0
-    && annotation.bookId.length <= 1024
+    && annotation.bookId.length <= 512
     && annotation.type === 'highlight'
     && typeof annotation.sectionIndex === 'number'
     && Number.isSafeInteger(annotation.sectionIndex)
@@ -71,10 +75,10 @@ export const isAnnotation = (value: unknown): value is Annotation => {
     && typeof annotation.chapter === 'string'
     && annotation.chapter.length <= 500
     && typeof annotation.createdAtClient === 'number'
-    && Number.isFinite(annotation.createdAtClient)
+    && Number.isSafeInteger(annotation.createdAtClient)
     && annotation.createdAtClient > 0
     && typeof annotation.updatedAtClient === 'number'
-    && Number.isFinite(annotation.updatedAtClient)
+    && Number.isSafeInteger(annotation.updatedAtClient)
     && annotation.updatedAtClient >= annotation.createdAtClient
     && typeof annotation.anchorState === 'string'
     && anchorStates.has(annotation.anchorState as AnnotationAnchorState);

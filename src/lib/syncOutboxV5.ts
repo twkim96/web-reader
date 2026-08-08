@@ -1,4 +1,4 @@
-import type { IDBPDatabase, IDBPObjectStore } from 'idb';
+import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction } from 'idb';
 import type { Bookmark, UserProgress } from '../types';
 import { initDB } from './localDB';
 import {
@@ -24,6 +24,17 @@ import {
   type ProgressHeadV2,
   type ProgressPositionV2,
 } from './progressV2Schema';
+import {
+  annotationPaletteTargetKeyV1,
+  annotationTargetKeyV1,
+  isAnnotationPalettePayloadV1,
+  isAnnotationSyncPayloadV1,
+  type AnnotationHeadV1,
+  type AnnotationAggregateConflictReasonV1,
+  type AnnotationPaletteHeadV1,
+  type AnnotationPalettePayloadV1,
+  type AnnotationSyncPayloadV1,
+} from './annotationSyncSchema';
 
 export type OutboxStatusV5 =
   | 'pending'
@@ -75,8 +86,59 @@ export type BookmarkOutboxEventV5 = {
   claimToken: string | null;
 };
 
-export type SyncOutboxEventV5 = ProgressOutboxEventV5 | BookmarkOutboxEventV5;
-export type SyncHeadV2 = ProgressHeadV2 | BookmarkHeadV2;
+export type AnnotationOutboxEventV5 = {
+  ownerKey: OwnerKey;
+  eventId: string;
+  target: { kind: 'annotation'; bookId: string; annotationId: string };
+  targetKey: string;
+  operation: 'annotation.upsert' | 'annotation.delete';
+  payload: AnnotationSyncPayloadV1 | null;
+  deviceId: string;
+  sessionId: string;
+  sequence: number;
+  baseRevision: number;
+  forceDelete?: boolean;
+  occurredAtClient: number;
+  status: OutboxStatusV5;
+  attempts: number;
+  nextAttemptAt: number | null;
+  lastErrorCode: string | null;
+  claimedByTabId: string | null;
+  claimedLeaseEpoch: number | null;
+  claimToken: string | null;
+};
+
+export type AnnotationPaletteOutboxEventV5 = {
+  ownerKey: OwnerKey;
+  eventId: string;
+  target: { kind: 'palette' };
+  targetKey: string;
+  operation: 'palette.set';
+  payload: AnnotationPalettePayloadV1;
+  deviceId: string;
+  sessionId: string;
+  sequence: number;
+  baseRevision: number;
+  occurredAtClient: number;
+  status: OutboxStatusV5;
+  attempts: number;
+  nextAttemptAt: number | null;
+  lastErrorCode: string | null;
+  claimedByTabId: string | null;
+  claimedLeaseEpoch: number | null;
+  claimToken: string | null;
+};
+
+export type SyncOutboxEventV5 =
+  | ProgressOutboxEventV5
+  | BookmarkOutboxEventV5
+  | AnnotationOutboxEventV5
+  | AnnotationPaletteOutboxEventV5;
+export type SyncHeadV2 =
+  | ProgressHeadV2
+  | BookmarkHeadV2
+  | AnnotationHeadV1
+  | AnnotationPaletteHeadV1;
 
 const activeStatuses = new Set<OutboxStatusV5>([
   'pending', 'in_flight', 'blocked', 'conflict', 'paused',
@@ -117,6 +179,18 @@ export const isProgressOutboxEventV5 = (
   event: SyncOutboxEventV5,
 ): event is ProgressOutboxEventV5 => event.target.kind === 'progress';
 
+export const isBookmarkOutboxEventV5 = (
+  event: SyncOutboxEventV5,
+): event is BookmarkOutboxEventV5 => event.target.kind === 'bookmark';
+
+export const isAnnotationOutboxEventV5 = (
+  event: SyncOutboxEventV5,
+): event is AnnotationOutboxEventV5 => event.target.kind === 'annotation';
+
+export const isAnnotationPaletteOutboxEventV5 = (
+  event: SyncOutboxEventV5,
+): event is AnnotationPaletteOutboxEventV5 => event.target.kind === 'palette';
+
 export type SyncMetaV5 = {
   ownerKey: OwnerKey;
   targetKey: string;
@@ -140,7 +214,13 @@ export type SyncConflictV5 = {
   state: 'open' | 'resolved_local' | 'resolved_remote' | 'deferred' | 'remote_missing';
   event: SyncOutboxEventV5 | null;
   remoteHead: SyncHeadV2 | null;
-  latestLocalPosition: ProgressPositionV2 | ManualBookmarkPayloadV2 | null;
+  conflictReason?: AnnotationAggregateConflictReasonV1;
+  latestLocalPosition:
+    | ProgressPositionV2
+    | ManualBookmarkPayloadV2
+    | AnnotationSyncPayloadV1
+    | AnnotationPalettePayloadV1
+    | null;
   blockedEventIds: string[];
   createdAt: number;
   resolvedAt?: number;
@@ -156,12 +236,16 @@ export const storeRemoteHeadsBatchV5 = async (
   const tx = db.transaction([V5_REMOTE_HEADS_STORE, V5_SYNC_META_STORE], 'readwrite');
   const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
-  const entries = heads.map((head) => ({
-    head,
-    targetKey: 'bookmarkId' in head
-      ? bookmarkTargetKeyV2(head.bookId, head.bookmarkId)
-      : progressTargetKeyV2(head.bookId),
-  }));
+  const entries = heads.map((head) => {
+    const targetKey = 'position' in head
+      ? progressTargetKeyV2(head.bookId)
+      : 'bookmarkId' in head
+        ? bookmarkTargetKeyV2(head.bookId, head.bookmarkId)
+        : 'annotationId' in head
+          ? annotationTargetKeyV1(head.bookId, head.annotationId)
+          : annotationPaletteTargetKeyV1();
+    return { head, targetKey };
+  });
   const existingEntries = await Promise.all(entries.map(async ({ targetKey }) => Promise.all([
     remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
     metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
@@ -276,8 +360,12 @@ export const adoptRemoteProgressLocallyV5 = async (
 export const hasActiveProgressTargetWorkV5 = async (
   ownerKey: OwnerKey,
   bookId: string,
+) => hasActiveSyncTargetWorkV5(ownerKey, progressTargetKeyV2(bookId));
+
+export const hasActiveSyncTargetWorkV5 = async (
+  ownerKey: OwnerKey,
+  targetKey: string,
 ) => {
-  const targetKey = progressTargetKeyV2(bookId);
   const db = await initDB();
   const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE], 'readonly');
   const [targetEvents, openConflicts, deferredConflicts] = await Promise.all([
@@ -394,6 +482,29 @@ export type EnqueueProgressMutationBatchInput = {
   bookmarkEvents: EnqueueBookmarkInput[];
 };
 
+export type AnnotationSyncContextV5 = {
+  deviceId: string;
+  sessionId: string;
+  createEventId?: () => string;
+};
+
+export type EnqueueAnnotationInputV5 = {
+  bookId: string;
+  annotationId: string;
+  operation: 'annotation.upsert' | 'annotation.delete';
+  payload: AnnotationSyncPayloadV1 | null;
+  occurredAtClient?: number;
+  eventId?: string;
+  baseRevision?: number;
+  forceDelete?: boolean;
+};
+
+export type EnqueueAnnotationPaletteInputV5 = {
+  payload: AnnotationPalettePayloadV1;
+  occurredAtClient?: number;
+  eventId?: string;
+};
+
 const eventSort = (a: SyncOutboxEventV5, b: SyncOutboxEventV5) => (
   a.sequence - b.sequence
 );
@@ -448,6 +559,275 @@ const validateBookmarkEnqueueInput = (input: EnqueueBookmarkInput) => {
         || input.payload.bookmarkId !== input.bookmarkId
       : input.payload !== null
   ) throw new Error('북마크 event payload가 올바르지 않습니다.');
+};
+
+const validateAnnotationEnqueueInput = (input: EnqueueAnnotationInputV5) => {
+  if (!input.bookId || !input.annotationId) {
+    throw new Error('annotation event 식별자가 비어 있습니다.');
+  }
+  if (
+    input.operation === 'annotation.upsert'
+      ? !isAnnotationSyncPayloadV1(input.payload)
+        || input.payload.bookId !== input.bookId
+        || input.payload.id !== input.annotationId
+      : input.payload !== null
+  ) throw new Error('annotation event payload가 올바르지 않습니다.');
+  if (input.forceDelete && input.operation !== 'annotation.delete') {
+    throw new Error('annotation 강제 삭제는 delete event에서만 사용할 수 있습니다.');
+  }
+  if (
+    input.baseRevision !== undefined
+    && (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0)
+  ) throw new Error('annotation event base revision이 올바르지 않습니다.');
+};
+
+type AnnotationOutboxTransactionV5 = IDBPTransaction<
+  unknown,
+  string[],
+  'readwrite'
+>;
+
+export const appendAnnotationEventsToTransactionV5 = async (
+  tx: AnnotationOutboxTransactionV5,
+  ownerKey: OwnerKey,
+  inputs: ReadonlyArray<EnqueueAnnotationInputV5>,
+  context: AnnotationSyncContextV5,
+) => {
+  if (!context.deviceId || !context.sessionId) {
+    throw new Error('annotation sync context가 올바르지 않습니다.');
+  }
+  inputs.forEach(validateAnnotationEnqueueInput);
+  const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
+  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+  const created: AnnotationOutboxEventV5[] = [];
+  for (const input of inputs) {
+    const now = input.occurredAtClient ?? Date.now();
+    const targetKey = annotationTargetKeyV1(input.bookId, input.annotationId);
+    const [storedMeta, targetEvents, openConflicts] = await Promise.all([
+      metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+      outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+        [ownerKey, targetKey, 0],
+        [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+      )) as Promise<SyncOutboxEventV5[]>,
+      conflictStore.index('by-owner-target-state').getAll([
+        ownerKey,
+        targetKey,
+        'open',
+      ]) as Promise<SyncConflictV5[]>,
+    ]);
+    const openConflict = openConflicts[0];
+    if (openConflict && !input.forceDelete) {
+      await conflictStore.put({ ...openConflict, latestLocalPosition: input.payload });
+      continue;
+    }
+    const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, now);
+    let unresolved = targetEvents.filter((event) => activeStatuses.has(event.status));
+    if (input.forceDelete) {
+      for (const event of unresolved) {
+        await outboxStore.put({
+          ...event,
+          status: 'superseded',
+          claimedByTabId: null,
+          claimedLeaseEpoch: null,
+          claimToken: null,
+        });
+      }
+      for (const conflict of openConflicts) {
+        await conflictStore.put({ ...conflict, state: 'resolved_local', resolvedAt: now });
+      }
+      unresolved = [];
+    }
+    const coalesced = [...unresolved].reverse().find((event): event is AnnotationOutboxEventV5 => (
+      event.target.kind === 'annotation'
+      && event.status === 'pending'
+      && event.sessionId === context.sessionId
+      && event.claimedByTabId === null
+    ));
+    if (coalesced) {
+      const updated: AnnotationOutboxEventV5 = {
+        ...coalesced,
+        operation: input.operation,
+        payload: input.payload,
+        occurredAtClient: now,
+        baseRevision: input.baseRevision ?? coalesced.baseRevision,
+        forceDelete: input.forceDelete ?? coalesced.forceDelete,
+        nextAttemptAt: now,
+        lastErrorCode: null,
+      };
+      await outboxStore.put(updated);
+      created.push(updated);
+      continue;
+    }
+    const event: AnnotationOutboxEventV5 = {
+      ownerKey,
+      eventId: input.eventId ?? context.createEventId?.() ?? crypto.randomUUID(),
+      target: {
+        kind: 'annotation',
+        bookId: input.bookId,
+        annotationId: input.annotationId,
+      },
+      targetKey,
+      operation: input.operation,
+      payload: input.payload,
+      deviceId: context.deviceId,
+      sessionId: context.sessionId,
+      sequence: meta.nextSequence,
+      baseRevision: meta.knownRevision + unresolved.length,
+      ...(input.baseRevision !== undefined ? { baseRevision: input.baseRevision } : {}),
+      ...(input.forceDelete ? { forceDelete: true } : {}),
+      occurredAtClient: now,
+      status: unresolved.some((candidate) => (
+        candidate.status === 'blocked' || candidate.status === 'conflict'
+      )) ? 'blocked' : 'pending',
+      attempts: 0,
+      nextAttemptAt: now,
+      lastErrorCode: null,
+      claimedByTabId: null,
+      claimedLeaseEpoch: null,
+      claimToken: null,
+    };
+    await Promise.all([
+      outboxStore.add(event),
+      metaStore.put({
+        ...meta,
+        knownRevision: Math.max(meta.knownRevision, input.baseRevision ?? 0),
+        nextSequence: meta.nextSequence + 1,
+        updatedAt: now,
+      }),
+    ]);
+    created.push(event);
+  }
+  return created;
+};
+
+export const enqueueAnnotationEventsV5 = async (
+  ownerKey: OwnerKey,
+  inputs: ReadonlyArray<EnqueueAnnotationInputV5>,
+  context: AnnotationSyncContextV5,
+) => {
+  const db = await initDB();
+  const tx = db.transaction([
+    V5_OUTBOX_STORE,
+    V5_SYNC_META_STORE,
+    V5_SYNC_CONFLICTS_STORE,
+  ], 'readwrite');
+  const events = await appendAnnotationEventsToTransactionV5(
+    tx as AnnotationOutboxTransactionV5,
+    ownerKey,
+    inputs,
+    context,
+  );
+  await tx.done;
+  if (events.length > 0) notifyProgressSyncWork(ownerKey);
+  return events;
+};
+
+export const enqueueAnnotationPaletteEventV5 = async (
+  ownerKey: OwnerKey,
+  input: EnqueueAnnotationPaletteInputV5,
+  context: AnnotationSyncContextV5,
+) => {
+  const db = await initDB();
+  const tx = db.transaction([
+    V5_OUTBOX_STORE,
+    V5_SYNC_META_STORE,
+    V5_SYNC_CONFLICTS_STORE,
+  ], 'readwrite');
+  const result = await appendAnnotationPaletteEventToTransactionV5(
+    tx,
+    ownerKey,
+    input,
+    context,
+  );
+  await tx.done;
+  if (!result.deferredByConflict) notifyProgressSyncWork(ownerKey);
+  return result;
+};
+
+export const appendAnnotationPaletteEventToTransactionV5 = async (
+  tx: AnnotationOutboxTransactionV5,
+  ownerKey: OwnerKey,
+  input: EnqueueAnnotationPaletteInputV5,
+  context: AnnotationSyncContextV5,
+) => {
+  if (
+    !context.deviceId
+    || !context.sessionId
+    || !isAnnotationPalettePayloadV1(input.payload)
+  ) throw new Error('annotation palette event payload가 올바르지 않습니다.');
+  const now = input.occurredAtClient ?? Date.now();
+  const targetKey = annotationPaletteTargetKeyV1();
+  const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
+  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+  const [storedMeta, targetEvents, openConflicts] = await Promise.all([
+    metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+    outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+      [ownerKey, targetKey, 0],
+      [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+    )) as Promise<SyncOutboxEventV5[]>,
+    conflictStore.index('by-owner-target-state').getAll([
+      ownerKey,
+      targetKey,
+      'open',
+    ]) as Promise<SyncConflictV5[]>,
+  ]);
+  const openConflict = openConflicts[0];
+  if (openConflict) {
+    await conflictStore.put({ ...openConflict, latestLocalPosition: input.payload });
+    return { event: openConflict.event, deferredByConflict: true };
+  }
+  const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, now);
+  const unresolved = targetEvents.filter((event) => activeStatuses.has(event.status));
+  const coalesced = [...unresolved].reverse().find((event): event is AnnotationPaletteOutboxEventV5 => (
+    event.target.kind === 'palette'
+    && event.status === 'pending'
+    && event.sessionId === context.sessionId
+    && event.claimedByTabId === null
+  ));
+  if (coalesced) {
+    const updated: AnnotationPaletteOutboxEventV5 = {
+      ...coalesced,
+      payload: input.payload,
+      occurredAtClient: now,
+      nextAttemptAt: now,
+      lastErrorCode: null,
+    };
+    await outboxStore.put(updated);
+    return { event: updated, deferredByConflict: false };
+  }
+  const event: AnnotationPaletteOutboxEventV5 = {
+    ownerKey,
+    eventId: input.eventId ?? context.createEventId?.() ?? crypto.randomUUID(),
+    target: { kind: 'palette' },
+    targetKey,
+    operation: 'palette.set',
+    payload: input.payload,
+    deviceId: context.deviceId,
+    sessionId: context.sessionId,
+    sequence: meta.nextSequence,
+    baseRevision: meta.knownRevision + unresolved.length,
+    occurredAtClient: now,
+    status: unresolved.some((candidate) => (
+      candidate.status === 'blocked' || candidate.status === 'conflict'
+    )) ? 'blocked' : 'pending',
+    attempts: 0,
+    nextAttemptAt: now,
+    lastErrorCode: null,
+    claimedByTabId: null,
+    claimedLeaseEpoch: null,
+    claimToken: null,
+  };
+  await Promise.all([
+    outboxStore.add(event),
+    metaStore.put({
+      ...meta,
+      nextSequence: meta.nextSequence + 1,
+      updatedAt: now,
+    }),
+  ]);
+  return { event, deferredByConflict: false };
 };
 
 const toLocalProgress = (
@@ -926,6 +1306,7 @@ export const recordProgressConflictV5 = async (
   remoteHead: SyncHeadV2 | null,
   expectedClaim: ExpectedClaimV5,
   now = Date.now(),
+  conflictReason?: AnnotationAggregateConflictReasonV1,
 ) => {
   const db = await initDB();
   const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE], 'readwrite');
@@ -967,6 +1348,7 @@ export const recordProgressConflictV5 = async (
     state: 'open',
     event: { ...event, status: 'conflict' },
     remoteHead,
+    ...(conflictReason ? { conflictReason } : {}),
     latestLocalPosition: event.payload,
     blockedEventIds,
     createdAt: now,
@@ -1328,6 +1710,14 @@ export const resolveSyncConflictUseRemoteV5 = async (
     await tx.done.catch(() => undefined);
     throw new Error('적용할 원격 충돌 데이터가 없습니다.');
   }
+  if (
+    (conflict.event.target.kind !== 'progress' && conflict.event.target.kind !== 'bookmark')
+    || (!('position' in conflict.remoteHead) && !('bookmarkId' in conflict.remoteHead))
+  ) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    throw new Error('annotation 충돌은 전용 resolver에서 처리해야 합니다.');
+  }
   if (expectedLocalPosition) {
     const latest = conflict.latestLocalPosition;
     const stillMatches = Boolean(
@@ -1486,6 +1876,11 @@ export const resolveSyncConflictKeepLocalV5 = async (
     tx.abort();
     await tx.done.catch(() => undefined);
     throw new Error('유지할 로컬 충돌 데이터가 없습니다.');
+  }
+  if (conflict.event.target.kind !== 'progress' && conflict.event.target.kind !== 'bookmark') {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    throw new Error('annotation 충돌은 전용 resolver에서 처리해야 합니다.');
   }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   await supersedeConflictEvents(outbox, conflict);

@@ -9,10 +9,67 @@ import {
 } from './annotationPolicy';
 import type { HighlightColorId } from '../types';
 import { initDB } from './localDB';
-import { V8_ANNOTATIONS_STORE } from './localDBSchema';
+import {
+  V5_OUTBOX_STORE,
+  V5_SYNC_CONFLICTS_STORE,
+  V5_SYNC_META_STORE,
+  V8_ANNOTATIONS_STORE,
+  V10_ANNOTATION_BOOK_DELETIONS_STORE,
+} from './localDBSchema';
 import { trackLocalCommit } from './localCommitTracker';
+import { toAnnotationSyncPayloadV1 } from './annotationSyncSchema';
+import {
+  appendAnnotationEventsToTransactionV5,
+  type AnnotationSyncContextV5,
+  type EnqueueAnnotationInputV5,
+} from './syncOutboxV5';
+import { notifyProgressSyncWork } from './progressSyncWake';
+import { broadcastAnnotationSyncChange } from './annotationSyncWake';
 
 export type StoredAnnotationV8 = Annotation & { ownerKey: OwnerKey };
+export type LocalAnnotationSyncContext = AnnotationSyncContextV5;
+
+const mutationStoreNames = [
+  V8_ANNOTATIONS_STORE,
+  V5_OUTBOX_STORE,
+  V5_SYNC_META_STORE,
+  V5_SYNC_CONFLICTS_STORE,
+  V10_ANNOTATION_BOOK_DELETIONS_STORE,
+];
+
+const toUpsertInput = (annotation: Annotation): EnqueueAnnotationInputV5 => ({
+  bookId: annotation.bookId,
+  annotationId: annotation.id,
+  operation: 'annotation.upsert',
+  payload: toAnnotationSyncPayloadV1(annotation),
+  occurredAtClient: annotation.updatedAtClient,
+});
+
+const toDeleteInput = (annotation: Annotation): EnqueueAnnotationInputV5 => ({
+  bookId: annotation.bookId,
+  annotationId: annotation.id,
+  operation: 'annotation.delete',
+  payload: null,
+  occurredAtClient: Math.max(Date.now(), annotation.updatedAtClient + 1),
+});
+
+const appendSyncEvents = async (
+  tx: Parameters<typeof appendAnnotationEventsToTransactionV5>[0],
+  ownerKey: OwnerKey,
+  inputs: ReadonlyArray<EnqueueAnnotationInputV5>,
+  syncContext?: LocalAnnotationSyncContext,
+) => syncContext
+  ? appendAnnotationEventsToTransactionV5(tx, ownerKey, inputs, syncContext)
+  : [];
+
+const notifyCommittedMutation = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  eventCount: number,
+) => {
+  if (eventCount > 0) notifyProgressSyncWork(ownerKey);
+  broadcastAnnotationSyncChange({ ownerKey, bookId });
+};
 
 export type SaveLocalAnnotationResult =
   | { status: 'saved'; annotation: Annotation }
@@ -133,11 +190,13 @@ export const getLocalAnnotationsV8 = async (
 export const saveLocalAnnotationV8 = (
   ownerKey: OwnerKey,
   annotation: Annotation,
+  syncContext?: LocalAnnotationSyncContext,
 ): Promise<SaveLocalAnnotationResult> => trackLocalCommit((async () => {
   if (!isAnnotation(annotation)) throw new TypeError('Invalid local annotation');
 
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const key = [ownerKey, annotation.bookId, annotation.id];
   const existing = await store.get(key) as StoredAnnotationV8 | undefined;
@@ -172,8 +231,16 @@ export const saveLocalAnnotationV8 = (
     }
   }
 
+  const events = await appendSyncEvents(tx, ownerKey, [toUpsertInput(annotation)], syncContext);
+  if (!existing) {
+    await tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).delete([
+      ownerKey,
+      annotation.bookId,
+    ]);
+  }
   await store.put({ ...annotation, ownerKey });
   await tx.done;
+  notifyCommittedMutation(ownerKey, annotation.bookId, events.length);
   return { status: 'saved', annotation };
 })());
 
@@ -182,9 +249,11 @@ export const updateLocalAnnotationFieldsV8 = (
   bookId: string,
   annotationId: string,
   fields: Partial<AnnotationMutableFields>,
+  syncContext?: LocalAnnotationSyncContext,
 ): Promise<UpdateLocalAnnotationFieldsResult> => trackLocalCommit((async () => {
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const key = [ownerKey, bookId, annotationId];
   const existing = await store.get(key) as StoredAnnotationV8 | undefined;
@@ -222,8 +291,15 @@ export const updateLocalAnnotationFieldsV8 = (
       return { status: 'color-limit' };
     }
   }
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    [toUpsertInput(withoutOwner(next))],
+    syncContext,
+  );
   await store.put(next);
   await tx.done;
+  notifyCommittedMutation(ownerKey, bookId, events.length);
   return {
     status: 'saved',
     before: withoutOwner(existing),
@@ -235,11 +311,13 @@ export const restoreLocalAnnotationFieldsV8 = (
   ownerKey: OwnerKey,
   bookId: string,
   patches: ReadonlyArray<AnnotationFieldPatchV8>,
+  syncContext?: LocalAnnotationSyncContext,
 ): Promise<RestoreLocalAnnotationFieldsResult> => trackLocalCommit((async () => {
   const uniquePatches = new Map(patches.filter(({ id }) => Boolean(id)).map((patch) => [patch.id, patch]));
   if (uniquePatches.size === 0) return { status: 'saved', annotations: [] };
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const stored = await store.index('by-owner-book').getAll([ownerKey, bookId]) as StoredAnnotationV8[];
   const records = stored.filter(isAnnotation);
@@ -267,8 +345,15 @@ export const restoreLocalAnnotationFieldsV8 = (
     await tx.done;
     return { status: validation === 'book-limit' ? 'conflict' : validation };
   }
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    updated.map((annotation) => toUpsertInput(withoutOwner(annotation))),
+    syncContext,
+  );
   for (const annotation of updated) await store.put(annotation);
   await tx.done;
+  notifyCommittedMutation(ownerKey, bookId, events.length);
   return { status: 'saved', annotations: updated.map(withoutOwner) };
 })());
 
@@ -276,6 +361,7 @@ export const restoreLocalAnnotationsV8 = (
   ownerKey: OwnerKey,
   bookId: string,
   annotations: ReadonlyArray<Annotation>,
+  syncContext?: LocalAnnotationSyncContext,
 ): Promise<RestoreLocalAnnotationsResult> => trackLocalCommit((async () => {
   const unique = new Map(annotations.map((annotation) => [annotation.id, annotation]));
   if (unique.size === 0) return { status: 'saved', annotations: [] };
@@ -283,7 +369,8 @@ export const restoreLocalAnnotationsV8 = (
     annotation.bookId !== bookId || !isAnnotation(annotation)
   ))) throw new TypeError('Invalid local annotations to restore');
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const stored = await store.index('by-owner-book').getAll([ownerKey, bookId]) as StoredAnnotationV8[];
   const current = stored.filter(isAnnotation).map(withoutOwner);
@@ -305,8 +392,15 @@ export const restoreLocalAnnotationsV8 = (
     await tx.done;
     return { status: validation };
   }
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    restored.map(toUpsertInput),
+    syncContext,
+  );
   for (const annotation of restored) await store.put({ ...annotation, ownerKey });
   await tx.done;
+  notifyCommittedMutation(ownerKey, bookId, events.length);
   return { status: 'saved', annotations: restored };
 })());
 
@@ -314,14 +408,25 @@ export const deleteLocalAnnotationV8 = (
   ownerKey: OwnerKey,
   bookId: string,
   annotationId: string,
+  syncContext?: LocalAnnotationSyncContext,
 ) => trackLocalCommit((async () => {
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const key = [ownerKey, bookId, annotationId];
   const existing = await store.get(key) as StoredAnnotationV8 | undefined;
+  const events = existing && isAnnotation(existing)
+    ? await appendSyncEvents(
+      tx,
+      ownerKey,
+      [toDeleteInput(withoutOwner(existing))],
+      syncContext,
+    )
+    : [];
   if (existing) await store.delete(key);
   await tx.done;
+  if (existing) notifyCommittedMutation(ownerKey, bookId, events.length);
   return existing ? withoutOwner(existing) : null;
 })());
 
@@ -329,11 +434,13 @@ export const deleteLocalAnnotationsV8 = (
   ownerKey: OwnerKey,
   bookId: string,
   annotationIds: ReadonlyArray<string>,
+  syncContext?: LocalAnnotationSyncContext,
 ) => trackLocalCommit((async () => {
   const ids = [...new Set(annotationIds.filter(Boolean))];
   if (ids.length === 0) return [];
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const deleted: Annotation[] = [];
   for (const annotationId of ids) {
@@ -341,9 +448,18 @@ export const deleteLocalAnnotationsV8 = (
     const existing = await store.get(key) as StoredAnnotationV8 | undefined;
     if (!existing || !isAnnotation(existing)) continue;
     deleted.push(withoutOwner(existing));
-    await store.delete(key);
+  }
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    deleted.map(toDeleteInput),
+    syncContext,
+  );
+  for (const annotation of deleted) {
+    await store.delete([ownerKey, bookId, annotation.id]);
   }
   await tx.done;
+  if (deleted.length > 0) notifyCommittedMutation(ownerKey, bookId, events.length);
   return deleted;
 })());
 
@@ -351,11 +467,13 @@ export const deleteLocalAnnotationsIfUnchangedV8 = (
   ownerKey: OwnerKey,
   bookId: string,
   expectedAnnotations: ReadonlyArray<Annotation>,
+  syncContext?: LocalAnnotationSyncContext,
 ): Promise<DeleteLocalAnnotationsIfUnchangedResult> => trackLocalCommit((async () => {
   const unique = new Map(expectedAnnotations.map((annotation) => [annotation.id, annotation]));
   if (unique.size === 0) return { status: 'deleted', annotations: [] };
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const current: StoredAnnotationV8[] = [];
   for (const expected of unique.values()) {
@@ -370,11 +488,19 @@ export const deleteLocalAnnotationsIfUnchangedV8 = (
     }
     current.push(existing);
   }
+  const deleted = current.map(withoutOwner);
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    deleted.map(toDeleteInput),
+    syncContext,
+  );
   for (const annotation of current) {
     await store.delete([ownerKey, bookId, annotation.id]);
   }
   await tx.done;
-  return { status: 'deleted', annotations: current.map(withoutOwner) };
+  notifyCommittedMutation(ownerKey, bookId, events.length);
+  return { status: 'deleted', annotations: deleted };
 })());
 
 export const updateLocalAnnotationNoteV8 = (
@@ -382,12 +508,14 @@ export const updateLocalAnnotationNoteV8 = (
   bookId: string,
   annotationId: string,
   note: string,
+  syncContext?: LocalAnnotationSyncContext,
 ) => trackLocalCommit((async () => {
   if (typeof note !== 'string' || note.length > ANNOTATION_NOTE_MAX_LENGTH) {
     throw new TypeError('Invalid annotation note');
   }
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const key = [ownerKey, bookId, annotationId];
   const existing = await store.get(key) as StoredAnnotationV8 | undefined;
@@ -400,8 +528,15 @@ export const updateLocalAnnotationNoteV8 = (
     note,
     updatedAtClient: Math.max(Date.now(), existing.updatedAtClient + 1),
   };
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    [toUpsertInput(withoutOwner(next))],
+    syncContext,
+  );
   await store.put(next);
   await tx.done;
+  notifyCommittedMutation(ownerKey, bookId, events.length);
   return withoutOwner(next);
 })());
 
@@ -414,12 +549,14 @@ export const updateLocalAnnotationColorsV8 = (
   bookId: string,
   annotationIds: ReadonlyArray<string>,
   colorId: HighlightColorId,
+  syncContext?: LocalAnnotationSyncContext,
 ): Promise<UpdateLocalAnnotationColorsResult> => trackLocalCommit((async () => {
   if (!isHighlightColorId(colorId)) throw new TypeError('Invalid highlight color');
   const ids = [...new Set(annotationIds.filter(Boolean))];
   if (ids.length === 0) return { status: 'saved', before: [], annotations: [] };
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
   const records: StoredAnnotationV8[] = [];
   for (const annotationId of ids) {
@@ -445,8 +582,15 @@ export const updateLocalAnnotationColorsV8 = (
     colorId,
     updatedAtClient: Math.max(now + index, annotation.updatedAtClient + 1),
   }));
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    updated.map((annotation) => toUpsertInput(withoutOwner(annotation))),
+    syncContext,
+  );
   for (const annotation of updated) await store.put(annotation);
   await tx.done;
+  if (updated.length > 0) notifyCommittedMutation(ownerKey, bookId, events.length);
   return {
     status: 'saved',
     before: movingRecords.map(withoutOwner),
@@ -457,14 +601,29 @@ export const updateLocalAnnotationColorsV8 = (
 export const deleteLocalAnnotationsForBookV8 = (
   ownerKey: OwnerKey,
   bookId: string,
+  syncContext?: LocalAnnotationSyncContext,
 ) => trackLocalCommit((async () => {
   const db = await initDB();
-  const tx = db.transaction(V8_ANNOTATIONS_STORE, 'readwrite');
+  const tx = db.transaction(mutationStoreNames, 'readwrite');
+  void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
-  const keys = await store.index('by-owner-book').getAllKeys([ownerKey, bookId]);
-  await Promise.all(keys.map((key) => store.delete(key)));
+  const records = await store.index('by-owner-book').getAll([
+    ownerKey,
+    bookId,
+  ]) as StoredAnnotationV8[];
+  const validRecords = records.filter(isAnnotation);
+  const events = await appendSyncEvents(
+    tx,
+    ownerKey,
+    validRecords.map((annotation) => toDeleteInput(withoutOwner(annotation))),
+    syncContext,
+  );
+  await Promise.all(validRecords.map((annotation) => (
+    store.delete([ownerKey, bookId, annotation.id])
+  )));
   await tx.done;
-  return keys.length;
+  if (validRecords.length > 0) notifyCommittedMutation(ownerKey, bookId, events.length);
+  return validRecords.length;
 })());
 
 export const updateLocalAnnotationAnchorStateV8 = (

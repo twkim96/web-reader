@@ -33,6 +33,7 @@ import {
   updateLocalAnnotationAnchorStateV8,
   updateLocalAnnotationResolutionV8,
   type AnnotationFieldPatchV8,
+  type LocalAnnotationSyncContext,
   type AnnotationMutableFields,
 } from '../../lib/localAnnotations';
 import { drawHighlightRects, toFoliateAnnotation } from '../../lib/annotationOverlay';
@@ -63,6 +64,8 @@ interface UseReaderAnnotationsOptions {
   currentProgress: number;
   currentChapter: string;
   clearTextSelection: () => void;
+  syncContext?: LocalAnnotationSyncContext;
+  externalRevision?: number;
 }
 
 const mutationMessage = (before: Annotation | null, after: Annotation | null) => {
@@ -81,6 +84,8 @@ export const useReaderAnnotations = ({
   currentProgress,
   currentChapter,
   clearTextSelection,
+  syncContext,
+  externalRevision = 0,
 }: UseReaderAnnotationsOptions) => {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [activeHighlight, setActiveHighlight] = useState<ActiveHighlight | null>(null);
@@ -252,11 +257,16 @@ export const useReaderAnnotations = ({
       };
     }
     void getLocalAnnotationsV8(ownerKey, bookId)
-      .then((items) => {
-        if (generation === loadGenerationRef.current) {
-          replaceAnnotations(items);
-          setAnnotationsLoaded(true);
+      .then(async (items) => {
+        if (generation !== loadGenerationRef.current) return;
+        if (externalRevision > 0) {
+          await Promise.allSettled(
+            annotationsRef.current.map(removeAnnotationOverlay),
+          );
         }
+        if (generation !== loadGenerationRef.current) return;
+        replaceAnnotations(items);
+        setAnnotationsLoaded(true);
       })
       .catch((error) => {
         console.warn('[EpubReader] Failed to load local annotations:', error);
@@ -265,7 +275,7 @@ export const useReaderAnnotations = ({
     return () => {
       loadGenerationRef.current += 1;
     };
-  }, [bookId, enabled, ownerKey, replaceAnnotations, showFeedback]);
+  }, [bookId, enabled, externalRevision, ownerKey, removeAnnotationOverlay, replaceAnnotations, showFeedback]);
 
   useEffect(() => {
     if (!enabled || !isLoaded) return;
@@ -397,6 +407,7 @@ export const useReaderAnnotations = ({
           bookId,
           existing.id,
           fields,
+          syncContext,
         );
         if (result.status === 'unchanged') {
           clearTextSelection();
@@ -448,7 +459,7 @@ export const useReaderAnnotations = ({
         updatedAtClient: now,
         anchorState: 'active',
       };
-      const result = await saveLocalAnnotationV8(ownerKey, next);
+      const result = await saveLocalAnnotationV8(ownerKey, next, syncContext);
       if (result.status === 'book-limit') {
         showFeedback('이 책은 하이라이트 100개까지 저장할 수 있어요');
         return;
@@ -473,7 +484,7 @@ export const useReaderAnnotations = ({
       mutationInFlightRef.current = false;
       setIsMutating(false);
     }
-  }, [applySavedAnnotation, bookId, clearTextSelection, currentChapter, currentProgress, enabled, ownerKey, replaceAnnotations, showFeedback, viewRef]);
+  }, [applySavedAnnotation, bookId, clearTextSelection, currentChapter, currentProgress, enabled, ownerKey, replaceAnnotations, showFeedback, syncContext, viewRef]);
 
   const changeActiveColor = useCallback(async (colorId: HighlightColorId) => {
     const before = activeHighlight?.annotation;
@@ -486,6 +497,7 @@ export const useReaderAnnotations = ({
         bookId,
         before.id,
         { colorId },
+        syncContext,
       );
       if (result.status === 'color-limit') {
         showFeedback(`${getHighlightColor(colorId).label} 하이라이트는 20개까지 저장할 수 있어요`);
@@ -511,7 +523,7 @@ export const useReaderAnnotations = ({
       mutationInFlightRef.current = false;
       setIsMutating(false);
     }
-  }, [activeHighlight?.annotation, applySavedAnnotation, bookId, ownerKey, showFeedback]);
+  }, [activeHighlight?.annotation, applySavedAnnotation, bookId, ownerKey, showFeedback, syncContext]);
 
   const deleteActiveHighlight = useCallback(async () => {
     const before = activeHighlight?.annotation;
@@ -519,7 +531,12 @@ export const useReaderAnnotations = ({
     mutationInFlightRef.current = true;
     setIsMutating(true);
     try {
-      const deleted = await deleteLocalAnnotationV8(ownerKey, bookId, before.id);
+      const deleted = await deleteLocalAnnotationV8(
+        ownerKey,
+        bookId,
+        before.id,
+        syncContext,
+      );
       if (!deleted) return;
       replaceAnnotations(annotationsRef.current.filter(({ id }) => id !== before.id));
       setActiveHighlight(null);
@@ -535,7 +552,7 @@ export const useReaderAnnotations = ({
       mutationInFlightRef.current = false;
       setIsMutating(false);
     }
-  }, [activeHighlight?.annotation, bookId, ownerKey, removeAnnotationOverlay, replaceAnnotations, showFeedback]);
+  }, [activeHighlight?.annotation, bookId, ownerKey, removeAnnotationOverlay, replaceAnnotations, showFeedback, syncContext]);
 
   const undoLastMutation = useCallback(async () => {
     const mutation = undoMutation;
@@ -548,6 +565,7 @@ export const useReaderAnnotations = ({
           ownerKey,
           bookId,
           mutation.annotations,
+          syncContext,
         );
         if (result.status !== 'deleted') throw new Error('undo failed: conflict');
         const creationIds = new Set(mutation.annotations.map(({ id }) => id));
@@ -559,8 +577,8 @@ export const useReaderAnnotations = ({
         }
       } else {
         const result = mutation.type === 'delete'
-          ? await restoreLocalAnnotationsV8(ownerKey, bookId, mutation.annotations)
-          : await restoreLocalAnnotationFieldsV8(ownerKey, bookId, mutation.patches);
+          ? await restoreLocalAnnotationsV8(ownerKey, bookId, mutation.annotations, syncContext)
+          : await restoreLocalAnnotationFieldsV8(ownerKey, bookId, mutation.patches, syncContext);
         if (result.status !== 'saved') throw new Error(`undo failed: ${result.status}`);
         const restoredItems = result.annotations;
         const restoredById = new Map(restoredItems.map((annotation) => [annotation.id, annotation]));
@@ -583,7 +601,7 @@ export const useReaderAnnotations = ({
       mutationInFlightRef.current = false;
       setIsMutating(false);
     }
-  }, [bookId, ownerKey, removeAnnotationOverlay, renderAnnotation, replaceAnnotations, showFeedback, undoMutation]);
+  }, [bookId, ownerKey, removeAnnotationOverlay, renderAnnotation, replaceAnnotations, showFeedback, syncContext, undoMutation]);
 
   const updateAnnotationNote = useCallback(async (annotationId: string, note: string) => {
     const before = annotationsRef.current.find(({ id }) => id === annotationId);
@@ -601,6 +619,7 @@ export const useReaderAnnotations = ({
         bookId,
         annotationId,
         { note },
+        syncContext,
       );
       if (result.status === 'missing') {
         showFeedback('다른 탭에서 삭제된 하이라이트예요');
@@ -636,7 +655,7 @@ export const useReaderAnnotations = ({
       mutationInFlightRef.current = false;
       setIsMutating(false);
     }
-  }, [bookId, ownerKey, replaceAnnotations, showFeedback]);
+  }, [bookId, ownerKey, replaceAnnotations, showFeedback, syncContext]);
 
   const changeAnnotationColors = useCallback(async (
     annotationIds: ReadonlyArray<string>,
@@ -656,6 +675,7 @@ export const useReaderAnnotations = ({
         bookId,
         ids,
         colorId,
+        syncContext,
       );
       if (result.status === 'color-limit') {
         showFeedback(`${getHighlightColor(colorId).label} 하이라이트는 20개까지 저장할 수 있어요`);
@@ -696,7 +716,7 @@ export const useReaderAnnotations = ({
       mutationInFlightRef.current = false;
       setIsMutating(false);
     }
-  }, [bookId, ownerKey, renderAnnotation, replaceAnnotations, showFeedback]);
+  }, [bookId, ownerKey, renderAnnotation, replaceAnnotations, showFeedback, syncContext]);
 
   const deleteAnnotations = useCallback(async (annotationIds: ReadonlyArray<string>) => {
     if (mutationInFlightRef.current) {
@@ -706,7 +726,12 @@ export const useReaderAnnotations = ({
     mutationInFlightRef.current = true;
     setIsMutating(true);
     try {
-      const deleted = await deleteLocalAnnotationsV8(ownerKey, bookId, annotationIds);
+      const deleted = await deleteLocalAnnotationsV8(
+        ownerKey,
+        bookId,
+        annotationIds,
+        syncContext,
+      );
       if (deleted.length === 0) return false;
       const deletedIds = new Set(deleted.map(({ id }) => id));
       replaceAnnotations(annotationsRef.current.filter(({ id }) => !deletedIds.has(id)));
@@ -727,7 +752,7 @@ export const useReaderAnnotations = ({
       mutationInFlightRef.current = false;
       setIsMutating(false);
     }
-  }, [bookId, ownerKey, removeAnnotationOverlay, replaceAnnotations, showFeedback]);
+  }, [bookId, ownerKey, removeAnnotationOverlay, replaceAnnotations, showFeedback, syncContext]);
 
   const flashAnnotation = useCallback((annotationId: string) => {
     if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);

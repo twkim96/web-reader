@@ -35,14 +35,19 @@ import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider
 import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
 import { useReaderAnnotations } from '../hooks/reader/useReaderAnnotations';
 import { useAnnotationPalette } from '../hooks/useAnnotationPalette';
+import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
 import type { RelocateDetail, TocItem } from '../hooks/foliate/types';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import { getAnnotationPaletteItem } from '../lib/annotationPalette';
+import { getSyncSessionId } from '../lib/syncSession';
+import type { SyncHealth } from '../lib/syncHealth';
 
 interface EpubReaderProps {
   book: Book;
   ownerKey: OwnerKey;
+  annotationSyncDeviceId?: string;
+  onAnnotationSyncHealthChange?: (health: SyncHealth) => void;
   googleToken: string;
   settings: ViewerSettings;
   onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
@@ -163,6 +168,8 @@ const releasePointerCaptureSafely = (element: HTMLElement, pointerId: number) =>
 const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
   ownerKey,
+  annotationSyncDeviceId,
+  onAnnotationSyncHealthChange,
   googleToken,
   settings,
   onUpdateSettings,
@@ -244,7 +251,31 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   } | null>(null);
   const fixedLayoutZoomFrameRef = useRef<number | null>(null);
   const suppressNextInteractionClickRef = useRef(false);
-  const { palette, updatePaletteItem, resetPalette } = useAnnotationPalette(ownerKey);
+  const annotationSyncContext = useMemo(() => annotationSyncDeviceId ? ({
+    deviceId: annotationSyncDeviceId,
+    sessionId: getSyncSessionId(),
+  }) : undefined, [annotationSyncDeviceId]);
+  const {
+    palette,
+    updatePaletteItem,
+    resetPalette,
+    applyRemotePalette,
+  } = useAnnotationPalette(ownerKey, annotationSyncContext);
+  const {
+    annotationRevision,
+    health: annotationSyncHealth,
+  } = useAnnotationSync({
+    ownerKey,
+    bookId: book.id,
+    context: annotationSyncContext,
+    palette,
+    applyRemotePalette,
+  });
+
+  useEffect(() => {
+    onAnnotationSyncHealthChange?.(annotationSyncHealth);
+    return () => onAnnotationSyncHealthChange?.('healthy');
+  }, [annotationSyncHealth, onAnnotationSyncHealthChange]);
 
   useLayoutEffect(() => {
     if (effectiveNavMode === 'scroll') return;
@@ -417,6 +448,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     currentProgress: totalProgress,
     currentChapter,
     clearTextSelection,
+    syncContext: annotationSyncContext,
+    externalRevision: annotationRevision,
   });
 
   useEffect(() => {

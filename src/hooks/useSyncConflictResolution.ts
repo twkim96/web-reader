@@ -95,7 +95,10 @@ export const useSyncConflictResolution = ({
     }
     const conflicts = await getOpenSyncConflictsV5(getSyncOwnerKey(owner.ownerKey));
     if (!ownerRuntime.isCurrent(owner) || refreshGenerationRef.current !== generation) return;
-    const next = conflicts.find((candidate) => !dismissedRef.current.has(candidate.conflictId)) ?? null;
+    const next = conflicts.find((candidate) => (
+      (candidate.event?.target.kind === 'progress' || candidate.event?.target.kind === 'bookmark')
+      && !dismissedRef.current.has(candidate.conflictId)
+    )) ?? null;
     const targetIsActiveBook = Boolean(
       next?.event?.target.kind === 'progress'
       && next.event.target.bookId === activeBookId,
@@ -131,7 +134,9 @@ export const useSyncConflictResolution = ({
           if (ownerRuntime.isCurrent(owner) && refreshGenerationRef.current === generation) {
             setConflict(
               latestConflicts.find((candidate) => (
-                !dismissedRef.current.has(candidate.conflictId)
+                (candidate.event?.target.kind === 'progress'
+                  || candidate.event?.target.kind === 'bookmark')
+                && !dismissedRef.current.has(candidate.conflictId)
               )) ?? null,
             );
           }

@@ -8,9 +8,16 @@ import {
 } from '../lib/ownerIdentity';
 import { applyProgressEventTransaction } from '../lib/progressSyncTransaction';
 import { applyBookmarkEventTransaction } from '../lib/bookmarkSyncTransaction';
+import {
+  applyAnnotationEventTransaction,
+  applyAnnotationPaletteEventTransaction,
+} from '../lib/annotationSyncTransaction';
 import { ProgressSyncWorker } from '../lib/progressSyncWorker';
 import {
   getPausedSyncSummaryV5,
+  isAnnotationOutboxEventV5,
+  isAnnotationPaletteOutboxEventV5,
+  isBookmarkOutboxEventV5,
   isProgressOutboxEventV5,
   resumePausedAuthEventsV5,
 } from '../lib/syncOutboxV5';
@@ -18,6 +25,8 @@ import { runProgressSyncPoll } from '../lib/progressSyncPolling';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 import { ProgressSyncPumpController } from '../lib/progressSyncPump';
 import { isAuthSyncErrorCode, type SyncHealth } from '../lib/syncHealth';
+import { getSyncSessionId } from '../lib/syncSession';
+import { reconcileAnnotationBookDeletionIntentsV10 } from '../lib/annotationBookDeletion';
 
 export const useProgressSyncWorker = (
   user: FirebaseUser | null,
@@ -36,21 +45,39 @@ export const useProgressSyncWorker = (
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
     const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
+    const annotationContext = {
+      deviceId,
+      sessionId: getSyncSessionId(),
+    };
 
     const worker = new ProgressSyncWorker(
       owner,
       crypto.randomUUID(),
-      (event) => isProgressOutboxEventV5(event)
-        ? applyProgressEventTransaction({
+      (event) => {
+        if (isProgressOutboxEventV5(event)) return applyProgressEventTransaction({
           event,
           uid: user.uid,
           firestore: db,
-        })
-        : applyBookmarkEventTransaction({
+        });
+        if (isBookmarkOutboxEventV5(event)) return applyBookmarkEventTransaction({
           event,
           uid: user.uid,
           firestore: db,
-        }),
+        });
+        if (isAnnotationOutboxEventV5(event)) return applyAnnotationEventTransaction({
+          event,
+          uid: user.uid,
+          firestore: db,
+        });
+        if (isAnnotationPaletteOutboxEventV5(event)) {
+          return applyAnnotationPaletteEventTransaction({
+            event,
+            uid: user.uid,
+            firestore: db,
+          });
+        }
+        throw new Error('지원하지 않는 동기화 event입니다.');
+      },
       {},
       syncOwnerKey,
     );
@@ -67,7 +94,18 @@ export const useProgressSyncWorker = (
 
     const pump = new ProgressSyncPumpController({
       poll: () => runProgressSyncPoll(
-          () => worker.flushOne(),
+          async () => {
+            try {
+              await reconcileAnnotationBookDeletionIntentsV10(
+                user.uid,
+                syncOwnerKey,
+                annotationContext,
+              );
+            } catch (error) {
+              console.error('[AnnotationSync] book deletion reconciliation failed:', error);
+            }
+            return worker.flushOne();
+          },
           (error) => console.error('[ProgressSyncWorker] local polling failed:', error),
       ),
       refreshHealth,

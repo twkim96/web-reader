@@ -17,6 +17,11 @@ import {
 } from 'firebase/firestore';
 import { applyProgressEventTransaction } from '../src/lib/progressSyncTransaction.ts';
 import { applyBookmarkEventTransaction } from '../src/lib/bookmarkSyncTransaction.ts';
+import {
+  applyAnnotationEventTransaction,
+  applyAnnotationPaletteEventTransaction,
+} from '../src/lib/annotationSyncTransaction.ts';
+import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
 
 const projectId = 'demo-web-reader';
 const appId = 'private-web-novel-viewer';
@@ -137,6 +142,150 @@ const writeBookmarkEvent = (
   return batch.commit();
 };
 
+const annotationPath = (annotationId = 'annotation-1') => (
+  `artifacts/${appId}/users/alice/libraries/local/annotationSyncV1/book-1/annotations/${annotationId}`
+);
+
+const annotationReceiptPath = (eventId) => (
+  `artifacts/${appId}/users/alice/libraries/local/annotationSyncV1/book-1/eventReceipts/${eventId}`
+);
+
+const annotationAggregatePath = () => (
+  `artifacts/${appId}/users/alice/libraries/local/annotationSyncV1/book-1`
+);
+
+const validAnnotationPayload = () => ({
+  id: 'annotation-1',
+  bookId: 'book-1',
+  type: 'highlight',
+  sectionIndex: 0,
+  rangeCfi: 'epubcfi(/6/4!/4/2,/1:0,/1:4)',
+  quote: '문장',
+  prefix: '',
+  suffix: '',
+  colorId: 'yellow',
+  note: '메모',
+  progressPercent: 25,
+  chapter: '1장',
+  createdAtClient: 1,
+  updatedAtClient: 2,
+});
+
+const validAnnotationHead = (
+  eventId = 'annotation-event-1',
+  revision = 1,
+  operation = 'upsert',
+) => ({
+  schemaVersion: 1,
+  bookId: 'book-1',
+  annotationId: 'annotation-1',
+  revision,
+  acceptedEventId: eventId,
+  operation,
+  annotation: operation === 'upsert' ? validAnnotationPayload() : null,
+  acceptedDeviceId: 'device-1',
+  acceptedSessionId: 'session-1',
+  occurredAtClient: revision,
+  updatedAtServer: serverTimestamp(),
+  deletedAtServer: operation === 'delete' ? serverTimestamp() : null,
+});
+
+const validAnnotationReceipt = (eventId = 'annotation-event-1', revision = 1) => ({
+  schemaVersion: 1,
+  eventId,
+  targetKind: 'annotation',
+  bookId: 'book-1',
+  annotationId: 'annotation-1',
+  targetKey: 'annotation:book-1:annotation-1',
+  revision,
+  createdAtServer: serverTimestamp(),
+});
+
+const validAnnotationAggregate = (
+  eventId = 'annotation-event-1',
+  revision = 1,
+  operation = 'upsert',
+) => {
+  const payload = validAnnotationPayload();
+  const active = operation === 'upsert';
+  return {
+    schemaVersion: 1,
+    bookId: 'book-1',
+    revision,
+    totalCount: active ? 1 : 0,
+    colorCounts: {
+      yellow: active ? 1 : 0,
+      green: 0,
+      blue: 0,
+      pink: 0,
+      purple: 0,
+    },
+    entries: active ? {
+      'annotation-1': { rangeCfi: payload.rangeCfi, colorId: 'yellow' },
+    } : {},
+    rangeCfis: active ? [payload.rangeCfi] : [],
+    acceptedEventId: eventId,
+    acceptedAnnotationId: 'annotation-1',
+    acceptedOperation: operation,
+    updatedAtServer: serverTimestamp(),
+  };
+};
+
+const writeAnnotationEvent = (
+  db,
+  eventId = 'annotation-event-1',
+  revision = 1,
+  operation = 'upsert',
+) => {
+  const batch = writeBatch(db);
+  batch.set(doc(db, annotationPath()), validAnnotationHead(eventId, revision, operation));
+  batch.set(
+    doc(db, annotationAggregatePath()),
+    validAnnotationAggregate(eventId, revision, operation),
+  );
+  batch.set(
+    doc(db, annotationReceiptPath(eventId)),
+    validAnnotationReceipt(eventId, revision),
+  );
+  return batch.commit();
+};
+
+const palettePath = () => (
+  `artifacts/${appId}/users/alice/libraries/local/annotationSettingsV1/palette`
+);
+
+const paletteReceiptPath = (eventId) => `${palettePath()}/eventReceipts/${eventId}`;
+
+const validPaletteHead = (eventId = 'palette-event-1', revision = 1) => ({
+  schemaVersion: 1,
+  revision,
+  acceptedEventId: eventId,
+  operation: 'set',
+  palette: { items: DEFAULT_ANNOTATION_PALETTE.map((item) => ({ ...item })) },
+  acceptedDeviceId: 'device-1',
+  acceptedSessionId: 'session-1',
+  occurredAtClient: revision,
+  updatedAtServer: serverTimestamp(),
+});
+
+const validPaletteReceipt = (eventId = 'palette-event-1', revision = 1) => ({
+  schemaVersion: 1,
+  eventId,
+  targetKind: 'palette',
+  bookId: null,
+  annotationId: null,
+  targetKey: 'annotation-palette',
+  revision,
+  createdAtServer: serverTimestamp(),
+});
+
+const writePaletteEvent = (db, eventId = 'palette-event-1', revision = 1) => {
+  const batch = writeBatch(db);
+  batch.set(doc(db, palettePath()), validPaletteHead(eventId, revision));
+  batch.set(doc(db, paletteReceiptPath(eventId)), validPaletteReceipt(eventId, revision));
+  return batch.commit();
+};
+
 const progressEvent = (eventId, progressPercent, baseRevision = 0, operation = 'progress.set') => ({
   ownerKey: 'firebase:alice|library:local',
   eventId,
@@ -185,6 +334,34 @@ const bookmarkEvent = (eventId, baseRevision = 0, operation = 'bookmark.upsert')
   lastErrorCode: null,
   claimedByTabId: 'tab-1',
   claimedLeaseEpoch: 1,
+});
+
+const annotationEvent = (
+  eventId,
+  baseRevision = 0,
+  operation = 'annotation.upsert',
+) => ({
+  eventId,
+  target: { kind: 'annotation', bookId: 'book-1', annotationId: 'annotation-1' },
+  targetKey: 'annotation:book-1:annotation-1',
+  operation,
+  payload: operation === 'annotation.delete' ? null : validAnnotationPayload(),
+  deviceId: `device-${eventId}`,
+  sessionId: `session-${eventId}`,
+  baseRevision,
+  occurredAtClient: baseRevision + 1,
+});
+
+const paletteEvent = (eventId, baseRevision = 0) => ({
+  eventId,
+  target: { kind: 'palette' },
+  targetKey: 'annotation-palette',
+  operation: 'palette.set',
+  payload: { items: DEFAULT_ANNOTATION_PALETTE.map((item) => ({ ...item })) },
+  deviceId: `device-${eventId}`,
+  sessionId: `session-${eventId}`,
+  baseRevision,
+  occurredAtClient: baseRevision + 1,
 });
 
 test('allows own atomic progress head and immutable receipt', async () => {
@@ -359,6 +536,435 @@ test('runs bookmark transaction receipt replay, tombstone, and stale edit confli
   });
   assert.equal(stale.status, 'conflict');
   assert.equal(stale.remoteHead.revision, 2);
+});
+
+test('allows atomic annotation revisions, receipt replay, and tombstone delete', async () => {
+  const firstEvent = annotationEvent('annotation-upsert');
+  const first = await applyAnnotationEventTransaction({
+    event: firstEvent,
+    uid: 'alice',
+    firestore: database(),
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(first.status, 'apply');
+  const replay = await applyAnnotationEventTransaction({
+    event: firstEvent,
+    uid: 'alice',
+    firestore: database(),
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(replay.status, 'already_applied');
+
+  const deletion = await applyAnnotationEventTransaction({
+    event: annotationEvent('annotation-delete', 1, 'annotation.delete'),
+    uid: 'alice',
+    firestore: database(),
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(deletion.status, 'apply');
+  assert.equal(deletion.head.operation, 'delete');
+  assert.equal(deletion.head.revision, 2);
+  await assertFails(deleteDoc(doc(database(), annotationPath())));
+  await assertFails(setDoc(
+    doc(database(), annotationReceiptPath('annotation-upsert')),
+    validAnnotationReceipt('annotation-upsert', 1),
+  ));
+});
+
+test('serializes concurrent different ids and rejects a duplicate remote range', async () => {
+  const db = database();
+  const rangeCfi = 'epubcfi(/6/4!/4/2,/1:0,/1:4)';
+  const eventFor = (annotationId) => ({
+    eventId: `event-${annotationId}`,
+    target: { kind: 'annotation', bookId: 'book-1', annotationId },
+    targetKey: `annotation:book-1:${annotationId}`,
+    operation: 'annotation.upsert',
+    payload: {
+      ...validAnnotationPayload(),
+      id: annotationId,
+      rangeCfi,
+      quote: `문장 ${annotationId}`,
+    },
+    deviceId: `device-${annotationId}`,
+    sessionId: `session-${annotationId}`,
+    baseRevision: 0,
+    occurredAtClient: 1,
+  });
+  const results = await Promise.all(['a', 'b'].map((annotationId) => (
+    applyAnnotationEventTransaction({
+      event: eventFor(annotationId),
+      uid: 'alice',
+      firestore: db,
+      sdk: { doc, runTransaction, serverTimestamp },
+    })
+  )));
+  assert.deepEqual(results.map(({ status }) => status).sort(), ['apply', 'conflict']);
+  assert.equal(
+    results.find(({ status }) => status === 'conflict').conflictReason,
+    'annotation-duplicate-range',
+  );
+  const aggregate = await getDoc(doc(db, annotationAggregatePath()));
+  assert.equal(aggregate.data().totalCount, 1);
+});
+
+test('applies a forced book-deletion tombstone at the latest server revision', async () => {
+  const db = database();
+  await applyAnnotationEventTransaction({
+    event: annotationEvent('force-delete-upsert'),
+    uid: 'alice',
+    firestore: db,
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  const deletion = await applyAnnotationEventTransaction({
+    event: {
+      ...annotationEvent('force-delete-tombstone', 0, 'annotation.delete'),
+      forceDelete: true,
+    },
+    uid: 'alice',
+    firestore: db,
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(deletion.status, 'apply');
+  assert.equal(deletion.head.revision, 2);
+  assert.equal(deletion.head.operation, 'delete');
+});
+
+test('book deletion marker blocks stale offline upserts but allows a new highlight', async () => {
+  const db = database();
+  const markerEvent = {
+    eventId: 'book-delete-marker',
+    target: {
+      kind: 'annotation',
+      bookId: 'book-1',
+      annotationId: 'book_delete_marker_v1',
+    },
+    targetKey: 'annotation:book-1:book_delete_marker_v1',
+    operation: 'annotation.delete',
+    payload: null,
+    deviceId: 'deleting-device',
+    sessionId: 'deleting-session',
+    baseRevision: 0,
+    forceDelete: true,
+    occurredAtClient: 10,
+  };
+  await applyAnnotationEventTransaction({
+    event: markerEvent,
+    uid: 'alice',
+    firestore: db,
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  const eventFor = (id, rangeCfi, eventId, occurredAtClient) => ({
+    eventId,
+    target: { kind: 'annotation', bookId: 'book-1', annotationId: id },
+    targetKey: `annotation:book-1:${id}`,
+    operation: 'annotation.upsert',
+    payload: {
+      ...validAnnotationPayload(),
+      id,
+      rangeCfi,
+      quote: `문장 ${id}`,
+    },
+    deviceId: `device-${id}`,
+    sessionId: `session-${id}`,
+    baseRevision: 0,
+    occurredAtClient,
+  });
+  const stale = eventFor(
+    'stale-offline',
+    'epubcfi(/6/4!/4/2,/1:0,/1:4)',
+    'stale-offline-event',
+    9,
+  );
+  await assert.rejects(applyAnnotationEventTransaction({
+    event: stale,
+    uid: 'alice',
+    firestore: db,
+    sdk: { doc, runTransaction, serverTimestamp },
+  }), /permission-denied/i);
+
+  const fresh = eventFor(
+    'fresh-highlight',
+    'epubcfi(/6/4!/4/2,/1:5,/1:9)',
+    'fresh-highlight-event',
+    11,
+  );
+  const applied = await applyAnnotationEventTransaction({
+    event: fresh,
+    uid: 'alice',
+    firestore: db,
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(applied.status, 'apply');
+});
+
+test('rejects invalid annotation identity, payload fields, revision jumps, and orphan receipts', async () => {
+  const db = database();
+  await assertSucceeds(writeAnnotationEvent(db));
+
+  const invalid = writeBatch(db);
+  invalid.set(doc(db, annotationPath()), {
+    ...validAnnotationHead('annotation-event-2', 2),
+    annotation: { ...validAnnotationPayload(), anchorState: 'unresolved' },
+  });
+  invalid.set(
+    doc(db, annotationReceiptPath('annotation-event-2')),
+    validAnnotationReceipt('annotation-event-2', 2),
+  );
+  await assertFails(invalid.commit());
+
+  const jump = writeBatch(db);
+  jump.set(doc(db, annotationPath()), validAnnotationHead('annotation-event-3', 3));
+  jump.set(
+    doc(db, annotationReceiptPath('annotation-event-3')),
+    validAnnotationReceipt('annotation-event-3', 3),
+  );
+  await assertFails(jump.commit());
+  await assertFails(setDoc(
+    doc(db, annotationReceiptPath('orphan-annotation')),
+    validAnnotationReceipt('orphan-annotation', 2),
+  ));
+  await assertFails(getDoc(doc(database('mallory'), annotationPath())));
+});
+
+test('rejects malformed CFI, whitespace quotes, and unsafe annotation client integers', async () => {
+  const invalidPayloads = [
+    {
+      ...validAnnotationPayload(),
+      rangeCfi: 'not-a-cfi',
+    },
+    { ...validAnnotationPayload(), quote: '   \n' },
+    { ...validAnnotationPayload(), updatedAtClient: 9007199254740992 },
+  ];
+  for (const [index, payload] of invalidPayloads.entries()) {
+    const db = database();
+    const eventId = `invalid-annotation-${index}`;
+    const batch = writeBatch(db);
+    batch.set(doc(db, annotationPath()), {
+      ...validAnnotationHead(eventId),
+      annotation: payload,
+    });
+    batch.set(doc(db, annotationAggregatePath()), {
+      ...validAnnotationAggregate(eventId),
+      entries: {
+        'annotation-1': { rangeCfi: payload.rangeCfi, colorId: payload.colorId },
+      },
+      rangeCfis: [payload.rangeCfi],
+    });
+    batch.set(
+      doc(db, annotationReceiptPath(eventId)),
+      validAnnotationReceipt(eventId),
+    );
+    await assertFails(batch.commit());
+  }
+});
+
+test('allows a valid multiline annotation quote', async () => {
+  const db = database();
+  const eventId = 'multiline-annotation';
+  const payload = { ...validAnnotationPayload(), quote: 'first line\nsecond line' };
+  const batch = writeBatch(db);
+  batch.set(doc(db, annotationPath()), {
+    ...validAnnotationHead(eventId),
+    annotation: payload,
+  });
+  batch.set(doc(db, annotationAggregatePath()), {
+    ...validAnnotationAggregate(eventId),
+    entries: {
+      'annotation-1': { rangeCfi: payload.rangeCfi, colorId: payload.colorId },
+    },
+    rangeCfis: [payload.rangeCfi],
+  });
+  batch.set(
+    doc(db, annotationReceiptPath(eventId)),
+    validAnnotationReceipt(eventId),
+  );
+  await assertSucceeds(batch.commit());
+});
+
+test('rejects an aggregate-only revision even when it reuses the old accepted head', async () => {
+  const db = database();
+  await assertSucceeds(writeAnnotationEvent(db));
+  await assertFails(setDoc(
+    doc(db, annotationAggregatePath()),
+    validAnnotationAggregate('annotation-event-1', 2),
+  ));
+});
+
+test('rejects an initial aggregate whose color count disagrees with its annotation', async () => {
+  const db = database();
+  const eventId = 'wrong-initial-color-count';
+  const batch = writeBatch(db);
+  batch.set(doc(db, annotationPath()), validAnnotationHead(eventId));
+  batch.set(doc(db, annotationAggregatePath()), {
+    ...validAnnotationAggregate(eventId),
+    colorCounts: { yellow: 0, green: 1, blue: 0, pink: 0, purple: 0 },
+  });
+  batch.set(
+    doc(db, annotationReceiptPath(eventId)),
+    validAnnotationReceipt(eventId),
+  );
+  await assertFails(batch.commit());
+});
+
+test('rejects an atomic event that mutates an unrelated aggregate entry', async () => {
+  const db = database();
+  const eventFor = (annotationId, offset) => ({
+    eventId: `seed-${annotationId}`,
+    target: { kind: 'annotation', bookId: 'book-1', annotationId },
+    targetKey: `annotation:book-1:${annotationId}`,
+    operation: 'annotation.upsert',
+    payload: {
+      ...validAnnotationPayload(),
+      id: annotationId,
+      rangeCfi: `epubcfi(/6/4!/4/2,/1:${offset},/1:${offset + 1})`,
+      quote: `문장 ${annotationId}`,
+    },
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    baseRevision: 0,
+    occurredAtClient: offset + 1,
+  });
+  await applyAnnotationEventTransaction({
+    event: eventFor('a', 0),
+    uid: 'alice',
+    firestore: db,
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  await applyAnnotationEventTransaction({
+    event: eventFor('b', 2),
+    uid: 'alice',
+    firestore: db,
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  const aggregate = (await getDoc(doc(db, annotationAggregatePath()))).data();
+  const headARef = doc(db, annotationPath('a'));
+  const headA = (await getDoc(headARef)).data();
+  const eventId = 'malicious-erase-b';
+  const batch = writeBatch(db);
+  batch.set(headARef, {
+    ...headA,
+    revision: 2,
+    acceptedEventId: eventId,
+    annotation: { ...headA.annotation, note: 'a만 수정' },
+    occurredAtClient: 10,
+    updatedAtServer: serverTimestamp(),
+  });
+  batch.set(doc(db, annotationReceiptPath(eventId)), {
+    schemaVersion: 1,
+    eventId,
+    targetKind: 'annotation',
+    bookId: 'book-1',
+    annotationId: 'a',
+    targetKey: 'annotation:book-1:a',
+    revision: 2,
+    createdAtServer: serverTimestamp(),
+  });
+  batch.set(doc(db, annotationAggregatePath()), {
+    ...aggregate,
+    revision: aggregate.revision + 1,
+    totalCount: 1,
+    colorCounts: { yellow: 1, green: 0, blue: 0, pink: 0, purple: 0 },
+    entries: { a: aggregate.entries.a },
+    rangeCfis: [aggregate.entries.a.rangeCfi],
+    acceptedEventId: eventId,
+    acceptedAnnotationId: 'a',
+    acceptedOperation: 'upsert',
+    updatedAtServer: serverTimestamp(),
+  });
+  await assertFails(batch.commit());
+});
+
+test('rejects an aggregate update with an incorrect accepted-color delta', async () => {
+  const db = database();
+  await assertSucceeds(writeAnnotationEvent(db));
+  const aggregate = (await getDoc(doc(db, annotationAggregatePath()))).data();
+  const headRef = doc(db, annotationPath());
+  const head = (await getDoc(headRef)).data();
+  const eventId = 'wrong-color-delta';
+  const batch = writeBatch(db);
+  batch.set(headRef, {
+    ...head,
+    revision: 2,
+    acceptedEventId: eventId,
+    annotation: { ...head.annotation, colorId: 'green' },
+    occurredAtClient: 10,
+    updatedAtServer: serverTimestamp(),
+  });
+  batch.set(doc(db, annotationReceiptPath(eventId)), {
+    ...validAnnotationReceipt(eventId, 2),
+  });
+  batch.set(doc(db, annotationAggregatePath()), {
+    ...aggregate,
+    revision: 2,
+    colorCounts: { yellow: 0, green: 0, blue: 1, pink: 0, purple: 0 },
+    entries: {
+      'annotation-1': {
+        ...aggregate.entries['annotation-1'],
+        colorId: 'green',
+      },
+    },
+    acceptedEventId: eventId,
+    acceptedAnnotationId: 'annotation-1',
+    acceptedOperation: 'upsert',
+    updatedAtServer: serverTimestamp(),
+  });
+  await assertFails(batch.commit());
+});
+
+test('allows one atomic palette revision chain with replay and stale conflict', async () => {
+  const firstEvent = paletteEvent('palette-upsert');
+  const first = await applyAnnotationPaletteEventTransaction({
+    event: firstEvent,
+    uid: 'alice',
+    firestore: database(),
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(first.status, 'apply');
+  const replay = await applyAnnotationPaletteEventTransaction({
+    event: firstEvent,
+    uid: 'alice',
+    firestore: database(),
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(replay.status, 'already_applied');
+  const stale = await applyAnnotationPaletteEventTransaction({
+    event: paletteEvent('palette-stale'),
+    uid: 'alice',
+    firestore: database(),
+    sdk: { doc, runTransaction, serverTimestamp },
+  });
+  assert.equal(stale.status, 'conflict');
+  assert.equal(stale.remoteHead.revision, 1);
+});
+
+test('rejects malformed palettes, revision jumps, orphan receipts, and other owners', async () => {
+  const db = database();
+  await assertSucceeds(writePaletteEvent(db));
+
+  const invalid = writeBatch(db);
+  const reversed = [...DEFAULT_ANNOTATION_PALETTE].reverse();
+  invalid.set(doc(db, palettePath()), {
+    ...validPaletteHead('palette-event-2', 2),
+    palette: { items: reversed },
+  });
+  invalid.set(
+    doc(db, paletteReceiptPath('palette-event-2')),
+    validPaletteReceipt('palette-event-2', 2),
+  );
+  await assertFails(invalid.commit());
+
+  const jump = writeBatch(db);
+  jump.set(doc(db, palettePath()), validPaletteHead('palette-event-3', 3));
+  jump.set(
+    doc(db, paletteReceiptPath('palette-event-3')),
+    validPaletteReceipt('palette-event-3', 3),
+  );
+  await assertFails(jump.commit());
+  await assertFails(setDoc(
+    doc(db, paletteReceiptPath('orphan-palette')),
+    validPaletteReceipt('orphan-palette', 2),
+  ));
+  await assertFails(getDoc(doc(database('mallory'), palettePath())));
 });
 
 test('rejects retired v1 progress documents', async () => {

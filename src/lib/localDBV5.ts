@@ -13,11 +13,25 @@ import {
   V5_SYNC_META_STORE,
   V5_OUTBOX_STORE,
   V8_ANNOTATIONS_STORE,
+  V9_ANNOTATION_SETTINGS_STORE,
+  V10_ANNOTATION_BOOK_DELETIONS_STORE,
 } from './localDBSchema';
 import type { ArchiveImageIndex } from './archiveImageBook';
 import type { OwnerKey } from './ownerIdentity';
 import { hasEnoughStorageForWrite } from './storageCapacity';
 import { trackLocalCommit } from './localCommitTracker';
+import {
+  ANNOTATION_BOOK_DELETE_MARKER_ID,
+  isAnnotation,
+} from './annotationPolicy';
+import { isAnnotationHeadV1 } from './annotationSyncSchema';
+import {
+  appendAnnotationEventsToTransactionV5,
+  type AnnotationSyncContextV5,
+} from './syncOutboxV5';
+import { notifyProgressSyncWork } from './progressSyncWake';
+import { broadcastAnnotationSyncChange } from './annotationSyncWake';
+import type { AnnotationBookDeletionIntentV10 } from './annotationBookDeletion';
 
 export type StoredBookMetadataV5 = Book & {
   ownerKey: OwnerKey;
@@ -189,6 +203,8 @@ export const removeBookAndAnnotationsV8 = (
   annotationOwnerKey: OwnerKey,
   contentOwnerKey: OwnerKey,
   bookId: string,
+  syncContext?: AnnotationSyncContextV5,
+  authoritativeAnnotationIds: ReadonlyArray<string> = [],
 ) => trackLocalCommit((async () => {
   const db = await initDB();
   const tx = db.transaction([
@@ -197,13 +213,41 @@ export const removeBookAndAnnotationsV8 = (
     V5_PROGRESS_STORE,
     V5_ARCHIVE_INSPECTIONS_STORE,
     V8_ANNOTATIONS_STORE,
+    V5_OUTBOX_STORE,
+    V5_SYNC_META_STORE,
+    V5_SYNC_CONFLICTS_STORE,
+    V5_REMOTE_HEADS_STORE,
+    V10_ANNOTATION_BOOK_DELETIONS_STORE,
   ], 'readwrite');
+  void tx.done.catch(() => undefined);
   try {
+    const deletionAt = Date.now();
     const annotationStore = tx.objectStore(V8_ANNOTATIONS_STORE);
-    const annotationKeys = await annotationStore.index('by-owner-book').getAllKeys([
-      annotationOwnerKey,
-      bookId,
+    const [annotationKeys, annotationRecords] = await Promise.all([
+      annotationStore.index('by-owner-book').getAllKeys([
+        annotationOwnerKey,
+        bookId,
+      ]),
+      annotationStore.index('by-owner-book').getAll([
+        annotationOwnerKey,
+        bookId,
+      ]),
     ]);
+    const validAnnotations = annotationRecords.filter(isAnnotation);
+    const cachedHeads = await tx.objectStore(V5_REMOTE_HEADS_STORE)
+      .index('by-owner')
+      .getAll(annotationOwnerKey) as Array<{ head?: unknown }>;
+    const cachedAnnotationHeads = new Map(cachedHeads.flatMap(({ head }) => (
+      isAnnotationHeadV1(head) && head.bookId === bookId
+        ? [[head.annotationId, head] as const]
+        : []
+    )));
+    const annotationIds = new Set([
+      ...(syncContext ? [ANNOTATION_BOOK_DELETE_MARKER_ID] : []),
+      ...validAnnotations.map(({ id }) => id),
+      ...authoritativeAnnotationIds,
+      ...cachedAnnotationHeads.keys(),
+    ].filter(Boolean));
     await Promise.all([
       ...annotationKeys.map((key) => annotationStore.delete(key)),
       tx.objectStore(V5_BOOKS_STORE).delete([contentOwnerKey, bookId]),
@@ -211,8 +255,39 @@ export const removeBookAndAnnotationsV8 = (
       tx.objectStore(V5_PROGRESS_STORE).delete([contentOwnerKey, bookId]),
       tx.objectStore(V5_ARCHIVE_INSPECTIONS_STORE).delete([contentOwnerKey, bookId]),
     ]);
+    const events = syncContext
+      ? await appendAnnotationEventsToTransactionV5(
+        tx,
+        annotationOwnerKey,
+        [...annotationIds].map((annotationId, index) => ({
+          bookId,
+          annotationId,
+          operation: 'annotation.delete' as const,
+          payload: null,
+          baseRevision: cachedAnnotationHeads.get(annotationId)?.revision,
+          forceDelete: true,
+          occurredAtClient: deletionAt + index,
+        })),
+        syncContext,
+      )
+      : [];
+    if (syncContext) {
+      await tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).put({
+        ownerKey: annotationOwnerKey,
+        bookId,
+        createdAt: deletionAt,
+        lastCheckedAt: null,
+      } satisfies AnnotationBookDeletionIntentV10);
+    }
     await tx.done;
-    return { annotationsDeleted: annotationKeys.length };
+    if (events.length > 0 || syncContext) notifyProgressSyncWork(annotationOwnerKey);
+    if (annotationIds.size > 0) {
+      broadcastAnnotationSyncChange({ ownerKey: annotationOwnerKey, bookId });
+    }
+    return {
+      annotationsDeleted: annotationKeys.length,
+      tombstonesQueued: events.length,
+    };
   } catch (error) {
     try {
       tx.abort();
@@ -260,6 +335,7 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
     V5_REMOTE_HEADS_STORE,
     V5_SYNC_META_STORE,
     V8_ANNOTATIONS_STORE,
+    V10_ANNOTATION_BOOK_DELETIONS_STORE,
   ];
   for (const storeName of indexedStores) {
     const tx = db.transaction(storeName, 'readwrite');
@@ -278,4 +354,7 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
   const tx = db.transaction(V5_SYNC_LEASES_STORE, 'readwrite');
   await tx.objectStore(V5_SYNC_LEASES_STORE).delete(ownerKey);
   await tx.done;
+  const settingsTx = db.transaction(V9_ANNOTATION_SETTINGS_STORE, 'readwrite');
+  await settingsTx.objectStore(V9_ANNOTATION_SETTINGS_STORE).delete(ownerKey);
+  await settingsTx.done;
 };

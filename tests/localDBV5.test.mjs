@@ -24,6 +24,7 @@ const {
   saveLocalAnnotationV8,
 } = await import('../src/lib/localAnnotations.ts');
 const { getPendingLocalCommitCount } = await import('../src/lib/localCommitTracker.ts');
+const { getOutboxEventsV5 } = await import('../src/lib/syncOutboxV5.ts');
 const schema = await import('../src/lib/localDBSchema.ts');
 const {
   DEVICE_CONTENT_OWNER_KEY,
@@ -193,6 +194,8 @@ test('v4 upgrade discards retired stores and creates the active schema', async (
     schema.V5_SYNC_CONFLICTS_STORE,
     schema.V5_SYNC_LEASES_STORE,
     schema.V8_ANNOTATIONS_STORE,
+    schema.V9_ANNOTATION_SETTINGS_STORE,
+    schema.V10_ANNOTATION_BOOK_DELETIONS_STORE,
   ]) {
     assert.equal(db.objectStoreNames.contains(storeName), true, storeName);
   }
@@ -302,7 +305,7 @@ test('a future index-only upgrade preserves all current active content stores', 
   await initDB();
   await closeLocalDB();
 
-  const db = await openDB(schema.LOCAL_DB_NAME, 9, {
+  const db = await openDB(schema.LOCAL_DB_NAME, schema.LOCAL_DB_VERSION + 1, {
     upgrade(database, oldVersion, _newVersion, transaction) {
       schema.upgradeLocalDB(database, transaction, oldVersion);
     },
@@ -382,12 +385,68 @@ test('atomically removes one device book and only the current owner annotations'
     'same-id',
   );
   assert.equal(getPendingLocalCommitCount(), 1);
-  assert.deepEqual(await removing, { annotationsDeleted: 1 });
+  assert.deepEqual(await removing, { annotationsDeleted: 1, tombstonesQueued: 0 });
   assert.equal(getPendingLocalCommitCount(), 0);
   assert.equal(await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id'), undefined);
   assert.deepEqual(await getLocalAnnotationsV8(ownerA, 'same-id'), []);
   assert.equal((await getLocalAnnotationsV8(ownerA, 'other-id')).length, 1);
   assert.equal((await getLocalAnnotationsV8(ownerB, 'same-id')).length, 1);
+});
+
+test('atomically queues annotation tombstones with authenticated book deletion', async () => {
+  let eventSequence = 0;
+  await saveBookToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['device-book']),
+  );
+  await saveLocalAnnotationV8(ownerA, makeAnnotation('same-id', 'owner-a'));
+  await removeBookAndAnnotationsV8(
+    ownerA,
+    DEVICE_CONTENT_OWNER_KEY,
+    'same-id',
+    {
+      deviceId: 'device-a',
+      sessionId: 'session-a',
+      createEventId: () => `delete-annotation-event-${eventSequence += 1}`,
+    },
+  );
+  assert.equal(await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id'), undefined);
+  assert.deepEqual(await getLocalAnnotationsV8(ownerA, 'same-id'), []);
+  const events = await getOutboxEventsV5(ownerA);
+  assert.equal(events.length, 2);
+  const annotationDelete = events.find(({ target }) => target.annotationId === 'owner-a');
+  assert.equal(annotationDelete.operation, 'annotation.delete');
+  assert.equal(annotationDelete.forceDelete, true);
+  assert.ok(events.some(({ target }) => target.annotationId === 'book_delete_marker_v1'));
+  const db = await initDB();
+  assert.ok(await db.get(schema.V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerA, 'same-id']));
+});
+
+test('queues authoritative remote-only annotation tombstones during book deletion', async () => {
+  let eventSequence = 0;
+  await saveBookToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['device-book']),
+  );
+  const result = await removeBookAndAnnotationsV8(
+    ownerA,
+    DEVICE_CONTENT_OWNER_KEY,
+    'same-id',
+    {
+      deviceId: 'device-a',
+      sessionId: 'session-a',
+      createEventId: () => `remote-only-delete-${eventSequence += 1}`,
+    },
+    ['remote-only'],
+  );
+  assert.deepEqual(result, { annotationsDeleted: 0, tombstonesQueued: 2 });
+  const events = await getOutboxEventsV5(ownerA);
+  assert.equal(events.length, 2);
+  const remoteDelete = events.find(({ target }) => target.annotationId === 'remote-only');
+  assert.equal(remoteDelete.operation, 'annotation.delete');
+  assert.equal(remoteDelete.forceDelete, true);
 });
 
 test('aborts the combined book deletion when one store operation fails', async () => {

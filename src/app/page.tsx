@@ -51,11 +51,13 @@ import {
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
+import { useAnnotationSyncConflictResolution } from '../hooks/useAnnotationSyncConflictResolution';
 import { useServiceWorkerUpdate } from '../hooks/useServiceWorkerUpdate';
 import { mergeLatestProgressForDisplay } from '../lib/progressDisplay';
 import { hasPendingGoogleDriveOAuth } from '../lib/googleDriveOAuth';
 import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
-import { mergeSyncHealth } from '../lib/syncHealth';
+import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
+import { getSyncSessionId } from '../lib/syncSession';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -86,6 +88,7 @@ export default function Page() {
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
+  const [annotationSyncHealth, setAnnotationSyncHealth] = useState<SyncHealth>('healthy');
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
   const [recentlyImportedBookIds, setRecentlyImportedBookIds] = useState<string[]>([]);
   const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -252,7 +255,11 @@ export default function Page() {
     ownerKey: activeOwnerKey,
   });
   const sendSyncHealth = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
-  const syncHealth = mergeSyncHealth(receiveSyncHealth, sendSyncHealth);
+  const syncHealth = mergeSyncHealth(
+    receiveSyncHealth,
+    sendSyncHealth,
+    annotationSyncHealth,
+  );
   const syncConflictResolution = useSyncConflictResolution({
     user,
     progressRef,
@@ -263,6 +270,13 @@ export default function Page() {
     canQuietlyResolveProgressConflict,
     canAutoResolveSettledProgressConflict,
   });
+  const annotationSyncConflictResolution = useAnnotationSyncConflictResolution({
+    user,
+    ownerKey: activeOwnerKey,
+  });
+  const activeSyncConflictResolution = syncConflictResolution.conflict
+    ? syncConflictResolution
+    : annotationSyncConflictResolution;
   useNetworkLibrarySync({
     user,
     googleToken,
@@ -453,6 +467,10 @@ export default function Page() {
           annotationOwner.ownerKey,
           DEVICE_CONTENT_OWNER_KEY,
           book.id,
+          user ? {
+            deviceId: deviceId.current,
+            sessionId: getSyncSessionId(),
+          } : undefined,
         ).then(() => undefined),
       });
       if (!deleted || !ownerRuntime.isCurrent(annotationOwner)) return;
@@ -474,7 +492,7 @@ export default function Page() {
       console.error('[DeleteBook] failed:', error);
       alert(`도서 삭제 실패: ${message}`);
     }
-  }, [googleToken, handleCloudAuthExpired, handleDeleteBookProgress, hasValidToken, isOfflineMode, setBooks]);
+  }, [deviceId, googleToken, handleCloudAuthExpired, handleDeleteBookProgress, hasValidToken, isOfflineMode, setBooks, user]);
 
   const handleOpenBook = useCallback((book: Book) => {
     const limitError = getBookOpenLimitError(book.name, book.mimeType, book.size);
@@ -597,6 +615,8 @@ export default function Page() {
           key={`${activeOwnerKey}:${activeBook.id}`}
           book={activeBook}
           ownerKey={activeOwnerKey}
+          annotationSyncDeviceId={user ? deviceId.current : undefined}
+          onAnnotationSyncHealthChange={setAnnotationSyncHealth}
           googleToken={googleToken || ''}
           settings={settings}
           onUpdateSettings={updateSettings}
@@ -713,13 +733,13 @@ export default function Page() {
         />
       )}
 
-      {syncConflictResolution.conflict && (
+      {activeSyncConflictResolution.conflict && (
         <SyncConflictResolutionDialog
-          conflict={syncConflictResolution.conflict}
+          conflict={activeSyncConflictResolution.conflict}
           theme={theme}
-          onKeepLocal={() => void syncConflictResolution.keepLocal()}
-          onUseRemote={() => void syncConflictResolution.useRemote()}
-          onDefer={syncConflictResolution.defer}
+          onKeepLocal={() => void activeSyncConflictResolution.keepLocal()}
+          onUseRemote={() => void activeSyncConflictResolution.useRemote()}
+          onDefer={activeSyncConflictResolution.defer}
         />
       )}
 

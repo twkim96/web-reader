@@ -13,13 +13,18 @@ import {
   releaseSyncLeaseV5,
   scheduleProgressEventRetryV5,
   type SyncHeadV2,
+  type SyncConflictV5,
   type SyncOutboxEventV5,
   type SyncLeaseV5,
 } from './syncOutboxV5';
 
 export type SyncTransactionDecision =
   | { status: 'apply' | 'already_applied'; head: SyncHeadV2; receipt: unknown }
-  | { status: 'conflict'; remoteHead: SyncHeadV2 | null };
+  | {
+    status: 'conflict';
+    remoteHead: SyncHeadV2 | null;
+    conflictReason?: SyncConflictV5['conflictReason'];
+  };
 
 type ProgressTransport = (
   event: SyncOutboxEventV5,
@@ -131,6 +136,7 @@ export class ProgressSyncWorker {
           result.remoteHead,
           expectedClaim,
           completedAt,
+          result.conflictReason,
         );
         if (!recorded) return 'stale_claim' as const;
         return 'conflict' as const;

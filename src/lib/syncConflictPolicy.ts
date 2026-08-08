@@ -41,7 +41,7 @@ export const getQuietProgressConflictReason = ({
     || (conflict.latestLocalPosition.anchorCfi ?? null) !== (event.payload.anchorCfi ?? null)
     || conflict.latestLocalPosition.progressPercent !== event.payload.progressPercent
     || !remoteHead
-    || 'bookmarkId' in remoteHead
+    || !('position' in remoteHead)
     || remoteHead.operation !== 'set'
     || !remoteHead.position
     || remoteHead.revision <= event.baseRevision

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnnotationPaletteItem, HighlightColorId } from '../types';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import {
@@ -8,34 +8,111 @@ import {
   normalizeAnnotationPalette,
   saveStoredAnnotationPalette,
 } from '../lib/annotationPalette';
+import type { AnnotationSyncContextV5 } from '../lib/syncOutboxV5';
+import { trackLocalCommit } from '../lib/localCommitTracker';
+import {
+  broadcastAnnotationSyncChange,
+  notifyAnnotationSyncChange,
+  subscribeAnnotationSyncChanges,
+} from '../lib/annotationSyncWake';
+import {
+  initializeLocalAnnotationPaletteV9,
+  saveLocalAnnotationPaletteV9,
+} from '../lib/localAnnotationPalette';
 
-export const useAnnotationPalette = (ownerKey: OwnerKey) => {
+export const useAnnotationPalette = (
+  ownerKey: OwnerKey,
+  syncContext?: AnnotationSyncContextV5,
+) => {
   const [palette, setPalette] = useState<AnnotationPaletteItem[]>(() => (
     getStoredAnnotationPalette(ownerKey)
   ));
+  const paletteRef = useRef(palette);
 
   useEffect(() => {
-    setPalette(getStoredAnnotationPalette(ownerKey));
+    let cancelled = false;
+    const fallback = getStoredAnnotationPalette(ownerKey);
+    paletteRef.current = fallback;
+    void initializeLocalAnnotationPaletteV9(ownerKey, fallback)
+      .then((next) => {
+        if (cancelled) return;
+        paletteRef.current = next;
+        saveStoredAnnotationPalette(ownerKey, next);
+        setPalette(next);
+      })
+      .catch((error) => {
+        console.error('[AnnotationPalette] canonical load failed:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [ownerKey]);
+
+  useEffect(() => subscribeAnnotationSyncChanges(ownerKey, (change) => {
+    if (!change.palette) return;
+    const next = normalizeAnnotationPalette(change.palette);
+    paletteRef.current = next;
+    setPalette(next);
+  }), [ownerKey]);
 
   const updatePaletteItem = useCallback((
     colorId: HighlightColorId,
     patch: Partial<Pick<AnnotationPaletteItem, 'label' | 'meaning'>>,
   ) => {
-    setPalette((current) => {
-      const next = normalizeAnnotationPalette(current.map((item) => (
-        item.id === colorId ? { ...item, ...patch } : item
-      )));
-      saveStoredAnnotationPalette(ownerKey, next);
-      return next;
+    const previous = paletteRef.current;
+    const next = normalizeAnnotationPalette(previous.map((item) => (
+      item.id === colorId ? { ...item, ...patch } : item
+    )));
+    paletteRef.current = next;
+    setPalette(next);
+    void trackLocalCommit(saveLocalAnnotationPaletteV9(
+      ownerKey,
+      next,
+      syncContext,
+    )).then((saved) => {
+      saveStoredAnnotationPalette(ownerKey, saved);
+      broadcastAnnotationSyncChange({ ownerKey, palette: saved });
+    }).catch((error) => {
+      console.error('[AnnotationPalette] sync enqueue failed:', error);
+      if (paletteRef.current === next) {
+        paletteRef.current = previous;
+        saveStoredAnnotationPalette(ownerKey, previous);
+        setPalette(previous);
+      }
     });
-  }, [ownerKey]);
+  }, [ownerKey, syncContext]);
 
   const resetPalette = useCallback(() => {
+    const previous = paletteRef.current;
     const next = normalizeAnnotationPalette(undefined);
-    saveStoredAnnotationPalette(ownerKey, next);
+    paletteRef.current = next;
     setPalette(next);
+    void trackLocalCommit(saveLocalAnnotationPaletteV9(
+      ownerKey,
+      next,
+      syncContext,
+    )).then((saved) => {
+      saveStoredAnnotationPalette(ownerKey, saved);
+      broadcastAnnotationSyncChange({ ownerKey, palette: saved });
+    }).catch((error) => {
+      console.error('[AnnotationPalette] reset sync enqueue failed:', error);
+      if (paletteRef.current === next) {
+        paletteRef.current = previous;
+        saveStoredAnnotationPalette(ownerKey, previous);
+        setPalette(previous);
+      }
+    });
+  }, [ownerKey, syncContext]);
+
+  const applyRemotePalette = useCallback(async (value: unknown) => {
+    const next = normalizeAnnotationPalette(value);
+    const saved = await saveLocalAnnotationPaletteV9(ownerKey, next);
+    paletteRef.current = saved;
+    saveStoredAnnotationPalette(ownerKey, saved);
+    setPalette(saved);
+    notifyAnnotationSyncChange({ ownerKey, palette: saved });
+    return saved;
   }, [ownerKey]);
 
-  return { palette, updatePaletteItem, resetPalette };
+  return { palette, updatePaletteItem, resetPalette, applyRemotePalette };
 };

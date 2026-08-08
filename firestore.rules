@@ -17,7 +17,7 @@ service cloud.firestore {
     }
 
     function validClientTime(value) {
-      return value is int && value >= 0;
+      return value is int && value >= 0 && value <= 9007199254740991;
     }
 
     function validPosition(position) {
@@ -41,6 +41,7 @@ service cloud.firestore {
         && boundedString(data.bookId, 512, false)
         && data.revision is int
         && data.revision >= 1
+        && data.revision <= 9007199254740991
         && boundedString(data.acceptedEventId, 128, false)
         && boundedString(data.acceptedDeviceId, 128, false)
         && boundedString(data.acceptedSessionId, 128, false)
@@ -90,6 +91,7 @@ service cloud.firestore {
         && boundedString(data.bookmarkId, 128, false)
         && data.revision is int
         && data.revision >= 1
+        && data.revision <= 9007199254740991
         && boundedString(data.acceptedEventId, 128, false)
         && boundedString(data.acceptedDeviceId, 128, false)
         && boundedString(data.acceptedSessionId, 128, false)
@@ -106,6 +108,176 @@ service cloud.firestore {
         );
     }
 
+    function validHighlightColor(colorId) {
+      return colorId == 'yellow'
+        || colorId == 'green'
+        || colorId == 'blue'
+        || colorId == 'pink'
+        || colorId == 'purple';
+    }
+
+    function validAnnotationPayload(annotation, bookId, annotationId) {
+      return annotation is map
+        && annotation.keys().hasOnly([
+          'id', 'bookId', 'type', 'sectionIndex', 'rangeCfi', 'quote',
+          'prefix', 'suffix', 'colorId', 'note', 'progressPercent', 'chapter',
+          'createdAtClient', 'updatedAtClient'
+        ])
+        && annotation.id == annotationId
+        && annotation.bookId == bookId
+        && boundedString(annotation.id, 128, false)
+        && annotation.id.matches('^[A-Za-z0-9_-]+$')
+        && boundedString(annotation.bookId, 512, false)
+        && annotation.type == 'highlight'
+        && annotation.sectionIndex is int
+        && annotation.sectionIndex >= 0
+        && annotation.sectionIndex <= 9007199254740991
+        && boundedString(annotation.rangeCfi, 16000, false)
+        && annotation.rangeCfi.matches('^epubcfi\\(.+\\)$')
+        && boundedString(annotation.quote, 4000, false)
+        && annotation.quote.matches('\\s*\\S(\\s|\\S)*')
+        && boundedString(annotation.prefix, 80, true)
+        && boundedString(annotation.suffix, 80, true)
+        && validHighlightColor(annotation.colorId)
+        && boundedString(annotation.note, 4000, true)
+        && (
+          annotation.progressPercent == null
+          || (
+            annotation.progressPercent is number
+            && annotation.progressPercent >= 0
+            && annotation.progressPercent <= 100
+          )
+        )
+        && boundedString(annotation.chapter, 500, true)
+        && validClientTime(annotation.createdAtClient)
+        && annotation.createdAtClient > 0
+        && validClientTime(annotation.updatedAtClient)
+        && annotation.updatedAtClient >= annotation.createdAtClient;
+    }
+
+    function validAnnotationHead(data, bookId, annotationId) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'bookId', 'annotationId', 'revision',
+          'acceptedEventId', 'operation', 'annotation', 'acceptedDeviceId',
+          'acceptedSessionId', 'occurredAtClient', 'updatedAtServer',
+          'deletedAtServer'
+        ])
+        && data.schemaVersion == 1
+        && data.bookId == bookId
+        && data.annotationId == annotationId
+        && boundedString(data.bookId, 512, false)
+        && boundedString(data.annotationId, 128, false)
+        && data.revision is int
+        && data.revision >= 1
+        && data.revision <= 9007199254740991
+        && boundedString(data.acceptedEventId, 128, false)
+        && boundedString(data.acceptedDeviceId, 128, false)
+        && boundedString(data.acceptedSessionId, 128, false)
+        && validClientTime(data.occurredAtClient)
+        && data.updatedAtServer == request.time
+        && (
+          (
+            data.operation == 'upsert'
+            && validAnnotationPayload(data.annotation, bookId, annotationId)
+            && data.deletedAtServer == null
+          )
+          ||
+          (
+            data.operation == 'delete'
+            && data.annotation == null
+            && data.deletedAtServer == request.time
+          )
+        );
+    }
+
+    function validAnnotationAggregate(data, bookId) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'bookId', 'revision', 'totalCount', 'colorCounts',
+          'entries', 'rangeCfis', 'acceptedEventId', 'acceptedAnnotationId',
+          'acceptedOperation', 'updatedAtServer'
+        ])
+        && data.schemaVersion == 1
+        && data.bookId == bookId
+        && boundedString(data.bookId, 512, false)
+        && data.revision is int
+        && data.revision >= 1
+        && data.revision <= 9007199254740991
+        && data.totalCount is int
+        && data.totalCount >= 0
+        && data.totalCount <= 100
+        && data.colorCounts is map
+        && data.colorCounts.keys().hasOnly(['yellow', 'green', 'blue', 'pink', 'purple'])
+        && data.colorCounts.yellow is int
+        && data.colorCounts.yellow >= 0
+        && data.colorCounts.yellow <= 20
+        && data.colorCounts.green is int
+        && data.colorCounts.green >= 0
+        && data.colorCounts.green <= 20
+        && data.colorCounts.blue is int
+        && data.colorCounts.blue >= 0
+        && data.colorCounts.blue <= 20
+        && data.colorCounts.pink is int
+        && data.colorCounts.pink >= 0
+        && data.colorCounts.pink <= 20
+        && data.colorCounts.purple is int
+        && data.colorCounts.purple >= 0
+        && data.colorCounts.purple <= 20
+        && data.colorCounts.yellow
+          + data.colorCounts.green
+          + data.colorCounts.blue
+          + data.colorCounts.pink
+          + data.colorCounts.purple == data.totalCount
+        && data.entries is map
+        && data.entries.size() == data.totalCount
+        && data.rangeCfis is list
+        && data.rangeCfis.size() == data.totalCount
+        && data.rangeCfis.toSet().size() == data.totalCount
+        && boundedString(data.acceptedEventId, 128, false)
+        && boundedString(data.acceptedAnnotationId, 128, false)
+        && data.acceptedAnnotationId.matches('^[A-Za-z0-9_-]+$')
+        && (data.acceptedOperation == 'upsert' || data.acceptedOperation == 'delete')
+        && data.updatedAtServer == request.time;
+    }
+
+    function validPaletteItem(item, colorId) {
+      return item is map
+        && item.keys().hasOnly(['id', 'label', 'meaning'])
+        && item.id == colorId
+        && boundedString(item.label, 24, false)
+        && boundedString(item.meaning, 80, true);
+    }
+
+    function validAnnotationPalette(palette) {
+      return palette is map
+        && palette.keys().hasOnly(['items'])
+        && palette.items is list
+        && palette.items.size() == 5
+        && validPaletteItem(palette.items[0], 'yellow')
+        && validPaletteItem(palette.items[1], 'green')
+        && validPaletteItem(palette.items[2], 'blue')
+        && validPaletteItem(palette.items[3], 'pink')
+        && validPaletteItem(palette.items[4], 'purple');
+    }
+
+    function validAnnotationPaletteHead(data) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'revision', 'acceptedEventId', 'operation',
+          'palette', 'acceptedDeviceId', 'acceptedSessionId',
+          'occurredAtClient', 'updatedAtServer'
+        ])
+        && data.schemaVersion == 1
+        && data.revision is int
+        && data.revision >= 1
+        && data.revision <= 9007199254740991
+        && boundedString(data.acceptedEventId, 128, false)
+        && data.operation == 'set'
+        && validAnnotationPalette(data.palette)
+        && boundedString(data.acceptedDeviceId, 128, false)
+        && boundedString(data.acceptedSessionId, 128, false)
+        && validClientTime(data.occurredAtClient)
+        && data.updatedAtServer == request.time;
+    }
+
     function receiptPath(appId, uid, scopeId, bookId, eventId) {
       return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/eventReceipts/$(eventId);
     }
@@ -118,6 +290,142 @@ service cloud.firestore {
         && receipt.bookId == data.bookId
         && receipt.bookmarkId == bookmarkId
         && receipt.targetKey == targetKey
+        && receipt.revision == data.revision
+        && receipt.createdAtServer == request.time;
+    }
+
+    function annotationReceiptPath(appId, uid, scopeId, bookId, eventId) {
+      return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId)/eventReceipts/$(eventId);
+    }
+
+    function annotationAggregatePath(appId, uid, scopeId, bookId) {
+      return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId);
+    }
+
+    function annotationBookDeleteMarkerPath(appId, uid, scopeId, bookId) {
+      return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId)/annotations/book_delete_marker_v1;
+    }
+
+    function allowedByAnnotationBookDeleteMarker(appId, uid, scopeId, data, annotationId) {
+      let markerPath = annotationBookDeleteMarkerPath(appId, uid, scopeId, data.bookId);
+      return data.operation == 'delete'
+        || (
+          annotationId != 'book_delete_marker_v1'
+          && (
+            !existsAfter(markerPath)
+            || data.occurredAtClient > getAfter(markerPath).data.occurredAtClient
+          )
+        );
+    }
+
+    function matchingAnnotationAggregateAfter(appId, uid, scopeId, data, annotationId) {
+      let aggregate = getAfter(annotationAggregatePath(
+        appId, uid, scopeId, data.bookId
+      )).data;
+      return aggregate.acceptedEventId == data.acceptedEventId
+        && aggregate.acceptedAnnotationId == annotationId
+        && aggregate.acceptedOperation == data.operation
+        && (
+          (
+            data.operation == 'upsert'
+            && aggregate.entries[annotationId].rangeCfi == data.annotation.rangeCfi
+            && aggregate.entries[annotationId].colorId == data.annotation.colorId
+            && aggregate.rangeCfis.hasAny([data.annotation.rangeCfi])
+          )
+          || (
+            data.operation == 'delete'
+            && !aggregate.entries.keys().hasAny([annotationId])
+          )
+        );
+    }
+
+    function matchingAnnotationHeadAfter(appId, uid, scopeId, aggregate) {
+      let head = getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(aggregate.bookId)/annotations/$(aggregate.acceptedAnnotationId)).data;
+      return head.acceptedEventId == aggregate.acceptedEventId
+        && head.operation == aggregate.acceptedOperation
+        && head.updatedAtServer == request.time;
+    }
+
+    function initialAnnotationAggregateMatchesHead(appId, uid, scopeId, aggregate) {
+      let head = getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(aggregate.bookId)/annotations/$(aggregate.acceptedAnnotationId)).data;
+      return (
+          head.operation == 'delete'
+          && aggregate.totalCount == 0
+        ) || (
+          head.operation == 'upsert'
+          && aggregate.totalCount == 1
+          && aggregate.colorCounts[head.annotation.colorId] == 1
+        );
+    }
+
+    function annotationColorCountDeltaIsExact(before, after, colorId) {
+      let annotationId = after.acceptedAnnotationId;
+      let existedBefore = before.entries.keys().hasAny([annotationId]);
+      let existsAfter = after.entries.keys().hasAny([annotationId]);
+      let removed = existedBefore && before.entries[annotationId].colorId == colorId ? 1 : 0;
+      let added = existsAfter && after.entries[annotationId].colorId == colorId ? 1 : 0;
+      return after.colorCounts[colorId] == before.colorCounts[colorId] - removed + added;
+    }
+
+    function annotationAggregateUpdateIsScoped(before, after) {
+      let annotationId = after.acceptedAnnotationId;
+      let existedBefore = before.entries.keys().hasAny([annotationId]);
+      let existsAfter = after.entries.keys().hasAny([annotationId]);
+      let beforeRange = existedBefore ? before.entries[annotationId].rangeCfi : '';
+      let afterRange = existsAfter ? after.entries[annotationId].rangeCfi : '';
+      let changedRanges = before.rangeCfis.toSet().difference(after.rangeCfis.toSet())
+        .union(after.rangeCfis.toSet().difference(before.rangeCfis.toSet()));
+      return after.entries.diff(before.entries).affectedKeys().hasOnly([annotationId])
+        && changedRanges.hasOnly([beforeRange, afterRange])
+        && after.colorCounts.diff(before.colorCounts).affectedKeys().hasOnly([
+          existedBefore ? before.entries[annotationId].colorId : '',
+          existsAfter ? after.entries[annotationId].colorId : ''
+        ])
+        && annotationColorCountDeltaIsExact(before, after, 'yellow')
+        && annotationColorCountDeltaIsExact(before, after, 'green')
+        && annotationColorCountDeltaIsExact(before, after, 'blue')
+        && annotationColorCountDeltaIsExact(before, after, 'pink')
+        && annotationColorCountDeltaIsExact(before, after, 'purple')
+        && (
+          (
+            after.acceptedOperation == 'upsert'
+            && after.totalCount == before.totalCount + (existedBefore ? 0 : 1)
+          )
+          || (
+            after.acceptedOperation == 'delete'
+            && after.totalCount == before.totalCount - (existedBefore ? 1 : 0)
+          )
+        );
+    }
+
+    function matchingAnnotationReceiptAfter(appId, uid, scopeId, data, annotationId) {
+      let receipt = getAfter(annotationReceiptPath(
+        appId, uid, scopeId, data.bookId, data.acceptedEventId
+      )).data;
+      return receipt.schemaVersion == 1
+        && receipt.eventId == data.acceptedEventId
+        && receipt.targetKind == 'annotation'
+        && receipt.bookId == data.bookId
+        && receipt.annotationId == annotationId
+        && receipt.targetKey == 'annotation:' + data.bookId + ':' + annotationId
+        && receipt.revision == data.revision
+        && receipt.createdAtServer == request.time;
+    }
+
+    function paletteReceiptPath(appId, uid, scopeId, eventId) {
+      return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSettingsV1/palette/eventReceipts/$(eventId);
+    }
+
+    function matchingPaletteReceiptAfter(appId, uid, scopeId, data) {
+      let receipt = getAfter(paletteReceiptPath(
+        appId, uid, scopeId, data.acceptedEventId
+      )).data;
+      return receipt.schemaVersion == 1
+        && receipt.eventId == data.acceptedEventId
+        && receipt.targetKind == 'palette'
+        && receipt.bookId == null
+        && receipt.annotationId == null
+        && receipt.targetKey == 'annotation-palette'
         && receipt.revision == data.revision
         && receipt.createdAtServer == request.time;
     }
@@ -171,6 +479,7 @@ service cloud.firestore {
           && request.resource.data.bookId == bookId
           && request.resource.data.revision is int
           && request.resource.data.revision >= 1
+          && request.resource.data.revision <= 9007199254740991
           && request.resource.data.createdAtServer == request.time
           && (
             (
@@ -189,6 +498,110 @@ service cloud.firestore {
               && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/bookmarks/$(request.resource.data.bookmarkId)).data.revision == request.resource.data.revision
             )
           );
+        allow update, delete: if false;
+      }
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/annotationSyncV1/{bookId} {
+      allow read: if owns(uid) && isCanonicalScope(scopeId);
+      allow create: if owns(uid) && isCanonicalScope(scopeId)
+        && validAnnotationAggregate(request.resource.data, bookId)
+        && request.resource.data.revision == 1
+        && request.resource.data.totalCount <= 1
+        && initialAnnotationAggregateMatchesHead(
+          appId, uid, scopeId, request.resource.data
+        )
+        && matchingAnnotationHeadAfter(appId, uid, scopeId, request.resource.data);
+      allow update: if owns(uid) && isCanonicalScope(scopeId)
+        && validAnnotationAggregate(request.resource.data, bookId)
+        && request.resource.data.revision == resource.data.revision + 1
+        && annotationAggregateUpdateIsScoped(resource.data, request.resource.data)
+        && matchingAnnotationHeadAfter(appId, uid, scopeId, request.resource.data);
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/annotationSyncV1/{bookId}/annotations/{annotationId} {
+      allow read: if owns(uid) && isCanonicalScope(scopeId);
+      allow create: if owns(uid) && isCanonicalScope(scopeId)
+        && validAnnotationHead(request.resource.data, bookId, annotationId)
+        && allowedByAnnotationBookDeleteMarker(
+          appId, uid, scopeId, request.resource.data, annotationId
+        )
+        && request.resource.data.revision == 1
+        && matchingAnnotationAggregateAfter(
+          appId, uid, scopeId, request.resource.data, annotationId
+        )
+        && matchingAnnotationReceiptAfter(
+          appId, uid, scopeId, request.resource.data, annotationId
+        );
+      allow update: if owns(uid) && isCanonicalScope(scopeId)
+        && validAnnotationHead(request.resource.data, bookId, annotationId)
+        && allowedByAnnotationBookDeleteMarker(
+          appId, uid, scopeId, request.resource.data, annotationId
+        )
+        && request.resource.data.revision == resource.data.revision + 1
+        && matchingAnnotationAggregateAfter(
+          appId, uid, scopeId, request.resource.data, annotationId
+        )
+        && matchingAnnotationReceiptAfter(
+          appId, uid, scopeId, request.resource.data, annotationId
+        );
+      allow delete: if false;
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/annotationSyncV1/{bookId}/eventReceipts/{eventId} {
+      allow read: if owns(uid) && isCanonicalScope(scopeId);
+      allow create: if owns(uid) && isCanonicalScope(scopeId)
+        && request.resource.data.keys().hasOnly([
+          'schemaVersion', 'eventId', 'targetKind', 'bookId', 'annotationId',
+          'targetKey', 'revision', 'createdAtServer'
+        ])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.eventId == eventId
+        && request.resource.data.targetKind == 'annotation'
+        && request.resource.data.bookId == bookId
+        && boundedString(request.resource.data.annotationId, 128, false)
+        && request.resource.data.targetKey == 'annotation:' + bookId + ':' + request.resource.data.annotationId
+        && request.resource.data.revision is int
+        && request.resource.data.revision >= 1
+        && request.resource.data.revision <= 9007199254740991
+        && request.resource.data.createdAtServer == request.time
+        && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId)/annotations/$(request.resource.data.annotationId)).data.acceptedEventId == eventId
+        && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId)/annotations/$(request.resource.data.annotationId)).data.revision == request.resource.data.revision;
+      allow update, delete: if false;
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/annotationSettingsV1/palette {
+      allow read: if owns(uid) && isCanonicalScope(scopeId);
+      allow create: if owns(uid) && isCanonicalScope(scopeId)
+        && validAnnotationPaletteHead(request.resource.data)
+        && request.resource.data.revision == 1
+        && matchingPaletteReceiptAfter(appId, uid, scopeId, request.resource.data);
+      allow update: if owns(uid) && isCanonicalScope(scopeId)
+        && validAnnotationPaletteHead(request.resource.data)
+        && request.resource.data.revision == resource.data.revision + 1
+        && matchingPaletteReceiptAfter(appId, uid, scopeId, request.resource.data);
+      allow delete: if false;
+
+      match /eventReceipts/{eventId} {
+        allow read: if owns(uid) && isCanonicalScope(scopeId);
+        allow create: if owns(uid) && isCanonicalScope(scopeId)
+          && request.resource.data.keys().hasOnly([
+            'schemaVersion', 'eventId', 'targetKind', 'bookId', 'annotationId',
+            'targetKey', 'revision', 'createdAtServer'
+          ])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.eventId == eventId
+          && request.resource.data.targetKind == 'palette'
+          && request.resource.data.bookId == null
+          && request.resource.data.annotationId == null
+          && request.resource.data.targetKey == 'annotation-palette'
+          && request.resource.data.revision is int
+          && request.resource.data.revision >= 1
+          && request.resource.data.revision <= 9007199254740991
+          && request.resource.data.createdAtServer == request.time
+          && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSettingsV1/palette).data.acceptedEventId == eventId
+          && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSettingsV1/palette).data.revision == request.resource.data.revision;
         allow update, delete: if false;
       }
     }

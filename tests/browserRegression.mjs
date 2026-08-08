@@ -869,7 +869,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.2')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.3')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -1485,6 +1485,71 @@ try {
   assert.equal(highlightReopen.sectionIndex, 0);
   assert.equal(highlightReopen.anchorState, 'active');
   assert.equal(highlightReopen.quote, selectionActions.selectedText);
+  const remoteOverlayDelete = await evaluate(`(async () => {
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const read = db.transaction('annotations-v8', 'readonly')
+      .objectStore('annotations-v8').getAll();
+    const records = await new Promise((resolve, reject) => {
+      read.onsuccess = () => resolve(read.result);
+      read.onerror = () => reject(read.error);
+    });
+    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    const tx = db.transaction('annotations-v8', 'readwrite');
+    tx.objectStore('annotations-v8').delete([saved.ownerKey, saved.bookId, saved.id]);
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+    window.__remoteAnnotationFixture = saved;
+    window.dispatchEvent(new CustomEvent('twreader:annotation-sync-change', {
+      detail: { ownerKey: saved.ownerKey, bookId: saved.bookId },
+    }));
+    return Boolean(saved);
+  })()`);
+  assert.equal(remoteOverlayDelete, true);
+  await waitFor(
+    `(() => {
+      const view = document.querySelector('foliate-view');
+      return !view?.renderer?.getContents?.().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+      ));
+    })()`,
+    'remote annotation tombstone removes the live overlay',
+  );
+  await evaluate(`(async () => {
+    const saved = window.__remoteAnnotationFixture;
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const tx = db.transaction('annotations-v8', 'readwrite');
+    tx.objectStore('annotations-v8').put(saved);
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+    window.dispatchEvent(new CustomEvent('twreader:annotation-sync-change', {
+      detail: { ownerKey: saved.ownerKey, bookId: saved.bookId },
+    }));
+  })()`);
+  await waitFor(
+    `(() => {
+      const view = document.querySelector('foliate-view');
+      return Boolean(view?.renderer?.getContents?.().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+      )));
+    })()`,
+    'remote annotation upsert restores the live overlay',
+  );
   const annotationEntry = await evaluate(`(() => {
     const separateAnnotationButton = document.querySelector('button[aria-label="하이라이트와 메모"]');
     const recordsButton = document.querySelector('button[aria-label="책갈피와 주석"]');
@@ -3166,7 +3231,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.2';
+    const expectedCache = 'pc-reader-v1.8.3';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -3193,7 +3258,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.2',
+      '/sw.js?browser-regression=1.8.3',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -3237,11 +3302,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.2']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.3']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.2$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.3$/);
 
   console.log(JSON.stringify({
     shelf: {

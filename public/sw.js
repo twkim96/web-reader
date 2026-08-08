@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.2: add local annotation notes, palette semantics, and per-book management UI.
+// 1.8.3: add offline-first annotation, note, and palette synchronization.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.2`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.3`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

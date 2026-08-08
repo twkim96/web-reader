@@ -1,7 +1,7 @@
 import type { IDBPDatabase, IDBPTransaction } from 'idb';
 
 export const LOCAL_DB_NAME = 'web-reader-db';
-export const LOCAL_DB_VERSION = 8;
+export const LOCAL_DB_VERSION = 10;
 
 export const LEGACY_BOOKS_STORE = 'books';
 export const LEGACY_METADATA_STORE = 'metadata';
@@ -18,6 +18,8 @@ export const V5_SYNC_META_STORE = 'sync-meta-v5';
 export const V5_SYNC_CONFLICTS_STORE = 'sync-conflicts-v5';
 export const V5_SYNC_LEASES_STORE = 'sync-leases-v5';
 export const V8_ANNOTATIONS_STORE = 'annotations-v8';
+export const V9_ANNOTATION_SETTINGS_STORE = 'annotation-settings-v9';
+export const V10_ANNOTATION_BOOK_DELETIONS_STORE = 'annotation-book-deletions-v10';
 
 const createStore = (
   db: IDBPDatabase<unknown>,
@@ -138,4 +140,13 @@ export const upgradeLocalDB = (
     ['ownerKey', 'bookId', 'rangeCfi'],
     { unique: true },
   );
+
+  createStore(db, V9_ANNOTATION_SETTINGS_STORE, { keyPath: 'ownerKey' });
+
+  const annotationBookDeletions = createStore(
+    db,
+    V10_ANNOTATION_BOOK_DELETIONS_STORE,
+    { keyPath: ['ownerKey', 'bookId'] },
+  ) ?? transaction.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
+  createIndex(annotationBookDeletions, 'by-owner', 'ownerKey');
 };
