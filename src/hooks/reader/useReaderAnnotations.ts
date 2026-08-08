@@ -75,6 +75,8 @@ const mutationMessage = (before: Annotation | null, after: Annotation | null) =>
   return `${getHighlightColor(after.colorId).label}으로 변경됨`;
 };
 
+const ANNOTATION_UNDO_DURATION_MS = 1000;
+
 export const useReaderAnnotations = ({
   enabled,
   ownerKey,
@@ -114,7 +116,7 @@ export const useReaderAnnotations = ({
       feedbackTimerRef.current = null;
       setFeedback('');
       setUndoMutation(null);
-    }, keepUndo ? 6000 : 2400);
+    }, keepUndo ? ANNOTATION_UNDO_DURATION_MS : 2400);
   }, []);
 
   const closeActiveHighlight = useCallback(() => {

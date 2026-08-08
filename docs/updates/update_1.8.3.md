@@ -10,6 +10,8 @@
 
 상태: 개발·2차 재리뷰·전체 자동 gate 완료, 통합 실기기 검증 대기
 
+후속 UI 조정: annotation 생성·변경·삭제 뒤 실행 취소 버튼의 노출 시간을 6초에서 1초로 단축했다. 저장·충돌 검증·inverse transaction 계약은 변경하지 않는다.
+
 ## 목표
 
 1.8.1~1.8.2에서 만든 로컬 annotation과 owner별 팔레트를 기존 progress/bookmark v2와 분리된 Firestore 경로에서 오프라인 우선 방식으로 동기화한다. 기존 진행률·manual/auto bookmark·복구 계약은 변경하지 않는다.
