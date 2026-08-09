@@ -43,6 +43,7 @@ export class Overlayer {
         // loop in reverse to hit more recently added items first
         for (let i = arr.length - 1; i >= 0; i--) {
             const [key, obj] = arr[i]
+            if (obj.options?.interactive === false) continue
             for (const { left, top, right, bottom } of obj.rects)
                 if (top <= y && left <= x && bottom > y && right > x)
                     return [key, obj.range]
@@ -172,4 +173,3 @@ export class Overlayer {
         return image
     }
 }
-

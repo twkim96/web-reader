@@ -406,6 +406,18 @@ export class View extends HTMLElement {
         const label = this.#tocProgress.getProgress(index)?.label ?? ''
         return { index, label }
     }
+    addTransientOverlay({ key, index, range, draw, options }) {
+        const obj = this.#getOverlayer(index)
+        if (!obj) return false
+        obj.overlayer.add(key, range, draw, { ...options, interactive: false })
+        return true
+    }
+    removeTransientOverlay({ key, index }) {
+        const obj = this.#getOverlayer(index)
+        if (!obj) return false
+        obj.overlayer.remove(key)
+        return true
+    }
     deleteAnnotation(annotation) {
         return this.addAnnotation(annotation, true)
     }

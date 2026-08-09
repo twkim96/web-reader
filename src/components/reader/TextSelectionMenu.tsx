@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useLayoutEffect, useRef } from 'react';
-import { BookOpen, Copy, Languages, Share2, X } from 'lucide-react';
+import { BookOpen, Copy, Languages, Share2, Volume2, X } from 'lucide-react';
 import type { AnnotationPaletteItem, HighlightColorId, ThemeClasses } from '../../types';
 import type { ReaderTextSelection } from '../../hooks/reader/useReaderTextSelection';
 import { HIGHLIGHT_COLORS } from '../../lib/annotationPolicy';
@@ -17,6 +17,7 @@ interface TextSelectionMenuProps {
   onShare: () => void;
   onTranslate: () => void;
   onDictionary: () => void;
+  onSpeak: () => void;
   onHighlight: (colorId: HighlightColorId) => void;
   onClose: () => void;
 }
@@ -34,6 +35,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
   onShare,
   onTranslate,
   onDictionary,
+  onSpeak,
   onHighlight,
   onClose,
 }) => {
@@ -139,6 +141,15 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
         >
           <Languages size={15} />
           번역
+        </button>
+        <button
+          type="button"
+          data-reader-selection-speak="true"
+          onClick={onSpeak}
+          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+        >
+          <Volume2 size={15} />
+          듣기
         </button>
         <button
           type="button"

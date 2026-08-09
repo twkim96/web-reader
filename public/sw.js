@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.5: add selected-text translation and dictionary provider paths.
+// 1.8.6: add selected-text and current-position speech synthesis controls.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.5`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.6`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

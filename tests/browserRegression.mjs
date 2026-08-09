@@ -788,6 +788,97 @@ try {
         },
       },
     });
+    class RegressionSpeechSynthesisUtterance {
+      constructor(text) {
+        this.text = text;
+        this.lang = '';
+        this.rate = 1;
+        this.pitch = 1;
+        this.volume = 1;
+        this.voice = null;
+        this.onstart = null;
+        this.onend = null;
+        this.onerror = null;
+      }
+    }
+    const speechEvents = new EventTarget();
+    let speechVoices = [
+      { voiceURI: 'voice-en', name: 'Regression English', lang: 'en-US', default: true, localService: true },
+      { voiceURI: 'voice-ko', name: 'Regression Korean', lang: 'ko-KR', default: false, localService: true },
+    ];
+    let currentUtterance = null;
+    let delaySpeechStart = false;
+    window.__browserSpeechStats = {
+      speak: 0,
+      cancel: 0,
+      pause: 0,
+      resume: 0,
+      texts: [],
+      languages: [],
+      rates: [],
+      voices: [],
+    };
+    const speechSynthesisMock = {
+      speaking: false,
+      paused: false,
+      pending: false,
+      getVoices: () => [...speechVoices],
+      addEventListener: (...args) => speechEvents.addEventListener(...args),
+      removeEventListener: (...args) => speechEvents.removeEventListener(...args),
+      speak: (utterance) => {
+        currentUtterance = utterance;
+        speechSynthesisMock.speaking = true;
+        speechSynthesisMock.paused = false;
+        window.__browserSpeechStats.speak += 1;
+        window.__browserSpeechStats.texts.push(utterance.text);
+        window.__browserSpeechStats.languages.push(utterance.lang);
+        window.__browserSpeechStats.rates.push(utterance.rate);
+        window.__browserSpeechStats.voices.push(utterance.voice?.voiceURI ?? null);
+        if (!delaySpeechStart) queueMicrotask(() => utterance.onstart?.({ utterance }));
+      },
+      cancel: () => {
+        window.__browserSpeechStats.cancel += 1;
+        speechSynthesisMock.speaking = false;
+        speechSynthesisMock.paused = false;
+        currentUtterance = null;
+      },
+      pause: () => {
+        window.__browserSpeechStats.pause += 1;
+        speechSynthesisMock.paused = true;
+      },
+      resume: () => {
+        window.__browserSpeechStats.resume += 1;
+        speechSynthesisMock.paused = false;
+      },
+    };
+    Object.defineProperty(globalThis, 'SpeechSynthesisUtterance', {
+      configurable: true,
+      value: RegressionSpeechSynthesisUtterance,
+    });
+    Object.defineProperty(globalThis, 'speechSynthesis', {
+      configurable: true,
+      value: speechSynthesisMock,
+    });
+    window.__finishBrowserSpeech = () => {
+      const utterance = currentUtterance;
+      if (!utterance) return false;
+      currentUtterance = null;
+      speechSynthesisMock.speaking = false;
+      utterance.onend?.({ utterance });
+      return true;
+    };
+    window.__setBrowserSpeechStartDelayed = (value) => {
+      delaySpeechStart = Boolean(value);
+    };
+    window.__startBrowserSpeech = () => {
+      if (!currentUtterance) return false;
+      currentUtterance.onstart?.({ utterance: currentUtterance });
+      return true;
+    };
+    window.__setBrowserSpeechVoices = (voices) => {
+      speechVoices = voices;
+      speechEvents.dispatchEvent(new Event('voiceschanged'));
+    };
   })()`);
   await evaluate(`(() => {
     const button = [...document.querySelectorAll('button')]
@@ -919,7 +1010,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.5')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.6')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -1013,17 +1104,71 @@ try {
       .find((button) => button.textContent?.includes('공유'));
     shareButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const translateButton = document.querySelector(
+    const translateButtonFound = Boolean(document.querySelector(
       '[data-reader-selection-menu="true"] [data-reader-selection-translate="true"]',
-    );
+    ));
     const dictionaryButtonFound = Boolean(document.querySelector(
       '[data-reader-selection-menu="true"] [data-reader-selection-dictionary="true"]',
     ));
+    const speakButton = document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-speak="true"]',
+    );
+    const speakButtonFound = Boolean(speakButton);
     const yellowHighlightButton = document.querySelector(
       '[data-reader-selection-menu="true"] button[aria-label="노랑 하이라이트 추가"]',
     );
+    const beforeSelectionTts = renderer.start;
+    speakButton?.click();
+    const selectionTtsDeadline = performance.now() + 3000;
+    while ((!document.querySelector('[data-reader-tts-controls="true"]')
+      || window.__browserSpeechStats.speak < 1)
+      && performance.now() < selectionTtsDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const selectionTtsControls = document.querySelector('[data-reader-tts-controls="true"]');
+    const selectionTtsText = selectionTtsControls?.textContent ?? '';
+    window.__setBrowserSpeechVoices?.([
+      { voiceURI: 'voice-en', name: 'Regression English', lang: 'en-US', default: true, localService: true },
+      { voiceURI: 'voice-ko', name: 'Regression Korean', lang: 'ko-KR', default: false, localService: true },
+      { voiceURI: 'voice-ja', name: 'Regression Japanese', lang: 'ja-JP', default: false, localService: true },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const selectionTtsVoiceOptions = selectionTtsControls
+      ?.querySelectorAll('select')[1]?.querySelectorAll('option').length ?? 0;
+    const selectionTtsOverlayShown = renderer.getContents().some(({ overlayer }) => (
+      overlayer?.element?.querySelector('[data-reader-tts-highlight="true"]')
+    ));
+    selectionTtsControls?.querySelector('button[aria-label="일시정지"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    selectionTtsControls?.querySelector('button[aria-label="재생"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    window.__finishBrowserSpeech?.();
+    const selectionTtsFinishDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-tts-controls="true"]')
+      ?.textContent?.includes('문장 완료')
+      && performance.now() < selectionTtsFinishDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const selectionTtsOverlayCleared = !renderer.getContents().some(({ overlayer }) => (
+      overlayer?.element?.querySelector('[data-reader-tts-highlight="true"]')
+    ));
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const selectionTtsStopped = !document.querySelector('[data-reader-tts-controls="true"]');
+    const afterSelectionTts = renderer.start;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const postTtsMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < postTtsMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
     const beforeTranslation = renderer.start;
-    translateButton?.click();
+    document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-translate="true"]',
+    )?.click();
     const translationDeadline = performance.now() + 4000;
     while (!document.querySelector('[data-reader-translation-dialog="true"]')
       && performance.now() < translationDeadline) {
@@ -1398,8 +1543,17 @@ try {
       copyButtonFound: Boolean(copyButton),
       actionRects,
       shareButtonFound: Boolean(shareButton),
-      translateButtonFound: Boolean(translateButton),
+      translateButtonFound,
       dictionaryButtonFound,
+      speakButtonFound,
+      selectionTtsText,
+      selectionTtsVoiceOptions,
+      selectionTtsOverlayShown,
+      selectionTtsOverlayCleared,
+      selectionTtsStopped,
+      beforeSelectionTts,
+      afterSelectionTts,
+      browserSpeechStats: window.__browserSpeechStats,
       translationDialogShown,
       translationClosedByBack,
       translationResult,
@@ -1514,6 +1668,20 @@ try {
   assert.equal(selectionActions.sharedText, selectionActions.selectedText);
   assert.equal(selectionActions.translateButtonFound, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.dictionaryButtonFound, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.speakButtonFound, true, JSON.stringify(selectionActions));
+  assert.match(selectionActions.selectionTtsText, /선택 영역 읽는 중/);
+  assert.match(selectionActions.selectionTtsText, /probe paragraph/);
+  assert.ok(selectionActions.selectionTtsVoiceOptions >= 4);
+  assert.equal(selectionActions.selectionTtsOverlayShown, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.selectionTtsOverlayCleared, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.selectionTtsStopped, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.afterSelectionTts, selectionActions.beforeSelectionTts);
+  assert.equal(selectionActions.browserSpeechStats.speak, 1);
+  assert.equal(selectionActions.browserSpeechStats.pause, 1);
+  assert.equal(selectionActions.browserSpeechStats.resume, 1);
+  assert.match(selectionActions.browserSpeechStats.texts[0], /probe paragraph/);
+  assert.equal(selectionActions.browserSpeechStats.languages[0], 'en-US');
+  assert.equal(selectionActions.browserSpeechStats.voices[0], 'voice-en');
   assert.equal(selectionActions.translationDialogShown, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.translationClosedByBack, true, JSON.stringify(selectionActions));
   assert.match(selectionActions.translationResult, /번역:probe paragraph/);
@@ -1574,6 +1742,252 @@ try {
   assert.ok(selectionActions.nativeSelectionBeforeRapidSecondTap.length > 0);
   assert.equal(selectionActions.rapidTapSelectionCleared, true, JSON.stringify(selectionActions));
   assert.notEqual(selectionActions.afterRapidTaps, selectionActions.beforeRapidTaps, JSON.stringify(selectionActions));
+  const ttsLifecycleGuards = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const button = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+    if (!view || !renderer || !button) return { missing: true };
+
+    const nativeGetContents = renderer.getContents.bind(renderer);
+    renderer.getContents = () => [];
+    button.click();
+    const feedbackDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-tts-feedback="true"]')
+      && performance.now() < feedbackDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const failureFeedback = document.querySelector(
+      '[data-reader-tts-feedback="true"]',
+    )?.textContent ?? '';
+    renderer.getContents = nativeGetContents;
+
+    const nativeAddTransientOverlay = view.addTransientOverlay.bind(view);
+    view.addTransientOverlay = () => { throw new Error('transient-overlay-probe'); };
+    const speakBeforeOverlayFailure = window.__browserSpeechStats.speak;
+    button.click();
+    const overlayFailureDeadline = performance.now() + 2000;
+    while ((window.__browserSpeechStats.speak <= speakBeforeOverlayFailure
+      || !document.querySelector('[data-reader-tts-controls="true"]'))
+      && performance.now() < overlayFailureDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const overlayFailureSpoke = window.__browserSpeechStats.speak
+      === speakBeforeOverlayFailure + 1;
+    const overlayFailureControls = Boolean(
+      document.querySelector('[data-reader-tts-controls="true"]'),
+    );
+    window.__finishBrowserSpeech?.();
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    view.addTransientOverlay = nativeAddTransientOverlay;
+
+    window.__setBrowserSpeechStartDelayed?.(true);
+    const pauseBefore = window.__browserSpeechStats.pause;
+    const speakBeforeDelayedStart = window.__browserSpeechStats.speak;
+    button.click();
+    const delayedStartDeadline = performance.now() + 2000;
+    while ((!document.querySelector('[data-reader-tts-controls="true"]')
+      || window.__browserSpeechStats.speak <= speakBeforeDelayedStart)
+      && performance.now() < delayedStartDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="일시정지"]')
+      ?.click();
+    window.__startBrowserSpeech?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const delayedStartStayedPaused = Boolean(document.querySelector(
+      '[data-reader-tts-controls="true"] button[aria-label="재생"]',
+    ));
+    const pauseCalls = window.__browserSpeechStats.pause - pauseBefore;
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    window.__setBrowserSpeechStartDelayed?.(false);
+    return {
+      failureFeedback,
+      overlayFailureControls,
+      overlayFailureSpoke,
+      delayedStartStayedPaused,
+      pauseCalls,
+    };
+  })()`);
+  assert.equal(ttsLifecycleGuards.missing, undefined, JSON.stringify(ttsLifecycleGuards));
+  assert.match(ttsLifecycleGuards.failureFeedback, /읽을 문장을 찾지 못했습니다/);
+  assert.equal(ttsLifecycleGuards.overlayFailureSpoke, true, JSON.stringify(ttsLifecycleGuards));
+  assert.equal(ttsLifecycleGuards.overlayFailureControls, true, JSON.stringify(ttsLifecycleGuards));
+  assert.equal(ttsLifecycleGuards.delayedStartStayedPaused, true, JSON.stringify(ttsLifecycleGuards));
+  assert.ok(ttsLifecycleGuards.pauseCalls >= 2, JSON.stringify(ttsLifecycleGuards));
+  const currentPositionTts = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const before = renderer?.start;
+    const speakBefore = window.__browserSpeechStats.speak;
+    const button = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+    button?.click();
+    const startDeadline = performance.now() + 3000;
+    while ((!document.querySelector('[data-reader-tts-controls="true"]')
+      || window.__browserSpeechStats.speak <= speakBefore)
+      && performance.now() < startDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const controls = document.querySelector('[data-reader-tts-controls="true"]');
+    const controlsTextAtStart = controls?.textContent ?? '';
+    const firstText = window.__browserSpeechStats.texts.at(-1) ?? '';
+    const overlayShown = renderer?.getContents().some(({ overlayer }) => (
+      overlayer?.element?.querySelector('[data-reader-tts-highlight="true"]')
+    ));
+    const speakAfterStart = window.__browserSpeechStats.speak;
+    window.__finishBrowserSpeech?.();
+    const finishDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-tts-controls="true"]')
+      ?.textContent?.includes('문장 완료')
+      && performance.now() < finishDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const speakAfterNaturalEnd = window.__browserSpeechStats.speak;
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="다음 문장"]')
+      ?.click();
+    const nextDeadline = performance.now() + 2000;
+    while (window.__browserSpeechStats.speak <= speakAfterNaturalEnd
+      && performance.now() < nextDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const nextText = window.__browserSpeechStats.texts.at(-1) ?? '';
+    const after = renderer?.start;
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return {
+      buttonFound: Boolean(button),
+      controlsTextAtStart,
+      firstText,
+      nextText,
+      overlayShown: Boolean(overlayShown),
+      stopped: !document.querySelector('[data-reader-tts-controls="true"]'),
+      overlayCleared: !renderer?.getContents().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-tts-highlight="true"]')
+      )),
+      speakBefore,
+      speakAfterStart,
+      speakAfterNaturalEnd,
+      speakAfterNext: window.__browserSpeechStats.speak,
+      before,
+      after,
+    };
+  })()`);
+  assert.equal(currentPositionTts.buttonFound, true, JSON.stringify(currentPositionTts));
+  assert.match(currentPositionTts.controlsTextAtStart, /현재 문장 읽는 중/);
+  assert.ok(currentPositionTts.firstText.length > 0, JSON.stringify(currentPositionTts));
+  assert.equal(currentPositionTts.overlayShown, true, JSON.stringify(currentPositionTts));
+  assert.equal(currentPositionTts.speakAfterStart, currentPositionTts.speakBefore + 1);
+  assert.equal(currentPositionTts.speakAfterNaturalEnd, currentPositionTts.speakAfterStart);
+  assert.equal(currentPositionTts.speakAfterNext, currentPositionTts.speakAfterStart + 1);
+  assert.notEqual(currentPositionTts.nextText, currentPositionTts.firstText);
+  assert.equal(currentPositionTts.after, currentPositionTts.before);
+  assert.equal(currentPositionTts.stopped, true);
+  assert.equal(currentPositionTts.overlayCleared, true);
+  const ttsRangeSemantics = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const button = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+    const content = renderer?.getContents().find(({ doc }) => (
+      doc.body?.innerText?.includes('Selection probe paragraph')
+    ));
+    const doc = content?.doc;
+    if (!view || !renderer || !button || !doc || !view.lastLocation) return { missing: true };
+
+    const originalLocationRange = view.lastLocation.range;
+    const endRange = doc.createRange();
+    endRange.selectNodeContents(doc.body);
+    endRange.collapse(false);
+    view.lastLocation.range = endRange;
+    const speakBeforeEnd = window.__browserSpeechStats.speak;
+    button.click();
+    const endDeadline = performance.now() + 2500;
+    while ((window.__browserSpeechStats.speak <= speakBeforeEnd
+      || !document.querySelector('[data-reader-tts-controls="true"]'))
+      && performance.now() < endDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const endText = window.__browserSpeechStats.texts.at(-1) ?? '';
+    const endTotal = Number(document.querySelector(
+      '[data-reader-tts-controls="true"]',
+    )?.dataset.readerTtsTotal ?? 0);
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    view.lastLocation.range = originalLocationRange;
+
+    let target = null;
+    for (const candidate of doc.querySelectorAll('p')) {
+      const probe = doc.createRange();
+      probe.selectNodeContents(candidate);
+      const rect = probe.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && rect.bottom > 0
+        && rect.top < doc.defaultView.innerHeight) {
+        target = candidate;
+        break;
+      }
+    }
+    if (!target) return { missingTarget: true, endText, endTotal };
+    const originalMarkup = target.innerHTML;
+    target.innerHTML = [
+      '<span>Hello</span> <span>world</span><br/>',
+      '<span hidden="">secret</span>',
+      '<span style="display:none">gone</span>',
+      '<span style="visibility:hidden">invisible</span>',
+      '<span style="content-visibility:hidden">skipped</span>',
+      '<ruby>漢<rt>かん</rt><rp>(</rp></ruby><span>字.</span>',
+      '<table><tbody><tr><td>A</td><td>B.</td></tr></tbody></table>',
+    ].join('');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const semanticRange = doc.createRange();
+    semanticRange.selectNodeContents(target);
+    const selection = doc.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(semanticRange);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const menuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < menuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const semanticMenuFound = Boolean(
+      document.querySelector('[data-reader-selection-menu="true"]'),
+    );
+    const semanticSelectedText = selection.toString();
+    const semanticStart = window.__browserSpeechStats.texts.length;
+    document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-speak="true"]',
+    )?.click();
+    const semanticStartDeadline = performance.now() + 2000;
+    while ((window.__browserSpeechStats.texts.length <= semanticStart
+      || !document.querySelector('[data-reader-tts-controls="true"]'))
+      && performance.now() < semanticStartDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      const controls = document.querySelector('[data-reader-tts-controls="true"]');
+      if (!controls || controls.textContent?.includes('문장 완료')) break;
+      window.__finishBrowserSpeech?.();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const semanticTexts = window.__browserSpeechStats.texts.slice(semanticStart);
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    selection.removeAllRanges();
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    target.innerHTML = originalMarkup;
+    return { endText, endTotal, semanticMenuFound, semanticSelectedText, semanticTexts };
+  })()`);
+  assert.equal(ttsRangeSemantics.missing, undefined, JSON.stringify(ttsRangeSemantics));
+  assert.equal(ttsRangeSemantics.missingTarget, undefined, JSON.stringify(ttsRangeSemantics));
+  assert.match(ttsRangeSemantics.endText, /Selection probe paragraph 179/);
+  assert.ok(ttsRangeSemantics.endTotal > 0 && ttsRangeSemantics.endTotal <= 21);
+  const semanticSpeech = ttsRangeSemantics.semanticTexts.join('\n');
+  assert.match(semanticSpeech, /Hello world/, JSON.stringify(ttsRangeSemantics));
+  assert.match(semanticSpeech, /漢字\./);
+  assert.match(semanticSpeech, /A\s+B\./);
+  assert.doesNotMatch(semanticSpeech, /Helloworld/);
+  assert.doesNotMatch(semanticSpeech, /secret|gone|invisible|skipped|かん/);
   let narrowSelectionMenu;
   try {
     await command('Emulation.setDeviceMetricsOverride', {
@@ -1589,6 +2003,7 @@ try {
       uploadThroughput: 0,
     });
     narrowSelectionMenu = await evaluate(`(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
       const view = document.querySelector('foliate-view');
       const contents = view?.renderer?.getContents?.() ?? [];
       let targetDoc = null;
@@ -3668,7 +4083,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.5';
+    const expectedCache = 'pc-reader-v1.8.6';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -3695,7 +4110,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.5',
+      '/sw.js?browser-regression=1.8.6',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -3739,11 +4154,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.5']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.6']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.5$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.6$/);
 
   console.log(JSON.stringify({
     shelf: {

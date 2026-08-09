@@ -1,4 +1,4 @@
-export const FOLIATE_RUNTIME_VERSION = '1.8.5';
+export const FOLIATE_RUNTIME_VERSION = '1.8.6';
 export const FOLIATE_RUNTIME_CACHE_NAME = `pc-reader-v${FOLIATE_RUNTIME_VERSION}`;
 export const FOLIATE_ENTRY_URL = `/foliate-js/view.js?v=${FOLIATE_RUNTIME_VERSION}`;
 

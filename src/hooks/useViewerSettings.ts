@@ -6,6 +6,11 @@ import {
   normalizeReaderTranslationProvider,
   normalizeReaderTranslationSourceLanguage,
 } from '../lib/readerLanguageTools.ts';
+import {
+  normalizeReaderTtsLanguage,
+  normalizeReaderTtsRate,
+  normalizeReaderTtsVoiceUri,
+} from '../lib/readerTts.ts';
 
 const SETTINGS_KEY = 'viewer_settings';
 
@@ -26,6 +31,9 @@ export const defaultSettings: ViewerSettings = {
   translationSourceLanguage: 'auto',
   translationTargetLanguage: 'ko',
   dictionaryProvider: 'naver',
+  ttsLanguage: 'auto',
+  ttsVoiceURI: '',
+  ttsRate: 1,
   customThemes: [],
 };
 
@@ -50,6 +58,9 @@ export const getStoredViewerSettings = () => {
         'ko',
       ),
       dictionaryProvider: normalizeReaderDictionaryProvider(merged.dictionaryProvider),
+      ttsLanguage: normalizeReaderTtsLanguage(merged.ttsLanguage),
+      ttsVoiceURI: normalizeReaderTtsVoiceUri(merged.ttsVoiceURI),
+      ttsRate: normalizeReaderTtsRate(merged.ttsRate),
     };
   } catch {
     return defaultSettings;

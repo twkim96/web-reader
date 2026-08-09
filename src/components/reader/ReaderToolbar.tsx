@@ -7,6 +7,7 @@ import {
   Palette,
   Search,
   Settings,
+  Volume2,
   X,
 } from 'lucide-react';
 import { getBookTitleFromFileName } from '../../lib/bookFormats';
@@ -30,6 +31,8 @@ interface ReaderToolbarProps {
   sliderPreviewChapter?: string;
   bookmarkCount: number;
   annotationCount: number;
+  ttsSupported?: boolean;
+  ttsActive?: boolean;
   isFixedLayout?: boolean;
   onBack: () => void;
   onOpenSearch: () => void;
@@ -37,6 +40,7 @@ interface ReaderToolbarProps {
   onOpenTheme: () => void;
   onOpenBookmarks: () => void;
   onOpenToc: () => void;
+  onOpenTts: () => void;
   onProgressSliderStart: () => void;
   onProgressSliderPreview: (progressPercent: number) => void;
   onProgressSliderCommit: () => void;
@@ -62,6 +66,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   sliderPreviewChapter,
   bookmarkCount,
   annotationCount,
+  ttsSupported = false,
+  ttsActive = false,
   isFixedLayout = false,
   onBack,
   onOpenSearch,
@@ -69,6 +75,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   onOpenTheme,
   onOpenBookmarks,
   onOpenToc,
+  onOpenTts,
   onProgressSliderStart,
   onProgressSliderPreview,
   onProgressSliderCommit,
@@ -231,7 +238,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
           )}
 
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className={`grid ${isFixedLayout ? 'grid-cols-3' : 'grid-cols-4'} gap-1.5`}>
             <button
               type="button"
               onClick={onOpenSettings}
@@ -241,6 +248,20 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               <Settings size={19} />
               <span>설정</span>
             </button>
+            {!isFixedLayout && (
+              <button
+                type="button"
+                onClick={onOpenTts}
+                disabled={!ttsSupported}
+                className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 ${ttsActive ? 'text-accent-500' : ''}`}
+                style={surfaceStyle}
+                aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
+                title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
+              >
+                <Volume2 size={19} />
+                <span>듣기</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onOpenTheme}

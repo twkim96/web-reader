@@ -168,7 +168,7 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.5';
+    const viewModule = '/foliate-js/view.js?v=1.8.6';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [
@@ -198,7 +198,10 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
         getContents: () => Array<{
           doc: Document;
           index: number;
-          overlayer?: { element: SVGElement };
+          overlayer?: {
+            element: SVGElement;
+            hitTest: (point: { x: number; y: number }) => unknown[];
+          };
         }>;
       };
       open: (source: typeof book) => Promise<void>;
@@ -206,6 +209,14 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
       getCFI: (index: number, range: Range) => string;
       addAnnotation: (annotation: { value: string; annotationId: string }) => Promise<unknown>;
       deleteAnnotation: (annotation: { value: string; annotationId: string }) => Promise<unknown>;
+      addTransientOverlay: (overlay: {
+        key: object;
+        index: number;
+        range: Range;
+        draw: (rects: DOMRectList, options: { color: string }) => SVGElement;
+        options: { color: string; interactive: boolean };
+      }) => boolean;
+      removeTransientOverlay: (overlay: { key: object; index: number }) => boolean;
       close: () => void;
     };
     view.style.cssText = 'display:block;width:720px;height:720px';
@@ -253,6 +264,41 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
     await view.addAnnotation(annotation);
     const drawn = Boolean(content.overlayer?.element.querySelector('[data-e2e-highlight="true"]'));
     const rect = range.getBoundingClientRect();
+    const ttsOverlayKey = {};
+    const ttsOverlayAdded = view.addTransientOverlay({
+      key: ttsOverlayKey,
+      index: 0,
+      range,
+      draw: (rects: DOMRectList, options: { color: string }) => {
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.setAttribute('fill', options.color);
+        group.setAttribute('data-e2e-tts-overlay', 'true');
+        for (const itemRect of Array.from(rects)) {
+          const item = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          item.setAttribute('x', String(itemRect.left));
+          item.setAttribute('y', String(itemRect.top));
+          item.setAttribute('width', String(itemRect.width));
+          item.setAttribute('height', String(itemRect.height));
+          group.append(item);
+        }
+        return group;
+      },
+      options: { color: '#38bdf8', interactive: false },
+    });
+    const savedDuringTts = Boolean(
+      content.overlayer?.element.querySelector('[data-e2e-highlight="true"]'),
+    );
+    const ttsOverlayDrawn = Boolean(
+      content.overlayer?.element.querySelector('[data-e2e-tts-overlay="true"]'),
+    );
+    const ttsOverlayHit = content.overlayer?.hitTest({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    }) ?? [];
+    view.removeTransientOverlay({ key: ttsOverlayKey, index: 0 });
+    const savedAfterTts = Boolean(
+      content.overlayer?.element.querySelector('[data-e2e-highlight="true"]'),
+    );
     const target = text.parentElement ?? content.doc.body;
     const click = new content.doc.defaultView!.MouseEvent('click', {
       bubbles: true,
@@ -293,7 +339,12 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
       overlaysAfterHighlight,
       overlayCount,
       plainLinkIndex,
+      savedAfterTts,
+      savedDuringTts,
       showCount,
+      ttsOverlayAdded,
+      ttsOverlayDrawn,
+      ttsOverlayHitIsSaved: ttsOverlayHit[0] === value,
     };
   });
 
@@ -306,6 +357,11 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
   expect(result.highlightedIndex).toBe(0);
   expect(result.linksAfterHighlight).toBe(0);
   expect(result.deleted).toBe(true);
+  expect(result.ttsOverlayAdded).toBe(true);
+  expect(result.ttsOverlayDrawn).toBe(true);
+  expect(result.savedDuringTts).toBe(true);
+  expect(result.savedAfterTts).toBe(true);
+  expect(result.ttsOverlayHitIsSaved).toBe(true);
   expect(result.linkCount).toBe(1);
   expect(result.plainLinkIndex).toBe(1);
 });

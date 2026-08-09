@@ -63,6 +63,7 @@ export type FoliateRenderer = {
   setAttribute: (name: string, value?: string) => void;
   setStyles: (styles: string[]) => void;
   getContents?: () => {
+    index?: number;
     doc?: Document;
     overlayer?: { element?: Element };
   }[];
@@ -111,6 +112,8 @@ export type FoliateViewElement = HTMLElement & {
     label: string;
   } | undefined>;
   deleteAnnotation: (annotation: FoliateAnnotationPayload) => Promise<unknown>;
+  addTransientOverlay: (overlay: FoliateTransientOverlay) => boolean;
+  removeTransientOverlay: (overlay: Pick<FoliateTransientOverlay, 'key' | 'index'>) => boolean;
   close?: () => void;
 };
 
@@ -119,13 +122,27 @@ export type FoliateAnnotationPayload = {
   annotationId: string;
 };
 
+export type FoliateTransientOverlay = {
+  key: object;
+  index: number;
+  range: Range;
+  draw: (
+    rects: DOMRectList,
+    options: { color: string; interactive?: boolean },
+  ) => SVGElement;
+  options: { color: string; interactive?: boolean };
+};
+
 export type FoliateDrawAnnotationDetail = {
   annotation: FoliateAnnotationPayload;
   doc: Document;
   range: Range;
   draw: (
-    renderer: (rects: DOMRectList, options: { color: string }) => SVGElement,
-    options: { color: string },
+    renderer: (
+      rects: DOMRectList,
+      options: { color: string; interactive?: boolean },
+    ) => SVGElement,
+    options: { color: string; interactive?: boolean },
   ) => void;
 };
 

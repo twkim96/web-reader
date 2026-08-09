@@ -33,6 +33,7 @@ import { TextSelectionMenu } from './reader/TextSelectionMenu';
 import { HighlightActionMenu } from './reader/HighlightActionMenu';
 import { AnnotationNoteDialog } from './reader/AnnotationNoteDialog';
 import { TranslationDialog } from './reader/TranslationDialog';
+import { ReaderTtsControls } from './reader/ReaderTtsControls';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
@@ -41,6 +42,7 @@ import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
 import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
 import { useReaderLanguageTools } from '../hooks/reader/useReaderLanguageTools';
+import { useReaderTts } from '../hooks/reader/useReaderTts';
 import { useReaderAnnotations } from '../hooks/reader/useReaderAnnotations';
 import { useAnnotationPalette } from '../hooks/useAnnotationPalette';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
@@ -230,6 +232,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);
   const documentTapRef = useRef<(point: { x: number; y: number }) => boolean>(() => false);
   const annotationMenuCloseRef = useRef<() => void>(() => undefined);
+  const ttsStopRef = useRef<() => void>(() => undefined);
   const annotationTapRef = useRef<(
     doc: Document,
     point: { x: number; y: number },
@@ -408,6 +411,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     if (!isSelectionRelocateReason(detail.reason)) {
       clearTextSelection();
       annotationMenuCloseRef.current();
+      ttsStopRef.current();
     }
     handleRelocateForSave(detail);
   }, [clearTextSelection, handleRelocateForSave]);
@@ -491,16 +495,35 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     clearSelection: clearTextSelection,
     showFeedback: showSelectionFeedback,
   });
+  const tts = useReaderTts({
+    bookId: book.id,
+    enabled: !isFixedLayout,
+    isLoaded,
+    viewRef,
+    settings,
+    clearSelection: clearTextSelection,
+    dismissSelectionMenu: dismissTextSelectionMenu,
+  });
+  const stopTts = tts.stop;
+
+  useEffect(() => {
+    if (isBaseReaderPanelOpen || translation !== null) stopTts();
+  }, [isBaseReaderPanelOpen, stopTts, translation]);
+
   const isReaderPanelOpen = isBaseReaderPanelOpen || translation !== null;
   const readerShellRef = useRef<HTMLDivElement>(null);
   const registerTransientPanelCloser = chrome.registerTransientPanelCloser;
 
   useLayoutEffect(() => {
     registerTransientPanelCloser(
-      translation ? closeTranslation : null,
+      translation
+        ? closeTranslation
+        : tts.state.mode
+          ? tts.stop
+          : null,
     );
     return () => registerTransientPanelCloser(null);
-  }, [closeTranslation, registerTransientPanelCloser, translation]);
+  }, [closeTranslation, registerTransientPanelCloser, translation, tts.state.mode, tts.stop]);
 
   const saveTranslationToAnnotationNote = useCallback(async () => {
     const state = translation;
@@ -544,6 +567,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       annotationMenuCloseRef.current = () => undefined;
     };
   }, [closeActiveHighlight]);
+
+  useLayoutEffect(() => {
+    ttsStopRef.current = tts.stop;
+    return () => {
+      ttsStopRef.current = () => undefined;
+    };
+  }, [tts.stop]);
 
   useLayoutEffect(() => {
     annotationTapRef.current = openHighlightAtPoint;
@@ -1414,8 +1444,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           palette={palette}
           onCopy={() => void copySelection()}
           onShare={() => void shareSelection()}
-          onTranslate={() => translateSelection(selectedText)}
-          onDictionary={() => lookupSelection(selectedText)}
+          onTranslate={() => {
+            tts.stop();
+            translateSelection(selectedText);
+          }}
+          onDictionary={() => {
+            tts.stop();
+            lookupSelection(selectedText);
+          }}
+          onSpeak={() => tts.speakSelection(selectedText)}
           onHighlight={(colorId) => void createHighlight(selectedText, colorId)}
           onClose={clearTextSelection}
         />
@@ -1459,12 +1496,37 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         </div>
       )}
 
+      {tts.feedback && (
+        <div
+          data-reader-tts-feedback="true"
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.5rem)] left-1/2 z-[83] max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} px-4 py-3 text-center text-xs font-bold shadow-2xl`}
+        >
+          {tts.feedback}
+        </div>
+      )}
+
       {isLoaded && (
         <ReaderStatusBar
           theme={theme}
           currentChapter={currentChapter}
           totalProgress={totalProgress}
           onOpenJump={chrome.openJumpInput}
+        />
+      )}
+
+      {tts.state.mode && (
+        <ReaderTtsControls
+          state={tts.state}
+          voices={tts.voices}
+          settings={settings}
+          theme={theme}
+          onUpdateSettings={onUpdateSettings}
+          onTogglePause={tts.togglePause}
+          onPrevious={tts.previous}
+          onNext={tts.next}
+          onStop={tts.stop}
         />
       )}
 
@@ -1477,6 +1539,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         sliderPreviewChapter={sliderTargetChapter}
         bookmarkCount={bookmarks.length}
         annotationCount={annotations.length}
+        ttsSupported={tts.supported}
+        ttsActive={Boolean(tts.state.mode)}
         isFixedLayout={isFixedLayout}
         onBack={chrome.handleUIBack}
         onOpenSearch={() => chrome.setShowSearchModal(true)}
@@ -1484,6 +1548,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onOpenTheme={() => chrome.setShowThemeModal(true)}
         onOpenBookmarks={() => chrome.setShowBookmarks(true)}
         onOpenToc={() => chrome.setShowToc(true)}
+        onOpenTts={() => {
+          chrome.setShowControls(false);
+          tts.speakFromCurrentPosition();
+        }}
         onProgressSliderStart={beginSliderMove}
         onProgressSliderPreview={previewSliderMove}
         onProgressSliderCommit={commitSliderMove}
