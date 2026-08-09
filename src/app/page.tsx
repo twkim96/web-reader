@@ -58,6 +58,8 @@ import { hasPendingGoogleDriveOAuth } from '../lib/googleDriveOAuth';
 import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
+import { LibraryAnnotationModal } from '../components/LibraryAnnotationModal';
+import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
 import {
   shouldShowSyncConflictDialog,
   shouldShowSyncReviewBadge,
@@ -80,6 +82,10 @@ export default function Page() {
   } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [syncReviewOpen, setSyncReviewOpen] = useState(false);
+  const [libraryAnnotationsOpen, setLibraryAnnotationsOpen] = useState(false);
+  const [libraryAnnotationJumpCommand, setLibraryAnnotationJumpCommand] = useState<
+    LibraryAnnotationJumpCommand | null
+  >(null);
   const deviceId = useDeviceId();
   const hasTriedAutoOpenLastBookRef = useRef(false);
 
@@ -524,19 +530,21 @@ export default function Page() {
     const limitError = getBookOpenLimitError(book.name, book.mimeType, book.size);
     if (limitError) {
       alert(limitError);
-      return;
+      return false;
     }
     if (settings.autoOpenLastBook) {
       saveLastReaderSession(book.id, progress[book.id]?.progressPercent);
     }
     setActiveBook(book);
     setView('reader');
+    return true;
   }, [progress, settings.autoOpenLastBook]);
 
   const handleReaderBack = useCallback(() => {
     if (activeBook) {
       clearLastReaderSession(undefined, activeBook.id);
     }
+    setLibraryAnnotationJumpCommand(null);
     setView('shelf');
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   }, [activeBook]);
@@ -632,6 +640,7 @@ export default function Page() {
           onBookImported={handleBookImported}
           isCloudTokenValid={hasValidToken}
           onCloudAuthExpired={handleCloudAuthExpired}
+          onShowAnnotations={() => setLibraryAnnotationsOpen(true)}
         />
       )}
 
@@ -665,6 +674,15 @@ export default function Page() {
           outboxProgressConflictRevision={outboxProgressConflictRevision}
           ignoredRemoteRevision={progress[activeBook.id]?.ignoredRemoteRevision}
           onIgnoreRemoteProgress={handleIgnoreRemoteProgress}
+          libraryAnnotationJumpCommand={libraryAnnotationJumpCommand
+            ?.annotation.bookId === activeBook.id
+            ? libraryAnnotationJumpCommand
+            : null}
+          onLibraryAnnotationJumpConsumed={(commandId) => {
+            setLibraryAnnotationJumpCommand((current) => (
+              current?.commandId === commandId ? null : current
+            ));
+          }}
           onRegisterProgressFlush={(flush) => {
             readerProgressFlushRef.current = flush;
           }}
@@ -673,6 +691,25 @@ export default function Page() {
           }}
           onRegisterProgressConflictAutoResolveEligibility={(check) => {
             readerProgressConflictAutoResolveEligibilityRef.current = check;
+          }}
+        />
+      )}
+
+      {libraryAnnotationsOpen && activeOwnerKey && (
+        <LibraryAnnotationModal
+          key={activeOwnerKey}
+          open={libraryAnnotationsOpen}
+          visible={view === 'shelf'}
+          ownerKey={activeOwnerKey}
+          books={books}
+          theme={theme}
+          onClose={() => setLibraryAnnotationsOpen(false)}
+          onJump={(annotation, book) => {
+            if (!handleOpenBook(book)) return;
+            setLibraryAnnotationJumpCommand({
+              commandId: crypto.randomUUID(),
+              annotation,
+            });
           }}
         />
       )}

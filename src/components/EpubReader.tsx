@@ -43,6 +43,7 @@ import { getAnnotationPaletteItem } from '../lib/annotationPalette';
 import { getSyncSessionId } from '../lib/syncSession';
 import type { SyncHealth } from '../lib/syncHealth';
 import type { ResolvedRemoteProgressCommand } from '../hooks/useSyncConflictResolution';
+import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
 
 interface EpubReaderProps {
   book: Book;
@@ -66,6 +67,8 @@ interface EpubReaderProps {
   outboxProgressConflictRevision?: number;
   ignoredRemoteRevision?: number;
   onIgnoreRemoteProgress?: (bookId: string, revision: number) => Promise<boolean>;
+  libraryAnnotationJumpCommand?: LibraryAnnotationJumpCommand | null;
+  onLibraryAnnotationJumpConsumed?: (commandId: string) => void;
   onRegisterProgressFlush?: (flush: (() => Promise<boolean>) | null) => void;
   onRegisterQuietResumeEligibility?: (check: (() => boolean) | null) => void;
   onRegisterProgressConflictAutoResolveEligibility?: (check: (() => boolean) | null) => void;
@@ -192,6 +195,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   outboxProgressConflictRevision,
   ignoredRemoteRevision,
   onIgnoreRemoteProgress,
+  libraryAnnotationJumpCommand,
+  onLibraryAnnotationJumpConsumed,
   onRegisterProgressFlush,
   onRegisterQuietResumeEligibility,
   onRegisterProgressConflictAutoResolveEligibility,
@@ -1210,6 +1215,38 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     });
     await goToFraction(fraction);
   }, [createAutoBookmark, currentAnchorCfi, currentCfi, goToFraction, markUserProgressChange, totalProgress]);
+
+  const handledLibraryAnnotationJumpRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !isLoaded
+      || !currentCfi
+      || !libraryAnnotationJumpCommand
+      || libraryAnnotationJumpCommand.annotation.bookId !== book.id
+      || libraryAnnotationJumpCommand.annotation.anchorState !== 'active'
+      || !annotations.some(({ id }) => id === libraryAnnotationJumpCommand.annotation.id)
+      || handledLibraryAnnotationJumpRef.current === libraryAnnotationJumpCommand.commandId
+    ) return;
+    const { commandId, annotation } = libraryAnnotationJumpCommand;
+    handledLibraryAnnotationJumpRef.current = commandId;
+    void performJumpToProgress(
+      annotation.rangeCfi,
+      annotation.progressPercent ?? undefined,
+    ).then(() => {
+      window.requestAnimationFrame(() => flashAnnotation(annotation.id));
+    }).catch((error) => {
+      console.warn('[LibraryAnnotations] jump failed:', error);
+    }).finally(() => onLibraryAnnotationJumpConsumed?.(commandId));
+  }, [
+    annotations,
+    book.id,
+    currentCfi,
+    flashAnnotation,
+    isLoaded,
+    libraryAnnotationJumpCommand,
+    onLibraryAnnotationJumpConsumed,
+    performJumpToProgress,
+  ]);
 
   const handleJump = useCallback(() => {
     const trimmed = chrome.jumpInput.trim();

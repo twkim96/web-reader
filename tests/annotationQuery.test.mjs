@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalizeAnnotationPalette } from '../src/lib/annotationPalette.ts';
-import { groupAnnotationsByColor, queryAnnotations } from '../src/lib/annotationQuery.ts';
+import {
+  buildLibraryAnnotationIndex,
+  groupAnnotationsByColor,
+  queryAnnotations,
+  queryLibraryAnnotationIndex,
+} from '../src/lib/annotationQuery.ts';
 
 const makeAnnotation = (id, overrides = {}) => ({
   id,
@@ -59,4 +64,47 @@ test('groups in stable five-color order including empty groups', () => {
   ]);
   assert.deepEqual(groups.map(({ colorId }) => colorId), ['yellow', 'green', 'blue', 'pink', 'purple']);
   assert.deepEqual(groups.map(({ annotations }) => annotations.length), [1, 0, 0, 0, 1]);
+});
+
+test('searches and filters a normalized cross-book annotation index', () => {
+  const palette = normalizeAnnotationPalette(undefined);
+  const first = makeAnnotation('first', {
+    bookId: 'book-a',
+    quote: 'ＡＢＣ 한글 문장',
+    note: '중요 메모',
+    colorId: 'green',
+    updatedAtClient: 10,
+  });
+  const second = makeAnnotation('second', {
+    bookId: 'book-b',
+    quote: '다른 문장',
+    note: '',
+    colorId: 'blue',
+    updatedAtClient: 20,
+  });
+  const index = buildLibraryAnnotationIndex(
+    [first, second],
+    [{ id: 'book-a', name: '첫 번째 책' }, { id: 'book-b', name: '두 번째 책' }],
+    palette,
+  );
+  assert.deepEqual(
+    queryLibraryAnnotationIndex(index, { query: 'abc 한글' })
+      .map(({ annotation }) => annotation.id),
+    ['first'],
+  );
+  assert.deepEqual(
+    queryLibraryAnnotationIndex(index, { query: '두 번째', colorId: 'blue' })
+      .map(({ annotation }) => annotation.id),
+    ['second'],
+  );
+  assert.deepEqual(
+    queryLibraryAnnotationIndex(index, { bookId: 'book-a', noteOnly: true })
+      .map(({ annotation }) => annotation.id),
+    ['first'],
+  );
+  assert.deepEqual(
+    queryLibraryAnnotationIndex(index, { sort: 'updated-desc' })
+      .map(({ annotation }) => annotation.id),
+    ['second', 'first'],
+  );
 });

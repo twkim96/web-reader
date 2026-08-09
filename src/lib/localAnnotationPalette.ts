@@ -38,6 +38,18 @@ export const initializeLocalAnnotationPaletteV9 = async (
   return palette;
 };
 
+export const getLocalAnnotationPaletteV9 = async (
+  ownerKey: OwnerKey,
+  fallback: ReadonlyArray<AnnotationPaletteItem>,
+) => {
+  const db = await initDB();
+  const stored = await db.get(
+    V9_ANNOTATION_SETTINGS_STORE,
+    ownerKey,
+  ) as StoredAnnotationPaletteV9 | undefined;
+  return normalizeAnnotationPalette(stored?.palette ?? fallback);
+};
+
 export const saveLocalAnnotationPaletteV9 = async (
   ownerKey: OwnerKey,
   value: ReadonlyArray<AnnotationPaletteItem>,

@@ -11,6 +11,7 @@ const {
   deleteLocalAnnotationsIfUnchangedV8,
   deleteLocalAnnotationsV8,
   deleteLocalAnnotationsForBookV8,
+  getAllLocalAnnotationsV8,
   getLocalAnnotationsV8,
   restoreLocalAnnotationFieldsV8,
   restoreLocalAnnotationsV8,
@@ -119,6 +120,18 @@ test('deletes only one owner and book annotation partition', async () => {
   assert.deepEqual(await getLocalAnnotationsV8(ownerA, 'book-1'), []);
   assert.equal((await getLocalAnnotationsV8(ownerA, 'book-2')).length, 1);
   assert.equal((await getLocalAnnotationsV8(ownerB, 'book-1')).length, 1);
+});
+
+test('reads every book annotation for one owner without crossing owner boundaries', async () => {
+  await saveLocalAnnotationV8(ownerA, makeAnnotation('book-2', 'green', {
+    bookId: 'book-2',
+  }));
+  await saveLocalAnnotationV8(ownerA, makeAnnotation('book-1'));
+  await saveLocalAnnotationV8(ownerB, makeAnnotation('other-owner', 'blue'));
+  assert.deepEqual(
+    (await getAllLocalAnnotationsV8(ownerA)).map(({ bookId, id }) => `${bookId}:${id}`),
+    ['book-1:book-1', 'book-2:book-2'],
+  );
 });
 
 test('updates only anchor state without overwriting a concurrent user color edit', async () => {

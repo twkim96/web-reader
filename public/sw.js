@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.3: add offline-first annotation, note, and palette synchronization.
+// 1.8.4: add library-wide annotation search and versioned exports.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.3`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.4`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

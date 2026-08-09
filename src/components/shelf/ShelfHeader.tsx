@@ -14,6 +14,7 @@ import {
   Palette,
   FilePlus,
   CloudLightning,
+  Highlighter,
   X
 } from 'lucide-react';
 import type { CloudSyncStatus } from './FileUploader';
@@ -36,6 +37,7 @@ interface ShelfHeaderProps {
   setShowThemeModal: (show: boolean) => void;
   setShowManage: (show: boolean) => void;
   setShowImportConfirm: (show: boolean) => void;
+  onShowAnnotations: () => void;
   onCancelSync: () => void;
 }
 
@@ -57,6 +59,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   setShowThemeModal,
   setShowManage,
   setShowImportConfirm,
+  onShowAnnotations,
   onCancelSync
 }) => {
   const [isBottomDock, setIsBottomDock] = useState(false);
@@ -161,6 +164,15 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           title="Search Books"
         >
           <Search size={iconSize} />
+        </button>
+
+        <button
+          onClick={() => runAction(onShowAnnotations)}
+          className={buttonClass}
+          title="라이브러리 전체 주석"
+          aria-label="라이브러리 전체 주석"
+        >
+          <Highlighter size={iconSize} />
         </button>
 
         <button

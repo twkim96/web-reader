@@ -42,6 +42,7 @@ interface ShelfProps {
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
   themeStyle?: React.CSSProperties;
+  onShowAnnotations: () => void;
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
@@ -65,7 +66,8 @@ export const Shelf: React.FC<ShelfProps> = ({
   onBookImported,
   isCloudTokenValid,
   onCloudAuthExpired,
-  themeStyle
+  themeStyle,
+  onShowAnnotations,
 }) => {
   const [showManage, setShowManage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -268,6 +270,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         setShowThemeModal={setShowThemeModal}
         setShowManage={setShowManage}
         setShowImportConfirm={handleShowImportConfirm}
+        onShowAnnotations={onShowAnnotations}
       />
 
       <FileUploader 

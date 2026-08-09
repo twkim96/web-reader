@@ -1,4 +1,9 @@
-import type { Annotation, AnnotationPaletteItem, HighlightColorId } from '../types';
+import type {
+  Annotation,
+  AnnotationPaletteItem,
+  Book,
+  HighlightColorId,
+} from '../types';
 import { HIGHLIGHT_COLORS } from './annotationPolicy';
 import { getAnnotationPaletteItem } from './annotationPalette';
 
@@ -55,3 +60,69 @@ export const groupAnnotationsByColor = (
   colorId: id as HighlightColorId,
   annotations: annotations.filter((annotation) => annotation.colorId === id),
 }));
+
+export type LibraryAnnotationSort = 'updated-desc' | 'created-desc' | 'book-reading';
+
+export type LibraryAnnotationIndexEntry = {
+  annotation: Annotation;
+  book: Pick<Book, 'id' | 'name'> | null;
+  searchableText: string;
+};
+
+export const buildLibraryAnnotationIndex = (
+  annotations: ReadonlyArray<Annotation>,
+  books: ReadonlyArray<Pick<Book, 'id' | 'name'>>,
+  palette: ReadonlyArray<AnnotationPaletteItem>,
+) => {
+  const booksById = new Map(books.map((book) => [book.id, book]));
+  return annotations.map((annotation): LibraryAnnotationIndexEntry => {
+    const book = booksById.get(annotation.bookId) ?? null;
+    return {
+      annotation,
+      book,
+      searchableText: [book?.name ?? annotation.bookId, searchableText(annotation, palette)]
+        .join('\n')
+        .normalize('NFKC')
+        .toLocaleLowerCase(),
+    };
+  });
+};
+
+const compareLibraryReadingOrder = (
+  left: LibraryAnnotationIndexEntry,
+  right: LibraryAnnotationIndexEntry,
+) => (
+  (left.book?.name ?? left.annotation.bookId).localeCompare(
+    right.book?.name ?? right.annotation.bookId,
+    'ko',
+  )
+  || readingOrder(left.annotation, right.annotation)
+);
+
+export const queryLibraryAnnotationIndex = (
+  index: ReadonlyArray<LibraryAnnotationIndexEntry>,
+  options: {
+    query?: string;
+    bookId?: string;
+    colorId?: HighlightColorId;
+    noteOnly?: boolean;
+    sort?: LibraryAnnotationSort;
+  } = {},
+) => {
+  const query = (options.query ?? '').trim().normalize('NFKC').toLocaleLowerCase();
+  const filtered = index.filter(({ annotation, searchableText: text }) => (
+    (!options.bookId || annotation.bookId === options.bookId)
+    && (!options.colorId || annotation.colorId === options.colorId)
+    && (!options.noteOnly || annotation.note.trim().length > 0)
+    && (!query || text.includes(query))
+  ));
+  return [...filtered].sort((left, right) => {
+    if (options.sort === 'created-desc') {
+      return right.annotation.createdAtClient - left.annotation.createdAtClient
+        || right.annotation.updatedAtClient - left.annotation.updatedAtClient;
+    }
+    if (options.sort === 'book-reading') return compareLibraryReadingOrder(left, right);
+    return right.annotation.updatedAtClient - left.annotation.updatedAtClient
+      || right.annotation.createdAtClient - left.annotation.createdAtClient;
+  });
+};

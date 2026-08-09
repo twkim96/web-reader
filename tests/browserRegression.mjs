@@ -43,13 +43,18 @@ socket.addEventListener('message', ({ data }) => {
   if (!message.id || !pending.has(message.id)) return;
   const request = pending.get(message.id);
   pending.delete(message.id);
+  clearTimeout(request.timeout);
   if (message.error) request.reject(new Error(message.error.message));
   else request.resolve(message.result);
 });
 
 const command = (method, params = {}) => new Promise((resolve, reject) => {
   const id = nextId++;
-  pending.set(id, { resolve, reject });
+  const timeout = setTimeout(() => {
+    pending.delete(id);
+    reject(new Error(`Chrome DevTools command timed out: ${method}`));
+  }, 60_000);
+  pending.set(id, { resolve, reject, timeout });
   socket.send(JSON.stringify({ id, method, params }));
 });
 
@@ -882,7 +887,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.3')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.4')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -2084,6 +2089,162 @@ try {
     `document.querySelector("h1")?.textContent?.includes("Guest Library")`,
     'shelf after unresolved highlight check',
   );
+  await evaluate(`(() => {
+    window.__libraryAnnotationExport = {
+      blobs: [],
+      downloads: [],
+      shares: [],
+      nativeCreateObjectURL: URL.createObjectURL.bind(URL),
+      nativeRevokeObjectURL: URL.revokeObjectURL.bind(URL),
+      nativeAnchorClick: HTMLAnchorElement.prototype.click,
+    };
+    URL.createObjectURL = (blob) => {
+      window.__libraryAnnotationExport.blobs.push(blob);
+      return 'blob:library-annotation-' + window.__libraryAnnotationExport.blobs.length;
+    };
+    URL.revokeObjectURL = () => undefined;
+    HTMLAnchorElement.prototype.click = function annotationExportClick() {
+      window.__libraryAnnotationExport.downloads.push({
+        download: this.download,
+        href: this.href,
+      });
+    };
+    Object.defineProperty(navigator, 'canShare', {
+      configurable: true,
+      value: ({ files }) => Array.isArray(files) && files.length === 1,
+    });
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async ({ files, title }) => {
+        window.__libraryAnnotationExport.shares.push({
+          title,
+          name: files[0].name,
+          text: await files[0].text(),
+        });
+      },
+    });
+    document.querySelector('button[aria-label="라이브러리 전체 주석"]')?.click();
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
+    'library annotation modal',
+  );
+  await evaluate(`(() => {
+    const input = document.querySelector('[data-library-annotation-search="true"]');
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value',
+    ).set;
+    setter.call(input, 'probe paragraph');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await waitFor(
+    'document.querySelectorAll("[data-library-annotation-item]").length === 1',
+    'library annotation search result',
+  );
+  await evaluate(`(() => {
+    const select = document.querySelector('[data-library-annotation-export-format="true"]');
+    select.value = 'json-library';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  await evaluate(`document.querySelector('[data-library-annotation-download="true"]')?.click()`);
+  await waitFor(
+    'window.__libraryAnnotationExport.downloads.length === 1',
+    'library annotation JSON download',
+  );
+  const libraryAnnotationJson = await evaluate(`(async () => {
+    const state = window.__libraryAnnotationExport;
+    const text = await state.blobs[0].text();
+    const parsed = JSON.parse(text);
+    return {
+      filename: state.downloads[0].download,
+      format: parsed.format,
+      version: parsed.version,
+      count: parsed.annotations.length,
+      quote: parsed.annotations[0]?.quote ?? null,
+    };
+  })()`);
+  assert.equal(libraryAnnotationJson.filename, 'library-annotations.json');
+  assert.equal(libraryAnnotationJson.format, 'web-reader-annotations');
+  assert.equal(libraryAnnotationJson.version, 1);
+  assert.equal(libraryAnnotationJson.count, 1);
+  assert.equal(libraryAnnotationJson.quote, selectionActions.selectedText);
+  await evaluate(`(() => {
+    const select = document.querySelector('[data-library-annotation-export-format="true"]');
+    select.value = 'markdown-library';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  await evaluate(`document.querySelector('[data-library-annotation-share="true"]')?.click()`);
+  await waitFor(
+    'window.__libraryAnnotationExport.shares.length === 1',
+    'library annotation Markdown share',
+  );
+  const libraryAnnotationShare = await evaluate(`window.__libraryAnnotationExport.shares[0]`);
+  assert.equal(libraryAnnotationShare.name, 'library-annotations.md');
+  assert.ok(libraryAnnotationShare.text.includes(selectionActions.selectedText));
+  await waitFor(
+    '!document.querySelector(\'[data-library-annotation-share="true"]\').disabled',
+    'library annotation share completion',
+  );
+  await evaluate(`(() => {
+    Object.defineProperty(navigator, 'canShare', {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: undefined,
+    });
+    document.querySelector('[data-library-annotation-share="true"]')?.click();
+  })()`);
+  await waitFor(
+    'window.__libraryAnnotationExport.downloads.length === 2',
+    'library annotation share download fallback',
+  );
+  const libraryAnnotationFallback = await evaluate(`(() => ({
+    filename: window.__libraryAnnotationExport.downloads[1].download,
+    feedback: document.querySelector('[data-library-annotation-modal="true"] [role="status"]')
+      ?.textContent ?? '',
+  }))()`);
+  assert.equal(libraryAnnotationFallback.filename, 'library-annotations.md');
+  assert.match(libraryAnnotationFallback.feedback, /다운로드로 저장/);
+  await evaluate(`(() => {
+    const state = window.__libraryAnnotationExport;
+    URL.createObjectURL = state.nativeCreateObjectURL;
+    URL.revokeObjectURL = state.nativeRevokeObjectURL;
+    HTMLAnchorElement.prototype.click = state.nativeAnchorClick;
+    delete navigator.canShare;
+    delete navigator.share;
+  })()`);
+  await evaluate(`document.querySelector('[data-library-annotation-item] button')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector("foliate-view"))',
+    'reader from library annotation result',
+  );
+  await waitFor(
+    `(() => {
+      const view = document.querySelector('foliate-view');
+      return Boolean(view?.renderer?.getContents?.().some(({ overlayer }) => (
+        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
+      )));
+    })()`,
+    'library annotation jump target overlay',
+    60_000,
+  );
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
+    'library annotation modal restored after reader',
+  );
+  const libraryAnnotationRestore = await evaluate(`(() => ({
+    query: document.querySelector('[data-library-annotation-search="true"]')?.value,
+    resultCount: document.querySelectorAll('[data-library-annotation-item]').length,
+  }))()`);
+  assert.equal(libraryAnnotationRestore.query, 'probe paragraph');
+  assert.equal(libraryAnnotationRestore.resultCount, 1);
+  await evaluate(`document.querySelector('button[aria-label="라이브러리 주석 닫기"]')?.click()`);
   await evaluate(`caches.delete('pc-reader-v1.7.10')`);
 
   await evaluate(`(() => {
@@ -3251,7 +3412,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.3';
+    const expectedCache = 'pc-reader-v1.8.4';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -3278,7 +3439,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.3',
+      '/sw.js?browser-regression=1.8.4',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -3322,11 +3483,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.3']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.4']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.3$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.4$/);
 
   console.log(JSON.stringify({
     shelf: {

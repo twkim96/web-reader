@@ -11,6 +11,7 @@ import type { HighlightColorId } from '../types';
 import { initDB } from './localDB';
 import {
   V5_OUTBOX_STORE,
+  V5_REMOTE_HEADS_STORE,
   V5_SYNC_CONFLICTS_STORE,
   V5_SYNC_META_STORE,
   V8_ANNOTATIONS_STORE,
@@ -34,6 +35,7 @@ const mutationStoreNames = [
   V5_OUTBOX_STORE,
   V5_SYNC_META_STORE,
   V5_SYNC_CONFLICTS_STORE,
+  V5_REMOTE_HEADS_STORE,
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
 ];
 
@@ -185,6 +187,23 @@ export const getLocalAnnotationsV8 = async (
     .filter(isAnnotation)
     .map(withoutOwner)
     .sort((a, b) => a.createdAtClient - b.createdAtClient);
+};
+
+export const getAllLocalAnnotationsV8 = async (ownerKey: OwnerKey) => {
+  const db = await initDB();
+  const records = await db.getAllFromIndex(
+    V8_ANNOTATIONS_STORE,
+    'by-owner',
+    ownerKey,
+  ) as StoredAnnotationV8[];
+  return records
+    .filter(isAnnotation)
+    .map(withoutOwner)
+    .sort((left, right) => (
+      left.bookId.localeCompare(right.bookId)
+      || left.createdAtClient - right.createdAtClient
+      || left.id.localeCompare(right.id)
+    ));
 };
 
 export const saveLocalAnnotationV8 = (
