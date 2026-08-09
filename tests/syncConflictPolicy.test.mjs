@@ -15,11 +15,13 @@ test('keeps startup and shelf conflicts non-blocking until review is requested',
   const base = {
     hasConflict: true,
     explicitReview: false,
+    conflictKind: 'progress',
     conflictBookId: 'book-1',
     activeBookId: undefined,
   };
   assert.equal(shouldShowSyncConflictDialog({ ...base, view: 'loading' }), false);
   assert.equal(shouldShowSyncConflictDialog({ ...base, view: 'shelf' }), false);
+  assert.equal(shouldShowSyncReviewBadge({ ...base, view: 'loading' }), false);
   assert.equal(shouldShowSyncReviewBadge({ ...base, view: 'shelf' }), true);
   assert.equal(shouldShowSyncConflictDialog({
     ...base,
@@ -28,11 +30,12 @@ test('keeps startup and shelf conflicts non-blocking until review is requested',
   }), true);
 });
 
-test('automatically presents only a conflict for the active reader book', () => {
+test('automatically presents only an active-book reading-position conflict', () => {
   const base = {
     hasConflict: true,
     explicitReview: false,
     view: 'reader',
+    conflictKind: 'progress',
     activeBookId: 'book-1',
   };
   assert.equal(shouldShowSyncConflictDialog({
@@ -46,6 +49,25 @@ test('automatically presents only a conflict for the active reader book', () => 
   assert.equal(shouldShowSyncConflictDialog({
     ...base,
     conflictBookId: null,
+  }), false);
+  assert.equal(shouldShowSyncConflictDialog({
+    ...base,
+    conflictKind: 'bookmark',
+    conflictBookId: 'book-1',
+  }), false);
+  assert.equal(shouldShowSyncConflictDialog({
+    ...base,
+    conflictKind: 'annotation',
+    conflictBookId: 'book-1',
+  }), false);
+  assert.equal(shouldShowSyncReviewBadge({
+    ...base,
+    conflictKind: 'annotation',
+    conflictBookId: 'book-1',
+  }), true);
+  assert.equal(shouldShowSyncReviewBadge({
+    ...base,
+    conflictBookId: 'book-1',
   }), false);
 });
 

@@ -39,6 +39,7 @@ export type ReaderTranslationSourceLanguage = ReaderLanguage | 'auto';
 export type ReaderTranslationProvider = 'auto' | 'browser' | 'google' | 'papago';
 export type ReaderDictionaryProvider = 'naver' | 'wiktionary';
 export type ReaderTtsLanguage = 'auto' | 'ko-KR' | 'en-US' | 'ja-JP';
+export type ReaderTtsChapterEndAction = 'stop' | 'next';
 
 export interface ViewerSettings {
   fontSize: number;
@@ -60,6 +61,7 @@ export interface ViewerSettings {
   ttsLanguage: ReaderTtsLanguage;
   ttsVoiceURI: string;
   ttsRate: number;
+  ttsChapterEndAction: ReaderTtsChapterEndAction;
   customThemes?: CustomTheme[];
 }
 

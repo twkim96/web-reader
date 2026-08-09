@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.5·1.8.6 코드 릴리스 마감. 1.8.6 외부 리뷰 finding 수정·전체 자동검증 완료. 1.8.0~1.8.9 코드·리뷰 종료 뒤 1.8.10 누적 실사용 안정화 예정
+전체 상태: 추가 전체 리뷰 finding을 1.8.8-hotfix.3~7로 분리 구현하고 check·Rules·Playwright 완료. production Chrome 장기 회귀 P3, 다중 탭 통계 sync와 retention/compaction을 1.8.9 실기기 전 Phase A에서 먼저 마감
 
 ## 1. 문서의 역할
 
@@ -29,7 +29,6 @@
   -> 기기 간 주석 동기화
   -> 검색과 내보내기
   -> 번역·사전·TTS
-  -> 단어장과 복습
   -> 신뢰 가능한 독서 통계
 ```
 
@@ -55,12 +54,18 @@
 | 1.8.3-hotfix.2 | 충돌 해결 일관성 보강 | canonical local·일회성 progress command·UI gating·generation barrier | 높음 | 누적 hotfix commit `4e9264a` 완료, push·Rules·실기기 검증 대기 |
 | 1.8.4 | 라이브러리 전체 주석 검색·내보내기 | 대량 조회·파일 저장·공유 | 중간 | 코드·전체 자동검증·외부 리뷰 완료, hotfix.1·실기기 검증 대기 |
 | 1.8.4-hotfix.1 | 동기화 충돌·대량 주석 안정화 | reset·revision chain·멱등성·hidden modal | 높음 | `d5eaa4b` 코드·전체 자동검증·커밋 완료, 누적 실사용 검증 대기 |
-| 1.8.5 | 번역·사전 다중 경로 | 제공자 지원 차이와 fallback | 중간 | 외부 리뷰 finding 수정·full gate 완료, 코드 릴리스 마감·실기기는 1.8.10 이관 |
-| 1.8.6 | 선택·현재 위치 기본 TTS | 기기별 음성·재생 제어 | 중간 | 외부 리뷰 finding 수정·full gate 완료, 코드 릴리스 마감·실기기는 1.8.10 이관 |
-| 1.8.7 | 현재 장 연속 TTS | 문장 추적·자동 이동·복귀 | 높음 | 대기 |
-| 1.8.8 | 단어장·복습 | 중복·동기화·복습 상태 | 중상 | 대기 |
-| 1.8.9 | 독서 통계 | 활성 시간과 기기 중복 정확성 | 높음 | 대기 |
-| 1.8.10 | 1.8.x 누적 실사용 안정화 | PC·iPad·PWA 장기 독서와 교차 기능 회귀 | 매우 높음 | 1.8.0~1.8.9 코드·리뷰 종료 뒤 시작 |
+| 1.8.5 | 번역·사전 다중 경로 | 제공자 지원 차이와 fallback | 중간 | 외부 리뷰 finding 수정·full gate 완료, 코드 릴리스 마감·실기기는 1.8.9 이관 |
+| 1.8.6 | 선택·현재 위치 기본 TTS | 기기별 음성·재생 제어 | 중간 | 외부 리뷰 finding 수정·full gate 완료, 코드 릴리스 마감·실기기는 1.8.9 이관 |
+| 1.8.7 | 현재 장 연속 TTS | 문장 추적·자동 이동·복귀 | 높음 | 1차 외부 리뷰 finding 수정·full gate 완료, 재리뷰 대기·실기기는 1.8.9 이관 |
+| 1.8.8 | 독서 통계 | 활성 시간과 기기 중복 정확성 | 높음 | hotfix.3~7 구현·check·Rules·Playwright 완료, production Chrome P3와 실기기는 1.8.9 이관 |
+| 1.8.8-hotfix.1 | 리더 이동·충돌 모달 안전성 | navigation commit·reader 차단·외부 링크 opener | 높음 | 구현·full gate 완료, 재리뷰 대기 |
+| 1.8.8-hotfix.2 | 통계 복원·집계 안정성 | malformed 격리·exact cursor·canonical date·health 분리 | 높음 | 구현·full gate 완료, 재리뷰 대기 |
+| 1.8.8-hotfix.3 | 원격 이동·TTS 통계 경계 | 2단계 progress commit·연속 TTS·fixed activity | 높음 | 구현·check·Rules·Playwright 완료, production Chrome P3 이관 |
+| 1.8.8-hotfix.4 | 수동 이동·날짜 집계 | navigation commit·자정 분할·listener 수명·slider modal | 높음 | 구현·check·Rules·Playwright 완료, production Chrome P3 이관 |
+| 1.8.8-hotfix.5 | 부트스트랩·진단·통계 방어 | guest fast path·conflict diff·clock read·긴 cursor | 중상 | 구현·check·Rules·Playwright 완료, production Chrome P3 이관 |
+| 1.8.8-hotfix.6 | 충돌 확정 동시성 방어 | empty intent·remote head 단조성·4개 target resolver | 높음 | 구현·check·Rules·Playwright 완료, 외부 재리뷰·실기기 대기 |
+| 1.8.8-hotfix.7 | 통계·이동 재시도 정확성 | TTS playing 시간·single-flight·frozen bookmark·timestamp quarantine | 높음 | 구현·check·Rules·Playwright 완료, 외부 재리뷰·실기기 대기 |
+| 1.8.9 | 실기기 전 선행 안정화·누적 실사용 | multi-tab leader·retention 계측 뒤 PC·iPad·PWA 회귀 | 매우 높음 | 실행 문서 작성, Phase A TODO 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
@@ -392,7 +397,6 @@ type Annotation = {
 - JSON import와 merge
 - 전문 검색 서버
 - 자동 백업 업로드
-- 단어장 export
 
 ### 주요 영역
 
@@ -419,7 +423,7 @@ type Annotation = {
 
 ## 1.8.5 — 번역·사전 다중 경로
 
-상태: 외부 코드 리뷰 finding 수정·전체 자동검증 완료, 코드 릴리스 마감. 실기기 검증은 1.8.10 누적 안정화로 이관 — 세부 실행 문서 `update_1.8.5.md`
+상태: 외부 코드 리뷰 finding 수정·전체 자동검증 완료, 코드 릴리스 마감. 실기기 검증은 1.8.9 누적 안정화로 이관 — 세부 실행 문서 `update_1.8.5.md`
 
 ### 목표
 
@@ -469,7 +473,7 @@ type Annotation = {
 
 ## 1.8.6 — 선택·현재 위치 기본 TTS
 
-상태: 외부 코드 리뷰 finding 수정·전체 자동검증 완료, 코드 릴리스 마감. 실기기 검증은 1.8.10 누적 안정화로 이관 — 세부 실행 문서 `update_1.8.6.md`
+상태: 외부 코드 리뷰 finding 수정·전체 자동검증 완료, 코드 릴리스 마감. 실기기 검증은 1.8.9 누적 안정화로 이관 — 세부 실행 문서 `update_1.8.6.md`
 
 ### 목표
 
@@ -519,7 +523,7 @@ type Annotation = {
 
 ## 1.8.7 — 현재 장 연속 TTS
 
-상태: 대기
+상태: 구현·1차 외부 리뷰 finding 수정·전체 자동검증 완료, 재리뷰 대기. 실기기 검증은 1.8.9 누적 안정화로 이관 — 세부 실행 문서 `update_1.8.7.md`
 
 ### 목표
 
@@ -568,59 +572,9 @@ type Annotation = {
 - sleep timer
 - 최소 2~3일 실제 듣기 안정화
 
-## 1.8.8 — 단어장·복습
+## 1.8.8 — 독서 통계
 
-상태: 대기
-
-### 목표
-
-사전 조회 결과와 원문 문맥을 단어장으로 저장하고, 간단하고 설명 가능한 복습 흐름을 제공한다.
-
-### 포함
-
-- 선택 단어·뜻·원문·책·장·annotation 연결 저장
-- 단어 normalization과 중복 정책
-- 단어장 검색·수정·삭제
-- 사용자별 단어장 동기화
-- `모름`, `애매함`, `앎` 3단계 복습
-- 복습 queue와 마지막 결과 저장
-- Markdown·JSON export 확장
-- 원문 위치로 이동
-
-### 제외
-
-- 형태소 분석 기반 자동 표제어 결정
-- 복잡한 spaced repetition 알고리즘
-- 외부 단어장 서비스 연동
-- 자동 예문 생성
-
-### 주요 영역
-
-- vocabulary local schema·repository
-- vocabulary sync schema·transaction·Rules
-- dictionary result integration
-- review scheduler와 UI
-- export schema 확장
-
-### 완료 조건
-
-- 같은 단어의 대소문자·공백·언어별 normalization 정책이 테스트로 고정된다.
-- 서로 다른 책의 같은 단어를 합칠지 분리할지 사용자가 예측할 수 있다.
-- offline save와 양기기 edit/delete가 annotation과 같은 안전 기준을 만족한다.
-- 복습 도중 종료·재실행해도 결과가 중복 반영되지 않는다.
-
-### 실기기 게이트
-
-- 같은 단어를 여러 책·문장에서 저장
-- offline 저장 후 재연결
-- PC↔iPad 동시 수정·삭제
-- 날짜 변경과 기기 시간대
-- 복습 중 앱 종료·재개
-- 원문 위치 이동
-
-## 1.8.9 — 독서 통계
-
-상태: 대기
+상태: 전체 리뷰 후속을 `update_1.8.8-hotfix.1.md`와 `update_1.8.8-hotfix.2.md`로 분리 구현하고 full gate 완료, 외부 재리뷰 대기. 실기기 검증은 1.8.9 누적 안정화로 이관 — 본 버전 문서 `update_1.8.8.md`
 
 ### 목표
 
@@ -668,22 +622,35 @@ type Annotation = {
 - 빠른 앱 종료와 재실행
 - 최소 2~3일 실제 사용 후 수기 시간과 비교
 
-## 1.8.10 — 1.8.x 누적 실사용 안정화
+### 전체 리뷰 후속 패치
 
-상태: 1.8.0~1.8.9 코드 구현·외부 코드 리뷰 종료 뒤 시작
+- `1.8.8-hotfix.1`: remote navigation commit 결과, 충돌 모달 reader 차단·접근성, EPUB 외부 링크 opener 차단
+- `1.8.8-hotfix.2`: malformed 통계 격리, nanosecond cursor·7일 full audit, canonical date aggregation, 통계 health 분리
+- `1.8.8-hotfix.3`: 원격 progress 2단계 commit, pending save rollback, 연속 TTS 통계, fixed-layout activity
+- `1.8.8-hotfix.4`: 수동 이동 commit, canonical midnight split, stale Document 정리, slider 확인 modal
+- `1.8.8-hotfix.5`: guest local fast path, 충돌 diff·시각 표기, clock sample read 절감, 긴 malformed cursor
+- `1.8.8-hotfix.6`: empty progress intent 확정 guard, resolver 원격 revision·accepted event 단조성
+- `1.8.8-hotfix.7`: actual-playing TTS 통계, device single-flight, 이동 전 책갈피 snapshot, malformed timestamp 격리
+- 장기 retention/compaction과 통계 multi-tab 단일 실행자는 기존 receipt·tombstone·offline recovery 또는 새 lease protocol을 건드리므로 1.8.9 Phase A 선행 안정화로 이관한다.
+
+## 1.8.9 — 1.8.x 누적 실사용 안정화
+
+상태: 실행 문서 작성. 실기기 전에 선행 안정화 Phase A부터 수행 — `update_1.8.9.md`
 
 ### 목표
 
-새 기능 추가를 멈추고 PC Chrome, iPad Safari와 홈 화면 PWA에서 1.8.x 전체 기능을 실제 독서 흐름으로 사용하면서 교차 기능 결함을 수집·수정한다.
+새 기능 추가를 멈추고 알려진 동기화 운영 위험을 먼저 닫은 뒤 PC Chrome, iPad Safari와 홈 화면 PWA에서 1.8.x 전체 기능을 실제 독서 흐름으로 사용하면서 교차 기능 결함을 수집·수정한다.
 
 ### 포함
 
-- 1.8.0~1.8.9 개별 문서의 미완료 실기기 항목 통합
+- 1.8.0~1.8.8 개별 문서의 미완료 실기기 항목 통합
 - 실제 EPUB·TXT·PDF·압축책의 장시간 읽기
-- 선택·하이라이트·메모·동기화·검색·내보내기·번역·TTS·단어장·통계 연속 사용
+- 선택·하이라이트·메모·동기화·검색·내보내기·번역·TTS·통계 연속 사용
 - PC↔iPad 동시 로그인과 offline·background·PWA update 왕복
 - 실사용 재현 로그와 작은 안정화 patch
 - 기능별 외부 코드 재리뷰가 필요한 수정의 구분
+- 실기기 전 통계 multi-tab leader protocol 구현·검증
+- retention/compaction 규모·비용·offline 복귀 계측과 migration 설계
 
 ### 제외
 
@@ -694,7 +661,8 @@ type Annotation = {
 ### 운영 원칙
 
 - 알려진 P0~P2와 자동검증 실패를 다음 기능으로 미루지는 않는다.
-- 실기기 검증 일정만 1.8.10에 모으며, 각 기능은 구현 직후 자동검증과 외부 코드 리뷰를 마친다.
+- Phase A의 코드·운영 TODO를 끝내기 전 Phase B 실기기 완료 판정을 시작하지 않는다.
+- 실기기 검증 일정만 1.8.9에 모으며, 각 기능은 구현 직후 자동검증과 외부 코드 리뷰를 마친다.
 - 안정화 결함은 원인과 영향 범위가 같은 것만 한 patch로 묶는다.
 - 데이터 손실·삭제 부활·잘못된 자동 이동·반복 충돌 알림은 최우선으로 수정하고 전체 동기화 gate를 다시 수행한다.
 - 실사용 중 발견된 편의성 제안은 결함 수정과 분리해 1.9.x 후보로 기록한다.
@@ -764,10 +732,10 @@ Playwright WebKit은 Desktop Safari profile이므로 실제 iPad Safari와 홈 �
 
 ### 누적 안정화 시점
 
-- 1.8.0~1.8.9는 구현 직후 자동검증과 외부 코드 리뷰까지 완료한다.
-- 일정이 필요한 실기기 항목은 삭제하지 않고 각 문서에 `1.8.10 누적 안정화로 이관` 상태로 유지한다.
-- 1.8.9 코드 리뷰가 끝나면 1.8.10 feature freeze를 시작해 위 공통 회귀와 버전별 실기기 항목을 한 흐름으로 수행한다.
-- 구현·리뷰 중 이미 재현된 데이터 손실, 삭제 부활, 잘못된 자동 이동, 반복 알림은 1.8.10까지 미루지 않고 즉시 수정한다.
+- 1.8.0~1.8.8은 구현 직후 자동검증과 외부 코드 리뷰까지 완료한다.
+- 일정이 필요한 실기기 항목은 삭제하지 않고 각 문서에 `1.8.9 누적 안정화로 이관` 상태로 유지한다.
+- 1.8.8 코드 리뷰가 끝나면 1.8.9 feature freeze를 시작해 위 공통 회귀와 버전별 실기기 항목을 한 흐름으로 수행한다.
+- 구현·리뷰 중 이미 재현된 데이터 손실, 삭제 부활, 잘못된 자동 이동, 반복 알림은 1.8.9까지 미루지 않고 즉시 수정한다.
 - 누적 안정화는 최소 2~3일 실제 사용과 양기기 왕복을 기본으로 한다.
 
 ## 9. 개별 버전 문서 규칙
@@ -838,13 +806,10 @@ docs/updates/update_1.8.2.md
 | 번역 제공자 오동작 | 1.8.5 | 무응답·잘못된 성공 표시 | capability·fallback 상태 분리 |
 | speech 상태와 UI 불일치 | 1.8.6~1.8.7 | 정지했는데 재생 표시 | 실제 synthesizer 상태 재검증 |
 | TTS 자동 이동이 진행률 오염 | 1.8.7 | auto bookmark/write 폭증 | navigation save policy 분리 |
-| 단어 중복·복습 손실 | 1.8.8 | 재접속 뒤 중복·누락 | normalization·receipt 계약 수정 |
-| 독서 시간 과대 집계 | 1.8.9 | idle/background 포함 | session boundary와 idle cutoff 수정 |
+| 독서 시간 과대 집계 | 1.8.8 | idle/background 포함 | session boundary와 idle cutoff 수정 |
 
 ## 12. 현재 다음 단계
 
-1. `docs/updates/update_1.8.7.md`를 만들고 현재 장 연속 TTS의 자동 이동·진행률 분리 계약을 먼저 확정한다.
-2. 1.8.7을 코드·자동검증·외부 리뷰 단위로 진행하고 1.8.6 기본 TTS 계약을 회귀 검증한다.
-3. 같은 방식으로 1.8.8~1.8.9를 기능별 코드·자동검증·외부 리뷰 단위로 진행한다.
-4. 각 버전의 실기기 항목은 완료로 오인하지 않고 1.8.10 누적 안정화 대기 상태로 유지한다.
-5. 1.8.9 리뷰 종료 뒤 1.8.10 feature freeze를 열고 PC·iPad·PWA 실사용 검증과 안정화 patch를 시작한다.
+1. 1.8.8-hotfix.3~7 누적 external 재리뷰를 마치고 production Chrome P3를 제외한 자동 gate 결과를 재확인한다.
+2. `update_1.8.9.md` Phase A의 통계 multi-tab leader와 retention/compaction 계측·migration 설계를 완료한다.
+3. Phase A 완료 뒤 PC·iPad·PWA 누적 실사용 검증을 시작하고 작은 안정화 patch로 마감한다.

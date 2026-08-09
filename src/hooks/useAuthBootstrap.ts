@@ -38,6 +38,29 @@ export const useAuthBootstrap = ({
     let isActive = true;
     let authRedirectTimeout: number | undefined;
     let authGeneration = 0;
+    let guestRestore: Promise<boolean> | null = null;
+
+    const activateGuest = (generation: number) => {
+      const previousOwner = ownerRuntime.capture();
+      const nextOwner = ownerRuntime.activate(makeOwnerKey(
+        makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)),
+        'library:local',
+      ));
+      if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
+      guestRestore ??= restoreLocalData({ replaceBooks: true });
+      void guestRestore.then(() => {
+        if (!isActive || generation !== authGeneration || !isGuestRef.current) return;
+        setIsOfflineMode(true);
+        setView('shelf');
+      }).catch((error) => {
+        if (!isActive || generation !== authGeneration) return;
+        console.error('[AuthBootstrap] guest restore failed:', error);
+      });
+    };
+
+    // A remembered guest is entirely local. Do not hold its shelf behind an
+    // external Firebase callback; that callback may arrive late or not at all.
+    if (isGuestRef.current) activateGuest(++authGeneration);
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setIsAuthenticatedLibraryReady(false);
@@ -60,11 +83,7 @@ export const useAuthBootstrap = ({
           setView((prev) => prev === 'reader' ? 'reader' : 'shelf');
         })();
       } else if (isGuestRef.current) {
-        const nextOwner = ownerRuntime.activate(makeOwnerKey(
-          makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)),
-          'library:local',
-        ));
-        if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
+        activateGuest(callbackGeneration);
       } else {
         ownerRuntime.clear();
         resetLibraryState();
@@ -82,13 +101,9 @@ export const useAuthBootstrap = ({
         localStorage.removeItem('isGuest');
 
       } else if (isGuestRef.current) {
-        void (async () => {
-          await restoreLocalData({ replaceBooks: true });
-          if (!isActive) return;
-
-          setIsOfflineMode(true);
-          setView('shelf');
-        })();
+        // The eager local restore above is shared with this callback. Its
+        // generation check prevents a late guest continuation from winning
+        // after an authenticated owner has taken over.
       } else {
         authRedirectTimeout = window.setTimeout(() => {
           setView((prev) => {

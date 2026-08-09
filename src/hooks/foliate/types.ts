@@ -3,6 +3,8 @@
 export interface RelocateDetail {
   cfi: string;
   reason?: string;
+  navigationSource?: string;
+  navigationId?: string;
   anchorCfi?: string;
   fraction: number;
   progressPercent?: number;
@@ -101,9 +103,24 @@ export type FoliateViewElement = HTMLElement & {
   init: (options: { lastLocation: string | null }) => Promise<void>;
   prev: (distance?: number) => void;
   next: (distance?: number) => void;
-  goTo: (cfi: string) => Promise<void>;
-  goToFraction: (fraction: number) => Promise<void>;
-  resolveNavigation: (href: string) => { index?: number } | null;
+  goTo: (cfi: string) => Promise<false | {
+    index?: number;
+    anchor?: Range | ((doc: Document) => Range | Element | number);
+  }>;
+  goToFraction: (fraction: number) => Promise<boolean>;
+  navigateTransient: (
+    target: string | number | {
+      index: number;
+      range?: Range;
+      anchor?: Range | ((doc: Document) => Range | Element | number);
+    },
+    reason: string,
+  ) => Promise<unknown>;
+  cancelTransientNavigation?: (source?: string) => boolean | undefined;
+  resolveNavigation: (href: string) => {
+    index?: number;
+    anchor?: Range | ((doc: Document) => Range | Element | number);
+  } | null;
   search: (options: { query: string }) => AsyncIterable<FoliateSearchResult>;
   clearSearch?: () => void;
   getCFI: (index: number, range?: Range) => string;

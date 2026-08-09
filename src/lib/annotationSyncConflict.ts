@@ -77,6 +77,36 @@ const defaultMeta = (
   updatedAt: now,
 });
 
+const isConflictRemoteHeadStale = (
+  conflict: SyncConflictV5,
+  cached: RemoteHeadCacheV5 | undefined,
+  knownRevision: number,
+) => {
+  const remoteHead = conflict.remoteHead;
+  if (!remoteHead) return Boolean(cached);
+  if (knownRevision > remoteHead.revision) return true;
+  return Boolean(
+    cached
+    && (
+      cached.revision > remoteHead.revision
+      || (
+        cached.revision === remoteHead.revision
+        && cached.head.acceptedEventId !== remoteHead.acceptedEventId
+      )
+    )
+  );
+};
+
+const refreshConflictRemoteHead = (
+  conflict: SyncConflictV5,
+  cached: RemoteHeadCacheV5,
+): SyncConflictV5 => ({
+  ...conflict,
+  state: 'open',
+  remoteHead: cached.head,
+  deferredUntil: undefined,
+});
+
 export const getOpenAnnotationSyncConflictsV5 = async (ownerKey: OwnerKey) => (
   (await getOpenSyncConflictsV5(ownerKey)).filter((conflict) => (
     conflict.event?.target.kind === 'annotation'
@@ -115,7 +145,20 @@ export const resolveAnnotationSyncConflictUseRemoteV5 = async (
 
     const metaStore = tx.objectStore(V5_SYNC_META_STORE);
     const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
-    const meta = await metaStore.get([ownerKey, conflict.targetKey]) as SyncMetaV5 | undefined;
+    const [meta, cachedRemote] = await Promise.all([
+      metaStore.get([ownerKey, conflict.targetKey]) as Promise<SyncMetaV5 | undefined>,
+      remoteStore.get([ownerKey, conflict.targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+    ]);
+    if (isConflictRemoteHeadStale(conflict, cachedRemote, meta?.knownRevision ?? 0)) {
+      if (cachedRemote) {
+        await conflictStore.put(refreshConflictRemoteHead(conflict, cachedRemote));
+        await tx.done;
+      } else {
+        tx.abort();
+        await tx.done.catch(() => undefined);
+      }
+      return null;
+    }
     let result:
       | { kind: 'annotation'; bookId: string }
       | { kind: 'palette'; palette: AnnotationPaletteItem[] };
@@ -237,7 +280,21 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
     }
 
     const metaStore = tx.objectStore(V5_SYNC_META_STORE);
-    const meta = await metaStore.get([ownerKey, conflict.targetKey]) as SyncMetaV5 | undefined;
+    const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
+    const [meta, cachedRemote] = await Promise.all([
+      metaStore.get([ownerKey, conflict.targetKey]) as Promise<SyncMetaV5 | undefined>,
+      remoteStore.get([ownerKey, conflict.targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+    ]);
+    if (isConflictRemoteHeadStale(conflict, cachedRemote, meta?.knownRevision ?? 0)) {
+      if (cachedRemote) {
+        await conflictStore.put(refreshConflictRemoteHead(conflict, cachedRemote));
+        await tx.done;
+      } else {
+        tx.abort();
+        await tx.done.catch(() => undefined);
+      }
+      return null;
+    }
     const nextMeta = meta ?? defaultMeta(ownerKey, conflict.targetKey, now);
     let replacement: AnnotationOutboxEventV5 | AnnotationPaletteOutboxEventV5;
     if (conflict.event.target.kind === 'annotation') {

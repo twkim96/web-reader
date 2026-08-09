@@ -15,6 +15,8 @@ import {
   V8_ANNOTATIONS_STORE,
   V9_ANNOTATION_SETTINGS_STORE,
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
+  V11_READING_SESSIONS_STORE,
+  V12_READING_STATISTICS_SYNC_STORE,
 } from './localDBSchema';
 import type { ArchiveImageIndex } from './archiveImageBook';
 import type { OwnerKey } from './ownerIdentity';
@@ -339,6 +341,7 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
     V5_SYNC_META_STORE,
     V8_ANNOTATIONS_STORE,
     V10_ANNOTATION_BOOK_DELETIONS_STORE,
+    V11_READING_SESSIONS_STORE,
   ];
   for (const storeName of indexedStores) {
     const tx = db.transaction(storeName, 'readwrite');
@@ -360,4 +363,7 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
   const settingsTx = db.transaction(V9_ANNOTATION_SETTINGS_STORE, 'readwrite');
   await settingsTx.objectStore(V9_ANNOTATION_SETTINGS_STORE).delete(ownerKey);
   await settingsTx.done;
+  const statisticsSyncTx = db.transaction(V12_READING_STATISTICS_SYNC_STORE, 'readwrite');
+  await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(ownerKey);
+  await statisticsSyncTx.done;
 };

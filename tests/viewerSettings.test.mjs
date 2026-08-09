@@ -44,6 +44,7 @@ test('defaults auto-open for older stored viewer settings', async () => {
     assert.equal(settings.ttsLanguage, 'auto');
     assert.equal(settings.ttsVoiceURI, '');
     assert.equal(settings.ttsRate, 1);
+    assert.equal(settings.ttsChapterEndAction, 'stop');
   });
 });
 
@@ -56,6 +57,7 @@ test('normalizes unsupported language-tool settings from older or edited storage
     ttsLanguage: 'fr-FR',
     ttsVoiceURI: 123,
     ttsRate: 9,
+    ttsChapterEndAction: 'repeat',
   }), () => {
     const settings = getStoredViewerSettings();
     assert.equal(settings.translationProvider, 'auto');
@@ -65,6 +67,7 @@ test('normalizes unsupported language-tool settings from older or edited storage
     assert.equal(settings.ttsLanguage, 'auto');
     assert.equal(settings.ttsVoiceURI, '');
     assert.equal(settings.ttsRate, 2);
+    assert.equal(settings.ttsChapterEndAction, 'stop');
   });
 });
 

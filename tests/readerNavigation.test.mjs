@@ -9,6 +9,10 @@ import {
   getReaderKeyboardAction,
   getReaderTapAction,
 } from '../src/lib/readerNavigation.ts';
+import {
+  createPendingSliderMove,
+  reuseOrStageReaderJump,
+} from '../src/lib/readerNavigationCommit.ts';
 
 test('preserves tap navigation modes for fixed-layout books', () => {
   assert.equal(getEffectiveNavigationMode('page', true), 'page');
@@ -86,6 +90,34 @@ test('maps spacebar to the same next action in scroll and tap modes', () => {
   assert.equal(getReaderKeyboardAction('page', ' '), 'next');
   assert.equal(getReaderKeyboardAction('left-right', 'Spacebar'), 'next');
   assert.equal(getReaderKeyboardAction('all-dir', 'Space'), 'next');
+});
+
+test('freezes recovery bookmarks before slider navigation and reuses them on retry', () => {
+  let stagedFrom = null;
+  const move = createPendingSliderMove({
+    targetPercent: 80,
+    startPercent: 20,
+    startCfi: 'start-cfi',
+    stageAutoBookmark: (cfi, percent) => {
+      stagedFrom = { cfi, percent };
+      return [{ id: 'frozen', type: 'auto', cfi, progressPercent: percent }];
+    },
+  });
+  assert.deepEqual(stagedFrom, { cfi: 'start-cfi', percent: 20 });
+  assert.equal(move.stagedBookmarks[0].cfi, 'start-cfi');
+
+  let restaged = 0;
+  const first = reuseOrStageReaderJump(null, 'cfi:target', () => {
+    restaged += 1;
+    return move.stagedBookmarks;
+  });
+  const retry = reuseOrStageReaderJump(first, 'cfi:target', () => {
+    restaged += 1;
+    return [{ id: 'wrong-live-target', type: 'auto', cfi: 'target-cfi' }];
+  });
+  assert.equal(retry, first);
+  assert.equal(retry.bookmarks[0].cfi, 'start-cfi');
+  assert.equal(restaged, 1);
 });
 
 test('keeps arrow key navigation mode-specific', () => {

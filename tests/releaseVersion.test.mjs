@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const EXPECTED_VERSION = '1.8.6';
+const EXPECTED_VERSION = '1.8.8';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
   const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime] = await Promise.all([
@@ -63,4 +63,18 @@ test('bundles and precaches the Pretendard UI font with its license', async () =
   assert.match(serviceWorker, /OBSOLETE_PRECACHE_URLS = \['\/fonts\/SUIT-Variable\.woff2'\]/);
   assert.ok(font.byteLength > 1_000_000);
   assert.match(license, /SIL OPEN FONT LICENSE Version 1\.1/);
+});
+
+test('opens publication external links without exposing the reader opener', async () => {
+  const viewSource = await readFile(
+    new URL('../public/foliate-js/view.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    viewSource,
+    /globalThis\.open\(\s*resolvedURL\.href, '_blank', 'noopener,noreferrer'\)/,
+  );
+  assert.match(viewSource, /if \(opened\) opened\.opener = null/);
+  assert.match(viewSource, /resolvedURL\.protocol !== 'http:'/);
+  assert.match(viewSource, /resolvedURL\.protocol !== 'https:'/);
 });

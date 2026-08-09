@@ -7,6 +7,7 @@ import {
   normalizeReaderTranslationSourceLanguage,
 } from '../lib/readerLanguageTools.ts';
 import {
+  normalizeReaderTtsChapterEndAction,
   normalizeReaderTtsLanguage,
   normalizeReaderTtsRate,
   normalizeReaderTtsVoiceUri,
@@ -34,6 +35,7 @@ export const defaultSettings: ViewerSettings = {
   ttsLanguage: 'auto',
   ttsVoiceURI: '',
   ttsRate: 1,
+  ttsChapterEndAction: 'stop',
   customThemes: [],
 };
 
@@ -61,6 +63,7 @@ export const getStoredViewerSettings = () => {
       ttsLanguage: normalizeReaderTtsLanguage(merged.ttsLanguage),
       ttsVoiceURI: normalizeReaderTtsVoiceUri(merged.ttsVoiceURI),
       ttsRate: normalizeReaderTtsRate(merged.ttsRate),
+      ttsChapterEndAction: normalizeReaderTtsChapterEndAction(merged.ttsChapterEndAction),
     };
   } catch {
     return defaultSettings;

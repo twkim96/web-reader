@@ -26,10 +26,12 @@ const {
   deferSyncConflictV5,
   markRemoteProgressIgnoredV5,
   pauseProgressEventV5,
+  previewSyncConflictUseRemoteProgressV5,
   resumePausedAuthEventsV5,
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
   scheduleProgressEventRetryV5,
+  storeRemoteHeadsBatchV5,
   storeRemoteProgressHeadV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
@@ -387,7 +389,7 @@ test('preserves canonical local progress when accepting a remote blocked-chain c
     'event-1',
     20,
     true,
-    conflict.latestLocalPosition,
+    { kind: 'position', position: conflict.latestLocalPosition },
   );
   assert.equal(resolved.progressPercent, 70);
   const recovery = resolved.bookmarks.find(({ name }) => name === '충돌 전 위치');
@@ -681,7 +683,7 @@ test('quiet remote resolution aborts if local reading moved after the policy sna
     'event-1',
     14,
     true,
-    originalPosition,
+    { kind: 'position', position: originalPosition },
   ), null);
   assert.deepEqual(
     (await getOutboxEventsV5(ownerA)).map(({ status }) => status),
@@ -689,6 +691,134 @@ test('quiet remote resolution aborts if local reading moved after the policy sna
   );
   const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
   assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 35);
+});
+
+test('previews active-book remote progress without resolving and finalizes only the same local intent', async () => {
+  const originalPosition = position(30);
+  await enqueue(ownerA, { eventId: 'event-1', position: originalPosition });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
+
+  const preview = await previewSyncConflictUseRemoteProgressV5(ownerA, 'event-1', 13, true);
+  assert.equal(preview.progress.progressPercent, 70);
+  assert.deepEqual(preview.expectedLocalState, {
+    kind: 'position',
+    position: {
+      ...originalPosition,
+      anchorCfi: originalPosition.cfi,
+    },
+  });
+  assert.equal((await getOpenSyncConflictsV5(ownerA))[0].state, 'open');
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 30);
+
+  const resolved = await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'event-1',
+    13,
+    true,
+    preview.expectedLocalState,
+  );
+  assert.equal(resolved.progressPercent, 70);
+  assert.equal((await getOpenSyncConflictsV5(ownerA)).length, 0);
+});
+
+test('does not finalize an empty progress preview after a new local reading intent', async () => {
+  await enqueue(ownerA, {
+    eventId: 'reset-event',
+    operation: 'progress.reset',
+    position: null,
+  });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'reset-event', remote, expectedClaim, 12);
+
+  const preview = await previewSyncConflictUseRemoteProgressV5(
+    ownerA,
+    'reset-event',
+    13,
+    true,
+  );
+  assert.deepEqual(preview.expectedLocalState, { kind: 'empty' });
+
+  await enqueue(ownerA, {
+    eventId: 'new-reading-intent',
+    operation: 'progress.set',
+    position: position(35),
+    sessionId: 'session-2',
+    occurredAtClient: 14,
+  });
+  assert.equal(await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'reset-event',
+    15,
+    true,
+    preview.expectedLocalState,
+  ), null);
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 35);
+  assert.equal((await getOpenSyncConflictsV5(ownerA))[0].state, 'open');
+});
+
+test('does not finalize a stale progress conflict over a newer cached remote head', async () => {
+  const originalPosition = position(30);
+  await enqueue(ownerA, { eventId: 'event-1', position: originalPosition });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
+  const preview = await previewSyncConflictUseRemoteProgressV5(ownerA, 'event-1', 13, true);
+  const newerRemote = {
+    ...remote,
+    revision: 2,
+    acceptedEventId: 'remote-2',
+    position: position(80),
+    occurredAtClient: 14,
+  };
+  await storeRemoteHeadsBatchV5(ownerA, [newerRemote], 14);
+
+  assert.equal(await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'event-1',
+    15,
+    true,
+    preview.expectedLocalState,
+  ), null);
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 30);
+  const [refreshed] = await getOpenSyncConflictsV5(ownerA);
+  assert.equal(refreshed.remoteHead.revision, 2);
+  assert.equal(refreshed.remoteHead.acceptedEventId, 'remote-2');
 });
 
 test('atomic progress mutation rolls back local progress and every event on failure', async () => {
@@ -819,6 +949,58 @@ test('using a remote bookmark advances its target meta atomically', async () => 
   await recordProgressConflictV5(ownerA, 'bookmark-local', remote, expectedClaim, 12);
   await resolveSyncConflictUseRemoteV5(ownerA, 'bookmark-local', 4);
   assert.equal((await getSyncMetaV5(ownerA, 'bookmark:book-1:mark-1')).knownRevision, 5);
+});
+
+test('does not resolve a bookmark conflict with an older cached remote head', async () => {
+  await enqueueBookmarkEventV5(ownerA, {
+    bookId: 'book-1',
+    bookmarkId: 'mark-1',
+    operation: 'bookmark.upsert',
+    payload: {
+      bookmarkId: 'mark-1',
+      cfi: 'local-cfi',
+      name: 'local',
+      color: '#fff',
+      progressPercent: 10,
+      createdAtClient: 1,
+      updatedAtClient: 1,
+    },
+    localBookmarks: [],
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    eventId: 'bookmark-local',
+    occurredAtClient: 1,
+  });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    bookmarkId: 'mark-1',
+    revision: 1,
+    acceptedEventId: 'bookmark-remote-1',
+    operation: 'delete',
+    bookmark: null,
+    acceptedDeviceId: 'device-2',
+    occurredAtClient: 2,
+    updatedAtServer: {},
+    deletedAtServer: {},
+  };
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'bookmark-local', remote, expectedClaim, 12);
+  await storeRemoteHeadsBatchV5(ownerA, [{
+    ...remote,
+    revision: 2,
+    acceptedEventId: 'bookmark-remote-2',
+    occurredAtClient: 3,
+  }], 13);
+
+  assert.equal(await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'bookmark-local',
+    14,
+  ), null);
+  const [refreshed] = await getOpenSyncConflictsV5(ownerA);
+  assert.equal(refreshed.remoteHead.revision, 2);
+  assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'conflict');
 });
 
 test('keeping local creates a new event at the current remote revision', async () => {

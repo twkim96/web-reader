@@ -6,7 +6,7 @@
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
-상태: 외부 코드 리뷰 finding 수정·전체 자동검증 완료, 코드 릴리스 마감 — 실기기 검증은 1.8.10 누적 안정화로 이관
+상태: 외부 코드 리뷰 finding 수정·전체 자동검증 완료, 코드 릴리스 마감 — 실기기 검증은 1.8.9 누적 안정화로 이관
 
 ## 목표
 
@@ -133,7 +133,7 @@ production Chrome regression은 Web Speech mock을 사용해 실제 소리를 �
 
 ## 실기기 검증 이관
 
-다음 항목은 코드 완료 판정과 분리해 1.8.10 누적 안정화에서 확인한다.
+다음 항목은 코드 완료 판정과 분리해 1.8.9 누적 안정화에서 확인한다.
 
 - PC Chrome, iPad Safari, iPad 홈 화면 PWA의 voice 차이
 - 한국어·영어·일본어·혼합 문장 발음과 sentence boundary

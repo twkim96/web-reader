@@ -50,9 +50,12 @@ socket.addEventListener('message', ({ data }) => {
 
 const command = (method, params = {}) => new Promise((resolve, reject) => {
   const id = nextId++;
+  const commandContext = method === 'Runtime.evaluate' && typeof params.expression === 'string'
+    ? `: ${params.expression.replace(/\s+/g, ' ').slice(0, 160)}`
+    : '';
   const timeout = setTimeout(() => {
     pending.delete(id);
-    reject(new Error(`Chrome DevTools command timed out: ${method}`));
+    reject(new Error(`Chrome DevTools command timed out: ${method}${commandContext}`));
   }, 60_000);
   pending.set(id, { resolve, reject, timeout });
   socket.send(JSON.stringify({ id, method, params }));
@@ -106,6 +109,7 @@ const setInputValue = (selector, value) => evaluate(`(() => {
 
 try {
   await command('Page.enable');
+  await command('Page.bringToFront');
   await command('Runtime.enable');
   await command('Network.enable');
   await command('Network.setBypassServiceWorker', { bypass: true });
@@ -118,6 +122,11 @@ try {
   await command('Page.addScriptToEvaluateOnNewDocument', {
     source: `(() => {
       try {
+        localStorage.setItem('isGuest', 'true');
+        localStorage.setItem('web_reader_guest_install_id', 'browser-regression');
+        localStorage.setItem('neverShowInstallPrompt', 'true');
+        localStorage.setItem('shelf_viewMode', 'grid');
+        localStorage.setItem('shelf_sortMode', 'recent');
         const storedSettings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
         localStorage.setItem('viewer_settings', JSON.stringify({
           ...storedSettings,
@@ -176,6 +185,7 @@ try {
     localStorage.setItem('shelf_sortMode', 'recent');
     localStorage.removeItem('viewer_settings');
     localStorage.removeItem('last_reader_session');
+    localStorage.removeItem('reader_tts_cursor_v1');
     return true;
   })()`);
 
@@ -268,6 +278,20 @@ try {
     sentinel?.scrollIntoView({ block: 'center' });
     window.dispatchEvent(new Event('scroll'));
     return Boolean(sentinel);
+  })()`);
+  await waitFor(
+    `document.querySelectorAll("main h3").length >= 100
+      || [...document.querySelectorAll('button')]
+        .some((button) => button.textContent?.includes('더 보기'))`,
+    'automatic shelf page or load-more fallback',
+    5_000,
+  );
+  await evaluate(`(() => {
+    if (document.querySelectorAll('main h3').length >= 100) return true;
+    const button = [...document.querySelectorAll('button')]
+      .find((node) => node.textContent?.includes('더 보기'));
+    button?.click();
+    return Boolean(button);
   })()`);
   await waitFor(
     'document.querySelectorAll("main h3").length >= 100',
@@ -400,13 +424,15 @@ try {
     Number.parseFloat(modalScrollLock.bodyTop),
     -modalScrollLock.scrollBefore,
   );
-  await command('Input.dispatchMouseEvent', {
-    type: 'mouseWheel',
-    x: 10,
-    y: 10,
-    deltaX: 0,
-    deltaY: 600,
-  });
+  await evaluate(`(() => {
+    document.elementFromPoint(10, 10)?.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 600,
+    }));
+    window.scrollBy(0, 600);
+    return true;
+  })()`);
   await sleep(100);
   assert.equal(
     await evaluate('document.body.style.top'),
@@ -867,6 +893,20 @@ try {
       utterance.onend?.({ utterance });
       return true;
     };
+    window.__errorBrowserSpeech = (error = 'synthesis-failed') => {
+      const utterance = currentUtterance;
+      if (!utterance) return false;
+      currentUtterance = null;
+      speechSynthesisMock.speaking = false;
+      speechSynthesisMock.pending = false;
+      utterance.onerror?.({ utterance, error });
+      return true;
+    };
+    window.__setBrowserSpeechRuntime = ({ speaking, paused, pending } = {}) => {
+      if (typeof speaking === 'boolean') speechSynthesisMock.speaking = speaking;
+      if (typeof paused === 'boolean') speechSynthesisMock.paused = paused;
+      if (typeof pending === 'boolean') speechSynthesisMock.pending = pending;
+    };
     window.__setBrowserSpeechStartDelayed = (value) => {
       delaySpeechStart = Boolean(value);
     };
@@ -1010,7 +1050,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.6')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.8')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -1782,6 +1822,13 @@ try {
     view.addTransientOverlay = nativeAddTransientOverlay;
 
     window.__setBrowserSpeechStartDelayed?.(true);
+    const activeTtsIdsBeforeDelayed = Object.keys(localStorage)
+      .filter((key) => key.startsWith('reading_stats_draft_v1:'))
+      .map((key) => {
+        try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+      })
+      .filter((draft) => draft?.state === 'active' && draft?.mode === 'tts')
+      .map((draft) => draft.sessionId);
     const pauseBefore = window.__browserSpeechStats.pause;
     const speakBeforeDelayedStart = window.__browserSpeechStats.speak;
     button.click();
@@ -1791,6 +1838,17 @@ try {
       && performance.now() < delayedStartDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+    const delayedStartNewTtsDrafts = Object.keys(localStorage)
+      .filter((key) => key.startsWith('reading_stats_draft_v1:'))
+      .map((key) => {
+        try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+      })
+      .filter((draft) => (
+        draft?.state === 'active'
+        && draft?.mode === 'tts'
+        && !activeTtsIdsBeforeDelayed.includes(draft.sessionId)
+      ))
+      .length;
     document.querySelector('[data-reader-tts-controls="true"] button[aria-label="일시정지"]')
       ?.click();
     window.__startBrowserSpeech?.();
@@ -1807,6 +1865,7 @@ try {
       overlayFailureControls,
       overlayFailureSpoke,
       delayedStartStayedPaused,
+      delayedStartNewTtsDrafts,
       pauseCalls,
     };
   })()`);
@@ -1815,6 +1874,7 @@ try {
   assert.equal(ttsLifecycleGuards.overlayFailureSpoke, true, JSON.stringify(ttsLifecycleGuards));
   assert.equal(ttsLifecycleGuards.overlayFailureControls, true, JSON.stringify(ttsLifecycleGuards));
   assert.equal(ttsLifecycleGuards.delayedStartStayedPaused, true, JSON.stringify(ttsLifecycleGuards));
+  assert.equal(ttsLifecycleGuards.delayedStartNewTtsDrafts, 0, JSON.stringify(ttsLifecycleGuards));
   assert.ok(ttsLifecycleGuards.pauseCalls >= 2, JSON.stringify(ttsLifecycleGuards));
   const currentPositionTts = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
@@ -1885,6 +1945,374 @@ try {
   assert.equal(currentPositionTts.after, currentPositionTts.before);
   assert.equal(currentPositionTts.stopped, true);
   assert.equal(currentPositionTts.overlayCleared, true);
+  const largeSelectionTts = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const content = renderer?.getContents().find(({ doc }) => (
+      doc.body?.innerText?.includes('Selection probe paragraph')
+    ));
+    const doc = content?.doc;
+    if (!renderer || !doc) return { missing: true };
+    const waitUntil = async (predicate, timeout = 3000) => {
+      const deadline = performance.now() + timeout;
+      while (!predicate() && performance.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return predicate();
+    };
+    const range = doc.createRange();
+    range.selectNodeContents(doc.body);
+    const selection = doc.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    await waitUntil(() => document.querySelector('[data-reader-selection-menu="true"]'));
+    const speakBefore = window.__browserSpeechStats.speak;
+    document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-speak="true"]',
+    )?.click();
+    await waitUntil(() => (
+      window.__browserSpeechStats.speak > speakBefore
+      && document.querySelector('[data-reader-tts-controls="true"]')
+    ));
+    const initialControls = document.querySelector('[data-reader-tts-controls="true"]');
+    const total = Number(initialControls?.dataset.readerTtsTotal ?? 0);
+    const initialWindowSize = Number(initialControls?.dataset.readerTtsWindowSize ?? 0);
+    const textsStart = window.__browserSpeechStats.texts.length - 1;
+    let advanced = 0;
+    for (let index = 0; index < 55; index += 1) {
+      const previousSpeak = window.__browserSpeechStats.speak;
+      if (!window.__finishBrowserSpeech?.()) break;
+      if (!await waitUntil(() => window.__browserSpeechStats.speak > previousSpeak, 2000)) break;
+      advanced += 1;
+    }
+    await waitUntil(() => Number(document.querySelector(
+      '[data-reader-tts-controls="true"]',
+    )?.dataset.readerTtsIndex ?? -1) === 55, 2000);
+    const finalControls = document.querySelector('[data-reader-tts-controls="true"]');
+    const finalIndex = Number(finalControls?.dataset.readerTtsIndex ?? -1);
+    const finalWindowSize = Number(finalControls?.dataset.readerTtsWindowSize ?? 0);
+    const indexes = window.__browserSpeechStats.texts.slice(textsStart).map((text) => Number(
+      /Selection probe paragraph (\\d+)/.exec(text)?.[1] ?? -1,
+    ));
+    finalControls?.querySelector('button[aria-label="TTS 중지"]')?.click();
+    return { advanced, finalIndex, finalWindowSize, indexes, initialWindowSize, total };
+  })()`);
+  assert.equal(largeSelectionTts.missing, undefined, JSON.stringify(largeSelectionTts));
+  assert.equal(largeSelectionTts.total, 180, JSON.stringify(largeSelectionTts));
+  assert.ok(largeSelectionTts.initialWindowSize <= 51, JSON.stringify(largeSelectionTts));
+  assert.ok(largeSelectionTts.finalWindowSize <= 51, JSON.stringify(largeSelectionTts));
+  assert.equal(largeSelectionTts.advanced, 55, JSON.stringify(largeSelectionTts));
+  assert.equal(largeSelectionTts.finalIndex, 55, JSON.stringify(largeSelectionTts));
+  assert.deepEqual(largeSelectionTts.indexes.slice(0, 56), Array.from({ length: 56 }, (_, index) => index));
+  const chapterTts = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const toolbarButton = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+    const content = renderer?.getContents().find(({ doc }) => (
+      doc.body?.innerText?.includes('Selection probe paragraph')
+    ));
+    const doc = content?.doc;
+    if (!view || !renderer || !toolbarButton || !doc) return { missing: true };
+
+    const waitUntil = async (predicate, timeout = 3000) => {
+      const deadline = performance.now() + timeout;
+      while (!predicate() && performance.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return predicate();
+    };
+    const readProgress = async () => {
+      const request = indexedDB.open('web-reader-db');
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const all = db.transaction('progress-v5', 'readonly')
+        .objectStore('progress-v5').getAll();
+      const records = await new Promise((resolve, reject) => {
+        all.onsuccess = () => resolve(all.result);
+        all.onerror = () => reject(all.error);
+      });
+      db.close();
+      const bookId = localStorage.getItem('__browserRegressionSelectionBookId');
+      return records.find((record) => record.bookId === bookId) ?? null;
+    };
+    const comparableProgress = (progress) => progress ? {
+      cfi: progress.cfi ?? null,
+      progressPercent: progress.progressPercent ?? null,
+      revision: progress.revision ?? null,
+      updatedAtClient: progress.updatedAtClient ?? null,
+      autoBookmarkCfi: progress.autoBookmark?.cfi ?? null,
+      manualBookmarkCfi: progress.manualBookmark?.cfi ?? null,
+    } : null;
+    const seedProgressSentinel = async () => {
+      const request = indexedDB.open('web-reader-db');
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const tx = db.transaction('progress-v5', 'readwrite');
+      tx.objectStore('progress-v5').put({
+        ownerKey: 'guest:browser-regression|library:local',
+        bookId: localStorage.getItem('__browserRegressionSelectionBookId'),
+        cfi: 'epubcfi(/tts-regression-sentinel)',
+        progressPercent: 12.34,
+        revision: 77,
+        updatedAtClient: 1_787_000_000_000,
+        lastRead: 1_787_000_000_000,
+      });
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+      db.close();
+    };
+    const originalLocationRange = view.lastLocation?.range;
+    const startRange = doc.createRange();
+    startRange.selectNodeContents(doc.body);
+    startRange.collapse(true);
+    view.lastLocation.range = startRange;
+    const relocateReasons = [];
+    const handleRelocate = (event) => relocateReasons.push(event.detail?.reason ?? null);
+    view.addEventListener('relocate', handleRelocate);
+    await seedProgressSentinel();
+
+    const speakBefore = window.__browserSpeechStats.speak;
+    toolbarButton.click();
+    await waitUntil(() => (
+      window.__browserSpeechStats.speak > speakBefore
+      && document.querySelector('[data-reader-tts-controls="true"]')
+    ));
+    const chapterButton = [...document.querySelectorAll(
+      '[data-reader-tts-controls="true"] button',
+    )].find((button) => button.textContent?.includes('현재 장 연속 듣기'));
+    const chapterSpeakBefore = window.__browserSpeechStats.speak;
+    chapterButton?.click();
+    await waitUntil(() => (
+      window.__browserSpeechStats.speak > chapterSpeakBefore
+      && document.querySelector('[data-reader-tts-controls="true"]')
+        ?.textContent?.includes('현재 장 연속 읽는 중')
+    ));
+    const controlsAtStart = document.querySelector('[data-reader-tts-controls="true"]');
+    const total = Number(controlsAtStart?.dataset.readerTtsTotal ?? 0);
+    const initialIndex = Number(controlsAtStart?.dataset.readerTtsIndex ?? -1);
+    const chapterTextStart = window.__browserSpeechStats.texts.length - 1;
+    const progressBefore = comparableProgress(await readProgress());
+
+    let advanced = 0;
+    for (let iteration = 0; iteration < 55; iteration += 1) {
+      const previousSpeak = window.__browserSpeechStats.speak;
+      if (!window.__finishBrowserSpeech?.()) break;
+      const moved = await waitUntil(
+        () => window.__browserSpeechStats.speak > previousSpeak,
+        2000,
+      );
+      if (!moved) break;
+      advanced += 1;
+    }
+    await waitUntil(() => Number(document.querySelector(
+      '[data-reader-tts-controls="true"]',
+    )?.dataset.readerTtsIndex ?? -1) === 55, 2000);
+    const controlsAfterWindow = document.querySelector('[data-reader-tts-controls="true"]');
+    const afterWindowIndex = Number(controlsAfterWindow?.dataset.readerTtsIndex ?? -1);
+    const afterWindowSize = Number(controlsAfterWindow?.dataset.readerTtsWindowSize ?? -1);
+    const chapterTexts = window.__browserSpeechStats.texts.slice(chapterTextStart);
+    const paragraphIndexes = chapterTexts.map((text) => Number(
+      /Selection probe paragraph (\\d+)/.exec(text)?.[1] ?? -1,
+    ));
+    const sequential = paragraphIndexes.every((value, index) => (
+      index === 0 || value === paragraphIndexes[index - 1] + 1
+    ));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const progressAfterWindow = comparableProgress(await readProgress());
+    const cursorsAfterWindow = JSON.parse(
+      localStorage.getItem('reader_tts_cursor_v1') || '[]',
+    );
+    const cursorAfterWindow = cursorsAfterWindow.find((cursor) => (
+      cursor.bookId === localStorage.getItem('__browserRegressionSelectionBookId')
+    ));
+
+    const retryIndex = Number(controlsAfterWindow?.dataset.readerTtsIndex ?? -1);
+    const retryText = window.__browserSpeechStats.texts.at(-1) ?? '';
+    const retrySpeakBefore = window.__browserSpeechStats.speak;
+    window.__errorBrowserSpeech?.('network');
+    await waitUntil(() => window.__browserSpeechStats.speak > retrySpeakBefore, 2000);
+    const retryTextAfter = window.__browserSpeechStats.texts.at(-1) ?? '';
+    const skipSpeakBefore = window.__browserSpeechStats.speak;
+    window.__errorBrowserSpeech?.('network');
+    await waitUntil(() => window.__browserSpeechStats.speak > skipSpeakBefore, 2000);
+    const controlsAfterSkip = document.querySelector('[data-reader-tts-controls="true"]');
+    const skippedToIndex = Number(controlsAfterSkip?.dataset.readerTtsIndex ?? -1);
+    const skippedToText = window.__browserSpeechStats.texts.at(-1) ?? '';
+
+    const nativeVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    let visibility = 'visible';
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibility,
+    });
+    visibility = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.__setBrowserSpeechRuntime?.({ speaking: false, paused: false, pending: false });
+    const visibilitySpeakBefore = window.__browserSpeechStats.speak;
+    visibility = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitUntil(() => window.__browserSpeechStats.speak > visibilitySpeakBefore, 2000);
+    const visibilityRecoveredText = window.__browserSpeechStats.texts.at(-1) ?? '';
+
+    const timerButton = [...document.querySelectorAll(
+      '[data-reader-tts-controls="true"] button',
+    )].find((button) => button.textContent?.trim() === '10분');
+    timerButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const timerArmed = Boolean(document.querySelector(
+      '[data-reader-tts-controls="true"] [data-reader-tts-sleep-active="true"]',
+    ));
+    const nativeNow = Date.now;
+    Date.now = () => nativeNow() + 11 * 60_000;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitUntil(() => !document.querySelector('[data-reader-tts-controls="true"]'), 2000);
+    Date.now = nativeNow;
+    if (nativeVisibility) Object.defineProperty(document, 'visibilityState', nativeVisibility);
+    else delete document.visibilityState;
+    const sleepStopped = !document.querySelector('[data-reader-tts-controls="true"]');
+    const sleepFeedback = document.querySelector('[data-reader-tts-feedback="true"]')
+      ?.textContent ?? '';
+
+    const resumeSpeakBefore = window.__browserSpeechStats.speak;
+    toolbarButton.click();
+    await waitUntil(() => (
+      window.__browserSpeechStats.speak > resumeSpeakBefore
+      && document.querySelector('[data-reader-tts-controls="true"]')
+    ));
+    const resumeButton = [...document.querySelectorAll(
+      '[data-reader-tts-controls="true"] button',
+    )].find((button) => button.textContent?.includes('저장 위치 이어 듣기'));
+    const resumeChapterSpeakBefore = window.__browserSpeechStats.speak;
+    resumeButton?.click();
+    await waitUntil(() => (
+      window.__browserSpeechStats.speak > resumeChapterSpeakBefore
+      && document.querySelector('[data-reader-tts-controls="true"]')
+        ?.textContent?.includes('현재 장 연속 읽는 중')
+    ), 4000);
+    const resumedControls = document.querySelector('[data-reader-tts-controls="true"]');
+    const resumedIndex = Number(resumedControls?.dataset.readerTtsIndex ?? -1);
+    const resumedText = window.__browserSpeechStats.texts.at(-1) ?? '';
+    resumedControls?.querySelector('button[aria-label="TTS 중지"]')?.click();
+    view.removeEventListener('relocate', handleRelocate);
+    if (originalLocationRange) view.lastLocation.range = originalLocationRange;
+    return {
+      advanced,
+      afterWindowIndex,
+      afterWindowSize,
+      chapterButtonFound: Boolean(chapterButton),
+      cursorSourceIndex: cursorAfterWindow?.sourceIndex ?? -1,
+      initialIndex,
+      paragraphIndexes,
+      progressAfterWindow,
+      progressBefore,
+      relocateReasons,
+      resumeButtonFound: Boolean(resumeButton),
+      resumedIndex,
+      resumedText,
+      retryIndex,
+      retryText,
+      retryTextAfter,
+      sequential,
+      skippedToIndex,
+      skippedToText,
+      sleepFeedback,
+      sleepStopped,
+      timerArmed,
+      total,
+      visibilityRecoveredText,
+    };
+  })()`);
+  assert.equal(chapterTts.missing, undefined, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.chapterButtonFound, true, JSON.stringify(chapterTts));
+  assert.ok(chapterTts.total >= 180, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.initialIndex, 0, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.advanced, 55, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.afterWindowIndex, 55, JSON.stringify(chapterTts));
+  assert.ok(chapterTts.afterWindowSize > 0 && chapterTts.afterWindowSize <= 51, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.sequential, true, JSON.stringify(chapterTts));
+  assert.deepEqual(chapterTts.paragraphIndexes.slice(0, 56), Array.from({ length: 56 }, (_, index) => index));
+  assert.ok(chapterTts.relocateReasons.includes('tts-navigation'), JSON.stringify(chapterTts));
+  assert.deepEqual(chapterTts.progressAfterWindow, chapterTts.progressBefore);
+  assert.equal(chapterTts.cursorSourceIndex, 55, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.retryTextAfter, chapterTts.retryText, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.skippedToIndex, chapterTts.retryIndex + 1, JSON.stringify(chapterTts));
+  assert.notEqual(chapterTts.skippedToText, chapterTts.retryText, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.visibilityRecoveredText, chapterTts.skippedToText, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.timerArmed, true, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.sleepStopped, true, JSON.stringify(chapterTts));
+  assert.match(chapterTts.sleepFeedback, /취침 타이머/);
+  assert.equal(chapterTts.resumeButtonFound, true, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.resumedIndex, chapterTts.skippedToIndex, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.resumedText, chapterTts.skippedToText, JSON.stringify(chapterTts));
+  const ttsStopGuards = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const toolbarButton = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+    if (!view || !toolbarButton) return { missing: true };
+    const waitUntil = async (predicate, timeout = 3000) => {
+      const deadline = performance.now() + timeout;
+      while (!predicate() && performance.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return predicate();
+    };
+    const findResumeButton = () => [...document.querySelectorAll(
+      '[data-reader-tts-controls="true"] button',
+    )].find((button) => button.textContent?.includes('저장 위치 이어 듣기'));
+    const nativeResolveNavigation = view.resolveNavigation.bind(view);
+    const nativeNavigateTransient = view.navigateTransient.bind(view);
+
+    let releasePendingNavigation = () => undefined;
+    view.resolveNavigation = () => ({ index: 999 });
+    view.navigateTransient = () => new Promise((resolve) => {
+      releasePendingNavigation = resolve;
+    });
+    const loadingSpeakBefore = window.__browserSpeechStats.speak;
+    toolbarButton.click();
+    await waitUntil(() => Boolean(findResumeButton()));
+    findResumeButton()?.click();
+    await waitUntil(() => document.querySelector('[data-reader-tts-controls="true"]')
+      ?.textContent?.includes('저장 위치를 준비하고 있습니다'));
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    const loadingStopped = await waitUntil(
+      () => !document.querySelector('[data-reader-tts-controls="true"]'),
+      2000,
+    );
+    releasePendingNavigation();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const loadingStayedStopped = !document.querySelector('[data-reader-tts-controls="true"]')
+      && window.__browserSpeechStats.speak === loadingSpeakBefore + 1;
+
+    view.navigateTransient = () => Promise.reject(new Error('cursor-navigation-probe'));
+    toolbarButton.click();
+    await waitUntil(() => Boolean(findResumeButton()));
+    findResumeButton()?.click();
+    await waitUntil(() => document.querySelector('[data-reader-tts-controls="true"]')
+      ?.textContent?.includes('저장한 TTS 위치를 복원하지 못했습니다'));
+    const errorVisible = Boolean(document.querySelector('[data-reader-tts-controls="true"]'));
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+    const errorStopped = await waitUntil(
+      () => !document.querySelector('[data-reader-tts-controls="true"]'),
+      2000,
+    );
+    view.resolveNavigation = nativeResolveNavigation;
+    view.navigateTransient = nativeNavigateTransient;
+    return { errorStopped, errorVisible, loadingStayedStopped, loadingStopped };
+  })()`);
+  assert.equal(ttsStopGuards.missing, undefined, JSON.stringify(ttsStopGuards));
+  assert.equal(ttsStopGuards.loadingStopped, true, JSON.stringify(ttsStopGuards));
+  assert.equal(ttsStopGuards.loadingStayedStopped, true, JSON.stringify(ttsStopGuards));
+  assert.equal(ttsStopGuards.errorVisible, true, JSON.stringify(ttsStopGuards));
+  assert.equal(ttsStopGuards.errorStopped, true, JSON.stringify(ttsStopGuards));
   const ttsRangeSemantics = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
     const renderer = view?.renderer;
@@ -1912,6 +2340,52 @@ try {
     const endTotal = Number(document.querySelector(
       '[data-reader-tts-controls="true"]',
     )?.dataset.readerTtsTotal ?? 0);
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
+      ?.click();
+
+    const chapterProbeSpeakBefore = window.__browserSpeechStats.speak;
+    button.click();
+    const chapterProbeControlsDeadline = performance.now() + 2000;
+    while ((!document.querySelector('[data-reader-tts-controls="true"]')
+      || window.__browserSpeechStats.speak <= chapterProbeSpeakBefore)
+      && performance.now() < chapterProbeControlsDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    [...document.querySelectorAll('[data-reader-tts-controls="true"] button')]
+      .find((candidate) => candidate.textContent?.includes('현재 장 연속 듣기'))?.click();
+    const chapterModeDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-tts-controls="true"]')
+      ?.textContent?.includes('현재 장 연속 읽는 중')
+      && performance.now() < chapterModeDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const chapterControls = document.querySelector('[data-reader-tts-controls="true"]');
+    const lastChapterIndex = Number(chapterControls?.dataset.readerTtsIndex ?? -1);
+    const endActionSelect = [...(chapterControls?.querySelectorAll('label') ?? [])]
+      .find((label) => label.textContent?.includes('장 끝 동작'))?.querySelector('select');
+    if (endActionSelect) {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      setter.call(endActionSelect, 'next');
+      endActionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const cancelBeforeLastSkip = window.__browserSpeechStats.cancel;
+    document.querySelector('[data-reader-tts-controls="true"] button[aria-label="다음 문장"]')
+      ?.click();
+    const lastSkipDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-tts-controls="true"]')
+      ?.textContent?.includes('현재 장 완료')
+      && performance.now() < lastSkipDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const lastSkipCancelDelta = window.__browserSpeechStats.cancel - cancelBeforeLastSkip;
+    const lastSkipSpeechStopped = window.speechSynthesis.speaking === false;
+    if (endActionSelect) {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      setter.call(endActionSelect, 'stop');
+      endActionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
       ?.click();
     view.lastLocation.range = originalLocationRange;
@@ -1976,12 +2450,24 @@ try {
     selection.removeAllRanges();
     doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
     target.innerHTML = originalMarkup;
-    return { endText, endTotal, semanticMenuFound, semanticSelectedText, semanticTexts };
+    return {
+      endText,
+      endTotal,
+      lastChapterIndex,
+      lastSkipCancelDelta,
+      lastSkipSpeechStopped,
+      semanticMenuFound,
+      semanticSelectedText,
+      semanticTexts,
+    };
   })()`);
   assert.equal(ttsRangeSemantics.missing, undefined, JSON.stringify(ttsRangeSemantics));
   assert.equal(ttsRangeSemantics.missingTarget, undefined, JSON.stringify(ttsRangeSemantics));
   assert.match(ttsRangeSemantics.endText, /Selection probe paragraph 179/);
   assert.ok(ttsRangeSemantics.endTotal > 0 && ttsRangeSemantics.endTotal <= 21);
+  assert.equal(ttsRangeSemantics.lastChapterIndex, 179, JSON.stringify(ttsRangeSemantics));
+  assert.ok(ttsRangeSemantics.lastSkipCancelDelta >= 1, JSON.stringify(ttsRangeSemantics));
+  assert.equal(ttsRangeSemantics.lastSkipSpeechStopped, true, JSON.stringify(ttsRangeSemantics));
   const semanticSpeech = ttsRangeSemantics.semanticTexts.join('\n');
   assert.match(semanticSpeech, /Hello world/, JSON.stringify(ttsRangeSemantics));
   assert.match(semanticSpeech, /漢字\./);
@@ -1992,7 +2478,7 @@ try {
   try {
     await command('Emulation.setDeviceMetricsOverride', {
       width: 320,
-      height: 640,
+      height: 480,
       deviceScaleFactor: 1,
       mobile: false,
     });
@@ -2004,6 +2490,32 @@ try {
     });
     narrowSelectionMenu = await evaluate(`(async () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
+      const toolbarTtsButton = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+      const ttsSpeakBefore = window.__browserSpeechStats.speak;
+      toolbarTtsButton?.click();
+      const ttsDeadline = performance.now() + 2000;
+      while ((!document.querySelector('[data-reader-tts-controls="true"]')
+        || window.__browserSpeechStats.speak <= ttsSpeakBefore)
+        && performance.now() < ttsDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const ttsPanel = document.querySelector('[data-reader-tts-controls="true"]');
+      const ttsDetails = ttsPanel?.querySelector('details');
+      if (ttsDetails) ttsDetails.open = true;
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const ttsPanelRect = ttsPanel?.getBoundingClientRect();
+      const ttsStopRect = ttsPanel?.querySelector('button[aria-label="TTS 중지"]')
+        ?.getBoundingClientRect();
+      const ttsPanelProbe = {
+        clientHeight: ttsPanel?.clientHeight ?? 0,
+        scrollHeight: ttsPanel?.scrollHeight ?? 0,
+        panelTop: ttsPanelRect?.top ?? -1,
+        panelBottom: ttsPanelRect?.bottom ?? -1,
+        stopTop: ttsStopRect?.top ?? -1,
+        stopBottom: ttsStopRect?.bottom ?? -1,
+        viewportHeight: innerHeight,
+      };
+      ttsPanel?.querySelector('button[aria-label="TTS 중지"]')?.click();
       const view = document.querySelector('foliate-view');
       const contents = view?.renderer?.getContents?.() ?? [];
       let targetDoc = null;
@@ -2062,6 +2574,7 @@ try {
         feedbackText: feedback?.textContent ?? '',
         feedbackWidth: feedbackRect?.width ?? 0,
         feedbackWhiteSpace: feedback ? getComputedStyle(feedback).whiteSpace : '',
+        ttsPanelProbe,
       };
       selection.removeAllRanges();
       targetDoc.dispatchEvent(new targetDoc.defaultView.Event('selectionchange'));
@@ -2082,6 +2595,14 @@ try {
     });
   }
   assert.equal(narrowSelectionMenu.missingText, undefined, JSON.stringify(narrowSelectionMenu));
+  assert.ok(narrowSelectionMenu.ttsPanelProbe.panelTop >= 0, JSON.stringify(narrowSelectionMenu));
+  assert.ok(
+    narrowSelectionMenu.ttsPanelProbe.panelBottom <= narrowSelectionMenu.ttsPanelProbe.viewportHeight,
+    JSON.stringify(narrowSelectionMenu),
+  );
+  assert.ok(narrowSelectionMenu.ttsPanelProbe.scrollHeight > narrowSelectionMenu.ttsPanelProbe.clientHeight);
+  assert.ok(narrowSelectionMenu.ttsPanelProbe.stopTop >= narrowSelectionMenu.ttsPanelProbe.panelTop);
+  assert.ok(narrowSelectionMenu.ttsPanelProbe.stopBottom <= narrowSelectionMenu.ttsPanelProbe.panelBottom);
   assert.ok(narrowSelectionMenu.menuRect, JSON.stringify(narrowSelectionMenu));
   assert.ok(narrowSelectionMenu.menuRect.left >= 0, JSON.stringify(narrowSelectionMenu));
   assert.ok(
@@ -3558,6 +4079,80 @@ try {
   assert.equal(shelfThemeAfterReaderClose.shelfBackground, 'rgb(39, 39, 40)');
   assert.equal(shelfThemeAfterReaderClose.shelfColor, 'rgb(184, 184, 184)');
 
+  const readingSessionCount = await waitFor(`new Promise((resolve) => {
+    const request = indexedDB.open('web-reader-db');
+    request.onerror = () => resolve(0);
+    request.onsuccess = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('reading-sessions-v11')) {
+        db.close();
+        resolve(0);
+        return;
+      }
+      const count = db.transaction('reading-sessions-v11')
+        .objectStore('reading-sessions-v11').count();
+      count.onsuccess = () => {
+        db.close();
+        resolve(count.result);
+      };
+      count.onerror = () => {
+        db.close();
+        resolve(0);
+      };
+    };
+  })`, 'persisted reading statistics session');
+  assert.ok(readingSessionCount >= 1);
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 320,
+    height: 640,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await evaluate(`document.querySelector('button[aria-label="독서 통계"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-reading-statistics-modal="true"]\'))',
+    'reading statistics modal',
+  );
+  const readingStatisticsUi = await evaluate(`(() => {
+    const modal = document.querySelector('[data-reading-statistics-modal="true"]');
+    const rect = modal?.getBoundingClientRect();
+    const buttons = [...modal.querySelectorAll('button')].map((button) => {
+      const buttonRect = button.getBoundingClientRect();
+      return {
+        label: button.getAttribute('aria-label') || button.textContent?.trim() || '',
+        width: buttonRect.width,
+        height: buttonRect.height,
+      };
+    });
+    return {
+      text: modal?.textContent ?? '',
+      bookCount: modal?.querySelectorAll('[data-reading-statistics-book="true"]').length ?? 0,
+      modalWidth: rect?.width ?? 0,
+      modalHeight: rect?.height ?? 0,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+      horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+      actionButtonsReachable: buttons.every(({ width, height }) => width >= 44 && height >= 44),
+      jsonEnabled: !modal?.querySelector('[data-reading-statistics-export="json"]')?.disabled,
+    };
+  })()`);
+  assert.match(readingStatisticsUi.text, /오늘/);
+  assert.match(readingStatisticsUi.text, /화면 독서/);
+  assert.match(readingStatisticsUi.text, /TTS 듣기/);
+  assert.ok(readingStatisticsUi.bookCount >= 1, JSON.stringify(readingStatisticsUi));
+  assert.ok(readingStatisticsUi.modalWidth <= readingStatisticsUi.viewportWidth, JSON.stringify(readingStatisticsUi));
+  assert.ok(readingStatisticsUi.modalHeight <= readingStatisticsUi.viewportHeight, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.horizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.actionButtonsReachable, true, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
+  await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+
   const fixedLayout = await evaluate(`(async () => {
     document.body.replaceChildren();
     const { FixedLayout } = await import('/foliate-js/fixed-layout.js');
@@ -4083,7 +4678,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.6';
+    const expectedCache = 'pc-reader-v1.8.8';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -4110,7 +4705,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.6',
+      '/sw.js?browser-regression=1.8.8',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -4154,11 +4749,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.6']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.8']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.6$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.8$/);
 
   console.log(JSON.stringify({
     shelf: {
@@ -4182,6 +4777,7 @@ try {
     highlightRepair,
     solidSevenZip: solidSevenZipResult,
     tapSettings,
+    readingStatistics: readingStatisticsUi,
     tapBoundary,
     fixedLayoutMouseZoomDrag,
     fixedLayout,

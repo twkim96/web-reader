@@ -22,6 +22,23 @@ test('force-save baseline ignores selection relocates and follows normal relocat
   }, 20);
   assert.equal(afterSelectionB, positionA);
 
+  const afterTtsNavigation = updatePersistableReaderLocation(positionA, {
+    cfi: 'epubcfi(/6/5[tts])',
+    anchorCfi: 'epubcfi(/6/5[tts])',
+    progressPercent: 25,
+    reason: 'tts-navigation',
+  }, 25);
+  assert.equal(afterTtsNavigation, positionA);
+
+  const afterDerivedTtsAnchor = updatePersistableReaderLocation(positionA, {
+    cfi: 'epubcfi(/6/5[tts-anchor])',
+    anchorCfi: 'epubcfi(/6/5[tts-anchor])',
+    progressPercent: 26,
+    reason: 'anchor',
+    navigationSource: 'tts',
+  }, 26);
+  assert.equal(afterDerivedTtsAnchor, positionA);
+
   const afterNormalC = updatePersistableReaderLocation(afterSelectionB, {
     cfi: 'epubcfi(/6/6[C])',
     anchorCfi: 'epubcfi(/6/6[C])',

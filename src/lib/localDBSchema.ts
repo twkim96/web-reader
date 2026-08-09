@@ -1,7 +1,7 @@
 import type { IDBPDatabase, IDBPTransaction } from 'idb';
 
 export const LOCAL_DB_NAME = 'web-reader-db';
-export const LOCAL_DB_VERSION = 10;
+export const LOCAL_DB_VERSION = 12;
 
 export const LEGACY_BOOKS_STORE = 'books';
 export const LEGACY_METADATA_STORE = 'metadata';
@@ -20,6 +20,8 @@ export const V5_SYNC_LEASES_STORE = 'sync-leases-v5';
 export const V8_ANNOTATIONS_STORE = 'annotations-v8';
 export const V9_ANNOTATION_SETTINGS_STORE = 'annotation-settings-v9';
 export const V10_ANNOTATION_BOOK_DELETIONS_STORE = 'annotation-book-deletions-v10';
+export const V11_READING_SESSIONS_STORE = 'reading-sessions-v11';
+export const V12_READING_STATISTICS_SYNC_STORE = 'reading-statistics-sync-v12';
 
 const createStore = (
   db: IDBPDatabase<unknown>,
@@ -149,4 +151,16 @@ export const upgradeLocalDB = (
     { keyPath: ['ownerKey', 'bookId'] },
   ) ?? transaction.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
   createIndex(annotationBookDeletions, 'by-owner', 'ownerKey');
+
+  const readingSessions = createStore(db, V11_READING_SESSIONS_STORE, {
+    keyPath: ['ownerKey', 'sessionId'],
+  }) ?? transaction.objectStore(V11_READING_SESSIONS_STORE);
+  createIndex(readingSessions, 'by-owner', 'ownerKey');
+  createIndex(readingSessions, 'by-owner-book', ['ownerKey', 'bookId']);
+  createIndex(readingSessions, 'by-owner-started-at', ['ownerKey', 'startedAtClient']);
+  createIndex(readingSessions, 'by-owner-sync-next-attempt', [
+    'ownerKey', 'syncState', 'nextAttemptAt',
+  ]);
+
+  createStore(db, V12_READING_STATISTICS_SYNC_STORE, { keyPath: 'ownerKey' });
 };

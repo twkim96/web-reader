@@ -15,6 +15,7 @@ import {
   FilePlus,
   CloudLightning,
   Highlighter,
+  BarChart3,
   X
 } from 'lucide-react';
 import type { CloudSyncStatus } from './FileUploader';
@@ -38,6 +39,7 @@ interface ShelfHeaderProps {
   setShowManage: (show: boolean) => void;
   setShowImportConfirm: (show: boolean) => void;
   onShowAnnotations: () => void;
+  onShowStatistics: () => void;
   onCancelSync: () => void;
 }
 
@@ -60,6 +62,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   setShowManage,
   setShowImportConfirm,
   onShowAnnotations,
+  onShowStatistics,
   onCancelSync
 }) => {
   const [isBottomDock, setIsBottomDock] = useState(false);
@@ -176,6 +179,15 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
         </button>
 
         <button
+          onClick={() => runAction(onShowStatistics)}
+          className={buttonClass}
+          title="독서 통계"
+          aria-label="독서 통계"
+        >
+          <BarChart3 size={iconSize} />
+        </button>
+
+        <button
           onClick={() => runAction(() => setShowImportConfirm(true))}
           className={accentButtonClass}
           title="Add Local Book"
@@ -236,8 +248,8 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   const bottomDock = (
     <div className={`fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.85rem)] z-[80] flex justify-center px-2 pointer-events-none ${isBottomDock ? 'md:flex' : 'md:hidden'}`}>
-      <div className={`${bottomDockClass} pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out`}>
-        <div className="flex w-full items-center justify-between gap-0.5 md:w-auto md:justify-start md:gap-2">
+      <div className={`${bottomDockClass} pointer-events-auto overflow-x-auto animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out`}>
+        <div className="flex min-w-max items-center justify-start gap-0.5 md:gap-2">
           {renderDockActions({
             iconSize: bottomDockIconSize,
             buttonClass: bottomDockButtonClass,

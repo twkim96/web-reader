@@ -36,6 +36,16 @@ type PendingRelocateSave = {
   bookmarks: Bookmark[];
 };
 
+type RemoteJumpPreparationSnapshot = {
+  id: number;
+  hasUnsavedUserChange: boolean;
+  forceNextRelocateSave: boolean;
+  pendingExpectedPercent: number | null;
+  pendingBookmarks: Bookmark[] | null;
+  pendingRelocateSave: PendingRelocateSave | null;
+  unsavedSince: number | null;
+};
+
 interface UseReaderProgressSaveOptions {
   initialCfi?: string;
   initialPercent?: number;
@@ -69,6 +79,8 @@ export const useReaderProgressSave = ({
   const pendingRelocateSaveRef = useRef<PendingRelocateSave | null>(null);
   const relocateSaveTimerRef = useRef<number | null>(null);
   const unsavedSinceRef = useRef<number | null>(null);
+  const remoteJumpPreparationRef = useRef(0);
+  const remoteJumpSnapshotRef = useRef<RemoteJumpPreparationSnapshot | null>(null);
   const saveContextRef = useRef<SaveContext>({
     currentCfi: '',
     currentAnchorCfi: '',
@@ -269,9 +281,62 @@ export const useReaderProgressSave = ({
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
   const prepareRemoteJump = useCallback(() => {
+    remoteJumpPreparationRef.current += 1;
+    remoteJumpSnapshotRef.current = {
+      id: remoteJumpPreparationRef.current,
+      hasUnsavedUserChange: hasUnsavedUserChangeRef.current,
+      forceNextRelocateSave: forceNextRelocateSaveRef.current,
+      pendingExpectedPercent: pendingExpectedPercentRef.current,
+      pendingBookmarks: pendingBookmarksRef.current,
+      pendingRelocateSave: pendingRelocateSaveRef.current,
+      unsavedSince: unsavedSinceRef.current,
+    };
     skipNextSaveRef.current = true;
     clearPendingSave();
+    return remoteJumpPreparationRef.current;
   }, [clearPendingSave]);
+
+  const prepareRemoteRollback = useCallback((preparationId: number) => {
+    if (remoteJumpSnapshotRef.current?.id !== preparationId) return false;
+    skipNextSaveRef.current = true;
+    return true;
+  }, []);
+
+  const cancelRemoteJump = useCallback((preparationId: number) => {
+    const snapshot = remoteJumpSnapshotRef.current;
+    if (remoteJumpPreparationRef.current !== preparationId || snapshot?.id !== preparationId) return;
+    remoteJumpSnapshotRef.current = null;
+    skipNextSaveRef.current = false;
+    if (!hasUnsavedUserChangeRef.current) {
+      hasUnsavedUserChangeRef.current = snapshot.hasUnsavedUserChange;
+      forceNextRelocateSaveRef.current = snapshot.forceNextRelocateSave;
+      pendingExpectedPercentRef.current = snapshot.pendingExpectedPercent;
+      pendingBookmarksRef.current = snapshot.pendingBookmarks;
+      pendingRelocateSaveRef.current = snapshot.pendingRelocateSave;
+      unsavedSinceRef.current = snapshot.unsavedSince;
+      if (snapshot.pendingRelocateSave) {
+        scheduleRelocateSave(snapshot.pendingRelocateSave, {
+          delayMs: EXPLICIT_RELOCATE_SAVE_SETTLE_MS,
+          useMaxInterval: false,
+        });
+      }
+      return;
+    }
+    const { cfi, anchorCfi, percent } = lastPersistableLocationRef.current;
+    if (!cfi) return;
+    scheduleRelocateSave({
+      cfi,
+      anchorCfi,
+      percent,
+      bookmarks: pendingBookmarksRef.current ?? saveContextRef.current.bookmarks,
+    }, { delayMs: EXPLICIT_RELOCATE_SAVE_SETTLE_MS, useMaxInterval: false });
+  }, [scheduleRelocateSave]);
+
+  const finishRemoteJump = useCallback((preparationId: number) => {
+    if (remoteJumpSnapshotRef.current?.id !== preparationId) return;
+    remoteJumpSnapshotRef.current = null;
+    skipNextSaveRef.current = false;
+  }, []);
 
   const getPersistenceState = useCallback(() => ({
     hasUnsavedUserChange: hasUnsavedUserChangeRef.current,
@@ -310,12 +375,16 @@ export const useReaderProgressSave = ({
   const completeRemoteJump = useCallback(async (
     target: RemoteProgressTarget,
     bookmarks: Bookmark[],
-    options?: { claimDevice?: boolean }
+    options?: { claimDevice?: boolean; finalize?: () => Promise<boolean> }
   ) => {
     const safePercent = toClampedPercent(target.percent) ?? 0;
     const bookmarksKey = getBookmarksKey(bookmarks);
 
-    if (options?.claimDevice) {
+    if (options?.finalize) {
+      const committed = await options.finalize();
+      if (!committed) return false;
+      lastSaveTimeRef.current = target.lastRead;
+    } else if (options?.claimDevice) {
       const committed = await onSaveProgress(target.cfi, safePercent, bookmarks, {
         force: true,
         anchorCfi: target.anchorCfi || target.cfi,
@@ -350,24 +419,28 @@ export const useReaderProgressSave = ({
       percent: safePercent,
     };
     clearPendingSave();
+    skipNextSaveRef.current = false;
     return true;
   }, [clearPendingSave, onAdoptRemoteProgress, onSaveProgress]);
 
   const completeRemoteReset = useCallback(async (
     target: Omit<RemoteProgressTarget, 'cfi' | 'anchorCfi' | 'percent'>,
     bookmarks: Bookmark[],
+    options?: { finalize?: () => Promise<boolean> },
   ) => {
-    const adopted = await onAdoptRemoteProgress({
-      operation: 'reset',
-      bookId: target.bookId,
-      cfi: '',
-      anchorCfi: '',
-      progressPercent: 0,
-      lastRead: target.lastRead,
-      bookmarks,
-      syncRevision: target.syncRevision,
-      acceptedEventId: target.acceptedEventId,
-    });
+    const adopted = options?.finalize
+      ? await options.finalize()
+      : await onAdoptRemoteProgress({
+        operation: 'reset',
+        bookId: target.bookId,
+        cfi: '',
+        anchorCfi: '',
+        progressPercent: 0,
+        lastRead: target.lastRead,
+        bookmarks,
+        syncRevision: target.syncRevision,
+        acceptedEventId: target.acceptedEventId,
+      });
     if (!adopted) return false;
     lastSaveTimeRef.current = target.lastRead;
     lastPersistedProgressRef.current = {
@@ -378,6 +451,7 @@ export const useReaderProgressSave = ({
     };
     lastPersistableLocationRef.current = { cfi: '', anchorCfi: '', percent: 0 };
     clearPendingSave();
+    skipNextSaveRef.current = false;
     return true;
   }, [clearPendingSave, onAdoptRemoteProgress]);
 
@@ -390,6 +464,9 @@ export const useReaderProgressSave = ({
     saveCurrentProgress,
     flushCurrentProgress,
     prepareRemoteJump,
+    prepareRemoteRollback,
+    cancelRemoteJump,
+    finishRemoteJump,
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
     completeRemoteJump,

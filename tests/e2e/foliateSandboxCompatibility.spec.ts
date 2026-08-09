@@ -165,10 +165,95 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
   expect(result.relocateReasons).toContain('selection-page');
 });
 
+test('paginator keeps TTS relocation metadata and lets the latest user navigation win', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const urls = [0, 1, 2].map((index) => URL.createObjectURL(new Blob([
+      `<!doctype html><html><body>${Array.from({ length: 80 }, (_, line) => (
+        `<p>Section ${index} line ${line}.</p>`
+      )).join('')}</body></html>`,
+    ], { type: 'text/html' })));
+    let releaseSlowSection: () => void = () => undefined;
+    const slowSectionReady = new Promise<void>((resolve) => {
+      releaseSlowSection = resolve;
+    });
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: urls.map((url, index) => ({
+        linear: 'yes',
+        load: async () => {
+          if (index === 1) await slowSectionReady;
+          return url;
+        },
+        unload: () => undefined,
+      })),
+    });
+    const events: Array<{
+      index: number;
+      reason: string | null;
+      navigationSource: string | null;
+      navigationId: string | null;
+    }> = [];
+    renderer.addEventListener('relocate', ((event: CustomEvent) => {
+      events.push({
+        index: event.detail?.index ?? -1,
+        reason: event.detail?.reason ?? null,
+        navigationSource: event.detail?.navigationSource ?? null,
+        navigationId: event.detail?.navigationId ?? null,
+      });
+    }) as EventListener);
+    await renderer.goTo({ index: 0 });
+    const staleTts = renderer.goTo({
+      index: 1,
+      reason: 'tts-navigation',
+      navigationSource: 'tts',
+      navigationId: 'tts:stale',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await renderer.goTo({ index: 2, reason: 'page' });
+    releaseSlowSection();
+    await staleTts;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const latestIndex = renderer.getContents()[0]?.index ?? -1;
+    const staleCommitted = events.some(({ index, navigationId }) => (
+      index === 1 || navigationId === 'tts:stale'
+    ));
+
+    const ttsStart = events.length;
+    await renderer.goTo({
+      index: 0,
+      reason: 'tts-navigation',
+      navigationSource: 'tts',
+      navigationId: 'tts:derived',
+    });
+    renderer.render();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const derivedEvents = events.slice(ttsStart);
+    renderer.cancelNavigation('tts');
+    renderer.destroy();
+    renderer.remove();
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    return { derivedEvents, latestIndex, staleCommitted };
+  });
+
+  expect(result.latestIndex).toBe(2);
+  expect(result.staleCommitted).toBe(false);
+  expect(result.derivedEvents.length).toBeGreaterThan(0);
+  expect(result.derivedEvents.every(({ navigationSource, navigationId }) => (
+    navigationSource === 'tts' && navigationId === 'tts:derived'
+  ))).toBe(true);
+  expect(result.derivedEvents.some(({ reason }) => reason === 'anchor')).toBe(true);
+});
+
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.6';
+    const viewModule = '/foliate-js/view.js?v=1.8.8';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [
@@ -207,6 +292,10 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
       open: (source: typeof book) => Promise<void>;
       init: (options: { lastLocation: string | null }) => Promise<void>;
       getCFI: (index: number, range: Range) => string;
+      navigateTransient: (
+        target: { index: number; range: Range },
+        reason: string,
+      ) => Promise<void>;
       addAnnotation: (annotation: { value: string; annotationId: string }) => Promise<unknown>;
       deleteAnnotation: (annotation: { value: string; annotationId: string }) => Promise<unknown>;
       addTransientOverlay: (overlay: {
@@ -262,6 +351,11 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
     const value = view.getCFI(0, range);
     const annotation = { value, annotationId: 'annotation-1' };
     await view.addAnnotation(annotation);
+    const relocateReasons: Array<string | null> = [];
+    view.addEventListener('relocate', ((event: CustomEvent) => {
+      relocateReasons.push(event.detail?.reason ?? null);
+    }) as EventListener);
+    await view.navigateTransient({ index: 0, range }, 'tts-navigation');
     const drawn = Boolean(content.overlayer?.element.querySelector('[data-e2e-highlight="true"]'));
     const rect = range.getBoundingClientRect();
     const ttsOverlayKey = {};
@@ -339,6 +433,7 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
       overlaysAfterHighlight,
       overlayCount,
       plainLinkIndex,
+      relocateReasons,
       savedAfterTts,
       savedDuringTts,
       showCount,
@@ -362,6 +457,7 @@ test('Foliate range annotations draw, receive taps, and delete in the active ove
   expect(result.savedDuringTts).toBe(true);
   expect(result.savedAfterTts).toBe(true);
   expect(result.ttsOverlayHitIsSaved).toBe(true);
+  expect(result.relocateReasons).toContain('tts-navigation');
   expect(result.linkCount).toBe(1);
   expect(result.plainLinkIndex).toBe(1);
 });

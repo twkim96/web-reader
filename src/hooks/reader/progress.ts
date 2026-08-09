@@ -3,11 +3,13 @@
 import type { Bookmark } from '../../types';
 import { toClampedPercent } from '../foliate/progress';
 import { isSelectionRelocateReason } from '../../lib/readerTextSelection';
+import { isReaderTtsNavigationReason } from '../../lib/readerTts';
 
 export type ReaderRelocateDetail = {
   cfi?: string;
   anchorCfi?: string;
   reason?: string;
+  navigationSource?: string;
   fraction?: number;
   progressPercent?: number;
   location?: {
@@ -66,7 +68,11 @@ export const updatePersistableReaderLocation = (
   detail: ReaderRelocateDetail,
   fallbackPercent: number,
 ) => {
-  if (!detail.cfi || isSelectionRelocateReason(detail.reason)) return current;
+  if (
+    !detail.cfi
+    || isSelectionRelocateReason(detail.reason)
+    || isReaderTtsNavigationReason(detail.reason, detail.navigationSource)
+  ) return current;
   const percent = getRelocatePercent(detail, fallbackPercent);
   if (percent === null) return current;
   return {

@@ -27,6 +27,16 @@ Web Reader의 버전 계획, 구현 범위, 리뷰 결과, 자동검증과 실�
 - [1.8.4-hotfix.1 동기화 충돌·대량 주석 안정화](./update_1.8.4-hotfix.1.md)
 - [1.8.5 번역·사전 다중 경로](./update_1.8.5.md)
 - [1.8.6 선택·현재 위치 기본 TTS](./update_1.8.6.md)
+- [1.8.7 현재 장 연속 TTS](./update_1.8.7.md)
+- [1.8.8 독서 통계](./update_1.8.8.md)
+- [1.8.8-hotfix.1 리더 이동·충돌 모달 안전성](./update_1.8.8-hotfix.1.md)
+- [1.8.8-hotfix.2 독서 통계 복원·집계 안정성](./update_1.8.8-hotfix.2.md)
+- [1.8.8-hotfix.3 원격 이동·TTS 통계 경계 안정화](./update_1.8.8-hotfix.3.md)
+- [1.8.8-hotfix.4 수동 이동·날짜 집계 안정화](./update_1.8.8-hotfix.4.md)
+- [1.8.8-hotfix.5 부트스트랩·진단·통계 동기화 방어](./update_1.8.8-hotfix.5.md)
+- [1.8.8-hotfix.6 충돌 확정 시점 동시성 방어](./update_1.8.8-hotfix.6.md)
+- [1.8.8-hotfix.7 통계·이동 재시도 정확성](./update_1.8.8-hotfix.7.md)
+- [1.8.9 실기기 전 선행 안정화·누적 실사용 검증](./update_1.8.9.md)
 
 ## 과거 기록
 

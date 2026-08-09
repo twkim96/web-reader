@@ -17,6 +17,7 @@ import {
   getReaderTapAction,
 } from '../lib/readerNavigation';
 import { isSelectionRelocateReason } from '../lib/readerTextSelection';
+import { isReaderTtsNavigationReason } from '../lib/readerTts';
 import { ACCENT_PALETTE } from '../lib/constants';
 import { getThemeClasses, getThemeColors, getThemeCssVariables, getThemeTextureCss } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
@@ -55,11 +56,15 @@ import type { SyncHealth } from '../lib/syncHealth';
 import type { ResolvedRemoteProgressCommand } from '../hooks/useSyncConflictResolution';
 import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
 import { buildTranslationAnnotationNote } from '../lib/readerLanguageTools';
+import { getReaderTtsContentIdentity } from '../lib/readerTtsCursor';
+import { reuseOrStageReaderJump, type PendingReaderJump } from '../lib/readerNavigationCommit';
+import { useReadingSessionTracker } from '../hooks/reader/useReadingSessionTracker';
 
 interface EpubReaderProps {
   book: Book;
   ownerKey: OwnerKey;
   annotationSyncDeviceId?: string;
+  readingStatsDeviceId?: string;
   onAnnotationSyncHealthChange?: (health: SyncHealth) => void;
   googleToken: string;
   settings: ViewerSettings;
@@ -75,6 +80,8 @@ interface EpubReaderProps {
   remoteProgress?: RemoteProgressUpdate;
   resolvedRemoteProgressCommand?: ResolvedRemoteProgressCommand | null;
   onResolvedRemoteProgressConsumed?: (commandId: string) => void;
+  onResolvedRemoteProgressFinalize?: (commandId: string) => Promise<boolean>;
+  onResolvedRemoteProgressCancelled?: (commandId: string) => void;
   outboxProgressConflictRevision?: number;
   ignoredRemoteRevision?: number;
   onIgnoreRemoteProgress?: (bookId: string, revision: number) => Promise<boolean>;
@@ -83,6 +90,7 @@ interface EpubReaderProps {
   onRegisterProgressFlush?: (flush: (() => Promise<boolean>) | null) => void;
   onRegisterQuietResumeEligibility?: (check: (() => boolean) | null) => void;
   onRegisterProgressConflictAutoResolveEligibility?: (check: (() => boolean) | null) => void;
+  interactionBlocked?: boolean;
 }
 
 const KEYBOARD_SCROLL_RATIO = 0.25;
@@ -188,6 +196,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   book,
   ownerKey,
   annotationSyncDeviceId,
+  readingStatsDeviceId,
   onAnnotationSyncHealthChange,
   googleToken,
   settings,
@@ -203,6 +212,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   remoteProgress,
   resolvedRemoteProgressCommand,
   onResolvedRemoteProgressConsumed,
+  onResolvedRemoteProgressFinalize,
+  onResolvedRemoteProgressCancelled,
   outboxProgressConflictRevision,
   ignoredRemoteRevision,
   onIgnoreRemoteProgress,
@@ -211,6 +222,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   onRegisterProgressFlush,
   onRegisterQuietResumeEligibility,
   onRegisterProgressConflictAutoResolveEligibility,
+  interactionBlocked = false,
 }) => {
   const theme = getThemeClasses(settings);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
@@ -233,6 +245,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const documentTapRef = useRef<(point: { x: number; y: number }) => boolean>(() => false);
   const annotationMenuCloseRef = useRef<() => void>(() => undefined);
   const ttsStopRef = useRef<() => void>(() => undefined);
+  const markReadingActivityRef = useRef<() => void>(() => undefined);
   const annotationTapRef = useRef<(
     doc: Document,
     point: { x: number; y: number },
@@ -328,7 +341,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || chrome.showToc
     || chrome.showSearchModal
     || chrome.showJumpInput
-    || editingAnnotationId !== null;
+    || editingAnnotationId !== null
+    || interactionBlocked;
   const isReaderPanelOpenRef = useRef(false);
   const showControlsRef = useRef(chrome.showControls);
   const {
@@ -340,6 +354,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     saveCurrentProgress,
     flushCurrentProgress,
     prepareRemoteJump,
+    prepareRemoteRollback,
+    cancelRemoteJump,
+    finishRemoteJump,
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
     completeRemoteJump,
@@ -408,7 +425,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [bindSelectionDocument, hasSelectionRef, markUserProgressChange]);
 
   const handleReaderRelocate = useCallback((detail: RelocateDetail) => {
-    if (!isSelectionRelocateReason(detail.reason)) {
+    if (
+      !isSelectionRelocateReason(detail.reason)
+      && !isReaderTtsNavigationReason(detail.reason, detail.navigationSource)
+    ) {
       clearTextSelection();
       annotationMenuCloseRef.current();
       ttsStopRef.current();
@@ -496,7 +516,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     showFeedback: showSelectionFeedback,
   });
   const tts = useReaderTts({
+    ownerKey,
     bookId: book.id,
+    contentIdentity: getReaderTtsContentIdentity(book),
     enabled: !isFixedLayout,
     isLoaded,
     viewRef,
@@ -505,12 +527,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     dismissSelectionMenu: dismissTextSelectionMenu,
   });
   const stopTts = tts.stop;
-
-  useEffect(() => {
-    if (isBaseReaderPanelOpen || translation !== null) stopTts();
-  }, [isBaseReaderPanelOpen, stopTts, translation]);
-
-  const isReaderPanelOpen = isBaseReaderPanelOpen || translation !== null;
   const readerShellRef = useRef<HTMLDivElement>(null);
   const registerTransientPanelCloser = chrome.registerTransientPanelCloser;
 
@@ -588,7 +604,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     adoptResolvedBookmarks,
     addBookmark,
     deleteBookmark,
-    createAutoBookmark,
+    stageAutoBookmark,
+    commitBookmarks,
   } = useReaderBookmarks({
     initialBookmarks,
     remoteBookmarks: remoteProgress?.bookmarks,
@@ -602,6 +619,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const {
     syncConflict,
+    resolvingSyncConflict,
     dismissSyncConflict,
     acceptSyncConflict,
   } = useRemoteProgressPrompt({
@@ -609,6 +627,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     remoteProgress,
     resolvedRemoteProgressCommand,
     onResolvedRemoteProgressConsumed,
+    onResolvedRemoteProgressFinalize,
+    onResolvedRemoteProgressCancelled,
     outboxConflictRevision: outboxProgressConflictRevision,
     ignoredRemoteRevision,
     onIgnoreRemoteProgress: (revision) => onIgnoreRemoteProgress?.(book.id, revision)
@@ -622,18 +642,22 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     goToFraction,
     getBookmarks,
     adoptResolvedBookmarks,
-    createAutoBookmark,
+    stageAutoBookmark,
+    commitBookmarks,
     prepareRemoteJump,
+    prepareRemoteRollback,
+    cancelRemoteJump,
+    finishRemoteJump,
     isQuietResumeEligible,
     completeRemoteJump,
     completeRemoteReset,
     hasLocalProgress: Boolean(initialCfi) || initialPercent !== undefined || initialTime !== undefined,
   });
-
   const {
     sliderProgress,
     isSliderPreviewing,
     pendingSliderMove,
+    isSliderMoveCommitting,
     beginSliderMove,
     previewSliderMove,
     commitSliderMove,
@@ -642,10 +666,35 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   } = useReaderProgressSlider({
     currentCfi,
     totalProgress,
-    createAutoBookmark,
+    stageAutoBookmark,
+    commitBookmarks,
     markUserProgressChange,
     goToFraction,
+    saveCurrentProgress,
+    markReadingActivity: () => markReadingActivityRef.current(),
   });
+  const isReaderPanelOpen = isBaseReaderPanelOpen
+    || translation !== null
+    || syncConflict !== null
+    || pendingSliderMove !== null
+    || isSliderMoveCommitting;
+  const { markActivity: markReadingActivity } = useReadingSessionTracker({
+    ownerKey,
+    book,
+    deviceId: readingStatsDeviceId,
+    isLoaded,
+    suspended: isReaderPanelOpen,
+    ttsStatus: tts.state.status,
+    progressPercent: totalProgress,
+    viewRef,
+  });
+  useLayoutEffect(() => {
+    markReadingActivityRef.current = markReadingActivity;
+  }, [markReadingActivity]);
+
+  useEffect(() => {
+    if (isReaderPanelOpen) stopTts();
+  }, [isReaderPanelOpen, stopTts]);
 
   const sliderTargetChapter = useMemo(
     () => getChapterForProgress(toc, sliderProgress),
@@ -704,6 +753,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [saveCurrentProgress]);
 
   const handleInteractionAtPoint = useCallback(({ x, y }: { x: number; y: number }) => {
+    if (isReaderPanelOpenRef.current) return false;
     if (hasSelectionRef.current) return false;
     if (chrome.showControls) {
       chrome.setShowControls(false);
@@ -720,6 +770,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     });
 
     if (action !== 'controls') {
+      markReadingActivity();
       markUserProgressChange();
       if (action === 'prev') prev();
       else next();
@@ -737,6 +788,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     settings.tapLeftRightPercent,
     settings.tapTopBottomPercent,
     hasSelectionRef,
+    markReadingActivity,
   ]);
 
   useLayoutEffect(() => {
@@ -767,8 +819,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     const renderer = getFixedLayoutRenderer();
     if (!renderer) return false;
     renderer.adjustUserScale?.(factor, focalPoint);
+    markReadingActivity();
     return true;
-  }, [getFixedLayoutRenderer]);
+  }, [getFixedLayoutRenderer, markReadingActivity]);
 
   const setFixedLayoutZoom = useCallback((
     scale: number,
@@ -890,6 +943,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       }
       if (gesture.moved) {
         suppressNextInteractionClickRef.current = true;
+        markReadingActivity();
       }
       pinchGestureRef.current = null;
 
@@ -912,10 +966,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     if (panGesture?.active && event.touches.length === 0) {
       if (panGesture.moved) {
         suppressNextInteractionClickRef.current = true;
+        markReadingActivity();
       }
       panGestureRef.current = null;
     }
-  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, getFixedLayoutRenderer]);
+  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, getFixedLayoutRenderer, markReadingActivity]);
 
   const finishFixedLayoutMouseZoomGesture = useCallback((
     event?: React.PointerEvent<HTMLDivElement>,
@@ -932,6 +987,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       commitFixedLayoutZoom();
     }
     suppressNextInteractionClickRef.current = true;
+    if (zoomGesture.moved) markReadingActivity();
     mouseZoomGestureRef.current = null;
 
     if (event) {
@@ -941,7 +997,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
 
     return true;
-  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom]);
+  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, markReadingActivity]);
 
   const handleFixedLayoutPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!isFixedLayout || event.pointerType !== 'mouse' || event.button !== 0) return;
@@ -1046,12 +1102,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
     if (gesture.moved) {
       suppressNextInteractionClickRef.current = true;
+      markReadingActivity();
       event.preventDefault();
       event.stopPropagation();
     }
     mousePanGestureRef.current = null;
     releasePointerCaptureSafely(event.currentTarget, event.pointerId);
-  }, [finishFixedLayoutMouseZoomGesture]);
+  }, [finishFixedLayoutMouseZoomGesture, markReadingActivity]);
 
   const handleFixedLayoutLostPointerCapture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const panGesture = mousePanGestureRef.current;
@@ -1138,13 +1195,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
       if (isEditableKeyboardTarget(event.target)) return;
 
-      const isReaderPanelOpen = chrome.showControls
-        || chrome.showSettings
-        || chrome.showThemeModal
-        || chrome.showBookmarks
-        || chrome.showToc
-        || chrome.showSearchModal
-        || chrome.showJumpInput;
       if (isReaderPanelOpen) {
         event.preventDefault();
         event.stopPropagation();
@@ -1164,6 +1214,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
       const dominantDelta = absDeltaX > absDeltaY ? event.deltaX : event.deltaY;
       if (hasSelectionRef.current) clearTextSelection();
+      markReadingActivity();
       markUserProgressChange();
       if (dominantDelta < 0) prev();
       else next();
@@ -1176,14 +1227,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       }
     };
   }, [
-    chrome.showBookmarks,
-    chrome.showControls,
-    chrome.showJumpInput,
-    chrome.showSearchModal,
-    chrome.showSettings,
-    chrome.showThemeModal,
-    chrome.showToc,
+    isReaderPanelOpen,
     markUserProgressChange,
+    markReadingActivity,
     next,
     prev,
     effectiveNavMode,
@@ -1208,6 +1254,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         && (event.key === 'ArrowUp' || event.key === 'ArrowDown')
       ) {
         event.preventDefault();
+        markReadingActivity();
         event.stopPropagation();
         adjustFixedLayoutZoom(
           event.key === 'ArrowUp' ? FIXED_LAYOUT_ZOOM_STEP : 1 / FIXED_LAYOUT_ZOOM_STEP,
@@ -1225,6 +1272,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
       if (effectiveNavMode === 'scroll') {
         event.preventDefault();
+        markReadingActivity();
         const viewportSize = viewRef.current?.renderer?.size ?? window.innerHeight;
         const scrollDistance = Math.min(
           MAX_KEYBOARD_SCROLL_DISTANCE,
@@ -1240,6 +1288,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       event.preventDefault();
       if (event.repeat) return;
 
+      markReadingActivity();
       markUserProgressChange();
       if (keyboardAction === 'prev') prev();
       else next();
@@ -1264,6 +1313,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     isFixedLayout,
     isLoaded,
     markUserProgressChange,
+    markReadingActivity,
     next,
     prev,
     effectiveNavMode,
@@ -1272,44 +1322,89 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     viewRef,
   ]);
 
-  const performJump = useCallback(async (targetCfi: string) => {
+  const pendingManualJumpRef = useRef<PendingReaderJump | null>(null);
+
+  const performCfiJump = useCallback(async (targetCfi: string, expectedPercent?: number) => {
     const currentLocationCfi = currentAnchorCfi || currentCfi;
-    if (!currentCfi || targetCfi === currentCfi || targetCfi === currentLocationCfi) return;
+    if (!currentCfi) return false;
+    const key = `cfi:${targetCfi}`;
+    const targetAlreadyCurrent = targetCfi === currentCfi || targetCfi === currentLocationCfi;
+    if (!pendingManualJumpRef.current || pendingManualJumpRef.current.key !== key) {
+      if (targetAlreadyCurrent) {
+        pendingManualJumpRef.current = null;
+        return true;
+      }
+    }
+    const staged = reuseOrStageReaderJump(
+      pendingManualJumpRef.current,
+      key,
+      () => stageAutoBookmark(currentLocationCfi, totalProgress),
+    );
+    pendingManualJumpRef.current = staged;
 
-    const updatedBookmarks = createAutoBookmark(currentLocationCfi, totalProgress);
-    markUserProgressChange({
-      forceNextRelocateSave: true,
-      bookmarks: updatedBookmarks,
-    });
-    await goTo(targetCfi);
-  }, [createAutoBookmark, currentAnchorCfi, currentCfi, goTo, markUserProgressChange, totalProgress]);
-
-  const performJumpToProgress = useCallback(async (targetCfi: string, expectedPercent?: number) => {
-    const currentLocationCfi = currentAnchorCfi || currentCfi;
-    if (!currentCfi || targetCfi === currentCfi || targetCfi === currentLocationCfi) return;
-
-    const updatedBookmarks = createAutoBookmark(currentLocationCfi, totalProgress);
+    if (!targetAlreadyCurrent) {
+      const committed = await goTo(targetCfi);
+      if (!committed) {
+        if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
+        return false;
+      }
+    }
+    markReadingActivity();
     markUserProgressChange({
       forceNextRelocateSave: true,
       expectedPercent,
-      bookmarks: updatedBookmarks,
+      bookmarks: staged.bookmarks,
     });
-    await goTo(targetCfi);
-  }, [createAutoBookmark, currentAnchorCfi, currentCfi, goTo, markUserProgressChange, totalProgress]);
+    const saved = await saveCurrentProgress();
+    if (saved) {
+      if (staged.bookmarks) commitBookmarks(staged.bookmarks);
+      if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
+    }
+    return saved;
+  }, [commitBookmarks, currentAnchorCfi, currentCfi, goTo, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
+
+  const performJump = useCallback(
+    (targetCfi: string) => performCfiJump(targetCfi),
+    [performCfiJump],
+  );
+
+  const performJumpToProgress = useCallback(
+    (targetCfi: string, expectedPercent?: number) => performCfiJump(targetCfi, expectedPercent),
+    [performCfiJump],
+  );
 
   const performJumpFraction = useCallback(async (fraction: number) => {
     const targetPct = fraction * 100;
-    const updatedBookmarks = Math.abs(targetPct - totalProgress) > 5
-      ? createAutoBookmark(currentAnchorCfi || currentCfi, totalProgress)
-      : undefined;
+    const key = `fraction:${targetPct.toFixed(6)}`;
+    const staged = reuseOrStageReaderJump(
+      pendingManualJumpRef.current,
+      key,
+      () => Math.abs(targetPct - totalProgress) > 5
+          ? stageAutoBookmark(currentAnchorCfi || currentCfi, totalProgress)
+          : undefined,
+    );
+    pendingManualJumpRef.current = staged;
 
+    if (Math.abs(targetPct - totalProgress) >= 0.05) {
+      const committed = await goToFraction(fraction);
+      if (!committed) {
+        if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
+        return false;
+      }
+    }
+    markReadingActivity();
     markUserProgressChange({
       forceNextRelocateSave: true,
       expectedPercent: targetPct,
-      bookmarks: updatedBookmarks,
+      bookmarks: staged.bookmarks,
     });
-    await goToFraction(fraction);
-  }, [createAutoBookmark, currentAnchorCfi, currentCfi, goToFraction, markUserProgressChange, totalProgress]);
+    const saved = await saveCurrentProgress();
+    if (saved) {
+      if (staged.bookmarks) commitBookmarks(staged.bookmarks);
+      if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
+    }
+    return saved;
+  }, [commitBookmarks, currentAnchorCfi, currentCfi, goToFraction, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
 
   const handledLibraryAnnotationJumpRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1327,11 +1422,17 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     void performJumpToProgress(
       annotation.rangeCfi,
       annotation.progressPercent ?? undefined,
-    ).then(() => {
+    ).then((committed) => {
+      if (!committed) {
+        handledLibraryAnnotationJumpRef.current = null;
+        return;
+      }
       window.requestAnimationFrame(() => flashAnnotation(annotation.id));
+      onLibraryAnnotationJumpConsumed?.(commandId);
     }).catch((error) => {
+      handledLibraryAnnotationJumpRef.current = null;
       console.warn('[LibraryAnnotations] jump failed:', error);
-    }).finally(() => onLibraryAnnotationJumpConsumed?.(commandId));
+    });
   }, [
     annotations,
     book.id,
@@ -1343,16 +1444,16 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     performJumpToProgress,
   ]);
 
-  const handleJump = useCallback(() => {
+  const handleJump = useCallback(async () => {
     const trimmed = chrome.jumpInput.trim();
     if (!trimmed) return;
 
     if (trimmed.startsWith('epubcfi(')) {
-      void performJump(trimmed);
+      if (!await performJump(trimmed)) return;
     } else {
       const pct = parseFloat(trimmed.replace('%', ''));
       if (!Number.isNaN(pct)) {
-        void performJumpFraction(Math.min(100, Math.max(0, pct)) / 100);
+        if (!await performJumpFraction(Math.min(100, Math.max(0, pct)) / 100)) return;
       }
     }
 
@@ -1527,6 +1628,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onPrevious={tts.previous}
           onNext={tts.next}
           onStop={tts.stop}
+          canPrevious={tts.canPrevious}
+          canNext={tts.canNext}
+          windowSize={tts.windowSize}
+          resumeAvailable={Boolean(tts.resumeCursor)}
+          sleepTimerEndsAt={tts.sleepTimerEndsAt}
+          sleepTimerMinutes={tts.sleepTimerMinutes}
+          onStartChapter={tts.speakChapterFromCurrentPosition}
+          onResumeChapter={() => { void tts.resumeChapter(); }}
+          onSetSleepTimer={tts.setSleepTimer}
         />
       )}
 
@@ -1589,7 +1699,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onClose={() => chrome.setShowBookmarks(false)}
           onAdd={addBookmark}
           onDelete={deleteBookmark}
-          onJump={(cfi, progressPercent) => { void performJumpToProgress(cfi, progressPercent); chrome.setShowBookmarks(false); }}
+          onJump={(cfi, progressPercent) => {
+            void performJumpToProgress(cfi, progressPercent).then((committed) => {
+              if (committed) chrome.setShowBookmarks(false);
+            });
+          }}
           onEditAnnotationNote={(annotation) => setEditingAnnotationId(annotation.id)}
           onChangeAnnotationColors={(ids, colorId) => changeAnnotationColors(ids, colorId)}
           onDeleteAnnotations={(ids) => deleteAnnotations(ids)}
@@ -1598,11 +1712,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           canUndoAnnotation={canUndoAnnotation}
           onUndoAnnotation={() => { void undoLastMutation(); }}
           onJumpToAnnotation={(annotation) => {
-            chrome.setShowBookmarks(false);
             void performJumpToProgress(
               annotation.rangeCfi,
               annotation.progressPercent ?? undefined,
-            ).then(() => {
+            ).then((committed) => {
+              if (!committed) return;
+              chrome.setShowBookmarks(false);
               window.requestAnimationFrame(() => flashAnnotation(annotation.id));
             });
           }}
@@ -1639,7 +1754,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           toc={toc}
           theme={theme}
           onClose={() => chrome.setShowToc(false)}
-          onJump={(href, progressPercent) => { void performJumpToProgress(href, progressPercent); chrome.setShowToc(false); }}
+          onJump={(href, progressPercent) => {
+            void performJumpToProgress(href, progressPercent).then((committed) => {
+              if (committed) chrome.setShowToc(false);
+            });
+          }}
           currentChapter={currentChapter}
         />
       )}
@@ -1648,7 +1767,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         <EpubSearchModal
           theme={theme}
           onClose={() => chrome.setShowSearchModal(false)}
-          onSelect={(cfi, progressPercent) => { void performJumpToProgress(cfi, progressPercent); chrome.setShowSearchModal(false); }}
+          onSelect={(cfi, progressPercent) => {
+            void performJumpToProgress(cfi, progressPercent).then((committed) => {
+              if (committed) chrome.setShowSearchModal(false);
+            });
+          }}
           onSearch={searchBook}
           onClear={clearSearch}
         />
@@ -1669,6 +1792,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           theme={theme}
           targetPercent={pendingSliderMove.targetPercent}
           targetChapter={pendingSliderTargetChapter}
+          resolving={isSliderMoveCommitting}
           onCancel={cancelSliderMove}
           onConfirm={() => { void confirmSliderMove(); }}
         />
@@ -1678,6 +1802,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         <SyncConflictDialog
           theme={theme}
           syncConflict={syncConflict}
+          resolving={resolvingSyncConflict}
           onDismiss={dismissSyncConflict}
           onAccept={acceptSyncConflict}
         />

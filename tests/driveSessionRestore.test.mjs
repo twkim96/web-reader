@@ -15,7 +15,8 @@ test('restores only the current-tab Drive session and reloads its library', asyn
   assert.match(networkHook, /isAuthenticatedLibraryReady/);
   assert.match(networkHook, /loadLibraryFromDrive\(googleToken, driveSessionId\)/);
   assert.match(authHook, /shouldHoldShelfForDrive\(\)/);
+  const authenticatedDriveGate = authHook.indexOf('shouldHoldShelfForDrive()');
   assert.ok(
-    authHook.indexOf('shouldHoldShelfForDrive()') < authHook.indexOf('setIsOfflineMode(true)'),
+    authenticatedDriveGate < authHook.indexOf('setIsOfflineMode(true)', authenticatedDriveGate),
   );
 });

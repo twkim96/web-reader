@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Bookmark } from '../../types';
+import { createPendingSliderMove } from '../../lib/readerNavigationCommit';
 import { toClampedPercent } from './progress';
 
 type SliderStart = {
@@ -13,31 +14,37 @@ export type PendingSliderMove = {
   targetPercent: number;
   startPercent: number;
   startCfi: string;
+  stagedBookmarks?: Bookmark[];
 };
 
 interface UseReaderProgressSliderOptions {
   currentCfi: string;
   totalProgress: number;
-  createAutoBookmark: (prevCfi: string, prevPct: number) => Bookmark[];
+  stageAutoBookmark: (prevCfi: string, prevPct: number) => Bookmark[];
+  commitBookmarks: (bookmarks: Bookmark[]) => Bookmark[];
   markUserProgressChange: (options?: {
     forceNextRelocateSave?: boolean;
     expectedPercent?: number;
     bookmarks?: Bookmark[];
   }) => void;
-  goToFraction: (fraction: number) => Promise<void>;
+  goToFraction: (fraction: number) => Promise<boolean>;
+  saveCurrentProgress: () => boolean | Promise<boolean>;
+  markReadingActivity: () => void;
 }
-
-const AUTO_BOOKMARK_THRESHOLD_PERCENT = 5;
 
 export const useReaderProgressSlider = ({
   currentCfi,
   totalProgress,
-  createAutoBookmark,
+  stageAutoBookmark,
+  commitBookmarks,
   markUserProgressChange,
   goToFraction,
+  saveCurrentProgress,
+  markReadingActivity,
 }: UseReaderProgressSliderOptions) => {
   const [draftProgress, setDraftProgress] = useState<number | null>(null);
   const [pendingMove, setPendingMove] = useState<PendingSliderMove | null>(null);
+  const [isCommittingMove, setIsCommittingMove] = useState(false);
   const draftProgressRef = useRef<number | null>(null);
   const startRef = useRef<SliderStart | null>(null);
 
@@ -72,41 +79,50 @@ export const useReaderProgressSlider = ({
     const startCfi = start?.cfi ?? currentCfi;
     if (Math.abs(targetPercent - startPercent) < 0.05) return;
 
-    setPendingMove({
+    setPendingMove(createPendingSliderMove({
       targetPercent,
       startPercent,
       startCfi,
-    });
-  }, [currentCfi, totalProgress]);
+      stageAutoBookmark,
+    }));
+  }, [currentCfi, stageAutoBookmark, totalProgress]);
 
   const cancelSliderMove = useCallback(() => {
+    if (isCommittingMove) return;
     setPendingMove(null);
-  }, []);
+  }, [isCommittingMove]);
 
   const confirmSliderMove = useCallback(async () => {
     const move = pendingMove;
-    if (!move) return;
+    if (!move || isCommittingMove) return false;
+    setIsCommittingMove(true);
 
-    setPendingMove(null);
+    try {
+      const { targetPercent, stagedBookmarks } = move;
 
-    const { targetPercent, startPercent, startCfi } = move;
-    const diff = Math.abs(targetPercent - startPercent);
-    const updatedBookmarks = diff > AUTO_BOOKMARK_THRESHOLD_PERCENT
-      ? createAutoBookmark(startCfi, startPercent)
-      : undefined;
-
-    markUserProgressChange({
-      forceNextRelocateSave: true,
-      expectedPercent: targetPercent,
-      bookmarks: updatedBookmarks,
-    });
-    await goToFraction(targetPercent / 100);
-  }, [createAutoBookmark, goToFraction, markUserProgressChange, pendingMove]);
+      const committed = await goToFraction(targetPercent / 100);
+      if (!committed) return false;
+      markReadingActivity();
+      markUserProgressChange({
+        forceNextRelocateSave: true,
+        expectedPercent: targetPercent,
+        bookmarks: stagedBookmarks,
+      });
+      const saved = await saveCurrentProgress();
+      if (!saved) return false;
+      if (stagedBookmarks) commitBookmarks(stagedBookmarks);
+      setPendingMove(null);
+      return true;
+    } finally {
+      setIsCommittingMove(false);
+    }
+  }, [commitBookmarks, goToFraction, isCommittingMove, markReadingActivity, markUserProgressChange, pendingMove, saveCurrentProgress]);
 
   return {
     sliderProgress: draftProgress ?? pendingMove?.targetPercent ?? totalProgress,
     isSliderPreviewing: draftProgress !== null,
     pendingSliderMove: pendingMove,
+    isSliderMoveCommitting: isCommittingMove,
     beginSliderMove,
     previewSliderMove,
     commitSliderMove,

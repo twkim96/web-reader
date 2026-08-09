@@ -92,30 +92,103 @@ test('treats an authoritative remote reset as a first-class update', () => {
   }), 'ignore');
 });
 
-test('quiet resume adopts before navigation and does not move when adoption is blocked', async () => {
+test('completes a remote adoption only after navigation commits', async () => {
   const blockedCalls = [];
   assert.equal(await executeRemoteProgressJump({
-    claimDevice: false,
     isCurrent: () => true,
     prepare: () => blockedCalls.push('prepare'),
-    navigate: async () => { blockedCalls.push('navigate'); },
+    cancel: () => blockedCalls.push('cancel'),
+    navigate: async () => {
+      blockedCalls.push('navigate');
+      return true;
+    },
     complete: async () => {
       blockedCalls.push('adopt');
       return false;
     },
   }), false);
-  assert.deepEqual(blockedCalls, ['adopt']);
+  assert.deepEqual(blockedCalls, ['prepare', 'navigate', 'adopt', 'cancel']);
 
   const successCalls = [];
   assert.equal(await executeRemoteProgressJump({
-    claimDevice: false,
     isCurrent: () => true,
     prepare: () => successCalls.push('prepare'),
-    navigate: async () => { successCalls.push('navigate'); },
+    cancel: () => successCalls.push('cancel'),
+    navigate: async () => {
+      successCalls.push('navigate');
+      return true;
+    },
     complete: async () => {
       successCalls.push('adopt');
       return true;
     },
   }), true);
-  assert.deepEqual(successCalls, ['adopt', 'prepare', 'navigate']);
+  assert.deepEqual(successCalls, ['prepare', 'navigate', 'adopt']);
+});
+
+test('does not complete a remote jump superseded by newer user navigation', async () => {
+  const calls = [];
+  assert.equal(await executeRemoteProgressJump({
+    isCurrent: () => true,
+    prepare: () => calls.push('prepare'),
+    cancel: () => calls.push('cancel'),
+    navigate: async () => {
+      calls.push('navigate-cancelled');
+      return false;
+    },
+    complete: async () => {
+      calls.push('complete');
+      return true;
+    },
+  }), false);
+  assert.deepEqual(calls, ['prepare', 'navigate-cancelled', 'cancel']);
+});
+
+test('cancels remote preparation when renderer navigation rejects', async () => {
+  const calls = [];
+  await assert.rejects(executeRemoteProgressJump({
+    isCurrent: () => true,
+    prepare: () => calls.push('prepare'),
+    cancel: () => calls.push('cancel'),
+    navigate: async () => {
+      calls.push('navigate');
+      throw new Error('renderer failed');
+    },
+    complete: async () => {
+      calls.push('complete');
+      return true;
+    },
+  }), /renderer failed/);
+  assert.deepEqual(calls, ['prepare', 'navigate', 'cancel']);
+});
+
+test('rolls the viewport back before restoring pending state when finalize fails', async () => {
+  const calls = [];
+  assert.equal(await executeRemoteProgressJump({
+    isCurrent: () => true,
+    prepare: () => {
+      calls.push('prepare');
+      return 7;
+    },
+    cancel: (id) => calls.push(`restore:${id}`),
+    finish: (id) => calls.push(`finish:${id}`),
+    navigate: async () => {
+      calls.push('navigate-remote');
+      return true;
+    },
+    rollback: async (id) => {
+      calls.push(`rollback:${id}`);
+    },
+    complete: async () => {
+      calls.push('finalize');
+      return false;
+    },
+  }), false);
+  assert.deepEqual(calls, [
+    'prepare',
+    'navigate-remote',
+    'finalize',
+    'rollback:7',
+    'restore:7',
+  ]);
 });

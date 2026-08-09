@@ -16,6 +16,7 @@ export type SyncConflict = {
   syncRevision?: number;
   acceptedEventId?: string;
   bookmarks?: Bookmark[];
+  resolutionCommandId?: string;
 };
 
 interface UseRemoteProgressPromptOptions {
@@ -23,6 +24,8 @@ interface UseRemoteProgressPromptOptions {
   remoteProgress?: RemoteProgressUpdate;
   resolvedRemoteProgressCommand?: ResolvedRemoteProgressCommand | null;
   onResolvedRemoteProgressConsumed?: (commandId: string) => void;
+  onResolvedRemoteProgressFinalize?: (commandId: string) => Promise<boolean>;
+  onResolvedRemoteProgressCancelled?: (commandId: string) => void;
   outboxConflictRevision?: number;
   ignoredRemoteRevision?: number;
   onIgnoreRemoteProgress?: (revision: number) => Promise<boolean>;
@@ -31,21 +34,26 @@ interface UseRemoteProgressPromptOptions {
   totalProgress: number;
   localRevision?: number;
   lastSaveTimeRef: MutableRefObject<number>;
-  goTo: (cfi: string) => Promise<void>;
-  goToFraction: (fraction: number) => Promise<void>;
+  goTo: (cfi: string) => Promise<boolean>;
+  goToFraction: (fraction: number) => Promise<boolean>;
   getBookmarks: () => Bookmark[];
   adoptResolvedBookmarks: (bookmarks: Bookmark[]) => Bookmark[];
-  createAutoBookmark?: (prevCfi: string, prevPct: number) => Bookmark[];
-  prepareRemoteJump: () => void;
+  stageAutoBookmark: (prevCfi: string, prevPct: number) => Bookmark[];
+  commitBookmarks: (bookmarks: Bookmark[]) => Bookmark[];
+  prepareRemoteJump: () => number;
+  prepareRemoteRollback: (preparationId: number) => boolean;
+  cancelRemoteJump: (preparationId: number) => void;
+  finishRemoteJump: (preparationId: number) => void;
   isQuietResumeEligible: () => boolean;
   completeRemoteJump: (
     target: SyncConflict,
     bookmarks: Bookmark[],
-    options?: { claimDevice?: boolean }
+    options?: { claimDevice?: boolean; finalize?: () => Promise<boolean> }
   ) => Promise<boolean>;
   completeRemoteReset: (
     target: Omit<SyncConflict, 'cfi' | 'anchorCfi' | 'percent' | 'operation'>,
     bookmarks: Bookmark[],
+    options?: { finalize?: () => Promise<boolean> },
   ) => Promise<boolean>;
   hasLocalProgress: boolean;
 }
@@ -55,6 +63,8 @@ export const useRemoteProgressPrompt = ({
   remoteProgress,
   resolvedRemoteProgressCommand,
   onResolvedRemoteProgressConsumed,
+  onResolvedRemoteProgressFinalize,
+  onResolvedRemoteProgressCancelled,
   outboxConflictRevision,
   ignoredRemoteRevision,
   onIgnoreRemoteProgress,
@@ -67,14 +77,19 @@ export const useRemoteProgressPrompt = ({
   goToFraction,
   getBookmarks,
   adoptResolvedBookmarks,
-  createAutoBookmark,
+  stageAutoBookmark,
+  commitBookmarks,
   prepareRemoteJump,
+  prepareRemoteRollback,
+  cancelRemoteJump,
+  finishRemoteJump,
   isQuietResumeEligible,
   completeRemoteJump,
   completeRemoteReset,
   hasLocalProgress,
 }: UseRemoteProgressPromptOptions) => {
   const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
+  const [resolvingSyncConflict, setResolvingSyncConflict] = useState(false);
   const lastProcessedRemote = useRef<{
     operation: 'set' | 'reset';
     cfi: string;
@@ -91,21 +106,27 @@ export const useRemoteProgressPrompt = ({
 
   const jumpToRemoteProgress = useCallback(async (
     target: SyncConflict,
-    options?: { claimDevice?: boolean }
+    options?: { claimDevice?: boolean; finalize?: () => Promise<boolean> }
   ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
     try {
       return await executeRemoteProgressJump({
-        claimDevice: Boolean(options?.claimDevice),
         isCurrent: () => jumpGeneration.current === generation,
         prepare: prepareRemoteJump,
+        cancel: cancelRemoteJump,
+        finish: finishRemoteJump,
         navigate: async () => {
           const navigation = jumpTail.current
             .catch(() => undefined)
             .then(() => goTo(target.anchorCfi || target.cfi));
-          jumpTail.current = navigation;
-          await navigation;
+          jumpTail.current = navigation.then(() => undefined);
+          return navigation;
+        },
+        rollback: async (preparationId) => {
+          const rollbackCfi = currentAnchorCfi || currentCfi;
+          if (!rollbackCfi || !prepareRemoteRollback(preparationId)) return;
+          await goTo(rollbackCfi);
         },
         complete: () => completeRemoteJump(target, target.bookmarks ?? getBookmarks(), options),
       });
@@ -113,24 +134,37 @@ export const useRemoteProgressPrompt = ({
       console.warn('[RemoteProgress] jump failed:', error);
       return false;
     }
-  }, [completeRemoteJump, getBookmarks, goTo, prepareRemoteJump]);
+  }, [cancelRemoteJump, completeRemoteJump, currentAnchorCfi, currentCfi, finishRemoteJump, getBookmarks, goTo, prepareRemoteJump, prepareRemoteRollback]);
 
-  const resetToRemoteProgress = useCallback(async (target: SyncConflict) => {
+  const resetToRemoteProgress = useCallback(async (
+    target: SyncConflict,
+    options?: { finalize?: () => Promise<boolean> },
+  ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
     try {
       return await executeRemoteProgressJump({
-        claimDevice: false,
         isCurrent: () => jumpGeneration.current === generation,
         prepare: prepareRemoteJump,
+        cancel: cancelRemoteJump,
+        finish: finishRemoteJump,
         navigate: () => goToFraction(0),
-        complete: () => completeRemoteReset(target, target.bookmarks ?? getBookmarks()),
+        rollback: async (preparationId) => {
+          const rollbackCfi = currentAnchorCfi || currentCfi;
+          if (!rollbackCfi || !prepareRemoteRollback(preparationId)) return;
+          await goTo(rollbackCfi);
+        },
+        complete: () => completeRemoteReset(
+          target,
+          target.bookmarks ?? getBookmarks(),
+          options,
+        ),
       });
     } catch (error) {
       console.warn('[RemoteProgress] reset failed:', error);
       return false;
     }
-  }, [completeRemoteReset, getBookmarks, goToFraction, prepareRemoteJump]);
+  }, [cancelRemoteJump, completeRemoteReset, currentAnchorCfi, currentCfi, finishRemoteJump, getBookmarks, goTo, goToFraction, prepareRemoteJump, prepareRemoteRollback]);
 
   const handledResolution = useRef<string | null>(null);
 
@@ -141,11 +175,23 @@ export const useRemoteProgressPrompt = ({
     handledResolution.current = commandId;
 
     if (operation === 'reset') {
-      prepareRemoteJump();
-      adoptResolvedBookmarks(progress.bookmarks ?? getBookmarks());
-      void goToFraction(0)
-        .catch((error) => console.warn('[RemoteProgress] reset failed:', error))
-        .finally(() => {
+      const target: SyncConflict = {
+        operation: 'reset',
+        bookId: progress.bookId,
+        cfi: '',
+        anchorCfi: '',
+        percent: 0,
+        lastRead: progress.lastRead,
+        syncRevision: progress.syncRevision,
+        acceptedEventId: progress.acceptedEventId,
+        bookmarks: progress.bookmarks ?? getBookmarks(),
+        resolutionCommandId: commandId,
+      };
+      void resetToRemoteProgress(target, {
+        finalize: () => onResolvedRemoteProgressFinalize?.(commandId) ?? Promise.resolve(false),
+      }).then((completed) => {
+        if (completed) {
+          adoptResolvedBookmarks(target.bookmarks ?? []);
           setSyncConflict(null);
           lastProcessedRemote.current = {
             operation: 'reset',
@@ -154,7 +200,10 @@ export const useRemoteProgressPrompt = ({
           };
           isInitialSync.current = false;
           onResolvedRemoteProgressConsumed?.(commandId);
-        });
+        } else {
+          setSyncConflict(target);
+        }
+      });
       return;
     }
 
@@ -168,10 +217,13 @@ export const useRemoteProgressPrompt = ({
       lastRead: progress.lastRead,
       syncRevision: progress.syncRevision,
       acceptedEventId: progress.acceptedEventId,
-      bookmarks: adoptResolvedBookmarks(progress.bookmarks ?? getBookmarks()),
+      bookmarks: progress.bookmarks ?? getBookmarks(),
+      resolutionCommandId: commandId,
     };
     jumpingRemote.current = { operation: 'set', cfi: remoteAnchorCfi, lastRead: target.lastRead };
-    void jumpToRemoteProgress(target).then((completed) => {
+    void jumpToRemoteProgress(target, {
+      finalize: () => onResolvedRemoteProgressFinalize?.(commandId) ?? Promise.resolve(false),
+    }).then((completed) => {
       if (
         jumpingRemote.current?.cfi === remoteAnchorCfi
         && jumpingRemote.current.lastRead === target.lastRead
@@ -180,18 +232,20 @@ export const useRemoteProgressPrompt = ({
         setSyncConflict(target);
         return;
       }
+      adoptResolvedBookmarks(target.bookmarks ?? []);
       setSyncConflict(null);
       lastProcessedRemote.current = { operation: 'set', cfi: remoteAnchorCfi, lastRead: target.lastRead };
       isInitialSync.current = false;
-    }).finally(() => onResolvedRemoteProgressConsumed?.(commandId));
+      onResolvedRemoteProgressConsumed?.(commandId);
+    });
   }, [
     adoptResolvedBookmarks,
     getBookmarks,
-    goToFraction,
     isLoaded,
     jumpToRemoteProgress,
     onResolvedRemoteProgressConsumed,
-    prepareRemoteJump,
+    onResolvedRemoteProgressFinalize,
+    resetToRemoteProgress,
     resolvedRemoteProgressCommand,
   ]);
 
@@ -304,30 +358,53 @@ export const useRemoteProgressPrompt = ({
   }, [currentAnchorCfi, currentCfi, hasLocalProgress, ignoredRemoteRevision, isLoaded, isQuietResumeEligible, jumpToRemoteProgress, lastSaveTimeRef, localRevision, outboxConflictRevision, remoteProgress, resetToRemoteProgress, totalProgress]);
 
   const dismissSyncConflict = useCallback(async () => {
+    if (syncConflict?.resolutionCommandId) {
+      onResolvedRemoteProgressCancelled?.(syncConflict.resolutionCommandId);
+      setSyncConflict(null);
+      return;
+    }
     if (syncConflict?.syncRevision) {
       const ignored = await onIgnoreRemoteProgress?.(syncConflict.syncRevision);
       if (!ignored) return;
     }
     setSyncConflict(null);
-  }, [onIgnoreRemoteProgress, syncConflict]);
+  }, [onIgnoreRemoteProgress, onResolvedRemoteProgressCancelled, syncConflict]);
 
   const acceptSyncConflict = useCallback(() => {
-    if (!syncConflict) return;
+    if (!syncConflict || resolvingSyncConflict) return;
+    setResolvingSyncConflict(true);
     const currentAnchor = currentAnchorCfi || currentCfi;
     const targetAnchor = syncConflict.anchorCfi || syncConflict.cfi;
-    if (currentCfi && targetAnchor !== currentAnchor) {
-      createAutoBookmark?.(currentAnchor, totalProgress);
-    }
-    const jump = syncConflict.operation === 'reset'
-      ? resetToRemoteProgress(syncConflict)
-      : jumpToRemoteProgress(syncConflict, { claimDevice: true });
+    const stagedBookmarks = currentCfi
+      && targetAnchor !== currentAnchor
+      && !syncConflict.resolutionCommandId
+      ? stageAutoBookmark(currentAnchor, totalProgress)
+      : syncConflict.bookmarks;
+    const target = stagedBookmarks
+      ? { ...syncConflict, bookmarks: stagedBookmarks }
+      : syncConflict;
+    const finalize = syncConflict.resolutionCommandId
+      ? () => onResolvedRemoteProgressFinalize?.(syncConflict.resolutionCommandId!)
+        ?? Promise.resolve(false)
+      : undefined;
+    const jump = target.operation === 'reset'
+      ? resetToRemoteProgress(target, { finalize })
+      : jumpToRemoteProgress(target, { claimDevice: !finalize, finalize });
     void jump.then((completed) => {
-      if (completed) setSyncConflict(null);
-    });
-  }, [createAutoBookmark, currentAnchorCfi, currentCfi, jumpToRemoteProgress, resetToRemoteProgress, syncConflict, totalProgress]);
+      if (completed) {
+        if (stagedBookmarks) commitBookmarks(stagedBookmarks);
+        adoptResolvedBookmarks(target.bookmarks ?? getBookmarks());
+        if (syncConflict.resolutionCommandId) {
+          onResolvedRemoteProgressConsumed?.(syncConflict.resolutionCommandId);
+        }
+        setSyncConflict(null);
+      }
+    }).finally(() => setResolvingSyncConflict(false));
+  }, [adoptResolvedBookmarks, commitBookmarks, currentAnchorCfi, currentCfi, getBookmarks, jumpToRemoteProgress, onResolvedRemoteProgressConsumed, onResolvedRemoteProgressFinalize, resetToRemoteProgress, resolvingSyncConflict, stageAutoBookmark, syncConflict, totalProgress]);
 
   return {
     syncConflict,
+    resolvingSyncConflict,
     dismissSyncConflict,
     acceptSyncConflict,
   };

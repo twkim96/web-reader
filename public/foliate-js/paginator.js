@@ -1,4 +1,5 @@
 import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
+import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -289,13 +290,20 @@ class View {
     get document() {
         return this.#iframe.contentDocument
     }
-    async load(src, afterLoad, beforeRender) {
+    async load(src, afterLoad, beforeRender, signal) {
         if (typeof src !== 'string') throw new Error(`${src} is not string`)
-        const publicationURL = await preparePublicationURL(src)
+        const publicationURL = await preparePublicationURL(src, signal)
         this.#publicationURL?.revoke()
         this.#publicationURL = publicationURL
-        return new Promise(resolve => {
-            this.#iframe.addEventListener('load', () => {
+        return new Promise((resolve, reject) => {
+            const abort = () => {
+                this.#iframe.removeEventListener('load', handleLoad)
+                if (this.#publicationURL === publicationURL) this.#publicationURL = null
+                publicationURL.revoke()
+                reject(createAbortError())
+            }
+            const handleLoad = () => {
+                if (signal?.aborted) return abort()
                 const doc = this.document
                 afterLoad?.(doc)
 
@@ -319,8 +327,11 @@ class View {
                 // until the bug is fixed we can at least account for font load
                 doc.fonts.ready.then(() => this.expand())
 
+                signal?.removeEventListener('abort', abort)
                 resolve()
-            }, { once: true })
+            }
+            signal?.addEventListener('abort', abort, { once: true })
+            this.#iframe.addEventListener('load', handleLoad, { once: true })
             this.#iframe.src = publicationURL.url
         })
     }
@@ -493,6 +504,9 @@ export class Paginator extends HTMLElement {
     #touchState
     #touchScrolled
     #lastVisibleRange
+    #navigation = new LatestTask()
+    #navigationContext = null
+    #pendingNavigationSource = null
     constructor() {
         super()
         this.#root.innerHTML = `<style>
@@ -550,6 +564,7 @@ export class Paginator extends HTMLElement {
         #container {
             grid-column: 2 / 5;
             grid-row: 2;
+            position: relative;
             overflow: hidden;
         }
         :host([flow="scrolled"]) #container {
@@ -604,7 +619,10 @@ export class Paginator extends HTMLElement {
         this.#container.addEventListener('scroll', debounce(() => {
             if (this.scrolled) {
                 if (this.#justAnchored) this.#justAnchored = false
-                else this.#afterScroll('scroll')
+                else {
+                    this.cancelNavigation()
+                    this.#afterScroll('scroll')
+                }
             }
         }, 250))
 
@@ -712,17 +730,35 @@ export class Paginator extends HTMLElement {
                     `break-${x}: ${y ?? ''}column`))
         })
     }
-    #createView() {
-        if (this.#view) {
-            this.#view.destroy()
-            this.#container.removeChild(this.#view.element)
-        }
-        this.#view = new View({
+    #createView(staging = false) {
+        let view
+        view = new View({
             container: this,
-            onExpand: () => this.#scrollToAnchor(this.#anchor),
+            onExpand: () => {
+                if (this.#view === view) this.#scrollToAnchor(this.#anchor)
+            },
         })
-        this.#container.append(this.#view.element)
-        return this.#view
+        if (staging) Object.assign(view.element.style, {
+            position: 'absolute',
+            inset: '0',
+            visibility: 'hidden',
+            pointerEvents: 'none',
+        })
+        this.#container.append(view.element)
+        return view
+    }
+    #showView(view) {
+        if (this.#view && this.#view !== view) {
+            this.#view.destroy()
+            this.#view.element.remove()
+        }
+        Object.assign(view.element.style, {
+            position: '',
+            inset: '',
+            visibility: '',
+            pointerEvents: '',
+        })
+        this.#view = view
     }
     #beforeRender({ vertical, rtl, background }) {
         this.#vertical = vertical
@@ -854,6 +890,7 @@ export class Paginator extends HTMLElement {
             element[scrollProp] + delta))
     }
     snap(vx, vy) {
+        this.cancelNavigation()
         const velocity = this.#vertical ? vy : vx
         const [offset, a, b] = this.#scrollBounds
         const { start, end, pages, size } = this
@@ -866,7 +903,7 @@ export class Paginator extends HTMLElement {
 
         this.#scrollToPage(page, 'snap').then(() => {
             const dir = page <= 0 ? -1 : page >= pages - 1 ? 1 : null
-            if (dir) return this.#goTo({
+            if (dir) return this.#navigateResolved({
                 index: this.#adjacentIndex(dir),
                 anchor: dir < 0 ? () => 1 : () => 0,
             })
@@ -981,8 +1018,8 @@ export class Paginator extends HTMLElement {
         const offset = this.size * (this.#rtl ? -page : page)
         return this.#scrollTo(offset, reason, smooth)
     }
-    async scrollToAnchor(anchor, select) {
-        return this.#scrollToAnchor(anchor, select ? 'selection' : 'navigation')
+    async scrollToAnchor(anchor, select, reason) {
+        return this.#scrollToAnchor(anchor, reason ?? (select ? 'selection' : 'navigation'))
     }
     async #scrollToAnchor(anchor, reason = 'anchor') {
         this.#anchor = anchor
@@ -1019,7 +1056,11 @@ export class Paginator extends HTMLElement {
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
-        if (reason !== 'selection'
+        if (this.#navigationContext) {
+            this.#anchor = range
+            this.#justAnchored = true
+        }
+        else if (reason !== 'selection'
             && reason !== 'selection-page'
             && reason !== 'selection-anchor'
             && reason !== 'navigation'
@@ -1028,7 +1069,7 @@ export class Paginator extends HTMLElement {
         else this.#justAnchored = true
 
         const index = this.#index
-        const detail = { reason, range, index }
+        const detail = { reason, range, index, ...this.#navigationContext }
         if (this.scrolled) detail.fraction = this.start / this.viewSize
         else if (this.pages > 0) {
             const { page, pages } = this
@@ -1038,12 +1079,17 @@ export class Paginator extends HTMLElement {
         }
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
-    async #display(promise) {
-        const { index, src, anchor, onLoad, select } = await promise
-        this.#index = index
+    async #display({
+        index, src, anchor, select, reason, navigationSource, navigationId,
+    }, task) {
+        if (!this.#navigation.isCurrent(task)) throw createAbortError()
+        const navigationContext = navigationSource
+            ? { navigationSource, navigationId }
+            : null
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
-            const view = this.#createView()
+            const oldIndex = this.#index
+            const view = this.#createView(true)
             const afterLoad = doc => {
                 if (doc.head) {
                     const $styleBefore = doc.createElement('style')
@@ -1052,47 +1098,92 @@ export class Paginator extends HTMLElement {
                     doc.head.append($style)
                     this.#styleMap.set(doc, [$styleBefore, $style])
                 }
-                onLoad?.({ doc, index })
             }
             const beforeRender = this.#beforeRender.bind(this)
-            await view.load(src, afterLoad, beforeRender)
+            try {
+                await view.load(src, afterLoad, beforeRender, task.signal)
+            } catch (error) {
+                view.destroy()
+                view.element.remove()
+                throw error
+            }
+            if (!this.#navigation.isCurrent(task)) {
+                view.destroy()
+                view.element.remove()
+                throw createAbortError()
+            }
+            this.#index = index
+            this.#navigationContext = navigationContext
+            this.#showView(view)
+            this.sections[oldIndex]?.unload?.()
+            this.setStyles(this.#styles)
+            this.dispatchEvent(new CustomEvent('load', { detail: {
+                doc: view.document, index,
+            } }))
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: {
                     doc: view.document, index,
                     attach: overlayer => view.overlayer = overlayer,
                 },
             }))
-            this.#view = view
+        } else {
+            this.#index = index
+            this.#navigationContext = navigationContext
         }
+        if (!this.#navigation.isCurrent(task)) throw createAbortError()
         await this.scrollToAnchor((typeof anchor === 'function'
-            ? anchor(this.#view.document) : anchor) ?? 0, select)
+            ? anchor(this.#view.document) : anchor) ?? 0, select, reason)
+        if (!this.#navigation.isCurrent(task)) throw createAbortError()
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
-    async #goTo({ index, anchor, select}) {
-        if (index === this.#index) await this.#display({ index, anchor, select })
-        else {
-            const oldIndex = this.#index
-            const onLoad = detail => {
-                this.sections[oldIndex]?.unload?.()
-                this.setStyles(this.#styles)
-                this.dispatchEvent(new CustomEvent('load', { detail }))
+    async #goTo({ index, anchor, select, reason, navigationSource, navigationId }, task) {
+        if (index === this.#index && this.#view) return this.#display({
+            index, anchor, select, reason, navigationSource, navigationId,
+        }, task)
+        const src = await this.sections[index].load(task.signal)
+        if (!this.#navigation.isCurrent(task)) throw createAbortError()
+        return this.#display({
+            index, src, anchor, select, reason, navigationSource, navigationId,
+        }, task)
+    }
+    async #navigateResolved(resolved) {
+        const task = this.#navigation.begin()
+        this.#pendingNavigationSource = resolved?.navigationSource ?? null
+        if (!resolved?.navigationSource) this.#navigationContext = null
+        try {
+            await this.#goTo(resolved, task)
+            this.#navigation.finish(task)
+            if (this.#navigation.isCurrent(task)) this.#pendingNavigationSource = null
+            return resolved
+        } catch (error) {
+            if (this.#navigation.isCurrent(task)) {
+                this.#navigation.finish(task)
+                this.#pendingNavigationSource = null
             }
-            await this.#display(Promise.resolve(this.sections[index].load())
-                .then(src => ({ index, src, anchor, onLoad, select }))
-                .catch(e => {
-                    console.warn(e)
-                    console.warn(new Error(`Failed to load section ${index}`))
-                    return {}
-                }))
+            if (!isAbortError(error)) {
+                console.warn(error)
+                console.warn(new Error(`Failed to load section ${resolved?.index}`))
+                throw error
+            }
+            return false
         }
     }
     async goTo(target) {
         if (this.#locked) return
         const resolved = await target
-        if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
+        if (this.#canGoToIndex(resolved?.index)) return this.#navigateResolved(resolved)
+    }
+    cancelNavigation(source) {
+        if (source
+            && this.#pendingNavigationSource !== source
+            && this.#navigationContext?.navigationSource !== source) return false
+        this.#navigation.cancel()
+        this.#navigationContext = null
+        this.#pendingNavigationSource = null
+        return true
     }
     #scrollPrev(distance, reason = 'page') {
         if (!this.#view) return true
@@ -1129,6 +1220,7 @@ export class Paginator extends HTMLElement {
     }
     async #turnPage(dir, distance, reason = 'page') {
         if (this.#locked) return
+        this.cancelNavigation()
         this.#locked = true
         const prev = dir === -1
         const isSelectionPage = reason === 'selection-page'
@@ -1139,9 +1231,10 @@ export class Paginator extends HTMLElement {
         const shouldGo = await (prev
             ? this.#scrollPrev(distance, reason)
             : this.#scrollNext(distance, reason))
-        if (shouldGo) await this.#goTo({
+        if (shouldGo) await this.#navigateResolved({
             index: this.#adjacentIndex(dir),
             anchor: prev ? () => 1 : () => 0,
+            reason,
         })
         if (shouldGo || !this.hasAttribute('animated')) await wait(100)
         this.#locked = false
@@ -1196,8 +1289,9 @@ export class Paginator extends HTMLElement {
         this.#view.document.defaultView.focus()
     }
     destroy() {
+        this.cancelNavigation()
         this.#observer.unobserve(this)
-        this.#view.destroy()
+        this.#view?.destroy()
         this.#view = null
         this.sections[this.#index]?.unload?.()
         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)

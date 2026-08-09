@@ -1,4 +1,4 @@
-import type { ReaderTtsLanguage } from '../types.ts';
+import type { ReaderTtsChapterEndAction, ReaderTtsLanguage } from '../types.ts';
 import { inferReaderLanguage } from './readerLanguageTools.ts';
 
 export const READER_TTS_RATE_MIN = 0.5;
@@ -36,6 +36,19 @@ export const normalizeReaderTtsRate = (value: unknown) => {
 
 export const normalizeReaderTtsVoiceUri = (value: unknown) => (
   typeof value === 'string' && value.length <= 500 ? value : ''
+);
+
+export const normalizeReaderTtsChapterEndAction = (
+  value: unknown,
+): ReaderTtsChapterEndAction => value === 'next' ? 'next' : 'stop';
+
+export const READER_TTS_NAVIGATION_REASON = 'tts-navigation';
+
+export const isReaderTtsNavigationReason = (
+  reason?: string,
+  navigationSource?: string,
+) => (
+  reason === READER_TTS_NAVIGATION_REASON || navigationSource === 'tts'
 );
 
 export type ReaderTtsTextSegment = {

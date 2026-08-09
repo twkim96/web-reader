@@ -1,8 +1,14 @@
-import { segmentReaderTtsText } from './readerTts.ts';
+import {
+  segmentReaderTtsText,
+  type ReaderTtsTextSegment,
+} from './readerTts.ts';
 
 export type ReaderTtsRangeSegment = {
   text: string;
   range: Range;
+  sourceIndex: number;
+  sourceStart: number;
+  sourceEnd: number;
 };
 
 export type ReaderTtsRangeQueue = {
@@ -10,12 +16,19 @@ export type ReaderTtsRangeQueue = {
   initialIndex: number;
 };
 
-type TextRun = {
+type ReaderTtsTextRun = {
   node: Text;
   nodeStart: number;
   nodeEnd: number;
   start: number;
   end: number;
+};
+
+export type ReaderTtsRangeSource = {
+  doc: Document;
+  runs: ReaderTtsTextRun[];
+  sourceLength: number;
+  segments: ReaderTtsTextSegment[];
 };
 
 const blockedTextSelector = [
@@ -114,7 +127,7 @@ const collectTextRuns = (doc: Document, scopeRange?: Range) => {
         : filterReject;
     },
   });
-  const runs: TextRun[] = [];
+  const runs: ReaderTtsTextRun[] = [];
   let source = '';
   const appendSeparator = (separator: string) => {
     if (!source || /\s$/u.test(source)) return;
@@ -143,7 +156,7 @@ const collectTextRuns = (doc: Document, scopeRange?: Range) => {
   return { runs, source };
 };
 
-const toDomOffset = (run: TextRun, sourceOffset: number) => (
+const toDomOffset = (run: ReaderTtsTextRun, sourceOffset: number) => (
   run.nodeStart + Math.min(
     run.nodeEnd - run.nodeStart,
     Math.max(0, sourceOffset - run.start),
@@ -152,9 +165,9 @@ const toDomOffset = (run: TextRun, sourceOffset: number) => (
 
 const createRangeSegment = (
   doc: Document,
-  runs: TextRun[],
+  runs: ReaderTtsTextRun[],
   segment: { text: string; start: number; end: number },
-): ReaderTtsRangeSegment | null => {
+): Omit<ReaderTtsRangeSegment, 'sourceIndex' | 'sourceStart' | 'sourceEnd'> | null => {
   const first = runs.find((run) => run.end > segment.start && run.start < segment.end);
   const last = [...runs].reverse().find((run) => (
     run.start < segment.end && run.end > segment.start
@@ -168,7 +181,7 @@ const createRangeSegment = (
 
 const getAnchorOffset = (
   doc: Document,
-  runs: TextRun[],
+  runs: ReaderTtsTextRun[],
   sourceLength: number,
   anchorRange?: Range,
 ) => {
@@ -196,6 +209,100 @@ const getAnchorOffset = (
   return sourceLength;
 };
 
+export const createReaderTtsRangeSource = ({
+  doc,
+  scopeRange,
+  locale,
+}: {
+  doc: Document;
+  scopeRange?: Range;
+  locale?: string;
+}): ReaderTtsRangeSource => {
+  const { runs, source } = collectTextRuns(doc, scopeRange);
+  return {
+    doc,
+    runs,
+    sourceLength: source.length,
+    segments: runs.length === 0 || !source.trim()
+      ? []
+      : segmentReaderTtsText(source, locale),
+  };
+};
+
+export const resolveReaderTtsSourceAnchorIndex = (
+  source: ReaderTtsRangeSource,
+  anchorRange?: Range,
+) => {
+  if (source.segments.length === 0) return null;
+  const anchorOffset = getAnchorOffset(
+    source.doc,
+    source.runs,
+    source.sourceLength,
+    anchorRange,
+  );
+  if (anchorOffset === null) return null;
+  const foundIndex = source.segments.findIndex(({ end }) => end > anchorOffset);
+  return foundIndex < 0 ? source.segments.length - 1 : foundIndex;
+};
+
+export const createReaderTtsRangeWindow = ({
+  source,
+  anchorRange,
+  startIndex,
+  maxSegments,
+  windowBefore = 0,
+}: {
+  source: ReaderTtsRangeSource;
+  anchorRange?: Range;
+  startIndex?: number;
+  maxSegments?: number;
+  windowBefore?: number;
+}): ReaderTtsRangeQueue => {
+  if (source.segments.length === 0) return { segments: [], initialIndex: 0 };
+  const anchorIndex = startIndex === undefined
+    ? resolveReaderTtsSourceAnchorIndex(source, anchorRange)
+    : Math.floor(startIndex);
+  if (
+    anchorIndex === null
+    || anchorIndex < 0
+    || anchorIndex >= source.segments.length
+  ) return { segments: [], initialIndex: 0 };
+  const safeMaximum = maxSegments && Number.isFinite(maxSegments)
+    ? Math.max(1, Math.floor(maxSegments))
+    : source.segments.length;
+  const safeWindowBefore = Math.min(
+    safeMaximum - 1,
+    Math.max(0, Math.floor(windowBefore)),
+  );
+  let sliceStart = Math.max(0, anchorIndex - safeWindowBefore);
+  const sliceEnd = Math.min(source.segments.length, sliceStart + safeMaximum);
+  if (safeWindowBefore > 0) sliceStart = Math.max(0, sliceEnd - safeMaximum);
+  const segments = source.segments
+    .slice(sliceStart, sliceEnd)
+    .map((segment, index) => ({
+      source: segment,
+      mapped: createRangeSegment(source.doc, source.runs, segment),
+      sourceIndex: sliceStart + index,
+    }))
+    .filter((item): item is {
+      source: { text: string; start: number; end: number };
+      mapped: ReaderTtsRangeSegment;
+      sourceIndex: number;
+    } => Boolean(item.mapped));
+  if (segments.length === 0) return { segments: [], initialIndex: 0 };
+  const mappedAnchorIndex = segments.findIndex(({ sourceIndex }) => sourceIndex >= anchorIndex);
+  const initialIndex = mappedAnchorIndex < 0 ? segments.length - 1 : mappedAnchorIndex;
+  return {
+    segments: segments.map(({ mapped, source: sourceSegment, sourceIndex }) => ({
+      ...mapped,
+      sourceIndex,
+      sourceStart: sourceSegment.start,
+      sourceEnd: sourceSegment.end,
+    })),
+    initialIndex,
+  };
+};
+
 export const createReaderTtsRangeQueue = ({
   doc,
   scopeRange,
@@ -210,45 +317,12 @@ export const createReaderTtsRangeQueue = ({
   locale?: string;
   maxSegments?: number;
   windowBefore?: number;
-}): ReaderTtsRangeQueue => {
-  const { runs, source } = collectTextRuns(doc, scopeRange);
-  if (runs.length === 0 || !source.trim()) return { segments: [], initialIndex: 0 };
-  const sourceSegments = segmentReaderTtsText(source, locale);
-  if (sourceSegments.length === 0) return { segments: [], initialIndex: 0 };
-  const anchorOffset = getAnchorOffset(doc, runs, source.length, anchorRange);
-  if (anchorOffset === null) return { segments: [], initialIndex: 0 };
-  const foundIndex = sourceSegments.findIndex(({ end }) => end > anchorOffset);
-  const anchorIndex = foundIndex < 0 ? sourceSegments.length - 1 : foundIndex;
-  const safeMaximum = maxSegments && Number.isFinite(maxSegments)
-    ? Math.max(1, Math.floor(maxSegments))
-    : sourceSegments.length;
-  const safeWindowBefore = Math.min(
-    safeMaximum - 1,
-    Math.max(0, Math.floor(windowBefore)),
-  );
-  let sliceStart = Math.max(0, anchorIndex - safeWindowBefore);
-  const sliceEnd = Math.min(sourceSegments.length, sliceStart + safeMaximum);
-  sliceStart = Math.max(0, sliceEnd - safeMaximum);
-  const segments = sourceSegments
-    .slice(sliceStart, sliceEnd)
-    .map((segment, index) => ({
-      source: segment,
-      mapped: createRangeSegment(doc, runs, segment),
-      sourceIndex: sliceStart + index,
-    }))
-    .filter((item): item is {
-      source: { text: string; start: number; end: number };
-      mapped: ReaderTtsRangeSegment;
-      sourceIndex: number;
-    } => Boolean(item.mapped));
-  if (segments.length === 0) return { segments: [], initialIndex: 0 };
-  const mappedAnchorIndex = segments.findIndex(({ sourceIndex }) => sourceIndex >= anchorIndex);
-  const initialIndex = mappedAnchorIndex < 0 ? segments.length - 1 : mappedAnchorIndex;
-  return {
-    segments: segments.map(({ mapped }) => mapped),
-    initialIndex,
-  };
-};
+}): ReaderTtsRangeQueue => createReaderTtsRangeWindow({
+  source: createReaderTtsRangeSource({ doc, scopeRange, locale }),
+  anchorRange,
+  maxSegments,
+  windowBefore,
+});
 
 export const findVisibleReaderTtsAnchor = (doc: Document) => {
   const root = doc.body || doc.documentElement;

@@ -20,6 +20,57 @@ service cloud.firestore {
       return value is int && value >= 0 && value <= 9007199254740991;
     }
 
+    function validReadingSession(data, sessionId) {
+      return data.keys().hasOnly([
+          'schemaVersion', 'sessionId', 'bookId', 'bookTitle', 'deviceId',
+          'mode', 'startedAtClient', 'endedAtClient', 'durationMs',
+          'startProgressPercent', 'endProgressPercent', 'timezoneOffsetMinutes',
+          'localDate', 'completed', 'uploadedAtServer', 'clockOffsetMs',
+          'clockUncertaintyMs', 'clockMeasuredAtClient'
+        ])
+        && data.schemaVersion == 1
+        && data.sessionId == sessionId
+        && boundedString(data.sessionId, 128, false)
+        && !data.sessionId.matches('.*[/].*')
+        && boundedString(data.bookId, 512, false)
+        && boundedString(data.bookTitle, 1000, false)
+        && boundedString(data.deviceId, 128, false)
+        && (data.mode == 'screen' || data.mode == 'tts')
+        && validClientTime(data.startedAtClient)
+        && validClientTime(data.endedAtClient)
+        && data.endedAtClient > data.startedAtClient
+        && data.durationMs is int
+        && data.durationMs == data.endedAtClient - data.startedAtClient
+        && data.durationMs >= 1000
+        && data.durationMs <= 300000
+        && data.startProgressPercent is number
+        && data.startProgressPercent >= 0
+        && data.startProgressPercent <= 100
+        && data.endProgressPercent is number
+        && data.endProgressPercent >= 0
+        && data.endProgressPercent <= 100
+        && data.timezoneOffsetMinutes is int
+        && data.timezoneOffsetMinutes >= -840
+        && data.timezoneOffsetMinutes <= 840
+        && boundedString(data.localDate, 10, false)
+        && data.localDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.completed is bool
+        && (
+          !data.keys().hasAny(['clockOffsetMs', 'clockUncertaintyMs', 'clockMeasuredAtClient'])
+          || (
+            data.keys().hasAll(['clockOffsetMs', 'clockUncertaintyMs', 'clockMeasuredAtClient'])
+            && data.clockOffsetMs is int
+            && data.clockOffsetMs >= -86400000
+            && data.clockOffsetMs <= 86400000
+            && data.clockUncertaintyMs is int
+            && data.clockUncertaintyMs >= 0
+            && data.clockUncertaintyMs <= 5000
+            && validClientTime(data.clockMeasuredAtClient)
+          )
+        )
+        && data.uploadedAtServer == request.time;
+    }
+
     function validPosition(position) {
       return position is map
         && position.keys().hasOnly(['cfi', 'anchorCfi', 'progressPercent'])
@@ -508,6 +559,13 @@ service cloud.firestore {
           );
         allow update, delete: if false;
       }
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/readingStatsV1/{sessionId} {
+      allow read: if owns(uid) && isCanonicalScope(scopeId);
+      allow create: if owns(uid) && isCanonicalScope(scopeId)
+        && validReadingSession(request.resource.data, sessionId);
+      allow update, delete: if false;
     }
 
     match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/annotationSyncV1/{bookId} {

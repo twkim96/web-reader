@@ -43,6 +43,7 @@ interface ShelfProps {
   onCloudAuthExpired?: () => void;
   themeStyle?: React.CSSProperties;
   onShowAnnotations: () => void;
+  onShowStatistics: () => void;
 }
 
 export const Shelf: React.FC<ShelfProps> = ({ 
@@ -68,6 +69,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   onCloudAuthExpired,
   themeStyle,
   onShowAnnotations,
+  onShowStatistics,
 }) => {
   const [showManage, setShowManage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -119,7 +121,17 @@ export const Shelf: React.FC<ShelfProps> = ({
   const hasMoreBooks = effectiveVisibleCount < filteredBooks.length;
 
   const loadMoreBooks = useCallback(() => {
-    if (loadMorePendingRef.current) return;
+    if (loadMorePendingRef.current) {
+      // A prop-driven pagination reset and an IntersectionObserver callback can
+      // be batched into one render. In that case the ref may already contain
+      // the next page while React kept the reset count. Re-apply the committed
+      // ref instead of leaving the sentinel permanently locked.
+      setVisibleBookCount((current) => Math.max(
+        current,
+        Math.min(visibleBookCountRef.current, filteredBooks.length),
+      ));
+      return;
+    }
     const next = getNextShelfVisibleCount(
       visibleBookCountRef.current,
       filteredBooks.length,
@@ -156,6 +168,8 @@ export const Shelf: React.FC<ShelfProps> = ({
     }
     const target = loadMoreRef.current;
     if (!target) return;
+    const initialVisibleCount = effectiveVisibleCount;
+    setNeedsLoadMoreButton(false);
 
     let frameId = 0;
     const checkLoadBoundary = () => {
@@ -171,6 +185,11 @@ export const Shelf: React.FC<ShelfProps> = ({
     window.addEventListener('scroll', scheduleBoundaryCheck, { passive: true });
     window.addEventListener('resize', scheduleBoundaryCheck);
     scheduleBoundaryCheck();
+    const fallbackTimerId = window.setTimeout(() => {
+      if (visibleBookCountRef.current <= initialVisibleCount) {
+        setNeedsLoadMoreButton(true);
+      }
+    }, 1_500);
 
     let observer: IntersectionObserver | null = null;
     if (typeof IntersectionObserver === 'undefined') {
@@ -181,7 +200,6 @@ export const Shelf: React.FC<ShelfProps> = ({
           if (entry?.isIntersecting) loadMoreBooks();
         }, { rootMargin: '300px 0px' });
         observer.observe(target);
-        setNeedsLoadMoreButton(false);
       } catch {
         setNeedsLoadMoreButton(true);
       }
@@ -191,9 +209,10 @@ export const Shelf: React.FC<ShelfProps> = ({
       if (frameId) window.cancelAnimationFrame(frameId);
       window.removeEventListener('scroll', scheduleBoundaryCheck);
       window.removeEventListener('resize', scheduleBoundaryCheck);
+      window.clearTimeout(fallbackTimerId);
       observer?.disconnect();
     };
-  }, [hasMoreBooks, loadMoreBooks]);
+  }, [effectiveVisibleCount, hasMoreBooks, loadMoreBooks]);
 
   const handleCloudAuthExpired = useCallback(() => {
     onCloudAuthExpired?.();
@@ -271,6 +290,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         setShowManage={setShowManage}
         setShowImportConfirm={handleShowImportConfirm}
         onShowAnnotations={onShowAnnotations}
+        onShowStatistics={onShowStatistics}
       />
 
       <FileUploader 

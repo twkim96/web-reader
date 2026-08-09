@@ -72,3 +72,20 @@ export const getBrowserSpeechErrorMessage = (error: unknown) => {
   if (code === 'speech-synthesis-unavailable') return '이 브라우저에서는 TTS를 지원하지 않습니다.';
   return '음성 재생을 완료하지 못했습니다.';
 };
+
+const retryableSpeechErrors = new Set([
+  'audio-busy',
+  'audio-hardware',
+  'interrupted',
+  'network',
+  'synthesis-failed',
+]);
+
+export const isRetryableBrowserSpeechError = (error: unknown) => {
+  const code = typeof error === 'string'
+    ? error
+    : error instanceof Error
+      ? error.message
+      : '';
+  return retryableSpeechErrors.has(code);
+};

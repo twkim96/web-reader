@@ -22,6 +22,8 @@ import {
   applyAnnotationPaletteEventTransaction,
 } from '../src/lib/annotationSyncTransaction.ts';
 import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
+import { uploadReadingSessionV1 } from '../src/lib/readingStatisticsSync.ts';
+import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 
 const projectId = 'demo-web-reader';
 const appId = 'private-web-novel-viewer';
@@ -49,6 +51,27 @@ const database = (uid = 'alice') => environment
 const progressPath = (uid = 'alice') => (
   `artifacts/${appId}/users/${uid}/libraries/local/readingHistoryV2/book-1`
 );
+
+const readingStatisticsPath = (sessionId = 'stats-session-1', uid = 'alice') => (
+  `artifacts/${appId}/users/${uid}/libraries/local/readingStatsV1/${sessionId}`
+);
+
+const validReadingSession = (sessionId = 'stats-session-1') => ({
+  schemaVersion: 1,
+  sessionId,
+  bookId: 'book-1',
+  bookTitle: 'Book One',
+  deviceId: 'device-1',
+  mode: 'screen',
+  startedAtClient: 1_000,
+  endedAtClient: 61_000,
+  durationMs: 60_000,
+  startProgressPercent: 10,
+  endProgressPercent: 20,
+  timezoneOffsetMinutes: 0,
+  localDate: getReadingSessionLocalDate(1_000, 0),
+  completed: false,
+});
 
 const validHead = (eventId = 'event-1', revision = 1) => ({
   schemaVersion: 2,
@@ -1028,4 +1051,71 @@ test('rejects retired v1 progress documents', async () => {
 test('rejects Drive-scoped progress paths even for the owning Firebase uid', async () => {
   const drivePath = `artifacts/${appId}/users/alice/libraries/drive-account/readingHistoryV2/book-1`;
   await assertFails(getDoc(doc(database(), drivePath)));
+});
+
+test('creates immutable reading statistic sessions and replays the same payload', async () => {
+  const db = database();
+  const record = validReadingSession();
+  const sdk = { doc, runTransaction, serverTimestamp };
+  assert.equal(await uploadReadingSessionV1(db, 'alice', record, sdk), 'created');
+  assert.equal(await uploadReadingSessionV1(db, 'alice', record, sdk), 'replayed');
+  const snapshot = await assertSucceeds(getDoc(doc(db, readingStatisticsPath())));
+  assert.equal(snapshot.data().bookId, 'book-1');
+  assert.equal(snapshot.data().durationMs, 60_000);
+  await assert.rejects(
+    uploadReadingSessionV1(db, 'alice', { ...record, bookTitle: 'Collision' }, sdk),
+    /충돌/,
+  );
+  await assertFails(setDoc(doc(db, readingStatisticsPath()), {
+    ...record,
+    bookTitle: 'Updated',
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(deleteDoc(doc(db, readingStatisticsPath())));
+});
+
+test('accepts a bounded full clock sample and rejects partial clock metadata', async () => {
+  const db = database();
+  await assertSucceeds(setDoc(doc(db, readingStatisticsPath('clocked')), {
+    ...validReadingSession('clocked'),
+    clockOffsetMs: -600_000,
+    clockUncertaintyMs: 250,
+    clockMeasuredAtClient: 1_000,
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(db, readingStatisticsPath('partial-clock')), {
+    ...validReadingSession('partial-clock'),
+    clockOffsetMs: 0,
+    uploadedAtServer: serverTimestamp(),
+  }));
+});
+
+test('accepts a bounded legacy local date that hydration normalizes from timestamps', async () => {
+  const db = database();
+  await assertSucceeds(setDoc(doc(db, readingStatisticsPath('legacy-local-date')), {
+    ...validReadingSession('legacy-local-date'),
+    localDate: '2026-12-31',
+    uploadedAtServer: serverTimestamp(),
+  }));
+});
+
+test('rejects malformed or cross-owner reading statistic sessions', async () => {
+  const db = database();
+  const malformed = validReadingSession('malformed');
+  await assertFails(setDoc(doc(db, readingStatisticsPath('malformed')), {
+    ...malformed,
+    durationMs: 59_999,
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(db, readingStatisticsPath('extra')), {
+    ...validReadingSession('extra'),
+    unexpected: true,
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(getDoc(doc(database('mallory'), readingStatisticsPath())));
+  const drivePath = `artifacts/${appId}/users/alice/libraries/drive-account/readingStatsV1/drive-session`;
+  await assertFails(setDoc(doc(db, drivePath), {
+    ...validReadingSession('drive-session'),
+    uploadedAtServer: serverTimestamp(),
+  }));
 });

@@ -1,28 +1,50 @@
 export type RemoteProgressJumpSteps = {
-  claimDevice: boolean;
   isCurrent: () => boolean;
-  prepare: () => void;
-  navigate: () => Promise<void>;
+  prepare: () => number;
+  cancel: (preparationId: number) => void;
+  finish?: (preparationId: number) => void;
+  navigate: () => Promise<boolean>;
+  rollback?: (preparationId: number) => Promise<void>;
   complete: () => Promise<boolean>;
 };
 
 export const executeRemoteProgressJump = async ({
-  claimDevice,
   isCurrent,
   prepare,
+  cancel,
+  finish,
   navigate,
+  rollback,
   complete,
 }: RemoteProgressJumpSteps) => {
-  // Quiet resume adopts the verified remote head atomically before moving the
-  // viewport. If a persisted local intent exists, adoption returns false and
-  // the reader remains at the local position so the prompt can be shown.
-  if (!claimDevice) {
-    if (!await complete() || !isCurrent()) return false;
+  const preparationId = prepare();
+  const rollbackAndCancel = async () => {
+    try {
+      await rollback?.(preparationId);
+    } finally {
+      cancel(preparationId);
+    }
+  };
+  let committed = false;
+  try {
+    committed = await navigate();
+  } catch (error) {
+    if (isCurrent()) await rollbackAndCancel();
+    else cancel(preparationId);
+    throw error;
+  }
+  if (!committed || !isCurrent()) {
+    cancel(preparationId);
+    return false;
   }
 
-  prepare();
-  await navigate();
-  if (!isCurrent()) return false;
-
-  return claimDevice ? complete() : true;
+  try {
+    const completed = await complete();
+    if (!completed) await rollbackAndCancel();
+    else finish?.(preparationId);
+    return completed;
+  } catch (error) {
+    await rollbackAndCancel();
+    throw error;
+  }
 };

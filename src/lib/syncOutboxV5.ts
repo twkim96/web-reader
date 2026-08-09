@@ -1887,12 +1887,182 @@ const supersedeConflictEvents = async (
   }
 };
 
+const matchesProgressPosition = (
+  progress: { cfi?: string; anchorCfi?: string; progressPercent?: number } | undefined,
+  expected: ProgressPositionV2,
+) => Boolean(
+  progress
+  && progress.cfi === expected.cfi
+  && (progress.anchorCfi ?? progress.cfi ?? null) === (expected.anchorCfi ?? expected.cfi)
+  && progress.progressPercent === expected.progressPercent
+);
+
+export type ExpectedLocalProgressStateV5 =
+  | { kind: 'empty' }
+  | { kind: 'position'; position: ProgressPositionV2 };
+
+const matchesExpectedLocalProgressState = (
+  progress: { cfi?: string; anchorCfi?: string; progressPercent?: number } | undefined,
+  expected: ExpectedLocalProgressStateV5,
+) => expected.kind === 'empty'
+  ? !progress?.cfi
+  : matchesProgressPosition(progress, expected.position);
+
+const isConflictRemoteHeadStale = (
+  conflict: SyncConflictV5,
+  cached: RemoteHeadCacheV5 | undefined,
+  knownRevision: number,
+) => {
+  const remoteHead = conflict.remoteHead;
+  if (!remoteHead) return Boolean(cached);
+  if (knownRevision > remoteHead.revision) return true;
+  return Boolean(
+    cached
+    && (
+      cached.revision > remoteHead.revision
+      || (
+        cached.revision === remoteHead.revision
+        && cached.head.acceptedEventId !== remoteHead.acceptedEventId
+      )
+    )
+  );
+};
+
+const refreshConflictRemoteHead = (
+  conflict: SyncConflictV5,
+  cached: RemoteHeadCacheV5 | undefined,
+): SyncConflictV5 => cached ? {
+  ...conflict,
+  state: 'open',
+  remoteHead: cached.head,
+  deferredUntil: undefined,
+} : conflict;
+
+const buildRemoteProgressResolutionV5 = ({
+  ownerKey,
+  conflict,
+  existing,
+  now,
+  preserveLocalProgress,
+}: {
+  ownerKey: OwnerKey;
+  conflict: SyncConflictV5 & {
+    event: ProgressOutboxEventV5;
+    remoteHead: ProgressHeadV2;
+  };
+  existing?: UserProgress & { ownerKey: OwnerKey };
+  now: number;
+  preserveLocalProgress: boolean;
+}) => {
+  const latestLocalPosition = existing?.cfi
+    ? {
+      cfi: existing.cfi,
+      anchorCfi: existing.anchorCfi ?? existing.cfi,
+      progressPercent: existing.progressPercent,
+    }
+    : null;
+  const localPosition = conflict.event.operation === 'progress.set'
+    && conflict.event.payload
+      ? latestLocalPosition ?? conflict.event.payload
+      : null;
+  const shouldPreserveLocalPosition = Boolean(
+    preserveLocalProgress
+    && localPosition
+    && conflict.remoteHead.operation === 'set'
+    && conflict.remoteHead.position
+    && (localPosition!.anchorCfi ?? localPosition!.cfi)
+      !== (conflict.remoteHead.position.anchorCfi ?? conflict.remoteHead.position.cfi),
+  );
+  const recoveryBookmarks: Bookmark[] = shouldPreserveLocalPosition
+    ? [
+      ...(existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'manual'),
+      {
+        id: `conflict-recovery-${conflict.conflictId}`,
+        type: 'auto',
+        name: '충돌 전 위치',
+        cfi: localPosition!.cfi,
+        progressPercent: localPosition!.progressPercent,
+        createdAt: now,
+        color: '#64748b',
+      },
+      ...(existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'auto').slice(0, 2),
+    ]
+    : existing?.bookmarks ?? [];
+  const progress: UserProgress & { ownerKey: OwnerKey } = conflict.remoteHead.operation === 'reset'
+    ? {
+      ownerKey,
+      bookId: conflict.event.target.bookId,
+      cfi: '',
+      anchorCfi: '',
+      progressPercent: 0,
+      lastRead: conflict.remoteHead.occurredAtClient,
+      bookmarks: recoveryBookmarks,
+      syncRevision: conflict.remoteHead.revision,
+      acceptedEventId: conflict.remoteHead.acceptedEventId,
+    }
+    : {
+      ownerKey,
+      bookId: conflict.event.target.bookId,
+      cfi: conflict.remoteHead.position!.cfi,
+      anchorCfi: conflict.remoteHead.position!.anchorCfi
+        ?? conflict.remoteHead.position!.cfi,
+      progressPercent: conflict.remoteHead.position!.progressPercent,
+      lastRead: conflict.remoteHead.occurredAtClient,
+      bookmarks: recoveryBookmarks,
+      syncRevision: conflict.remoteHead.revision,
+      acceptedEventId: conflict.remoteHead.acceptedEventId,
+    };
+  const expectedLocalState: ExpectedLocalProgressStateV5 = latestLocalPosition
+    ? { kind: 'position', position: latestLocalPosition }
+    : { kind: 'empty' };
+  return { progress, expectedLocalState };
+};
+
+export const previewSyncConflictUseRemoteProgressV5 = async (
+  ownerKey: OwnerKey,
+  conflictId: string,
+  now = Date.now(),
+  preserveLocalProgress = true,
+) => {
+  const db = await initDB();
+  const tx = db.transaction([
+    V5_PROGRESS_STORE,
+    V5_SYNC_CONFLICTS_STORE,
+  ], 'readonly');
+  const conflict = await tx.objectStore(V5_SYNC_CONFLICTS_STORE)
+    .get([ownerKey, conflictId]) as SyncConflictV5 | undefined;
+  if (
+    !conflict?.event
+    || conflict.event.target.kind !== 'progress'
+    || !conflict.remoteHead
+    || !('position' in conflict.remoteHead)
+    || (conflict.state !== 'open' && conflict.state !== 'deferred')
+  ) {
+    await tx.done;
+    return null;
+  }
+  const existing = await tx.objectStore(V5_PROGRESS_STORE)
+    .get([ownerKey, conflict.event.target.bookId]) as
+      (UserProgress & { ownerKey: OwnerKey }) | undefined;
+  await tx.done;
+  return buildRemoteProgressResolutionV5({
+    ownerKey,
+    conflict: conflict as SyncConflictV5 & {
+      event: ProgressOutboxEventV5;
+      remoteHead: ProgressHeadV2;
+    },
+    existing,
+    now,
+    preserveLocalProgress,
+  });
+};
+
 export const resolveSyncConflictUseRemoteV5 = async (
   ownerKey: OwnerKey,
   conflictId: string,
   now = Date.now(),
   preserveLocalProgress = false,
-  expectedLocalPosition?: ProgressPositionV2,
+  expectedLocalState?: ExpectedLocalProgressStateV5,
 ) => {
   const db = await initDB();
   const tx = db.transaction([
@@ -1921,94 +2091,61 @@ export const resolveSyncConflictUseRemoteV5 = async (
     await tx.done.catch(() => undefined);
     throw new Error('annotation 충돌은 전용 resolver에서 처리해야 합니다.');
   }
-  if (expectedLocalPosition) {
-    const latest = conflict.latestLocalPosition;
-    const stillMatches = Boolean(
-      (conflict.state === 'open' || conflict.state === 'deferred')
-      && latest
-      && 'anchorCfi' in latest
-      && latest.cfi === expectedLocalPosition.cfi
-      && (latest.anchorCfi ?? null) === (expectedLocalPosition.anchorCfi ?? null)
-      && latest.progressPercent === expectedLocalPosition.progressPercent,
-    );
-    if (!stillMatches) {
-      tx.abort();
-      await tx.done.catch(() => undefined);
-      return null;
-    }
-  }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
-  await supersedeConflictEvents(outbox, conflict);
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
   const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
   const bookId = conflict.event.target.bookId;
   const existing = await progressStore.get([ownerKey, bookId]) as
     (UserProgress & { ownerKey: OwnerKey }) | undefined;
-
-  const latestLocalPosition = existing?.cfi
-    ? {
-      cfi: existing.cfi,
-      anchorCfi: existing.anchorCfi ?? existing.cfi,
-      progressPercent: existing.progressPercent,
+  if (expectedLocalState !== undefined) {
+    const allowedEventIds = new Set([
+      conflict.event.eventId,
+      ...conflict.blockedEventIds,
+    ]);
+    const targetEvents = await outbox.index('by-owner-target-sequence').getAll(
+      IDBKeyRange.bound(
+        [ownerKey, conflict.targetKey, 0],
+        [ownerKey, conflict.targetKey, Number.MAX_SAFE_INTEGER],
+      ),
+    ) as SyncOutboxEventV5[];
+    const hasNewerIntent = targetEvents.some((event) => (
+      activeStatuses.has(event.status) && !allowedEventIds.has(event.eventId)
+    ));
+    if (!matchesExpectedLocalProgressState(existing, expectedLocalState) || hasNewerIntent) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      return null;
     }
-    : null;
-  const localPosition = conflict.event.target.kind === 'progress'
-    && conflict.event.operation === 'progress.set'
-    && conflict.event.payload
-      ? latestLocalPosition ?? conflict.event.payload
-      : null;
-  const shouldPreserveLocalPosition = Boolean(
-    preserveLocalProgress
-    && localPosition
-    && 'position' in conflict.remoteHead
-    && conflict.remoteHead.operation === 'set'
-    && conflict.remoteHead.position
-    && (localPosition!.anchorCfi ?? localPosition!.cfi)
-      !== (conflict.remoteHead.position.anchorCfi ?? conflict.remoteHead.position.cfi),
-  );
-  const recoveryBookmarks: Bookmark[] = shouldPreserveLocalPosition
-    ? [
-      ...(existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'manual'),
-      {
-        id: crypto.randomUUID(),
-        type: 'auto',
-        name: '충돌 전 위치',
-        cfi: localPosition!.cfi,
-        progressPercent: localPosition!.progressPercent,
-        createdAt: now,
-        color: '#64748b',
-      },
-      ...(existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'auto').slice(0, 2),
-    ]
-    : existing?.bookmarks ?? [];
+  }
+  const [meta, cachedRemote] = await Promise.all([
+    metaStore.get([ownerKey, conflict.targetKey]) as Promise<SyncMetaV5 | undefined>,
+    remoteStore.get([ownerKey, conflict.targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+  ]);
+  if (isConflictRemoteHeadStale(conflict, cachedRemote, meta?.knownRevision ?? 0)) {
+    if (cachedRemote) {
+      await conflictStore.put(refreshConflictRemoteHead(conflict, cachedRemote));
+      await tx.done;
+    } else {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+    }
+    return null;
+  }
+  await supersedeConflictEvents(outbox, conflict);
 
   let nextProgress: UserProgress & { ownerKey: OwnerKey };
   if ('position' in conflict.remoteHead) {
-    nextProgress = conflict.remoteHead.operation === 'reset'
-      ? {
-        ownerKey,
-        bookId,
-        cfi: '',
-        anchorCfi: '',
-        progressPercent: 0,
-        lastRead: conflict.remoteHead.occurredAtClient,
-        bookmarks: recoveryBookmarks,
-        syncRevision: conflict.remoteHead.revision,
-        acceptedEventId: conflict.remoteHead.acceptedEventId,
-      }
-      : {
-        ownerKey,
-        bookId,
-        cfi: conflict.remoteHead.position!.cfi,
-        anchorCfi: conflict.remoteHead.position!.anchorCfi
-          ?? conflict.remoteHead.position!.cfi,
-        progressPercent: conflict.remoteHead.position!.progressPercent,
-        lastRead: conflict.remoteHead.occurredAtClient,
-        bookmarks: recoveryBookmarks,
-        syncRevision: conflict.remoteHead.revision,
-        acceptedEventId: conflict.remoteHead.acceptedEventId,
-      };
+    nextProgress = buildRemoteProgressResolutionV5({
+      ownerKey,
+      conflict: conflict as SyncConflictV5 & {
+        event: ProgressOutboxEventV5;
+        remoteHead: ProgressHeadV2;
+      },
+      existing,
+      now,
+      preserveLocalProgress,
+    }).progress;
   } else {
     const bookmarks = new Map((existing?.bookmarks ?? [])
       .filter((bookmark) => bookmark.type === 'manual')
@@ -2042,7 +2179,6 @@ export const resolveSyncConflictUseRemoteV5 = async (
       acceptedEventId: existing?.acceptedEventId,
     };
   }
-  const meta = await metaStore.get([ownerKey, conflict.targetKey]) as SyncMetaV5 | undefined;
   await Promise.all([
     progressStore.put(nextProgress),
     metaStore.put({
@@ -2075,6 +2211,7 @@ export const resolveSyncConflictKeepLocalV5 = async (
     V5_OUTBOX_STORE,
     V5_SYNC_CONFLICTS_STORE,
     V5_SYNC_META_STORE,
+    V5_REMOTE_HEADS_STORE,
   ], 'readwrite');
   const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
   const conflict = await conflictStore.get([ownerKey, conflictId]) as SyncConflictV5 | undefined;
@@ -2091,6 +2228,26 @@ export const resolveSyncConflictKeepLocalV5 = async (
     tx.abort();
     await tx.done.catch(() => undefined);
     throw new Error('annotation 충돌은 전용 resolver에서 처리해야 합니다.');
+  }
+  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
+  const [conflictMeta, cachedRemote] = await Promise.all([
+    metaStore.get([ownerKey, conflict.targetKey]) as Promise<SyncMetaV5 | undefined>,
+    remoteStore.get([ownerKey, conflict.targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+  ]);
+  if (isConflictRemoteHeadStale(
+    conflict,
+    cachedRemote,
+    conflictMeta?.knownRevision ?? 0,
+  )) {
+    if (cachedRemote) {
+      await conflictStore.put(refreshConflictRemoteHead(conflict, cachedRemote));
+      await tx.done;
+    } else {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+    }
+    return null;
   }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   await supersedeConflictEvents(outbox, conflict);
@@ -2142,7 +2299,6 @@ export const resolveSyncConflictKeepLocalV5 = async (
     baseRevision = 0;
   }
 
-  const metaStore = tx.objectStore(V5_SYNC_META_STORE);
   const meta = await metaStore.get([ownerKey, targetKey]) as SyncMetaV5 | undefined;
   const nextMeta = meta ?? defaultSyncMeta(ownerKey, targetKey, now);
   const rebasedKnownRevision = restoringDeletedBookmark

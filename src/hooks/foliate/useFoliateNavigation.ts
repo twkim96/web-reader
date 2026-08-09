@@ -39,23 +39,25 @@ export const useFoliateNavigation = ({
 
   const goTo = useCallback(async (cfi: string) => {
     const view = viewRef.current;
-    if (!view) return;
+    if (!view) return false;
 
     try {
-      await view.goTo(cfi);
+      return (await view.goTo(cfi)) !== false;
     } catch (error) {
       console.error('Failed to navigate to CFI:', error);
+      return false;
     }
   }, [viewRef]);
 
   const goToFraction = useCallback(async (fraction: number) => {
     const view = viewRef.current;
-    if (!view) return;
+    if (!view) return false;
 
     try {
-      await view.goToFraction(fraction);
+      return await view.goToFraction(fraction);
     } catch (error) {
       console.error('Failed to navigate to fraction:', error);
+      return false;
     }
   }, [viewRef]);
 

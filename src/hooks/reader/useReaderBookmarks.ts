@@ -134,7 +134,7 @@ export const useReaderBookmarks = ({
     });
   }, [getLivePosition, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
 
-  const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
+  const stageAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
     if (!prevCfi) return bookmarksRef.current;
 
     const live = getLivePosition();
@@ -151,8 +151,14 @@ export const useReaderBookmarks = ({
 
     const manual = bookmarksRef.current.filter((bookmark) => bookmark.type === 'manual');
     const auto = bookmarksRef.current.filter((bookmark) => bookmark.type === 'auto').slice(0, 2);
-    return setBookmarks([...manual, autoMark, ...auto]);
-  }, [getLivePosition, getPreviewText, setBookmarks]);
+    return [...manual, autoMark, ...auto];
+  }, [getLivePosition, getPreviewText]);
+
+  const commitBookmarks = useCallback((items: Bookmark[]) => setBookmarks(items), [setBookmarks]);
+
+  const createAutoBookmark = useCallback((prevCfi: string, prevPct: number) => (
+    commitBookmarks(stageAutoBookmark(prevCfi, prevPct))
+  ), [commitBookmarks, stageAutoBookmark]);
 
   return {
     bookmarks,
@@ -161,6 +167,8 @@ export const useReaderBookmarks = ({
     adoptResolvedBookmarks,
     addBookmark,
     deleteBookmark,
+    stageAutoBookmark,
+    commitBookmarks,
     createAutoBookmark,
   };
 };

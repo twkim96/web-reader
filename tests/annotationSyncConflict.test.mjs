@@ -32,6 +32,7 @@ const {
   enqueueAnnotationPaletteEventV5,
   getOutboxEventsV5,
   getSyncMetaV5,
+  storeRemoteHeadsBatchV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const { toAnnotationSyncPayloadV1 } = await import('../src/lib/annotationSyncSchema.ts');
 const {
@@ -132,6 +133,33 @@ test('uses a validated remote annotation and supersedes the conflicting event', 
     101,
   ), null);
   assert.equal((await getOutboxEventsV5(ownerKey)).length, 1);
+});
+
+test('refreshes a stale annotation conflict instead of applying an older remote head', async () => {
+  const local = annotation('shared', { note: '로컬' });
+  await saveLocalAnnotationV8(ownerKey, local, context());
+  const conflict = await createConflict(annotationHead(annotation('shared', {
+    note: '원격 2',
+    updatedAtClient: 2,
+  }), 2));
+  const newerRemote = {
+    ...annotationHead(annotation('shared', {
+      note: '원격 3',
+      updatedAtClient: 3,
+    }), 3),
+    acceptedEventId: 'remote-shared-3',
+  };
+  await storeRemoteHeadsBatchV5(ownerKey, [newerRemote], 50);
+
+  assert.equal(await resolveAnnotationSyncConflictUseRemoteV5(
+    ownerKey,
+    conflict.conflictId,
+    100,
+  ), null);
+  assert.equal((await getLocalAnnotationsV8(ownerKey, 'book-1'))[0].note, '로컬');
+  const [refreshed] = await getOpenAnnotationSyncConflictsV5(ownerKey);
+  assert.equal(refreshed.remoteHead.revision, 3);
+  assert.equal(refreshed.remoteHead.acceptedEventId, 'remote-shared-3');
 });
 
 test('keeps the latest local annotation with the authoritative remote revision', async () => {
@@ -264,6 +292,44 @@ test('applies a remote palette conflict without enqueueing a new local event', a
   assert.equal(getStoredAnnotationPalette(ownerKey)[0].meaning, '원격 의미');
   assert.equal((await getOutboxEventsV5(ownerKey)).length, 1);
   assert.equal((await getOutboxEventsV5(ownerKey))[0].status, 'superseded');
+});
+
+test('does not apply a stale palette conflict over a newer cached revision', async () => {
+  const local = DEFAULT_ANNOTATION_PALETTE.map((item) => ({ ...item }));
+  await enqueueAnnotationPaletteEventV5(ownerKey, { payload: { items: local } }, context());
+  const remoteHead = {
+    schemaVersion: 1,
+    revision: 1,
+    acceptedEventId: 'remote-palette-1',
+    operation: 'set',
+    palette: { items: local.map((item) => item.id === 'yellow'
+      ? { ...item, meaning: '원격 1' }
+      : item) },
+    acceptedDeviceId: 'device-remote',
+    acceptedSessionId: 'session-remote',
+    occurredAtClient: 2,
+    updatedAtServer: {},
+  };
+  const conflict = await createConflict(remoteHead);
+  const newerRemote = {
+    ...remoteHead,
+    revision: 2,
+    acceptedEventId: 'remote-palette-2',
+    palette: { items: local.map((item) => item.id === 'yellow'
+      ? { ...item, meaning: '원격 2' }
+      : item) },
+    occurredAtClient: 3,
+  };
+  await storeRemoteHeadsBatchV5(ownerKey, [newerRemote], 50);
+
+  assert.equal(await resolveAnnotationSyncConflictUseRemoteV5(
+    ownerKey,
+    conflict.conflictId,
+    100,
+  ), null);
+  assert.equal(getStoredAnnotationPalette(ownerKey)[0].meaning, local[0].meaning);
+  const [refreshed] = await getOpenAnnotationSyncConflictsV5(ownerKey);
+  assert.equal(refreshed.remoteHead.revision, 2);
 });
 
 test('keeps the canonical palette written before a prior event conflicts', async () => {

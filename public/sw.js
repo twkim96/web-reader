@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.6: add selected-text and current-position speech synthesis controls.
+// 1.8.8: add overlap-safe screen and TTS reading statistics.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.6`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.8`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

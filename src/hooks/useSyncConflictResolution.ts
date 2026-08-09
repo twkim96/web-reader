@@ -12,8 +12,10 @@ import {
   getUnresolvedSyncConflictsV5,
   isSyncConflictPresentableV5,
   deferSyncConflictV5,
+  previewSyncConflictUseRemoteProgressV5,
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
+  type ExpectedLocalProgressStateV5,
   type SyncConflictV5,
 } from '../lib/syncOutboxV5';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
@@ -22,7 +24,6 @@ import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { getSyncSessionId } from '../lib/syncSession';
 import { getQuietProgressConflictReason } from '../lib/syncConflictPolicy';
 import { selectProgressSyncConflict } from '../lib/syncConflictPresentation';
-import type { ProgressPositionV2 } from '../lib/progressV2Schema';
 
 type UseSyncConflictResolutionOptions = {
   user: FirebaseUser | null;
@@ -37,8 +38,11 @@ type UseSyncConflictResolutionOptions = {
 
 export type ResolvedRemoteProgressCommand = {
   commandId: string;
+  conflictId: string;
   operation: 'jump' | 'reset';
   progress: UserProgress;
+  expectedLocalState: ExpectedLocalProgressStateV5;
+  conflict: SyncConflictV5;
 };
 
 export const useSyncConflictResolution = ({
@@ -60,15 +64,37 @@ export const useSyncConflictResolution = ({
   const [resolvedRemoteProgressCommand, setResolvedRemoteProgressCommand] = useState<
     ResolvedRemoteProgressCommand | null
   >(null);
+  const resolvedRemoteProgressCommandRef = useRef<ResolvedRemoteProgressCommand | null>(null);
   const resolvingRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
   const sessionIdRef = useRef(getSyncSessionId());
+
+  const stageRemoteProgressCommand = useCallback((
+    target: SyncConflictV5,
+    progress: UserProgress,
+    expectedLocalState: ExpectedLocalProgressStateV5,
+  ) => {
+    const command: ResolvedRemoteProgressCommand = {
+      commandId: crypto.randomUUID(),
+      conflictId: target.conflictId,
+      operation: target.remoteHead && 'position' in target.remoteHead
+        && target.remoteHead.operation === 'reset'
+        ? 'reset'
+        : 'jump',
+      progress,
+      expectedLocalState,
+      conflict: target,
+    };
+    resolvedRemoteProgressCommandRef.current = command;
+    setResolvedRemoteProgressCommand(command);
+    return command;
+  }, []);
 
   const applyRemote = useCallback(async (
     owner: OwnerSnapshot,
     target: SyncConflictV5,
     preserveLocalProgress: boolean,
-    expectedLocalPosition?: ProgressPositionV2,
+    expectedLocalState?: ExpectedLocalProgressStateV5,
     canApplyRuntime?: () => boolean,
     emitRuntimeCommand = false,
   ) => {
@@ -80,7 +106,7 @@ export const useSyncConflictResolution = ({
         target.conflictId,
         Date.now(),
         preserveLocalProgress,
-        expectedLocalPosition,
+        expectedLocalState,
       ),
     );
     if (!nextProgress) return null;
@@ -103,18 +129,15 @@ export const useSyncConflictResolution = ({
     }) : prev);
     if (target.event?.target.kind === 'progress' && emitRuntimeCommand) {
       if (ownerRuntime.isCurrent(owner)) {
-        setResolvedRemoteProgressCommand({
-          commandId: crypto.randomUUID(),
-          operation: target.remoteHead && 'position' in target.remoteHead
-            && target.remoteHead.operation === 'reset'
-            ? 'reset'
-            : 'jump',
-          progress: nextProgress,
-        });
+        stageRemoteProgressCommand(
+          target,
+          nextProgress,
+          expectedLocalState ?? { kind: 'empty' },
+        );
       }
     }
     return nextProgress;
-  }, [progressRef, setProgress, setRemoteProgress]);
+  }, [progressRef, setProgress, setRemoteProgress, stageRemoteProgressCommand]);
 
   const refresh = useCallback(async () => {
     const generation = refreshGenerationRef.current + 1;
@@ -164,11 +187,31 @@ export const useSyncConflictResolution = ({
       if (resolvingRef.current.has(next.conflictId)) return;
       resolvingRef.current.add(next.conflictId);
       try {
+        if (targetIsActiveBook) {
+          if (resolvedRemoteProgressCommandRef.current?.conflictId === next.conflictId) return;
+          const preview = await previewSyncConflictUseRemoteProgressV5(
+            getSyncOwnerKey(owner.ownerKey),
+            next.conflictId,
+            Date.now(),
+            true,
+          );
+          if (!preview || !ownerRuntime.isCurrent(owner)) {
+            setConflict(next);
+            return;
+          }
+          stageRemoteProgressCommand(
+            next,
+            preview.progress,
+            preview.expectedLocalState,
+          );
+          setConflict(next);
+          return;
+        }
         const resolved = await applyRemote(
           owner,
           next,
           true,
-          expectedLocalPosition,
+          { kind: 'position', position: expectedLocalPosition },
           targetIsActiveBook ? runtimeEligibility : undefined,
           targetIsActiveBook,
         );
@@ -198,10 +241,12 @@ export const useSyncConflictResolution = ({
     applyRemote,
     canAutoResolveSettledProgressConflict,
     canQuietlyResolveProgressConflict,
+    stageRemoteProgressCommand,
     user,
   ]);
 
   useEffect(() => {
+    resolvedRemoteProgressCommandRef.current = null;
     setResolvedRemoteProgressCommand(null);
   }, [ownerKey]);
 
@@ -267,6 +312,27 @@ export const useSyncConflictResolution = ({
     setResolving(true);
     setResolutionError(null);
     try {
+      if (
+        conflict.event?.target.kind === 'progress'
+        && conflict.event.target.bookId === activeBookId
+      ) {
+        const preview = await previewSyncConflictUseRemoteProgressV5(
+          getSyncOwnerKey(owner.ownerKey),
+          conflict.conflictId,
+          Date.now(),
+          true,
+        );
+        if (!preview || !ownerRuntime.isCurrent(owner)) {
+          setResolutionError('충돌 상태가 바뀌었습니다. 다시 확인해 주세요.');
+          return false;
+        }
+        stageRemoteProgressCommand(
+          conflict,
+          preview.progress,
+          preview.expectedLocalState,
+        );
+        return true;
+      }
       await applyRemote(
         owner,
         conflict,
@@ -292,7 +358,7 @@ export const useSyncConflictResolution = ({
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
     }
-  }, [activeBookId, applyRemote, conflict, refresh]);
+  }, [activeBookId, applyRemote, conflict, refresh, stageRemoteProgressCommand]);
 
   const defer = useCallback(async () => {
     const owner = ownerRuntime.capture();
@@ -325,10 +391,52 @@ export const useSyncConflictResolution = ({
   }, [conflict, refresh]);
 
   const consumeResolvedRemoteProgressCommand = useCallback((commandId: string) => {
+    if (resolvedRemoteProgressCommandRef.current?.commandId === commandId) {
+      resolvedRemoteProgressCommandRef.current = null;
+    }
     setResolvedRemoteProgressCommand((current) => (
       current?.commandId === commandId ? null : current
     ));
   }, []);
+
+  const finalizeResolvedRemoteProgressCommand = useCallback(async (commandId: string) => {
+    const command = resolvedRemoteProgressCommandRef.current;
+    const owner = ownerRuntime.capture();
+    if (!owner || !command || command.commandId !== commandId) return false;
+    if (resolvingRef.current.has(command.conflictId)) return false;
+    resolvingRef.current.add(command.conflictId);
+    setResolving(true);
+    setResolutionError(null);
+    try {
+      const resolved = await applyRemote(
+        owner,
+        command.conflict,
+        true,
+        command.expectedLocalState,
+      );
+      if (!resolved || !ownerRuntime.isCurrent(owner)) return false;
+      consumeResolvedRemoteProgressCommand(commandId);
+      setConflict(null);
+      await refresh().catch((error) => {
+        console.error('[SyncConflict] refresh after remote navigation finalize failed:', error);
+      });
+      return true;
+    } catch (error) {
+      console.error('[SyncConflict] remote navigation finalize failed:', error);
+      if (ownerRuntime.isCurrent(owner)) {
+        setResolutionError('이동 중 읽기 위치가 다시 변경되어 원격 값을 확정하지 않았습니다.');
+      }
+      return false;
+    } finally {
+      resolvingRef.current.delete(command.conflictId);
+      if (ownerRuntime.isCurrent(owner)) setResolving(false);
+    }
+  }, [applyRemote, consumeResolvedRemoteProgressCommand, refresh]);
+
+  const cancelResolvedRemoteProgressCommand = useCallback((commandId: string) => {
+    consumeResolvedRemoteProgressCommand(commandId);
+    setResolutionError('원격 위치 이동이 취소되어 충돌을 해결하지 않았습니다.');
+  }, [consumeResolvedRemoteProgressCommand]);
 
   return {
     conflict,
@@ -337,6 +445,8 @@ export const useSyncConflictResolution = ({
     activeProgressConflictRevision,
     resolvedRemoteProgressCommand,
     consumeResolvedRemoteProgressCommand,
+    finalizeResolvedRemoteProgressCommand,
+    cancelResolvedRemoteProgressCommand,
     keepLocal,
     useRemote,
     defer,

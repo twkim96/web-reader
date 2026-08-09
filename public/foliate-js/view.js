@@ -219,6 +219,7 @@ export class View extends HTMLElement {
     #searchResults = new Map()
     #searchDraw
     #searchDrawOptions
+    #transientNavigationSequence = 0
     #cursorAutohider = new CursorAutohider(this, () =>
         this.hasAttribute('autohide-cursor'))
     isFixedLayout = false
@@ -323,7 +324,8 @@ export class View extends HTMLElement {
     async init({ lastLocation, showTextStart }) {
         const resolved = lastLocation ? this.resolveNavigation(lastLocation) : null
         if (resolved) {
-            await this.renderer.goTo(resolved)
+            const committed = await this.renderer.goTo(resolved)
+            if (committed === false) return
             this.history.pushState(lastLocation)
         }
         else if (showTextStart) await this.goToTextStart()
@@ -335,13 +337,18 @@ export class View extends HTMLElement {
     #emit(name, detail, cancelable) {
         return this.dispatchEvent(new CustomEvent(name, { detail, cancelable }))
     }
-    #onRelocate({ reason, range, index, fraction, size }) {
+    #onRelocate({
+        reason, range, index, fraction, size, navigationSource, navigationId,
+    }) {
         const progress = this.#sectionProgress?.getProgress(index, fraction, size) ?? {}
         const tocItem = this.#tocProgress?.getProgress(index, range)
         const pageItem = this.#pageProgress?.getProgress(index, range)
         const cfi = this.getCFI(index, range)
         const anchorCfi = this.getAnchorCFI(index, range)
-        this.lastLocation = { ...progress, tocItem, pageItem, cfi, anchorCfi, range, reason }
+        this.lastLocation = {
+            ...progress, tocItem, pageItem, cfi, anchorCfi, range, reason,
+            navigationSource, navigationId,
+        }
         if (reason === 'snap' || reason === 'page' || reason === 'scroll')
             this.history.replaceState(cfi)
         this.#emit('relocate', this.lastLocation)
@@ -368,7 +375,21 @@ export class View extends HTMLElement {
             const href = section?.resolveHref?.(href_) ?? href_
             if (book?.isExternal?.(href))
                 Promise.resolve(this.#emit('external-link', { a, href_ }, true))
-                    .then(x => x ? globalThis.open(href_, '_blank') : null)
+                    .then(x => {
+                        if (!x) return null
+                        let resolvedURL
+                        try {
+                            resolvedURL = new URL(href, doc.baseURI)
+                        } catch {
+                            return null
+                        }
+                        if (resolvedURL.protocol !== 'http:' && resolvedURL.protocol !== 'https:')
+                            return null
+                        const opened = globalThis.open(
+                            resolvedURL.href, '_blank', 'noopener,noreferrer')
+                        if (opened) opened.opener = null
+                        return opened
+                    })
                     .catch(e => console.error(e))
             else Promise.resolve(this.#emit('link', { a, href }, true))
                 .then(x => x ? this.goTo(href) : null)
@@ -488,24 +509,51 @@ export class View extends HTMLElement {
     }
     async goTo(target) {
         const resolved = this.resolveNavigation(target)
+        if (!resolved) return false
         try {
-            await this.renderer.goTo(resolved)
+            const committed = await this.renderer.goTo(resolved)
+            if (committed === false) return false
             this.history.pushState(target)
             return resolved
         } catch(e) {
             console.error(e)
             console.error(`Could not go to ${target}`)
+            return false
         }
+    }
+    async navigateTransient(target, reason = 'navigation') {
+        const resolved = typeof target === 'object' && typeof target?.index === 'number'
+            ? { index: target.index, anchor: target.range ?? target.anchor }
+            : this.resolveNavigation(target)
+        if (!resolved) return
+        const navigationSource = reason === 'tts-navigation' ? 'tts' : 'transient'
+        const navigationId = `${navigationSource}:${++this.#transientNavigationSequence}`
+        const navigation = { ...resolved, reason, navigationSource, navigationId }
+        const committed = await this.renderer.goTo(navigation)
+        if (committed === false) return
+        return navigation
+    }
+    cancelTransientNavigation(source = 'tts') {
+        return this.renderer.cancelNavigation?.(source)
     }
     async goToFraction(frac) {
         const [index, anchor] = this.#sectionProgress.getSection(frac)
-        await this.renderer.goTo({ index, anchor })
-        this.history.pushState({ fraction: frac })
+        try {
+            const committed = await this.renderer.goTo({ index, anchor })
+            if (committed === false) return false
+            this.history.pushState({ fraction: frac })
+            return true
+        } catch (e) {
+            console.error(e)
+            console.error(`Could not go to fraction ${frac}`)
+            return false
+        }
     }
     async select(target) {
         try {
             const obj = await this.resolveNavigation(target)
-            await this.renderer.goTo({ ...obj, select: true })
+            const committed = await this.renderer.goTo({ ...obj, select: true })
+            if (committed === false) return
             this.history.pushState(target)
         } catch(e) {
             console.error(e)

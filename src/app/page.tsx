@@ -37,6 +37,7 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
 import { SyncConflictResolutionDialog } from '../components/SyncConflictResolutionDialog';
 import { getBookOpenLimitError } from '../lib/bookFormats';
+import { clearReaderTtsCursor } from '../lib/readerTtsCursor';
 import {
   clearLastReaderSession,
   getLastReaderBookCandidate,
@@ -59,6 +60,8 @@ import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
 import { LibraryAnnotationModal } from '../components/LibraryAnnotationModal';
+import { LibraryReadingStatisticsModal } from '../components/LibraryReadingStatisticsModal';
+import { useReadingStatisticsSync } from '../hooks/useReadingStatisticsSync';
 import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
 import {
   shouldShowSyncConflictDialog,
@@ -83,6 +86,7 @@ export default function Page() {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [syncReviewOpen, setSyncReviewOpen] = useState(false);
   const [libraryAnnotationsOpen, setLibraryAnnotationsOpen] = useState(false);
+  const [readingStatisticsOpen, setReadingStatisticsOpen] = useState(false);
   const [libraryAnnotationJumpCommand, setLibraryAnnotationJumpCommand] = useState<
     LibraryAnnotationJumpCommand | null
   >(null);
@@ -266,6 +270,7 @@ export default function Page() {
     ownerKey: activeOwnerKey,
   });
   const sendSyncHealth = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
+  const readingStatisticsSync = useReadingStatisticsSync(user, activeOwnerKey);
   const syncHealth = mergeSyncHealth(
     receiveSyncHealth,
     sendSyncHealth,
@@ -300,9 +305,11 @@ export default function Page() {
     ? conflictTarget.bookId
     : null;
   const syncConflictPresentation = {
-    hasConflict: Boolean(activeSyncConflict),
+    hasConflict: Boolean(activeSyncConflict)
+      && !syncConflictResolution.resolvedRemoteProgressCommand,
     explicitReview: syncReviewOpen,
     view,
+    conflictKind: conflictTarget?.kind ?? null,
     conflictBookId,
     activeBookId: activeBook?.id,
   };
@@ -504,9 +511,12 @@ export default function Page() {
             deviceId: deviceId.current,
             sessionId: getSyncSessionId(),
           } : undefined,
-        ).then(() => undefined),
+        ).then(() => {
+          clearReaderTtsCursor(annotationOwner.ownerKey, book.id);
+        }),
       });
-      if (!deleted || !ownerRuntime.isCurrent(annotationOwner)) return;
+      if (!deleted) return;
+      if (!ownerRuntime.isCurrent(annotationOwner)) return;
 
       clearLastReaderSession(undefined, book.id);
       setActiveBook((current) => current?.id === book.id ? null : current);
@@ -642,6 +652,7 @@ export default function Page() {
           isCloudTokenValid={hasValidToken}
           onCloudAuthExpired={handleCloudAuthExpired}
           onShowAnnotations={() => setLibraryAnnotationsOpen(true)}
+          onShowStatistics={() => setReadingStatisticsOpen(true)}
         />
       )}
 
@@ -652,6 +663,7 @@ export default function Page() {
           book={activeBook}
           ownerKey={activeOwnerKey}
           annotationSyncDeviceId={user ? deviceId.current : undefined}
+          readingStatsDeviceId={deviceId.current}
           onAnnotationSyncHealthChange={setAnnotationSyncHealth}
           googleToken={googleToken || ''}
           settings={settings}
@@ -671,6 +683,12 @@ export default function Page() {
             : null}
           onResolvedRemoteProgressConsumed={
             syncConflictResolution.consumeResolvedRemoteProgressCommand
+          }
+          onResolvedRemoteProgressFinalize={
+            syncConflictResolution.finalizeResolvedRemoteProgressCommand
+          }
+          onResolvedRemoteProgressCancelled={
+            syncConflictResolution.cancelResolvedRemoteProgressCommand
           }
           outboxProgressConflictRevision={outboxProgressConflictRevision}
           ignoredRemoteRevision={progress[activeBook.id]?.ignoredRemoteRevision}
@@ -693,6 +711,7 @@ export default function Page() {
           onRegisterProgressConflictAutoResolveEligibility={(check) => {
             readerProgressConflictAutoResolveEligibilityRef.current = check;
           }}
+          interactionBlocked={showSyncConflictDialog}
         />
       )}
 
@@ -712,6 +731,19 @@ export default function Page() {
               annotation,
             });
           }}
+        />
+      )}
+
+      {readingStatisticsOpen && activeOwnerKey && (
+        <LibraryReadingStatisticsModal
+          key={activeOwnerKey}
+          open={readingStatisticsOpen}
+          visible={view === 'shelf'}
+          ownerKey={activeOwnerKey}
+          theme={theme}
+          syncHealth={readingStatisticsSync.health}
+          quarantinedDocumentCount={readingStatisticsSync.quarantinedCount}
+          onClose={() => setReadingStatisticsOpen(false)}
         />
       )}
 

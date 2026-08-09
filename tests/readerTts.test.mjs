@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  normalizeReaderTtsChapterEndAction,
   normalizeReaderTtsLanguage,
   normalizeReaderTtsRate,
   normalizeReaderTtsVoiceUri,
@@ -13,6 +14,7 @@ import {
 } from '../src/lib/readerTts.ts';
 import {
   getBrowserSpeechErrorMessage,
+  isRetryableBrowserSpeechError,
   readBrowserSpeechVoices,
   startBrowserSpeech,
 } from '../src/lib/browserSpeechSynthesis.ts';
@@ -40,6 +42,8 @@ test('normalizes TTS settings and resolves automatic language tags', () => {
   assert.equal(normalizeReaderTtsRate('1.4'), 1);
   assert.equal(normalizeReaderTtsVoiceUri('voice-1'), 'voice-1');
   assert.equal(normalizeReaderTtsVoiceUri('x'.repeat(501)), '');
+  assert.equal(normalizeReaderTtsChapterEndAction('next'), 'next');
+  assert.equal(normalizeReaderTtsChapterEndAction('unknown'), 'stop');
   assert.equal(resolveReaderTtsLanguageTag({
     configured: 'auto',
     text: '한국어 문장',
@@ -112,4 +116,7 @@ test('maps browser speech errors to actionable reader messages', () => {
   assert.match(getBrowserSpeechErrorMessage('voice-unavailable'), /음성/);
   assert.match(getBrowserSpeechErrorMessage('audio-busy'), /오디오/);
   assert.match(getBrowserSpeechErrorMessage(new Error('speech-synthesis-unavailable')), /지원하지/);
+  assert.equal(isRetryableBrowserSpeechError('network'), true);
+  assert.equal(isRetryableBrowserSpeechError(new Error('audio-hardware')), true);
+  assert.equal(isRetryableBrowserSpeechError('not-allowed'), false);
 });

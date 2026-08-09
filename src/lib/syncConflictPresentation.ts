@@ -5,6 +5,7 @@ type SyncConflictPresentationInput = {
   hasConflict: boolean;
   explicitReview: boolean;
   view: ViewState;
+  conflictKind: NonNullable<SyncConflictV5['event']>['target']['kind'] | null;
   conflictBookId: string | null;
   activeBookId?: string;
 };
@@ -13,13 +14,19 @@ export const shouldShowSyncConflictDialog = ({
   hasConflict,
   explicitReview,
   view,
+  conflictKind,
   conflictBookId,
   activeBookId,
 }: SyncConflictPresentationInput) => Boolean(
   hasConflict
   && (
     explicitReview
-    || (view === 'reader' && conflictBookId !== null && conflictBookId === activeBookId)
+    || (
+      view === 'reader'
+      && conflictKind === 'progress'
+      && conflictBookId !== null
+      && conflictBookId === activeBookId
+    )
   )
 );
 
@@ -27,8 +34,19 @@ export const shouldShowSyncReviewBadge = ({
   hasConflict,
   explicitReview,
   view,
+  conflictKind,
+  conflictBookId,
+  activeBookId,
 }: SyncConflictPresentationInput) => (
-  hasConflict && !explicitReview && view === 'shelf'
+  hasConflict
+  && !explicitReview
+  && (view === 'shelf' || view === 'reader')
+  && !(
+    view === 'reader'
+    && conflictKind === 'progress'
+    && conflictBookId !== null
+    && conflictBookId === activeBookId
+  )
 );
 
 export const selectProgressSyncConflict = (
