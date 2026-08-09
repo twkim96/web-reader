@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { User as FirebaseUser } from 'firebase/auth';
-import type { UserProgress } from '../types';
+import type { RemoteProgressUpdate, UserProgress } from '../types';
 import {
   ownerRuntime,
   runForOwnerSnapshot,
@@ -19,13 +19,14 @@ import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { getSyncSessionId } from '../lib/syncSession';
 import { getQuietProgressConflictReason } from '../lib/syncConflictPolicy';
+import { selectProgressSyncConflict } from '../lib/syncConflictPresentation';
 import type { ProgressPositionV2 } from '../lib/progressV2Schema';
 
 type UseSyncConflictResolutionOptions = {
   user: FirebaseUser | null;
   progressRef: MutableRefObject<Record<string, UserProgress>>;
   setProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
-  setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
+  setRemoteProgress: Dispatch<SetStateAction<Record<string, RemoteProgressUpdate>>>;
   ownerKey: string | null;
   activeBookId?: string;
   canQuietlyResolveProgressConflict?: () => boolean;
@@ -49,6 +50,10 @@ export const useSyncConflictResolution = ({
   canAutoResolveSettledProgressConflict,
 }: UseSyncConflictResolutionOptions) => {
   const [conflict, setConflict] = useState<SyncConflictV5 | null>(null);
+  const [activeProgressConflictRevision, setActiveProgressConflictRevision] = useState<
+    number | undefined
+  >(undefined);
+  const [resolving, setResolving] = useState(false);
   const [resolvedRemoteProgressCommand, setResolvedRemoteProgressCommand] = useState<
     ResolvedRemoteProgressCommand | null
   >(null);
@@ -86,7 +91,12 @@ export const useSyncConflictResolution = ({
     });
     setRemoteProgress((prev) => ownerRuntime.isCurrent(owner) ? ({
       ...prev,
-      [nextProgress.bookId]: nextProgress,
+      [nextProgress.bookId]: {
+        ...nextProgress,
+        operation: target.remoteHead && 'position' in target.remoteHead
+          ? target.remoteHead.operation
+          : 'set',
+      },
     }) : prev);
     if (target.event?.target.kind === 'progress' && emitRuntimeCommand) {
       if (ownerRuntime.isCurrent(owner)) {
@@ -109,13 +119,22 @@ export const useSyncConflictResolution = ({
     const owner = ownerRuntime.capture();
     if (!user || !owner) {
       setConflict(null);
+      setActiveProgressConflictRevision(undefined);
       return;
     }
     const conflicts = await getOpenSyncConflictsV5(getSyncOwnerKey(owner.ownerKey));
     if (!ownerRuntime.isCurrent(owner) || refreshGenerationRef.current !== generation) return;
-    const next = conflicts.find((candidate) => (
-      (candidate.event?.target.kind === 'progress' || candidate.event?.target.kind === 'bookmark')
-    )) ?? null;
+    const next = selectProgressSyncConflict(conflicts, activeBookId);
+    const activeProgressConflict = conflicts.find((candidate) => (
+      candidate.event?.target.kind === 'progress'
+      && candidate.event.target.bookId === activeBookId
+    ));
+    setActiveProgressConflictRevision(
+      activeProgressConflict?.remoteHead
+      && 'position' in activeProgressConflict.remoteHead
+        ? activeProgressConflict.remoteHead.revision
+        : undefined,
+    );
     const targetIsActiveBook = Boolean(
       next?.event?.target.kind === 'progress'
       && next.event.target.bookId === activeBookId,
@@ -151,10 +170,7 @@ export const useSyncConflictResolution = ({
           );
           if (ownerRuntime.isCurrent(owner) && refreshGenerationRef.current === generation) {
             setConflict(
-              latestConflicts.find((candidate) => (
-                (candidate.event?.target.kind === 'progress'
-                  || candidate.event?.target.kind === 'bookmark')
-              )) ?? null,
+              selectProgressSyncConflict(latestConflicts, activeBookId),
             );
           }
           return;
@@ -207,39 +223,63 @@ export const useSyncConflictResolution = ({
   const keepLocal = useCallback(async () => {
     const owner = ownerRuntime.capture();
     if (!owner || !conflict) return;
-    await resolveSyncConflictKeepLocalV5(getSyncOwnerKey(owner.ownerKey), conflict.conflictId);
-    if (!ownerRuntime.isCurrent(owner)) return;
-    setConflict(null);
-    await refresh();
+    if (resolvingRef.current.has(conflict.conflictId)) return;
+    resolvingRef.current.add(conflict.conflictId);
+    setResolving(true);
+    try {
+      await resolveSyncConflictKeepLocalV5(getSyncOwnerKey(owner.ownerKey), conflict.conflictId);
+      if (!ownerRuntime.isCurrent(owner)) return;
+      setConflict(null);
+      await refresh();
+    } finally {
+      resolvingRef.current.delete(conflict.conflictId);
+      if (ownerRuntime.isCurrent(owner)) setResolving(false);
+    }
   }, [conflict, refresh]);
 
   const useRemote = useCallback(async () => {
     const owner = ownerRuntime.capture();
     if (!owner || !conflict) return;
-    await applyRemote(
-      owner,
-      conflict,
-      conflict.event?.target.kind === 'progress',
-      undefined,
-      undefined,
-      conflict.event?.target.kind === 'progress'
-        && conflict.event.target.bookId === activeBookId,
-    );
-    if (!ownerRuntime.isCurrent(owner)) return;
-    setConflict(null);
-    await refresh();
+    if (resolvingRef.current.has(conflict.conflictId)) return;
+    resolvingRef.current.add(conflict.conflictId);
+    setResolving(true);
+    try {
+      await applyRemote(
+        owner,
+        conflict,
+        conflict.event?.target.kind === 'progress',
+        undefined,
+        undefined,
+        conflict.event?.target.kind === 'progress'
+          && conflict.event.target.bookId === activeBookId,
+      );
+      if (!ownerRuntime.isCurrent(owner)) return;
+      setConflict(null);
+      await refresh();
+    } finally {
+      resolvingRef.current.delete(conflict.conflictId);
+      if (ownerRuntime.isCurrent(owner)) setResolving(false);
+    }
   }, [activeBookId, applyRemote, conflict, refresh]);
 
   const defer = useCallback(async () => {
     const owner = ownerRuntime.capture();
     if (!owner || !conflict) return;
-    await deferSyncConflictV5(
-      getSyncOwnerKey(owner.ownerKey),
-      conflict.conflictId,
-    );
-    if (!ownerRuntime.isCurrent(owner)) return;
-    setConflict(null);
-    await refresh();
+    if (resolvingRef.current.has(conflict.conflictId)) return;
+    resolvingRef.current.add(conflict.conflictId);
+    setResolving(true);
+    try {
+      await deferSyncConflictV5(
+        getSyncOwnerKey(owner.ownerKey),
+        conflict.conflictId,
+      );
+      if (!ownerRuntime.isCurrent(owner)) return;
+      setConflict(null);
+      await refresh();
+    } finally {
+      resolvingRef.current.delete(conflict.conflictId);
+      if (ownerRuntime.isCurrent(owner)) setResolving(false);
+    }
   }, [conflict, refresh]);
 
   const consumeResolvedRemoteProgressCommand = useCallback((commandId: string) => {
@@ -250,6 +290,8 @@ export const useSyncConflictResolution = ({
 
   return {
     conflict,
+    resolving,
+    activeProgressConflictRevision,
     resolvedRemoteProgressCommand,
     consumeResolvedRemoteProgressCommand,
     keepLocal,

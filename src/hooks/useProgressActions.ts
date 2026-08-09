@@ -2,7 +2,13 @@ import { Dispatch, MutableRefObject, SetStateAction, useCallback, useRef } from 
 import { User as FirebaseUser } from 'firebase/auth';
 import { removeProgressFromLocalV5, saveProgressToLocalV5 } from '../lib/localDBV5';
 import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
-import { Book, Bookmark, SaveProgressOptions, UserProgress } from '../types';
+import {
+  Book,
+  Bookmark,
+  RemoteProgressUpdate,
+  SaveProgressOptions,
+  UserProgress,
+} from '../types';
 import { hasProgressChanged, toProgressPercent } from './progressPolicy';
 import {
   adoptRemoteProgressLocallyV5,
@@ -163,6 +169,8 @@ export const useProgressActions = ({
       bookmarks: finalBookmarks,
       syncRevision: committedExisting?.syncRevision,
       acceptedEventId: committedExisting?.acceptedEventId,
+      ignoredRemoteRevision: committedExisting?.ignoredRemoteRevision
+        ?? displayExisting?.ignoredRemoteRevision,
     };
     const bookmarkChanges = diffManualBookmarks(committedBookmarks, finalBookmarks, now);
     const syncPosition = Boolean(
@@ -284,13 +292,30 @@ export const useProgressActions = ({
     }
   }, [getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress, user]);
 
-  const adoptRemoteProgress = useCallback(async (remote: UserProgress) => {
+  const adoptRemoteProgress = useCallback(async (remote: RemoteProgressUpdate) => {
     const owner = ownerRuntime.capture();
-    if (!owner || !remote.bookId || !remote.cfi) return false;
-    const adopted: UserProgress = {
+    if (
+      !owner
+      || !remote.bookId
+      || (remote.operation === 'set' && !remote.cfi)
+    ) return false;
+    const adopted: RemoteProgressUpdate = {
       ...remote,
-      anchorCfi: remote.anchorCfi || remote.cfi,
+      cfi: remote.operation === 'reset' ? '' : remote.cfi,
+      anchorCfi: remote.operation === 'reset' ? '' : remote.anchorCfi || remote.cfi,
+      progressPercent: remote.operation === 'reset' ? 0 : remote.progressPercent,
       bookmarks: remote.bookmarks ?? progressRef.current[remote.bookId]?.bookmarks ?? [],
+    };
+    const localAdopted: UserProgress = {
+      bookId: adopted.bookId,
+      cfi: adopted.cfi,
+      anchorCfi: adopted.anchorCfi,
+      progressPercent: adopted.progressPercent,
+      lastRead: adopted.lastRead,
+      bookmarks: adopted.bookmarks,
+      syncRevision: adopted.syncRevision,
+      acceptedEventId: adopted.acceptedEventId,
+      ignoredRemoteRevision: adopted.ignoredRemoteRevision,
     };
     try {
       const committed = await queueProgressWrite(remote.bookId, async () => {
@@ -300,9 +325,9 @@ export const useProgressActions = ({
         return adoptRemoteProgressLocallyV5(syncOwnerKey, adopted);
       });
       if (!committed) return false;
-      rebaseProgressCommitBaseline(owner.ownerKey, remote.bookId, adopted);
-      progressRef.current = { ...progressRef.current, [remote.bookId]: adopted };
-      setProgress((prev) => ({ ...prev, [remote.bookId]: adopted }));
+      rebaseProgressCommitBaseline(owner.ownerKey, remote.bookId, localAdopted);
+      progressRef.current = { ...progressRef.current, [remote.bookId]: localAdopted };
+      setProgress((prev) => ({ ...prev, [remote.bookId]: localAdopted }));
       return true;
     } catch (error) {
       reportPersistenceError(error);
@@ -322,10 +347,16 @@ export const useProgressActions = ({
       if (!ignored || !ownerRuntime.isCurrent(owner)) return false;
       setProgress((prev) => {
         const existing = prev[bookId];
-        if (!existing) return prev;
-        const nextProgress = {
-          ...existing,
-          ignoredRemoteRevision: Math.max(existing.ignoredRemoteRevision ?? 0, revision),
+        const nextProgress: UserProgress = {
+          bookId,
+          cfi: existing?.cfi ?? '',
+          anchorCfi: existing?.anchorCfi ?? '',
+          progressPercent: existing?.progressPercent ?? 0,
+          lastRead: existing?.lastRead ?? 0,
+          bookmarks: existing?.bookmarks ?? [],
+          syncRevision: existing?.syncRevision,
+          acceptedEventId: existing?.acceptedEventId,
+          ignoredRemoteRevision: Math.max(existing?.ignoredRemoteRevision ?? 0, revision),
         };
         const next = { ...prev, [bookId]: nextProgress };
         progressRef.current = next;

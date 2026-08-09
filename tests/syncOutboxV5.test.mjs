@@ -159,6 +159,7 @@ test('adopts a verified remote position locally without creating an outbox event
   };
   await storeRemoteProgressHeadV5(ownerA, remote, 10);
   assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+    operation: 'set',
     bookId: 'book-1',
     cfi: remote.position.cfi,
     anchorCfi: remote.position.cfi,
@@ -196,6 +197,7 @@ test('refuses quiet remote adoption while the progress target has local outbox i
   });
 
   assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+    operation: 'set',
     bookId: 'book-1',
     cfi: remote.position.cfi,
     anchorCfi: remote.position.cfi,
@@ -227,6 +229,39 @@ test('builds an expected revision chain for distinct sessions and reset', async 
   const events = await getOutboxEventsV5(ownerA);
   assert.deepEqual(events.map(({ sequence }) => sequence), [1, 2, 3]);
   assert.deepEqual(events.map(({ baseRevision }) => baseRevision), [0, 1, 2]);
+});
+
+test('adopts an authoritative remote reset without creating local sync intent', async () => {
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 8,
+    acceptedEventId: 'remote-reset-8',
+    operation: 'reset',
+    position: null,
+    acceptedDeviceId: 'other-device',
+    acceptedSessionId: 'other-session',
+    occurredAtClient: 8,
+    updatedAtServer: {},
+    deletedAtServer: {},
+  };
+  await storeRemoteProgressHeadV5(ownerA, remote, 10);
+  assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+    operation: 'reset',
+    bookId: 'book-1',
+    cfi: '',
+    anchorCfi: '',
+    progressPercent: 0,
+    lastRead: 10,
+    bookmarks: [],
+    syncRevision: 8,
+    acceptedEventId: 'remote-reset-8',
+  }), true);
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
+  const [saved] = await getAllLocalProgressV5(ownerA);
+  assert.equal(saved.cfi, '');
+  assert.equal(saved.progressPercent, 0);
+  assert.equal(saved.syncRevision, 8);
 });
 
 test('isolates owner outboxes and allows only one live lease holder', async () => {
@@ -386,6 +421,16 @@ test('persists the highest explicitly ignored remote progress revision', async (
   assert.equal(await markRemoteProgressIgnoredV5(ownerA, 'book-1', 5), true);
   const [stored] = await getAllLocalProgressV5(ownerA);
   assert.equal(stored.ignoredRemoteRevision, 7);
+});
+
+test('persists an ignored remote revision before a local progress row exists', async () => {
+  assert.equal(await markRemoteProgressIgnoredV5(ownerA, 'book-empty', 11), true);
+  const stored = (await getAllLocalProgressV5(ownerA))
+    .find(({ bookId }) => bookId === 'book-empty');
+  assert.ok(stored);
+  assert.equal(stored.cfi, '');
+  assert.equal(stored.progressPercent, 0);
+  assert.equal(stored.ignoredRemoteRevision, 11);
 });
 
 test('ack advances known revision monotonically and removes only its event', async () => {
@@ -601,6 +646,8 @@ test('using remote resolves, preserves the local position, and supersedes a conf
     ['superseded', 'superseded'],
   );
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 1);
+  assert.equal(await resolveSyncConflictUseRemoteV5(ownerA, 'event-1', 5, true), null);
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 2);
 });
 
 test('quiet remote resolution aborts if local reading moved after the policy snapshot', async () => {
@@ -793,6 +840,16 @@ test('keeping local creates a new event at the current remote revision', async (
   assert.equal(replacement.payload.progressPercent, 30);
   assert.equal(replacement.status, 'pending');
   assert.notEqual(replacement.eventId, 'event-1');
+  assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
+  assert.equal(await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 5), null);
+  await enqueue(ownerA, {
+    eventId: 'event-after-resolution',
+    sessionId: 'session-after-resolution',
+    occurredAtClient: 6,
+  });
+  const next = (await getOutboxEventsV5(ownerA))
+    .find(({ eventId }) => eventId === 'event-after-resolution');
+  assert.equal(next.baseRevision, 3);
 });
 
 test('restoring a remotely deleted bookmark assigns a new bookmark id', async () => {

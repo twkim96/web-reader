@@ -284,10 +284,16 @@ export default function Page() {
   const annotationSyncConflictResolution = useAnnotationSyncConflictResolution({
     user,
     ownerKey: activeOwnerKey,
+    activeBookId: activeBook?.id,
   });
-  const activeSyncConflictResolution = syncConflictResolution.conflict
-    ? syncConflictResolution
-    : annotationSyncConflictResolution;
+  const conflictResolutions = [
+    syncConflictResolution,
+    annotationSyncConflictResolution,
+  ];
+  const activeSyncConflictResolution = conflictResolutions.find(({ conflict }) => {
+    const target = conflict?.event?.target;
+    return target && 'bookId' in target && target.bookId === activeBook?.id;
+  }) ?? conflictResolutions.find(({ conflict }) => conflict) ?? syncConflictResolution;
   const activeSyncConflict = activeSyncConflictResolution.conflict;
   const conflictTarget = activeSyncConflict?.event?.target;
   const conflictBookId = conflictTarget && 'bookId' in conflictTarget
@@ -302,12 +308,7 @@ export default function Page() {
   };
   const showSyncConflictDialog = shouldShowSyncConflictDialog(syncConflictPresentation);
   const showSyncReviewBadge = shouldShowSyncReviewBadge(syncConflictPresentation);
-  const outboxProgressConflictRevision = syncConflictResolution.conflict?.event?.target.kind === 'progress'
-    && syncConflictResolution.conflict.event.target.bookId === activeBook?.id
-    && syncConflictResolution.conflict.remoteHead
-    && 'position' in syncConflictResolution.conflict.remoteHead
-      ? syncConflictResolution.conflict.remoteHead.revision
-      : undefined;
+  const outboxProgressConflictRevision = syncConflictResolution.activeProgressConflictRevision;
   useNetworkLibrarySync({
     user,
     googleToken,
@@ -817,6 +818,7 @@ export default function Page() {
         <SyncConflictResolutionDialog
           conflict={activeSyncConflict}
           theme={theme}
+          resolving={activeSyncConflictResolution.resolving}
           bookTitle={conflictBookId
             ? books.find(({ id }) => id === conflictBookId)?.name
             : undefined}

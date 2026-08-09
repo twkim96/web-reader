@@ -2,7 +2,13 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Book, Bookmark, SaveProgressOptions, UserProgress, ViewerSettings } from '../types';
+import {
+  Book,
+  Bookmark,
+  RemoteProgressUpdate,
+  SaveProgressOptions,
+  ViewerSettings,
+} from '../types';
 import {
   DEFAULT_LEFT_RIGHT_TAP_PERCENT,
   DEFAULT_TOP_BOTTOM_TAP_PERCENT,
@@ -55,13 +61,13 @@ interface EpubReaderProps {
   onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
   onBack: () => void;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
-  onAdoptRemoteProgress: (progress: UserProgress) => Promise<boolean>;
+  onAdoptRemoteProgress: (progress: RemoteProgressUpdate) => Promise<boolean>;
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
   initialBookmarks?: Bookmark[];
   initialRevision?: number;
-  remoteProgress?: UserProgress;
+  remoteProgress?: RemoteProgressUpdate;
   resolvedRemoteProgressCommand?: ResolvedRemoteProgressCommand | null;
   onResolvedRemoteProgressConsumed?: (commandId: string) => void;
   outboxProgressConflictRevision?: number;
@@ -331,6 +337,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
     completeRemoteJump,
+    completeRemoteReset,
   } = useReaderProgressSave({
     initialCfi,
     initialPercent,
@@ -533,6 +540,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     prepareRemoteJump,
     isQuietResumeEligible,
     completeRemoteJump,
+    completeRemoteReset,
+    hasLocalProgress: Boolean(initialCfi) || initialPercent !== undefined || initialTime !== undefined,
   });
 
   const {

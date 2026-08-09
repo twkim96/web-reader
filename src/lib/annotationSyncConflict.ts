@@ -108,6 +108,10 @@ export const resolveAnnotationSyncConflictUseRemoteV5 = async (
       || (conflict.event.target.kind !== 'annotation'
         && conflict.event.target.kind !== 'palette')
     ) throw new Error('적용할 annotation 원격 충돌 데이터가 없습니다.');
+    if (conflict.state !== 'open' && conflict.state !== 'deferred') {
+      await tx.done;
+      return null;
+    }
 
     const metaStore = tx.objectStore(V5_SYNC_META_STORE);
     const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
@@ -227,6 +231,10 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
       || (conflict.event.target.kind !== 'annotation'
         && conflict.event.target.kind !== 'palette')
     ) throw new Error('유지할 annotation 로컬 충돌 데이터가 없습니다.');
+    if (conflict.state !== 'open' && conflict.state !== 'deferred') {
+      await tx.done;
+      return null;
+    }
 
     const metaStore = tx.objectStore(V5_SYNC_META_STORE);
     const meta = await metaStore.get([ownerKey, conflict.targetKey]) as SyncMetaV5 | undefined;
@@ -308,6 +316,10 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
       outbox.add(replacement),
       metaStore.put({
         ...nextMeta,
+        knownRevision: Math.max(
+          nextMeta.knownRevision,
+          conflict.remoteHead?.revision ?? 0,
+        ),
         nextSequence: nextMeta.nextSequence + 1,
         updatedAt: now,
       }),

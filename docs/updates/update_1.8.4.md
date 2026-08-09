@@ -6,7 +6,7 @@
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
-상태: 코드·전체 자동검증 완료, 외부 리뷰·실기기 검증 대기
+상태: 코드·전체 자동검증·외부 리뷰 완료, 리뷰 후속 hotfix.1과 실기기 검증 대기
 
 ## 목표
 
@@ -72,10 +72,11 @@
 - production browser regression에서 전체 검색, JSON 다운로드, Markdown 시스템 공유, 공유 미지원 다운로드 fallback, 결과 이동과 서재 복귀 후 검색 상태 복원을 확인했다.
 - `git diff --check`: 통과
 
-## 리뷰 대기
+## 리뷰 후속
 
-- 현재 working tree 전체를 외부 리뷰에 전달한다.
-- 타당한 finding을 반영한 뒤 자동검증을 다시 수행하고, 사용자 요청 시 commit·push한다.
+- 외부 리뷰의 동기화 release blocker와 검색·내보내기 P2를 검토했다.
+- 타당한 finding은 [1.8.4-hotfix.1](./update_1.8.4-hotfix.1.md)에서 수정·재검증한다.
+- JSON v2 book fingerprint와 검색 Web Worker는 import·merge 또는 실기기 성능 증거가 있는 후속 버전으로 보류한다.
 
 ## 실기기 대기
 

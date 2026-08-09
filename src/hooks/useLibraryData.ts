@@ -27,7 +27,7 @@ import {
   getSyncOwnerKey,
 } from '../lib/ownerIdentity';
 import { DriveLoadCoordinator } from '../lib/driveLoadCoordinator';
-import { Book, UserProgress, ViewState } from '../types';
+import { Book, RemoteProgressUpdate, UserProgress, ViewState } from '../types';
 import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 
 interface UseLibraryDataOptions {
@@ -49,8 +49,8 @@ interface UseLibraryDataResult {
   progress: Record<string, UserProgress>;
   setProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
   progressRef: MutableRefObject<Record<string, UserProgress>>;
-  remoteProgress: Record<string, UserProgress>;
-  setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
+  remoteProgress: Record<string, RemoteProgressUpdate>;
+  setRemoteProgress: Dispatch<SetStateAction<Record<string, RemoteProgressUpdate>>>;
   driveCacheKey: string | null;
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
   loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
@@ -77,7 +77,7 @@ export const useLibraryData = ({
 }: UseLibraryDataOptions): UseLibraryDataResult => {
   const [books, setBooks] = useState<Book[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
-  const [remoteProgress, setRemoteProgress] = useState<Record<string, UserProgress>>({});
+  const [remoteProgress, setRemoteProgress] = useState<Record<string, RemoteProgressUpdate>>({});
   const [driveCacheKey, setDriveCacheKey] = useState<string | null>(null);
   const progressRef = useRef<Record<string, UserProgress>>({});
   const driveLoadCoordinatorRef = useRef(new DriveLoadCoordinator());

@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 import { APP_ID, auth, db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
-import { UserProgress } from '../types';
+import { RemoteProgressUpdate, UserProgress } from '../types';
 import { getSyncOwnerKey, splitOwnerKey } from '../lib/ownerIdentity';
 import {
   getFirebaseSyncHistoryPath,
@@ -41,7 +41,7 @@ interface UseProgressSyncOptions {
   user: FirebaseUser | null;
   deviceId: MutableRefObject<string>;
   progressRef: MutableRefObject<Record<string, UserProgress>>;
-  setRemoteProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
+  setRemoteProgress: Dispatch<SetStateAction<Record<string, RemoteProgressUpdate>>>;
   activeBookId?: string;
   ownerKey: string | null;
 }
@@ -78,7 +78,7 @@ export const useProgressSync = ({
       if (!ownerRuntime.isCurrent(owner)) return;
       const changes = hydrator.select(snapshot);
       if (!changes) return;
-      const remoteUpdates: Record<string, UserProgress> = {};
+      const remoteUpdates: Record<string, RemoteProgressUpdate> = {};
       const removedBookIds = new Set<string>();
       const heads = [];
       for (const change of changes) {
@@ -95,6 +95,7 @@ export const useProgressSync = ({
           const serverTime = getTimestampMs(head.updatedAtServer, 0);
           remoteUpdates[head.bookId] = head.operation === 'reset'
             ? {
+              operation: 'reset',
               bookId: head.bookId,
               cfi: '',
               anchorCfi: '',
@@ -105,6 +106,7 @@ export const useProgressSync = ({
               acceptedEventId: head.acceptedEventId,
             }
             : {
+              operation: 'set',
               bookId: head.bookId,
               cfi: head.position!.cfi,
               anchorCfi: head.position!.anchorCfi ?? head.position!.cfi,

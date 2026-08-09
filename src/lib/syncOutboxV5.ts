@@ -1,5 +1,5 @@
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction } from 'idb';
-import type { Bookmark, UserProgress } from '../types';
+import type { Bookmark, RemoteProgressUpdate, UserProgress } from '../types';
 import { initDB } from './localDB';
 import {
   V5_OUTBOX_STORE,
@@ -321,7 +321,7 @@ export const storeRemoteBookmarkHeadV5 = async (
 
 export const adoptRemoteProgressLocallyV5 = async (
   ownerKey: OwnerKey,
-  progress: UserProgress,
+  progress: RemoteProgressUpdate,
   now = Date.now(),
 ) => {
   if (!progress.syncRevision || !progress.acceptedEventId) return false;
@@ -366,6 +366,7 @@ export const adoptRemoteProgressLocallyV5 = async (
     || remote.revision !== progress.syncRevision
     || remote.head.acceptedEventId !== progress.acceptedEventId
     || 'bookmarkId' in remote.head
+    || remote.head.operation !== progress.operation
   ) {
     tx.abort();
     await tx.done.catch(() => undefined);
@@ -373,8 +374,19 @@ export const adoptRemoteProgressLocallyV5 = async (
   }
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
   const meta = await metaStore.get([ownerKey, targetKey]) as SyncMetaV5 | undefined;
+  const storedProgress: UserProgress = {
+    bookId: progress.bookId,
+    cfi: progress.cfi,
+    anchorCfi: progress.anchorCfi,
+    progressPercent: progress.progressPercent,
+    lastRead: progress.lastRead,
+    bookmarks: progress.bookmarks,
+    syncRevision: progress.syncRevision,
+    acceptedEventId: progress.acceptedEventId,
+    ignoredRemoteRevision: progress.ignoredRemoteRevision,
+  };
   await Promise.all([
-    tx.objectStore(V5_PROGRESS_STORE).put({ ...progress, ownerKey }),
+    tx.objectStore(V5_PROGRESS_STORE).put({ ...storedProgress, ownerKey }),
     metaStore.put({
       ...(meta ?? defaultSyncMeta(ownerKey, targetKey, now)),
       knownRevision: Math.max(meta?.knownRevision ?? 0, progress.syncRevision),
@@ -401,13 +413,17 @@ export const markRemoteProgressIgnoredV5 = async (
   const store = tx.objectStore(V5_PROGRESS_STORE);
   const progress = await store.get([ownerKey, bookId]) as
     (UserProgress & { ownerKey: OwnerKey }) | undefined;
-  if (!progress) {
-    await tx.done;
-    return false;
-  }
   await store.put({
-    ...progress,
-    ignoredRemoteRevision: Math.max(progress.ignoredRemoteRevision ?? 0, revision),
+    ownerKey,
+    bookId,
+    cfi: progress?.cfi ?? '',
+    anchorCfi: progress?.anchorCfi ?? '',
+    progressPercent: progress?.progressPercent ?? 0,
+    lastRead: progress?.lastRead ?? 0,
+    bookmarks: progress?.bookmarks ?? [],
+    syncRevision: progress?.syncRevision,
+    acceptedEventId: progress?.acceptedEventId,
+    ignoredRemoteRevision: Math.max(progress?.ignoredRemoteRevision ?? 0, revision),
   });
   await tx.done;
   return true;
@@ -1884,6 +1900,10 @@ export const resolveSyncConflictUseRemoteV5 = async (
     await tx.done.catch(() => undefined);
     throw new Error('적용할 원격 충돌 데이터가 없습니다.');
   }
+  if (conflict.state !== 'open' && conflict.state !== 'deferred') {
+    await tx.done;
+    return null;
+  }
   if (
     (conflict.event.target.kind !== 'progress' && conflict.event.target.kind !== 'bookmark')
     || (!('position' in conflict.remoteHead) && !('bookmarkId' in conflict.remoteHead))
@@ -2054,6 +2074,10 @@ export const resolveSyncConflictKeepLocalV5 = async (
     await tx.done.catch(() => undefined);
     throw new Error('유지할 로컬 충돌 데이터가 없습니다.');
   }
+  if (conflict.state !== 'open' && conflict.state !== 'deferred') {
+    await tx.done;
+    return null;
+  }
   if (conflict.event.target.kind !== 'progress' && conflict.event.target.kind !== 'bookmark') {
     tx.abort();
     await tx.done.catch(() => undefined);
@@ -2112,6 +2136,9 @@ export const resolveSyncConflictKeepLocalV5 = async (
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
   const meta = await metaStore.get([ownerKey, targetKey]) as SyncMetaV5 | undefined;
   const nextMeta = meta ?? defaultSyncMeta(ownerKey, targetKey, now);
+  const rebasedKnownRevision = restoringDeletedBookmark
+    ? nextMeta.knownRevision
+    : Math.max(nextMeta.knownRevision, conflict.remoteHead?.revision ?? 0);
   const replacement: SyncOutboxEventV5 = target.kind === 'progress'
     ? {
       ...conflict.event,
@@ -2151,7 +2178,12 @@ export const resolveSyncConflictKeepLocalV5 = async (
     };
   await Promise.all([
     outbox.add(replacement),
-    metaStore.put({ ...nextMeta, nextSequence: nextMeta.nextSequence + 1, updatedAt: now }),
+    metaStore.put({
+      ...nextMeta,
+      knownRevision: rebasedKnownRevision,
+      nextSequence: nextMeta.nextSequence + 1,
+      updatedAt: now,
+    }),
     conflictStore.put({ ...conflict, state: 'resolved_local', resolvedAt: now }),
   ]);
 

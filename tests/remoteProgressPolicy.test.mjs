@@ -6,6 +6,8 @@ import { executeRemoteProgressJump } from '../src/hooks/reader/remoteProgressJum
 
 const decide = (overrides = {}) => decideRemoteProgressAction({
   isInitialSync: false,
+  operation: 'set',
+  hasLocalProgress: true,
   remoteAnchorCfi: 'remote-cfi',
   currentAnchorCfi: 'current-cfi',
   remoteTime: 200,
@@ -55,6 +57,31 @@ test('prefers comparable revisions over skewed timestamps', () => {
     localRevision: 4,
     remoteTime: 999_999,
     lastSaveTime: 1,
+  }), 'ignore');
+});
+
+test('treats an authoritative remote reset as a first-class update', () => {
+  assert.equal(decide({
+    operation: 'reset',
+    remoteAnchorCfi: '',
+  }), 'prompt');
+  assert.equal(decide({
+    isInitialSync: true,
+    operation: 'reset',
+    hasLocalProgress: false,
+    remoteAnchorCfi: '',
+  }), 'jump');
+  assert.equal(decide({
+    isInitialSync: true,
+    operation: 'reset',
+    hasLocalProgress: true,
+    remoteAnchorCfi: '',
+  }), 'prompt');
+  assert.equal(decide({
+    operation: 'reset',
+    remoteAnchorCfi: '',
+    remoteRevision: 3,
+    localRevision: 4,
   }), 'ignore');
 });
 

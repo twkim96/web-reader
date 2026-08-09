@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import type { Bookmark, SaveProgressOptions } from '../../types';
+import type { Bookmark, RemoteProgressUpdate, SaveProgressOptions } from '../../types';
 import {
   getBookmarksKey,
   isQuietReaderResumeEligible,
@@ -42,16 +42,7 @@ interface UseReaderProgressSaveOptions {
   initialTime?: number;
   initialBookmarks?: Bookmark[];
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
-  onAdoptRemoteProgress: (progress: {
-    bookId: string;
-    cfi: string;
-    anchorCfi?: string;
-    progressPercent: number;
-    lastRead: number;
-    bookmarks: Bookmark[];
-    syncRevision?: number;
-    acceptedEventId?: string;
-  }) => Promise<boolean>;
+  onAdoptRemoteProgress: (progress: RemoteProgressUpdate) => Promise<boolean>;
 }
 
 const RELOCATE_SAVE_IDLE_MS = 1000;
@@ -333,6 +324,7 @@ export const useReaderProgressSave = ({
       lastSaveTimeRef.current = Date.now();
     } else {
       const adopted = await onAdoptRemoteProgress({
+        operation: 'set',
         bookId: target.bookId,
         cfi: target.cfi,
         anchorCfi: target.anchorCfi || target.cfi,
@@ -361,6 +353,34 @@ export const useReaderProgressSave = ({
     return true;
   }, [clearPendingSave, onAdoptRemoteProgress, onSaveProgress]);
 
+  const completeRemoteReset = useCallback(async (
+    target: Omit<RemoteProgressTarget, 'cfi' | 'anchorCfi' | 'percent'>,
+    bookmarks: Bookmark[],
+  ) => {
+    const adopted = await onAdoptRemoteProgress({
+      operation: 'reset',
+      bookId: target.bookId,
+      cfi: '',
+      anchorCfi: '',
+      progressPercent: 0,
+      lastRead: target.lastRead,
+      bookmarks,
+      syncRevision: target.syncRevision,
+      acceptedEventId: target.acceptedEventId,
+    });
+    if (!adopted) return false;
+    lastSaveTimeRef.current = target.lastRead;
+    lastPersistedProgressRef.current = {
+      cfi: '',
+      anchorCfi: '',
+      percent: 0,
+      bookmarksKey: getBookmarksKey(bookmarks),
+    };
+    lastPersistableLocationRef.current = { cfi: '', anchorCfi: '', percent: 0 };
+    clearPendingSave();
+    return true;
+  }, [clearPendingSave, onAdoptRemoteProgress]);
+
   return {
     lastSaveTimeRef,
     updateSaveContext,
@@ -373,5 +393,6 @@ export const useReaderProgressSave = ({
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
     completeRemoteJump,
+    completeRemoteReset,
   };
 };

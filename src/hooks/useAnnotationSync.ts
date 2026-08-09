@@ -97,9 +97,11 @@ export const useAnnotationSync = ({
 
   useEffect(() => {
     if (!context) {
-      setAnnotationHealth('healthy');
-      setMarkerHealth('healthy');
-      return;
+      const resetHealth = window.setTimeout(() => {
+        setAnnotationHealth('healthy');
+        setMarkerHealth('healthy');
+      }, 0);
+      return () => window.clearTimeout(resetHealth);
     }
     const owner = ownerRuntime.capture();
     if (!owner || owner.ownerKey !== ownerKey) return;
@@ -135,71 +137,79 @@ export const useAnnotationSync = ({
       if (!changes) return;
       const firstAuthoritativeSnapshot = !authoritativeSeen;
       authoritativeSeen = true;
-      try {
-        const missingRemoteIds = new Set<string>();
-        for (const change of changes) {
-          if (change.doc.metadata.hasPendingWrites) continue;
-          if (change.type === 'removed') {
-            remoteHeads.delete(change.doc.id);
-            missingRemoteIds.add(change.doc.id);
-            continue;
-          }
-          const head = parseAnnotationHeadV1(change.doc.data());
-          if (head.bookId !== bookId || head.annotationId !== change.doc.id) {
-            throw new Error('annotation snapshot identity가 올바르지 않습니다.');
-          }
-          remoteHeads.set(head.annotationId, head);
+      const missingRemoteIds = new Set<string>();
+      for (const change of changes) {
+        if (change.doc.metadata.hasPendingWrites) continue;
+        if (change.type === 'removed') {
+          remoteHeads.delete(change.doc.id);
+          missingRemoteIds.add(change.doc.id);
+          continue;
         }
-        if (firstAuthoritativeSnapshot) {
-          const [cachedHeads, localAnnotationIds] = await Promise.all([
-            getCachedRemoteAnnotationHeadsV5(syncOwnerKey, bookId),
-            getLocalAnnotationIdsV8(syncOwnerKey, bookId),
-          ]);
-          for (const head of cachedHeads) {
-            if (
-              head.operation === 'upsert'
-              && !remoteHeads.has(head.annotationId)
-            ) missingRemoteIds.add(head.annotationId);
-          }
-          for (const annotationId of localAnnotationIds) {
-            if (!remoteHeads.has(annotationId)) missingRemoteIds.add(annotationId);
-          }
+        let head: AnnotationHeadV1;
+        try {
+          head = parseAnnotationHeadV1(change.doc.data());
+        } catch (error) {
+          throw schemaError(error);
         }
-        const missingHeads = (await Promise.all([...missingRemoteIds].map((annotationId) => (
+        if (head.bookId !== bookId || head.annotationId !== change.doc.id) {
+          throw schemaError(new Error('annotation snapshot identity가 올바르지 않습니다.'));
+        }
+        remoteHeads.set(head.annotationId, head);
+      }
+      if (firstAuthoritativeSnapshot) {
+        const [cachedHeads, localAnnotationIds] = await Promise.all([
+          getCachedRemoteAnnotationHeadsV5(syncOwnerKey, bookId),
+          getLocalAnnotationIdsV8(syncOwnerKey, bookId),
+        ]);
+        for (const head of cachedHeads) {
+          if (
+            head.operation === 'upsert'
+            && !remoteHeads.has(head.annotationId)
+          ) missingRemoteIds.add(head.annotationId);
+        }
+        for (const annotationId of localAnnotationIds) {
+          if (!remoteHeads.has(annotationId)) missingRemoteIds.add(annotationId);
+        }
+      }
+      const missingHeads: AnnotationHeadV1[] = [];
+      const missingIds = [...missingRemoteIds];
+      for (let offset = 0; offset < missingIds.length; offset += 8) {
+        const batch = await Promise.all(missingIds.slice(offset, offset + 8).map((annotationId) => (
           getAuthoritativeRemoteAnnotationHeadV1(uid, bookId, annotationId)
-        )))).filter((head): head is AnnotationHeadV1 => head !== null);
-        for (const head of missingHeads) {
-          if (head.operation === 'upsert') remoteHeads.set(head.annotationId, head);
+        )));
+        for (const head of batch) {
+          if (head) missingHeads.push(head);
         }
-        const result = await hydrateRemoteAnnotationHeadsV5(
+      }
+      for (const head of missingHeads) {
+        if (head.operation === 'upsert') remoteHeads.set(head.annotationId, head);
+      }
+      const result = await hydrateRemoteAnnotationHeadsV5(
+        syncOwnerKey,
+        bookId,
+        [
+          ...remoteHeads.values(),
+          ...missingHeads.filter(({ operation }) => operation === 'delete'),
+        ],
+        context.sessionId,
+        Date.now(),
+        isCurrent,
+        controller.signal,
+      );
+      if (firstAuthoritativeSnapshot && isCurrent()) {
+        await markerAuthoritativeReady;
+        if (!isCurrent()) return;
+        await enqueueMissingLocalAnnotationsV5(
           syncOwnerKey,
           bookId,
-          [
-            ...remoteHeads.values(),
-            ...missingHeads.filter(({ operation }) => operation === 'delete'),
-          ],
-          context.sessionId,
-          Date.now(),
+          new Set(remoteHeads.keys()),
+          context,
           isCurrent,
           controller.signal,
         );
-        if (firstAuthoritativeSnapshot && isCurrent()) {
-          await markerAuthoritativeReady;
-          if (!isCurrent()) return;
-          await enqueueMissingLocalAnnotationsV5(
-            syncOwnerKey,
-            bookId,
-            new Set(remoteHeads.keys()),
-            context,
-            isCurrent,
-            controller.signal,
-          );
-        }
-        if (result.changed && isCurrent()) {
-          notifyAnnotationSyncChange({ ownerKey, bookId });
-        }
-      } catch (error) {
-        throw schemaError(error);
+      }
+      if (result.changed && isCurrent()) {
+        notifyAnnotationSyncChange({ ownerKey, bookId });
       }
     };
 
@@ -231,7 +241,12 @@ export const useAnnotationSync = ({
           resolveMarkerAuthoritative();
           return;
         }
-        const head = parseAnnotationHeadV1(snapshot.data());
+        let head: AnnotationHeadV1;
+        try {
+          head = parseAnnotationHeadV1(snapshot.data());
+        } catch (error) {
+          throw schemaError(error);
+        }
         if (
           head.bookId !== bookId
           || head.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID
@@ -266,8 +281,8 @@ export const useAnnotationSync = ({
 
   useEffect(() => {
     if (!context) {
-      setPaletteHealth('healthy');
-      return;
+      const resetHealth = window.setTimeout(() => setPaletteHealth('healthy'), 0);
+      return () => window.clearTimeout(resetHealth);
     }
     const owner = ownerRuntime.capture();
     if (!owner || owner.ownerKey !== ownerKey) return;

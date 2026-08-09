@@ -126,6 +126,7 @@ const sortedBookEntries = (entries: ReadonlyArray<LibraryAnnotationIndexEntry>) 
       right.book?.name ?? right.annotation.bookId,
       'ko',
     )
+    || left.annotation.bookId.localeCompare(right.annotation.bookId)
     || (left.annotation.progressPercent ?? Number.POSITIVE_INFINITY)
       - (right.annotation.progressPercent ?? Number.POSITIVE_INFINITY)
     || left.annotation.sectionIndex - right.annotation.sectionIndex
@@ -147,11 +148,22 @@ export const createAnnotationMarkdownExport = (
     `- 주석 수: ${entries.length}`,
     '- 포함 정책: 현재 로컬에 존재하는 하이라이트와 메모만 포함하며 삭제 tombstone은 제외합니다. 위치 복원 실패 항목은 상태를 표시한 채 포함합니다.',
   ];
+  const bookIdsByName = new Map<string, Set<string>>();
+  for (const { annotation, book } of entries) {
+    const name = book?.name ?? `알 수 없는 도서 (${annotation.bookId})`;
+    const ids = bookIdsByName.get(name) ?? new Set<string>();
+    ids.add(annotation.bookId);
+    bookIdsByName.set(name, ids);
+  }
   let previousBookId = '';
   for (const { annotation, book } of sortedBookEntries(entries)) {
     if (annotation.bookId !== previousBookId) {
       previousBookId = annotation.bookId;
-      lines.push('', `## ${escapeMarkdown(book?.name ?? `알 수 없는 도서 (${annotation.bookId})`)}`);
+      const name = book?.name ?? `알 수 없는 도서 (${annotation.bookId})`;
+      const heading = (bookIdsByName.get(name)?.size ?? 0) > 1
+        ? `${name} · ${annotation.bookId}`
+        : name;
+      lines.push('', `## ${escapeMarkdown(heading)}`);
     }
     const color = paletteById.get(annotation.colorId);
     const meta = [
@@ -198,7 +210,9 @@ export const createAnnotationJsonExport = (
     version: ANNOTATION_EXPORT_VERSION,
     exportedAt,
     scope,
-    books: [...booksById.values()].sort((left, right) => left.name.localeCompare(right.name, 'ko')),
+    books: [...booksById.values()].sort((left, right) => (
+      left.name.localeCompare(right.name, 'ko') || left.id.localeCompare(right.id)
+    )),
     palette: palette.map((item) => ({ ...item })),
     annotations: sortedBookEntries(selected).map(({ annotation }) => ({ ...annotation })),
   };

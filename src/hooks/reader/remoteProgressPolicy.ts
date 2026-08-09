@@ -4,6 +4,8 @@ export type RemoteProgressDecision = 'ignore' | 'jump' | 'prompt';
 
 type RemoteProgressDecisionInput = {
   isInitialSync: boolean;
+  operation?: 'set' | 'reset';
+  hasLocalProgress?: boolean;
   remoteAnchorCfi: string;
   currentAnchorCfi: string;
   remoteTime: number;
@@ -17,6 +19,8 @@ type RemoteProgressDecisionInput = {
 
 export const decideRemoteProgressAction = ({
   isInitialSync,
+  operation = 'set',
+  hasLocalProgress = true,
   remoteAnchorCfi,
   currentAnchorCfi,
   remoteTime,
@@ -27,16 +31,20 @@ export const decideRemoteProgressAction = ({
   remoteRevision,
   localRevision,
 }: RemoteProgressDecisionInput): RemoteProgressDecision => {
-  if (
-    !remoteAnchorCfi
-    || remoteAnchorCfi === currentAnchorCfi
-  ) return 'ignore';
-
   const hasComparableRevisions = Number.isSafeInteger(remoteRevision)
     && Number.isSafeInteger(localRevision);
   if (hasComparableRevisions) {
     if (remoteRevision! <= localRevision!) return 'ignore';
   } else if (remoteTime <= lastSaveTime) return 'ignore';
+
+  if (operation === 'reset') {
+    return isInitialSync && !hasLocalProgress ? 'jump' : 'prompt';
+  }
+
+  if (
+    !remoteAnchorCfi
+    || remoteAnchorCfi === currentAnchorCfi
+  ) return 'ignore';
 
   if (isInitialSync && isQuietResumeEligible) return 'jump';
 

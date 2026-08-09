@@ -105,3 +105,30 @@ test('limits a book-scoped JSON export to the selected book', () => {
     annotations: [second, second],
   })), /지원하지 않는/);
 });
+
+test('separates same-title books into distinct contiguous Markdown sections', () => {
+  const index = buildLibraryAnnotationIndex([
+    annotation('a30', { bookId: 'book-a', quote: 'A 30', progressPercent: 30 }),
+    annotation('b20', { bookId: 'book-b', quote: 'B 20', progressPercent: 20 }),
+    annotation('a10', { bookId: 'book-a', quote: 'A 10', progressPercent: 10 }),
+  ], [
+    { id: 'book-a', name: 'same.epub' },
+    { id: 'book-b', name: 'same.epub' },
+  ], DEFAULT_ANNOTATION_PALETTE);
+  const markdown = createAnnotationMarkdownExport(index, DEFAULT_ANNOTATION_PALETTE, {
+    exportedAt: 1_700_000_000_000,
+  }).text;
+  assert.equal(markdown.split('## same\\.epub · book\\-a').length - 1, 1);
+  assert.equal(markdown.split('## same\\.epub · book\\-b').length - 1, 1);
+  assert.ok(markdown.indexOf('A 10') < markdown.indexOf('A 30'));
+  assert.ok(markdown.indexOf('A 30') < markdown.indexOf('same\\.epub · book\\-b'));
+
+  const parsed = parseAnnotationExportV1(createAnnotationJsonExport(
+    index,
+    DEFAULT_ANNOTATION_PALETTE,
+    { kind: 'library' },
+    1_700_000_000_000,
+  ).text);
+  assert.deepEqual(parsed.books.map(({ id }) => id), ['book-a', 'book-b']);
+  assert.deepEqual(parsed.annotations.map(({ id }) => id), ['a10', 'a30', 'b20']);
+});

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -35,11 +35,13 @@ import {
   type AnnotationExportFile,
 } from '../lib/annotationExport';
 import {
-  canShareAnnotationExport,
   downloadAnnotationExport,
+  isAnnotationShareCapabilityError,
   shareAnnotationExport,
 } from '../lib/annotationExportDelivery';
 import { subscribeAnnotationSyncChanges } from '../lib/annotationSyncWake';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { getBookFormatLabel } from './shelf/bookUtils';
 
 type ExportMode = 'markdown-library' | 'markdown-book' | 'json-library';
 
@@ -69,6 +71,13 @@ const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
   minute: '2-digit',
 });
 
+const formatBookSize = (size: Book['size']) => {
+  const bytes = typeof size === 'string' ? Number(size) : size;
+  return typeof bytes === 'number' && Number.isFinite(bytes) && bytes > 0
+    ? `${(bytes / 1024 / 1024).toFixed(1)}MB`
+    : '';
+};
+
 export const LibraryAnnotationModal: React.FC<Props> = ({
   open,
   visible,
@@ -92,6 +101,8 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   const [exportMode, setExportMode] = useState<ExportMode>('markdown-library');
   const [feedback, setFeedback] = useState('');
   const [sharing, setSharing] = useState(false);
+  const dialogRef = useRef<HTMLElement>(null);
+  useBodyScrollLock(open && visible);
 
   const reload = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -112,14 +123,63 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   }, [ownerKey]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !visible) return;
     void reload(true);
     return subscribeAnnotationSyncChanges(ownerKey, () => void reload());
-  }, [open, ownerKey, reload]);
+  }, [open, ownerKey, reload, visible]);
+
+  useEffect(() => {
+    if (!open || !visible) return;
+    const dialog = dialogRef.current;
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const focusableSelector = [
+      'button:not([disabled])',
+      'select:not([disabled])',
+      'input:not([disabled])',
+      '[href]',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(focusableSelector)]
+        .filter((element) => !element.hidden && element.getClientRects().length > 0);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    const focusFrame = window.requestAnimationFrame(() => {
+      const first = dialog?.querySelector<HTMLElement>(focusableSelector);
+      (first ?? dialog)?.focus();
+    });
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose, open, visible]);
 
   const index = useMemo(
-    () => buildLibraryAnnotationIndex(annotations, books, palette),
-    [annotations, books, palette],
+    () => visible ? buildLibraryAnnotationIndex(annotations, books, palette) : [],
+    [annotations, books, palette, visible],
   );
   const booksById = useMemo(
     () => new Map(books.map((book) => [book.id, book])),
@@ -133,8 +193,25 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         name: book?.name ?? `알 수 없는 도서 (${annotation.bookId})`,
       });
     }
-    return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name, 'ko'));
-  }, [index]);
+    const values = [...byId.values()];
+    const counts = new Map<string, number>();
+    for (const book of values) counts.set(book.name, (counts.get(book.name) ?? 0) + 1);
+    return values.map((book) => {
+      const full = booksById.get(book.id);
+      if ((counts.get(book.name) ?? 0) <= 1 || !full) return { ...book, label: book.name };
+      const details = [getBookFormatLabel(full), formatBookSize(full.size)].filter(Boolean);
+      return {
+        ...book,
+        label: `${book.name} · ${[...details, `#${book.id.slice(-6)}`].join(' · ')}`,
+      };
+    }).sort((left, right) => (
+      left.name.localeCompare(right.name, 'ko') || left.id.localeCompare(right.id)
+    ));
+  }, [booksById, index]);
+  const bookLabels = useMemo(
+    () => new Map(annotatedBooks.map((book) => [book.id, book.label])),
+    [annotatedBooks],
+  );
   const results = useMemo(() => queryLibraryAnnotationIndex(index, {
     query,
     bookId: bookId || undefined,
@@ -155,7 +232,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
     if (!value && exportMode === 'markdown-book') setExportMode('markdown-library');
   };
 
-  const exportFile = useMemo((): AnnotationExportFile => {
+  const createExportFile = useCallback((): AnnotationExportFile => {
     if (exportMode === 'markdown-book' && bookId) {
       const selected = index.filter(({ annotation }) => annotation.bookId === bookId);
       const title = annotatedBooks.find(({ id }) => id === bookId)?.name ?? bookId;
@@ -169,6 +246,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
 
   const runDownload = () => {
     try {
+      const exportFile = createExportFile();
       downloadAnnotationExport(exportFile);
       setFeedback(`${exportFile.filename} 다운로드를 시작했습니다.`);
     } catch (error) {
@@ -181,6 +259,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
     if (sharing) return;
     setSharing(true);
     try {
+      const exportFile = createExportFile();
       if (await shareAnnotationExport(exportFile)) {
         setFeedback('시스템 공유를 열었습니다.');
       } else {
@@ -189,6 +268,16 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
+      if (isAnnotationShareCapabilityError(error)) {
+        try {
+          const exportFile = createExportFile();
+          downloadAnnotationExport(exportFile);
+          setFeedback('파일 공유를 열 수 없어 다운로드로 저장했습니다.');
+          return;
+        } catch (fallbackError) {
+          console.error('[LibraryAnnotations] share fallback failed:', fallbackError);
+        }
+      }
       console.error('[LibraryAnnotations] share failed:', error);
       setFeedback('파일을 공유하지 못했습니다.');
     } finally {
@@ -201,7 +290,11 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   return (
     <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm md:p-5">
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         data-library-annotation-modal="true"
+        role="dialog"
+        aria-modal="true"
         aria-label="라이브러리 전체 주석"
         className={`flex h-[min(92dvh,54rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border shadow-2xl md:rounded-3xl ${theme.bg} ${theme.text} ${theme.border}`}
       >
@@ -244,7 +337,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
               className={`min-h-10 min-w-0 rounded-lg border bg-transparent px-2 text-xs font-bold outline-none md:max-w-64 ${theme.border}`}
             >
               <option value="">모든 책</option>
-              {annotatedBooks.map((book) => <option key={book.id} value={book.id}>{book.name}</option>)}
+              {annotatedBooks.map((book) => <option key={book.id} value={book.id}>{book.label}</option>)}
             </select>
             <select
               aria-label="주석 색상 필터"
@@ -306,7 +399,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
               data-library-annotation-share="true"
               onClick={() => void runShare()}
               disabled={loading || sharing}
-              title={canShareAnnotationExport(exportFile) ? '시스템 공유' : '미지원 시 다운로드'}
+              title="시스템 공유 또는 다운로드"
               className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-black disabled:opacity-40 ${theme.border}`}
             >
               <Share2 size={16} /> <span className="hidden sm:inline">공유</span>
@@ -342,7 +435,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
                         onClick={() => { if (availableBook) onJump(annotation, availableBook); }}
                         className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
                       >
-                        <p className="truncate text-[11px] font-black opacity-55">{book?.name ?? `알 수 없는 도서 · ${annotation.bookId}`}</p>
+                        <p className="truncate text-[11px] font-black opacity-55">{bookLabels.get(annotation.bookId) ?? `알 수 없는 도서 · ${annotation.bookId}`}</p>
                         <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap font-serif text-sm leading-snug">“{annotation.quote}”</p>
                         {annotation.note && <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-snug opacity-65">{annotation.note}</p>}
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold opacity-40">

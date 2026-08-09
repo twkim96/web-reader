@@ -6,6 +6,7 @@ import {
 } from '../src/lib/syncConflictPolicy.ts';
 
 const {
+  selectProgressSyncConflict,
   shouldShowSyncConflictDialog,
   shouldShowSyncReviewBadge,
 } = await import('../src/lib/syncConflictPresentation.ts');
@@ -46,6 +47,34 @@ test('automatically presents only a conflict for the active reader book', () => 
     ...base,
     conflictBookId: null,
   }), false);
+});
+
+test('selects an active-book progress conflict ahead of older inactive work', () => {
+  const inactiveBookmark = conflict({
+    conflictId: 'old-bookmark',
+    targetKey: 'bookmark:book-a:mark-1',
+    event: {
+      ...progressEvent(),
+      eventId: 'old-bookmark',
+      target: { kind: 'bookmark', bookId: 'book-a', bookmarkId: 'mark-1' },
+      targetKey: 'bookmark:book-a:mark-1',
+      operation: 'bookmark.delete',
+      payload: null,
+    },
+  });
+  const activeProgress = conflict({
+    conflictId: 'active-progress',
+    targetKey: 'progress:book-b',
+    event: progressEvent({
+      eventId: 'active-progress',
+      target: { kind: 'progress', bookId: 'book-b' },
+      targetKey: 'progress:book-b',
+    }),
+  });
+  assert.equal(
+    selectProgressSyncConflict([inactiveBookmark, activeProgress], 'book-b')?.conflictId,
+    'active-progress',
+  );
 });
 
 const progressEvent = (overrides = {}) => ({

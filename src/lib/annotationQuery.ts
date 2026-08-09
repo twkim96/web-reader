@@ -96,6 +96,7 @@ const compareLibraryReadingOrder = (
     right.book?.name ?? right.annotation.bookId,
     'ko',
   )
+  || left.annotation.bookId.localeCompare(right.annotation.bookId)
   || readingOrder(left.annotation, right.annotation)
 );
 

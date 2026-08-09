@@ -31,6 +31,7 @@ const {
 const {
   enqueueAnnotationPaletteEventV5,
   getOutboxEventsV5,
+  getSyncMetaV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const { toAnnotationSyncPayloadV1 } = await import('../src/lib/annotationSyncSchema.ts');
 const {
@@ -125,6 +126,12 @@ test('uses a validated remote annotation and supersedes the conflicting event', 
   assert.equal((await getLocalAnnotationsV8(ownerKey, 'book-1'))[0].note, '원격');
   assert.equal((await getOutboxEventsV5(ownerKey))[0].status, 'superseded');
   assert.equal((await getOpenAnnotationSyncConflictsV5(ownerKey)).length, 0);
+  assert.equal(await resolveAnnotationSyncConflictUseRemoteV5(
+    ownerKey,
+    conflict.conflictId,
+    101,
+  ), null);
+  assert.equal((await getOutboxEventsV5(ownerKey)).length, 1);
 });
 
 test('keeps the latest local annotation with the authoritative remote revision', async () => {
@@ -144,6 +151,25 @@ test('keeps the latest local annotation with the authoritative remote revision',
   assert.equal(replacement.status, 'pending');
   const events = await getOutboxEventsV5(ownerKey);
   assert.deepEqual(events.map(({ status }) => status).sort(), ['pending', 'superseded']);
+  assert.equal(
+    (await getSyncMetaV5(ownerKey, 'annotation:book-1:shared')).knownRevision,
+    7,
+  );
+  assert.equal(await resolveAnnotationSyncConflictKeepLocalV5(
+    ownerKey,
+    conflict.conflictId,
+    101,
+  ), null);
+  await updateLocalAnnotationNoteV8(
+    ownerKey,
+    'book-1',
+    'shared',
+    '충돌 해결 후 메모',
+    { ...context(), sessionId: 'session-after-resolution' },
+  );
+  const next = (await getOutboxEventsV5(ownerKey))
+    .find(({ status, payload }) => status === 'pending' && payload?.note === '충돌 해결 후 메모');
+  assert.equal(next.baseRevision, 8);
 });
 
 test('keeps the canonical annotation written before a prior event conflicts', async () => {

@@ -36,3 +36,11 @@ export const shareAnnotationExport = async (exportFile: AnnotationExportFile) =>
   await navigator.share({ files: [file], title: exportFile.filename });
   return true;
 };
+
+export const isAnnotationShareCapabilityError = (error: unknown) => (
+  error instanceof TypeError
+  || (error instanceof DOMException && (
+    error.name === 'NotSupportedError'
+    || error.name === 'InvalidStateError'
+  ))
+);

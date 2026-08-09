@@ -90,9 +90,10 @@ const unlockBodyScroll = () => {
   window.scrollTo(snapshot.scrollX, snapshot.scrollY);
 };
 
-export const useBodyScrollLock = () => {
+export const useBodyScrollLock = (enabled = true) => {
   useLayoutEffect(() => {
+    if (!enabled) return;
     lockBodyScroll();
     return unlockBodyScroll;
-  }, []);
+  }, [enabled]);
 };

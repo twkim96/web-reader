@@ -2189,6 +2189,23 @@ try {
     'library annotation share completion',
   );
   await evaluate(`(() => {
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async () => {
+        throw new DOMException('unsupported file share', 'NotSupportedError');
+      },
+    });
+    document.querySelector('[data-library-annotation-share="true"]')?.click();
+  })()`);
+  await waitFor(
+    'window.__libraryAnnotationExport.downloads.length === 2',
+    'library annotation runtime share rejection fallback',
+  );
+  await waitFor(
+    '!document.querySelector(\'[data-library-annotation-share="true"]\').disabled',
+    'library annotation runtime fallback completion',
+  );
+  await evaluate(`(() => {
     Object.defineProperty(navigator, 'canShare', {
       configurable: true,
       value: undefined,
@@ -2200,11 +2217,11 @@ try {
     document.querySelector('[data-library-annotation-share="true"]')?.click();
   })()`);
   await waitFor(
-    'window.__libraryAnnotationExport.downloads.length === 2',
+    'window.__libraryAnnotationExport.downloads.length === 3',
     'library annotation share download fallback',
   );
   const libraryAnnotationFallback = await evaluate(`(() => ({
-    filename: window.__libraryAnnotationExport.downloads[1].download,
+    filename: window.__libraryAnnotationExport.downloads[2].download,
     feedback: document.querySelector('[data-library-annotation-modal="true"] [role="status"]')
       ?.textContent ?? '',
   }))()`);

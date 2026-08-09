@@ -108,3 +108,20 @@ test('searches and filters a normalized cross-book annotation index', () => {
     ['second', 'first'],
   );
 });
+
+test('keeps same-title books grouped by stable book id in reading order', () => {
+  const palette = normalizeAnnotationPalette(undefined);
+  const index = buildLibraryAnnotationIndex([
+    makeAnnotation('a30', { bookId: 'book-a', progressPercent: 30 }),
+    makeAnnotation('b20', { bookId: 'book-b', progressPercent: 20 }),
+    makeAnnotation('a10', { bookId: 'book-a', progressPercent: 10 }),
+  ], [
+    { id: 'book-a', name: 'same.epub' },
+    { id: 'book-b', name: 'same.epub' },
+  ], palette);
+  assert.deepEqual(
+    queryLibraryAnnotationIndex(index, { sort: 'book-reading' })
+      .map(({ annotation }) => annotation.id),
+    ['a10', 'a30', 'b20'],
+  );
+});

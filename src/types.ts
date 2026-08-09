@@ -101,6 +101,10 @@ export interface UserProgress {
   ignoredRemoteRevision?: number; // latest remote prompt explicitly declined on this device
 }
 
+export interface RemoteProgressUpdate extends UserProgress {
+  operation: 'set' | 'reset';
+}
+
 export interface SaveProgressOptions {
   force?: boolean;
   anchorCfi?: string;

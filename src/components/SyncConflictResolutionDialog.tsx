@@ -8,6 +8,7 @@ type Props = {
   onUseRemote: () => void;
   onDefer: () => void;
   bookTitle?: string;
+  resolving?: boolean;
 };
 
 export const SyncConflictResolutionDialog = ({
@@ -17,6 +18,7 @@ export const SyncConflictResolutionDialog = ({
   onUseRemote,
   onDefer,
   bookTitle,
+  resolving = false,
 }: Props) => {
   const targetLabel = conflict.event?.target.kind === 'bookmark'
     ? '북마크'
@@ -60,7 +62,7 @@ export const SyncConflictResolutionDialog = ({
       : '원격 값 사용';
   return (
   <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm">
-    <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl ${theme.bg} ${theme.text} ${theme.border}`}>
+    <div aria-busy={resolving} className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl ${theme.bg} ${theme.text} ${theme.border}`}>
       <h2 className="text-xl font-black">동기화 충돌</h2>
       {bookTitle && <p className="mt-1 truncate text-sm font-bold opacity-70">{bookTitle}</p>}
       {localProgressPercent !== null && remoteProgressPercent !== null && (
@@ -94,14 +96,14 @@ export const SyncConflictResolutionDialog = ({
       </p>
       <div className="mt-6 grid gap-3">
         {!requiresRemoteResolution && (
-          <button type="button" onClick={onKeepLocal} className="rounded-2xl bg-accent-500 px-4 py-3 font-bold text-white">
+          <button type="button" disabled={resolving} onClick={onKeepLocal} className="rounded-2xl bg-accent-500 px-4 py-3 font-bold text-white disabled:opacity-40">
             현재 기기 값 유지
           </button>
         )}
-        <button type="button" onClick={onUseRemote} className={`rounded-2xl border px-4 py-3 font-bold ${theme.border} ${theme.secondary}`}>
+        <button type="button" disabled={resolving} onClick={onUseRemote} className={`rounded-2xl border px-4 py-3 font-bold disabled:opacity-40 ${theme.border} ${theme.secondary}`}>
           {remoteActionLabel}
         </button>
-        <button type="button" onClick={onDefer} className="rounded-2xl px-4 py-3 text-sm font-bold opacity-60 hover:opacity-100">
+        <button type="button" disabled={resolving} onClick={onDefer} className="rounded-2xl px-4 py-3 text-sm font-bold opacity-60 hover:opacity-100 disabled:opacity-30">
           나중에 결정
         </button>
       </div>
