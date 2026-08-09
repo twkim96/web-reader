@@ -490,12 +490,16 @@ try {
       });
       const ownerKey = 'guest:device-library|library:local';
       const tx = db.transaction('metadata-v5', 'readonly');
-      const get = tx.objectStore('metadata-v5').get([ownerKey, 'oversized.cbz']);
-      const value = await new Promise((resolve, reject) => {
-        get.onsuccess = () => resolve(get.result);
-        get.onerror = () => reject(get.error);
+      const getAll = tx.objectStore('metadata-v5').getAll();
+      const values = await new Promise((resolve, reject) => {
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
       });
       db.close();
+      const value = values.find((candidate) => (
+        candidate.ownerKey === ownerKey && candidate.name === 'oversized.cbz'
+      ));
+      if (value) window.__oversizedBookId = value.id;
       return Boolean(value);
     })()`,
     'oversized archive import',
@@ -531,7 +535,10 @@ try {
       cursorRequest.onsuccess = () => {
         const cursor = cursorRequest.result;
         if (!cursor) return;
-        if (cursor.value.ownerKey === ownerKey && cursor.value.id !== 'oversized.cbz') {
+        if (
+          cursor.value.ownerKey === ownerKey
+          && cursor.value.id !== window.__oversizedBookId
+        ) {
           cursor.delete();
         }
         cursor.continue();
@@ -693,16 +700,22 @@ try {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
+      const ownerKey = 'guest:device-library|library:local';
       const tx = db.transaction('metadata-v5', 'readonly');
-      const get = tx.objectStore('metadata-v5').get([
-        'guest:device-library|library:local',
-        'selection-probe.txt',
-      ]);
-      const value = await new Promise((resolve, reject) => {
-        get.onsuccess = () => resolve(get.result);
-        get.onerror = () => reject(get.error);
+      const getAll = tx.objectStore('metadata-v5').getAll();
+      const values = await new Promise((resolve, reject) => {
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
       });
       db.close();
+      const value = values.find((candidate) => (
+        candidate.ownerKey === ownerKey
+        && candidate.name === 'selection-probe.epub'
+        && candidate.sourceFormat === 'txt'
+      ));
+      if (value) {
+        localStorage.setItem('__browserRegressionSelectionBookId', value.id);
+      }
       return Boolean(value);
     })()`,
     'selection TXT import',
@@ -985,7 +998,7 @@ try {
         getAll.onerror = () => reject(getAll.error);
       });
       db.close();
-      return records.filter((record) => record.bookId === 'selection-probe.txt');
+      return records.filter((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'));
     };
     const hasHighlightOverlay = () => renderer.getContents().some(({ overlayer }) => (
       overlayer?.element?.querySelector('[data-reader-highlight="true"]')
@@ -1469,10 +1482,10 @@ try {
       getAll.onerror = () => reject(getAll.error);
     });
     db.close();
-    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    const saved = records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'));
     return {
       overlayVisible: Boolean(hasOverlay),
-      savedCount: records.filter((record) => record.bookId === 'selection-probe.txt').length,
+      savedCount: records.filter((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId')).length,
       colorId: saved?.colorId ?? null,
       sectionIndex: saved?.sectionIndex ?? null,
       anchorState: saved?.anchorState ?? null,
@@ -1497,7 +1510,7 @@ try {
       read.onsuccess = () => resolve(read.result);
       read.onerror = () => reject(read.error);
     });
-    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    const saved = records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'));
     const tx = db.transaction('annotations-v8', 'readwrite');
     tx.objectStore('annotations-v8').delete([saved.ownerKey, saved.bookId, saved.id]);
     await new Promise((resolve, reject) => {
@@ -1703,7 +1716,7 @@ try {
       searchedItemCount,
       manualExpandedItemCount,
       collapsedItemCount,
-      note: records.find((record) => record.bookId === 'selection-probe.txt')?.note ?? null,
+      note: records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'))?.note ?? null,
       noteDraft,
       noteDialogClosed: !document.querySelector('[data-reader-annotation-note-dialog="true"]'),
       managerStayedOpenAfterBack,
@@ -1767,7 +1780,7 @@ try {
       getAll.onsuccess = () => resolve(getAll.result);
       getAll.onerror = () => reject(getAll.error);
     });
-    const annotation = records.find((record) => record.bookId === 'selection-probe.txt');
+    const annotation = records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'));
     await new Promise((resolve, reject) => {
       const put = store.put({ ...annotation, sectionIndex: 99 });
       put.onsuccess = () => resolve();
@@ -1799,7 +1812,7 @@ try {
       });
       db.close();
       return overlayVisible
-        && records.find((record) => record.bookId === 'selection-probe.txt')?.sectionIndex === 0;
+        && records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'))?.sectionIndex === 0;
     })()`,
     'resolved annotation section index reconciled',
     60_000,
@@ -1817,7 +1830,7 @@ try {
       getAll.onerror = () => reject(getAll.error);
     });
     db.close();
-    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    const saved = records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'));
     return {
       sectionIndex: saved?.sectionIndex ?? null,
       colorId: saved?.colorId ?? null,
@@ -1847,7 +1860,7 @@ try {
       getAll.onsuccess = () => resolve(getAll.result);
       getAll.onerror = () => reject(getAll.error);
     });
-    const annotation = records.find((record) => record.bookId === 'selection-probe.txt');
+    const annotation = records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'));
     if (!annotation) throw new Error('annotation fixture missing');
     const invalidRangeCfi = annotation.rangeCfi.replace(/:\\d+/g, ':999999');
     if (invalidRangeCfi === annotation.rangeCfi) {
@@ -1893,7 +1906,7 @@ try {
       db.close();
       const invalid = records.find((record) => record.id === 'invalid-cfi-probe');
       const normal = records.find((record) => (
-        record.bookId === 'selection-probe.txt' && record.id !== 'invalid-cfi-probe'
+        record.bookId === localStorage.getItem('__browserRegressionSelectionBookId') && record.id !== 'invalid-cfi-probe'
       ));
       return overlayVisible
         && invalid?.anchorState === 'unresolved'
@@ -1921,7 +1934,7 @@ try {
     db.close();
     const invalid = records.find((record) => record.id === 'invalid-cfi-probe');
     const normal = records.find((record) => (
-      record.bookId === 'selection-probe.txt' && record.id !== 'invalid-cfi-probe'
+      record.bookId === localStorage.getItem('__browserRegressionSelectionBookId') && record.id !== 'invalid-cfi-probe'
     ));
     return {
       overlayVisible: Boolean(overlayVisible),
@@ -1952,7 +1965,7 @@ try {
     });
     const invalid = records.find((record) => record.id === 'invalid-cfi-probe');
     const annotation = records.find((record) => (
-      record.bookId === 'selection-probe.txt' && record.id !== 'invalid-cfi-probe'
+      record.bookId === localStorage.getItem('__browserRegressionSelectionBookId') && record.id !== 'invalid-cfi-probe'
     ));
     if (!annotation || !invalid) throw new Error('annotation CFI fixtures missing');
     store.delete([invalid.ownerKey, invalid.bookId, invalid.id]);
@@ -1987,7 +2000,7 @@ try {
         getAll.onerror = () => reject(getAll.error);
       });
       db.close();
-      return records.find((record) => record.bookId === 'selection-probe.txt')
+      return records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'))
         ?.anchorState === 'unresolved';
     })()`,
     'mismatched annotation marked unresolved',
@@ -2052,10 +2065,10 @@ try {
       getAll.onerror = () => reject(getAll.error);
     });
     db.close();
-    const saved = records.find((record) => record.bookId === 'selection-probe.txt');
+    const saved = records.find((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId'));
     return {
       overlayVisible: Boolean(hasOverlay()),
-      savedCount: records.filter((record) => record.bookId === 'selection-probe.txt').length,
+      savedCount: records.filter((record) => record.bookId === localStorage.getItem('__browserRegressionSelectionBookId')).length,
       colorId: saved?.colorId ?? null,
       anchorState: saved?.anchorState ?? null,
       quote: saved?.quote ?? null,
@@ -2117,12 +2130,16 @@ try {
       });
       const ownerKey = 'guest:device-library|library:local';
       const tx = db.transaction('metadata-v5', 'readonly');
-      const get = tx.objectStore('metadata-v5').get([ownerKey, 'solid-pages.7z']);
-      const value = await new Promise((resolve, reject) => {
-        get.onsuccess = () => resolve(get.result);
-        get.onerror = () => reject(get.error);
+      const getAll = tx.objectStore('metadata-v5').getAll();
+      const values = await new Promise((resolve, reject) => {
+        getAll.onsuccess = () => resolve(getAll.result);
+        getAll.onerror = () => reject(getAll.error);
       });
       db.close();
+      const value = values.find((candidate) => (
+        candidate.ownerKey === ownerKey && candidate.name === 'solid-pages.7z'
+      ));
+      if (value) localStorage.setItem('__browserRegressionSolidBookId', value.id);
       return Boolean(value);
     })()`,
     'solid 7z import',
@@ -2130,7 +2147,7 @@ try {
   await evaluate(`(() => {
     localStorage.setItem('last_reader_session', JSON.stringify({
       version: 2,
-      bookId: 'solid-pages.7z',
+      bookId: localStorage.getItem('__browserRegressionSolidBookId'),
       updatedAt: Date.now()
     }));
   })()`);
@@ -2147,7 +2164,10 @@ try {
   }))()`);
   assert.equal(autoOpenSession.readerVisible, true);
   assert.equal(autoOpenSession.bookTitle, true);
-  assert.equal(autoOpenSession.storedSession, 'solid-pages.7z');
+  assert.equal(
+    autoOpenSession.storedSession,
+    await evaluate(`localStorage.getItem('__browserRegressionSolidBookId')`),
+  );
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
     'document.querySelector("h1")?.textContent?.includes("Guest Library")',

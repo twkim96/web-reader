@@ -1,10 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
 import {
   getQuietProgressConflictReason,
   isEquivalentProgressPosition,
 } from '../src/lib/syncConflictPolicy.ts';
+
+const {
+  shouldShowSyncConflictDialog,
+  shouldShowSyncReviewBadge,
+} = await import('../src/lib/syncConflictPresentation.ts');
+
+test('keeps startup and shelf conflicts non-blocking until review is requested', () => {
+  const base = {
+    hasConflict: true,
+    explicitReview: false,
+    conflictBookId: 'book-1',
+    activeBookId: undefined,
+  };
+  assert.equal(shouldShowSyncConflictDialog({ ...base, view: 'loading' }), false);
+  assert.equal(shouldShowSyncConflictDialog({ ...base, view: 'shelf' }), false);
+  assert.equal(shouldShowSyncReviewBadge({ ...base, view: 'shelf' }), true);
+  assert.equal(shouldShowSyncConflictDialog({
+    ...base,
+    explicitReview: true,
+    view: 'shelf',
+  }), true);
+});
+
+test('automatically presents only a conflict for the active reader book', () => {
+  const base = {
+    hasConflict: true,
+    explicitReview: false,
+    view: 'reader',
+    activeBookId: 'book-1',
+  };
+  assert.equal(shouldShowSyncConflictDialog({
+    ...base,
+    conflictBookId: 'book-1',
+  }), true);
+  assert.equal(shouldShowSyncConflictDialog({
+    ...base,
+    conflictBookId: 'book-2',
+  }), false);
+  assert.equal(shouldShowSyncConflictDialog({
+    ...base,
+    conflictBookId: null,
+  }), false);
+});
 
 const progressEvent = (overrides = {}) => ({
   ownerKey: 'firebase:a|library:local',

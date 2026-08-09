@@ -8,6 +8,7 @@ import {
   adoptRemoteProgressLocallyV5,
   enqueueProgressMutationBatchV5,
   hasActiveProgressTargetWorkV5,
+  markRemoteProgressIgnoredV5,
 } from '../lib/syncOutboxV5';
 import { diffManualBookmarks, type BookmarkSyncChange } from '../lib/bookmarkSyncPolicy';
 import { trackLocalCommit } from '../lib/localCommitTracker';
@@ -309,10 +310,39 @@ export const useProgressActions = ({
     }
   }, [progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
 
+  const ignoreRemoteProgress = useCallback(async (bookId: string, revision: number) => {
+    const owner = ownerRuntime.capture();
+    if (!owner) return false;
+    try {
+      const ignored = await markRemoteProgressIgnoredV5(
+        getSyncOwnerKey(owner.ownerKey),
+        bookId,
+        revision,
+      );
+      if (!ignored || !ownerRuntime.isCurrent(owner)) return false;
+      setProgress((prev) => {
+        const existing = prev[bookId];
+        if (!existing) return prev;
+        const nextProgress = {
+          ...existing,
+          ignoredRemoteRevision: Math.max(existing.ignoredRemoteRevision ?? 0, revision),
+        };
+        const next = { ...prev, [bookId]: nextProgress };
+        progressRef.current = next;
+        return next;
+      });
+      return true;
+    } catch (error) {
+      reportPersistenceError(error);
+      return false;
+    }
+  }, [progressRef, reportPersistenceError, setProgress]);
+
   return {
     saveProgress,
     deleteProgress,
     deleteBookProgress,
     adoptRemoteProgress,
+    ignoreRemoteProgress,
   };
 };

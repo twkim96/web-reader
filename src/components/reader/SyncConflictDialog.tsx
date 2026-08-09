@@ -32,7 +32,7 @@ export const SyncConflictDialog: React.FC<SyncConflictDialogProps> = ({
           <h3 className="text-lg font-bold tracking-tight">클라우드 동기화</h3>
         </div>
         <p className="text-sm opacity-80 mb-6 leading-relaxed">
-          다른 기기에서 <span className="font-bold text-accent-500">{syncConflict.percent.toFixed(1)}%</span>까지 읽은 기록이 있습니다.<br />해당 위치로 이동하시겠습니까?
+          클라우드에 <span className="font-bold text-accent-500">{syncConflict.percent.toFixed(1)}%</span>의 읽기 위치가 있습니다.<br />해당 위치로 이동하시겠습니까?
         </p>
         <div className="flex gap-3">
           <button onClick={onDismiss} className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-gray-500/10 hover:bg-gray-500/20 transition-colors">

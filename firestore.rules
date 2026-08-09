@@ -160,7 +160,7 @@ service cloud.firestore {
           'schemaVersion', 'bookId', 'annotationId', 'revision',
           'acceptedEventId', 'operation', 'annotation', 'acceptedDeviceId',
           'acceptedSessionId', 'occurredAtClient', 'updatedAtServer',
-          'deletedAtServer'
+          'deletedAtServer', 'bookGeneration'
         ])
         && data.schemaVersion == 1
         && data.bookId == bookId
@@ -174,6 +174,7 @@ service cloud.firestore {
         && boundedString(data.acceptedDeviceId, 128, false)
         && boundedString(data.acceptedSessionId, 128, false)
         && validClientTime(data.occurredAtClient)
+        && validClientTime(data.get('bookGeneration', 0))
         && data.updatedAtServer == request.time
         && (
           (
@@ -308,13 +309,20 @@ service cloud.firestore {
 
     function allowedByAnnotationBookDeleteMarker(appId, uid, scopeId, data, annotationId) {
       let markerPath = annotationBookDeleteMarkerPath(appId, uid, scopeId, data.bookId);
-      return data.operation == 'delete'
-        || (
-          annotationId != 'book_delete_marker_v1'
+      let currentGeneration = existsAfter(markerPath)
+        ? getAfter(markerPath).data.revision
+        : 0;
+      return (
+          data.operation == 'delete'
           && (
-            !existsAfter(markerPath)
-            || data.occurredAtClient > getAfter(markerPath).data.occurredAtClient
+            annotationId != 'book_delete_marker_v1'
+            || data.get('bookGeneration', 0) == data.revision
           )
+        ) || (
+          data.operation == 'upsert'
+          &&
+          annotationId != 'book_delete_marker_v1'
+          && data.get('bookGeneration', 0) == currentGeneration
         );
     }
 

@@ -17,6 +17,7 @@ import {
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 
 const RECONCILE_INTERVAL_MS = 5_000;
+const MAX_RECONCILE_BACKOFF_MS = 5 * 60_000;
 const lastReconcileByOwner = new Map<OwnerKey, number>();
 
 export type AnnotationBookDeletionIntentV10 = {
@@ -24,7 +25,23 @@ export type AnnotationBookDeletionIntentV10 = {
   bookId: string;
   createdAt: number;
   lastCheckedAt: number | null;
+  failureCount?: number;
+  lastErrorCode?: string | null;
+  nextRetryAt?: number;
 };
+
+const getErrorCode = (error: unknown) => {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' && code.length > 0) return code.slice(0, 120);
+  }
+  return error instanceof Error && error.name ? error.name : 'unknown';
+};
+
+const getRetryDelay = (failureCount: number) => Math.min(
+  MAX_RECONCILE_BACKOFF_MS,
+  RECONCILE_INTERVAL_MS * (2 ** Math.min(failureCount - 1, 6)),
+);
 
 type FetchAuthoritativeHeads = (
   uid: string,
@@ -50,50 +67,66 @@ export const reconcileAnnotationBookDeletionIntentsV10 = async (
     ownerKey,
   ) as AnnotationBookDeletionIntentV10[];
   let queued = 0;
+  let failed = 0;
   const fetchAuthoritativeHeads = fetchHeads ?? (await import('./annotationSyncRemote'))
     .getAuthoritativeRemoteAnnotationHeadsV1;
   for (const intent of intents) {
-    const heads = await fetchAuthoritativeHeads(uid, intent.bookId);
-    const inputs = [];
-    for (const head of heads) {
-      const targetKey = annotationTargetKeyV1(intent.bookId, head.annotationId);
-      if (await hasActiveSyncTargetWorkV5(ownerKey, targetKey)) continue;
-      inputs.push({
-        bookId: intent.bookId,
-        annotationId: head.annotationId,
-        operation: 'annotation.delete' as const,
-        payload: null,
-        baseRevision: head.revision,
-        forceDelete: true,
-        occurredAtClient: now + inputs.length,
-      });
-    }
-    if (inputs.length > 0) {
-      queued += (await enqueueAnnotationEventsV5(ownerKey, inputs, context)).length;
-    }
-    const markerTargetKey = annotationTargetKeyV1(
-      intent.bookId,
-      ANNOTATION_BOOK_DELETE_MARKER_ID,
-    );
-    const markerCache = await db.get(
-      V5_REMOTE_HEADS_STORE,
-      [ownerKey, markerTargetKey],
-    ) as RemoteHeadCacheV5 | undefined;
-    const markerHead = markerCache?.head;
-    const markerCommitted = isAnnotationHeadV1(markerHead)
-      && markerHead.bookId === intent.bookId
-      && markerHead.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
-      && markerHead.operation === 'delete'
-      && markerHead.occurredAtClient >= intent.createdAt;
-    const markerStillActive = await hasActiveSyncTargetWorkV5(ownerKey, markerTargetKey);
-    if (heads.length === 0 && markerCommitted && !markerStillActive) {
-      await db.delete(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, intent.bookId]);
-    } else {
+    if ((intent.nextRetryAt ?? 0) > now) continue;
+    try {
+      const heads = await fetchAuthoritativeHeads(uid, intent.bookId);
+      const inputs = [];
+      for (const head of heads) {
+        const targetKey = annotationTargetKeyV1(intent.bookId, head.annotationId);
+        if (await hasActiveSyncTargetWorkV5(ownerKey, targetKey)) continue;
+        inputs.push({
+          bookId: intent.bookId,
+          annotationId: head.annotationId,
+          operation: 'annotation.delete' as const,
+          payload: null,
+          baseRevision: head.revision,
+          forceDelete: true,
+          occurredAtClient: now + inputs.length,
+        });
+      }
+      if (inputs.length > 0) {
+        queued += (await enqueueAnnotationEventsV5(ownerKey, inputs, context)).length;
+      }
+      const markerTargetKey = annotationTargetKeyV1(
+        intent.bookId,
+        ANNOTATION_BOOK_DELETE_MARKER_ID,
+      );
+      const markerCache = await db.get(
+        V5_REMOTE_HEADS_STORE,
+        [ownerKey, markerTargetKey],
+      ) as RemoteHeadCacheV5 | undefined;
+      const markerHead = markerCache?.head;
+      const markerCommitted = isAnnotationHeadV1(markerHead)
+        && markerHead.bookId === intent.bookId
+        && markerHead.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+        && markerHead.operation === 'delete';
+      const markerStillActive = await hasActiveSyncTargetWorkV5(ownerKey, markerTargetKey);
+      if (heads.length === 0 && markerCommitted && !markerStillActive) {
+        await db.delete(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, intent.bookId]);
+        continue;
+      }
       await db.put(V10_ANNOTATION_BOOK_DELETIONS_STORE, {
         ...intent,
         lastCheckedAt: now,
+        failureCount: 0,
+        lastErrorCode: null,
+        nextRetryAt: 0,
+      } satisfies AnnotationBookDeletionIntentV10);
+    } catch (error) {
+      failed += 1;
+      const failureCount = (intent.failureCount ?? 0) + 1;
+      await db.put(V10_ANNOTATION_BOOK_DELETIONS_STORE, {
+        ...intent,
+        lastCheckedAt: now,
+        failureCount,
+        lastErrorCode: getErrorCode(error),
+        nextRetryAt: now + getRetryDelay(failureCount),
       } satisfies AnnotationBookDeletionIntentV10);
     }
   }
-  return { intents: intents.length, queued };
+  return { intents: intents.length, queued, failed };
 };

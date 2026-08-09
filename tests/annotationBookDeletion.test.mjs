@@ -14,7 +14,13 @@ const { removeBookAndAnnotationsV8 } = await import('../src/lib/localDBV5.ts');
 const { reconcileAnnotationBookDeletionIntentsV10 } = await import(
   '../src/lib/annotationBookDeletion.ts'
 );
-const { getOutboxEventsV5 } = await import('../src/lib/syncOutboxV5.ts');
+const {
+  acknowledgeProgressEventV5,
+  acquireSyncLeaseV5,
+  claimNextProgressEventV5,
+  getExpectedClaimV5,
+  getOutboxEventsV5,
+} = await import('../src/lib/syncOutboxV5.ts');
 const { saveLocalAnnotationV8 } = await import('../src/lib/localAnnotations.ts');
 const { toAnnotationSyncPayloadV1 } = await import('../src/lib/annotationSyncSchema.ts');
 const { makeFirebaseOwnerKey, makeOwnerKey, DEVICE_CONTENT_OWNER_KEY } = await import(
@@ -23,9 +29,9 @@ const { makeFirebaseOwnerKey, makeOwnerKey, DEVICE_CONTENT_OWNER_KEY } = await i
 
 const ownerKey = makeOwnerKey(makeFirebaseOwnerKey('book-delete'), 'library:local');
 const context = { deviceId: 'device', sessionId: 'session' };
-const annotation = (id) => ({
+const annotation = (id, bookId = 'book-1') => ({
   id,
-  bookId: 'book-1',
+  bookId,
   type: 'highlight',
   sectionIndex: 0,
   rangeCfi: `epubcfi(/6/4!/4/2,/1:0,/1:${id.length + 1})`,
@@ -55,15 +61,119 @@ test('a newly created highlight explicitly ends the local book-deletion intent',
     await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, 'book-1']),
     undefined,
   );
+  const events = await getOutboxEventsV5(ownerKey);
+  const marker = events.find(({ target }) => (
+    target.annotationId === 'book_delete_marker_v1'
+  ));
+  const highlight = events.find(({ target }) => target.annotationId === 'new-highlight');
+  assert.equal(marker.status, 'superseded');
+  assert.equal(highlight.status, 'pending');
+  assert.equal(highlight.awaitingBookGeneration, undefined);
 });
-const head = (id, revision) => ({
+
+test('waits for an in-flight deletion marker and claims the new highlight at its revision', async () => {
+  await removeBookAndAnnotationsV8(
+    ownerKey,
+    DEVICE_CONTENT_OWNER_KEY,
+    'book-1',
+    context,
+  );
+  const now = Date.now() + 1_000;
+  const lease = await acquireSyncLeaseV5(ownerKey, 'tab-1', now, 5_000);
+  const marker = await claimNextProgressEventV5(
+    ownerKey,
+    'tab-1',
+    lease.epoch,
+    now + 1,
+    () => 'marker-claim',
+  );
+  assert.equal(marker.target.annotationId, 'book_delete_marker_v1');
+
+  await saveLocalAnnotationV8(ownerKey, annotation('after-in-flight'), context);
+  const queued = (await getOutboxEventsV5(ownerKey)).find(({ target }) => (
+    target.annotationId === 'after-in-flight'
+  ));
+  assert.equal(queued.awaitingBookGeneration, true);
+  assert.equal(await claimNextProgressEventV5(
+    ownerKey,
+    'tab-1',
+    lease.epoch,
+    now + 2,
+  ), null);
+
+  const expectedClaim = getExpectedClaimV5(marker);
+  assert.ok(expectedClaim);
+  await acknowledgeProgressEventV5(ownerKey, marker.eventId, {
+    schemaVersion: 1,
+    bookId: 'book-1',
+    annotationId: 'book_delete_marker_v1',
+    revision: 1,
+    acceptedEventId: marker.eventId,
+    operation: 'delete',
+    annotation: null,
+    acceptedDeviceId: context.deviceId,
+    acceptedSessionId: context.sessionId,
+    occurredAtClient: marker.occurredAtClient,
+    bookGeneration: 1,
+    updatedAtServer: {},
+    deletedAtServer: {},
+  }, expectedClaim, now + 3);
+  const highlight = await claimNextProgressEventV5(
+    ownerKey,
+    'tab-1',
+    lease.epoch,
+    now + 4,
+    () => 'highlight-claim',
+  );
+  assert.equal(highlight.target.annotationId, 'after-in-flight');
+  assert.equal(highlight.bookGeneration, 1);
+  assert.equal(highlight.awaitingBookGeneration, false);
+});
+
+test('releases a generation waiter at generation zero when a marker is resolved as remote-missing', async () => {
+  await removeBookAndAnnotationsV8(
+    ownerKey,
+    DEVICE_CONTENT_OWNER_KEY,
+    'book-1',
+    context,
+  );
+  const now = Date.now() + 1_000;
+  const lease = await acquireSyncLeaseV5(ownerKey, 'tab-1', now, 5_000);
+  const marker = await claimNextProgressEventV5(
+    ownerKey,
+    'tab-1',
+    lease.epoch,
+    now + 1,
+    () => 'marker-claim',
+  );
+  await saveLocalAnnotationV8(ownerKey, annotation('after-remote-missing'), context);
+  const db = await initDB();
+  await db.put(V5_OUTBOX_STORE, {
+    ...marker,
+    status: 'superseded',
+    claimedByTabId: null,
+    claimedLeaseEpoch: null,
+    claimToken: null,
+  });
+  const highlight = await claimNextProgressEventV5(
+    ownerKey,
+    'tab-1',
+    lease.epoch,
+    now + 2,
+    () => 'highlight-claim',
+  );
+  assert.equal(highlight.target.annotationId, 'after-remote-missing');
+  assert.equal(highlight.bookGeneration, 0);
+  assert.equal(highlight.awaitingBookGeneration, false);
+});
+const head = (id, revision, bookId = 'book-1') => ({
   schemaVersion: 1,
-  bookId: 'book-1',
+  bookId,
   annotationId: id,
   revision,
   acceptedEventId: `remote-${id}`,
   operation: 'upsert',
-  annotation: toAnnotationSyncPayloadV1(annotation(id)),
+  annotation: toAnnotationSyncPayloadV1(annotation(id, bookId)),
   acceptedDeviceId: 'remote-device',
   acceptedSessionId: 'remote-session',
   occurredAtClient: 1,
@@ -156,4 +266,51 @@ test('reconciles remote-only and later-created annotations with forced latest-re
     await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, 'book-1']),
     undefined,
   );
+});
+
+test('continues with later book deletion intents when one book fails', async () => {
+  const isolatedOwner = makeOwnerKey(
+    makeFirebaseOwnerKey('book-delete-isolation'),
+    'library:local',
+  );
+  await removeBookAndAnnotationsV8(
+    isolatedOwner,
+    DEVICE_CONTENT_OWNER_KEY,
+    'book-a',
+    context,
+  );
+  await removeBookAndAnnotationsV8(
+    isolatedOwner,
+    DEVICE_CONTENT_OWNER_KEY,
+    'book-b',
+    context,
+  );
+  const called = [];
+  const result = await reconcileAnnotationBookDeletionIntentsV10(
+    'book-delete-isolation',
+    isolatedOwner,
+    context,
+    40_000,
+    async (_uid, bookId) => {
+      called.push(bookId);
+      if (bookId === 'book-a') {
+        throw Object.assign(new Error('invalid aggregate'), { code: 'invalid-argument' });
+      }
+      return [head('remote-b', 2, 'book-b')];
+    },
+  );
+  assert.deepEqual(called.sort(), ['book-a', 'book-b']);
+  assert.equal(result.failed, 1);
+  assert.equal(result.queued, 1);
+  const db = await initDB();
+  const failedIntent = await db.get(
+    V10_ANNOTATION_BOOK_DELETIONS_STORE,
+    [isolatedOwner, 'book-a'],
+  );
+  assert.equal(failedIntent.failureCount, 1);
+  assert.equal(failedIntent.lastErrorCode, 'invalid-argument');
+  assert.ok(failedIntent.nextRetryAt > 40_000);
+  assert.ok((await getOutboxEventsV5(isolatedOwner)).some(({ target }) => (
+    target.bookId === 'book-b' && target.annotationId === 'remote-b'
+  )));
 });

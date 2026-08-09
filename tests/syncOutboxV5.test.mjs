@@ -14,6 +14,7 @@ const {
   enqueueProgressMutationBatchV5,
   enqueueProgressEventV5,
   getExpectedClaimV5,
+  getOpenSyncConflictsV5,
   getOutboxEventsV5,
   getPausedSyncSummaryV5,
   getRetryDelayMs,
@@ -21,6 +22,8 @@ const {
   recoverExpiredInFlightEventsV5,
   releaseSyncLeaseV5,
   recordProgressConflictV5,
+  deferSyncConflictV5,
+  markRemoteProgressIgnoredV5,
   pauseProgressEventV5,
   resumePausedAuthEventsV5,
   resolveSyncConflictKeepLocalV5,
@@ -28,6 +31,7 @@ const {
   scheduleProgressEventRetryV5,
   storeRemoteProgressHeadV5,
 } = await import('../src/lib/syncOutboxV5.ts');
+const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
 const {
   makeFirebaseOwnerKey,
   makeOwnerKey,
@@ -250,10 +254,11 @@ test('issues a new epoch when the same tab reacquires an expired lease', async (
 });
 
 test('conflict preserves the event and blocks its later chain', async () => {
-  await enqueue(ownerA, { eventId: 'event-1' });
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
   await enqueue(ownerA, {
     eventId: 'event-2',
     sessionId: 'session-2',
+    position: position(35),
     occurredAtClient: 2,
   });
   const { expectedClaim } = await claimNext();
@@ -266,6 +271,7 @@ test('conflict preserves the event and blocks its later chain', async () => {
   );
   const events = await getOutboxEventsV5(ownerA);
   assert.equal(conflict.state, 'open');
+  assert.equal(conflict.latestLocalPosition.progressPercent, 35);
   assert.deepEqual(conflict.blockedEventIds, ['event-2']);
   assert.deepEqual(events.map(({ status }) => status), ['conflict', 'blocked']);
 
@@ -277,6 +283,109 @@ test('conflict preserves the event and blocks its later chain', async () => {
   });
   assert.equal(deferred.deferredByConflict, true);
   assert.equal((await getOutboxEventsV5(ownerA)).length, 2);
+});
+
+test('resolves a pre-existing blocked progress chain from canonical local progress', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
+  await enqueue(ownerA, {
+    eventId: 'event-2',
+    sessionId: 'session-2',
+    position: position(35),
+    occurredAtClient: 2,
+  });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 4,
+    acceptedEventId: 'remote-4',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  const conflict = await recordProgressConflictV5(
+    ownerA,
+    'event-1',
+    remote,
+    expectedClaim,
+    12,
+  );
+  assert.equal(conflict.latestLocalPosition.progressPercent, 35);
+  const replacement = await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 20);
+  assert.equal(replacement.payload.progressPercent, 35);
+});
+
+test('preserves canonical local progress when accepting a remote blocked-chain conflict', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
+  await enqueue(ownerA, {
+    eventId: 'event-2',
+    sessionId: 'session-2',
+    position: position(35),
+    occurredAtClient: 2,
+  });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 4,
+    acceptedEventId: 'remote-4',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  const conflict = await recordProgressConflictV5(
+    ownerA,
+    'event-1',
+    remote,
+    expectedClaim,
+    12,
+  );
+  const resolved = await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'event-1',
+    20,
+    true,
+    conflict.latestLocalPosition,
+  );
+  assert.equal(resolved.progressPercent, 70);
+  const recovery = resolved.bookmarks.find(({ name }) => name === '충돌 전 위치');
+  assert.equal(recovery.progressPercent, 35);
+  assert.equal(recovery.cfi, position(35).cfi);
+});
+
+test('persists conflict deferral and reopens it only after expiry or a new local mutation', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', null, expectedClaim, 12);
+  assert.equal(await deferSyncConflictV5(ownerA, 'event-1', 20, 100), true);
+  assert.deepEqual(await getOpenSyncConflictsV5(ownerA, 119), []);
+  assert.equal((await getOpenSyncConflictsV5(ownerA, 120))[0].conflictId, 'event-1');
+
+  await deferSyncConflictV5(ownerA, 'event-1', 200, 100);
+  const deferred = await enqueue(ownerA, {
+    eventId: 'event-2',
+    sessionId: 'session-2',
+    position: position(35),
+    occurredAtClient: 210,
+  });
+  assert.equal(deferred.deferredByConflict, true);
+  const [reopened] = await getOpenSyncConflictsV5(ownerA, 211);
+  assert.equal(reopened.state, 'open');
+  assert.equal(reopened.latestLocalPosition.progressPercent, 35);
+});
+
+test('persists the highest explicitly ignored remote progress revision', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
+  assert.equal(await markRemoteProgressIgnoredV5(ownerA, 'book-1', 7), true);
+  assert.equal(await markRemoteProgressIgnoredV5(ownerA, 'book-1', 5), true);
+  const [stored] = await getAllLocalProgressV5(ownerA);
+  assert.equal(stored.ignoredRemoteRevision, 7);
 });
 
 test('ack advances known revision monotonically and removes only its event', async () => {
@@ -687,20 +796,29 @@ test('keeping local creates a new event at the current remote revision', async (
 });
 
 test('restoring a remotely deleted bookmark assigns a new bookmark id', async () => {
+  const localBookmark = {
+    bookmarkId: 'old-mark',
+    cfi: 'cfi-old',
+    name: 'old',
+    color: '#fff',
+    progressPercent: 10,
+    createdAtClient: 1,
+    updatedAtClient: 2,
+  };
   await enqueueBookmarkEventV5(ownerA, {
     bookId: 'book-1',
     bookmarkId: 'old-mark',
     operation: 'bookmark.upsert',
-    payload: {
-      bookmarkId: 'old-mark',
-      cfi: 'cfi-old',
-      name: 'old',
-      color: '#fff',
-      progressPercent: 10,
-      createdAtClient: 1,
-      updatedAtClient: 2,
-    },
-    localBookmarks: [],
+    payload: localBookmark,
+    localBookmarks: [{
+      id: localBookmark.bookmarkId,
+      type: 'manual',
+      name: localBookmark.name,
+      cfi: localBookmark.cfi,
+      progressPercent: localBookmark.progressPercent,
+      createdAt: localBookmark.createdAtClient,
+      color: localBookmark.color,
+    }],
     deviceId: 'device-1',
     sessionId: 'session-1',
     eventId: 'bookmark-event',

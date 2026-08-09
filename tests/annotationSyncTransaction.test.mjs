@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 
 import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
 import {
+  ANNOTATION_AGGREGATE_MAX_UTF8_BYTES,
   annotationPaletteTargetKeyV1,
   annotationTargetKeyV1,
+  getAnnotationAggregateUtf8SizeV1,
+  isAnnotationBookAggregateV1,
   toAnnotationSyncPayloadV1,
 } from '../src/lib/annotationSyncSchema.ts';
 import {
@@ -71,6 +74,7 @@ const annotationEventFor = ({ id, rangeCfi, colorId = 'yellow', eventId }) => ({
   deviceId: 'device',
   sessionId: 'session',
   baseRevision: 0,
+  bookGeneration: 0,
   occurredAtClient: 1,
 });
 
@@ -171,6 +175,74 @@ test('force-deletes a book annotation at the latest remote revision', () => {
   assert.equal(deletion.head.operation, 'delete');
 });
 
+test('uses marker revision instead of client clocks as the book generation', () => {
+  const markerEvent = {
+    eventId: 'marker-1',
+    target: {
+      kind: 'annotation',
+      bookId: 'book-1',
+      annotationId: 'book_delete_marker_v1',
+    },
+    targetKey: annotationTargetKeyV1('book-1', 'book_delete_marker_v1'),
+    operation: 'annotation.delete',
+    payload: null,
+    deviceId: 'delete-device',
+    sessionId: 'delete-session',
+    baseRevision: 0,
+    bookGeneration: 0,
+    occurredAtClient: 10,
+    forceDelete: true,
+  };
+  const marker = decideAnnotationTransaction({
+    event: markerEvent,
+    storedHead: undefined,
+    storedReceipt: undefined,
+    storedAggregate: undefined,
+    storedBookDeleteMarker: undefined,
+    serverTime: 'server-marker',
+  });
+  assert.equal(marker.status, 'apply');
+  assert.equal(marker.head.bookGeneration, 1);
+
+  const stale = decideAnnotationTransaction({
+    event: {
+      ...annotationEventFor({
+        id: 'stale-future-clock',
+        rangeCfi: 'epubcfi(/6/4!/4/2,/1:0,/1:4)',
+        eventId: 'stale-future-clock-event',
+      }),
+      bookGeneration: 0,
+      occurredAtClient: 9_999_999,
+    },
+    storedHead: undefined,
+    storedReceipt: undefined,
+    storedAggregate: marker.aggregate,
+    storedBookDeleteMarker: marker.head,
+    serverTime: 'server-stale',
+  });
+  assert.equal(stale.status, 'conflict');
+  assert.equal(stale.conflictReason, 'annotation-book-generation');
+
+  const fresh = decideAnnotationTransaction({
+    event: {
+      ...annotationEventFor({
+        id: 'fresh-slow-clock',
+        rangeCfi: 'epubcfi(/6/4!/4/2,/1:5,/1:9)',
+        eventId: 'fresh-slow-clock-event',
+      }),
+      bookGeneration: 1,
+      occurredAtClient: 1,
+    },
+    storedHead: undefined,
+    storedReceipt: undefined,
+    storedAggregate: marker.aggregate,
+    storedBookDeleteMarker: marker.head,
+    serverTime: 'server-fresh',
+  });
+  assert.equal(fresh.status, 'apply');
+  assert.equal(fresh.head.bookGeneration, 1);
+});
+
 test('serializes different annotation ids through the book aggregate', () => {
   const rangeCfi = 'epubcfi(/6/4!/4/2,/1:0,/1:4)';
   const first = decideAnnotationTransaction({
@@ -223,6 +295,102 @@ test('rejects a twenty-first color entry through the book aggregate', () => {
   });
   assert.equal(overLimit.status, 'conflict');
   assert.equal(overLimit.conflictReason, 'annotation-color-limit');
+});
+
+test('blocks aggregate growth past the byte budget but permits legacy aggregate shrinkage', () => {
+  const colors = ['yellow', 'green', 'blue', 'pink', 'purple'];
+  const cfiBodyLength = 16_000 - 'epubcfi()'.length;
+  let aggregate;
+  let sizeConflict;
+  for (let index = 0; index < 100; index += 1) {
+    const rangeCfi = `epubcfi(${'x'.repeat(cfiBodyLength - String(index).length)}${index})`;
+    const decision = decideAnnotationTransaction({
+      event: annotationEventFor({
+        id: `large-${index}`,
+        rangeCfi,
+        colorId: colors[index % colors.length],
+        eventId: `large-event-${index}`,
+      }),
+      storedHead: undefined,
+      storedReceipt: undefined,
+      storedAggregate: aggregate,
+      serverTime: `server-large-${index}`,
+    });
+    if (decision.status === 'conflict') {
+      sizeConflict = decision;
+      break;
+    }
+    aggregate = decision.aggregate;
+  }
+  assert.equal(sizeConflict?.conflictReason, 'annotation-aggregate-size');
+  assert.ok(getAnnotationAggregateUtf8SizeV1(aggregate) <= ANNOTATION_AGGREGATE_MAX_UTF8_BYTES);
+
+  const entries = {};
+  const rangeCfis = [];
+  for (let index = 0; index < 30; index += 1) {
+    const id = `legacy-${index}`;
+    const rangeCfi = `epubcfi(${'y'.repeat(cfiBodyLength - String(index).length)}${index})`;
+    entries[id] = { rangeCfi, colorId: colors[index % colors.length] };
+    rangeCfis.push(rangeCfi);
+  }
+  const legacyAggregate = {
+    schemaVersion: 1,
+    bookId: 'book-1',
+    revision: 30,
+    totalCount: 30,
+    colorCounts: { yellow: 6, green: 6, blue: 6, pink: 6, purple: 6 },
+    entries,
+    rangeCfis,
+    acceptedEventId: 'legacy-event-29',
+    acceptedAnnotationId: 'legacy-29',
+    acceptedOperation: 'upsert',
+    updatedAtServer: 'server-legacy',
+  };
+  assert.equal(isAnnotationBookAggregateV1(legacyAggregate), true);
+  assert.ok(
+    getAnnotationAggregateUtf8SizeV1(legacyAggregate) > ANNOTATION_AGGREGATE_MAX_UTF8_BYTES,
+  );
+  const legacyItem = {
+    ...payload(),
+    id: 'legacy-0',
+    rangeCfi: rangeCfis[0],
+    colorId: 'yellow',
+  };
+  const shrunk = decideAnnotationTransaction({
+    event: {
+      ...annotationEventFor({
+        id: 'legacy-0',
+        rangeCfi: rangeCfis[0],
+        colorId: 'yellow',
+        eventId: 'legacy-delete',
+      }),
+      operation: 'annotation.delete',
+      payload: null,
+      baseRevision: 1,
+    },
+    storedHead: {
+      schemaVersion: 1,
+      bookId: 'book-1',
+      annotationId: 'legacy-0',
+      revision: 1,
+      acceptedEventId: 'legacy-upsert',
+      operation: 'upsert',
+      annotation: legacyItem,
+      acceptedDeviceId: 'legacy-device',
+      acceptedSessionId: 'legacy-session',
+      occurredAtClient: 1,
+      updatedAtServer: 'server-legacy',
+      deletedAtServer: null,
+    },
+    storedReceipt: undefined,
+    storedAggregate: legacyAggregate,
+    serverTime: 'server-shrink',
+  });
+  assert.equal(shrunk.status, 'apply');
+  assert.ok(
+    getAnnotationAggregateUtf8SizeV1(shrunk.aggregate)
+      < getAnnotationAggregateUtf8SizeV1(legacyAggregate),
+  );
 });
 
 test('applies and replays one atomic palette revision chain', () => {

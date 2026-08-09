@@ -12,6 +12,8 @@ const {
 const {
   enqueueMissingLocalAnnotationsV5,
   enqueueMissingLocalAnnotationPaletteV5,
+  getLocalAnnotationIdsV8,
+  getCachedRemoteAnnotationHeadsV5,
   hydrateRemoteAnnotationHeadsV5,
 } = await import('../src/lib/annotationSyncLocal.ts');
 const {
@@ -93,6 +95,7 @@ test('hydrates remote upserts and tombstones while recording authoritative revis
     ownerKey,
     annotationTargetKeyV1('book-1', 'remote'),
   )).knownRevision, 1);
+  assert.equal((await getCachedRemoteAnnotationHeadsV5(ownerKey, 'book-1'))[0].operation, 'upsert');
 
   await hydrateRemoteAnnotationHeadsV5(ownerKey, 'book-1', [head(remote, {
     revision: 2,
@@ -102,6 +105,7 @@ test('hydrates remote upserts and tombstones while recording authoritative revis
     deletedAtServer: {},
   })], context.sessionId, 101);
   assert.equal((await getLocalAnnotationsV8(ownerKey, 'book-1')).length, 0);
+  assert.equal((await getCachedRemoteAnnotationHeadsV5(ownerKey, 'book-1'))[0].operation, 'delete');
 });
 
 test('does not overwrite a target with pending local work', async () => {
@@ -141,6 +145,32 @@ test('enqueues only local annotations absent from the first authoritative snapsh
   );
   assert.equal(events.length, 1);
   assert.equal(events[0].target.annotationId, 'local-only');
+});
+
+test('hydrates an uncached tombstone before deciding whether to bootstrap a local annotation', async () => {
+  const local = annotation('deleted-remotely');
+  await saveLocalAnnotationV8(ownerKey, local);
+  assert.deepEqual(await getLocalAnnotationIdsV8(ownerKey, 'book-1'), [local.id]);
+  const tombstone = {
+    ...head(local, { revision: 4 }),
+    operation: 'delete',
+    annotation: null,
+    deletedAtServer: {},
+  };
+  await hydrateRemoteAnnotationHeadsV5(
+    ownerKey,
+    'book-1',
+    [tombstone],
+    context.sessionId,
+  );
+  const events = await enqueueMissingLocalAnnotationsV5(
+    ownerKey,
+    'book-1',
+    new Set(),
+    context,
+  );
+  assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), []);
+  assert.deepEqual(events, []);
 });
 
 test('does not duplicate a bootstrap event after the app session changes', async () => {

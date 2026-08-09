@@ -11,10 +11,15 @@ import {
 
 export type AnnotationSyncPayloadV1 = Omit<Annotation, 'anchorState'>;
 
+export const ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH = 16_000;
+export const ANNOTATION_AGGREGATE_MAX_UTF8_BYTES = 850_000;
+
 export type AnnotationAggregateConflictReasonV1 =
   | 'annotation-duplicate-range'
   | 'annotation-color-limit'
-  | 'annotation-book-limit';
+  | 'annotation-book-limit'
+  | 'annotation-aggregate-size'
+  | 'annotation-book-generation';
 
 export type AnnotationBookAggregateV1 = {
   schemaVersion: 1;
@@ -45,6 +50,7 @@ export type AnnotationHeadV1 = {
   acceptedDeviceId: string;
   acceptedSessionId: string;
   occurredAtClient: number;
+  bookGeneration?: number;
   updatedAtServer: unknown;
   deletedAtServer: unknown | null;
 };
@@ -82,6 +88,7 @@ export type AnnotationSyncMutationV1 = {
   sessionId: string;
   baseRevision: number;
   forceDelete?: boolean;
+  bookGeneration?: number;
   occurredAtClient: number;
 };
 
@@ -109,6 +116,13 @@ const hasExactKeys = (value: Record<string, unknown>, keys: string[]) => {
     && actual.every((key, index) => key === expected[index]);
 };
 
+const hasRequiredAndOnlyKeys = (
+  value: Record<string, unknown>,
+  required: string[],
+  optional: string[],
+) => required.every((key) => key in value)
+  && Object.keys(value).every((key) => required.includes(key) || optional.includes(key));
+
 const isBoundedString = (value: unknown, maxLength: number, allowEmpty = false) => (
   typeof value === 'string'
   && value.length <= maxLength
@@ -122,6 +136,16 @@ const isClientTime = (value: unknown) => (
 const isRevision = (value: unknown) => (
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
 );
+
+const getAggregateUtf8Size = (value: Record<string, unknown>) => {
+  const { updatedAtServer: _updatedAtServer, ...serializable } = value;
+  void _updatedAtServer;
+  return new TextEncoder().encode(JSON.stringify(serializable)).byteLength;
+};
+
+export const getAnnotationAggregateUtf8SizeV1 = (
+  value: AnnotationBookAggregateV1,
+) => getAggregateUtf8Size(value as unknown as Record<string, unknown>);
 
 export const annotationTargetKeyV1 = (bookId: string, annotationId: string) => (
   `annotation:${bookId}:${annotationId}`
@@ -152,7 +176,7 @@ export const isAnnotationSyncPayloadV1 = (
     'createdAtClient', 'updatedAtClient',
   ])) return false;
   return isBoundedString(value.bookId, 512)
-    && typeof value.rangeCfi === 'string'
+    && isBoundedString(value.rangeCfi, ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH)
     && isClientTime(value.createdAtClient)
     && (value.createdAtClient as number) > 0
     && isClientTime(value.updatedAtClient)
@@ -236,7 +260,9 @@ export const isAnnotationBookAggregateV1 = (
   if (
     entries.length !== value.totalCount
     || rangeCfis.length !== value.totalCount
-    || !rangeCfis.every((rangeCfi) => isBoundedString(rangeCfi, 16_000))
+    || !rangeCfis.every((rangeCfi) => (
+      isBoundedString(rangeCfi, ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH)
+    ))
     || new Set(rangeCfis).size !== rangeCfis.length
     || new Set(entryRangeCfis).size !== entries.length
     || !rangeCfis.every((rangeCfi) => entryRangeCfis.includes(rangeCfi))
@@ -247,7 +273,7 @@ export const isAnnotationBookAggregateV1 = (
     /^[A-Za-z0-9_-]+$/.test(annotationId)
     && isRecord(entry)
     && hasExactKeys(entry, ['rangeCfi', 'colorId'])
-    && isBoundedString(entry.rangeCfi, 16_000)
+    && isBoundedString(entry.rangeCfi, ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH)
     && isHighlightColorId(entry.colorId)
     && rangeCfis.includes(entry.rangeCfi)
   ));
@@ -271,11 +297,11 @@ export const isAnnotationPalettePayloadV1 = (
 };
 
 export const isAnnotationHeadV1 = (value: unknown): value is AnnotationHeadV1 => {
-  if (!isRecord(value) || !hasExactKeys(value, [
+  if (!isRecord(value) || !hasRequiredAndOnlyKeys(value, [
     'schemaVersion', 'bookId', 'annotationId', 'revision', 'acceptedEventId',
     'operation', 'annotation', 'acceptedDeviceId', 'acceptedSessionId',
     'occurredAtClient', 'updatedAtServer', 'deletedAtServer',
-  ])) return false;
+  ], ['bookGeneration'])) return false;
   const operationMatches = value.operation === 'upsert'
     ? isAnnotationSyncPayloadV1(value.annotation)
       && value.annotation.id === value.annotationId
@@ -294,6 +320,7 @@ export const isAnnotationHeadV1 = (value: unknown): value is AnnotationHeadV1 =>
     && isBoundedString(value.acceptedDeviceId, 128)
     && isBoundedString(value.acceptedSessionId, 128)
     && isClientTime(value.occurredAtClient)
+    && (value.bookGeneration === undefined || isClientTime(value.bookGeneration))
     && value.updatedAtServer !== null
     && value.updatedAtServer !== undefined
     && operationMatches;

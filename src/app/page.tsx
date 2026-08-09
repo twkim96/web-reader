@@ -58,6 +58,10 @@ import { hasPendingGoogleDriveOAuth } from '../lib/googleDriveOAuth';
 import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
+import {
+  shouldShowSyncConflictDialog,
+  shouldShowSyncReviewBadge,
+} from '../lib/syncConflictPresentation';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -75,6 +79,7 @@ export default function Page() {
     revokeToken,
   } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
+  const [syncReviewOpen, setSyncReviewOpen] = useState(false);
   const deviceId = useDeviceId();
   const hasTriedAutoOpenLastBookRef = useRef(false);
 
@@ -277,6 +282,26 @@ export default function Page() {
   const activeSyncConflictResolution = syncConflictResolution.conflict
     ? syncConflictResolution
     : annotationSyncConflictResolution;
+  const activeSyncConflict = activeSyncConflictResolution.conflict;
+  const conflictTarget = activeSyncConflict?.event?.target;
+  const conflictBookId = conflictTarget && 'bookId' in conflictTarget
+    ? conflictTarget.bookId
+    : null;
+  const syncConflictPresentation = {
+    hasConflict: Boolean(activeSyncConflict),
+    explicitReview: syncReviewOpen,
+    view,
+    conflictBookId,
+    activeBookId: activeBook?.id,
+  };
+  const showSyncConflictDialog = shouldShowSyncConflictDialog(syncConflictPresentation);
+  const showSyncReviewBadge = shouldShowSyncReviewBadge(syncConflictPresentation);
+  const outboxProgressConflictRevision = syncConflictResolution.conflict?.event?.target.kind === 'progress'
+    && syncConflictResolution.conflict.event.target.bookId === activeBook?.id
+    && syncConflictResolution.conflict.remoteHead
+    && 'position' in syncConflictResolution.conflict.remoteHead
+      ? syncConflictResolution.conflict.remoteHead.revision
+      : undefined;
   useNetworkLibrarySync({
     user,
     googleToken,
@@ -424,6 +449,7 @@ export default function Page() {
     deleteProgress: handleDeleteProgress,
     deleteBookProgress: handleDeleteBookProgress,
     adoptRemoteProgress: handleAdoptRemoteProgress,
+    ignoreRemoteProgress: handleIgnoreRemoteProgress,
   } = useProgressActions({
     activeBook,
     user,
@@ -629,9 +655,16 @@ export default function Page() {
           initialBookmarks={progress[activeBook.id]?.bookmarks || []}
           initialRevision={progress[activeBook.id]?.syncRevision}
           remoteProgress={remoteProgress[activeBook.id]}
-          resolvedRemoteProgress={syncConflictResolution.resolvedRemoteProgress?.bookId === activeBook.id
-            ? syncConflictResolution.resolvedRemoteProgress
+          resolvedRemoteProgressCommand={syncConflictResolution.resolvedRemoteProgressCommand
+            ?.progress.bookId === activeBook.id
+            ? syncConflictResolution.resolvedRemoteProgressCommand
             : null}
+          onResolvedRemoteProgressConsumed={
+            syncConflictResolution.consumeResolvedRemoteProgressCommand
+          }
+          outboxProgressConflictRevision={outboxProgressConflictRevision}
+          ignoredRemoteRevision={progress[activeBook.id]?.ignoredRemoteRevision}
+          onIgnoreRemoteProgress={handleIgnoreRemoteProgress}
           onRegisterProgressFlush={(flush) => {
             readerProgressFlushRef.current = flush;
           }}
@@ -733,13 +766,35 @@ export default function Page() {
         />
       )}
 
-      {activeSyncConflictResolution.conflict && (
+      {showSyncReviewBadge && (
+        <button
+          type="button"
+          className="fixed bottom-4 right-4 z-[90] rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-2xl"
+          onClick={() => setSyncReviewOpen(true)}
+        >
+          동기화 확인 필요
+        </button>
+      )}
+
+      {showSyncConflictDialog && activeSyncConflict && (
         <SyncConflictResolutionDialog
-          conflict={activeSyncConflictResolution.conflict}
+          conflict={activeSyncConflict}
           theme={theme}
-          onKeepLocal={() => void activeSyncConflictResolution.keepLocal()}
-          onUseRemote={() => void activeSyncConflictResolution.useRemote()}
-          onDefer={activeSyncConflictResolution.defer}
+          bookTitle={conflictBookId
+            ? books.find(({ id }) => id === conflictBookId)?.name
+            : undefined}
+          onKeepLocal={() => {
+            setSyncReviewOpen(false);
+            void activeSyncConflictResolution.keepLocal();
+          }}
+          onUseRemote={() => {
+            setSyncReviewOpen(false);
+            void activeSyncConflictResolution.useRemote();
+          }}
+          onDefer={() => {
+            setSyncReviewOpen(false);
+            void activeSyncConflictResolution.defer();
+          }}
         />
       )}
 

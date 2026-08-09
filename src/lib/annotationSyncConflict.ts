@@ -10,12 +10,15 @@ import {
   V9_ANNOTATION_SETTINGS_STORE,
 } from './localDBSchema';
 import type { OwnerKey } from './ownerIdentity';
+import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 import {
+  annotationTargetKeyV1,
   fromAnnotationSyncPayloadV1,
   isAnnotationHeadV1,
   isAnnotationPaletteHeadV1,
   isAnnotationPalettePayloadV1,
   isAnnotationSyncPayloadV1,
+  toAnnotationSyncPayloadV1,
   type AnnotationSyncPayloadV1,
 } from './annotationSyncSchema';
 import { validateHydratedAnnotations } from './annotationSyncLocal';
@@ -210,6 +213,9 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
     V5_OUTBOX_STORE,
     V5_SYNC_CONFLICTS_STORE,
     V5_SYNC_META_STORE,
+    V5_REMOTE_HEADS_STORE,
+    V8_ANNOTATIONS_STORE,
+    V9_ANNOTATION_SETTINGS_STORE,
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   try {
@@ -228,10 +234,32 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
     let replacement: AnnotationOutboxEventV5 | AnnotationPaletteOutboxEventV5;
     if (conflict.event.target.kind === 'annotation') {
       const event = conflict.event as AnnotationOutboxEventV5;
-      const payload = conflict.latestLocalPosition;
+      const stored = await tx.objectStore(V8_ANNOTATIONS_STORE).get([
+        ownerKey,
+        event.target.bookId,
+        event.target.annotationId,
+      ]) as StoredAnnotation | undefined;
+      const payload = stored && isAnnotation(stored)
+        ? toAnnotationSyncPayloadV1(withoutOwner(stored))
+        : null;
       if (payload !== null && !isAnnotationSyncPayloadV1(payload)) {
         throw new Error('유지할 local annotation payload가 올바르지 않습니다.');
       }
+      const markerTargetKey = annotationTargetKeyV1(
+        event.target.bookId,
+        ANNOTATION_BOOK_DELETE_MARKER_ID,
+      );
+      const markerCache = await tx.objectStore(V5_REMOTE_HEADS_STORE).get([
+        ownerKey,
+        markerTargetKey,
+      ]) as RemoteHeadCacheV5 | undefined;
+      const markerHead = markerCache?.head;
+      const bookGeneration = conflict.remoteBookGeneration ?? (markerHead
+        && isAnnotationHeadV1(markerHead)
+        && markerHead.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+        && markerHead.operation === 'delete'
+        ? markerHead.revision
+        : 0);
       replacement = {
         ...event,
         eventId: crypto.randomUUID(),
@@ -239,6 +267,7 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
         payload: payload as AnnotationSyncPayloadV1 | null,
         sequence: nextMeta.nextSequence,
         baseRevision: conflict.remoteHead?.revision ?? 0,
+        bookGeneration,
         occurredAtClient: now,
         status: 'pending',
         attempts: 0,
@@ -250,14 +279,17 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
       };
     } else {
       const event = conflict.event as AnnotationPaletteOutboxEventV5;
-      if (!isAnnotationPalettePayloadV1(conflict.latestLocalPosition)) {
+      const stored = await tx.objectStore(V9_ANNOTATION_SETTINGS_STORE).get(ownerKey) as
+        { palette?: unknown } | undefined;
+      const payload = { items: stored?.palette };
+      if (!isAnnotationPalettePayloadV1(payload)) {
         throw new Error('유지할 local annotation palette가 올바르지 않습니다.');
       }
       replacement = {
         ...event,
         eventId: crypto.randomUUID(),
         operation: 'palette.set',
-        payload: conflict.latestLocalPosition,
+        payload,
         sequence: nextMeta.nextSequence,
         baseRevision: conflict.remoteHead?.revision ?? 0,
         occurredAtClient: now,

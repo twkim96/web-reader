@@ -6,6 +6,8 @@ import {
   collection,
   doc,
   onSnapshot,
+  query,
+  where,
   type DocumentData,
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
@@ -30,14 +32,18 @@ import {
 import {
   enqueueMissingLocalAnnotationsV5,
   enqueueMissingLocalAnnotationPaletteV5,
+  getCachedRemoteAnnotationHeadsV5,
+  getLocalAnnotationIdsV8,
   hydrateRemoteAnnotationHeadsV5,
 } from '../lib/annotationSyncLocal';
+import { getAuthoritativeRemoteAnnotationHeadV1 } from '../lib/annotationSyncRemote';
 import {
   hasActiveSyncTargetWorkV5,
   storeRemoteHeadsBatchV5,
   type AnnotationSyncContextV5,
 } from '../lib/syncOutboxV5';
 import { annotationPaletteTargetKeyV1 } from '../lib/annotationSyncSchema';
+import { ANNOTATION_BOOK_DELETE_MARKER_ID } from '../lib/annotationPolicy';
 import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
@@ -72,8 +78,10 @@ export const useAnnotationSync = ({
 }: UseAnnotationSyncOptions) => {
   const [annotationRevision, setAnnotationRevision] = useState(0);
   const [annotationHealth, setAnnotationHealth] = useState<SyncHealth>('healthy');
+  const [markerHealth, setMarkerHealth] = useState<SyncHealth>('healthy');
   const [paletteHealth, setPaletteHealth] = useState<SyncHealth>('healthy');
   const annotationRecoveryRef = useRef<SnapshotListenerRecovery<FirestoreQuerySnapshot> | null>(null);
+  const markerRecoveryRef = useRef<SnapshotListenerRecovery<FirestoreDocumentSnapshot> | null>(null);
   const paletteRecoveryRef = useRef<SnapshotListenerRecovery<FirestoreDocumentSnapshot> | null>(null);
   const paletteRef = useRef(palette);
 
@@ -90,6 +98,7 @@ export const useAnnotationSync = ({
   useEffect(() => {
     if (!context) {
       setAnnotationHealth('healthy');
+      setMarkerHealth('healthy');
       return;
     }
     const owner = ownerRuntime.capture();
@@ -99,7 +108,14 @@ export const useAnnotationSync = ({
     const uid = authOwnerKey.slice('firebase:'.length);
     const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
     const basePath = getFirebaseAnnotationSyncPath(APP_ID, uid);
-    const annotationsRef = collection(db, `${basePath}/${bookId}/annotations`);
+    const annotationsRef = query(
+      collection(db, `${basePath}/${bookId}/annotations`),
+      where('operation', '==', 'upsert'),
+    );
+    const markerDocumentRef = doc(
+      db,
+      `${basePath}/${bookId}/annotations/${ANNOTATION_BOOK_DELETE_MARKER_ID}`,
+    );
     let disposed = false;
     const controller = new AbortController();
     const isCurrent = () => !disposed && ownerRuntime.isCurrent(owner);
@@ -108,6 +124,10 @@ export const useAnnotationSync = ({
     >();
     let remoteHeads = new Map<string, AnnotationHeadV1>();
     let authoritativeSeen = false;
+    let resolveMarkerAuthoritative: () => void = () => undefined;
+    const markerAuthoritativeReady = new Promise<void>((resolve) => {
+      resolveMarkerAuthoritative = resolve;
+    });
 
     const handleSnapshot = async (snapshot: FirestoreQuerySnapshot) => {
       if (!isCurrent()) return;
@@ -116,10 +136,12 @@ export const useAnnotationSync = ({
       const firstAuthoritativeSnapshot = !authoritativeSeen;
       authoritativeSeen = true;
       try {
+        const missingRemoteIds = new Set<string>();
         for (const change of changes) {
           if (change.doc.metadata.hasPendingWrites) continue;
           if (change.type === 'removed') {
             remoteHeads.delete(change.doc.id);
+            missingRemoteIds.add(change.doc.id);
             continue;
           }
           const head = parseAnnotationHeadV1(change.doc.data());
@@ -128,16 +150,42 @@ export const useAnnotationSync = ({
           }
           remoteHeads.set(head.annotationId, head);
         }
+        if (firstAuthoritativeSnapshot) {
+          const [cachedHeads, localAnnotationIds] = await Promise.all([
+            getCachedRemoteAnnotationHeadsV5(syncOwnerKey, bookId),
+            getLocalAnnotationIdsV8(syncOwnerKey, bookId),
+          ]);
+          for (const head of cachedHeads) {
+            if (
+              head.operation === 'upsert'
+              && !remoteHeads.has(head.annotationId)
+            ) missingRemoteIds.add(head.annotationId);
+          }
+          for (const annotationId of localAnnotationIds) {
+            if (!remoteHeads.has(annotationId)) missingRemoteIds.add(annotationId);
+          }
+        }
+        const missingHeads = (await Promise.all([...missingRemoteIds].map((annotationId) => (
+          getAuthoritativeRemoteAnnotationHeadV1(uid, bookId, annotationId)
+        )))).filter((head): head is AnnotationHeadV1 => head !== null);
+        for (const head of missingHeads) {
+          if (head.operation === 'upsert') remoteHeads.set(head.annotationId, head);
+        }
         const result = await hydrateRemoteAnnotationHeadsV5(
           syncOwnerKey,
           bookId,
-          [...remoteHeads.values()],
+          [
+            ...remoteHeads.values(),
+            ...missingHeads.filter(({ operation }) => operation === 'delete'),
+          ],
           context.sessionId,
           Date.now(),
           isCurrent,
           controller.signal,
         );
         if (firstAuthoritativeSnapshot && isCurrent()) {
+          await markerAuthoritativeReady;
+          if (!isCurrent()) return;
           await enqueueMissingLocalAnnotationsV5(
             syncOwnerKey,
             bookId,
@@ -169,13 +217,45 @@ export const useAnnotationSync = ({
       canRetry: () => navigator.onLine,
     });
     annotationRecoveryRef.current = recovery;
+
+    const markerRecovery = new SnapshotListenerRecovery<FirestoreDocumentSnapshot>({
+      subscribe: (next, error) => onSnapshot(
+        markerDocumentRef,
+        { includeMetadataChanges: true },
+        next,
+        error,
+      ),
+      onSnapshot: async (snapshot) => {
+        if (!isCurrent() || snapshot.metadata.fromCache) return;
+        if (!snapshot.exists()) {
+          resolveMarkerAuthoritative();
+          return;
+        }
+        const head = parseAnnotationHeadV1(snapshot.data());
+        if (
+          head.bookId !== bookId
+          || head.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID
+          || head.operation !== 'delete'
+        ) throw schemaError(new Error('annotation 삭제 marker가 올바르지 않습니다.'));
+        await storeRemoteHeadsBatchV5(syncOwnerKey, [head]);
+        resolveMarkerAuthoritative();
+      },
+      isAuthoritative: (snapshot) => !snapshot.metadata.fromCache,
+      onHealthChange: setMarkerHealth,
+      onError: (error) => console.error('[AnnotationSync] marker listener failed:', error),
+      canRetry: () => navigator.onLine,
+    });
+    markerRecoveryRef.current = markerRecovery;
+    markerRecovery.start();
     recovery.start();
 
     const dispose = () => {
       disposed = true;
       controller.abort();
       if (annotationRecoveryRef.current === recovery) annotationRecoveryRef.current = null;
+      if (markerRecoveryRef.current === markerRecovery) markerRecoveryRef.current = null;
       recovery.dispose();
+      markerRecovery.dispose();
     };
     const unregister = ownerRuntime.registerDisposer(dispose);
     return () => {
@@ -273,6 +353,7 @@ export const useAnnotationSync = ({
     if (!context) return;
     const retry = () => {
       annotationRecoveryRef.current?.retryNow();
+      markerRecoveryRef.current?.retryNow();
       paletteRecoveryRef.current?.retryNow();
     };
     const handleOnline = () => retry();
@@ -297,6 +378,9 @@ export const useAnnotationSync = ({
 
   return {
     annotationRevision,
-    health: mergeSyncHealth(annotationHealth, paletteHealth),
+    health: mergeSyncHealth(
+      mergeSyncHealth(annotationHealth, markerHealth),
+      paletteHealth,
+    ),
   };
 };

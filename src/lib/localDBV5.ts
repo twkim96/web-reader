@@ -277,6 +277,9 @@ export const removeBookAndAnnotationsV8 = (
         bookId,
         createdAt: deletionAt,
         lastCheckedAt: null,
+        failureCount: 0,
+        lastErrorCode: null,
+        nextRetryAt: 0,
       } satisfies AnnotationBookDeletionIntentV10);
     }
     await tx.done;

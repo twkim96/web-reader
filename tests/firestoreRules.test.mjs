@@ -349,6 +349,7 @@ const annotationEvent = (
   deviceId: `device-${eventId}`,
   sessionId: `session-${eventId}`,
   baseRevision,
+  bookGeneration: 0,
   occurredAtClient: baseRevision + 1,
 });
 
@@ -588,6 +589,7 @@ test('serializes concurrent different ids and rejects a duplicate remote range',
     deviceId: `device-${annotationId}`,
     sessionId: `session-${annotationId}`,
     baseRevision: 0,
+    bookGeneration: 0,
     occurredAtClient: 1,
   });
   const results = await Promise.all(['a', 'b'].map((annotationId) => (
@@ -653,7 +655,7 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
     firestore: db,
     sdk: { doc, runTransaction, serverTimestamp },
   });
-  const eventFor = (id, rangeCfi, eventId, occurredAtClient) => ({
+  const eventFor = (id, rangeCfi, eventId, occurredAtClient, bookGeneration) => ({
     eventId,
     target: { kind: 'annotation', bookId: 'book-1', annotationId: id },
     targetKey: `annotation:book-1:${id}`,
@@ -667,26 +669,69 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
     deviceId: `device-${id}`,
     sessionId: `session-${id}`,
     baseRevision: 0,
+    bookGeneration,
     occurredAtClient,
   });
   const stale = eventFor(
     'stale-offline',
     'epubcfi(/6/4!/4/2,/1:0,/1:4)',
     'stale-offline-event',
-    9,
+    9_999_999,
+    0,
   );
-  await assert.rejects(applyAnnotationEventTransaction({
+  const staleDecision = await applyAnnotationEventTransaction({
     event: stale,
     uid: 'alice',
     firestore: db,
     sdk: { doc, runTransaction, serverTimestamp },
-  }), /permission-denied/i);
+  });
+  assert.equal(staleDecision.status, 'conflict');
+  assert.equal(staleDecision.conflictReason, 'annotation-book-generation');
+
+  const markerAggregate = (await getDoc(doc(db, annotationAggregatePath()))).data();
+  const malicious = writeBatch(db);
+  malicious.set(doc(db, annotationPath('malicious-stale')), {
+    ...validAnnotationHead('malicious-stale-event'),
+    annotationId: 'malicious-stale',
+    annotation: {
+      ...validAnnotationPayload(),
+      id: 'malicious-stale',
+      rangeCfi: 'epubcfi(/6/4!/4/2,/1:10,/1:14)',
+      quote: 'malicious stale',
+    },
+    occurredAtClient: 9_999_999,
+    bookGeneration: 0,
+  });
+  malicious.set(doc(db, annotationReceiptPath('malicious-stale-event')), {
+    ...validAnnotationReceipt('malicious-stale-event'),
+    annotationId: 'malicious-stale',
+    targetKey: 'annotation:book-1:malicious-stale',
+  });
+  malicious.set(doc(db, annotationAggregatePath()), {
+    ...markerAggregate,
+    revision: markerAggregate.revision + 1,
+    totalCount: 1,
+    colorCounts: { yellow: 1, green: 0, blue: 0, pink: 0, purple: 0 },
+    entries: {
+      'malicious-stale': {
+        rangeCfi: 'epubcfi(/6/4!/4/2,/1:10,/1:14)',
+        colorId: 'yellow',
+      },
+    },
+    rangeCfis: ['epubcfi(/6/4!/4/2,/1:10,/1:14)'],
+    acceptedEventId: 'malicious-stale-event',
+    acceptedAnnotationId: 'malicious-stale',
+    acceptedOperation: 'upsert',
+    updatedAtServer: serverTimestamp(),
+  });
+  await assertFails(malicious.commit());
 
   const fresh = eventFor(
     'fresh-highlight',
     'epubcfi(/6/4!/4/2,/1:5,/1:9)',
     'fresh-highlight-event',
-    11,
+    1,
+    1,
   );
   const applied = await applyAnnotationEventTransaction({
     event: fresh,

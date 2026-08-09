@@ -17,6 +17,7 @@ import {
   annotationTargetKeyV1,
   annotationPaletteTargetKeyV1,
   fromAnnotationSyncPayloadV1,
+  isAnnotationHeadV1,
   toAnnotationSyncPayloadV1,
   type AnnotationHeadV1,
   type AnnotationSyncPayloadV1,
@@ -80,6 +81,36 @@ export const validateHydratedAnnotations = (annotations: ReadonlyArray<Annotatio
     }
     colors.set(annotation.colorId, count);
   }
+};
+
+export const getCachedRemoteAnnotationHeadsV5 = async (
+  ownerKey: OwnerKey,
+  bookId: string,
+) => {
+  const db = await initDB();
+  const cached = await db.getAllFromIndex(
+    V5_REMOTE_HEADS_STORE,
+    'by-owner',
+    ownerKey,
+  ) as RemoteHeadCacheV5[];
+  return cached
+    .map(({ head }) => head)
+    .filter((head): head is AnnotationHeadV1 => (
+      isAnnotationHeadV1(head) && head.bookId === bookId
+    ));
+};
+
+export const getLocalAnnotationIdsV8 = async (
+  ownerKey: OwnerKey,
+  bookId: string,
+) => {
+  const db = await initDB();
+  const records = await db.getAllFromIndex(
+    V8_ANNOTATIONS_STORE,
+    'by-owner-book',
+    [ownerKey, bookId],
+  ) as StoredAnnotation[];
+  return records.filter(isAnnotation).map(({ id }) => id);
 };
 
 export const enqueueMissingLocalAnnotationPaletteV5 = async (
@@ -265,6 +296,7 @@ export const enqueueMissingLocalAnnotationsV5 = async (
     V5_OUTBOX_STORE,
     V5_SYNC_META_STORE,
     V5_SYNC_CONFLICTS_STORE,
+    V5_REMOTE_HEADS_STORE,
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   const abortTransaction = () => {

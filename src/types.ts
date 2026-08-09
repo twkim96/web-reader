@@ -98,6 +98,7 @@ export interface UserProgress {
   bookmarks?: Bookmark[]; 
   syncRevision?: number;   // authoritative Firebase head revision when known
   acceptedEventId?: string;
+  ignoredRemoteRevision?: number; // latest remote prompt explicitly declined on this device
 }
 
 export interface SaveProgressOptions {

@@ -5,12 +5,15 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
+import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 import {
   annotationPaletteTargetKeyV1,
   annotationTargetKeyV1,
   getFirebaseAnnotationBookAggregatePath,
   getFirebaseAnnotationPalettePath,
   getFirebaseAnnotationSyncPath,
+  getAnnotationAggregateUtf8SizeV1,
+  ANNOTATION_AGGREGATE_MAX_UTF8_BYTES,
   isAnnotationHeadV1,
   isAnnotationBookAggregateV1,
   isAnnotationPaletteHeadV1,
@@ -33,6 +36,7 @@ export type AnnotationTransactionDecision =
     status: 'conflict';
     remoteHead: AnnotationHeadV1 | null;
     conflictReason?: AnnotationAggregateConflictReasonV1;
+    remoteBookGeneration?: number;
   };
 
 export type AnnotationPaletteTransactionDecision =
@@ -60,6 +64,11 @@ const requireValidMutationIdentity = (
     || event.sessionId.length > 128
     || !Number.isSafeInteger(event.baseRevision)
     || event.baseRevision < 0
+    || (
+      'bookGeneration' in event
+      && event.bookGeneration !== undefined
+      && (!Number.isSafeInteger(event.bookGeneration) || event.bookGeneration < 0)
+    )
     || !Number.isSafeInteger(event.occurredAtClient)
     || event.occurredAtClient < 0
   ) throw new Error('annotation sync event 식별자가 올바르지 않습니다.');
@@ -70,12 +79,14 @@ export const decideAnnotationTransaction = ({
   storedHead,
   storedReceipt,
   storedAggregate,
+  storedBookDeleteMarker,
   serverTime,
 }: {
   event: AnnotationSyncMutationV1;
   storedHead: unknown;
   storedReceipt: unknown;
   storedAggregate: unknown;
+  storedBookDeleteMarker?: unknown;
   serverTime: unknown;
 }): AnnotationTransactionDecision => {
   requireValidMutationIdentity(event);
@@ -139,6 +150,24 @@ export const decideAnnotationTransaction = ({
   if (remoteHead && !aggregate) {
     throw new Error('원격 annotation head에 aggregate가 없습니다.');
   }
+  const markerHead = storedBookDeleteMarker === undefined
+    ? null
+    : isAnnotationHeadV1(storedBookDeleteMarker)
+      && storedBookDeleteMarker.bookId === event.target.bookId
+      && storedBookDeleteMarker.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+      && storedBookDeleteMarker.operation === 'delete'
+      ? storedBookDeleteMarker
+      : (() => { throw new Error('원격 annotation 삭제 marker가 올바르지 않습니다.'); })();
+  const remoteBookGeneration = markerHead?.revision ?? 0;
+  const eventBookGeneration = event.bookGeneration ?? 0;
+  if (!deleting && eventBookGeneration !== remoteBookGeneration) {
+    return {
+      status: 'conflict',
+      remoteHead,
+      conflictReason: 'annotation-book-generation',
+      remoteBookGeneration,
+    };
+  }
 
   const entries = { ...(aggregate?.entries ?? {}) };
   const rangeCfis = [...(aggregate?.rangeCfis ?? [])];
@@ -199,6 +228,11 @@ export const decideAnnotationTransaction = ({
     acceptedDeviceId: event.deviceId,
     acceptedSessionId: event.sessionId,
     occurredAtClient: event.occurredAtClient,
+    bookGeneration: event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+      ? revision
+      : deleting
+        ? remoteBookGeneration
+        : eventBookGeneration,
     updatedAtServer: serverTime,
     deletedAtServer: deleting ? serverTime : null,
   };
@@ -225,6 +259,20 @@ export const decideAnnotationTransaction = ({
     acceptedOperation: deleting ? 'delete' : 'upsert',
     updatedAtServer: serverTime,
   };
+  const currentAggregateSize = aggregate
+    ? getAnnotationAggregateUtf8SizeV1(aggregate)
+    : 0;
+  const nextAggregateSize = getAnnotationAggregateUtf8SizeV1(nextAggregate);
+  if (
+    nextAggregateSize > ANNOTATION_AGGREGATE_MAX_UTF8_BYTES
+    && nextAggregateSize > currentAggregateSize
+  ) {
+    return {
+      status: 'conflict',
+      remoteHead,
+      conflictReason: 'annotation-aggregate-size',
+    };
+  }
   if (!isAnnotationBookAggregateV1(nextAggregate)) {
     throw new Error('annotation aggregate 계산 결과가 올바르지 않습니다.');
   }
@@ -323,17 +371,23 @@ export const applyAnnotationEventTransaction = async ({
     firestore,
     getFirebaseAnnotationBookAggregatePath(APP_ID, uid, event.target.bookId),
   );
+  const markerRef = sdk.doc(
+    firestore,
+    `${basePath}/${event.target.bookId}/annotations/${ANNOTATION_BOOK_DELETE_MARKER_ID}`,
+  );
   return sdk.runTransaction(firestore, async (transaction) => {
-    const [receiptSnapshot, headSnapshot, aggregateSnapshot] = await Promise.all([
+    const [receiptSnapshot, headSnapshot, aggregateSnapshot, markerSnapshot] = await Promise.all([
       transaction.get(receiptRef),
       transaction.get(headRef),
       transaction.get(aggregateRef),
+      transaction.get(markerRef),
     ]);
     const decision = decideAnnotationTransaction({
       event,
       storedHead: headSnapshot.exists() ? headSnapshot.data() : undefined,
       storedReceipt: receiptSnapshot.exists() ? receiptSnapshot.data() : undefined,
       storedAggregate: aggregateSnapshot.exists() ? aggregateSnapshot.data() : undefined,
+      storedBookDeleteMarker: markerSnapshot.exists() ? markerSnapshot.data() : undefined,
       serverTime: sdk.serverTimestamp(),
     });
     if (decision.status !== 'apply') return decision;

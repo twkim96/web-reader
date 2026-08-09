@@ -3,8 +3,11 @@ import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { closeLocalDB } = await import('../src/lib/localDB.ts');
-const { LOCAL_DB_NAME } = await import('../src/lib/localDBSchema.ts');
+const { closeLocalDB, initDB } = await import('../src/lib/localDB.ts');
+const {
+  LOCAL_DB_NAME,
+  V5_REMOTE_HEADS_STORE,
+} = await import('../src/lib/localDBSchema.ts');
 const {
   getLocalAnnotationsV8,
   saveLocalAnnotationV8,
@@ -71,6 +74,35 @@ test('commits a local annotation and its outbox event atomically', async () => {
   assert.equal(events[0].operation, 'annotation.upsert');
   assert.equal(events[0].payload.anchorState, undefined);
   assert.equal(events[0].baseRevision, 0);
+  assert.equal(events[0].bookGeneration, 0);
+});
+
+test('captures the committed book deletion marker revision when enqueueing an upsert', async () => {
+  const db = await initDB();
+  await db.put(V5_REMOTE_HEADS_STORE, {
+    ownerKey,
+    targetKey: 'annotation:book-1:book_delete_marker_v1',
+    revision: 3,
+    head: {
+      schemaVersion: 1,
+      bookId: 'book-1',
+      annotationId: 'book_delete_marker_v1',
+      revision: 3,
+      acceptedEventId: 'marker-event',
+      operation: 'delete',
+      annotation: null,
+      acceptedDeviceId: 'remote-device',
+      acceptedSessionId: 'remote-session',
+      occurredAtClient: 1,
+      bookGeneration: 3,
+      updatedAtServer: {},
+      deletedAtServer: {},
+    },
+    updatedAt: 1,
+  });
+  await saveLocalAnnotationV8(ownerKey, annotation('after-marker'), syncContext());
+  const [event] = await getOutboxEventsV5(ownerKey);
+  assert.equal(event.bookGeneration, 3);
 });
 
 test('broadcasts a committed local annotation mutation to other readers', async () => {
@@ -144,6 +176,7 @@ test('rejects a sync-incompatible annotation before local or outbox commit', asy
   );
   assert.equal((await getLocalAnnotationsV8(ownerKey, invalid.bookId)).length, 0);
   assert.equal((await getOutboxEventsV5(ownerKey)).length, 0);
+
 });
 
 test('keeps guest-style local writes out of the sync queue', async () => {

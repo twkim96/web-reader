@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 
 import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
 import {
+  ANNOTATION_AGGREGATE_MAX_UTF8_BYTES,
+  ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH,
   annotationPaletteTargetKeyV1,
   annotationTargetKeyV1,
   fromAnnotationSyncPayloadV1,
+  getAnnotationAggregateUtf8SizeV1,
   isAnnotationBookAggregateV1,
   isAnnotationHeadV1,
   isAnnotationPaletteHeadV1,
@@ -67,10 +70,43 @@ test('rejects invalid annotation sync identities and non-integer client times', 
   assert.equal(isAnnotationSyncPayloadV1({ ...payload(), id: '' }), false);
   assert.equal(isAnnotationSyncPayloadV1({ ...payload(), bookId: 'x'.repeat(513) }), false);
   assert.equal(isAnnotationSyncPayloadV1({ ...payload(), updatedAtClient: 2.5 }), false);
+  assert.equal(isAnnotationSyncPayloadV1({
+    ...payload(),
+    rangeCfi: `epubcfi(${'x'.repeat(ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH)})`,
+  }), false);
   assert.throws(
     () => toAnnotationSyncPayloadV1(annotation({ bookId: 'x'.repeat(513) })),
     /payload/,
   );
+});
+
+test('measures worst-case aggregate growth without narrowing the existing CFI contract', () => {
+  const colors = ['yellow', 'green', 'blue', 'pink', 'purple'];
+  const entries = {};
+  const rangeCfis = [];
+  const bodyLength = ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH - 'epubcfi()'.length;
+  for (let index = 0; index < 100; index += 1) {
+    const id = `annotation-${index}`;
+    const rangeCfi = `epubcfi(${'한'.repeat(bodyLength - String(index).length)}${index})`;
+    entries[id] = { rangeCfi, colorId: colors[Math.floor(index / 20)] };
+    rangeCfis.push(rangeCfi);
+  }
+  const aggregate = {
+    schemaVersion: 1,
+    bookId: 'book-1',
+    revision: 100,
+    totalCount: 100,
+    colorCounts: { yellow: 20, green: 20, blue: 20, pink: 20, purple: 20 },
+    entries,
+    rangeCfis,
+    acceptedEventId: 'event-100',
+    acceptedAnnotationId: 'annotation-99',
+    acceptedOperation: 'upsert',
+    updatedAtServer: {},
+  };
+  assert.equal(isAnnotationBookAggregateV1(aggregate), true);
+  assert.doesNotThrow(() => toAnnotationSyncPayloadV1(annotation({ rangeCfi: rangeCfis[0] })));
+  assert.ok(getAnnotationAggregateUtf8SizeV1(aggregate) > ANNOTATION_AGGREGATE_MAX_UTF8_BYTES);
 });
 
 test('accepts only one canonical five-color palette payload', () => {

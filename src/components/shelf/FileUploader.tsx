@@ -23,6 +23,7 @@ import {
   updateImportSelection,
 } from '../../lib/bookFormats';
 import { runSequentialBatch } from '../../lib/sequentialBatch';
+import { createLocalBookId } from '../../lib/localBookIdentity';
 
 interface FileUploaderProps {
   googleToken: string | null;
@@ -194,7 +195,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
 
     // 2. 로컬 저장. 압축 원본은 Blob으로 유지하고 텍스트 도서만 변환한다.
     const book: Book = {
-      id: driveBook?.id ?? file.name,
+      id: driveBook?.id ?? createLocalBookId(),
       name: driveBook?.name ?? file.name,
       mimeType: driveBook?.mimeType ?? originalMimeType,
       size: driveBook?.size ?? file.size,

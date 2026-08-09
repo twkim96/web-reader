@@ -10,6 +10,7 @@ import {
   resolveAnnotationSyncConflictUseRemoteV5,
 } from '../lib/annotationSyncConflict';
 import type { SyncConflictV5 } from '../lib/syncOutboxV5';
+import { deferSyncConflictV5 } from '../lib/syncOutboxV5';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 
 export const useAnnotationSyncConflictResolution = ({
@@ -20,7 +21,6 @@ export const useAnnotationSyncConflictResolution = ({
   ownerKey: string | null;
 }) => {
   const [conflict, setConflict] = useState<SyncConflictV5 | null>(null);
-  const dismissedRef = useRef(new Set<string>());
   const generationRef = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -34,13 +34,10 @@ export const useAnnotationSyncConflictResolution = ({
       getSyncOwnerKey(owner.ownerKey),
     );
     if (!ownerRuntime.isCurrent(owner) || generationRef.current !== generation) return;
-    setConflict(conflicts.find(({ conflictId }) => (
-      !dismissedRef.current.has(conflictId)
-    )) ?? null);
+    setConflict(conflicts[0] ?? null);
   }, [user]);
 
   useEffect(() => {
-    dismissedRef.current.clear();
     const owner = ownerRuntime.capture();
     const syncOwnerKey = owner ? getSyncOwnerKey(owner.ownerKey) : null;
     const initial = window.setTimeout(() => void refresh(), 0);
@@ -87,11 +84,17 @@ export const useAnnotationSyncConflictResolution = ({
     await refresh();
   }, [conflict, refresh]);
 
-  const defer = useCallback(() => {
-    if (!conflict) return;
-    dismissedRef.current.add(conflict.conflictId);
+  const defer = useCallback(async () => {
+    const owner = ownerRuntime.capture();
+    if (!owner || !conflict) return;
+    await deferSyncConflictV5(
+      getSyncOwnerKey(owner.ownerKey),
+      conflict.conflictId,
+    );
+    if (!ownerRuntime.isCurrent(owner)) return;
     setConflict(null);
-  }, [conflict]);
+    await refresh();
+  }, [conflict, refresh]);
 
   return { conflict, keepLocal, useRemote, defer };
 };

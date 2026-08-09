@@ -24,6 +24,7 @@ export type SyncTransactionDecision =
     status: 'conflict';
     remoteHead: SyncHeadV2 | null;
     conflictReason?: SyncConflictV5['conflictReason'];
+    remoteBookGeneration?: number;
   };
 
 type ProgressTransport = (
@@ -137,6 +138,7 @@ export class ProgressSyncWorker {
           expectedClaim,
           completedAt,
           result.conflictReason,
+          result.remoteBookGeneration,
         );
         if (!recorded) return 'stale_claim' as const;
         return 'conflict' as const;

@@ -20,7 +20,9 @@ const { LOCAL_DB_NAME } = await import('../src/lib/localDBSchema.ts');
 const {
   getLocalAnnotationsV8,
   saveLocalAnnotationV8,
+  updateLocalAnnotationNoteV8,
 } = await import('../src/lib/localAnnotations.ts');
+const { saveLocalAnnotationPaletteV9 } = await import('../src/lib/localAnnotationPalette.ts');
 const {
   getOpenAnnotationSyncConflictsV5,
   resolveAnnotationSyncConflictKeepLocalV5,
@@ -93,11 +95,12 @@ const resetDatabase = async () => {
   });
 };
 
-const createConflict = async (remoteHead) => {
+const createConflict = async (remoteHead, extraResult = {}) => {
   const owner = ownerRuntime.activate(ownerKey);
   const worker = new ProgressSyncWorker(owner, 'tab-1', async () => ({
     status: 'conflict',
     remoteHead,
+    ...extraResult,
   }));
   assert.equal(await worker.flushOne(), 'conflict');
   await worker.dispose();
@@ -141,6 +144,42 @@ test('keeps the latest local annotation with the authoritative remote revision',
   assert.equal(replacement.status, 'pending');
   const events = await getOutboxEventsV5(ownerKey);
   assert.deepEqual(events.map(({ status }) => status).sort(), ['pending', 'superseded']);
+});
+
+test('keeps the canonical annotation written before a prior event conflicts', async () => {
+  await saveLocalAnnotationV8(ownerKey, annotation('shared', { note: '이전 메모' }), context());
+  await updateLocalAnnotationNoteV8(
+    ownerKey,
+    'book-1',
+    'shared',
+    '최신 메모',
+    { ...context(), sessionId: 'session-later' },
+  );
+  const conflict = await createConflict(annotationHead(annotation('shared', {
+    note: '원격 메모',
+    updatedAtClient: 2,
+  }), 7));
+  const replacement = await resolveAnnotationSyncConflictKeepLocalV5(
+    ownerKey,
+    conflict.conflictId,
+    100,
+  );
+  assert.equal(replacement.payload.note, '최신 메모');
+  assert.equal(replacement.baseRevision, 7);
+});
+
+test('uses the authoritative remote book generation when keeping a local annotation', async () => {
+  await saveLocalAnnotationV8(ownerKey, annotation('generation'), context());
+  const conflict = await createConflict(annotationHead(annotation('generation', {
+    note: '원격',
+    updatedAtClient: 2,
+  }), 7), { remoteBookGeneration: 9 });
+  const replacement = await resolveAnnotationSyncConflictKeepLocalV5(
+    ownerKey,
+    conflict.conflictId,
+    100,
+  );
+  assert.equal(replacement.bookGeneration, 9);
 });
 
 test('treats an explicitly missing remote annotation as a remote deletion', async () => {
@@ -199,4 +238,38 @@ test('applies a remote palette conflict without enqueueing a new local event', a
   assert.equal(getStoredAnnotationPalette(ownerKey)[0].meaning, '원격 의미');
   assert.equal((await getOutboxEventsV5(ownerKey)).length, 1);
   assert.equal((await getOutboxEventsV5(ownerKey))[0].status, 'superseded');
+});
+
+test('keeps the canonical palette written before a prior event conflicts', async () => {
+  const first = DEFAULT_ANNOTATION_PALETTE.map((item) => ({ ...item }));
+  const latest = first.map((item) => item.id === 'yellow'
+    ? { ...item, meaning: '최신 의미' }
+    : item);
+  await saveLocalAnnotationPaletteV9(ownerKey, first, context(), 1);
+  await saveLocalAnnotationPaletteV9(
+    ownerKey,
+    latest,
+    { ...context(), sessionId: 'session-later' },
+    2,
+  );
+  const conflict = await createConflict({
+    schemaVersion: 1,
+    revision: 3,
+    acceptedEventId: 'remote-palette',
+    operation: 'set',
+    palette: { items: first },
+    acceptedDeviceId: 'device-remote',
+    acceptedSessionId: 'session-remote',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+  });
+  const replacement = await resolveAnnotationSyncConflictKeepLocalV5(
+    ownerKey,
+    conflict.conflictId,
+    100,
+  );
+  assert.equal(
+    replacement.payload.items.find(({ id }) => id === 'yellow').meaning,
+    '최신 의미',
+  );
 });

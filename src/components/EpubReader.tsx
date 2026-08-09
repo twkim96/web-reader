@@ -42,6 +42,7 @@ import type { OwnerKey } from '../lib/ownerIdentity';
 import { getAnnotationPaletteItem } from '../lib/annotationPalette';
 import { getSyncSessionId } from '../lib/syncSession';
 import type { SyncHealth } from '../lib/syncHealth';
+import type { ResolvedRemoteProgressCommand } from '../hooks/useSyncConflictResolution';
 
 interface EpubReaderProps {
   book: Book;
@@ -60,7 +61,11 @@ interface EpubReaderProps {
   initialBookmarks?: Bookmark[];
   initialRevision?: number;
   remoteProgress?: UserProgress;
-  resolvedRemoteProgress?: UserProgress | null;
+  resolvedRemoteProgressCommand?: ResolvedRemoteProgressCommand | null;
+  onResolvedRemoteProgressConsumed?: (commandId: string) => void;
+  outboxProgressConflictRevision?: number;
+  ignoredRemoteRevision?: number;
+  onIgnoreRemoteProgress?: (bookId: string, revision: number) => Promise<boolean>;
   onRegisterProgressFlush?: (flush: (() => Promise<boolean>) | null) => void;
   onRegisterQuietResumeEligibility?: (check: (() => boolean) | null) => void;
   onRegisterProgressConflictAutoResolveEligibility?: (check: (() => boolean) | null) => void;
@@ -182,7 +187,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   initialBookmarks,
   initialRevision,
   remoteProgress,
-  resolvedRemoteProgress,
+  resolvedRemoteProgressCommand,
+  onResolvedRemoteProgressConsumed,
+  outboxProgressConflictRevision,
+  ignoredRemoteRevision,
+  onIgnoreRemoteProgress,
   onRegisterProgressFlush,
   onRegisterQuietResumeEligibility,
   onRegisterProgressConflictAutoResolveEligibility,
@@ -500,13 +509,19 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   } = useRemoteProgressPrompt({
     isLoaded,
     remoteProgress,
-    resolvedRemoteProgress,
+    resolvedRemoteProgressCommand,
+    onResolvedRemoteProgressConsumed,
+    outboxConflictRevision: outboxProgressConflictRevision,
+    ignoredRemoteRevision,
+    onIgnoreRemoteProgress: (revision) => onIgnoreRemoteProgress?.(book.id, revision)
+      ?? Promise.resolve(false),
     currentCfi,
     currentAnchorCfi,
     totalProgress,
     localRevision: initialRevision,
     lastSaveTimeRef,
     goTo,
+    goToFraction,
     getBookmarks,
     adoptResolvedBookmarks,
     createAutoBookmark,
