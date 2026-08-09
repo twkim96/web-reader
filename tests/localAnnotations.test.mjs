@@ -17,6 +17,7 @@ const {
   restoreLocalAnnotationsV8,
   saveLocalAnnotationV8,
   updateLocalAnnotationFieldsV8,
+  updateLocalAnnotationFieldsFromCurrentV8,
   updateLocalAnnotationColorsV8,
   updateLocalAnnotationAnchorStateV8,
   updateLocalAnnotationNoteV8,
@@ -210,6 +211,39 @@ test('updates only selected fields on the latest record from another tab', async
   assert.equal(saved.quote, 'reselected quote');
   assert.equal(saved.note, 'newer note from another tab');
   assert.equal(saved.anchorState, 'active');
+});
+
+test('derives an annotation field update from the latest canonical record atomically', async () => {
+  const first = makeAnnotation('first', 'yellow', { note: 'stale note' });
+  await saveLocalAnnotationV8(ownerA, first);
+  await saveLocalAnnotationV8(ownerA, {
+    ...first,
+    colorId: 'green',
+    note: 'concurrent note',
+    updatedAtClient: 101,
+  });
+
+  const result = await updateLocalAnnotationFieldsFromCurrentV8(
+    ownerA,
+    'book-1',
+    first.id,
+    (current) => ({ note: `${current.note}\n\ntranslated` }),
+  );
+  assert.equal(result.status, 'saved');
+  assert.equal(result.before.note, 'concurrent note');
+  assert.equal(result.annotation.note, 'concurrent note\n\ntranslated');
+  assert.equal(result.annotation.colorId, 'green');
+
+  const rejected = await updateLocalAnnotationFieldsFromCurrentV8(
+    ownerA,
+    'book-1',
+    first.id,
+    () => null,
+  );
+  assert.equal(rejected.status, 'rejected');
+  const [saved] = await getLocalAnnotationsV8(ownerA, 'book-1');
+  assert.equal(saved.note, 'concurrent note\n\ntranslated');
+  assert.equal(saved.colorId, 'green');
 });
 
 test('field undo preserves unrelated concurrent fields and rejects same-field conflicts', async () => {

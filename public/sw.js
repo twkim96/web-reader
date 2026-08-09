@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.4: add library-wide annotation search and versioned exports.
+// 1.8.5: add selected-text translation and dictionary provider paths.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.4`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.5`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

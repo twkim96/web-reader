@@ -74,6 +74,13 @@ test('treats an authoritative remote reset as a first-class update', () => {
   assert.equal(decide({
     isInitialSync: true,
     operation: 'reset',
+    hasLocalProgress: false,
+    isQuietResumeEligible: false,
+    remoteAnchorCfi: '',
+  }), 'prompt');
+  assert.equal(decide({
+    isInitialSync: true,
+    operation: 'reset',
     hasLocalProgress: true,
     remoteAnchorCfi: '',
   }), 'prompt');

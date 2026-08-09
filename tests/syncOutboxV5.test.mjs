@@ -15,6 +15,7 @@ const {
   enqueueProgressEventV5,
   getExpectedClaimV5,
   getOpenSyncConflictsV5,
+  getUnresolvedSyncConflictsV5,
   getOutboxEventsV5,
   getPausedSyncSummaryV5,
   getRetryDelayMs,
@@ -400,6 +401,7 @@ test('persists conflict deferral and reopens it only after expiry or a new local
   await recordProgressConflictV5(ownerA, 'event-1', null, expectedClaim, 12);
   assert.equal(await deferSyncConflictV5(ownerA, 'event-1', 20, 100), true);
   assert.deepEqual(await getOpenSyncConflictsV5(ownerA, 119), []);
+  assert.equal((await getUnresolvedSyncConflictsV5(ownerA))[0].state, 'deferred');
   assert.equal((await getOpenSyncConflictsV5(ownerA, 120))[0].conflictId, 'event-1');
 
   await deferSyncConflictV5(ownerA, 'event-1', 200, 100);

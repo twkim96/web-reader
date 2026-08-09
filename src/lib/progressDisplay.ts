@@ -7,6 +7,12 @@ export const mergeLatestProgressForDisplay = (
   const merged = { ...local };
   for (const [bookId, remoteProgress] of Object.entries(remote)) {
     const localProgress = local[bookId];
+    const ignoredRemoteRevision = localProgress?.ignoredRemoteRevision;
+    if (
+      Number.isSafeInteger(ignoredRemoteRevision)
+      && Number.isSafeInteger(remoteProgress.syncRevision)
+      && ignoredRemoteRevision! >= remoteProgress.syncRevision!
+    ) continue;
     const comparableRevisions = Number.isSafeInteger(localProgress?.syncRevision)
       && Number.isSafeInteger(remoteProgress.syncRevision);
     if (

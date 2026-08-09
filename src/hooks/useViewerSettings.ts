@@ -1,5 +1,11 @@
 import { useCallback, useState } from 'react';
-import type { ViewerSettings } from '../types';
+import type { ViewerSettings } from '../types.ts';
+import {
+  normalizeReaderDictionaryProvider,
+  normalizeReaderLanguage,
+  normalizeReaderTranslationProvider,
+  normalizeReaderTranslationSourceLanguage,
+} from '../lib/readerLanguageTools.ts';
 
 const SETTINGS_KEY = 'viewer_settings';
 
@@ -16,6 +22,10 @@ export const defaultSettings: ViewerSettings = {
   autoOpenLastBook: true,
   fontFamily: 'ridi',
   accentColor: 'sky',
+  translationProvider: 'auto',
+  translationSourceLanguage: 'auto',
+  translationTargetLanguage: 'ko',
+  dictionaryProvider: 'naver',
   customThemes: [],
 };
 
@@ -26,7 +36,21 @@ export const getStoredViewerSettings = () => {
   if (!savedSettings) return defaultSettings;
 
   try {
-    return { ...defaultSettings, ...JSON.parse(savedSettings) };
+    const parsed: unknown = JSON.parse(savedSettings);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaultSettings;
+    const merged = { ...defaultSettings, ...parsed } as ViewerSettings;
+    return {
+      ...merged,
+      translationProvider: normalizeReaderTranslationProvider(merged.translationProvider),
+      translationSourceLanguage: normalizeReaderTranslationSourceLanguage(
+        merged.translationSourceLanguage,
+      ),
+      translationTargetLanguage: normalizeReaderLanguage(
+        merged.translationTargetLanguage,
+        'ko',
+      ),
+      dictionaryProvider: normalizeReaderDictionaryProvider(merged.dictionaryProvider),
+    };
   } catch {
     return defaultSettings;
   }

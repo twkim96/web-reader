@@ -29,6 +29,7 @@ import {
   restoreLocalAnnotationsV8,
   saveLocalAnnotationV8,
   updateLocalAnnotationFieldsV8,
+  updateLocalAnnotationFieldsFromCurrentV8,
   updateLocalAnnotationColorsV8,
   updateLocalAnnotationAnchorStateV8,
   updateLocalAnnotationResolutionV8,
@@ -378,16 +379,20 @@ export const useReaderAnnotations = ({
   const createHighlight = useCallback(async (
     selection: ReaderTextSelection,
     colorId: HighlightColorId,
+    options: {
+      preserveExistingColor?: boolean;
+      updateNote?: (currentNote: string) => string | null;
+    } = {},
   ) => {
-    if (!enabled || mutationInFlightRef.current) return;
+    if (!enabled || mutationInFlightRef.current) return null;
     if (selection.text.length > ANNOTATION_QUOTE_MAX_LENGTH) {
       showFeedback('선택 범위가 너무 길어요');
-      return;
+      return null;
     }
     const view = viewRef.current;
     if (!view || selection.index < 0) {
       showFeedback('이 범위는 하이라이트할 수 없어요');
-      return;
+      return null;
     }
     mutationInFlightRef.current = true;
     setIsMutating(true);
@@ -396,38 +401,48 @@ export const useReaderAnnotations = ({
       const existing = annotationsRef.current.find((annotation) => annotation.rangeCfi === rangeCfi) ?? null;
       const now = Date.now();
       if (existing) {
-        const fields: Partial<AnnotationMutableFields> = {
-          sectionIndex: selection.index,
-          quote: selection.text,
-          prefix: selection.prefix,
-          suffix: selection.suffix,
-          colorId,
-          anchorState: 'active',
-        };
-        const result = await updateLocalAnnotationFieldsV8(
+        const result = await updateLocalAnnotationFieldsFromCurrentV8(
           ownerKey,
           bookId,
           existing.id,
-          fields,
+          (current) => {
+            const nextNote = options.updateNote?.(current.note);
+            if (options.updateNote && nextNote === null) return null;
+            return {
+              sectionIndex: selection.index,
+              quote: selection.text,
+              prefix: selection.prefix,
+              suffix: selection.suffix,
+              colorId: options.preserveExistingColor ? current.colorId : colorId,
+              ...(typeof nextNote === 'string' ? { note: nextNote } : {}),
+              anchorState: 'active',
+            };
+          },
           syncContext,
         );
+        if (result.status === 'rejected') {
+          showFeedback('기존 메모와 새 내용을 합치면 4,000자를 초과해요');
+          return null;
+        }
         if (result.status === 'unchanged') {
           clearTextSelection();
-          showFeedback('이미 같은 색으로 표시되어 있어요');
-          return;
+          showFeedback(options.updateNote
+            ? '이미 같은 번역이 메모에 있어요'
+            : '이미 같은 색으로 표시되어 있어요');
+          return result.annotation;
         }
         if (result.status === 'missing') {
           replaceAnnotations(annotationsRef.current.filter(({ id }) => id !== existing.id));
           showFeedback('다른 탭에서 삭제된 하이라이트예요. 다시 선택해 주세요');
-          return;
+          return null;
         }
         if (result.status === 'color-limit') {
           showFeedback(`${getHighlightColor(colorId).label} 하이라이트는 20개까지 저장할 수 있어요`);
-          return;
+          return null;
         }
         if (result.status === 'duplicate-range') {
           showFeedback('같은 범위의 하이라이트가 이미 있어요');
-          return;
+          return null;
         }
         const beforeFields: Partial<AnnotationMutableFields> = {
           sectionIndex: result.before.sectionIndex,
@@ -435,14 +450,33 @@ export const useReaderAnnotations = ({
           prefix: result.before.prefix,
           suffix: result.before.suffix,
           colorId: result.before.colorId,
+          ...(options.updateNote ? { note: result.before.note } : {}),
           anchorState: result.before.anchorState,
+        };
+        const expectedFields: Partial<AnnotationMutableFields> = {
+          sectionIndex: result.annotation.sectionIndex,
+          quote: result.annotation.quote,
+          prefix: result.annotation.prefix,
+          suffix: result.annotation.suffix,
+          colorId: result.annotation.colorId,
+          ...(options.updateNote ? { note: result.annotation.note } : {}),
+          anchorState: result.annotation.anchorState,
         };
         applySavedAnnotation(result.before, result.annotation, {
           type: 'fields',
-          patches: [{ id: result.annotation.id, fields: beforeFields, expected: fields }],
+          patches: [{
+            id: result.annotation.id,
+            fields: beforeFields,
+            expected: expectedFields,
+          }],
         });
         clearTextSelection();
-        return;
+        return result.annotation;
+      }
+      const initialNote = options.updateNote?.('');
+      if (options.updateNote && initialNote === null) {
+        showFeedback('번역 결과가 메모 최대 길이를 초과해요');
+        return null;
       }
       const next: Annotation = {
         id: crypto.randomUUID(),
@@ -454,7 +488,7 @@ export const useReaderAnnotations = ({
         prefix: selection.prefix,
         suffix: selection.suffix,
         colorId,
-        note: '',
+        note: initialNote ?? '',
         progressPercent: toClampedPercent(currentProgress),
         chapter: currentChapter.slice(0, 500),
         createdAtClient: now,
@@ -464,24 +498,26 @@ export const useReaderAnnotations = ({
       const result = await saveLocalAnnotationV8(ownerKey, next, syncContext);
       if (result.status === 'book-limit') {
         showFeedback('이 책은 하이라이트 100개까지 저장할 수 있어요');
-        return;
+        return null;
       }
       if (result.status === 'color-limit') {
         showFeedback(`${getHighlightColor(next.colorId).label} 하이라이트는 20개까지 저장할 수 있어요`);
-        return;
+        return null;
       }
       if (result.status === 'duplicate-range') {
         showFeedback('같은 범위의 하이라이트가 이미 있어요');
-        return;
+        return null;
       }
       applySavedAnnotation(null, result.annotation, {
         type: 'create',
         annotations: [result.annotation],
       });
       clearTextSelection();
+      return result.annotation;
     } catch (error) {
       console.warn('[EpubReader] Failed to create annotation:', error);
       showFeedback('하이라이트 저장 실패');
+      return null;
     } finally {
       mutationInFlightRef.current = false;
       setIsMutating(false);

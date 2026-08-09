@@ -24,6 +24,7 @@ export const useAnnotationSyncConflictResolution = ({
 }) => {
   const [conflict, setConflict] = useState<SyncConflictV5 | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
   const generationRef = useRef(0);
   const resolvingRef = useRef(new Set<string>());
 
@@ -72,20 +73,34 @@ export const useAnnotationSyncConflictResolution = ({
     };
   }, [ownerKey, refresh]);
 
+  useEffect(() => {
+    setResolutionError(null);
+  }, [conflict?.conflictId, ownerKey]);
+
   const keepLocal = useCallback(async () => {
     const owner = ownerRuntime.capture();
-    if (!owner || !conflict) return;
-    if (resolvingRef.current.has(conflict.conflictId)) return;
+    if (!owner || !conflict) return false;
+    if (resolvingRef.current.has(conflict.conflictId)) return false;
     resolvingRef.current.add(conflict.conflictId);
     setResolving(true);
+    setResolutionError(null);
     try {
       await resolveAnnotationSyncConflictKeepLocalV5(
         getSyncOwnerKey(owner.ownerKey),
         conflict.conflictId,
       );
-      if (!ownerRuntime.isCurrent(owner)) return;
+      if (!ownerRuntime.isCurrent(owner)) return false;
       setConflict(null);
-      await refresh();
+      await refresh().catch((error) => {
+        console.error('[AnnotationSyncConflict] refresh after keep-local failed:', error);
+      });
+      return true;
+    } catch (error) {
+      console.error('[AnnotationSyncConflict] keep-local resolution failed:', error);
+      if (ownerRuntime.isCurrent(owner)) {
+        setResolutionError('현재 기기 값을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      return false;
     } finally {
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
@@ -94,18 +109,28 @@ export const useAnnotationSyncConflictResolution = ({
 
   const useRemote = useCallback(async () => {
     const owner = ownerRuntime.capture();
-    if (!owner || !conflict) return;
-    if (resolvingRef.current.has(conflict.conflictId)) return;
+    if (!owner || !conflict) return false;
+    if (resolvingRef.current.has(conflict.conflictId)) return false;
     resolvingRef.current.add(conflict.conflictId);
     setResolving(true);
+    setResolutionError(null);
     try {
       await resolveAnnotationSyncConflictUseRemoteV5(
         getSyncOwnerKey(owner.ownerKey),
         conflict.conflictId,
       );
-      if (!ownerRuntime.isCurrent(owner)) return;
+      if (!ownerRuntime.isCurrent(owner)) return false;
       setConflict(null);
-      await refresh();
+      await refresh().catch((error) => {
+        console.error('[AnnotationSyncConflict] refresh after use-remote failed:', error);
+      });
+      return true;
+    } catch (error) {
+      console.error('[AnnotationSyncConflict] use-remote resolution failed:', error);
+      if (ownerRuntime.isCurrent(owner)) {
+        setResolutionError('원격 값을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      return false;
     } finally {
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
@@ -114,23 +139,33 @@ export const useAnnotationSyncConflictResolution = ({
 
   const defer = useCallback(async () => {
     const owner = ownerRuntime.capture();
-    if (!owner || !conflict) return;
-    if (resolvingRef.current.has(conflict.conflictId)) return;
+    if (!owner || !conflict) return false;
+    if (resolvingRef.current.has(conflict.conflictId)) return false;
     resolvingRef.current.add(conflict.conflictId);
     setResolving(true);
+    setResolutionError(null);
     try {
       await deferSyncConflictV5(
         getSyncOwnerKey(owner.ownerKey),
         conflict.conflictId,
       );
-      if (!ownerRuntime.isCurrent(owner)) return;
+      if (!ownerRuntime.isCurrent(owner)) return false;
       setConflict(null);
-      await refresh();
+      await refresh().catch((error) => {
+        console.error('[AnnotationSyncConflict] refresh after defer failed:', error);
+      });
+      return true;
+    } catch (error) {
+      console.error('[AnnotationSyncConflict] conflict deferral failed:', error);
+      if (ownerRuntime.isCurrent(owner)) {
+        setResolutionError('충돌을 나중으로 미루지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      return false;
     } finally {
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
     }
   }, [conflict, refresh]);
 
-  return { conflict, resolving, keepLocal, useRemote, defer };
+  return { conflict, resolving, resolutionError, keepLocal, useRemote, defer };
 };

@@ -41,3 +41,31 @@ test('uses comparable sync revisions before device timestamps', () => {
   };
   assert.equal(mergeLatestProgressForDisplay(local, remote).book.cfi, 'remote');
 });
+
+test('keeps an explicitly ignored remote revision off the shelf until a newer head arrives', () => {
+  const local = {
+    book: {
+      bookId: 'book',
+      cfi: 'local',
+      progressPercent: 20,
+      lastRead: 10,
+      syncRevision: 2,
+      ignoredRemoteRevision: 3,
+    },
+  };
+  const ignoredRemote = {
+    book: {
+      bookId: 'book',
+      cfi: 'ignored-remote',
+      progressPercent: 80,
+      lastRead: 20,
+      syncRevision: 3,
+    },
+  };
+  assert.equal(mergeLatestProgressForDisplay(local, ignoredRemote).book.cfi, 'local');
+
+  const newerRemote = {
+    book: { ...ignoredRemote.book, cfi: 'newer-remote', syncRevision: 4 },
+  };
+  assert.equal(mergeLatestProgressForDisplay(local, newerRemote).book.cfi, 'newer-remote');
+});

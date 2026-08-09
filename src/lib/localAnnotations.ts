@@ -106,6 +106,14 @@ export type UpdateLocalAnnotationFieldsResult =
   | { status: 'color-limit' }
   | { status: 'duplicate-range'; annotation: Annotation };
 
+export type UpdateLocalAnnotationFieldsFromCurrentResult =
+  | UpdateLocalAnnotationFieldsResult
+  | { status: 'rejected'; annotation: Annotation };
+
+export type AnnotationFieldsUpdaterV8 = (
+  current: Annotation,
+) => Partial<AnnotationMutableFields> | null;
+
 export type RestoreLocalAnnotationFieldsResult =
   | { status: 'saved'; annotations: Annotation[] }
   | { status: 'conflict' }
@@ -263,13 +271,13 @@ export const saveLocalAnnotationV8 = (
   return { status: 'saved', annotation };
 })());
 
-export const updateLocalAnnotationFieldsV8 = (
+const updateLocalAnnotationFieldsFromResolverV8 = (
   ownerKey: OwnerKey,
   bookId: string,
   annotationId: string,
-  fields: Partial<AnnotationMutableFields>,
+  resolveFields: AnnotationFieldsUpdaterV8,
   syncContext?: LocalAnnotationSyncContext,
-): Promise<UpdateLocalAnnotationFieldsResult> => trackLocalCommit((async () => {
+): Promise<UpdateLocalAnnotationFieldsFromCurrentResult> => trackLocalCommit((async () => {
   const db = await initDB();
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
@@ -279,6 +287,11 @@ export const updateLocalAnnotationFieldsV8 = (
   if (!existing || !isAnnotation(existing)) {
     await tx.done;
     return { status: 'missing' };
+  }
+  const fields = resolveFields(withoutOwner(existing));
+  if (!fields) {
+    await tx.done;
+    return { status: 'rejected', annotation: withoutOwner(existing) };
   }
   if (fieldEntries(fields).every(([field, value]) => existing[field] === value)) {
     await tx.done;
@@ -325,6 +338,39 @@ export const updateLocalAnnotationFieldsV8 = (
     annotation: withoutOwner(next),
   };
 })());
+
+export const updateLocalAnnotationFieldsV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  annotationId: string,
+  fields: Partial<AnnotationMutableFields>,
+  syncContext?: LocalAnnotationSyncContext,
+): Promise<UpdateLocalAnnotationFieldsResult> => updateLocalAnnotationFieldsFromResolverV8(
+  ownerKey,
+  bookId,
+  annotationId,
+  () => fields,
+  syncContext,
+).then((result) => {
+  if (result.status === 'rejected') {
+    throw new Error('Static annotation field update was unexpectedly rejected');
+  }
+  return result;
+});
+
+export const updateLocalAnnotationFieldsFromCurrentV8 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  annotationId: string,
+  update: AnnotationFieldsUpdaterV8,
+  syncContext?: LocalAnnotationSyncContext,
+) => updateLocalAnnotationFieldsFromResolverV8(
+  ownerKey,
+  bookId,
+  annotationId,
+  update,
+  syncContext,
+);
 
 export const restoreLocalAnnotationFieldsV8 = (
   ownerKey: OwnerKey,

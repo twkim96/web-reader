@@ -13,6 +13,7 @@ import {
   getFirebaseAnnotationSyncPath,
   isAnnotationBookAggregateV1,
   parseAnnotationHeadV1,
+  toAnnotationSyncSchemaError,
   type AnnotationHeadV1,
 } from './annotationSyncSchema';
 
@@ -27,11 +28,15 @@ export const getAuthoritativeRemoteAnnotationHeadV1 = async (
     `${basePath}/${bookId}/annotations/${annotationId}`,
   ));
   if (!snapshot.exists()) return null;
-  const head = parseAnnotationHeadV1(snapshot.data());
-  if (head.bookId !== bookId || head.annotationId !== annotationId) {
-    throw new Error('원격 annotation head identity가 올바르지 않습니다.');
+  try {
+    const head = parseAnnotationHeadV1(snapshot.data());
+    if (head.bookId !== bookId || head.annotationId !== annotationId) {
+      throw new Error('원격 annotation head identity가 올바르지 않습니다.');
+    }
+    return head;
+  } catch (error) {
+    throw toAnnotationSyncSchemaError(error);
   }
-  return head;
 };
 
 export const getAuthoritativeRemoteAnnotationHeadsV1 = async (

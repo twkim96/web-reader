@@ -16,6 +16,7 @@ import {
   isAnnotationSyncPayloadV1,
   isAnnotationSyncReceiptV1,
   toAnnotationSyncPayloadV1,
+  toAnnotationSyncSchemaError,
 } from '../src/lib/annotationSyncSchema.ts';
 
 const annotation = (overrides = {}) => ({
@@ -38,6 +39,12 @@ const annotation = (overrides = {}) => ({
 });
 
 const payload = () => toAnnotationSyncPayloadV1(annotation());
+
+test('marks parsed remote schema failures as non-retryable invalid arguments', () => {
+  const error = toAnnotationSyncSchemaError(new TypeError('malformed head'));
+  assert.equal(error.code, 'invalid-argument');
+  assert.match(error.message, /malformed head/);
+});
 
 test('serializes annotations without propagating renderer-local anchor state', () => {
   const serialized = payload();

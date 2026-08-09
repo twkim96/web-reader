@@ -9,6 +9,11 @@ import {
   ANNOTATION_PALETTE_MEANING_MAX_LENGTH,
 } from './annotationPalette';
 
+export const toAnnotationSyncSchemaError = (error: unknown) => Object.assign(
+  error instanceof Error ? error : new Error(String(error)),
+  { code: 'invalid-argument' },
+);
+
 export type AnnotationSyncPayloadV1 = Omit<Annotation, 'anchorState'>;
 
 export const ANNOTATION_SYNC_RANGE_CFI_MAX_LENGTH = 16_000;

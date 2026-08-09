@@ -27,6 +27,7 @@ import {
   getFirebaseAnnotationSyncPath,
   parseAnnotationHeadV1,
   parseAnnotationPaletteHeadV1,
+  toAnnotationSyncSchemaError,
   type AnnotationHeadV1,
 } from '../lib/annotationSyncSchema';
 import {
@@ -63,11 +64,6 @@ type UseAnnotationSyncOptions = {
   palette: AnnotationPaletteItem[];
   applyRemotePalette: (value: unknown) => Promise<AnnotationPaletteItem[]>;
 };
-
-const schemaError = (error: unknown) => Object.assign(
-  error instanceof Error ? error : new Error(String(error)),
-  { code: 'invalid-argument' },
-);
 
 export const useAnnotationSync = ({
   ownerKey,
@@ -149,10 +145,12 @@ export const useAnnotationSync = ({
         try {
           head = parseAnnotationHeadV1(change.doc.data());
         } catch (error) {
-          throw schemaError(error);
+          throw toAnnotationSyncSchemaError(error);
         }
         if (head.bookId !== bookId || head.annotationId !== change.doc.id) {
-          throw schemaError(new Error('annotation snapshot identity가 올바르지 않습니다.'));
+          throw toAnnotationSyncSchemaError(
+            new Error('annotation snapshot identity가 올바르지 않습니다.'),
+          );
         }
         remoteHeads.set(head.annotationId, head);
       }
@@ -245,13 +243,15 @@ export const useAnnotationSync = ({
         try {
           head = parseAnnotationHeadV1(snapshot.data());
         } catch (error) {
-          throw schemaError(error);
+          throw toAnnotationSyncSchemaError(error);
         }
         if (
           head.bookId !== bookId
           || head.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID
           || head.operation !== 'delete'
-        ) throw schemaError(new Error('annotation 삭제 marker가 올바르지 않습니다.'));
+        ) throw toAnnotationSyncSchemaError(
+          new Error('annotation 삭제 marker가 올바르지 않습니다.'),
+        );
         await storeRemoteHeadsBatchV5(syncOwnerKey, [head]);
         resolveMarkerAuthoritative();
       },
@@ -316,7 +316,7 @@ export const useAnnotationSync = ({
       try {
         head = parseAnnotationPaletteHeadV1(snapshot.data());
       } catch (error) {
-        throw schemaError(error);
+        throw toAnnotationSyncSchemaError(error);
       }
       await storeRemoteHeadsBatchV5(syncOwnerKey, [head]);
       if (!isCurrent()) return;

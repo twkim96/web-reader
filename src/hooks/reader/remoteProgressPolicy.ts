@@ -38,7 +38,9 @@ export const decideRemoteProgressAction = ({
   } else if (remoteTime <= lastSaveTime) return 'ignore';
 
   if (operation === 'reset') {
-    return isInitialSync && !hasLocalProgress ? 'jump' : 'prompt';
+    return isInitialSync && !hasLocalProgress && isQuietResumeEligible
+      ? 'jump'
+      : 'prompt';
   }
 
   if (

@@ -1812,10 +1812,7 @@ export const resumePausedAuthEventsV5 = async (
   return resumed;
 };
 
-export const getOpenSyncConflictsV5 = async (
-  ownerKey: OwnerKey,
-  now = Date.now(),
-) => {
+export const getUnresolvedSyncConflictsV5 = async (ownerKey: OwnerKey) => {
   const db = await initDB();
   const tx = db.transaction(V5_SYNC_CONFLICTS_STORE, 'readonly');
   const index = tx.objectStore(V5_SYNC_CONFLICTS_STORE).index('by-owner-state-created-at');
@@ -1832,9 +1829,21 @@ export const getOpenSyncConflictsV5 = async (
   await tx.done;
   return [
     ...open,
-    ...deferred.filter((conflict) => (conflict.deferredUntil ?? 0) <= now),
+    ...deferred,
   ].sort((left, right) => left.createdAt - right.createdAt);
 };
+
+export const isSyncConflictPresentableV5 = (
+  conflict: SyncConflictV5,
+  now = Date.now(),
+) => conflict.state === 'open'
+  || (conflict.state === 'deferred' && (conflict.deferredUntil ?? 0) <= now);
+
+export const getOpenSyncConflictsV5 = async (
+  ownerKey: OwnerKey,
+  now = Date.now(),
+) => (await getUnresolvedSyncConflictsV5(ownerKey))
+  .filter((conflict) => isSyncConflictPresentableV5(conflict, now));
 
 export const deferSyncConflictV5 = async (
   ownerKey: OwnerKey,

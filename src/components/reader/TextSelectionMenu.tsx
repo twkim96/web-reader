@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useLayoutEffect, useRef } from 'react';
-import { Copy, Share2, X } from 'lucide-react';
+import { BookOpen, Copy, Languages, Share2, X } from 'lucide-react';
 import type { AnnotationPaletteItem, HighlightColorId, ThemeClasses } from '../../types';
 import type { ReaderTextSelection } from '../../hooks/reader/useReaderTextSelection';
 import { HIGHLIGHT_COLORS } from '../../lib/annotationPolicy';
@@ -15,6 +15,8 @@ interface TextSelectionMenuProps {
   palette: AnnotationPaletteItem[];
   onCopy: () => void;
   onShare: () => void;
+  onTranslate: () => void;
+  onDictionary: () => void;
   onHighlight: (colorId: HighlightColorId) => void;
   onClose: () => void;
 }
@@ -30,6 +32,8 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
   palette,
   onCopy,
   onShare,
+  onTranslate,
+  onDictionary,
   onHighlight,
   onClose,
 }) => {
@@ -108,11 +112,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
           </button>
         ))}
       </div>
-      <div className="flex min-h-11 items-center gap-1">
+      <div className="flex min-h-11 max-w-full flex-wrap items-center justify-center gap-1">
         <button
           type="button"
           onClick={onCopy}
-          className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
         >
           <Copy size={15} />
           복사
@@ -121,26 +125,44 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
           <button
             type="button"
             onClick={onShare}
-            className="flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+            className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
           >
             <Share2 size={15} />
             공유
           </button>
         )}
-        {feedback && (
-          <span className="whitespace-nowrap px-2 text-[11px] font-bold text-accent-500" role="status" aria-live="polite">
-            {feedback}
-          </span>
-        )}
+        <button
+          type="button"
+          data-reader-selection-translate="true"
+          onClick={onTranslate}
+          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+        >
+          <Languages size={15} />
+          번역
+        </button>
+        <button
+          type="button"
+          data-reader-selection-dictionary="true"
+          onClick={onDictionary}
+          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+        >
+          <BookOpen size={15} />
+          사전
+        </button>
         <button
           type="button"
           onClick={onClose}
           aria-label="선택 메뉴 닫기"
-          className="flex size-11 items-center justify-center rounded-xl opacity-60 hover:bg-black/5 hover:opacity-100 active:scale-95 dark:hover:bg-white/10"
+          className="flex size-11 shrink-0 items-center justify-center rounded-xl opacity-60 hover:bg-black/5 hover:opacity-100 active:scale-95 dark:hover:bg-white/10"
         >
           <X size={16} />
         </button>
       </div>
+      {feedback && (
+        <span className="max-w-full break-words px-2 pb-1 text-center text-[11px] font-bold text-accent-500" role="status" aria-live="polite">
+          {feedback}
+        </span>
+      )}
     </div>
   );
 };

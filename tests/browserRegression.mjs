@@ -750,11 +750,43 @@ try {
   await evaluate(`(() => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
-      value: { writeText: async (text) => { window.__selectionCopiedText = text; } },
+      value: { writeText: async (text) => {
+        if (text.startsWith('번역:')) window.__translationCopiedText = text;
+        else window.__selectionCopiedText = text;
+      } },
     });
     Object.defineProperty(navigator, 'share', {
       configurable: true,
       value: async ({ text }) => { window.__selectionSharedText = text; },
+    });
+    window.__nativeLanguageToolOpen = window.open;
+    window.__languageToolUrls = [];
+    window.open = (url, target) => {
+      window.__languageToolUrls.push({ url: String(url), target });
+      return { opener: window };
+    };
+    window.__browserTranslatorStats = { availability: 0, create: 0, translate: 0, destroy: 0 };
+    Object.defineProperty(globalThis, 'Translator', {
+      configurable: true,
+      value: {
+        availability: async () => {
+          window.__browserTranslatorStats.availability += 1;
+          return 'downloadable';
+        },
+        create: async ({ monitor }) => {
+          window.__browserTranslatorStats.create += 1;
+          monitor?.({
+            addEventListener: (_type, listener) => listener({ loaded: 0.6 }),
+          });
+          return {
+            translate: async (text) => {
+              window.__browserTranslatorStats.translate += 1;
+              return '번역:' + text.trim();
+            },
+            destroy: () => { window.__browserTranslatorStats.destroy += 1; },
+          };
+        },
+      },
     });
   })()`);
   await evaluate(`(() => {
@@ -887,7 +919,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.4')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.5')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -981,10 +1013,65 @@ try {
       .find((button) => button.textContent?.includes('공유'));
     shareButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 50));
+    const translateButton = document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-translate="true"]',
+    );
+    const dictionaryButtonFound = Boolean(document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-dictionary="true"]',
+    ));
     const yellowHighlightButton = document.querySelector(
       '[data-reader-selection-menu="true"] button[aria-label="노랑 하이라이트 추가"]',
     );
-    yellowHighlightButton?.click();
+    const beforeTranslation = renderer.start;
+    translateButton?.click();
+    const translationDeadline = performance.now() + 4000;
+    while (!document.querySelector('[data-reader-translation-dialog="true"]')
+      && performance.now() < translationDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const translationDialogShown = Boolean(
+      document.querySelector('[data-reader-translation-dialog="true"]'),
+    );
+    history.back();
+    const translationBackDeadline = performance.now() + 2000;
+    while (document.querySelector('[data-reader-translation-dialog="true"]')
+      && performance.now() < translationBackDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const translationClosedByBack = !document.querySelector(
+      '[data-reader-translation-dialog="true"]',
+    ) && Boolean(document.querySelector('foliate-view'));
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const translationRetryMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < translationRetryMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-translate="true"]',
+    )?.click();
+    const translationRetryDeadline = performance.now() + 4000;
+    while (!document.querySelector('[data-reader-translation-dialog="true"]')
+      ?.textContent?.includes('번역:probe paragraph')
+      && performance.now() < translationRetryDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const translationResult = document.querySelector(
+      '[data-reader-translation-dialog="true"]',
+    )?.textContent ?? '';
+    [...document.querySelectorAll('[data-reader-translation-dialog="true"] button')]
+      .find((button) => button.textContent?.includes('결과 복사'))?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    [...document.querySelectorAll('[data-reader-translation-dialog="true"] button')]
+      .find((button) => button.textContent?.includes('하이라이트 메모에 저장'))?.click();
+    const translationSaveDeadline = performance.now() + 4000;
+    while (document.querySelector('[data-reader-translation-dialog="true"]')
+      && performance.now() < translationSaveDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const afterTranslation = renderer.start;
     const highlightDeadline = performance.now() + 3000;
     while (document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < highlightDeadline) {
@@ -1010,6 +1097,22 @@ try {
     ));
     const createdAnnotations = await readAnnotations();
     const createdOverlay = hasHighlightOverlay();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    const dictionaryMenuDeadline = performance.now() + 2000;
+    while (!document.querySelector('[data-reader-selection-menu="true"]')
+      && performance.now() < dictionaryMenuDeadline) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    document.querySelector(
+      '[data-reader-selection-menu="true"] [data-reader-selection-dictionary="true"]',
+    )?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const dictionaryUrl = window.__languageToolUrls[0]?.url ?? '';
+    selection.removeAllRanges();
+    doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     const beforeHighlightClick = renderer.start;
     const controlsBeforeHighlightClick = document.querySelector('nav')?.classList.contains('translate-y-0');
     const highlightTapInit = {
@@ -1295,6 +1398,17 @@ try {
       copyButtonFound: Boolean(copyButton),
       actionRects,
       shareButtonFound: Boolean(shareButton),
+      translateButtonFound: Boolean(translateButton),
+      dictionaryButtonFound,
+      translationDialogShown,
+      translationClosedByBack,
+      translationResult,
+      translationCopiedText: window.__translationCopiedText,
+      translationSavedNote: createdAnnotations[0]?.note ?? null,
+      browserTranslatorStats: window.__browserTranslatorStats,
+      dictionaryUrl,
+      beforeTranslation,
+      afterTranslation,
       highlightButtonFound: Boolean(yellowHighlightButton),
       createdAnnotationCount: createdAnnotations.length,
       createdColor: createdAnnotations[0]?.colorId ?? null,
@@ -1398,6 +1512,21 @@ try {
   assert.equal(selectionActions.afterSuppressedClick, selectionActions.beforeSuppressedClick);
   assert.equal(selectionActions.copiedText, selectionActions.selectedText, JSON.stringify(selectionActions));
   assert.equal(selectionActions.sharedText, selectionActions.selectedText);
+  assert.equal(selectionActions.translateButtonFound, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.dictionaryButtonFound, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.translationDialogShown, true, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.translationClosedByBack, true, JSON.stringify(selectionActions));
+  assert.match(selectionActions.translationResult, /번역:probe paragraph/);
+  assert.equal(selectionActions.translationCopiedText, '번역:probe paragraph');
+  assert.match(selectionActions.translationSavedNote, /\[번역 en→ko\]\n번역:probe paragraph/);
+  assert.deepEqual(selectionActions.browserTranslatorStats, {
+    availability: 2,
+    create: 2,
+    translate: 2,
+    destroy: 2,
+  });
+  assert.match(selectionActions.dictionaryUrl, /^https:\/\/en\.dict\.naver\.com\/#\/search\?query=/);
+  assert.equal(selectionActions.afterTranslation, selectionActions.beforeTranslation);
   assert.equal(selectionActions.highlightButtonFound, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.createdAnnotationCount, 1, JSON.stringify(selectionActions));
   assert.equal(selectionActions.createdColor, 'yellow');
@@ -1445,9 +1574,119 @@ try {
   assert.ok(selectionActions.nativeSelectionBeforeRapidSecondTap.length > 0);
   assert.equal(selectionActions.rapidTapSelectionCleared, true, JSON.stringify(selectionActions));
   assert.notEqual(selectionActions.afterRapidTaps, selectionActions.beforeRapidTaps, JSON.stringify(selectionActions));
+  let narrowSelectionMenu;
+  try {
+    await command('Emulation.setDeviceMetricsOverride', {
+      width: 320,
+      height: 640,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await command('Network.emulateNetworkConditions', {
+      offline: true,
+      latency: 0,
+      downloadThroughput: 0,
+      uploadThroughput: 0,
+    });
+    narrowSelectionMenu = await evaluate(`(async () => {
+      const view = document.querySelector('foliate-view');
+      const contents = view?.renderer?.getContents?.() ?? [];
+      let targetDoc = null;
+      let textNode = null;
+      for (const { doc } of contents) {
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          if (!walker.currentNode.textContent?.trim()) continue;
+          const probe = doc.createRange();
+          probe.selectNodeContents(walker.currentNode);
+          const rect = probe.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < doc.defaultView.innerHeight) {
+            targetDoc = doc;
+            textNode = walker.currentNode;
+            break;
+          }
+        }
+        if (textNode) break;
+      }
+      if (!targetDoc || !textNode) return { missingText: true };
+      const range = targetDoc.createRange();
+      const end = Math.min(textNode.textContent.length, 12);
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, end);
+      const selection = targetDoc.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      targetDoc.dispatchEvent(new targetDoc.defaultView.Event('selectionchange'));
+      const deadline = performance.now() + 2000;
+      while (!document.querySelector('[data-reader-selection-menu="true"]')
+        && performance.now() < deadline) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      document.querySelector(
+        '[data-reader-selection-menu="true"] [data-reader-selection-dictionary="true"]',
+      )?.click();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const menu = document.querySelector('[data-reader-selection-menu="true"]');
+      const menuRect = menu?.getBoundingClientRect();
+      const buttonRects = [...(menu?.querySelectorAll('button') ?? [])].map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      });
+      const feedback = menu?.querySelector('[role="status"]');
+      const feedbackRect = feedback?.getBoundingClientRect();
+      const result = {
+        innerWidth,
+        menuRect: menuRect ? {
+          left: menuRect.left,
+          right: menuRect.right,
+          top: menuRect.top,
+          bottom: menuRect.bottom,
+          width: menuRect.width,
+        } : null,
+        buttonRects,
+        feedbackText: feedback?.textContent ?? '',
+        feedbackWidth: feedbackRect?.width ?? 0,
+        feedbackWhiteSpace: feedback ? getComputedStyle(feedback).whiteSpace : '',
+      };
+      selection.removeAllRanges();
+      targetDoc.dispatchEvent(new targetDoc.defaultView.Event('selectionchange'));
+      return result;
+    })()`);
+  } finally {
+    await command('Network.emulateNetworkConditions', {
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: -1,
+    });
+    await command('Emulation.setDeviceMetricsOverride', {
+      width: 1280,
+      height: 800,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+  }
+  assert.equal(narrowSelectionMenu.missingText, undefined, JSON.stringify(narrowSelectionMenu));
+  assert.ok(narrowSelectionMenu.menuRect, JSON.stringify(narrowSelectionMenu));
+  assert.ok(narrowSelectionMenu.menuRect.left >= 0, JSON.stringify(narrowSelectionMenu));
+  assert.ok(
+    narrowSelectionMenu.menuRect.right <= narrowSelectionMenu.innerWidth,
+    JSON.stringify(narrowSelectionMenu),
+  );
+  assert.ok(narrowSelectionMenu.buttonRects.every(({ left, right }) => (
+    left >= 0 && right <= narrowSelectionMenu.innerWidth
+  )), JSON.stringify(narrowSelectionMenu));
+  assert.match(narrowSelectionMenu.feedbackText, /오프라인/);
+  assert.notEqual(narrowSelectionMenu.feedbackWhiteSpace, 'nowrap');
+  assert.ok(
+    narrowSelectionMenu.feedbackWidth <= narrowSelectionMenu.menuRect.width,
+    JSON.stringify(narrowSelectionMenu),
+  );
   await evaluate(`(() => {
     delete navigator.clipboard;
     delete navigator.share;
+    window.open = window.__nativeLanguageToolOpen;
+    delete globalThis.Translator;
     document.querySelector('button[aria-label="Close reader"]')?.click();
   })()`);
   await waitFor(
@@ -3429,7 +3668,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.4';
+    const expectedCache = 'pc-reader-v1.8.5';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -3456,7 +3695,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.4',
+      '/sw.js?browser-regression=1.8.5',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -3500,11 +3739,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.4']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.5']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.4$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.5$/);
 
   console.log(JSON.stringify({
     shelf: {

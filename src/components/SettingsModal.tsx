@@ -1,6 +1,6 @@
 // src/components/SettingsModal.tsx
 import React, { useState } from 'react';
-import { ChevronDown, RotateCcw, X } from 'lucide-react';
+import { ChevronDown, Languages, RotateCcw, X } from 'lucide-react';
 import type {
   AnnotationPaletteItem,
   HighlightColorId,
@@ -20,6 +20,12 @@ import {
   ANNOTATION_PALETTE_LABEL_MAX_LENGTH,
   ANNOTATION_PALETTE_MEANING_MAX_LENGTH,
 } from '../lib/annotationPalette';
+import {
+  READER_DICTIONARY_PROVIDERS,
+  READER_LANGUAGE_OPTIONS,
+  READER_TRANSLATION_PROVIDERS,
+} from '../lib/readerLanguageTools';
+import { isBrowserTranslatorExposed } from '../lib/browserTranslator';
 
 interface SettingsModalProps {
   settings: ViewerSettings;
@@ -47,6 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [showAdvancedSizing, setShowAdvancedSizing] = useState(false);
   const [showAnnotationPalette, setShowAnnotationPalette] = useState(false);
+  const [showLanguageTools, setShowLanguageTools] = useState(false);
   const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
   const optionBtnStyle = `h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
   const stepperBtnStyle = `w-7 h-7 flex items-center justify-center ${theme.secondary} rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
@@ -65,6 +72,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const navOptions = getNavigationOptions(isFixedLayout);
   const selectedNavMode = getEffectiveNavigationMode(settings.navMode, isFixedLayout);
+  const browserTranslatorAvailable = isBrowserTranslatorExposed();
   const renderStepperRow = ({
     label,
     value,
@@ -276,6 +284,108 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="h-4 w-4 shrink-0 accent-accent-600"
             />
           </label>
+
+          {!isFixedLayout && (
+            <div className={`overflow-hidden rounded-2xl border ${theme.border}`}>
+              <button
+                type="button"
+                aria-expanded={showLanguageTools}
+                onClick={() => setShowLanguageTools((current) => !current)}
+                className="flex min-h-12 w-full items-center gap-3 px-3 text-left hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <Languages size={17} className="shrink-0 opacity-55" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-black">번역·사전 설정</span>
+                  <span className="block text-[9px] font-bold opacity-45">
+                    내장 번역과 외부 검색 경로를 정합니다
+                  </span>
+                </span>
+                <ChevronDown size={16} className={`transition-transform ${showLanguageTools ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showLanguageTools && (
+                <div className={`space-y-3 border-t ${theme.border} p-3`}>
+                  <label className="block">
+                    <span className={labelStyle}>Translation path</span>
+                    <select
+                      aria-label="기본 번역 경로"
+                      value={settings.translationProvider}
+                      onChange={(event) => onUpdateSettings({
+                        translationProvider: event.target.value as ViewerSettings['translationProvider'],
+                      })}
+                      className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-3 text-xs font-bold outline-none`}
+                    >
+                      {READER_TRANSLATION_PROVIDERS.map((provider) => (
+                        <option
+                          key={provider.value}
+                          value={provider.value}
+                          disabled={provider.value === 'browser' && !browserTranslatorAvailable}
+                        >
+                          {provider.label}
+                          {provider.value === 'auto' ? ' (내장 우선, Google fallback)' : ''}
+                          {provider.value === 'browser' && !browserTranslatorAvailable ? ' (현재 미지원)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block min-w-0">
+                      <span className={labelStyle}>Source</span>
+                      <select
+                        aria-label="번역 원문 언어"
+                        value={settings.translationSourceLanguage}
+                        onChange={(event) => onUpdateSettings({
+                          translationSourceLanguage: event.target.value as ViewerSettings['translationSourceLanguage'],
+                        })}
+                        className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-2 text-xs font-bold outline-none`}
+                      >
+                        <option value="auto">자동 추정</option>
+                        {READER_LANGUAGE_OPTIONS.map((language) => (
+                          <option key={language.value} value={language.value}>{language.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block min-w-0">
+                      <span className={labelStyle}>Target</span>
+                      <select
+                        aria-label="번역 대상 언어"
+                        value={settings.translationTargetLanguage}
+                        onChange={(event) => onUpdateSettings({
+                          translationTargetLanguage: event.target.value as ViewerSettings['translationTargetLanguage'],
+                        })}
+                        className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-2 text-xs font-bold outline-none`}
+                      >
+                        {READER_LANGUAGE_OPTIONS.map((language) => (
+                          <option key={language.value} value={language.value}>{language.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <label className="block">
+                    <span className={labelStyle}>Dictionary</span>
+                    <select
+                      aria-label="기본 사전 경로"
+                      value={settings.dictionaryProvider}
+                      onChange={(event) => onUpdateSettings({
+                        dictionaryProvider: event.target.value as ViewerSettings['dictionaryProvider'],
+                      })}
+                      className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-3 text-xs font-bold outline-none`}
+                    >
+                      {READER_DICTIONARY_PROVIDERS.map((provider) => (
+                        <option key={provider.value} value={provider.value}>{provider.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <p className="text-[9px] font-bold leading-relaxed opacity-45">
+                    내장 Translator API는 지원되는 데스크톱 브라우저에서만 표시됩니다. 외부 경로는 실행할 때 선택 원문을 새 탭으로 전달합니다.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {!isFixedLayout && (
             <div className={`overflow-hidden rounded-2xl border ${theme.border}`}>

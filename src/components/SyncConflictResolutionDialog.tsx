@@ -9,6 +9,7 @@ type Props = {
   onDefer: () => void;
   bookTitle?: string;
   resolving?: boolean;
+  error?: string | null;
 };
 
 export const SyncConflictResolutionDialog = ({
@@ -19,6 +20,7 @@ export const SyncConflictResolutionDialog = ({
   onDefer,
   bookTitle,
   resolving = false,
+  error = null,
 }: Props) => {
   const targetLabel = conflict.event?.target.kind === 'bookmark'
     ? '북마크'
@@ -94,6 +96,11 @@ export const SyncConflictResolutionDialog = ({
               ? ' 삭제 전 변경을 버리거나, 현재 동기화 세대에 명시적으로 다시 저장할 수 있습니다.'
           : ' 어느 값을 유지할지 선택할 때까지 이 항목의 원격 전송만 멈춥니다.'}
       </p>
+      {error && (
+        <p role="alert" className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-bold text-amber-600 dark:text-amber-400">
+          {error}
+        </p>
+      )}
       <div className="mt-6 grid gap-3">
         {!requiresRemoteResolution && (
           <button type="button" disabled={resolving} onClick={onKeepLocal} className="rounded-2xl bg-accent-500 px-4 py-3 font-bold text-white disabled:opacity-40">

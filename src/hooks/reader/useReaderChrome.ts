@@ -17,6 +17,7 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [jumpInput, setJumpInput] = useState('');
   const historyPushed = useRef(false);
+  const transientPanelCloserRef = useRef<(() => void) | null>(null);
 
   const toggleControls = useCallback(() => {
     setShowControls((prev) => !prev);
@@ -46,6 +47,10 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     window.history.back();
   }, []);
 
+  const registerTransientPanelCloser = useCallback((closer: (() => void) | null) => {
+    transientPanelCloserRef.current = closer;
+  }, []);
+
   useEffect(() => {
     if (!historyPushed.current) {
       window.history.pushState({ panel: 'reader' }, '', '');
@@ -53,7 +58,10 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     }
 
     const handlePopState = () => {
-      if (editingAnnotationId !== null) {
+      if (transientPanelCloserRef.current) {
+        window.history.pushState({ panel: 'reader' }, '', '');
+        transientPanelCloserRef.current();
+      } else if (editingAnnotationId !== null) {
         window.history.pushState({ panel: 'reader' }, '', '');
         setEditingAnnotationId(null);
       } else if (showSettings || showThemeModal || showBookmarks || showToc || showSearchModal || showJumpInput) {
@@ -92,5 +100,6 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
     closeJumpInput,
     closePanels,
     handleUIBack,
+    registerTransientPanelCloser,
   };
 };

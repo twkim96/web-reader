@@ -34,6 +34,11 @@ export interface CustomTheme {
   texture: CustomThemeTexture;
 }
 
+export type ReaderLanguage = 'ko' | 'en' | 'ja';
+export type ReaderTranslationSourceLanguage = ReaderLanguage | 'auto';
+export type ReaderTranslationProvider = 'auto' | 'browser' | 'google' | 'papago';
+export type ReaderDictionaryProvider = 'naver' | 'wiktionary';
+
 export interface ViewerSettings {
   fontSize: number;
   lineHeight: number;
@@ -47,6 +52,10 @@ export interface ViewerSettings {
   autoOpenLastBook: boolean;
   fontFamily: 'sans' | 'serif' | 'ridi';
   accentColor: string;
+  translationProvider: ReaderTranslationProvider;
+  translationSourceLanguage: ReaderTranslationSourceLanguage;
+  translationTargetLanguage: ReaderLanguage;
+  dictionaryProvider: ReaderDictionaryProvider;
   customThemes?: CustomTheme[];
 }
 

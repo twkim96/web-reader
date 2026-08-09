@@ -13,6 +13,7 @@ import {
   type SelectionViewportAnchor,
   type ReaderNavigationTap,
 } from '../../lib/readerTextSelection';
+import { writeTextToClipboard } from '../../lib/clipboard';
 
 export type ReaderTextSelection = SelectionViewportAnchor & {
   text: string;
@@ -68,23 +69,6 @@ const installSelectionStyles = (doc: Document) => {
   `;
   (doc.head || doc.documentElement).appendChild(style);
   return style;
-};
-
-const fallbackCopy = (text: string) => {
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  Object.assign(textarea.style, {
-    position: 'fixed',
-    left: '-9999px',
-    top: '0',
-    opacity: '0',
-  });
-  document.body.appendChild(textarea);
-  textarea.select();
-  const copied = document.execCommand('copy');
-  textarea.remove();
-  if (!copied) throw new Error('copy command failed');
 };
 
 export const useReaderTextSelection = ({
@@ -402,11 +386,7 @@ export const useReaderTextSelection = ({
     const text = selection?.text;
     if (!text) return;
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        fallbackCopy(text);
-      }
+      await writeTextToClipboard(text);
       showFeedback('복사됨');
     } catch (error) {
       console.warn('[EpubReader] Failed to copy selected text:', error);
@@ -447,6 +427,7 @@ export const useReaderTextSelection = ({
     bindDocument,
     clearSelection,
     dismissMenu,
+    showFeedback,
     copySelection,
     shareSelection,
   };

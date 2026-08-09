@@ -819,20 +819,24 @@ export default function Page() {
           conflict={activeSyncConflict}
           theme={theme}
           resolving={activeSyncConflictResolution.resolving}
+          error={activeSyncConflictResolution.resolutionError}
           bookTitle={conflictBookId
             ? books.find(({ id }) => id === conflictBookId)?.name
             : undefined}
           onKeepLocal={() => {
-            setSyncReviewOpen(false);
-            void activeSyncConflictResolution.keepLocal();
+            void activeSyncConflictResolution.keepLocal().then((resolved) => {
+              if (resolved) setSyncReviewOpen(false);
+            });
           }}
           onUseRemote={() => {
-            setSyncReviewOpen(false);
-            void activeSyncConflictResolution.useRemote();
+            void activeSyncConflictResolution.useRemote().then((resolved) => {
+              if (resolved) setSyncReviewOpen(false);
+            });
           }}
           onDefer={() => {
-            setSyncReviewOpen(false);
-            void activeSyncConflictResolution.defer();
+            void activeSyncConflictResolution.defer().then((resolved) => {
+              if (resolved) setSyncReviewOpen(false);
+            });
           }}
         />
       )}

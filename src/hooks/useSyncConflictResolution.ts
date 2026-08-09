@@ -9,6 +9,8 @@ import {
 } from '../lib/ownerRuntime';
 import {
   getOpenSyncConflictsV5,
+  getUnresolvedSyncConflictsV5,
+  isSyncConflictPresentableV5,
   deferSyncConflictV5,
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
@@ -54,6 +56,7 @@ export const useSyncConflictResolution = ({
     number | undefined
   >(undefined);
   const [resolving, setResolving] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
   const [resolvedRemoteProgressCommand, setResolvedRemoteProgressCommand] = useState<
     ResolvedRemoteProgressCommand | null
   >(null);
@@ -122,10 +125,15 @@ export const useSyncConflictResolution = ({
       setActiveProgressConflictRevision(undefined);
       return;
     }
-    const conflicts = await getOpenSyncConflictsV5(getSyncOwnerKey(owner.ownerKey));
+    const unresolvedConflicts = await getUnresolvedSyncConflictsV5(
+      getSyncOwnerKey(owner.ownerKey),
+    );
     if (!ownerRuntime.isCurrent(owner) || refreshGenerationRef.current !== generation) return;
+    const conflicts = unresolvedConflicts.filter((candidate) => (
+      isSyncConflictPresentableV5(candidate)
+    ));
     const next = selectProgressSyncConflict(conflicts, activeBookId);
-    const activeProgressConflict = conflicts.find((candidate) => (
+    const activeProgressConflict = unresolvedConflicts.find((candidate) => (
       candidate.event?.target.kind === 'progress'
       && candidate.event.target.bookId === activeBookId
     ));
@@ -198,6 +206,10 @@ export const useSyncConflictResolution = ({
   }, [ownerKey]);
 
   useEffect(() => {
+    setResolutionError(null);
+  }, [conflict?.conflictId, ownerKey]);
+
+  useEffect(() => {
     const owner = ownerRuntime.capture();
     const syncOwnerKey = owner ? getSyncOwnerKey(owner.ownerKey) : null;
     const initial = window.setTimeout(() => void refresh(), 0);
@@ -222,15 +234,25 @@ export const useSyncConflictResolution = ({
 
   const keepLocal = useCallback(async () => {
     const owner = ownerRuntime.capture();
-    if (!owner || !conflict) return;
-    if (resolvingRef.current.has(conflict.conflictId)) return;
+    if (!owner || !conflict) return false;
+    if (resolvingRef.current.has(conflict.conflictId)) return false;
     resolvingRef.current.add(conflict.conflictId);
     setResolving(true);
+    setResolutionError(null);
     try {
       await resolveSyncConflictKeepLocalV5(getSyncOwnerKey(owner.ownerKey), conflict.conflictId);
-      if (!ownerRuntime.isCurrent(owner)) return;
+      if (!ownerRuntime.isCurrent(owner)) return false;
       setConflict(null);
-      await refresh();
+      await refresh().catch((error) => {
+        console.error('[SyncConflict] refresh after keep-local failed:', error);
+      });
+      return true;
+    } catch (error) {
+      console.error('[SyncConflict] keep-local resolution failed:', error);
+      if (ownerRuntime.isCurrent(owner)) {
+        setResolutionError('현재 기기 값을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      return false;
     } finally {
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
@@ -239,10 +261,11 @@ export const useSyncConflictResolution = ({
 
   const useRemote = useCallback(async () => {
     const owner = ownerRuntime.capture();
-    if (!owner || !conflict) return;
-    if (resolvingRef.current.has(conflict.conflictId)) return;
+    if (!owner || !conflict) return false;
+    if (resolvingRef.current.has(conflict.conflictId)) return false;
     resolvingRef.current.add(conflict.conflictId);
     setResolving(true);
+    setResolutionError(null);
     try {
       await applyRemote(
         owner,
@@ -253,9 +276,18 @@ export const useSyncConflictResolution = ({
         conflict.event?.target.kind === 'progress'
           && conflict.event.target.bookId === activeBookId,
       );
-      if (!ownerRuntime.isCurrent(owner)) return;
+      if (!ownerRuntime.isCurrent(owner)) return false;
       setConflict(null);
-      await refresh();
+      await refresh().catch((error) => {
+        console.error('[SyncConflict] refresh after use-remote failed:', error);
+      });
+      return true;
+    } catch (error) {
+      console.error('[SyncConflict] use-remote resolution failed:', error);
+      if (ownerRuntime.isCurrent(owner)) {
+        setResolutionError('원격 값을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      return false;
     } finally {
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
@@ -264,18 +296,28 @@ export const useSyncConflictResolution = ({
 
   const defer = useCallback(async () => {
     const owner = ownerRuntime.capture();
-    if (!owner || !conflict) return;
-    if (resolvingRef.current.has(conflict.conflictId)) return;
+    if (!owner || !conflict) return false;
+    if (resolvingRef.current.has(conflict.conflictId)) return false;
     resolvingRef.current.add(conflict.conflictId);
     setResolving(true);
+    setResolutionError(null);
     try {
       await deferSyncConflictV5(
         getSyncOwnerKey(owner.ownerKey),
         conflict.conflictId,
       );
-      if (!ownerRuntime.isCurrent(owner)) return;
+      if (!ownerRuntime.isCurrent(owner)) return false;
       setConflict(null);
-      await refresh();
+      await refresh().catch((error) => {
+        console.error('[SyncConflict] refresh after defer failed:', error);
+      });
+      return true;
+    } catch (error) {
+      console.error('[SyncConflict] conflict deferral failed:', error);
+      if (ownerRuntime.isCurrent(owner)) {
+        setResolutionError('충돌을 나중으로 미루지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      return false;
     } finally {
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
@@ -291,6 +333,7 @@ export const useSyncConflictResolution = ({
   return {
     conflict,
     resolving,
+    resolutionError,
     activeProgressConflictRevision,
     resolvedRemoteProgressCommand,
     consumeResolvedRemoteProgressCommand,

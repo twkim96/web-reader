@@ -32,6 +32,7 @@ import { SyncConflictDialog } from './reader/SyncConflictDialog';
 import { TextSelectionMenu } from './reader/TextSelectionMenu';
 import { HighlightActionMenu } from './reader/HighlightActionMenu';
 import { AnnotationNoteDialog } from './reader/AnnotationNoteDialog';
+import { TranslationDialog } from './reader/TranslationDialog';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
@@ -39,6 +40,7 @@ import { useReaderChrome } from '../hooks/reader/useReaderChrome';
 import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
 import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
+import { useReaderLanguageTools } from '../hooks/reader/useReaderLanguageTools';
 import { useReaderAnnotations } from '../hooks/reader/useReaderAnnotations';
 import { useAnnotationPalette } from '../hooks/useAnnotationPalette';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
@@ -50,6 +52,7 @@ import { getSyncSessionId } from '../lib/syncSession';
 import type { SyncHealth } from '../lib/syncHealth';
 import type { ResolvedRemoteProgressCommand } from '../hooks/useSyncConflictResolution';
 import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
+import { buildTranslationAnnotationNote } from '../lib/readerLanguageTools';
 
 interface EpubReaderProps {
   book: Book;
@@ -316,7 +319,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const chrome = useReaderChrome({ onBack: handleReaderBack });
   const editingAnnotationId = chrome.editingAnnotationId;
   const setEditingAnnotationId = chrome.setEditingAnnotationId;
-  const isReaderPanelOpen = chrome.showSettings
+  const isBaseReaderPanelOpen = chrome.showSettings
     || chrome.showThemeModal
     || chrome.showBookmarks
     || chrome.showToc
@@ -361,6 +364,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     hasSelectionRef,
     bindDocument: bindSelectionDocument,
     clearSelection: clearTextSelection,
+    dismissMenu: dismissTextSelectionMenu,
+    showFeedback: showSelectionFeedback,
     copySelection,
     shareSelection,
   } = useReaderTextSelection({
@@ -472,6 +477,57 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     syncContext: annotationSyncContext,
     externalRevision: annotationRevision,
   });
+
+  const {
+    translation,
+    translateSelection,
+    lookupSelection,
+    closeTranslation,
+    openTranslationFallback,
+    copyTranslation,
+  } = useReaderLanguageTools({
+    settings,
+    dismissSelectionMenu: dismissTextSelectionMenu,
+    clearSelection: clearTextSelection,
+    showFeedback: showSelectionFeedback,
+  });
+  const isReaderPanelOpen = isBaseReaderPanelOpen || translation !== null;
+  const readerShellRef = useRef<HTMLDivElement>(null);
+  const registerTransientPanelCloser = chrome.registerTransientPanelCloser;
+
+  useLayoutEffect(() => {
+    registerTransientPanelCloser(
+      translation ? closeTranslation : null,
+    );
+    return () => registerTransientPanelCloser(null);
+  }, [closeTranslation, registerTransientPanelCloser, translation]);
+
+  const saveTranslationToAnnotationNote = useCallback(async () => {
+    const state = translation;
+    if (
+      state?.status !== 'success'
+      || !state.translatedText
+      || !state.sourceLanguage
+    ) return false;
+    const translatedText = state.translatedText;
+    const sourceLanguage = state.sourceLanguage;
+    const annotation = await createHighlight(
+      state.selection,
+      'yellow',
+      {
+        preserveExistingColor: true,
+        updateNote: (existingNote) => buildTranslationAnnotationNote({
+          existingNote,
+          translatedText,
+          sourceLanguage,
+          targetLanguage: state.targetLanguage,
+        }),
+      },
+    );
+    if (!annotation) return false;
+    closeTranslation();
+    return true;
+  }, [closeTranslation, createHighlight, translation]);
 
   useEffect(() => {
     if (
@@ -1275,6 +1331,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   return (
     <div
+      ref={readerShellRef}
+      data-reader-shell="true"
+      tabIndex={-1}
       className={`h-screen w-screen ${theme.bg} ${theme.text} transition-colors duration-300 select-none overflow-hidden`}
       style={readerShellStyle}
     >
@@ -1355,6 +1414,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           palette={palette}
           onCopy={() => void copySelection()}
           onShare={() => void shareSelection()}
+          onTranslate={() => translateSelection(selectedText)}
+          onDictionary={() => lookupSelection(selectedText)}
           onHighlight={(colorId) => void createHighlight(selectedText, colorId)}
           onClose={clearTextSelection}
         />
@@ -1492,6 +1553,18 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           />
         ) : null;
       })()}
+
+      {translation && (
+        <TranslationDialog
+          state={translation}
+          theme={theme}
+          onClose={closeTranslation}
+          onCopy={copyTranslation}
+          onSaveNote={saveTranslationToAnnotationNote}
+          onOpenExternal={openTranslationFallback}
+          returnFocusRef={readerShellRef}
+        />
+      )}
 
       {chrome.showToc && (
         <TocModal

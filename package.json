@@ -1,6 +1,6 @@
 {
   "name": "viewer",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,7 +16,7 @@
     "test:e2e": "playwright test --workers=1",
     "test:release": "node --test tests/releaseVersion.test.mjs",
     "test:storage": "node --import tsx --test tests/storageCapacity.test.mjs tests/localDBV5.test.mjs tests/localAnnotations.test.mjs tests/annotationPolicy.test.mjs tests/annotationPalette.test.mjs tests/localAnnotationPalette.test.mjs tests/annotationQuery.test.mjs tests/annotationExport.test.mjs tests/annotationSyncSchema.test.mjs tests/annotationSyncTransaction.test.mjs tests/annotationSyncOutbox.test.mjs tests/annotationSyncLocal.test.mjs tests/annotationSyncConflict.test.mjs tests/annotationSyncWake.test.mjs tests/annotationBookDeletion.test.mjs tests/ownerRuntime.test.mjs tests/progressV2Schema.test.mjs tests/progressCommitBaseline.test.mjs tests/readerProgressSavePolicy.test.mjs tests/bookmarkSyncPolicy.test.mjs tests/remoteBookmarkAccumulator.test.mjs tests/serverSnapshotHydrator.test.mjs tests/snapshotListenerRecovery.test.mjs tests/syncHealth.test.mjs tests/firebaseSyncBoundary.test.mjs tests/syncConflictPolicy.test.mjs tests/syncOutboxV5.test.mjs tests/progressSyncTransaction.test.mjs tests/bookmarkSyncTransaction.test.mjs tests/progressSyncWorker.test.mjs tests/progressSyncPolling.test.mjs tests/progressSyncPump.test.mjs tests/contentNamespace.test.mjs",
-    "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookDeletion.test.mjs tests/bookmarkPositionPolicy.test.mjs tests/lastReaderSession.test.mjs tests/progressDisplay.test.mjs tests/remoteProgressPolicy.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs",
+    "test:shelf": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookDeletion.test.mjs tests/bookmarkPositionPolicy.test.mjs tests/lastReaderSession.test.mjs tests/progressDisplay.test.mjs tests/remoteProgressPolicy.test.mjs tests/readerLanguageTools.test.mjs tests/shelfBooks.test.mjs tests/viewerSettings.test.mjs",
     "test:sw": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/localCommitTracker.test.mjs tests/serviceWorkerPolicy.test.mjs",
     "test:node": "npm run test:formats && npm run test:drive && npm run test:archives && npm run test:storage && npm run test:shelf && npm run test:sw && npm run test:release",
     "test:all": "npm run test:node",
