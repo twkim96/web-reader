@@ -3550,6 +3550,10 @@ try {
     'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
     'library annotation modal restored after reader',
   );
+  await waitFor(
+    'document.querySelectorAll(\'[data-library-annotation-item]\').length === 1',
+    'library annotation result restored after reader',
+  );
   const libraryAnnotationRestore = await evaluate(`(() => ({
     query: document.querySelector('[data-library-annotation-search="true"]')?.value,
     resultCount: document.querySelectorAll('[data-library-annotation-item]').length,
