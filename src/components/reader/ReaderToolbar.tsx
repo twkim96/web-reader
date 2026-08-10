@@ -238,7 +238,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
           )}
 
-          <div className={`grid ${isFixedLayout ? 'grid-cols-3' : 'grid-cols-4'} gap-1.5`}>
+          <div className={`grid gap-1.5 ${isFixedLayout ? 'grid-cols-3' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.35fr)_2.75rem]'}`}>
             <button
               type="button"
               onClick={onOpenSettings}
@@ -248,20 +248,6 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               <Settings size={19} />
               <span>설정</span>
             </button>
-            {!isFixedLayout && (
-              <button
-                type="button"
-                onClick={onOpenTts}
-                disabled={!ttsSupported}
-                className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 ${ttsActive ? 'text-accent-500' : ''}`}
-                style={surfaceStyle}
-                aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
-                title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
-              >
-                <Volume2 size={19} />
-                <span>듣기</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={onOpenTheme}
@@ -276,16 +262,16 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${hasReaderRecords ? 'text-accent-500' : ''}`}
+              className={`flex h-[3.15rem] min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 ${hasReaderRecords ? 'text-accent-500' : ''}`}
               style={surfaceStyle}
               aria-label="책갈피와 주석"
               aria-describedby="reader-record-counts"
               title={`책갈피 ${bookmarkCount}개 · 주석 ${annotationCount}개`}
             >
-              <BookmarkIcon size={19} />
-              <span>책갈피</span>
+              <BookmarkIcon className="shrink-0" size={19} />
+              <span className="shrink-0">책갈피</span>
               {bookmarkCount > 0 && (
-                <span className="text-[11px] font-black">
+                <span className="shrink-0 text-[11px] font-black tabular-nums">
                   {bookmarkCount}
                 </span>
               )}
@@ -300,6 +286,19 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
                 책갈피 {bookmarkCount}개, 주석 {annotationCount}개
               </span>
             </button>
+            {!isFixedLayout && (
+              <button
+                type="button"
+                onClick={onOpenTts}
+                disabled={!ttsSupported}
+                className={`flex size-11 self-center justify-self-end items-center justify-center rounded-full border ${theme.border} p-0 shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 ${ttsActive ? 'text-accent-500' : ''}`}
+                style={surfaceStyle}
+                aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
+                title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
+              >
+                <Volume2 size={19} />
+              </button>
+            )}
           </div>
         </div>
       </div>

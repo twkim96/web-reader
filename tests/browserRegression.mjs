@@ -2611,6 +2611,20 @@ try {
     narrowSelectionMenu = await evaluate(`(async () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
       const toolbarTtsButton = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+      const toolbarRecordsButton = document.querySelector('button[aria-label="책갈피와 주석"]');
+      const toolbarTtsRect = toolbarTtsButton?.getBoundingClientRect();
+      const toolbarRecordsRect = toolbarRecordsButton?.getBoundingClientRect();
+      const toolbarProbe = {
+        recordsClientWidth: toolbarRecordsButton?.clientWidth ?? 0,
+        recordsScrollWidth: toolbarRecordsButton?.scrollWidth ?? 0,
+        recordsWhiteSpace: toolbarRecordsButton
+          ? getComputedStyle(toolbarRecordsButton).whiteSpace
+          : '',
+        ttsText: toolbarTtsButton?.textContent?.trim() ?? '',
+        ttsWidth: toolbarTtsRect?.width ?? 0,
+        ttsRight: toolbarTtsRect?.right ?? 0,
+        recordsRight: toolbarRecordsRect?.right ?? 0,
+      };
       const ttsSpeakBefore = window.__browserSpeechStats.speak;
       toolbarTtsButton?.click();
       const ttsDeadline = performance.now() + 2000;
@@ -2695,6 +2709,7 @@ try {
         feedbackWidth: feedbackRect?.width ?? 0,
         feedbackWhiteSpace: feedback ? getComputedStyle(feedback).whiteSpace : '',
         ttsPanelProbe,
+        toolbarProbe,
       };
       selection.removeAllRanges();
       targetDoc.dispatchEvent(new targetDoc.defaultView.Event('selectionchange'));
@@ -2723,6 +2738,18 @@ try {
   assert.ok(narrowSelectionMenu.ttsPanelProbe.scrollHeight > narrowSelectionMenu.ttsPanelProbe.clientHeight);
   assert.ok(narrowSelectionMenu.ttsPanelProbe.stopTop >= narrowSelectionMenu.ttsPanelProbe.panelTop);
   assert.ok(narrowSelectionMenu.ttsPanelProbe.stopBottom <= narrowSelectionMenu.ttsPanelProbe.panelBottom);
+  assert.equal(narrowSelectionMenu.toolbarProbe.ttsText, '', JSON.stringify(narrowSelectionMenu));
+  assert.ok(narrowSelectionMenu.toolbarProbe.ttsWidth <= 44, JSON.stringify(narrowSelectionMenu));
+  assert.ok(
+    narrowSelectionMenu.toolbarProbe.ttsRight > narrowSelectionMenu.toolbarProbe.recordsRight,
+    JSON.stringify(narrowSelectionMenu),
+  );
+  assert.equal(narrowSelectionMenu.toolbarProbe.recordsWhiteSpace, 'nowrap');
+  assert.ok(
+    narrowSelectionMenu.toolbarProbe.recordsScrollWidth
+      <= narrowSelectionMenu.toolbarProbe.recordsClientWidth,
+    JSON.stringify(narrowSelectionMenu),
+  );
   assert.ok(narrowSelectionMenu.menuRect, JSON.stringify(narrowSelectionMenu));
   assert.ok(narrowSelectionMenu.menuRect.left >= 0, JSON.stringify(narrowSelectionMenu));
   assert.ok(
