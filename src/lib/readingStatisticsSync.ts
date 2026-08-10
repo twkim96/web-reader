@@ -179,12 +179,26 @@ export const getRemoteReadingSessionsPageV1 = async (
     query,
     startAfter,
   },
+  instrumentation: {
+    onReadAttempt?: () => void;
+    onReadSuccess?: () => void;
+  } = {},
 ) => {
   const reference = sdk.collection(
     firestore,
     getFirebaseReadingStatisticsPath(APP_ID, uid),
   );
-  let snapshot = await sdk.getDocsFromServer(sdk.query(
+  let remoteReadAttemptCount = 0;
+  let remoteReadCount = 0;
+  const readSnapshot = async (remoteQuery: ReturnType<typeof sdk.query>) => {
+    remoteReadAttemptCount += 1;
+    instrumentation.onReadAttempt?.();
+    const result = await sdk.getDocsFromServer(remoteQuery);
+    remoteReadCount += 1;
+    instrumentation.onReadSuccess?.();
+    return result;
+  };
+  let snapshot = await readSnapshot(sdk.query(
     reference,
     sdk.orderBy('uploadedAtServer', 'asc'),
     sdk.orderBy(sdk.documentId(), 'asc'),
@@ -199,7 +213,7 @@ export const getRemoteReadingSessionsPageV1 = async (
   let nextCursor = cursor;
   while (true) {
     for (const document of snapshot.docs) {
-      const data = document.data();
+      const data = document.data() as Record<string, unknown>;
       try {
         const timestampCursor = readServerTimestampCursor(data.uploadedAtServer);
         if (!timestampCursor) {
@@ -226,9 +240,10 @@ export const getRemoteReadingSessionsPageV1 = async (
     if (snapshot.size < pageSize) break;
     const lastDocument = snapshot.docs.at(-1);
     if (!lastDocument) break;
-    const lastTimestamp = readServerTimestampCursor(lastDocument.data().uploadedAtServer);
+    const lastData = lastDocument.data() as Record<string, unknown>;
+    const lastTimestamp = readServerTimestampCursor(lastData.uploadedAtServer);
     if (lastTimestamp) break;
-    snapshot = await sdk.getDocsFromServer(sdk.query(
+    snapshot = await readSnapshot(sdk.query(
       reference,
       sdk.orderBy('uploadedAtServer', 'asc'),
       sdk.orderBy(sdk.documentId(), 'asc'),
@@ -241,5 +256,7 @@ export const getRemoteReadingSessionsPageV1 = async (
     quarantinedDocuments,
     nextCursor,
     fullHydrationCompleted: snapshot.size < pageSize,
+    remoteReadAttemptCount,
+    remoteReadCount,
   };
 };

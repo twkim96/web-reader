@@ -6,10 +6,13 @@ import {
   getBookmarksKey,
   isQuietReaderResumeEligible,
   isReaderProgressPersistenceSettled,
+  startPendingReaderProgressCommitForTtsFence,
   toClampedPercent,
   updatePersistableReaderLocation,
 } from './progress';
 import type { PersistableReaderLocation, ReaderRelocateDetail } from './progress';
+import type { RemoteProgressCommandFinalizeResult } from '../useSyncConflictResolution';
+import type { RemoteProgressJumpCompletion } from './remoteProgressJump';
 
 type SaveContext = {
   currentCfi: string;
@@ -58,6 +61,20 @@ interface UseReaderProgressSaveOptions {
 const RELOCATE_SAVE_IDLE_MS = 1000;
 const RELOCATE_SAVE_MAX_INTERVAL_MS = 5000;
 const EXPLICIT_RELOCATE_SAVE_SETTLE_MS = 250;
+const TTS_PROGRESS_FENCE_TAIL_MS = 350;
+
+const traceReaderProgressRegression = (event: Record<string, unknown>) => {
+  const regressionWindow = window as typeof window & {
+    __readerProgressRegressionTrace?: Array<Record<string, unknown>>;
+    __readerProgressRegressionPhase?: string;
+  };
+  if (!Array.isArray(regressionWindow.__readerProgressRegressionTrace)) return;
+  regressionWindow.__readerProgressRegressionTrace.push({
+    at: performance.now(),
+    phase: regressionWindow.__readerProgressRegressionPhase ?? null,
+    ...event,
+  });
+};
 
 export const useReaderProgressSave = ({
   initialCfi,
@@ -81,6 +98,12 @@ export const useReaderProgressSave = ({
   const unsavedSinceRef = useRef<number | null>(null);
   const remoteJumpPreparationRef = useRef(0);
   const remoteJumpSnapshotRef = useRef<RemoteJumpPreparationSnapshot | null>(null);
+  const ttsProgressFenceActiveRef = useRef(false);
+  const ttsProgressFenceTailTimerRef = useRef<number | null>(null);
+  const ttsFencePendingCommitRef = useRef<{
+    generation: number;
+    promise: Promise<boolean>;
+  } | null>(null);
   const saveContextRef = useRef<SaveContext>({
     currentCfi: '',
     currentAnchorCfi: '',
@@ -109,6 +132,13 @@ export const useReaderProgressSave = ({
     expectedPercent?: number;
     bookmarks?: Bookmark[];
   }) => {
+    if (ttsProgressFenceTailTimerRef.current !== null) {
+      window.clearTimeout(ttsProgressFenceTailTimerRef.current);
+      ttsProgressFenceTailTimerRef.current = null;
+    }
+    // Explicit user input releases the fence before its relocation arrives.
+    ttsProgressFenceActiveRef.current = false;
+    traceReaderProgressRegression({ event: 'user-change' });
     hasUserInteractedRef.current = true;
     hasUnsavedUserChangeRef.current = true;
     interactionGenerationRef.current += 1;
@@ -145,7 +175,14 @@ export const useReaderProgressSave = ({
     pct: number,
     nextBookmarks: Bookmark[],
     options?: SaveProgressOptions
-  ) => {
+  ): Promise<boolean> => {
+    traceReaderProgressRegression({
+      event: 'save-attempt',
+      cfi,
+      force: Boolean(options?.force),
+      fenceActive: ttsProgressFenceActiveRef.current,
+      hasUnsavedUserChange: hasUnsavedUserChangeRef.current,
+    });
     if (!options?.force && !hasUnsavedUserChangeRef.current) return false;
 
     const safePercent = toClampedPercent(pct);
@@ -203,10 +240,64 @@ export const useReaderProgressSave = ({
     );
   }, [saveProgressIfChanged]);
 
+  const setTtsProgressFenceActive = useCallback((active: boolean) => {
+    if (ttsProgressFenceTailTimerRef.current !== null) {
+      window.clearTimeout(ttsProgressFenceTailTimerRef.current);
+      ttsProgressFenceTailTimerRef.current = null;
+    }
+    if (active) {
+      clearRelocateSaveTimer();
+      ttsProgressFenceActiveRef.current = true;
+      const pending = pendingRelocateSaveRef.current;
+      const generation = interactionGenerationRef.current;
+      const existingCommit = ttsFencePendingCommitRef.current?.generation === generation
+        ? ttsFencePendingCommitRef.current.promise
+        : null;
+      const commit = startPendingReaderProgressCommitForTtsFence(
+        pending,
+        existingCommit,
+        (snapshot) => saveProgressIfChanged(
+          snapshot.cfi,
+          snapshot.percent,
+          snapshot.bookmarks,
+          { anchorCfi: snapshot.anchorCfi },
+        ),
+      );
+      if (commit && commit !== existingCommit) {
+        ttsFencePendingCommitRef.current = { generation, promise: commit };
+        const clearCommit = () => {
+          if (ttsFencePendingCommitRef.current?.promise === commit) {
+            ttsFencePendingCommitRef.current = null;
+          }
+        };
+        void commit.then(clearCommit, clearCommit);
+      }
+      traceReaderProgressRegression({
+        event: 'tts-fence',
+        active: true,
+        pendingUserLocation: Boolean(pending),
+      });
+      return;
+    }
+    // Foliate may emit one last anchor/page relocate after transient
+    // navigation cancellation. Explicit input can release this tail early.
+    ttsProgressFenceTailTimerRef.current = window.setTimeout(() => {
+      ttsProgressFenceTailTimerRef.current = null;
+      ttsProgressFenceActiveRef.current = false;
+      traceReaderProgressRegression({ event: 'tts-fence-tail-released' });
+    }, TTS_PROGRESS_FENCE_TAIL_MS);
+    traceReaderProgressRegression({ event: 'tts-fence-tail-started' });
+  }, [clearRelocateSaveTimer, saveProgressIfChanged]);
+
   const scheduleRelocateSave = useCallback((pending: PendingRelocateSave, options?: {
     delayMs?: number;
     useMaxInterval?: boolean;
   }) => {
+    traceReaderProgressRegression({
+      event: 'relocate-save-scheduled',
+      cfi: pending.cfi,
+      fenceActive: ttsProgressFenceActiveRef.current,
+    });
     pendingRelocateSaveRef.current = pending;
 
     const now = Date.now();
@@ -228,6 +319,13 @@ export const useReaderProgressSave = ({
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
   const handleRelocateForSave = useCallback((detail: ReaderRelocateDetail) => {
+    traceReaderProgressRegression({
+      event: 'relocate',
+      reason: detail.reason ?? null,
+      navigationSource: detail.navigationSource ?? null,
+      cfi: detail.cfi ?? null,
+      fenceActive: ttsProgressFenceActiveRef.current,
+    });
     const { totalProgress, bookmarks, hasSyncConflict } = saveContextRef.current;
     const fallbackPercent = pendingExpectedPercentRef.current ?? totalProgress;
     const previousPersistableLocation = lastPersistableLocationRef.current;
@@ -235,6 +333,7 @@ export const useReaderProgressSave = ({
       previousPersistableLocation,
       detail,
       fallbackPercent,
+      ttsProgressFenceActiveRef.current,
     );
     if (persistableLocation === previousPersistableLocation) return;
     lastPersistableLocationRef.current = persistableLocation;
@@ -265,6 +364,12 @@ export const useReaderProgressSave = ({
   }, [scheduleRelocateSave]);
 
   const saveCurrentProgress = useCallback((options?: SaveProgressOptions) => {
+    traceReaderProgressRegression({
+      event: 'save-current',
+      force: Boolean(options?.force),
+      fenceActive: ttsProgressFenceActiveRef.current,
+      hasPendingRelocateSave: pendingRelocateSaveRef.current !== null,
+    });
     const { bookmarks } = saveContextRef.current;
     const { cfi, anchorCfi, percent } = lastPersistableLocationRef.current;
     if (!cfi) return false;
@@ -272,6 +377,7 @@ export const useReaderProgressSave = ({
     if (pendingRelocateSaveRef.current) {
       return savePendingRelocate(options);
     }
+    if (ttsProgressFenceActiveRef.current) return false;
     return saveProgressIfChanged(
       cfi,
       percent,
@@ -354,6 +460,16 @@ export const useReaderProgressSave = ({
   ), [getPersistenceState]);
 
   const flushCurrentProgress = useCallback(async () => {
+    if (
+      ttsProgressFenceActiveRef.current
+      && !pendingRelocateSaveRef.current
+    ) {
+      return isReaderProgressPersistenceSettled({
+        hasUnsavedUserChange: hasUnsavedUserChangeRef.current,
+        hasPendingRelocateSave: false,
+        inFlightCommitCount: inFlightCommitCountRef.current,
+      });
+    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const generation = interactionGenerationRef.current;
       const committed = await saveCurrentProgress({ force: true });
@@ -370,20 +486,42 @@ export const useReaderProgressSave = ({
 
   useEffect(() => () => {
     clearRelocateSaveTimer();
+    if (ttsProgressFenceTailTimerRef.current !== null) {
+      window.clearTimeout(ttsProgressFenceTailTimerRef.current);
+    }
   }, [clearRelocateSaveTimer]);
 
   const completeRemoteJump = useCallback(async (
     target: RemoteProgressTarget,
     bookmarks: Bookmark[],
-    options?: { claimDevice?: boolean; finalize?: () => Promise<boolean> }
-  ) => {
-    const safePercent = toClampedPercent(target.percent) ?? 0;
-    const bookmarksKey = getBookmarksKey(bookmarks);
+    options?: {
+      claimDevice?: boolean;
+      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
+    }
+  ): Promise<RemoteProgressJumpCompletion> => {
+    let safePercent = toClampedPercent(target.percent) ?? 0;
+    let bookmarksKey = getBookmarksKey(bookmarks);
 
     if (options?.finalize) {
-      const committed = await options.finalize();
-      if (!committed) return false;
-      lastSaveTimeRef.current = target.lastRead;
+      const result = await options.finalize();
+      if (result.status !== 'committed') {
+        return result.status === 'stale'
+          ? { completed: false, afterRollback: result.restart }
+          : false;
+      }
+      target = {
+        ...target,
+        cfi: result.progress.cfi,
+        anchorCfi: result.progress.anchorCfi,
+        percent: result.progress.progressPercent,
+        lastRead: result.progress.lastRead,
+        syncRevision: result.progress.syncRevision,
+        acceptedEventId: result.progress.acceptedEventId,
+      };
+      safePercent = toClampedPercent(result.progress.progressPercent) ?? 0;
+      bookmarks = result.progress.bookmarks ?? bookmarks;
+      bookmarksKey = getBookmarksKey(bookmarks);
+      lastSaveTimeRef.current = result.progress.lastRead;
     } else if (options?.claimDevice) {
       const committed = await onSaveProgress(target.cfi, safePercent, bookmarks, {
         force: true,
@@ -406,7 +544,6 @@ export const useReaderProgressSave = ({
       if (!adopted) return false;
       lastSaveTimeRef.current = target.lastRead;
     }
-
     lastPersistedProgressRef.current = {
       cfi: target.cfi,
       anchorCfi: target.anchorCfi || target.cfi,
@@ -426,10 +563,13 @@ export const useReaderProgressSave = ({
   const completeRemoteReset = useCallback(async (
     target: Omit<RemoteProgressTarget, 'cfi' | 'anchorCfi' | 'percent'>,
     bookmarks: Bookmark[],
-    options?: { finalize?: () => Promise<boolean> },
-  ) => {
-    const adopted = options?.finalize
+    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> },
+  ): Promise<RemoteProgressJumpCompletion> => {
+    const finalizeResult = options?.finalize
       ? await options.finalize()
+      : null;
+    const adopted = finalizeResult
+      ? finalizeResult.status === 'committed'
       : await onAdoptRemoteProgress({
         operation: 'reset',
         bookId: target.bookId,
@@ -441,13 +581,20 @@ export const useReaderProgressSave = ({
         syncRevision: target.syncRevision,
         acceptedEventId: target.acceptedEventId,
       });
-    if (!adopted) return false;
-    lastSaveTimeRef.current = target.lastRead;
+    if (!adopted) {
+      return finalizeResult?.status === 'stale'
+        ? { completed: false, afterRollback: finalizeResult.restart }
+        : false;
+    }
+    const committedProgress = finalizeResult?.status === 'committed'
+      ? finalizeResult.progress
+      : null;
+    lastSaveTimeRef.current = committedProgress?.lastRead ?? target.lastRead;
     lastPersistedProgressRef.current = {
       cfi: '',
       anchorCfi: '',
       percent: 0,
-      bookmarksKey: getBookmarksKey(bookmarks),
+      bookmarksKey: getBookmarksKey(committedProgress?.bookmarks ?? bookmarks),
     };
     lastPersistableLocationRef.current = { cfi: '', anchorCfi: '', percent: 0 };
     clearPendingSave();
@@ -459,6 +606,7 @@ export const useReaderProgressSave = ({
     lastSaveTimeRef,
     updateSaveContext,
     markUserProgressChange,
+    setTtsProgressFenceActive,
     saveProgressIfChanged,
     handleRelocateForSave,
     saveCurrentProgress,

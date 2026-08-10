@@ -1901,12 +1901,25 @@ export type ExpectedLocalProgressStateV5 =
   | { kind: 'empty' }
   | { kind: 'position'; position: ProgressPositionV2 };
 
+export type ExpectedRemoteProgressHeadV5 = Pick<
+  ProgressHeadV2,
+  'revision' | 'acceptedEventId' | 'operation' | 'position'
+>;
+
 const matchesExpectedLocalProgressState = (
   progress: { cfi?: string; anchorCfi?: string; progressPercent?: number } | undefined,
   expected: ExpectedLocalProgressStateV5,
 ) => expected.kind === 'empty'
   ? !progress?.cfi
   : matchesProgressPosition(progress, expected.position);
+
+const matchesExpectedRemoteProgressHead = (
+  head: ProgressHeadV2,
+  expected: ExpectedRemoteProgressHeadV5,
+) => head.revision === expected.revision
+  && head.acceptedEventId === expected.acceptedEventId
+  && head.operation === expected.operation
+  && JSON.stringify(head.position) === JSON.stringify(expected.position);
 
 const isConflictRemoteHeadStale = (
   conflict: SyncConflictV5,
@@ -2015,7 +2028,16 @@ const buildRemoteProgressResolutionV5 = ({
   const expectedLocalState: ExpectedLocalProgressStateV5 = latestLocalPosition
     ? { kind: 'position', position: latestLocalPosition }
     : { kind: 'empty' };
-  return { progress, expectedLocalState };
+  return {
+    progress,
+    expectedLocalState,
+    expectedRemoteHead: {
+      revision: conflict.remoteHead.revision,
+      acceptedEventId: conflict.remoteHead.acceptedEventId,
+      operation: conflict.remoteHead.operation,
+      position: conflict.remoteHead.position,
+    } satisfies ExpectedRemoteProgressHeadV5,
+  };
 };
 
 export const previewSyncConflictUseRemoteProgressV5 = async (
@@ -2045,7 +2067,9 @@ export const previewSyncConflictUseRemoteProgressV5 = async (
     .get([ownerKey, conflict.event.target.bookId]) as
       (UserProgress & { ownerKey: OwnerKey }) | undefined;
   await tx.done;
-  return buildRemoteProgressResolutionV5({
+  return {
+    conflict,
+    ...buildRemoteProgressResolutionV5({
     ownerKey,
     conflict: conflict as SyncConflictV5 & {
       event: ProgressOutboxEventV5;
@@ -2054,7 +2078,8 @@ export const previewSyncConflictUseRemoteProgressV5 = async (
     existing,
     now,
     preserveLocalProgress,
-  });
+    }),
+  };
 };
 
 export const resolveSyncConflictUseRemoteV5 = async (
@@ -2063,6 +2088,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
   now = Date.now(),
   preserveLocalProgress = false,
   expectedLocalState?: ExpectedLocalProgressStateV5,
+  expectedRemoteHead?: ExpectedRemoteProgressHeadV5,
+  signal?: AbortSignal,
 ) => {
   const db = await initDB();
   const tx = db.transaction([
@@ -2072,6 +2099,22 @@ export const resolveSyncConflictUseRemoteV5 = async (
     V5_SYNC_META_STORE,
     V5_REMOTE_HEADS_STORE,
   ], 'readwrite');
+  let abortedBySignal = false;
+  const abortTransaction = () => {
+    abortedBySignal = true;
+    try {
+      tx.abort();
+    } catch {
+      // The transaction may already be committed or aborted.
+    }
+  };
+  signal?.addEventListener('abort', abortTransaction, { once: true });
+  try {
+  if (signal?.aborted) {
+    abortTransaction();
+    await tx.done.catch(() => undefined);
+    return null;
+  }
   const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
   const conflict = await conflictStore.get([ownerKey, conflictId]) as SyncConflictV5 | undefined;
   if (!conflict?.event || !conflict.remoteHead) {
@@ -2090,6 +2133,16 @@ export const resolveSyncConflictUseRemoteV5 = async (
     tx.abort();
     await tx.done.catch(() => undefined);
     throw new Error('annotation 충돌은 전용 resolver에서 처리해야 합니다.');
+  }
+  if (
+    expectedRemoteHead
+    && (
+      !('position' in conflict.remoteHead)
+      || !matchesExpectedRemoteProgressHead(conflict.remoteHead, expectedRemoteHead)
+    )
+  ) {
+    await tx.done;
+    return null;
   }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
@@ -2198,6 +2251,15 @@ export const resolveSyncConflictUseRemoteV5 = async (
   await tx.done;
   notifyProgressSyncWork(ownerKey);
   return nextProgress;
+  } catch (error) {
+    if (abortedBySignal || signal?.aborted) {
+      await tx.done.catch(() => undefined);
+      return null;
+    }
+    throw error;
+  } finally {
+    signal?.removeEventListener('abort', abortTransaction);
+  }
 };
 
 export const resolveSyncConflictKeepLocalV5 = async (

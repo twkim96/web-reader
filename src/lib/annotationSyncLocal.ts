@@ -10,6 +10,7 @@ import {
 import type { OwnerKey } from './ownerIdentity';
 import {
   ANNOTATION_BOOK_LIMIT,
+  ANNOTATION_BOOK_DELETE_MARKER_ID,
   ANNOTATION_COLOR_LIMIT,
   isAnnotation,
 } from './annotationPolicy';
@@ -113,6 +114,182 @@ export const getLocalAnnotationIdsV8 = async (
   return records.filter(isAnnotation).map(({ id }) => id);
 };
 
+const applyRemoteAnnotationBookDeletionMarkerTransactionV5 = async (
+  ownerKey: OwnerKey,
+  incomingMarkerHead: AnnotationHeadV1,
+  isCurrent: () => boolean = () => true,
+  signal?: AbortSignal,
+  now = Date.now(),
+) => {
+  const bookId = incomingMarkerHead.bookId;
+  if (
+    incomingMarkerHead.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID
+    || incomingMarkerHead.operation !== 'delete'
+  ) throw new TypeError('annotation 삭제 marker가 올바르지 않습니다.');
+  if (!isCurrent()) return { changed: false, removed: 0, skipped: 0, stale: true };
+  const db = await initDB();
+  const tx = db.transaction([
+    V8_ANNOTATIONS_STORE,
+    V5_OUTBOX_STORE,
+    V5_SYNC_CONFLICTS_STORE,
+    V5_REMOTE_HEADS_STORE,
+    V5_SYNC_META_STORE,
+  ], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const abortTransaction = () => {
+    try {
+      tx.abort();
+    } catch {
+      // The transaction may already be committed or aborted.
+    }
+  };
+  signal?.addEventListener('abort', abortTransaction, { once: true });
+  try {
+    if (signal?.aborted) {
+      abortTransaction();
+      await tx.done.catch(() => undefined);
+      return { changed: false, removed: 0, skipped: 0, stale: true };
+    }
+    const annotationStore = tx.objectStore(V8_ANNOTATIONS_STORE);
+    const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
+    const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+    const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
+    const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+    const markerTargetKey = annotationTargetKeyV1(
+      bookId,
+      ANNOTATION_BOOK_DELETE_MARKER_ID,
+    );
+    const [stored, markerCache, markerMeta] = await Promise.all([
+      annotationStore.index('by-owner-book').getAll([
+        ownerKey,
+        bookId,
+      ]) as Promise<StoredAnnotation[]>,
+      remoteStore.get([ownerKey, markerTargetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+      metaStore.get([ownerKey, markerTargetKey]) as Promise<SyncMetaV5 | undefined>,
+    ]);
+    let effectiveMarkerHead = markerCache?.head;
+    const isSameHead = markerCache?.revision === incomingMarkerHead.revision
+      && markerCache.head.acceptedEventId === incomingMarkerHead.acceptedEventId;
+    if (
+      !isSameHead
+      && (!markerCache || incomingMarkerHead.revision >= markerCache.revision)
+    ) {
+      await remoteStore.put({
+        ownerKey,
+        targetKey: markerTargetKey,
+        revision: incomingMarkerHead.revision,
+        head: incomingMarkerHead,
+        updatedAt: now,
+      } satisfies RemoteHeadCacheV5);
+      effectiveMarkerHead = incomingMarkerHead;
+    }
+    const knownRevision = Math.max(
+      markerMeta?.knownRevision ?? 0,
+      markerCache?.revision ?? 0,
+      incomingMarkerHead.revision,
+    );
+    if (!markerMeta || knownRevision > markerMeta.knownRevision) {
+      await metaStore.put({
+        ...(markerMeta ?? {
+          ownerKey,
+          targetKey: markerTargetKey,
+          knownRevision: 0,
+          nextSequence: 1,
+          updatedAt: now,
+        }),
+        knownRevision,
+        updatedAt: now,
+      } satisfies SyncMetaV5);
+    }
+    if (
+      !effectiveMarkerHead
+      || !isAnnotationHeadV1(effectiveMarkerHead)
+      || effectiveMarkerHead.bookId !== bookId
+      || effectiveMarkerHead.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID
+      || effectiveMarkerHead.operation !== 'delete'
+    ) {
+      await tx.done;
+      return { changed: false, removed: 0, skipped: 0, stale: false };
+    }
+
+    const current = new Map(stored.filter(isAnnotation).map((item) => (
+      [item.id, withoutOwner(item)]
+    )));
+    let removed = 0;
+    let skipped = 0;
+    for (const annotation of current.values()) {
+      const targetKey = annotationTargetKeyV1(bookId, annotation.id);
+      const [cached, targetEvents, openConflicts, deferredConflicts] = await Promise.all([
+        remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+        outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+          [ownerKey, targetKey, 0],
+          [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+        )) as Promise<SyncOutboxEventV5[]>,
+        conflictStore.index('by-owner-target-state').getAll([
+          ownerKey,
+          targetKey,
+          'open',
+        ]) as Promise<SyncConflictV5[]>,
+        conflictStore.index('by-owner-target-state').getAll([
+          ownerKey,
+          targetKey,
+          'deferred',
+        ]) as Promise<SyncConflictV5[]>,
+      ]);
+      const head = cached?.head;
+      if (
+        !head
+        || !isAnnotationHeadV1(head)
+        || head.bookId !== bookId
+        || head.annotationId !== annotation.id
+        || head.operation !== 'upsert'
+        || (head.bookGeneration ?? 0) >= effectiveMarkerHead.revision
+      ) continue;
+      const hasLocalWork = targetEvents.some((event) => activeStatuses.has(event.status))
+        || openConflicts.length > 0
+        || deferredConflicts.length > 0;
+      if (hasLocalWork) {
+        skipped += 1;
+        continue;
+      }
+      await annotationStore.delete([ownerKey, bookId, annotation.id]);
+      current.delete(annotation.id);
+      removed += 1;
+    }
+    validateHydratedAnnotations([...current.values()]);
+    if (!isCurrent() || signal?.aborted) {
+      abortTransaction();
+      await tx.done.catch(() => undefined);
+      return { changed: false, removed: 0, skipped: 0, stale: true };
+    }
+    await tx.done;
+    return { changed: removed > 0, removed, skipped, stale: false };
+  } catch (error) {
+    abortTransaction();
+    await tx.done.catch(() => undefined);
+    if (signal?.aborted || !isCurrent()) {
+      return { changed: false, removed: 0, skipped: 0, stale: true };
+    }
+    throw error;
+  } finally {
+    signal?.removeEventListener('abort', abortTransaction);
+  }
+};
+
+export const applyRemoteAnnotationBookDeletionMarkerV5 = (
+  ownerKey: OwnerKey,
+  markerHead: AnnotationHeadV1,
+  isCurrent: () => boolean = () => true,
+  signal?: AbortSignal,
+  now = Date.now(),
+) => applyRemoteAnnotationBookDeletionMarkerTransactionV5(
+  ownerKey,
+  markerHead,
+  isCurrent,
+  signal,
+  now,
+);
+
 export const enqueueMissingLocalAnnotationPaletteV5 = async (
   ownerKey: OwnerKey,
   items: Parameters<typeof enqueueAnnotationPaletteEventV5>[1]['payload']['items'],
@@ -164,6 +341,22 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
       ownerKey,
       bookId,
     ]) as StoredAnnotation[];
+    const markerTargetKey = annotationTargetKeyV1(
+      bookId,
+      ANNOTATION_BOOK_DELETE_MARKER_ID,
+    );
+    const markerCache = await remoteStore.get([
+      ownerKey,
+      markerTargetKey,
+    ]) as RemoteHeadCacheV5 | undefined;
+    const markerHead = markerCache?.head;
+    const currentBookGeneration = markerHead
+      && isAnnotationHeadV1(markerHead)
+      && markerHead.bookId === bookId
+      && markerHead.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+      && markerHead.operation === 'delete'
+      ? markerHead.revision
+      : 0;
     if (!isCurrent()) {
       abortTransaction();
       await tx.done.catch(() => undefined);
@@ -209,6 +402,13 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
       }
       const existing = current.get(head.annotationId);
       if (head.operation === 'delete') {
+        if (existing) {
+          current.delete(head.annotationId);
+          writes.push({ type: 'delete', id: head.annotationId });
+        }
+        continue;
+      }
+      if ((head.bookGeneration ?? 0) < currentBookGeneration) {
         if (existing) {
           current.delete(head.annotationId);
           writes.push({ type: 'delete', id: head.annotationId });

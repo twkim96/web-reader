@@ -4,7 +4,11 @@ import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'reac
 import { Bookmark, RemoteProgressUpdate } from '../../types';
 import { decideRemoteProgressAction } from './remoteProgressPolicy';
 import { executeRemoteProgressJump } from './remoteProgressJump';
-import type { ResolvedRemoteProgressCommand } from '../useSyncConflictResolution';
+import type { RemoteProgressJumpCompletion } from './remoteProgressJump';
+import type {
+  RemoteProgressCommandFinalizeResult,
+  ResolvedRemoteProgressCommand,
+} from '../useSyncConflictResolution';
 
 export type SyncConflict = {
   operation: 'set' | 'reset';
@@ -24,7 +28,9 @@ interface UseRemoteProgressPromptOptions {
   remoteProgress?: RemoteProgressUpdate;
   resolvedRemoteProgressCommand?: ResolvedRemoteProgressCommand | null;
   onResolvedRemoteProgressConsumed?: (commandId: string) => void;
-  onResolvedRemoteProgressFinalize?: (commandId: string) => Promise<boolean>;
+  onResolvedRemoteProgressFinalize?: (
+    commandId: string,
+  ) => Promise<RemoteProgressCommandFinalizeResult>;
   onResolvedRemoteProgressCancelled?: (commandId: string) => void;
   outboxConflictRevision?: number;
   ignoredRemoteRevision?: number;
@@ -48,13 +54,16 @@ interface UseRemoteProgressPromptOptions {
   completeRemoteJump: (
     target: SyncConflict,
     bookmarks: Bookmark[],
-    options?: { claimDevice?: boolean; finalize?: () => Promise<boolean> }
-  ) => Promise<boolean>;
+    options?: {
+      claimDevice?: boolean;
+      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
+    }
+  ) => Promise<RemoteProgressJumpCompletion>;
   completeRemoteReset: (
     target: Omit<SyncConflict, 'cfi' | 'anchorCfi' | 'percent' | 'operation'>,
     bookmarks: Bookmark[],
-    options?: { finalize?: () => Promise<boolean> },
-  ) => Promise<boolean>;
+    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> },
+  ) => Promise<RemoteProgressJumpCompletion>;
   hasLocalProgress: boolean;
 }
 
@@ -103,10 +112,25 @@ export const useRemoteProgressPrompt = ({
     lastRead: number;
   } | null>(null);
   const jumpTail = useRef<Promise<void>>(Promise.resolve());
+  const resolvedRemoteProgressCommandRef = useRef(resolvedRemoteProgressCommand);
+  useEffect(() => {
+    if (
+      resolvedRemoteProgressCommandRef.current?.commandId
+      !== resolvedRemoteProgressCommand?.commandId
+    ) jumpGeneration.current += 1;
+    resolvedRemoteProgressCommandRef.current = resolvedRemoteProgressCommand;
+  }, [resolvedRemoteProgressCommand]);
+
+  useEffect(() => () => {
+    jumpGeneration.current += 1;
+  }, []);
 
   const jumpToRemoteProgress = useCallback(async (
     target: SyncConflict,
-    options?: { claimDevice?: boolean; finalize?: () => Promise<boolean> }
+    options?: {
+      claimDevice?: boolean;
+      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
+    }
   ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
@@ -138,7 +162,7 @@ export const useRemoteProgressPrompt = ({
 
   const resetToRemoteProgress = useCallback(async (
     target: SyncConflict,
-    options?: { finalize?: () => Promise<boolean> },
+    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> },
   ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
@@ -187,11 +211,17 @@ export const useRemoteProgressPrompt = ({
         bookmarks: progress.bookmarks ?? getBookmarks(),
         resolutionCommandId: commandId,
       };
+      let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
       void resetToRemoteProgress(target, {
-        finalize: () => onResolvedRemoteProgressFinalize?.(commandId) ?? Promise.resolve(false),
+        finalize: async () => {
+          const result = await (onResolvedRemoteProgressFinalize?.(commandId)
+            ?? Promise.resolve({ status: 'cancelled' as const }));
+          if (result.status === 'committed') finalizedProgress = result.progress;
+          return result;
+        },
       }).then((completed) => {
         if (completed) {
-          adoptResolvedBookmarks(target.bookmarks ?? []);
+          adoptResolvedBookmarks(finalizedProgress?.bookmarks ?? target.bookmarks ?? []);
           setSyncConflict(null);
           lastProcessedRemote.current = {
             operation: 'reset',
@@ -200,7 +230,7 @@ export const useRemoteProgressPrompt = ({
           };
           isInitialSync.current = false;
           onResolvedRemoteProgressConsumed?.(commandId);
-        } else {
+        } else if (resolvedRemoteProgressCommandRef.current?.commandId === commandId) {
           setSyncConflict(target);
         }
       });
@@ -221,18 +251,26 @@ export const useRemoteProgressPrompt = ({
       resolutionCommandId: commandId,
     };
     jumpingRemote.current = { operation: 'set', cfi: remoteAnchorCfi, lastRead: target.lastRead };
+    let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
     void jumpToRemoteProgress(target, {
-      finalize: () => onResolvedRemoteProgressFinalize?.(commandId) ?? Promise.resolve(false),
+      finalize: async () => {
+        const result = await (onResolvedRemoteProgressFinalize?.(commandId)
+          ?? Promise.resolve({ status: 'cancelled' as const }));
+        if (result.status === 'committed') finalizedProgress = result.progress;
+        return result;
+      },
     }).then((completed) => {
       if (
         jumpingRemote.current?.cfi === remoteAnchorCfi
         && jumpingRemote.current.lastRead === target.lastRead
       ) jumpingRemote.current = null;
       if (!completed) {
-        setSyncConflict(target);
+        if (resolvedRemoteProgressCommandRef.current?.commandId === commandId) {
+          setSyncConflict(target);
+        }
         return;
       }
-      adoptResolvedBookmarks(target.bookmarks ?? []);
+      adoptResolvedBookmarks(finalizedProgress?.bookmarks ?? target.bookmarks ?? []);
       setSyncConflict(null);
       lastProcessedRemote.current = { operation: 'set', cfi: remoteAnchorCfi, lastRead: target.lastRead };
       isInitialSync.current = false;
@@ -383,17 +421,26 @@ export const useRemoteProgressPrompt = ({
     const target = stagedBookmarks
       ? { ...syncConflict, bookmarks: stagedBookmarks }
       : syncConflict;
+    let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
     const finalize = syncConflict.resolutionCommandId
-      ? () => onResolvedRemoteProgressFinalize?.(syncConflict.resolutionCommandId!)
-        ?? Promise.resolve(false)
+      ? async () => {
+        const result = await (onResolvedRemoteProgressFinalize?.(
+          syncConflict.resolutionCommandId!,
+        ) ?? Promise.resolve({ status: 'cancelled' as const }));
+        if (result.status === 'committed') finalizedProgress = result.progress;
+        return result;
+      }
       : undefined;
     const jump = target.operation === 'reset'
       ? resetToRemoteProgress(target, { finalize })
       : jumpToRemoteProgress(target, { claimDevice: !finalize, finalize });
     void jump.then((completed) => {
       if (completed) {
-        if (stagedBookmarks) commitBookmarks(stagedBookmarks);
-        adoptResolvedBookmarks(target.bookmarks ?? getBookmarks());
+        const committedBookmarks = finalizedProgress?.bookmarks
+          ?? target.bookmarks
+          ?? getBookmarks();
+        if (stagedBookmarks) commitBookmarks(committedBookmarks);
+        adoptResolvedBookmarks(committedBookmarks);
         if (syncConflict.resolutionCommandId) {
           onResolvedRemoteProgressConsumed?.(syncConflict.resolutionCommandId);
         }

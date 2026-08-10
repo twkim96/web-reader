@@ -90,8 +90,28 @@ const waitFor = async (expression, label, timeoutMs = 30_000) => {
   }
   const body = await evaluate('document.body?.innerText?.slice(0, 1200) ?? ""')
     .catch(() => '');
+  const diagnostics = await evaluate(`(() => {
+    const view = document.querySelector('foliate-view');
+    return {
+      visibilityState: document.visibilityState,
+      hasFocus: document.hasFocus(),
+      appView: document.querySelector('[data-app-view]')?.getAttribute('data-app-view'),
+      libraryBootstrapReady: document.querySelector('[data-app-view]')
+        ?.getAttribute('data-library-bootstrap-ready'),
+      lastReaderSession: localStorage.getItem('last_reader_session'),
+      lastReaderAutoOpen: document.documentElement.dataset.lastReaderAutoOpen,
+      viewerSettings: localStorage.getItem('viewer_settings'),
+      regressionErrors: window.__regressionErrors ?? [],
+      liveFoliateDocuments: view?.renderer?.getContents?.().map(({ doc }) => ({
+        visibilityState: doc?.visibilityState,
+        connected: Boolean(doc?.defaultView?.frameElement?.isConnected),
+        textLength: doc?.body?.innerText?.length ?? 0,
+      })) ?? [],
+    };
+  })()`).catch((error) => ({ diagnosticError: error.message }));
   throw new Error(
-    `Timed out waiting for ${label}${lastError ? `: ${lastError.message}` : ''}\n${body}`,
+    `Timed out waiting for ${label}${lastError ? `: ${lastError.message}` : ''}`
+    + `\nDiagnostics: ${JSON.stringify(diagnostics)}\n${body}`,
   );
 };
 
@@ -145,6 +165,21 @@ try {
       });
       window.__regressionErrors = [];
       window.__regressionLongTasks = [];
+      window.__regressionNextFrame = async (frameCount = 1, timeoutMs = 100) => {
+        for (let index = 0; index < frameCount; index += 1) {
+          await new Promise((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resolve();
+            };
+            const timer = setTimeout(finish, timeoutMs);
+            requestAnimationFrame(finish);
+          });
+        }
+      };
       addEventListener('error', (event) => {
         window.__regressionErrors.push(String(event.error?.stack || event.message));
       });
@@ -1050,7 +1085,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.8')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.9')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -1105,7 +1140,7 @@ try {
     const menuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < menuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const menu = document.querySelector('[data-reader-selection-menu="true"]');
     const menuRect = menu?.getBoundingClientRect();
@@ -1127,7 +1162,7 @@ try {
       clientX: selectedRect.left + selectedRect.width / 2,
       clientY: selectedRect.top + selectedRect.height / 2,
     }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const afterSuppressedClick = renderer.start;
     const currentMenu = document.querySelector('[data-reader-selection-menu="true"]');
     const actionRects = [...(currentMenu?.querySelectorAll('button') ?? [])]
@@ -1203,7 +1238,7 @@ try {
     const postTtsMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < postTtsMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const beforeTranslation = renderer.start;
     document.querySelector(
@@ -1212,7 +1247,7 @@ try {
     const translationDeadline = performance.now() + 4000;
     while (!document.querySelector('[data-reader-translation-dialog="true"]')
       && performance.now() < translationDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const translationDialogShown = Boolean(
       document.querySelector('[data-reader-translation-dialog="true"]'),
@@ -1221,7 +1256,7 @@ try {
     const translationBackDeadline = performance.now() + 2000;
     while (document.querySelector('[data-reader-translation-dialog="true"]')
       && performance.now() < translationBackDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const translationClosedByBack = !document.querySelector(
       '[data-reader-translation-dialog="true"]',
@@ -1232,7 +1267,7 @@ try {
     const translationRetryMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < translationRetryMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     document.querySelector(
       '[data-reader-selection-menu="true"] [data-reader-selection-translate="true"]',
@@ -1288,7 +1323,7 @@ try {
     const dictionaryMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < dictionaryMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     document.querySelector(
       '[data-reader-selection-menu="true"] [data-reader-selection-dictionary="true"]',
@@ -1297,7 +1332,7 @@ try {
     const dictionaryUrl = window.__languageToolUrls[0]?.url ?? '';
     selection.removeAllRanges();
     doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const beforeHighlightClick = renderer.start;
     const controlsBeforeHighlightClick = document.querySelector('nav')?.classList.contains('translate-y-0');
     const highlightTapInit = {
@@ -1327,7 +1362,7 @@ try {
     const touchHighlightMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-highlight-menu="true"]')
       && performance.now() < touchHighlightMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const highlightTouchMenuShown = Boolean(
       document.querySelector('[data-reader-highlight-menu="true"]'),
@@ -1336,7 +1371,7 @@ try {
     document.querySelector(
       '[data-reader-highlight-menu="true"] button[aria-label="하이라이트 메뉴 닫기"]',
     )?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     textNode.parentElement?.dispatchEvent(new doc.defaultView.MouseEvent('click', {
       bubbles: true,
       cancelable: true,
@@ -1346,7 +1381,7 @@ try {
     const highlightMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-highlight-menu="true"]')
       && performance.now() < highlightMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const highlightMenu = document.querySelector('[data-reader-highlight-menu="true"]');
     const highlightMouseMenuShown = Boolean(highlightMenu);
@@ -1374,7 +1409,7 @@ try {
     const restoredOverlayDeadline = performance.now() + 2000;
     while (!hasHighlightOverlay()
       && performance.now() < restoredOverlayDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const restoredAnnotations = await readAnnotations();
     const restoredOverlay = hasHighlightOverlay();
@@ -1390,7 +1425,7 @@ try {
     const creationFailureMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < creationFailureMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const originalCreationAddAnnotation = view.addAnnotation.bind(view);
     view.addAnnotation = async () => {
@@ -1424,7 +1459,7 @@ try {
     const duplicateMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < duplicateMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     document.querySelector(
       '[data-reader-selection-menu="true"] button[aria-label="초록 하이라이트 추가"]',
@@ -1440,7 +1475,7 @@ try {
     const overlayFailureMenuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-highlight-menu="true"]')
       && performance.now() < overlayFailureMenuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const originalDeleteAnnotation = view.deleteAnnotation.bind(view);
     view.deleteAnnotation = async () => {
@@ -1517,11 +1552,11 @@ try {
       }));
     };
     dispatchDocumentClick(toFramePoint(innerWidth / 2, innerHeight / 2));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const controlsOpened = document.querySelector('nav')?.classList.contains('translate-y-0');
     const beforeControlsCloseTap = renderer.start;
     dispatchDocumentClick(toFramePoint(innerWidth * 0.95, innerHeight / 2));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const controlsClosed = !document.querySelector('nav')?.classList.contains('translate-y-0');
     const afterControlsCloseTap = renderer.start;
     const dispatchPointerTap = (pointerId) => {
@@ -1556,7 +1591,7 @@ try {
     selection.removeAllRanges();
     selection.addRange(range);
     doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const nativeSelectionBeforeRapidSecondTap = selection.toString();
     dispatchPointerTap(402);
     await new Promise((resolve) => setTimeout(resolve, 130));
@@ -2046,6 +2081,27 @@ try {
       autoBookmarkCfi: progress.autoBookmark?.cfi ?? null,
       manualBookmarkCfi: progress.manualBookmark?.cfi ?? null,
     } : null;
+    const readActiveTtsDraft = () => {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key?.startsWith('reading_stats_draft_v1:')) continue;
+        try {
+          const draft = JSON.parse(localStorage.getItem(key));
+          if (draft?.mode === 'tts' && draft?.state === 'active') return {
+            sessionId: draft.sessionId ?? null,
+            intervalCount: Array.isArray(draft.activeIntervals)
+              ? draft.activeIntervals.length
+              : -1,
+            hasOpenInterval: Number.isSafeInteger(draft.activeIntervalStartedAtClient),
+            lastHeartbeatAt: draft.lastHeartbeatAt ?? null,
+            lastClosedIntervalEnd: Array.isArray(draft.activeIntervals)
+              ? draft.activeIntervals.at(-1)?.endedAtClient ?? null
+              : null,
+          };
+        } catch {}
+      }
+      return null;
+    };
     const seedProgressSentinel = async () => {
       const request = indexedDB.open('web-reader-db');
       const db = await new Promise((resolve, reject) => {
@@ -2077,7 +2133,33 @@ try {
     const relocateReasons = [];
     const handleRelocate = (event) => relocateReasons.push(event.detail?.reason ?? null);
     view.addEventListener('relocate', handleRelocate);
+    let progressPhase = 'preflush';
+    window.__readerProgressRegressionTrace = [];
+    window.__readerProgressRegressionPhase = progressPhase;
+    const setProgressPhase = (value) => {
+      progressPhase = value;
+      window.__readerProgressRegressionPhase = value;
+    };
+    await window.__flushReaderProgressForRegression?.();
     await seedProgressSentinel();
+    setProgressPhase('chapter-start');
+    const progressWrites = [];
+    const originalProgressPut = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      const value = args[0];
+      if (
+        this.name === 'progress-v5'
+        && value?.bookId === localStorage.getItem('__browserRegressionSelectionBookId')
+      ) {
+        progressWrites.push({
+          phase: progressPhase,
+          cfi: value.cfi ?? null,
+          progressPercent: value.progressPercent ?? null,
+          stack: new Error('progress-v5-put').stack?.split('\\n').slice(0, 8) ?? [],
+        });
+      }
+      return Reflect.apply(originalProgressPut, this, args);
+    };
 
     const speakBefore = window.__browserSpeechStats.speak;
     toolbarButton.click();
@@ -2098,6 +2180,7 @@ try {
     const controlsAtStart = document.querySelector('[data-reader-tts-controls="true"]');
     const total = Number(controlsAtStart?.dataset.readerTtsTotal ?? 0);
     const initialIndex = Number(controlsAtStart?.dataset.readerTtsIndex ?? -1);
+    const ttsDraftAtStart = readActiveTtsDraft();
     const chapterTextStart = window.__browserSpeechStats.texts.length - 1;
     const progressBefore = comparableProgress(await readProgress());
 
@@ -2126,7 +2209,9 @@ try {
       index === 0 || value === paragraphIndexes[index - 1] + 1
     ));
     await new Promise((resolve) => setTimeout(resolve, 150));
+    setProgressPhase('after-window');
     const progressAfterWindow = comparableProgress(await readProgress());
+    const ttsDraftAfterWindow = readActiveTtsDraft();
     const cursorsAfterWindow = JSON.parse(
       localStorage.getItem('reader_tts_cursor_v1') || '[]',
     );
@@ -2135,6 +2220,7 @@ try {
     ));
 
     const retryIndex = Number(controlsAfterWindow?.dataset.readerTtsIndex ?? -1);
+    setProgressPhase('retry');
     const retryText = window.__browserSpeechStats.texts.at(-1) ?? '';
     const retrySpeakBefore = window.__browserSpeechStats.speak;
     window.__errorBrowserSpeech?.('network');
@@ -2148,6 +2234,7 @@ try {
     const skippedToText = window.__browserSpeechStats.texts.at(-1) ?? '';
 
     const nativeVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    setProgressPhase('visibility');
     let visibility = 'visible';
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -2166,6 +2253,7 @@ try {
       '[data-reader-tts-controls="true"] button',
     )].find((button) => button.textContent?.trim() === '10분');
     timerButton?.click();
+    setProgressPhase('sleep-timer');
     await new Promise((resolve) => setTimeout(resolve, 20));
     const timerArmed = Boolean(document.querySelector(
       '[data-reader-tts-controls="true"] [data-reader-tts-sleep-active="true"]',
@@ -2182,6 +2270,7 @@ try {
       ?.textContent ?? '';
 
     const resumeSpeakBefore = window.__browserSpeechStats.speak;
+    setProgressPhase('resume');
     toolbarButton.click();
     await waitUntil(() => (
       window.__browserSpeechStats.speak > resumeSpeakBefore
@@ -2201,6 +2290,8 @@ try {
     const resumedIndex = Number(resumedControls?.dataset.readerTtsIndex ?? -1);
     const resumedText = window.__browserSpeechStats.texts.at(-1) ?? '';
     resumedControls?.querySelector('button[aria-label="TTS 중지"]')?.click();
+    setProgressPhase('stopped');
+    IDBObjectStore.prototype.put = originalProgressPut;
     view.removeEventListener('relocate', handleRelocate);
     if (originalLocationRange) view.lastLocation.range = originalLocationRange;
     return {
@@ -2213,6 +2304,8 @@ try {
       paragraphIndexes,
       progressAfterWindow,
       progressBefore,
+      progressTrace: window.__readerProgressRegressionTrace,
+      progressWrites,
       relocateReasons,
       resumeButtonFound: Boolean(resumeButton),
       resumedIndex,
@@ -2227,6 +2320,8 @@ try {
       sleepStopped,
       timerArmed,
       total,
+      ttsDraftAfterWindow,
+      ttsDraftAtStart,
       visibilityRecoveredText,
     };
   })()`);
@@ -2238,9 +2333,34 @@ try {
   assert.equal(chapterTts.afterWindowIndex, 55, JSON.stringify(chapterTts));
   assert.ok(chapterTts.afterWindowSize > 0 && chapterTts.afterWindowSize <= 51, JSON.stringify(chapterTts));
   assert.equal(chapterTts.sequential, true, JSON.stringify(chapterTts));
+  assert.ok(chapterTts.ttsDraftAtStart?.sessionId, JSON.stringify(chapterTts));
+  assert.ok(chapterTts.ttsDraftAtStart?.intervalCount >= 0, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.ttsDraftAtStart?.hasOpenInterval, true, JSON.stringify(chapterTts));
+  assert.ok(
+    chapterTts.ttsDraftAtStart?.lastHeartbeatAt
+      >= (chapterTts.ttsDraftAtStart?.lastClosedIntervalEnd ?? 0),
+    JSON.stringify(chapterTts),
+  );
+  assert.equal(
+    chapterTts.ttsDraftAfterWindow?.sessionId,
+    chapterTts.ttsDraftAtStart?.sessionId,
+    JSON.stringify(chapterTts),
+  );
+  assert.ok(
+    chapterTts.ttsDraftAfterWindow?.intervalCount
+      >= chapterTts.ttsDraftAtStart?.intervalCount,
+    JSON.stringify(chapterTts),
+  );
+  assert.equal(chapterTts.ttsDraftAfterWindow?.hasOpenInterval, true, JSON.stringify(chapterTts));
+  assert.ok(
+    chapterTts.ttsDraftAfterWindow?.lastHeartbeatAt
+      >= (chapterTts.ttsDraftAfterWindow?.lastClosedIntervalEnd ?? 0),
+    JSON.stringify(chapterTts),
+  );
   assert.deepEqual(chapterTts.paragraphIndexes.slice(0, 56), Array.from({ length: 56 }, (_, index) => index));
   assert.ok(chapterTts.relocateReasons.includes('tts-navigation'), JSON.stringify(chapterTts));
   assert.deepEqual(chapterTts.progressAfterWindow, chapterTts.progressBefore);
+  assert.deepEqual(chapterTts.progressWrites, [], JSON.stringify(chapterTts));
   assert.equal(chapterTts.cursorSourceIndex, 55, JSON.stringify(chapterTts));
   assert.equal(chapterTts.retryTextAfter, chapterTts.retryText, JSON.stringify(chapterTts));
   assert.equal(chapterTts.skippedToIndex, chapterTts.retryIndex + 1, JSON.stringify(chapterTts));
@@ -2422,7 +2542,7 @@ try {
     const menuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < menuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const semanticMenuFound = Boolean(
       document.querySelector('[data-reader-selection-menu="true"]'),
@@ -2502,7 +2622,7 @@ try {
       const ttsPanel = document.querySelector('[data-reader-tts-controls="true"]');
       const ttsDetails = ttsPanel?.querySelector('details');
       if (ttsDetails) ttsDetails.open = true;
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await window.__regressionNextFrame(2);
       const ttsPanelRect = ttsPanel?.getBoundingClientRect();
       const ttsStopRect = ttsPanel?.querySelector('button[aria-label="TTS 중지"]')
         ?.getBoundingClientRect();
@@ -2547,7 +2667,7 @@ try {
       const deadline = performance.now() + 2000;
       while (!document.querySelector('[data-reader-selection-menu="true"]')
         && performance.now() < deadline) {
-        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await window.__regressionNextFrame();
       }
       document.querySelector(
         '[data-reader-selection-menu="true"] [data-reader-selection-dictionary="true"]',
@@ -2787,27 +2907,27 @@ try {
     const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     inputSetter?.call(search, 'probe paragraph');
     search?.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const initialSearchItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     const initialSearchExpanded = greenGroup?.getAttribute('aria-expanded') === 'true';
     inputSetter?.call(search, '');
     search?.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const collapsedStateRestoredAfterSearch = greenGroup?.getAttribute('aria-expanded') === 'false';
     greenGroup?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const expandedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     document.querySelector('[data-reader-annotation-item] button[aria-label="메모 편집"]')?.click();
     const noteDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-annotation-note-dialog="true"]')
       && performance.now() < noteDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     history.back();
     const backDeadline = performance.now() + 2000;
     while (document.querySelector('[data-reader-annotation-note-dialog="true"]')
       && performance.now() < backDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const managerStayedOpenAfterBack = Boolean(
       document.querySelector('[data-reader-annotation-modal="true"]'),
@@ -2816,7 +2936,7 @@ try {
     const reopenDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-annotation-note-dialog="true"]')
       && performance.now() < reopenDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const textarea = document.querySelector('[data-reader-annotation-note-dialog="true"] textarea');
     const noteDraft = \`회귀 메모 \${Date.now()}\`;
@@ -2826,7 +2946,7 @@ try {
     )?.set;
     valueSetter?.call(textarea, noteDraft);
     textarea?.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     document.querySelector('[data-reader-annotation-note-dialog="true"]')?.requestSubmit();
     const saveDeadline = performance.now() + 3000;
     while (document.querySelector('[data-reader-annotation-note-dialog="true"]')
@@ -2836,35 +2956,35 @@ try {
     const feedbackDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-annotation-modal-feedback="true"]')
       && performance.now() < feedbackDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const modalFeedback = document.querySelector(
       '[data-reader-annotation-modal-feedback="true"]',
     )?.textContent ?? '';
 
     greenGroup?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const noteFilter = document.querySelector('[data-reader-annotation-note-filter="true"]');
     noteFilter?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const noteFilterItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     const noteFilterExpanded = greenGroup?.getAttribute('aria-expanded') === 'true';
     noteFilter?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const noteFilterCollapsedStateRestored = greenGroup?.getAttribute('aria-expanded') === 'false';
     greenGroup?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
 
     inputSetter?.call(search, '회귀 메모');
     search?.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const searchedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     inputSetter?.call(search, '');
     search?.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const manualExpandedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     greenGroup?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const collapsedItemCount = document.querySelectorAll('[data-reader-annotation-item]').length;
     greenGroup?.click();
 
@@ -3221,7 +3341,7 @@ try {
     const menuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < menuDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     document.querySelector(
       '[data-reader-selection-menu="true"] button[aria-label="초록 하이라이트 추가"]',
@@ -3231,7 +3351,7 @@ try {
       overlayer?.element?.querySelector('[data-reader-highlight="true"]')
     ));
     while (!hasOverlay() && performance.now() < overlayDeadline) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const request = indexedDB.open('web-reader-db');
     const db = await new Promise((resolve, reject) => {
@@ -3322,7 +3442,7 @@ try {
     select.value = 'json-library';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  await evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  await evaluate(`window.__regressionNextFrame(2)`);
   await evaluate(`document.querySelector('[data-library-annotation-download="true"]')?.click()`);
   await waitFor(
     'window.__libraryAnnotationExport.downloads.length === 1',
@@ -3350,7 +3470,7 @@ try {
     select.value = 'markdown-library';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  await evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  await evaluate(`window.__regressionNextFrame(2)`);
   await evaluate(`document.querySelector('[data-library-annotation-share="true"]')?.click()`);
   await waitFor(
     'window.__libraryAnnotationExport.shares.length === 1',
@@ -3638,10 +3758,10 @@ try {
     const autoOpenCheckbox = document.querySelector('input[type="checkbox"]');
     const autoOpenInitially = autoOpenCheckbox?.checked;
     autoOpenCheckbox?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const storedDisabled = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
     autoOpenCheckbox?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const getRowText = (label) => {
       const labelNode = [...document.querySelectorAll('label')]
         .find((node) => node.textContent?.trim() === label);
@@ -3659,11 +3779,11 @@ try {
       'button[aria-label="Decrease left and right tap area"]',
     );
     topIncrease?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     topIncrease?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     leftDecrease?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const updated = {
       topBottom: getRowText('Top/Bottom'),
       leftRight: getRowText('Left/Right'),
@@ -3677,7 +3797,7 @@ try {
       bubbles: true,
       cancelable: true,
     }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const scaleAfterModalKey = renderer?.userScale ?? null;
     const heading = [...document.querySelectorAll('h2')]
       .find((node) => node.textContent?.trim() === '리더 설정');
@@ -3714,7 +3834,7 @@ try {
       document.elementFromPoint(clientX, clientY)?.dispatchEvent(
         new MouseEvent('click', { bubbles: true, clientX, clientY }),
       );
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await window.__regressionNextFrame();
     }
     const before = renderer.userScale;
     const clientX = innerWidth / 2;
@@ -3729,7 +3849,7 @@ try {
       clientY,
     });
     target?.dispatchEvent(event);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     return {
       before,
       after: renderer.userScale,
@@ -3745,7 +3865,7 @@ try {
     const overlay = document.querySelector('[data-reader-controls-overlay="true"]');
     if (!renderer || !overlay || typeof Touch !== 'function') return null;
     renderer.setUserScale(2, { x: innerWidth / 2, y: innerHeight / 2 });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     renderer.scrollLeft = 0;
     renderer.scrollTop = 0;
     const before = {
@@ -3786,7 +3906,7 @@ try {
       targetTouches: [],
       changedTouches: [moveTouch],
     }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     return {
       before,
       after: {
@@ -3803,17 +3923,17 @@ try {
     const themeButton = [...document.querySelectorAll('button')]
       .find((node) => node.textContent?.trim() === '테마');
     themeButton?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
 
     const darkTheme = [...document.querySelectorAll('button')]
       .find((node) => node.textContent?.includes('dark')
         && node.textContent?.includes('Comfortable reading'));
     darkTheme?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
 
     const emeraldAccent = document.querySelector('button[title="emerald"]');
     emeraldAccent?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     await new Promise((resolve, reject) => {
       const deadline = performance.now() + 3000;
       const waitForPaint = () => {
@@ -3876,7 +3996,7 @@ try {
 
   await evaluate(`(async () => {
     document.querySelector('[data-reader-controls-overlay="true"]')?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     document.querySelector('[data-reader-controls-overlay="true"]')?.click();
   })()`);
   await waitFor(
@@ -3895,13 +4015,13 @@ try {
       ?.classList.contains('translate-y-0') ?? false;
 
     dispatchTap(0.295);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const controlsAtTwentyNinePointFive = controlsAreOpen();
 
     document.querySelector('div.fixed.inset-0.z-40.touch-none')?.click();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     dispatchTap(0.28);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const controlsAtTwentyEight = controlsAreOpen();
     const indexAfterTwentyEight = document.querySelector('foliate-view')?.renderer?.index ?? -1;
     return {
@@ -3921,9 +4041,9 @@ try {
     if (!renderer || !overlay) return { missing: true };
 
     await renderer.goToSpread(0, 'center', 'mouse-zoom-drag-test');
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     renderer.resetUserScale();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
 
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
     const pointerId = 765;
@@ -3944,10 +4064,10 @@ try {
 
     dispatchPointer('pointerdown', clientY, 1);
     dispatchPointer('pointermove', clientY - 110, 1);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
+    await window.__regressionNextFrame();
     dispatchPointer('pointerup', clientY - 110, 0);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
 
     const scaleAfterDrag = renderer.userScale;
     const indexBeforeSuppressedClick = renderer.index;
@@ -3958,14 +4078,14 @@ try {
       clientY,
       ...modifier,
     }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const indexAfterSuppressedClick = renderer.index;
 
     renderer.resetUserScale();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     dispatchPointer('pointerdown', clientY, 1);
     dispatchPointer('pointermove', clientY - 90, 1);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     overlay.dispatchEvent(new PointerEvent('lostpointercapture', {
       bubbles: true,
       cancelable: true,
@@ -3977,7 +4097,7 @@ try {
       clientY: clientY - 90,
       ...modifier,
     }));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     const scaleAfterLostCapture = renderer.userScale;
 
     return {
@@ -4525,7 +4645,7 @@ try {
     };
     renderer.style.width = '500px';
     renderer.style.height = '700px';
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await window.__regressionNextFrame();
     renderer.style.width = '760px';
     renderer.style.height = '680px';
     renderer.style.width = '900px';
@@ -4678,7 +4798,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.8';
+    const expectedCache = 'pc-reader-v1.8.9';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -4705,7 +4825,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.8',
+      '/sw.js?browser-regression=1.8.9',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -4749,11 +4869,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.8']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.9']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.8$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.9$/);
 
   console.log(JSON.stringify({
     shelf: {

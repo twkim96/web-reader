@@ -62,6 +62,7 @@ import { getSyncSessionId } from '../lib/syncSession';
 import { LibraryAnnotationModal } from '../components/LibraryAnnotationModal';
 import { LibraryReadingStatisticsModal } from '../components/LibraryReadingStatisticsModal';
 import { useReadingStatisticsSync } from '../hooks/useReadingStatisticsSync';
+import { shouldCancelRemoteProgressCommand } from '../hooks/reader/remoteProgressCommand';
 import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
 import {
   shouldShowSyncConflictDialog,
@@ -109,6 +110,18 @@ export default function Page() {
   const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const readerQuietResumeEligibilityRef = useRef<(() => boolean) | null>(null);
   const readerProgressConflictAutoResolveEligibilityRef = useRef<(() => boolean) | null>(null);
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('browser-regression')) return;
+    const regressionWindow = window as Window & {
+      __flushReaderProgressForRegression?: () => Promise<boolean>;
+    };
+    regressionWindow.__flushReaderProgressForRegression = async () => (
+      readerProgressFlushRef.current ? readerProgressFlushRef.current() : true
+    );
+    return () => {
+      delete regressionWindow.__flushReaderProgressForRegression;
+    };
+  }, []);
   const canQuietlyResolveProgressConflict = useCallback(
     () => readerQuietResumeEligibilityRef.current?.() ?? false,
     [],
@@ -251,7 +264,10 @@ export default function Page() {
     if (savedLocally) void restoreLocalData(true);
   }, [restoreLocalData]);
 
-  const isAuthenticatedLibraryReady = useAuthBootstrap({
+  const {
+    isAuthenticatedLibraryReady,
+    isLibraryBootstrapReady,
+  } = useAuthBootstrap({
     isGuestRef,
     setUser,
     setIsGuest,
@@ -313,6 +329,25 @@ export default function Page() {
     conflictBookId,
     activeBookId: activeBook?.id,
   };
+  const stagedRemoteProgressCommand = syncConflictResolution.resolvedRemoteProgressCommand;
+  const cancelStagedRemoteProgressCommand =
+    syncConflictResolution.cancelResolvedRemoteProgressCommand;
+  useEffect(() => {
+    const command = stagedRemoteProgressCommand;
+    if (!command) return;
+    if (shouldCancelRemoteProgressCommand({
+      view,
+      activeBookId: activeBook?.id,
+      commandBookId: command.progress.bookId,
+    })) {
+      cancelStagedRemoteProgressCommand(command.commandId);
+    }
+  }, [
+    activeBook,
+    cancelStagedRemoteProgressCommand,
+    stagedRemoteProgressCommand,
+    view,
+  ]);
   const showSyncConflictDialog = shouldShowSyncConflictDialog(syncConflictPresentation);
   const showSyncReviewBadge = shouldShowSyncReviewBadge(syncConflictPresentation);
   const outboxProgressConflictRevision = syncConflictResolution.activeProgressConflictRevision;
@@ -552,22 +587,37 @@ export default function Page() {
   }, [progress, settings.autoOpenLastBook]);
 
   const handleReaderBack = useCallback(() => {
+    const command = stagedRemoteProgressCommand;
+    if (command) {
+      cancelStagedRemoteProgressCommand(command.commandId);
+    }
     if (activeBook) {
       clearLastReaderSession(undefined, activeBook.id);
     }
     setLibraryAnnotationJumpCommand(null);
     setView('shelf');
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
-  }, [activeBook]);
+  }, [activeBook, cancelStagedRemoteProgressCommand, stagedRemoteProgressCommand]);
 
   useEffect(() => {
-    if (hasTriedAutoOpenLastBookRef.current) return;
-    if (view !== 'shelf') return;
+    if (hasTriedAutoOpenLastBookRef.current) {
+      return;
+    }
+    if (view !== 'shelf') {
+      document.documentElement.dataset.lastReaderAutoOpen = `waiting-view:${view}`;
+      return;
+    }
+    if (!isLibraryBootstrapReady) {
+      document.documentElement.dataset.lastReaderAutoOpen = 'waiting-bootstrap';
+      return;
+    }
     if (!settings.autoOpenLastBook) {
+      document.documentElement.dataset.lastReaderAutoOpen = 'disabled';
       hasTriedAutoOpenLastBookRef.current = true;
       return;
     }
     if (books.length === 0) {
+      document.documentElement.dataset.lastReaderAutoOpen = 'empty-library';
       clearLastReaderSession();
       hasTriedAutoOpenLastBookRef.current = true;
       return;
@@ -575,20 +625,22 @@ export default function Page() {
 
     hasTriedAutoOpenLastBookRef.current = true;
     const lastBook = getLastReaderBookCandidate(books);
-    if (!lastBook) return;
+    if (!lastBook) {
+      document.documentElement.dataset.lastReaderAutoOpen = 'no-candidate';
+      return;
+    }
 
     const limitError = getBookOpenLimitError(lastBook.name, lastBook.mimeType, lastBook.size);
     if (limitError) {
+      document.documentElement.dataset.lastReaderAutoOpen = 'blocked-by-limit';
       clearLastReaderSession(undefined, lastBook.id);
       return;
     }
 
-    const openTimer = window.setTimeout(() => {
-      setActiveBook(lastBook);
-      setView('reader');
-    }, 0);
-    return () => window.clearTimeout(openTimer);
-  }, [books, settings.autoOpenLastBook, view]);
+    document.documentElement.dataset.lastReaderAutoOpen = `opening:${lastBook.id}`;
+    setActiveBook(lastBook);
+    setView('reader');
+  }, [books, isLibraryBootstrapReady, settings.autoOpenLastBook, view]);
 
   useEffect(() => {
     if (!activeBook) return;
@@ -607,7 +659,12 @@ export default function Page() {
 
   if (view === 'loading') {
     return (
-      <div className={`h-screen w-screen flex flex-col items-center justify-center ${theme.bg} ${theme.text} gap-4 transition-colors duration-300`} style={dynamicStyles}>
+      <div
+        data-app-view={view}
+        data-library-bootstrap-ready={isLibraryBootstrapReady ? 'true' : 'false'}
+        className={`h-screen w-screen flex flex-col items-center justify-center ${theme.bg} ${theme.text} gap-4 transition-colors duration-300`}
+        style={dynamicStyles}
+      >
         <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
         <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
       </div>
@@ -615,7 +672,12 @@ export default function Page() {
   }
 
   return (
-    <div className={`min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`} style={dynamicStyles}>
+    <div
+      data-app-view={view}
+      data-library-bootstrap-ready={isLibraryBootstrapReady ? 'true' : 'false'}
+      className={`min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`}
+      style={dynamicStyles}
+    >
       {/* 1. 로그인 화면 */}
       {view === 'auth' && !user && (
         <AuthLanding

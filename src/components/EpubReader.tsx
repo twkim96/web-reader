@@ -53,7 +53,10 @@ import type { OwnerKey } from '../lib/ownerIdentity';
 import { getAnnotationPaletteItem } from '../lib/annotationPalette';
 import { getSyncSessionId } from '../lib/syncSession';
 import type { SyncHealth } from '../lib/syncHealth';
-import type { ResolvedRemoteProgressCommand } from '../hooks/useSyncConflictResolution';
+import type {
+  RemoteProgressCommandFinalizeResult,
+  ResolvedRemoteProgressCommand,
+} from '../hooks/useSyncConflictResolution';
 import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
 import { buildTranslationAnnotationNote } from '../lib/readerLanguageTools';
 import { getReaderTtsContentIdentity } from '../lib/readerTtsCursor';
@@ -80,7 +83,9 @@ interface EpubReaderProps {
   remoteProgress?: RemoteProgressUpdate;
   resolvedRemoteProgressCommand?: ResolvedRemoteProgressCommand | null;
   onResolvedRemoteProgressConsumed?: (commandId: string) => void;
-  onResolvedRemoteProgressFinalize?: (commandId: string) => Promise<boolean>;
+  onResolvedRemoteProgressFinalize?: (
+    commandId: string,
+  ) => Promise<RemoteProgressCommandFinalizeResult>;
   onResolvedRemoteProgressCancelled?: (commandId: string) => void;
   outboxProgressConflictRevision?: number;
   ignoredRemoteRevision?: number;
@@ -349,6 +354,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     lastSaveTimeRef,
     updateSaveContext,
     markUserProgressChange,
+    setTtsProgressFenceActive,
     saveProgressIfChanged,
     handleRelocateForSave,
     saveCurrentProgress,
@@ -525,6 +531,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     settings,
     clearSelection: clearTextSelection,
     dismissSelectionMenu: dismissTextSelectionMenu,
+    onProgressNavigationFenceChange: setTtsProgressFenceActive,
   });
   const stopTts = tts.stop;
   const readerShellRef = useRef<HTMLDivElement>(null);

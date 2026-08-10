@@ -30,6 +30,15 @@ type ReaderProgressPersistenceState = {
   inFlightCommitCount: number;
 };
 
+export const startPendingReaderProgressCommitForTtsFence = <T>(
+  pending: T | null,
+  inFlight: Promise<boolean> | null,
+  commit: (snapshot: T) => boolean | Promise<boolean>,
+) => {
+  if (inFlight || !pending) return inFlight;
+  return Promise.resolve(commit(pending));
+};
+
 export const isReaderProgressPersistenceSettled = ({
   hasUnsavedUserChange,
   hasPendingRelocateSave,
@@ -67,9 +76,11 @@ export const updatePersistableReaderLocation = (
   current: PersistableReaderLocation,
   detail: ReaderRelocateDetail,
   fallbackPercent: number,
+  ttsProgressFenceActive = false,
 ) => {
   if (
-    !detail.cfi
+    ttsProgressFenceActive
+    || !detail.cfi
     || isSelectionRelocateReason(detail.reason)
     || isReaderTtsNavigationReason(detail.reason, detail.navigationSource)
   ) return current;

@@ -713,6 +713,13 @@ test('previews active-book remote progress without resolving and finalizes only 
 
   const preview = await previewSyncConflictUseRemoteProgressV5(ownerA, 'event-1', 13, true);
   assert.equal(preview.progress.progressPercent, 70);
+  assert.equal(preview.conflict.remoteHead.revision, 1);
+  assert.deepEqual(preview.expectedRemoteHead, {
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+  });
   assert.deepEqual(preview.expectedLocalState, {
     kind: 'position',
     position: {
@@ -729,6 +736,7 @@ test('previews active-book remote progress without resolving and finalizes only 
     13,
     true,
     preview.expectedLocalState,
+    preview.expectedRemoteHead,
   );
   assert.equal(resolved.progressPercent, 70);
   assert.equal((await getOpenSyncConflictsV5(ownerA)).length, 0);
@@ -819,6 +827,98 @@ test('does not finalize a stale progress conflict over a newer cached remote hea
   const [refreshed] = await getOpenSyncConflictsV5(ownerA);
   assert.equal(refreshed.remoteHead.revision, 2);
   assert.equal(refreshed.remoteHead.acceptedEventId, 'remote-2');
+});
+
+test('does not finalize a newer refreshed conflict through an older staged head', async () => {
+  const originalPosition = position(30);
+  await enqueue(ownerA, { eventId: 'event-1', position: originalPosition });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
+  const preview = await previewSyncConflictUseRemoteProgressV5(ownerA, 'event-1', 13, true);
+  await storeRemoteHeadsBatchV5(ownerA, [{
+    ...remote,
+    revision: 2,
+    acceptedEventId: 'remote-2',
+    operation: 'reset',
+    position: null,
+    occurredAtClient: 14,
+  }], 14);
+
+  assert.equal(await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'event-1',
+    15,
+    true,
+    preview.expectedLocalState,
+    preview.expectedRemoteHead,
+  ), null);
+  const [refreshed] = await getOpenSyncConflictsV5(ownerA);
+  assert.equal(refreshed.remoteHead.revision, 2);
+
+  assert.equal(await resolveSyncConflictUseRemoteV5(
+    ownerA,
+    'event-1',
+    16,
+    true,
+    preview.expectedLocalState,
+    preview.expectedRemoteHead,
+  ), null);
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 30);
+});
+
+test('aborts an in-flight remote conflict transaction when its command is cancelled', async () => {
+  const originalPosition = position(30);
+  await enqueue(ownerA, { eventId: 'event-1', position: originalPosition });
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'remote-1',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other',
+    occurredAtClient: 3,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  const { expectedClaim } = await claimNext();
+  await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
+  const preview = await previewSyncConflictUseRemoteProgressV5(ownerA, 'event-1', 13, true);
+  const controller = new AbortController();
+  const originalPut = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function abortAfterFirstConflictWrite(...args) {
+    const request = originalPut.apply(this, args);
+    if (this.name.includes('outbox')) controller.abort();
+    return request;
+  };
+  try {
+    assert.equal(await resolveSyncConflictUseRemoteV5(
+      ownerA,
+      'event-1',
+      14,
+      true,
+      preview.expectedLocalState,
+      preview.expectedRemoteHead,
+      controller.signal,
+    ), null);
+  } finally {
+    IDBObjectStore.prototype.put = originalPut;
+  }
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 30);
+  assert.equal((await getOpenSyncConflictsV5(ownerA)).length, 1);
+  assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'conflict');
 });
 
 test('atomic progress mutation rolls back local progress and every event on failure', async () => {

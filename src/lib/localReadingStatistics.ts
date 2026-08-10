@@ -2,6 +2,7 @@ import { initDB } from './localDB';
 import {
   V11_READING_SESSIONS_STORE,
   V12_READING_STATISTICS_SYNC_STORE,
+  V13_READING_STATISTICS_LEASES_STORE,
 } from './localDBSchema';
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import { trackLocalCommit } from './localCommitTracker';
@@ -13,6 +14,10 @@ import {
   type StoredReadingSessionV11,
 } from './readingStatistics';
 import { notifyReadingStatisticsChange } from './readingStatisticsWake';
+import type {
+  ReadingStatisticsSyncLeaseClaimV13,
+  ReadingStatisticsSyncLeaseV13,
+} from './readingStatisticsSyncLease';
 
 const toStoredSession = (
   ownerKey: OwnerKey,
@@ -67,6 +72,14 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
   lastFullAuditAt: number;
   fullAuditInProgress: boolean;
   quarantinedDocuments: QuarantinedReadingStatisticsDocumentV12[];
+  hydrationRunCount: number;
+  hydrationPageCount: number;
+  hydrationRemoteReadAttemptCount: number;
+  hydrationRemoteReadCount: number;
+  hydrationLostLeadershipRunCount: number;
+  hydrationFailedRunCount: number;
+  lastHydrationDurationMs: number;
+  lastHydrationCompletedAt: number;
 };
 
 const FULL_HYDRATION_AUDIT_INTERVAL_MS = 7 * 24 * 60 * 60_000;
@@ -166,6 +179,46 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
     quarantinedDocuments: 'quarantinedDocuments' in value
       ? readQuarantinedDocuments(value.quarantinedDocuments)
       : [],
+    hydrationRunCount: 'hydrationRunCount' in value
+      && Number.isSafeInteger(value.hydrationRunCount)
+      && Number(value.hydrationRunCount) >= 0
+      ? Number(value.hydrationRunCount)
+      : 0,
+    hydrationPageCount: 'hydrationPageCount' in value
+      && Number.isSafeInteger(value.hydrationPageCount)
+      && Number(value.hydrationPageCount) >= 0
+      ? Number(value.hydrationPageCount)
+      : 0,
+    hydrationRemoteReadAttemptCount: 'hydrationRemoteReadAttemptCount' in value
+      && Number.isSafeInteger(value.hydrationRemoteReadAttemptCount)
+      && Number(value.hydrationRemoteReadAttemptCount) >= 0
+      ? Number(value.hydrationRemoteReadAttemptCount)
+      : 0,
+    hydrationRemoteReadCount: 'hydrationRemoteReadCount' in value
+      && Number.isSafeInteger(value.hydrationRemoteReadCount)
+      && Number(value.hydrationRemoteReadCount) >= 0
+      ? Number(value.hydrationRemoteReadCount)
+      : 0,
+    hydrationLostLeadershipRunCount: 'hydrationLostLeadershipRunCount' in value
+      && Number.isSafeInteger(value.hydrationLostLeadershipRunCount)
+      && Number(value.hydrationLostLeadershipRunCount) >= 0
+      ? Number(value.hydrationLostLeadershipRunCount)
+      : 0,
+    hydrationFailedRunCount: 'hydrationFailedRunCount' in value
+      && Number.isSafeInteger(value.hydrationFailedRunCount)
+      && Number(value.hydrationFailedRunCount) >= 0
+      ? Number(value.hydrationFailedRunCount)
+      : 0,
+    lastHydrationDurationMs: 'lastHydrationDurationMs' in value
+      && Number.isFinite(value.lastHydrationDurationMs)
+      && Number(value.lastHydrationDurationMs) >= 0
+      ? Number(value.lastHydrationDurationMs)
+      : 0,
+    lastHydrationCompletedAt: 'lastHydrationCompletedAt' in value
+      && Number.isSafeInteger(value.lastHydrationCompletedAt)
+      && Number(value.lastHydrationCompletedAt) >= 0
+      ? Number(value.lastHydrationCompletedAt)
+      : 0,
   };
 };
 
@@ -175,6 +228,41 @@ const sameCursor = (
 ) => left.uploadedAtServerSeconds === right.uploadedAtServerSeconds
   && left.uploadedAtServerNanoseconds === right.uploadedAtServerNanoseconds
   && left.documentId === right.documentId;
+
+const createEmptySyncMeta = (ownerKey: OwnerKey): ReadingStatisticsSyncMetaV12 => ({
+  ownerKey,
+  uploadedAtServerSeconds: 0,
+  uploadedAtServerNanoseconds: 0,
+  documentId: '__empty__',
+  fullHydrationCompleted: false,
+  hydratedRemoteCount: 0,
+  lastFullAuditAt: 0,
+  fullAuditInProgress: true,
+  quarantinedDocuments: [],
+  hydrationRunCount: 0,
+  hydrationPageCount: 0,
+  hydrationRemoteReadAttemptCount: 0,
+  hydrationRemoteReadCount: 0,
+  hydrationLostLeadershipRunCount: 0,
+  hydrationFailedRunCount: 0,
+  lastHydrationDurationMs: 0,
+  lastHydrationCompletedAt: 0,
+});
+
+const hasCurrentStatisticsLease = async (
+  store: { get: (key: OwnerKey) => Promise<unknown> },
+  ownerKey: OwnerKey,
+  claim: ReadingStatisticsSyncLeaseClaimV13,
+  now: number,
+) => {
+  const lease = await store.get(ownerKey) as ReadingStatisticsSyncLeaseV13 | undefined;
+  return Boolean(
+    lease
+    && lease.holderTabId === claim.holderTabId
+    && lease.epoch === claim.epoch
+    && lease.expiresAt > now,
+  );
+};
 
 const putReadingSession = async (
   ownerKey: OwnerKey,
@@ -258,6 +346,23 @@ export const getReadingStatisticsHydrationStateV12 = async (
   };
 };
 
+export const getReadingStatisticsHydrationMetricsV12 = async (ownerKey: OwnerKey) => {
+  const db = await initDB();
+  const value = await db.get(V12_READING_STATISTICS_SYNC_STORE, ownerKey);
+  if (!value) return null;
+  const meta = assertSyncMeta(value);
+  return {
+    runCount: meta.hydrationRunCount,
+    pageCount: meta.hydrationPageCount,
+    remoteReadAttemptCount: meta.hydrationRemoteReadAttemptCount,
+    remoteReadCount: meta.hydrationRemoteReadCount,
+    lostLeadershipRunCount: meta.hydrationLostLeadershipRunCount,
+    failedRunCount: meta.hydrationFailedRunCount,
+    lastDurationMs: meta.lastHydrationDurationMs,
+    lastCompletedAt: meta.lastHydrationCompletedAt,
+  };
+};
+
 export const hydrateRemoteReadingSessionsPageV12 = async (
   ownerKey: OwnerKey,
   sessions: readonly ReadingSessionV1[],
@@ -267,6 +372,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
   notify = true,
   quarantinedDocuments: readonly QuarantinedReadingStatisticsDocumentV12[] = [],
   now = Date.now(),
+  leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
 ) => {
   if (
     (sessions.length > 0 || quarantinedDocuments.length > 0)
@@ -300,11 +406,23 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
   const tx = db.transaction([
     V11_READING_SESSIONS_STORE,
     V12_READING_STATISTICS_SYNC_STORE,
+    V13_READING_STATISTICS_LEASES_STORE,
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   const sessionsStore = tx.objectStore(V11_READING_SESSIONS_STORE);
   const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
   try {
+    if (
+      leaseClaim
+      && !await hasCurrentStatisticsLease(
+        tx.objectStore(V13_READING_STATISTICS_LEASES_STORE),
+        ownerKey,
+        leaseClaim,
+        now,
+      )
+    ) {
+      throw new Error('독서 통계 hydration lease가 변경되었습니다.');
+    }
     const currentValue = await metaStore.get(ownerKey);
     const current = currentValue ? assertSyncMeta(currentValue) : null;
     if (expectedCursor && (!current || !sameCursor(current, expectedCursor))) {
@@ -353,6 +471,16 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
           : current?.lastFullAuditAt ?? 0,
         fullAuditInProgress: isFullAudit && !fullHydrationCompleted,
         quarantinedDocuments: nextQuarantinedDocuments,
+        hydrationRunCount: current?.hydrationRunCount ?? 0,
+        hydrationPageCount: current?.hydrationPageCount ?? 0,
+        hydrationRemoteReadAttemptCount:
+          current?.hydrationRemoteReadAttemptCount ?? 0,
+        hydrationRemoteReadCount: current?.hydrationRemoteReadCount ?? 0,
+        hydrationLostLeadershipRunCount:
+          current?.hydrationLostLeadershipRunCount ?? 0,
+        hydrationFailedRunCount: current?.hydrationFailedRunCount ?? 0,
+        lastHydrationDurationMs: current?.lastHydrationDurationMs ?? 0,
+        lastHydrationCompletedAt: current?.lastHydrationCompletedAt ?? 0,
       } satisfies ReadingStatisticsSyncMetaV12);
     } else if (fullHydrationCompleted) {
       // An empty authoritative collection still needs a durable full-hydration
@@ -367,6 +495,16 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         lastFullAuditAt: now,
         fullAuditInProgress: false,
         quarantinedDocuments: nextQuarantinedDocuments,
+        hydrationRunCount: current?.hydrationRunCount ?? 0,
+        hydrationPageCount: current?.hydrationPageCount ?? 0,
+        hydrationRemoteReadAttemptCount:
+          current?.hydrationRemoteReadAttemptCount ?? 0,
+        hydrationRemoteReadCount: current?.hydrationRemoteReadCount ?? 0,
+        hydrationLostLeadershipRunCount:
+          current?.hydrationLostLeadershipRunCount ?? 0,
+        hydrationFailedRunCount: current?.hydrationFailedRunCount ?? 0,
+        lastHydrationDurationMs: current?.lastHydrationDurationMs ?? 0,
+        lastHydrationCompletedAt: current?.lastHydrationCompletedAt ?? 0,
       } satisfies ReadingStatisticsSyncMetaV12);
     }
     await tx.done;
@@ -382,6 +520,50 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
   return { quarantinedDocuments: nextCursor || fullHydrationCompleted
     ? (await getReadingStatisticsHydrationStateV12(ownerKey, now))?.quarantinedDocuments ?? []
     : [] };
+};
+
+export const recordReadingStatisticsHydrationMetricsV12 = async (
+  ownerKey: OwnerKey,
+  metrics: {
+    pageCount: number;
+    remoteReadAttemptCount?: number;
+    remoteReadCount: number;
+    durationMs: number;
+    completedAt?: number;
+    status?: 'completed' | 'lost-leadership' | 'failed';
+  },
+) => {
+  if (
+    !Number.isSafeInteger(metrics.pageCount)
+    || metrics.pageCount < 0
+    || !Number.isSafeInteger(metrics.remoteReadAttemptCount ?? metrics.remoteReadCount)
+    || Number(metrics.remoteReadAttemptCount ?? metrics.remoteReadCount) < metrics.remoteReadCount
+    || !Number.isSafeInteger(metrics.remoteReadCount)
+    || metrics.remoteReadCount < metrics.pageCount
+    || !Number.isFinite(metrics.durationMs)
+    || metrics.durationMs < 0
+  ) throw new Error('독서 통계 hydration 계측값이 올바르지 않습니다.');
+  const db = await initDB();
+  const tx = db.transaction(V12_READING_STATISTICS_SYNC_STORE, 'readwrite');
+  const store = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const value = await store.get(ownerKey);
+  const current = value ? assertSyncMeta(value) : createEmptySyncMeta(ownerKey);
+  await store.put({
+    ...current,
+    hydrationRunCount: current.hydrationRunCount + 1,
+    hydrationPageCount: current.hydrationPageCount + metrics.pageCount,
+    hydrationRemoteReadAttemptCount: current.hydrationRemoteReadAttemptCount
+      + (metrics.remoteReadAttemptCount ?? metrics.remoteReadCount),
+    hydrationRemoteReadCount: current.hydrationRemoteReadCount + metrics.remoteReadCount,
+    hydrationLostLeadershipRunCount: current.hydrationLostLeadershipRunCount
+      + Number(metrics.status === 'lost-leadership'),
+    hydrationFailedRunCount: current.hydrationFailedRunCount
+      + Number(metrics.status === 'failed'),
+    lastHydrationDurationMs: metrics.durationMs,
+    lastHydrationCompletedAt: metrics.completedAt ?? Date.now(),
+  } satisfies ReadingStatisticsSyncMetaV12);
+  await tx.done;
+  return true;
 };
 
 export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
@@ -411,11 +593,28 @@ export const markReadingSessionSyncedV11 = async (
   ownerKey: OwnerKey,
   sessionId: string,
   expected: ReadingSessionV1,
+  leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
+  now = Date.now(),
 ) => {
   const db = await initDB();
-  const tx = db.transaction(V11_READING_SESSIONS_STORE, 'readwrite');
+  const tx = db.transaction([
+    V11_READING_SESSIONS_STORE,
+    V13_READING_STATISTICS_LEASES_STORE,
+  ], 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  if (
+    leaseClaim
+    && !await hasCurrentStatisticsLease(
+      tx.objectStore(V13_READING_STATISTICS_LEASES_STORE),
+      ownerKey,
+      leaseClaim,
+      now,
+    )
+  ) {
+    await tx.done;
+    return false;
+  }
   const value = await store.get([ownerKey, sessionId]);
   if (!value) {
     await tx.done;
@@ -443,10 +642,26 @@ export const deferReadingSessionSyncV11 = async (
   sessionId: string,
   errorCode: string,
   now = Date.now(),
+  leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
 ) => {
   const db = await initDB();
-  const tx = db.transaction(V11_READING_SESSIONS_STORE, 'readwrite');
+  const tx = db.transaction([
+    V11_READING_SESSIONS_STORE,
+    V13_READING_STATISTICS_LEASES_STORE,
+  ], 'readwrite');
   const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  if (
+    leaseClaim
+    && !await hasCurrentStatisticsLease(
+      tx.objectStore(V13_READING_STATISTICS_LEASES_STORE),
+      ownerKey,
+      leaseClaim,
+      now,
+    )
+  ) {
+    await tx.done;
+    return null;
+  }
   const value = await store.get([ownerKey, sessionId]);
   if (!value) {
     await tx.done;

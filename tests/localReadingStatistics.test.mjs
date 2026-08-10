@@ -15,9 +15,16 @@ import {
   getLocalReadingSessionsV11,
   getPendingReadingSessionsV11,
   hydrateRemoteReadingSessionsPageV12,
+  markReadingSessionSyncedV11,
   saveLocalReadingSessionV11,
 } from '../src/lib/localReadingStatistics.ts';
-import { getReadingStatisticsDraftKey } from '../src/lib/readingStatisticsDraft.ts';
+import {
+  acquireReadingStatisticsSyncLeaseV13,
+} from '../src/lib/readingStatisticsSyncLease.ts';
+import {
+  getReadingStatisticsDraftKey,
+  getReadingStatisticsDraftRecoveryEnd,
+} from '../src/lib/readingStatisticsDraft.ts';
 import {
   makeFirebaseOwnerKey,
   makeGuestOwnerKey,
@@ -99,6 +106,43 @@ test('stores Firebase sessions pending, replays idempotently, and hydrates them 
     saveLocalReadingSessionV11(owner, makeSession('session-1', 'Different')),
     /충돌/,
   );
+});
+
+test('round-trips TTS active wall-clock intervals without compressing gaps', async () => {
+  const record = {
+    ...makeSession('tts-intervals'),
+    mode: 'tts',
+    endedAtClient: 601_000,
+    durationMs: 300_000,
+    activeIntervals: [
+      { startedAtClient: 1_000, endedAtClient: 151_000 },
+      { startedAtClient: 451_000, endedAtClient: 601_000 },
+    ],
+  };
+  await saveLocalReadingSessionV11(owner, record);
+  const [stored] = await getLocalReadingSessionsV11(owner);
+  assert.equal(stored.startedAtClient, 1_000);
+  assert.equal(stored.endedAtClient, 601_000);
+  assert.equal(stored.durationMs, 300_000);
+  assert.deepEqual(stored.activeIntervals, record.activeIntervals);
+});
+
+test('recovers a TTS draft through the last journaled active interval end', () => {
+  assert.equal(getReadingStatisticsDraftRecoveryEnd({
+    state: 'active',
+    lastHeartbeatAt: 1_000,
+    activeIntervals: [
+      { endedAtClient: 5_000 },
+    ],
+  }), 5_000);
+  assert.equal(getReadingStatisticsDraftRecoveryEnd({
+    state: 'closed-pending',
+    closedAtClient: 6_000,
+    lastHeartbeatAt: 1_000,
+    activeIntervals: [
+      { endedAtClient: 5_000 },
+    ],
+  }), 6_000);
 });
 
 test('keeps guest sessions local and defers failed Firebase uploads', async () => {
@@ -264,4 +308,67 @@ test('restarts from the beginning for a periodic full audit and preserves an int
     200_000,
   );
   assert.equal(await getReadingStatisticsHydrationStateV12(owner, 200_000 + 7 * 24 * 60 * 60_000), null);
+});
+
+test('fences hydration and upload acknowledgement inside the current lease transaction', async () => {
+  const oldLease = await acquireReadingStatisticsSyncLeaseV13(
+    owner,
+    'tab-old',
+    100,
+    50,
+  );
+  const currentLease = await acquireReadingStatisticsSyncLeaseV13(
+    owner,
+    'tab-current',
+    151,
+    50,
+  );
+  const record = makeSession('lease-fenced');
+  const remoteCursor = cursor(60, record.sessionId);
+
+  await assert.rejects(hydrateRemoteReadingSessionsPageV12(
+    owner,
+    [record],
+    null,
+    remoteCursor,
+    true,
+    false,
+    [],
+    152,
+    oldLease,
+  ), /lease/);
+  assert.equal((await getLocalReadingSessionsV11(owner)).length, 0);
+
+  await hydrateRemoteReadingSessionsPageV12(
+    owner,
+    [record],
+    null,
+    remoteCursor,
+    true,
+    false,
+    [],
+    152,
+    currentLease,
+  );
+  assert.deepEqual((await getReadingStatisticsHydrationStateV12(owner, 152))?.cursor, remoteCursor);
+
+  const pending = makeSession('lease-upload');
+  await saveLocalReadingSessionV11(owner, pending);
+  assert.equal(await markReadingSessionSyncedV11(
+    owner,
+    pending.sessionId,
+    pending,
+    oldLease,
+    152,
+  ), false);
+  assert.equal((await getLocalReadingSessionsV11(owner)).find(
+    ({ sessionId }) => sessionId === pending.sessionId,
+  )?.syncState, 'pending');
+  assert.equal(await markReadingSessionSyncedV11(
+    owner,
+    pending.sessionId,
+    pending,
+    currentLease,
+    152,
+  ), true);
 });

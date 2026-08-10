@@ -33,12 +33,14 @@ export const useAuthBootstrap = ({
   shouldHoldShelfForDrive,
 }: UseAuthBootstrapOptions) => {
   const [isAuthenticatedLibraryReady, setIsAuthenticatedLibraryReady] = useState(false);
+  const [isLibraryBootstrapReady, setIsLibraryBootstrapReady] = useState(false);
 
   useEffect(() => {
     let isActive = true;
     let authRedirectTimeout: number | undefined;
     let authGeneration = 0;
     let guestRestore: Promise<boolean> | null = null;
+    setIsLibraryBootstrapReady(false);
 
     const activateGuest = (generation: number) => {
       const previousOwner = ownerRuntime.capture();
@@ -50,8 +52,9 @@ export const useAuthBootstrap = ({
       guestRestore ??= restoreLocalData({ replaceBooks: true });
       void guestRestore.then(() => {
         if (!isActive || generation !== authGeneration || !isGuestRef.current) return;
+        setIsLibraryBootstrapReady(true);
         setIsOfflineMode(true);
-        setView('shelf');
+        setView((current) => current === 'reader' ? 'reader' : 'shelf');
       }).catch((error) => {
         if (!isActive || generation !== authGeneration) return;
         console.error('[AuthBootstrap] guest restore failed:', error);
@@ -64,6 +67,7 @@ export const useAuthBootstrap = ({
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setIsAuthenticatedLibraryReady(false);
+      setIsLibraryBootstrapReady(false);
       const callbackGeneration = ++authGeneration;
       const previousOwner = ownerRuntime.capture();
       if (firebaseUser) {
@@ -75,6 +79,7 @@ export const useAuthBootstrap = ({
           await restoreLocalData({ preventRedirect: true, replaceBooks: true });
           if (!isActive || callbackGeneration !== authGeneration) return;
           setIsAuthenticatedLibraryReady(true);
+          setIsLibraryBootstrapReady(true);
           if (shouldHoldShelfForDrive()) {
             setView('loading');
             return;
@@ -132,5 +137,5 @@ export const useAuthBootstrap = ({
     shouldHoldShelfForDrive,
   ]);
 
-  return isAuthenticatedLibraryReady;
+  return { isAuthenticatedLibraryReady, isLibraryBootstrapReady };
 };

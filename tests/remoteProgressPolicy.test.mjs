@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 
 import { decideRemoteProgressAction } from '../src/hooks/reader/remoteProgressPolicy.ts';
 import { executeRemoteProgressJump } from '../src/hooks/reader/remoteProgressJump.ts';
+import {
+  hasSameExpectedLocalProgressState,
+  hasSameRemoteProgressHead,
+  shouldCancelRemoteProgressCommand,
+} from '../src/hooks/reader/remoteProgressCommand.ts';
 
 const decide = (overrides = {}) => decideRemoteProgressAction({
   isInitialSync: false,
@@ -18,6 +23,52 @@ const decide = (overrides = {}) => decideRemoteProgressAction({
   remoteRevision: undefined,
   localRevision: undefined,
   ...overrides,
+});
+
+test('distinguishes a local move from a newer staged remote head', () => {
+  const remoteHead = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 7,
+    acceptedEventId: 'event-7',
+    operation: 'set',
+    position: {
+      cfi: 'epubcfi(/7)',
+      anchorCfi: 'epubcfi(/7)',
+      progressPercent: 70,
+    },
+  };
+  const staged = { remoteHead };
+  assert.equal(hasSameRemoteProgressHead(staged, { remoteHead: { ...remoteHead } }), true);
+  assert.equal(hasSameRemoteProgressHead(staged, {
+    remoteHead: { ...remoteHead, revision: 8, acceptedEventId: 'event-8' },
+  }), false);
+  assert.equal(hasSameRemoteProgressHead(staged, {
+    remoteHead: {
+      ...remoteHead,
+      position: { ...remoteHead.position, progressPercent: 80 },
+    },
+  }), false);
+});
+
+test('cancels a staged remote command outside its active reader book', () => {
+  const base = { view: 'reader', activeBookId: 'book-1', commandBookId: 'book-1' };
+  assert.equal(shouldCancelRemoteProgressCommand(base), false);
+  assert.equal(shouldCancelRemoteProgressCommand({ ...base, view: 'shelf' }), true);
+  assert.equal(shouldCancelRemoteProgressCommand({ ...base, activeBookId: 'book-2' }), true);
+  assert.equal(shouldCancelRemoteProgressCommand({ ...base, activeBookId: undefined }), true);
+});
+
+test('does not restage a newer remote head over a changed local position', () => {
+  const expected = {
+    kind: 'position',
+    position: { cfi: 'epubcfi(/7)', anchorCfi: 'epubcfi(/7)', progressPercent: 70 },
+  };
+  assert.equal(hasSameExpectedLocalProgressState(expected, structuredClone(expected)), true);
+  assert.equal(hasSameExpectedLocalProgressState(expected, {
+    ...expected,
+    position: { ...expected.position, progressPercent: 71 },
+  }), false);
 });
 
 test('silently jumps to a newer remote position on the first sync', () => {
@@ -144,6 +195,29 @@ test('does not complete a remote jump superseded by newer user navigation', asyn
   assert.deepEqual(calls, ['prepare', 'navigate-cancelled', 'cancel']);
 });
 
+test('rolls back a committed remote navigation superseded before finalize', async () => {
+  const calls = [];
+  assert.equal(await executeRemoteProgressJump({
+    isCurrent: () => false,
+    prepare: () => 11,
+    cancel: (id) => calls.push(`cancel:${id}`),
+    navigate: async () => {
+      calls.push('navigate-committed');
+      return true;
+    },
+    rollback: async (id) => calls.push(`rollback:${id}`),
+    complete: async () => {
+      calls.push('complete');
+      return true;
+    },
+  }), false);
+  assert.deepEqual(calls, [
+    'navigate-committed',
+    'rollback:11',
+    'cancel:11',
+  ]);
+});
+
 test('cancels remote preparation when renderer navigation rejects', async () => {
   const calls = [];
   await assert.rejects(executeRemoteProgressJump({
@@ -190,5 +264,31 @@ test('rolls the viewport back before restoring pending state when finalize fails
     'finalize',
     'rollback:7',
     'restore:7',
+  ]);
+});
+
+test('stages a refreshed remote command only after the stale viewport rolls back', async () => {
+  const calls = [];
+  assert.equal(await executeRemoteProgressJump({
+    isCurrent: () => true,
+    prepare: () => 9,
+    cancel: () => calls.push('restore'),
+    navigate: async () => {
+      calls.push('navigate-stale');
+      return true;
+    },
+    rollback: async () => {
+      calls.push('rollback');
+    },
+    complete: async () => ({
+      completed: false,
+      afterRollback: () => calls.push('stage-latest'),
+    }),
+  }), false);
+  assert.deepEqual(calls, [
+    'navigate-stale',
+    'rollback',
+    'restore',
+    'stage-latest',
   ]);
 });

@@ -8,8 +8,10 @@ const { LOCAL_DB_NAME } = await import('../src/lib/localDBSchema.ts');
 const {
   getLocalAnnotationsV8,
   saveLocalAnnotationV8,
+  updateLocalAnnotationNoteV8,
 } = await import('../src/lib/localAnnotations.ts');
 const {
+  applyRemoteAnnotationBookDeletionMarkerV5,
   enqueueMissingLocalAnnotationsV5,
   enqueueMissingLocalAnnotationPaletteV5,
   getLocalAnnotationIdsV8,
@@ -19,12 +21,14 @@ const {
 const {
   getOutboxEventsV5,
   getSyncMetaV5,
+  storeRemoteHeadsBatchV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const { annotationTargetKeyV1, toAnnotationSyncPayloadV1 } = await import(
   '../src/lib/annotationSyncSchema.ts'
 );
 const { makeFirebaseOwnerKey, makeOwnerKey } = await import('../src/lib/ownerIdentity.ts');
 const { DEFAULT_ANNOTATION_PALETTE } = await import('../src/lib/annotationPalette.ts');
+const { ANNOTATION_BOOK_DELETE_MARKER_ID } = await import('../src/lib/annotationPolicy.ts');
 
 const ownerKey = makeOwnerKey(makeFirebaseOwnerKey('hydrate'), 'library:local');
 const context = {
@@ -66,6 +70,22 @@ const head = (item, overrides = {}) => ({
   updatedAtServer: {},
   deletedAtServer: null,
   ...overrides,
+});
+
+const bookDeletionHead = (revision) => ({
+  schemaVersion: 1,
+  bookId: 'book-1',
+  annotationId: ANNOTATION_BOOK_DELETE_MARKER_ID,
+  revision,
+  acceptedEventId: `remote-book-delete-${revision}`,
+  operation: 'delete',
+  annotation: null,
+  acceptedDeviceId: 'device-remote',
+  acceptedSessionId: 'session-remote',
+  occurredAtClient: revision,
+  bookGeneration: revision,
+  updatedAtServer: {},
+  deletedAtServer: {},
 });
 
 const resetDatabase = async () => {
@@ -120,6 +140,113 @@ test('does not overwrite a target with pending local work', async () => {
   assert.equal(result.skipped, 1);
   assert.equal((await getLocalAnnotationsV8(ownerKey, 'book-1'))[0].note, '로컬');
   assert.equal((await getOutboxEventsV5(ownerKey)).length, 1);
+});
+
+test('does not hydrate an upsert older than the current book deletion generation', async () => {
+  await storeRemoteHeadsBatchV5(ownerKey, [bookDeletionHead(10)], 50);
+  const stale = annotation('stale-generation', { note: '삭제 전 원격' });
+  const result = await hydrateRemoteAnnotationHeadsV5(
+    ownerKey,
+    'book-1',
+    [head(stale, { bookGeneration: 9 })],
+    context.sessionId,
+  );
+  assert.equal(result.changed, false);
+  assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), []);
+});
+
+test('hydrates an upsert at the current book deletion generation', async () => {
+  await storeRemoteHeadsBatchV5(ownerKey, [bookDeletionHead(10)], 50);
+  const current = annotation('current-generation', { note: '삭제 후 원격' });
+  const result = await hydrateRemoteAnnotationHeadsV5(
+    ownerKey,
+    'book-1',
+    [head(current, { bookGeneration: 10 })],
+    context.sessionId,
+  );
+  assert.equal(result.changed, true);
+  assert.equal((await getLocalAnnotationsV8(ownerKey, 'book-1'))[0].note, '삭제 후 원격');
+});
+
+test('removes a hydrated stale annotation when only the book deletion marker advances', async () => {
+  const stale = annotation('marker-only-stale', { note: '삭제 전 원격' });
+  await storeRemoteHeadsBatchV5(ownerKey, [bookDeletionHead(9)], 50);
+  await hydrateRemoteAnnotationHeadsV5(
+    ownerKey,
+    'book-1',
+    [head(stale, { bookGeneration: 9 })],
+    context.sessionId,
+  );
+  assert.deepEqual(
+    (await getLocalAnnotationsV8(ownerKey, 'book-1')).map(({ id }) => id),
+    [stale.id],
+  );
+
+  const result = await applyRemoteAnnotationBookDeletionMarkerV5(
+    ownerKey,
+    bookDeletionHead(10),
+    undefined,
+    undefined,
+    51,
+  );
+  assert.deepEqual(result, { changed: true, removed: 1, skipped: 0, stale: false });
+  assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), []);
+  assert.equal((await getOutboxEventsV5(ownerKey)).length, 0);
+  assert.equal((await getSyncMetaV5(
+    ownerKey,
+    annotationTargetKeyV1('book-1', ANNOTATION_BOOK_DELETE_MARKER_ID),
+  )).knownRevision, 10);
+});
+
+test('preserves local work while reconciling an advanced book deletion marker', async () => {
+  const pending = annotation('marker-pending', { note: '로컬 작업' });
+  await storeRemoteHeadsBatchV5(ownerKey, [
+    bookDeletionHead(9),
+    head(pending, { bookGeneration: 9 }),
+  ], 50);
+  await saveLocalAnnotationV8(ownerKey, pending, context);
+  const result = await applyRemoteAnnotationBookDeletionMarkerV5(
+    ownerKey,
+    bookDeletionHead(10),
+    undefined,
+    undefined,
+    51,
+  );
+  assert.deepEqual(result, { changed: false, removed: 0, skipped: 1, stale: false });
+  assert.equal((await getLocalAnnotationsV8(ownerKey, 'book-1'))[0].note, '로컬 작업');
+  assert.equal((await getOutboxEventsV5(ownerKey)).length, 1);
+});
+
+test('linearizes a marker advance before a concurrent stale annotation edit', async () => {
+  const stale = annotation('marker-race', { note: '삭제 전 원격' });
+  await storeRemoteHeadsBatchV5(ownerKey, [bookDeletionHead(9)], 50);
+  await hydrateRemoteAnnotationHeadsV5(
+    ownerKey,
+    'book-1',
+    [head(stale, { bookGeneration: 9 })],
+    context.sessionId,
+  );
+
+  const markerCommit = applyRemoteAnnotationBookDeletionMarkerV5(
+    ownerKey,
+    bookDeletionHead(10),
+    undefined,
+    undefined,
+    51,
+  );
+  const staleEdit = updateLocalAnnotationNoteV8(
+    ownerKey,
+    'book-1',
+    stale.id,
+    '부활 시도',
+    context,
+  );
+  const [markerResult, editResult] = await Promise.all([markerCommit, staleEdit]);
+
+  assert.deepEqual(markerResult, { changed: true, removed: 1, skipped: 0, stale: false });
+  assert.equal(editResult, null);
+  assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), []);
+  assert.equal((await getOutboxEventsV5(ownerKey)).length, 0);
 });
 
 test('preserves renderer-local resolution state on an exact session echo', async () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileJson, FileText, Headphones, Monitor, Share2, X } from 'lucide-react';
+import { Database, Download, FileJson, FileText, Headphones, Monitor, Share2, X } from 'lucide-react';
 import type { ThemeClasses } from '../types';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import { getLocalReadingSessionsV11 } from '../lib/localReadingStatistics';
@@ -24,6 +24,7 @@ import {
 import { subscribeReadingStatisticsChanges } from '../lib/readingStatisticsWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import type { SyncHealth } from '../lib/syncHealth';
+import { collectStorageMaintenanceDiagnosticsV1 } from '../lib/storageMaintenanceDiagnostics';
 
 type Props = {
   open: boolean;
@@ -56,6 +57,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
   const [sharing, setSharing] = useState(false);
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [aggregationNow, setAggregationNow] = useState(() => Date.now());
   const dialogRef = useRef<HTMLElement>(null);
   const reloadTimerRef = useRef<number | null>(null);
@@ -182,6 +184,24 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       setSharing(false);
     }
   };
+  const exportDiagnostics = async () => {
+    setExportingDiagnostics(true);
+    try {
+      const diagnostics = await collectStorageMaintenanceDiagnosticsV1(ownerKey);
+      const date = new Date(diagnostics.collectedAt).toISOString().slice(0, 10);
+      downloadReadingStatisticsExport({
+        filename: `web-reader-storage-diagnostics-${date}.json`,
+        mimeType: 'application/json;charset=utf-8',
+        text: `${JSON.stringify(diagnostics, null, 2)}\n`,
+      });
+      setFeedback('저장소 진단 JSON을 저장했습니다. 원문과 메모는 포함되지 않습니다.');
+    } catch (error) {
+      console.error('[ReadingStatistics] diagnostics export failed:', error);
+      setFeedback('저장소 진단 정보를 만들지 못했습니다.');
+    } finally {
+      setExportingDiagnostics(false);
+    }
+  };
 
   if (!open) return null;
   return (
@@ -305,7 +325,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
         <footer className={`border-t ${theme.border} px-4 py-3 sm:px-5`}>
           {feedback && <p role="status" className="mb-2 text-center text-xs font-bold text-accent-500">{feedback}</p>}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={sessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-30`}>
               <FileText size={15} /><Download size={13} /> MD
             </button>
@@ -314,6 +334,9 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
             </button>
             <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-accent-600 text-xs font-bold text-white disabled:opacity-30">
               <Share2 size={15} /> 공유
+            </button>
+            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-30`}>
+              <Database size={15} /><Download size={13} /> 진단
             </button>
           </div>
         </footer>

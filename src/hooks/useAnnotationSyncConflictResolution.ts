@@ -85,11 +85,16 @@ export const useAnnotationSyncConflictResolution = ({
     setResolving(true);
     setResolutionError(null);
     try {
-      await resolveAnnotationSyncConflictKeepLocalV5(
+      const result = await resolveAnnotationSyncConflictKeepLocalV5(
         getSyncOwnerKey(owner.ownerKey),
         conflict.conflictId,
       );
       if (!ownerRuntime.isCurrent(owner)) return false;
+      if (!result) {
+        await refresh();
+        setResolutionError('원격 상태가 변경되었습니다. 최신 값을 다시 확인해 주세요.');
+        return false;
+      }
       setConflict(null);
       await refresh().catch((error) => {
         console.error('[AnnotationSyncConflict] refresh after keep-local failed:', error);
@@ -115,11 +120,16 @@ export const useAnnotationSyncConflictResolution = ({
     setResolving(true);
     setResolutionError(null);
     try {
-      await resolveAnnotationSyncConflictUseRemoteV5(
+      const result = await resolveAnnotationSyncConflictUseRemoteV5(
         getSyncOwnerKey(owner.ownerKey),
         conflict.conflictId,
       );
       if (!ownerRuntime.isCurrent(owner)) return false;
+      if (!result) {
+        await refresh();
+        setResolutionError('원격 상태가 변경되었습니다. 최신 값을 다시 확인해 주세요.');
+        return false;
+      }
       setConflict(null);
       await refresh().catch((error) => {
         console.error('[AnnotationSyncConflict] refresh after use-remote failed:', error);

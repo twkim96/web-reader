@@ -1074,6 +1074,38 @@ test('creates immutable reading statistic sessions and replays the same payload'
   await assertFails(deleteDoc(doc(db, readingStatisticsPath())));
 });
 
+test('accepts bounded TTS active intervals and rejects a mismatched wall timeline', async () => {
+  const db = database();
+  const startedAtClient = 1_000;
+  const endedAtClient = 601_000;
+  await assertSucceeds(setDoc(doc(db, readingStatisticsPath('tts-intervals')), {
+    ...validReadingSession('tts-intervals'),
+    mode: 'tts',
+    startedAtClient,
+    endedAtClient,
+    durationMs: 300_000,
+    localDate: getReadingSessionLocalDate(startedAtClient, 0),
+    activeIntervals: [
+      { startedAtClient, endedAtClient: 151_000 },
+      { startedAtClient: 451_000, endedAtClient },
+    ],
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(db, readingStatisticsPath('tts-bad-intervals')), {
+    ...validReadingSession('tts-bad-intervals'),
+    mode: 'tts',
+    startedAtClient,
+    endedAtClient,
+    durationMs: 300_000,
+    localDate: getReadingSessionLocalDate(startedAtClient, 0),
+    activeIntervals: [
+      { startedAtClient: 2_000, endedAtClient: 151_000 },
+      { startedAtClient: 451_000, endedAtClient },
+    ],
+    uploadedAtServer: serverTimestamp(),
+  }));
+});
+
 test('accepts a bounded full clock sample and rejects partial clock metadata', async () => {
   const db = database();
   await assertSucceeds(setDoc(doc(db, readingStatisticsPath('clocked')), {

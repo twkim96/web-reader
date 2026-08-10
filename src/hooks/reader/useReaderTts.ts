@@ -151,6 +151,7 @@ export const useReaderTts = ({
   settings,
   clearSelection,
   dismissSelectionMenu,
+  onProgressNavigationFenceChange,
 }: {
   ownerKey: string;
   bookId: string;
@@ -161,6 +162,7 @@ export const useReaderTts = ({
   settings: ViewerSettings;
   clearSelection: () => void;
   dismissSelectionMenu: () => void;
+  onProgressNavigationFenceChange: (active: boolean) => void;
 }) => {
   const [state, setState] = useState<ReaderTtsPresentationState>(idleState);
   const [supported, setSupported] = useState(false);
@@ -181,6 +183,7 @@ export const useReaderTts = ({
   const retryTimerRef = useRef<number | null>(null);
   const sleepTimerRef = useRef<number | null>(null);
   const speechStartTimerRef = useRef<number | null>(null);
+  const resumeValidationTimerRef = useRef<number | null>(null);
   const speechStartedGenerationRef = useRef<number | null>(null);
   const sleepTimerEndsAtRef = useRef<number | null>(null);
   const wasPlayingWhenHiddenRef = useRef(false);
@@ -210,6 +213,12 @@ export const useReaderTts = ({
     if (speechStartTimerRef.current === null) return;
     window.clearTimeout(speechStartTimerRef.current);
     speechStartTimerRef.current = null;
+  }, []);
+
+  const clearResumeValidationTimer = useCallback(() => {
+    if (resumeValidationTimerRef.current === null) return;
+    window.clearTimeout(resumeValidationTimerRef.current);
+    resumeValidationTimerRef.current = null;
   }, []);
 
   const clearSleepTimer = useCallback(() => {
@@ -257,11 +266,12 @@ export const useReaderTts = ({
 
   const cancelSpeech = useCallback(() => {
     clearSpeechStartTimer();
+    clearResumeValidationTimer();
     generationRef.current += 1;
     speechStartedGenerationRef.current = null;
     viewRef.current?.cancelTransientNavigation?.('tts');
     getBrowserSpeechSynthesisDependencies()?.synthesis.cancel();
-  }, [clearSpeechStartTimer, viewRef]);
+  }, [clearResumeValidationTimer, clearSpeechStartTimer, viewRef]);
 
   const stop = useCallback(() => {
     if (
@@ -270,16 +280,21 @@ export const useReaderTts = ({
       && !overlayRef.current
       && retryTimerRef.current === null
       && sleepTimerRef.current === null
-    ) return;
+    ) {
+      onProgressNavigationFenceChange(false);
+      return;
+    }
     clearRetryTimer();
     clearSpeechStartTimer();
+    clearResumeValidationTimer();
     clearSleepTimer();
     cancelSpeech();
     queueRef.current = null;
     desiredPlaybackRef.current = 'playing';
     setState(idleState);
     clearOverlay();
-  }, [cancelSpeech, clearOverlay, clearRetryTimer, clearSleepTimer, clearSpeechStartTimer]);
+    onProgressNavigationFenceChange(false);
+  }, [cancelSpeech, clearOverlay, clearResumeValidationTimer, clearRetryTimer, clearSleepTimer, clearSpeechStartTimer, onProgressNavigationFenceChange]);
 
   stopRef.current = stop;
 
@@ -339,10 +354,11 @@ export const useReaderTts = ({
       error: null,
     }));
     generationRef.current += 1;
+    clearResumeValidationTimer();
     clearRetryTimer();
     clearSleepTimer();
     clearOverlay();
-  }, [clearOverlay, clearRetryTimer, clearSleepTimer]);
+  }, [clearOverlay, clearResumeValidationTimer, clearRetryTimer, clearSleepTimer]);
 
   const continueToNextSection = useCallback(async (queue: ReaderTtsQueue) => {
     const chapter = queue.chapter;
@@ -440,8 +456,10 @@ export const useReaderTts = ({
       stop();
       return;
     }
+    onProgressNavigationFenceChange(true);
     clearRetryTimer();
     clearSpeechStartTimer();
+    clearResumeValidationTimer();
     if (!preserveRetry) queue.retryCount = 0;
     const generation = generationRef.current + 1;
     generationRef.current = generation;
@@ -471,6 +489,7 @@ export const useReaderTts = ({
     const handleFailure = (error: unknown) => {
       if (generationRef.current !== generation) return;
       clearSpeechStartTimer();
+      clearResumeValidationTimer();
       if (queue.mode === 'chapter' && isRetryableBrowserSpeechError(error)) {
         generationRef.current += 1;
         clearOverlay();
@@ -525,6 +544,7 @@ export const useReaderTts = ({
         onStart: () => {
           if (generationRef.current !== generation) return;
           clearSpeechStartTimer();
+          clearResumeValidationTimer();
           speechStartedGenerationRef.current = generation;
           if (desiredPlaybackRef.current === 'paused') {
             dependencies.synthesis.pause();
@@ -536,6 +556,7 @@ export const useReaderTts = ({
         onEnd: () => {
           if (generationRef.current !== generation) return;
           clearSpeechStartTimer();
+          clearResumeValidationTimer();
           queue.retryCount = 0;
           if (queue.autoAdvance) {
             advanceRef.current();
@@ -551,9 +572,11 @@ export const useReaderTts = ({
   }, [
     clearOverlay,
     clearRetryTimer,
+    clearResumeValidationTimer,
     clearSleepTimer,
     clearSpeechStartTimer,
     ensureChapterItemVisible,
+    onProgressNavigationFenceChange,
     saveChapterCursor,
     setFinishedState,
     settings.ttsLanguage,
@@ -927,6 +950,7 @@ export const useReaderTts = ({
     if (state.status === 'playing' || state.status === 'starting' || state.status === 'loading') {
       desiredPlaybackRef.current = 'paused';
       clearSpeechStartTimer();
+      clearResumeValidationTimer();
       dependencies.synthesis.pause();
       setState((current) => ({ ...current, status: 'paused' }));
       return;
@@ -939,8 +963,18 @@ export const useReaderTts = ({
       }
       dependencies.synthesis.resume();
       setState((current) => ({ ...current, status: 'loading' }));
-      window.setTimeout(() => {
-        if (desiredPlaybackRef.current !== 'playing' || queueRef.current !== queue) return;
+      clearResumeValidationTimer();
+      const generation = generationRef.current;
+      const queueIndex = queue.index;
+      resumeValidationTimerRef.current = window.setTimeout(() => {
+        resumeValidationTimerRef.current = null;
+        if (
+          generationRef.current !== generation
+          || desiredPlaybackRef.current !== 'playing'
+          || queueRef.current !== queue
+          || queue.index !== queueIndex
+          || stateRef.current.status !== 'loading'
+        ) return;
         if (dependencies.synthesis.paused) {
           setState((current) => ({ ...current, status: 'paused' }));
           return;
@@ -949,12 +983,12 @@ export const useReaderTts = ({
           setState((current) => ({ ...current, status: 'playing' }));
           return;
         }
-        speakIndexRef.current(queue.index);
+        speakIndexRef.current(queueIndex);
       }, 120);
       return;
     }
     speakIndexRef.current(queue.index);
-  }, [clearSpeechStartTimer, state.status]);
+  }, [clearResumeValidationTimer, clearSpeechStartTimer, state.status]);
 
   const setSleepTimer = useCallback((minutes: 0 | 10 | 20 | 30) => {
     clearSleepTimer();
@@ -1040,10 +1074,12 @@ export const useReaderTts = ({
       queueRef.current = null;
       clearRetryTimer();
       clearSpeechStartTimer();
+      clearResumeValidationTimer();
       clearSleepTimer();
       clearOverlay();
+      onProgressNavigationFenceChange(false);
     };
-  }, [bookId, clearOverlay, clearRetryTimer, clearSleepTimer, clearSpeechStartTimer, contentIdentity, ownerKey]);
+  }, [bookId, clearOverlay, clearResumeValidationTimer, clearRetryTimer, clearSleepTimer, clearSpeechStartTimer, contentIdentity, onProgressNavigationFenceChange, ownerKey]);
 
   useEffect(() => () => {
     if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);

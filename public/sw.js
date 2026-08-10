@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.8: add overlap-safe screen and TTS reading statistics.
+// 1.8.9: add pre-device stabilization and reading statistics leader coordination.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.8`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.9`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

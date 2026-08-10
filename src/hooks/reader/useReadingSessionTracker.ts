@@ -12,9 +12,11 @@ import {
   getNextReadingTtsTrackingPhase,
   getReadingTrackingEndAt,
   getReadingTrackingMode,
+  READING_SESSION_MAX_ACTIVE_INTERVALS,
   READING_SESSION_MAX_DURATION_MS,
   READING_SESSION_MIN_DURATION_MS,
   READING_SESSION_SCHEMA_VERSION,
+  type ReadingActiveIntervalV1,
   type ReadingSessionMode,
   type ReadingTtsTrackingPhase,
   type ReadingSessionV1,
@@ -24,6 +26,7 @@ import { readReadingStatisticsClockSample } from '../../lib/readingStatisticsClo
 import {
   getReadingStatisticsDraftKey,
   getReadingStatisticsDraftPrefix,
+  getReadingStatisticsDraftRecoveryEnd,
 } from '../../lib/readingStatisticsDraft';
 import {
   detachReadingActivityTargets,
@@ -33,7 +36,6 @@ import {
 
 const HEARTBEAT_MS = 5_000;
 const COMPLETION_PERCENT = 99.5;
-
 type ActiveSegment = {
   sessionId: string;
   mode: ReadingSessionMode;
@@ -46,6 +48,8 @@ type ActiveSegment = {
   clockOffsetMs?: number;
   clockUncertaintyMs?: number;
   clockMeasuredAtClient?: number;
+  activeIntervals?: ReadingActiveIntervalV1[];
+  activeIntervalStartedAtClient?: number | null;
 };
 
 type ReadingSessionDraft = ActiveSegment & {
@@ -88,7 +92,26 @@ const isDraft = (value: unknown): value is ReadingSessionDraft => {
     && Number.isSafeInteger(draft.lastHeartbeatAt)
     && typeof draft.startProgressPercent === 'number'
     && typeof draft.endProgressPercent === 'number'
-    && Number.isInteger(draft.timezoneOffsetMinutes);
+    && Number.isInteger(draft.timezoneOffsetMinutes)
+    && (
+      draft.activeIntervals === undefined
+      || (
+        Array.isArray(draft.activeIntervals)
+        && draft.activeIntervals.length <= READING_SESSION_MAX_ACTIVE_INTERVALS
+        && draft.activeIntervals.every((interval) => (
+          typeof interval === 'object'
+          && interval !== null
+          && Number.isSafeInteger(interval.startedAtClient)
+          && Number.isSafeInteger(interval.endedAtClient)
+          && interval.endedAtClient > interval.startedAtClient
+        ))
+      )
+    )
+    && (
+      draft.activeIntervalStartedAtClient === undefined
+      || draft.activeIntervalStartedAtClient === null
+      || Number.isSafeInteger(draft.activeIntervalStartedAtClient)
+    );
 };
 
 const toClosedSession = (
@@ -100,7 +123,28 @@ const toClosedSession = (
     draft.startedAtClient + READING_SESSION_MAX_DURATION_MS,
     getNextLocalMidnight(draft.startedAtClient, draft.timezoneOffsetMinutes),
   );
-  const durationMs = safeEnd - draft.startedAtClient;
+  const activeIntervals = draft.mode === 'tts' && draft.activeIntervals
+    ? [
+      ...draft.activeIntervals,
+      ...(draft.activeIntervalStartedAtClient !== null
+        && draft.activeIntervalStartedAtClient !== undefined
+        && safeEnd > draft.activeIntervalStartedAtClient
+        ? [{
+          startedAtClient: draft.activeIntervalStartedAtClient,
+          endedAtClient: safeEnd,
+        }]
+        : []),
+    ].map((interval) => ({
+      startedAtClient: Math.max(draft.startedAtClient, interval.startedAtClient),
+      endedAtClient: Math.min(safeEnd, interval.endedAtClient),
+    })).filter((interval) => interval.endedAtClient > interval.startedAtClient)
+    : null;
+  const actualEnd = activeIntervals?.at(-1)?.endedAtClient ?? safeEnd;
+  const durationMs = activeIntervals
+    ? activeIntervals.reduce((total, interval) => (
+      total + interval.endedAtClient - interval.startedAtClient
+    ), 0)
+    : actualEnd - draft.startedAtClient;
   if (durationMs < READING_SESSION_MIN_DURATION_MS) return null;
   return {
     schemaVersion: READING_SESSION_SCHEMA_VERSION,
@@ -110,7 +154,7 @@ const toClosedSession = (
     deviceId: draft.deviceId,
     mode: draft.mode,
     startedAtClient: draft.startedAtClient,
-    endedAtClient: safeEnd,
+    endedAtClient: actualEnd,
     durationMs,
     startProgressPercent: clampProgress(draft.startProgressPercent),
     endProgressPercent: clampProgress(draft.endProgressPercent),
@@ -120,6 +164,7 @@ const toClosedSession = (
       draft.timezoneOffsetMinutes,
     ),
     completed: draft.endProgressPercent >= COMPLETION_PERCENT,
+    ...(activeIntervals ? { activeIntervals } : {}),
     ...(draft.clockOffsetMs !== undefined ? {
       clockOffsetMs: draft.clockOffsetMs,
       clockUncertaintyMs: draft.clockUncertaintyMs,
@@ -158,6 +203,7 @@ export const useReadingSessionTracker = ({
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const deviceIdRef = useRef('');
   const bookRef = useRef(book);
+  const ttsGapStartedAtMonotonicRef = useRef<number | null>(null);
 
   const queuePersist = useCallback((
     draft: ReadingSessionDraft,
@@ -228,6 +274,10 @@ export const useReadingSessionTracker = ({
       endProgressPercent: progress,
       timezoneOffsetMinutes: new Date(startedAtClient).getTimezoneOffset(),
       startedAtMonotonic,
+      ...(mode === 'tts' ? {
+        activeIntervals: [],
+        activeIntervalStartedAtClient: startedAtClient,
+      } : {}),
       ...(() => {
         const clock = readReadingStatisticsClockSample(
           deviceIdRef.current,
@@ -278,6 +328,14 @@ export const useReadingSessionTracker = ({
   }, [ownerKey, queuePersist]);
 
   const getDesiredMode = useCallback((now: number): ReadingSessionMode | null => {
+    if (
+      ttsTrackingPhaseRef.current === 'active-gap'
+      && ttsGapStartedAtMonotonicRef.current !== null
+      && activeSegmentRef.current?.mode === 'tts'
+      && loadedRef.current
+      && !suspendedRef.current
+      && document.visibilityState === 'visible'
+    ) return 'tts';
     return getReadingTrackingMode({
       isLoaded: loadedRef.current,
       suspended: suspendedRef.current,
@@ -294,15 +352,21 @@ export const useReadingSessionTracker = ({
     const desiredMode = getDesiredMode(monotonicNow);
     let segment = activeSegmentRef.current;
     if (segment && segment.mode !== desiredMode) {
-      const endAtMonotonic = getReadingTrackingEndAt({
-        mode: segment.mode,
-        now: monotonicNow,
-        lastActivityAt: lastActivityAtRef.current,
-      });
+      const endAtMonotonic = segment.mode === 'tts'
+        && ttsGapStartedAtMonotonicRef.current !== null
+        ? ttsGapStartedAtMonotonicRef.current
+        : getReadingTrackingEndAt({
+          mode: segment.mode,
+          now: monotonicNow,
+          lastActivityAt: lastActivityAtRef.current,
+        });
       closeSegment(getSegmentWallTime(
         segment,
         Math.max(segment.startedAtMonotonic, endAtMonotonic),
       ));
+      if (segment.mode === 'tts') {
+        ttsGapStartedAtMonotonicRef.current = null;
+      }
       segment = null;
     }
     if (!desiredMode) return;
@@ -311,6 +375,10 @@ export const useReadingSessionTracker = ({
       segment = activeSegmentRef.current;
     }
     if (!segment) return;
+    if (
+      segment.mode === 'tts'
+      && ttsTrackingPhaseRef.current === 'active-gap'
+    ) return;
     const boundary = Math.min(
       segment.startedAtClient + READING_SESSION_MAX_DURATION_MS,
       getNextLocalMidnight(segment.startedAtClient, segment.timezoneOffsetMinutes),
@@ -345,6 +413,81 @@ export const useReadingSessionTracker = ({
       ttsTrackingPhaseRef.current,
       ttsStatus,
     );
+    const previousTtsTrackingPhase = ttsTrackingPhaseRef.current;
+    if (
+      nextTtsTrackingPhase === 'active-gap'
+      && previousTtsTrackingPhase === 'active-run'
+      && activeSegmentRef.current?.mode === 'tts'
+    ) {
+      const gapStartedAt = getMonotonicNow();
+      const segment = activeSegmentRef.current;
+      if (
+        segment?.mode === 'tts'
+        && segment.activeIntervalStartedAtClient !== null
+        && segment.activeIntervalStartedAtClient !== undefined
+      ) {
+        const intervalEnd = getSegmentWallTime(segment, gapStartedAt);
+        const intervals = intervalEnd > segment.activeIntervalStartedAtClient
+          ? [
+            ...(segment.activeIntervals ?? []),
+            {
+              startedAtClient: segment.activeIntervalStartedAtClient,
+              endedAtClient: intervalEnd,
+            },
+          ]
+          : segment.activeIntervals ?? [];
+        const updatedSegment = {
+          ...segment,
+          activeIntervals: intervals,
+          activeIntervalStartedAtClient: null,
+          lastHeartbeatAt: Math.max(segment.lastHeartbeatAt, intervalEnd),
+        };
+        activeSegmentRef.current = updatedSegment;
+        writeDraft(updatedSegment);
+        if (intervals.length >= READING_SESSION_MAX_ACTIVE_INTERVALS) {
+          closeSegment(intervalEnd);
+        }
+      }
+      ttsGapStartedAtMonotonicRef.current = gapStartedAt;
+    } else if (nextTtsTrackingPhase === 'active-run') {
+      const gapStartedAt = ttsGapStartedAtMonotonicRef.current;
+      const segment = activeSegmentRef.current;
+      if (gapStartedAt !== null && segment?.mode === 'tts') {
+        const gapEndedAt = getMonotonicNow();
+        const actualGapEndWallTime = getSegmentWallTime(segment, gapEndedAt);
+        const boundary = Math.min(
+          segment.startedAtClient + READING_SESSION_MAX_DURATION_MS,
+          getNextLocalMidnight(segment.startedAtClient, segment.timezoneOffsetMinutes),
+        );
+        if (actualGapEndWallTime >= boundary) {
+          closeSegment(getSegmentWallTime(segment, gapStartedAt));
+        } else {
+          const resumedSegment = {
+            ...segment,
+            activeIntervalStartedAtClient: actualGapEndWallTime,
+          };
+          activeSegmentRef.current = resumedSegment;
+          writeDraft(resumedSegment);
+        }
+      }
+      ttsGapStartedAtMonotonicRef.current = null;
+    } else if (
+      nextTtsTrackingPhase === 'inactive'
+      || nextTtsTrackingPhase === 'paused'
+      || nextTtsTrackingPhase === 'awaiting-first-start'
+    ) {
+      const gapStartedAt = ttsGapStartedAtMonotonicRef.current;
+      if (gapStartedAt !== null) {
+        const segment = activeSegmentRef.current;
+        if (segment?.mode === 'tts') {
+          closeSegment(getSegmentWallTime(
+            segment,
+            Math.max(segment.startedAtMonotonic, gapStartedAt),
+          ));
+        }
+      }
+      ttsGapStartedAtMonotonicRef.current = null;
+    }
     if (
       nextTtsTrackingPhase === 'inactive'
       || nextTtsTrackingPhase === 'paused'
@@ -354,7 +497,15 @@ export const useReadingSessionTracker = ({
     ttsTrackingPhaseRef.current = nextTtsTrackingPhase;
     progressRef.current = progressPercent;
     bookRef.current = book;
-  }, [book, isLoaded, progressPercent, suspended, ttsStatus]);
+  }, [
+    book,
+    closeSegment,
+    isLoaded,
+    progressPercent,
+    suspended,
+    ttsStatus,
+    writeDraft,
+  ]);
 
   useEffect(() => {
     const deviceId = providedDeviceId?.trim() || getOrCreateDeviceId(localStorage);
@@ -374,9 +525,7 @@ export const useReadingSessionTracker = ({
         }
         const recovered = toClosedSession(
           draft,
-          draft.state === 'closed-pending' && Number.isSafeInteger(draft.closedAtClient)
-            ? Number(draft.closedAtClient)
-            : draft.lastHeartbeatAt,
+          getReadingStatisticsDraftRecoveryEnd(draft),
         );
         if (recovered) queuePersist(draft, recovered.endedAtClient, key);
         else localStorage.removeItem(key);
@@ -387,10 +536,21 @@ export const useReadingSessionTracker = ({
     reconcile();
     return () => {
       const segment = activeSegmentRef.current;
-      closeSegment(segment ? getSegmentWallTime(segment, getMonotonicNow()) : Date.now());
+      const endAtMonotonic = segment?.mode === 'tts'
+        && ttsGapStartedAtMonotonicRef.current !== null
+        ? ttsGapStartedAtMonotonicRef.current
+        : getMonotonicNow();
+      ttsGapStartedAtMonotonicRef.current = null;
+      closeSegment(segment ? getSegmentWallTime(segment, endAtMonotonic) : Date.now());
       deviceIdRef.current = '';
     };
-  }, [closeSegment, ownerKey, providedDeviceId, queuePersist, reconcile]);
+  }, [
+    closeSegment,
+    ownerKey,
+    providedDeviceId,
+    queuePersist,
+    reconcile,
+  ]);
 
   useEffect(() => {
     reconcile();
@@ -400,7 +560,12 @@ export const useReadingSessionTracker = ({
     const handleBoundary = () => reconcile();
     const handlePageHide = () => {
       const segment = activeSegmentRef.current;
-      closeSegment(segment ? getSegmentWallTime(segment, getMonotonicNow()) : Date.now());
+      const endAtMonotonic = segment?.mode === 'tts'
+        && ttsGapStartedAtMonotonicRef.current !== null
+        ? ttsGapStartedAtMonotonicRef.current
+        : getMonotonicNow();
+      ttsGapStartedAtMonotonicRef.current = null;
+      closeSegment(segment ? getSegmentWallTime(segment, endAtMonotonic) : Date.now());
     };
     const handleReaderKey = (event: KeyboardEvent) => {
       if (

@@ -6,7 +6,7 @@
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
-상태: 문서 작성 완료. Phase A 선행 안정화 TODO가 끝나기 전에는 실기기 검증을 시작하지 않음
+상태: Phase A 외부 리뷰 finding을 [hotfix.1](./update_1.8.9-hotfix.1.md)~[hotfix.5](./update_1.8.9-hotfix.5.md)로 보강 중. hotfix.4 재리뷰와 production Chrome 3회 연속 완주를 근거로 단일기기 Phase B는 시작 가능하며, 다중 탭·다중기기 acceptance는 hotfix.5 전체 gate·재리뷰 뒤 시작
 
 ## 목표
 
@@ -16,7 +16,7 @@
 
 ### A1. 다중 탭 독서 통계 sync 단일 실행자
 
-상태: TODO
+상태: 초기 구현 뒤 외부 리뷰 finding을 hotfix.1~5로 보강. 단일기기 Phase B 병행 가능, 다중 탭·다중기기 최종 판정은 hotfix.5 재리뷰 대기
 
 - owner별 통계 hydration/upload에 하나의 active leader만 두는 lease 또는 Web Locks protocol을 설계한다.
 - tab 종료·background·lease 만료·same-tab reacquire·owner 전환을 구분하고 늦은 continuation을 폐기한다.
@@ -24,9 +24,28 @@
 - 두 탭 동시 시작, leader 강제 종료, offline→online, token refresh, 500개 multi-page hydration을 자동 테스트한다.
 - 구현 전후 Firestore read/write 수를 계측해 비용 감소를 확인한다.
 
+구현 결과:
+
+- IndexedDB v13에 reading-statistics 전용 owner lease store를 추가했다. progress/annotation worker lease와 key 공간을 공유하지 않는다.
+- 15초 lease와 5초 heartbeat를 사용하며 같은 tab의 live renewal은 epoch를 유지하고, 만료·release 뒤 reacquire는 epoch를 증가시킨다.
+- hidden tab은 즉시 release하고 visible·online·token refresh·local wake에서 follower도 leader 획득을 다시 시도한다.
+- 원격 page fetch와 upload 뒤 lease epoch를 다시 확인한다. hotfix.1에서는 hydration cursor commit과 session sync acknowledgement transaction 자체가 v13 holder·epoch를 검사해 check/commit 사이 takeover도 차단한다.
+- release 뒤 늦게 완료된 acquire는 lifecycle generation으로 폐기하고, lifecycle별 holder ID로 같은 tab의 새 lease를 이전 정리가 만료시키지 못하게 한다.
+- hydration coordinator를 별도 pure boundary로 분리해 500 + 500 + 1 session page와 page 사이 leader takeover를 테스트했다.
+- device clock sample single-flight는 leader 내부에서만 시작하며 lease 상실 뒤 표본을 저장하지 않는다.
+
+자동 증거:
+
+- 동일 owner 두 tab 동시 acquire 시 leader 1개
+- 다른 owner lease 독립성
+- 만료·명시 release·same-tab reacquire epoch
+- 이전 epoch continuation 차단
+- 1,001개 multi-page hydration exact cursor 연속성
+- 두 번째 page fetch 직후 takeover 시 미확정 page local commit 차단
+
 ### A2. retention·compaction 계측과 migration 설계
 
-상태: TODO — hotfix.2에서 수용 후 안전상 보류한 항목
+상태: 계측·migration gate 설계 및 자동 fixture 완료. 실제 삭제는 observe-only로 비활성
 
 임의 TTL 삭제는 offline 복귀, tombstone 삭제 부활 방지, receipt 멱등성과 cloud recovery 계약을 깨뜨릴 수 있으므로 계측·정책·migration·rollback을 한 묶음으로 진행한다.
 
@@ -37,7 +56,7 @@
 - annotation active/tombstone/receipt/remote-head 개수와 byte
 - 통계 raw segment 수, 월 증가량, hydration page/read 수와 집계 시간
 - IndexedDB 전체/도메인별 사용량과 quota 비율
-- 7일·30일·90일 offline 기기의 재접속 결과
+- 7일·30일·90일 offline 기기의 재접속 결과(Phase B 실데이터 증거)
 
 정책 결정 항목:
 
@@ -47,16 +66,33 @@
 - export, 사용자 전체 삭제, 계정 전환, 복구, rollback 계약
 - emulator migration과 구버전 client 재접속 호환성
 
-완료 증거:
+migration 활성화 전 필요한 Phase B 증거:
 
 - 실제 계측 표본과 용량/비용 기준선
 - migration 전후 동일한 authoritative snapshot·통계 합계
-- 7/30/90일 offline 복귀 fixture
+- 7/30/90일 offline 복귀 실기기·복원 fixture
 - 중단·재시작·rollback 자동 테스트
+
+구현 결과:
+
+- owner별 local outbox 상태·대략적 byte·oldest age·30일 superseded 후보를 읽기 전용으로 수집한다.
+- conflict state·byte·age·30일 resolved 후보, annotation unresolved·book deletion marker, remote head tombstone을 함께 수집한다.
+- remote receipt는 local DB에 없으므로 `server-only`로 명시해 가짜 0으로 보고하지 않는다.
+- raw 통계 session 수·월별 증가·sync state·byte·oldest age·aggregation 소요시간을 수집한다.
+- hydration read attempt/성공 read/commit page와 completed/lost-leadership/failed run, 마지막 duration을 durable meta에 누적한다. malformed timestamp 때문에 document cursor로 추가 page를 읽은 비용도 실제 read 수에 포함한다.
+- `navigator.storage.estimate()`의 usage/quota/ratio를 같은 snapshot에 포함한다.
+- 손상된 local session은 record별로 제외하고 `malformedRecordCount`로 보고하며, 통계 modal의 사용자 명시 동작으로 진단 JSON을 내려받을 수 있다.
+- migration planner 단위 테스트는 90일 offline, authoritative snapshot 동등성, 통계 합계 동등성, rollback, 구버전 재접속 증거가 모두 true여야 `migration-ready`가 되는 gate 계약만 검증한다. 실제 증거는 Phase B에서 별도로 수집하며 자동 삭제는 별도 migration release 전까지 false다.
+- 7일·30일·90일 정책은 최소 90일 tombstone/receipt 보존과 server watermark를 하한으로 고정했다. raw 통계는 검증된 full audit 뒤 월별 immutable archive 후보로만 설계했다.
+
+현재 판정:
+
+- synthetic IndexedDB fixture로 각 계측값, quota 25%, hydration 2 page/3 read, 30일 후보가 검출되면서 원본 record가 삭제되지 않음을 확인했다.
+- 실제 사용자 데이터 표본과 7/30/90일 장기 재접속 결과는 Phase B에서 수집한다. 그 전에는 migration 실행 함수를 제공하지 않는다.
 
 ### A3. 추가 리뷰·자동 gate 마감
 
-상태: TODO
+상태: progress sentinel·TTS pause/resume·원격 command·annotation generation·통계 시간축 경합을 hotfix.1~5에서 보강. hotfix.4 재리뷰 working tree의 production Chrome 3회 연속 완주, hotfix.5 전체 gate·재리뷰 대기
 
 - hotfix.3~7 외부 재리뷰에서 P0~P2가 남지 않아야 한다.
 - `npm run check:full`과 `git diff --check`를 clean checkout에서 통과한다.
@@ -65,14 +101,33 @@
 - 대량 책장 자동 pagination과 명시적 `더 보기` fallback을 각각 검증하되, observer 누락이 뒤의 reader 회귀를 가리지 않게 한다.
 - 알려진 P3는 재현 조건, 사용자 영향, 보류 사유와 실기기 관찰 항목을 명시한다.
 
+진단·수정 결과:
+
+- auto-open 전에 빈 books render가 먼저 도착하면 last reader intent를 지우던 bootstrap readiness 경합을 분리했다.
+- candidate를 찾은 뒤 `setTimeout(0)` cleanup이 timer만 취소하고 `hasTried`를 남기던 경합을 제거하고 reader state를 effect에서 직접 확정한다.
+- eager guest restore 뒤 늦은 Firebase `null` callback이 열린 reader를 shelf로 되돌리지 않도록 현재 reader view를 보존한다.
+- production timeout에 app view, bootstrap readiness, last reader intent, visibility/focus, live Foliate document, `window.__regressionErrors`를 포함한다.
+- 기존 selection P3는 제품 rAF가 아니라 하나의 장기 `Runtime.evaluate` 안에서 테스트 settle용 rAF가 오지 않아 전체 CDP command가 정지한 경로로 분리됐다.
+- browser regression의 settle helper에 100ms timer fallback을 두었다. 제품 reader의 animation/navigation 코드는 바꾸지 않으며 실제 selection·TTS·번역·하이라이트·빠른 탭 결과는 그대로 assertion한다.
+- 수정 후 같은 production build의 전체 Chrome regression이 3회 연속 통과했다.
+- hotfix.1은 TTS sentinel 주입 전에 reader progress flush를 완료했다.
+- hotfix.2는 resume validation timer를 generation에 결합하고, logical TTS session을 유지하면서 문장 사이 gap을 재생 시간에서 제외했다.
+- hotfix.3은 일반 주석 hydration의 book-deletion generation을 transaction에서 검사하고, 원격 command 취소를 IndexedDB transaction abort에 연결했다.
+- hotfix.3은 TTS session의 실제 wall-clock active interval을 저장해 gap을 제외하면서 날짜·기기 간 overlap 위치를 보존한다.
+- hotfix.4는 marker-only live advancement에서도 stale annotation partition을 즉시 reconcile하고 열린 reader를 갱신한다.
+- hotfix.4는 TTS lifecycle 전체에 progress fence를 두고 기존 relocate timer까지 중지하며, active-gap crash journal의 마지막 interval end를 보존한다.
+- hotfix.5는 marker head·sync meta 저장과 stale annotation 정리를 하나의 IndexedDB transaction으로 합쳐 다중 탭 resurrection window를 제거한다.
+- hotfix.5는 TTS fence 직전에 대기 중인 사용자 위치 snapshot을 즉시 저장해 장시간 TTS·강제 종료의 durability gap을 제거한다.
+
 ## Phase B — 누적 실기기 검증
 
-상태: Phase A 완료 후 시작
+상태: 단일기기 UX·성능·장시간 TTS·통계 관찰은 시작 가능. 다중 탭·다중기기 sync acceptance는 hotfix.5 전체 gate·외부 재리뷰 후 시작
 
 - PC Chrome, iPad Safari 브라우저 탭, iPad 홈 화면 PWA를 사용한다.
 - EPUB·TXT·PDF·CBZ에서 선택, 하이라이트, 메모, 팔레트, 책갈피, 이동, 검색, 내보내기를 한 흐름으로 반복한다.
 - 양기기 동시 로그인, offline 편집, background, 강제 종료, PWA update 뒤 progress·bookmark·annotation·palette·statistics를 비교한다.
 - 선택·현재 위치·현재 장 TTS를 20~30분 이상 재생하고 pause/resume/chapter transition과 통계 분리를 확인한다.
+- 장기 `activeIntervals` 이력에서 iPad/PWA 통계 modal·기간 변경·export의 시간과 메모리 압박을 측정한다.
 - 자정·시간대·시계 차이가 있는 양기기에서 오늘·주·월·책별 합계를 수기로 비교한다.
 - 최소 2~3일 실제 독서에서 데이터 손실, 삭제 부활, 이유 없는 자동 이동, 반복 충돌 모달이 재현되지 않아야 한다.
 
@@ -85,6 +140,27 @@
 
 ## 현재 보류 판정
 
-- 다중 탭 단일 실행자: 타당하지만 새 lease protocol이므로 1.8.8 hotfix에 즉시 구현하지 않음. Phase A에서 구현한다.
-- retention/compaction: 타당하지만 삭제 정책을 먼저 넣을 수 없음. Phase A에서 계측·migration 설계를 완료하고 별도 구현 범위를 확정한다.
-- production Chrome 장기 회귀: guest bootstrap 문제는 수정됐지만 headless selection 단계 정지가 남아 `check:full` 전체 green을 선언하지 않음. Phase A에서 검증 인프라와 제품 수명을 분리해 해결한다.
+- 다중 탭 단일 실행자: transaction lease fencing과 late acquire lifecycle을 hotfix.1로 보강하고 자동검증 완료. marker/edit linearization은 hotfix.5 외부 재리뷰 대기.
+- retention/compaction: 계측과 migration 승인 gate는 완료. 실제 deletion/archive migration은 사용자 실데이터와 90일 offline 증거 전까지 observe-only.
+- production Chrome 장기 회귀: hotfix.4 재리뷰 working tree에서 `check:full`과 추가 2회가 연속 완주했다. hotfix.5 변경 뒤 전체 gate를 다시 수행한다.
+
+## Phase A handoff 조건
+
+- 누적 `npm run check:full`과 `git diff --check` 통과
+- production Chrome 같은 build 3회 연속 통과
+- 외부 최종 코드리뷰 P0~P2 없음
+- 단일기기 Phase B는 hotfix.4 재리뷰 결과로 먼저 시작할 수 있다.
+- 위 세 조건 뒤 다중 탭·다중기기 Phase B acceptance와 release candidate 판정을 시작한다.
+
+## Phase A 자동검증 결과
+
+- `npm run check:full`: exit 0
+- ESLint: 오류 0, 기존 Foliate vendor 경고 2
+- TypeScript·production build: 통과
+- Node: formats 59/59, drive 49/49, archives 33/33, storage 255/255, shelf 63/63, Service Worker 9/9, release 3/3 — 합계 471/471
+- Firestore Rules: 27/27
+- Chromium/WebKit Playwright: 14/14
+- production Chrome full regression: hotfix.4 재리뷰 build 3회 연속 완주, hotfix.5 build 전체 gate 1회 완주
+- `git diff --check`: 통과
+
+현재 남은 gate는 hotfix.5 전체 자동검증·외부 재리뷰, 다중 탭·다중기기 Phase B acceptance, 누적 실기기 테스트다.

@@ -1,7 +1,7 @@
 import type { IDBPDatabase, IDBPTransaction } from 'idb';
 
 export const LOCAL_DB_NAME = 'web-reader-db';
-export const LOCAL_DB_VERSION = 12;
+export const LOCAL_DB_VERSION = 13;
 
 export const LEGACY_BOOKS_STORE = 'books';
 export const LEGACY_METADATA_STORE = 'metadata';
@@ -22,6 +22,7 @@ export const V9_ANNOTATION_SETTINGS_STORE = 'annotation-settings-v9';
 export const V10_ANNOTATION_BOOK_DELETIONS_STORE = 'annotation-book-deletions-v10';
 export const V11_READING_SESSIONS_STORE = 'reading-sessions-v11';
 export const V12_READING_STATISTICS_SYNC_STORE = 'reading-statistics-sync-v12';
+export const V13_READING_STATISTICS_LEASES_STORE = 'reading-statistics-leases-v13';
 
 const createStore = (
   db: IDBPDatabase<unknown>,
@@ -163,4 +164,5 @@ export const upgradeLocalDB = (
   ]);
 
   createStore(db, V12_READING_STATISTICS_SYNC_STORE, { keyPath: 'ownerKey' });
+  createStore(db, V13_READING_STATISTICS_LEASES_STORE, { keyPath: 'ownerKey' });
 };

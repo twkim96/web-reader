@@ -31,6 +31,7 @@ import {
   type AnnotationHeadV1,
 } from '../lib/annotationSyncSchema';
 import {
+  applyRemoteAnnotationBookDeletionMarkerV5,
   enqueueMissingLocalAnnotationsV5,
   enqueueMissingLocalAnnotationPaletteV5,
   getCachedRemoteAnnotationHeadsV5,
@@ -182,6 +183,10 @@ export const useAnnotationSync = ({
       for (const head of missingHeads) {
         if (head.operation === 'upsert') remoteHeads.set(head.annotationId, head);
       }
+      if (firstAuthoritativeSnapshot) {
+        await markerAuthoritativeReady;
+        if (!isCurrent()) return;
+      }
       const result = await hydrateRemoteAnnotationHeadsV5(
         syncOwnerKey,
         bookId,
@@ -195,8 +200,6 @@ export const useAnnotationSync = ({
         controller.signal,
       );
       if (firstAuthoritativeSnapshot && isCurrent()) {
-        await markerAuthoritativeReady;
-        if (!isCurrent()) return;
         await enqueueMissingLocalAnnotationsV5(
           syncOwnerKey,
           bookId,
@@ -252,7 +255,15 @@ export const useAnnotationSync = ({
         ) throw toAnnotationSyncSchemaError(
           new Error('annotation 삭제 marker가 올바르지 않습니다.'),
         );
-        await storeRemoteHeadsBatchV5(syncOwnerKey, [head]);
+        const result = await applyRemoteAnnotationBookDeletionMarkerV5(
+          syncOwnerKey,
+          head,
+          isCurrent,
+          controller.signal,
+        );
+        if (result.changed && isCurrent()) {
+          notifyAnnotationSyncChange({ ownerKey, bookId });
+        }
         resolveMarkerAuthoritative();
       },
       isAuthoritative: (snapshot) => !snapshot.metadata.fromCache,

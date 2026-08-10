@@ -14,3 +14,15 @@ export const getReadingStatisticsDraftKey = (
 ) => (
   `${getReadingStatisticsDraftPrefix(ownerKey, deviceId)}${encodeURIComponent(bookId)}:${encodeURIComponent(sessionId)}`
 );
+
+export const getReadingStatisticsDraftRecoveryEnd = (draft: {
+  state?: 'active' | 'closed-pending';
+  closedAtClient?: number;
+  lastHeartbeatAt: number;
+  activeIntervals?: ReadonlyArray<{ endedAtClient: number }>;
+}) => Math.max(
+  draft.state === 'closed-pending' && Number.isSafeInteger(draft.closedAtClient)
+    ? Number(draft.closedAtClient)
+    : draft.lastHeartbeatAt,
+  draft.activeIntervals?.at(-1)?.endedAtClient ?? 0,
+);

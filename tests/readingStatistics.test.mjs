@@ -36,6 +36,8 @@ const session = ({
   timezoneOffsetMinutes = 0,
   completed = false,
   clockOffsetMs = 0,
+  durationMs,
+  activeIntervals,
 }) => ({
   schemaVersion: 1,
   sessionId,
@@ -45,12 +47,13 @@ const session = ({
   mode,
   startedAtClient,
   endedAtClient,
-  durationMs: endedAtClient - startedAtClient,
+  durationMs: durationMs ?? endedAtClient - startedAtClient,
   startProgressPercent,
   endProgressPercent,
   timezoneOffsetMinutes,
   localDate: getReadingSessionLocalDate(startedAtClient, timezoneOffsetMinutes),
   completed,
+  ...(activeIntervals ? { activeIntervals } : {}),
   ...(clockOffsetMs === null ? {} : {
     clockOffsetMs,
     clockUncertaintyMs: 25,
@@ -316,6 +319,33 @@ test('keeps logical TTS continuity while excluding silent utterance transitions'
   assert.equal(getNextReadingTtsTrackingPhase('active-run', 'finished'), 'inactive');
 });
 
+test('deduplicates TTS by its real active wall-clock intervals', () => {
+  const start = 10 * 60 * 60_000;
+  const tts = session({
+    sessionId: 'tts-intervals',
+    mode: 'tts',
+    startedAtClient: start,
+    endedAtClient: start + 10 * 60_000,
+    durationMs: 5 * 60_000,
+    activeIntervals: [
+      { startedAtClient: start, endedAtClient: start + 2.5 * 60_000 },
+      { startedAtClient: start + 7.5 * 60_000, endedAtClient: start + 10 * 60_000 },
+    ],
+  });
+  const overlappingScreen = session({
+    sessionId: 'screen-overlap',
+    deviceId: 'device-2',
+    startedAtClient: start + 8 * 60_000,
+    endedAtClient: start + 9 * 60_000,
+  });
+  assert.equal(isReadingSessionV1(tts), true);
+  const summary = buildReadingStatistics([tts, overlappingScreen]);
+  assert.equal(summary.totalMs, 5 * 60_000);
+  assert.equal(summary.ttsMs, 5 * 60_000);
+  assert.equal(summary.screenMs, 0);
+  assert.equal(summary.sourceSessionCount, 2);
+});
+
 test('detaches activity listeners from replaced reader documents', () => {
   const calls = [];
   const target = (name) => ({
@@ -500,6 +530,8 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
     data: () => ({ ...valid, uploadedAtServer: { seconds: 60, nanoseconds: 9 } }),
   };
   let reads = 0;
+  let readAttempts = 0;
+  let successfulReads = 0;
   const startAfterArguments = [];
   const sdk = {
     collection: () => ({}),
@@ -518,8 +550,15 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
         : { size: 1, docs: [validDocument] };
     },
   };
-  const page = await getRemoteReadingSessionsPageV1({}, 'alice', null, 1, sdk);
+  const page = await getRemoteReadingSessionsPageV1({}, 'alice', null, 1, sdk, {
+    onReadAttempt: () => { readAttempts += 1; },
+    onReadSuccess: () => { successfulReads += 1; },
+  });
   assert.equal(reads, 2);
+  assert.equal(readAttempts, 2);
+  assert.equal(successfulReads, 2);
+  assert.equal(page.remoteReadAttemptCount, 2);
+  assert.equal(page.remoteReadCount, 2);
   assert.equal(startAfterArguments[0][0], malformedDocument);
   assert.deepEqual(page.sessions.map(({ sessionId }) => sessionId), [valid.sessionId]);
   assert.deepEqual(page.nextCursor, {
@@ -528,6 +567,40 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
     documentId: valid.sessionId,
   });
   assert.equal(page.fullHydrationCompleted, false);
+});
+
+test('reports a successful first read when the malformed-cursor follow-up read fails', async () => {
+  const valid = session({
+    sessionId: 'bad-cursor-before-failure',
+    startedAtClient: 1_000,
+    endedAtClient: 61_000,
+  });
+  let reads = 0;
+  let attempts = 0;
+  let successes = 0;
+  const malformedDocument = {
+    id: valid.sessionId,
+    data: () => ({ ...valid, uploadedAtServer: 'bad' }),
+  };
+  const sdk = {
+    collection: () => ({}),
+    documentId: () => '__name__',
+    orderBy: (...args) => ({ args }),
+    startAfter: (...args) => ({ args }),
+    limit: (value) => ({ value }),
+    query: () => ({}),
+    getDocsFromServer: async () => {
+      reads += 1;
+      if (reads === 1) return { size: 1, docs: [malformedDocument] };
+      throw new Error('second-read-failed');
+    },
+  };
+  await assert.rejects(getRemoteReadingSessionsPageV1({}, 'alice', null, 1, sdk, {
+    onReadAttempt: () => { attempts += 1; },
+    onReadSuccess: () => { successes += 1; },
+  }), /second-read-failed/);
+  assert.equal(attempts, 2);
+  assert.equal(successes, 1);
 });
 
 test('accepts only a low-uncertainty server clock sample', async () => {

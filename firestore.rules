@@ -20,13 +20,39 @@ service cloud.firestore {
       return value is int && value >= 0 && value <= 9007199254740991;
     }
 
+    function validReadingActiveIntervals(data) {
+      return !data.keys().hasAny(['activeIntervals'])
+        ? data.durationMs == data.endedAtClient - data.startedAtClient
+        : data.mode == 'tts'
+          && data.activeIntervals is list
+          && data.activeIntervals.size() > 0
+          && data.activeIntervals.size() <= 512
+          && data.activeIntervals[0] is map
+          && data.activeIntervals[0].keys().hasOnly(['startedAtClient', 'endedAtClient'])
+          && validClientTime(data.activeIntervals[0].startedAtClient)
+          && validClientTime(data.activeIntervals[0].endedAtClient)
+          && data.activeIntervals[0].startedAtClient == data.startedAtClient
+          && data.activeIntervals[data.activeIntervals.size() - 1] is map
+          && data.activeIntervals[data.activeIntervals.size() - 1].keys()
+            .hasOnly(['startedAtClient', 'endedAtClient'])
+          && validClientTime(
+            data.activeIntervals[data.activeIntervals.size() - 1].startedAtClient
+          )
+          && validClientTime(
+            data.activeIntervals[data.activeIntervals.size() - 1].endedAtClient
+          )
+          && data.activeIntervals[data.activeIntervals.size() - 1].endedAtClient
+            == data.endedAtClient
+          && data.durationMs <= data.endedAtClient - data.startedAtClient;
+    }
+
     function validReadingSession(data, sessionId) {
       return data.keys().hasOnly([
           'schemaVersion', 'sessionId', 'bookId', 'bookTitle', 'deviceId',
           'mode', 'startedAtClient', 'endedAtClient', 'durationMs',
           'startProgressPercent', 'endProgressPercent', 'timezoneOffsetMinutes',
           'localDate', 'completed', 'uploadedAtServer', 'clockOffsetMs',
-          'clockUncertaintyMs', 'clockMeasuredAtClient'
+          'clockUncertaintyMs', 'clockMeasuredAtClient', 'activeIntervals'
         ])
         && data.schemaVersion == 1
         && data.sessionId == sessionId
@@ -40,7 +66,7 @@ service cloud.firestore {
         && validClientTime(data.endedAtClient)
         && data.endedAtClient > data.startedAtClient
         && data.durationMs is int
-        && data.durationMs == data.endedAtClient - data.startedAtClient
+        && validReadingActiveIntervals(data)
         && data.durationMs >= 1000
         && data.durationMs <= 300000
         && data.startProgressPercent is number

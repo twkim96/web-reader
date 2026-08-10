@@ -4,6 +4,12 @@ export const READING_SESSION_SCHEMA_VERSION = 1 as const;
 export const READING_SESSION_MAX_DURATION_MS = 5 * 60_000;
 export const READING_SESSION_IDLE_TIMEOUT_MS = 90_000;
 export const READING_SESSION_MIN_DURATION_MS = 1_000;
+export const READING_SESSION_MAX_ACTIVE_INTERVALS = 512;
+
+export type ReadingActiveIntervalV1 = {
+  startedAtClient: number;
+  endedAtClient: number;
+};
 
 export type ReadingSessionMode = 'screen' | 'tts';
 export type ReadingSessionSyncState = 'pending' | 'synced';
@@ -29,6 +35,7 @@ export type ReadingSessionV1 = {
   timezoneOffsetMinutes: number;
   localDate: string;
   completed: boolean;
+  activeIntervals?: ReadingActiveIntervalV1[];
   clockOffsetMs?: number;
   clockUncertaintyMs?: number;
   clockMeasuredAtClient?: number;
@@ -114,8 +121,38 @@ export const isReadingSessionV1 = (value: unknown): value is ReadingSessionV1 =>
   if (
     value.durationMs < READING_SESSION_MIN_DURATION_MS
     || value.durationMs > READING_SESSION_MAX_DURATION_MS
-    || value.endedAtClient - value.startedAtClient !== value.durationMs
+    || value.endedAtClient <= value.startedAtClient
   ) return false;
+  if (value.activeIntervals === undefined) {
+    if (value.endedAtClient - value.startedAtClient !== value.durationMs) return false;
+  } else {
+    if (
+      value.mode !== 'tts'
+      || !Array.isArray(value.activeIntervals)
+      || value.activeIntervals.length === 0
+      || value.activeIntervals.length > READING_SESSION_MAX_ACTIVE_INTERVALS
+    ) return false;
+    let totalDurationMs = 0;
+    let previousEnd = Number(value.startedAtClient);
+    for (const interval of value.activeIntervals) {
+      if (
+        !isPlainObject(interval)
+        || !isSafeTimestamp(interval.startedAtClient)
+        || !isSafeTimestamp(interval.endedAtClient)
+        || interval.startedAtClient < previousEnd
+        || interval.endedAtClient <= interval.startedAtClient
+        || interval.endedAtClient > value.endedAtClient
+      ) return false;
+      totalDurationMs += interval.endedAtClient - interval.startedAtClient;
+      if (!Number.isSafeInteger(totalDurationMs)) return false;
+      previousEnd = interval.endedAtClient;
+    }
+    if (
+      value.activeIntervals[0].startedAtClient !== value.startedAtClient
+      || value.activeIntervals.at(-1)?.endedAtClient !== value.endedAtClient
+      || totalDurationMs !== value.durationMs
+    ) return false;
+  }
   if (!isSafePercent(value.startProgressPercent) || !isSafePercent(value.endProgressPercent)) {
     return false;
   }
@@ -170,6 +207,9 @@ export const toReadingSessionPayload = (
   timezoneOffsetMinutes: session.timezoneOffsetMinutes,
   localDate: session.localDate,
   completed: session.completed,
+  ...(session.activeIntervals ? {
+    activeIntervals: session.activeIntervals.map((interval) => ({ ...interval })),
+  } : {}),
   ...(session.clockOffsetMs !== undefined ? {
     clockOffsetMs: session.clockOffsetMs,
     clockUncertaintyMs: session.clockUncertaintyMs,
@@ -399,20 +439,27 @@ export const buildReadingStatistics = (
   const prepared = candidates.flatMap((session): PreparedSession[] => {
     const correction = getClockCorrection(session, samplesByDevice);
     const clockTrusted = correction !== undefined;
-    const correctedStart = session.startedAtClient + (correction ?? 0);
-    const clippedStart = Math.max(startAt, correctedStart);
-    const clippedEnd = Math.min(endAt, correctedStart + session.durationMs);
-    if (clippedEnd <= clippedStart) return [];
-    return [{
-      session,
-      startAt: clippedStart,
-      endAt: clippedEnd,
-      clockTrusted,
-      // Uncalibrated devices remain separate clock domains. This avoids
-      // silently deleting sequential reading because two wall clocks happen to
-      // overlap; the summary exposes that cross-device dedup is uncertain.
-      clockDomain: clockTrusted ? 'trusted-server-clock' : `device:${session.deviceId}`,
+    const intervals = session.activeIntervals ?? [{
+      startedAtClient: session.startedAtClient,
+      endedAtClient: session.endedAtClient,
     }];
+    return intervals.flatMap((interval) => {
+      const correctedStart = interval.startedAtClient + (correction ?? 0);
+      const correctedEnd = interval.endedAtClient + (correction ?? 0);
+      const clippedStart = Math.max(startAt, correctedStart);
+      const clippedEnd = Math.min(endAt, correctedEnd);
+      if (clippedEnd <= clippedStart) return [];
+      return [{
+        session,
+        startAt: clippedStart,
+        endAt: clippedEnd,
+        clockTrusted,
+        // Uncalibrated devices remain separate clock domains. This avoids
+        // silently deleting sequential reading because two wall clocks happen to
+        // overlap; the summary exposes that cross-device dedup is uncertain.
+        clockDomain: clockTrusted ? 'trusted-server-clock' : `device:${session.deviceId}`,
+      }];
+    });
   });
   const byClockDomain = new Map<string, PreparedSession[]>();
   for (const item of prepared) {
@@ -431,7 +478,9 @@ export const buildReadingStatistics = (
       return isLocalDateWithinBounds(localDate, bounds);
     });
   const validPrepared = prepared.filter((item) => preparedTouchesLocalDateBounds(item, bounds));
-  const valid = validPrepared.map(({ session }) => session);
+  const valid = [...new Map(validPrepared.map(({ session }) => (
+    [session.sessionId, session]
+  ))).values()];
 
   const books = new Map<string, ReadingBookStatistics>();
   const bookTimelines = new Map<string, { firstAt: number; lastAt: number }>();
@@ -530,7 +579,9 @@ export const buildReadingStatistics = (
     sourceSessionCount: valid.length,
     countedSessionCount: countedSessionIds.size,
     completedBookCount: bookRows.filter(({ completed }) => completed).length,
-    uncertainClockSessionCount: validPrepared.filter(({ clockTrusted }) => !clockTrusted).length,
+    uncertainClockSessionCount: new Set(validPrepared
+      .filter(({ clockTrusted }) => !clockTrusted)
+      .map(({ session }) => session.sessionId)).size,
     books: bookRows,
     days: [...days.values()].sort((left, right) => (
       right.localDate.localeCompare(left.localDate)

@@ -35,6 +35,7 @@ const {
   storeRemoteHeadsBatchV5,
 } = await import('../src/lib/syncOutboxV5.ts');
 const { toAnnotationSyncPayloadV1 } = await import('../src/lib/annotationSyncSchema.ts');
+const { ANNOTATION_BOOK_DELETE_MARKER_ID } = await import('../src/lib/annotationPolicy.ts');
 const {
   DEFAULT_ANNOTATION_PALETTE,
   getStoredAnnotationPalette,
@@ -83,6 +84,22 @@ const annotationHead = (item, revision = 2) => ({
   occurredAtClient: item.updatedAtClient,
   updatedAtServer: {},
   deletedAtServer: null,
+});
+
+const bookDeletionHead = (revision) => ({
+  schemaVersion: 1,
+  bookId: 'book-1',
+  annotationId: ANNOTATION_BOOK_DELETE_MARKER_ID,
+  revision,
+  acceptedEventId: `remote-book-delete-${revision}`,
+  operation: 'delete',
+  annotation: null,
+  acceptedDeviceId: 'device-remote',
+  acceptedSessionId: 'session-remote',
+  occurredAtClient: revision,
+  bookGeneration: revision,
+  updatedAtServer: {},
+  deletedAtServer: {},
 });
 
 const resetDatabase = async () => {
@@ -234,6 +251,43 @@ test('uses the authoritative remote book generation when keeping a local annotat
     100,
   );
   assert.equal(replacement.bookGeneration, 9);
+});
+
+test('advances keep-local to the latest book deletion generation', async () => {
+  await saveLocalAnnotationV8(ownerKey, annotation('generation-latest'), context());
+  const conflict = await createConflict(annotationHead(annotation('generation-latest', {
+    note: '원격',
+    updatedAtClient: 2,
+  }), 7), { remoteBookGeneration: 9 });
+  await storeRemoteHeadsBatchV5(ownerKey, [bookDeletionHead(10)], 50);
+
+  const replacement = await resolveAnnotationSyncConflictKeepLocalV5(
+    ownerKey,
+    conflict.conflictId,
+    100,
+  );
+  assert.equal(replacement.bookGeneration, 10);
+});
+
+test('does not revive a remote annotation older than the current book deletion generation', async () => {
+  await saveLocalAnnotationV8(ownerKey, annotation('generation-remote', { note: '로컬' }), context());
+  const remote = {
+    ...annotationHead(annotation('generation-remote', {
+      note: '삭제 전 원격',
+      updatedAtClient: 2,
+    }), 7),
+    bookGeneration: 9,
+  };
+  const conflict = await createConflict(remote, { remoteBookGeneration: 9 });
+  await storeRemoteHeadsBatchV5(ownerKey, [bookDeletionHead(10)], 50);
+
+  const result = await resolveAnnotationSyncConflictUseRemoteV5(
+    ownerKey,
+    conflict.conflictId,
+    100,
+  );
+  assert.deepEqual(result, { kind: 'annotation', bookId: 'book-1' });
+  assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), []);
 });
 
 test('treats an explicitly missing remote annotation as a remote deletion', async () => {

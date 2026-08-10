@@ -16,6 +16,7 @@ import {
   resolveSyncConflictKeepLocalV5,
   resolveSyncConflictUseRemoteV5,
   type ExpectedLocalProgressStateV5,
+  type ExpectedRemoteProgressHeadV5,
   type SyncConflictV5,
 } from '../lib/syncOutboxV5';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
@@ -24,6 +25,10 @@ import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { getSyncSessionId } from '../lib/syncSession';
 import { getQuietProgressConflictReason } from '../lib/syncConflictPolicy';
 import { selectProgressSyncConflict } from '../lib/syncConflictPresentation';
+import {
+  hasSameExpectedLocalProgressState,
+  hasSameRemoteProgressHead,
+} from './reader/remoteProgressCommand';
 
 type UseSyncConflictResolutionOptions = {
   user: FirebaseUser | null;
@@ -42,8 +47,15 @@ export type ResolvedRemoteProgressCommand = {
   operation: 'jump' | 'reset';
   progress: UserProgress;
   expectedLocalState: ExpectedLocalProgressStateV5;
+  expectedRemoteHead: ExpectedRemoteProgressHeadV5;
   conflict: SyncConflictV5;
 };
+
+export type RemoteProgressCommandFinalizeResult =
+  | { status: 'committed'; progress: UserProgress }
+  | { status: 'stale'; restart: () => void }
+  | { status: 'local-changed' }
+  | { status: 'cancelled' };
 
 export const useSyncConflictResolution = ({
   user,
@@ -65,6 +77,7 @@ export const useSyncConflictResolution = ({
     ResolvedRemoteProgressCommand | null
   >(null);
   const resolvedRemoteProgressCommandRef = useRef<ResolvedRemoteProgressCommand | null>(null);
+  const remoteProgressCommandAbortRef = useRef(new Map<string, AbortController>());
   const resolvingRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
   const sessionIdRef = useRef(getSyncSessionId());
@@ -73,7 +86,13 @@ export const useSyncConflictResolution = ({
     target: SyncConflictV5,
     progress: UserProgress,
     expectedLocalState: ExpectedLocalProgressStateV5,
+    expectedRemoteHead: ExpectedRemoteProgressHeadV5,
   ) => {
+    const previousCommandId = resolvedRemoteProgressCommandRef.current?.commandId;
+    if (previousCommandId) {
+      remoteProgressCommandAbortRef.current.get(previousCommandId)?.abort();
+      remoteProgressCommandAbortRef.current.delete(previousCommandId);
+    }
     const command: ResolvedRemoteProgressCommand = {
       commandId: crypto.randomUUID(),
       conflictId: target.conflictId,
@@ -83,8 +102,10 @@ export const useSyncConflictResolution = ({
         : 'jump',
       progress,
       expectedLocalState,
+      expectedRemoteHead,
       conflict: target,
     };
+    remoteProgressCommandAbortRef.current.set(command.commandId, new AbortController());
     resolvedRemoteProgressCommandRef.current = command;
     setResolvedRemoteProgressCommand(command);
     return command;
@@ -97,6 +118,8 @@ export const useSyncConflictResolution = ({
     expectedLocalState?: ExpectedLocalProgressStateV5,
     canApplyRuntime?: () => boolean,
     emitRuntimeCommand = false,
+    expectedRemoteHead?: ExpectedRemoteProgressHeadV5,
+    signal?: AbortSignal,
   ) => {
     const nextProgress = await runForOwnerSnapshot(
       ownerRuntime,
@@ -107,6 +130,8 @@ export const useSyncConflictResolution = ({
         Date.now(),
         preserveLocalProgress,
         expectedLocalState,
+        expectedRemoteHead,
+        signal,
       ),
     );
     if (!nextProgress) return null;
@@ -127,12 +152,23 @@ export const useSyncConflictResolution = ({
           : 'set',
       },
     }) : prev);
-    if (target.event?.target.kind === 'progress' && emitRuntimeCommand) {
+    if (
+      target.event?.target.kind === 'progress'
+      && emitRuntimeCommand
+      && target.remoteHead
+      && 'position' in target.remoteHead
+    ) {
       if (ownerRuntime.isCurrent(owner)) {
         stageRemoteProgressCommand(
           target,
           nextProgress,
           expectedLocalState ?? { kind: 'empty' },
+          {
+            revision: target.remoteHead.revision,
+            acceptedEventId: target.remoteHead.acceptedEventId,
+            operation: target.remoteHead.operation,
+            position: target.remoteHead.position,
+          },
         );
       }
     }
@@ -200,11 +236,12 @@ export const useSyncConflictResolution = ({
             return;
           }
           stageRemoteProgressCommand(
-            next,
+            preview.conflict,
             preview.progress,
             preview.expectedLocalState,
+            preview.expectedRemoteHead,
           );
-          setConflict(next);
+          setConflict(preview.conflict);
           return;
         }
         const resolved = await applyRemote(
@@ -246,6 +283,10 @@ export const useSyncConflictResolution = ({
   ]);
 
   useEffect(() => {
+    for (const controller of remoteProgressCommandAbortRef.current.values()) {
+      controller.abort();
+    }
+    remoteProgressCommandAbortRef.current.clear();
     resolvedRemoteProgressCommandRef.current = null;
     setResolvedRemoteProgressCommand(null);
   }, [ownerKey]);
@@ -285,8 +326,16 @@ export const useSyncConflictResolution = ({
     setResolving(true);
     setResolutionError(null);
     try {
-      await resolveSyncConflictKeepLocalV5(getSyncOwnerKey(owner.ownerKey), conflict.conflictId);
+      const replacement = await resolveSyncConflictKeepLocalV5(
+        getSyncOwnerKey(owner.ownerKey),
+        conflict.conflictId,
+      );
       if (!ownerRuntime.isCurrent(owner)) return false;
+      if (!replacement) {
+        await refresh();
+        setResolutionError('원격 상태가 변경되었습니다. 최신 값을 다시 확인해 주세요.');
+        return false;
+      }
       setConflict(null);
       await refresh().catch((error) => {
         console.error('[SyncConflict] refresh after keep-local failed:', error);
@@ -327,13 +376,15 @@ export const useSyncConflictResolution = ({
           return false;
         }
         stageRemoteProgressCommand(
-          conflict,
+          preview.conflict,
           preview.progress,
           preview.expectedLocalState,
+          preview.expectedRemoteHead,
         );
+        setConflict(preview.conflict);
         return true;
       }
-      await applyRemote(
+      const resolved = await applyRemote(
         owner,
         conflict,
         conflict.event?.target.kind === 'progress',
@@ -343,6 +394,11 @@ export const useSyncConflictResolution = ({
           && conflict.event.target.bookId === activeBookId,
       );
       if (!ownerRuntime.isCurrent(owner)) return false;
+      if (!resolved) {
+        await refresh();
+        setResolutionError('원격 상태가 변경되었습니다. 최신 값을 다시 확인해 주세요.');
+        return false;
+      }
       setConflict(null);
       await refresh().catch((error) => {
         console.error('[SyncConflict] refresh after use-remote failed:', error);
@@ -391,6 +447,8 @@ export const useSyncConflictResolution = ({
   }, [conflict, refresh]);
 
   const consumeResolvedRemoteProgressCommand = useCallback((commandId: string) => {
+    remoteProgressCommandAbortRef.current.get(commandId)?.abort();
+    remoteProgressCommandAbortRef.current.delete(commandId);
     if (resolvedRemoteProgressCommandRef.current?.commandId === commandId) {
       resolvedRemoteProgressCommandRef.current = null;
     }
@@ -399,11 +457,17 @@ export const useSyncConflictResolution = ({
     ));
   }, []);
 
-  const finalizeResolvedRemoteProgressCommand = useCallback(async (commandId: string) => {
+  const finalizeResolvedRemoteProgressCommand = useCallback(async (
+    commandId: string,
+  ): Promise<RemoteProgressCommandFinalizeResult> => {
     const command = resolvedRemoteProgressCommandRef.current;
     const owner = ownerRuntime.capture();
-    if (!owner || !command || command.commandId !== commandId) return false;
-    if (resolvingRef.current.has(command.conflictId)) return false;
+    if (!owner || !command || command.commandId !== commandId) {
+      return { status: 'cancelled' };
+    }
+    const controller = remoteProgressCommandAbortRef.current.get(commandId);
+    if (!controller || controller.signal.aborted) return { status: 'cancelled' };
+    if (resolvingRef.current.has(command.conflictId)) return { status: 'cancelled' };
     resolvingRef.current.add(command.conflictId);
     setResolving(true);
     setResolutionError(null);
@@ -413,25 +477,90 @@ export const useSyncConflictResolution = ({
         command.conflict,
         true,
         command.expectedLocalState,
+        undefined,
+        false,
+        command.expectedRemoteHead,
+        controller.signal,
       );
-      if (!resolved || !ownerRuntime.isCurrent(owner)) return false;
+      if (!ownerRuntime.isCurrent(owner)) return { status: 'cancelled' };
+      if (!resolved) {
+        if (resolvedRemoteProgressCommandRef.current?.commandId !== commandId) {
+          return { status: 'cancelled' };
+        }
+        const latestConflicts = await getOpenSyncConflictsV5(
+          getSyncOwnerKey(owner.ownerKey),
+        );
+        if (!ownerRuntime.isCurrent(owner)) return { status: 'cancelled' };
+        const latest = latestConflicts.find((candidate) => (
+          candidate.conflictId === command.conflictId
+        ));
+        if (latest && hasSameRemoteProgressHead(latest, command.conflict)) {
+          await refresh();
+          setResolutionError('현재 기기의 읽기 위치가 변경되어 원격 이동을 확정하지 않았습니다.');
+          return { status: 'local-changed' };
+        }
+        if (latest?.event?.target.kind === 'progress') {
+          const preview = await previewSyncConflictUseRemoteProgressV5(
+            getSyncOwnerKey(owner.ownerKey),
+            latest.conflictId,
+            Date.now(),
+            true,
+          );
+          if (preview && ownerRuntime.isCurrent(owner)) {
+            if (!hasSameExpectedLocalProgressState(
+              preview.expectedLocalState,
+              command.expectedLocalState,
+            )) {
+              await refresh();
+              setResolutionError('현재 기기의 읽기 위치가 변경되어 원격 이동을 확정하지 않았습니다.');
+              return { status: 'local-changed' };
+            }
+            return {
+              status: 'stale',
+              restart: () => {
+                if (
+                  !ownerRuntime.isCurrent(owner)
+                  || resolvedRemoteProgressCommandRef.current?.commandId !== commandId
+                ) return;
+                stageRemoteProgressCommand(
+                  preview.conflict,
+                  preview.progress,
+                  preview.expectedLocalState,
+                  preview.expectedRemoteHead,
+                );
+                setConflict(preview.conflict);
+                setResolutionError('원격 위치가 다시 변경되어 최신 위치로 이동을 다시 준비합니다.');
+              },
+            };
+          }
+        }
+        await refresh();
+        setResolutionError('원격 충돌 상태가 변경되어 이동을 확정하지 않았습니다.');
+        return { status: 'cancelled' };
+      }
       consumeResolvedRemoteProgressCommand(commandId);
       setConflict(null);
       await refresh().catch((error) => {
         console.error('[SyncConflict] refresh after remote navigation finalize failed:', error);
       });
-      return true;
+      return { status: 'committed', progress: resolved };
     } catch (error) {
+      if (controller.signal.aborted) return { status: 'cancelled' };
       console.error('[SyncConflict] remote navigation finalize failed:', error);
       if (ownerRuntime.isCurrent(owner)) {
         setResolutionError('이동 중 읽기 위치가 다시 변경되어 원격 값을 확정하지 않았습니다.');
       }
-      return false;
+      return { status: 'cancelled' };
     } finally {
       resolvingRef.current.delete(command.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
     }
-  }, [applyRemote, consumeResolvedRemoteProgressCommand, refresh]);
+  }, [
+    applyRemote,
+    consumeResolvedRemoteProgressCommand,
+    refresh,
+    stageRemoteProgressCommand,
+  ]);
 
   const cancelResolvedRemoteProgressCommand = useCallback((commandId: string) => {
     consumeResolvedRemoteProgressCommand(commandId);

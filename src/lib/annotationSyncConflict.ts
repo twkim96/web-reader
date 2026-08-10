@@ -107,6 +107,20 @@ const refreshConflictRemoteHead = (
   deferredUntil: undefined,
 });
 
+const readBookDeletionGeneration = (
+  cache: RemoteHeadCacheV5 | undefined,
+  bookId: string,
+) => {
+  const head = cache?.head;
+  return head
+    && isAnnotationHeadV1(head)
+    && head.bookId === bookId
+    && head.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+    && head.operation === 'delete'
+    ? head.revision
+    : 0;
+};
+
 export const getOpenAnnotationSyncConflictsV5 = async (ownerKey: OwnerKey) => (
   (await getOpenSyncConflictsV5(ownerKey)).filter((conflict) => (
     conflict.event?.target.kind === 'annotation'
@@ -171,6 +185,17 @@ export const resolveAnnotationSyncConflictUseRemoteV5 = async (
         || remoteHead.annotationId !== conflict.event.target.annotationId
       )) throw new Error('원격 annotation 충돌 head가 올바르지 않습니다.');
       const annotationStore = tx.objectStore(V8_ANNOTATIONS_STORE);
+      const markerCache = await remoteStore.get([
+        ownerKey,
+        annotationTargetKeyV1(
+          conflict.event.target.bookId,
+          ANNOTATION_BOOK_DELETE_MARKER_ID,
+        ),
+      ]) as RemoteHeadCacheV5 | undefined;
+      const currentBookGeneration = readBookDeletionGeneration(
+        markerCache,
+        conflict.event.target.bookId,
+      );
       const stored = await annotationStore.index('by-owner-book').getAll([
         ownerKey,
         conflict.event.target.bookId,
@@ -179,6 +204,7 @@ export const resolveAnnotationSyncConflictUseRemoteV5 = async (
         [item.id, withoutOwner(item)]
       )));
       const annotation = remoteHead?.operation === 'upsert'
+        && (remoteHead.bookGeneration ?? 0) >= currentBookGeneration
         ? fromAnnotationSyncPayloadV1(remoteHead.annotation!)
         : null;
       if (annotation) current.set(annotation.id, annotation);
@@ -318,13 +344,10 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
         ownerKey,
         markerTargetKey,
       ]) as RemoteHeadCacheV5 | undefined;
-      const markerHead = markerCache?.head;
-      const bookGeneration = conflict.remoteBookGeneration ?? (markerHead
-        && isAnnotationHeadV1(markerHead)
-        && markerHead.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
-        && markerHead.operation === 'delete'
-        ? markerHead.revision
-        : 0);
+      const bookGeneration = Math.max(
+        conflict.remoteBookGeneration ?? 0,
+        readBookDeletionGeneration(markerCache, event.target.bookId),
+      );
       replacement = {
         ...event,
         eventId: crypto.randomUUID(),

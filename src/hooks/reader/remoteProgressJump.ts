@@ -1,3 +1,8 @@
+export type RemoteProgressJumpCompletion = boolean | {
+  completed: boolean;
+  afterRollback?: () => void;
+};
+
 export type RemoteProgressJumpSteps = {
   isCurrent: () => boolean;
   prepare: () => number;
@@ -5,7 +10,7 @@ export type RemoteProgressJumpSteps = {
   finish?: (preparationId: number) => void;
   navigate: () => Promise<boolean>;
   rollback?: (preparationId: number) => Promise<void>;
-  complete: () => Promise<boolean>;
+  complete: () => Promise<RemoteProgressJumpCompletion>;
 };
 
 export const executeRemoteProgressJump = async ({
@@ -33,15 +38,21 @@ export const executeRemoteProgressJump = async ({
     else cancel(preparationId);
     throw error;
   }
-  if (!committed || !isCurrent()) {
+  if (!committed) {
     cancel(preparationId);
+    return false;
+  }
+  if (!isCurrent()) {
+    await rollbackAndCancel();
     return false;
   }
 
   try {
-    const completed = await complete();
+    const result = await complete();
+    const completed = typeof result === 'boolean' ? result : result.completed;
     if (!completed) await rollbackAndCancel();
     else finish?.(preparationId);
+    if (!completed && typeof result !== 'boolean') result.afterRollback?.();
     return completed;
   } catch (error) {
     await rollbackAndCancel();
