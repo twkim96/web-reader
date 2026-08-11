@@ -2614,7 +2614,13 @@ try {
       const toolbarRecordsButton = document.querySelector('button[aria-label="책갈피와 주석"]');
       const toolbarTtsRect = toolbarTtsButton?.getBoundingClientRect();
       const toolbarRecordsRect = toolbarRecordsButton?.getBoundingClientRect();
+      const toolbarActionOrder = [...(document.querySelector(
+        '[data-reader-toolbar-actions="true"]',
+      )?.children ?? [])].map((button) => (
+        button.getAttribute('aria-label') ?? button.textContent?.trim() ?? ''
+      ));
       const toolbarProbe = {
+        actionOrder: toolbarActionOrder,
         recordsClientWidth: toolbarRecordsButton?.clientWidth ?? 0,
         recordsScrollWidth: toolbarRecordsButton?.scrollWidth ?? 0,
         recordsWhiteSpace: toolbarRecordsButton
@@ -2740,8 +2746,14 @@ try {
   assert.ok(narrowSelectionMenu.ttsPanelProbe.stopBottom <= narrowSelectionMenu.ttsPanelProbe.panelBottom);
   assert.equal(narrowSelectionMenu.toolbarProbe.ttsText, '', JSON.stringify(narrowSelectionMenu));
   assert.ok(narrowSelectionMenu.toolbarProbe.ttsWidth <= 44, JSON.stringify(narrowSelectionMenu));
+  assert.deepEqual(narrowSelectionMenu.toolbarProbe.actionOrder, [
+    '현재 위치부터 듣기',
+    '책갈피와 주석',
+    '테마',
+    '설정',
+  ]);
   assert.ok(
-    narrowSelectionMenu.toolbarProbe.ttsRight > narrowSelectionMenu.toolbarProbe.recordsRight,
+    narrowSelectionMenu.toolbarProbe.ttsRight < narrowSelectionMenu.toolbarProbe.recordsRight,
     JSON.stringify(narrowSelectionMenu),
   );
   assert.equal(narrowSelectionMenu.toolbarProbe.recordsWhiteSpace, 'nowrap');

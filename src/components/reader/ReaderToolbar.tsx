@@ -238,27 +238,23 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
           )}
 
-          <div className={`grid gap-1.5 ${isFixedLayout ? 'grid-cols-3' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.35fr)_2.75rem]'}`}>
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
-              style={surfaceStyle}
-            >
-              <Settings size={19} />
-              <span>설정</span>
-            </button>
-            <button
-              type="button"
-              onClick={onOpenTheme}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
-              style={surfaceStyle}
-              aria-label="테마"
-              title="테마"
-            >
-              <Palette size={19} />
-              <span>테마</span>
-            </button>
+          <div
+            data-reader-toolbar-actions="true"
+            className={`grid gap-1.5 ${isFixedLayout ? 'grid-cols-3' : 'grid-cols-[2.75rem_minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)]'}`}
+          >
+            {!isFixedLayout && (
+              <button
+                type="button"
+                onClick={onOpenTts}
+                disabled={!ttsSupported}
+                className={`flex size-11 self-center justify-self-start items-center justify-center rounded-full border ${theme.border} p-0 shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 ${ttsActive ? 'text-accent-500' : ''}`}
+                style={surfaceStyle}
+                aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
+                title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
+              >
+                <Volume2 size={19} />
+              </button>
+            )}
             <button
               type="button"
               onClick={onOpenBookmarks}
@@ -286,19 +282,28 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
                 책갈피 {bookmarkCount}개, 주석 {annotationCount}개
               </span>
             </button>
-            {!isFixedLayout && (
-              <button
-                type="button"
-                onClick={onOpenTts}
-                disabled={!ttsSupported}
-                className={`flex size-11 self-center justify-self-end items-center justify-center rounded-full border ${theme.border} p-0 shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 ${ttsActive ? 'text-accent-500' : ''}`}
-                style={surfaceStyle}
-                aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
-                title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
-              >
-                <Volume2 size={19} />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onOpenTheme}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              style={surfaceStyle}
+              aria-label="테마"
+              title="테마"
+            >
+              <Palette size={19} />
+              <span>테마</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+              style={surfaceStyle}
+              aria-label="설정"
+              title="설정"
+            >
+              <Settings size={19} />
+              <span>설정</span>
+            </button>
           </div>
         </div>
       </div>
