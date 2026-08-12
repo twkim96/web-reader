@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildReadingStatistics,
+  getReadingSessionCommitBoundary,
   getReadingSessionLocalDate,
   getNextReadingTtsTrackingPhase,
   getReadingStatisticsRangeBounds,
@@ -9,6 +10,8 @@ import {
   getNextReadingInteractionFocus,
   getReadingTrackingMode,
   isReadingSessionV1,
+  READING_SESSION_COMMIT_INTERVAL_MS,
+  READING_SESSION_MAX_DURATION_MS,
 } from '../src/lib/readingStatistics.ts';
 import {
   createReadingStatisticsJsonExport,
@@ -69,6 +72,21 @@ test('validates bounded immutable reading session payloads', () => {
   assert.equal(isReadingSessionV1({ ...valid, endedAtClient: 301_001, durationMs: 300_001 }), false);
   assert.equal(isReadingSessionV1({ ...valid, localDate: '2026-99-99' }), false);
   assert.equal(isReadingSessionV1({ ...valid, sessionId: 'bad/id' }), false);
+});
+
+test('publishes new sessions every minute while accepting five-minute history', () => {
+  assert.equal(READING_SESSION_COMMIT_INTERVAL_MS, 60_000);
+  assert.equal(READING_SESSION_MAX_DURATION_MS, 300_000);
+  assert.equal(getReadingSessionCommitBoundary(1_000, 0), 61_000);
+  assert.equal(getReadingSessionCommitBoundary(
+    Date.UTC(2026, 7, 12, 14, 59, 30),
+    -540,
+  ), Date.UTC(2026, 7, 12, 15, 0, 0));
+  assert.equal(isReadingSessionV1(session({
+    sessionId: 'legacy-five-minute-session',
+    startedAtClient: 1_000,
+    endedAtClient: 301_000,
+  })), true);
 });
 
 test('deduplicates overlapping devices and gives TTS deterministic priority', () => {

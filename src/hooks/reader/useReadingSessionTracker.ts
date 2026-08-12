@@ -8,6 +8,7 @@ import { getOrCreateDeviceId } from '../useDeviceId';
 import { saveLocalReadingSessionV11 } from '../../lib/localReadingStatistics';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import {
+  getReadingSessionCommitBoundary,
   getReadingSessionLocalDate,
   getNextReadingInteractionFocus,
   getNextReadingTtsTrackingPhase,
@@ -385,9 +386,9 @@ export const useReadingSessionTracker = ({
       segment.mode === 'tts'
       && ttsTrackingPhaseRef.current === 'active-gap'
     ) return;
-    const boundary = Math.min(
-      segment.startedAtClient + READING_SESSION_MAX_DURATION_MS,
-      getNextLocalMidnight(segment.startedAtClient, segment.timezoneOffsetMinutes),
+    const boundary = getReadingSessionCommitBoundary(
+      segment.startedAtClient,
+      segment.timezoneOffsetMinutes,
     );
     const stableWallNow = getSegmentWallTime(segment, monotonicNow);
     if (stableWallNow >= boundary) {
@@ -465,9 +466,9 @@ export const useReadingSessionTracker = ({
       if (gapStartedAt !== null && segment?.mode === 'tts') {
         const gapEndedAt = getMonotonicNow();
         const actualGapEndWallTime = getSegmentWallTime(segment, gapEndedAt);
-        const boundary = Math.min(
-          segment.startedAtClient + READING_SESSION_MAX_DURATION_MS,
-          getNextLocalMidnight(segment.startedAtClient, segment.timezoneOffsetMinutes),
+        const boundary = getReadingSessionCommitBoundary(
+          segment.startedAtClient,
+          segment.timezoneOffsetMinutes,
         );
         if (actualGapEndWallTime >= boundary) {
           closeSegment(getSegmentWallTime(segment, gapStartedAt));

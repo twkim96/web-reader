@@ -1,7 +1,10 @@
 import type { OwnerKey } from './ownerIdentity';
 
 export const READING_SESSION_SCHEMA_VERSION = 1 as const;
+// Keep the schema ceiling at five minutes so records created before hotfix.3
+// remain valid, while new active readers publish shorter checkpoints.
 export const READING_SESSION_MAX_DURATION_MS = 5 * 60_000;
+export const READING_SESSION_COMMIT_INTERVAL_MS = 60_000;
 export const READING_SESSION_IDLE_TIMEOUT_MS = 90_000;
 export const READING_SESSION_MIN_DURATION_MS = 1_000;
 export const READING_SESSION_MAX_ACTIVE_INTERVALS = 512;
@@ -107,6 +110,19 @@ export const getReadingSessionLocalDate = (
   timestamp: number,
   timezoneOffsetMinutes: number,
 ) => new Date(timestamp - timezoneOffsetMinutes * 60_000).toISOString().slice(0, 10);
+
+export const getReadingSessionCommitBoundary = (
+  startedAtClient: number,
+  timezoneOffsetMinutes: number,
+) => {
+  const localTimestamp = startedAtClient - timezoneOffsetMinutes * 60_000;
+  const nextLocalDay = (Math.floor(localTimestamp / 86_400_000) + 1) * 86_400_000;
+  const nextLocalMidnight = nextLocalDay + timezoneOffsetMinutes * 60_000;
+  return Math.min(
+    startedAtClient + READING_SESSION_COMMIT_INTERVAL_MS,
+    nextLocalMidnight,
+  );
+};
 
 export const isReadingSessionV1 = (value: unknown): value is ReadingSessionV1 => {
   if (!isPlainObject(value)) return false;
