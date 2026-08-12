@@ -73,6 +73,7 @@ interface EpubReaderProps {
   googleToken: string;
   settings: ViewerSettings;
   onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
+  onOpenStatistics: () => void;
   onBack: () => void;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
   onAdoptRemoteProgress: (progress: RemoteProgressUpdate) => Promise<boolean>;
@@ -207,6 +208,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   googleToken,
   settings,
   onUpdateSettings,
+  onOpenStatistics,
   onBack,
   onSaveProgress,
   onAdoptRemoteProgress,
@@ -1681,6 +1683,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onOpenTts={() => {
           chrome.setShowControls(false);
           tts.speakFromCurrentPosition();
+        }}
+        onOpenStatistics={() => {
+          chrome.setShowControls(false);
+          onOpenStatistics();
         }}
         onProgressSliderStart={beginSliderMove}
         onProgressSliderPreview={previewSliderMove}

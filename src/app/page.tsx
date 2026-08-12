@@ -751,6 +751,7 @@ export default function Page() {
           googleToken={googleToken || ''}
           settings={settings}
           onUpdateSettings={updateSettings}
+          onOpenStatistics={() => setReadingStatisticsOpen(true)}
           onBack={handleReaderBack}
           onSaveProgress={handleReaderSaveProgress}
           onAdoptRemoteProgress={handleAdoptRemoteProgress}
@@ -821,7 +822,7 @@ export default function Page() {
         <LibraryReadingStatisticsModal
           key={activeOwnerKey}
           open={readingStatisticsOpen}
-          visible={view === 'shelf'}
+          visible={view === 'shelf' || view === 'reader'}
           ownerKey={activeOwnerKey}
           theme={theme}
           syncHealth={readingStatisticsSync.health}

@@ -1080,6 +1080,7 @@ try {
       text: node?.textContent?.trim() ?? '',
       opacity: node ? getComputedStyle(node).opacity : '',
       fontWeight: node ? getComputedStyle(node).fontWeight : '',
+      fontFamily: node ? getComputedStyle(node).fontFamily : '',
       rightGap: rect ? innerWidth - rect.right : null,
       fontSize: node ? getComputedStyle(node).fontSize : '',
       mainFontSize: main ? getComputedStyle(main).fontSize : '',
@@ -1092,7 +1093,8 @@ try {
   })()`);
   assert.match(readerBookTime.text, /^\d{2,}:\d{2}$/);
   assert.ok(Number(readerBookTime.opacity) < 0.5, JSON.stringify(readerBookTime));
-  assert.ok(Number(readerBookTime.fontWeight) <= 300, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.fontWeight, '400', JSON.stringify(readerBookTime));
+  assert.match(readerBookTime.fontFamily, /serif/i, JSON.stringify(readerBookTime));
   assert.equal(readerBookTime.fontSize, readerBookTime.mainFontSize, JSON.stringify(readerBookTime));
   assert.ok(readerBookTime.centerDelta !== null && readerBookTime.centerDelta <= 1, JSON.stringify(readerBookTime));
   assert.ok(readerBookTime.rightGap !== null && readerBookTime.rightGap <= 12, JSON.stringify(readerBookTime));
@@ -1113,6 +1115,7 @@ try {
     return {
       rightGap: rect ? innerWidth - rect.right : null,
       fontWeight: node ? getComputedStyle(node).fontWeight : '',
+      fontFamily: node ? getComputedStyle(node).fontFamily : '',
       fontSize: node ? getComputedStyle(node).fontSize : '',
       mainFontSize: main ? getComputedStyle(main).fontSize : '',
       centerDelta: rect && mainRect
@@ -1124,7 +1127,8 @@ try {
     mobileReaderBookTime.rightGap !== null && mobileReaderBookTime.rightGap <= 12,
     JSON.stringify(mobileReaderBookTime),
   );
-  assert.ok(Number(mobileReaderBookTime.fontWeight) <= 300, JSON.stringify(mobileReaderBookTime));
+  assert.equal(mobileReaderBookTime.fontWeight, '400', JSON.stringify(mobileReaderBookTime));
+  assert.match(mobileReaderBookTime.fontFamily, /serif/i, JSON.stringify(mobileReaderBookTime));
   assert.equal(
     mobileReaderBookTime.fontSize,
     mobileReaderBookTime.mainFontSize,
@@ -2907,8 +2911,10 @@ try {
     narrowSelectionMenu = await evaluate(`(async () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
       const toolbarTtsButton = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
+      const toolbarStatisticsButton = document.querySelector('button[aria-label="독서 통계"]');
       const toolbarRecordsButton = document.querySelector('button[aria-label="책갈피와 주석"]');
       const toolbarTtsRect = toolbarTtsButton?.getBoundingClientRect();
+      const toolbarStatisticsRect = toolbarStatisticsButton?.getBoundingClientRect();
       const toolbarRecordsRect = toolbarRecordsButton?.getBoundingClientRect();
       const toolbarActionOrder = [...(document.querySelector(
         '[data-reader-toolbar-actions="true"]',
@@ -2917,6 +2923,11 @@ try {
       ));
       const toolbarProbe = {
         actionOrder: toolbarActionOrder,
+        utilityOrder: [...(document.querySelector(
+          '[data-reader-toolbar-utilities="true"]',
+        )?.children ?? [])].map((button) => button.getAttribute('aria-label') ?? ''),
+        menuWidth: document.querySelector('[data-reader-toolbar-actions="true"]')
+          ?.parentElement?.offsetWidth ?? 0,
         recordsClientWidth: toolbarRecordsButton?.clientWidth ?? 0,
         recordsScrollWidth: toolbarRecordsButton?.scrollWidth ?? 0,
         recordsWhiteSpace: toolbarRecordsButton
@@ -2925,6 +2936,8 @@ try {
         ttsText: toolbarTtsButton?.textContent?.trim() ?? '',
         ttsWidth: toolbarTtsRect?.width ?? 0,
         ttsRight: toolbarTtsRect?.right ?? 0,
+        statisticsRight: toolbarStatisticsRect?.right ?? 0,
+        statisticsWidth: toolbarStatisticsButton?.offsetWidth ?? 0,
         recordsRight: toolbarRecordsRect?.right ?? 0,
       };
       const ttsSpeakBefore = window.__browserSpeechStats.speak;
@@ -3043,13 +3056,22 @@ try {
   assert.equal(narrowSelectionMenu.toolbarProbe.ttsText, '', JSON.stringify(narrowSelectionMenu));
   assert.ok(narrowSelectionMenu.toolbarProbe.ttsWidth <= 44, JSON.stringify(narrowSelectionMenu));
   assert.deepEqual(narrowSelectionMenu.toolbarProbe.actionOrder, [
-    '현재 위치부터 듣기',
     '책갈피와 주석',
     '테마',
     '설정',
   ]);
+  assert.deepEqual(narrowSelectionMenu.toolbarProbe.utilityOrder, [
+    '현재 위치부터 듣기',
+    '독서 통계',
+  ]);
   assert.ok(
-    narrowSelectionMenu.toolbarProbe.ttsRight < narrowSelectionMenu.toolbarProbe.recordsRight,
+    narrowSelectionMenu.toolbarProbe.menuWidth >= 239
+      && narrowSelectionMenu.toolbarProbe.menuWidth <= 241,
+    JSON.stringify(narrowSelectionMenu.toolbarProbe),
+  );
+  assert.ok(narrowSelectionMenu.toolbarProbe.statisticsWidth <= 44, JSON.stringify(narrowSelectionMenu));
+  assert.ok(
+    narrowSelectionMenu.toolbarProbe.ttsRight < narrowSelectionMenu.toolbarProbe.statisticsRight,
     JSON.stringify(narrowSelectionMenu),
   );
   assert.equal(narrowSelectionMenu.toolbarProbe.recordsWhiteSpace, 'nowrap');
@@ -3068,6 +3090,33 @@ try {
     left >= 0 && right <= narrowSelectionMenu.innerWidth
   )), JSON.stringify(narrowSelectionMenu));
   assert.match(narrowSelectionMenu.feedbackText, /오프라인/);
+  const desktopToolbarProbe = await evaluate(`(() => {
+    const actions = document.querySelector('[data-reader-toolbar-actions="true"]');
+    const records = document.querySelector('button[aria-label="책갈피와 주석"]');
+    const utilities = document.querySelector('[data-reader-toolbar-utilities="true"]');
+    return {
+      menuWidth: actions?.parentElement?.offsetWidth ?? 0,
+      actionHeight: records?.offsetHeight ?? 0,
+      utilityWidth: utilities?.firstElementChild?.offsetWidth ?? 0,
+    };
+  })()`);
+  assert.ok(desktopToolbarProbe.menuWidth >= 299 && desktopToolbarProbe.menuWidth <= 301);
+  assert.ok(desktopToolbarProbe.actionHeight >= 50 && desktopToolbarProbe.actionHeight <= 51);
+  assert.ok(desktopToolbarProbe.utilityWidth >= 50 && desktopToolbarProbe.utilityWidth <= 51);
+  assert.ok(Math.abs(
+    desktopToolbarProbe.menuWidth / narrowSelectionMenu.toolbarProbe.menuWidth - 1.25
+  ) < 0.01, JSON.stringify({ desktopToolbarProbe, narrowSelectionMenu }));
+  await evaluate(`document.querySelector('button[aria-label="독서 통계"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-reading-statistics-modal="true"]\'))',
+    'reader statistics modal',
+  );
+  assert.equal(await evaluate(`document.querySelector('[data-reading-statistics-modal="true"]')?.offsetParent !== null`), true);
+  await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
+  await waitFor(
+    '!document.querySelector(\'[data-reading-statistics-modal="true"]\')',
+    'reader statistics modal close',
+  );
   assert.notEqual(narrowSelectionMenu.feedbackWhiteSpace, 'nowrap');
   assert.ok(
     narrowSelectionMenu.feedbackWidth <= narrowSelectionMenu.menuRect.width,
