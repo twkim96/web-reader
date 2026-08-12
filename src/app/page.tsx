@@ -68,6 +68,7 @@ import {
   shouldShowSyncConflictDialog,
   shouldShowSyncReviewBadge,
 } from '../lib/syncConflictPresentation';
+import { runLogoutFlow } from '../lib/logoutFlow';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -472,25 +473,45 @@ export default function Page() {
   const handleLogout = () => setPendingAction('logout');
 
   const executePendingAction = async () => {
-    if (pendingAction === 'logout') {
-      if (driveCacheKey) invalidateDriveCache(driveCacheKey);
-      ownerRuntime.clear();
-      resetLibraryState();
-      setActiveBook(null);
-      await signOut(auth);
-      clearToken();
-      clearLastReaderSession();
-      setBooks([]);
-      setIsGuest(false);
-      setView('auth');
-    } else if (pendingAction === 'disconnect') {
+    const action = pendingAction;
+    if (!action) return;
+    setPendingAction(null);
+
+    if (action === 'logout') {
+      await runLogoutFlow({
+        prepareUi: () => {
+          // Keep the authenticated owner alive until Firebase confirms sign-out.
+          // Sync effects may still observe `user` during this transition.
+          setActiveBook(null);
+          setView('loading');
+          isGuestRef.current = false;
+          localStorage.removeItem('isGuest');
+        },
+        signOut: () => signOut(auth),
+        commitLocalCleanup: () => {
+          if (driveCacheKey) invalidateDriveCache(driveCacheKey);
+          ownerRuntime.clear();
+          resetLibraryState();
+          clearToken();
+          clearLastReaderSession();
+          setBooks([]);
+          setUser(null);
+          setIsGuest(false);
+          setView('auth');
+        },
+        recoverUi: (error) => {
+          console.error('[Auth] Sign out failed:', error);
+          setAuthErrorMessage('로그아웃하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.');
+          setView('shelf');
+        },
+      });
+    } else if (action === 'disconnect') {
       await revokeToken();
       if (driveCacheKey) invalidateDriveCache(driveCacheKey);
       clearToken();
       clearLastReaderSession();
       await handleLocalMode();
     }
-    setPendingAction(null);
   };
 
   const {

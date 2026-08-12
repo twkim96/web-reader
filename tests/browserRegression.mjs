@@ -426,6 +426,58 @@ try {
   );
   assert.deepEqual(shelfMetrics.errors, []);
 
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 320,
+    height: 640,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await evaluate('window.scrollTo(0, 0)');
+  await evaluate('window.__regressionNextFrame(2)');
+  const mobileShelfControls = await evaluate(`(() => {
+    const mobileControls = document.querySelector('[data-shelf-mobile-layout-controls="true"]');
+    const sortButton = mobileControls?.querySelector('[data-shelf-sort-control="true"]');
+    const viewButton = mobileControls?.querySelector('[data-shelf-view-control="true"]');
+    const authButton = document.querySelector('header [data-shelf-auth-control="true"]');
+    const bottomDock = document.querySelector('[data-shelf-bottom-dock="true"]');
+    const rect = (node) => {
+      const value = node?.getBoundingClientRect();
+      return value ? { left: value.left, right: value.right } : null;
+    };
+    return {
+      mobileControlCount: mobileControls?.querySelectorAll('button').length ?? 0,
+      bottomLayoutControlCount: [...(bottomDock?.querySelectorAll(
+        '[data-shelf-sort-control="true"], [data-shelf-view-control="true"]',
+      ) ?? [])].filter((button) => button.getClientRects().length > 0).length,
+      bottomClientWidth: bottomDock?.clientWidth ?? 0,
+      bottomScrollWidth: bottomDock?.scrollWidth ?? 0,
+      horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+      sortRect: rect(sortButton),
+      viewRect: rect(viewButton),
+      authRect: rect(authButton),
+      viewportWidth: innerWidth,
+    };
+  })()`);
+  assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));
+  assert.ok(
+    mobileShelfControls.bottomScrollWidth <= mobileShelfControls.bottomClientWidth,
+    JSON.stringify(mobileShelfControls),
+  );
+  assert.equal(mobileShelfControls.horizontalOverflow, 0, JSON.stringify(mobileShelfControls));
+  assert.ok(
+    mobileShelfControls.sortRect?.right <= mobileShelfControls.viewRect?.left
+      && mobileShelfControls.viewRect?.right <= mobileShelfControls.viewportWidth
+      && mobileShelfControls.authRect?.right <= mobileShelfControls.viewportWidth,
+    JSON.stringify(mobileShelfControls),
+  );
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+
   await evaluate(`(() => {
     window.__archiveAlerts = [];
     window.__nativeArchiveAlert = window.alert;
