@@ -13,6 +13,7 @@ interface ReaderStatusBarProps {
   theme: ReaderTheme;
   currentChapter: string;
   totalProgress: number;
+  readingTime: string;
   onOpenJump: () => void;
 }
 
@@ -20,6 +21,7 @@ export const ReaderStatusBar: React.FC<ReaderStatusBarProps> = ({
   theme,
   currentChapter,
   totalProgress,
+  readingTime,
   onOpenJump,
 }) => (
   <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-[45] flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+2px)] font-sans ${theme.text}`}>
@@ -29,6 +31,9 @@ export const ReaderStatusBar: React.FC<ReaderStatusBarProps> = ({
       </span>
       <span className="text-accent-500">
         {(totalProgress || 0).toFixed(1)}%
+      </span>
+      <span data-reader-book-reading-time="true" className="tabular-nums opacity-35">
+        {readingTime}
       </span>
       <button
         type="button"

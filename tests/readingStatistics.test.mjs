@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildReadingStatistics,
+  buildReadingBookRounds,
   getReadingSessionCommitBoundary,
   getReadingSessionLocalDate,
   getNextReadingTtsTrackingPhase,
   getReadingStatisticsRangeBounds,
+  formatReadingClock,
   getReadingTrackingEndAt,
   getNextReadingInteractionFocus,
   getReadingTrackingMode,
@@ -14,6 +16,75 @@ import {
   READING_SESSION_MAX_DURATION_MS,
   shouldResetReadingActivityForTtsTransition,
 } from '../src/lib/readingStatistics.ts';
+
+test('formats compact reader time as an unlabeled hour-minute clock', () => {
+  assert.equal(formatReadingClock(0), '00:00');
+  assert.equal(formatReadingClock(59_999), '00:00');
+  assert.equal(formatReadingClock(60_000), '00:01');
+  assert.equal(formatReadingClock(6_059_999), '01:40');
+  assert.equal(formatReadingClock(360_000_000), '100:00');
+});
+
+test('derives rereading rounds after completion without changing stored sessions', () => {
+  const rounds = buildReadingBookRounds([
+    session({
+      sessionId: 'first-start', startedAtClient: 1_000, endedAtClient: 61_000,
+      startProgressPercent: 0, endProgressPercent: 50,
+    }),
+    session({
+      sessionId: 'first-finish', startedAtClient: 62_000, endedAtClient: 122_000,
+      startProgressPercent: 50, endProgressPercent: 100, completed: true,
+    }),
+    session({
+      sessionId: 'finish-linger', startedAtClient: 123_000, endedAtClient: 183_000,
+      startProgressPercent: 100, endProgressPercent: 100, completed: true,
+    }),
+    session({
+      sessionId: 'second-start', startedAtClient: 184_000, endedAtClient: 244_000,
+      startProgressPercent: 100, endProgressPercent: 25,
+    }),
+  ]);
+  assert.equal(rounds.length, 2);
+  assert.equal(rounds[0].roundNumber, 1);
+  assert.equal(rounds[0].completed, true);
+  assert.equal(rounds[0].totalMs, 180_000);
+  assert.equal(rounds[0].completedLocalDate, '1970-01-01');
+  assert.equal(rounds[1].roundNumber, 2);
+  assert.equal(rounds[1].completed, false);
+  assert.equal(rounds[1].totalMs, 60_000);
+  assert.equal(rounds[1].startedLocalDate, '1970-01-01');
+});
+
+test('keeps rereading rows in round order even when a later round is longer', () => {
+  const rounds = buildReadingBookRounds([
+    session({
+      sessionId: 'short-finish', startedAtClient: 1_000, endedAtClient: 61_000,
+      startProgressPercent: 90, endProgressPercent: 100, completed: true,
+    }),
+    session({
+      sessionId: 'long-second-a', startedAtClient: 62_000, endedAtClient: 122_000,
+      startProgressPercent: 0, endProgressPercent: 20,
+    }),
+    session({
+      sessionId: 'long-second-b', startedAtClient: 123_000, endedAtClient: 183_000,
+      startProgressPercent: 20, endProgressPercent: 40,
+    }),
+  ]);
+  assert.deepEqual(rounds.map(({ roundNumber }) => roundNumber), [1, 2]);
+});
+
+test('omits reading rounds with no counted time in the selected date range', () => {
+  const rounds = buildReadingBookRounds([
+    session({
+      sessionId: 'old-reading', startedAtClient: 1_000, endedAtClient: 61_000,
+      startProgressPercent: 0, endProgressPercent: 20,
+    }),
+  ], {
+    startLocalDate: '1970-01-02',
+    endLocalDate: '1970-01-02',
+  });
+  assert.deepEqual(rounds, []);
+});
 import {
   createReadingStatisticsJsonExport,
   createReadingStatisticsMarkdownExport,

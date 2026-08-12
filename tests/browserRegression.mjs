@@ -1071,6 +1071,15 @@ try {
       .some((node) => node.textContent?.trim() === 'Loading...')`,
     'selection TXT reader ready',
   );
+  const readerBookTime = await evaluate(`(() => {
+    const node = document.querySelector('[data-reader-book-reading-time="true"]');
+    return {
+      text: node?.textContent?.trim() ?? '',
+      opacity: node ? getComputedStyle(node).opacity : '',
+    };
+  })()`);
+  assert.match(readerBookTime.text, /^\d{2,}:\d{2}$/);
+  assert.ok(Number(readerBookTime.opacity) < 0.5, JSON.stringify(readerBookTime));
   const actualTextTapProbe = await evaluate(`(() => {
     const view = document.querySelector('foliate-view');
     const renderer = view?.renderer;
@@ -4536,6 +4545,47 @@ try {
     };
   })`, 'persisted reading statistics session');
   assert.ok(readingSessionCount >= 1);
+  await evaluate(`new Promise((resolve, reject) => {
+    const request = indexedDB.open('web-reader-db');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const ownerKey = 'guest:browser-regression|library:local';
+      const bookId = localStorage.getItem('__browserRegressionSelectionBookId');
+      const store = db.transaction('reading-sessions-v11', 'readwrite')
+        .objectStore('reading-sessions-v11');
+      const base = Date.now() - 10 * 60_000;
+      const put = (sessionId, startOffset, startProgress, endProgress, completed) => store.put({
+        schemaVersion: 1,
+        ownerKey,
+        sessionId,
+        bookId,
+        bookTitle: 'selection-probe.epub',
+        deviceId: 'round-fixture',
+        mode: 'screen',
+        startedAtClient: base + startOffset,
+        endedAtClient: base + startOffset + 60_000,
+        durationMs: 60_000,
+        startProgressPercent: startProgress,
+        endProgressPercent: endProgress,
+        timezoneOffsetMinutes: 0,
+        localDate: new Date(base + startOffset).toISOString().slice(0, 10),
+        completed,
+        clockOffsetMs: 0,
+        clockUncertaintyMs: 25,
+        clockMeasuredAtClient: base + startOffset,
+        syncState: 'synced',
+        retryCount: 0,
+        nextAttemptAt: 0,
+        lastErrorCode: null,
+      });
+      put('round-fixture-first-start', 0, 0, 50, false);
+      put('round-fixture-first-finish', 61_000, 50, 100, true);
+      put('round-fixture-second-start', 122_000, 0, 25, false);
+      store.transaction.oncomplete = () => { db.close(); resolve(true); };
+      store.transaction.onerror = () => reject(store.transaction.error);
+    };
+  })`);
   await command('Emulation.setDeviceMetricsOverride', {
     width: 320,
     height: 640,
@@ -4558,6 +4608,10 @@ try {
         width: buttonRect.width,
         height: buttonRect.height,
         range: button.getAttribute('data-reading-statistics-range'),
+        compact: Boolean(
+          button.closest('[data-reading-statistics-book-filter="true"]')
+          || button.hasAttribute('data-reading-statistics-complete')
+        ),
       };
     });
     return {
@@ -4570,7 +4624,7 @@ try {
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
       bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
       actionButtonsReachable: buttons
-        .filter(({ range }) => !range)
+        .filter(({ range, compact }) => !range && !compact)
         .every(({ width, height }) => width >= 44 && height >= 44),
       rangeButtonsCompact: buttons
         .filter(({ range }) => Boolean(range))
@@ -4593,6 +4647,67 @@ try {
   assert.equal(readingStatisticsUi.rangeButtonsCompact, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.refreshButtonFound, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
+  const bookRoundUi = await evaluate(`(() => {
+    const modal = document.querySelector('[data-reading-statistics-modal="true"]');
+    const filters = modal?.querySelector('[data-reading-statistics-book-filter="true"]');
+    const rows = [...(modal?.querySelectorAll('[data-reading-statistics-book="true"]') ?? [])];
+    return {
+      filterText: filters?.textContent?.replace(/\\s+/g, '') ?? '',
+      filterPressed: [...(filters?.querySelectorAll('button') ?? [])]
+        .map((button) => [button.textContent?.trim(), button.getAttribute('aria-pressed')]),
+      fixtureBookId: localStorage.getItem('__browserRegressionSelectionBookId'),
+      rounds: rows.map((row) => row.getAttribute('data-reading-statistics-round')),
+      rowTexts: rows.map((row) => row.textContent?.replace(/\\s+/g, ' ').trim()),
+    };
+  })()`);
+  assert.equal(bookRoundUi.filterText, '전체|현재|완료');
+  assert.deepEqual(bookRoundUi.filterPressed, [
+    ['전체', 'true'], ['현재', 'false'], ['완료', 'false'],
+  ]);
+  const fixtureRoundSelector = `[data-reading-statistics-book-id="${bookRoundUi.fixtureBookId}"]`;
+  const fixtureRounds = await evaluate(`[
+    ...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})
+  ].map((row) => row.getAttribute('data-reading-statistics-round'))`);
+  assert.ok(fixtureRounds.includes('1'), JSON.stringify({ bookRoundUi, fixtureRounds }));
+  assert.ok(fixtureRounds.includes('2'), JSON.stringify({ bookRoundUi, fixtureRounds }));
+  assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('2회차')), JSON.stringify(bookRoundUi));
+  assert.ok(bookRoundUi.rowTexts.every((text) => text.includes('시작')), JSON.stringify(bookRoundUi));
+  await evaluate(`document.querySelector('[data-reading-statistics-complete="true"]')?.click()`);
+  await evaluate('window.__regressionNextFrame(2)');
+  const completionUi = await evaluate(`(() => {
+    const complete = document.querySelector('[data-reading-statistics-complete="true"]');
+    return {
+      expanded: complete?.getAttribute('aria-expanded'),
+      dates: document.querySelector('[data-reading-statistics-completion-dates="true"]')
+        ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+    };
+  })()`);
+  assert.equal(completionUi.expanded, 'true');
+  assert.match(completionUi.dates, /시작 .* 종료/);
+  await evaluate(`(() => {
+    const filters = document.querySelector('[data-reading-statistics-book-filter="true"]');
+    [...(filters?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.trim() === '현재')?.click();
+  })()`);
+  await evaluate('window.__regressionNextFrame(2)');
+  const currentRoundUi = await evaluate(`(() => ({
+    count: document.querySelectorAll('[data-reading-statistics-book="true"]').length,
+    rounds: [...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})]
+      .map((row) => row.getAttribute('data-reading-statistics-round')),
+  }))()`);
+  assert.ok(currentRoundUi.rounds.includes('2'), JSON.stringify(currentRoundUi));
+  assert.ok(!currentRoundUi.rounds.includes('1'), JSON.stringify(currentRoundUi));
+  await evaluate(`(() => {
+    const filters = document.querySelector('[data-reading-statistics-book-filter="true"]');
+    [...(filters?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.trim() === '완료')?.click();
+  })()`);
+  await evaluate('window.__regressionNextFrame(2)');
+  const completedRoundUi = await evaluate(`[
+    ...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})
+  ].map((row) => row.getAttribute('data-reading-statistics-round'))`);
+  assert.ok(completedRoundUi.includes('1'), JSON.stringify(completedRoundUi));
+  assert.ok(!completedRoundUi.includes('2'), JSON.stringify(completedRoundUi));
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,

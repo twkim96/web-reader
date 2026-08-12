@@ -213,6 +213,27 @@ export const useReadingSessionTracker = ({
   // as stronger evidence and tolerate only its immediate iframe focus transfer.
   const interactionFocusRef = useRef(false);
 
+  const getActiveSessionPreview = useCallback((): ReadingSessionV1 | null => {
+    const segment = activeSegmentRef.current;
+    const deviceId = deviceIdRef.current;
+    if (!segment || !deviceId) return null;
+    const currentBook = bookRef.current;
+    const endAtMonotonic = segment.mode === 'tts'
+      && ttsGapStartedAtMonotonicRef.current !== null
+      ? ttsGapStartedAtMonotonicRef.current
+      : getMonotonicNow();
+    return toClosedSession({
+      schemaVersion: 1,
+      ownerKey,
+      bookId: currentBook.id,
+      bookTitle: currentBook.name || '제목 없음',
+      deviceId,
+      state: 'active',
+      ...segment,
+      endProgressPercent: clampProgress(progressRef.current),
+    }, getSegmentWallTime(segment, endAtMonotonic));
+  }, [ownerKey]);
+
   const queuePersist = useCallback((
     draft: ReadingSessionDraft,
     endedAtClient: number,
@@ -639,5 +660,5 @@ export const useReadingSessionTracker = ({
     };
   }, [isLoaded, markActivity, viewRef]);
 
-  return { markActivity };
+  return { getActiveSessionPreview, markActivity };
 };

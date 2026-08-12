@@ -62,6 +62,7 @@ import { buildTranslationAnnotationNote } from '../lib/readerLanguageTools';
 import { getReaderTtsContentIdentity } from '../lib/readerTtsCursor';
 import { reuseOrStageReaderJump, type PendingReaderJump } from '../lib/readerNavigationCommit';
 import { useReadingSessionTracker } from '../hooks/reader/useReadingSessionTracker';
+import { useCurrentBookReadingTime } from '../hooks/reader/useCurrentBookReadingTime';
 
 interface EpubReaderProps {
   book: Book;
@@ -685,7 +686,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || syncConflict !== null
     || pendingSliderMove !== null
     || isSliderMoveCommitting;
-  const { markActivity: markReadingActivity } = useReadingSessionTracker({
+  const {
+    getActiveSessionPreview,
+    markActivity: markReadingActivity,
+  } = useReadingSessionTracker({
     ownerKey,
     book,
     deviceId: readingStatsDeviceId,
@@ -694,6 +698,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     ttsStatus: tts.state.status,
     progressPercent: totalProgress,
     viewRef,
+  });
+  const currentBookReadingTime = useCurrentBookReadingTime({
+    ownerKey,
+    bookId: book.id,
+    enabled: isLoaded,
+    getActiveSessionPreview,
   });
   useLayoutEffect(() => {
     markReadingActivityRef.current = markReadingActivity;
@@ -1622,6 +1632,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           theme={theme}
           currentChapter={currentChapter}
           totalProgress={totalProgress}
+          readingTime={currentBookReadingTime}
           onOpenJump={chrome.openJumpInput}
         />
       )}

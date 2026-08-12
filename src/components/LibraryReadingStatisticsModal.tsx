@@ -7,6 +7,7 @@ import type { OwnerKey } from '../lib/ownerIdentity';
 import { getLocalReadingSessionsV11 } from '../lib/localReadingStatistics';
 import {
   buildReadingStatistics,
+  buildReadingBookRounds,
   formatReadingDuration,
   getReadingStatisticsRangeBounds,
   type ReadingStatisticsRange,
@@ -40,6 +41,8 @@ type Props = {
   onClose: () => void;
 };
 
+type BookListFilter = 'all' | 'current' | 'completed';
+
 const rangeLabels: Array<{ value: ReadingStatisticsRange; label: string }> = [
   { value: 'today', label: '오늘' },
   { value: 'week', label: '이번 주' },
@@ -62,6 +65,10 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 }) => {
   const [sessions, setSessions] = useState<StoredReadingSessionV11[]>([]);
   const [range, setRange] = useState<ReadingStatisticsRange>('week');
+  const [bookListFilter, setBookListFilter] = useState<BookListFilter>('all');
+  const [expandedCompletionRows, setExpandedCompletionRows] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
   const [sharing, setSharing] = useState(false);
@@ -171,6 +178,18 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       ), 0)];
     }),
   ) as Record<'today' | 'week' | 'month', number>, [aggregationNow, allSummary.days]);
+  const bookRounds = useMemo(() => buildReadingBookRounds(
+    sessions,
+    getReadingStatisticsRangeBounds(range, aggregationNow),
+  ), [aggregationNow, range, sessions]);
+  const visibleBookRounds = useMemo(() => bookRounds.filter((book) => (
+    bookListFilter === 'all'
+    || (bookListFilter === 'completed' ? book.completed : !book.completed)
+  )), [bookListFilter, bookRounds]);
+  const formatReadingDate = (localDate: string) => {
+    const [year, month, day] = localDate.split('-').map(Number);
+    return `${year}. ${month}. ${day}.`;
+  };
 
   const exportMarkdown = () => {
     downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(sessions));
@@ -324,29 +343,71 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               <div className="mt-3 flex items-end justify-between gap-2">
                 <div>
                   <h3 className="text-xs font-black sm:text-sm">도서별 기록</h3>
-                  <p className="text-[10px] opacity-50">{summary.books.length}권 · 완독 {summary.completedBookCount}권</p>
+                  <p className="text-[10px] opacity-50">{bookRounds.length}회차 · 완료 {bookRounds.filter(({ completed }) => completed).length}회</p>
                 </div>
-                <div className="text-right text-[10px] opacity-45">원본 {summary.sourceSessionCount}개</div>
+                <div data-reading-statistics-book-filter="true" className="flex shrink-0 items-center text-[11px] font-bold opacity-55">
+                  {(['all', 'current', 'completed'] as const).map((value, index) => (
+                    <React.Fragment key={value}>
+                      {index > 0 && <span aria-hidden="true" className="px-1 opacity-35">|</span>}
+                      <button
+                        type="button"
+                        onClick={() => setBookListFilter(value)}
+                        aria-pressed={bookListFilter === value}
+                        className={bookListFilter === value ? 'text-accent-500 opacity-100' : 'hover:opacity-100'}
+                      >
+                        {value === 'all' ? '전체' : value === 'current' ? '현재' : '완료'}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                </div>
               </div>
 
               <div className="mt-2 min-w-0 grid gap-1.5">
-                {summary.books.length === 0 ? (
+                {visibleBookRounds.length === 0 ? (
                   <div className={`rounded-2xl border ${theme.border} py-12 text-center text-sm opacity-45`}>아직 기록된 독서 시간이 없습니다.</div>
-                ) : summary.books.map((book) => (
-                  <article key={book.bookId} data-reading-statistics-book="true" className={`min-w-0 overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}>
+                ) : visibleBookRounds.map((book) => {
+                  const rowKey = `${book.bookId}:${book.roundNumber}`;
+                  const completionExpanded = expandedCompletionRows.has(rowKey);
+                  return (
+                  <article key={rowKey} data-reading-statistics-book="true" data-reading-statistics-book-id={book.bookId} data-reading-statistics-round={book.roundNumber} className={`min-w-0 overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}>
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle}</h4>
-                        <p className="mt-0.5 truncate text-[10px] opacity-50">{book.readDates.length}일 · {book.endProgressPercent.toFixed(1)}%{book.completed ? ' · 완독' : ''}</p>
+                        <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle}{book.roundNumber > 1 ? ` · ${book.roundNumber}회차` : ''}</h4>
+                        <p className="mt-0.5 truncate text-[10px] opacity-50">시작 {formatReadingDate(book.startedLocalDate)} · {book.endProgressPercent.toFixed(1)}%</p>
+                        {completionExpanded && book.completedLocalDate && (
+                          <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold opacity-55">
+                            시작 {formatReadingDate(book.startedLocalDate)} · 종료 {formatReadingDate(book.completedLocalDate)}
+                          </p>
+                        )}
                       </div>
-                      <strong className="shrink-0 text-xs text-accent-500 sm:text-sm">{formatReadingDuration(book.totalMs)}</strong>
+                      <div className="flex shrink-0 flex-col items-end">
+                        <strong className="text-xs text-accent-500 sm:text-sm">{formatReadingDuration(book.totalMs)}</strong>
+                        {book.completed && (
+                          <button
+                            type="button"
+                            data-reading-statistics-complete="true"
+                            aria-expanded={completionExpanded}
+                            aria-label={`${book.bookTitle} ${book.roundNumber}회차 시작일과 종료일`}
+                            onClick={() => setExpandedCompletionRows((current) => {
+                              const next = new Set(current);
+                              if (next.has(rowKey)) next.delete(rowKey);
+                              else next.add(rowKey);
+                              return next;
+                            })}
+                            className="mt-0.5 text-[10px] font-bold opacity-45 hover:opacity-100"
+                          >
+                            완료
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-1 flex min-w-0 gap-2 text-[10px] opacity-55">
                       <span>화면 {formatReadingDuration(book.screenMs)}</span>
                       <span>TTS {formatReadingDuration(book.ttsMs)}</span>
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}

@@ -85,6 +85,12 @@ export type ReadingStatisticsSummary = {
   days: ReadingDayStatistics[];
 };
 
+export type ReadingBookRoundStatistics = ReadingBookStatistics & {
+  roundNumber: number;
+  startedLocalDate: string;
+  completedLocalDate: string | null;
+};
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
@@ -605,6 +611,85 @@ export const buildReadingStatistics = (
   };
 };
 
+export const buildReadingBookRounds = (
+  sessions: readonly ReadingSessionV1[],
+  bounds: Parameters<typeof buildReadingStatistics>[1] = {},
+): ReadingBookRoundStatistics[] => {
+  const valid = sessions.filter(isReadingSessionV1);
+  const samplesByDevice = new Map<string, ReadingSessionV1[]>();
+  for (const session of valid) {
+    if (session.clockOffsetMs === undefined || session.clockMeasuredAtClient === undefined) continue;
+    const samples = samplesByDevice.get(session.deviceId) ?? [];
+    samples.push(session);
+    samplesByDevice.set(session.deviceId, samples);
+  }
+  const byBook = new Map<string, ReadingSessionV1[]>();
+  for (const session of valid) {
+    const records = byBook.get(session.bookId) ?? [];
+    records.push(session);
+    byBook.set(session.bookId, records);
+  }
+
+  const rows: ReadingBookRoundStatistics[] = [];
+  for (const records of byBook.values()) {
+    const ordered = [...records].sort((left, right) => {
+      const leftCorrection = getClockCorrection(left, samplesByDevice) ?? 0;
+      const rightCorrection = getClockCorrection(right, samplesByDevice) ?? 0;
+      return left.startedAtClient + leftCorrection - (right.startedAtClient + rightCorrection)
+        || left.sessionId.localeCompare(right.sessionId);
+    });
+    const rounds: Array<{ sessions: ReadingSessionV1[]; completed: boolean }> = [];
+    for (const session of ordered) {
+      let round = rounds.at(-1);
+      if (!round || (
+        round.completed
+        && Math.min(session.startProgressPercent, session.endProgressPercent) < 99.5
+      )) {
+        round = { sessions: [], completed: false };
+        rounds.push(round);
+      }
+      round.sessions.push(session);
+      round.completed ||= session.completed;
+    }
+
+    rounds.forEach((round, index) => {
+      const summary = buildReadingStatistics(round.sessions, bounds);
+      const book = summary.books.find(({ bookId }) => bookId === round.sessions[0]?.bookId);
+      // buildReadingStatistics preserves book metadata even when every slice is
+      // outside the selected range. A range-scoped list should contain only
+      // rounds with actual counted reading time in that range.
+      if (!book || book.totalMs <= 0) return;
+      const first = round.sessions[0];
+      const completion = round.sessions.find((session) => session.completed) ?? null;
+      const firstCorrection = getClockCorrection(first, samplesByDevice) ?? 0;
+      const completionCorrection = completion
+        ? getClockCorrection(completion, samplesByDevice) ?? 0
+        : 0;
+      rows.push({
+        ...book,
+        roundNumber: index + 1,
+        startedLocalDate: getReadingSessionLocalDate(
+          first.startedAtClient + firstCorrection,
+          first.timezoneOffsetMinutes,
+        ),
+        completedLocalDate: completion ? getReadingSessionLocalDate(
+          completion.endedAtClient + completionCorrection,
+          completion.timezoneOffsetMinutes,
+        ) : null,
+      });
+    });
+  }
+  const totalsByBook = new Map<string, number>();
+  for (const row of rows) {
+    totalsByBook.set(row.bookId, (totalsByBook.get(row.bookId) ?? 0) + row.totalMs);
+  }
+  return rows.sort((left, right) => (
+    (totalsByBook.get(right.bookId) ?? 0) - (totalsByBook.get(left.bookId) ?? 0)
+    || left.bookTitle.localeCompare(right.bookTitle, 'ko')
+    || left.roundNumber - right.roundNumber
+  ));
+};
+
 export const formatReadingDuration = (durationMs: number) => {
   const totalMinutes = Math.max(0, Math.floor(durationMs / 60_000));
   const hours = Math.floor(totalMinutes / 60);
@@ -612,6 +697,13 @@ export const formatReadingDuration = (durationMs: number) => {
   if (hours > 0) return `${hours}시간 ${minutes}분`;
   if (minutes > 0) return `${minutes}분`;
   return durationMs > 0 ? '1분 미만' : '0분';
+};
+
+export const formatReadingClock = (durationMs: number) => {
+  const totalMinutes = Math.max(0, Math.floor(durationMs / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
 export const getReadingTrackingMode = ({
