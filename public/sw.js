@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.10: continue device stabilization and improve generated TXT navigation.
+// 1.8.10 hotfix.2: refresh installed clients for Android reading-time tracking.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

@@ -33,6 +33,7 @@ Android에서 약 20분 동안 페이지를 읽고 기기 간 통계 동기화�
 - 단순히 reader가 visible하거나 앱이 foreground로 돌아온 것만으로는 session을 시작하지 않는다.
 - TTS는 기존처럼 실제 `playing` 구간만 기록한다.
 - 최대 5분 immutable segment, draft recovery, 기기 간 overlap 제거 정책은 변경하지 않는다.
+- 서비스 워커 script도 hotfix.2에서 갱신해 기존 Android PWA가 업데이트 대기 상태를 감지하고 안전한 적용·reload 경로를 사용하게 한다.
 
 ## 자동검증
 
