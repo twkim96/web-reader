@@ -8,7 +8,7 @@
 
 이전 버전: [update_1.8.9.md](./update_1.8.9.md)
 
-상태: TXT 목차 개선 및 hotfix.1~3 통계 수렴·Android 기록·1분 확정 구현, 전체 자동 gate 완료. 누적 실사용 검증 진행
+상태: TXT 목차 개선 및 hotfix.1~4 통계 수렴·Android 연속 기록·1분 확정 구현, 전체 자동 gate 완료. 누적 실사용 검증 진행
 
 ## 버전 운영 원칙
 
@@ -63,6 +63,7 @@
 - [hotfix.1](./update_1.8.10-hotfix.1.md)에서 동일 session ID의 유효한 remote·local payload 충돌이 전체 통계 동기화를 막지 않도록 remote immutable 기록으로 수렴시켰다.
 - [hotfix.2](./update_1.8.10-hotfix.2.md)에서 Android의 불안정한 `document.hasFocus()` 때문에 실제 터치 중에도 화면 독서 session이 시작되지 않던 경로를 실제 reader 입력·명시적 blur 상태로 분리했다.
 - [hotfix.3](./update_1.8.10-hotfix.3.md)에서 리더에 계속 머물 때 통계가 최대 5분 동안 확정되지 않던 지연을 줄여 새 session을 1분마다 확정·동기화한다.
+- [hotfix.4](./update_1.8.10-hotfix.4.md)에서 일반 화면 독서의 진행률 render가 활동 시각을 0으로 되돌려 최초 약 90초 이후 session을 폐기하던 상태 전이 결함을 수정했다.
 - Android·iPad 동일 Firebase 계정에서 양쪽의 신규 session이 오늘·주간·월간·도서별 통계로 수렴하는지 확인한다.
 - 최소 2~3일 실제 독서에서 데이터 손실, 삭제 부활, 이유 없는 자동 이동, 반복 충돌 모달이 재현되지 않아야 한다.
 

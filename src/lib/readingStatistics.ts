@@ -656,6 +656,11 @@ export const getNextReadingTtsTrackingPhase = (
   return 'inactive';
 };
 
+export const shouldResetReadingActivityForTtsTransition = (
+  previous: ReadingTtsTrackingPhase,
+  next: ReadingTtsTrackingPhase,
+) => previous !== next && (next === 'inactive' || next === 'paused');
+
 export const getReadingTrackingEndAt = ({
   mode,
   now,

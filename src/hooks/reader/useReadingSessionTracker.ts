@@ -18,6 +18,7 @@ import {
   READING_SESSION_MAX_DURATION_MS,
   READING_SESSION_MIN_DURATION_MS,
   READING_SESSION_SCHEMA_VERSION,
+  shouldResetReadingActivityForTtsTransition,
   type ReadingActiveIntervalV1,
   type ReadingSessionMode,
   type ReadingTtsTrackingPhase,
@@ -499,10 +500,10 @@ export const useReadingSessionTracker = ({
       }
       ttsGapStartedAtMonotonicRef.current = null;
     }
-    if (
-      nextTtsTrackingPhase === 'inactive'
-      || nextTtsTrackingPhase === 'paused'
-    ) {
+    if (shouldResetReadingActivityForTtsTransition(
+      previousTtsTrackingPhase,
+      nextTtsTrackingPhase,
+    )) {
       lastActivityAtRef.current = 0;
     }
     ttsTrackingPhaseRef.current = nextTtsTrackingPhase;

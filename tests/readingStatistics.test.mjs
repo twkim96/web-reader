@@ -12,6 +12,7 @@ import {
   isReadingSessionV1,
   READING_SESSION_COMMIT_INTERVAL_MS,
   READING_SESSION_MAX_DURATION_MS,
+  shouldResetReadingActivityForTtsTransition,
 } from '../src/lib/readingStatistics.ts';
 import {
   createReadingStatisticsJsonExport,
@@ -324,6 +325,28 @@ test('treats reader activity as focus evidence across an immediate iframe focus 
   assert.equal(getNextReadingInteractionFocus(true, 'window-blur', false), false);
   assert.equal(getNextReadingInteractionFocus(false, 'window-blur'), false);
   assert.equal(getNextReadingInteractionFocus(true, 'hidden'), false);
+});
+
+test('preserves screen activity across ordinary progress renders and resets on TTS exit', () => {
+  assert.equal(shouldResetReadingActivityForTtsTransition('inactive', 'inactive'), false);
+  assert.equal(shouldResetReadingActivityForTtsTransition('active-run', 'inactive'), true);
+  assert.equal(shouldResetReadingActivityForTtsTransition('active-gap', 'paused'), true);
+  assert.equal(shouldResetReadingActivityForTtsTransition('paused', 'paused'), false);
+
+  const activityAt = 120_000;
+  const activityAfterProgressRender = shouldResetReadingActivityForTtsTransition(
+    'inactive',
+    'inactive',
+  ) ? 0 : activityAt;
+  assert.equal(getReadingTrackingMode({
+    isLoaded: true,
+    suspended: false,
+    visibilityState: 'visible',
+    ttsTrackingPhase: 'inactive',
+    hasFocus: true,
+    lastActivityAt: activityAfterProgressRender,
+    now: 125_000,
+  }), 'screen');
 });
 
 test('keeps logical TTS continuity while excluding silent utterance transitions', () => {
