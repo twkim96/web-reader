@@ -3689,6 +3689,51 @@ try {
     'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
     'library annotation modal',
   );
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 320,
+    height: 640,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await evaluate('window.__regressionNextFrame(2)');
+  const libraryAnnotationUi = await evaluate(`(() => {
+    const modal = document.querySelector('[data-library-annotation-modal="true"]');
+    const body = modal?.querySelector('[data-library-annotation-body="true"]');
+    const closeButton = modal?.querySelector('button[aria-label="라이브러리 주석 닫기"]');
+    const rect = modal?.getBoundingClientRect();
+    const closeRect = closeButton?.getBoundingClientRect();
+    return {
+      modalWidth: rect?.width ?? 0,
+      modalHeight: rect?.height ?? 0,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+      horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+      bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
+      closeWidth: closeRect?.width ?? 0,
+      closeHeight: closeRect?.height ?? 0,
+    };
+  })()`);
+  assert.ok(
+    libraryAnnotationUi.modalWidth <= libraryAnnotationUi.viewportWidth * 0.92,
+    JSON.stringify(libraryAnnotationUi),
+  );
+  assert.ok(
+    libraryAnnotationUi.modalHeight <= libraryAnnotationUi.viewportHeight * 0.8,
+    JSON.stringify(libraryAnnotationUi),
+  );
+  assert.equal(libraryAnnotationUi.horizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
+  assert.equal(libraryAnnotationUi.bodyHorizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
+  assert.ok(
+    libraryAnnotationUi.closeWidth >= 44 && libraryAnnotationUi.closeHeight >= 44,
+    JSON.stringify(libraryAnnotationUi),
+  );
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evaluate('window.__regressionNextFrame(2)');
   await evaluate(`(() => {
     const input = document.querySelector('[data-library-annotation-search="true"]');
     const setter = Object.getOwnPropertyDescriptor(
@@ -5178,6 +5223,7 @@ try {
     highlightResolution,
     highlightDrift,
     highlightRepair,
+    libraryAnnotation: libraryAnnotationUi,
     solidSevenZip: solidSevenZipResult,
     tapSettings,
     readingStatistics: readingStatisticsUi,

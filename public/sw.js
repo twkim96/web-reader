@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.10 hotfix.6: refresh installed clients for compact shelf and reader search.
+// 1.8.10 hotfix.7: refresh installed clients for compact library annotations.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

@@ -288,7 +288,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   if (!open || !visible) return null;
 
   return (
-    <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm md:p-5">
+    <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5">
       <section
         ref={dialogRef}
         tabIndex={-1}
@@ -296,9 +296,9 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         role="dialog"
         aria-modal="true"
         aria-label="라이브러리 전체 주석"
-        className={`flex h-[min(92dvh,54rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border shadow-2xl md:rounded-3xl ${theme.bg} ${theme.text} ${theme.border}`}
+        className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden rounded-2xl border shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl ${theme.bg} ${theme.text} ${theme.border}`}
       >
-        <header className={`flex min-h-14 shrink-0 items-center gap-3 border-b px-3 md:px-5 ${theme.border}`}>
+        <header className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-black md:text-lg">라이브러리 주석</h2>
             <p className="text-[10px] font-bold opacity-45">로컬 {annotations.length}개 · 삭제 기록 제외 · 위치 오류 항목 포함</p>
@@ -307,13 +307,13 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
             type="button"
             onClick={onClose}
             aria-label="라이브러리 주석 닫기"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
           >
             <X size={20} />
           </button>
         </header>
 
-        <div className={`shrink-0 space-y-2 border-b p-2.5 md:p-3 ${theme.border}`}>
+        <div className={`shrink-0 space-y-1.5 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
           <label className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 ${theme.border} bg-black/5 dark:bg-white/5`}>
             <Search size={17} className="shrink-0 opacity-45" />
             <input
@@ -368,7 +368,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className={`shrink-0 border-b p-2.5 ${theme.border}`}>
+        <div className={`shrink-0 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1.5">
             <label className={`relative flex min-h-10 items-center rounded-lg border ${theme.border}`}>
               {exportMode === 'json-library' ? <FileJson size={16} className="ml-2.5 opacity-50" /> : <FileText size={16} className="ml-2.5 opacity-50" />}
@@ -408,13 +408,13 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
           {feedback && <p role="status" className="mt-1.5 text-[10px] font-bold opacity-60">{feedback}</p>}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-2.5 md:p-3">
+        <div data-library-annotation-body="true" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-2 sm:px-4 sm:py-3">
           {loading ? (
             <p className="py-12 text-center text-sm font-bold opacity-40">주석을 불러오는 중...</p>
           ) : results.length === 0 ? (
             <p className="py-12 text-center text-sm font-bold opacity-40">조건에 맞는 주석이 없습니다.</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <p className="px-1 pb-1 text-[10px] font-bold opacity-45">{results.length}개 중 {visibleResults.length}개 표시</p>
               {visibleResults.map((entry: LibraryAnnotationIndexEntry) => {
                 const { annotation, book } = entry;
@@ -425,7 +425,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
                   <article
                     key={`${annotation.bookId}:${annotation.id}`}
                     data-library-annotation-item={annotation.id}
-                    className={`rounded-xl border p-2.5 ${theme.border}`}
+                    className={`min-w-0 overflow-hidden rounded-xl border px-2.5 py-2 ${theme.border}`}
                   >
                     <div className="flex items-start gap-2">
                       <span className="mt-1 size-3 shrink-0 rounded-full" style={{ backgroundColor: color.color }} />
