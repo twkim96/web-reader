@@ -349,6 +349,34 @@ try {
     'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
     'shelf search modal',
   );
+  const desktopShelfSearchHeight = await evaluate(
+    'document.querySelector(\'[data-shelf-search-input-row="true"]\')?.getBoundingClientRect().height',
+  );
+  assert.ok(
+    desktopShelfSearchHeight >= 64 && desktopShelfSearchHeight <= 69,
+    `Unexpected desktop shelf search height: ${desktopShelfSearchHeight}`,
+  );
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 320,
+    height: 640,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evaluate('window.__regressionNextFrame(2)');
+  const mobileShelfSearchHeight = await evaluate(
+    'document.querySelector(\'[data-shelf-search-input-row="true"]\')?.getBoundingClientRect().height',
+  );
+  assert.ok(
+    mobileShelfSearchHeight >= 47 && mobileShelfSearchHeight <= 49,
+    `Unexpected mobile shelf search height: ${mobileShelfSearchHeight}`,
+  );
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evaluate('window.__regressionNextFrame(2)');
   assert.equal(
     await setInputValue('input[placeholder="도서 이름으로 검색..."]', 'Book 0'),
     true,
@@ -2778,6 +2806,28 @@ try {
       deviceScaleFactor: 1,
       mobile: false,
     });
+    await evaluate(`(() => {
+      [...document.querySelectorAll('button')]
+        .find((button) => button.textContent?.trim() === '책 검색')?.click();
+    })()`);
+    await waitFor(
+      'Boolean(document.querySelector(\'[data-epub-search-input-row="true"]\'))',
+      'mobile EPUB search modal',
+    );
+    const mobileEpubSearchHeight = await evaluate(
+      'document.querySelector(\'[data-epub-search-input-row="true"]\')?.getBoundingClientRect().height',
+    );
+    assert.ok(
+      mobileEpubSearchHeight >= 47 && mobileEpubSearchHeight <= 49,
+      `Unexpected mobile EPUB search height: ${mobileEpubSearchHeight}`,
+    );
+    await evaluate(
+      `document.querySelector('[data-epub-search-modal="true"]')?.parentElement?.click()`,
+    );
+    await waitFor(
+      '!document.querySelector(\'[data-epub-search-modal="true"]\')',
+      'mobile EPUB search modal close',
+    );
     await command('Network.emulateNetworkConditions', {
       offline: true,
       latency: 0,

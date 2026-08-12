@@ -50,12 +50,18 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
   return (
     <div className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[10vh] p-4 animate-in fade-in duration-200" onClick={onClose}>
       <div
+        data-epub-search-modal="true"
         className={`w-full max-w-2xl ${theme.bg} ${theme.text} rounded-[2rem] shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] animate-in slide-in-from-top-4 zoom-in-95 duration-300`}
         onClick={e => e.stopPropagation()}
       >
-        <div className="relative flex items-center p-2">
-          <div className="pl-6 pr-2">
-            {isSearching ? <Loader2 className="animate-spin text-accent-500" size={28} /> : <Search className="opacity-50" size={28} />}
+        <div
+          data-epub-search-input-row="true"
+          className="relative flex h-12 items-center px-1 sm:h-[4.25rem] sm:px-2"
+        >
+          <div className="pl-3 pr-1.5 sm:pl-5 sm:pr-2">
+            {isSearching
+              ? <Loader2 className="size-5 animate-spin text-accent-500 sm:size-6" />
+              : <Search className="size-5 opacity-50 sm:size-6" />}
           </div>
           <input
             autoFocus
@@ -63,13 +69,14 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="본문에서 검색어 입력..."
-            className={`w-full py-6 pr-6 bg-transparent text-xl focus:outline-none font-bold placeholder:opacity-30`}
+            className="h-full min-w-0 w-full bg-transparent pr-2 text-base font-bold focus:outline-none placeholder:opacity-30 sm:pr-4 sm:text-lg"
           />
           {query && (
             <button 
               type="button"
               onClick={() => { setQuery(''); setResults([]); onClear(); }}
-              className="mr-4 p-2 rounded-full opacity-50 hover:bg-black/10 hover:opacity-100 transition-all"
+              aria-label="본문 검색어 지우기"
+              className="mr-0.5 flex size-11 shrink-0 items-center justify-center rounded-full opacity-50 transition-all hover:bg-black/10 hover:opacity-100 sm:mr-1"
             >
               <X size={20} />
             </button>

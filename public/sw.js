@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.10 hotfix.5: refresh installed clients for on-demand statistics hydration.
+// 1.8.10 hotfix.6: refresh installed clients for compact shelf and reader search.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
