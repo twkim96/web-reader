@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.9: add pre-device stabilization and reading statistics leader coordination.
+// 1.8.10: continue device stabilization and improve generated TXT navigation.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.9`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

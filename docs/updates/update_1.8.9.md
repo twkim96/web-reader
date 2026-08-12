@@ -6,7 +6,7 @@
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
-상태: Phase A 외부 리뷰 finding을 [hotfix.1](./update_1.8.9-hotfix.1.md)~[hotfix.5](./update_1.8.9-hotfix.5.md)로 보강하고, 실사용 UI·로그아웃 finding을 [hotfix.6](./update_1.8.9-hotfix.6.md), 태블릿 가로 탭·선택형 2페이지 보기를 [hotfix.7](./update_1.8.9-hotfix.7.md)로 수정했다. hotfix.7 전체 자동 gate 완료, 태블릿 실기기 확인 대기
+상태: 코드·자동검증 개발선 종료. Phase A 외부 리뷰 finding은 [hotfix.1](./update_1.8.9-hotfix.1.md)~[hotfix.5](./update_1.8.9-hotfix.5.md), 실사용 UI·로그아웃은 [hotfix.6](./update_1.8.9-hotfix.6.md), 태블릿 가로 리더는 [hotfix.7](./update_1.8.9-hotfix.7.md)로 수정했다. 장기 실사용·실기기 검증과 이후 안정화 patch는 [1.8.10](./update_1.8.10.md)으로 이관
 
 ## 목표
 
@@ -123,9 +123,9 @@ migration 활성화 전 필요한 Phase B 증거:
 - hotfix.7은 넓은 화면에서 reflowable EPUB iframe 바깥의 좌우 여백 탭도 기존 페이지 이동 판정으로 연결한다.
 - hotfix.7은 기본 OFF인 `가로 모드 2페이지 보기`를 추가하고 탭 모드의 가로 컨테이너에서만 2열, 세로·스크롤 모드에서 1열을 유지한다.
 
-## Phase B — 누적 실기기 검증
+## Phase B — 누적 실기기 검증 이관
 
-상태: 단일기기 UX·성능·장시간 TTS·통계 관찰 진행 중. hotfix.6 로그아웃·모바일 배치와 hotfix.7 태블릿 가로 탭·2페이지 회전을 재확인하고 다중 탭·다중기기 sync acceptance를 이어간다.
+상태: 실사용 검증은 개발과 병행해야 하므로 [update_1.8.10.md](./update_1.8.10.md)로 이관했다. 아래 항목은 삭제하거나 완료로 간주하지 않는다.
 
 - PC Chrome, iPad Safari 브라우저 탭, iPad 홈 화면 PWA를 사용한다.
 - EPUB·TXT·PDF·CBZ에서 선택, 하이라이트, 메모, 팔레트, 책갈피, 이동, 검색, 내보내기를 한 흐름으로 반복한다.
@@ -137,7 +137,7 @@ migration 활성화 전 필요한 Phase B 증거:
 - 로그인 계정 로그아웃 성공·실패 전환에서 client-side exception이 없고, 320px 모바일 책장 액션이 겹치거나 잘리지 않아야 한다.
 - 태블릿 가로 화면에서 본문 바깥 여백 탭이 한 번만 이동하고, 선택형 2페이지 보기가 회전 전후 위치·순서를 보존해야 한다.
 
-## Phase C — 안정화 patch와 출시 판정
+## Phase C — 1.8.10 안정화 patch와 출시 판정
 
 - 실기기 결함은 원인·영향 범위가 같은 것만 묶고 각 patch마다 자동 회귀와 필요 시 외부 재리뷰를 수행한다.
 - 편의성 제안과 새 기능은 1.9.x 후보로 분리한다.
@@ -169,4 +169,4 @@ migration 활성화 전 필요한 Phase B 증거:
 - production Chrome full regression: hotfix.4 재리뷰 build 3회 연속 완주, hotfix.5~7 build 전체 gate 완주
 - `git diff --check`: 통과
 
-현재 남은 gate는 hotfix.6~7 배포 실기기 확인, 외부 최종 코드 리뷰, 다중 탭·다중기기 Phase B acceptance와 누적 실기기 테스트다.
+1.8.9의 코드·자동검증 범위는 종료했다. hotfix.6~7 배포 실기기 확인, 외부 최종 코드 리뷰, 다중 탭·다중기기 acceptance와 누적 실사용 테스트는 1.8.10에서 계속한다.

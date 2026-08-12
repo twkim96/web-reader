@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.9 Phase A와 hotfix.1~5 코드 안정화를 마치고 실사용 finding을 hotfix.6~7로 수정했다. hotfix.7 전체 자동 gate 완료, 단말 로그아웃·모바일 배치·태블릿 가로 리더와 누적 Phase B acceptance 대기
+전체 상태: 1.8.9 코드·자동검증 개발선을 종료하고 장기 실사용 검증을 1.8.10으로 이관했다. 1.8.10은 새 TXT 변환 목차 개선을 시작했으며 실사용 finding은 `1.8.10-hotfix.N`으로 이어간다.
 
 ## 1. 문서의 역할
 
@@ -65,7 +65,7 @@
 | 1.8.8-hotfix.5 | 부트스트랩·진단·통계 방어 | guest fast path·conflict diff·clock read·긴 cursor | 중상 | 구현·check·Rules·Playwright 완료, production Chrome P3 이관 |
 | 1.8.8-hotfix.6 | 충돌 확정 동시성 방어 | empty intent·remote head 단조성·4개 target resolver | 높음 | 구현·check·Rules·Playwright 완료, 외부 재리뷰·실기기 대기 |
 | 1.8.8-hotfix.7 | 통계·이동 재시도 정확성 | TTS playing 시간·single-flight·frozen bookmark·timestamp quarantine | 높음 | 구현·check·Rules·Playwright 완료, 외부 재리뷰·실기기 대기 |
-| 1.8.9 | 실기기 전 선행 안정화·누적 실사용 | multi-tab leader·retention 계측 뒤 PC·iPad·PWA 회귀 | 매우 높음 | Phase B 진행 중, hotfix.6 단말 확인·최종 리뷰 대기 |
+| 1.8.9 | 실기기 전 선행 안정화·누적 실사용 | multi-tab leader·retention 계측 뒤 PC·iPad·PWA 회귀 | 매우 높음 | 코드·자동검증 개발선 종료, 남은 실사용 검증은 1.8.10 이관 |
 | 1.8.9-hotfix.1 | Phase A 경합 후속 안정화 | remote command head·lease transaction·짧은 TTS·gate fixture | 매우 높음 | 리뷰 finding 구현·전체 자동검증 완료, 재리뷰 대기 |
 | 1.8.9-hotfix.2 | 원격 command·주석 generation·TTS 계측 안정화 | exact head·obsolete rollback·삭제 부활 방지·actual-playing·진단 export | 매우 높음 | 리뷰 finding 구현·전체 자동검증 완료, 재리뷰 대기 |
 | 1.8.9-hotfix.3 | 삭제 generation·command 취소·TTS 시간축 정합성 | 공통 hydration fence·IDB transaction abort·wall-clock active interval | 매우 높음 | P1 3건 구현·전체 자동검증 완료, 재리뷰 대기 |
@@ -73,6 +73,7 @@
 | 1.8.9-hotfix.5 | marker transaction·TTS pending durability | 다중 탭 stale edit linearization·TTS 직전 사용자 위치 저장 | 매우 높음 | P2 2건 구현·전체 자동검증 완료, 외부 재리뷰 대기 |
 | 1.8.9-hotfix.6 | 로그아웃·모바일 책장 안정화 | owner/auth 전환·320px 액션 배치 | 중간 | `64ac57c` 구현·전체 자동검증 완료, 배포 실기기 확인 대기 |
 | 1.8.9-hotfix.7 | 태블릿 가로 리더 안정화 | 본문 바깥 탭·선택형 2페이지·회전 재배치 | 중간 | 구현·전체 자동검증 완료, 태블릿 실기기 확인 대기 |
+| 1.8.10 | TXT 목차 개선·누적 실사용 안정화 | 새 TXT 첫 구절 목차·PC/iPad/PWA 장기 사용 | 높음 | TXT 목차 구현·전체 gate 완료, 외부 리뷰·실사용 진행 중 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
@@ -642,7 +643,7 @@ type Annotation = {
 
 ## 1.8.9 — 1.8.x 누적 실사용 안정화
 
-상태: Phase A 구현과 hotfix.1~5 보강 뒤 Phase B 진행 중. 실사용 로그아웃·모바일 책장 finding은 hotfix.6, 태블릿 가로 리더 finding은 hotfix.7로 수정하고 전체 gate 통과, 배포 실기기 확인·최종 리뷰 대기 — `update_1.8.9.md`
+상태: Phase A 구현과 hotfix.1~7 자동검증을 마치고 코드 개발선을 종료했다. 남은 장기 실사용 검증은 1.8.10으로 이관 — `update_1.8.9.md`
 
 ### 목표
 
@@ -681,6 +682,23 @@ type Annotation = {
 - PWA update 전후 local mutation flush와 reader 위치 복원이 확인된다.
 - 마지막 안정화 patch가 `check:full`과 외부 코드 리뷰를 통과한다.
 - 남은 알려진 제한이 release note에 명시된다.
+
+## 1.8.10 — TXT 목차 개선·누적 실사용 안정화
+
+상태: 새로 변환하는 TXT의 목차를 `번호 + 첫 32 grapheme`으로 개선하고 전체 자동 gate를 통과했다. 기존 저장 EPUB은 변경하지 않으며 외부 리뷰·누적 실사용 검증 진행 중 — `update_1.8.10.md`
+
+### 포함
+
+- 새 TXT→EPUB 변환 목차의 번호·첫 구절 표시
+- 1.8.9에서 이관한 PC·iPad·PWA 누적 실사용 검증
+- 실사용 결함의 `1.8.10-hotfix.N` 분리 수정
+- 마지막 전체 코드 리뷰와 release candidate 판정
+
+### 제외
+
+- 기존 TXT 변환 EPUB 자동 탐지·마이그레이션·마커
+- 실제 증거 없는 저장·동기화 대규모 구조 변경
+- retention/compaction 자동 삭제 활성화
 
 ## 7. 공통 자동검증 게이트
 
@@ -817,6 +835,6 @@ docs/updates/update_1.8.2.md
 
 ## 12. 현재 다음 단계
 
-1. hotfix.6~7 배포 뒤 로그인 계정 로그아웃, 모바일 책장 액션 배치, 태블릿 가로 여백 탭과 선택형 2페이지 회전을 PC·iPad·PWA에서 확인한다.
-2. 단일기기 UX·성능·장시간 TTS·통계 관찰과 다중 탭·다중기기 sync acceptance를 이어간다.
-3. 외부 최종 코드리뷰에서 P0~P2를 닫고, 실기기 finding은 원인별 작은 안정화 patch로 마감한다. retention migration은 observe-only를 유지한다.
+1. 1.8.10 전체 자동 gate와 외부 코드 리뷰를 완료한다.
+2. 단일기기 UX·성능·장시간 TTS·통계 관찰과 다중 탭·다중기기 sync acceptance를 계속한다.
+3. 실사용 finding은 `1.8.10-hotfix.N`으로 분리해 마감하고 retention migration은 observe-only를 유지한다.

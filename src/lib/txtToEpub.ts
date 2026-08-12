@@ -3,6 +3,28 @@ import JSZip from 'jszip';
 
 const CHAPTER_TARGET_SIZE = 30000; // 목표 챕터 크기 (글자 수)
 const CHAPTER_MIN_SIZE = 5000;     // 최소 챕터 크기 (너무 짧은 챕터 방지)
+export const TXT_CHAPTER_EXCERPT_LENGTH = 32;
+
+const normalizeChapterExcerpt = (text: string) => text
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const splitGraphemes = (text: string) => {
+  if (typeof Intl.Segmenter === 'function') {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    return Array.from(segmenter.segment(text), ({ segment }) => segment);
+  }
+  return Array.from(text);
+};
+
+export const buildTxtChapterLabel = (chapterContent: string, chapterIndex: number) => {
+  const normalized = normalizeChapterExcerpt(chapterContent);
+  if (!normalized) return `Chapter ${chapterIndex + 1}`;
+  const graphemes = splitGraphemes(normalized);
+  const excerpt = graphemes.slice(0, TXT_CHAPTER_EXCERPT_LENGTH).join('');
+  return `${chapterIndex + 1}. ${excerpt}${graphemes.length > TXT_CHAPTER_EXCERPT_LENGTH ? '…' : ''}`;
+};
 
 /**
  * 텍스트를 자연스러운 구분점(빈 줄)에서 챕터로 분할합니다.
@@ -91,14 +113,14 @@ function textToHtml(text: string): string {
 /**
  * 챕터 XHTML 파일 내용을 생성합니다.
  */
-function createChapterXhtml(chapterContent: string, chapterIndex: number, title: string): string {
+function createChapterXhtml(chapterContent: string, title: string, chapterLabel: string): string {
   const htmlContent = textToHtml(chapterContent);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ko" lang="ko">
 <head>
   <meta charset="UTF-8"/>
-  <title>${title} - Chapter ${chapterIndex + 1}</title>
+  <title>${escapeXml(title)} - ${escapeXml(chapterLabel)}</title>
   <link rel="stylesheet" type="text/css" href="style.css"/>
 </head>
 <body>
@@ -161,16 +183,17 @@ p {
   const manifestItems: string[] = [];
   const spineItems: string[] = [];
   const tocItems: string[] = [];
+  const chapterLabels = chapters.map(buildTxtChapterLabel);
 
   for (let i = 0; i < chapters.length; i++) {
     const chId = `ch${String(i + 1).padStart(3, '0')}`;
     const chFile = `${chId}.xhtml`;
 
-    zip.file(`OEBPS/${chFile}`, createChapterXhtml(chapters[i], i, title));
+    zip.file(`OEBPS/${chFile}`, createChapterXhtml(chapters[i], title, chapterLabels[i]));
 
     manifestItems.push(`    <item id="${chId}" href="${chFile}" media-type="application/xhtml+xml"/>`);
     spineItems.push(`    <itemref idref="${chId}"/>`);
-    tocItems.push(`      <li><a href="${chFile}">Chapter ${i + 1}</a></li>`);
+    tocItems.push(`      <li><a href="${chFile}">${escapeXml(chapterLabels[i])}</a></li>`);
   }
 
   // OEBPS/content.opf
