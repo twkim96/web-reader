@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.10 hotfix.7: refresh installed clients for compact annotations and reader time.
+// 1.8.10 hotfix.7: refresh installed clients for compact annotations and corner reader time.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

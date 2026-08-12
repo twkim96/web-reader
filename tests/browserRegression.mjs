@@ -1073,13 +1073,50 @@ try {
   );
   const readerBookTime = await evaluate(`(() => {
     const node = document.querySelector('[data-reader-book-reading-time="true"]');
+    const main = document.querySelector('[data-reader-status-main="true"]');
+    const rect = node?.getBoundingClientRect();
     return {
       text: node?.textContent?.trim() ?? '',
       opacity: node ? getComputedStyle(node).opacity : '',
+      fontWeight: node ? getComputedStyle(node).fontWeight : '',
+      rightGap: rect ? innerWidth - rect.right : null,
+      mainText: main?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+      separateFromMain: Boolean(node && main && !main.contains(node)),
     };
   })()`);
   assert.match(readerBookTime.text, /^\d{2,}:\d{2}$/);
   assert.ok(Number(readerBookTime.opacity) < 0.5, JSON.stringify(readerBookTime));
+  assert.ok(Number(readerBookTime.fontWeight) <= 300, JSON.stringify(readerBookTime));
+  assert.ok(readerBookTime.rightGap !== null && readerBookTime.rightGap <= 12, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.mainText.includes(readerBookTime.text), false, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.separateFromMain, true, JSON.stringify(readerBookTime));
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 320,
+    height: 640,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await evaluate('window.__regressionNextFrame(2)');
+  const mobileReaderBookTime = await evaluate(`(() => {
+    const node = document.querySelector('[data-reader-book-reading-time="true"]');
+    const rect = node?.getBoundingClientRect();
+    return {
+      rightGap: rect ? innerWidth - rect.right : null,
+      fontWeight: node ? getComputedStyle(node).fontWeight : '',
+    };
+  })()`);
+  assert.ok(
+    mobileReaderBookTime.rightGap !== null && mobileReaderBookTime.rightGap <= 12,
+    JSON.stringify(mobileReaderBookTime),
+  );
+  assert.ok(Number(mobileReaderBookTime.fontWeight) <= 300, JSON.stringify(mobileReaderBookTime));
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evaluate('window.__regressionNextFrame(2)');
   const actualTextTapProbe = await evaluate(`(() => {
     const view = document.querySelector('foliate-view');
     const renderer = view?.renderer;
