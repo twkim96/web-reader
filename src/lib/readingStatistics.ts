@@ -651,3 +651,13 @@ export const getReadingTrackingEndAt = ({
 }) => mode === 'screen'
   ? Math.min(now, lastActivityAt + READING_SESSION_IDLE_TIMEOUT_MS)
   : now;
+
+export const getNextReadingInteractionFocus = (
+  current: boolean,
+  signal: 'activity' | 'window-blur' | 'hidden',
+  hasRecentActivity = false,
+) => signal === 'activity'
+  ? true
+  : signal === 'hidden'
+    ? false
+    : current && hasRecentActivity;

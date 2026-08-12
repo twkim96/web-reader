@@ -61,6 +61,7 @@
 - 로그인 계정 로그아웃 성공·실패, 모바일 책장 액션 배치, 태블릿 가로 여백 탭과 2페이지 회전을 확인한다.
 - Firestore Rules 배포 뒤 독서 통계 권한 경고가 사라지고 기존 pending session이 동기화되는지 확인한다.
 - [hotfix.1](./update_1.8.10-hotfix.1.md)에서 동일 session ID의 유효한 remote·local payload 충돌이 전체 통계 동기화를 막지 않도록 remote immutable 기록으로 수렴시켰다.
+- [hotfix.2](./update_1.8.10-hotfix.2.md)에서 Android의 불안정한 `document.hasFocus()` 때문에 실제 터치 중에도 화면 독서 session이 시작되지 않던 경로를 실제 reader 입력·명시적 blur 상태로 분리했다.
 - Android·iPad 동일 Firebase 계정에서 양쪽의 신규 session이 오늘·주간·월간·도서별 통계로 수렴하는지 확인한다.
 - 최소 2~3일 실제 독서에서 데이터 손실, 삭제 부활, 이유 없는 자동 이동, 반복 충돌 모달이 재현되지 않아야 한다.
 

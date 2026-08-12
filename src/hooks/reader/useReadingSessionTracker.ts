@@ -9,6 +9,7 @@ import { saveLocalReadingSessionV11 } from '../../lib/localReadingStatistics';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import {
   getReadingSessionLocalDate,
+  getNextReadingInteractionFocus,
   getNextReadingTtsTrackingPhase,
   getReadingTrackingEndAt,
   getReadingTrackingMode,
@@ -35,6 +36,7 @@ import {
 } from '../../lib/readingActivityTargets';
 
 const HEARTBEAT_MS = 5_000;
+const IFRAME_FOCUS_TRANSFER_GRACE_MS = 1_000;
 const COMPLETION_PERCENT = 99.5;
 type ActiveSegment = {
   sessionId: string;
@@ -204,6 +206,10 @@ export const useReadingSessionTracker = ({
   const deviceIdRef = useRef('');
   const bookRef = useRef(book);
   const ttsGapStartedAtMonotonicRef = useRef<number | null>(null);
+  // Mobile browsers may report document.hasFocus() as false while a visible
+  // publication iframe is receiving a real touch. Treat captured reader input
+  // as stronger evidence and tolerate only its immediate iframe focus transfer.
+  const interactionFocusRef = useRef(false);
 
   const queuePersist = useCallback((
     draft: ReadingSessionDraft,
@@ -341,7 +347,7 @@ export const useReadingSessionTracker = ({
       suspended: suspendedRef.current,
       visibilityState: document.visibilityState,
       ttsTrackingPhase: ttsTrackingPhaseRef.current,
-      hasFocus: document.hasFocus(),
+      hasFocus: interactionFocusRef.current,
       lastActivityAt: lastActivityAtRef.current,
       now,
     });
@@ -402,6 +408,10 @@ export const useReadingSessionTracker = ({
   }, [closeSegment, getDesiredMode, startSegment, writeDraft]);
 
   const markActivity = useCallback(() => {
+    interactionFocusRef.current = getNextReadingInteractionFocus(
+      interactionFocusRef.current,
+      'activity',
+    );
     lastActivityAtRef.current = getMonotonicNow();
     reconcile();
   }, [reconcile]);
@@ -557,7 +567,25 @@ export const useReadingSessionTracker = ({
   }, [isLoaded, reconcile, suspended, ttsStatus]);
 
   useEffect(() => {
-    const handleBoundary = () => reconcile();
+    const handleBoundary = () => {
+      if (document.visibilityState === 'hidden') {
+        interactionFocusRef.current = getNextReadingInteractionFocus(
+          interactionFocusRef.current,
+          'hidden',
+        );
+      }
+      reconcile();
+    };
+    const handleBlur = () => {
+      const now = getMonotonicNow();
+      interactionFocusRef.current = getNextReadingInteractionFocus(
+        interactionFocusRef.current,
+        'window-blur',
+        lastActivityAtRef.current > 0
+          && now - lastActivityAtRef.current <= IFRAME_FOCUS_TRANSFER_GRACE_MS,
+      );
+      reconcile();
+    };
     const handlePageHide = () => {
       const segment = activeSegmentRef.current;
       const endAtMonotonic = segment?.mode === 'tts'
@@ -573,13 +601,13 @@ export const useReadingSessionTracker = ({
         && ['ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', ' '].includes(event.key)
       ) markActivity();
     };
-    window.addEventListener('blur', handleBoundary);
+    window.addEventListener('blur', handleBlur);
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('keydown', handleReaderKey, { capture: true });
     document.addEventListener('visibilitychange', handleBoundary);
     const intervalId = window.setInterval(() => reconcile(), HEARTBEAT_MS);
     return () => {
-      window.removeEventListener('blur', handleBoundary);
+      window.removeEventListener('blur', handleBlur);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('keydown', handleReaderKey, { capture: true });
       document.removeEventListener('visibilitychange', handleBoundary);

@@ -6,6 +6,7 @@ import {
   getNextReadingTtsTrackingPhase,
   getReadingStatisticsRangeBounds,
   getReadingTrackingEndAt,
+  getNextReadingInteractionFocus,
   getReadingTrackingMode,
   isReadingSessionV1,
 } from '../src/lib/readingStatistics.ts';
@@ -296,6 +297,15 @@ test('tracks only visible active reading and actual playing TTS', () => {
   assert.equal(getReadingTrackingEndAt({
     mode: 'tts', now: 200_000, lastActivityAt: 10_000,
   }), 200_000);
+});
+
+test('treats reader activity as focus evidence across an immediate iframe focus transfer', () => {
+  assert.equal(getNextReadingInteractionFocus(false, 'activity'), true);
+  assert.equal(getNextReadingInteractionFocus(true, 'activity'), true);
+  assert.equal(getNextReadingInteractionFocus(true, 'window-blur', true), true);
+  assert.equal(getNextReadingInteractionFocus(true, 'window-blur', false), false);
+  assert.equal(getNextReadingInteractionFocus(false, 'window-blur'), false);
+  assert.equal(getNextReadingInteractionFocus(true, 'hidden'), false);
 });
 
 test('keeps logical TTS continuity while excluding silent utterance transitions', () => {
