@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { onIdTokenChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import {
@@ -23,7 +23,11 @@ import {
 } from '../lib/readingStatisticsSync';
 import {
   notifyReadingStatisticsChange,
+  notifyReadingStatisticsServerCheck,
+  requestReadingStatisticsRefresh,
   subscribeReadingStatisticsChanges,
+  subscribeReadingStatisticsRefreshRequests,
+  subscribeReadingStatisticsServerChecks,
 } from '../lib/readingStatisticsWake';
 import {
   readReadingStatisticsClockSample,
@@ -61,17 +65,29 @@ export const useReadingStatisticsSync = (
   const [receiveHealth, setReceiveHealth] = useState<SyncHealth>('healthy');
   const [uploadHealth, setUploadHealth] = useState<SyncHealth>('healthy');
   const [quarantinedCount, setQuarantinedCount] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastServerCheckedAt, setLastServerCheckedAt] = useState<number | null>(null);
+  const refreshOwnerKeyRef = useRef<OwnerKey | null>(null);
+
+  const refresh = useCallback(() => {
+    const currentOwnerKey = refreshOwnerKeyRef.current;
+    if (currentOwnerKey) requestReadingStatisticsRefresh(currentOwnerKey);
+  }, []);
 
   useEffect(() => {
     setReceiveHealth('healthy');
     setUploadHealth('healthy');
     setQuarantinedCount(0);
+    setRefreshing(false);
+    setLastServerCheckedAt(null);
+    refreshOwnerKeyRef.current = null;
     if (!user || !ownerKey) return;
     const owner = ownerRuntime.capture();
     if (!owner || owner.ownerKey !== ownerKey) return;
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
     const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
+    refreshOwnerKeyRef.current = syncOwnerKey;
     const leaseRuntime = new ReadingStatisticsSyncLeaseRuntime(
       syncOwnerKey,
       crypto.randomUUID(),
@@ -151,6 +167,7 @@ export const useReadingStatisticsSync = (
           const shouldRefresh = refreshRequested;
           refreshRequested = false;
           if (shouldRefresh) {
+            setRefreshing(true);
             const hydrationStartedAt = performance.now();
             let hydrationPageCount = 0;
             let remoteReadAttemptCount = 0;
@@ -209,6 +226,7 @@ export const useReadingStatisticsSync = (
               if (hydrationRun.hydratedCount > 0) {
                 notifyReadingStatisticsChange(syncOwnerKey);
               }
+              notifyReadingStatisticsServerCheck(syncOwnerKey, Date.now());
               receiveRetryCount = 0;
               setReceiveHealth('healthy');
             } catch (error) {
@@ -230,6 +248,10 @@ export const useReadingStatisticsSync = (
               }).catch((error) => {
                 console.warn('[ReadingStatistics] hydration metrics persistence failed:', error);
               });
+              if (hydrationStatus === 'failed') {
+                notifyReadingStatisticsServerCheck(syncOwnerKey, null);
+              }
+              setRefreshing(false);
             }
           }
 
@@ -319,6 +341,11 @@ export const useReadingStatisticsSync = (
       queueMicrotask(() => void run());
     }
 
+    const requestExplicitRefresh = () => {
+      setRefreshing(true);
+      request(true);
+    };
+
     const handleOnline = () => request(true);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -330,6 +357,19 @@ export const useReadingStatisticsSync = (
     const unsubscribeChanges = subscribeReadingStatisticsChanges(
       syncOwnerKey,
       () => request(false),
+    );
+    const unsubscribeRefreshRequests = subscribeReadingStatisticsRefreshRequests(
+      syncOwnerKey,
+      requestExplicitRefresh,
+    );
+    const unsubscribeServerChecks = subscribeReadingStatisticsServerChecks(
+      syncOwnerKey,
+      (checkedAt) => {
+        if (checkedAt !== null) {
+          setLastServerCheckedAt((current) => Math.max(current ?? 0, checkedAt));
+        }
+        setRefreshing(false);
+      },
     );
     const unsubscribeToken = onIdTokenChanged(auth, (currentUser) => {
       if (currentUser?.uid === user.uid) request(true);
@@ -351,9 +391,14 @@ export const useReadingStatisticsSync = (
     });
     return () => {
       disposed = true;
+      if (refreshOwnerKeyRef.current === syncOwnerKey) {
+        refreshOwnerKeyRef.current = null;
+      }
       void leaseRuntime.release();
       unregister();
       unsubscribeChanges();
+      unsubscribeRefreshRequests();
+      unsubscribeServerChecks();
       unsubscribeToken();
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
@@ -368,5 +413,9 @@ export const useReadingStatisticsSync = (
   return {
     health: mergeSyncHealth(receiveHealth, uploadHealth),
     quarantinedCount,
+    canRefresh: Boolean(user && ownerKey),
+    refreshing,
+    lastServerCheckedAt,
+    refresh,
   };
 };

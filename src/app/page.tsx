@@ -826,6 +826,10 @@ export default function Page() {
           theme={theme}
           syncHealth={readingStatisticsSync.health}
           quarantinedDocumentCount={readingStatisticsSync.quarantinedCount}
+          canRefresh={readingStatisticsSync.canRefresh}
+          refreshing={readingStatisticsSync.refreshing}
+          lastServerCheckedAt={readingStatisticsSync.lastServerCheckedAt}
+          onRefresh={readingStatisticsSync.refresh}
           onClose={() => setReadingStatisticsOpen(false)}
         />
       )}

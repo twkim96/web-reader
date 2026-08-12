@@ -4454,6 +4454,7 @@ try {
   );
   const readingStatisticsUi = await evaluate(`(() => {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');
+    const body = modal?.querySelector('[data-reading-statistics-body="true"]');
     const rect = modal?.getBoundingClientRect();
     const buttons = [...modal.querySelectorAll('button')].map((button) => {
       const buttonRect = button.getBoundingClientRect();
@@ -4461,6 +4462,7 @@ try {
         label: button.getAttribute('aria-label') || button.textContent?.trim() || '',
         width: buttonRect.width,
         height: buttonRect.height,
+        range: button.getAttribute('data-reading-statistics-range'),
       };
     });
     return {
@@ -4471,7 +4473,14 @@ try {
       viewportWidth: innerWidth,
       viewportHeight: innerHeight,
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
-      actionButtonsReachable: buttons.every(({ width, height }) => width >= 44 && height >= 44),
+      bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
+      actionButtonsReachable: buttons
+        .filter(({ range }) => !range)
+        .every(({ width, height }) => width >= 44 && height >= 44),
+      rangeButtonsCompact: buttons
+        .filter(({ range }) => Boolean(range))
+        .every(({ height }) => height >= 40 && height <= 41),
+      refreshButtonFound: Boolean(modal?.querySelector('[data-reading-statistics-refresh="true"]')),
       jsonEnabled: !modal?.querySelector('[data-reading-statistics-export="json"]')?.disabled,
     };
   })()`);
@@ -4480,9 +4489,14 @@ try {
   assert.match(readingStatisticsUi.text, /TTS 듣기/);
   assert.ok(readingStatisticsUi.bookCount >= 1, JSON.stringify(readingStatisticsUi));
   assert.ok(readingStatisticsUi.modalWidth <= readingStatisticsUi.viewportWidth, JSON.stringify(readingStatisticsUi));
+  assert.ok(readingStatisticsUi.modalWidth <= readingStatisticsUi.viewportWidth * 0.92, JSON.stringify(readingStatisticsUi));
   assert.ok(readingStatisticsUi.modalHeight <= readingStatisticsUi.viewportHeight, JSON.stringify(readingStatisticsUi));
+  assert.ok(readingStatisticsUi.modalHeight <= readingStatisticsUi.viewportHeight * 0.8, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.horizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.bodyHorizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.actionButtonsReachable, true, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.rangeButtonsCompact, true, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.refreshButtonFound, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
   await command('Emulation.setDeviceMetricsOverride', {
