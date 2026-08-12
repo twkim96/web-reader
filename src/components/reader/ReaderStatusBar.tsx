@@ -46,7 +46,7 @@ export const ReaderStatusBar: React.FC<ReaderStatusBarProps> = ({
     </div>
     <span
       data-reader-book-reading-time="true"
-      className={`pointer-events-none fixed bottom-0 right-2 z-[45] pb-[calc(env(safe-area-inset-bottom)+4px)] font-sans text-[10px] font-light tabular-nums opacity-30 ${theme.text}`}
+      className={`pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+2px)] right-2 z-[45] flex h-6 items-center font-sans text-[11px] font-light tabular-nums opacity-30 ${theme.text}`}
     >
       {readingTime}
     </span>

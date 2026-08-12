@@ -1075,11 +1075,17 @@ try {
     const node = document.querySelector('[data-reader-book-reading-time="true"]');
     const main = document.querySelector('[data-reader-status-main="true"]');
     const rect = node?.getBoundingClientRect();
+    const mainRect = main?.getBoundingClientRect();
     return {
       text: node?.textContent?.trim() ?? '',
       opacity: node ? getComputedStyle(node).opacity : '',
       fontWeight: node ? getComputedStyle(node).fontWeight : '',
       rightGap: rect ? innerWidth - rect.right : null,
+      fontSize: node ? getComputedStyle(node).fontSize : '',
+      mainFontSize: main ? getComputedStyle(main).fontSize : '',
+      centerDelta: rect && mainRect
+        ? Math.abs((rect.top + rect.bottom) / 2 - (mainRect.top + mainRect.bottom) / 2)
+        : null,
       mainText: main?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
       separateFromMain: Boolean(node && main && !main.contains(node)),
     };
@@ -1087,6 +1093,8 @@ try {
   assert.match(readerBookTime.text, /^\d{2,}:\d{2}$/);
   assert.ok(Number(readerBookTime.opacity) < 0.5, JSON.stringify(readerBookTime));
   assert.ok(Number(readerBookTime.fontWeight) <= 300, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.fontSize, readerBookTime.mainFontSize, JSON.stringify(readerBookTime));
+  assert.ok(readerBookTime.centerDelta !== null && readerBookTime.centerDelta <= 1, JSON.stringify(readerBookTime));
   assert.ok(readerBookTime.rightGap !== null && readerBookTime.rightGap <= 12, JSON.stringify(readerBookTime));
   assert.equal(readerBookTime.mainText.includes(readerBookTime.text), false, JSON.stringify(readerBookTime));
   assert.equal(readerBookTime.separateFromMain, true, JSON.stringify(readerBookTime));
@@ -1099,10 +1107,17 @@ try {
   await evaluate('window.__regressionNextFrame(2)');
   const mobileReaderBookTime = await evaluate(`(() => {
     const node = document.querySelector('[data-reader-book-reading-time="true"]');
+    const main = document.querySelector('[data-reader-status-main="true"]');
     const rect = node?.getBoundingClientRect();
+    const mainRect = main?.getBoundingClientRect();
     return {
       rightGap: rect ? innerWidth - rect.right : null,
       fontWeight: node ? getComputedStyle(node).fontWeight : '',
+      fontSize: node ? getComputedStyle(node).fontSize : '',
+      mainFontSize: main ? getComputedStyle(main).fontSize : '',
+      centerDelta: rect && mainRect
+        ? Math.abs((rect.top + rect.bottom) / 2 - (mainRect.top + mainRect.bottom) / 2)
+        : null,
     };
   })()`);
   assert.ok(
@@ -1110,6 +1125,15 @@ try {
     JSON.stringify(mobileReaderBookTime),
   );
   assert.ok(Number(mobileReaderBookTime.fontWeight) <= 300, JSON.stringify(mobileReaderBookTime));
+  assert.equal(
+    mobileReaderBookTime.fontSize,
+    mobileReaderBookTime.mainFontSize,
+    JSON.stringify(mobileReaderBookTime),
+  );
+  assert.ok(
+    mobileReaderBookTime.centerDelta !== null && mobileReaderBookTime.centerDelta <= 1,
+    JSON.stringify(mobileReaderBookTime),
+  );
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
     height: 800,
