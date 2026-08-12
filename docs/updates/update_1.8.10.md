@@ -31,7 +31,7 @@
 
 - 챕터 순서를 보존하기 위해 앞에 1부터 시작하는 번호를 유지한다.
 - 챕터 시작부의 공백·줄바꿈은 한 칸으로 정규화한다.
-- 처음 12 grapheme까지만 사용하고 더 길면 말줄임표를 붙인다.
+- 처음 20 grapheme까지만 사용하고 더 길면 말줄임표를 붙인다.
 - 한글 조합 문자·이모지 중간이 깨지지 않게 `Intl.Segmenter`를 우선 사용한다.
 - 비어 있는 챕터는 기존 `Chapter N`으로 fallback한다.
 - nav.xhtml과 각 챕터 `<title>`에는 XML escape한 같은 label을 사용한다.
@@ -47,7 +47,7 @@
 - Firestore Rules: 27/27
 - Chromium/WebKit Playwright: 14/14
 - production Chrome regression: 통과
-- 12-grapheme 절단, 공백 정규화, 빈 내용 fallback 확인
+- 20-grapheme 절단, 공백 정규화, 빈 내용 fallback 확인
 - 새 EPUB의 목차·챕터 title과 XML escape 확인
 - package·lockfile·Service Worker·Foliate runtime을 1.8.10으로 일괄 갱신하고 정합성 확인
 - `git diff --check`: 통과

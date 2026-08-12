@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 
 const CHAPTER_TARGET_SIZE = 30000; // 목표 챕터 크기 (글자 수)
 const CHAPTER_MIN_SIZE = 5000;     // 최소 챕터 크기 (너무 짧은 챕터 방지)
-export const TXT_CHAPTER_EXCERPT_LENGTH = 12;
+export const TXT_CHAPTER_EXCERPT_LENGTH = 20;
 
 const normalizeChapterExcerpt = (text: string) => text
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
