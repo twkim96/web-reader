@@ -16,6 +16,7 @@ import {
   getPendingReadingSessionsV11,
   hydrateRemoteReadingSessionsPageV12,
   markReadingSessionSyncedV11,
+  reconcileUploadedReadingSessionConflictV11,
   saveLocalReadingSessionV11,
 } from '../src/lib/localReadingStatistics.ts';
 import {
@@ -191,22 +192,76 @@ test('discards a surviving cursor when the raw session store was cleared', async
   assert.equal(await getReadingStatisticsHydrationStateV12(owner), null);
 });
 
-test('does not advance hydration cursor when a page collides', async () => {
-  const first = makeSession('remote-collision');
-  const cursor1 = cursor(10, first.sessionId);
-  await hydrateRemoteReadingSessionsPageV12(owner, [first], null, cursor1, false);
-  const cursor2 = cursor(20, 'next');
-  await assert.rejects(
-    hydrateRemoteReadingSessionsPageV12(
-      owner,
-      [{ ...first, bookTitle: 'Collision' }],
-      cursor1,
-      cursor2,
-      true,
-    ),
-    /충돌/,
+test('converges a colliding local session on the immutable remote payload and advances hydration', async () => {
+  const local = makeSession('remote-collision', 'Local');
+  const remote = { ...local, bookTitle: 'Remote' };
+  const following = {
+    ...makeSession('remote-following', 'Following'),
+    startedAtClient: 62_000,
+    endedAtClient: 122_000,
+  };
+  await saveLocalReadingSessionV11(owner, local);
+  const nextCursor = cursor(20, following.sessionId);
+  await hydrateRemoteReadingSessionsPageV12(
+    owner,
+    [remote, following],
+    null,
+    nextCursor,
+    true,
   );
-  assert.deepEqual((await getReadingStatisticsHydrationStateV12(owner))?.cursor, cursor1);
+  const stored = await getLocalReadingSessionsV11(owner);
+  assert.deepEqual(stored.map(({ sessionId, bookTitle, syncState }) => ({
+    sessionId,
+    bookTitle,
+    syncState,
+  })), [
+    { sessionId: remote.sessionId, bookTitle: 'Remote', syncState: 'synced' },
+    { sessionId: following.sessionId, bookTitle: 'Following', syncState: 'synced' },
+  ]);
+  assert.deepEqual((await getReadingStatisticsHydrationStateV12(owner))?.cursor, nextCursor);
+  assert.equal((await getPendingReadingSessionsV11(owner, Date.now())).length, 0);
+});
+
+test('reconciles an upload collision to the remote payload without blocking later pending sessions', async () => {
+  const local = makeSession('upload-collision', 'Local');
+  const remote = { ...local, bookTitle: 'Remote' };
+  const following = {
+    ...makeSession('upload-following', 'Following'),
+    startedAtClient: 62_000,
+    endedAtClient: 122_000,
+  };
+  await saveLocalReadingSessionV11(owner, local);
+  await saveLocalReadingSessionV11(owner, following);
+  assert.equal(await reconcileUploadedReadingSessionConflictV11(
+    owner,
+    local,
+    remote,
+  ), true);
+  const stored = await getLocalReadingSessionsV11(owner);
+  assert.equal(stored.find(({ sessionId }) => sessionId === local.sessionId)?.bookTitle, 'Remote');
+  assert.equal(stored.find(({ sessionId }) => sessionId === local.sessionId)?.syncState, 'synced');
+  assert.deepEqual(
+    (await getPendingReadingSessionsV11(owner, Date.now())).map(({ sessionId }) => sessionId),
+    [following.sessionId],
+  );
+});
+
+test('does not reconcile an upload collision after the statistics lease changes', async () => {
+  const local = makeSession('upload-stale-lease', 'Local');
+  const remote = { ...local, bookTitle: 'Remote' };
+  await saveLocalReadingSessionV11(owner, local);
+  const staleLease = await acquireReadingStatisticsSyncLeaseV13(owner, 'old-tab', 100, 50);
+  await acquireReadingStatisticsSyncLeaseV13(owner, 'new-tab', 151, 50);
+  assert.equal(await reconcileUploadedReadingSessionConflictV11(
+    owner,
+    local,
+    remote,
+    staleLease,
+    152,
+  ), false);
+  const [stored] = await getLocalReadingSessionsV11(owner);
+  assert.equal(stored.bookTitle, 'Local');
+  assert.equal(stored.syncState, 'pending');
 });
 
 test('keeps malformed remote documents quarantined while advancing the exact cursor', async () => {

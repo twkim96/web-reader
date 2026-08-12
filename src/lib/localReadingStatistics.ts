@@ -436,7 +436,11 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
       }
       const existing = assertStoredSession(existingValue);
       if (!sameReadingSessionPayload(existing, session)) {
-        throw new Error('원격 독서 통계 session ID가 다른 로컬 내용과 충돌했습니다.');
+        // Cloud sessions are immutable after creation. If an older client left
+        // a different local payload under the same ID, converge on the
+        // already-committed remote record instead of blocking the whole page.
+        await sessionsStore.put(toStoredSession(ownerKey, session, 'synced'));
+        continue;
       }
       if (existing.syncState !== 'synced') {
         await sessionsStore.put({
@@ -520,6 +524,52 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
   return { quarantinedDocuments: nextCursor || fullHydrationCompleted
     ? (await getReadingStatisticsHydrationStateV12(ownerKey, now))?.quarantinedDocuments ?? []
     : [] };
+};
+
+export const reconcileUploadedReadingSessionConflictV11 = async (
+  ownerKey: OwnerKey,
+  expectedLocal: ReadingSessionV1,
+  remote: ReadingSessionV1,
+  leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
+  now = Date.now(),
+) => {
+  if (
+    !isReadingSessionV1(remote)
+    || remote.sessionId !== expectedLocal.sessionId
+  ) throw new Error('원격 독서 통계 충돌 기록이 올바르지 않습니다.');
+  const db = await initDB();
+  const tx = db.transaction([
+    V11_READING_SESSIONS_STORE,
+    V13_READING_STATISTICS_LEASES_STORE,
+  ], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  if (
+    leaseClaim
+    && !await hasCurrentStatisticsLease(
+      tx.objectStore(V13_READING_STATISTICS_LEASES_STORE),
+      ownerKey,
+      leaseClaim,
+      now,
+    )
+  ) {
+    await tx.done;
+    return false;
+  }
+  const value = await store.get([ownerKey, expectedLocal.sessionId]);
+  if (!value) {
+    await tx.done;
+    return false;
+  }
+  const existing = assertStoredSession(value);
+  if (!sameReadingSessionPayload(existing, expectedLocal)) {
+    await tx.done;
+    return false;
+  }
+  await store.put(toStoredSession(ownerKey, remote, 'synced'));
+  await tx.done;
+  notifyReadingStatisticsChange(ownerKey);
+  return true;
 };
 
 export const recordReadingStatisticsHydrationMetricsV12 = async (

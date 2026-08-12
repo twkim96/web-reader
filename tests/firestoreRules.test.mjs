@@ -1057,14 +1057,14 @@ test('creates immutable reading statistic sessions and replays the same payload'
   const db = database();
   const record = validReadingSession();
   const sdk = { doc, runTransaction, serverTimestamp };
-  assert.equal(await uploadReadingSessionV1(db, 'alice', record, sdk), 'created');
-  assert.equal(await uploadReadingSessionV1(db, 'alice', record, sdk), 'replayed');
+  assert.deepEqual(await uploadReadingSessionV1(db, 'alice', record, sdk), { status: 'created' });
+  assert.deepEqual(await uploadReadingSessionV1(db, 'alice', record, sdk), { status: 'replayed' });
   const snapshot = await assertSucceeds(getDoc(doc(db, readingStatisticsPath())));
   assert.equal(snapshot.data().bookId, 'book-1');
   assert.equal(snapshot.data().durationMs, 60_000);
-  await assert.rejects(
-    uploadReadingSessionV1(db, 'alice', { ...record, bookTitle: 'Collision' }, sdk),
-    /충돌/,
+  assert.deepEqual(
+    await uploadReadingSessionV1(db, 'alice', { ...record, bookTitle: 'Collision' }, sdk),
+    { status: 'conflict', remote: record },
   );
   await assertFails(setDoc(doc(db, readingStatisticsPath()), {
     ...record,

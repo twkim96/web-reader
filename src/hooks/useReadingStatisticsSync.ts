@@ -9,6 +9,7 @@ import {
   getPendingReadingSessionsV11,
   hydrateRemoteReadingSessionsPageV12,
   markReadingSessionSyncedV11,
+  reconcileUploadedReadingSessionConflictV11,
   recordReadingStatisticsHydrationMetricsV12,
 } from '../lib/localReadingStatistics';
 import { getSyncOwnerKey, splitOwnerKey, type OwnerKey } from '../lib/ownerIdentity';
@@ -241,6 +242,17 @@ export const useReadingStatisticsSync = (
               const result = await uploadReadingSessionV1(db, user.uid, session);
               const requestCompletedAt = Date.now();
               if (!await hasClaimLeadership()) return;
+              if (result.status === 'conflict') {
+                const reconciled = await reconcileUploadedReadingSessionConflictV11(
+                  syncOwnerKey,
+                  session,
+                  result.remote,
+                  leaseClaim,
+                );
+                if (!reconciled) return;
+                setUploadHealth('healthy');
+                continue;
+              }
               const markedSynced = await markReadingSessionSyncedV11(
                 syncOwnerKey,
                 session.sessionId,
@@ -250,7 +262,7 @@ export const useReadingStatisticsSync = (
               if (!markedSynced) return;
               setUploadHealth('healthy');
               if (
-                result === 'created'
+                result.status === 'created'
                 && !readReadingStatisticsClockSample(
                   session.deviceId,
                   localStorage,

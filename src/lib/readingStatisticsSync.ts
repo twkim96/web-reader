@@ -28,7 +28,7 @@ import {
 
 const parseRemoteReadingSessionV1 = (value: unknown) => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return parseReadingSessionV1(value);
+    return toReadingSessionPayload(parseReadingSessionV1(value));
   }
   if (
     'startedAtClient' in value
@@ -36,15 +36,15 @@ const parseRemoteReadingSessionV1 = (value: unknown) => {
     && 'timezoneOffsetMinutes' in value
     && typeof value.timezoneOffsetMinutes === 'number'
   ) {
-    return parseReadingSessionV1({
+    return toReadingSessionPayload(parseReadingSessionV1({
       ...value,
       localDate: getReadingSessionLocalDate(
         value.startedAtClient,
         value.timezoneOffsetMinutes,
       ),
-    });
+    }));
   }
-  return parseReadingSessionV1(value);
+  return toReadingSessionPayload(parseReadingSessionV1(value));
 };
 
 const readServerTimestampCursor = (value: unknown) => {
@@ -97,15 +97,15 @@ export const uploadReadingSessionV1 = async (
     if (snapshot.exists()) {
       const remote = parseRemoteReadingSessionV1(snapshot.data());
       if (!sameReadingSessionPayload(remote, session)) {
-        throw new Error('원격 독서 통계 session ID가 다른 내용과 충돌했습니다.');
+        return { status: 'conflict', remote } as const;
       }
-      return 'replayed' as const;
+      return { status: 'replayed' } as const;
     }
     transaction.set(reference, {
       ...toReadingSessionPayload(session),
       uploadedAtServer: sdk.serverTimestamp(),
     });
-    return 'created' as const;
+    return { status: 'created' } as const;
   });
 };
 
