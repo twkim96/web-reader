@@ -28,6 +28,7 @@ import {
   runReaderBookOpen,
   throwIfAborted,
 } from '../../lib/readerLoadLifecycle';
+import { getReaderMaxColumnCount } from '../../lib/readerNavigation';
 
 type ReaderThemeColors = {
   bg: string;
@@ -87,10 +88,13 @@ interface UseReaderBookSourceOptions {
   onBack: () => void;
 }
 
-const getReaderLayout = (navMode: ViewerSettings['navMode']) => ({
+const getReaderLayout = (
+  navMode: ViewerSettings['navMode'],
+  landscapeTwoPage: boolean,
+) => ({
   flow: navMode === 'scroll' ? 'scrolled' as const : 'paginated' as const,
   swipeNavigation: navMode === 'scroll',
-  maxColumnCount: 1,
+  maxColumnCount: getReaderMaxColumnCount(navMode, landscapeTwoPage),
   margin: 0,
   gap: '5%',
   maxInlineSize: '1000px',
@@ -323,7 +327,10 @@ export const useReaderBookSource = ({
                 ? (openedView) => {
                   const current = loadInputsRef.current;
                   current.setLayout(
-                    getReaderLayout(current.settings.navMode),
+                    getReaderLayout(
+                      current.settings.navMode,
+                      current.settings.landscapeTwoPage === true,
+                    ),
                     openedView.renderer,
                   );
                   current.setStyle(getReaderStyle(
@@ -369,8 +376,17 @@ export const useReaderBookSource = ({
 
   useEffect(() => {
     if (!isLoaded || book.readerFormat !== 'epub') return;
-    setLayout(getReaderLayout(settings.navMode));
-  }, [book.readerFormat, isLoaded, setLayout, settings.navMode]);
+    setLayout(getReaderLayout(
+      settings.navMode,
+      settings.landscapeTwoPage === true,
+    ));
+  }, [
+    book.readerFormat,
+    isLoaded,
+    setLayout,
+    settings.landscapeTwoPage,
+    settings.navMode,
+  ]);
 
   return { isLoaded };
 };

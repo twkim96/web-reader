@@ -6,6 +6,7 @@ import {
   clampTapZonePercent,
   getEffectiveNavigationMode,
   getNavigationOptions,
+  getReaderMaxColumnCount,
   getReaderKeyboardAction,
   getReaderTapAction,
 } from '../src/lib/readerNavigation.ts';
@@ -83,6 +84,14 @@ test('uses configurable tap zones and preserves a central controls area', () => 
   }), 'prev');
   assert.equal(clampTapZonePercent(0, 33), 10);
   assert.equal(clampTapZonePercent(50, 30), 45);
+});
+
+test('enables two columns only for opted-in tap navigation', () => {
+  assert.equal(getReaderMaxColumnCount('left-right', false), 1);
+  assert.equal(getReaderMaxColumnCount('left-right', true), 2);
+  assert.equal(getReaderMaxColumnCount('page', true), 2);
+  assert.equal(getReaderMaxColumnCount('all-dir', true), 2);
+  assert.equal(getReaderMaxColumnCount('scroll', true), 1);
 });
 
 test('maps spacebar to the same next action in scroll and tap modes', () => {

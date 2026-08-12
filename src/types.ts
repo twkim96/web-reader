@@ -51,6 +51,7 @@ export interface ViewerSettings {
   navMode: 'scroll' | 'page' | 'left-right' | 'all-dir';
   tapTopBottomPercent: number;
   tapLeftRightPercent: number;
+  landscapeTwoPage: boolean;
   autoOpenLastBook: boolean;
   fontFamily: 'sans' | 'serif' | 'ridi';
   accentColor: string;

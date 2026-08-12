@@ -6,7 +6,7 @@
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
-상태: Phase A 외부 리뷰 finding을 [hotfix.1](./update_1.8.9-hotfix.1.md)~[hotfix.5](./update_1.8.9-hotfix.5.md)로 보강하고, 실사용 UI·로그아웃 finding을 [hotfix.6](./update_1.8.9-hotfix.6.md)으로 수정했다. hotfix.6 전체 gate와 코드 커밋 `64ac57c` 완료, 배포 뒤 단말 로그아웃·모바일 배치 확인 대기
+상태: Phase A 외부 리뷰 finding을 [hotfix.1](./update_1.8.9-hotfix.1.md)~[hotfix.5](./update_1.8.9-hotfix.5.md)로 보강하고, 실사용 UI·로그아웃 finding을 [hotfix.6](./update_1.8.9-hotfix.6.md), 태블릿 가로 탭·선택형 2페이지 보기를 [hotfix.7](./update_1.8.9-hotfix.7.md)로 수정했다. hotfix.7 전체 자동 gate 완료, 태블릿 실기기 확인 대기
 
 ## 목표
 
@@ -92,7 +92,7 @@ migration 활성화 전 필요한 Phase B 증거:
 
 ### A3. 추가 리뷰·자동 gate 마감
 
-상태: progress sentinel·TTS pause/resume·원격 command·annotation generation·통계 시간축 경합을 hotfix.1~5에서 보강하고 hotfix.6 전체 gate까지 통과. 누적 실기기·외부 최종 리뷰 대기
+상태: progress sentinel·TTS pause/resume·원격 command·annotation generation·통계 시간축 경합을 hotfix.1~5에서 보강하고 hotfix.6~7 전체 gate까지 통과. 누적 실기기·외부 최종 리뷰 대기
 
 - hotfix.3~7 외부 재리뷰에서 P0~P2가 남지 않아야 한다.
 - `npm run check:full`과 `git diff --check`를 clean checkout에서 통과한다.
@@ -120,10 +120,12 @@ migration 활성화 전 필요한 Phase B 증거:
 - hotfix.5는 TTS fence 직전에 대기 중인 사용자 위치 snapshot을 즉시 저장해 장시간 TTS·강제 종료의 durability gap을 제거한다.
 - hotfix.6는 Firebase 로그아웃 성공 전에는 owner를 유지하고, 실패 시 기존 책장으로 복구해 client-side exception 전환을 막는다.
 - hotfix.6는 모바일 정렬·보기 버튼을 헤더와 첫 도서 사이로 옮기고 하단 dock을 320px 한 화면 안에 배치한다.
+- hotfix.7은 넓은 화면에서 reflowable EPUB iframe 바깥의 좌우 여백 탭도 기존 페이지 이동 판정으로 연결한다.
+- hotfix.7은 기본 OFF인 `가로 모드 2페이지 보기`를 추가하고 탭 모드의 가로 컨테이너에서만 2열, 세로·스크롤 모드에서 1열을 유지한다.
 
 ## Phase B — 누적 실기기 검증
 
-상태: 단일기기 UX·성능·장시간 TTS·통계 관찰 진행 중. hotfix.6 배포 뒤 로그아웃·모바일 배치를 먼저 재확인하고 다중 탭·다중기기 sync acceptance를 이어간다.
+상태: 단일기기 UX·성능·장시간 TTS·통계 관찰 진행 중. hotfix.6 로그아웃·모바일 배치와 hotfix.7 태블릿 가로 탭·2페이지 회전을 재확인하고 다중 탭·다중기기 sync acceptance를 이어간다.
 
 - PC Chrome, iPad Safari 브라우저 탭, iPad 홈 화면 PWA를 사용한다.
 - EPUB·TXT·PDF·CBZ에서 선택, 하이라이트, 메모, 팔레트, 책갈피, 이동, 검색, 내보내기를 한 흐름으로 반복한다.
@@ -133,6 +135,7 @@ migration 활성화 전 필요한 Phase B 증거:
 - 자정·시간대·시계 차이가 있는 양기기에서 오늘·주·월·책별 합계를 수기로 비교한다.
 - 최소 2~3일 실제 독서에서 데이터 손실, 삭제 부활, 이유 없는 자동 이동, 반복 충돌 모달이 재현되지 않아야 한다.
 - 로그인 계정 로그아웃 성공·실패 전환에서 client-side exception이 없고, 320px 모바일 책장 액션이 겹치거나 잘리지 않아야 한다.
+- 태블릿 가로 화면에서 본문 바깥 여백 탭이 한 번만 이동하고, 선택형 2페이지 보기가 회전 전후 위치·순서를 보존해야 한다.
 
 ## Phase C — 안정화 patch와 출시 판정
 
@@ -160,10 +163,10 @@ migration 활성화 전 필요한 Phase B 증거:
 - `npm run check:full`: exit 0
 - ESLint: 오류 0, 기존 Foliate vendor 경고 2
 - TypeScript·production build: 통과
-- Node: formats 59/59, drive 49/49, archives 33/33, storage 255/255, shelf 63/63, Service Worker 9/9, release 3/3 — 합계 471/471
+- Node: formats 60/60, drive 49/49, archives 33/33, storage 255/255, shelf 66/66, Service Worker 9/9, release 3/3 — 합계 475/475
 - Firestore Rules: 27/27
 - Chromium/WebKit Playwright: 14/14
-- production Chrome full regression: hotfix.4 재리뷰 build 3회 연속 완주, hotfix.5·hotfix.6 build 전체 gate 완주
+- production Chrome full regression: hotfix.4 재리뷰 build 3회 연속 완주, hotfix.5~7 build 전체 gate 완주
 - `git diff --check`: 통과
 
-현재 남은 gate는 hotfix.6 배포 실기기 확인, 외부 최종 코드 리뷰, 다중 탭·다중기기 Phase B acceptance와 누적 실기기 테스트다.
+현재 남은 gate는 hotfix.6~7 배포 실기기 확인, 외부 최종 코드 리뷰, 다중 탭·다중기기 Phase B acceptance와 누적 실기기 테스트다.

@@ -1494,12 +1494,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
       <div
         ref={containerRef}
+        data-reader-content="true"
         className="w-full h-full"
         style={{
           boxSizing: 'border-box',
           paddingBlock: `${readerEdgePadding}px`,
           position: 'relative',
         }}
+        onClick={isFixedLayout || effectiveNavMode === 'scroll' ? undefined : handleInteraction}
       />
 
       {isLoaded && isFixedLayout && effectiveNavMode !== 'scroll' && (

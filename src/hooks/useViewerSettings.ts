@@ -25,6 +25,7 @@ export const defaultSettings: ViewerSettings = {
   navMode: 'scroll',
   tapTopBottomPercent: 33,
   tapLeftRightPercent: 30,
+  landscapeTwoPage: false,
   autoOpenLastBook: true,
   fontFamily: 'ridi',
   accentColor: 'sky',
@@ -51,6 +52,7 @@ export const getStoredViewerSettings = () => {
     const merged = { ...defaultSettings, ...parsed } as ViewerSettings;
     return {
       ...merged,
+      landscapeTwoPage: merged.landscapeTwoPage === true,
       translationProvider: normalizeReaderTranslationProvider(merged.translationProvider),
       translationSourceLanguage: normalizeReaderTranslationSourceLanguage(
         merged.translationSourceLanguage,

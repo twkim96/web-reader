@@ -37,6 +37,7 @@ test('defaults auto-open for older stored viewer settings', async () => {
 
     assert.equal(settings.fontSize, 21);
     assert.equal(settings.autoOpenLastBook, true);
+    assert.equal(settings.landscapeTwoPage, false);
     assert.equal(settings.translationProvider, 'auto');
     assert.equal(settings.translationSourceLanguage, 'auto');
     assert.equal(settings.translationTargetLanguage, 'ko');
@@ -77,5 +78,14 @@ test('preserves an explicit auto-open setting', async () => {
 
     assert.equal(settings.autoOpenLastBook, false);
     assert.equal(defaultSettings.autoOpenLastBook, true);
+  });
+});
+
+test('preserves only an explicit boolean landscape two-page setting', async () => {
+  await withStorage(JSON.stringify({ landscapeTwoPage: true }), () => {
+    assert.equal(getStoredViewerSettings().landscapeTwoPage, true);
+  });
+  await withStorage(JSON.stringify({ landscapeTwoPage: 'true' }), () => {
+    assert.equal(getStoredViewerSettings().landscapeTwoPage, false);
   });
 });

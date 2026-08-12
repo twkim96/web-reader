@@ -9,6 +9,11 @@ export const DEFAULT_LEFT_RIGHT_TAP_PERCENT = 30;
 export const MIN_TAP_ZONE_PERCENT = 10;
 export const MAX_TAP_ZONE_PERCENT = 45;
 
+export const getReaderMaxColumnCount = (
+  navMode: ReaderNavigationMode,
+  landscapeTwoPage: boolean,
+) => navMode !== 'scroll' && landscapeTwoPage ? 2 : 1;
+
 export const clampTapZonePercent = (value: number, fallback: number) => {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(MAX_TAP_ZONE_PERCENT, Math.max(MIN_TAP_ZONE_PERCENT, Math.round(value)));

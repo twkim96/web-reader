@@ -843,6 +843,7 @@ try {
     localStorage.setItem('viewer_settings', JSON.stringify({
       ...settings,
       navMode: 'left-right',
+      landscapeTwoPage: false,
     }));
     localStorage.removeItem('last_reader_session');
   })()`);
@@ -1869,6 +1870,129 @@ try {
   assert.ok(selectionActions.nativeSelectionBeforeRapidSecondTap.length > 0);
   assert.equal(selectionActions.rapidTapSelectionCleared, true, JSON.stringify(selectionActions));
   assert.notEqual(selectionActions.afterRapidTaps, selectionActions.beforeRapidTaps, JSON.stringify(selectionActions));
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1366,
+    height: 768,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  const landscapeReaderLayout = await evaluate(`(async () => {
+    await window.__regressionNextFrame(2);
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const content = document.querySelector('[data-reader-content="true"]');
+    const publicationDoc = renderer?.getContents?.()[0]?.doc;
+    if (!view || !renderer || !content || !publicationDoc) return { missing: true };
+
+    renderer.setAttribute('max-column-count', '1');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const textColumnRight = innerWidth / 2 + 500;
+    const marginTapX = innerWidth - 24;
+    const marginTapY = innerHeight / 2;
+    const beforeMarginTap = renderer.start;
+    const target = document.elementFromPoint(marginTapX, marginTapY);
+    target?.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: marginTapX,
+      clientY: marginTapY,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const afterMarginTap = renderer.start;
+
+    const openControls = () => {
+      if (document.querySelector('nav')?.classList.contains('translate-y-0')) return;
+      const centerTarget = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+      centerTarget?.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: innerWidth / 2,
+        clientY: innerHeight / 2,
+      }));
+    };
+    openControls();
+    await window.__regressionNextFrame();
+    [...document.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === '설정')?.click();
+    await window.__regressionNextFrame();
+    const checkbox = document.querySelector('input[aria-label="가로 모드 2페이지 보기"]');
+    const initiallyChecked = checkbox?.checked ?? null;
+    checkbox?.click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const landscapeColumnCount = renderer.getAttribute('max-column-count');
+    const landscapePageSlots = renderer.heads?.length ?? 0;
+    const storedEnabled = JSON.parse(localStorage.getItem('viewer_settings') || '{}')
+      .landscapeTwoPage;
+    return {
+      beforeMarginTap,
+      afterMarginTap,
+      textColumnRight,
+      marginTapX,
+      targetIsContent: target === content || content.contains(target),
+      initiallyChecked,
+      landscapeColumnCount,
+      landscapePageSlots,
+      storedEnabled,
+    };
+  })()`);
+  assert.equal(landscapeReaderLayout.missing, undefined, JSON.stringify(landscapeReaderLayout));
+  assert.ok(
+    landscapeReaderLayout.marginTapX > landscapeReaderLayout.textColumnRight,
+    JSON.stringify(landscapeReaderLayout),
+  );
+  assert.equal(landscapeReaderLayout.targetIsContent, true, JSON.stringify(landscapeReaderLayout));
+  assert.notEqual(
+    landscapeReaderLayout.afterMarginTap,
+    landscapeReaderLayout.beforeMarginTap,
+    JSON.stringify(landscapeReaderLayout),
+  );
+  assert.equal(landscapeReaderLayout.initiallyChecked, false, JSON.stringify(landscapeReaderLayout));
+  assert.equal(landscapeReaderLayout.landscapeColumnCount, '2', JSON.stringify(landscapeReaderLayout));
+  assert.equal(landscapeReaderLayout.landscapePageSlots, 2, JSON.stringify(landscapeReaderLayout));
+  assert.equal(landscapeReaderLayout.storedEnabled, true, JSON.stringify(landscapeReaderLayout));
+
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 768,
+    height: 1024,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evaluate('window.__regressionNextFrame(2)');
+  const portraitTwoPageLayout = await evaluate(`(() => {
+    const renderer = document.querySelector('foliate-view')?.renderer;
+    return {
+      configuredColumnCount: renderer?.getAttribute('max-column-count') ?? null,
+      pageSlots: renderer?.heads?.length ?? 0,
+    };
+  })()`);
+  assert.equal(portraitTwoPageLayout.configuredColumnCount, '2');
+  assert.equal(portraitTwoPageLayout.pageSlots, 1, JSON.stringify(portraitTwoPageLayout));
+  await command('Emulation.setDeviceMetricsOverride', {
+    width: 1280,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  const restoredSinglePageLayout = await evaluate(`(async () => {
+    await window.__regressionNextFrame(2);
+    const checkbox = document.querySelector('input[aria-label="가로 모드 2페이지 보기"]');
+    checkbox?.click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const renderer = document.querySelector('foliate-view')?.renderer;
+    const result = {
+      checked: checkbox?.checked ?? null,
+      configuredColumnCount: renderer?.getAttribute('max-column-count') ?? null,
+      storedEnabled: JSON.parse(localStorage.getItem('viewer_settings') || '{}')
+        .landscapeTwoPage,
+    };
+    [...document.querySelectorAll('h2')]
+      .find((node) => node.textContent?.trim() === '리더 설정')
+      ?.parentElement?.querySelector('button')?.click();
+    return result;
+  })()`);
+  assert.equal(restoredSinglePageLayout.checked, false, JSON.stringify(restoredSinglePageLayout));
+  assert.equal(restoredSinglePageLayout.configuredColumnCount, '1', JSON.stringify(restoredSinglePageLayout));
+  assert.equal(restoredSinglePageLayout.storedEnabled, false, JSON.stringify(restoredSinglePageLayout));
   const ttsLifecycleGuards = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
     const renderer = view?.renderer;

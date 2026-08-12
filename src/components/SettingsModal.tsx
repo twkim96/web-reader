@@ -273,6 +273,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div className="w-full h-px bg-black/10 dark:bg-white/10" />
 
+          {!isFixedLayout && (
+            <>
+              <label className="flex items-center justify-between gap-4 rounded-xl py-1 text-left">
+                <span className="min-w-0">
+                  <span className="block text-[11px] font-bold leading-snug">
+                    가로 모드 2페이지 보기
+                  </span>
+                  <span className="mt-0.5 block text-[9px] font-bold leading-snug opacity-45">
+                    탭 이동 모드의 가로 화면에서만 왼쪽·오른쪽 두 페이지로 표시합니다
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="가로 모드 2페이지 보기"
+                  checked={settings.landscapeTwoPage === true}
+                  onChange={(event) => onUpdateSettings({
+                    landscapeTwoPage: event.target.checked,
+                  })}
+                  className="h-4 w-4 shrink-0 accent-accent-600"
+                />
+              </label>
+
+              <div className="w-full h-px bg-black/10 dark:bg-white/10" />
+            </>
+          )}
+
           <label className="flex items-center justify-between gap-4 rounded-xl py-1 text-left">
             <span className="text-[11px] font-bold leading-snug">
               마지막으로 읽던 책 자동 열기
