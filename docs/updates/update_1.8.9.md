@@ -6,7 +6,7 @@
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
-상태: Phase A 외부 리뷰 finding을 [hotfix.1](./update_1.8.9-hotfix.1.md)~[hotfix.5](./update_1.8.9-hotfix.5.md)로 보강 중. hotfix.4 재리뷰와 production Chrome 3회 연속 완주를 근거로 단일기기 Phase B는 시작 가능하며, 다중 탭·다중기기 acceptance는 hotfix.5 전체 gate·재리뷰 뒤 시작
+상태: Phase A 외부 리뷰 finding을 [hotfix.1](./update_1.8.9-hotfix.1.md)~[hotfix.5](./update_1.8.9-hotfix.5.md)로 보강하고, 실사용 UI·로그아웃 finding을 [hotfix.6](./update_1.8.9-hotfix.6.md)으로 수정했다. hotfix.6 전체 gate와 코드 커밋 `64ac57c` 완료, 배포 뒤 단말 로그아웃·모바일 배치 확인 대기
 
 ## 목표
 
@@ -16,7 +16,7 @@
 
 ### A1. 다중 탭 독서 통계 sync 단일 실행자
 
-상태: 초기 구현 뒤 외부 리뷰 finding을 hotfix.1~5로 보강. 단일기기 Phase B 병행 가능, 다중 탭·다중기기 최종 판정은 hotfix.5 재리뷰 대기
+상태: 초기 구현 뒤 외부 리뷰 finding을 hotfix.1~5로 보강. 단일기기 Phase B 진행 중이며 다중 탭·다중기기 최종 acceptance는 누적 실기기 판정 대기
 
 - owner별 통계 hydration/upload에 하나의 active leader만 두는 lease 또는 Web Locks protocol을 설계한다.
 - tab 종료·background·lease 만료·same-tab reacquire·owner 전환을 구분하고 늦은 continuation을 폐기한다.
@@ -92,7 +92,7 @@ migration 활성화 전 필요한 Phase B 증거:
 
 ### A3. 추가 리뷰·자동 gate 마감
 
-상태: progress sentinel·TTS pause/resume·원격 command·annotation generation·통계 시간축 경합을 hotfix.1~5에서 보강. hotfix.4 재리뷰 working tree의 production Chrome 3회 연속 완주, hotfix.5 전체 gate·재리뷰 대기
+상태: progress sentinel·TTS pause/resume·원격 command·annotation generation·통계 시간축 경합을 hotfix.1~5에서 보강하고 hotfix.6 전체 gate까지 통과. 누적 실기기·외부 최종 리뷰 대기
 
 - hotfix.3~7 외부 재리뷰에서 P0~P2가 남지 않아야 한다.
 - `npm run check:full`과 `git diff --check`를 clean checkout에서 통과한다.
@@ -118,10 +118,12 @@ migration 활성화 전 필요한 Phase B 증거:
 - hotfix.4는 TTS lifecycle 전체에 progress fence를 두고 기존 relocate timer까지 중지하며, active-gap crash journal의 마지막 interval end를 보존한다.
 - hotfix.5는 marker head·sync meta 저장과 stale annotation 정리를 하나의 IndexedDB transaction으로 합쳐 다중 탭 resurrection window를 제거한다.
 - hotfix.5는 TTS fence 직전에 대기 중인 사용자 위치 snapshot을 즉시 저장해 장시간 TTS·강제 종료의 durability gap을 제거한다.
+- hotfix.6는 Firebase 로그아웃 성공 전에는 owner를 유지하고, 실패 시 기존 책장으로 복구해 client-side exception 전환을 막는다.
+- hotfix.6는 모바일 정렬·보기 버튼을 헤더와 첫 도서 사이로 옮기고 하단 dock을 320px 한 화면 안에 배치한다.
 
 ## Phase B — 누적 실기기 검증
 
-상태: 단일기기 UX·성능·장시간 TTS·통계 관찰은 시작 가능. 다중 탭·다중기기 sync acceptance는 hotfix.5 전체 gate·외부 재리뷰 후 시작
+상태: 단일기기 UX·성능·장시간 TTS·통계 관찰 진행 중. hotfix.6 배포 뒤 로그아웃·모바일 배치를 먼저 재확인하고 다중 탭·다중기기 sync acceptance를 이어간다.
 
 - PC Chrome, iPad Safari 브라우저 탭, iPad 홈 화면 PWA를 사용한다.
 - EPUB·TXT·PDF·CBZ에서 선택, 하이라이트, 메모, 팔레트, 책갈피, 이동, 검색, 내보내기를 한 흐름으로 반복한다.
@@ -130,6 +132,7 @@ migration 활성화 전 필요한 Phase B 증거:
 - 장기 `activeIntervals` 이력에서 iPad/PWA 통계 modal·기간 변경·export의 시간과 메모리 압박을 측정한다.
 - 자정·시간대·시계 차이가 있는 양기기에서 오늘·주·월·책별 합계를 수기로 비교한다.
 - 최소 2~3일 실제 독서에서 데이터 손실, 삭제 부활, 이유 없는 자동 이동, 반복 충돌 모달이 재현되지 않아야 한다.
+- 로그인 계정 로그아웃 성공·실패 전환에서 client-side exception이 없고, 320px 모바일 책장 액션이 겹치거나 잘리지 않아야 한다.
 
 ## Phase C — 안정화 patch와 출시 판정
 
@@ -140,9 +143,9 @@ migration 활성화 전 필요한 Phase B 증거:
 
 ## 현재 보류 판정
 
-- 다중 탭 단일 실행자: transaction lease fencing과 late acquire lifecycle을 hotfix.1로 보강하고 자동검증 완료. marker/edit linearization은 hotfix.5 외부 재리뷰 대기.
+- 다중 탭 단일 실행자: transaction lease fencing, late acquire lifecycle, marker/edit linearization까지 자동검증 완료. 최종 판정은 누적 다중 탭·다중기기 실기기 acceptance 대기.
 - retention/compaction: 계측과 migration 승인 gate는 완료. 실제 deletion/archive migration은 사용자 실데이터와 90일 offline 증거 전까지 observe-only.
-- production Chrome 장기 회귀: hotfix.4 재리뷰 working tree에서 `check:full`과 추가 2회가 연속 완주했다. hotfix.5 변경 뒤 전체 gate를 다시 수행한다.
+- production Chrome 장기 회귀: hotfix.4 재리뷰 working tree 반복과 hotfix.5·hotfix.6 전체 gate에서 완주했다.
 
 ## Phase A handoff 조건
 
@@ -160,7 +163,7 @@ migration 활성화 전 필요한 Phase B 증거:
 - Node: formats 59/59, drive 49/49, archives 33/33, storage 255/255, shelf 63/63, Service Worker 9/9, release 3/3 — 합계 471/471
 - Firestore Rules: 27/27
 - Chromium/WebKit Playwright: 14/14
-- production Chrome full regression: hotfix.4 재리뷰 build 3회 연속 완주, hotfix.5 build 전체 gate 1회 완주
+- production Chrome full regression: hotfix.4 재리뷰 build 3회 연속 완주, hotfix.5·hotfix.6 build 전체 gate 완주
 - `git diff --check`: 통과
 
-현재 남은 gate는 hotfix.5 전체 자동검증·외부 재리뷰, 다중 탭·다중기기 Phase B acceptance, 누적 실기기 테스트다.
+현재 남은 gate는 hotfix.6 배포 실기기 확인, 외부 최종 코드 리뷰, 다중 탭·다중기기 Phase B acceptance와 누적 실기기 테스트다.
