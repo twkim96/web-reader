@@ -1074,21 +1074,30 @@ try {
   const readerBookTime = await evaluate(`(() => {
     const node = document.querySelector('[data-reader-book-reading-time="true"]');
     const main = document.querySelector('[data-reader-status-main="true"]');
+    const progress = document.querySelector('[data-reader-status-progress="true"]');
+    const jump = document.querySelector('[data-reader-status-jump="true"]');
     const rect = node?.getBoundingClientRect();
     const mainRect = main?.getBoundingClientRect();
+    const progressRect = progress?.getBoundingClientRect();
+    const jumpRect = jump?.getBoundingClientRect();
     return {
       text: node?.textContent?.trim() ?? '',
       opacity: node ? getComputedStyle(node).opacity : '',
       fontWeight: node ? getComputedStyle(node).fontWeight : '',
       fontFamily: node ? getComputedStyle(node).fontFamily : '',
-      rightGap: rect ? innerWidth - rect.right : null,
       fontSize: node ? getComputedStyle(node).fontSize : '',
       mainFontSize: main ? getComputedStyle(main).fontSize : '',
       centerDelta: rect && mainRect
         ? Math.abs((rect.top + rect.bottom) / 2 - (mainRect.top + mainRect.bottom) / 2)
         : null,
       mainText: main?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-      separateFromMain: Boolean(node && main && !main.contains(node)),
+      insideMain: Boolean(node && main?.contains(node)),
+      progressToJumpGap: progressRect && jumpRect ? jumpRect.left - progressRect.right : null,
+      jumpToTimeGap: jumpRect && rect ? rect.left - jumpRect.right : null,
+      order: progress && jump && node
+        ? Boolean(progress.compareDocumentPosition(jump) & Node.DOCUMENT_POSITION_FOLLOWING)
+          && Boolean(jump.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
+        : false,
     };
   })()`);
   assert.match(readerBookTime.text, /^\d{2,}:\d{2}$/);
@@ -1097,9 +1106,15 @@ try {
   assert.match(readerBookTime.fontFamily, /serif/i, JSON.stringify(readerBookTime));
   assert.equal(readerBookTime.fontSize, readerBookTime.mainFontSize, JSON.stringify(readerBookTime));
   assert.ok(readerBookTime.centerDelta !== null && readerBookTime.centerDelta <= 1, JSON.stringify(readerBookTime));
-  assert.ok(readerBookTime.rightGap !== null && readerBookTime.rightGap <= 12, JSON.stringify(readerBookTime));
-  assert.equal(readerBookTime.mainText.includes(readerBookTime.text), false, JSON.stringify(readerBookTime));
-  assert.equal(readerBookTime.separateFromMain, true, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.mainText.includes(readerBookTime.text), true, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.insideMain, true, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.order, true, JSON.stringify(readerBookTime));
+  assert.ok(
+    readerBookTime.progressToJumpGap !== null
+      && readerBookTime.jumpToTimeGap !== null
+      && Math.abs(readerBookTime.progressToJumpGap - readerBookTime.jumpToTimeGap) <= 1,
+    JSON.stringify(readerBookTime),
+  );
   await command('Emulation.setDeviceMetricsOverride', {
     width: 320,
     height: 640,
@@ -1113,7 +1128,6 @@ try {
     const rect = node?.getBoundingClientRect();
     const mainRect = main?.getBoundingClientRect();
     return {
-      rightGap: rect ? innerWidth - rect.right : null,
       fontWeight: node ? getComputedStyle(node).fontWeight : '',
       fontFamily: node ? getComputedStyle(node).fontFamily : '',
       fontSize: node ? getComputedStyle(node).fontSize : '',
@@ -1123,10 +1137,6 @@ try {
         : null,
     };
   })()`);
-  assert.ok(
-    mobileReaderBookTime.rightGap !== null && mobileReaderBookTime.rightGap <= 12,
-    JSON.stringify(mobileReaderBookTime),
-  );
   assert.equal(mobileReaderBookTime.fontWeight, '400', JSON.stringify(mobileReaderBookTime));
   assert.match(mobileReaderBookTime.fontFamily, /serif/i, JSON.stringify(mobileReaderBookTime));
   assert.equal(
@@ -3054,7 +3064,7 @@ try {
   assert.ok(narrowSelectionMenu.ttsPanelProbe.stopTop >= narrowSelectionMenu.ttsPanelProbe.panelTop);
   assert.ok(narrowSelectionMenu.ttsPanelProbe.stopBottom <= narrowSelectionMenu.ttsPanelProbe.panelBottom);
   assert.equal(narrowSelectionMenu.toolbarProbe.ttsText, '', JSON.stringify(narrowSelectionMenu));
-  assert.ok(narrowSelectionMenu.toolbarProbe.ttsWidth <= 44, JSON.stringify(narrowSelectionMenu));
+  assert.ok(narrowSelectionMenu.toolbarProbe.ttsWidth >= 43 && narrowSelectionMenu.toolbarProbe.ttsWidth <= 45, JSON.stringify(narrowSelectionMenu));
   assert.deepEqual(narrowSelectionMenu.toolbarProbe.actionOrder, [
     '책갈피와 주석',
     '테마',
@@ -3065,11 +3075,15 @@ try {
     '독서 통계',
   ]);
   assert.ok(
-    narrowSelectionMenu.toolbarProbe.menuWidth >= 239
-      && narrowSelectionMenu.toolbarProbe.menuWidth <= 241,
+    narrowSelectionMenu.toolbarProbe.menuWidth >= 249
+      && narrowSelectionMenu.toolbarProbe.menuWidth <= 251,
     JSON.stringify(narrowSelectionMenu.toolbarProbe),
   );
-  assert.ok(narrowSelectionMenu.toolbarProbe.statisticsWidth <= 44, JSON.stringify(narrowSelectionMenu));
+  assert.ok(
+    narrowSelectionMenu.toolbarProbe.statisticsWidth >= 43
+      && narrowSelectionMenu.toolbarProbe.statisticsWidth <= 45,
+    JSON.stringify(narrowSelectionMenu),
+  );
   assert.ok(
     narrowSelectionMenu.toolbarProbe.ttsRight < narrowSelectionMenu.toolbarProbe.statisticsRight,
     JSON.stringify(narrowSelectionMenu),
@@ -3100,9 +3114,9 @@ try {
       utilityWidth: utilities?.firstElementChild?.offsetWidth ?? 0,
     };
   })()`);
-  assert.ok(desktopToolbarProbe.menuWidth >= 299 && desktopToolbarProbe.menuWidth <= 301);
-  assert.ok(desktopToolbarProbe.actionHeight >= 50 && desktopToolbarProbe.actionHeight <= 51);
-  assert.ok(desktopToolbarProbe.utilityWidth >= 50 && desktopToolbarProbe.utilityWidth <= 51);
+  assert.ok(desktopToolbarProbe.menuWidth >= 312 && desktopToolbarProbe.menuWidth <= 313);
+  assert.ok(desktopToolbarProbe.actionHeight >= 62 && desktopToolbarProbe.actionHeight <= 64);
+  assert.ok(desktopToolbarProbe.utilityWidth >= 54 && desktopToolbarProbe.utilityWidth <= 56);
   assert.ok(Math.abs(
     desktopToolbarProbe.menuWidth / narrowSelectionMenu.toolbarProbe.menuWidth - 1.25
   ) < 0.01, JSON.stringify({ desktopToolbarProbe, narrowSelectionMenu }));
