@@ -312,7 +312,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               disabled={!canRefresh || refreshing}
               aria-label="독서 통계 새로고침"
               title="서버에 올라온 독서 기록 다시 확인"
-              className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-accent-500 hover:bg-accent-500/10 disabled:opacity-35"
             >
               <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
             </button>
@@ -349,7 +349,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                 {(['today', 'week', 'month'] as const).map((value) => (
                   <div key={value} className={`min-w-0 rounded-xl border ${theme.border} px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}>
                     <div className="text-[10px] font-bold opacity-50">{rangeLabels.find((item) => item.value === value)?.label}</div>
-                    <div className="mt-0.5 truncate text-xs font-black sm:text-base">{formatReadingDuration(headlineTotals[value])}</div>
+                    <div className="mt-0.5 truncate text-xs font-black text-accent-500 sm:text-base">{formatReadingDuration(headlineTotals[value])}</div>
                   </div>
                 ))}
               </div>
@@ -372,11 +372,11 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               <div className="mt-2.5 grid grid-cols-2 gap-1.5">
                 <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Monitor size={14} /> 화면 독서</div>
-                  <div className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.screenMs)}</div>
+                  <div className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.screenMs)}</div>
                 </div>
                 <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Headphones size={14} /> TTS 듣기</div>
-                  <div className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.ttsMs)}</div>
+                  <div className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.ttsMs)}</div>
                 </div>
               </div>
 
@@ -417,7 +417,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                         <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle} · {book.roundNumber}회차</h4>
                         <p className="mt-0.5 truncate text-[10px] opacity-50">시작 {formatReadingDate(book.startedLocalDate)} · {book.endProgressPercent.toFixed(1)}%</p>
                         {completionExpanded && book.completedLocalDate && (
-                          <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold opacity-55">
+                          <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold text-accent-500/80">
                             시작 {formatReadingDate(book.startedLocalDate)} · 종료 {formatReadingDate(book.completedLocalDate)}
                           </p>
                         )}
@@ -436,9 +436,9 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                               else next.add(rowKey);
                               return next;
                             })}
-                            className="mt-0.5 text-[10px] font-bold opacity-45 hover:opacity-100"
+                            className="mt-0.5 rounded-md bg-accent-500/10 px-1.5 py-0.5 text-xs font-bold text-accent-500 hover:bg-accent-500/20 sm:text-sm"
                           >
-                            완료
+                            완료됨
                           </button>
                         ) : book.canComplete ? (
                           <button
@@ -451,9 +451,9 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                               book.roundNumber,
                               rowKey,
                             )}
-                            className="mt-0.5 text-[10px] font-bold opacity-60 hover:opacity-100 disabled:opacity-30"
+                            className="mt-0.5 rounded-md bg-accent-500/10 px-1.5 py-0.5 text-xs font-bold text-accent-500 hover:bg-accent-500/20 disabled:opacity-30 sm:text-sm"
                           >
-                            {completingRoundKey === rowKey ? '처리 중' : '완료'}
+                            {completingRoundKey === rowKey ? '처리 중' : '완료하기'}
                           </button>
                         ) : null}
                       </div>
@@ -473,16 +473,16 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         <footer className={`border-t ${theme.border} px-3 py-2 sm:px-4`}>
           {feedback && <p role="status" className="mb-2 text-center text-xs font-bold text-accent-500">{feedback}</p>}
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={sessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-accent-500/30 text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30">
               <FileText size={15} /><Download size={13} /> MD
             </button>
-            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={sessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-accent-500/30 text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30">
               <FileJson size={15} /><Download size={13} /> JSON
             </button>
             <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-accent-600 text-xs font-bold text-white disabled:opacity-30">
               <Share2 size={15} /> 공유
             </button>
-            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-accent-500/30 text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30">
               <Database size={15} /><Download size={13} /> 진단
             </button>
           </div>

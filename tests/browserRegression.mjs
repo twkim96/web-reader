@@ -4854,6 +4854,12 @@ try {
       confirmableRounds: rows
         .filter((row) => row.querySelector('[data-reading-statistics-confirm-complete="true"]'))
         .map((row) => row.getAttribute('data-reading-statistics-round')),
+      completedLabels: rows
+        .map((row) => row.querySelector('[data-reading-statistics-complete="true"]')?.textContent?.trim())
+        .filter(Boolean),
+      confirmableLabels: rows
+        .map((row) => row.querySelector('[data-reading-statistics-confirm-complete="true"]')?.textContent?.trim())
+        .filter(Boolean),
     };
   })()`);
   assert.equal(bookRoundUi.filterText, '전체|현재|완료');
@@ -4872,6 +4878,8 @@ try {
   assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('1회차')), JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('2회차')), JSON.stringify(bookRoundUi));
   assert.deepEqual(bookRoundUi.confirmableRounds, ['2'], JSON.stringify(bookRoundUi));
+  assert.ok(bookRoundUi.completedLabels.every((label) => label === '완료됨'), JSON.stringify(bookRoundUi));
+  assert.deepEqual(bookRoundUi.confirmableLabels, ['완료하기'], JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.every((text) => text.includes('시작')), JSON.stringify(bookRoundUi));
   await evaluate(`document.querySelector('[data-reading-statistics-complete="true"]')?.click()`);
   await evaluate('window.__regressionNextFrame(2)');
