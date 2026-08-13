@@ -825,6 +825,7 @@ export default function Page() {
           visible={view === 'shelf' || view === 'reader'}
           ownerKey={activeOwnerKey}
           theme={theme}
+          accentColor={settings.accentColor}
           syncHealth={readingStatisticsSync.health}
           quarantinedDocumentCount={readingStatisticsSync.quarantinedCount}
           canRefresh={readingStatisticsSync.canRefresh}

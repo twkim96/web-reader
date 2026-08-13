@@ -4791,6 +4791,7 @@ try {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');
     const body = modal?.querySelector('[data-reading-statistics-body="true"]');
     const rect = modal?.getBoundingClientRect();
+    const markdownButton = modal?.querySelector('[data-reading-statistics-export="markdown"]');
     const buttons = [...modal.querySelectorAll('button')].map((button) => {
       const buttonRect = button.getBoundingClientRect();
       return {
@@ -4822,6 +4823,10 @@ try {
         .every(({ height }) => height >= 40 && height <= 41),
       refreshButtonFound: Boolean(modal?.querySelector('[data-reading-statistics-refresh="true"]')),
       jsonEnabled: !modal?.querySelector('[data-reading-statistics-export="json"]')?.disabled,
+      accentName: modal?.getAttribute('data-reading-statistics-accent'),
+      accentValue: modal?.style.getPropertyValue('--accent-500').trim(),
+      markdownBorderColor: markdownButton ? getComputedStyle(markdownButton).borderColor : '',
+      markdownTextColor: markdownButton ? getComputedStyle(markdownButton).color : '',
     };
   })()`);
   assert.match(readingStatisticsUi.text, /오늘/);
@@ -4838,6 +4843,10 @@ try {
   assert.equal(readingStatisticsUi.rangeButtonsCompact, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.refreshButtonFound, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.accentName, 'emerald', JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.accentValue, '#10b981', JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.markdownTextColor, 'rgb(16, 185, 129)', JSON.stringify(readingStatisticsUi));
+  assert.notEqual(readingStatisticsUi.markdownBorderColor, readingStatisticsUi.markdownTextColor, JSON.stringify(readingStatisticsUi));
   const bookRoundUi = await evaluate(`(() => {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');
     const filters = modal?.querySelector('[data-reading-statistics-book-filter="true"]');

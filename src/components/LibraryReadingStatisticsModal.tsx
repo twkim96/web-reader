@@ -29,12 +29,14 @@ import { subscribeReadingStatisticsChanges } from '../lib/readingStatisticsWake'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import type { SyncHealth } from '../lib/syncHealth';
 import { collectStorageMaintenanceDiagnosticsV1 } from '../lib/storageMaintenanceDiagnostics';
+import { ACCENT_PALETTE } from '../lib/constants';
 
 type Props = {
   open: boolean;
   visible: boolean;
   ownerKey: OwnerKey;
   theme: ThemeClasses;
+  accentColor: string;
   syncHealth: SyncHealth;
   quarantinedDocumentCount: number;
   canRefresh: boolean;
@@ -58,6 +60,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   visible,
   ownerKey,
   theme,
+  accentColor,
   syncHealth,
   quarantinedDocumentCount,
   canRefresh,
@@ -81,6 +84,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const dialogRef = useRef<HTMLElement>(null);
   const reloadTimerRef = useRef<number | null>(null);
   useBodyScrollLock(open && visible);
+  const accent = ACCENT_PALETTE[accentColor] || ACCENT_PALETTE.indigo;
+  const accentStyle = {
+    '--accent-400': accent[400],
+    '--accent-500': accent[500],
+    '--accent-600': accent[600],
+  } as React.CSSProperties;
 
   const reload = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -296,6 +305,8 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         aria-labelledby="reading-statistics-title"
         tabIndex={-1}
         data-reading-statistics-modal="true"
+        data-reading-statistics-accent={accentColor}
+        style={accentStyle}
         onClick={(event) => event.stopPropagation()}
         className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl`}
       >
@@ -473,16 +484,16 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         <footer className={`border-t ${theme.border} px-3 py-2 sm:px-4`}>
           {feedback && <p role="status" className="mb-2 text-center text-xs font-bold text-accent-500">{feedback}</p>}
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-accent-500/30 text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30">
+            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={sessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
               <FileText size={15} /><Download size={13} /> MD
             </button>
-            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-accent-500/30 text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30">
+            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={sessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
               <FileJson size={15} /><Download size={13} /> JSON
             </button>
             <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-accent-600 text-xs font-bold text-white disabled:opacity-30">
               <Share2 size={15} /> 공유
             </button>
-            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-accent-500/30 text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30">
+            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
               <Database size={15} /><Download size={13} /> 진단
             </button>
           </div>
