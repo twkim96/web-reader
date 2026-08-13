@@ -2033,6 +2033,8 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 200));
     const landscapeColumnCount = renderer.getAttribute('max-column-count');
     const landscapePageSlots = renderer.heads?.length ?? 0;
+    const toolbarMenuRect = document.querySelector('[data-reader-toolbar-menu="true"]')
+      ?.getBoundingClientRect();
     const storedEnabled = JSON.parse(localStorage.getItem('viewer_settings') || '{}')
       .landscapeTwoPage;
     return {
@@ -2044,6 +2046,8 @@ try {
       initiallyChecked,
       landscapeColumnCount,
       landscapePageSlots,
+      viewportWidth: innerWidth,
+      toolbarMenuRightInset: toolbarMenuRect ? innerWidth - toolbarMenuRect.right : -1,
       storedEnabled,
     };
   })()`);
@@ -2061,6 +2065,13 @@ try {
   assert.equal(landscapeReaderLayout.initiallyChecked, false, JSON.stringify(landscapeReaderLayout));
   assert.equal(landscapeReaderLayout.landscapeColumnCount, '2', JSON.stringify(landscapeReaderLayout));
   assert.equal(landscapeReaderLayout.landscapePageSlots, 2, JSON.stringify(landscapeReaderLayout));
+  assert.ok(
+    Math.abs(
+      landscapeReaderLayout.toolbarMenuRightInset
+        - landscapeReaderLayout.viewportWidth * 0.025,
+    ) <= 1,
+    JSON.stringify(landscapeReaderLayout),
+  );
   assert.equal(landscapeReaderLayout.storedEnabled, true, JSON.stringify(landscapeReaderLayout));
 
   await command('Emulation.setDeviceMetricsOverride', {
@@ -2926,6 +2937,8 @@ try {
       const toolbarTtsRect = toolbarTtsButton?.getBoundingClientRect();
       const toolbarStatisticsRect = toolbarStatisticsButton?.getBoundingClientRect();
       const toolbarRecordsRect = toolbarRecordsButton?.getBoundingClientRect();
+      const toolbarMenuRect = document.querySelector('[data-reader-toolbar-menu="true"]')
+        ?.getBoundingClientRect();
       const toolbarActionOrder = [...(document.querySelector(
         '[data-reader-toolbar-actions="true"]',
       )?.children ?? [])].map((button) => (
@@ -2938,6 +2951,7 @@ try {
         )?.children ?? [])].map((button) => button.getAttribute('aria-label') ?? ''),
         menuWidth: document.querySelector('[data-reader-toolbar-actions="true"]')
           ?.parentElement?.offsetWidth ?? 0,
+        menuRightInset: toolbarMenuRect ? innerWidth - toolbarMenuRect.right : -1,
         recordsClientWidth: toolbarRecordsButton?.clientWidth ?? 0,
         recordsScrollWidth: toolbarRecordsButton?.scrollWidth ?? 0,
         recordsWidth: toolbarRecordsRect?.width ?? 0,
@@ -3089,6 +3103,11 @@ try {
     JSON.stringify(narrowSelectionMenu.toolbarProbe),
   );
   assert.ok(
+    narrowSelectionMenu.toolbarProbe.menuRightInset >= 15
+      && narrowSelectionMenu.toolbarProbe.menuRightInset <= 17,
+    JSON.stringify(narrowSelectionMenu.toolbarProbe),
+  );
+  assert.ok(
     narrowSelectionMenu.toolbarProbe.statisticsWidth >= 43
       && narrowSelectionMenu.toolbarProbe.statisticsWidth <= 45,
     JSON.stringify(narrowSelectionMenu),
@@ -3129,13 +3148,21 @@ try {
     const actions = document.querySelector('[data-reader-toolbar-actions="true"]');
     const records = document.querySelector('button[aria-label="책갈피와 주석"]');
     const utilities = document.querySelector('[data-reader-toolbar-utilities="true"]');
+    const menuRect = document.querySelector('[data-reader-toolbar-menu="true"]')
+      ?.getBoundingClientRect();
     return {
       menuWidth: actions?.parentElement?.offsetWidth ?? 0,
+      menuRightInset: menuRect ? innerWidth - menuRect.right : -1,
       actionHeight: records?.offsetHeight ?? 0,
       utilityWidth: utilities?.firstElementChild?.offsetWidth ?? 0,
     };
   })()`);
   assert.ok(desktopToolbarProbe.menuWidth >= 302 && desktopToolbarProbe.menuWidth <= 303);
+  assert.ok(
+    desktopToolbarProbe.menuRightInset >= 139
+      && desktopToolbarProbe.menuRightInset <= 141,
+    JSON.stringify(desktopToolbarProbe),
+  );
   assert.ok(desktopToolbarProbe.actionHeight >= 50 && desktopToolbarProbe.actionHeight <= 51);
   assert.ok(desktopToolbarProbe.utilityWidth >= 48 && desktopToolbarProbe.utilityWidth <= 49);
   assert.ok(Math.abs(

@@ -21,7 +21,7 @@ type ReaderTheme = {
 };
 
 const READER_TEXT_MAX_INLINE_SIZE = 1000;
-const READER_MENU_DOUBLE_WIDTH = '37.5rem';
+const READER_OUTER_GAP_PERCENT = 2.5;
 
 interface ReaderToolbarProps {
   theme: ReaderTheme;
@@ -35,6 +35,7 @@ interface ReaderToolbarProps {
   ttsSupported?: boolean;
   ttsActive?: boolean;
   isFixedLayout?: boolean;
+  landscapeTwoPage?: boolean;
   onBack: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
@@ -71,6 +72,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   ttsSupported = false,
   ttsActive = false,
   isFixedLayout = false,
+  landscapeTwoPage = false,
   onBack,
   onOpenSearch,
   onOpenSettings,
@@ -88,8 +90,14 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const title = getBookTitleFromFileName(bookName);
   const surfaceStyle = getReaderSurfaceStyle();
   const hasReaderRecords = bookmarkCount > 0 || annotationCount > 0;
+  const [isLandscape, setIsLandscape] = React.useState(false);
+  const readerTextMaxInlineSize = landscapeTwoPage && isLandscape
+    ? READER_TEXT_MAX_INLINE_SIZE * 2
+    : READER_TEXT_MAX_INLINE_SIZE;
   const menuPositionStyle: React.CSSProperties = {
-    right: `max(calc(env(safe-area-inset-right) + 1rem), calc((100vw - (${READER_TEXT_MAX_INLINE_SIZE}px + ${READER_MENU_DOUBLE_WIDTH})) / 2))`,
+    right: isFixedLayout
+      ? 'calc(env(safe-area-inset-right) + 1rem)'
+      : `max(calc(env(safe-area-inset-right) + 1rem), ${READER_OUTER_GAP_PERCENT}vw, calc((100vw - ${readerTextMaxInlineSize}px) / 2))`,
   };
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
@@ -126,6 +134,14 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     void document.fonts?.ready.then(updateTitleLayout);
     return () => window.removeEventListener('resize', updateTitleLayout);
   }, [updateTitleLayout]);
+
+  React.useLayoutEffect(() => {
+    const landscapeQuery = window.matchMedia('(orientation: landscape)');
+    const updateLandscape = () => setIsLandscape(landscapeQuery.matches);
+    updateLandscape();
+    landscapeQuery.addEventListener('change', updateLandscape);
+    return () => landscapeQuery.removeEventListener('change', updateLandscape);
+  }, []);
 
   const usesRightTitleLayout = titleLayout === 'right';
 
@@ -164,6 +180,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       </nav>
 
       <div
+        data-reader-toolbar-menu="true"
         className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(18.90625rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
         style={menuPositionStyle}
       >

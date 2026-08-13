@@ -1675,6 +1675,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         ttsSupported={tts.supported}
         ttsActive={Boolean(tts.state.mode)}
         isFixedLayout={isFixedLayout}
+        landscapeTwoPage={effectiveNavMode !== 'scroll' && settings.landscapeTwoPage}
         onBack={chrome.handleUIBack}
         onOpenSearch={() => chrome.setShowSearchModal(true)}
         onOpenSettings={() => chrome.setShowSettings(true)}
