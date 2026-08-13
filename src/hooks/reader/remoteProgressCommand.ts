@@ -51,6 +51,22 @@ export const shouldCancelRemoteProgressCommand = ({
   commandBookId: string;
 }) => view !== 'reader' || activeBookId !== commandBookId;
 
+type RemoteProgressFinalizeResult<T> =
+  | { status: 'committed'; progress: T }
+  | { status: 'stale'; restart: () => void }
+  | { status: 'local-changed' }
+  | { status: 'cancelled' };
+
+export const finalizeRemoteProgressCommand = <T,>(
+  command: { committed?: boolean; progress: T },
+  finalize?: () => Promise<RemoteProgressFinalizeResult<T>>,
+): Promise<RemoteProgressFinalizeResult<T>> => {
+  if (command.committed) {
+    return Promise.resolve({ status: 'committed', progress: command.progress });
+  }
+  return finalize?.() ?? Promise.resolve({ status: 'cancelled' });
+};
+
 export const hasSameExpectedLocalProgressState = (
   left: unknown,
   right: unknown,

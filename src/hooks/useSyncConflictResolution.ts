@@ -49,6 +49,7 @@ export type ResolvedRemoteProgressCommand = {
   expectedLocalState: ExpectedLocalProgressStateV5;
   expectedRemoteHead: ExpectedRemoteProgressHeadV5;
   conflict: SyncConflictV5;
+  committed?: boolean;
 };
 
 export type RemoteProgressCommandFinalizeResult =
@@ -87,6 +88,7 @@ export const useSyncConflictResolution = ({
     progress: UserProgress,
     expectedLocalState: ExpectedLocalProgressStateV5,
     expectedRemoteHead: ExpectedRemoteProgressHeadV5,
+    committed = false,
   ) => {
     const previousCommandId = resolvedRemoteProgressCommandRef.current?.commandId;
     if (previousCommandId) {
@@ -104,6 +106,7 @@ export const useSyncConflictResolution = ({
       expectedLocalState,
       expectedRemoteHead,
       conflict: target,
+      ...(committed ? { committed: true } : {}),
     };
     remoteProgressCommandAbortRef.current.set(command.commandId, new AbortController());
     resolvedRemoteProgressCommandRef.current = command;
@@ -169,6 +172,7 @@ export const useSyncConflictResolution = ({
             operation: target.remoteHead.operation,
             position: target.remoteHead.position,
           },
+          true,
         );
       }
     }
@@ -241,27 +245,16 @@ export const useSyncConflictResolution = ({
           setConflict(null);
           return;
         }
-        if (targetIsActiveBook) {
-          if (resolvedRemoteProgressCommandRef.current?.conflictId === next.conflictId) return;
-          const preview = await previewSyncConflictUseRemoteProgressV5(
-            getSyncOwnerKey(owner.ownerKey),
-            next.conflictId,
-            Date.now(),
-            true,
-          );
-          if (!preview || !ownerRuntime.isCurrent(owner)) {
-            setConflict(next);
-            return;
+        if (targetIsActiveBook
+          && resolvedRemoteProgressCommandRef.current?.conflictId === next.conflictId) return;
+        const expectedRemoteHead = next.remoteHead && 'position' in next.remoteHead
+          ? {
+            revision: next.remoteHead.revision,
+            acceptedEventId: next.remoteHead.acceptedEventId,
+            operation: next.remoteHead.operation,
+            position: next.remoteHead.position,
           }
-          stageRemoteProgressCommand(
-            preview.conflict,
-            preview.progress,
-            preview.expectedLocalState,
-            preview.expectedRemoteHead,
-          );
-          setConflict(preview.conflict);
-          return;
-        }
+          : undefined;
         const resolved = await applyRemote(
           owner,
           next,
@@ -269,6 +262,7 @@ export const useSyncConflictResolution = ({
           { kind: 'position', position: expectedLocalPosition },
           targetIsActiveBook ? runtimeEligibility : undefined,
           targetIsActiveBook,
+          expectedRemoteHead,
         );
         if (!resolved) {
           const latestConflicts = await getOpenSyncConflictsV5(
@@ -296,7 +290,6 @@ export const useSyncConflictResolution = ({
     applyRemote,
     canAutoResolveSettledProgressConflict,
     canQuietlyResolveProgressConflict,
-    stageRemoteProgressCommand,
     user,
   ]);
 

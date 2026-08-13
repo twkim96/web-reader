@@ -56,6 +56,8 @@
 - 진행률이 같고 안정 anchor가 다르면 더 높은 서버 revision인 원격값으로 정리한다.
 - 원격 revision이 더 높더라도 일반 원격 위치의 진행률이 현재 화면보다 낮으면 리더를 뒤로 이동하지 않고, 현재의 높은 위치를 강제 저장해 서버도 같은 위치로 수렴시킨다.
 - progress reset, 로컬 reset, bookmark·annotation 충돌과 최신 로컬 위치가 바뀐 CAS 실패는 기존 수동 안전장치를 유지한다.
+- 활성 도서에서 원격 위치가 승리한 자동 충돌은 화면을 먼저 이동한 뒤 저장하는 대신, 최신 로컬 intent와 원격 head를 IndexedDB에서 먼저 원자적으로 확정하고 확정된 위치로 화면을 한 번만 이동한다.
+- 이미 확정된 자동 이동 명령은 같은 충돌 transaction을 다시 finalize하지 않는다. 따라서 중간에 새 원격 snapshot이 도착해도 이전 위치로 롤백했다 재이동하지 않으며, 사용자가 다음 페이지를 넘겨야 수렴하는 상태를 남기지 않는다.
 
 ### 도서별 시작일·완료일·재독 회차
 
@@ -91,7 +93,7 @@
 - `npm run check:full`: 통과
 - ESLint: 오류 0, 기존 Foliate vendor 경고 2
 - TypeScript·production build: 통과
-- Node: formats 63/63, drive 49/49, archives 33/33, storage 266/266, shelf 67/67, Service Worker 9/9, release 3/3 — 합계 490/490
+- Node: formats 63/63, drive 49/49, archives 33/33, storage 266/266, shelf 69/69, Service Worker 9/9, release 3/3 — 합계 492/492
 - Firestore Rules: 27/27
 - Chromium/WebKit Playwright: 14/14
 - production Chrome regression: 통과

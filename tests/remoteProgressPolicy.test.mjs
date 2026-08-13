@@ -6,6 +6,7 @@ import { executeRemoteProgressJump } from '../src/hooks/reader/remoteProgressJum
 import {
   hasSameExpectedLocalProgressState,
   hasSameRemoteProgressHead,
+  finalizeRemoteProgressCommand,
   shouldCancelRemoteProgressCommand,
 } from '../src/hooks/reader/remoteProgressCommand.ts';
 
@@ -57,6 +58,52 @@ test('cancels a staged remote command outside its active reader book', () => {
   assert.equal(shouldCancelRemoteProgressCommand({ ...base, view: 'shelf' }), true);
   assert.equal(shouldCancelRemoteProgressCommand({ ...base, activeBookId: 'book-2' }), true);
   assert.equal(shouldCancelRemoteProgressCommand({ ...base, activeBookId: undefined }), true);
+});
+
+test('does not finalize an already committed automatic remote command twice', async () => {
+  let finalizeCalls = 0;
+  const progress = { bookId: 'book-1', cfi: 'remote-cfi', progressPercent: 70 };
+  assert.deepEqual(await finalizeRemoteProgressCommand(
+    { committed: true, progress },
+    async () => {
+      finalizeCalls += 1;
+      return { status: 'cancelled' };
+    },
+  ), { status: 'committed', progress });
+  assert.equal(finalizeCalls, 0);
+
+  assert.deepEqual(await finalizeRemoteProgressCommand(
+    { progress },
+    async () => {
+      finalizeCalls += 1;
+      return { status: 'committed', progress };
+    },
+  ), { status: 'committed', progress });
+  assert.equal(finalizeCalls, 1);
+});
+
+test('moves once without rollback after automatic resolution already committed', async () => {
+  const calls = [];
+  const progress = { bookId: 'book-1', cfi: 'remote-cfi', progressPercent: 70 };
+  assert.equal(await executeRemoteProgressJump({
+    isCurrent: () => true,
+    prepare: () => 3,
+    cancel: () => calls.push('cancel'),
+    finish: () => calls.push('finish'),
+    navigate: async () => {
+      calls.push('navigate');
+      return true;
+    },
+    rollback: async () => calls.push('rollback'),
+    complete: () => finalizeRemoteProgressCommand(
+      { committed: true, progress },
+      async () => {
+        calls.push('finalize-again');
+        return { status: 'cancelled' };
+      },
+    ).then(({ status }) => status === 'committed'),
+  }), true);
+  assert.deepEqual(calls, ['navigate', 'finish']);
 });
 
 test('does not restage a newer remote head over a changed local position', () => {

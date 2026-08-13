@@ -9,6 +9,7 @@ import type {
   RemoteProgressCommandFinalizeResult,
   ResolvedRemoteProgressCommand,
 } from '../useSyncConflictResolution';
+import { finalizeRemoteProgressCommand } from './remoteProgressCommand';
 
 export type SyncConflict = {
   operation: 'set' | 'reset';
@@ -216,8 +217,12 @@ export const useRemoteProgressPrompt = ({
       let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
       void resetToRemoteProgress(target, {
         finalize: async () => {
-          const result = await (onResolvedRemoteProgressFinalize?.(commandId)
-            ?? Promise.resolve({ status: 'cancelled' as const }));
+          const result = await finalizeRemoteProgressCommand(
+            resolvedRemoteProgressCommand,
+            onResolvedRemoteProgressFinalize
+              ? () => onResolvedRemoteProgressFinalize(commandId)
+              : undefined,
+          );
           if (result.status === 'committed') finalizedProgress = result.progress;
           return result;
         },
@@ -256,8 +261,12 @@ export const useRemoteProgressPrompt = ({
     let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
     void jumpToRemoteProgress(target, {
       finalize: async () => {
-        const result = await (onResolvedRemoteProgressFinalize?.(commandId)
-          ?? Promise.resolve({ status: 'cancelled' as const }));
+        const result = await finalizeRemoteProgressCommand(
+          resolvedRemoteProgressCommand,
+          onResolvedRemoteProgressFinalize
+            ? () => onResolvedRemoteProgressFinalize(commandId)
+            : undefined,
+        );
         if (result.status === 'committed') finalizedProgress = result.progress;
         return result;
       },

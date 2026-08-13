@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.10 hotfix.7: refresh installed clients for monotonic progress and text-aligned menus.
+// 1.8.10 hotfix.7: refresh installed clients for atomic progress convergence and text-aligned menus.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.10`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
