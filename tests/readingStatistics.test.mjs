@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildReadingStatistics,
   buildReadingBookRounds,
+  createReadingRoundCompletionSession,
   getReadingSessionCommitBoundary,
   getReadingSessionLocalDate,
   getNextReadingTtsTrackingPhase,
@@ -34,10 +35,11 @@ test('derives rereading rounds after completion without changing stored sessions
     session({
       sessionId: 'first-finish', startedAtClient: 62_000, endedAtClient: 122_000,
       startProgressPercent: 50, endProgressPercent: 100, completed: true,
+      completionConfirmedAtClient: 122_000,
     }),
     session({
       sessionId: 'finish-linger', startedAtClient: 123_000, endedAtClient: 183_000,
-      startProgressPercent: 100, endProgressPercent: 100, completed: true,
+      startProgressPercent: 100, endProgressPercent: 100,
     }),
     session({
       sessionId: 'second-start', startedAtClient: 184_000, endedAtClient: 244_000,
@@ -60,6 +62,7 @@ test('keeps rereading rows in round order even when a later round is longer', ()
     session({
       sessionId: 'short-finish', startedAtClient: 1_000, endedAtClient: 61_000,
       startProgressPercent: 90, endProgressPercent: 100, completed: true,
+      completionConfirmedAtClient: 61_000,
     }),
     session({
       sessionId: 'long-second-a', startedAtClient: 62_000, endedAtClient: 122_000,
@@ -79,6 +82,7 @@ test('numbers reading rounds independently for each book', () => {
       sessionId: 'book-a-first-finish', bookId: 'book-a', bookTitle: 'Book A',
       startedAtClient: 1_000, endedAtClient: 61_000,
       startProgressPercent: 0, endProgressPercent: 100, completed: true,
+      completionConfirmedAtClient: 61_000,
     }),
     session({
       sessionId: 'book-b-first', bookId: 'book-b', bookTitle: 'Book B',
@@ -113,6 +117,122 @@ test('numbers reading rounds independently for each book', () => {
     rounds.filter(({ bookId }) => bookId === 'book-c').map(({ roundNumber }) => roundNumber),
     [1],
   );
+});
+
+test('keeps end-to-start reading in one round until completion is explicitly confirmed', () => {
+  const sessions = [
+    session({
+      sessionId: 'legacy-auto-complete', startedAtClient: 1_000, endedAtClient: 61_000,
+      startProgressPercent: 90, endProgressPercent: 100, completed: true,
+    }),
+    session({
+      sessionId: 'back-to-start-without-confirming', startedAtClient: 62_000,
+      endedAtClient: 122_000, startProgressPercent: 100, endProgressPercent: 20,
+    }),
+  ];
+  const rounds = buildReadingBookRounds(sessions);
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].roundNumber, 1);
+  assert.equal(rounds[0].completed, false);
+  assert.equal(rounds[0].totalMs, 120_000);
+  assert.equal(rounds[0].canComplete, false);
+});
+
+test('starts the next round only below 99 percent after explicit completion', () => {
+  const beforeCompletion = [
+    session({
+      sessionId: 'near-end', startedAtClient: 1_000, endedAtClient: 61_000,
+      startProgressPercent: 70, endProgressPercent: 99,
+    }),
+  ];
+  const eligible = buildReadingBookRounds(beforeCompletion);
+  assert.equal(eligible.length, 1);
+  assert.equal(eligible[0].canComplete, true);
+  assert.equal(eligible[0].completed, false);
+
+  const completion = createReadingRoundCompletionSession({
+    sessions: beforeCompletion,
+    bookId: 'book-1',
+    expectedRoundNumber: 1,
+    sessionId: 'completion-marker',
+    confirmedAtClient: 62_000,
+  });
+  assert.equal(completion.status, 'created');
+  if (completion.status !== 'created') return;
+
+  const lingering = session({
+    sessionId: 'still-at-end', startedAtClient: 63_000, endedAtClient: 123_000,
+    startProgressPercent: 100, endProgressPercent: 99,
+  });
+  let rounds = buildReadingBookRounds([...beforeCompletion, completion.session, lingering]);
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].completed, true);
+  assert.equal(rounds[0].totalMs, 120_000);
+
+  const reread = session({
+    sessionId: 'reread-below-threshold', startedAtClient: 124_000, endedAtClient: 184_000,
+    startProgressPercent: 99, endProgressPercent: 98.9,
+  });
+  rounds = buildReadingBookRounds([
+    ...beforeCompletion,
+    completion.session,
+    lingering,
+    reread,
+  ]);
+  assert.deepEqual(rounds.map(({ roundNumber, completed, totalMs }) => ({
+    roundNumber,
+    completed,
+    totalMs,
+  })), [
+    { roundNumber: 1, completed: true, totalMs: 120_000 },
+    { roundNumber: 2, completed: false, totalMs: 60_000 },
+  ]);
+});
+
+test('keeps every session before the completion confirmation in the closing round', () => {
+  const sessions = [
+    session({
+      sessionId: 'first-near-end', startedAtClient: 1_000, endedAtClient: 61_000,
+      startProgressPercent: 70, endProgressPercent: 99,
+    }),
+    session({
+      sessionId: 'pre-confirmation-reread', startedAtClient: 62_000, endedAtClient: 122_000,
+      startProgressPercent: 99, endProgressPercent: 20,
+    }),
+    session({
+      sessionId: 'back-at-end', startedAtClient: 123_000, endedAtClient: 183_000,
+      startProgressPercent: 20, endProgressPercent: 99,
+    }),
+  ];
+  const completion = createReadingRoundCompletionSession({
+    sessions,
+    bookId: 'book-1',
+    expectedRoundNumber: 1,
+    sessionId: 'late-completion-marker',
+    confirmedAtClient: 200_000,
+  });
+  assert.equal(completion.status, 'created');
+  if (completion.status !== 'created') return;
+  const beforeNewReading = buildReadingBookRounds([...sessions, completion.session]);
+  assert.equal(beforeNewReading.length, 1);
+  assert.equal(beforeNewReading[0].completed, true);
+  assert.equal(beforeNewReading[0].totalMs, 180_000);
+
+  const afterNewReading = buildReadingBookRounds([
+    ...sessions,
+    completion.session,
+    session({
+      sessionId: 'post-confirmation-reread', startedAtClient: 201_000, endedAtClient: 261_000,
+      startProgressPercent: 99, endProgressPercent: 20,
+    }),
+  ]);
+  assert.deepEqual(afterNewReading.map(({ roundNumber, totalMs }) => ({
+    roundNumber,
+    totalMs,
+  })), [
+    { roundNumber: 1, totalMs: 180_000 },
+    { roundNumber: 2, totalMs: 60_000 },
+  ]);
 });
 
 test('omits reading rounds with no counted time in the selected date range', () => {
@@ -156,6 +276,7 @@ const session = ({
   clockOffsetMs = 0,
   durationMs,
   activeIntervals,
+  completionConfirmedAtClient,
 }) => ({
   schemaVersion: 1,
   sessionId,
@@ -171,6 +292,7 @@ const session = ({
   timezoneOffsetMinutes,
   localDate: getReadingSessionLocalDate(startedAtClient, timezoneOffsetMinutes),
   completed,
+  ...(completionConfirmedAtClient === undefined ? {} : { completionConfirmedAtClient }),
   ...(activeIntervals ? { activeIntervals } : {}),
   ...(clockOffsetMs === null ? {} : {
     clockOffsetMs,
@@ -212,6 +334,8 @@ test('deduplicates overlapping devices and gives TTS deterministic priority', ()
     session({
       sessionId: 'c', bookId: 'book-2', bookTitle: 'Book Two', mode: 'tts',
       startedAtClient: 46_000, endedAtClient: 76_000, completed: true,
+      endProgressPercent: 99,
+      completionConfirmedAtClient: 76_000,
     }),
   ];
   const summary = buildReadingStatistics(sessions);
@@ -230,6 +354,7 @@ test('preserves completion and progress metadata from an overlap loser', () => {
       sessionId: 'completed-loser', bookId: 'completed-book', bookTitle: 'Completed',
       startedAtClient: 1_000, endedAtClient: 61_000, completed: true,
       endProgressPercent: 100,
+      completionConfirmedAtClient: 61_000,
     }),
     session({
       sessionId: 'tts-winner', bookId: 'other-book', bookTitle: 'Other', mode: 'tts',

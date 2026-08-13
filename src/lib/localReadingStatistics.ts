@@ -7,6 +7,7 @@ import {
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import { trackLocalCommit } from './localCommitTracker';
 import {
+  createReadingRoundCompletionSession,
   isReadingSessionV1,
   sameReadingSessionPayload,
   toReadingSessionPayload,
@@ -305,6 +306,39 @@ export const saveLocalReadingSessionV11 = (
   ownerKey: OwnerKey,
   session: ReadingSessionV1,
 ) => trackLocalCommit(putReadingSession(ownerKey, session, 'local'));
+
+export const confirmLocalReadingRoundV11 = (
+  ownerKey: OwnerKey,
+  bookId: string,
+  expectedRoundNumber: number,
+  confirmedAtClient = Date.now(),
+) => trackLocalCommit((async () => {
+  const db = await initDB();
+  const tx = db.transaction(V11_READING_SESSIONS_STORE, 'readwrite');
+  void tx.done.catch(() => undefined);
+  const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  const values = await store.index('by-owner-book').getAll([ownerKey, bookId]);
+  const sessions = values.map(assertStoredSession);
+  const result = createReadingRoundCompletionSession({
+    sessions,
+    bookId,
+    expectedRoundNumber,
+    sessionId: crypto.randomUUID(),
+    confirmedAtClient,
+  });
+  if (result.status !== 'created') {
+    await tx.done;
+    return result;
+  }
+  await store.add(toStoredSession(
+    ownerKey,
+    result.session,
+    isGuestOwner(ownerKey) ? 'synced' : 'pending',
+  ));
+  await tx.done;
+  notifyReadingStatisticsChange(ownerKey);
+  return result;
+})());
 
 export const getReadingStatisticsHydrationStateV12 = async (
   ownerKey: OwnerKey,

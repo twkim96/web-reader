@@ -689,6 +689,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || pendingSliderMove !== null
     || isSliderMoveCommitting;
   const {
+    flushActiveSession: flushReadingSession,
     getActiveSessionPreview,
     markActivity: markReadingActivity,
   } = useReadingSessionTracker({
@@ -1687,7 +1688,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         }}
         onOpenStatistics={() => {
           chrome.setShowControls(false);
-          onOpenStatistics();
+          void flushReadingSession().then(onOpenStatistics).catch((error) => {
+            console.error('[ReadingStatistics] active session flush failed:', error);
+            onOpenStatistics();
+          });
         }}
         onProgressSliderStart={beginSliderMove}
         onProgressSliderPreview={previewSliderMove}

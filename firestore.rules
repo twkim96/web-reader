@@ -52,7 +52,8 @@ service cloud.firestore {
           'mode', 'startedAtClient', 'endedAtClient', 'durationMs',
           'startProgressPercent', 'endProgressPercent', 'timezoneOffsetMinutes',
           'localDate', 'completed', 'uploadedAtServer', 'clockOffsetMs',
-          'clockUncertaintyMs', 'clockMeasuredAtClient', 'activeIntervals'
+          'clockUncertaintyMs', 'clockMeasuredAtClient', 'activeIntervals',
+          'completionConfirmedAtClient'
         ])
         && data.schemaVersion == 1
         && data.sessionId == sessionId
@@ -81,6 +82,15 @@ service cloud.firestore {
         && boundedString(data.localDate, 10, false)
         && data.localDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && data.completed is bool
+        && (
+          !data.keys().hasAny(['completionConfirmedAtClient'])
+          || (
+            validClientTime(data.completionConfirmedAtClient)
+            && data.completionConfirmedAtClient >= data.endedAtClient
+            && data.completed == true
+            && data.endProgressPercent >= 99
+          )
+        )
         && (
           !data.keys().hasAny(['clockOffsetMs', 'clockUncertaintyMs', 'clockMeasuredAtClient'])
           || (

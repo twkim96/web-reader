@@ -8,6 +8,7 @@ export const READING_SESSION_COMMIT_INTERVAL_MS = 60_000;
 export const READING_SESSION_IDLE_TIMEOUT_MS = 90_000;
 export const READING_SESSION_MIN_DURATION_MS = 1_000;
 export const READING_SESSION_MAX_ACTIVE_INTERVALS = 512;
+export const READING_ROUND_COMPLETION_PERCENT = 99;
 
 export type ReadingActiveIntervalV1 = {
   startedAtClient: number;
@@ -38,6 +39,7 @@ export type ReadingSessionV1 = {
   timezoneOffsetMinutes: number;
   localDate: string;
   completed: boolean;
+  completionConfirmedAtClient?: number;
   activeIntervals?: ReadingActiveIntervalV1[];
   clockOffsetMs?: number;
   clockUncertaintyMs?: number;
@@ -89,6 +91,7 @@ export type ReadingBookRoundStatistics = ReadingBookStatistics & {
   roundNumber: number;
   startedLocalDate: string;
   completedLocalDate: string | null;
+  canComplete: boolean;
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => (
@@ -193,6 +196,15 @@ export const isReadingSessionV1 = (value: unknown): value is ReadingSessionV1 =>
     )
   ) return false;
   if (typeof value.completed !== 'boolean') return false;
+  if (
+    value.completionConfirmedAtClient !== undefined
+    && (
+      !isSafeTimestamp(value.completionConfirmedAtClient)
+      || Number(value.completionConfirmedAtClient) < Number(value.endedAtClient)
+      || value.completed !== true
+      || Number(value.endProgressPercent) < READING_ROUND_COMPLETION_PERCENT
+    )
+  ) return false;
   const clockFields = [
     value.clockOffsetMs,
     value.clockUncertaintyMs,
@@ -229,6 +241,9 @@ export const toReadingSessionPayload = (
   timezoneOffsetMinutes: session.timezoneOffsetMinutes,
   localDate: session.localDate,
   completed: session.completed,
+  ...(session.completionConfirmedAtClient !== undefined ? {
+    completionConfirmedAtClient: session.completionConfirmedAtClient,
+  } : {}),
   ...(session.activeIntervals ? {
     activeIntervals: session.activeIntervals.map((interval) => ({ ...interval })),
   } : {}),
@@ -243,6 +258,110 @@ export const sameReadingSessionPayload = (
   left: ReadingSessionV1,
   right: ReadingSessionV1,
 ) => JSON.stringify(toReadingSessionPayload(left)) === JSON.stringify(toReadingSessionPayload(right));
+
+export const isConfirmedReadingCompletion = (session: ReadingSessionV1) => (
+  Number.isSafeInteger(session.completionConfirmedAtClient)
+  && Number(session.completionConfirmedAtClient) >= session.endedAtClient
+  && session.endProgressPercent >= READING_ROUND_COMPLETION_PERCENT
+);
+
+type ReadingBookRoundGroup = {
+  sessions: ReadingSessionV1[];
+  completed: boolean;
+};
+
+const getOrderedReadingSessions = (
+  records: readonly ReadingSessionV1[],
+  samplesByDevice: ReadonlyMap<string, ReadingSessionV1[]>,
+) => [...records].sort((left, right) => {
+  const leftCorrection = getClockCorrection(left, samplesByDevice) ?? 0;
+  const rightCorrection = getClockCorrection(right, samplesByDevice) ?? 0;
+  const leftOrderAt = isConfirmedReadingCompletion(left)
+    ? Number(left.completionConfirmedAtClient)
+    : left.startedAtClient;
+  const rightOrderAt = isConfirmedReadingCompletion(right)
+    ? Number(right.completionConfirmedAtClient)
+    : right.startedAtClient;
+  return leftOrderAt + leftCorrection - (rightOrderAt + rightCorrection)
+    || left.sessionId.localeCompare(right.sessionId);
+});
+
+const buildReadingBookRoundGroups = (
+  ordered: readonly ReadingSessionV1[],
+): ReadingBookRoundGroup[] => {
+  const rounds: ReadingBookRoundGroup[] = [];
+  for (const session of ordered) {
+    let round = rounds.at(-1);
+    if (!round || (
+      round.completed
+      && Math.min(session.startProgressPercent, session.endProgressPercent)
+        < READING_ROUND_COMPLETION_PERCENT
+    )) {
+      round = { sessions: [], completed: false };
+      rounds.push(round);
+    }
+    round.sessions.push(session);
+    round.completed ||= isConfirmedReadingCompletion(session);
+  }
+  return rounds;
+};
+
+export type ReadingRoundCompletionResult =
+  | { status: 'created'; session: ReadingSessionV1 }
+  | { status: 'already-completed' | 'not-eligible' | 'round-changed' };
+
+export const createReadingRoundCompletionSession = ({
+  sessions,
+  bookId,
+  expectedRoundNumber,
+  sessionId,
+  confirmedAtClient,
+}: {
+  sessions: readonly ReadingSessionV1[];
+  bookId: string;
+  expectedRoundNumber: number;
+  sessionId: string;
+  confirmedAtClient: number;
+}): ReadingRoundCompletionResult => {
+  const valid = sessions.filter(isReadingSessionV1);
+  const records = valid.filter((session) => session.bookId === bookId);
+  if (records.length === 0) return { status: 'round-changed' };
+  const samplesByDevice = new Map<string, ReadingSessionV1[]>();
+  for (const session of valid) {
+    if (session.clockOffsetMs === undefined || session.clockMeasuredAtClient === undefined) continue;
+    const samples = samplesByDevice.get(session.deviceId) ?? [];
+    samples.push(session);
+    samplesByDevice.set(session.deviceId, samples);
+  }
+  const rounds = buildReadingBookRoundGroups(getOrderedReadingSessions(records, samplesByDevice));
+  const latestRound = rounds.at(-1);
+  if (!latestRound || rounds.length !== expectedRoundNumber) return { status: 'round-changed' };
+  if (latestRound.completed) return { status: 'already-completed' };
+
+  const summary = buildReadingStatistics(latestRound.sessions);
+  const book = summary.books.find((candidate) => candidate.bookId === bookId);
+  if (!book || book.endProgressPercent < READING_ROUND_COMPLETION_PERCENT) {
+    return { status: 'not-eligible' };
+  }
+  const source = [...latestRound.sessions].sort((left, right) => {
+    const leftCorrection = getClockCorrection(left, samplesByDevice) ?? 0;
+    const rightCorrection = getClockCorrection(right, samplesByDevice) ?? 0;
+    return left.endedAtClient + leftCorrection - (right.endedAtClient + rightCorrection)
+      || left.sessionId.localeCompare(right.sessionId);
+  }).at(-1);
+  if (!source || source.endProgressPercent < READING_ROUND_COMPLETION_PERCENT) {
+    return { status: 'not-eligible' };
+  }
+  return {
+    status: 'created',
+    session: {
+      ...toReadingSessionPayload(source),
+      sessionId,
+      completed: true,
+      completionConfirmedAtClient: Math.max(confirmedAtClient, source.endedAtClient),
+    },
+  };
+};
 
 export const getReadingStatisticsRangeBounds = (
   range: ReadingStatisticsRange,
@@ -551,7 +670,7 @@ export const buildReadingStatistics = (
       existingBook.endProgressPercent = session.endProgressPercent;
       existingBook.bookTitle = session.bookTitle;
     }
-    existingBook.completed ||= session.completed;
+    existingBook.completed ||= isConfirmedReadingCompletion(session);
     books.set(session.bookId, existingBook);
     bookTimelines.set(session.bookId, timeline);
   }
@@ -632,25 +751,8 @@ export const buildReadingBookRounds = (
 
   const rows: ReadingBookRoundStatistics[] = [];
   for (const records of byBook.values()) {
-    const ordered = [...records].sort((left, right) => {
-      const leftCorrection = getClockCorrection(left, samplesByDevice) ?? 0;
-      const rightCorrection = getClockCorrection(right, samplesByDevice) ?? 0;
-      return left.startedAtClient + leftCorrection - (right.startedAtClient + rightCorrection)
-        || left.sessionId.localeCompare(right.sessionId);
-    });
-    const rounds: Array<{ sessions: ReadingSessionV1[]; completed: boolean }> = [];
-    for (const session of ordered) {
-      let round = rounds.at(-1);
-      if (!round || (
-        round.completed
-        && Math.min(session.startProgressPercent, session.endProgressPercent) < 99.5
-      )) {
-        round = { sessions: [], completed: false };
-        rounds.push(round);
-      }
-      round.sessions.push(session);
-      round.completed ||= session.completed;
-    }
+    const ordered = getOrderedReadingSessions(records, samplesByDevice);
+    const rounds = buildReadingBookRoundGroups(ordered);
 
     rounds.forEach((round, index) => {
       const summary = buildReadingStatistics(round.sessions, bounds);
@@ -660,7 +762,11 @@ export const buildReadingBookRounds = (
       // rounds with actual counted reading time in that range.
       if (!book || book.totalMs <= 0) return;
       const first = round.sessions[0];
-      const completion = round.sessions.find((session) => session.completed) ?? null;
+      const completion = round.sessions
+        .filter(isConfirmedReadingCompletion)
+        .sort((left, right) => (
+          Number(left.completionConfirmedAtClient) - Number(right.completionConfirmedAtClient)
+        ))[0] ?? null;
       const firstCorrection = getClockCorrection(first, samplesByDevice) ?? 0;
       const completionCorrection = completion
         ? getClockCorrection(completion, samplesByDevice) ?? 0
@@ -673,9 +779,11 @@ export const buildReadingBookRounds = (
           first.timezoneOffsetMinutes,
         ),
         completedLocalDate: completion ? getReadingSessionLocalDate(
-          completion.endedAtClient + completionCorrection,
+          Number(completion.completionConfirmedAtClient) + completionCorrection,
           completion.timezoneOffsetMinutes,
         ) : null,
+        canComplete: !round.completed
+          && book.endProgressPercent >= READING_ROUND_COMPLETION_PERCENT,
       });
     });
   }

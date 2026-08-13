@@ -39,7 +39,6 @@ import {
 
 const HEARTBEAT_MS = 5_000;
 const IFRAME_FOCUS_TRANSFER_GRACE_MS = 1_000;
-const COMPLETION_PERCENT = 99.5;
 type ActiveSegment = {
   sessionId: string;
   mode: ReadingSessionMode;
@@ -167,7 +166,9 @@ const toClosedSession = (
       draft.startedAtClient,
       draft.timezoneOffsetMinutes,
     ),
-    completed: draft.endProgressPercent >= COMPLETION_PERCENT,
+    // Reaching the end is only completion-eligible. A round is closed solely
+    // by the explicit confirmation marker created from the statistics UI.
+    completed: false,
     ...(activeIntervals ? { activeIntervals } : {}),
     ...(draft.clockOffsetMs !== undefined ? {
       clockOffsetMs: draft.clockOffsetMs,
@@ -439,6 +440,18 @@ export const useReadingSessionTracker = ({
     reconcile();
   }, [reconcile]);
 
+  const flushActiveSession = useCallback(async () => {
+    const segment = activeSegmentRef.current;
+    if (segment) {
+      const endAtMonotonic = segment.mode === 'tts'
+        && ttsGapStartedAtMonotonicRef.current !== null
+        ? ttsGapStartedAtMonotonicRef.current
+        : getMonotonicNow();
+      closeSegment(getSegmentWallTime(segment, endAtMonotonic));
+    }
+    await persistChainRef.current;
+  }, [closeSegment]);
+
   useEffect(() => {
     loadedRef.current = isLoaded;
     suspendedRef.current = suspended;
@@ -660,5 +673,5 @@ export const useReadingSessionTracker = ({
     };
   }, [isLoaded, markActivity, viewRef]);
 
-  return { getActiveSessionPreview, markActivity };
+  return { flushActiveSession, getActiveSessionPreview, markActivity };
 };

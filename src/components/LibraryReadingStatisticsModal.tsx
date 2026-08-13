@@ -4,7 +4,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Database, Download, FileJson, FileText, Headphones, Monitor, RefreshCw, Share2, X } from 'lucide-react';
 import type { ThemeClasses } from '../types';
 import type { OwnerKey } from '../lib/ownerIdentity';
-import { getLocalReadingSessionsV11 } from '../lib/localReadingStatistics';
+import {
+  confirmLocalReadingRoundV11,
+  getLocalReadingSessionsV11,
+} from '../lib/localReadingStatistics';
 import {
   buildReadingStatistics,
   buildReadingBookRounds,
@@ -73,6 +76,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const [feedback, setFeedback] = useState('');
   const [sharing, setSharing] = useState(false);
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
+  const [completingRoundKey, setCompletingRoundKey] = useState<string | null>(null);
   const [aggregationNow, setAggregationNow] = useState(() => Date.now());
   const dialogRef = useRef<HTMLElement>(null);
   const reloadTimerRef = useRef<number | null>(null);
@@ -203,6 +207,28 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const formatReadingDate = (localDate: string) => {
     const [year, month, day] = localDate.split('-').map(Number);
     return `${year}. ${month}. ${day}.`;
+  };
+  const confirmRound = async (bookId: string, roundNumber: number, rowKey: string) => {
+    setCompletingRoundKey(rowKey);
+    setFeedback('');
+    try {
+      const result = await confirmLocalReadingRoundV11(ownerKey, bookId, roundNumber);
+      if (result.status === 'created') {
+        setFeedback(`${roundNumber}회차를 완료했습니다.`);
+      } else if (result.status === 'already-completed') {
+        setFeedback('이미 완료된 회차입니다.');
+      } else if (result.status === 'not-eligible') {
+        setFeedback('진행률 99%부터 완료할 수 있습니다.');
+      } else {
+        setFeedback('최신 회차가 바뀌었습니다. 목록을 다시 확인해 주세요.');
+      }
+      await reload();
+    } catch (error) {
+      console.error('[ReadingStatistics] round completion failed:', error);
+      setFeedback('회차를 완료하지 못했습니다.');
+    } finally {
+      setCompletingRoundKey(null);
+    }
   };
 
   const exportMarkdown = () => {
@@ -398,7 +424,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                       </div>
                       <div className="flex shrink-0 flex-col items-end">
                         <strong className="text-xs text-accent-500 sm:text-sm">{formatReadingDuration(book.totalMs)}</strong>
-                        {book.completed && (
+                        {book.completed ? (
                           <button
                             type="button"
                             data-reading-statistics-complete="true"
@@ -414,7 +440,22 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                           >
                             완료
                           </button>
-                        )}
+                        ) : book.canComplete ? (
+                          <button
+                            type="button"
+                            data-reading-statistics-confirm-complete="true"
+                            disabled={completingRoundKey !== null}
+                            aria-label={`${book.bookTitle} ${book.roundNumber}회차 완료 처리`}
+                            onClick={() => void confirmRound(
+                              book.bookId,
+                              book.roundNumber,
+                              rowKey,
+                            )}
+                            className="mt-0.5 text-[10px] font-bold opacity-60 hover:opacity-100 disabled:opacity-30"
+                          >
+                            {completingRoundKey === rowKey ? '처리 중' : '완료'}
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                     <div className="mt-1 flex min-w-0 gap-2 text-[10px] opacity-55">

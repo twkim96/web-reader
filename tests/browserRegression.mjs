@@ -4732,8 +4732,17 @@ try {
       const bookId = localStorage.getItem('__browserRegressionSelectionBookId');
       const store = db.transaction('reading-sessions-v11', 'readwrite')
         .objectStore('reading-sessions-v11');
-      const base = Date.now() - 10 * 60_000;
-      const put = (sessionId, startOffset, startProgress, endProgress, completed) => store.put({
+      // Keep the explicit-completion fixture after the real reader session
+      // created earlier in this regression so 99% is the latest progress fact.
+      const base = Date.now() + 60_000;
+      const put = (
+        sessionId,
+        startOffset,
+        startProgress,
+        endProgress,
+        completed,
+        completionConfirmedAtClient,
+      ) => store.put({
         schemaVersion: 1,
         ownerKey,
         sessionId,
@@ -4749,6 +4758,9 @@ try {
         timezoneOffsetMinutes: 0,
         localDate: new Date(base + startOffset).toISOString().slice(0, 10),
         completed,
+        ...(completionConfirmedAtClient === undefined
+          ? {}
+          : { completionConfirmedAtClient }),
         clockOffsetMs: 0,
         clockUncertaintyMs: 25,
         clockMeasuredAtClient: base + startOffset,
@@ -4758,8 +4770,8 @@ try {
         lastErrorCode: null,
       });
       put('round-fixture-first-start', 0, 0, 50, false);
-      put('round-fixture-first-finish', 61_000, 50, 100, true);
-      put('round-fixture-second-start', 122_000, 0, 25, false);
+      put('round-fixture-first-finish', 61_000, 50, 100, true, base + 121_000);
+      put('round-fixture-second-start', 122_000, 0, 99, false);
       store.transaction.oncomplete = () => { db.close(); resolve(true); };
       store.transaction.onerror = () => reject(store.transaction.error);
     };
@@ -4789,6 +4801,7 @@ try {
         compact: Boolean(
           button.closest('[data-reading-statistics-book-filter="true"]')
           || button.hasAttribute('data-reading-statistics-complete')
+          || button.hasAttribute('data-reading-statistics-confirm-complete')
         ),
       };
     });
@@ -4838,6 +4851,9 @@ try {
       fixtureBookId: localStorage.getItem('__browserRegressionSelectionBookId'),
       rounds: rows.map((row) => row.getAttribute('data-reading-statistics-round')),
       rowTexts: rows.map((row) => row.textContent?.replace(/\\s+/g, ' ').trim()),
+      confirmableRounds: rows
+        .filter((row) => row.querySelector('[data-reading-statistics-confirm-complete="true"]'))
+        .map((row) => row.getAttribute('data-reading-statistics-round')),
     };
   })()`);
   assert.equal(bookRoundUi.filterText, '전체|현재|완료');
@@ -4855,6 +4871,7 @@ try {
   assert.ok(bookRoundUi.rowTexts.every((text) => /\d+회차/.test(text)), JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('1회차')), JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('2회차')), JSON.stringify(bookRoundUi));
+  assert.deepEqual(bookRoundUi.confirmableRounds, ['2'], JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.every((text) => text.includes('시작')), JSON.stringify(bookRoundUi));
   await evaluate(`document.querySelector('[data-reading-statistics-complete="true"]')?.click()`);
   await evaluate('window.__regressionNextFrame(2)');
@@ -4892,6 +4909,36 @@ try {
   ].map((row) => row.getAttribute('data-reading-statistics-round'))`);
   assert.ok(completedRoundUi.includes('1'), JSON.stringify(completedRoundUi));
   assert.ok(!completedRoundUi.includes('2'), JSON.stringify(completedRoundUi));
+  await evaluate(`(() => {
+    const filters = document.querySelector('[data-reading-statistics-book-filter="true"]');
+    [...(filters?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.trim() === '전체')?.click();
+  })()`);
+  await evaluate('window.__regressionNextFrame(2)');
+  await evaluate(`document.querySelector(
+    ${JSON.stringify(`${fixtureRoundSelector}[data-reading-statistics-round="2"] [data-reading-statistics-confirm-complete="true"]`)}
+  )?.click()`);
+  await waitFor(
+    `!document.querySelector(${JSON.stringify(
+      `${fixtureRoundSelector}[data-reading-statistics-round="2"] [data-reading-statistics-confirm-complete="true"]`,
+    )})`,
+    'explicit reading round completion',
+  );
+  const confirmedRoundUi = await evaluate(`(() => {
+    const modal = document.querySelector('[data-reading-statistics-modal="true"]');
+    const rows = [...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})];
+    return {
+      summary: modal?.querySelector('[data-reading-statistics-book-summary="true"]')
+        ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+      completedRounds: rows
+        .filter((row) => row.querySelector('[data-reading-statistics-complete="true"]'))
+        .map((row) => row.getAttribute('data-reading-statistics-round')),
+      feedback: modal?.querySelector('footer [role="status"]')?.textContent?.trim() ?? '',
+    };
+  })()`);
+  assert.equal(confirmedRoundUi.summary, '0권 읽는 중 · 완료 1권');
+  assert.deepEqual(confirmedRoundUi.completedRounds, ['1', '2']);
+  assert.match(confirmedRoundUi.feedback, /2회차를 완료/);
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,

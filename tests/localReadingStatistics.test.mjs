@@ -11,6 +11,7 @@ import {
 } from '../src/lib/localDBSchema.ts';
 import {
   deferReadingSessionSyncV11,
+  confirmLocalReadingRoundV11,
   getReadingStatisticsHydrationStateV12,
   getLocalReadingSessionsV11,
   getPendingReadingSessionsV11,
@@ -107,6 +108,36 @@ test('stores Firebase sessions pending, replays idempotently, and hydrates them 
     saveLocalReadingSessionV11(owner, makeSession('session-1', 'Different')),
     /충돌/,
   );
+});
+
+test('atomically confirms only the latest eligible reading round', async () => {
+  await saveLocalReadingSessionV11(owner, {
+    ...makeSession('eligible-round'),
+    endProgressPercent: 99,
+  });
+  const result = await confirmLocalReadingRoundV11(owner, 'book-1', 1, 62_000);
+  assert.equal(result.status, 'created');
+  const stored = await getLocalReadingSessionsV11(owner);
+  assert.equal(stored.length, 2);
+  const marker = stored.find(({ completionConfirmedAtClient }) => (
+    completionConfirmedAtClient !== undefined
+  ));
+  assert.equal(marker?.completed, true);
+  assert.equal(marker?.completionConfirmedAtClient, 62_000);
+  assert.equal(marker?.syncState, 'pending');
+  assert.equal((await confirmLocalReadingRoundV11(owner, 'book-1', 1, 63_000)).status, 'already-completed');
+});
+
+test('does not confirm a reading round below 99 percent', async () => {
+  await saveLocalReadingSessionV11(owner, {
+    ...makeSession('ineligible-round'),
+    endProgressPercent: 98.9,
+  });
+  assert.equal(
+    (await confirmLocalReadingRoundV11(owner, 'book-1', 1, 62_000)).status,
+    'not-eligible',
+  );
+  assert.equal((await getLocalReadingSessionsV11(owner)).length, 1);
 });
 
 test('round-trips TTS active wall-clock intervals without compressing gaps', async () => {

@@ -1074,6 +1074,38 @@ test('creates immutable reading statistic sessions and replays the same payload'
   await assertFails(deleteDoc(doc(db, readingStatisticsPath())));
 });
 
+test('allows only an explicit eligible reading-round completion marker', async () => {
+  const db = database();
+  await assertSucceeds(setDoc(doc(db, readingStatisticsPath('completion-marker')), {
+    ...validReadingSession('completion-marker'),
+    endProgressPercent: 99,
+    completed: true,
+    completionConfirmedAtClient: 62_000,
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(db, readingStatisticsPath('completion-too-early')), {
+    ...validReadingSession('completion-too-early'),
+    endProgressPercent: 98.9,
+    completed: true,
+    completionConfirmedAtClient: 62_000,
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(db, readingStatisticsPath('completion-unconfirmed')), {
+    ...validReadingSession('completion-unconfirmed'),
+    endProgressPercent: 99,
+    completed: false,
+    completionConfirmedAtClient: 62_000,
+    uploadedAtServer: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(db, readingStatisticsPath('completion-before-session-end')), {
+    ...validReadingSession('completion-before-session-end'),
+    endProgressPercent: 99,
+    completed: true,
+    completionConfirmedAtClient: 60_000,
+    uploadedAtServer: serverTimestamp(),
+  }));
+});
+
 test('accepts bounded TTS active intervals and rejects a mismatched wall timeline', async () => {
   const db = database();
   const startedAtClient = 1_000;
