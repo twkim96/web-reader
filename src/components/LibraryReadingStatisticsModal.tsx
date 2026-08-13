@@ -182,6 +182,20 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     sessions,
     getReadingStatisticsRangeBounds(range, aggregationNow),
   ), [aggregationNow, range, sessions]);
+  const bookStatusSummary = useMemo(() => {
+    const latestRoundByBook = new Map<string, (typeof bookRounds)[number]>();
+    for (const round of bookRounds) {
+      const latest = latestRoundByBook.get(round.bookId);
+      if (!latest || round.roundNumber > latest.roundNumber) {
+        latestRoundByBook.set(round.bookId, round);
+      }
+    }
+    const latestRounds = [...latestRoundByBook.values()];
+    return {
+      currentCount: latestRounds.filter(({ completed }) => !completed).length,
+      completedCount: latestRounds.filter(({ completed }) => completed).length,
+    };
+  }, [bookRounds]);
   const visibleBookRounds = useMemo(() => bookRounds.filter((book) => (
     bookListFilter === 'all'
     || (bookListFilter === 'completed' ? book.completed : !book.completed)
@@ -343,7 +357,9 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               <div className="mt-3 flex items-end justify-between gap-2">
                 <div>
                   <h3 className="text-xs font-black sm:text-sm">도서별 기록</h3>
-                  <p className="text-[10px] opacity-50">{bookRounds.length}회차 · 완료 {bookRounds.filter(({ completed }) => completed).length}회</p>
+                  <p data-reading-statistics-book-summary="true" className="text-[10px] opacity-50">
+                    {bookStatusSummary.currentCount}권 읽는 중 · 완료 {bookStatusSummary.completedCount}권
+                  </p>
                 </div>
                 <div data-reading-statistics-book-filter="true" className="flex shrink-0 items-center text-[11px] font-bold opacity-55">
                   {(['all', 'current', 'completed'] as const).map((value, index) => (
@@ -372,7 +388,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                   <article key={rowKey} data-reading-statistics-book="true" data-reading-statistics-book-id={book.bookId} data-reading-statistics-round={book.roundNumber} className={`min-w-0 overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}>
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle}{book.roundNumber > 1 ? ` · ${book.roundNumber}회차` : ''}</h4>
+                        <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle} · {book.roundNumber}회차</h4>
                         <p className="mt-0.5 truncate text-[10px] opacity-50">시작 {formatReadingDate(book.startedLocalDate)} · {book.endProgressPercent.toFixed(1)}%</p>
                         {completionExpanded && book.completedLocalDate && (
                           <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold opacity-55">

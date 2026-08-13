@@ -73,6 +73,48 @@ test('keeps rereading rows in round order even when a later round is longer', ()
   assert.deepEqual(rounds.map(({ roundNumber }) => roundNumber), [1, 2]);
 });
 
+test('numbers reading rounds independently for each book', () => {
+  const rounds = buildReadingBookRounds([
+    session({
+      sessionId: 'book-a-first-finish', bookId: 'book-a', bookTitle: 'Book A',
+      startedAtClient: 1_000, endedAtClient: 61_000,
+      startProgressPercent: 0, endProgressPercent: 100, completed: true,
+    }),
+    session({
+      sessionId: 'book-b-first', bookId: 'book-b', bookTitle: 'Book B',
+      startedAtClient: 62_000, endedAtClient: 122_000,
+      startProgressPercent: 0, endProgressPercent: 40,
+    }),
+    session({
+      sessionId: 'book-a-second', bookId: 'book-a', bookTitle: 'Book A',
+      startedAtClient: 123_000, endedAtClient: 243_000,
+      startProgressPercent: 0, endProgressPercent: 25,
+    }),
+    session({
+      sessionId: 'book-c-first', bookId: 'book-c', bookTitle: 'Book C',
+      startedAtClient: 244_000, endedAtClient: 304_000,
+      startProgressPercent: 0, endProgressPercent: 10,
+    }),
+  ]);
+
+  const bookARounds = rounds.filter(({ bookId }) => bookId === 'book-a');
+  assert.deepEqual(
+    bookARounds.map(({ roundNumber, totalMs }) => ({ roundNumber, totalMs })),
+    [
+      { roundNumber: 1, totalMs: 60_000 },
+      { roundNumber: 2, totalMs: 120_000 },
+    ],
+  );
+  assert.deepEqual(
+    rounds.filter(({ bookId }) => bookId === 'book-b').map(({ roundNumber }) => roundNumber),
+    [1],
+  );
+  assert.deepEqual(
+    rounds.filter(({ bookId }) => bookId === 'book-c').map(({ roundNumber }) => roundNumber),
+    [1],
+  );
+});
+
 test('omits reading rounds with no counted time in the selected date range', () => {
   const rounds = buildReadingBookRounds([
     session({

@@ -21,7 +21,10 @@ type ReaderTheme = {
 };
 
 const READER_TEXT_MAX_INLINE_SIZE = 1000;
-const READER_OUTER_GAP_PERCENT = 2.5;
+const READER_GAP_PERCENT = 5;
+const READER_TEXT_EDGE_GAP_AT_MAX_RATIO = (
+  READER_GAP_PERCENT / (2 * (100 - READER_GAP_PERCENT))
+);
 
 interface ReaderToolbarProps {
   theme: ReaderTheme;
@@ -94,10 +97,13 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const readerTextMaxInlineSize = landscapeTwoPage && isLandscape
     ? READER_TEXT_MAX_INLINE_SIZE * 2
     : READER_TEXT_MAX_INLINE_SIZE;
+  const readerTextEdgeGapAtMaxWidth = (
+    readerTextMaxInlineSize * READER_TEXT_EDGE_GAP_AT_MAX_RATIO
+  );
   const menuPositionStyle: React.CSSProperties = {
     right: isFixedLayout
       ? 'calc(env(safe-area-inset-right) + 1rem)'
-      : `max(calc(env(safe-area-inset-right) + 1rem), ${READER_OUTER_GAP_PERCENT}vw, calc((100vw - ${readerTextMaxInlineSize}px) / 2))`,
+      : `max(calc(env(safe-area-inset-right) + 1rem), ${READER_GAP_PERCENT}vw, calc((100vw - ${readerTextMaxInlineSize}px) / 2 + ${readerTextEdgeGapAtMaxWidth}px))`,
   };
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);

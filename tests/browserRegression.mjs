@@ -2068,7 +2068,7 @@ try {
   assert.ok(
     Math.abs(
       landscapeReaderLayout.toolbarMenuRightInset
-        - landscapeReaderLayout.viewportWidth * 0.025,
+        - landscapeReaderLayout.viewportWidth * 0.05,
     ) <= 1,
     JSON.stringify(landscapeReaderLayout),
   );
@@ -3159,8 +3159,8 @@ try {
   })()`);
   assert.ok(desktopToolbarProbe.menuWidth >= 302 && desktopToolbarProbe.menuWidth <= 303);
   assert.ok(
-    desktopToolbarProbe.menuRightInset >= 139
-      && desktopToolbarProbe.menuRightInset <= 141,
+    desktopToolbarProbe.menuRightInset >= 165
+      && desktopToolbarProbe.menuRightInset <= 167,
     JSON.stringify(desktopToolbarProbe),
   );
   assert.ok(desktopToolbarProbe.actionHeight >= 50 && desktopToolbarProbe.actionHeight <= 51);
@@ -4831,6 +4831,8 @@ try {
     const rows = [...(modal?.querySelectorAll('[data-reading-statistics-book="true"]') ?? [])];
     return {
       filterText: filters?.textContent?.replace(/\\s+/g, '') ?? '',
+      summaryText: modal?.querySelector('[data-reading-statistics-book-summary="true"]')
+        ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
       filterPressed: [...(filters?.querySelectorAll('button') ?? [])]
         .map((button) => [button.textContent?.trim(), button.getAttribute('aria-pressed')]),
       fixtureBookId: localStorage.getItem('__browserRegressionSelectionBookId'),
@@ -4839,6 +4841,8 @@ try {
     };
   })()`);
   assert.equal(bookRoundUi.filterText, '전체|현재|완료');
+  assert.match(bookRoundUi.summaryText, /^\d+권 읽는 중 · 완료 \d+권$/);
+  assert.doesNotMatch(bookRoundUi.summaryText, /회차/);
   assert.deepEqual(bookRoundUi.filterPressed, [
     ['전체', 'true'], ['현재', 'false'], ['완료', 'false'],
   ]);
@@ -4848,6 +4852,8 @@ try {
   ].map((row) => row.getAttribute('data-reading-statistics-round'))`);
   assert.ok(fixtureRounds.includes('1'), JSON.stringify({ bookRoundUi, fixtureRounds }));
   assert.ok(fixtureRounds.includes('2'), JSON.stringify({ bookRoundUi, fixtureRounds }));
+  assert.ok(bookRoundUi.rowTexts.every((text) => /\d+회차/.test(text)), JSON.stringify(bookRoundUi));
+  assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('1회차')), JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('2회차')), JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.every((text) => text.includes('시작')), JSON.stringify(bookRoundUi));
   await evaluate(`document.querySelector('[data-reading-statistics-complete="true"]')?.click()`);
