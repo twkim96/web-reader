@@ -164,7 +164,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       </nav>
 
       <div
-        className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(15.625rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(19.53125rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
+        className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(21.484375rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
         style={menuPositionStyle}
       >
         <div className="relative grid gap-y-1.5">
@@ -272,7 +272,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
           <div
             data-reader-toolbar-actions="true"
-            className="grid grid-cols-3 gap-1.5 md:gap-2"
+            className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 md:gap-2"
           >
             <button
               type="button"

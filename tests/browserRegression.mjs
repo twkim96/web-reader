@@ -2940,6 +2940,11 @@ try {
           ?.parentElement?.offsetWidth ?? 0,
         recordsClientWidth: toolbarRecordsButton?.clientWidth ?? 0,
         recordsScrollWidth: toolbarRecordsButton?.scrollWidth ?? 0,
+        recordsWidth: toolbarRecordsRect?.width ?? 0,
+        themeWidth: document.querySelector('button[aria-label="테마"]')
+          ?.getBoundingClientRect().width ?? 0,
+        settingsWidth: document.querySelector('button[aria-label="설정"]')
+          ?.getBoundingClientRect().width ?? 0,
         recordsWhiteSpace: toolbarRecordsButton
           ? getComputedStyle(toolbarRecordsButton).whiteSpace
           : '',
@@ -3075,8 +3080,8 @@ try {
     '독서 통계',
   ]);
   assert.ok(
-    narrowSelectionMenu.toolbarProbe.menuWidth >= 249
-      && narrowSelectionMenu.toolbarProbe.menuWidth <= 251,
+    narrowSelectionMenu.toolbarProbe.menuWidth >= 274
+      && narrowSelectionMenu.toolbarProbe.menuWidth <= 276,
     JSON.stringify(narrowSelectionMenu.toolbarProbe),
   );
   assert.ok(
@@ -3089,6 +3094,12 @@ try {
     JSON.stringify(narrowSelectionMenu),
   );
   assert.equal(narrowSelectionMenu.toolbarProbe.recordsWhiteSpace, 'nowrap');
+  assert.ok(Math.abs(
+    narrowSelectionMenu.toolbarProbe.recordsWidth / narrowSelectionMenu.toolbarProbe.themeWidth - 1.35
+  ) < 0.03, JSON.stringify(narrowSelectionMenu.toolbarProbe));
+  assert.ok(Math.abs(
+    narrowSelectionMenu.toolbarProbe.themeWidth - narrowSelectionMenu.toolbarProbe.settingsWidth
+  ) <= 1, JSON.stringify(narrowSelectionMenu.toolbarProbe));
   assert.ok(
     narrowSelectionMenu.toolbarProbe.recordsScrollWidth
       <= narrowSelectionMenu.toolbarProbe.recordsClientWidth,
@@ -3114,7 +3125,7 @@ try {
       utilityWidth: utilities?.firstElementChild?.offsetWidth ?? 0,
     };
   })()`);
-  assert.ok(desktopToolbarProbe.menuWidth >= 312 && desktopToolbarProbe.menuWidth <= 313);
+  assert.ok(desktopToolbarProbe.menuWidth >= 343 && desktopToolbarProbe.menuWidth <= 344);
   assert.ok(desktopToolbarProbe.actionHeight >= 62 && desktopToolbarProbe.actionHeight <= 64);
   assert.ok(desktopToolbarProbe.utilityWidth >= 54 && desktopToolbarProbe.utilityWidth <= 56);
   assert.ok(Math.abs(
