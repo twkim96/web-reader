@@ -2954,6 +2954,10 @@ try {
         statisticsRight: toolbarStatisticsRect?.right ?? 0,
         statisticsWidth: toolbarStatisticsButton?.offsetWidth ?? 0,
         recordsRight: toolbarRecordsRect?.right ?? 0,
+        actionHeight: toolbarRecordsButton?.offsetHeight ?? 0,
+        actionFontWeight: toolbarRecordsButton
+          ? getComputedStyle(toolbarRecordsButton).fontWeight
+          : '',
       };
       const ttsSpeakBefore = window.__browserSpeechStats.speak;
       toolbarTtsButton?.click();
@@ -3090,6 +3094,12 @@ try {
     JSON.stringify(narrowSelectionMenu),
   );
   assert.ok(
+    narrowSelectionMenu.toolbarProbe.actionHeight >= 46
+      && narrowSelectionMenu.toolbarProbe.actionHeight <= 47,
+    JSON.stringify(narrowSelectionMenu.toolbarProbe),
+  );
+  assert.equal(narrowSelectionMenu.toolbarProbe.actionFontWeight, '500');
+  assert.ok(
     narrowSelectionMenu.toolbarProbe.ttsRight < narrowSelectionMenu.toolbarProbe.statisticsRight,
     JSON.stringify(narrowSelectionMenu),
   );
@@ -3125,12 +3135,18 @@ try {
       utilityWidth: utilities?.firstElementChild?.offsetWidth ?? 0,
     };
   })()`);
-  assert.ok(desktopToolbarProbe.menuWidth >= 343 && desktopToolbarProbe.menuWidth <= 344);
-  assert.ok(desktopToolbarProbe.actionHeight >= 62 && desktopToolbarProbe.actionHeight <= 64);
-  assert.ok(desktopToolbarProbe.utilityWidth >= 54 && desktopToolbarProbe.utilityWidth <= 56);
+  assert.ok(desktopToolbarProbe.menuWidth >= 302 && desktopToolbarProbe.menuWidth <= 303);
+  assert.ok(desktopToolbarProbe.actionHeight >= 50 && desktopToolbarProbe.actionHeight <= 51);
+  assert.ok(desktopToolbarProbe.utilityWidth >= 48 && desktopToolbarProbe.utilityWidth <= 49);
   assert.ok(Math.abs(
-    desktopToolbarProbe.menuWidth / narrowSelectionMenu.toolbarProbe.menuWidth - 1.25
+    desktopToolbarProbe.menuWidth / narrowSelectionMenu.toolbarProbe.menuWidth - 1.10
   ) < 0.01, JSON.stringify({ desktopToolbarProbe, narrowSelectionMenu }));
+  assert.ok(Math.abs(
+    desktopToolbarProbe.actionHeight / narrowSelectionMenu.toolbarProbe.actionHeight - 1.10
+  ) < 0.02, JSON.stringify({ desktopToolbarProbe, narrowSelectionMenu }));
+  assert.ok(Math.abs(
+    desktopToolbarProbe.utilityWidth / narrowSelectionMenu.toolbarProbe.ttsWidth - 1.10
+  ) < 0.02, JSON.stringify({ desktopToolbarProbe, narrowSelectionMenu }));
   await evaluate(`document.querySelector('button[aria-label="독서 통계"]')?.click()`);
   await waitFor(
     'Boolean(document.querySelector(\'[data-reading-statistics-modal="true"]\'))',

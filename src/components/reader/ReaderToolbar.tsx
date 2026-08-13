@@ -164,21 +164,21 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       </nav>
 
       <div
-        className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(21.484375rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
+        className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(18.90625rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
         style={menuPositionStyle}
       >
-        <div className="relative grid gap-y-1.5">
+        <div className="relative grid gap-y-[0.34375rem] md:gap-y-[0.378125rem]">
           {isSliderPreviewing && (
             <div
               className={`mx-auto grid max-h-[4.5rem] w-[min(17rem,100%)] content-center overflow-hidden rounded-[1.25rem] border ${theme.border} px-4 py-1.5 text-center shadow-[0_14px_32px_rgba(0,0,0,0.22)] transition-transform duration-150`}
               style={surfaceStyle}
             >
               {sliderPreviewChapter && (
-                <div className="overflow-hidden text-[13px] font-bold leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                <div className="overflow-hidden text-[13px] font-medium leading-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] md:text-[14.3px]">
                   {sliderPreviewChapter}
                 </div>
               )}
-              <div className="text-[10.5px] font-bold text-accent-500">
+              <div className="text-[10.5px] font-medium text-accent-500 md:text-[11.55px]">
                 {progressLabel}
               </div>
             </div>
@@ -186,35 +186,35 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
           <div
             data-reader-toolbar-utilities="true"
-            className="absolute bottom-[calc(100%+0.375rem)] right-0 flex items-center gap-1.5 md:gap-2"
+            className="absolute bottom-[calc(100%+0.34375rem)] right-0 flex items-center gap-1.5 md:bottom-[calc(100%+0.378125rem)] md:gap-[0.4125rem]"
           >
             {!isFixedLayout && (
               <button
                 type="button"
                 onClick={onOpenTts}
                 disabled={!ttsSupported}
-                className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 md:size-[3.4375rem] ${ttsActive ? 'text-accent-500' : ''}`}
+                className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 md:size-[3.025rem] ${ttsActive ? 'text-accent-500' : ''}`}
                 style={surfaceStyle}
                 aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
                 title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
               >
-                <Volume2 className="size-[19px] md:size-6" />
+                <Volume2 className="size-[19px] md:size-[21px]" />
               </button>
             )}
             <button
               type="button"
               onClick={onOpenStatistics}
-              className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.4375rem]`}
+              className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
               style={surfaceStyle}
               aria-label="독서 통계"
               title="독서 통계"
             >
-              <BarChart3 className="size-[19px] md:size-6" />
+              <BarChart3 className="size-[19px] md:size-[21px]" />
             </button>
           </div>
 
           <div
-            className={`relative h-[3.15rem] overflow-hidden rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] md:h-[3.9375rem]`}
+            className={`relative h-[2.8875rem] overflow-hidden rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] md:h-[3.17625rem]`}
             style={surfaceStyle}
           >
             <div
@@ -225,20 +225,20 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               className="pointer-events-none absolute top-1/2 h-7 w-px -translate-y-1/2 rounded-full bg-current/45"
               style={{ left: `${safeSliderProgress}%` }}
             />
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-[1.125rem] text-[15px] font-bold md:px-[1.40625rem] md:text-[19px]">
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-[1.125rem] text-[15px] font-medium md:px-[1.2375rem] md:text-[16.5px]">
               <span>목차 · {progressLabel}</span>
             </div>
             <button
               type="button"
               onClick={onOpenToc}
-              className="absolute inset-y-0 right-0 z-10 flex w-[3.15rem] items-center justify-center transition-opacity hover:opacity-80 md:w-[3.9375rem]"
+              className="absolute inset-y-0 right-0 z-10 flex w-[2.8875rem] items-center justify-center transition-opacity hover:opacity-80 md:w-[3.17625rem]"
               aria-label="목차"
               title="목차"
             >
-              <List className="size-[23px] md:size-[29px]" />
+              <List className="size-[23px] md:size-[25px]" />
             </button>
             <div
-              className="pointer-events-none absolute inset-y-0 right-[3.15rem] w-px bg-current/10 md:right-[3.9375rem]"
+              className="pointer-events-none absolute inset-y-0 right-[2.8875rem] w-px bg-current/10 md:right-[3.17625rem]"
             />
             <input
               type="range"
@@ -253,7 +253,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               onKeyUp={onProgressSliderCommit}
               onBlur={onProgressSliderCommit}
               onChange={(event) => onProgressSliderPreview(parseFloat(event.target.value))}
-              className="absolute inset-y-0 left-0 right-[3.15rem] h-full cursor-pointer opacity-0 md:right-[3.9375rem]"
+              className="absolute inset-y-0 left-0 right-[2.8875rem] h-full cursor-pointer opacity-0 md:right-[3.17625rem]"
               aria-label="진행률"
             />
           </div>
@@ -262,31 +262,31 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenSearch}
-              className={`flex h-[3.15rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[15px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.9375rem] md:px-[1.40625rem] md:text-[19px]`}
+              className={`flex h-[2.8875rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[15px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:px-[1.2375rem] md:text-[16.5px]`}
               style={surfaceStyle}
             >
               <span>책 검색</span>
-              <Search className="size-6 md:size-[30px]" />
+              <Search className="size-6 md:size-[26px]" />
             </button>
           )}
 
           <div
             data-reader-toolbar-actions="true"
-            className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 md:gap-2"
+            className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 md:gap-[0.4125rem]"
           >
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-[3.15rem] min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.9375rem] md:gap-1.5 md:px-1.5 md:text-[15px] ${hasReaderRecords ? 'text-accent-500' : ''}`}
+              className={`flex h-[2.8875rem] min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border ${theme.border} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px] ${hasReaderRecords ? 'text-accent-500' : ''}`}
               style={surfaceStyle}
               aria-label="책갈피와 주석"
               aria-describedby="reader-record-counts"
               title={`책갈피 ${bookmarkCount}개 · 주석 ${annotationCount}개`}
             >
-              <BookmarkIcon className="size-[19px] shrink-0 md:size-6" />
+              <BookmarkIcon className="size-[19px] shrink-0 md:size-[21px]" />
               <span className="shrink-0">책갈피</span>
               {bookmarkCount > 0 && (
-                <span className="shrink-0 text-[11px] font-black tabular-nums md:text-[14px]">
+                <span className="shrink-0 text-[11px] font-bold tabular-nums md:text-[12px]">
                   {bookmarkCount}
                 </span>
               )}
@@ -304,23 +304,23 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenTheme}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.9375rem] md:gap-1.5 md:px-1.5 md:text-[15px]`}
+              className={`flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
               style={surfaceStyle}
               aria-label="테마"
               title="테마"
             >
-              <Palette className="size-[19px] md:size-6" />
+              <Palette className="size-[19px] md:size-[21px]" />
               <span>테마</span>
             </button>
             <button
               type="button"
               onClick={onOpenSettings}
-              className={`flex h-[3.15rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-bold shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.9375rem] md:gap-1.5 md:px-1.5 md:text-[15px]`}
+              className={`flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
               style={surfaceStyle}
               aria-label="설정"
               title="설정"
             >
-              <Settings className="size-[19px] md:size-6" />
+              <Settings className="size-[19px] md:size-[21px]" />
               <span>설정</span>
             </button>
           </div>

@@ -35,6 +35,7 @@ interface UseRemoteProgressPromptOptions {
   outboxConflictRevision?: number;
   ignoredRemoteRevision?: number;
   onIgnoreRemoteProgress?: (revision: number) => Promise<boolean>;
+  onPreferLocalProgress?: () => boolean | Promise<boolean>;
   currentCfi: string;
   currentAnchorCfi: string;
   totalProgress: number;
@@ -77,6 +78,7 @@ export const useRemoteProgressPrompt = ({
   outboxConflictRevision,
   ignoredRemoteRevision,
   onIgnoreRemoteProgress,
+  onPreferLocalProgress,
   currentCfi,
   currentAnchorCfi,
   totalProgress,
@@ -345,6 +347,18 @@ export const useRemoteProgressPrompt = ({
       remoteRevision: remoteProgress.syncRevision,
       localRevision,
     });
+    if (action === 'keep-local') {
+      lastProcessedRemote.current = {
+        operation: remoteOperation,
+        cfi: remoteAnchorCfi,
+        lastRead: remoteTime,
+      };
+      isInitialSync.current = false;
+      void Promise.resolve(onPreferLocalProgress?.()).catch((error) => {
+        console.warn('[RemoteProgress] failed to persist preferred local position:', error);
+      });
+      return;
+    }
     if (action === 'ignore') {
       lastProcessedRemote.current = { operation: remoteOperation, cfi: remoteAnchorCfi, lastRead: remoteTime };
       isInitialSync.current = false;
@@ -393,7 +407,7 @@ export const useRemoteProgressPrompt = ({
     isInitialSync.current = false;
     const timeoutId = window.setTimeout(() => setSyncConflict(target), 0);
     return () => window.clearTimeout(timeoutId);
-  }, [currentAnchorCfi, currentCfi, hasLocalProgress, ignoredRemoteRevision, isLoaded, isQuietResumeEligible, jumpToRemoteProgress, lastSaveTimeRef, localRevision, outboxConflictRevision, remoteProgress, resetToRemoteProgress, totalProgress]);
+  }, [currentAnchorCfi, currentCfi, hasLocalProgress, ignoredRemoteRevision, isLoaded, isQuietResumeEligible, jumpToRemoteProgress, lastSaveTimeRef, localRevision, onPreferLocalProgress, outboxConflictRevision, remoteProgress, resetToRemoteProgress, totalProgress]);
 
   const dismissSyncConflict = useCallback(async () => {
     if (syncConflict?.resolutionCommandId) {

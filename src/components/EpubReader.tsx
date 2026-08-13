@@ -643,6 +643,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     ignoredRemoteRevision,
     onIgnoreRemoteProgress: (revision) => onIgnoreRemoteProgress?.(book.id, revision)
       ?? Promise.resolve(false),
+    onPreferLocalProgress: () => saveCurrentProgress({ force: true }),
     currentCfi,
     currentAnchorCfi,
     totalProgress,

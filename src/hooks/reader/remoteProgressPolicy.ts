@@ -1,6 +1,6 @@
 import { hasMeaningfulProgressDelta } from '../../lib/progressDistancePolicy.ts';
 
-export type RemoteProgressDecision = 'ignore' | 'jump' | 'prompt';
+export type RemoteProgressDecision = 'ignore' | 'keep-local' | 'jump' | 'prompt';
 
 type RemoteProgressDecisionInput = {
   isInitialSync: boolean;
@@ -47,6 +47,15 @@ export const decideRemoteProgressAction = ({
     !remoteAnchorCfi
     || remoteAnchorCfi === currentAnchorCfi
   ) return 'ignore';
+
+  // A newer server revision can still contain an older reading position from
+  // another device. Never move the viewport backwards for an ordinary set;
+  // the outbox conflict resolver will rebase the higher local position.
+  if (
+    hasLocalProgress
+    && currentPercent > remotePercent
+    && hasMeaningfulProgressDelta(remotePercent, currentPercent)
+  ) return 'keep-local';
 
   if (isInitialSync && isQuietResumeEligible) return 'jump';
 

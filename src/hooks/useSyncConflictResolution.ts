@@ -23,7 +23,7 @@ import { getSyncOwnerKey } from '../lib/ownerIdentity';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { getSyncSessionId } from '../lib/syncSession';
-import { getQuietProgressConflictReason } from '../lib/syncConflictPolicy';
+import { getAutomaticProgressConflictResolution } from '../lib/syncConflictPolicy';
 import { selectProgressSyncConflict } from '../lib/syncConflictPresentation';
 import {
   hasSameExpectedLocalProgressState,
@@ -206,12 +206,12 @@ export const useSyncConflictResolution = ({
       next?.event?.target.kind === 'progress'
       && next.event.target.bookId === activeBookId,
     );
-    const quietReason = next ? getQuietProgressConflictReason({
+    const automaticResolution = next ? getAutomaticProgressConflictResolution({
       conflict: next,
       activeBookId,
       currentSessionId: sessionIdRef.current,
     }) : null;
-    const runtimeEligibility = quietReason === 'previous-session'
+    const runtimeEligibility = automaticResolution?.reason === 'previous-session'
       ? canQuietlyResolveProgressConflict
       : canAutoResolveSettledProgressConflict;
     const readerCanAutoResolve = !targetIsActiveBook || runtimeEligibility?.() === true;
@@ -219,10 +219,28 @@ export const useSyncConflictResolution = ({
       && 'anchorCfi' in next.latestLocalPosition
       ? next.latestLocalPosition
       : undefined;
-    if (next && readerCanAutoResolve && quietReason && expectedLocalPosition) {
+    if (next && readerCanAutoResolve && automaticResolution && expectedLocalPosition) {
       if (resolvingRef.current.has(next.conflictId)) return;
       resolvingRef.current.add(next.conflictId);
       try {
+        if (automaticResolution.winner === 'local') {
+          const replacement = await resolveSyncConflictKeepLocalV5(
+            getSyncOwnerKey(owner.ownerKey),
+            next.conflictId,
+          );
+          if (!ownerRuntime.isCurrent(owner)) return;
+          if (!replacement) {
+            const latestConflicts = await getOpenSyncConflictsV5(
+              getSyncOwnerKey(owner.ownerKey),
+            );
+            if (ownerRuntime.isCurrent(owner) && refreshGenerationRef.current === generation) {
+              setConflict(selectProgressSyncConflict(latestConflicts, activeBookId));
+            }
+            return;
+          }
+          setConflict(null);
+          return;
+        }
         if (targetIsActiveBook) {
           if (resolvedRemoteProgressCommandRef.current?.conflictId === next.conflictId) return;
           const preview = await previewSyncConflictUseRemoteProgressV5(
