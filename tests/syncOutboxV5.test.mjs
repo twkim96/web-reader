@@ -1124,6 +1124,9 @@ test('keeping local creates a new event at the current remote revision', async (
   assert.equal(replacement.payload.progressPercent, 30);
   assert.equal(replacement.status, 'pending');
   assert.notEqual(replacement.eventId, 'event-1');
+  const [keptLocal] = await getAllLocalProgressV5(ownerA);
+  assert.equal(keptLocal.progressPercent, 30);
+  assert.equal(keptLocal.ignoredRemoteRevision, 2);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
   assert.equal(await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 5), null);
   await enqueue(ownerA, {

@@ -2366,6 +2366,11 @@ export const resolveSyncConflictKeepLocalV5 = async (
   const rebasedKnownRevision = restoringDeletedBookmark
     ? nextMeta.knownRevision
     : Math.max(nextMeta.knownRevision, conflict.remoteHead?.revision ?? 0);
+  const ignoredProgressRevision = target.kind === 'progress'
+    && conflict.remoteHead
+    && 'position' in conflict.remoteHead
+      ? conflict.remoteHead.revision
+      : undefined;
   const replacement: SyncOutboxEventV5 = target.kind === 'progress'
     ? {
       ...conflict.event,
@@ -2412,6 +2417,15 @@ export const resolveSyncConflictKeepLocalV5 = async (
       updatedAt: now,
     }),
     conflictStore.put({ ...conflict, state: 'resolved_local', resolvedAt: now }),
+    target.kind === 'progress' && canonicalProgress && ignoredProgressRevision !== undefined
+      ? progressStore.put({
+        ...canonicalProgress,
+        ignoredRemoteRevision: Math.max(
+          canonicalProgress.ignoredRemoteRevision ?? 0,
+          ignoredProgressRevision,
+        ),
+      })
+      : Promise.resolve(),
   ]);
 
   if (restoringDeletedBookmark && replacement.target.kind === 'bookmark' && replacement.payload) {

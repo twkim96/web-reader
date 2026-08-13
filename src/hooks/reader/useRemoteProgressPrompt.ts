@@ -55,10 +55,7 @@ interface UseRemoteProgressPromptOptions {
   completeRemoteJump: (
     target: SyncConflict,
     bookmarks: Bookmark[],
-    options?: {
-      claimDevice?: boolean;
-      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
-    }
+    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> }
   ) => Promise<RemoteProgressJumpCompletion>;
   completeRemoteReset: (
     target: Omit<SyncConflict, 'cfi' | 'anchorCfi' | 'percent' | 'operation'>,
@@ -128,10 +125,7 @@ export const useRemoteProgressPrompt = ({
 
   const jumpToRemoteProgress = useCallback(async (
     target: SyncConflict,
-    options?: {
-      claimDevice?: boolean;
-      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
-    }
+    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> }
   ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
@@ -442,7 +436,7 @@ export const useRemoteProgressPrompt = ({
       : undefined;
     const jump = target.operation === 'reset'
       ? resetToRemoteProgress(target, { finalize })
-      : jumpToRemoteProgress(target, { claimDevice: !finalize, finalize });
+      : jumpToRemoteProgress(target, { finalize });
     void jump.then((completed) => {
       if (completed) {
         const committedBookmarks = finalizedProgress?.bookmarks

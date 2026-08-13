@@ -494,10 +494,7 @@ export const useReaderProgressSave = ({
   const completeRemoteJump = useCallback(async (
     target: RemoteProgressTarget,
     bookmarks: Bookmark[],
-    options?: {
-      claimDevice?: boolean;
-      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
-    }
+    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> }
   ): Promise<RemoteProgressJumpCompletion> => {
     let safePercent = toClampedPercent(target.percent) ?? 0;
     let bookmarksKey = getBookmarksKey(bookmarks);
@@ -522,13 +519,6 @@ export const useReaderProgressSave = ({
       bookmarks = result.progress.bookmarks ?? bookmarks;
       bookmarksKey = getBookmarksKey(bookmarks);
       lastSaveTimeRef.current = result.progress.lastRead;
-    } else if (options?.claimDevice) {
-      const committed = await onSaveProgress(target.cfi, safePercent, bookmarks, {
-        force: true,
-        anchorCfi: target.anchorCfi || target.cfi,
-      });
-      if (!committed) return false;
-      lastSaveTimeRef.current = Date.now();
     } else {
       const adopted = await onAdoptRemoteProgress({
         operation: 'set',
@@ -558,7 +548,7 @@ export const useReaderProgressSave = ({
     clearPendingSave();
     skipNextSaveRef.current = false;
     return true;
-  }, [clearPendingSave, onAdoptRemoteProgress, onSaveProgress]);
+  }, [clearPendingSave, onAdoptRemoteProgress]);
 
   const completeRemoteReset = useCallback(async (
     target: Omit<RemoteProgressTarget, 'cfi' | 'anchorCfi' | 'percent'>,

@@ -18,6 +18,7 @@ import {
   type ExpectedLocalProgressStateV5,
   type ExpectedRemoteProgressHeadV5,
   type SyncConflictV5,
+  type SyncOutboxEventV5,
 } from '../lib/syncOutboxV5';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
@@ -113,6 +114,50 @@ export const useSyncConflictResolution = ({
     setResolvedRemoteProgressCommand(command);
     return command;
   }, []);
+
+  const applyLocalProgressWinnerToRuntime = useCallback((
+    owner: OwnerSnapshot,
+    target: SyncConflictV5,
+    replacement: SyncOutboxEventV5,
+  ) => {
+    if (
+      !ownerRuntime.isCurrent(owner)
+      || target.event?.target.kind !== 'progress'
+      || replacement.target.kind !== 'progress'
+      || !target.remoteHead
+      || !('position' in target.remoteHead)
+    ) return;
+
+    const bookId = target.event.target.bookId;
+    const ignoredRevision = target.remoteHead.revision;
+    const existing = progressRef.current[bookId];
+    if (existing) {
+      const nextProgress: UserProgress = {
+        ...existing,
+        ignoredRemoteRevision: Math.max(
+          existing.ignoredRemoteRevision ?? 0,
+          ignoredRevision,
+        ),
+      };
+      rebaseProgressCommitBaseline(owner.ownerKey, bookId, nextProgress);
+      progressRef.current = { ...progressRef.current, [bookId]: nextProgress };
+      setProgress((prev) => ownerRuntime.isCurrent(owner)
+        ? { ...prev, [bookId]: nextProgress }
+        : prev);
+    }
+    setRemoteProgress((prev) => {
+      if (!ownerRuntime.isCurrent(owner)) return prev;
+      const staleRemote = prev[bookId];
+      if (
+        !staleRemote
+        || !Number.isSafeInteger(staleRemote.syncRevision)
+        || staleRemote.syncRevision! > ignoredRevision
+      ) return prev;
+      const next = { ...prev };
+      delete next[bookId];
+      return next;
+    });
+  }, [progressRef, setProgress, setRemoteProgress]);
 
   const applyRemote = useCallback(async (
     owner: OwnerSnapshot,
@@ -242,6 +287,7 @@ export const useSyncConflictResolution = ({
             }
             return;
           }
+          applyLocalProgressWinnerToRuntime(owner, next, replacement);
           setConflict(null);
           return;
         }
@@ -287,6 +333,7 @@ export const useSyncConflictResolution = ({
     setConflict(next);
   }, [
     activeBookId,
+    applyLocalProgressWinnerToRuntime,
     applyRemote,
     canAutoResolveSettledProgressConflict,
     canQuietlyResolveProgressConflict,
@@ -347,6 +394,7 @@ export const useSyncConflictResolution = ({
         setResolutionError('원격 상태가 변경되었습니다. 최신 값을 다시 확인해 주세요.');
         return false;
       }
+      applyLocalProgressWinnerToRuntime(owner, conflict, replacement);
       setConflict(null);
       await refresh().catch((error) => {
         console.error('[SyncConflict] refresh after keep-local failed:', error);
@@ -362,7 +410,7 @@ export const useSyncConflictResolution = ({
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
     }
-  }, [conflict, refresh]);
+  }, [applyLocalProgressWinnerToRuntime, conflict, refresh]);
 
   const useRemote = useCallback(async () => {
     const owner = ownerRuntime.capture();
