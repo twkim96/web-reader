@@ -158,21 +158,21 @@ test('prefers comparable revisions over skewed timestamps', () => {
   }), 'ignore');
 });
 
-test('never jumps backwards to a lower ordinary remote position', () => {
+test('treats a lower but newer remote position as deliberate cross-device reading', () => {
   assert.equal(decide({
     isInitialSync: true,
     currentPercent: 70,
     remotePercent: 30,
     remoteRevision: 8,
     localRevision: 7,
-  }), 'keep-local');
+  }), 'jump');
   assert.equal(decide({
     isInitialSync: false,
     currentPercent: 70,
     remotePercent: 30,
     remoteTime: 999_999,
     lastSaveTime: 1,
-  }), 'keep-local');
+  }), 'prompt');
 });
 
 test('treats an authoritative remote reset as a first-class update', () => {
