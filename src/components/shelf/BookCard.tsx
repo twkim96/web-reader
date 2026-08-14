@@ -11,7 +11,7 @@ interface BookCardProps {
   theme: ShelfTheme;
   onOpen: (book: Book) => void;
   onDeleteProgress?: (bookId: string) => void;
-  onRequestDeleteBook?: (book: Book) => void;
+  onRequestBookInfo?: (book: Book) => void;
 }
 
 export const BookCard: React.FC<BookCardProps> = ({
@@ -22,10 +22,11 @@ export const BookCard: React.FC<BookCardProps> = ({
   theme,
   onOpen,
   onDeleteProgress,
-  onRequestDeleteBook
+  onRequestBookInfo
 }) => {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 
   const formatDate = (timestamp: unknown) => {
     const time = getProgressTime(timestamp);
@@ -41,17 +42,33 @@ export const BookCard: React.FC<BookCardProps> = ({
     if (longPressTimerRef.current === null) return;
     window.clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = null;
+    longPressStartRef.current = null;
   }, []);
 
-  const startLongPress = useCallback(() => {
-    if (!onRequestDeleteBook) return;
+  const startLongPress = useCallback((event: React.PointerEvent) => {
+    if (!onRequestBookInfo || (event.pointerType === 'mouse' && event.button !== 0)) return;
     clearLongPressTimer();
     longPressTriggeredRef.current = false;
+    longPressStartRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
     longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressStartRef.current = null;
       longPressTriggeredRef.current = true;
-      onRequestDeleteBook(book);
+      onRequestBookInfo(book);
     }, 650);
-  }, [book, clearLongPressTimer, onRequestDeleteBook]);
+  }, [book, clearLongPressTimer, onRequestBookInfo]);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent) => {
+    const start = longPressStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) {
+      clearLongPressTimer();
+    }
+  }, [clearLongPressTimer]);
 
   const handleCardClick = useCallback(() => {
     if (longPressTriggeredRef.current) {
@@ -62,17 +79,20 @@ export const BookCard: React.FC<BookCardProps> = ({
   }, [book, onOpen]);
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
-    if (!onRequestDeleteBook) return;
+    if (!onRequestBookInfo) return;
     event.preventDefault();
-    onRequestDeleteBook(book);
-  }, [book, onRequestDeleteBook]);
+    onRequestBookInfo(book);
+  }, [book, onRequestBookInfo]);
 
   if (viewMode === 'list') {
     return (
       <div 
+        data-shelf-book-card="true"
+        data-shelf-book-id={book.id}
         onClick={handleCardClick}
         onContextMenu={handleContextMenu}
         onPointerDown={startLongPress}
+        onPointerMove={handlePointerMove}
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
@@ -132,9 +152,12 @@ export const BookCard: React.FC<BookCardProps> = ({
 
   return (
     <div 
+      data-shelf-book-card="true"
+      data-shelf-book-id={book.id}
       onClick={handleCardClick}
       onContextMenu={handleContextMenu}
       onPointerDown={startLongPress}
+      onPointerMove={handlePointerMove}
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}

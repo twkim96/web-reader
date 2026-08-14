@@ -9,7 +9,9 @@ import {
 import {
   deleteDoc,
   doc,
+  collection,
   getDoc,
+  getDocs,
   runTransaction,
   serverTimestamp,
   setDoc,
@@ -47,6 +49,28 @@ beforeEach(async () => {
 const database = (uid = 'alice') => environment
   .authenticatedContext(uid)
   .firestore();
+
+const publicBookMetadataPath = 'publicBookMetadataV1/ab';
+
+const validPublicBookMetadata = () => ({
+  schemaVersion: 1,
+  titleKey: '작품',
+  displayTitle: '작품',
+  normalizerVersion: '1.3.3',
+  publishedAt: '2026-08-14T00:00:00+00:00',
+  entries: {},
+});
+
+test('allows public metadata reads but blocks every client write', async () => {
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), publicBookMetadataPath), validPublicBookMetadata());
+  });
+  await assertSucceeds(getDoc(doc(database(), publicBookMetadataPath)));
+  await assertSucceeds(getDoc(doc(environment.unauthenticatedContext().firestore(), publicBookMetadataPath)));
+  await assertFails(getDocs(collection(database(), 'publicBookMetadataV1')));
+  await assertFails(setDoc(doc(database(), publicBookMetadataPath), validPublicBookMetadata()));
+  await assertFails(deleteDoc(doc(database(), publicBookMetadataPath)));
+});
 
 const progressPath = (uid = 'alice') => (
   `artifacts/${appId}/users/${uid}/libraries/local/readingHistoryV2/book-1`

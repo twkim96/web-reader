@@ -11,6 +11,7 @@ import { BookCard } from './BookCard';
 import { EmptyState } from './EmptyState';
 import { CloudSyncStatus, FileUploader, FileUploaderHandle } from './FileUploader';
 import { ImportBookModal } from './ImportBookModal';
+import { BookInfoModal } from './BookInfoModal';
 import { useFilteredBooks, usePreparedShelfBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
@@ -76,7 +77,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [searchKeyword, setSearchKeyword] = useState("");
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [pendingDeleteProgressId, setPendingDeleteProgressId] = useState<string | null>(null);
-  const [pendingDeleteBook, setPendingDeleteBook] = useState<Book | null>(null);
+  const [selectedBookInfo, setSelectedBookInfo] = useState<Book | null>(null);
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>(null);
   const [isDeletingBook, setIsDeletingBook] = useState(false);
@@ -226,9 +227,9 @@ export const Shelf: React.FC<ShelfProps> = ({
     setShowImportConfirm(show);
   }, [handleCloudAuthExpired, isCloudTokenValid, isOfflineMode]);
 
-  const handleRequestDeleteBook = useCallback((book: Book) => {
+  const handleRequestBookInfo = useCallback((book: Book) => {
     if (!onDeleteBook) return;
-    setPendingDeleteBook(book);
+    setSelectedBookInfo(book);
   }, [onDeleteBook]);
 
   const handleConfirmImportFiles = useCallback((files: File[]) => {
@@ -236,28 +237,34 @@ export const Shelf: React.FC<ShelfProps> = ({
   }, []);
 
   const handleConfirmDeleteBook = useCallback(async () => {
-    if (!pendingDeleteBook || !onDeleteBook) return;
+    if (!selectedBookInfo || !onDeleteBook) return;
     setIsDeletingBook(true);
     try {
-      await onDeleteBook(pendingDeleteBook);
-      setPendingDeleteBook(null);
+      await onDeleteBook(selectedBookInfo);
+      setSelectedBookInfo(null);
     } finally {
       setIsDeletingBook(false);
     }
-  }, [onDeleteBook, pendingDeleteBook]);
+  }, [onDeleteBook, selectedBookInfo]);
 
-  const stateRef = useRef({ showManage, showSearch });
+  const stateRef = useRef({ showManage, showSearch, selectedBookInfo, isDeletingBook });
   useEffect(() => {
-    stateRef.current = { showManage, showSearch };
-  }, [showManage, showSearch]);
+    stateRef.current = { showManage, showSearch, selectedBookInfo, isDeletingBook };
+  }, [isDeletingBook, selectedBookInfo, showManage, showSearch]);
 
   useEffect(() => {
     window.history.pushState({ panel: 'shelf' }, '', '');
     const handlePopState = () => {
-      const { showManage, showSearch } = stateRef.current;
-      if (showManage || showSearch) {
+      const {
+        showManage,
+        showSearch,
+        selectedBookInfo,
+        isDeletingBook,
+      } = stateRef.current;
+      if (showManage || showSearch || selectedBookInfo) {
         if (showManage) setShowManage(false);
         if (showSearch) setShowSearch(false);
+        if (selectedBookInfo && !isDeletingBook) setSelectedBookInfo(null);
         window.history.pushState({ panel: 'shelf' }, '', '');
       }
     };
@@ -339,7 +346,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                 theme={theme}
                 onOpen={onOpen}
                 onDeleteProgress={() => setPendingDeleteProgressId(book.id)}
-                onRequestDeleteBook={handleRequestDeleteBook}
+                onRequestBookInfo={handleRequestBookInfo}
               />
             ))}
           </div>
@@ -415,17 +422,22 @@ export const Shelf: React.FC<ShelfProps> = ({
         />
       )}
 
-      {pendingDeleteBook && onDeleteBook && (
-        <ConfirmDialog
-          message="이 도서를 삭제하시겠습니까?"
-          subMessage={isOfflineMode || pendingDeleteBook.source === 'local'
-            ? "로컬 저장소에서 영구 삭제됩니다."
-            : "구글 드라이브에서 삭제됩니다. 기기에 저장된 사본도 함께 삭제됩니다."
-          }
-          confirmLabel={isDeletingBook ? "삭제 중..." : "삭제"}
+      {selectedBookInfo && onDeleteBook && (
+        <BookInfoModal
+          key={selectedBookInfo.id}
+          book={selectedBookInfo}
+          progress={progress[selectedBookInfo.id]}
+          isDownloaded={isOfflineMode || offlineIds.has(selectedBookInfo.id)}
+          isOfflineMode={isOfflineMode}
           theme={theme}
-          onConfirm={() => { if (!isDeletingBook) void handleConfirmDeleteBook(); }}
-          onCancel={() => { if (!isDeletingBook) setPendingDeleteBook(null); }}
+          isDeleting={isDeletingBook}
+          onOpen={(book) => {
+            if (isDeletingBook) return;
+            setSelectedBookInfo(null);
+            onOpen(book);
+          }}
+          onDelete={handleConfirmDeleteBook}
+          onClose={() => { if (!isDeletingBook) setSelectedBookInfo(null); }}
         />
       )}
 

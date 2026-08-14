@@ -253,7 +253,7 @@ test('paginator keeps TTS relocation metadata and lets the latest user navigatio
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.10';
+    const viewModule = '/foliate-js/view.js?v=1.8.11';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

@@ -454,6 +454,62 @@ try {
   );
   assert.deepEqual(shelfMetrics.errors, []);
 
+  await evaluate(`(() => {
+    const card = document.querySelector('[data-shelf-book-card="true"]');
+    card?.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      clientX: 200,
+      clientY: 200,
+    }));
+    return Boolean(card);
+  })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-book-info-modal="true"]\'))',
+    'shelf book information modal',
+  );
+  const bookInfoUi = await evaluate(`(() => {
+    const modal = document.querySelector('[data-book-info-modal="true"]');
+    const rect = modal?.getBoundingClientRect();
+    return {
+      title: modal?.querySelector('h3')?.textContent?.trim() ?? '',
+      text: modal?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+      width: rect?.width ?? 0,
+      height: rect?.height ?? 0,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+      deleteConfirmation: Boolean(modal?.querySelector('[data-book-info-delete-confirmation="true"]')),
+    };
+  })()`);
+  assert.match(bookInfoUi.title, /Book/);
+  assert.match(bookInfoUi.text, /파일 형식/);
+  assert.match(bookInfoUi.text, /파일 크기/);
+  assert.match(bookInfoUi.text, /저장 위치/);
+  assert.match(bookInfoUi.text, /최근 독서/);
+  assert.ok(bookInfoUi.width <= Math.min(bookInfoUi.viewportWidth * 0.9, 576), JSON.stringify(bookInfoUi));
+  assert.ok(bookInfoUi.height <= bookInfoUi.viewportHeight * 0.82, JSON.stringify(bookInfoUi));
+  assert.equal(bookInfoUi.deleteConfirmation, false);
+  await evaluate(`document.querySelector('[data-book-info-request-delete="true"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-book-info-delete-confirmation="true"]\'))',
+    'book information delete confirmation',
+  );
+  assert.equal(
+    await evaluate(`document.querySelector('[data-book-info-delete-confirmation="true"] strong')?.textContent?.trim()`),
+    '이 도서를 삭제하시겠습니까?',
+  );
+  await evaluate(`(() => {
+    const modal = document.querySelector('[data-book-info-modal="true"]');
+    [...(modal?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.trim() === '취소')?.click();
+    modal?.querySelector('button[aria-label="도서 정보 닫기"]')?.click();
+  })()`);
+  await waitFor(
+    '!document.querySelector(\'[data-book-info-modal="true"]\')',
+    'book information modal close',
+  );
+
   await command('Emulation.setDeviceMetricsOverride', {
     width: 320,
     height: 640,
@@ -1250,7 +1306,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.10')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.11')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -5489,7 +5545,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.10';
+    const expectedCache = 'pc-reader-v1.8.11';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -5516,7 +5572,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.10',
+      '/sw.js?browser-regression=1.8.11',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -5560,11 +5616,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.10']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.11']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.10$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.11$/);
 
   console.log(JSON.stringify({
     shelf: {
