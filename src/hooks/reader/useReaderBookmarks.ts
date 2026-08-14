@@ -14,7 +14,7 @@ interface UseReaderBookmarksOptions {
   currentCfi: string;
   currentAnchorCfi: string;
   totalProgress: number;
-  markUserProgressChange: () => void;
+  markUserInteraction: () => void;
   saveBookmarks: (nextBookmarks: Bookmark[]) => Promise<boolean>;
 }
 
@@ -34,15 +34,17 @@ export const useReaderBookmarks = ({
   currentCfi,
   currentAnchorCfi,
   totalProgress,
-  markUserProgressChange,
+  markUserInteraction,
   saveBookmarks,
 }: UseReaderBookmarksOptions) => {
   const [bookmarks, setBookmarksState] = useState<Bookmark[]>(() => (
     normalizeAutoBookmarkNames(initialBookmarks || [])
   ));
   const bookmarksRef = useRef<Bookmark[]>(normalizeAutoBookmarkNames(initialBookmarks || []));
+  const mutationGenerationRef = useRef(0);
 
   const setBookmarks = useCallback((nextBookmarks: Bookmark[]) => {
+    mutationGenerationRef.current += 1;
     bookmarksRef.current = nextBookmarks;
     setBookmarksState(nextBookmarks);
     return nextBookmarks;
@@ -52,6 +54,7 @@ export const useReaderBookmarks = ({
     const next = normalizeAutoBookmarkNames(initialBookmarks || []);
     setBookmarksState((prev) => {
       if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
+      mutationGenerationRef.current += 1;
       bookmarksRef.current = next;
       return next;
     });
@@ -91,10 +94,19 @@ export const useReaderBookmarks = ({
     }
   }, [viewRef]);
 
+  const persistBookmarkMutation = useCallback((previous: Bookmark[], updated: Bookmark[]) => {
+    const generation = mutationGenerationRef.current + 1;
+    mutationGenerationRef.current = generation;
+    void saveBookmarks(updated).then((committed) => {
+      if (committed || mutationGenerationRef.current !== generation) return;
+      setBookmarks(previous);
+    });
+  }, [saveBookmarks, setBookmarks]);
+
   const addBookmark = useCallback(() => {
     const position = getLivePosition();
     if (!position.progressCfi) return;
-    markUserProgressChange();
+    markUserInteraction();
     const progressPercent = position.progressPercent ?? totalProgress;
 
     const newMark: Bookmark = {
@@ -106,15 +118,17 @@ export const useReaderBookmarks = ({
       createdAt: Date.now(),
       color: '#f59e0b',
     };
-    const updated = setBookmarks([newMark, ...bookmarksRef.current]);
-    void saveBookmarks(updated);
-  }, [getLivePosition, getPreviewText, markUserProgressChange, saveBookmarks, setBookmarks, totalProgress]);
+    const previous = bookmarksRef.current;
+    const updated = setBookmarks([newMark, ...previous]);
+    persistBookmarkMutation(previous, updated);
+  }, [getLivePosition, getPreviewText, markUserInteraction, persistBookmarkMutation, setBookmarks, totalProgress]);
 
   const deleteBookmark = useCallback((id: string) => {
-    markUserProgressChange();
-    const updated = setBookmarks(bookmarksRef.current.filter((bookmark) => bookmark.id !== id));
-    void saveBookmarks(updated);
-  }, [markUserProgressChange, saveBookmarks, setBookmarks]);
+    markUserInteraction();
+    const previous = bookmarksRef.current;
+    const updated = setBookmarks(previous.filter((bookmark) => bookmark.id !== id));
+    persistBookmarkMutation(previous, updated);
+  }, [markUserInteraction, persistBookmarkMutation, setBookmarks]);
 
   const stageAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
     if (!prevCfi) return bookmarksRef.current;

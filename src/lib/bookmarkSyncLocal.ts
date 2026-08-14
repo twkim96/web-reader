@@ -131,7 +131,21 @@ export const hydrateRemoteBookmarkHeadsV5 = async (
         remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
       ]);
 
-      if (!existingRemote || head.revision >= existingRemote.revision) {
+      if (existingRemote && head.revision < existingRemote.revision) {
+        skipped += 1;
+        continue;
+      }
+      if (
+        existingRemote
+        && head.revision === existingRemote.revision
+        && head.acceptedEventId !== existingRemote.head.acceptedEventId
+      ) {
+        throw Object.assign(
+          new Error('같은 bookmark revision에 서로 다른 acceptedEventId가 있습니다.'),
+          { code: 'invalid-argument' },
+        );
+      }
+      if (!existingRemote || head.revision > existingRemote.revision) {
         await remoteStore.put({
           ownerKey,
           targetKey,
@@ -140,21 +154,23 @@ export const hydrateRemoteBookmarkHeadsV5 = async (
           updatedAt: now,
         } satisfies RemoteHeadCacheV5);
       }
-      await metaStore.put({
-        ownerKey,
-        targetKey,
-        knownRevision: Math.max(
-          meta?.knownRevision ?? 0,
-          existingRemote?.revision ?? 0,
-          head.revision,
-        ),
-        nextSequence: meta?.nextSequence ?? 1,
-        updatedAt: now,
-      } satisfies SyncMetaV5);
 
       const hasLocalWork = targetEvents.some((event) => activeStatuses.has(event.status))
         || openConflicts.length > 0
         || deferredConflicts.length > 0;
+      if (!hasLocalWork) {
+        await metaStore.put({
+          ownerKey,
+          targetKey,
+          knownRevision: Math.max(
+            meta?.knownRevision ?? 0,
+            existingRemote?.revision ?? 0,
+            head.revision,
+          ),
+          nextSequence: meta?.nextSequence ?? 1,
+          updatedAt: now,
+        } satisfies SyncMetaV5);
+      }
       if (hasLocalWork) {
         skipped += 1;
         continue;

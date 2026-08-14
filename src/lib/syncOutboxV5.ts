@@ -266,9 +266,16 @@ export const storeRemoteHeadsBatchV5 = async (
 ) => {
   if (heads.length === 0) return;
   const db = await initDB();
-  const tx = db.transaction([V5_REMOTE_HEADS_STORE, V5_SYNC_META_STORE], 'readwrite');
+  const tx = db.transaction([
+    V5_REMOTE_HEADS_STORE,
+    V5_SYNC_META_STORE,
+    V5_OUTBOX_STORE,
+    V5_SYNC_CONFLICTS_STORE,
+  ], 'readwrite');
   const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+  const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
+  const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
   const entries = heads.map((head) => {
     const targetKey = 'position' in head
       ? progressTargetKeyV2(head.bookId)
@@ -282,12 +289,27 @@ export const storeRemoteHeadsBatchV5 = async (
   const existingEntries = await Promise.all(entries.map(async ({ targetKey }) => Promise.all([
     remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
     metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+    outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+      [ownerKey, targetKey, 0],
+      [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+    )) as Promise<SyncOutboxEventV5[]>,
+    getTargetOpenAndDeferredConflicts(conflictStore, ownerKey, targetKey),
   ])));
   for (const [index, { head, targetKey }] of entries.entries()) {
-    const [existingRemote, existingMeta] = existingEntries[index];
+    const [existingRemote, existingMeta, targetEvents, targetConflicts] = existingEntries[index];
+    if (
+      existingRemote
+      && existingRemote.revision === head.revision
+      && existingRemote.head.acceptedEventId !== head.acceptedEventId
+    ) {
+      throw Object.assign(
+        new Error(`같은 sync revision에 서로 다른 acceptedEventId가 있습니다: ${targetKey}`),
+        { code: 'invalid-argument' },
+      );
+    }
     const isSameHead = existingRemote?.revision === head.revision
       && existingRemote.head.acceptedEventId === head.acceptedEventId;
-    if (!isSameHead && (!existingRemote || head.revision >= existingRemote.revision)) {
+    if (!isSameHead && (!existingRemote || head.revision > existingRemote.revision)) {
       await remoteStore.put({
         ownerKey,
         targetKey,
@@ -296,6 +318,9 @@ export const storeRemoteHeadsBatchV5 = async (
         updatedAt: now,
       } satisfies RemoteHeadCacheV5);
     }
+    const hasActiveLocalWork = targetEvents.some((event) => activeStatuses.has(event.status))
+      || targetConflicts.length > 0;
+    if (hasActiveLocalWork) continue;
     const knownRevision = Math.max(
       existingMeta?.knownRevision ?? 0,
       existingRemote?.revision ?? 0,
@@ -1216,10 +1241,58 @@ export const enqueueBookmarkEventV5 = async (
   return { event, coalesced: false, deferredByConflict: false };
 };
 
+const bookmarkFromManualPayload = (payload: ManualBookmarkPayloadV2): Bookmark => ({
+  id: payload.bookmarkId,
+  type: 'manual',
+  name: payload.name,
+  cfi: payload.cfi,
+  progressPercent: payload.progressPercent ?? undefined,
+  createdAt: payload.createdAtClient,
+  color: payload.color,
+});
+
+export const mergeProgressMutationBatchV5 = (
+  existing: (UserProgress & { ownerKey?: OwnerKey }) | undefined,
+  input: EnqueueProgressMutationBatchInput,
+): UserProgress => {
+  const positionSource = input.progressEvent ? input.progress : existing ?? input.progress;
+  const manualById = new Map(
+    (existing?.bookmarks ?? input.progress.bookmarks ?? [])
+      .filter((bookmark) => bookmark.type === 'manual')
+      .map((bookmark) => [bookmark.id, bookmark]),
+  );
+  for (const event of input.bookmarkEvents) {
+    if (event.operation === 'bookmark.delete') {
+      manualById.delete(event.bookmarkId);
+    } else if (event.payload) {
+      manualById.set(event.bookmarkId, bookmarkFromManualPayload(event.payload));
+    }
+  }
+  const existingAuto = (existing?.bookmarks ?? []).filter((bookmark) => bookmark.type === 'auto');
+  const requestedAuto = input.progress.bookmarks?.filter((bookmark) => bookmark.type === 'auto');
+  const auto = requestedAuto ?? existingAuto;
+  const manual = [...manualById.values()]
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0));
+  return {
+    bookId: input.progress.bookId,
+    cfi: positionSource.cfi,
+    anchorCfi: positionSource.anchorCfi ?? positionSource.cfi,
+    progressPercent: positionSource.progressPercent,
+    lastRead: positionSource.lastRead,
+    bookmarks: [...manual, ...auto],
+    syncRevision: existing?.syncRevision ?? input.progress.syncRevision,
+    acceptedEventId: existing?.acceptedEventId ?? input.progress.acceptedEventId,
+    ignoredRemoteRevision: Math.max(
+      existing?.ignoredRemoteRevision ?? 0,
+      input.progress.ignoredRemoteRevision ?? 0,
+    ) || undefined,
+  };
+};
+
 export const enqueueProgressMutationBatchV5 = async (
   ownerKey: OwnerKey,
   input: EnqueueProgressMutationBatchInput,
-) => {
+): Promise<UserProgress> => {
   if (input.progressEvent) validateEnqueueInput(input.progressEvent);
   input.bookmarkEvents.forEach(validateBookmarkEnqueueInput);
   if (
@@ -1253,6 +1326,8 @@ export const enqueueProgressMutationBatchV5 = async (
   const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
   const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+  const existingProgress = await progressStore.get([ownerKey, input.progress.bookId]) as
+    (UserProgress & { ownerKey?: OwnerKey }) | undefined;
 
   if (input.progressEvent) {
     const eventInput = input.progressEvent;
@@ -1400,11 +1475,13 @@ export const enqueueProgressMutationBatchV5 = async (
     ]);
   }
 
-  await progressStore.put({ ...input.progress, ownerKey });
+  const canonicalProgress = mergeProgressMutationBatchV5(existingProgress, input);
+  await progressStore.put({ ...canonicalProgress, ownerKey });
   await tx.done;
   if (input.progressEvent || input.bookmarkEvents.length > 0) {
     notifyProgressSyncWork(ownerKey);
   }
+  return canonicalProgress;
 };
 
 export const getOutboxEventsV5 = async (

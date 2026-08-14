@@ -14,6 +14,7 @@ interface SyncConflictDialogProps {
   syncConflict: SyncConflict;
   onDismiss: () => void;
   onAccept: () => void;
+  feedback?: string | null;
   resolving?: boolean;
 }
 
@@ -22,6 +23,7 @@ export const SyncConflictDialog: React.FC<SyncConflictDialogProps> = ({
   syncConflict,
   onDismiss,
   onAccept,
+  feedback = null,
   resolving = false,
 }) => {
   useBodyScrollLock();
@@ -91,6 +93,11 @@ export const SyncConflictDialog: React.FC<SyncConflictDialogProps> = ({
             <>클라우드에 <span className="font-bold text-accent-500">{syncConflict.percent.toFixed(1)}%</span>의 읽기 위치가 있습니다.<br />해당 위치로 이동하시겠습니까?</>
           )}
         </p>
+        {feedback && (
+          <p role="status" className="mb-4 text-xs font-bold text-amber-500">
+            {feedback}
+          </p>
+        )}
         <div className="flex gap-3">
           <button type="button" disabled={resolving} onClick={onDismiss} className="flex-1 py-3 px-4 rounded-xl text-sm font-bold bg-gray-500/10 hover:bg-gray-500/20 transition-colors disabled:opacity-40">
             {syncConflict.operation === 'reset' ? '현재 위치 계속 읽기' : '무시'}

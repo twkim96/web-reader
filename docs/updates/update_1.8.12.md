@@ -8,7 +8,7 @@
 
 이전 버전: [update_1.8.11.md](./update_1.8.11.md)
 
-상태: 두 외부 리뷰의 P0/P1 안정화와 후속 도서정보 clipboard·탭→스크롤 폭 수정 구현 완료. 전체 자동검증과 release/cache 검증 통과, 1.8.12 전체 외부 재리뷰·실기기 확인 대기
+상태: 두 외부 리뷰의 P0/P1 안정화와 후속 도서정보 clipboard·탭→스크롤 폭 수정 구현·full gate 완료. 1.8.12 전체 외부 재리뷰에서 추가 P1/P2 동기화 invariant finding이 확인되어 [update_1.8.13.md](./update_1.8.13.md)로 후속 이관
 
 ## 목표
 

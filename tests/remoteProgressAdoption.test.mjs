@@ -37,8 +37,7 @@ test('canonical remote navigation adopts before touching the viewport', async ()
     },
   });
 
-  assert.equal(result.adoption.status, 'adopted');
-  assert.equal(result.navigated, true);
+  assert.equal(result.status, 'navigated');
   assert.deepEqual(events, ['adopt', 'prepare', 'navigate', 'finish']);
 });
 
@@ -65,8 +64,7 @@ test('local target work blocks quiet resume without navigation or rollback', asy
     },
   });
 
-  assert.equal(result.adoption.status, 'blocked-by-local-work');
-  assert.equal(result.navigated, false);
+  assert.equal(result.status, 'blocked-by-local-work');
   assert.deepEqual(events, ['adopt']);
 });
 
@@ -89,11 +87,11 @@ test('stale authoritative identity is rejected before navigation', async () => {
     },
   });
 
-  assert.equal(result.adoption.status, 'stale-remote');
+  assert.equal(result.status, 'stale-remote');
   assert.deepEqual(events, ['adopt']);
 });
 
-test('a superseded navigation never rolls canonical progress back', async () => {
+test('a failed renderer navigation keeps canonical progress but remains retryable', async () => {
   const events = [];
   const result = await executeCanonicalRemoteProgressNavigation({
     isCurrent: () => true,
@@ -113,9 +111,27 @@ test('a superseded navigation never rolls canonical progress back', async () => 
     },
   });
 
-  assert.equal(result.adoption.status, 'adopted');
-  assert.equal(result.navigated, false);
+  assert.equal(result.status, 'adopted-navigation-failed');
+  assert.equal(result.retryable, true);
   assert.deepEqual(events, ['adopt', 'prepare', 'navigate', 'cancel:7']);
+});
+
+test('a superseded navigation is distinct from renderer failure', async () => {
+  let current = true;
+  const events = [];
+  const result = await executeCanonicalRemoteProgressNavigation({
+    isCurrent: () => current,
+    adopt: async () => ({ status: 'adopted', progress }),
+    prepare: () => 9,
+    cancel: (id) => events.push(`cancel:${id}`),
+    navigate: async () => {
+      current = false;
+      return true;
+    },
+  });
+
+  assert.equal(result.status, 'adopted-navigation-superseded');
+  assert.deepEqual(events, ['cancel:9']);
 });
 
 test('revision and accepted event id are the stable remote identity', () => {

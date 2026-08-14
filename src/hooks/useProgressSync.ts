@@ -39,6 +39,7 @@ import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { getSyncSessionId, isExactSyncSessionEcho } from '../lib/syncSession';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
+import { traceReaderBootstrap } from '../lib/readerBootstrapTrace';
 
 type FirestoreQuerySnapshot = QuerySnapshot<DocumentData, DocumentData>;
 
@@ -48,20 +49,11 @@ const reconcileSnapshotListener = <T,>(
   recovery: SnapshotListenerRecovery<T> | null,
   options?: { force?: boolean; now?: number },
 ) => {
-  if (!recovery) return;
-  if (options?.force) {
-    recovery.forceRestart();
-    return;
-  }
-  const lastAuthoritativeAt = recovery.getLastAuthoritativeSnapshotAt();
-  if (
-    lastAuthoritativeAt > 0
-    && (options?.now ?? Date.now()) - lastAuthoritativeAt >= AUTHORITATIVE_SNAPSHOT_STALE_MS
-  ) {
-    recovery.forceRestart();
-    return;
-  }
-  recovery.retryNow();
+  return recovery?.reconcile({
+    force: options?.force,
+    now: options?.now,
+    staleAfterMs: AUTHORITATIVE_SNAPSHOT_STALE_MS,
+  }) ?? false;
 };
 
 interface UseProgressSyncOptions {
@@ -105,6 +97,9 @@ export const useProgressSync = ({
     >();
     const handleSnapshot = async (snapshot: FirestoreQuerySnapshot) => {
       if (!ownerRuntime.isCurrent(owner)) return;
+      if (!snapshot.metadata.fromCache) {
+        traceReaderBootstrap({ event: 'authoritative-snapshot', listener: 'progress' });
+      }
       const changes = hydrator.select(snapshot);
       if (!changes) return;
       const remoteUpdates: Record<string, RemotePositionUpdate> = {};
@@ -160,6 +155,7 @@ export const useProgressSync = ({
     const recovery = new SnapshotListenerRecovery<FirestoreQuerySnapshot>({
       subscribe: (next, error) => {
         hydrator = new ServerSnapshotHydrator();
+        traceReaderBootstrap({ event: 'listener-attached', listener: 'progress' });
         return onSnapshot(v2Ref, { includeMetadataChanges: true }, next, error);
       },
       onSnapshot: handleSnapshot,
@@ -199,6 +195,9 @@ export const useProgressSync = ({
     const bookmarksRef = collection(doc(db, firebaseHistoryPath, activeBookId), 'bookmarks');
     const handleSnapshot = async (snapshot: FirestoreQuerySnapshot) => {
       if (!ownerRuntime.isCurrent(owner)) return;
+      if (!snapshot.metadata.fromCache) {
+        traceReaderBootstrap({ event: 'authoritative-snapshot', listener: 'bookmark' });
+      }
       const changes = hydrator.select(snapshot);
       if (!changes) return;
       const accumulatedChanges: RemoteBookmarkHeadChange[] = [];
@@ -243,6 +242,7 @@ export const useProgressSync = ({
       subscribe: (next, error) => {
         hydrator = new ServerSnapshotHydrator();
         remoteBookmarkHeads = new Map();
+        traceReaderBootstrap({ event: 'listener-attached', listener: 'bookmark' });
         return onSnapshot(
           bookmarksRef,
           { includeMetadataChanges: true },
@@ -274,8 +274,12 @@ export const useProgressSync = ({
     if (!user) return;
     const reconcileListeners = (force = false) => {
       const now = Date.now();
-      reconcileSnapshotListener(progressRecoveryRef.current, { force, now });
-      reconcileSnapshotListener(bookmarkRecoveryRef.current, { force, now });
+      if (reconcileSnapshotListener(progressRecoveryRef.current, { force, now })) {
+        traceReaderBootstrap({ event: 'listener-reconciled', listener: 'progress' });
+      }
+      if (reconcileSnapshotListener(bookmarkRecoveryRef.current, { force, now })) {
+        traceReaderBootstrap({ event: 'listener-reconciled', listener: 'bookmark' });
+      }
     };
     const handleOnline = () => reconcileListeners(true);
     const handleVisibility = () => {
@@ -287,8 +291,11 @@ export const useProgressSync = ({
     // Opening another book recreates its bookmark listener. The account-wide
     // progress listener is longer-lived, so reconcile it when its last server
     // snapshot is old before ordinary quiet resume is allowed to act on it.
-    if (activeBookId) {
-      reconcileSnapshotListener(progressRecoveryRef.current, { now: Date.now() });
+    if (activeBookId && reconcileSnapshotListener(
+      progressRecoveryRef.current,
+      { now: Date.now() },
+    )) {
+      traceReaderBootstrap({ event: 'listener-reconciled', listener: 'progress' });
     }
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);

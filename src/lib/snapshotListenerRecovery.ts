@@ -3,6 +3,7 @@ import { isAuthSyncErrorCode, type SyncHealth } from './syncHealth';
 type TimerHandle = ReturnType<typeof setTimeout>;
 
 export const SNAPSHOT_RETRY_DELAYS_MS = [1_000, 5_000, 15_000, 30_000, 60_000] as const;
+export const SNAPSHOT_RESTART_COOLDOWN_MS = 5_000;
 
 const getErrorCode = (error: unknown) => {
   if (typeof error === 'object' && error !== null && 'code' in error) {
@@ -57,6 +58,8 @@ export class SnapshotListenerRecovery<T> {
   private disposed = false;
   private health: SyncHealth = 'healthy';
   private processingTail = Promise.resolve();
+  private lastAttachedAt = 0;
+  private lastRestartAt = 0;
   private lastAuthoritativeSnapshotAt = 0;
   private readonly setTimer;
   private readonly clearTimer;
@@ -75,15 +78,52 @@ export class SnapshotListenerRecovery<T> {
   }
 
   retryNow() {
-    if (this.disposed || !this.failed) return;
+    if (this.disposed || !this.failed) return false;
+    if (this.options.canRetry && !this.options.canRetry()) return false;
     this.clearRetryTimer();
     this.attach();
+    return true;
   }
 
-  forceRestart() {
-    if (this.disposed) return;
+  forceRestart(restartCooldownMs = SNAPSHOT_RESTART_COOLDOWN_MS) {
+    if (this.disposed) return false;
+    if (this.options.canRetry && !this.options.canRetry()) return false;
+    const now = this.now();
+    if (
+      this.lastRestartAt > 0
+      && now - this.lastRestartAt < restartCooldownMs
+    ) return false;
+    this.lastRestartAt = now;
     this.clearRetryTimer();
     this.attach();
+    return true;
+  }
+
+  reconcile(options?: { force?: boolean; staleAfterMs?: number; now?: number }) {
+    if (this.disposed) return false;
+    if (this.failed) return this.retryNow();
+    if (options?.force) return this.forceRestart();
+    const now = options?.now ?? this.now();
+    const staleAfterMs = options?.staleAfterMs ?? 15_000;
+    const neverReceivedAuthoritative = this.lastAuthoritativeSnapshotAt === 0
+      && this.lastAttachedAt > 0
+      && now - this.lastAttachedAt >= staleAfterMs;
+    const authoritativeIsStale = this.lastAuthoritativeSnapshotAt > 0
+      && now - this.lastAuthoritativeSnapshotAt >= staleAfterMs;
+    if (!neverReceivedAuthoritative && !authoritativeIsStale) return false;
+    return this.forceRestart();
+  }
+
+  isFailed() {
+    return this.failed;
+  }
+
+  getFreshness() {
+    return {
+      lastAttachedAt: this.lastAttachedAt,
+      lastRestartAt: this.lastRestartAt,
+      lastAuthoritativeAt: this.lastAuthoritativeSnapshotAt,
+    };
   }
 
   getLastAuthoritativeSnapshotAt() {
@@ -104,6 +144,7 @@ export class SnapshotListenerRecovery<T> {
     this.detachSubscription();
     const generation = this.generation + 1;
     this.generation = generation;
+    this.lastAttachedAt = this.now();
 
     try {
       const unsubscribe = this.options.subscribe(

@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.12: stabilize canonical sync adoption and reader-open pagination.
+// 1.8.13: harden sync invariants, listener recovery, and remote navigation retry.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.12`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.13`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

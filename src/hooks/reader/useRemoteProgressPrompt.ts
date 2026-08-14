@@ -18,6 +18,7 @@ import {
   executeCanonicalRemoteProgressNavigation,
   getRemoteProgressIdentity,
 } from './remoteProgressAdoption';
+import { hashReaderTraceValue, traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
 
 export type SyncConflict = {
   operation: 'set' | 'reset';
@@ -108,12 +109,19 @@ export const useRemoteProgressPrompt = ({
   hasLocalProgress,
 }: UseRemoteProgressPromptOptions) => {
   const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
+  const [syncConflictFeedback, setSyncConflictFeedback] = useState<string | null>(null);
   const [resolvingSyncConflict, setResolvingSyncConflict] = useState(false);
+  const [remoteRetryNonce, setRemoteRetryNonce] = useState(0);
   const lastProcessedRemoteIdentity = useRef<string | null>(null);
   const isInitialSync = useRef(true);
   const jumpGeneration = useRef(0);
   const jumpingRemoteIdentity = useRef<string | null>(null);
   const jumpTail = useRef<Promise<void>>(Promise.resolve());
+  const automaticRetryRef = useRef<{ identity: string | null; attempts: number; timer: number | null }>({
+    identity: null,
+    attempts: 0,
+    timer: null,
+  });
   const resolvedRemoteProgressCommandRef = useRef(resolvedRemoteProgressCommand);
   useEffect(() => {
     if (
@@ -125,7 +133,24 @@ export const useRemoteProgressPrompt = ({
 
   useEffect(() => () => {
     jumpGeneration.current += 1;
+    if (automaticRetryRef.current.timer !== null) {
+      window.clearTimeout(automaticRetryRef.current.timer);
+    }
   }, []);
+
+  const navigateToRemoteSet = useCallback((target: SyncConflict) => {
+    const navigation = jumpTail.current
+      .catch(() => undefined)
+      .then(async () => {
+        const primary = target.cfi || target.anchorCfi || '';
+        if (primary && await goTo(primary)) return true;
+        const fallback = target.anchorCfi || '';
+        if (fallback && fallback !== primary) return goTo(fallback);
+        return false;
+      });
+    jumpTail.current = navigation.then(() => undefined);
+    return navigation;
+  }, [goTo]);
 
   const jumpToRemoteProgress = useCallback(async (
     target: SyncConflict,
@@ -213,28 +238,19 @@ export const useRemoteProgressPrompt = ({
         finish: finishRemoteJump,
         navigate: target.operation === 'reset'
           ? () => goToFraction(0)
-          : () => {
-            const navigation = jumpTail.current
-              .catch(() => undefined)
-              .then(() => goTo(target.cfi || target.anchorCfi || ''));
-            jumpTail.current = navigation.then(() => undefined);
-            return navigation;
-          },
+          : () => navigateToRemoteSet(target),
       });
     } catch (error) {
       console.warn('[RemoteProgress] canonical navigation failed:', error);
-      return {
-        adoption: { status: 'cancelled' as const },
-        navigated: false,
-      };
+      return { status: 'cancelled' as const, retryable: true };
     }
   }, [
     adoptRemoteProgressBeforeNavigation,
     cancelRemoteJump,
     finishRemoteJump,
     getBookmarks,
-    goTo,
     goToFraction,
+    navigateToRemoteSet,
     prepareRemoteJump,
   ]);
 
@@ -286,11 +302,13 @@ export const useRemoteProgressPrompt = ({
         }
         if (completed) {
           adoptResolvedBookmarks(finalizedProgress?.bookmarks ?? target.bookmarks ?? []);
+          setSyncConflictFeedback(null);
           setSyncConflict(null);
           lastProcessedRemoteIdentity.current = commandIdentity;
           isInitialSync.current = false;
           onResolvedRemoteProgressConsumed?.(commandId);
         } else if (resolvedRemoteProgressCommandRef.current?.commandId === commandId) {
+          setSyncConflictFeedback(null);
           setSyncConflict(target);
         }
       });
@@ -328,11 +346,13 @@ export const useRemoteProgressPrompt = ({
       }
       if (!completed) {
         if (resolvedRemoteProgressCommandRef.current?.commandId === commandId) {
+          setSyncConflictFeedback(null);
           setSyncConflict(target);
         }
         return;
       }
       adoptResolvedBookmarks(finalizedProgress?.bookmarks ?? target.bookmarks ?? []);
+      setSyncConflictFeedback(null);
       setSyncConflict(null);
       lastProcessedRemoteIdentity.current = commandIdentity;
       isInitialSync.current = false;
@@ -358,6 +378,12 @@ export const useRemoteProgressPrompt = ({
     const remoteAnchorCfi = remoteProgress.anchorCfi || remoteCfi;
     const currentAnchor = currentAnchorCfi || currentCfi;
     const remoteIdentity = getRemoteProgressIdentity(remoteProgress);
+    if (automaticRetryRef.current.identity !== remoteIdentity) {
+      if (automaticRetryRef.current.timer !== null) {
+        window.clearTimeout(automaticRetryRef.current.timer);
+      }
+      automaticRetryRef.current = { identity: remoteIdentity, attempts: 0, timer: null };
+    }
 
     if (
       ignoredRemoteRevision !== undefined
@@ -386,19 +412,33 @@ export const useRemoteProgressPrompt = ({
     if (jumpingRemoteIdentity.current) jumpingRemoteIdentity.current = null;
     jumpGeneration.current += 1;
 
-    const action = decideRemoteProgressAction({
-      isInitialSync: isInitialSync.current,
-      operation: remoteOperation,
-      hasLocalProgress,
-      remoteAnchorCfi,
-      currentAnchorCfi: currentAnchor,
-      remoteTime,
-      lastSaveTime: lastSaveTimeRef.current,
-      remotePercent: remoteProgress.progressPercent,
-      currentPercent: totalProgress,
-      isQuietResumeEligible: isQuietResumeEligible(),
-      remoteRevision: remoteProgress.syncRevision,
-      localRevision,
+    const retryState = automaticRetryRef.current;
+    const quietResumeEligible = isQuietResumeEligible();
+    const isAutomaticNavigationRetry = retryState.identity === remoteIdentity
+      && retryState.attempts > 0
+      && retryState.timer === null
+      && quietResumeEligible;
+    const action = isAutomaticNavigationRetry
+      ? 'jump'
+      : decideRemoteProgressAction({
+        isInitialSync: isInitialSync.current,
+        operation: remoteOperation,
+        hasLocalProgress,
+        remoteAnchorCfi,
+        currentAnchorCfi: currentAnchor,
+        remoteTime,
+        lastSaveTime: lastSaveTimeRef.current,
+        remotePercent: remoteProgress.progressPercent,
+        currentPercent: totalProgress,
+        isQuietResumeEligible: quietResumeEligible,
+        remoteRevision: remoteProgress.syncRevision,
+        localRevision,
+      });
+    traceReaderBootstrap({
+      event: 'remote-decision',
+      identityHash: hashReaderTraceValue(remoteIdentity),
+      revision: remoteProgress.syncRevision,
+      decision: action,
     });
     if (action === 'ignore') {
       lastProcessedRemoteIdentity.current = remoteIdentity;
@@ -418,26 +458,63 @@ export const useRemoteProgressPrompt = ({
     };
     if (action === 'jump') {
       jumpingRemoteIdentity.current = remoteIdentity;
-      void adoptAndNavigateRemoteProgress(target).then(({ adoption }) => {
+      void adoptAndNavigateRemoteProgress(target).then((result) => {
+        traceReaderBootstrap({
+          event: 'remote-navigation-result',
+          identityHash: hashReaderTraceValue(remoteIdentity),
+          revision: remoteProgress.syncRevision,
+          status: result.status,
+        });
         if (jumpingRemoteIdentity.current !== remoteIdentity) return;
         jumpingRemoteIdentity.current = null;
+        if (
+          result.status === 'navigated'
+          || result.status === 'blocked-by-local-work'
+          || result.status === 'stale-remote'
+          || result.status === 'adopted-navigation-superseded'
+        ) {
+          lastProcessedRemoteIdentity.current = remoteIdentity;
+          isInitialSync.current = false;
+          setSyncConflictFeedback(null);
+          if (
+            result.status === 'blocked-by-local-work'
+            || result.status === 'stale-remote'
+          ) setSyncConflict(null);
+          return;
+        }
+
+        const retryable = result.retryable;
+        if (!retryable) {
+          lastProcessedRemoteIdentity.current = remoteIdentity;
+          isInitialSync.current = false;
+          return;
+        }
+        const retryState = automaticRetryRef.current;
+        if (retryState.identity !== remoteIdentity) return;
+        retryState.attempts += 1;
+        if (retryState.attempts <= 2) {
+          const delay = retryState.attempts === 1 ? 750 : 2_000;
+          retryState.timer = window.setTimeout(() => {
+            if (automaticRetryRef.current.identity !== remoteIdentity) return;
+            automaticRetryRef.current.timer = null;
+            setRemoteRetryNonce((value) => value + 1);
+          }, delay);
+          return;
+        }
         lastProcessedRemoteIdentity.current = remoteIdentity;
         isInitialSync.current = false;
-        if (
-          adoption.status === 'blocked-by-local-work'
-          || adoption.status === 'stale-remote'
-        ) {
-          // Do not move or prompt here. The existing outbox/conflict resolver
-          // owns the next decision, or a newer authoritative identity will arrive.
-          setSyncConflict(null);
-        }
+        setSyncConflictFeedback('클라우드 위치는 저장됐지만 화면 이동에 실패했습니다. 다시 이동을 시도해 주세요.');
+        setSyncConflict(target);
       });
       return;
     }
 
     lastProcessedRemoteIdentity.current = remoteIdentity;
     isInitialSync.current = false;
-    const timeoutId = window.setTimeout(() => setSyncConflict(target), 0);
+    const timeoutId = window.setTimeout(() => {
+      setSyncConflictFeedback(null);
+      setSyncConflict(target);
+    }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [
     adoptAndNavigateRemoteProgress,
@@ -451,12 +528,14 @@ export const useRemoteProgressPrompt = ({
     localRevision,
     outboxConflictRevision,
     remoteProgress,
+    remoteRetryNonce,
     totalProgress,
   ]);
 
   const dismissSyncConflict = useCallback(async () => {
     if (syncConflict?.resolutionCommandId) {
       onResolvedRemoteProgressCancelled?.(syncConflict.resolutionCommandId);
+      setSyncConflictFeedback(null);
       setSyncConflict(null);
       return;
     }
@@ -464,6 +543,7 @@ export const useRemoteProgressPrompt = ({
       const ignored = await onIgnoreRemoteProgress?.(syncConflict.syncRevision);
       if (!ignored) return;
     }
+    setSyncConflictFeedback(null);
     setSyncConflict(null);
   }, [onIgnoreRemoteProgress, onResolvedRemoteProgressCancelled, syncConflict]);
 
@@ -491,15 +571,35 @@ export const useRemoteProgressPrompt = ({
       }
       : undefined;
     if (!syncConflict.resolutionCommandId) {
-      void adoptAndNavigateRemoteProgress(target).then(({ adoption }) => {
-        if (adoption.status !== 'adopted') {
-          if (
-            adoption.status === 'blocked-by-local-work'
-            || adoption.status === 'stale-remote'
-          ) setSyncConflict(null);
+      setSyncConflictFeedback(null);
+      const targetIdentityHash = hashReaderTraceValue(getRemoteProgressIdentity({
+        operation: target.operation,
+        cfi: target.cfi,
+        anchorCfi: target.anchorCfi,
+        lastRead: target.lastRead,
+        syncRevision: target.syncRevision,
+        acceptedEventId: target.acceptedEventId,
+      }));
+      void adoptAndNavigateRemoteProgress(target).then((result) => {
+        traceReaderBootstrap({
+          event: 'remote-navigation-result',
+          identityHash: targetIdentityHash,
+          revision: target.syncRevision,
+          status: result.status,
+        });
+        if (
+          result.status === 'blocked-by-local-work'
+          || result.status === 'stale-remote'
+          || result.status === 'adopted-navigation-superseded'
+        ) {
+          setSyncConflict(null);
           return;
         }
-        const committedBookmarks = adoption.progress.bookmarks
+        if (result.status !== 'navigated') {
+          setSyncConflictFeedback('화면 이동에 실패했습니다. 리더가 준비된 뒤 다시 시도해 주세요.');
+          return;
+        }
+        const committedBookmarks = result.progress.bookmarks
           ?? target.bookmarks
           ?? getBookmarks();
         if (stagedBookmarks) commitBookmarks(committedBookmarks);
@@ -526,6 +626,7 @@ export const useRemoteProgressPrompt = ({
 
   return {
     syncConflict,
+    syncConflictFeedback,
     resolvingSyncConflict,
     dismissSyncConflict,
     acceptSyncConflict,

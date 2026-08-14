@@ -159,20 +159,44 @@ const applyRemoteAnnotationBookDeletionMarkerTransactionV5 = async (
       bookId,
       ANNOTATION_BOOK_DELETE_MARKER_ID,
     );
-    const [stored, markerCache, markerMeta] = await Promise.all([
+    const [stored, markerCache, markerMeta, markerEvents, markerOpenConflicts, markerDeferredConflicts] = await Promise.all([
       annotationStore.index('by-owner-book').getAll([
         ownerKey,
         bookId,
       ]) as Promise<StoredAnnotation[]>,
       remoteStore.get([ownerKey, markerTargetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
       metaStore.get([ownerKey, markerTargetKey]) as Promise<SyncMetaV5 | undefined>,
+      outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+        [ownerKey, markerTargetKey, 0],
+        [ownerKey, markerTargetKey, Number.MAX_SAFE_INTEGER],
+      )) as Promise<SyncOutboxEventV5[]>,
+      conflictStore.index('by-owner-target-state').getAll([
+        ownerKey,
+        markerTargetKey,
+        'open',
+      ]) as Promise<SyncConflictV5[]>,
+      conflictStore.index('by-owner-target-state').getAll([
+        ownerKey,
+        markerTargetKey,
+        'deferred',
+      ]) as Promise<SyncConflictV5[]>,
     ]);
+    if (
+      markerCache
+      && markerCache.revision === incomingMarkerHead.revision
+      && markerCache.head.acceptedEventId !== incomingMarkerHead.acceptedEventId
+    ) {
+      throw Object.assign(
+        new Error('같은 annotation marker revision에 서로 다른 acceptedEventId가 있습니다.'),
+        { code: 'invalid-argument' },
+      );
+    }
     let effectiveMarkerHead = markerCache?.head;
     const isSameHead = markerCache?.revision === incomingMarkerHead.revision
       && markerCache.head.acceptedEventId === incomingMarkerHead.acceptedEventId;
     if (
       !isSameHead
-      && (!markerCache || incomingMarkerHead.revision >= markerCache.revision)
+      && (!markerCache || incomingMarkerHead.revision > markerCache.revision)
     ) {
       await remoteStore.put({
         ownerKey,
@@ -183,12 +207,15 @@ const applyRemoteAnnotationBookDeletionMarkerTransactionV5 = async (
       } satisfies RemoteHeadCacheV5);
       effectiveMarkerHead = incomingMarkerHead;
     }
+    const markerHasLocalWork = markerEvents.some((event) => activeStatuses.has(event.status))
+      || markerOpenConflicts.length > 0
+      || markerDeferredConflicts.length > 0;
     const knownRevision = Math.max(
       markerMeta?.knownRevision ?? 0,
       markerCache?.revision ?? 0,
       incomingMarkerHead.revision,
     );
-    if (!markerMeta || knownRevision > markerMeta.knownRevision) {
+    if (!markerHasLocalWork && (!markerMeta || knownRevision > markerMeta.knownRevision)) {
       await metaStore.put({
         ...(markerMeta ?? {
           ownerKey,
@@ -370,6 +397,7 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
       head: AnnotationHeadV1;
       targetKey: string;
       meta?: SyncMetaV5;
+      hasLocalWork: boolean;
     }> = [];
     let skipped = 0;
 
@@ -392,11 +420,12 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
         ]) as Promise<SyncConflictV5[]>,
         metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
       ]);
-      remoteWrites.push({ head, targetKey, meta });
       const hasLocalWork = targetEvents.some((event) => activeStatuses.has(event.status))
         || openConflicts.length > 0
         || deferredConflicts.length > 0;
-      if (hasLocalWork) {
+      remoteWrites.push({ head, targetKey, meta, hasLocalWork });
+      const hasLocalWorkForCanonical = hasLocalWork;
+      if (hasLocalWorkForCanonical) {
         skipped += 1;
         continue;
       }
@@ -436,12 +465,22 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
         await annotationStore.put({ ...write.annotation, ownerKey });
       }
     }
-    for (const { head, targetKey, meta } of remoteWrites) {
+    for (const { head, targetKey, meta, hasLocalWork } of remoteWrites) {
       const existingRemote = await remoteStore.get([
         ownerKey,
         targetKey,
       ]) as RemoteHeadCacheV5 | undefined;
-      if (!existingRemote || head.revision >= existingRemote.revision) {
+      if (
+        existingRemote
+        && existingRemote.revision === head.revision
+        && existingRemote.head.acceptedEventId !== head.acceptedEventId
+      ) {
+        throw Object.assign(
+          new Error(`같은 annotation revision에 서로 다른 acceptedEventId가 있습니다: ${targetKey}`),
+          { code: 'invalid-argument' },
+        );
+      }
+      if (!existingRemote || head.revision > existingRemote.revision) {
         await remoteStore.put({
           ownerKey,
           targetKey,
@@ -450,17 +489,19 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
           updatedAt: now,
         } satisfies RemoteHeadCacheV5);
       }
-      await metaStore.put({
-        ownerKey,
-        targetKey,
-        knownRevision: Math.max(
-          meta?.knownRevision ?? 0,
-          existingRemote?.revision ?? 0,
-          head.revision,
-        ),
-        nextSequence: meta?.nextSequence ?? 1,
-        updatedAt: now,
-      } satisfies SyncMetaV5);
+      if (!hasLocalWork) {
+        await metaStore.put({
+          ownerKey,
+          targetKey,
+          knownRevision: Math.max(
+            meta?.knownRevision ?? 0,
+            existingRemote?.revision ?? 0,
+            head.revision,
+          ),
+          nextSequence: meta?.nextSequence ?? 1,
+          updatedAt: now,
+        } satisfies SyncMetaV5);
+      }
     }
     if (!isCurrent() || signal?.aborted) {
       abortTransaction();

@@ -15,10 +15,13 @@ export const getRemoteProgressIdentity = (progress: {
     : `${progress.operation}:${progress.anchorCfi || progress.cfi}:${progress.lastRead}`
 );
 
-export type CanonicalRemoteNavigationResult = {
-  adoption: RemoteProgressAdoptionResult;
-  navigated: boolean;
-};
+export type CanonicalRemoteNavigationResult =
+  | { status: 'navigated'; progress: Extract<RemoteProgressAdoptionResult, { status: 'adopted' }>['progress'] }
+  | { status: 'blocked-by-local-work'; work: Extract<RemoteProgressAdoptionResult, { status: 'blocked-by-local-work' }>['work'] }
+  | { status: 'stale-remote' }
+  | { status: 'adopted-navigation-superseded'; progress: Extract<RemoteProgressAdoptionResult, { status: 'adopted' }>['progress'] }
+  | { status: 'adopted-navigation-failed'; progress: Extract<RemoteProgressAdoptionResult, { status: 'adopted' }>['progress']; retryable: boolean }
+  | { status: 'cancelled'; retryable: boolean };
 
 type CanonicalRemoteNavigationSteps = {
   isCurrent: () => boolean;
@@ -37,22 +40,42 @@ export const executeCanonicalRemoteProgressNavigation = async ({
   finish,
   navigate,
 }: CanonicalRemoteNavigationSteps): Promise<CanonicalRemoteNavigationResult> => {
-  const adoption = await adopt();
-  if (adoption.status !== 'adopted' || !isCurrent()) {
-    return { adoption, navigated: false };
+  let adoption: RemoteProgressAdoptionResult;
+  try {
+    adoption = await adopt();
+  } catch {
+    return { status: 'cancelled', retryable: true };
+  }
+  if (adoption.status === 'blocked-by-local-work') return adoption;
+  if (adoption.status === 'stale-remote') return adoption;
+  if (adoption.status === 'cancelled') return { status: 'cancelled', retryable: true };
+  if (!isCurrent()) {
+    return { status: 'adopted-navigation-superseded', progress: adoption.progress };
   }
 
   const preparationId = prepare();
   try {
     const navigated = await navigate();
-    if (!navigated || !isCurrent()) {
+    if (!isCurrent()) {
       cancel(preparationId);
-      return { adoption, navigated: false };
+      return { status: 'adopted-navigation-superseded', progress: adoption.progress };
+    }
+    if (!navigated) {
+      cancel(preparationId);
+      return {
+        status: 'adopted-navigation-failed',
+        progress: adoption.progress,
+        retryable: true,
+      };
     }
     finish?.(preparationId);
-    return { adoption, navigated: true };
-  } catch (error) {
+    return { status: 'navigated', progress: adoption.progress };
+  } catch {
     cancel(preparationId);
-    throw error;
+    return {
+      status: 'adopted-navigation-failed',
+      progress: adoption.progress,
+      retryable: true,
+    };
   }
 };

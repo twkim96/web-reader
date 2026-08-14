@@ -68,10 +68,10 @@ const createCacheStorage = (entriesByCache) => {
 };
 
 test('keeps the release cache version while revising the Foliate entry separately', () => {
-  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.12');
-  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.12.2');
-  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.12');
-  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.12.2');
+  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.13');
+  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.13.1');
+  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.13');
+  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.13.1');
 });
 
 test('removes only Foliate entries from stale release caches', async () => {
@@ -91,20 +91,24 @@ test('removes only Foliate entries from stale release caches', async () => {
       `${origin}/foliate-js/view.js?v=1.8.12.1`,
       `${origin}/foliate-js/view.js?v=1.8.12.2`,
     ],
+    'pc-reader-v1.8.13': [
+      `${origin}/foliate-js/view.js?v=1.8.13`,
+      `${origin}/foliate-js/view.js?v=1.8.13.1`,
+    ],
     'unrelated-cache': [
       `${origin}/foliate-js/view.js`,
     ],
   });
 
-  assert.equal(await clearStaleFoliateRuntimeEntries(cacheStorage, origin), 4);
+  assert.equal(await clearStaleFoliateRuntimeEntries(cacheStorage, origin), 7);
   assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.0')], [
     `${origin}/fonts/reader.woff2`,
   ]);
   assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.11')], []);
-  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.12')], [
-    `${origin}/foliate-js/view.js?v=1.8.12`,
-    `${origin}/foliate-js/view.js?v=1.8.12.1`,
-    `${origin}/foliate-js/view.js?v=1.8.12.2`,
+  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.12')], []);
+  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.13')], [
+    `${origin}/foliate-js/view.js?v=1.8.13`,
+    `${origin}/foliate-js/view.js?v=1.8.13.1`,
   ]);
   assert.deepEqual([...cacheStorage.stores.get('unrelated-cache')], [
     `${origin}/foliate-js/view.js`,

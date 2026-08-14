@@ -19,6 +19,7 @@ import {
 import type { PersistableReaderLocation, ReaderRelocateDetail } from './progress';
 import type { RemoteProgressCommandFinalizeResult } from '../useSyncConflictResolution';
 import type { RemoteProgressJumpCompletion } from './remoteProgressJump';
+import { traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
 
 type SaveContext = {
   currentCfi: string;
@@ -133,6 +134,11 @@ export const useReaderProgressSave = ({
     saveContextRef.current = context;
   }, []);
 
+  const markUserInteraction = useCallback(() => {
+    traceReaderProgressRegression({ event: 'user-interaction' });
+    hasUserInteractedRef.current = true;
+  }, []);
+
   const markUserProgressChange = useCallback((options?: {
     forceNextRelocateSave?: boolean;
     expectedPercent?: number;
@@ -145,7 +151,7 @@ export const useReaderProgressSave = ({
     // Explicit user input releases the fence before its relocation arrives.
     ttsProgressFenceActiveRef.current = false;
     traceReaderProgressRegression({ event: 'user-change' });
-    hasUserInteractedRef.current = true;
+    markUserInteraction();
     hasUnsavedUserChangeRef.current = true;
     interactionGenerationRef.current += 1;
     if (options?.forceNextRelocateSave) {
@@ -158,7 +164,7 @@ export const useReaderProgressSave = ({
     if (options?.bookmarks) {
       pendingBookmarksRef.current = options.bookmarks;
     }
-  }, []);
+  }, [markUserInteraction]);
 
   const clearRelocateSaveTimer = useCallback(() => {
     if (relocateSaveTimerRef.current === null) return;
@@ -325,6 +331,14 @@ export const useReaderProgressSave = ({
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
   const handleRelocateForSave = useCallback((detail: ReaderRelocateDetail) => {
+    traceReaderBootstrap({
+      event: 'relocate',
+      status: detail.reason ?? detail.navigationSource ?? undefined,
+      page: Number.isFinite(detail.location?.current) ? detail.location?.current : undefined,
+      pages: Number.isFinite(detail.location?.total) ? detail.location?.total : undefined,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    });
     traceReaderProgressRegression({
       event: 'relocate',
       reason: detail.reason ?? null,
@@ -594,6 +608,7 @@ export const useReaderProgressSave = ({
   return {
     lastSaveTimeRef,
     updateSaveContext,
+    markUserInteraction,
     markUserProgressChange,
     setTtsProgressFenceActive,
     saveProgressIfChanged,

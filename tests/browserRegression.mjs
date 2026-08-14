@@ -1456,7 +1456,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.12.2')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.13.1')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -3637,6 +3637,33 @@ try {
     `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
     'combined records modal after reader reopen',
   );
+  const bookmarkDirtyProbe = await evaluate(`(async () => {
+    window.__readerProgressRegressionTrace = [];
+    const panel = document.querySelector('[data-reader-bookmark-panel="true"]');
+    const addButton = [...(panel?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.includes('현재 위치 추가하기'));
+    const addDisabled = Boolean(addButton?.disabled);
+    addButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const addEvents = (window.__readerProgressRegressionTrace ?? []).map(({ event }) => event);
+    window.__readerProgressRegressionTrace = [];
+    const deleteButton = panel?.querySelector('button[aria-label="책갈피 삭제"]');
+    deleteButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const deleteEvents = (window.__readerProgressRegressionTrace ?? []).map(({ event }) => event);
+    return {
+      addDisabled,
+      addEvents,
+      deleteButtonFound: Boolean(deleteButton),
+      deleteEvents,
+    };
+  })()`);
+  assert.equal(bookmarkDirtyProbe.addDisabled, false, JSON.stringify(bookmarkDirtyProbe));
+  assert.equal(bookmarkDirtyProbe.deleteButtonFound, true, JSON.stringify(bookmarkDirtyProbe));
+  assert.ok(bookmarkDirtyProbe.addEvents.includes('user-interaction'), JSON.stringify(bookmarkDirtyProbe));
+  assert.equal(bookmarkDirtyProbe.addEvents.includes('user-change'), false, JSON.stringify(bookmarkDirtyProbe));
+  assert.ok(bookmarkDirtyProbe.deleteEvents.includes('user-interaction'), JSON.stringify(bookmarkDirtyProbe));
+  assert.equal(bookmarkDirtyProbe.deleteEvents.includes('user-change'), false, JSON.stringify(bookmarkDirtyProbe));
   const compactRecordsModal = await evaluate(`(() => {
     const bookmarkPanel = document.querySelector('[data-reader-bookmark-panel="true"]');
     const width = bookmarkPanel?.getBoundingClientRect().width ?? null;
@@ -5865,7 +5892,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.12';
+    const expectedCache = 'pc-reader-v1.8.13';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -5892,7 +5919,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.12',
+      '/sw.js?browser-regression=1.8.13',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -5936,11 +5963,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.12']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.13']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.12$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.13$/);
 
   console.log(JSON.stringify({
     shelf: {

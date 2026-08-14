@@ -101,6 +101,36 @@ test('coalesces only the last same-session pending progress.set', async () => {
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).nextSequence, 2);
 });
 
+test('an observed in-flight echo does not double count the next base revision', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', sessionId: 'session-a' });
+  const claimed = await claimNext(10);
+  assert.equal(claimed.event.baseRevision, 0);
+
+  await storeRemoteProgressHeadV5(ownerA, {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 1,
+    acceptedEventId: 'event-1',
+    operation: 'set',
+    position: position(10),
+    acceptedDeviceId: 'device-1',
+    acceptedSessionId: 'session-a',
+    occurredAtClient: 1,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  }, 12);
+
+  assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 0);
+  await enqueue(ownerA, {
+    eventId: 'event-2',
+    sessionId: 'session-b',
+    position: position(20),
+    occurredAtClient: 13,
+  });
+  const events = await getOutboxEventsV5(ownerA, 'progress:book-1');
+  assert.equal(events.find(({ eventId }) => eventId === 'event-2').baseRevision, 1);
+});
+
 test('reports paused sync and resumes recoverable auth or rules deployment failures', async () => {
   await enqueue(ownerA, { eventId: 'auth-event' });
   const authClaim = await claimNext(10);

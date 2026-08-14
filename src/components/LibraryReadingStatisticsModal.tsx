@@ -33,6 +33,7 @@ import {
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import type { SyncHealth } from '../lib/syncHealth';
 import { collectStorageMaintenanceDiagnosticsV1 } from '../lib/storageMaintenanceDiagnostics';
+import { readReaderBootstrapTrace } from '../lib/readerBootstrapTrace';
 import { ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
@@ -383,11 +384,15 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     setExportingDiagnostics(true);
     try {
       const diagnostics = await collectStorageMaintenanceDiagnosticsV1(ownerKey);
+      const readerBootstrapTrace = readReaderBootstrapTrace();
       const date = new Date(diagnostics.collectedAt).toISOString().slice(0, 10);
       downloadReadingStatisticsExport({
         filename: `web-reader-storage-diagnostics-${date}.json`,
         mimeType: 'application/json;charset=utf-8',
-        text: `${JSON.stringify(diagnostics, null, 2)}\n`,
+        text: `${JSON.stringify({
+          ...diagnostics,
+          ...(readerBootstrapTrace.length > 0 ? { readerBootstrapTrace } : {}),
+        }, null, 2)}\n`,
       });
       setFeedback('저장소 진단 JSON을 저장했습니다. 원문과 메모는 포함되지 않습니다.');
     } catch (error) {

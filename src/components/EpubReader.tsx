@@ -372,6 +372,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const {
     lastSaveTimeRef,
     updateSaveContext,
+    markUserInteraction,
     markUserProgressChange,
     setTtsProgressFenceActive,
     handleRelocateForSave,
@@ -640,12 +641,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     currentCfi,
     currentAnchorCfi,
     totalProgress,
-    markUserProgressChange,
+    markUserInteraction,
     saveBookmarks: (nextBookmarks) => onSaveBookmarks(book.id, nextBookmarks),
   });
 
   const {
     syncConflict,
+    syncConflictFeedback,
     resolvingSyncConflict,
     dismissSyncConflict,
     acceptSyncConflict,
@@ -1891,6 +1893,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         <SyncConflictDialog
           theme={theme}
           syncConflict={syncConflict}
+          feedback={syncConflictFeedback}
           resolving={resolvingSyncConflict}
           onDismiss={dismissSyncConflict}
           onAccept={acceptSyncConflict}

@@ -25,7 +25,7 @@ const createHarness = (overrides = {}) => {
     isAuthoritative: (snapshot) => snapshot.authoritative,
     onHealthChange: (next) => health.push(next),
     onError: (error) => errors.push(error),
-    canRetry: () => true,
+    canRetry: overrides.canRetry ?? (() => true),
     setTimer(callback, delay) {
       const id = nextTimerId++;
       timers.set(id, { callback, delay });
@@ -76,7 +76,11 @@ test('tracks authoritative freshness and can force a healthy listener restart', 
   let now = 100;
   const harness = createHarness({ now: () => now });
   harness.controller.start();
-  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 0);
+  assert.deepEqual(harness.controller.getFreshness(), {
+    lastAttachedAt: 100,
+    lastRestartAt: 0,
+    lastAuthoritativeAt: 0,
+  });
 
   harness.subscriptions[0].onSnapshot({ authoritative: false });
   await flushTasks();
@@ -86,13 +90,45 @@ test('tracks authoritative freshness and can force a healthy listener restart', 
   await flushTasks();
   assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 100);
 
-  now = 250;
-  harness.controller.forceRestart();
+  now = 5_250;
+  assert.equal(harness.controller.forceRestart(), true);
   assert.equal(harness.subscriptions[0].disposed, true);
   assert.equal(harness.subscriptions.length, 2);
   harness.subscriptions[1].onSnapshot({ authoritative: true });
   await flushTasks();
-  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 250);
+  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 5_250);
+});
+
+test('restarts a healthy listener that never receives an authoritative snapshot and cools down repeats', async () => {
+  let now = 1_000;
+  const harness = createHarness({ now: () => now });
+  harness.controller.start();
+  harness.subscriptions[0].onSnapshot({ authoritative: false });
+  await flushTasks();
+
+  now = 16_100;
+  assert.equal(harness.controller.reconcile({ staleAfterMs: 15_000, now }), true);
+  assert.equal(harness.subscriptions.length, 2);
+  assert.equal(harness.subscriptions[0].disposed, true);
+
+  now = 17_000;
+  assert.equal(harness.controller.reconcile({ force: true, now }), false);
+  assert.equal(harness.subscriptions.length, 2);
+
+  now = 21_200;
+  assert.equal(harness.controller.reconcile({ force: true, now }), true);
+  assert.equal(harness.subscriptions.length, 3);
+});
+
+test('does not force restart while retry is disallowed', () => {
+  let canRetry = false;
+  const harness = createHarness({ canRetry: () => canRetry });
+  harness.controller.start();
+  assert.equal(harness.controller.forceRestart(), false);
+  assert.equal(harness.subscriptions.length, 1);
+  canRetry = true;
+  assert.equal(harness.controller.forceRestart(), true);
+  assert.equal(harness.subscriptions.length, 2);
 });
 
 test('surfaces a recoverable listener error only when the retry also fails', () => {

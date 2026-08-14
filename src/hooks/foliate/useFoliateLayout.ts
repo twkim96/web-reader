@@ -2,6 +2,7 @@
 
 import { MutableRefObject, useCallback } from 'react';
 import { FoliateRenderer, FoliateViewElement, ReaderLayout, ReaderStyle } from './types';
+import { traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
 
 interface UseFoliateLayoutOptions {
   viewRef: MutableRefObject<FoliateViewElement | null>;
@@ -119,11 +120,13 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     targetRenderer?: FoliateRenderer,
   ) => {
     const beforeStyle = await loadEmbeddedRidiFontFace();
+    traceReaderBootstrap({ event: 'font-ready' });
     const renderer = targetRenderer ?? viewRef.current?.renderer;
     if (!renderer) return;
 
     try {
       renderer.setStyles([beforeStyle, buildReaderStyle(styles)]);
+      traceReaderBootstrap({ event: 'style-applied' });
     } catch (error) {
       console.warn('[EpubReader] Style injection failed:', error);
     }
@@ -133,8 +136,11 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     const renderer = targetRenderer ?? viewRef.current?.renderer;
     if (!renderer) return;
 
+    let changed = false;
     const setAttributeIfChanged = (name: string, value: string) => {
-      if (renderer.getAttribute(name) !== value) renderer.setAttribute(name, value);
+      if (renderer.getAttribute(name) === value) return;
+      renderer.setAttribute(name, value);
+      changed = true;
     };
 
     if (layout.flow) setAttributeIfChanged('flow', layout.flow);
@@ -148,6 +154,13 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     }
     if (layout.maxInlineSize) setAttributeIfChanged('max-inline-size', layout.maxInlineSize);
     if (layout.animated) setAttributeIfChanged('animated', '');
+    if (changed) {
+      traceReaderBootstrap({
+        event: 'layout-applied',
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      });
+    }
   }, [viewRef]);
 
   return {
