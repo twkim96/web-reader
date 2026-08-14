@@ -250,7 +250,7 @@ test('paginator keeps TTS relocation metadata and lets the latest user navigatio
   expect(result.derivedEvents.some(({ reason }) => reason === 'anchor')).toBe(true);
 });
 
-test('paginator returns to the last readable page across a section boundary', async ({ page }) => {
+test('paginator waits for pagination and returns to the calculated last page across a section boundary', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
     const paginatorModule = '/foliate-js/paginator.js';
@@ -259,7 +259,6 @@ test('paginator returns to the last readable page across a section boundary', as
       <html><body style="font-size:22px;line-height:1.8;margin:0">
         ${Array.from({ length: 180 }, (_, index) => `<p>Previous chapter paragraph ${index} ${'content '.repeat(12)}</p>`).join('')}
         <p id="chapter-end">PREVIOUS-CHAPTER-END</p>
-        <div aria-hidden="true" style="break-before:column;height:2400px"></div>
       </body></html>`], { type: 'text/html' }));
     const currentUrl = URL.createObjectURL(new Blob([`<!doctype html>
       <html><body style="font-size:22px;line-height:1.8;margin:0">
@@ -294,6 +293,8 @@ test('paginator returns to the last readable page across a section boundary', as
     const before = { index: renderer.getContents()[0]?.index, page: renderer.page };
     await renderer.prev();
     await new Promise((resolve) => setTimeout(resolve, 150));
+    renderer.style.width = '680px';
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const content = renderer.getContents()[0];
     const endRect = content?.doc.querySelector('#chapter-end')?.getBoundingClientRect();
     const result = {
@@ -316,6 +317,7 @@ test('paginator returns to the last readable page across a section boundary', as
 
   expect(result.before).toEqual({ index: 1, page: 1 });
   expect(result.index).toBe(0);
+  expect(result.page).toBe(result.pages - 2);
   expect(result.endRect).not.toBeNull();
   expect(result.endRect!.right).toBeGreaterThanOrEqual(result.start - result.size);
   expect(result.endRect!.left).toBeLessThanOrEqual(result.end - result.size);
@@ -326,7 +328,7 @@ test('paginator returns to the last readable page across a section boundary', as
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.11.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.11.2';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

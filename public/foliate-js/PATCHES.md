@@ -15,15 +15,15 @@ their regression tests when updating from upstream.
 
 ## 1.8.11 previous-section end anchor
 
-- `paginator.js` performs the first column expansion synchronously after a
-  section iframe is rendered. It then anchors backward section navigation to
-  the final rendered non-whitespace text (or visible media fallback), rather
-  than geometric fraction `1`. This avoids both the two-sentinel-page race and
-  trailing blank-column fallback to the first page.
+- `paginator.js` keeps a previous section staged while applying reader styles,
+  waiting for images and fonts, and expanding columns across three consecutive
+  layout frames. It then navigates directly to the calculated final content
+  page (`pages - 2`) instead of estimating the destination from a Range or
+  geometric fraction.
 - Chromium/WebKit regression coverage opens a multi-page previous section,
   enters the next section, navigates back once, and verifies that the final
   chapter marker is in the visible page range.
-- The Foliate entry and paginator import use runtime revision `1.8.11.1`, so
+- The Foliate entry and paginator import use runtime revision `1.8.11.2`, so
   an existing 1.8.11 service-worker cache cannot serve the pre-patch modules.
 
 ## 1.7.0 publication sandbox gate

@@ -92,9 +92,10 @@
 ## Phase H — 챕터 경계 이전 페이지 복원
 
 - 새 section iframe은 column 확장이 ResizeObserver로 반영되기 전에 잠시 sentinel 2페이지만 가진다. 이 시점에 이전 장 끝 `fraction=1`을 계산하면 첫 페이지 anchor로 잘못 고정되어 여러 페이지 앞쪽으로 이동할 수 있었다.
-- section load 직후 초기 column geometry를 동기 확장하고, 이전 방향의 목적지는 숫자 `fraction=1` 대신 마지막으로 렌더되는 비공백 문자 Range(텍스트가 없으면 마지막 media)로 잡는다. 이후 font·resize 재확장도 이 Range anchor를 유지한다.
-- 제품 버전과 Service Worker cache 이름은 1.8.11을 유지하되 Foliate entry와 paginator import에 런타임 리비전 `1.8.11.1`을 붙인다. 이미 1.8.11을 설치한 PWA도 같은 cache의 구형 모듈을 재사용하지 않고 수정된 paginator를 받는다.
-- 여러 페이지인 이전 장의 끝 marker와 다음 장 첫 페이지를 구성한 Chromium·WebKit 회귀에서 이전 페이지 1회가 끝 marker가 보이는 페이지로 돌아오는지 확인한다.
+- 이전 방향 section은 staging 상태에서 reader style을 먼저 적용하고 이미지·폰트 준비와 연속 3프레임 column 확장을 기다린다. 계산 전 Range나 fraction으로 끝 위치를 추정하지 않는다.
+- 최종 `pages`가 확정된 뒤 sentinel을 제외한 마지막 페이지인 `pages - 2`로 직접 이동하고 그때 새 section을 표시한다. 계산 중인 첫 페이지가 잠시 노출되거나 후속 재확장으로 앞쪽 페이지에 고정되는 경로를 없앤다.
+- 제품 버전과 Service Worker cache 이름은 1.8.11을 유지하되 Foliate entry와 paginator import에 런타임 리비전 `1.8.11.2`를 붙인다. 이미 1.8.11을 설치한 PWA도 같은 cache의 구형 모듈을 재사용하지 않고 수정된 paginator를 받는다.
+- 여러 페이지인 이전 장의 끝 marker와 다음 장 첫 페이지를 구성한 Chromium·WebKit 회귀에서 이전 페이지 1회가 최종 계산된 `pages - 2`에 도착하고 끝 marker가 보이는지 확인한다.
 
 ## 메타데이터 최신화 운영
 

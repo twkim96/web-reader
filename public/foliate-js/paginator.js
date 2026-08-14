@@ -2,6 +2,55 @@ import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
 import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+const SECTION_END = Symbol('section-end')
+
+const waitForPromise = (promise, signal) => new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(createAbortError())
+    const abort = () => reject(createAbortError())
+    signal?.addEventListener('abort', abort, { once: true })
+    Promise.resolve(promise).then(value => {
+        signal?.removeEventListener('abort', abort)
+        resolve(value)
+    }, error => {
+        signal?.removeEventListener('abort', abort)
+        reject(error)
+    })
+})
+
+const waitForFrame = (win, signal) => new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(createAbortError())
+    const abort = () => {
+        win.cancelAnimationFrame(frame)
+        reject(createAbortError())
+    }
+    const frame = win.requestAnimationFrame(() => {
+        signal?.removeEventListener('abort', abort)
+        resolve()
+    })
+    signal?.addEventListener('abort', abort, { once: true })
+})
+
+const waitForImage = (image, signal) => {
+    if (image.complete) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+        const cleanup = () => {
+            image.removeEventListener('load', finish)
+            image.removeEventListener('error', finish)
+            signal?.removeEventListener('abort', abort)
+        }
+        const finish = () => {
+            cleanup()
+            resolve()
+        }
+        const abort = () => {
+            cleanup()
+            reject(createAbortError())
+        }
+        image.addEventListener('load', finish, { once: true })
+        image.addEventListener('error', finish, { once: true })
+        signal?.addEventListener('abort', abort, { once: true })
+    })
+}
 
 const debounce = (f, wait, immediate) => {
     let timeout
@@ -182,45 +231,6 @@ const getVisibleRange = (doc, start, end, mapRect) => {
     range.setStart(from, startOffset)
     range.setEnd(to, endOffset)
     return range
-}
-
-const getLastReadableAnchor = doc => {
-    const walker = doc.createTreeWalker(doc.body, SHOW_TEXT, {
-        acceptNode: node => {
-            if (!node.nodeValue?.trim()) return FILTER_SKIP
-            if (node.parentElement?.closest('script, style, template, noscript'))
-                return FILTER_REJECT
-            return FILTER_ACCEPT
-        },
-    })
-    const textNodes = []
-    for (let node = walker.nextNode(); node; node = walker.nextNode())
-        textNodes.push(node)
-
-    for (let i = textNodes.length - 1; i >= 0; i--) {
-        const node = textNodes[i]
-        let end = node.nodeValue.length
-        while (end > 0 && /\s/.test(node.nodeValue[end - 1])) end--
-        if (!end) continue
-        const probe = makeRange(doc, node, 0, end)
-        if (!Array.from(probe.getClientRects())
-            .some(rect => rect.width > 0 && rect.height > 0)) continue
-        return makeRange(doc, node, end)
-    }
-
-    const media = Array.from(doc.body.querySelectorAll(
-        'img, svg, video, canvas, table, math, hr'))
-    for (let i = media.length - 1; i >= 0; i--) {
-        const element = media[i]
-        if (!Array.from(element.getClientRects())
-            .some(rect => rect.width > 0 && rect.height > 0)) continue
-        const range = doc.createRange()
-        range.selectNode(element)
-        range.collapse(false)
-        return range
-    }
-
-    return 1
 }
 
 const selectionIsBackward = sel => {
@@ -504,6 +514,25 @@ class View {
             }
         }
         this.onExpand()
+    }
+    async waitForPagination(signal) {
+        if (!this.#column) return
+        const doc = this.document
+        const win = doc.defaultView
+        const images = Array.from(doc.images)
+        for (const image of images) image.loading = 'eager'
+        await Promise.all([
+            waitForPromise(doc.fonts?.ready ?? Promise.resolve(), signal),
+            ...images.map(image => waitForImage(image, signal)),
+        ])
+        if (signal?.aborted) throw createAbortError()
+        // Style, font and replaced-element metrics can land on separate layout
+        // frames. Expand through consecutive frames before the paginator reads
+        // the final page count.
+        for (let i = 0; i < 3; i++) {
+            await waitForFrame(win, signal)
+            this.expand()
+        }
     }
     set overlayer(overlayer) {
         this.#overlayer = overlayer
@@ -955,7 +984,7 @@ export class Paginator extends HTMLElement {
             const dir = page <= 0 ? -1 : page >= pages - 1 ? 1 : null
             if (dir) return this.#navigateResolved({
                 index: this.#adjacentIndex(dir),
-                anchor: dir < 0 ? () => 1 : () => 0,
+                anchor: dir < 0 ? SECTION_END : () => 0,
             })
         })
     }
@@ -1137,6 +1166,7 @@ export class Paginator extends HTMLElement {
             ? { navigationSource, navigationId }
             : null
         const hasFocus = this.#view?.document?.hasFocus()
+        const atSectionEnd = anchor === SECTION_END
         if (src) {
             const oldIndex = this.#index
             const view = this.#createView(true)
@@ -1152,6 +1182,21 @@ export class Paginator extends HTMLElement {
             const beforeRender = this.#beforeRender.bind(this)
             try {
                 await view.load(src, afterLoad, beforeRender, task.signal)
+            } catch (error) {
+                view.destroy()
+                view.element.remove()
+                throw error
+            }
+            if (!this.#navigation.isCurrent(task)) {
+                view.destroy()
+                view.element.remove()
+                throw createAbortError()
+            }
+            try {
+                if (atSectionEnd) {
+                    this.#writeStyles(view.document, this.#styles)
+                    await view.waitForPagination(task.signal)
+                }
             } catch (error) {
                 view.destroy()
                 view.element.remove()
@@ -1181,8 +1226,17 @@ export class Paginator extends HTMLElement {
             this.#navigationContext = navigationContext
         }
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
-        await this.scrollToAnchor((typeof anchor === 'function'
-            ? anchor(this.#view.document) : anchor) ?? 0, select, reason)
+        if (atSectionEnd && !this.scrolled) {
+            await this.#scrollToPage(Math.max(1, this.pages - 2), reason)
+            // Keep subsequent font/resize expansion pinned to the calculated
+            // end instead of replacing it with a pre-layout visible Range.
+            this.#anchor = 1
+            this.#justAnchored = true
+        } else {
+            await this.scrollToAnchor((typeof anchor === 'function'
+                ? anchor(this.#view.document) : atSectionEnd ? 1 : anchor) ?? 0,
+            select, reason)
+        }
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
         if (hasFocus) this.focusView()
     }
@@ -1283,7 +1337,7 @@ export class Paginator extends HTMLElement {
             : this.#scrollNext(distance, reason))
         if (shouldGo) await this.#navigateResolved({
             index: this.#adjacentIndex(dir),
-            anchor: prev ? getLastReadableAnchor : () => 0,
+            anchor: prev ? SECTION_END : () => 0,
             reason,
         })
         if (shouldGo || !this.hasAttribute('animated')) await wait(100)
@@ -1317,9 +1371,8 @@ export class Paginator extends HTMLElement {
         }]
         return []
     }
-    setStyles(styles) {
-        this.#styles = styles
-        const $$styles = this.#styleMap.get(this.#view?.document)
+    #writeStyles(doc, styles) {
+        const $$styles = this.#styleMap.get(doc)
         if (!$$styles) return
         const [$beforeStyle, $style] = $$styles
         if (Array.isArray(styles)) {
@@ -1327,6 +1380,10 @@ export class Paginator extends HTMLElement {
             $beforeStyle.textContent = beforeStyle
             $style.textContent = style
         } else $style.textContent = styles
+    }
+    setStyles(styles) {
+        this.#styles = styles
+        this.#writeStyles(this.#view?.document, styles)
 
         // NOTE: needs `requestAnimationFrame` in Chromium
         requestAnimationFrame(() =>
