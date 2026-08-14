@@ -66,6 +66,18 @@
 - Foliate paginator가 렌더할 때 현재 사용하지 않는 축만 0으로 초기화하고, 현재 위치 anchor와 활성 축의 위치는 그대로 보존한다.
 - production browser regression이 실제 설정 UI에서 `L/R Tap → Scroll → L/R Tap`을 전환하고 각 단계에 보이는 본문 text rect가 존재하는지 검증한다.
 
+## Phase E — 책장 길게 누르기 선택 충돌 제거
+
+- 책장 도서 카드에서는 `user-select: none`과 WebKit touch callout 차단을 적용해 길게 누르기 정보창과 브라우저 기본 텍스트 선택 메뉴가 함께 열리지 않게 한다.
+- 도서 정보 모달은 `user-select: text`를 명시해 제목·원본 파일명·작품 정보를 계속 선택하고 복사할 수 있다.
+- 카드의 클릭·650ms 길게 누르기·12px 이동 취소와 데스크톱 우클릭 계약은 변경하지 않는다.
+
+## Phase F — 최근 독서순 통계 목록
+
+- 도서별 통계 회차는 선택한 기간에서 마지막으로 읽은 시각이 최신인 항목부터 표시한다.
+- 다중 기기의 신뢰 가능한 clock correction을 반영한 session 종료 시각을 비교한다.
+- 같은 시각이면 제목과 회차를 보조 기준으로 사용해 렌더 순서가 흔들리지 않게 한다.
+
 ## 메타데이터 최신화 운영
 
 예시 dry-run:
@@ -89,6 +101,8 @@ python3 scripts/publish-book-metadata.py \
 
 - 도서 정보 모달 크기·필드·삭제 2단계 확인 browser regression
 - 실제 설정 UI의 탭·스크롤 왕복 전환 후 본문 표시 browser regression
+- 책장 카드의 선택·touch callout 차단과 도서 정보 모달의 텍스트 선택 허용 browser regression
+- 통계 회차의 최근 독서순 정렬 Node·browser regression
 - 공개 메타데이터 alias 정규화·schema·HTTPS URL 검증
 - 게시기 전체 DB dry-run: 256 bucket, alias 27,053개, 충돌 7개 제외
 - Firestore Rules: 비로그인·로그인 단건 읽기 허용, list·create·update·delete 거부

@@ -13,6 +13,7 @@ import {
   buildReadingBookRounds,
   formatReadingDuration,
   getReadingStatisticsRangeBounds,
+  sortReadingBookRoundsByRecent,
   type ReadingStatisticsRange,
   type StoredReadingSessionV11,
 } from '../lib/readingStatistics';
@@ -232,7 +233,10 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     getReadingStatisticsRangeBounds(range, aggregationNow),
     hiddenSessionIds,
   ), [aggregationNow, hiddenSessionIds, range, sessions]);
-  const listedBookRounds = bookRounds;
+  const listedBookRounds = useMemo(
+    () => sortReadingBookRoundsByRecent(bookRounds),
+    [bookRounds],
+  );
   const bookStatusSummary = useMemo(() => {
     const latestRoundByBook = new Map<string, (typeof listedBookRounds)[number]>();
     for (const round of listedBookRounds) {

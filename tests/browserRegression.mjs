@@ -471,7 +471,10 @@ try {
   );
   const bookInfoUi = await evaluate(`(() => {
     const modal = document.querySelector('[data-book-info-modal="true"]');
+    const card = document.querySelector('[data-shelf-book-card="true"]');
     const rect = modal?.getBoundingClientRect();
+    const cardStyle = card ? getComputedStyle(card) : null;
+    const modalStyle = modal ? getComputedStyle(modal) : null;
     return {
       title: modal?.querySelector('h3')?.textContent?.trim() ?? '',
       text: modal?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
@@ -480,6 +483,9 @@ try {
       viewportWidth: innerWidth,
       viewportHeight: innerHeight,
       deleteConfirmation: Boolean(modal?.querySelector('[data-book-info-delete-confirmation="true"]')),
+      cardUserSelect: cardStyle?.userSelect ?? '',
+      cardTouchCalloutDeclared: card?.classList.contains('[-webkit-touch-callout:none]') ?? false,
+      modalUserSelect: modalStyle?.userSelect ?? '',
     };
   })()`);
   assert.match(bookInfoUi.title, /Book/);
@@ -494,6 +500,9 @@ try {
   assert.ok(bookInfoUi.width <= Math.min(bookInfoUi.viewportWidth * 0.9, 576), JSON.stringify(bookInfoUi));
   assert.ok(bookInfoUi.height <= bookInfoUi.viewportHeight * 0.82, JSON.stringify(bookInfoUi));
   assert.equal(bookInfoUi.deleteConfirmation, false);
+  assert.equal(bookInfoUi.cardUserSelect, 'none');
+  assert.equal(bookInfoUi.cardTouchCalloutDeclared, true);
+  assert.equal(bookInfoUi.modalUserSelect, 'text');
   await evaluate(`document.querySelector('[data-book-info-request-delete="true"]')?.click()`);
   await waitFor(
     'Boolean(document.querySelector(\'[data-book-info-delete-confirmation="true"]\'))',
@@ -4994,8 +5003,7 @@ try {
   const fixtureRounds = await evaluate(`[
     ...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})
   ].map((row) => row.getAttribute('data-reading-statistics-round'))`);
-  assert.ok(fixtureRounds.includes('1'), JSON.stringify({ bookRoundUi, fixtureRounds }));
-  assert.ok(fixtureRounds.includes('2'), JSON.stringify({ bookRoundUi, fixtureRounds }));
+  assert.deepEqual(fixtureRounds, ['2', '1'], JSON.stringify({ bookRoundUi, fixtureRounds }));
   assert.ok(bookRoundUi.rowTexts.every((text) => /\d+회차/.test(text)), JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('1회차')), JSON.stringify(bookRoundUi));
   assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('2회차')), JSON.stringify(bookRoundUi));
@@ -5067,7 +5075,7 @@ try {
     };
   })()`);
   assert.equal(confirmedRoundUi.summary, '0권 읽는 중 · 완료 1권');
-  assert.deepEqual(confirmedRoundUi.completedRounds, ['1', '2']);
+  assert.deepEqual(confirmedRoundUi.completedRounds, ['2', '1']);
   assert.match(confirmedRoundUi.feedback, /2회차를 완료/);
   const totalsBeforeBookListDeletion = await evaluate(`(() => ({
     headlines: [...document.querySelectorAll('[data-reading-statistics-headline]')]
@@ -5076,7 +5084,9 @@ try {
       .map((element) => element.textContent?.trim()),
   }))()`);
   await evaluate(`(async () => {
-    const row = document.querySelector(${JSON.stringify(fixtureRoundSelector)});
+    const row = document.querySelector(${JSON.stringify(
+      `${fixtureRoundSelector}[data-reading-statistics-round="1"]`,
+    )});
     if (!row) return false;
     const rect = row.getBoundingClientRect();
     row.dispatchEvent(new PointerEvent('pointerdown', {

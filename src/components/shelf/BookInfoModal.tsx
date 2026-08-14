@@ -169,7 +169,7 @@ export const BookInfoModal: React.FC<Props> = ({
         data-book-info-modal="true"
         data-book-info-id={book.id}
         onClick={(event) => event.stopPropagation()}
-        className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl`}
+        className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 select-text flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl`}
       >
         <header className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
           <div className="flex min-w-0 items-center gap-2.5">

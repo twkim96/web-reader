@@ -90,6 +90,7 @@ export type ReadingStatisticsSummary = {
 export type ReadingBookRoundStatistics = ReadingBookStatistics & {
   roundNumber: number;
   startedLocalDate: string;
+  lastReadAtClient: number;
   completedLocalDate: string | null;
   canComplete: boolean;
   sourceSessionIds: string[];
@@ -784,6 +785,9 @@ export const buildReadingBookRounds = (
           first.startedAtClient + firstCorrection,
           first.timezoneOffsetMinutes,
         ),
+        lastReadAtClient: Math.max(...visibleSessions.map((session) => (
+          session.endedAtClient + (getClockCorrection(session, samplesByDevice) ?? 0)
+        ))),
         completedLocalDate: completion ? getReadingSessionLocalDate(
           Number(completion.completionConfirmedAtClient) + completionCorrection,
           completion.timezoneOffsetMinutes,
@@ -804,6 +808,14 @@ export const buildReadingBookRounds = (
     || left.roundNumber - right.roundNumber
   ));
 };
+
+export const sortReadingBookRoundsByRecent = (
+  rounds: readonly ReadingBookRoundStatistics[],
+) => [...rounds].sort((left, right) => (
+  right.lastReadAtClient - left.lastReadAtClient
+  || left.bookTitle.localeCompare(right.bookTitle, 'ko')
+  || right.roundNumber - left.roundNumber
+));
 
 export const formatReadingDuration = (durationMs: number) => {
   const totalMinutes = Math.max(0, Math.floor(durationMs / 60_000));

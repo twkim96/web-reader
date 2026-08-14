@@ -16,6 +16,7 @@ import {
   READING_SESSION_COMMIT_INTERVAL_MS,
   READING_SESSION_MAX_DURATION_MS,
   shouldResetReadingActivityForTtsTransition,
+  sortReadingBookRoundsByRecent,
 } from '../src/lib/readingStatistics.ts';
 
 test('formats compact reader time as an unlabeled hour-minute clock', () => {
@@ -74,6 +75,32 @@ test('keeps rereading rows in round order even when a later round is longer', ()
     }),
   ]);
   assert.deepEqual(rounds.map(({ roundNumber }) => roundNumber), [1, 2]);
+  assert.deepEqual(
+    sortReadingBookRoundsByRecent(rounds).map(({ roundNumber }) => roundNumber),
+    [2, 1],
+  );
+});
+
+test('sorts displayed reading rounds by their latest corrected reading time', () => {
+  const rounds = buildReadingBookRounds([
+    session({
+      sessionId: 'newer-book', bookId: 'newer', bookTitle: 'Newer',
+      startedAtClient: 200_000, endedAtClient: 260_000,
+    }),
+    session({
+      sessionId: 'older-book', bookId: 'older', bookTitle: 'Older',
+      startedAtClient: 100_000, endedAtClient: 160_000,
+    }),
+  ]);
+
+  assert.deepEqual(
+    sortReadingBookRoundsByRecent(rounds).map(({ bookId }) => bookId),
+    ['newer', 'older'],
+  );
+  assert.deepEqual(
+    sortReadingBookRoundsByRecent(rounds).map(({ lastReadAtClient }) => lastReadAtClient),
+    [260_000, 160_000],
+  );
 });
 
 test('restarts an uncompleted hidden round at round one with only new visible sessions', () => {

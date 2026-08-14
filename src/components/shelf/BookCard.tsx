@@ -96,7 +96,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group grid grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-3 cursor-pointer transition-colors duration-200 hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3.5`}
+        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-3 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3.5`}
       >
         <div className="h-11 w-11 bg-accent-600 rounded-xl flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform duration-200 sm:h-12 sm:w-12">
           <BookOpen className="text-white" size={22} />
@@ -161,7 +161,7 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`group relative ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-8 cursor-pointer hover:border-accent-500/50 transition-all duration-500 hover:-translate-y-2 overflow-hidden`}
+      className={`group relative select-none ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-8 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
     >
       <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
         <BookOpen size={100} className="rotate-12" />
