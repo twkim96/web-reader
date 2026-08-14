@@ -13,6 +13,19 @@ their regression tests when updating from upstream.
 - Regression coverage: `tests/foliateViewRegression.test.mjs` and
   `tests/e2e/foliateSandboxCompatibility.spec.ts`.
 
+## 1.8.11 previous-section end anchor
+
+- `paginator.js` performs the first column expansion synchronously after a
+  section iframe is rendered. It then anchors backward section navigation to
+  the final rendered non-whitespace text (or visible media fallback), rather
+  than geometric fraction `1`. This avoids both the two-sentinel-page race and
+  trailing blank-column fallback to the first page.
+- Chromium/WebKit regression coverage opens a multi-page previous section,
+  enters the next section, navigates back once, and verifies that the final
+  chapter marker is in the visible page range.
+- The Foliate entry and paginator import use runtime revision `1.8.11.1`, so
+  an existing 1.8.11 service-worker cache cannot serve the pre-patch modules.
+
 ## 1.7.0 publication sandbox gate
 
 - `paginator.js` and `fixed-layout.js` share `sandbox-policy.js`. WebKit bug

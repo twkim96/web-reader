@@ -184,6 +184,45 @@ const getVisibleRange = (doc, start, end, mapRect) => {
     return range
 }
 
+const getLastReadableAnchor = doc => {
+    const walker = doc.createTreeWalker(doc.body, SHOW_TEXT, {
+        acceptNode: node => {
+            if (!node.nodeValue?.trim()) return FILTER_SKIP
+            if (node.parentElement?.closest('script, style, template, noscript'))
+                return FILTER_REJECT
+            return FILTER_ACCEPT
+        },
+    })
+    const textNodes = []
+    for (let node = walker.nextNode(); node; node = walker.nextNode())
+        textNodes.push(node)
+
+    for (let i = textNodes.length - 1; i >= 0; i--) {
+        const node = textNodes[i]
+        let end = node.nodeValue.length
+        while (end > 0 && /\s/.test(node.nodeValue[end - 1])) end--
+        if (!end) continue
+        const probe = makeRange(doc, node, 0, end)
+        if (!Array.from(probe.getClientRects())
+            .some(rect => rect.width > 0 && rect.height > 0)) continue
+        return makeRange(doc, node, end)
+    }
+
+    const media = Array.from(doc.body.querySelectorAll(
+        'img, svg, video, canvas, table, math, hr'))
+    for (let i = media.length - 1; i >= 0; i--) {
+        const element = media[i]
+        if (!Array.from(element.getClientRects())
+            .some(rect => rect.width > 0 && rect.height > 0)) continue
+        const range = doc.createRange()
+        range.selectNode(element)
+        range.collapse(false)
+        return range
+    }
+
+    return 1
+}
+
 const selectionIsBackward = sel => {
     const range = document.createRange()
     range.setStart(sel.anchorNode, sel.anchorOffset)
@@ -320,6 +359,11 @@ class View {
                 const layout = beforeRender?.({ vertical, rtl, background })
                 this.#iframe.style.display = 'block'
                 this.render(layout)
+                // Resolve the initial column geometry before the caller applies
+                // an end-of-section anchor. Waiting only for ResizeObserver can
+                // leave `pages` at the two sentinel pages, which maps fraction
+                // 1 back to the beginning when navigating to a previous section.
+                this.expand()
                 this.#observer.observe(doc.body)
 
                 // the resize observer above doesn't work in Firefox
@@ -1239,7 +1283,7 @@ export class Paginator extends HTMLElement {
             : this.#scrollNext(distance, reason))
         if (shouldGo) await this.#navigateResolved({
             index: this.#adjacentIndex(dir),
-            anchor: prev ? () => 1 : () => 0,
+            anchor: prev ? getLastReadableAnchor : () => 0,
             reason,
         })
         if (shouldGo || !this.hasAttribute('animated')) await wait(100)

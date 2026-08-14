@@ -250,10 +250,83 @@ test('paginator keeps TTS relocation metadata and lets the latest user navigatio
   expect(result.derivedEvents.some(({ reason }) => reason === 'anchor')).toBe(true);
 });
 
+test('paginator returns to the last readable page across a section boundary', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const previousUrl = URL.createObjectURL(new Blob([`<!doctype html>
+      <html><body style="font-size:22px;line-height:1.8;margin:0">
+        ${Array.from({ length: 180 }, (_, index) => `<p>Previous chapter paragraph ${index} ${'content '.repeat(12)}</p>`).join('')}
+        <p id="chapter-end">PREVIOUS-CHAPTER-END</p>
+        <div aria-hidden="true" style="break-before:column;height:2400px"></div>
+      </body></html>`], { type: 'text/html' }));
+    const currentUrl = URL.createObjectURL(new Blob([`<!doctype html>
+      <html><body style="font-size:22px;line-height:1.8;margin:0">
+        <p id="chapter-start">CURRENT-CHAPTER-START</p>
+        <p>${'current chapter '.repeat(100)}</p>
+      </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    renderer.setAttribute('swipe-navigation', 'false');
+    document.body.append(renderer);
+    const relocations: Array<{ index: number; text: string }> = [];
+    renderer.addEventListener('relocate', ((event: CustomEvent) => {
+      relocations.push({
+        index: event.detail.index,
+        text: event.detail.range?.toString?.() ?? '',
+      });
+    }) as EventListener);
+    renderer.open({
+      dir: 'ltr',
+      sections: [previousUrl, currentUrl].map((url) => ({
+        linear: 'yes',
+        load: async () => url,
+        unload: () => undefined,
+      })),
+    });
+    await renderer.goTo({ index: 1, anchor: () => 0 });
+    const before = { index: renderer.getContents()[0]?.index, page: renderer.page };
+    await renderer.prev();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const content = renderer.getContents()[0];
+    const endRect = content?.doc.querySelector('#chapter-end')?.getBoundingClientRect();
+    const result = {
+      before,
+      index: content?.index,
+      page: renderer.page,
+      pages: renderer.pages,
+      start: renderer.start,
+      end: renderer.end,
+      size: renderer.size,
+      endRect: endRect ? { left: endRect.left, right: endRect.right } : null,
+      latestRelocation: relocations.at(-1),
+    };
+    renderer.destroy();
+    renderer.remove();
+    URL.revokeObjectURL(previousUrl);
+    URL.revokeObjectURL(currentUrl);
+    return result;
+  });
+
+  expect(result.before).toEqual({ index: 1, page: 1 });
+  expect(result.index).toBe(0);
+  expect(result.endRect).not.toBeNull();
+  expect(result.endRect!.right).toBeGreaterThanOrEqual(result.start - result.size);
+  expect(result.endRect!.left).toBeLessThanOrEqual(result.end - result.size);
+  expect(result.latestRelocation?.index).toBe(0);
+  expect(result.latestRelocation?.text).toContain('PREVIOUS-CHAPTER-END');
+});
+
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.11';
+    const viewModule = '/foliate-js/view.js?v=1.8.11.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

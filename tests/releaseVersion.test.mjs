@@ -5,12 +5,13 @@ import { readFile } from 'node:fs/promises';
 const EXPECTED_VERSION = '1.8.11';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
-  const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime] = await Promise.all([
+  const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime, foliateView] = await Promise.all([
     readFile(new URL('../package.json', import.meta.url), 'utf8'),
     readFile(new URL('../package-lock.json', import.meta.url), 'utf8'),
     readFile(new URL('../public/sw.js', import.meta.url), 'utf8'),
     readFile(new URL('./browserRegression.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../src/lib/foliateRuntimeCache.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../public/foliate-js/view.js', import.meta.url), 'utf8'),
   ]);
   const packageJson = JSON.parse(packageText);
   const packageLock = JSON.parse(lockText);
@@ -43,7 +44,15 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
   assert.equal(
-    foliateRuntime.includes('FOLIATE_ENTRY_URL = `/foliate-js/view.js?v=${FOLIATE_RUNTIME_VERSION}`'),
+    foliateRuntime.includes("FOLIATE_RUNTIME_REVISION = '1.8.11.1'"),
+    true,
+  );
+  assert.equal(
+    foliateRuntime.includes('FOLIATE_ENTRY_URL = `/foliate-js/view.js?v=${FOLIATE_RUNTIME_REVISION}`'),
+    true,
+  );
+  assert.equal(
+    foliateView.includes("import('./paginator.js?v=1.8.11.1')"),
     true,
   );
 });
