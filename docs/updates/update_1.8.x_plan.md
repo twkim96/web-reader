@@ -703,6 +703,9 @@ type Annotation = {
 - 정보창 내부 읽기·2단계 영구 삭제
 - 비정기 Python dry-run/apply 게시기
 - 공개 단건 조회, 목록·클라이언트 쓰기 금지 Firestore Rules
+- 플랫폼 badge와 수치 우선 2줄 작품 정보
+- 길게 누른 개별 회차 session의 통계 숨김, 다른 회차·완료 경계·원본 session 보존 및 표시 합계 제외
+- 탭·스크롤 탐색 모드 전환 시 비활성 스크롤 축을 초기화해 본문이 화면 밖으로 사라지는 문제 수정
 - 마지막 전체 코드 리뷰와 release candidate 판정
 
 ### 제외
@@ -846,6 +849,6 @@ docs/updates/update_1.8.2.md
 
 ## 12. 현재 다음 단계
 
-1. 1.8.10 전체 자동 gate와 외부 코드 리뷰를 완료한다.
+1. 1.8.11 전체 자동 gate와 외부 코드 리뷰를 완료한다.
 2. 단일기기 UX·성능·장시간 TTS·통계 관찰과 다중 탭·다중기기 sync acceptance를 계속한다.
-3. 실사용 finding은 `1.8.10-hotfix.N`으로 분리해 마감하고 retention migration은 observe-only를 유지한다.
+3. 실사용 finding은 1.8.11 후속 수정으로 마감하고 retention migration은 observe-only를 유지한다.

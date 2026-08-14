@@ -1823,6 +1823,49 @@ try {
     const afterRapidTaps = renderer.start;
     const rapidTapSelectionCleared = !selection.toString()
       && !document.querySelector('[data-reader-selection-menu="true"]');
+    const countVisibleReaderTextRects = () => {
+      const currentFrame = doc.defaultView.frameElement;
+      const currentFrameRect = currentFrame?.getBoundingClientRect();
+      if (!currentFrame || !currentFrameRect) return 0;
+      const scaleX = currentFrameRect.width / currentFrame.clientWidth;
+      const scaleY = currentFrameRect.height / currentFrame.clientHeight;
+      let count = 0;
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (!node.nodeValue?.trim()) continue;
+        const textRange = doc.createRange();
+        textRange.selectNodeContents(node);
+        for (const rect of textRange.getClientRects()) {
+          const left = currentFrameRect.left + rect.left * scaleX;
+          const right = currentFrameRect.left + rect.right * scaleX;
+          const top = currentFrameRect.top + rect.top * scaleY;
+          const bottom = currentFrameRect.top + rect.bottom * scaleY;
+          if (right > 0 && left < innerWidth && bottom > 0 && top < innerHeight) count += 1;
+        }
+      }
+      return count;
+    };
+    const visibleTextBeforeModeSwitch = countVisibleReaderTextRects();
+    document.querySelector('button[aria-label="설정"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const settingsHeading = [...document.querySelectorAll('h2')]
+      .find((heading) => heading.textContent?.trim() === '리더 설정');
+    const settingsFrame = settingsHeading?.parentElement?.parentElement?.parentElement;
+    const scrollModeButton = [...(settingsFrame?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.trim() === 'Scroll');
+    scrollModeButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const visibleTextAfterScrollMode = countVisibleReaderTextRects();
+    const flowAfterScrollMode = renderer.getAttribute('flow');
+    const tapModeButton = [...(settingsFrame?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.trim() === 'L/R Tap');
+    tapModeButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const visibleTextAfterTapMode = countVisibleReaderTextRects();
+    const flowAfterTapMode = renderer.getAttribute('flow');
+    settingsFrame?.querySelector('button[aria-label="리더 설정 닫기"]')?.click();
+    await window.__regressionNextFrame();
     const inactiveContextMenuEvent = new doc.defaultView.MouseEvent('contextmenu', {
       bubbles: true,
       cancelable: true,
@@ -1947,6 +1990,11 @@ try {
       afterRapidTaps,
       nativeSelectionBeforeRapidSecondTap,
       rapidTapSelectionCleared,
+      visibleTextAfterScrollMode,
+      visibleTextAfterTapMode,
+      visibleTextBeforeModeSwitch,
+      flowAfterScrollMode,
+      flowAfterTapMode,
       relocateReasons,
     };
   })()`);
@@ -2042,6 +2090,11 @@ try {
   assert.ok(selectionActions.nativeSelectionBeforeRapidSecondTap.length > 0);
   assert.equal(selectionActions.rapidTapSelectionCleared, true, JSON.stringify(selectionActions));
   assert.notEqual(selectionActions.afterRapidTaps, selectionActions.beforeRapidTaps, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.flowAfterScrollMode, 'scrolled', JSON.stringify(selectionActions));
+  assert.ok(selectionActions.visibleTextBeforeModeSwitch > 0, JSON.stringify(selectionActions));
+  assert.ok(selectionActions.visibleTextAfterScrollMode > 0, JSON.stringify(selectionActions));
+  assert.equal(selectionActions.flowAfterTapMode, 'paginated', JSON.stringify(selectionActions));
+  assert.ok(selectionActions.visibleTextAfterTapMode > 0, JSON.stringify(selectionActions));
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1366,
     height: 768,
@@ -5016,7 +5069,79 @@ try {
   assert.equal(confirmedRoundUi.summary, '0권 읽는 중 · 완료 1권');
   assert.deepEqual(confirmedRoundUi.completedRounds, ['1', '2']);
   assert.match(confirmedRoundUi.feedback, /2회차를 완료/);
+  const totalsBeforeBookListDeletion = await evaluate(`(() => ({
+    headlines: [...document.querySelectorAll('[data-reading-statistics-headline]')]
+      .map((element) => element.textContent?.replace(/\\s+/g, ' ').trim()),
+    modes: [...document.querySelectorAll('[data-reading-statistics-mode-total]')]
+      .map((element) => element.textContent?.trim()),
+  }))()`);
+  await evaluate(`(async () => {
+    const row = document.querySelector(${JSON.stringify(fixtureRoundSelector)});
+    if (!row) return false;
+    const rect = row.getBoundingClientRect();
+    row.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 91,
+      pointerType: 'touch',
+      clientX: rect.left + 12,
+      clientY: rect.top + 12,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    row.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true,
+      pointerId: 91,
+      pointerType: 'touch',
+      clientX: rect.left + 12,
+      clientY: rect.top + 12,
+    }));
+    return true;
+  })()`);
+  await waitFor(
+    `[...document.querySelectorAll('button')]
+      .some((button) => button.textContent?.trim() === '목록에서 삭제')`,
+    'reading statistics long-press delete confirmation',
+  );
+  const bookListDeletionMessage = await evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((candidate) => candidate.textContent?.trim() === '목록에서 삭제');
+    return button?.closest('.fixed')?.textContent?.replace(/\\s+/g, ' ').trim() ?? '';
+  })()`);
+  assert.match(bookListDeletionMessage, /1회차/);
+  assert.match(bookListDeletionMessage, /선택한 회차의 세션만/);
+  assert.match(bookListDeletionMessage, /다른 회차/);
+  assert.match(bookListDeletionMessage, /표시되는 독서 합계.*제외/);
+  await evaluate(`[
+    ...document.querySelectorAll('button')
+  ].find((button) => button.textContent?.trim() === '목록에서 삭제')?.click()`);
+  await waitFor(
+    `document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)}).length === 1
+      && document.querySelector(${JSON.stringify(`${fixtureRoundSelector}[data-reading-statistics-round="2"]`)}) !== null`,
+    'reading statistics single-round list deletion',
+  );
+  const bookListDeletionUi = await evaluate(`(() => ({
+    headlines: [...document.querySelectorAll('[data-reading-statistics-headline]')]
+      .map((element) => element.textContent?.replace(/\\s+/g, ' ').trim()),
+    modes: [...document.querySelectorAll('[data-reading-statistics-mode-total]')]
+      .map((element) => element.textContent?.trim()),
+    summary: document.querySelector('[data-reading-statistics-book-summary="true"]')
+      ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+    feedback: document.querySelector('[data-reading-statistics-modal="true"] footer [role="status"]')
+      ?.textContent?.trim() ?? '',
+    remainingRounds: [...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})]
+      .map((row) => row.getAttribute('data-reading-statistics-round')),
+    jsonEnabled: !document.querySelector('[data-reading-statistics-export="json"]')?.disabled,
+  }))()`);
+  assert.notDeepEqual(bookListDeletionUi.headlines, totalsBeforeBookListDeletion.headlines);
+  assert.notDeepEqual(bookListDeletionUi.modes, totalsBeforeBookListDeletion.modes);
+  assert.deepEqual(bookListDeletionUi.headlines, ['오늘1분', '이번 주1분', '이번 달1분']);
+  assert.deepEqual(bookListDeletionUi.modes, ['1분', '0분']);
+  assert.equal(bookListDeletionUi.summary, '0권 읽는 중 · 완료 1권');
+  assert.deepEqual(bookListDeletionUi.remainingRounds, ['2']);
+  assert.match(bookListDeletionUi.feedback, /1회차.*표시 합계에서 제외/);
+  assert.equal(bookListDeletionUi.jsonEnabled, true);
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
+  await evaluate(`localStorage.removeItem('reading_statistics_hidden_sessions_v1')`);
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
     height: 800,

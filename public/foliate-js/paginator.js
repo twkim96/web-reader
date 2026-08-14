@@ -838,6 +838,12 @@ export class Paginator extends HTMLElement {
     }
     render() {
         if (!this.#view) return
+        // The active scroll axis changes with the flow. Clear the old axis so
+        // a paginated scrollLeft cannot push scrolled content off-screen (and
+        // a scrolled scrollTop cannot do the same after returning to pages).
+        const inactiveScrollProp = this.scrollProp === 'scrollTop'
+            ? 'scrollLeft' : 'scrollTop'
+        this.#container[inactiveScrollProp] = 0
         this.#view.render(this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl,

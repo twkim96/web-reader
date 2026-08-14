@@ -47,6 +47,24 @@
 - Firestore 경로는 `publicBookMetadataV1/{hashPrefix}`이며 앱은 정보창을 열 때 정확한 bucket 한 건만 `get`한다.
 - Rules는 단일 문서 공개 조회만 허용하고 collection list와 모든 클라이언트 쓰기를 거부한다.
 - 정보창은 플랫폼 tag, 최신 수치, 게시 갱신일과 외부 HTTPS 링크를 표시한다. 조회 실패는 도서 정보·삭제 기능을 막지 않는다.
+- 연결된 카카오페이지·네이버 시리즈·노벨피아를 파일 형식·기기 저장 badge 옆에도 표시한다.
+- 작품 행은 기존 2줄 구조를 유지하되 주요 수치를 큰 첫 줄, 작품 제목을 작은 둘째 줄로 반전해 메타데이터 가독성을 높인다.
+
+## Phase C — 통계 목록 정리
+
+- 도서별 기록 행을 650ms 길게 누르거나 우클릭하면 선택한 회차 하나만 목록에서 삭제할 수 있다.
+- 12px 넘게 움직이면 길게 누르기를 취소해 모바일 스크롤을 보존한다.
+- 삭제는 잠깐 열어서 생긴 짧은 회차를 정리하기 위한 owner별 이 기기 표시 설정이며, 선택 시점의 session ID만 숨기고 원본 독서 session을 물리 삭제하지 않는다.
+- 숨긴 session은 오늘·주·월·전체 합계와 Markdown/JSON 내보내기, 도서 정보·리더 누적 시간에서 제외해 표시값을 일치시킨다.
+- 미완료 1회차를 숨긴 뒤 같은 책을 다시 읽으면 새 session이 1회차로 다시 나타난다.
+- 완료 경계는 원본 session으로 보존하므로 이미 시작된 2회차는 1회차로 재번호화되지 않는다. 완료 처리를 하지 않은 다음 독서는 기존 회차에 계속 합산된다.
+
+## Phase D — 탐색 모드 전환 복원
+
+- paginated와 scrolled 모드는 서로 다른 스크롤 축을 사용한다.
+- 모드 전환 시 이전 축의 `scrollLeft` 또는 `scrollTop`이 남아 현재 chapter iframe 전체가 화면 밖으로 밀리던 문제를 수정했다.
+- Foliate paginator가 렌더할 때 현재 사용하지 않는 축만 0으로 초기화하고, 현재 위치 anchor와 활성 축의 위치는 그대로 보존한다.
+- production browser regression이 실제 설정 UI에서 `L/R Tap → Scroll → L/R Tap`을 전환하고 각 단계에 보이는 본문 text rect가 존재하는지 검증한다.
 
 ## 메타데이터 최신화 운영
 
@@ -70,6 +88,7 @@ python3 scripts/publish-book-metadata.py \
 ## 자동검증
 
 - 도서 정보 모달 크기·필드·삭제 2단계 확인 browser regression
+- 실제 설정 UI의 탭·스크롤 왕복 전환 후 본문 표시 browser regression
 - 공개 메타데이터 alias 정규화·schema·HTTPS URL 검증
 - 게시기 전체 DB dry-run: 256 bucket, alias 27,053개, 충돌 7개 제외
 - Firestore Rules: 비로그인·로그인 단건 읽기 허용, list·create·update·delete 거부

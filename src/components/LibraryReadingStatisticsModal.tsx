@@ -25,11 +25,20 @@ import {
   isReadingStatisticsShareCapabilityError,
   shareReadingStatisticsExport,
 } from '../lib/readingStatisticsExportDelivery';
-import { subscribeReadingStatisticsChanges } from '../lib/readingStatisticsWake';
+import {
+  notifyReadingStatisticsChange,
+  subscribeReadingStatisticsChanges,
+} from '../lib/readingStatisticsWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import type { SyncHealth } from '../lib/syncHealth';
 import { collectStorageMaintenanceDiagnosticsV1 } from '../lib/storageMaintenanceDiagnostics';
 import { ACCENT_PALETTE } from '../lib/constants';
+import { ConfirmDialog } from './ConfirmDialog';
+import {
+  READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY,
+  hideReadingStatisticsRound,
+  readHiddenReadingStatisticsSessionIds,
+} from '../lib/readingStatisticsSessionVisibility';
 
 type Props = {
   open: boolean;
@@ -47,6 +56,12 @@ type Props = {
 };
 
 type BookListFilter = 'all' | 'current' | 'completed';
+type PendingBookListDeletion = {
+  bookId: string;
+  bookTitle: string;
+  roundNumber: number;
+  sourceSessionIds: string[];
+};
 
 const rangeLabels: Array<{ value: ReadingStatisticsRange; label: string }> = [
   { value: 'today', label: '오늘' },
@@ -80,9 +95,13 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const [sharing, setSharing] = useState(false);
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [completingRoundKey, setCompletingRoundKey] = useState<string | null>(null);
+  const [hiddenSessionIds, setHiddenSessionIds] = useState<Set<string>>(() => new Set());
+  const [pendingBookListDeletion, setPendingBookListDeletion] = useState<PendingBookListDeletion | null>(null);
   const [aggregationNow, setAggregationNow] = useState(() => Date.now());
   const dialogRef = useRef<HTMLElement>(null);
   const reloadTimerRef = useRef<number | null>(null);
+  const bookListLongPressTimerRef = useRef<number | null>(null);
+  const bookListLongPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   useBodyScrollLock(open && visible);
   const accent = ACCENT_PALETTE[accentColor] || ACCENT_PALETTE.indigo;
   const accentStyle = {
@@ -95,6 +114,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     if (showLoading) setLoading(true);
     try {
       setSessions(await getLocalReadingSessionsV11(ownerKey));
+      setHiddenSessionIds(readHiddenReadingStatisticsSessionIds(ownerKey));
       setAggregationNow(Date.now());
     } catch (error) {
       console.error('[ReadingStatistics] load failed:', error);
@@ -122,6 +142,17 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     };
   }, [onRefresh, open, ownerKey, reload, visible]);
 
+  useEffect(() => {
+    if (!open || !visible) return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY) {
+        setHiddenSessionIds(readHiddenReadingStatisticsSessionIds(ownerKey));
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [open, ownerKey, visible]);
+
   const serverCheckLabel = refreshing
     ? '서버 기록 확인 중…'
     : lastServerCheckedAt !== null
@@ -142,9 +173,11 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        if (pendingBookListDeletion) setPendingBookListDeletion(null);
+        else onClose();
         return;
       }
+      if (pendingBookListDeletion) return;
       if (event.key !== 'Tab' || !dialog) return;
       const focusable = [...dialog.querySelectorAll<HTMLElement>(selector)]
         .filter((element) => element.getClientRects().length > 0);
@@ -168,18 +201,21 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       window.removeEventListener('keydown', handleKeyDown);
       previous?.focus();
     };
-  }, [onClose, open, visible]);
+  }, [onClose, open, pendingBookListDeletion, visible]);
 
+  const visibleSessions = useMemo(() => sessions.filter(({ sessionId }) => (
+    !hiddenSessionIds.has(sessionId)
+  )), [hiddenSessionIds, sessions]);
   const allSummary = useMemo(() => buildReadingStatistics(
-    sessions,
+    visibleSessions,
     getReadingStatisticsRangeBounds('all', aggregationNow),
-  ), [aggregationNow, sessions]);
+  ), [aggregationNow, visibleSessions]);
   const summary = useMemo(() => range === 'all'
     ? allSummary
     : buildReadingStatistics(
-      sessions,
+      visibleSessions,
       getReadingStatisticsRangeBounds(range, aggregationNow),
-    ), [aggregationNow, allSummary, range, sessions]);
+    ), [aggregationNow, allSummary, range, visibleSessions]);
   const headlineTotals = useMemo(() => Object.fromEntries(
     (['today', 'week', 'month'] as const).map((value) => {
       const bounds = getReadingStatisticsRangeBounds(value, aggregationNow);
@@ -194,10 +230,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const bookRounds = useMemo(() => buildReadingBookRounds(
     sessions,
     getReadingStatisticsRangeBounds(range, aggregationNow),
-  ), [aggregationNow, range, sessions]);
+    hiddenSessionIds,
+  ), [aggregationNow, hiddenSessionIds, range, sessions]);
+  const listedBookRounds = bookRounds;
   const bookStatusSummary = useMemo(() => {
-    const latestRoundByBook = new Map<string, (typeof bookRounds)[number]>();
-    for (const round of bookRounds) {
+    const latestRoundByBook = new Map<string, (typeof listedBookRounds)[number]>();
+    for (const round of listedBookRounds) {
       const latest = latestRoundByBook.get(round.bookId);
       if (!latest || round.roundNumber > latest.roundNumber) {
         latestRoundByBook.set(round.bookId, round);
@@ -208,11 +246,11 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       currentCount: latestRounds.filter(({ completed }) => !completed).length,
       completedCount: latestRounds.filter(({ completed }) => completed).length,
     };
-  }, [bookRounds]);
-  const visibleBookRounds = useMemo(() => bookRounds.filter((book) => (
+  }, [listedBookRounds]);
+  const visibleBookRounds = useMemo(() => listedBookRounds.filter((book) => (
     bookListFilter === 'all'
     || (bookListFilter === 'completed' ? book.completed : !book.completed)
-  )), [bookListFilter, bookRounds]);
+  )), [bookListFilter, listedBookRounds]);
   const formatReadingDate = (localDate: string) => {
     const [year, month, day] = localDate.split('-').map(Number);
     return `${year}. ${month}. ${day}.`;
@@ -240,22 +278,86 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     }
   };
 
+  const clearBookListLongPress = useCallback(() => {
+    if (bookListLongPressTimerRef.current !== null) {
+      window.clearTimeout(bookListLongPressTimerRef.current);
+    }
+    bookListLongPressTimerRef.current = null;
+    bookListLongPressStartRef.current = null;
+  }, []);
+
+  const startBookListLongPress = useCallback((
+    event: React.PointerEvent<HTMLElement>,
+    book: PendingBookListDeletion,
+  ) => {
+    if (
+      (event.pointerType === 'mouse' && event.button !== 0)
+      || (event.target instanceof Element && event.target.closest('button,a,input'))
+    ) return;
+    clearBookListLongPress();
+    bookListLongPressStartRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    bookListLongPressTimerRef.current = window.setTimeout(() => {
+      bookListLongPressTimerRef.current = null;
+      bookListLongPressStartRef.current = null;
+      setPendingBookListDeletion(book);
+    }, 650);
+  }, [clearBookListLongPress]);
+
+  const moveBookListLongPress = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const start = bookListLongPressStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) {
+      clearBookListLongPress();
+    }
+  }, [clearBookListLongPress]);
+
+  useEffect(() => () => clearBookListLongPress(), [clearBookListLongPress]);
+
+  const confirmBookListDeletion = useCallback(() => {
+    if (!pendingBookListDeletion) return;
+    if (!hideReadingStatisticsRound(
+      ownerKey,
+      pendingBookListDeletion.bookId,
+      pendingBookListDeletion.roundNumber,
+      pendingBookListDeletion.sourceSessionIds,
+    )) {
+      setFeedback('회차 기록을 목록에서 삭제하지 못했습니다.');
+      return;
+    }
+    setHiddenSessionIds((current) => new Set([
+      ...current,
+      ...pendingBookListDeletion.sourceSessionIds,
+    ]));
+    setExpandedCompletionRows((current) => {
+      const next = new Set(current);
+      next.delete(`${pendingBookListDeletion.bookId}:${pendingBookListDeletion.roundNumber}`);
+      return next;
+    });
+    setFeedback(`${pendingBookListDeletion.roundNumber}회차 기록을 통계에서 숨겼습니다. 해당 시간은 표시 합계에서 제외됩니다.`);
+    setPendingBookListDeletion(null);
+    notifyReadingStatisticsChange(ownerKey);
+  }, [ownerKey, pendingBookListDeletion]);
+
   const exportMarkdown = () => {
-    downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(sessions));
+    downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(visibleSessions));
     setFeedback('Markdown 통계를 저장했습니다.');
   };
   const exportJson = () => {
-    downloadReadingStatisticsExport(createReadingStatisticsJsonExport(sessions));
+    downloadReadingStatisticsExport(createReadingStatisticsJsonExport(visibleSessions));
     setFeedback('JSON 통계를 저장했습니다.');
   };
   const share = async () => {
     setSharing(true);
     try {
       const shared = await shareReadingStatisticsExport(
-        createReadingStatisticsMarkdownExport(sessions),
+        createReadingStatisticsMarkdownExport(visibleSessions),
       );
       if (!shared) {
-        downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(sessions));
+        downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(visibleSessions));
         setFeedback('공유를 지원하지 않아 Markdown 파일로 저장했습니다.');
       } else {
         setFeedback('통계 파일을 공유했습니다.');
@@ -263,7 +365,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       if (isReadingStatisticsShareCapabilityError(error)) {
-        downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(sessions));
+        downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(visibleSessions));
         setFeedback('공유를 지원하지 않아 Markdown 파일로 저장했습니다.');
       } else {
         console.error('[ReadingStatistics] share failed:', error);
@@ -294,6 +396,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
   if (!open) return null;
   return (
+    <>
     <div
       className={`fixed inset-0 z-[105] ${visible ? 'flex' : 'hidden'} items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5`}
       onClick={onClose}
@@ -358,7 +461,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
             <>
               <div className="grid grid-cols-3 gap-1.5">
                 {(['today', 'week', 'month'] as const).map((value) => (
-                  <div key={value} className={`min-w-0 rounded-xl border ${theme.border} px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}>
+                  <div key={value} data-reading-statistics-headline={value} className={`min-w-0 rounded-xl border ${theme.border} px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}>
                     <div className="text-[10px] font-bold opacity-50">{rangeLabels.find((item) => item.value === value)?.label}</div>
                     <div className="mt-0.5 truncate text-xs font-black text-accent-500 sm:text-base">{formatReadingDuration(headlineTotals[value])}</div>
                   </div>
@@ -383,11 +486,11 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               <div className="mt-2.5 grid grid-cols-2 gap-1.5">
                 <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Monitor size={14} /> 화면 독서</div>
-                  <div className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.screenMs)}</div>
+                  <div data-reading-statistics-mode-total="screen" className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.screenMs)}</div>
                 </div>
                 <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Headphones size={14} /> TTS 듣기</div>
-                  <div className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.ttsMs)}</div>
+                  <div data-reading-statistics-mode-total="tts" className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.ttsMs)}</div>
                 </div>
               </div>
 
@@ -422,7 +525,34 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                   const rowKey = `${book.bookId}:${book.roundNumber}`;
                   const completionExpanded = expandedCompletionRows.has(rowKey);
                   return (
-                  <article key={rowKey} data-reading-statistics-book="true" data-reading-statistics-book-id={book.bookId} data-reading-statistics-round={book.roundNumber} className={`min-w-0 overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}>
+                  <article
+                    key={rowKey}
+                    data-reading-statistics-book="true"
+                    data-reading-statistics-book-id={book.bookId}
+                    data-reading-statistics-round={book.roundNumber}
+                    title="길게 눌러 이 회차를 통계 목록에서 삭제"
+                    onPointerDown={(event) => startBookListLongPress(event, {
+                      bookId: book.bookId,
+                      bookTitle: book.bookTitle,
+                      roundNumber: book.roundNumber,
+                      sourceSessionIds: book.sourceSessionIds,
+                    })}
+                    onPointerMove={moveBookListLongPress}
+                    onPointerUp={clearBookListLongPress}
+                    onPointerCancel={clearBookListLongPress}
+                    onPointerLeave={clearBookListLongPress}
+                    onContextMenu={(event) => {
+                      if (event.target instanceof Element && event.target.closest('button,a,input')) return;
+                      event.preventDefault();
+                      setPendingBookListDeletion({
+                        bookId: book.bookId,
+                        bookTitle: book.bookTitle,
+                        roundNumber: book.roundNumber,
+                        sourceSessionIds: book.sourceSessionIds,
+                      });
+                    }}
+                    className={`min-w-0 touch-manipulation select-none overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}
+                  >
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">
                         <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle} · {book.roundNumber}회차</h4>
@@ -484,13 +614,13 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         <footer className={`border-t ${theme.border} px-3 py-2 sm:px-4`}>
           {feedback && <p role="status" className="mb-2 text-center text-xs font-bold text-accent-500">{feedback}</p>}
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={sessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
               <FileText size={15} /><Download size={13} /> MD
             </button>
-            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={sessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
               <FileJson size={15} /><Download size={13} /> JSON
             </button>
-            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || sessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-accent-600 text-xs font-bold text-white disabled:opacity-30">
+            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-accent-600 text-xs font-bold text-white disabled:opacity-30">
               <Share2 size={15} /> 공유
             </button>
             <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
@@ -500,5 +630,16 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         </footer>
       </section>
     </div>
+    {pendingBookListDeletion && (
+      <ConfirmDialog
+        message={`“${pendingBookListDeletion.bookTitle}” ${pendingBookListDeletion.roundNumber}회차를 목록에서 삭제할까요?`}
+        subMessage="선택한 회차의 세션만 통계에서 숨깁니다. 같은 책의 다른 회차와 원본 세션은 유지되며, 표시되는 독서 합계에서는 제외됩니다."
+        confirmLabel="목록에서 삭제"
+        theme={theme}
+        onConfirm={confirmBookListDeletion}
+        onCancel={() => setPendingBookListDeletion(null)}
+      />
+    )}
+    </>
   );
 };

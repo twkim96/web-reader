@@ -6,6 +6,7 @@ import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import { buildReadingStatistics, formatReadingClock } from '../../lib/readingStatistics';
 import type { ReadingSessionV1 } from '../../lib/readingStatistics';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
+import { readHiddenReadingStatisticsSessionIds } from '../../lib/readingStatisticsSessionVisibility';
 
 const DISPLAY_REFRESH_MS = 5_000;
 
@@ -31,10 +32,13 @@ export const useCurrentBookReadingTime = ({
     let loadGeneration = 0;
 
     setDisplay({ key: displayKey, minutes: 0 });
-    const refreshDisplay = () => {
+    const refreshDisplay = (allowDecrease = false) => {
       if (cancelled) return;
       const totalMs = persistedMs + (getActiveSessionPreview()?.durationMs ?? 0);
-      const nextMinutes = Math.max(displayedMinutes, Math.floor(totalMs / 60_000));
+      const measuredMinutes = Math.floor(totalMs / 60_000);
+      const nextMinutes = allowDecrease
+        ? measuredMinutes
+        : Math.max(displayedMinutes, measuredMinutes);
       if (nextMinutes === displayedMinutes) return;
       displayedMinutes = nextMinutes;
       setDisplay({ key: displayKey, minutes: nextMinutes });
@@ -44,9 +48,12 @@ export const useCurrentBookReadingTime = ({
       try {
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         if (cancelled || generation !== loadGeneration) return;
-        persistedMs = buildReadingStatistics(sessions).books
+        const hiddenSessionIds = readHiddenReadingStatisticsSessionIds(ownerKey);
+        persistedMs = buildReadingStatistics(sessions.filter(({ sessionId }) => (
+          !hiddenSessionIds.has(sessionId)
+        ))).books
           .find((book) => book.bookId === bookId)?.totalMs ?? 0;
-        refreshDisplay();
+        refreshDisplay(true);
       } catch (error) {
         console.error('[ReadingStatistics] current book total load failed:', error);
       }

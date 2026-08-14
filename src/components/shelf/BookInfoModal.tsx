@@ -19,6 +19,7 @@ import {
   type PublicBookMetadata,
   type PublicBookPlatformMetadata,
 } from '../../lib/publicBookMetadata';
+import { readHiddenReadingStatisticsSessionIds } from '../../lib/readingStatisticsSessionVisibility';
 
 type Props = {
   book: Book;
@@ -97,7 +98,10 @@ export const BookInfoModal: React.FC<Props> = ({
       try {
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         if (!active) return;
-        const bookStatistics = buildReadingStatistics(sessions).books
+        const hiddenSessionIds = readHiddenReadingStatisticsSessionIds(ownerKey);
+        const bookStatistics = buildReadingStatistics(sessions.filter(({ sessionId }) => (
+          !hiddenSessionIds.has(sessionId)
+        ))).books
           .find(({ bookId }) => bookId === book.id);
         setReadingTimeMs(bookStatistics && bookStatistics.totalMs > 0
           ? bookStatistics.totalMs
@@ -149,7 +153,7 @@ export const BookInfoModal: React.FC<Props> = ({
     platform.recommendCount !== null && `추천 ${formatMetric(platform.recommendCount)}`,
     platform.rating !== null && `평점 ${platform.rating.toFixed(1)}`,
     platform.ratingCount !== null && `평가 ${formatMetric(platform.ratingCount)}`,
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean).slice(0, 2).join(' · ');
 
   return (
     <div
@@ -201,6 +205,15 @@ export const BookInfoModal: React.FC<Props> = ({
             <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isDownloaded ? 'bg-emerald-500/12 text-emerald-500' : 'bg-black/5 opacity-55 dark:bg-white/5'}`}>
               {isDownloaded ? '기기 저장됨' : '클라우드 전용'}
             </span>
+            {metadata?.platforms.map((platform) => (
+              <span
+                key={platform.platform}
+                data-book-info-platform-badge={platform.platform}
+                className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500"
+              >
+                {platform.label}
+              </span>
+            ))}
           </div>
 
           <dl className="mt-4 grid grid-cols-2 gap-1.5">
@@ -253,12 +266,13 @@ export const BookInfoModal: React.FC<Props> = ({
                     rel="noopener noreferrer"
                     className="group flex min-w-0 items-center gap-2 rounded-lg bg-black/5 px-2.5 py-2 hover:bg-accent-500/10 dark:bg-white/5"
                   >
-                    <span className="shrink-0 rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
-                      {platform.label}
-                    </span>
                     <span className="min-w-0 flex-1">
-                      <strong className="block truncate text-[11px]">{platform.title}</strong>
-                      <small className="block truncate text-[9px] opacity-45">{platformMetrics(platform) || '연결된 작품 페이지'}</small>
+                      <strong data-book-info-platform-metrics={platform.platform} className="block truncate text-xs font-black text-accent-500 sm:text-sm">
+                        {platformMetrics(platform) || platform.label}
+                      </strong>
+                      <small data-book-info-platform-title={platform.platform} className="mt-0.5 block truncate text-[10px] font-bold opacity-50 sm:text-[11px]">
+                        {platform.title}
+                      </small>
                     </span>
                     <ExternalLink size={13} className="shrink-0 opacity-35 group-hover:text-accent-500 group-hover:opacity-100" />
                   </a>

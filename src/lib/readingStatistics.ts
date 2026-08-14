@@ -92,6 +92,7 @@ export type ReadingBookRoundStatistics = ReadingBookStatistics & {
   startedLocalDate: string;
   completedLocalDate: string | null;
   canComplete: boolean;
+  sourceSessionIds: string[];
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => (
@@ -733,6 +734,7 @@ export const buildReadingStatistics = (
 export const buildReadingBookRounds = (
   sessions: readonly ReadingSessionV1[],
   bounds: Parameters<typeof buildReadingStatistics>[1] = {},
+  hiddenSessionIds: ReadonlySet<string> = new Set(),
 ): ReadingBookRoundStatistics[] => {
   const valid = sessions.filter(isReadingSessionV1);
   const samplesByDevice = new Map<string, ReadingSessionV1[]>();
@@ -755,14 +757,17 @@ export const buildReadingBookRounds = (
     const rounds = buildReadingBookRoundGroups(ordered);
 
     rounds.forEach((round, index) => {
-      const summary = buildReadingStatistics(round.sessions, bounds);
-      const book = summary.books.find(({ bookId }) => bookId === round.sessions[0]?.bookId);
+      const visibleSessions = round.sessions.filter(({ sessionId }) => (
+        !hiddenSessionIds.has(sessionId)
+      ));
+      const summary = buildReadingStatistics(visibleSessions, bounds);
+      const book = summary.books.find(({ bookId }) => bookId === visibleSessions[0]?.bookId);
       // buildReadingStatistics preserves book metadata even when every slice is
       // outside the selected range. A range-scoped list should contain only
       // rounds with actual counted reading time in that range.
       if (!book || book.totalMs <= 0) return;
-      const first = round.sessions[0];
-      const completion = round.sessions
+      const first = visibleSessions[0];
+      const completion = visibleSessions
         .filter(isConfirmedReadingCompletion)
         .sort((left, right) => (
           Number(left.completionConfirmedAtClient) - Number(right.completionConfirmedAtClient)
@@ -773,6 +778,7 @@ export const buildReadingBookRounds = (
         : 0;
       rows.push({
         ...book,
+        completed: round.completed,
         roundNumber: index + 1,
         startedLocalDate: getReadingSessionLocalDate(
           first.startedAtClient + firstCorrection,
@@ -784,6 +790,7 @@ export const buildReadingBookRounds = (
         ) : null,
         canComplete: !round.completed
           && book.endProgressPercent >= READING_ROUND_COMPLETION_PERCENT,
+        sourceSessionIds: visibleSessions.map(({ sessionId }) => sessionId),
       });
     });
   }

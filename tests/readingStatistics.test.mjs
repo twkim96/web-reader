@@ -76,6 +76,56 @@ test('keeps rereading rows in round order even when a later round is longer', ()
   assert.deepEqual(rounds.map(({ roundNumber }) => roundNumber), [1, 2]);
 });
 
+test('restarts an uncompleted hidden round at round one with only new visible sessions', () => {
+  const oldSession = session({
+    sessionId: 'old-accidental-open', startedAtClient: 1_000, endedAtClient: 61_000,
+    startProgressPercent: 0, endProgressPercent: 1,
+  });
+  const newSession = session({
+    sessionId: 'new-reading', startedAtClient: 62_000, endedAtClient: 182_000,
+    startProgressPercent: 1, endProgressPercent: 20,
+  });
+  const rounds = buildReadingBookRounds(
+    [oldSession, newSession],
+    {},
+    new Set([oldSession.sessionId]),
+  );
+
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].roundNumber, 1);
+  assert.equal(rounds[0].totalMs, 120_000);
+  assert.deepEqual(rounds[0].sourceSessionIds, ['new-reading']);
+});
+
+test('keeps a surviving second round numbered after hiding its completed first round', () => {
+  const first = session({
+    sessionId: 'completed-first', startedAtClient: 1_000, endedAtClient: 61_000,
+    startProgressPercent: 90, endProgressPercent: 99,
+  });
+  const completion = createReadingRoundCompletionSession({
+    sessions: [first],
+    bookId: 'book-1',
+    expectedRoundNumber: 1,
+    sessionId: 'first-completion-marker',
+    confirmedAtClient: 62_000,
+  });
+  assert.equal(completion.status, 'created');
+  if (completion.status !== 'created') return;
+  const second = session({
+    sessionId: 'existing-second', startedAtClient: 63_000, endedAtClient: 123_000,
+    startProgressPercent: 99, endProgressPercent: 20,
+  });
+  const rounds = buildReadingBookRounds(
+    [first, completion.session, second],
+    {},
+    new Set([first.sessionId, completion.session.sessionId]),
+  );
+
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].roundNumber, 2);
+  assert.deepEqual(rounds[0].sourceSessionIds, ['existing-second']);
+});
+
 test('numbers reading rounds independently for each book', () => {
   const rounds = buildReadingBookRounds([
     session({
