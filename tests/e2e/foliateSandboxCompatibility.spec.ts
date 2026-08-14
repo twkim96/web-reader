@@ -313,6 +313,71 @@ test('paginator applies reader style before the first visible pagination settles
   ))).toBe(true);
 });
 
+test('paginator clears paginated overlay width when switching to scroll mode', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const url = URL.createObjectURL(new Blob([`<!doctype html><html><body>
+      ${Array.from({ length: 180 }, (_, index) => `<p>Scrollable paragraph ${index} ${'content '.repeat(10)}</p>`).join('')}
+    </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    document.body.append(renderer);
+
+    const overlayRef: { current: SVGSVGElement | null } = { current: null };
+    renderer.addEventListener('create-overlayer', ((event: CustomEvent) => {
+      const overlayElement = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      overlayRef.current = overlayElement;
+      Object.assign(overlayElement.style, {
+        position: 'absolute',
+        pointerEvents: 'none',
+      });
+      event.detail.attach({
+        element: overlayElement,
+        redraw: () => undefined,
+      });
+    }) as EventListener);
+    renderer.open({
+      dir: 'ltr',
+      sections: [{
+        linear: 'yes',
+        load: async () => url,
+        unload: () => undefined,
+      }],
+    });
+    await renderer.goTo({ index: 0 });
+    renderer.render();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const paginatedWidth = overlayRef.current?.style.width ?? '';
+    const paginatedPixels = Number.parseFloat(paginatedWidth) || 0;
+
+    renderer.setAttribute('flow', 'scrolled');
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const contents = renderer.getContents()[0];
+    const scrollResult = {
+      overlayWidth: overlayRef.current?.style.width ?? '',
+      contentClientWidth: contents?.doc?.documentElement.clientWidth ?? 0,
+      contentScrollWidth: contents?.doc?.documentElement.scrollWidth ?? 0,
+    };
+    renderer.destroy();
+    renderer.remove();
+    URL.revokeObjectURL(url);
+    return { paginatedPixels, scrollResult };
+  });
+
+  expect(result.paginatedPixels).toBeGreaterThan(720);
+  expect(result.scrollResult.overlayWidth).toBe('100%');
+  expect(result.scrollResult.contentScrollWidth).toBeLessThanOrEqual(
+    result.scrollResult.contentClientWidth + 1,
+  );
+});
+
 test('paginator waits for pagination and returns to the calculated last page across a section boundary', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
@@ -391,7 +456,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.12.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.12.2';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpen, CalendarClock, Clock3, Database, ExternalLink, FileType2, ImageDown, Trash2, X } from 'lucide-react';
+import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, Trash2, X } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -175,11 +175,9 @@ export const BookInfoModal: React.FC<Props> = ({
     platform.ratingCount !== null && `평가 ${formatMetric(platform.ratingCount)}`,
   ].filter(Boolean).slice(0, 2).join(' · ');
 
-  const captureReadingProof = useCallback(async () => {
+  const createReadingProofBlob = useCallback(async () => {
     const source = captureRef.current;
-    if (!source || capturing) return;
-    setCapturing(true);
-    setCaptureFeedback('이미지 생성 중…');
+    if (!source) throw new Error('Reading proof source is unavailable');
     let captureNode: HTMLElement | null = null;
     try {
       await document.fonts?.ready;
@@ -227,6 +225,18 @@ export const BookInfoModal: React.FC<Props> = ({
         backgroundColor: sourceStyle.backgroundColor,
       });
       if (!blob || blob.size === 0) throw new Error('Reading proof PNG is empty');
+      return blob;
+    } finally {
+      captureNode?.remove();
+    }
+  }, []);
+
+  const downloadReadingProof = useCallback(async () => {
+    if (capturing) return;
+    setCapturing(true);
+    setCaptureFeedback('이미지 생성 중…');
+    try {
+      const blob = await createReadingProofBlob();
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
@@ -237,13 +247,36 @@ export const BookInfoModal: React.FC<Props> = ({
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
       setCaptureFeedback('독서 인증 이미지를 다운로드했습니다.');
     } catch (error) {
-      console.error('[BookInfo] reading proof capture failed:', error);
+      console.error('[BookInfo] reading proof download failed:', error);
       setCaptureFeedback('이미지를 만들지 못했습니다. 다시 시도해 주세요.');
     } finally {
-      captureNode?.remove();
       setCapturing(false);
     }
-  }, [book.name, capturing]);
+  }, [book.name, capturing, createReadingProofBlob]);
+
+  const copyReadingProof = useCallback(async () => {
+    if (capturing) return;
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      setCaptureFeedback('이 브라우저는 이미지 클립보드 저장을 지원하지 않습니다.');
+      return;
+    }
+    setCapturing(true);
+    setCaptureFeedback('이미지 생성 중…');
+    try {
+      // Pass the pending PNG to ClipboardItem immediately so browsers that
+      // enforce transient user activation keep the clipboard write authorized.
+      const blobPromise = createReadingProofBlob();
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blobPromise }),
+      ]);
+      setCaptureFeedback('독서 인증 이미지를 클립보드에 저장했습니다.');
+    } catch (error) {
+      console.error('[BookInfo] reading proof clipboard copy failed:', error);
+      setCaptureFeedback('이미지를 클립보드에 저장하지 못했습니다.');
+    } finally {
+      setCapturing(false);
+    }
+  }, [capturing, createReadingProofBlob]);
 
   const deleteLocalCopy = useCallback(async () => {
     if (!onDeleteLocalCopy || isDeleting) return;
@@ -400,7 +433,7 @@ export const BookInfoModal: React.FC<Props> = ({
               {captureFeedback}
             </p>
           )}
-          <div className={`grid gap-1.5 ${showManagementActions ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-[auto] justify-end'}`}>
+          <div className={`grid gap-1.5 ${showManagementActions ? 'grid-cols-[1fr_auto_auto_auto]' : 'grid-cols-[auto_auto] justify-end'}`}>
             {showManagementActions && (
               <button
                 type="button"
@@ -413,8 +446,19 @@ export const BookInfoModal: React.FC<Props> = ({
             )}
             <button
               type="button"
+              data-book-info-copy-image="true"
+              onClick={() => void copyReadingProof()}
+              disabled={capturing || isDeleting}
+              aria-label={capturing ? '독서 인증 이미지 생성 중' : '독서 인증 이미지 클립보드에 저장'}
+              title="독서 인증 이미지 클립보드에 저장"
+              className={`flex size-11 items-center justify-center rounded-xl border ${theme.border} text-accent-500 hover:bg-accent-500/10 disabled:opacity-40`}
+            >
+              <Clipboard size={18} className={capturing ? 'animate-pulse' : undefined} />
+            </button>
+            <button
+              type="button"
               data-book-info-capture="true"
-              onClick={() => void captureReadingProof()}
+              onClick={() => void downloadReadingProof()}
               disabled={capturing || isDeleting}
               aria-label={capturing ? '독서 인증 이미지 생성 중' : '독서 인증 이미지 다운로드'}
               title="독서 인증 이미지 다운로드"

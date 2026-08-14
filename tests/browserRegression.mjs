@@ -491,6 +491,7 @@ try {
       captureRootContainsActions: Boolean(
         modal?.querySelector('[data-book-info-capture-root="true"] [data-book-info-actions="true"]'),
       ),
+      hasCopyImageButton: Boolean(modal?.querySelector('[data-book-info-copy-image="true"]')),
       hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
     };
   })()`);
@@ -512,6 +513,7 @@ try {
   assert.equal(bookInfoUi.modalOutlineStyle, 'none');
   assert.ok(bookInfoUi.modalOutlineWidth === '0px' || bookInfoUi.modalOutlineStyle === 'none');
   assert.equal(bookInfoUi.captureRootContainsActions, false);
+  assert.equal(bookInfoUi.hasCopyImageButton, true);
   assert.equal(bookInfoUi.hasCaptureButton, true);
   const bookInfoActions = await evaluate(`(() => {
     const footer = document.querySelector('[data-book-info-actions="true"]');
@@ -524,12 +526,43 @@ try {
   })()`);
   assert.deepEqual(bookInfoActions.map(({ label }) => label), [
     '읽기',
+    '독서 인증 이미지 클립보드에 저장',
     '독서 인증 이미지 다운로드',
     'Book 0100 삭제',
   ]);
   assert.equal(bookInfoActions[1].text, '');
-  assert.ok(Math.abs(bookInfoActions[1].width - bookInfoActions[2].width) <= 1);
-  assert.ok(Math.abs(bookInfoActions[1].height - bookInfoActions[2].height) <= 1);
+  assert.equal(bookInfoActions[2].text, '');
+  assert.ok(Math.abs(bookInfoActions[1].width - bookInfoActions[3].width) <= 1);
+  assert.ok(Math.abs(bookInfoActions[1].height - bookInfoActions[3].height) <= 1);
+  assert.ok(Math.abs(bookInfoActions[2].width - bookInfoActions[3].width) <= 1);
+  assert.ok(Math.abs(bookInfoActions[2].height - bookInfoActions[3].height) <= 1);
+  await evaluate(`(() => {
+    window.__bookInfoClipboardBlob = null;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        write: async (items) => {
+          window.__bookInfoClipboardBlob = await items[0].getType('image/png');
+        },
+      },
+    });
+    document.querySelector('[data-book-info-copy-image="true"]')?.click();
+  })()`);
+  await waitFor(
+    'Boolean(window.__bookInfoClipboardBlob)',
+    'book information proof PNG clipboard copy',
+    10_000,
+  );
+  const proofClipboard = await evaluate(`(async () => {
+    const blob = window.__bookInfoClipboardBlob;
+    const bitmap = await createImageBitmap(blob);
+    const result = { type: blob.type, size: blob.size, width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return result;
+  })()`);
+  assert.equal(proofClipboard.type, 'image/png');
+  assert.ok(proofClipboard.size > 1_000, JSON.stringify(proofClipboard));
+  assert.ok(proofClipboard.width > 100 && proofClipboard.height > 100, JSON.stringify(proofClipboard));
   await evaluate(`(() => {
     window.__bookInfoProofDownload = null;
     window.__bookInfoProofBlob = null;
@@ -1423,7 +1456,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.12.1')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.12.2')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -1848,6 +1881,12 @@ try {
     renderer.setAttribute('flow', 'scrolled');
     await new Promise((resolve) => setTimeout(resolve, 150));
     const overlayAfterLayoutChange = hasHighlightOverlay();
+    const scrollModeHorizontalOverflow = {
+      rendererClientWidth: renderer.clientWidth,
+      rendererScrollWidth: renderer.scrollWidth,
+      contentClientWidth: renderer.getContents()[0]?.doc?.documentElement?.clientWidth ?? 0,
+      contentScrollWidth: renderer.getContents()[0]?.doc?.documentElement?.scrollWidth ?? 0,
+    };
     renderer.setAttribute('flow', 'paginated');
     await new Promise((resolve) => setTimeout(resolve, 150));
     const beforeTap = renderer.start;
@@ -2063,6 +2102,7 @@ try {
       overlayFailureUndoFeedback,
       overlayAfterStyleChange,
       overlayAfterLayoutChange,
+      scrollModeHorizontalOverflow,
       clipboardAvailable: typeof navigator.clipboard?.writeText === 'function',
       shareAvailable: typeof navigator.share === 'function',
       overlayAbsent: !document.querySelector('[data-reader-interaction-overlay="true"]'),
@@ -2188,6 +2228,16 @@ try {
   assert.match(selectionActions.overlayFailureUndoFeedback, /실행 취소됨/);
   assert.equal(selectionActions.overlayAfterStyleChange, true);
   assert.equal(selectionActions.overlayAfterLayoutChange, true);
+  assert.ok(
+    selectionActions.scrollModeHorizontalOverflow.rendererScrollWidth
+      <= selectionActions.scrollModeHorizontalOverflow.rendererClientWidth + 1,
+    JSON.stringify(selectionActions.scrollModeHorizontalOverflow),
+  );
+  assert.ok(
+    selectionActions.scrollModeHorizontalOverflow.contentScrollWidth
+      <= selectionActions.scrollModeHorizontalOverflow.contentClientWidth + 1,
+    JSON.stringify(selectionActions.scrollModeHorizontalOverflow),
+  );
   assert.equal(selectionActions.selectionCleared, true);
   assert.equal(selectionActions.navMode, 'left-right');
   assert.equal(selectionActions.swipeNavigation, 'false');
@@ -3423,12 +3473,14 @@ try {
       hasReadButton: [...(modal?.querySelectorAll('button') ?? [])]
         .some((button) => button.textContent?.trim() === '읽기'),
       hasDeleteButton: Boolean(modal?.querySelector('[data-book-info-request-delete="true"]')),
+      hasCopyImageButton: Boolean(modal?.querySelector('[data-book-info-copy-image="true"]')),
       hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
     };
   })()`);
   assert.deepEqual(readerBookInfo, {
     hasReadButton: false,
     hasDeleteButton: false,
+    hasCopyImageButton: true,
     hasCaptureButton: true,
   });
   await evaluate(`document.querySelector('[data-book-info-modal="true"] button[aria-label="도서 정보 닫기"]')?.click()`);

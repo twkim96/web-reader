@@ -494,6 +494,10 @@ class View {
                 this.#overlayer.element.style.left = this.#vertical ? '0' : `${this.#size}px`
                 this.#overlayer.element.style.top = this.#vertical ? `${this.#size}px` : '0'
                 this.#overlayer.element.style[side] = `${expandedSize}px`
+                // Flow switches swap the active expansion axis. Reset the
+                // inactive dimension so a paginated overlay width cannot keep
+                // the scrolled container horizontally overflowed.
+                this.#overlayer.element.style[otherSide] = '100%'
                 this.#overlayer.redraw()
             }
         } else {
@@ -513,6 +517,7 @@ class View {
                 this.#overlayer.element.style.left = '0'
                 this.#overlayer.element.style.top = '0'
                 this.#overlayer.element.style[side] = `${expandedSize}px`
+                this.#overlayer.element.style[otherSide] = '100%'
                 this.#overlayer.redraw()
             }
         }

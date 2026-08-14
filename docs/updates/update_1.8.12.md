@@ -8,7 +8,7 @@
 
 이전 버전: [update_1.8.11.md](./update_1.8.11.md)
 
-상태: 두 외부 리뷰의 P0/P1 안정화 구현 완료. 전체 자동검증과 release/cache 검증 통과, 외부 재리뷰·실기기 확인 대기
+상태: 두 외부 리뷰의 P0/P1 안정화와 후속 도서정보 clipboard·탭→스크롤 폭 수정 구현 완료. 전체 자동검증과 release/cache 검증 통과, 1.8.12 전체 외부 재리뷰·실기기 확인 대기
 
 ## 목표
 
@@ -200,13 +200,42 @@ foreground에서 10~15초마다 collection 전체를 읽는 watchdog polling은 
 - 필요하면 oldest outbox age, pending count, last ack, last authoritative apply를 진단에 추가한다.
 - bookmark/note 본문은 로그에 남기지 않는다.
 
-## 이번 버전에서 제외·보류
+## Phase I — 도서정보 이미지 공유·탭→스크롤 전환 폭 안정화
 
-- 별도 `bookmarks-v14` store와 `UserProgress`/`BookmarkCollection` 완전 분리는 migration 위험이 커 1.8.12의 전제조건으로 삼지 않는다.
-- 선택적 Live Follow leader/follower 모드는 기본 resume 동기화와 분리한다.
-- reader를 열기 전에 authoritative remote head를 수백 ms 기다려 local A 화면 자체를 전혀 표시하지 않는 pre-open bounded-wait 구조는 이번 버전에서 도입하지 않는다. local A가 먼저 보였다가 local work가 없는 최신 remote B로 **한 번** 이동하는 기존 resume UX는 남을 수 있지만, canonical adopt 실패에 의한 rollback 반복은 제거한다.
-- `100vh`를 별도 visualViewport 고정 높이 시스템으로 교체하는 작업은 보조 trigger이며 이번 P0에 포함하지 않는다. browser regression과 실기기에서 남은 resize oscillation이 확인될 때 별도 처리한다.
-- Google Noto Serif 원격 `@import` 전체 font-ready를 무한 대기하지 않는다. 이번 초기 font gate는 앱이 직접 제공하는 RIDIBatang 경로를 대상으로 한다.
+상태: 구현·targeted 검증 완료
+
+1.8.12 전체 리뷰 전에 실사용에서 확인된 두 항목을 같은 릴리스에 추가한다.
+
+### 도서정보 이미지 클립보드 저장
+
+- 도서정보 하단의 이미지 다운로드 버튼 왼쪽에 클립보드 아이콘 버튼을 추가했다.
+- 기존 독서 인증 PNG 생성 경로를 `createReadingProofBlob()`으로 공용화해 다운로드와 클립보드 저장이 같은 이미지를 사용한다.
+- `ClipboardItem({ 'image/png': blobPromise })`을 사용자 클릭 직후 `navigator.clipboard.write()`에 전달해 transient user activation 제약이 있는 브라우저에서도 가능한 한 이미지 쓰기 권한을 유지한다.
+- 이미지 clipboard API가 없는 브라우저는 기능 미지원 안내를 표시하고 다운로드 버튼은 그대로 사용할 수 있다.
+- 서재 도서정보와 reader 내부 도서정보가 같은 `BookInfoModal`을 사용하므로 양쪽 모두 동일하게 제공한다.
+
+### 탭 모드 → 스크롤 모드 전환 시 가로 overflow 제거
+
+- paginated horizontal mode에서 Foliate overlayer는 페이지 전체 너비만큼 확장된다.
+- 기존 scrolled 전환은 iframe/view wrapper의 inactive dimension은 100%로 되돌렸지만 overlayer의 이전 width를 초기화하지 않아 `overflow:auto` container에 좌우 scroll 영역이 남을 수 있었다.
+- `View.expand()`의 paginated/scrolled 양쪽에서 overlayer의 비활성 축을 항상 `100%`로 재설정한다.
+- 기존 active scroll axis 전환 시 `scrollLeft/scrollTop` 초기화 계약은 유지한다.
+- Foliate runtime revision을 `1.8.12.2`로 올려 이미 1.8.12를 받은 PWA도 수정된 paginator를 새 URL로 로드하도록 한다.
+
+## 리뷰 제안 중 이번 1.8.12에서 미반영·보류한 항목
+
+아래 항목은 누락이 아니라 현재 P0/P1 안정화에 필수적이지 않거나 migration/UX 범위가 커서 의도적으로 남긴 것이다. 전체 1.8.12 재리뷰와 실기기 결과에서 필요성이 확인되면 후속 버전 또는 1.8.12 hotfix 후보로 사용한다.
+
+- `InitialReaderDecision` 형태로 reader를 열기 전에 local/remote/outbox 승자를 모두 정하고 remote head를 bounded wait하는 **pre-open 단일 초기 위치 결정 구조**는 도입하지 않았다. 현재는 local work가 없을 때 local A가 먼저 표시된 뒤 canonical remote B로 한 번 이동할 수 있다.
+- `ProgressPosition`을 `resumeCfi`와 `anchorCfi`로 새 schema까지 분리하는 migration은 하지 않았다. 이번 버전은 기존 `cfi`를 navigation에 우선하고 `anchorCfi`를 비교 기준으로 사용하는 수준이다.
+- layout attribute 여러 개를 하나의 vendor `applyLayout()` 호출로 묶어 render를 정확히 한 번만 실행하는 구조 개편은 하지 않았다. 동일 값 no-op과 초기 presentation guard로 불필요한 재적용만 차단했다.
+- `ReaderBootstrapTrace`의 `remote-decision`, `font-ready`, `paginator-expand`, viewport/page geometry 전체 진단 스키마는 추가하지 않았다. 실기기에서 잔여 진동이 재현되면 우선순위 높은 진단 hotfix 후보다.
+- `100vh`/`100dvh`를 `visualViewport.height` 기반 고정 CSS 변수와 안정화 debounce로 교체하는 모바일 viewport 시스템은 넣지 않았다. iPad/Android에서 browser chrome resize가 실제 잔여 trigger로 확인될 때 적용한다.
+- 앱이 직접 제공하는 RIDIBatang 외에 Google Noto Serif `@import` 및 출판물의 모든 원격 font를 initial open에서 기다리지 않는다. 무한/장시간 font wait를 피하기 위한 의도적 제한이다.
+- Firebase Emulator + 두 browser context로 `A 기기 pending progress + B 기기 최신 remote + A book open` 전체 시나리오를 자동 E2E fixture로 만들지는 않았다. adoption ordering unit test, Chromium/WebKit paginator E2E, production browser regression과 실제 두 기기 검증으로 우선 커버한다.
+- conflict UI/진단의 추가 세분화(동일 delete/delete 자동 해소, oldest outbox age, last ack 등)는 Phase H 후속 검토로 남긴다.
+- 별도 `bookmarks-v14` store와 `UserProgress`/`BookmarkCollection` 완전 분리는 migration 위험 때문에 이번 릴리스에서 하지 않는다.
+- 선택적 Live Follow leader/follower 모드는 기본 resume 동기화와 별도 기능으로 남긴다.
 
 ## 추가된 회귀검증
 
@@ -233,7 +262,9 @@ foreground에서 10~15초마다 collection 전체를 읽는 watchdog polling은 
 - 초기 goTo 완료 뒤 ResizeObserver relocate가 더 발생하더라도 page/pages가 `N ↔ N+1`로 왕복하지 않는다.
 - authoritative snapshot 시각을 기록하고 healthy listener도 `forceRestart()`할 수 있다.
 - stale callback generation은 기존처럼 무시된다.
-- release cache는 1.8.12, Foliate runtime revision은 `1.8.12.1`이며 1.8.11 Foliate runtime entry는 stale cache 정리 대상이다.
+- release cache는 1.8.12, Foliate runtime revision은 `1.8.12.2`이며 1.8.11 Foliate runtime entry는 stale cache 정리 대상이다.
+- 도서정보 PNG를 다운로드와 image clipboard write 양쪽에서 동일 capture blob으로 생성한다.
+- paginated → scrolled 전환 시 overlayer width가 `100%`로 복귀하고 Chromium·WebKit에서 horizontal content overflow가 남지 않는다.
 
 ## 현재 자동검증
 
@@ -244,14 +275,14 @@ foreground에서 10~15초마다 collection 전체를 읽는 watchdog polling은 
 - targeted sync/open/listener tests 65개 통과
 - `npm run test:storage` — 286개 전부 통과
 - `npm run test:shelf` — 79개 전부 통과
-- 신규 initial pagination Playwright — Chromium·WebKit 2개 통과
+- 신규 initial pagination/flow-switch Playwright — Chromium·WebKit targeted 통과
 - `npm run test:release` 통과
 - `npm run check:full` 통과
   - storage 286개 통과
   - shelf 79개 통과
   - Firestore Rules 29개 통과
-  - Playwright Chromium·WebKit E2E 18개 통과
-  - production browser regression 통과
+  - Playwright Chromium·WebKit E2E 20개 통과
+  - production browser regression 통과 — 도서정보 image clipboard PNG 및 탭→스크롤 horizontal overflow 포함
   - production build 통과
 - `git diff --check` 통과
 
@@ -273,3 +304,10 @@ foreground에서 10~15초마다 collection 전체를 읽는 watchdog polling은 
 - local work가 없는 최신 remote resume는 remote 위치로 한 번만 이동하는지 확인한다.
 - iPad Safari·Android Chrome·설치형 PWA에서 RIDIBatang 책을 페이지 경계 CFI로 열었을 때 font load 전후 페이지가 앞뒤로 왕복하지 않는지 확인한다.
 - `offline → online`, 장시간 background → foreground 후 최신 progress/bookmark가 재수신되는지 확인한다.
+
+추가 UI/layout:
+
+- 서재와 reader의 도서정보에서 클립보드 버튼이 다운로드 버튼 왼쪽에 표시되고 PNG가 이미지 형태로 붙여넣기 가능한지 확인한다.
+- 이미지 clipboard 미지원 환경에서는 안내 후 다운로드 기능이 그대로 동작하는지 확인한다.
+- iPad Safari·Android Chrome에서 탭 모드로 여러 페이지 이동한 뒤 스크롤 모드로 바꿔도 화면 폭이 viewport보다 넓어지거나 좌우 스크롤이 생기지 않는지 확인한다.
+- 하이라이트 overlayer가 존재하는 책에서도 탭↔스크롤 반복 전환 후 annotation 위치와 세로 스크롤이 정상인지 확인한다.

@@ -44,7 +44,7 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
   assert.equal(
-    foliateRuntime.includes("FOLIATE_RUNTIME_REVISION = '1.8.12.1'"),
+    foliateRuntime.includes("FOLIATE_RUNTIME_REVISION = '1.8.12.2'"),
     true,
   );
   assert.equal(
@@ -52,7 +52,7 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
   assert.equal(
-    foliateView.includes("import('./paginator.js?v=1.8.12.1')"),
+    foliateView.includes("import('./paginator.js?v=1.8.12.2')"),
     true,
   );
 });
