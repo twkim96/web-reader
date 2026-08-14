@@ -1,6 +1,10 @@
 import { Dispatch, MutableRefObject, SetStateAction, useCallback, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { removeProgressFromLocalV5, saveProgressToLocalV5 } from '../lib/localDBV5';
+import {
+  loadProgressFromLocalV5,
+  removeProgressFromLocalV5,
+  saveProgressToLocalV5,
+} from '../lib/localDBV5';
 import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import {
   Book,
@@ -16,7 +20,13 @@ import {
   enqueueProgressMutationBatchV5,
   markRemoteProgressIgnoredV5,
 } from '../lib/syncOutboxV5';
-import { diffManualBookmarks, type BookmarkSyncChange } from '../lib/bookmarkSyncPolicy';
+import {
+  applyManualBookmarkMutation,
+  diffManualBookmarks,
+  manualBookmarkMutationToSyncChange,
+  type BookmarkSyncChange,
+  type ManualBookmarkMutation,
+} from '../lib/bookmarkSyncPolicy';
 import { trackLocalCommit } from '../lib/localCommitTracker';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
 import {
@@ -25,6 +35,10 @@ import {
   rebaseProgressCommitBaseline,
 } from '../lib/progressCommitBaseline';
 import { getSyncSessionId } from '../lib/syncSession';
+import {
+  canApplyReloadedProgress,
+  getProgressCommitConvergenceAction,
+} from '../lib/progressCommitConvergence';
 
 interface UseProgressActionsOptions {
   activeBook: Book | null;
@@ -44,7 +58,18 @@ export const useProgressActions = ({
   onPersistenceError,
 }: UseProgressActionsOptions) => {
   const writeTailsRef = useRef(new Map<string, Promise<unknown>>());
+  const localWriteGenerationsRef = useRef(new Map<string, number>());
   const sessionIdRef = useRef(getSyncSessionId());
+
+  const beginLocalWrite = useCallback((bookId: string) => {
+    const next = (localWriteGenerationsRef.current.get(bookId) ?? 0) + 1;
+    localWriteGenerationsRef.current.set(bookId, next);
+    return next;
+  }, []);
+
+  const isLatestLocalWrite = useCallback((bookId: string, generation: number) => (
+    localWriteGenerationsRef.current.get(bookId) === generation
+  ), []);
 
   const getCommittedProgress = useCallback((owner: OwnerSnapshot, bookId: string) => {
     return getProgressCommitBaseline(owner.ownerKey, bookId, progressRef.current[bookId]);
@@ -81,39 +106,85 @@ export const useProgressActions = ({
       await saveProgressToLocalV5(progressOwnerKey, progressData);
       return progressData;
     }
-    if (syncPosition || bookmarkChanges.length > 0) {
-      return enqueueProgressMutationBatchV5(progressOwnerKey, {
-        progress: progressData,
-        progressEvent: syncPosition ? {
-          bookId,
-          operation: progressData.cfi ? 'progress.set' : 'progress.reset',
-          position: progressData.cfi
-            ? {
-              cfi: progressData.cfi,
-              anchorCfi: progressData.anchorCfi ?? null,
-              progressPercent: progressData.progressPercent,
-            }
-            : null,
-          deviceId: deviceId.current,
-          sessionId: sessionIdRef.current,
-          occurredAtClient: progressData.lastRead,
-          localBookmarks: progressData.bookmarks,
-        } : null,
-        bookmarkEvents: bookmarkChanges.map((change) => ({
-          bookId,
-          bookmarkId: change.bookmarkId,
-          operation: change.operation,
-          payload: change.payload,
-          localBookmarks: progressData.bookmarks ?? [],
-          deviceId: deviceId.current,
-          sessionId: sessionIdRef.current,
-          occurredAtClient: bookmarkOccurredAtClient,
-        })),
-      });
-    }
-    await saveProgressToLocalV5(progressOwnerKey, progressData);
-    return progressData;
+    return enqueueProgressMutationBatchV5(progressOwnerKey, {
+      progress: progressData,
+      progressEvent: syncPosition ? {
+        bookId,
+        operation: progressData.cfi ? 'progress.set' : 'progress.reset',
+        position: progressData.cfi
+          ? {
+            cfi: progressData.cfi,
+            anchorCfi: progressData.anchorCfi ?? null,
+            progressPercent: progressData.progressPercent,
+          }
+          : null,
+        deviceId: deviceId.current,
+        sessionId: sessionIdRef.current,
+        occurredAtClient: progressData.lastRead,
+        localBookmarks: progressData.bookmarks,
+      } : null,
+      bookmarkEvents: bookmarkChanges.map((change) => ({
+        bookId,
+        bookmarkId: change.bookmarkId,
+        operation: change.operation,
+        payload: change.payload,
+        localBookmarks: progressData.bookmarks ?? [],
+        deviceId: deviceId.current,
+        sessionId: sessionIdRef.current,
+        occurredAtClient: bookmarkOccurredAtClient,
+      })),
+    });
   }, [deviceId, user]);
+
+  const convergeCommittedProgress = useCallback(async (
+    owner: OwnerSnapshot,
+    bookId: string,
+    optimistic: UserProgress,
+    canonical: UserProgress,
+    generation: number,
+  ) => {
+    rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
+    const observedDisplay = progressRef.current[bookId];
+    const convergenceAction = getProgressCommitConvergenceAction({
+      ownerCurrent: ownerRuntime.isCurrent(owner),
+      latestLocalWrite: isLatestLocalWrite(bookId, generation),
+      currentDisplay: observedDisplay,
+      optimistic,
+    });
+    if (convergenceAction === 'skip') return;
+
+    let settled = canonical;
+    if (convergenceAction === 'reload-persisted') {
+      const persisted = await loadProgressFromLocalV5(
+        getSyncOwnerKey(owner.ownerKey),
+        bookId,
+      );
+      if (
+        !persisted
+        || !canApplyReloadedProgress({
+          ownerCurrent: ownerRuntime.isCurrent(owner),
+          latestLocalWrite: isLatestLocalWrite(bookId, generation),
+          currentDisplay: progressRef.current[bookId],
+          observedDisplay,
+        })
+      ) return;
+      settled = persisted;
+      rebaseProgressCommitBaseline(owner.ownerKey, bookId, settled);
+    }
+
+    if (!ownerRuntime.isCurrent(owner) || !isLatestLocalWrite(bookId, generation)) return;
+    setProgress((prev) => {
+      if (!ownerRuntime.isCurrent(owner) || !isLatestLocalWrite(bookId, generation)) return prev;
+      const current = prev[bookId];
+      const currentRef = progressRef.current[bookId];
+      if (
+        (current !== observedDisplay && current !== optimistic)
+        || (currentRef !== observedDisplay && currentRef !== optimistic)
+      ) return prev;
+      progressRef.current = { ...progressRef.current, [bookId]: settled };
+      return { ...prev, [bookId]: settled };
+    });
+  }, [isLatestLocalWrite, progressRef, setProgress]);
 
   const reportPersistenceError = useCallback((error: unknown) => {
     console.error('[SaveProgress] local commit failed:', error);
@@ -172,7 +243,7 @@ export const useProgressActions = ({
       ignoredRemoteRevision: committedExisting?.ignoredRemoteRevision
         ?? displayExisting?.ignoredRemoteRevision,
     };
-    const bookmarkChanges = diffManualBookmarks(committedBookmarks, finalBookmarks, now);
+    const bookmarkChanges: BookmarkSyncChange[] = [];
     const syncPosition = Boolean(
       options?.force
       || !committedExisting
@@ -181,6 +252,7 @@ export const useProgressActions = ({
       || committedPercent !== safePercent,
     );
 
+    const generation = beginLocalWrite(bookId);
     progressRef.current = { ...progressRef.current, [bookId]: progressData };
     setProgress((prev) => ({ ...prev, [bookId]: progressData }));
     try {
@@ -192,21 +264,18 @@ export const useProgressActions = ({
         syncPosition,
       ));
       if (!canonical || !ownerRuntime.isCurrent(owner)) return false;
-      rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
-      if (progressRef.current[bookId] === progressData) {
-        progressRef.current = { ...progressRef.current, [bookId]: canonical };
-      }
-      setProgress((prev) => (
-        prev[bookId] === progressData ? { ...prev, [bookId]: canonical } : prev
-      ));
+      await convergeCommittedProgress(owner, bookId, progressData, canonical, generation);
       return true;
     } catch (error) {
       reportPersistenceError(error);
       return false;
     }
-  }, [activeBook, getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
+  }, [activeBook, beginLocalWrite, convergeCommittedProgress, getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
 
-  const saveBookmarks = useCallback(async (bookId: string, bookmarks: Bookmark[]) => {
+  const saveBookmarkMutation = useCallback(async (
+    bookId: string,
+    mutation: ManualBookmarkMutation,
+  ) => {
     if (!activeBook || activeBook.id !== bookId) return false;
     const owner = ownerRuntime.capture();
     if (!owner) return false;
@@ -215,8 +284,8 @@ export const useProgressActions = ({
     const committedExisting = getCommittedProgress(owner, bookId);
     const previousBookmarks = displayExisting?.bookmarks ?? committedExisting?.bookmarks ?? [];
     const now = Date.now();
-    const bookmarkChanges = diffManualBookmarks(previousBookmarks, bookmarks, now);
-    if (bookmarkChanges.length === 0) return true;
+    const nextBookmarks = applyManualBookmarkMutation(previousBookmarks, mutation);
+    const bookmarkChanges = [manualBookmarkMutationToSyncChange(mutation, now)];
 
     const progressData: UserProgress = {
       bookId,
@@ -230,13 +299,14 @@ export const useProgressActions = ({
         ?? toProgressPercent(committedExisting?.progressPercent)
         ?? 0,
       lastRead: displayExisting?.lastRead ?? committedExisting?.lastRead ?? 0,
-      bookmarks,
+      bookmarks: nextBookmarks,
       syncRevision: displayExisting?.syncRevision ?? committedExisting?.syncRevision,
       acceptedEventId: displayExisting?.acceptedEventId ?? committedExisting?.acceptedEventId,
       ignoredRemoteRevision: displayExisting?.ignoredRemoteRevision
         ?? committedExisting?.ignoredRemoteRevision,
     };
 
+    const generation = beginLocalWrite(bookId);
     progressRef.current = { ...progressRef.current, [bookId]: progressData };
     setProgress((prev) => ({ ...prev, [bookId]: progressData }));
     try {
@@ -249,18 +319,16 @@ export const useProgressActions = ({
         now,
       ));
       if (!canonical || !ownerRuntime.isCurrent(owner)) return false;
-      rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
-      if (progressRef.current[bookId] === progressData) {
-        progressRef.current = { ...progressRef.current, [bookId]: canonical };
-      }
-      setProgress((prev) => (
-        prev[bookId] === progressData ? { ...prev, [bookId]: canonical } : prev
-      ));
+      await convergeCommittedProgress(owner, bookId, progressData, canonical, generation);
       return true;
     } catch (error) {
       reportPersistenceError(error);
       const rollback = getCommittedProgress(owner, bookId) ?? committedExisting ?? displayExisting;
-      if (ownerRuntime.isCurrent(owner) && progressRef.current[bookId] === progressData) {
+      if (
+        ownerRuntime.isCurrent(owner)
+        && isLatestLocalWrite(bookId, generation)
+        && progressRef.current[bookId] === progressData
+      ) {
         if (rollback) {
           progressRef.current = { ...progressRef.current, [bookId]: rollback };
           setProgress((prev) => (
@@ -280,7 +348,7 @@ export const useProgressActions = ({
       }
       return false;
     }
-  }, [activeBook, getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
+  }, [activeBook, beginLocalWrite, convergeCommittedProgress, getCommittedProgress, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
 
   const deleteProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();
@@ -450,7 +518,7 @@ export const useProgressActions = ({
 
   return {
     saveProgress,
-    saveBookmarks,
+    saveBookmarkMutation,
     deleteProgress,
     deleteBookProgress,
     adoptRemoteProgress,

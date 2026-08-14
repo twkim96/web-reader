@@ -5,6 +5,7 @@ import { Bookmark } from '../../types';
 import { getProgressFromRelocateDetail } from '../foliate/progress';
 import type { FoliateViewElement } from '../foliate/types';
 import { getAutoBookmarkName, getLiveBookmarkPosition } from './bookmarkPositionPolicy';
+import type { ManualBookmarkMutation } from '../../lib/bookmarkSyncPolicy';
 
 type FoliateContentRef = MutableRefObject<FoliateViewElement | null>;
 
@@ -15,7 +16,7 @@ interface UseReaderBookmarksOptions {
   currentAnchorCfi: string;
   totalProgress: number;
   markUserInteraction: () => void;
-  saveBookmarks: (nextBookmarks: Bookmark[]) => Promise<boolean>;
+  saveBookmarkMutation: (mutation: ManualBookmarkMutation) => Promise<boolean>;
 }
 
 const sortByNewest = (items: Bookmark[]) => (
@@ -35,7 +36,7 @@ export const useReaderBookmarks = ({
   currentAnchorCfi,
   totalProgress,
   markUserInteraction,
-  saveBookmarks,
+  saveBookmarkMutation,
 }: UseReaderBookmarksOptions) => {
   const [bookmarks, setBookmarksState] = useState<Bookmark[]>(() => (
     normalizeAutoBookmarkNames(initialBookmarks || [])
@@ -94,14 +95,17 @@ export const useReaderBookmarks = ({
     }
   }, [viewRef]);
 
-  const persistBookmarkMutation = useCallback((previous: Bookmark[], updated: Bookmark[]) => {
+  const persistBookmarkMutation = useCallback((
+    previous: Bookmark[],
+    mutation: ManualBookmarkMutation,
+  ) => {
     const generation = mutationGenerationRef.current + 1;
     mutationGenerationRef.current = generation;
-    void saveBookmarks(updated).then((committed) => {
+    void saveBookmarkMutation(mutation).then((committed) => {
       if (committed || mutationGenerationRef.current !== generation) return;
       setBookmarks(previous);
     });
-  }, [saveBookmarks, setBookmarks]);
+  }, [saveBookmarkMutation, setBookmarks]);
 
   const addBookmark = useCallback(() => {
     const position = getLivePosition();
@@ -119,15 +123,15 @@ export const useReaderBookmarks = ({
       color: '#f59e0b',
     };
     const previous = bookmarksRef.current;
-    const updated = setBookmarks([newMark, ...previous]);
-    persistBookmarkMutation(previous, updated);
+    setBookmarks([newMark, ...previous]);
+    persistBookmarkMutation(previous, { kind: 'upsert', bookmark: newMark });
   }, [getLivePosition, getPreviewText, markUserInteraction, persistBookmarkMutation, setBookmarks, totalProgress]);
 
   const deleteBookmark = useCallback((id: string) => {
     markUserInteraction();
     const previous = bookmarksRef.current;
-    const updated = setBookmarks(previous.filter((bookmark) => bookmark.id !== id));
-    persistBookmarkMutation(previous, updated);
+    setBookmarks(previous.filter((bookmark) => bookmark.id !== id));
+    persistBookmarkMutation(previous, { kind: 'delete', bookmarkId: id });
   }, [markUserInteraction, persistBookmarkMutation, setBookmarks]);
 
   const stageAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {

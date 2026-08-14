@@ -406,13 +406,19 @@ export const useRemoteProgressPrompt = ({
     if (lastProcessedRemoteIdentity.current === remoteIdentity) return;
     if (jumpingRemoteIdentity.current === remoteIdentity) return;
 
+    const retryState = automaticRetryRef.current;
+    if (
+      retryState.identity === remoteIdentity
+      && retryState.attempts > 0
+      && retryState.timer !== null
+    ) return;
+
     // A different authoritative remote identity invalidates any slower jump.
     // Clear the old identity as well as its navigation generation so a late
     // blocked/stale result cannot dismiss a prompt created for the newer head.
     if (jumpingRemoteIdentity.current) jumpingRemoteIdentity.current = null;
     jumpGeneration.current += 1;
 
-    const retryState = automaticRetryRef.current;
     const quietResumeEligible = isQuietResumeEligible();
     const isAutomaticNavigationRetry = retryState.identity === remoteIdentity
       && retryState.attempts > 0

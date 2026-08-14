@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.12 전체 외부 재리뷰에서 남은 동기화 invariant P1/P2를 1.8.13 안정화 버전으로 분리해 구현했다. listener freshness, adoption/navigation 결과, transaction-current bookmark aggregate, settled revision baseline, bookmark-only dirty 분리와 privacy-safe bootstrap trace까지 full gate를 통과했으며 1.8.13 전체 재리뷰·실기기 확인을 기다린다.
+전체 상태: 1.8.12 전체 외부 재리뷰에서 남은 동기화 invariant P1/P2를 1.8.13 안정화 버전으로 분리해 구현했다. `bf7a9cb` 1.8.13 재리뷰에서 추가 확인된 bookmark whole-array diff, React↔IDB canonical 수렴, navigation retry timer 경합 P1 3건도 후속 수정해 full gate를 통과했으며 외부 재리뷰·실기기 확인을 기다린다.
 
 ## 1. 문서의 역할
 
@@ -76,7 +76,7 @@
 | 1.8.10 | TXT 목차 개선·누적 실사용 안정화 | 새 TXT 첫 구절 목차·PC/iPad/PWA 장기 사용 | 높음 | TXT 목차 구현·전체 gate 완료, 외부 리뷰·실사용 진행 중 |
 | 1.8.11 | 도서 정보·플랫폼 메타데이터 | 길게 누르기 정보창·범위별 삭제·리더 정보 진입·독서 인증·읽기 전용 메타데이터 조회 | 중간 | Phase A~G 구현, 자동검증·게시·실기기 확인 진행 중 |
 | 1.8.12 | 동기화 안정화·도서 오픈 경합 | canonical bookmark 수신·adoption-first resume·초기 pagination·foreground reconciliation·도서정보 이미지 clipboard·탭→스크롤 폭 복구 | 매우 높음 | 두 외부 리뷰 및 후속 UI/layout 수정 구현·full gate 완료, 전체 재리뷰 finding은 1.8.13으로 이관 |
-| 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·debug trace | 매우 높음 | 1.8.12 전체 재리뷰 P1/P2 구현·full gate 완료, 전체 재리뷰·실기기 대기 |
+| 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·debug trace | 매우 높음 | `bf7a9cb` 재리뷰 P1 3건까지 후속 수정·full gate 완료, 외부 재리뷰·실기기 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 

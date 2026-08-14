@@ -66,6 +66,7 @@ import { useReadingSessionTracker } from '../hooks/reader/useReadingSessionTrack
 import { useCurrentBookReadingTime } from '../hooks/reader/useCurrentBookReadingTime';
 import { BookInfoModal } from './shelf/BookInfoModal';
 import { loadBookMetadataFromLocalV5 } from '../lib/localDBV5';
+import type { ManualBookmarkMutation } from '../lib/bookmarkSyncPolicy';
 
 interface EpubReaderProps {
   book: Book;
@@ -80,7 +81,7 @@ interface EpubReaderProps {
   onOpenStatistics: () => void;
   onBack: () => void;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
-  onSaveBookmarks: (bookId: string, bookmarks: Bookmark[]) => Promise<boolean>;
+  onSaveBookmarkMutation: (bookId: string, mutation: ManualBookmarkMutation) => Promise<boolean>;
   onAdoptRemoteProgress: (
     progress: RemoteProgressUpdate,
   ) => Promise<RemoteProgressAdoptionResult>;
@@ -219,7 +220,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   onOpenStatistics,
   onBack,
   onSaveProgress,
-  onSaveBookmarks,
+  onSaveBookmarkMutation,
   onAdoptRemoteProgress,
   initialCfi,
   initialPercent,
@@ -642,7 +643,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     currentAnchorCfi,
     totalProgress,
     markUserInteraction,
-    saveBookmarks: (nextBookmarks) => onSaveBookmarks(book.id, nextBookmarks),
+    saveBookmarkMutation: (mutation) => onSaveBookmarkMutation(book.id, mutation),
   });
 
   const {

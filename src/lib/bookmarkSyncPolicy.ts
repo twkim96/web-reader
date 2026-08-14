@@ -5,6 +5,10 @@ export type BookmarkSyncChange =
   | { operation: 'bookmark.upsert'; bookmarkId: string; payload: ManualBookmarkPayloadV2 }
   | { operation: 'bookmark.delete'; bookmarkId: string; payload: null };
 
+export type ManualBookmarkMutation =
+  | { kind: 'upsert'; bookmark: Bookmark }
+  | { kind: 'delete'; bookmarkId: string };
+
 const manualById = (bookmarks: Bookmark[] | undefined) => new Map(
   (bookmarks ?? [])
     .filter((bookmark) => bookmark.type === 'manual')
@@ -27,6 +31,44 @@ const toPayload = (bookmark: Bookmark, now: number): ManualBookmarkPayloadV2 => 
   createdAtClient: bookmark.createdAt,
   updatedAtClient: Math.max(bookmark.createdAt, now),
 });
+
+export const applyManualBookmarkMutation = (
+  bookmarks: Bookmark[] | undefined,
+  mutation: ManualBookmarkMutation,
+) => {
+  const current = bookmarks ?? [];
+  if (mutation.kind === 'delete') {
+    return current.filter((bookmark) => bookmark.id !== mutation.bookmarkId);
+  }
+  if (mutation.bookmark.type !== 'manual') {
+    throw new Error('수동 북마크 mutation에는 manual bookmark가 필요합니다.');
+  }
+  return [
+    mutation.bookmark,
+    ...current.filter((bookmark) => bookmark.id !== mutation.bookmark.id),
+  ];
+};
+
+export const manualBookmarkMutationToSyncChange = (
+  mutation: ManualBookmarkMutation,
+  now = Date.now(),
+): BookmarkSyncChange => {
+  if (mutation.kind === 'delete') {
+    return {
+      operation: 'bookmark.delete',
+      bookmarkId: mutation.bookmarkId,
+      payload: null,
+    };
+  }
+  if (mutation.bookmark.type !== 'manual') {
+    throw new Error('수동 북마크 mutation에는 manual bookmark가 필요합니다.');
+  }
+  return {
+    operation: 'bookmark.upsert',
+    bookmarkId: mutation.bookmark.id,
+    payload: toPayload(mutation.bookmark, now),
+  };
+};
 
 export const diffManualBookmarks = (
   previous: Bookmark[] | undefined,

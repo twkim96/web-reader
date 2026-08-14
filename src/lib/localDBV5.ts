@@ -150,6 +150,26 @@ export const getAllLocalProgressV5 = async (ownerKey: OwnerKey) => {
     Promise<StoredProgressV5[]>;
 };
 
+export const loadProgressFromLocalV5 = async (
+  ownerKey: OwnerKey,
+  bookId: string,
+): Promise<UserProgress | undefined> => {
+  const db = await initDB();
+  const stored = await db.get(V5_PROGRESS_STORE, [ownerKey, bookId]) as StoredProgressV5 | undefined;
+  if (!stored) return undefined;
+  return {
+    bookId: stored.bookId,
+    cfi: stored.cfi,
+    anchorCfi: stored.anchorCfi,
+    progressPercent: stored.progressPercent,
+    lastRead: stored.lastRead,
+    bookmarks: stored.bookmarks,
+    syncRevision: stored.syncRevision,
+    acceptedEventId: stored.acceptedEventId,
+    ignoredRemoteRevision: stored.ignoredRemoteRevision,
+  };
+};
+
 export const removeProgressFromLocalV5 = async (
   ownerKey: OwnerKey,
   bookId: string,

@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { diffManualBookmarks } from '../src/lib/bookmarkSyncPolicy.ts';
+import {
+  applyManualBookmarkMutation,
+  diffManualBookmarks,
+  manualBookmarkMutationToSyncChange,
+} from '../src/lib/bookmarkSyncPolicy.ts';
 
 const bookmark = (id, overrides = {}) => ({
   id,
@@ -12,6 +16,35 @@ const bookmark = (id, overrides = {}) => ({
   createdAt: 1,
   color: '#fff',
   ...overrides,
+});
+
+test('explicit bookmark upsert preserves unrelated remote bookmarks and emits only the intended target', () => {
+  const remote = bookmark('remote-y', { createdAt: 20 });
+  const local = bookmark('local-x', { createdAt: 30 });
+  const mutation = { kind: 'upsert', bookmark: local };
+
+  const next = applyManualBookmarkMutation([remote], mutation);
+  const change = manualBookmarkMutationToSyncChange(mutation, 40);
+
+  assert.deepEqual(next.map(({ id }) => id), ['local-x', 'remote-y']);
+  assert.equal(change.operation, 'bookmark.upsert');
+  assert.equal(change.bookmarkId, 'local-x');
+});
+
+test('explicit bookmark delete does not create tombstones for unrelated ids', () => {
+  const local = bookmark('local-x');
+  const remote = bookmark('remote-y');
+  const mutation = { kind: 'delete', bookmarkId: 'local-x' };
+
+  const next = applyManualBookmarkMutation([local, remote], mutation);
+  const change = manualBookmarkMutationToSyncChange(mutation, 40);
+
+  assert.deepEqual(next.map(({ id }) => id), ['remote-y']);
+  assert.deepEqual(change, {
+    operation: 'bookmark.delete',
+    bookmarkId: 'local-x',
+    payload: null,
+  });
 });
 
 test('creates independent upserts for concurrent manual bookmarks', () => {
