@@ -8,7 +8,7 @@
 
 이전 버전: [update_1.8.10.md](./update_1.8.10.md)
 
-상태: Phase A·B 구현 및 자동검증 완료. 외부 코드 리뷰·Firebase Rules 배포·메타데이터 최초 게시·실기기 확인 대기
+상태: Phase A·B 구현, 자동검증과 Firebase Rules 배포 완료. 외부 코드 리뷰·메타데이터 최초 게시·실기기 확인 대기
 
 ## 목표
 
@@ -77,7 +77,7 @@ python3 scripts/publish-book-metadata.py \
 
 현재 working tree에서 `npm run check:full`과 `git diff --check`가 통과했다. 게시기는 실제 Firebase를 수정하지 않는 전체 DB dry-run으로 256개 bucket과 alias 27,053개를 만들고, 서로 다른 작품으로 연결되는 충돌 alias 7개를 제외하는 것을 확인했다.
 
-실제 Rules 배포와 메타데이터 `--apply`는 외부 코드 리뷰 뒤 별도 운영 단계로 남긴다. 자동검증 통과만으로 공개 데이터를 배포하지 않는다.
+Firebase Rules는 2026-08-14에 `web-novel-viewer` 프로젝트로 배포했다. 메타데이터 `--apply`는 별도 운영 단계로 남기며, 자동검증과 Rules 배포만으로 공개 데이터를 게시하지 않는다.
 
 ## 실기기 확인
 
