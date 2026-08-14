@@ -5,6 +5,7 @@ import { ownerRuntime, type OwnerSnapshot } from '../lib/ownerRuntime';
 import {
   Book,
   Bookmark,
+  RemoteProgressAdoptionResult,
   RemoteProgressUpdate,
   SaveProgressOptions,
   UserProgress,
@@ -13,7 +14,6 @@ import { hasProgressChanged, toProgressPercent } from './progressPolicy';
 import {
   adoptRemoteProgressLocallyV5,
   enqueueProgressMutationBatchV5,
-  hasActiveProgressTargetWorkV5,
   markRemoteProgressIgnoredV5,
 } from '../lib/syncOutboxV5';
 import { diffManualBookmarks, type BookmarkSyncChange } from '../lib/bookmarkSyncPolicy';
@@ -73,6 +73,7 @@ export const useProgressActions = ({
     progressData: UserProgress,
     bookmarkChanges: BookmarkSyncChange[],
     syncPosition: boolean,
+    bookmarkOccurredAtClient = progressData.lastRead,
   ) => {
     if (!ownerRuntime.isCurrent(owner)) return false;
     const progressOwnerKey = getSyncOwnerKey(owner.ownerKey);
@@ -106,7 +107,7 @@ export const useProgressActions = ({
           localBookmarks: progressData.bookmarks ?? [],
           deviceId: deviceId.current,
           sessionId: sessionIdRef.current,
-          occurredAtClient: progressData.lastRead,
+          occurredAtClient: bookmarkOccurredAtClient,
         })),
       });
     } else {
@@ -190,6 +191,56 @@ export const useProgressActions = ({
         progressData,
         bookmarkChanges,
         syncPosition,
+      ));
+      if (committed) rebaseProgressCommitBaseline(owner.ownerKey, bookId, progressData);
+      return committed;
+    } catch (error) {
+      reportPersistenceError(error);
+      return false;
+    }
+  }, [activeBook, getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
+
+  const saveBookmarks = useCallback(async (bookId: string, bookmarks: Bookmark[]) => {
+    if (!activeBook || activeBook.id !== bookId) return false;
+    const owner = ownerRuntime.capture();
+    if (!owner) return false;
+
+    const displayExisting = progressRef.current[bookId];
+    const committedExisting = getCommittedProgress(owner, bookId);
+    const previousBookmarks = displayExisting?.bookmarks ?? committedExisting?.bookmarks ?? [];
+    const now = Date.now();
+    const bookmarkChanges = diffManualBookmarks(previousBookmarks, bookmarks, now);
+    if (bookmarkChanges.length === 0) return true;
+
+    const progressData: UserProgress = {
+      bookId,
+      cfi: displayExisting?.cfi ?? committedExisting?.cfi ?? '',
+      anchorCfi: displayExisting?.anchorCfi
+        ?? committedExisting?.anchorCfi
+        ?? displayExisting?.cfi
+        ?? committedExisting?.cfi
+        ?? '',
+      progressPercent: toProgressPercent(displayExisting?.progressPercent)
+        ?? toProgressPercent(committedExisting?.progressPercent)
+        ?? 0,
+      lastRead: displayExisting?.lastRead ?? committedExisting?.lastRead ?? 0,
+      bookmarks,
+      syncRevision: displayExisting?.syncRevision ?? committedExisting?.syncRevision,
+      acceptedEventId: displayExisting?.acceptedEventId ?? committedExisting?.acceptedEventId,
+      ignoredRemoteRevision: displayExisting?.ignoredRemoteRevision
+        ?? committedExisting?.ignoredRemoteRevision,
+    };
+
+    progressRef.current = { ...progressRef.current, [bookId]: progressData };
+    setProgress((prev) => ({ ...prev, [bookId]: progressData }));
+    try {
+      const committed = await queueProgressWrite(bookId, () => persistProgress(
+        owner,
+        bookId,
+        progressData,
+        bookmarkChanges,
+        false,
+        now,
       ));
       if (committed) rebaseProgressCommitBaseline(owner.ownerKey, bookId, progressData);
       return committed;
@@ -292,46 +343,42 @@ export const useProgressActions = ({
     }
   }, [getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress, user]);
 
-  const adoptRemoteProgress = useCallback(async (remote: RemoteProgressUpdate) => {
+  const adoptRemoteProgress = useCallback(async (
+    remote: RemoteProgressUpdate,
+  ): Promise<RemoteProgressAdoptionResult> => {
     const owner = ownerRuntime.capture();
     if (
       !owner
       || !remote.bookId
       || (remote.operation === 'set' && !remote.cfi)
-    ) return false;
-    const adopted: RemoteProgressUpdate = {
+    ) return { status: 'cancelled' };
+    const candidate: RemoteProgressUpdate = {
       ...remote,
       cfi: remote.operation === 'reset' ? '' : remote.cfi,
       anchorCfi: remote.operation === 'reset' ? '' : remote.anchorCfi || remote.cfi,
       progressPercent: remote.operation === 'reset' ? 0 : remote.progressPercent,
-      bookmarks: remote.bookmarks ?? progressRef.current[remote.bookId]?.bookmarks ?? [],
-    };
-    const localAdopted: UserProgress = {
-      bookId: adopted.bookId,
-      cfi: adopted.cfi,
-      anchorCfi: adopted.anchorCfi,
-      progressPercent: adopted.progressPercent,
-      lastRead: adopted.lastRead,
-      bookmarks: adopted.bookmarks,
-      syncRevision: adopted.syncRevision,
-      acceptedEventId: adopted.acceptedEventId,
-      ignoredRemoteRevision: adopted.ignoredRemoteRevision,
     };
     try {
-      const committed = await queueProgressWrite(remote.bookId, async () => {
-        if (!ownerRuntime.isCurrent(owner)) return false;
-        const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
-        if (await hasActiveProgressTargetWorkV5(syncOwnerKey, remote.bookId)) return false;
-        return adoptRemoteProgressLocallyV5(syncOwnerKey, adopted);
+      const result = await queueProgressWrite(remote.bookId, async () => {
+        if (!ownerRuntime.isCurrent(owner)) {
+          return { status: 'cancelled' } as RemoteProgressAdoptionResult;
+        }
+        return adoptRemoteProgressLocallyV5(
+          getSyncOwnerKey(owner.ownerKey),
+          candidate,
+        );
       });
-      if (!committed) return false;
-      rebaseProgressCommitBaseline(owner.ownerKey, remote.bookId, localAdopted);
-      progressRef.current = { ...progressRef.current, [remote.bookId]: localAdopted };
-      setProgress((prev) => ({ ...prev, [remote.bookId]: localAdopted }));
-      return true;
+      if (result.status !== 'adopted') return result;
+      if (!ownerRuntime.isCurrent(owner)) return { status: 'cancelled' };
+      rebaseProgressCommitBaseline(owner.ownerKey, remote.bookId, result.progress);
+      progressRef.current = { ...progressRef.current, [remote.bookId]: result.progress };
+      setProgress((prev) => ownerRuntime.isCurrent(owner)
+        ? { ...prev, [remote.bookId]: result.progress }
+        : prev);
+      return result;
     } catch (error) {
       reportPersistenceError(error);
-      return false;
+      return { status: 'cancelled' };
     }
   }, [progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
 
@@ -371,6 +418,7 @@ export const useProgressActions = ({
 
   return {
     saveProgress,
+    saveBookmarks,
     deleteProgress,
     deleteBookProgress,
     adoptRemoteProgress,

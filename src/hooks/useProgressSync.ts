@@ -27,9 +27,14 @@ import {
 } from './progressPolicy';
 import {
   applyRemoteBookmarkHeadChanges,
-  mergeAccumulatedRemoteBookmarks,
   type RemoteBookmarkHeadChange,
 } from '../lib/remoteBookmarkAccumulator';
+import { hydrateRemoteBookmarkHeadsV5 } from '../lib/bookmarkSyncLocal';
+import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
+import {
+  mergeRemotePositionUpdates,
+  type RemotePositionUpdate,
+} from '../lib/remoteProgressState';
 import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { getSyncSessionId, isExactSyncSessionEcho } from '../lib/syncSession';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
@@ -37,10 +42,33 @@ import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
 
 type FirestoreQuerySnapshot = QuerySnapshot<DocumentData, DocumentData>;
 
+const AUTHORITATIVE_SNAPSHOT_STALE_MS = 15_000;
+
+const reconcileSnapshotListener = <T,>(
+  recovery: SnapshotListenerRecovery<T> | null,
+  options?: { force?: boolean; now?: number },
+) => {
+  if (!recovery) return;
+  if (options?.force) {
+    recovery.forceRestart();
+    return;
+  }
+  const lastAuthoritativeAt = recovery.getLastAuthoritativeSnapshotAt();
+  if (
+    lastAuthoritativeAt > 0
+    && (options?.now ?? Date.now()) - lastAuthoritativeAt >= AUTHORITATIVE_SNAPSHOT_STALE_MS
+  ) {
+    recovery.forceRestart();
+    return;
+  }
+  recovery.retryNow();
+};
+
 interface UseProgressSyncOptions {
   user: FirebaseUser | null;
   deviceId: MutableRefObject<string>;
   progressRef: MutableRefObject<Record<string, UserProgress>>;
+  setProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
   setRemoteProgress: Dispatch<SetStateAction<Record<string, RemoteProgressUpdate>>>;
   activeBookId?: string;
   ownerKey: string | null;
@@ -50,6 +78,7 @@ export const useProgressSync = ({
   user,
   deviceId,
   progressRef,
+  setProgress,
   setRemoteProgress,
   activeBookId,
   ownerKey,
@@ -78,7 +107,7 @@ export const useProgressSync = ({
       if (!ownerRuntime.isCurrent(owner)) return;
       const changes = hydrator.select(snapshot);
       if (!changes) return;
-      const remoteUpdates: Record<string, RemoteProgressUpdate> = {};
+      const remoteUpdates: Record<string, RemotePositionUpdate> = {};
       const removedBookIds = new Set<string>();
       const heads = [];
       for (const change of changes) {
@@ -101,7 +130,6 @@ export const useProgressSync = ({
               anchorCfi: '',
               progressPercent: 0,
               lastRead: serverTime,
-              bookmarks: progressRef.current[head.bookId]?.bookmarks ?? [],
               syncRevision: head.revision,
               acceptedEventId: head.acceptedEventId,
             }
@@ -112,7 +140,6 @@ export const useProgressSync = ({
               anchorCfi: head.position!.anchorCfi ?? head.position!.cfi,
               progressPercent: head.position!.progressPercent,
               lastRead: serverTime,
-              bookmarks: progressRef.current[head.bookId]?.bookmarks ?? [],
               syncRevision: head.revision,
               acceptedEventId: head.acceptedEventId,
             };
@@ -123,11 +150,11 @@ export const useProgressSync = ({
       await storeRemoteHeadsBatchV5(syncOwnerKey, heads);
       if (!ownerRuntime.isCurrent(owner)) return;
       if (Object.keys(remoteUpdates).length === 0 && removedBookIds.size === 0) return;
-      setRemoteProgress((prev) => {
-        const next = { ...prev, ...remoteUpdates };
-        for (const bookId of removedBookIds) delete next[bookId];
-        return next;
-      });
+      setRemoteProgress((prev) => mergeRemotePositionUpdates(
+        prev,
+        remoteUpdates,
+        removedBookIds,
+      ));
     };
 
     const recovery = new SnapshotListenerRecovery<FirestoreQuerySnapshot>({
@@ -174,45 +201,42 @@ export const useProgressSync = ({
       if (!ownerRuntime.isCurrent(owner)) return;
       const changes = hydrator.select(snapshot);
       if (!changes) return;
-      const current = progressRef.current[activeBookId]?.bookmarks ?? [];
-      let changed = false;
-      const heads = [];
       const accumulatedChanges: RemoteBookmarkHeadChange[] = [];
       for (const change of changes) {
         if (change.doc.metadata.hasPendingWrites) continue;
         if (change.type === 'removed') {
-          changed = true;
           accumulatedChanges.push({ type: 'remove', bookmarkId: change.doc.id });
           await recordRemoteBookmarkMissingV5(syncOwnerKey, activeBookId, change.doc.id);
           continue;
         }
         try {
           const head = parseBookmarkHeadV2(change.doc.data());
-          heads.push(head);
           accumulatedChanges.push({ type: 'upsert', head });
-          if (!isExactSyncSessionEcho(head.acceptedSessionId, syncSessionId)) changed = true;
         } catch (error) {
           console.error('[BookmarkV2] Invalid remote head:', error);
         }
       }
-      await storeRemoteHeadsBatchV5(syncOwnerKey, heads);
       remoteBookmarkHeads = applyRemoteBookmarkHeadChanges(
         remoteBookmarkHeads,
         accumulatedChanges,
       );
-      if (!changed || !ownerRuntime.isCurrent(owner)) return;
-      setRemoteProgress((prev) => ({
-        ...prev,
-        [activeBookId]: {
-          ...(prev[activeBookId] ?? progressRef.current[activeBookId] ?? {
-            bookId: activeBookId,
-            cfi: '',
-            progressPercent: 0,
-            lastRead: 0,
-          }),
-          bookmarks: mergeAccumulatedRemoteBookmarks(current, remoteBookmarkHeads),
-        },
-      }));
+      const hydrated = await hydrateRemoteBookmarkHeadsV5(
+        syncOwnerKey,
+        activeBookId,
+        [...remoteBookmarkHeads.values()],
+        syncSessionId,
+        Date.now(),
+        () => ownerRuntime.isCurrent(owner),
+      );
+      if (!hydrated.changed || !hydrated.progress || !ownerRuntime.isCurrent(owner)) return;
+      rebaseProgressCommitBaseline(owner.ownerKey, activeBookId, hydrated.progress);
+      progressRef.current = {
+        ...progressRef.current,
+        [activeBookId]: hydrated.progress,
+      };
+      setProgress((prev) => ownerRuntime.isCurrent(owner)
+        ? { ...prev, [activeBookId]: hydrated.progress! }
+        : prev);
     };
 
     const recovery = new SnapshotListenerRecovery<FirestoreQuerySnapshot>({
@@ -244,21 +268,28 @@ export const useProgressSync = ({
       unregister();
       dispose();
     };
-  }, [activeBookId, deviceId, ownerKey, progressRef, setRemoteProgress, user]);
+  }, [activeBookId, deviceId, ownerKey, progressRef, setProgress, user]);
 
   useEffect(() => {
     if (!user) return;
-    const retryFailedListeners = () => {
-      progressRecoveryRef.current?.retryNow();
-      bookmarkRecoveryRef.current?.retryNow();
+    const reconcileListeners = (force = false) => {
+      const now = Date.now();
+      reconcileSnapshotListener(progressRecoveryRef.current, { force, now });
+      reconcileSnapshotListener(bookmarkRecoveryRef.current, { force, now });
     };
-    const handleOnline = () => retryFailedListeners();
+    const handleOnline = () => reconcileListeners(true);
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') retryFailedListeners();
+      if (document.visibilityState === 'visible') reconcileListeners();
     };
     const unsubscribeToken = onIdTokenChanged(auth, (currentUser) => {
-      if (currentUser?.uid === user.uid) retryFailedListeners();
+      if (currentUser?.uid === user.uid) reconcileListeners();
     });
+    // Opening another book recreates its bookmark listener. The account-wide
+    // progress listener is longer-lived, so reconcile it when its last server
+    // snapshot is old before ordinary quiet resume is allowed to act on it.
+    if (activeBookId) {
+      reconcileSnapshotListener(progressRecoveryRef.current, { now: Date.now() });
+    }
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
@@ -266,7 +297,7 @@ export const useProgressSync = ({
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [user]);
+  }, [activeBookId, user]);
 
   return mergeSyncHealth(
     user ? progressReceiveHealth : 'healthy',

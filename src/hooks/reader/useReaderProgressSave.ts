@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import type { Bookmark, RemoteProgressUpdate, SaveProgressOptions } from '../../types';
+import type {
+  Bookmark,
+  RemoteProgressAdoptionResult,
+  RemoteProgressUpdate,
+  SaveProgressOptions,
+  UserProgress,
+} from '../../types';
 import {
   getBookmarksKey,
   isQuietReaderResumeEligible,
@@ -55,7 +61,7 @@ interface UseReaderProgressSaveOptions {
   initialTime?: number;
   initialBookmarks?: Bookmark[];
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
-  onAdoptRemoteProgress: (progress: RemoteProgressUpdate) => Promise<boolean>;
+  onAdoptRemoteProgress: (progress: RemoteProgressUpdate) => Promise<RemoteProgressAdoptionResult>;
 }
 
 const RELOCATE_SAVE_IDLE_MS = 1000;
@@ -491,14 +497,40 @@ export const useReaderProgressSave = ({
     }
   }, [clearRelocateSaveTimer]);
 
+  const applyCanonicalRemoteProgress = useCallback((progress: UserProgress) => {
+    const safePercent = toClampedPercent(progress.progressPercent) ?? 0;
+    const cfi = progress.cfi || '';
+    const anchorCfi = progress.anchorCfi || cfi;
+    lastSaveTimeRef.current = progress.lastRead;
+    lastPersistedProgressRef.current = {
+      cfi,
+      anchorCfi,
+      percent: safePercent,
+      bookmarksKey: getBookmarksKey(progress.bookmarks),
+    };
+    lastPersistableLocationRef.current = {
+      cfi,
+      anchorCfi,
+      percent: safePercent,
+    };
+    clearPendingSave();
+    skipNextSaveRef.current = false;
+  }, [clearPendingSave]);
+
+  const adoptRemoteProgressBeforeNavigation = useCallback(async (
+    remote: RemoteProgressUpdate,
+  ): Promise<RemoteProgressAdoptionResult> => {
+    const result = await onAdoptRemoteProgress(remote);
+    if (result.status === 'adopted') applyCanonicalRemoteProgress(result.progress);
+    return result;
+  }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
+
   const completeRemoteJump = useCallback(async (
     target: RemoteProgressTarget,
     bookmarks: Bookmark[],
     options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> }
   ): Promise<RemoteProgressJumpCompletion> => {
-    let safePercent = toClampedPercent(target.percent) ?? 0;
-    let bookmarksKey = getBookmarksKey(bookmarks);
-
+    let canonicalProgress: UserProgress;
     if (options?.finalize) {
       const result = await options.finalize();
       if (result.status !== 'committed') {
@@ -506,61 +538,42 @@ export const useReaderProgressSave = ({
           ? { completed: false, afterRollback: result.restart }
           : false;
       }
-      target = {
-        ...target,
-        cfi: result.progress.cfi,
-        anchorCfi: result.progress.anchorCfi,
-        percent: result.progress.progressPercent,
-        lastRead: result.progress.lastRead,
-        syncRevision: result.progress.syncRevision,
-        acceptedEventId: result.progress.acceptedEventId,
-      };
-      safePercent = toClampedPercent(result.progress.progressPercent) ?? 0;
-      bookmarks = result.progress.bookmarks ?? bookmarks;
-      bookmarksKey = getBookmarksKey(bookmarks);
-      lastSaveTimeRef.current = result.progress.lastRead;
+      canonicalProgress = result.progress;
     } else {
-      const adopted = await onAdoptRemoteProgress({
+      const adoption = await onAdoptRemoteProgress({
         operation: 'set',
         bookId: target.bookId,
         cfi: target.cfi,
         anchorCfi: target.anchorCfi || target.cfi,
-        progressPercent: safePercent,
+        progressPercent: toClampedPercent(target.percent) ?? 0,
         lastRead: target.lastRead,
         bookmarks,
         syncRevision: target.syncRevision,
         acceptedEventId: target.acceptedEventId,
       });
-      if (!adopted) return false;
-      lastSaveTimeRef.current = target.lastRead;
+      if (adoption.status !== 'adopted') return false;
+      canonicalProgress = adoption.progress;
     }
-    lastPersistedProgressRef.current = {
-      cfi: target.cfi,
-      anchorCfi: target.anchorCfi || target.cfi,
-      percent: safePercent,
-      bookmarksKey,
-    };
-    lastPersistableLocationRef.current = {
-      cfi: target.cfi,
-      anchorCfi: target.anchorCfi || target.cfi,
-      percent: safePercent,
-    };
-    clearPendingSave();
-    skipNextSaveRef.current = false;
+    applyCanonicalRemoteProgress(canonicalProgress);
     return true;
-  }, [clearPendingSave, onAdoptRemoteProgress]);
+  }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
 
   const completeRemoteReset = useCallback(async (
     target: Omit<RemoteProgressTarget, 'cfi' | 'anchorCfi' | 'percent'>,
     bookmarks: Bookmark[],
     options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> },
   ): Promise<RemoteProgressJumpCompletion> => {
-    const finalizeResult = options?.finalize
-      ? await options.finalize()
-      : null;
-    const adopted = finalizeResult
-      ? finalizeResult.status === 'committed'
-      : await onAdoptRemoteProgress({
+    let canonicalProgress: UserProgress;
+    if (options?.finalize) {
+      const result = await options.finalize();
+      if (result.status !== 'committed') {
+        return result.status === 'stale'
+          ? { completed: false, afterRollback: result.restart }
+          : false;
+      }
+      canonicalProgress = result.progress;
+    } else {
+      const adoption = await onAdoptRemoteProgress({
         operation: 'reset',
         bookId: target.bookId,
         cfi: '',
@@ -571,26 +584,12 @@ export const useReaderProgressSave = ({
         syncRevision: target.syncRevision,
         acceptedEventId: target.acceptedEventId,
       });
-    if (!adopted) {
-      return finalizeResult?.status === 'stale'
-        ? { completed: false, afterRollback: finalizeResult.restart }
-        : false;
+      if (adoption.status !== 'adopted') return false;
+      canonicalProgress = adoption.progress;
     }
-    const committedProgress = finalizeResult?.status === 'committed'
-      ? finalizeResult.progress
-      : null;
-    lastSaveTimeRef.current = committedProgress?.lastRead ?? target.lastRead;
-    lastPersistedProgressRef.current = {
-      cfi: '',
-      anchorCfi: '',
-      percent: 0,
-      bookmarksKey: getBookmarksKey(committedProgress?.bookmarks ?? bookmarks),
-    };
-    lastPersistableLocationRef.current = { cfi: '', anchorCfi: '', percent: 0 };
-    clearPendingSave();
-    skipNextSaveRef.current = false;
+    applyCanonicalRemoteProgress(canonicalProgress);
     return true;
-  }, [clearPendingSave, onAdoptRemoteProgress]);
+  }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
 
   return {
     lastSaveTimeRef,
@@ -607,6 +606,7 @@ export const useReaderProgressSave = ({
     finishRemoteJump,
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
+    adoptRemoteProgressBeforeNavigation,
     completeRemoteJump,
     completeRemoteReset,
   };

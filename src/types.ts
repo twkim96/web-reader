@@ -121,6 +121,20 @@ export interface RemoteProgressUpdate extends UserProgress {
   operation: 'set' | 'reset';
 }
 
+export type RemoteProgressLocalWorkSummary = {
+  pending: number;
+  inFlight: number;
+  blocked: number;
+  conflicts: number;
+  paused: number;
+};
+
+export type RemoteProgressAdoptionResult =
+  | { status: 'adopted'; progress: UserProgress }
+  | { status: 'blocked-by-local-work'; work: RemoteProgressLocalWorkSummary }
+  | { status: 'stale-remote' }
+  | { status: 'cancelled' };
+
 export interface SaveProgressOptions {
   force?: boolean;
   anchorCfi?: string;

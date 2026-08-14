@@ -161,7 +161,7 @@ test('adopts a verified remote position locally without creating an outbox event
     deletedAtServer: null,
   };
   await storeRemoteProgressHeadV5(ownerA, remote, 10);
-  assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+  const adoption = await adoptRemoteProgressLocallyV5(ownerA, {
     operation: 'set',
     bookId: 'book-1',
     cfi: remote.position.cfi,
@@ -170,7 +170,8 @@ test('adopts a verified remote position locally without creating an outbox event
     lastRead: 10,
     syncRevision: 7,
     acceptedEventId: 'remote-7',
-  }), true);
+  });
+  assert.equal(adoption.status, 'adopted');
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
   const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
   const [saved] = await getAllLocalProgressV5(ownerA);
@@ -199,7 +200,7 @@ test('refuses quiet remote adoption while the progress target has local outbox i
     occurredAtClient: 11,
   });
 
-  assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+  const adoption = await adoptRemoteProgressLocallyV5(ownerA, {
     operation: 'set',
     bookId: 'book-1',
     cfi: remote.position.cfi,
@@ -208,7 +209,9 @@ test('refuses quiet remote adoption while the progress target has local outbox i
     lastRead: 10,
     syncRevision: 7,
     acceptedEventId: 'remote-7',
-  }), false);
+  });
+  assert.equal(adoption.status, 'blocked-by-local-work');
+  assert.equal(adoption.work.pending, 1);
   assert.equal((await getOutboxEventsV5(ownerA))[0].payload.progressPercent, 30);
   const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
   const [saved] = await getAllLocalProgressV5(ownerA);
@@ -249,7 +252,7 @@ test('adopts an authoritative remote reset without creating local sync intent', 
     deletedAtServer: {},
   };
   await storeRemoteProgressHeadV5(ownerA, remote, 10);
-  assert.equal(await adoptRemoteProgressLocallyV5(ownerA, {
+  const adoption = await adoptRemoteProgressLocallyV5(ownerA, {
     operation: 'reset',
     bookId: 'book-1',
     cfi: '',
@@ -259,7 +262,8 @@ test('adopts an authoritative remote reset without creating local sync intent', 
     bookmarks: [],
     syncRevision: 8,
     acceptedEventId: 'remote-reset-8',
-  }), true);
+  });
+  assert.equal(adoption.status, 'adopted');
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
   const [saved] = await getAllLocalProgressV5(ownerA);
   assert.equal(saved.cfi, '');
@@ -575,8 +579,60 @@ test('retry delay uses bounded exponential backoff with jitter', () => {
   assert.equal(getRetryDelayMs(20, 1), 60_000);
 });
 
-test('bookmark targets have independent chains and same-id edits are ordered', async () => {
-  const mark = (bookmarkId, eventId, name, occurredAtClient) => enqueueBookmarkEventV5(ownerA, {
+test('coalesces the last same-session unclaimed bookmark intent', async () => {
+  const local = {
+    id: 'same',
+    type: 'manual',
+    name: 'local',
+    cfi: 'cfi-same',
+    progressPercent: 10,
+    createdAt: 1,
+    color: '#fff',
+  };
+  const first = await enqueueBookmarkEventV5(ownerA, {
+    bookId: 'book-1',
+    bookmarkId: 'same',
+    operation: 'bookmark.upsert',
+    payload: {
+      bookmarkId: 'same',
+      cfi: 'cfi-same',
+      name: 'local',
+      color: '#fff',
+      progressPercent: 10,
+      createdAtClient: 1,
+      updatedAtClient: 2,
+    },
+    localBookmarks: [local],
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    eventId: 'bookmark-first',
+    occurredAtClient: 2,
+  });
+  const second = await enqueueBookmarkEventV5(ownerA, {
+    bookId: 'book-1',
+    bookmarkId: 'same',
+    operation: 'bookmark.delete',
+    payload: null,
+    localBookmarks: [],
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    eventId: 'bookmark-ignored',
+    occurredAtClient: 3,
+  });
+
+  const events = await getOutboxEventsV5(ownerA);
+  assert.equal(first.coalesced, false);
+  assert.equal(second.coalesced, true);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventId, 'bookmark-first');
+  assert.equal(events[0].operation, 'bookmark.delete');
+  assert.equal(events[0].payload, null);
+  assert.equal(events[0].baseRevision, 0);
+  assert.equal((await getSyncMetaV5(ownerA, 'bookmark:book-1:same')).nextSequence, 2);
+});
+
+test('bookmark targets have independent chains and same-id edits are ordered across sessions', async () => {
+  const mark = (bookmarkId, eventId, name, occurredAtClient, sessionId = 'session-1') => enqueueBookmarkEventV5(ownerA, {
     bookId: 'book-1',
     bookmarkId,
     operation: 'bookmark.upsert',
@@ -591,13 +647,13 @@ test('bookmark targets have independent chains and same-id edits are ordered', a
     },
     localBookmarks: [],
     deviceId: 'device-1',
-    sessionId: 'session-1',
+    sessionId,
     eventId,
     occurredAtClient,
   });
   await mark('a', 'a-1', 'A', 2);
   await mark('b', 'b-1', 'B', 3);
-  await mark('a', 'a-2', 'A edited', 4);
+  await mark('a', 'a-2', 'A edited', 4, 'session-2');
   const events = await getOutboxEventsV5(ownerA);
   const aEvents = events.filter(({ targetKey }) => targetKey === 'bookmark:book-1:a');
   const bEvents = events.filter(({ targetKey }) => targetKey === 'bookmark:book-1:b');

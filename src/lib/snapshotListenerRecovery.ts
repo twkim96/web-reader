@@ -45,6 +45,7 @@ type SnapshotListenerRecoveryOptions<T> = {
   canRetry?: () => boolean;
   setTimer?: (callback: () => void, delay: number) => TimerHandle;
   clearTimer?: (timer: TimerHandle) => void;
+  now?: () => number;
 };
 
 export class SnapshotListenerRecovery<T> {
@@ -56,12 +57,15 @@ export class SnapshotListenerRecovery<T> {
   private disposed = false;
   private health: SyncHealth = 'healthy';
   private processingTail = Promise.resolve();
+  private lastAuthoritativeSnapshotAt = 0;
   private readonly setTimer;
   private readonly clearTimer;
+  private readonly now;
 
   constructor(private readonly options: SnapshotListenerRecoveryOptions<T>) {
     this.setTimer = options.setTimer ?? ((callback, delay) => setTimeout(callback, delay));
     this.clearTimer = options.clearTimer ?? clearTimeout;
+    this.now = options.now ?? Date.now;
   }
 
   start() {
@@ -74,6 +78,16 @@ export class SnapshotListenerRecovery<T> {
     if (this.disposed || !this.failed) return;
     this.clearRetryTimer();
     this.attach();
+  }
+
+  forceRestart() {
+    if (this.disposed) return;
+    this.clearRetryTimer();
+    this.attach();
+  }
+
+  getLastAuthoritativeSnapshotAt() {
+    return this.lastAuthoritativeSnapshotAt;
   }
 
   dispose() {
@@ -122,6 +136,7 @@ export class SnapshotListenerRecovery<T> {
     if (!this.isCurrent(generation) || !this.options.isAuthoritative(snapshot)) return;
     this.failed = false;
     this.retryAttempt = 0;
+    this.lastAuthoritativeSnapshotAt = this.now();
     this.clearRetryTimer();
     this.setHealth('healthy');
   }

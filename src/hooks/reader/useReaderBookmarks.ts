@@ -1,7 +1,7 @@
 'use client';
 
 import { MutableRefObject, useCallback, useEffect, useRef, useState } from 'react';
-import { Bookmark, SaveProgressOptions } from '../../types';
+import { Bookmark } from '../../types';
 import { getProgressFromRelocateDetail } from '../foliate/progress';
 import type { FoliateViewElement } from '../foliate/types';
 import { getAutoBookmarkName, getLiveBookmarkPosition } from './bookmarkPositionPolicy';
@@ -10,18 +10,12 @@ type FoliateContentRef = MutableRefObject<FoliateViewElement | null>;
 
 interface UseReaderBookmarksOptions {
   initialBookmarks?: Bookmark[];
-  remoteBookmarks?: Bookmark[];
   viewRef: FoliateContentRef;
   currentCfi: string;
   currentAnchorCfi: string;
   totalProgress: number;
   markUserProgressChange: () => void;
-  saveProgressIfChanged: (
-    cfi: string,
-    pct: number,
-    nextBookmarks: Bookmark[],
-    options?: SaveProgressOptions,
-  ) => Promise<boolean>;
+  saveBookmarks: (nextBookmarks: Bookmark[]) => Promise<boolean>;
 }
 
 const sortByNewest = (items: Bookmark[]) => (
@@ -36,13 +30,12 @@ const normalizeAutoBookmarkNames = (items: Bookmark[]) => items.map((bookmark) =
 
 export const useReaderBookmarks = ({
   initialBookmarks,
-  remoteBookmarks,
   viewRef,
   currentCfi,
   currentAnchorCfi,
   totalProgress,
   markUserProgressChange,
-  saveProgressIfChanged,
+  saveBookmarks,
 }: UseReaderBookmarksOptions) => {
   const [bookmarks, setBookmarksState] = useState<Bookmark[]>(() => (
     normalizeAutoBookmarkNames(initialBookmarks || [])
@@ -56,18 +49,13 @@ export const useReaderBookmarks = ({
   }, []);
 
   useEffect(() => {
-    if (!remoteBookmarks) return;
-
+    const next = normalizeAutoBookmarkNames(initialBookmarks || []);
     setBookmarksState((prev) => {
-      const serverManual = remoteBookmarks.filter((bookmark) => bookmark.type === 'manual');
-      const localAuto = prev.filter((bookmark) => bookmark.type === 'auto');
-      const merged = sortByNewest([...serverManual, ...localAuto]);
-
-      if (JSON.stringify(merged) === JSON.stringify(prev)) return prev;
-      bookmarksRef.current = merged;
-      return merged;
+      if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
+      bookmarksRef.current = next;
+      return next;
     });
-  }, [remoteBookmarks]);
+  }, [initialBookmarks]);
 
   const getBookmarks = useCallback(() => bookmarksRef.current, []);
 
@@ -119,20 +107,14 @@ export const useReaderBookmarks = ({
       color: '#f59e0b',
     };
     const updated = setBookmarks([newMark, ...bookmarksRef.current]);
-    void saveProgressIfChanged(position.progressCfi, progressPercent, updated, {
-      anchorCfi: position.anchorCfi,
-    });
-  }, [getLivePosition, getPreviewText, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+    void saveBookmarks(updated);
+  }, [getLivePosition, getPreviewText, markUserProgressChange, saveBookmarks, setBookmarks, totalProgress]);
 
   const deleteBookmark = useCallback((id: string) => {
     markUserProgressChange();
     const updated = setBookmarks(bookmarksRef.current.filter((bookmark) => bookmark.id !== id));
-    const position = getLivePosition();
-    const progressPercent = position.progressPercent ?? totalProgress;
-    void saveProgressIfChanged(position.progressCfi, progressPercent, updated, {
-      anchorCfi: position.anchorCfi,
-    });
-  }, [getLivePosition, markUserProgressChange, saveProgressIfChanged, setBookmarks, totalProgress]);
+    void saveBookmarks(updated);
+  }, [markUserProgressChange, saveBookmarks, setBookmarks]);
 
   const stageAutoBookmark = useCallback((prevCfi: string, prevPct: number) => {
     if (!prevCfi) return bookmarksRef.current;

@@ -282,6 +282,7 @@ export default function Page() {
     user,
     deviceId,
     progressRef,
+    setProgress,
     setRemoteProgress,
     activeBookId: activeBook?.id,
     ownerKey: activeOwnerKey,
@@ -516,6 +517,7 @@ export default function Page() {
 
   const {
     saveProgress: handleSaveProgress,
+    saveBookmarks: handleSaveBookmarks,
     deleteProgress: handleDeleteProgress,
     deleteBookProgress: handleDeleteBookProgress,
     adoptRemoteProgress: handleAdoptRemoteProgress,
@@ -764,8 +766,9 @@ export default function Page() {
           onOpenStatistics={() => setReadingStatisticsOpen(true)}
           onBack={handleReaderBack}
           onSaveProgress={handleReaderSaveProgress}
+          onSaveBookmarks={handleSaveBookmarks}
           onAdoptRemoteProgress={handleAdoptRemoteProgress}
-          initialCfi={progress[activeBook.id]?.anchorCfi || progress[activeBook.id]?.cfi}
+          initialCfi={progress[activeBook.id]?.cfi || progress[activeBook.id]?.anchorCfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
           initialTime={progress[activeBook.id]?.lastRead}
           initialBookmarks={progress[activeBook.id]?.bookmarks || []}

@@ -1,6 +1,6 @@
 'use client';
 
-import { MutableRefObject, useCallback, useEffect, useState } from 'react';
+import { MutableRefObject, useCallback } from 'react';
 import { FoliateRenderer, FoliateViewElement, ReaderLayout, ReaderStyle } from './types';
 
 interface UseFoliateLayoutOptions {
@@ -114,21 +114,11 @@ const buildReaderStyle = (styles: ReaderStyle) => {
 };
 
 export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
-  const [beforeStyle, setBeforeStyle] = useState(URL_RIDI_FONT_FACE);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    loadEmbeddedRidiFontFace().then((fontFaceCss) => {
-      if (!cancelled) setBeforeStyle(fontFaceCss);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const setStyle = useCallback((styles: ReaderStyle, targetRenderer?: FoliateRenderer) => {
+  const setStyle = useCallback(async (
+    styles: ReaderStyle,
+    targetRenderer?: FoliateRenderer,
+  ) => {
+    const beforeStyle = await loadEmbeddedRidiFontFace();
     const renderer = targetRenderer ?? viewRef.current?.renderer;
     if (!renderer) return;
 
@@ -137,21 +127,27 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     } catch (error) {
       console.warn('[EpubReader] Style injection failed:', error);
     }
-  }, [beforeStyle, viewRef]);
+  }, [viewRef]);
 
   const setLayout = useCallback((layout: ReaderLayout, targetRenderer?: FoliateRenderer) => {
     const renderer = targetRenderer ?? viewRef.current?.renderer;
     if (!renderer) return;
 
-    if (layout.flow) renderer.setAttribute('flow', layout.flow);
+    const setAttributeIfChanged = (name: string, value: string) => {
+      if (renderer.getAttribute(name) !== value) renderer.setAttribute(name, value);
+    };
+
+    if (layout.flow) setAttributeIfChanged('flow', layout.flow);
     if (layout.swipeNavigation !== undefined) {
-      renderer.setAttribute('swipe-navigation', String(layout.swipeNavigation));
+      setAttributeIfChanged('swipe-navigation', String(layout.swipeNavigation));
     }
-    if (layout.margin !== undefined) renderer.setAttribute('margin', `${layout.margin}px`);
-    if (layout.gap) renderer.setAttribute('gap', layout.gap);
-    if (layout.maxColumnCount) renderer.setAttribute('max-column-count', String(layout.maxColumnCount));
-    if (layout.maxInlineSize) renderer.setAttribute('max-inline-size', layout.maxInlineSize);
-    if (layout.animated) renderer.setAttribute('animated', '');
+    if (layout.margin !== undefined) setAttributeIfChanged('margin', `${layout.margin}px`);
+    if (layout.gap) setAttributeIfChanged('gap', layout.gap);
+    if (layout.maxColumnCount) {
+      setAttributeIfChanged('max-column-count', String(layout.maxColumnCount));
+    }
+    if (layout.maxInlineSize) setAttributeIfChanged('max-inline-size', layout.maxInlineSize);
+    if (layout.animated) setAttributeIfChanged('animated', '');
   }, [viewRef]);
 
   return {

@@ -68,7 +68,7 @@ type ReaderStyleSetter = (
     bgSize?: string;
   },
   targetRenderer?: FoliateRenderer,
-) => void;
+) => Promise<void>;
 
 interface UseReaderBookSourceOptions {
   book: Book;
@@ -130,6 +130,8 @@ export const useReaderBookSource = ({
   onBack,
 }: UseReaderBookSourceOptions) => {
   const [isLoaded, setIsLoaded] = useState(false);
+  const appliedStyleKeyRef = useRef<string | null>(null);
+  const appliedLayoutKeyRef = useRef<string | null>(null);
   const loadInputsRef = useRef({
     book,
     googleToken,
@@ -324,20 +326,21 @@ export const useReaderBookSource = ({
               prepared.source,
               targetInitialCfi,
               prepared.format === 'epub'
-                ? (openedView) => {
+                ? async (openedView) => {
                   const current = loadInputsRef.current;
-                  current.setLayout(
-                    getReaderLayout(
-                      current.settings.navMode,
-                      current.settings.landscapeTwoPage === true,
-                    ),
-                    openedView.renderer,
+                  const initialLayout = getReaderLayout(
+                    current.settings.navMode,
+                    current.settings.landscapeTwoPage === true,
                   );
-                  current.setStyle(getReaderStyle(
+                  const initialStyle = getReaderStyle(
                     current.settings,
                     current.themeColors,
                     current.themeTexture,
-                  ), openedView.renderer);
+                  );
+                  current.setLayout(initialLayout, openedView.renderer);
+                  appliedLayoutKeyRef.current = JSON.stringify(initialLayout);
+                  await current.setStyle(initialStyle, openedView.renderer);
+                  appliedStyleKeyRef.current = JSON.stringify(initialStyle);
                 }
                 : undefined,
             );
@@ -371,15 +374,23 @@ export const useReaderBookSource = ({
 
   useEffect(() => {
     if (!isLoaded || book.readerFormat !== 'epub') return;
-    setStyle(getReaderStyle(settings, themeColors, themeTexture));
+    const nextStyle = getReaderStyle(settings, themeColors, themeTexture);
+    const nextKey = JSON.stringify(nextStyle);
+    if (appliedStyleKeyRef.current === nextKey) return;
+    appliedStyleKeyRef.current = nextKey;
+    void setStyle(nextStyle);
   }, [book.readerFormat, isLoaded, setStyle, settings, themeColors, themeTexture]);
 
   useEffect(() => {
     if (!isLoaded || book.readerFormat !== 'epub') return;
-    setLayout(getReaderLayout(
+    const nextLayout = getReaderLayout(
       settings.navMode,
       settings.landscapeTwoPage === true,
-    ));
+    );
+    const nextKey = JSON.stringify(nextLayout);
+    if (appliedLayoutKeyRef.current === nextKey) return;
+    appliedLayoutKeyRef.current = nextKey;
+    setLayout(nextLayout);
   }, [
     book.readerFormat,
     isLoaded,

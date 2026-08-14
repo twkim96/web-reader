@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.11: add book information and public platform metadata lookup.
+// 1.8.12: stabilize canonical sync adoption and reader-open pagination.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.11`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.12`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

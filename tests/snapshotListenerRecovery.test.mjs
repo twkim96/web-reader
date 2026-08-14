@@ -34,6 +34,7 @@ const createHarness = (overrides = {}) => {
     clearTimer(id) {
       timers.delete(id);
     },
+    now: overrides.now,
   });
   return {
     controller,
@@ -69,6 +70,29 @@ test('re-subscribes after a terminal error and clears health on authoritative da
   await flushTasks();
   assert.deepEqual(harness.health, ['healthy']);
   assert.equal(harness.timers.size, 0);
+});
+
+test('tracks authoritative freshness and can force a healthy listener restart', async () => {
+  let now = 100;
+  const harness = createHarness({ now: () => now });
+  harness.controller.start();
+  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 0);
+
+  harness.subscriptions[0].onSnapshot({ authoritative: false });
+  await flushTasks();
+  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 0);
+
+  harness.subscriptions[0].onSnapshot({ authoritative: true });
+  await flushTasks();
+  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 100);
+
+  now = 250;
+  harness.controller.forceRestart();
+  assert.equal(harness.subscriptions[0].disposed, true);
+  assert.equal(harness.subscriptions.length, 2);
+  harness.subscriptions[1].onSnapshot({ authoritative: true });
+  await flushTasks();
+  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 250);
 });
 
 test('surfaces a recoverable listener error only when the retry also fails', () => {

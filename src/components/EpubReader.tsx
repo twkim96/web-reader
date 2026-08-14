@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 
 import {
   Book,
   Bookmark,
+  RemoteProgressAdoptionResult,
   RemoteProgressUpdate,
   SaveProgressOptions,
   ViewerSettings,
@@ -79,7 +80,10 @@ interface EpubReaderProps {
   onOpenStatistics: () => void;
   onBack: () => void;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
-  onAdoptRemoteProgress: (progress: RemoteProgressUpdate) => Promise<boolean>;
+  onSaveBookmarks: (bookId: string, bookmarks: Bookmark[]) => Promise<boolean>;
+  onAdoptRemoteProgress: (
+    progress: RemoteProgressUpdate,
+  ) => Promise<RemoteProgressAdoptionResult>;
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
@@ -215,6 +219,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   onOpenStatistics,
   onBack,
   onSaveProgress,
+  onSaveBookmarks,
   onAdoptRemoteProgress,
   initialCfi,
   initialPercent,
@@ -369,7 +374,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     updateSaveContext,
     markUserProgressChange,
     setTtsProgressFenceActive,
-    saveProgressIfChanged,
     handleRelocateForSave,
     saveCurrentProgress,
     flushCurrentProgress,
@@ -379,6 +383,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     finishRemoteJump,
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
+    adoptRemoteProgressBeforeNavigation,
     completeRemoteJump,
     completeRemoteReset,
   } = useReaderProgressSave({
@@ -631,13 +636,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     commitBookmarks,
   } = useReaderBookmarks({
     initialBookmarks,
-    remoteBookmarks: remoteProgress?.bookmarks,
     viewRef,
     currentCfi,
     currentAnchorCfi,
     totalProgress,
     markUserProgressChange,
-    saveProgressIfChanged,
+    saveBookmarks: (nextBookmarks) => onSaveBookmarks(book.id, nextBookmarks),
   });
 
   const {
@@ -672,6 +676,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     cancelRemoteJump,
     finishRemoteJump,
     isQuietResumeEligible,
+    adoptRemoteProgressBeforeNavigation,
     completeRemoteJump,
     completeRemoteReset,
     hasLocalProgress: Boolean(initialCfi) || initialPercent !== undefined || initialTime !== undefined,

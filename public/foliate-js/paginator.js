@@ -3,6 +3,9 @@ import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const SECTION_END = Symbol('section-end')
+const usesRidiReaderFont = styles => Array.isArray(styles)
+    && typeof styles[1] === 'string'
+    && styles[1].includes('font-family: "RIDIBatang"')
 
 const waitForPromise = (promise, signal) => new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(createAbortError())
@@ -533,6 +536,15 @@ class View {
             await waitForFrame(win, signal)
             this.expand()
         }
+    }
+    async waitForReaderFont(fontFamily, signal) {
+        if (!this.#column || !fontFamily || !this.document.fonts?.load) return
+        await waitForPromise(
+            this.document.fonts.load(`16px "${fontFamily}"`),
+            signal,
+        )
+        await waitForFrame(this.document.defaultView, signal)
+        this.expand()
     }
     set overlayer(overlayer) {
         this.#overlayer = overlayer
@@ -1177,6 +1189,10 @@ export class Paginator extends HTMLElement {
                     const $style = doc.createElement('style')
                     doc.head.append($style)
                     this.#styleMap.set(doc, [$styleBefore, $style])
+                    // The staging document must use the real reader CSS before
+                    // its first column calculation. Applying it only after the
+                    // view is shown causes a second user-visible pagination.
+                    this.#writeStyles(doc, this.#styles)
                 }
             }
             const beforeRender = this.#beforeRender.bind(this)
@@ -1194,8 +1210,12 @@ export class Paginator extends HTMLElement {
             }
             try {
                 if (atSectionEnd) {
-                    this.#writeStyles(view.document, this.#styles)
                     await view.waitForPagination(task.signal)
+                } else if (usesRidiReaderFont(this.#styles)) {
+                    // RIDIBatang is embedded by the app before init. Keep the
+                    // staging view hidden until that selected reader font has
+                    // produced its final column metrics.
+                    await view.waitForReaderFont('RIDIBatang', task.signal)
                 }
             } catch (error) {
                 view.destroy()
@@ -1372,25 +1392,39 @@ export class Paginator extends HTMLElement {
         return []
     }
     #writeStyles(doc, styles) {
+        if (!doc || styles == null) return false
         const $$styles = this.#styleMap.get(doc)
-        if (!$$styles) return
+        if (!$$styles) return false
         const [$beforeStyle, $style] = $$styles
+        let changed = false
         if (Array.isArray(styles)) {
             const [beforeStyle, style] = styles
-            $beforeStyle.textContent = beforeStyle
-            $style.textContent = style
-        } else $style.textContent = styles
+            if ($beforeStyle.textContent !== beforeStyle) {
+                $beforeStyle.textContent = beforeStyle
+                changed = true
+            }
+            if ($style.textContent !== style) {
+                $style.textContent = style
+                changed = true
+            }
+        } else if ($style.textContent !== styles) {
+            $style.textContent = styles
+            changed = true
+        }
+        return changed
     }
     setStyles(styles) {
         this.#styles = styles
-        this.#writeStyles(this.#view?.document, styles)
+        const doc = this.#view?.document
+        const changed = this.#writeStyles(doc, styles)
+        if (!doc || !changed) return
 
         // NOTE: needs `requestAnimationFrame` in Chromium
         requestAnimationFrame(() =>
-            this.#background.style.background = getBackground(this.#view.document))
+            this.#background.style.background = getBackground(doc))
 
         // needed because the resize observer doesn't work in Firefox
-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+        doc.fonts?.ready?.then(() => this.#view?.expand())
     }
     focusView() {
         this.#view.document.defaultView.focus()

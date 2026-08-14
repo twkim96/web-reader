@@ -250,6 +250,69 @@ test('paginator keeps TTS relocation metadata and lets the latest user navigatio
   expect(result.derivedEvents.some(({ reason }) => reason === 'anchor')).toBe(true);
 });
 
+test('paginator applies reader style before the first visible pagination settles', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const url = URL.createObjectURL(new Blob([`<!doctype html>
+      <html><body>
+        ${Array.from({ length: 160 }, (_, index) => `<p>Styled paragraph ${index} ${'content '.repeat(10)}</p>`).join('')}
+      </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    renderer.setStyles([
+      '',
+      'body, p { font-size: 36px !important; line-height: 2 !important; margin: 0 0 1em 0 !important; }',
+    ]);
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: [{
+        linear: 'yes',
+        load: async () => url,
+        unload: () => undefined,
+      }],
+    });
+    const relocations: Array<{ page: number; pages: number }> = [];
+    renderer.addEventListener('relocate', (() => {
+      relocations.push({ page: renderer.page, pages: renderer.pages });
+    }) as EventListener);
+
+    await renderer.goTo({ index: 0, anchor: 0.5, reason: 'anchor' });
+    const content = renderer.getContents()[0];
+    const atResolve = {
+      page: renderer.page,
+      pages: renderer.pages,
+      relocations: relocations.length,
+      fontSize: content?.doc?.defaultView?.getComputedStyle(content.doc.body).fontSize ?? '',
+    };
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const afterSettled = {
+      page: renderer.page,
+      pages: renderer.pages,
+      relocations: relocations.length,
+      relocationStates: relocations.slice(atResolve.relocations),
+    };
+    renderer.destroy();
+    renderer.remove();
+    URL.revokeObjectURL(url);
+    return { atResolve, afterSettled };
+  });
+
+  expect(result.atResolve.fontSize).toBe('36px');
+  expect(result.afterSettled.page).toBe(result.atResolve.page);
+  expect(result.afterSettled.pages).toBe(result.atResolve.pages);
+  expect(result.afterSettled.relocationStates.every(({ page, pages }) => (
+    page === result.atResolve.page && pages === result.atResolve.pages
+  ))).toBe(true);
+});
+
 test('paginator waits for pagination and returns to the calculated last page across a section boundary', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
@@ -328,7 +391,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.11.2';
+    const viewModule = '/foliate-js/view.js?v=1.8.12.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

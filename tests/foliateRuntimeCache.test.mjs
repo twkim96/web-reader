@@ -68,10 +68,10 @@ const createCacheStorage = (entriesByCache) => {
 };
 
 test('keeps the release cache version while revising the Foliate entry separately', () => {
-  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.11');
-  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.11.2');
-  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.11');
-  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.11.2');
+  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.12');
+  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.12.1');
+  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.12');
+  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.12.1');
 });
 
 test('removes only Foliate entries from stale release caches', async () => {
@@ -84,22 +84,25 @@ test('removes only Foliate entries from stale release caches', async () => {
     ],
     'pc-reader-v1.8.11': [
       `${origin}/foliate-js/view.js?v=1.8.11`,
-      `${origin}/foliate-js/view.js?v=1.8.11.1`,
-      `${origin}/foliate-js/view.js?v=1.8.11.2`,
+      `${origin}/foliate-js/paginator.js?v=1.8.11.2`,
+    ],
+    'pc-reader-v1.8.12': [
+      `${origin}/foliate-js/view.js?v=1.8.12`,
+      `${origin}/foliate-js/view.js?v=1.8.12.1`,
     ],
     'unrelated-cache': [
       `${origin}/foliate-js/view.js`,
     ],
   });
 
-  assert.equal(await clearStaleFoliateRuntimeEntries(cacheStorage, origin), 2);
+  assert.equal(await clearStaleFoliateRuntimeEntries(cacheStorage, origin), 4);
   assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.0')], [
     `${origin}/fonts/reader.woff2`,
   ]);
-  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.11')], [
-    `${origin}/foliate-js/view.js?v=1.8.11`,
-    `${origin}/foliate-js/view.js?v=1.8.11.1`,
-    `${origin}/foliate-js/view.js?v=1.8.11.2`,
+  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.11')], []);
+  assert.deepEqual([...cacheStorage.stores.get('pc-reader-v1.8.12')], [
+    `${origin}/foliate-js/view.js?v=1.8.12`,
+    `${origin}/foliate-js/view.js?v=1.8.12.1`,
   ]);
   assert.deepEqual([...cacheStorage.stores.get('unrelated-cache')], [
     `${origin}/foliate-js/view.js`,
