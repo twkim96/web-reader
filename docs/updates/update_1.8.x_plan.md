@@ -696,10 +696,10 @@ type Annotation = {
 
 ## 1.8.11 — 도서 정보·플랫폼 메타데이터
 
-상태: 길게 누르기 도서 정보창과 2단계 삭제, `file_check` 최신 플랫폼 카탈로그의 Firebase 읽기 전용 bucket projection을 구현하고 전체 자동 gate와 `web-novel-viewer` Rules 배포를 완료했다. 외부 리뷰·최초 게시·실기기 확인 대기 — `update_1.8.11.md`
+상태: 길게 누르기 도서 정보창과 2단계 삭제, `file_check` 최신 플랫폼 카탈로그의 Firebase 읽기 전용 bucket projection을 구현하고 전체 자동 gate, `web-novel-viewer` Rules 배포와 최초 256개 bucket 게시를 완료했다. 외부 리뷰·실기기 확인 대기 — `update_1.8.11.md`
 
 - 통계 모달 크기의 도서 정보창
-- 제목·파일·저장 위치·진행률·최근 독서 시각 표시
+- 제목·파일·상단 저장 상태 badge·누적 독서 시간·진행률·최근 독서 시각 표시
 - 정보창 내부 읽기·2단계 영구 삭제
 - 비정기 Python dry-run/apply 게시기
 - 공개 단건 조회, 목록·클라이언트 쓰기 금지 Firestore Rules

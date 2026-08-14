@@ -711,9 +711,10 @@ export default function Page() {
       {/* 2. 모드 선택 화면 (제거됨 - 바로 책장으로 이동) */}
 
       {/* 3. 책장 */}
-      {view === 'shelf' && (
+      {view === 'shelf' && activeOwnerKey && (
         <Shelf
           books={books}
+          ownerKey={activeOwnerKey}
           progress={shelfProgress}
           googleToken={googleToken}
           driveCacheKey={driveCacheKey}

@@ -1,9 +1,13 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { BookOpen, CalendarClock, Database, ExternalLink, FileType2, HardDrive, Trash2, X } from 'lucide-react';
+import { BookOpen, CalendarClock, Clock3, Database, ExternalLink, FileType2, Trash2, X } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
+import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
+import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
+import { buildReadingStatistics } from '../../lib/readingStatistics';
+import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import {
   getBookFormatLabel,
   getDisplayBookTitle,
@@ -18,6 +22,7 @@ import {
 
 type Props = {
   book: Book;
+  ownerKey: OwnerKey;
   progress?: UserProgress;
   isDownloaded: boolean;
   isOfflineMode: boolean;
@@ -47,8 +52,15 @@ const formatLastRead = (lastRead: UserProgress['lastRead'] | undefined) => {
   }).format(time);
 };
 
+const formatBookReadingTime = (durationMs: number | null) => {
+  if (durationMs === null || durationMs <= 0) return '';
+  const totalMinutes = Math.max(0, Math.floor(durationMs / 60_000));
+  return `${Math.floor(totalMinutes / 60)}시간 ${totalMinutes % 60}분`;
+};
+
 export const BookInfoModal: React.FC<Props> = ({
   book,
+  ownerKey,
   progress,
   isDownloaded,
   isOfflineMode,
@@ -61,6 +73,7 @@ export const BookInfoModal: React.FC<Props> = ({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [metadata, setMetadata] = useState<PublicBookMetadata | null>(null);
   const [metadataState, setMetadataState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
+  const [readingTimeMs, setReadingTimeMs] = useState<number | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   useBodyScrollLock();
 
@@ -77,6 +90,33 @@ export const BookInfoModal: React.FC<Props> = ({
     });
     return () => { active = false; };
   }, [book.name]);
+
+  useEffect(() => {
+    let active = true;
+    const reload = async () => {
+      try {
+        const sessions = await getLocalReadingSessionsV11(ownerKey);
+        if (!active) return;
+        const bookStatistics = buildReadingStatistics(sessions).books
+          .find(({ bookId }) => bookId === book.id);
+        setReadingTimeMs(bookStatistics && bookStatistics.totalMs > 0
+          ? bookStatistics.totalMs
+          : null);
+      } catch (error) {
+        if (!active) return;
+        console.warn('[BookInfo] reading statistics lookup failed:', error);
+        setReadingTimeMs(null);
+      }
+    };
+    void reload();
+    const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => {
+      void reload();
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [book.id, ownerKey]);
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -167,12 +207,17 @@ export const BookInfoModal: React.FC<Props> = ({
             {[
               { icon: FileType2, label: '파일 형식', value: getBookFormatLabel(book) },
               { icon: Database, label: '파일 크기', value: formatBookSize(book.size) },
-              { icon: HardDrive, label: '저장 위치', value: sourceLabel },
+              { icon: Clock3, label: '읽은 시간', value: formatBookReadingTime(readingTimeMs) },
               { icon: CalendarClock, label: '최근 독서', value: formatLastRead(progress?.lastRead) },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className={`min-w-0 rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                 <dt className="flex items-center gap-1 text-[10px] font-bold opacity-45"><Icon size={12} />{label}</dt>
-                <dd className="mt-1 truncate text-xs font-bold sm:text-sm">{value}</dd>
+                <dd
+                  data-book-info-value={label === '읽은 시간' ? 'reading-time' : undefined}
+                  className="mt-1 min-h-4 truncate text-xs font-bold sm:text-sm"
+                >
+                  {value}
+                </dd>
               </div>
             ))}
           </dl>

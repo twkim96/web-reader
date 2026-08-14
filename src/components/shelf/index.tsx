@@ -16,6 +16,7 @@ import { useFilteredBooks, usePreparedShelfBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
 import { DEFAULT_MAX_IMPORT_FILES } from '../../lib/bookFormats';
+import type { OwnerKey } from '../../lib/ownerIdentity';
 import {
   getNextShelfVisibleCount,
   SHELF_PAGE_SIZE,
@@ -23,6 +24,7 @@ import {
 
 interface ShelfProps {
   books: Book[];
+  ownerKey: OwnerKey;
   progress: Record<string, UserProgress>;
   googleToken: string | null;
   driveCacheKey: string | null;
@@ -49,6 +51,7 @@ interface ShelfProps {
 
 export const Shelf: React.FC<ShelfProps> = ({ 
   books, 
+  ownerKey,
   progress, 
   googleToken,
   driveCacheKey,
@@ -426,6 +429,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         <BookInfoModal
           key={selectedBookInfo.id}
           book={selectedBookInfo}
+          ownerKey={ownerKey}
           progress={progress[selectedBookInfo.id]}
           isDownloaded={isOfflineMode || offlineIds.has(selectedBookInfo.id)}
           isOfflineMode={isOfflineMode}

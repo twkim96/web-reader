@@ -485,7 +485,11 @@ try {
   assert.match(bookInfoUi.title, /Book/);
   assert.match(bookInfoUi.text, /파일 형식/);
   assert.match(bookInfoUi.text, /파일 크기/);
-  assert.match(bookInfoUi.text, /저장 위치/);
+  assert.match(bookInfoUi.text, /읽은 시간/);
+  assert.equal(
+    await evaluate(`document.querySelector('[data-book-info-value="reading-time"]')?.textContent?.trim()`),
+    '',
+  );
   assert.match(bookInfoUi.text, /최근 독서/);
   assert.ok(bookInfoUi.width <= Math.min(bookInfoUi.viewportWidth * 0.9, 576), JSON.stringify(bookInfoUi));
   assert.ok(bookInfoUi.height <= bookInfoUi.viewportHeight * 0.82, JSON.stringify(bookInfoUi));
