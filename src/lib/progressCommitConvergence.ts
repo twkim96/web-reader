@@ -5,6 +5,11 @@ export type ProgressCommitConvergenceAction =
   | 'apply-canonical'
   | 'reload-persisted';
 
+export type ProgressCommitConvergenceOutcome =
+  | 'applied'
+  | 'superseded'
+  | 'deferred';
+
 export const getProgressCommitConvergenceAction = ({
   ownerCurrent,
   latestLocalWrite,

@@ -1,4 +1,4 @@
-import { Dispatch, MutableRefObject, SetStateAction, useCallback, useRef } from 'react';
+import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import {
   loadProgressFromLocalV5,
@@ -38,7 +38,10 @@ import { getSyncSessionId } from '../lib/syncSession';
 import {
   canApplyReloadedProgress,
   getProgressCommitConvergenceAction,
+  type ProgressCommitConvergenceOutcome,
 } from '../lib/progressCommitConvergence';
+
+const DEFAULT_PROGRESS_CONVERGENCE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
 
 interface UseProgressActionsOptions {
   activeBook: Book | null;
@@ -47,6 +50,8 @@ interface UseProgressActionsOptions {
   progressRef: MutableRefObject<Record<string, UserProgress>>;
   setProgress: Dispatch<SetStateAction<Record<string, UserProgress>>>;
   onPersistenceError?: (message: string) => void;
+  loadProgressForConvergence?: typeof loadProgressFromLocalV5;
+  convergenceRetryDelaysMs?: readonly number[];
 }
 
 export const useProgressActions = ({
@@ -56,10 +61,26 @@ export const useProgressActions = ({
   progressRef,
   setProgress,
   onPersistenceError,
+  loadProgressForConvergence = loadProgressFromLocalV5,
+  convergenceRetryDelaysMs = DEFAULT_PROGRESS_CONVERGENCE_RETRY_DELAYS_MS,
 }: UseProgressActionsOptions) => {
   const writeTailsRef = useRef(new Map<string, Promise<unknown>>());
   const localWriteGenerationsRef = useRef(new Map<string, number>());
+  const convergenceTimersRef = useRef(new Map<string, number>());
+  const convergenceActiveRef = useRef(false);
   const sessionIdRef = useRef(getSyncSessionId());
+
+  useEffect(() => {
+    convergenceActiveRef.current = true;
+    const convergenceTimers = convergenceTimersRef.current;
+    return () => {
+      convergenceActiveRef.current = false;
+      for (const timer of convergenceTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      convergenceTimers.clear();
+    };
+  }, []);
 
   const beginLocalWrite = useCallback((bookId: string) => {
     const next = (localWriteGenerationsRef.current.get(bookId) ?? 0) + 1;
@@ -142,39 +163,54 @@ export const useProgressActions = ({
     optimistic: UserProgress,
     canonical: UserProgress,
     generation: number,
-  ) => {
+  ): Promise<ProgressCommitConvergenceOutcome> => {
     rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
     const observedDisplay = progressRef.current[bookId];
     const convergenceAction = getProgressCommitConvergenceAction({
-      ownerCurrent: ownerRuntime.isCurrent(owner),
+      ownerCurrent: convergenceActiveRef.current && ownerRuntime.isCurrent(owner),
       latestLocalWrite: isLatestLocalWrite(bookId, generation),
       currentDisplay: observedDisplay,
       optimistic,
     });
-    if (convergenceAction === 'skip') return;
+    if (convergenceAction === 'skip') return 'superseded';
 
     let settled = canonical;
     if (convergenceAction === 'reload-persisted') {
-      const persisted = await loadProgressFromLocalV5(
-        getSyncOwnerKey(owner.ownerKey),
-        bookId,
-      );
-      if (
-        !persisted
-        || !canApplyReloadedProgress({
-          ownerCurrent: ownerRuntime.isCurrent(owner),
-          latestLocalWrite: isLatestLocalWrite(bookId, generation),
-          currentDisplay: progressRef.current[bookId],
-          observedDisplay,
-        })
-      ) return;
+      let persisted: UserProgress | undefined;
+      try {
+        persisted = await loadProgressForConvergence(
+          getSyncOwnerKey(owner.ownerKey),
+          bookId,
+        );
+      } catch (error) {
+        console.warn('[ProgressConvergence] canonical reload deferred:', error);
+        return 'deferred';
+      }
+      if (!persisted) {
+        console.warn('[ProgressConvergence] canonical reload returned no progress; deferring reconciliation.');
+        return 'deferred';
+      }
+      if (!canApplyReloadedProgress({
+        ownerCurrent: convergenceActiveRef.current && ownerRuntime.isCurrent(owner),
+        latestLocalWrite: isLatestLocalWrite(bookId, generation),
+        currentDisplay: progressRef.current[bookId],
+        observedDisplay,
+      })) return 'superseded';
       settled = persisted;
       rebaseProgressCommitBaseline(owner.ownerKey, bookId, settled);
     }
 
-    if (!ownerRuntime.isCurrent(owner) || !isLatestLocalWrite(bookId, generation)) return;
+    if (
+      !convergenceActiveRef.current
+      || !ownerRuntime.isCurrent(owner)
+      || !isLatestLocalWrite(bookId, generation)
+    ) return 'superseded';
     setProgress((prev) => {
-      if (!ownerRuntime.isCurrent(owner) || !isLatestLocalWrite(bookId, generation)) return prev;
+      if (
+        !convergenceActiveRef.current
+        || !ownerRuntime.isCurrent(owner)
+        || !isLatestLocalWrite(bookId, generation)
+      ) return prev;
       const current = prev[bookId];
       const currentRef = progressRef.current[bookId];
       if (
@@ -184,7 +220,105 @@ export const useProgressActions = ({
       progressRef.current = { ...progressRef.current, [bookId]: settled };
       return { ...prev, [bookId]: settled };
     });
-  }, [isLatestLocalWrite, progressRef, setProgress]);
+    return 'applied';
+  }, [isLatestLocalWrite, loadProgressForConvergence, progressRef, setProgress]);
+
+  const scheduleCanonicalProgressReconciliation = useCallback((
+    owner: OwnerSnapshot,
+    bookId: string,
+    generation: number,
+  ) => {
+    const existingTimer = convergenceTimersRef.current.get(bookId);
+    if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+
+    let attempt = 0;
+    const scheduleNext = () => {
+      if (
+        !convergenceActiveRef.current
+        || !ownerRuntime.isCurrent(owner)
+        || !isLatestLocalWrite(bookId, generation)
+      ) {
+        convergenceTimersRef.current.delete(bookId);
+        return;
+      }
+      const delay = convergenceRetryDelaysMs[attempt];
+      if (delay === undefined) {
+        convergenceTimersRef.current.delete(bookId);
+        console.warn('[ProgressConvergence] deferred reconciliation exhausted retries.');
+        return;
+      }
+      attempt += 1;
+      const timer = window.setTimeout(() => {
+        if (convergenceTimersRef.current.get(bookId) !== timer) return;
+        convergenceTimersRef.current.delete(bookId);
+        void (async () => {
+          try {
+            const persisted = await loadProgressForConvergence(
+              getSyncOwnerKey(owner.ownerKey),
+              bookId,
+            );
+            if (!persisted) {
+              console.warn('[ProgressConvergence] deferred canonical read returned no progress.');
+              scheduleNext();
+              return;
+            }
+            if (
+              !convergenceActiveRef.current
+              || !ownerRuntime.isCurrent(owner)
+              || !isLatestLocalWrite(bookId, generation)
+            ) return;
+
+            const observedDisplay = progressRef.current[bookId];
+            rebaseProgressCommitBaseline(owner.ownerKey, bookId, persisted);
+            setProgress((prev) => {
+              if (
+                !convergenceActiveRef.current
+                || !ownerRuntime.isCurrent(owner)
+                || !isLatestLocalWrite(bookId, generation)
+              ) return prev;
+              if (
+                progressRef.current[bookId] !== observedDisplay
+                || prev[bookId] !== observedDisplay
+              ) return prev;
+              progressRef.current = { ...progressRef.current, [bookId]: persisted };
+              return { ...prev, [bookId]: persisted };
+            });
+          } catch (error) {
+            console.warn('[ProgressConvergence] deferred reconciliation failed:', error);
+            scheduleNext();
+          }
+        })();
+      }, Math.max(0, delay));
+      convergenceTimersRef.current.set(bookId, timer);
+    };
+
+    scheduleNext();
+  }, [convergenceRetryDelaysMs, isLatestLocalWrite, loadProgressForConvergence, progressRef, setProgress]);
+
+  const reconcileDurableProgressCommit = useCallback(async (
+    owner: OwnerSnapshot,
+    bookId: string,
+    optimistic: UserProgress,
+    canonical: UserProgress,
+    generation: number,
+  ) => {
+    let outcome: ProgressCommitConvergenceOutcome;
+    try {
+      outcome = await convergeCommittedProgress(
+        owner,
+        bookId,
+        optimistic,
+        canonical,
+        generation,
+      );
+    } catch (error) {
+      console.warn('[ProgressConvergence] immediate reconciliation deferred:', error);
+      outcome = 'deferred';
+    }
+    if (outcome === 'deferred') {
+      scheduleCanonicalProgressReconciliation(owner, bookId, generation);
+    }
+  }, [convergeCommittedProgress, scheduleCanonicalProgressReconciliation]);
 
   const reportPersistenceError = useCallback((error: unknown) => {
     console.error('[SaveProgress] local commit failed:', error);
@@ -255,22 +389,27 @@ export const useProgressActions = ({
     const generation = beginLocalWrite(bookId);
     progressRef.current = { ...progressRef.current, [bookId]: progressData };
     setProgress((prev) => ({ ...prev, [bookId]: progressData }));
+
+    let canonical: UserProgress | null;
     try {
-      const canonical = await queueProgressWrite(bookId, () => persistProgress(
+      canonical = await queueProgressWrite(bookId, () => persistProgress(
         owner,
         bookId,
         progressData,
         bookmarkChanges,
         syncPosition,
       ));
-      if (!canonical || !ownerRuntime.isCurrent(owner)) return false;
-      await convergeCommittedProgress(owner, bookId, progressData, canonical, generation);
-      return true;
     } catch (error) {
       reportPersistenceError(error);
       return false;
     }
-  }, [activeBook, beginLocalWrite, convergeCommittedProgress, getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
+    if (!canonical) return false;
+
+    rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
+    if (!ownerRuntime.isCurrent(owner)) return true;
+    await reconcileDurableProgressCommit(owner, bookId, progressData, canonical, generation);
+    return true;
+  }, [activeBook, beginLocalWrite, getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reconcileDurableProgressCommit, reportPersistenceError, setProgress]);
 
   const saveBookmarkMutation = useCallback(async (
     bookId: string,
@@ -309,8 +448,10 @@ export const useProgressActions = ({
     const generation = beginLocalWrite(bookId);
     progressRef.current = { ...progressRef.current, [bookId]: progressData };
     setProgress((prev) => ({ ...prev, [bookId]: progressData }));
+
+    let canonical: UserProgress | null;
     try {
-      const canonical = await queueProgressWrite(bookId, () => persistProgress(
+      canonical = await queueProgressWrite(bookId, () => persistProgress(
         owner,
         bookId,
         progressData,
@@ -318,9 +459,6 @@ export const useProgressActions = ({
         false,
         now,
       ));
-      if (!canonical || !ownerRuntime.isCurrent(owner)) return false;
-      await convergeCommittedProgress(owner, bookId, progressData, canonical, generation);
-      return true;
     } catch (error) {
       reportPersistenceError(error);
       const rollback = getCommittedProgress(owner, bookId) ?? committedExisting ?? displayExisting;
@@ -348,7 +486,13 @@ export const useProgressActions = ({
       }
       return false;
     }
-  }, [activeBook, beginLocalWrite, convergeCommittedProgress, getCommittedProgress, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
+    if (!canonical) return false;
+
+    rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
+    if (!ownerRuntime.isCurrent(owner)) return true;
+    await reconcileDurableProgressCommit(owner, bookId, progressData, canonical, generation);
+    return true;
+  }, [activeBook, beginLocalWrite, getCommittedProgress, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reconcileDurableProgressCommit, reportPersistenceError, setProgress]);
 
   const deleteProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();

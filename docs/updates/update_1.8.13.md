@@ -6,11 +6,13 @@
 
 1차 구현 커밋: `bf7a9cb`
 
+2차 재리뷰 후속 커밋: `97e4587`
+
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 이전 버전: [update_1.8.12.md](./update_1.8.12.md)
 
-상태: 1.8.12 전체 외부 재리뷰 P1/P2 correctness 후속 구현 후, `bf7a9cb` 1.8.13 재리뷰에서 확인된 P1 3건까지 후속 수정·full gate 완료. 외부 재리뷰·실기기 확인 대기
+상태: `97e4587` 재리뷰에서 이전 P1 3건이 닫힌 것을 확인했고, 새 P1인 durable commit 이후 React convergence read 실패 경계를 후속 수정했다. P2 중 bookmark 5개 제한은 기기별 soft local-add limit으로 명시했고 pending optimistic overlay는 선택적 UI 개선으로 보류한다. 후속 full gate 완료, 외부 재리뷰·실기기 확인 대기
 
 ## 목표
 
@@ -38,6 +40,25 @@
 3. automatic navigation retry timer가 살아 있는 동안 relocate/progress rerender가 발생하면 policy가 다시 실행되어 이미 adoption된 revision을 `ignore`로 소비할 수 있다.
 
 후속 수정은 전체 배열 bookmark 저장 API를 제거하고 ID 단위 mutation으로 바꾸며, local write generation + persisted canonical 재수렴, retry timer pending policy guard로 닫는다.
+
+### `97e4587` 재리뷰 후속
+
+`97e4587` 재리뷰에서 위 P1 3건은 핵심 경로와 테스트 모두 닫힌 것으로 확인됐다. 새 P0는 없었고 다음 1건을 릴리스 전 P1로 추가 확인했다.
+
+1. bookmark/progress mutation의 IndexedDB transaction과 outbox commit은 성공했지만, React canonical convergence를 위한 별도 `progress-v5` read가 실패하면 같은 `try/catch`에서 persistence 실패로 오인해 `false`를 반환하고 bookmark UI rollback을 유발할 수 있다.
+
+이번 후속에서는 durable persistence와 presentation reconciliation 경계를 분리한다.
+
+- enqueue transaction이 실패한 경우에만 persistence 실패로 `false`를 반환한다.
+- enqueue가 canonical을 반환한 뒤 owner가 바뀌거나 convergence read가 실패해도 durable mutation 자체는 성공으로 유지한다.
+- convergence read 실패는 사용자 저장 실패로 보고하지 않고 `deferred` presentation reconciliation으로 분류한다.
+- deferred reconciliation은 250ms → 1초 → 3초 bounded retry를 사용하고, 매 retry마다 최초 canonical을 재사용하지 않고 현재 `progress-v5`를 새로 읽는다.
+- retry는 같은 owner와 local-write generation이 유지될 때만 React state/progress ref를 갱신한다.
+- failure-injection hook test에서 첫 convergence read를 강제로 실패시켜도 `saveBookmarkMutation() === true`, DB/outbox `[X,Y]` 유지, rollback 없음, 다음 retry에서 React `[X,Y]` 수렴을 검증한다.
+
+재리뷰의 P2 두 건 중 collection 최대 5개는 global distributed hard cap으로 만들지 않는다. **현재 UI에서 새로 추가하는 수동 bookmark의 soft local-add limit을 5개로 유지**하며, 동시 다기기 sync 결과가 5개를 초과하면 기존/원격 bookmark를 삭제하거나 truncate하지 않고 모두 보존한다. UI도 `/5` hard-cap 표기 대신 “이 기기 추가 한도 5”로 표시한다.
+
+pending local bookmark mutation overlay는 correctness blocker가 아니라 짧은 시각적 consistency 개선이다. conflict/outbox 상태까지 child UI에 다시 복제하지 않도록 1.8.13 필수 범위에서는 보류하고 실기기에서 체감 flicker 여부를 확인한다.
 
 ## Phase A — listener freshness 계약
 
@@ -77,6 +98,8 @@
 - batch는 최종 canonical progress를 반환하고 React state/commit baseline도 그 반환값으로 재기준화한다.
 - authenticated progress 저장은 sync event가 없는 경우에도 whole-record `put`으로 우회하지 않고 동일 transaction-current merge 경로를 사용해 stale manual bookmark 배열이 canonical을 덮지 못하게 한다.
 - local write generation이 최신인 상태에서 commit 도중 remote hydration이 React object를 바꾼 경우 `progress-v5`를 다시 읽어 persisted canonical로 state를 수렴한다. 재-read 중 더 최신 local/remote update가 들어오면 오래된 canonical 적용을 중단한다.
+- transaction/outbox가 이미 durable commit된 뒤 이 convergence read만 실패하면 저장 실패로 되돌리지 않는다. mutation은 성공으로 유지하고 presentation reconciliation만 bounded deferred retry로 분리한다.
+- deferred retry는 매번 `progress-v5`를 새로 읽어 최신 persisted canonical을 적용하며 owner/local generation이 바뀌면 종료한다.
 - `remote Y → local X`, `local X → remote Y`, `remote bookmark Y → local position move` 세 순서를 모두 고정해 unrelated bookmark가 유지되는지 검증한다.
 - hook-level 경합에서 `local X optimistic → remote React Y → transaction canonical X+Y`를 만들어 DB와 React가 모두 `[X, Y]`로 수렴하는지 검증한다.
 
@@ -105,7 +128,9 @@
 - page/slider/TOC 등 실제 위치 변경만 `markUserProgressChange()`를 사용한다.
 - bookmark hydration은 cached remote보다 낮은 revision을 canonical에 적용하지 않는다.
 - 같은 revision의 다른 event identity는 invalid-argument로 차단한다.
-- bookmark 저장 실패 시 현재 canonical baseline으로 React/bookmark UI를 되돌리되, 더 최신 mutation이나 canonical update가 있으면 오래된 rollback이 덮지 못하게 generation을 사용한다.
+- bookmark **enqueue transaction 자체가 실패한 경우에만** 현재 canonical baseline으로 React/bookmark UI를 되돌리되, 더 최신 mutation이나 canonical update가 있으면 오래된 rollback이 덮지 못하게 generation을 사용한다.
+- durable enqueue 이후 presentation convergence만 실패한 경우에는 rollback하지 않는다.
+- 수동 bookmark 5개는 global sync hard cap이 아니라 현재 기기에서 새 항목을 추가하는 soft limit이다. sync 결과가 5개를 초과해도 remote bookmark를 삭제하거나 truncate하지 않는다.
 - production browser regression에서 bookmark add/delete가 `user-interaction`은 남기지만 position `user-change`는 만들지 않는지 검증한다.
 
 ## Phase F — observability와 multi-context gate
@@ -157,6 +182,7 @@
 - debug trace는 160개로 제한되고 disabled 상태에서는 메모리를 할당하지 않으며 raw remote identity를 내보내지 않는다.
 - explicit bookmark upsert/delete는 unrelated remote bookmark에 tombstone을 만들지 않는다.
 - `local X optimistic → remote React Y → IDB X+Y commit` interleaving에서 최종 React/IDB가 모두 `[X, Y]`이고 outbox에는 X target 하나만 생긴다.
+- 위 interleaving에서 첫 canonical convergence read를 강제로 실패시켜도 mutation 결과는 성공이고 DB/outbox는 `[X,Y]`/X event를 유지하며, deferred retry가 최신 `progress-v5`를 다시 읽어 React를 `[X,Y]`로 수렴시킨다.
 - retry timer pending 중 reader state rerender가 발생해도 remote identity를 소비하지 않고 timer wake 뒤 2차 canonical navigation을 실행한다.
 
 ## 릴리스 메타데이터
@@ -169,13 +195,13 @@
 
 ## 현재 자동검증
 
-현재 `bf7a9cb` 후속 작업 트리 기준:
+현재 `97e4587` 재리뷰 후속 작업 트리 기준:
 
 - `npm run lint` — 오류 0, 기존 `public/foliate-js` 경고 2개만 유지
 - `npm run typecheck` 통과
 - 기존 핵심 P1/P2 targeted tests 59개 통과
-- `bf7a9cb` 재리뷰 후속 hook/convergence targeted tests 5개 통과
-- `npm run test:storage` — 301개 전부 통과
+- 재리뷰 후속 hook/convergence targeted tests 6개 통과
+- `npm run test:storage` — 302개 전부 통과
 - `npm run test:shelf` — 82개 전부 통과
 - `npm run test:release` — 3개 전부 통과
 - `npm run check:full` 통과
@@ -183,6 +209,7 @@
   - Playwright Chromium·WebKit E2E 20개 통과
   - production browser regression 통과
   - production build 통과
+- production browser regression의 reading-statistics round fixture는 기존 실제 세션을 먼저 검증한 뒤 fixture 세션을 격리하고 browser local date/timezone을 사용하도록 바꿔 UTC↔KST 자정 경계 flake를 제거했다.
 - Firebase Emulator + Playwright 두-context 앱 E2E는 위 Phase F 사유로 이번 gate에 포함하지 않았다.
 
 ## 실기기 확인 계획
@@ -198,6 +225,8 @@
 - local X optimistic 직후 remote Y hydration이 React를 먼저 갱신해도 화면에서 X가 사라진 채 고정되지 않는지 확인한다.
 - remote adoption 뒤 첫 renderer navigation을 실패시키고 retry 대기 중 page/relocate 상태를 변화시켜도 timer wake 뒤 retry가 실제 실행되는지 확인한다.
 - bookmark add/delete만 한 뒤 앱 업데이트·종료를 해도 불필요한 progress 위치 event가 새로 생기지 않는지 확인한다.
+- 두 기기에서 각각 4개 상태로 동시에 추가해 최종 6개가 되더라도 sync 결과를 truncate/delete하지 않고 모두 표시하며, 현재 기기에서는 추가 버튼만 soft limit으로 막는지 확인한다.
+- remote snapshot과 local add가 교차할 때 correctness는 유지되지만 pending overlay를 보류했으므로 X가 잠깐 사라졌다 다시 나타나는 시각적 flicker가 체감되는지 별도 관찰한다.
 
 진단:
 

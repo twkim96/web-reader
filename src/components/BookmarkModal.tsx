@@ -43,6 +43,8 @@ interface BookmarkModalProps {
 
 type RecordsTab = 'bookmarks' | 'annotations';
 
+const LOCAL_MANUAL_BOOKMARK_ADD_LIMIT = 5;
+
 export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   bookmarks,
   annotations,
@@ -69,6 +71,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   const autoBookmarks = bookmarks
     .filter((bookmark) => bookmark.type === 'auto')
     .sort((a, b) => b.createdAt - a.createdAt);
+  const localAddLimitReached = manualBookmarks.length >= LOCAL_MANUAL_BOOKMARK_ADD_LIMIT;
 
   return (
     <ReaderModalFrame
@@ -146,19 +149,19 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
         <div data-reader-bookmark-panel="true" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
           <section className="space-y-2">
             <div className="flex items-end justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider opacity-50">나만의 책갈피 ({manualBookmarks.length}/5)</span>
+              <span className="text-xs font-bold uppercase tracking-wider opacity-50">나만의 책갈피 ({manualBookmarks.length}) · 이 기기 추가 한도 {LOCAL_MANUAL_BOOKMARK_ADD_LIMIT}</span>
             </div>
 
             <button
               type="button"
               onClick={onAdd}
-              disabled={manualBookmarks.length >= 5}
-              className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed px-3 py-2 text-sm font-bold transition-all ${manualBookmarks.length >= 5
+              disabled={localAddLimitReached}
+              className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed px-3 py-2 text-sm font-bold transition-all ${localAddLimitReached
                 ? 'cursor-not-allowed border-gray-500/20 text-gray-500/40'
                 : 'border-accent-500/30 text-accent-500 hover:bg-accent-500/5 active:scale-95'
               }`}
             >
-              {manualBookmarks.length >= 5 ? '슬롯이 가득 찼습니다' : '+ 현재 위치 추가하기'}
+              {localAddLimitReached ? '이 기기에서 더 추가할 수 없습니다' : '+ 현재 위치 추가하기'}
             </button>
 
             <div className="mt-2 space-y-1.5">

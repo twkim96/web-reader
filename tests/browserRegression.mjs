@@ -5060,50 +5060,72 @@ try {
       const db = request.result;
       const ownerKey = 'guest:browser-regression|library:local';
       const bookId = localStorage.getItem('__browserRegressionSelectionBookId');
-      const store = db.transaction('reading-sessions-v11', 'readwrite')
-        .objectStore('reading-sessions-v11');
-      // Keep the explicit-completion fixture after the real reader session
-      // created earlier in this regression so 99% is the latest progress fact.
-      const base = Date.now() + 60_000;
-      const put = (
-        sessionId,
-        startOffset,
-        startProgress,
-        endProgress,
-        completed,
-        completionConfirmedAtClient,
-      ) => store.put({
-        schemaVersion: 1,
-        ownerKey,
-        sessionId,
-        bookId,
-        bookTitle: 'selection-probe.epub',
-        deviceId: 'round-fixture',
-        mode: 'screen',
-        startedAtClient: base + startOffset,
-        endedAtClient: base + startOffset + 60_000,
-        durationMs: 60_000,
-        startProgressPercent: startProgress,
-        endProgressPercent: endProgress,
-        timezoneOffsetMinutes: 0,
-        localDate: new Date(base + startOffset).toISOString().slice(0, 10),
-        completed,
-        ...(completionConfirmedAtClient === undefined
-          ? {}
-          : { completionConfirmedAtClient }),
-        clockOffsetMs: 0,
-        clockUncertaintyMs: 25,
-        clockMeasuredAtClient: base + startOffset,
-        syncState: 'synced',
-        retryCount: 0,
-        nextAttemptAt: 0,
-        lastErrorCode: null,
-      });
-      put('round-fixture-first-start', 0, 0, 50, false);
-      put('round-fixture-first-finish', 61_000, 50, 100, true, base + 121_000);
-      put('round-fixture-second-start', 122_000, 0, 99, false);
-      store.transaction.oncomplete = () => { db.close(); resolve(true); };
-      store.transaction.onerror = () => reject(store.transaction.error);
+      const transaction = db.transaction('reading-sessions-v11', 'readwrite');
+      const store = transaction.objectStore('reading-sessions-v11');
+      const existingKeys = store.index('by-owner-book').getAllKeys([ownerKey, bookId]);
+      existingKeys.onerror = () => reject(existingKeys.error);
+      existingKeys.onsuccess = () => {
+        // The real reader session was already asserted above. Remove it before
+        // the round fixture so the round-order contract never depends on the
+        // wall clock or on whether this regression happens to cross midnight.
+        for (const key of existingKeys.result) store.delete(key);
+
+        const now = new Date();
+        const base = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          0,
+          10,
+          0,
+          0,
+        ).getTime();
+        const put = (
+          sessionId,
+          startOffset,
+          startProgress,
+          endProgress,
+          completed,
+          completionConfirmedAtClient,
+        ) => {
+          const startedAtClient = base + startOffset;
+          const timezoneOffsetMinutes = new Date(startedAtClient).getTimezoneOffset();
+          return store.put({
+            schemaVersion: 1,
+            ownerKey,
+            sessionId,
+            bookId,
+            bookTitle: 'selection-probe.epub',
+            deviceId: 'round-fixture',
+            mode: 'screen',
+            startedAtClient,
+            endedAtClient: startedAtClient + 60_000,
+            durationMs: 60_000,
+            startProgressPercent: startProgress,
+            endProgressPercent: endProgress,
+            timezoneOffsetMinutes,
+            localDate: new Date(
+              startedAtClient - timezoneOffsetMinutes * 60_000,
+            ).toISOString().slice(0, 10),
+            completed,
+            ...(completionConfirmedAtClient === undefined
+              ? {}
+              : { completionConfirmedAtClient }),
+            clockOffsetMs: 0,
+            clockUncertaintyMs: 25,
+            clockMeasuredAtClient: startedAtClient,
+            syncState: 'synced',
+            retryCount: 0,
+            nextAttemptAt: 0,
+            lastErrorCode: null,
+          });
+        };
+        put('round-fixture-first-start', 0, 0, 50, false);
+        put('round-fixture-first-finish', 61_000, 50, 100, true, base + 121_000);
+        put('round-fixture-second-start', 122_000, 0, 99, false);
+      };
+      transaction.oncomplete = () => { db.close(); resolve(true); };
+      transaction.onerror = () => reject(transaction.error);
     };
   })`);
   await command('Emulation.setDeviceMetricsOverride', {
