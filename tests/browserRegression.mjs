@@ -513,15 +513,37 @@ try {
   assert.ok(bookInfoUi.modalOutlineWidth === '0px' || bookInfoUi.modalOutlineStyle === 'none');
   assert.equal(bookInfoUi.captureRootContainsActions, false);
   assert.equal(bookInfoUi.hasCaptureButton, true);
+  const bookInfoActions = await evaluate(`(() => {
+    const footer = document.querySelector('[data-book-info-actions="true"]');
+    return [...(footer?.querySelectorAll('button') ?? [])].map((button) => ({
+      label: button.getAttribute('aria-label') ?? '',
+      width: button.getBoundingClientRect().width,
+      height: button.getBoundingClientRect().height,
+      text: button.textContent?.trim() ?? '',
+    }));
+  })()`);
+  assert.deepEqual(bookInfoActions.map(({ label }) => label), [
+    '읽기',
+    '독서 인증 이미지 다운로드',
+    'Book 0100 삭제',
+  ]);
+  assert.equal(bookInfoActions[1].text, '');
+  assert.ok(Math.abs(bookInfoActions[1].width - bookInfoActions[2].width) <= 1);
+  assert.ok(Math.abs(bookInfoActions[1].height - bookInfoActions[2].height) <= 1);
   await evaluate(`(() => {
     window.__bookInfoProofDownload = null;
+    window.__bookInfoProofBlob = null;
     window.__bookInfoOriginalAnchorClick = HTMLAnchorElement.prototype.click;
+    window.__bookInfoOriginalCreateObjectURL = URL.createObjectURL;
+    URL.createObjectURL = function (blob) {
+      window.__bookInfoProofBlob = blob;
+      return window.__bookInfoOriginalCreateObjectURL.call(URL, blob);
+    };
     HTMLAnchorElement.prototype.click = function () {
       if (this.download?.endsWith('.png')) {
         window.__bookInfoProofDownload = {
           fileName: this.download,
-          hrefPrefix: this.href.slice(0, 22),
-          hrefLength: this.href.length,
+          hrefPrefix: this.href.slice(0, 5),
         };
         return;
       }
@@ -536,11 +558,48 @@ try {
   );
   const proofDownload = await evaluate('window.__bookInfoProofDownload');
   assert.match(proofDownload.fileName, /^독서인증_.*\.png$/);
-  assert.match(proofDownload.hrefPrefix, /^data:image\/png/);
-  assert.ok(proofDownload.hrefLength > 1_000, JSON.stringify(proofDownload));
+  assert.equal(proofDownload.hrefPrefix, 'blob:');
+  const proofImage = await evaluate(`(async () => {
+    const blob = window.__bookInfoProofBlob;
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const width = bitmap.width;
+    const height = bitmap.height;
+    bitmap.close();
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let opaquePixels = 0;
+    let minLuma = 255;
+    let maxLuma = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index + 3] === 0) continue;
+      opaquePixels += 1;
+      const luma = (pixels[index] + pixels[index + 1] + pixels[index + 2]) / 3;
+      minLuma = Math.min(minLuma, luma);
+      maxLuma = Math.max(maxLuma, luma);
+    }
+    return {
+      type: blob.type,
+      size: blob.size,
+      width,
+      height,
+      opaquePixels,
+      lumaRange: maxLuma - minLuma,
+    };
+  })()`);
+  assert.equal(proofImage.type, 'image/png');
+  assert.ok(proofImage.size > 1_000, JSON.stringify(proofImage));
+  assert.ok(proofImage.width > 100 && proofImage.height > 100, JSON.stringify(proofImage));
+  assert.ok(proofImage.opaquePixels > 500, JSON.stringify(proofImage));
+  assert.ok(proofImage.lumaRange > 5, JSON.stringify(proofImage));
   await evaluate(`(() => {
     HTMLAnchorElement.prototype.click = window.__bookInfoOriginalAnchorClick;
+    URL.createObjectURL = window.__bookInfoOriginalCreateObjectURL;
     delete window.__bookInfoOriginalAnchorClick;
+    delete window.__bookInfoOriginalCreateObjectURL;
   })()`);
   await evaluate(`document.querySelector('[data-book-info-request-delete="true"]')?.click()`);
   await waitFor(

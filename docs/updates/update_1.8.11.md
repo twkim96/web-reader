@@ -86,8 +86,8 @@
   - `전체 삭제`는 기존 Drive 삭제와 progress·annotation 정리 순서를 그대로 사용한다.
   - 로컬 전용 도서나 기기 사본이 없는 Drive 도서는 기존 `영구 삭제 / 취소`를 유지한다.
 - 리더 메뉴의 상단 utility는 `듣기 → 통계 → 정보` 순서다. 정보 버튼은 현재 독서 session을 먼저 flush한 뒤 같은 도서 정보 모달을 열며, 리더에서는 `읽기`와 삭제 버튼을 노출하지 않는다.
-- 도서 정보 모달 하단에 `독서 인증`을 추가한다. 제목·진행률·독서 시간·작품 정보를 PNG로 렌더하고 하단 작업 버튼 영역은 이미지에서 제외한다.
-- 웹 앱은 임의의 파일 시스템 경로를 지정하지 않고 `download` 속성을 사용하므로, PNG는 브라우저가 설정한 기본 다운로드 위치로 저장된다.
+- 도서 정보 모달 하단은 `읽기(가변 폭) → 독서 인증 아이콘 → 삭제 아이콘` 한 줄로 구성한다. 제목·진행률·독서 시간·작품 정보를 PNG로 렌더하고 하단 작업 버튼 영역은 이미지에서 제외한다.
+- 웹 앱은 임의의 파일 시스템 경로를 지정하지 않고 Blob URL과 `download` 속성을 사용하므로, PNG는 브라우저가 설정한 기본 다운로드 위치로 저장된다. iPad Safari가 data URL을 빈 탭으로 여는 경로를 피한다.
 
 ## 메타데이터 최신화 운영
 
@@ -111,7 +111,7 @@ python3 scripts/publish-book-metadata.py \
 ## 자동검증
 
 - 도서 정보 모달 크기·필드·focus outline 제거·삭제 2단계 확인 browser regression
-- 독서 인증 캡처 root의 작업 영역 제외와 실제 PNG data URL 생성 browser regression
+- 독서 인증 캡처 root의 작업 영역 제외, 실제 PNG Blob 생성·크기·비투명 픽셀 확인 browser regression
 - 리더 utility `듣기 → 통계 → 정보` 순서 및 관리 버튼 없는 정보창 browser regression
 - 로컬 사본만 삭제할 때 계정 progress·annotation을 보존하는 storage regression
 - 실제 설정 UI의 탭·스크롤 왕복 전환 후 본문 표시 browser regression

@@ -194,17 +194,19 @@ export const BookInfoModal: React.FC<Props> = ({
       }
       Object.assign(captureNode.style, {
         position: 'fixed',
-        left: '-100000px',
+        left: '0',
         top: '0',
         width: `${Math.ceil(source.getBoundingClientRect().width)}px`,
         maxHeight: 'none',
         height: 'auto',
-        overflow: 'visible',
+        overflow: 'hidden',
+        flex: 'none',
         pointerEvents: 'none',
-        zIndex: '-1',
+        zIndex: '-2147483647',
         border: dialogStyle.border,
         borderRadius: dialogStyle.borderRadius,
         boxShadow: dialogStyle.boxShadow,
+        backgroundColor: sourceStyle.backgroundColor,
       });
       const scrollBody = captureNode.querySelector<HTMLElement>('[data-book-info-scroll-body="true"]');
       if (scrollBody) Object.assign(scrollBody.style, {
@@ -214,18 +216,25 @@ export const BookInfoModal: React.FC<Props> = ({
       });
       document.body.appendChild(captureNode);
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-      const { toPng } = await import('html-to-image');
-      const dataUrl = await toPng(captureNode, {
+      const captureRect = captureNode.getBoundingClientRect();
+      if (captureRect.width < 1 || captureRect.height < 1) {
+        throw new Error('Reading proof capture has no renderable area');
+      }
+      const { toBlob } = await import('html-to-image');
+      const blob = await toBlob(captureNode, {
         cacheBust: true,
         pixelRatio: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
-        backgroundColor: getComputedStyle(captureNode).backgroundColor,
+        backgroundColor: sourceStyle.backgroundColor,
       });
+      if (!blob || blob.size === 0) throw new Error('Reading proof PNG is empty');
+      const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = dataUrl;
+      link.href = objectUrl;
       link.download = getBookProofFileName(book.name);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
       setCaptureFeedback('독서 인증 이미지를 다운로드했습니다.');
     } catch (error) {
       console.error('[BookInfo] reading proof capture failed:', error);
@@ -391,15 +400,29 @@ export const BookInfoModal: React.FC<Props> = ({
               {captureFeedback}
             </p>
           )}
-          {showManagementActions && (
-            <div className="mb-1.5 grid grid-cols-[1fr_auto] gap-1.5">
+          <div className={`grid gap-1.5 ${showManagementActions ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-[auto] justify-end'}`}>
+            {showManagementActions && (
               <button
                 type="button"
                 onClick={() => onOpen?.(book)}
+                aria-label="읽기"
                 className="min-h-11 rounded-xl bg-accent-600 px-4 text-xs font-bold text-white"
               >
                 읽기
               </button>
+            )}
+            <button
+              type="button"
+              data-book-info-capture="true"
+              onClick={() => void captureReadingProof()}
+              disabled={capturing || isDeleting}
+              aria-label={capturing ? '독서 인증 이미지 생성 중' : '독서 인증 이미지 다운로드'}
+              title="독서 인증 이미지 다운로드"
+              className={`flex size-11 items-center justify-center rounded-xl border ${theme.border} text-accent-500 hover:bg-accent-500/10 disabled:opacity-40`}
+            >
+              <ImageDown size={18} className={capturing ? 'animate-pulse' : undefined} />
+            </button>
+            {showManagementActions && (
               <button
                 type="button"
                 data-book-info-request-delete="true"
@@ -409,18 +432,8 @@ export const BookInfoModal: React.FC<Props> = ({
               >
                 <Trash2 size={18} />
               </button>
-            </div>
-          )}
-          <button
-            type="button"
-            data-book-info-capture="true"
-            onClick={() => void captureReadingProof()}
-            disabled={capturing || isDeleting}
-            className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-40`}
-          >
-            <ImageDown size={16} />
-            {capturing ? '이미지 생성 중…' : '독서 인증'}
-          </button>
+            )}
+          </div>
         </footer>
       </section>
 
