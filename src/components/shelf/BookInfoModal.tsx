@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { BookOpen, CalendarClock, Clock3, Database, ExternalLink, FileType2, Trash2, X } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { BookOpen, CalendarClock, Clock3, Database, ExternalLink, FileType2, ImageDown, Trash2, X } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -28,9 +28,12 @@ type Props = {
   isDownloaded: boolean;
   isOfflineMode: boolean;
   theme: ShelfTheme;
-  isDeleting: boolean;
-  onOpen: (book: Book) => void;
-  onDelete: () => Promise<void>;
+  isDeleting?: boolean;
+  showManagementActions?: boolean;
+  canDeleteLocalCopy?: boolean;
+  onOpen?: (book: Book) => void;
+  onDelete?: () => Promise<void>;
+  onDeleteLocalCopy?: () => Promise<void>;
   onClose: () => void;
 };
 
@@ -59,6 +62,16 @@ const formatBookReadingTime = (durationMs: number | null) => {
   return `${Math.floor(totalMinutes / 60)}시간 ${totalMinutes % 60}분`;
 };
 
+const getBookProofFileName = (name: string) => {
+  const title = getDisplayBookTitle(name)
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || '도서';
+  const date = new Date().toISOString().slice(0, 10);
+  return `독서인증_${title}_${date}.png`;
+};
+
 export const BookInfoModal: React.FC<Props> = ({
   book,
   ownerKey,
@@ -66,16 +79,23 @@ export const BookInfoModal: React.FC<Props> = ({
   isDownloaded,
   isOfflineMode,
   theme,
-  isDeleting,
+  isDeleting = false,
+  showManagementActions = true,
+  canDeleteLocalCopy = false,
   onOpen,
   onDelete,
+  onDeleteLocalCopy,
   onClose,
 }) => {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [captureFeedback, setCaptureFeedback] = useState('');
+  const [deleteFeedback, setDeleteFeedback] = useState('');
   const [metadata, setMetadata] = useState<PublicBookMetadata | null>(null);
   const [metadataState, setMetadataState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [readingTimeMs, setReadingTimeMs] = useState<number | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const captureRef = useRef<HTMLDivElement>(null);
   useBodyScrollLock();
 
   useEffect(() => {
@@ -155,6 +175,79 @@ export const BookInfoModal: React.FC<Props> = ({
     platform.ratingCount !== null && `평가 ${formatMetric(platform.ratingCount)}`,
   ].filter(Boolean).slice(0, 2).join(' · ');
 
+  const captureReadingProof = useCallback(async () => {
+    const source = captureRef.current;
+    if (!source || capturing) return;
+    setCapturing(true);
+    setCaptureFeedback('이미지 생성 중…');
+    let captureNode: HTMLElement | null = null;
+    try {
+      await document.fonts?.ready;
+      captureNode = source.cloneNode(true) as HTMLElement;
+      const sourceStyle = getComputedStyle(source);
+      const dialogStyle = dialogRef.current ? getComputedStyle(dialogRef.current) : sourceStyle;
+      for (let index = 0; index < sourceStyle.length; index += 1) {
+        const property = sourceStyle.item(index);
+        if (property.startsWith('--')) {
+          captureNode.style.setProperty(property, sourceStyle.getPropertyValue(property));
+        }
+      }
+      Object.assign(captureNode.style, {
+        position: 'fixed',
+        left: '-100000px',
+        top: '0',
+        width: `${Math.ceil(source.getBoundingClientRect().width)}px`,
+        maxHeight: 'none',
+        height: 'auto',
+        overflow: 'visible',
+        pointerEvents: 'none',
+        zIndex: '-1',
+        border: dialogStyle.border,
+        borderRadius: dialogStyle.borderRadius,
+        boxShadow: dialogStyle.boxShadow,
+      });
+      const scrollBody = captureNode.querySelector<HTMLElement>('[data-book-info-scroll-body="true"]');
+      if (scrollBody) Object.assign(scrollBody.style, {
+        maxHeight: 'none',
+        height: 'auto',
+        overflow: 'visible',
+      });
+      document.body.appendChild(captureNode);
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      const { toPng } = await import('html-to-image');
+      const dataUrl = await toPng(captureNode, {
+        cacheBust: true,
+        pixelRatio: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        backgroundColor: getComputedStyle(captureNode).backgroundColor,
+      });
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = getBookProofFileName(book.name);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setCaptureFeedback('독서 인증 이미지를 다운로드했습니다.');
+    } catch (error) {
+      console.error('[BookInfo] reading proof capture failed:', error);
+      setCaptureFeedback('이미지를 만들지 못했습니다. 다시 시도해 주세요.');
+    } finally {
+      captureNode?.remove();
+      setCapturing(false);
+    }
+  }, [book.name, capturing]);
+
+  const deleteLocalCopy = useCallback(async () => {
+    if (!onDeleteLocalCopy || isDeleting) return;
+    setDeleteFeedback('');
+    try {
+      await onDeleteLocalCopy();
+      setConfirmingDelete(false);
+    } catch (error) {
+      console.error('[BookInfo] local copy deletion failed:', error);
+      setDeleteFeedback('로컬 사본을 삭제하지 못했습니다. 다시 시도해 주세요.');
+    }
+  }, [isDeleting, onDeleteLocalCopy]);
+
   return (
     <div
       className="fixed inset-0 z-[180] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5"
@@ -169,160 +262,140 @@ export const BookInfoModal: React.FC<Props> = ({
         data-book-info-modal="true"
         data-book-info-id={book.id}
         onClick={(event) => event.stopPropagation()}
-        className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 select-text flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl`}
+        className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 select-text flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none focus:outline-none sm:max-h-[82dvh] sm:rounded-3xl`}
       >
-        <header className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-500/15 text-accent-500">
-              <BookOpen size={19} />
+        <div
+          ref={captureRef}
+          data-book-info-capture-root="true"
+          className={`flex min-h-0 flex-1 flex-col overflow-hidden ${theme.bg} ${theme.text}`}
+        >
+          <header className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-500/15 text-accent-500">
+                <BookOpen size={19} />
+              </div>
+              <div className="min-w-0">
+                <h2 id="book-info-title" className="text-base font-black sm:text-lg">도서 정보</h2>
+                <p className="truncate text-[10px] font-bold opacity-45">{getBookFormatLabel(book)} · {sourceLabel}</p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h2 id="book-info-title" className="text-base font-black sm:text-lg">도서 정보</h2>
-              <p className="truncate text-[10px] font-bold opacity-45">{getBookFormatLabel(book)} · {sourceLabel}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isDeleting}
-            aria-label="도서 정보 닫기"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10"
-          >
-            <X size={22} />
-          </button>
-        </header>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isDeleting}
+              aria-label="도서 정보 닫기"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10"
+            >
+              <X size={22} />
+            </button>
+          </header>
 
-        <div className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4">
-          <h3 className="break-words text-lg font-black leading-snug sm:text-xl">
-            {getDisplayBookTitle(book.name)}
-          </h3>
-          <p className="mt-1 break-all text-[10px] leading-4 opacity-45">{book.name}</p>
+          <div data-book-info-scroll-body="true" className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4">
+            <h3 className="break-words text-lg font-black leading-snug sm:text-xl">
+              {getDisplayBookTitle(book.name)}
+            </h3>
+            <p className="mt-1 break-all text-[10px] leading-4 opacity-45">{book.name}</p>
 
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
-              {getBookFormatLabel(book)}
-            </span>
-            <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isDownloaded ? 'bg-emerald-500/12 text-emerald-500' : 'bg-black/5 opacity-55 dark:bg-white/5'}`}>
-              {isDownloaded ? '기기 저장됨' : '클라우드 전용'}
-            </span>
-            {metadata?.platforms.map((platform) => (
-              <span
-                key={platform.platform}
-                data-book-info-platform-badge={platform.platform}
-                className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500"
-              >
-                {platform.label}
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
+                {getBookFormatLabel(book)}
               </span>
-            ))}
-          </div>
-
-          <dl className="mt-4 grid grid-cols-2 gap-1.5">
-            {[
-              { icon: FileType2, label: '파일 형식', value: getBookFormatLabel(book) },
-              { icon: Database, label: '파일 크기', value: formatBookSize(book.size) },
-              { icon: Clock3, label: '읽은 시간', value: formatBookReadingTime(readingTimeMs) },
-              { icon: CalendarClock, label: '최근 독서', value: formatLastRead(progress?.lastRead) },
-            ].map(({ icon: Icon, label, value }) => (
-              <div key={label} className={`min-w-0 rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
-                <dt className="flex items-center gap-1 text-[10px] font-bold opacity-45"><Icon size={12} />{label}</dt>
-                <dd
-                  data-book-info-value={label === '읽은 시간' ? 'reading-time' : undefined}
-                  className="mt-1 min-h-4 truncate text-xs font-bold sm:text-sm"
+              <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isDownloaded ? 'bg-emerald-500/12 text-emerald-500' : 'bg-black/5 opacity-55 dark:bg-white/5'}`}>
+                {isDownloaded ? '기기 저장됨' : '클라우드 전용'}
+              </span>
+              {metadata?.platforms.map((platform) => (
+                <span
+                  key={platform.platform}
+                  data-book-info-platform-badge={platform.platform}
+                  className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500"
                 >
-                  {value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-
-          <div className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}>
-            <div className="flex items-center justify-between gap-3 text-xs font-bold">
-              <span className="opacity-55">읽기 진행률</span>
-              <strong className="text-accent-500">{progressPercent.toFixed(1)}%</strong>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/15 dark:bg-black/30">
-              <div className="h-full rounded-full bg-accent-500" style={{ width: `${progressPercent}%` }} />
-            </div>
-          </div>
-
-          <section className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`} aria-labelledby="book-platform-metadata-title">
-            <div className="flex items-center justify-between gap-2">
-              <h4 id="book-platform-metadata-title" className="text-xs font-black sm:text-sm">작품 정보</h4>
-              {metadata && (
-                <span className="text-[9px] opacity-40">
-                  {new Date(metadata.publishedAt).toLocaleDateString('ko-KR')} 갱신
+                  {platform.label}
                 </span>
-              )}
+              ))}
             </div>
-            {metadataState === 'loading' ? (
-              <p role="status" className="py-3 text-center text-[10px] opacity-40">플랫폼 정보를 확인하는 중…</p>
-            ) : metadataState === 'ready' && metadata ? (
-              <div data-book-platform-metadata="true" className="mt-2 grid gap-1.5">
-                {metadata.platforms.map((platform) => (
-                  <a
-                    key={platform.platform}
-                    href={platform.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex min-w-0 items-center gap-2 rounded-lg bg-black/5 px-2.5 py-2 hover:bg-accent-500/10 dark:bg-white/5"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <strong data-book-info-platform-metrics={platform.platform} className="block truncate text-xs font-black text-accent-500 sm:text-sm">
-                        {platformMetrics(platform) || platform.label}
-                      </strong>
-                      <small data-book-info-platform-title={platform.platform} className="mt-0.5 block truncate text-[10px] font-bold opacity-50 sm:text-[11px]">
-                        {platform.title}
-                      </small>
-                    </span>
-                    <ExternalLink size={13} className="shrink-0 opacity-35 group-hover:text-accent-500 group-hover:opacity-100" />
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <p className="py-3 text-center text-[10px] opacity-40">
-                {metadataState === 'error' ? '플랫폼 정보를 불러오지 못했습니다.' : '연결된 플랫폼 정보가 없습니다.'}
-              </p>
-            )}
-          </section>
 
-          {confirmingDelete && (
-            <div data-book-info-delete-confirmation="true" role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs leading-5 text-red-500 sm:rounded-2xl">
-              <strong className="block">이 도서를 삭제하시겠습니까?</strong>
-              <span className="opacity-80">
-                {sourceLabel === '기기 로컬'
-                  ? '로컬 저장소에서 영구 삭제됩니다.'
-                  : 'Google Drive와 기기에 저장된 사본에서 함께 삭제됩니다.'}
-              </span>
+            <dl className="mt-4 grid grid-cols-2 gap-1.5">
+              {[
+                { icon: FileType2, label: '파일 형식', value: getBookFormatLabel(book) },
+                { icon: Database, label: '파일 크기', value: formatBookSize(book.size) },
+                { icon: Clock3, label: '읽은 시간', value: formatBookReadingTime(readingTimeMs) },
+                { icon: CalendarClock, label: '최근 독서', value: formatLastRead(progress?.lastRead) },
+              ].map(({ icon: Icon, label, value }) => (
+                <div key={label} className={`min-w-0 rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
+                  <dt className="flex items-center gap-1 text-[10px] font-bold opacity-45"><Icon size={12} />{label}</dt>
+                  <dd
+                    data-book-info-value={label === '읽은 시간' ? 'reading-time' : undefined}
+                    className="mt-1 min-h-4 truncate text-xs font-bold sm:text-sm"
+                  >
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}>
+              <div className="flex items-center justify-between gap-3 text-xs font-bold">
+                <span className="opacity-55">읽기 진행률</span>
+                <strong className="text-accent-500">{progressPercent.toFixed(1)}%</strong>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/15 dark:bg-black/30">
+                <div className="h-full rounded-full bg-accent-500" style={{ width: `${progressPercent}%` }} />
+              </div>
             </div>
-          )}
+
+            <section className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`} aria-labelledby="book-platform-metadata-title">
+              <div className="flex items-center justify-between gap-2">
+                <h4 id="book-platform-metadata-title" className="text-xs font-black sm:text-sm">작품 정보</h4>
+                {metadata && (
+                  <span className="text-[9px] opacity-40">
+                    {new Date(metadata.publishedAt).toLocaleDateString('ko-KR')} 갱신
+                  </span>
+                )}
+              </div>
+              {metadataState === 'loading' ? (
+                <p role="status" className="py-3 text-center text-[10px] opacity-40">플랫폼 정보를 확인하는 중…</p>
+              ) : metadataState === 'ready' && metadata ? (
+                <div data-book-platform-metadata="true" className="mt-2 grid gap-1.5">
+                  {metadata.platforms.map((platform) => (
+                    <a
+                      key={platform.platform}
+                      href={platform.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex min-w-0 items-center gap-2 rounded-lg bg-black/5 px-2.5 py-2 hover:bg-accent-500/10 dark:bg-white/5"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <strong data-book-info-platform-metrics={platform.platform} className="block truncate text-xs font-black text-accent-500 sm:text-sm">
+                          {platformMetrics(platform) || platform.label}
+                        </strong>
+                        <small data-book-info-platform-title={platform.platform} className="mt-0.5 block truncate text-[10px] font-bold opacity-50 sm:text-[11px]">
+                          {platform.title}
+                        </small>
+                      </span>
+                      <ExternalLink size={13} className="shrink-0 opacity-35 group-hover:text-accent-500 group-hover:opacity-100" />
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-3 text-center text-[10px] opacity-40">
+                  {metadataState === 'error' ? '플랫폼 정보를 불러오지 못했습니다.' : '연결된 플랫폼 정보가 없습니다.'}
+                </p>
+              )}
+            </section>
+          </div>
         </div>
 
-        <footer className={`grid shrink-0 gap-1.5 border-t ${theme.border} px-3 py-2 sm:px-4 ${confirmingDelete ? 'grid-cols-2' : 'grid-cols-[1fr_auto]'}`}>
-          {confirmingDelete ? (
-            <>
+        <footer data-book-info-actions="true" className={`shrink-0 border-t ${theme.border} px-3 py-2 sm:px-4`}>
+          {captureFeedback && (
+            <p data-book-info-capture-status="true" role="status" className="mb-1.5 text-center text-[10px] font-bold text-accent-500">
+              {captureFeedback}
+            </p>
+          )}
+          {showManagementActions && (
+            <div className="mb-1.5 grid grid-cols-[1fr_auto] gap-1.5">
               <button
                 type="button"
-                onClick={() => setConfirmingDelete(false)}
-                disabled={isDeleting}
-                className={`min-h-11 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-35`}
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                data-book-info-confirm-delete="true"
-                onClick={() => void onDelete()}
-                disabled={isDeleting}
-                className="min-h-11 rounded-xl bg-red-500 px-4 text-xs font-bold text-white disabled:opacity-50"
-              >
-                {isDeleting ? '삭제 중…' : '영구 삭제'}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => onOpen(book)}
+                onClick={() => onOpen?.(book)}
                 className="min-h-11 rounded-xl bg-accent-600 px-4 text-xs font-bold text-white"
               >
                 읽기
@@ -336,10 +409,78 @@ export const BookInfoModal: React.FC<Props> = ({
               >
                 <Trash2 size={18} />
               </button>
-            </>
+            </div>
           )}
+          <button
+            type="button"
+            data-book-info-capture="true"
+            onClick={() => void captureReadingProof()}
+            disabled={capturing || isDeleting}
+            className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-40`}
+          >
+            <ImageDown size={16} />
+            {capturing ? '이미지 생성 중…' : '독서 인증'}
+          </button>
         </footer>
       </section>
+
+      {confirmingDelete && showManagementActions && (
+        <div
+          className="fixed inset-0 z-[190] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+          onClick={() => { if (!isDeleting) setConfirmingDelete(false); }}
+        >
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="book-info-delete-title"
+            data-book-info-delete-confirmation="true"
+            onClick={(event) => event.stopPropagation()}
+            className={`w-full max-w-sm rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} p-4 shadow-2xl outline-none`}
+          >
+            <h3 id="book-info-delete-title" className="text-base font-black">이 도서를 삭제하시겠습니까?</h3>
+            <p className="mt-2 text-xs leading-5 opacity-65">
+              {canDeleteLocalCopy
+                ? '기기에 저장된 사본만 삭제하거나 Google Drive 원본까지 전체 삭제할 수 있습니다.'
+                : sourceLabel === '기기 로컬'
+                  ? '로컬 저장소에서 영구 삭제됩니다.'
+                  : 'Google Drive 원본과 기기에 저장된 사본이 모두 삭제됩니다.'}
+            </p>
+            {deleteFeedback && (
+              <p role="status" className="mt-2 text-xs font-bold text-red-400">{deleteFeedback}</p>
+            )}
+            <div className="mt-4 grid gap-1.5">
+              {canDeleteLocalCopy && onDeleteLocalCopy && (
+                <button
+                  type="button"
+                  data-book-info-delete-local="true"
+                  onClick={() => void deleteLocalCopy()}
+                  disabled={isDeleting}
+                  className={`min-h-11 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-40`}
+                >
+                  {isDeleting ? '삭제 중…' : '로컬 삭제'}
+                </button>
+              )}
+              <button
+                type="button"
+                data-book-info-confirm-delete="true"
+                onClick={() => void onDelete?.()}
+                disabled={isDeleting}
+                className="min-h-11 rounded-xl bg-red-500 px-4 text-xs font-bold text-white disabled:opacity-50"
+              >
+                {isDeleting ? '삭제 중…' : canDeleteLocalCopy ? '전체 삭제' : '영구 삭제'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={isDeleting}
+                className={`min-h-11 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-35`}
+              >
+                취소
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };

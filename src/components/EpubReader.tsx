@@ -49,7 +49,7 @@ import { useAnnotationPalette } from '../hooks/useAnnotationPalette';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
 import type { RelocateDetail, TocItem } from '../hooks/foliate/types';
-import type { OwnerKey } from '../lib/ownerIdentity';
+import { DEVICE_CONTENT_OWNER_KEY, type OwnerKey } from '../lib/ownerIdentity';
 import { getAnnotationPaletteItem } from '../lib/annotationPalette';
 import { getSyncSessionId } from '../lib/syncSession';
 import type { SyncHealth } from '../lib/syncHealth';
@@ -63,6 +63,8 @@ import { getReaderTtsContentIdentity } from '../lib/readerTtsCursor';
 import { reuseOrStageReaderJump, type PendingReaderJump } from '../lib/readerNavigationCommit';
 import { useReadingSessionTracker } from '../hooks/reader/useReadingSessionTracker';
 import { useCurrentBookReadingTime } from '../hooks/reader/useCurrentBookReadingTime';
+import { BookInfoModal } from './shelf/BookInfoModal';
+import { loadBookMetadataFromLocalV5 } from '../lib/localDBV5';
 
 interface EpubReaderProps {
   book: Book;
@@ -71,6 +73,7 @@ interface EpubReaderProps {
   readingStatsDeviceId?: string;
   onAnnotationSyncHealthChange?: (health: SyncHealth) => void;
   googleToken: string;
+  isOfflineMode: boolean;
   settings: ViewerSettings;
   onUpdateSettings: (settings: Partial<ViewerSettings>) => void;
   onOpenStatistics: () => void;
@@ -206,6 +209,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   readingStatsDeviceId,
   onAnnotationSyncHealthChange,
   googleToken,
+  isOfflineMode,
   settings,
   onUpdateSettings,
   onOpenStatistics,
@@ -341,6 +345,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [onBack]);
 
   const chrome = useReaderChrome({ onBack: handleReaderBack });
+  const setShowReaderControls = chrome.setShowControls;
+  const [showBookInfo, setShowBookInfo] = React.useState(false);
+  const [bookInfoDownloaded, setBookInfoDownloaded] = React.useState(
+    isOfflineMode || book.source === 'local',
+  );
+  const [bookInfoLastRead, setBookInfoLastRead] = React.useState(initialTime ?? 0);
   const editingAnnotationId = chrome.editingAnnotationId;
   const setEditingAnnotationId = chrome.setEditingAnnotationId;
   const isBaseReaderPanelOpen = chrome.showSettings
@@ -349,6 +359,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || chrome.showToc
     || chrome.showSearchModal
     || chrome.showJumpInput
+    || showBookInfo
     || editingAnnotationId !== null
     || interactionBlocked;
   const isReaderPanelOpenRef = useRef(false);
@@ -544,12 +555,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     registerTransientPanelCloser(
       translation
         ? closeTranslation
+        : showBookInfo
+          ? () => setShowBookInfo(false)
         : tts.state.mode
           ? tts.stop
           : null,
     );
     return () => registerTransientPanelCloser(null);
-  }, [closeTranslation, registerTransientPanelCloser, translation, tts.state.mode, tts.stop]);
+  }, [closeTranslation, registerTransientPanelCloser, showBookInfo, translation, tts.state.mode, tts.stop]);
 
   const saveTranslationToAnnotationNote = useCallback(async () => {
     const state = translation;
@@ -708,6 +721,21 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     enabled: isLoaded,
     getActiveSessionPreview,
   });
+  const openBookInfo = useCallback(() => {
+    setShowReaderControls(false);
+    setBookInfoLastRead(lastSaveTimeRef.current || initialTime || 0);
+    setShowBookInfo(true);
+    if (isOfflineMode || book.source === 'local') {
+      setBookInfoDownloaded(true);
+      return;
+    }
+    void loadBookMetadataFromLocalV5(DEVICE_CONTENT_OWNER_KEY, book.id)
+      .then((metadata) => setBookInfoDownloaded(Boolean(metadata)))
+      .catch((error) => {
+        console.warn('[BookInfo] local copy lookup failed:', error);
+        setBookInfoDownloaded(false);
+      });
+  }, [book.id, book.source, initialTime, isOfflineMode, lastSaveTimeRef, setShowReaderControls]);
   useLayoutEffect(() => {
     markReadingActivityRef.current = markReadingActivity;
   }, [markReadingActivity]);
@@ -1693,10 +1721,35 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
             onOpenStatistics();
           });
         }}
+        onOpenBookInfo={() => {
+          void flushReadingSession().catch((error) => {
+            console.error('[BookInfo] active session flush failed:', error);
+          }).finally(openBookInfo);
+        }}
         onProgressSliderStart={beginSliderMove}
         onProgressSliderPreview={previewSliderMove}
         onProgressSliderCommit={commitSliderMove}
       />
+
+      {showBookInfo && (
+        <BookInfoModal
+          book={book}
+          ownerKey={ownerKey}
+          progress={{
+            bookId: book.id,
+            cfi: currentCfi,
+            anchorCfi: currentAnchorCfi || undefined,
+            progressPercent: totalProgress,
+            lastRead: bookInfoLastRead,
+            bookmarks,
+          }}
+          isDownloaded={bookInfoDownloaded}
+          isOfflineMode={isOfflineMode}
+          theme={theme}
+          showManagementActions={false}
+          onClose={() => setShowBookInfo(false)}
+        />
+      )}
 
       {chrome.showSettings && (
         <SettingsModal

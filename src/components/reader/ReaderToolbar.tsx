@@ -4,6 +4,7 @@ import React from 'react';
 import {
   BarChart3,
   Bookmark as BookmarkIcon,
+  Info,
   List,
   Palette,
   Search,
@@ -47,6 +48,7 @@ interface ReaderToolbarProps {
   onOpenToc: () => void;
   onOpenTts: () => void;
   onOpenStatistics: () => void;
+  onOpenBookInfo: () => void;
   onProgressSliderStart: () => void;
   onProgressSliderPreview: (progressPercent: number) => void;
   onProgressSliderCommit: () => void;
@@ -84,6 +86,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   onOpenToc,
   onOpenTts,
   onOpenStatistics,
+  onOpenBookInfo,
   onProgressSliderStart,
   onProgressSliderPreview,
   onProgressSliderCommit,
@@ -233,6 +236,16 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               title="독서 통계"
             >
               <BarChart3 className="size-[19px] md:size-[21px]" />
+            </button>
+            <button
+              type="button"
+              onClick={onOpenBookInfo}
+              className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
+              style={surfaceStyle}
+              aria-label="도서 정보"
+              title="도서 정보"
+            >
+              <Info className="size-[19px] md:size-[21px]" />
             </button>
           </div>
 

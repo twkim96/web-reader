@@ -8,7 +8,7 @@
 
 이전 버전: [update_1.8.10.md](./update_1.8.10.md)
 
-상태: Phase A·B 구현, 자동검증, Firebase Rules 배포와 메타데이터 최초 게시 완료. 외부 코드 리뷰·실기기 확인 대기
+상태: Phase A~G 구현, 자동검증, Firebase Rules 배포와 메타데이터 최초 게시 완료. 외부 코드 리뷰·실기기 확인 대기
 
 ## 목표
 
@@ -78,6 +78,17 @@
 - 다중 기기의 신뢰 가능한 clock correction을 반영한 session 종료 시각을 비교한다.
 - 같은 시각이면 제목과 회차를 보조 기준으로 사용해 렌더 순서가 흔들리지 않게 한다.
 
+## Phase G — 도서 정보 접근·삭제 범위·독서 인증
+
+- 도서 정보 모달을 연 직후 브라우저가 programmatic focus에 기본 흰색 outline을 그리던 원인을 확인했다. 키보드·Back 접근성을 위한 focus는 유지하고 모달 root의 기본 outline만 제거한다.
+- Google Drive 도서가 이 기기에도 저장된 경우 삭제 확인을 `로컬 삭제 / 전체 삭제 / 취소`로 분리한다.
+  - `로컬 삭제`는 기기 content namespace의 파일·메타데이터·archive inspection만 지우고 계정 진행률·주석과 Drive 원본은 유지한다.
+  - `전체 삭제`는 기존 Drive 삭제와 progress·annotation 정리 순서를 그대로 사용한다.
+  - 로컬 전용 도서나 기기 사본이 없는 Drive 도서는 기존 `영구 삭제 / 취소`를 유지한다.
+- 리더 메뉴의 상단 utility는 `듣기 → 통계 → 정보` 순서다. 정보 버튼은 현재 독서 session을 먼저 flush한 뒤 같은 도서 정보 모달을 열며, 리더에서는 `읽기`와 삭제 버튼을 노출하지 않는다.
+- 도서 정보 모달 하단에 `독서 인증`을 추가한다. 제목·진행률·독서 시간·작품 정보를 PNG로 렌더하고 하단 작업 버튼 영역은 이미지에서 제외한다.
+- 웹 앱은 임의의 파일 시스템 경로를 지정하지 않고 `download` 속성을 사용하므로, PNG는 브라우저가 설정한 기본 다운로드 위치로 저장된다.
+
 ## 메타데이터 최신화 운영
 
 예시 dry-run:
@@ -99,7 +110,10 @@ python3 scripts/publish-book-metadata.py \
 
 ## 자동검증
 
-- 도서 정보 모달 크기·필드·삭제 2단계 확인 browser regression
+- 도서 정보 모달 크기·필드·focus outline 제거·삭제 2단계 확인 browser regression
+- 독서 인증 캡처 root의 작업 영역 제외와 실제 PNG data URL 생성 browser regression
+- 리더 utility `듣기 → 통계 → 정보` 순서 및 관리 버튼 없는 정보창 browser regression
+- 로컬 사본만 삭제할 때 계정 progress·annotation을 보존하는 storage regression
 - 실제 설정 UI의 탭·스크롤 왕복 전환 후 본문 표시 browser regression
 - 책장 카드의 선택·touch callout 차단과 도서 정보 모달의 텍스트 선택 허용 browser regression
 - 통계 회차의 최근 독서순 정렬 Node·browser regression
@@ -118,5 +132,8 @@ Firebase Rules는 2026-08-14에 `web-novel-viewer` 프로젝트로 배포했다.
 - Android·iPad에서 길게 누르기와 세로 스크롤이 충돌하지 않는지 확인한다.
 - 정보창의 제목·원본 파일명·정보 카드·삭제 확인이 좁은 모바일에서 넘치지 않는지 확인한다.
 - 로컬 도서와 Drive 도서의 삭제 영향 문구 및 실제 삭제 범위가 맞는지 확인한다.
+- Android·iPad에서 도서 정보창을 열 때 흰 focus 테두리가 다시 나타나지 않는지 확인한다.
+- Drive 도서의 로컬 사본만 삭제한 뒤 다시 열면 재다운로드되고 기존 진행률·주석이 남는지 확인한다.
+- Android Chrome·iPad Safari·설치형 PWA에서 독서 인증 PNG가 기본 다운로드 위치 또는 시스템 다운로드 UI로 전달되는지 확인한다.
 - 포인트 색상을 바꿔도 정보창의 강조색이 설정을 따르는지 확인한다.
 - Firebase 게시 후 실제 카카오페이지·네이버 시리즈·노벨피아 tag와 수치·링크가 맞는지 표본 확인한다.

@@ -19,7 +19,7 @@ import {
   isGoogleDriveAuthError,
   isGoogleDrivePermissionError,
 } from '../lib/googleDrive';
-import { removeBookAndAnnotationsV8 } from '../lib/localDBV5';
+import { removeBookAndAnnotationsV8, removeBookFromLocalV5 } from '../lib/localDBV5';
 import { deleteBookInSafeOrder } from '../lib/bookDeletion';
 import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
 import { AuthLanding } from '../components/AuthScreens';
@@ -593,6 +593,13 @@ export default function Page() {
     }
   }, [deviceId, googleToken, handleCloudAuthExpired, handleDeleteBookProgress, hasValidToken, isOfflineMode, setBooks, user]);
 
+  const handleDeleteLocalBookCopy = useCallback(async (book: Book) => {
+    const owner = ownerRuntime.capture();
+    if (!owner) return;
+    await removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, book.id);
+    if (!ownerRuntime.isCurrent(owner)) return;
+  }, []);
+
   const handleOpenBook = useCallback((book: Book) => {
     const limitError = getBookOpenLimitError(book.name, book.mimeType, book.size);
     if (limitError) {
@@ -728,6 +735,7 @@ export default function Page() {
           onToggleCloud={isOfflineMode ? handleConnect : handleDisconnectDrive}
           onDeleteProgress={handleDeleteProgress}
           onDeleteBook={handleDeleteBook}
+          onDeleteLocalBookCopy={handleDeleteLocalBookCopy}
           settings={settings}
           onUpdateSettings={updateSettings}
           themeStyle={dynamicStyles}
@@ -750,6 +758,7 @@ export default function Page() {
           readingStatsDeviceId={deviceId.current}
           onAnnotationSyncHealthChange={setAnnotationSyncHealth}
           googleToken={googleToken || ''}
+          isOfflineMode={isOfflineMode}
           settings={settings}
           onUpdateSettings={updateSettings}
           onOpenStatistics={() => setReadingStatisticsOpen(true)}

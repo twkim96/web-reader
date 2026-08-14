@@ -15,6 +15,7 @@ const {
   getAllOfflineBooksV5,
   loadBookFromLocalV5,
   removeBookAndAnnotationsV8,
+  removeBookFromLocalV5,
   saveArchiveInspectionToLocalV5,
   saveBookToLocalV5,
   saveProgressToLocalV5,
@@ -361,6 +362,24 @@ test('device books survive Firebase progress owner deletion', async () => {
   );
   assert.equal((await getAllLocalProgressV5(ownerA)).length, 0);
   assert.equal((await getAllLocalProgressV5(ownerB)).length, 1);
+});
+
+test('removing only a device copy preserves owner progress and annotations', async () => {
+  await saveBookToLocalV5(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['device-book']),
+  );
+  await saveProgressToLocalV5(ownerA, {
+    bookId: 'same-id', cfi: 'owner-position', progressPercent: 42, lastRead: 1,
+  });
+  await saveLocalAnnotationV8(ownerA, makeAnnotation('same-id', 'owner-note'));
+
+  await removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id');
+
+  assert.equal(await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id'), undefined);
+  assert.deepEqual((await getAllLocalProgressV5(ownerA)).map(({ cfi }) => cfi), ['owner-position']);
+  assert.equal((await getLocalAnnotationsV8(ownerA, 'same-id')).length, 1);
 });
 
 test('atomically removes one device book and only the current owner annotations', async () => {

@@ -40,6 +40,7 @@ interface ShelfProps {
   onToggleCloud: () => void; 
   onDeleteProgress?: (bookId: string) => void; 
   onDeleteBook?: (book: Book) => Promise<void>;
+  onDeleteLocalBookCopy?: (book: Book) => Promise<void>;
   recentlyImportedBookIds?: string[];
   onBookImported?: (book: Book, savedLocally: boolean) => void;
   isCloudTokenValid?: () => boolean;
@@ -65,6 +66,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   onToggleCloud,
   onDeleteProgress,
   onDeleteBook,
+  onDeleteLocalBookCopy,
   settings,
   onUpdateSettings,
   recentlyImportedBookIds = [],
@@ -250,6 +252,17 @@ export const Shelf: React.FC<ShelfProps> = ({
     }
   }, [onDeleteBook, selectedBookInfo]);
 
+  const handleDeleteLocalBookCopy = useCallback(async () => {
+    if (!selectedBookInfo || !onDeleteLocalBookCopy) return;
+    setIsDeletingBook(true);
+    try {
+      await onDeleteLocalBookCopy(selectedBookInfo);
+      await refreshOfflineBookIds();
+    } finally {
+      setIsDeletingBook(false);
+    }
+  }, [onDeleteLocalBookCopy, refreshOfflineBookIds, selectedBookInfo]);
+
   const stateRef = useRef({ showManage, showSearch, selectedBookInfo, isDeletingBook });
   useEffect(() => {
     stateRef.current = { showManage, showSearch, selectedBookInfo, isDeletingBook };
@@ -433,6 +446,11 @@ export const Shelf: React.FC<ShelfProps> = ({
           progress={progress[selectedBookInfo.id]}
           isDownloaded={isOfflineMode || offlineIds.has(selectedBookInfo.id)}
           isOfflineMode={isOfflineMode}
+          canDeleteLocalCopy={
+            !isOfflineMode
+            && selectedBookInfo.source !== 'local'
+            && offlineIds.has(selectedBookInfo.id)
+          }
           theme={theme}
           isDeleting={isDeletingBook}
           onOpen={(book) => {
@@ -441,6 +459,7 @@ export const Shelf: React.FC<ShelfProps> = ({
             onOpen(book);
           }}
           onDelete={handleConfirmDeleteBook}
+          onDeleteLocalCopy={handleDeleteLocalBookCopy}
           onClose={() => { if (!isDeletingBook) setSelectedBookInfo(null); }}
         />
       )}

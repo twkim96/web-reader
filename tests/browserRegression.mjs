@@ -486,6 +486,12 @@ try {
       cardUserSelect: cardStyle?.userSelect ?? '',
       cardTouchCalloutDeclared: card?.classList.contains('[-webkit-touch-callout:none]') ?? false,
       modalUserSelect: modalStyle?.userSelect ?? '',
+      modalOutlineStyle: modalStyle?.outlineStyle ?? '',
+      modalOutlineWidth: modalStyle?.outlineWidth ?? '',
+      captureRootContainsActions: Boolean(
+        modal?.querySelector('[data-book-info-capture-root="true"] [data-book-info-actions="true"]'),
+      ),
+      hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
     };
   })()`);
   assert.match(bookInfoUi.title, /Book/);
@@ -503,19 +509,58 @@ try {
   assert.equal(bookInfoUi.cardUserSelect, 'none');
   assert.equal(bookInfoUi.cardTouchCalloutDeclared, true);
   assert.equal(bookInfoUi.modalUserSelect, 'text');
+  assert.equal(bookInfoUi.modalOutlineStyle, 'none');
+  assert.ok(bookInfoUi.modalOutlineWidth === '0px' || bookInfoUi.modalOutlineStyle === 'none');
+  assert.equal(bookInfoUi.captureRootContainsActions, false);
+  assert.equal(bookInfoUi.hasCaptureButton, true);
+  await evaluate(`(() => {
+    window.__bookInfoProofDownload = null;
+    window.__bookInfoOriginalAnchorClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download?.endsWith('.png')) {
+        window.__bookInfoProofDownload = {
+          fileName: this.download,
+          hrefPrefix: this.href.slice(0, 22),
+          hrefLength: this.href.length,
+        };
+        return;
+      }
+      return window.__bookInfoOriginalAnchorClick.call(this);
+    };
+    document.querySelector('[data-book-info-capture="true"]')?.click();
+  })()`);
+  await waitFor(
+    'Boolean(window.__bookInfoProofDownload)',
+    'book information proof PNG download',
+    10_000,
+  );
+  const proofDownload = await evaluate('window.__bookInfoProofDownload');
+  assert.match(proofDownload.fileName, /^독서인증_.*\.png$/);
+  assert.match(proofDownload.hrefPrefix, /^data:image\/png/);
+  assert.ok(proofDownload.hrefLength > 1_000, JSON.stringify(proofDownload));
+  await evaluate(`(() => {
+    HTMLAnchorElement.prototype.click = window.__bookInfoOriginalAnchorClick;
+    delete window.__bookInfoOriginalAnchorClick;
+  })()`);
   await evaluate(`document.querySelector('[data-book-info-request-delete="true"]')?.click()`);
   await waitFor(
     'Boolean(document.querySelector(\'[data-book-info-delete-confirmation="true"]\'))',
     'book information delete confirmation',
   );
   assert.equal(
-    await evaluate(`document.querySelector('[data-book-info-delete-confirmation="true"] strong')?.textContent?.trim()`),
+    await evaluate(`document.querySelector('[data-book-info-delete-confirmation="true"] h3')?.textContent?.trim()`),
     '이 도서를 삭제하시겠습니까?',
   );
+  assert.deepEqual(
+    await evaluate(`[...document.querySelectorAll('[data-book-info-delete-confirmation="true"] button')]
+      .map((button) => button.textContent?.trim())`),
+    ['영구 삭제', '취소'],
+  );
   await evaluate(`(() => {
-    const modal = document.querySelector('[data-book-info-modal="true"]');
-    [...(modal?.querySelectorAll('button') ?? [])]
+    const confirmation = document.querySelector('[data-book-info-delete-confirmation="true"]');
+    [...(confirmation?.querySelectorAll('button') ?? [])]
       .find((button) => button.textContent?.trim() === '취소')?.click();
+    const modal = document.querySelector('[data-book-info-modal="true"]');
     modal?.querySelector('button[aria-label="도서 정보 닫기"]')?.click();
   })()`);
   await waitFor(
@@ -3218,6 +3263,7 @@ try {
   assert.deepEqual(narrowSelectionMenu.toolbarProbe.utilityOrder, [
     '현재 위치부터 듣기',
     '독서 통계',
+    '도서 정보',
   ]);
   assert.ok(
     narrowSelectionMenu.toolbarProbe.menuWidth >= 274
@@ -3306,6 +3352,30 @@ try {
   await waitFor(
     '!document.querySelector(\'[data-reading-statistics-modal="true"]\')',
     'reader statistics modal close',
+  );
+  await evaluate(`document.querySelector('button[aria-label="도서 정보"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-book-info-modal="true"]\'))',
+    'reader book information modal',
+  );
+  const readerBookInfo = await evaluate(`(() => {
+    const modal = document.querySelector('[data-book-info-modal="true"]');
+    return {
+      hasReadButton: [...(modal?.querySelectorAll('button') ?? [])]
+        .some((button) => button.textContent?.trim() === '읽기'),
+      hasDeleteButton: Boolean(modal?.querySelector('[data-book-info-request-delete="true"]')),
+      hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
+    };
+  })()`);
+  assert.deepEqual(readerBookInfo, {
+    hasReadButton: false,
+    hasDeleteButton: false,
+    hasCaptureButton: true,
+  });
+  await evaluate(`document.querySelector('[data-book-info-modal="true"] button[aria-label="도서 정보 닫기"]')?.click()`);
+  await waitFor(
+    '!document.querySelector(\'[data-book-info-modal="true"]\')',
+    'reader book information modal close',
   );
   assert.notEqual(narrowSelectionMenu.feedbackWhiteSpace, 'nowrap');
   assert.ok(
