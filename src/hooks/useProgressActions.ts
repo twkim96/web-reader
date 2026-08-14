@@ -344,9 +344,15 @@ export const useProgressActions = ({
       ?? committedPercent
       ?? 0;
     const committedBookmarks = committedExisting?.bookmarks || [];
-    const finalBookmarks = bookmarks !== undefined
-      ? bookmarks
-      : displayExisting?.bookmarks || committedBookmarks;
+    const currentBookmarks = displayExisting?.bookmarks ?? committedBookmarks;
+    // Position saves do not own manual bookmark intent. A delayed relocate may
+    // carry a stale bookmark snapshot, so preserve the latest manual set and
+    // only take local-only auto bookmarks from the captured relocate payload.
+    const currentManualBookmarks = currentBookmarks.filter((bookmark) => bookmark.type === 'manual');
+    const requestedAutoBookmarks = bookmarks !== undefined
+      ? bookmarks.filter((bookmark) => bookmark.type === 'auto')
+      : currentBookmarks.filter((bookmark) => bookmark.type === 'auto');
+    const finalBookmarks = [...currentManualBookmarks, ...requestedAutoBookmarks];
     const nextAnchorCfi = String(
       options?.anchorCfi
       || displayExisting?.anchorCfi

@@ -8,11 +8,13 @@
 
 2차 재리뷰 후속 커밋: `97e4587`
 
+3차 재리뷰 후속 커밋: `0cedf03`
+
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 이전 버전: [update_1.8.12.md](./update_1.8.12.md)
 
-상태: `97e4587` 재리뷰에서 이전 P1 3건이 닫힌 것을 확인했고, 새 P1인 durable commit 이후 React convergence read 실패 경계를 후속 수정했다. P2 중 bookmark 5개 제한은 기기별 soft local-add limit으로 명시했고 pending optimistic overlay는 선택적 UI 개선으로 보류한다. 후속 full gate 완료, 외부 재리뷰·실기기 확인 대기
+상태: `0cedf03` 재리뷰에서 인증 다기기 경로의 새 P0/P1 blocker는 없음을 확인했고, guest/local에서 stale pending position save가 직전 manual bookmark를 whole-record overwrite할 수 있는 P1 1건만 추가 수용해 수정했다. pending optimistic overlay와 convergence retry exhaustion trace는 P2/관측성 개선으로 보류한다. 최종 full gate 완료, 실기기 확인 단계로 전환
 
 ## 목표
 
@@ -60,6 +62,18 @@
 
 pending local bookmark mutation overlay는 correctness blocker가 아니라 짧은 시각적 consistency 개선이다. conflict/outbox 상태까지 child UI에 다시 복제하지 않도록 1.8.13 필수 범위에서는 보류하고 실기기에서 체감 flicker 여부를 확인한다.
 
+### `0cedf03` 재리뷰 후속
+
+인증된 다기기 sync/adoption/convergence 경로에는 새 P0/P1 blocker가 없었고, guest/local 경로에서 P1 1건을 추가 확인했다.
+
+- delayed relocate save는 relocate 시점의 bookmark 배열을 보유할 수 있다.
+- 그 사이 guest에서 manual bookmark X가 저장된 뒤 오래된 position save가 `bookmarks=[]`를 전달하면, guest fast path의 whole-record `saveProgressToLocalV5()`가 X를 다시 지울 수 있다.
+- position save는 manual bookmark mutation을 소유하지 않는다는 계약으로 수정했다. manual bookmark는 호출 시점의 최신 React/canonical 상태에서 보존하고, relocate payload에서는 local-only auto bookmark만 반영한다.
+- 이 계약은 stale payload가 직전 manual add를 지우는 것뿐 아니라 직전 manual delete를 다시 살리는 것도 막는다.
+- hook-level guest 회귀에서 stale relocate `bookmarks=[]`를 캡처한 뒤 X→Y를 빠르게 저장하고 그 stale position을 commit해도 최종 DB/React가 `[Y, X]`를 유지하며 sync outbox가 비어 있음을 검증한다.
+
+P2로 제안된 pending optimistic overlay와 convergence retry exhaustion trace는 correctness blocker가 아니므로 이번 릴리스에서는 추가하지 않는다.
+
 ## Phase A — listener freshness 계약
 
 상태: 구현·회귀검증 완료
@@ -97,6 +111,7 @@ pending local bookmark mutation overlay는 correctness blocker가 아니라 짧�
 - sync revision identity는 transaction-current canonical 값을 우선한다.
 - batch는 최종 canonical progress를 반환하고 React state/commit baseline도 그 반환값으로 재기준화한다.
 - authenticated progress 저장은 sync event가 없는 경우에도 whole-record `put`으로 우회하지 않고 동일 transaction-current merge 경로를 사용해 stale manual bookmark 배열이 canonical을 덮지 못하게 한다.
+- guest/local position 저장은 stale relocate payload의 manual bookmark 배열을 신뢰하지 않는다. 호출 시점의 최신 manual bookmark를 보존하고 relocate payload에서는 auto bookmark만 반영해 delayed position save가 직전 add/delete를 덮지 못하게 한다.
 - local write generation이 최신인 상태에서 commit 도중 remote hydration이 React object를 바꾼 경우 `progress-v5`를 다시 읽어 persisted canonical로 state를 수렴한다. 재-read 중 더 최신 local/remote update가 들어오면 오래된 canonical 적용을 중단한다.
 - transaction/outbox가 이미 durable commit된 뒤 이 convergence read만 실패하면 저장 실패로 되돌리지 않는다. mutation은 성공으로 유지하고 presentation reconciliation만 bounded deferred retry로 분리한다.
 - deferred retry는 매번 `progress-v5`를 새로 읽어 최신 persisted canonical을 적용하며 owner/local generation이 바뀌면 종료한다.
@@ -184,6 +199,7 @@ pending local bookmark mutation overlay는 correctness blocker가 아니라 짧�
 - `local X optimistic → remote React Y → IDB X+Y commit` interleaving에서 최종 React/IDB가 모두 `[X, Y]`이고 outbox에는 X target 하나만 생긴다.
 - 위 interleaving에서 첫 canonical convergence read를 강제로 실패시켜도 mutation 결과는 성공이고 DB/outbox는 `[X,Y]`/X event를 유지하며, deferred retry가 최신 `progress-v5`를 다시 읽어 React를 `[X,Y]`로 수렴시킨다.
 - retry timer pending 중 reader state rerender가 발생해도 remote identity를 소비하지 않고 timer wake 뒤 2차 canonical navigation을 실행한다.
+- guest에서 stale relocate `bookmarks=[]`를 캡처한 뒤 manual X→Y를 저장하고 오래된 position save를 실행해도 최종 `progress-v5`/React는 `[Y, X]`를 유지하고 outbox는 생성되지 않는다.
 
 ## 릴리스 메타데이터
 
@@ -195,13 +211,13 @@ pending local bookmark mutation overlay는 correctness blocker가 아니라 짧�
 
 ## 현재 자동검증
 
-현재 `97e4587` 재리뷰 후속 작업 트리 기준:
+현재 `0cedf03` 최종 재리뷰 후속 작업 트리 기준:
 
 - `npm run lint` — 오류 0, 기존 `public/foliate-js` 경고 2개만 유지
 - `npm run typecheck` 통과
 - 기존 핵심 P1/P2 targeted tests 59개 통과
-- 재리뷰 후속 hook/convergence targeted tests 6개 통과
-- `npm run test:storage` — 302개 전부 통과
+- 재리뷰 후속 hook/convergence/guest targeted tests 7개 통과
+- `npm run test:storage` — 303개 전부 통과
 - `npm run test:shelf` — 82개 전부 통과
 - `npm run test:release` — 3개 전부 통과
 - `npm run check:full` 통과

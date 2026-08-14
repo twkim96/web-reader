@@ -16,6 +16,7 @@ import {
 import { ownerRuntime } from '../src/lib/ownerRuntime.ts';
 import {
   makeFirebaseOwnerKey,
+  makeGuestOwnerKey,
   makeOwnerKey,
 } from '../src/lib/ownerIdentity.ts';
 import { getOutboxEventsV5 } from '../src/lib/syncOutboxV5.ts';
@@ -137,6 +138,89 @@ test('explicit local bookmark mutation converges React to transaction-current X+
     assert.equal(bookmarkEvents.length, 1);
     assert.equal(bookmarkEvents[0].operation, 'bookmark.upsert');
     assert.equal(bookmarkEvents[0].target.bookmarkId, 'local-x');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    ownerRuntime.clear();
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.CustomEvent = previousCustomEvent;
+    globalThis.BroadcastChannel = previousBroadcastChannel;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  }
+});
+
+test('guest stale position save preserves manual bookmarks committed after the relocate snapshot', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  const previousCustomEvent = globalThis.CustomEvent;
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
+  globalThis.window = window;
+  globalThis.document = window.document;
+  globalThis.CustomEvent = window.CustomEvent;
+  globalThis.BroadcastChannel = undefined;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+  const ownerKey = makeOwnerKey(makeGuestOwnerKey('progress-actions-guest'), 'library:local');
+  ownerRuntime.activate(ownerKey);
+
+  const initialDisplay = progress([]);
+  const staleRelocateBookmarks = initialDisplay.bookmarks;
+  const localX = bookmark('local-x', 30);
+  const localY = bookmark('local-y', 40);
+  await saveProgressToLocalV5(ownerKey, initialDisplay);
+
+  let controls;
+  let renderedProgress = { 'book-1': initialDisplay };
+  const Harness = () => {
+    const [progressState, setProgress] = useState({ 'book-1': initialDisplay });
+    const progressRef = useRef({ 'book-1': initialDisplay });
+    const deviceId = useRef('device-guest');
+    const actions = useProgressActions({
+      activeBook: { id: 'book-1' },
+      user: null,
+      deviceId,
+      progressRef,
+      setProgress,
+    });
+    useEffect(() => {
+      renderedProgress = progressState;
+      controls = { actions, progressRef };
+    }, [actions, progressState]);
+    return null;
+  };
+
+  const root = createRoot(window.document.getElementById('app'));
+  try {
+    await act(async () => {
+      root.render(React.createElement(Harness));
+    });
+
+    await act(async () => {
+      assert.equal(await controls.actions.saveBookmarkMutation('book-1', {
+        kind: 'upsert',
+        bookmark: localX,
+      }), true);
+      assert.equal(await controls.actions.saveBookmarkMutation('book-1', {
+        kind: 'upsert',
+        bookmark: localY,
+      }), true);
+      assert.equal(await controls.actions.saveProgress(
+        'stale-relocate-cfi',
+        35,
+        staleRelocateBookmarks,
+        { force: true },
+      ), true);
+    });
+
+    const stored = await loadProgressFromLocalV5(ownerKey, 'book-1');
+    assert.equal(stored.cfi, 'stale-relocate-cfi');
+    assert.deepEqual(stored.bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
+    assert.deepEqual(renderedProgress['book-1'].bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
+    assert.deepEqual(await getOutboxEventsV5(ownerKey), []);
   } finally {
     await act(async () => {
       root.unmount();

@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.12 전체 외부 재리뷰에서 남은 동기화 invariant P1/P2를 1.8.13 안정화 버전으로 분리해 구현했다. `bf7a9cb` 재리뷰의 P1 3건은 `97e4587`에서 닫혔고, `97e4587` 재리뷰에서 추가 확인된 durable commit ↔ React convergence error-boundary P1도 후속 수정했다. 수동 bookmark 5개는 분산 hard cap이 아닌 기기별 soft local-add limit으로 명시했으며 후속 full gate를 통과했다. pending optimistic overlay는 선택적 UI 개선으로 남기고 외부 재리뷰·실기기 확인을 기다린다.
+전체 상태: 1.8.12 전체 외부 재리뷰에서 남은 동기화 invariant P1/P2를 1.8.13 안정화 버전으로 분리해 구현했다. `bf7a9cb`와 `97e4587` 재리뷰에서 확인된 authenticated sync/convergence P1은 모두 닫혔고, `0cedf03` 재리뷰에서 남은 guest/local stale position save의 manual bookmark overwrite P1도 후속 수정했다. 수동 bookmark 5개는 분산 hard cap이 아닌 기기별 soft local-add limit으로 유지하며 pending optimistic overlay는 선택적 UI 개선으로 보류한다. 최종 full gate를 통과해 실기기 검증 단계로 전환한다.
 
 ## 1. 문서의 역할
 
@@ -76,7 +76,7 @@
 | 1.8.10 | TXT 목차 개선·누적 실사용 안정화 | 새 TXT 첫 구절 목차·PC/iPad/PWA 장기 사용 | 높음 | TXT 목차 구현·전체 gate 완료, 외부 리뷰·실사용 진행 중 |
 | 1.8.11 | 도서 정보·플랫폼 메타데이터 | 길게 누르기 정보창·범위별 삭제·리더 정보 진입·독서 인증·읽기 전용 메타데이터 조회 | 중간 | Phase A~G 구현, 자동검증·게시·실기기 확인 진행 중 |
 | 1.8.12 | 동기화 안정화·도서 오픈 경합 | canonical bookmark 수신·adoption-first resume·초기 pagination·foreground reconciliation·도서정보 이미지 clipboard·탭→스크롤 폭 복구 | 매우 높음 | 두 외부 리뷰 및 후속 UI/layout 수정 구현·full gate 완료, 전체 재리뷰 finding은 1.8.13으로 이관 |
-| 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·durable commit/convergence 분리·debug trace | 매우 높음 | `97e4587` 재리뷰 P1 후속 수정·bookmark 5개 soft local-add 명시·full gate 완료, pending overlay 선택 보류·외부 재리뷰/실기기 대기 |
+| 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·durable commit/convergence 분리·guest stale-save 방어·debug trace | 매우 높음 | `0cedf03` 재리뷰 guest/local P1까지 후속 수정·최종 full gate 완료, pending overlay 선택 보류·실기기 검증 단계 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
