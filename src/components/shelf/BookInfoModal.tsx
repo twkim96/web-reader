@@ -20,6 +20,8 @@ import {
   type PublicBookPlatformMetadata,
 } from '../../lib/publicBookMetadata';
 import { readHiddenReadingStatisticsSessionIds } from '../../lib/readingStatisticsSessionVisibility';
+import type { PublicBookCatalogBook } from '../../lib/publicBookCatalog';
+import type { PublicBookCatalogLoadState } from '../../hooks/usePublicBookCatalog';
 
 type Props = {
   book: Book;
@@ -28,6 +30,8 @@ type Props = {
   isDownloaded: boolean;
   isOfflineMode: boolean;
   theme: ShelfTheme;
+  catalog?: PublicBookCatalogBook;
+  catalogState?: PublicBookCatalogLoadState;
   isDeleting?: boolean;
   showManagementActions?: boolean;
   canDeleteLocalCopy?: boolean;
@@ -79,6 +83,8 @@ export const BookInfoModal: React.FC<Props> = ({
   isDownloaded,
   isOfflineMode,
   theme,
+  catalog,
+  catalogState = 'ready',
   isDeleting = false,
   showManagementActions = true,
   canDeleteLocalCopy = false,
@@ -384,6 +390,32 @@ export const BookInfoModal: React.FC<Props> = ({
                 <div className="h-full rounded-full bg-accent-500" style={{ width: `${progressPercent}%` }} />
               </div>
             </div>
+
+            {(catalog || catalogState === 'loading') && (
+              <section
+                data-book-catalog-tags="true"
+                className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}
+                aria-labelledby="book-catalog-tags-title"
+              >
+                <h4 id="book-catalog-tags-title" className="text-xs font-black sm:text-sm">장르·태그</h4>
+                {catalog ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {catalog.genreLabel && (
+                      <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-black text-accent-500">
+                        {catalog.genreLabel}
+                      </span>
+                    )}
+                    {catalog.tags.filter((tag) => tag.label !== catalog.genreLabel).map((tag) => (
+                      <span key={tag.id} className="rounded-full bg-black/5 px-2 py-1 text-[10px] font-bold opacity-65 dark:bg-white/5">
+                        #{tag.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p role="status" className="py-2 text-[10px] opacity-40">장르·태그를 불러오는 중…</p>
+                )}
+              </section>
+            )}
 
             <section className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`} aria-labelledby="book-platform-metadata-title">
               <div className="flex items-center justify-between gap-2">

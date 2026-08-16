@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import quote
 
+from public_book_catalog import build_catalog_documents, load_genre_resolver
+
 
 PLATFORM_LABELS = {
     "series": "네이버 시리즈",
@@ -45,8 +47,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--project", help="Firebase project id. --apply에서 필수")
     parser.add_argument("--collection", default="publicBookMetadataV1")
+    parser.add_argument(
+        "--catalog-collection",
+        default="publicBookCatalogIndexV1",
+        help="책장 필터·정렬용 compact catalog collection",
+    )
     parser.add_argument("--normalizer-version", default=DEFAULT_NORMALIZER_VERSION)
     parser.add_argument("--output", type=Path, help="dry-run JSONL 출력 경로")
+    parser.add_argument(
+        "--catalog-output",
+        type=Path,
+        help="compact catalog dry-run JSONL 출력 경로",
+    )
+    parser.add_argument(
+        "--skip-catalog",
+        action="store_true",
+        help="기존 상세 projection만 생성·게시",
+    )
     parser.add_argument("--limit", type=int, default=0, help="검증용 문서 수 제한")
     parser.add_argument("--apply", action="store_true", help="Firestore에 실제 게시")
     parser.add_argument(
@@ -65,7 +82,11 @@ def open_readonly(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def require_schema(connection: sqlite3.Connection) -> None:
+def require_schema(
+    connection: sqlite3.Connection,
+    *,
+    include_catalog: bool = False,
+) -> None:
     names = {
         row[0]
         for row in connection.execute(
@@ -73,6 +94,8 @@ def require_schema(connection: sqlite3.Connection) -> None:
         )
     }
     required = {"catalog_titles", "catalog_platform_stats", "file_analysis"}
+    if include_catalog:
+        required.add("catalog_platform_tags")
     missing = sorted(required - names)
     if missing:
         raise RuntimeError(f"required file_check schema is missing: {', '.join(missing)}")
@@ -236,6 +259,50 @@ def firestore_value(value: Any) -> dict[str, Any]:
     raise TypeError(type(value))
 
 
+def firestore_native_value(value: Any) -> Any:
+    """Decode the REST Value shape for exact readback comparison.
+
+    Firestore may omit empty ``values``/``fields`` containers in responses, so
+    comparing the wire dictionaries directly can reject a valid immutable
+    generation that contains an empty tag array or shard map.
+    """
+    if not isinstance(value, dict):
+        raise ValueError("Firestore value must be an object")
+    if "nullValue" in value:
+        return None
+    if "booleanValue" in value:
+        return bool(value["booleanValue"])
+    if "integerValue" in value:
+        return int(value["integerValue"])
+    if "doubleValue" in value:
+        return float(value["doubleValue"])
+    if "stringValue" in value:
+        return str(value["stringValue"])
+    if "arrayValue" in value:
+        container = value["arrayValue"]
+        if not isinstance(container, dict):
+            raise ValueError("Firestore arrayValue must be an object")
+        return [firestore_native_value(item) for item in container.get("values", [])]
+    if "mapValue" in value:
+        container = value["mapValue"]
+        if not isinstance(container, dict):
+            raise ValueError("Firestore mapValue must be an object")
+        fields = container.get("fields", {})
+        if not isinstance(fields, dict):
+            raise ValueError("Firestore map fields must be an object")
+        return {key: firestore_native_value(item) for key, item in fields.items()}
+    raise ValueError(f"unsupported Firestore value: {sorted(value)}")
+
+
+def firestore_document_payload(document: Any) -> dict[str, Any]:
+    if not isinstance(document, dict) or not isinstance(document.get("fields"), dict):
+        raise ValueError("Firestore document fields are missing")
+    return {
+        key: firestore_native_value(value)
+        for key, value in document["fields"].items()
+    }
+
+
 def publish_documents(
     documents: Iterable[dict[str, Any]],
     *,
@@ -287,13 +354,133 @@ def publish_documents(
     return created, updated
 
 
+def publish_catalog_documents(
+    documents: Iterable[dict[str, Any]],
+    manifest: dict[str, Any],
+    *,
+    project: str,
+    collection: str,
+) -> tuple[int, int]:
+    """Create immutable generation documents, verify them, then CAS the manifest."""
+    try:
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+    except ImportError as error:
+        raise RuntimeError("google-auth[requests] is required for --apply") from error
+
+    credentials, detected_project = google.auth.default(
+        scopes=("https://www.googleapis.com/auth/datastore",),
+    )
+    project_id = project or detected_project
+    if not project_id:
+        raise RuntimeError("--project is required when ADC has no project id")
+    session = AuthorizedSession(credentials)
+    base = (
+        f"https://firestore.googleapis.com/v1/projects/{quote(project_id, safe='')}"
+        f"/databases/(default)/documents/{quote(collection, safe='')}"
+    )
+    immutable = list(documents)
+    created = reused = 0
+    for document in immutable:
+        document_id = str(document["documentId"])
+        expected_payload = {
+            key: value for key, value in document.items() if key != "documentId"
+        }
+        fields = {
+            key: firestore_value(value) for key, value in expected_payload.items()
+        }
+        response = session.post(
+            f"{base}?documentId={quote(document_id, safe='')}",
+            json={"fields": fields},
+            timeout=30,
+        )
+        if response.status_code == 409:
+            existing = session.get(
+                f"{base}/{quote(document_id, safe='')}",
+                timeout=30,
+            )
+            if (
+                not existing.ok
+                or firestore_document_payload(existing.json()) != expected_payload
+            ):
+                raise RuntimeError(
+                    f"catalog generation collision for {document_id}: "
+                    f"{existing.status_code} {existing.text[:500]}"
+                )
+            reused += 1
+        elif response.ok:
+            created += 1
+        else:
+            raise RuntimeError(
+                f"catalog publish failed for {document_id}: "
+                f"{response.status_code} {response.text[:500]}"
+            )
+
+    for document in immutable:
+        document_id = str(document["documentId"])
+        expected_payload = {
+            key: value for key, value in document.items() if key != "documentId"
+        }
+        response = session.get(
+            f"{base}/{quote(document_id, safe='')}",
+            timeout=30,
+        )
+        if (
+            not response.ok
+            or firestore_document_payload(response.json()) != expected_payload
+        ):
+            raise RuntimeError(
+                f"catalog readback failed for {document_id}: "
+                f"{response.status_code} {response.text[:500]}"
+            )
+
+    manifest_fields = {
+        key: firestore_value(value)
+        for key, value in manifest.items()
+        if key != "documentId"
+    }
+    manifest_url = f"{base}/manifest"
+    current = session.get(manifest_url, timeout=30)
+    if current.status_code == 404:
+        response = session.post(
+            f"{base}?documentId=manifest",
+            json={"fields": manifest_fields},
+            timeout=30,
+        )
+    elif current.ok:
+        update_time = str(current.json().get("updateTime") or "")
+        if not update_time:
+            raise RuntimeError("catalog manifest updateTime is missing")
+        response = session.patch(
+            f"{manifest_url}?currentDocument.updateTime={quote(update_time, safe='')}",
+            json={"fields": manifest_fields},
+            timeout=30,
+        )
+    else:
+        raise RuntimeError(
+            f"catalog manifest read failed: {current.status_code} {current.text[:500]}"
+        )
+    if not response.ok:
+        raise RuntimeError(
+            f"catalog manifest publish failed: {response.status_code} {response.text[:500]}"
+        )
+    if firestore_document_payload(response.json()) != {
+        key: value for key, value in manifest.items() if key != "documentId"
+    }:
+        raise RuntimeError("catalog manifest response does not match the requested payload")
+    return created, reused
+
+
 def main() -> int:
     args = parse_args()
     if args.limit < 0:
         raise ValueError("--limit must be zero or positive")
     published_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    catalog_documents: list[dict[str, Any]] = []
+    catalog_manifest: dict[str, Any] | None = None
+    catalog_summary: dict[str, Any] | None = None
     with open_readonly(args.database) as connection:
-        require_schema(connection)
+        require_schema(connection, include_catalog=not args.skip_catalog)
         aliases, collision_count = build_documents(
             connection,
             published_at,
@@ -304,6 +491,15 @@ def main() -> int:
             published_at=published_at,
             normalizer_version=args.normalizer_version,
         )
+        if not args.skip_catalog:
+            catalog_documents, catalog_manifest, catalog_summary = build_catalog_documents(
+                connection,
+                aliases,
+                published_at=published_at,
+                normalizer_version=args.normalizer_version,
+                excluded_alias_collisions=collision_count,
+                resolve_genre=load_genre_resolver(args.database),
+            )
     if args.limit:
         documents = documents[: args.limit]
     summary = {
@@ -316,6 +512,11 @@ def main() -> int:
         "excludedAliasCollisions": collision_count,
         "aliases": len(aliases),
     }
+    if catalog_summary is not None:
+        summary["catalog"] = {
+            "collection": args.catalog_collection,
+            **catalog_summary,
+        }
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("w", encoding="utf-8") as handle:
@@ -323,6 +524,13 @@ def main() -> int:
                 handle.write(json.dumps(document, ensure_ascii=False, separators=(",", ":")))
                 handle.write("\n")
         summary["output"] = str(args.output)
+    if args.catalog_output and catalog_manifest is not None:
+        args.catalog_output.parent.mkdir(parents=True, exist_ok=True)
+        with args.catalog_output.open("w", encoding="utf-8") as handle:
+            for document in [*catalog_documents, catalog_manifest]:
+                handle.write(json.dumps(document, ensure_ascii=False, separators=(",", ":")))
+                handle.write("\n")
+        summary["catalogOutput"] = str(args.catalog_output)
     if args.apply:
         if not args.project:
             raise RuntimeError("--project is required for --apply")
@@ -333,6 +541,18 @@ def main() -> int:
             allow_create=args.allow_create,
         )
         summary.update({"created": created, "updated": updated})
+        if catalog_manifest is not None:
+            catalog_created, catalog_reused = publish_catalog_documents(
+                catalog_documents,
+                catalog_manifest,
+                project=args.project,
+                collection=args.catalog_collection,
+            )
+            summary["catalog"].update({
+                "created": catalog_created,
+                "reused": catalog_reused,
+                "manifestUpdated": True,
+            })
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 

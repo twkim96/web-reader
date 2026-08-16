@@ -1,6 +1,10 @@
 import React, { useCallback, useRef } from 'react';
 import { BookOpen, CheckCircle2, Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
+import {
+  formatPublicBookCatalogMetric,
+  type PublicBookCatalogBook,
+} from '../../lib/publicBookCatalog';
 import { getBookFormatLabel, getDisplayBookTitle, getProgressTime, ShelfTheme } from './bookUtils';
 
 interface BookCardProps {
@@ -12,6 +16,7 @@ interface BookCardProps {
   onOpen: (book: Book) => void;
   onDeleteProgress?: (bookId: string) => void;
   onRequestBookInfo?: (book: Book) => void;
+  catalog?: PublicBookCatalogBook;
 }
 
 export const BookCard: React.FC<BookCardProps> = ({
@@ -22,7 +27,8 @@ export const BookCard: React.FC<BookCardProps> = ({
   theme,
   onOpen,
   onDeleteProgress,
-  onRequestBookInfo
+  onRequestBookInfo,
+  catalog,
 }) => {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
@@ -38,6 +44,45 @@ export const BookCard: React.FC<BookCardProps> = ({
   };
 
   const percent = progress?.progressPercent || 0;
+  const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
+  const visibleTags = rawTags.slice(0, 2);
+  const remainingTagCount = Math.max(0, rawTags.length - visibleTags.length);
+  const sourceMetrics = catalog ? [
+    { bit: 1, label: '시리즈', metric: '다운로드', value: catalog.record.sourceCounts[0] },
+    { bit: 2, label: '카카오', metric: '조회', value: catalog.record.sourceCounts[1] },
+    { bit: 4, label: '노벨피아', metric: '조회', value: catalog.record.sourceCounts[2] },
+  ].filter(({ bit }) => Boolean(catalog.record.platformMask & bit)) : [];
+  const renderCatalogTags = () => (
+    catalog && (catalog.genreLabel || visibleTags.length > 0) ? (
+      <div data-shelf-book-tags="true" className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+        {catalog.genreLabel && (
+          <span className="shrink-0 rounded-md bg-accent-500/12 px-1.5 py-0.5 text-[9px] font-black text-accent-500">
+            {catalog.genreLabel}
+          </span>
+        )}
+        {visibleTags.map((tag) => (
+          <span key={tag.id} className="max-w-24 truncate rounded-md bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5">
+            #{tag.label}
+          </span>
+        ))}
+        {remainingTagCount > 0 && (
+          <span className="shrink-0 text-[9px] font-bold opacity-40">+{remainingTagCount}</span>
+        )}
+      </div>
+    ) : null
+  );
+  const renderCatalogSources = () => sourceMetrics.length > 0 ? (
+    <div data-shelf-book-sources="true" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold opacity-50">
+      {sourceMetrics.map(({ bit, label, metric, value }) => {
+        const count = formatPublicBookCatalogMetric(value);
+        return (
+          <span key={bit} className="shrink-0 whitespace-nowrap">
+            {label}{count ? ` ${count} ${metric}` : ''}
+          </span>
+        );
+      })}
+    </div>
+  ) : null;
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current === null) return;
     window.clearTimeout(longPressTimerRef.current);
@@ -114,6 +159,8 @@ export const BookCard: React.FC<BookCardProps> = ({
           <div className="mt-1 truncate text-[10px] font-bold uppercase tracking-widest text-slate-500 sm:text-[11px]">
             {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
           </div>
+          <div className="mt-1 min-h-4">{renderCatalogTags()}</div>
+          {sourceMetrics.length > 0 && <div className="mt-0.5 min-h-3">{renderCatalogSources()}</div>}
         </div>
 
         <div className="hidden min-w-0 text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block">
@@ -187,6 +234,8 @@ export const BookCard: React.FC<BookCardProps> = ({
           <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">
             {getBookFormatLabel(book)}
           </p>
+          <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
+          {sourceMetrics.length > 0 && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
         </div>
 
         <div className="space-y-3">

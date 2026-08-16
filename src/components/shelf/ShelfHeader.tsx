@@ -9,8 +9,7 @@ import {
   User as UserIcon,
   LayoutGrid,
   List,
-  ArrowDownAZ,
-  Clock,
+  SlidersHorizontal,
   Palette,
   FilePlus,
   CloudLightning,
@@ -19,6 +18,7 @@ import {
   X
 } from 'lucide-react';
 import type { CloudSyncStatus } from './FileUploader';
+import type { ShelfSortMode } from './bookUtils';
 
 interface ShelfHeaderProps {
   shelfContentRef: React.RefObject<HTMLElement | null>;
@@ -27,13 +27,14 @@ interface ShelfHeaderProps {
   syncStatus: CloudSyncStatus;
   userEmail: string;
   searchKeyword: string;
-  sortMode: 'alpha' | 'recent';
+  sortMode: ShelfSortMode;
+  activeFilterCount: number;
   viewMode: 'grid' | 'list';
   onToggleCloud: () => void;
   onLogin: () => void;
   onLogout: () => void;
   setShowSearch: (show: boolean) => void;
-  onToggleSortMode: () => void;
+  onShowFilters: () => void;
   onToggleViewMode: () => void;
   setShowThemeModal: (show: boolean) => void;
   setShowManage: (show: boolean) => void;
@@ -51,12 +52,13 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   userEmail,
   searchKeyword,
   sortMode,
+  activeFilterCount,
   viewMode,
   onToggleCloud,
   onLogin,
   onLogout,
   setShowSearch,
-  onToggleSortMode,
+  onShowFilters,
   onToggleViewMode,
   setShowThemeModal,
   setShowManage,
@@ -107,15 +109,15 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     };
   }, [shelfContentRef]);
 
-  const getSortIcon = (iconSize: number) => {
-    if (sortMode === 'alpha') return <ArrowDownAZ size={iconSize} />;
-    return <Clock size={iconSize} />;
-  };
-
-  const getSortTitle = () => {
-    if (sortMode === 'alpha') return "가나다순";
-    return "최근에 읽은 순";
-  };
+  const sortLabel = sortMode === 'alpha'
+    ? '가나다순'
+    : sortMode === 'popularity'
+      ? '통합 인기순'
+      : '최근에 읽은 순';
+  const filterActive = sortMode !== 'recent' || activeFilterCount > 0;
+  const filterTitle = `책장 정렬·필터: ${sortLabel}${
+    activeFilterCount > 0 ? `, 필터 ${activeFilterCount}개` : ''
+  }`;
 
   const desktopDockIconSize = 24;
   const bottomDockIconSize = 26;
@@ -146,17 +148,19 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     <>
       <button
         type="button"
-        data-shelf-sort-control="true"
-        onClick={onToggleSortMode}
-        className={buttonClass}
-        title={getSortTitle()}
-        aria-label={getSortTitle()}
+        data-shelf-filter-control="true"
+        onClick={onShowFilters}
+        className={`${buttonClass} ${filterActive ? 'text-accent-500 opacity-100' : ''}`}
+        title={filterTitle}
+        aria-label={filterTitle}
       >
         <div className="relative flex items-center justify-center">
-          {getSortIcon(iconSize)}
-          <span className="pointer-events-none absolute -bottom-1 -right-1 rounded-sm bg-accent-500 px-0.5 text-[8px] font-bold text-white">
-            {sortMode === 'alpha' ? 'A' : 'R'}
-          </span>
+          <SlidersHorizontal size={iconSize} />
+          {activeFilterCount > 0 && (
+            <span className="pointer-events-none absolute -bottom-1.5 -right-2 min-w-3.5 rounded-full bg-accent-500 px-1 text-center text-[8px] font-bold leading-3.5 text-white">
+              {activeFilterCount > 9 ? '9+' : activeFilterCount}
+            </span>
+          )}
         </div>
       </button>
 

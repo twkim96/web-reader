@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import React, { act, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
@@ -13,7 +14,6 @@ import {
   loadProgressFromLocalV5,
   saveProgressToLocalV5,
 } from '../src/lib/localDBV5.ts';
-import { ownerRuntime } from '../src/lib/ownerRuntime.ts';
 import {
   makeFirebaseOwnerKey,
   makeGuestOwnerKey,
@@ -21,6 +21,11 @@ import {
 } from '../src/lib/ownerIdentity.ts';
 import { getOutboxEventsV5 } from '../src/lib/syncOutboxV5.ts';
 import { setSyncSessionIdForTests } from '../src/lib/syncSession.ts';
+
+const require = createRequire(import.meta.url);
+// Source .ts files are CommonJS under the current package boundary. Requiring
+// the singleton matches the instance captured inside useProgressActions.
+const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
 
 const resetDatabase = async () => {
   await closeLocalDB();

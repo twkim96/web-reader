@@ -346,7 +346,7 @@ try {
     return Boolean(button);
   })()`);
   await waitFor(
-    'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
+    'Boolean(document.querySelector(\'[data-shelf-search-input="true"]\'))',
     'shelf search modal',
   );
   const desktopShelfSearchHeight = await evaluate(
@@ -378,7 +378,7 @@ try {
   });
   await evaluate('window.__regressionNextFrame(2)');
   assert.equal(
-    await setInputValue('input[placeholder="도서 이름으로 검색..."]', 'Book 0'),
+    await setInputValue('[data-shelf-search-input="true"]', 'Book 0'),
     true,
   );
   await waitFor(
@@ -400,11 +400,11 @@ try {
   assert.match(previewTitles[1], /Book 0100/);
 
   assert.equal(
-    await setInputValue('input[placeholder="도서 이름으로 검색..."]', 'Book 1099'),
+    await setInputValue('[data-shelf-search-input="true"]', 'Book 1099'),
     true,
   );
   const searchStarted = Date.now();
-  await evaluate('document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\')?.form?.requestSubmit()');
+  await evaluate('document.querySelector(\'[data-shelf-search-input="true"]\')?.form?.requestSubmit()');
   await waitFor(
     `document.querySelectorAll('main h3').length === 1
       && document.querySelector('main h3')?.textContent?.includes('Book 1099')`,
@@ -426,11 +426,32 @@ try {
 
   const sortStarted = Date.now();
   await evaluate(`(() => {
-    const button = [...document.querySelectorAll('button')]
-      .find((node) => node.title === '최근에 읽은 순');
+    const button = [...document.querySelectorAll('[data-shelf-filter-control="true"]')]
+      .find((node) => node.getClientRects().length > 0);
     button?.click();
     return Boolean(button);
   })()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-shelf-filter-modal="true"]\'))',
+    'unified shelf filter modal',
+  );
+  const desktopFilterModal = await evaluate(`(() => {
+    const modal = document.querySelector('[data-shelf-filter-modal="true"]');
+    const rect = modal?.getBoundingClientRect();
+    return {
+      title: modal?.querySelector('h2')?.textContent?.trim() ?? '',
+      width: rect?.width ?? 0,
+      height: rect?.height ?? 0,
+      alphaDisabled: modal?.querySelector('[data-shelf-filter-sort="alpha"]')?.disabled ?? true,
+    };
+  })()`);
+  assert.equal(desktopFilterModal.title, '책장 정렬·필터');
+  assert.ok(desktopFilterModal.width <= 576, JSON.stringify(desktopFilterModal));
+  assert.ok(desktopFilterModal.height <= 800 * 0.82 + 1, JSON.stringify(desktopFilterModal));
+  assert.equal(desktopFilterModal.alphaDisabled, false);
+  await evaluate(`document.querySelector('[data-shelf-filter-sort="alpha"]')?.click()`);
+  await evaluate('window.__regressionNextFrame(2)');
+  await evaluate(`document.querySelector('[data-shelf-filter-apply="true"]')?.click()`);
   await waitFor(
     `document.querySelector('main h3')?.textContent?.includes('Book 0100')`,
     'alpha sort result',
@@ -670,7 +691,7 @@ try {
   await evaluate('window.__regressionNextFrame(2)');
   const mobileShelfControls = await evaluate(`(() => {
     const mobileControls = document.querySelector('[data-shelf-mobile-layout-controls="true"]');
-    const sortButton = mobileControls?.querySelector('[data-shelf-sort-control="true"]');
+    const filterButton = mobileControls?.querySelector('[data-shelf-filter-control="true"]');
     const viewButton = mobileControls?.querySelector('[data-shelf-view-control="true"]');
     const authButton = document.querySelector('header [data-shelf-auth-control="true"]');
     const bottomDock = document.querySelector('[data-shelf-bottom-dock="true"]');
@@ -681,12 +702,12 @@ try {
     return {
       mobileControlCount: mobileControls?.querySelectorAll('button').length ?? 0,
       bottomLayoutControlCount: [...(bottomDock?.querySelectorAll(
-        '[data-shelf-sort-control="true"], [data-shelf-view-control="true"]',
+        '[data-shelf-filter-control="true"], [data-shelf-view-control="true"]',
       ) ?? [])].filter((button) => button.getClientRects().length > 0).length,
       bottomClientWidth: bottomDock?.clientWidth ?? 0,
       bottomScrollWidth: bottomDock?.scrollWidth ?? 0,
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
-      sortRect: rect(sortButton),
+      filterRect: rect(filterButton),
       viewRect: rect(viewButton),
       authRect: rect(authButton),
       viewportWidth: innerWidth,
@@ -700,10 +721,40 @@ try {
   );
   assert.equal(mobileShelfControls.horizontalOverflow, 0, JSON.stringify(mobileShelfControls));
   assert.ok(
-    mobileShelfControls.sortRect?.right <= mobileShelfControls.viewRect?.left
+    mobileShelfControls.filterRect?.right <= mobileShelfControls.viewRect?.left
       && mobileShelfControls.viewRect?.right <= mobileShelfControls.viewportWidth
       && mobileShelfControls.authRect?.right <= mobileShelfControls.viewportWidth,
     JSON.stringify(mobileShelfControls),
+  );
+  await evaluate(`document.querySelector(
+    '[data-shelf-mobile-layout-controls="true"] [data-shelf-filter-control="true"]',
+  )?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-shelf-filter-modal="true"]\'))',
+    'mobile unified shelf filter modal',
+  );
+  const mobileFilterModal = await evaluate(`(() => {
+    const modal = document.querySelector('[data-shelf-filter-modal="true"]');
+    const rect = modal?.getBoundingClientRect();
+    return {
+      left: rect?.left ?? -1,
+      right: rect?.right ?? -1,
+      bottom: rect?.bottom ?? -1,
+      height: rect?.height ?? -1,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+      horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+    };
+  })()`);
+  assert.ok(mobileFilterModal.left >= 0, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.right <= mobileFilterModal.viewportWidth, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.bottom <= mobileFilterModal.viewportHeight, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.88 + 1, JSON.stringify(mobileFilterModal));
+  assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
+  await evaluate(`document.querySelector('button[aria-label="책장 필터 닫기"]')?.click()`);
+  await waitFor(
+    '!document.querySelector(\'[data-shelf-filter-modal="true"]\')',
+    'mobile unified shelf filter modal close',
   );
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
@@ -970,17 +1021,17 @@ try {
     return Boolean(button);
   })()`);
   await waitFor(
-    'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
+    'Boolean(document.querySelector(\'[data-shelf-search-input="true"]\'))',
     'archive search modal',
   );
   assert.equal(
     await setInputValue(
-      'input[placeholder="도서 이름으로 검색..."]',
+      '[data-shelf-search-input="true"]',
       'oversized',
     ),
     true,
   );
-  await evaluate('document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\')?.form?.requestSubmit()');
+  await evaluate('document.querySelector(\'[data-shelf-search-input="true"]\')?.form?.requestSubmit()');
   await waitFor(
     `document.querySelectorAll('main h3').length === 1
       && document.querySelector('main h3')?.textContent?.includes('oversized')`,
@@ -1249,14 +1300,14 @@ try {
     return Boolean(button);
   })()`);
   await waitFor(
-    'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
+    'Boolean(document.querySelector(\'[data-shelf-search-input="true"]\'))',
     'selection TXT search modal',
   );
   assert.equal(
-    await setInputValue('input[placeholder="도서 이름으로 검색..."]', 'selection-probe'),
+    await setInputValue('[data-shelf-search-input="true"]', 'selection-probe'),
     true,
   );
-  await evaluate('document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\')?.form?.requestSubmit()');
+  await evaluate('document.querySelector(\'[data-shelf-search-input="true"]\')?.form?.requestSubmit()');
   await waitFor(
     `document.querySelectorAll('main h3').length === 1
       && document.querySelector('main h3')?.textContent?.includes('selection-probe')`,
@@ -1456,7 +1507,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.13.1')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.14.1')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -4494,17 +4545,17 @@ try {
     return Boolean(button);
   })()`);
   await waitFor(
-    'Boolean(document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\'))',
+    'Boolean(document.querySelector(\'[data-shelf-search-input="true"]\'))',
     'solid 7z search modal',
   );
   assert.equal(
     await setInputValue(
-      'input[placeholder="도서 이름으로 검색..."]',
+      '[data-shelf-search-input="true"]',
       'solid-pages',
     ),
     true,
   );
-  await evaluate('document.querySelector(\'input[placeholder="도서 이름으로 검색..."]\')?.form?.requestSubmit()');
+  await evaluate('document.querySelector(\'[data-shelf-search-input="true"]\')?.form?.requestSubmit()');
   await waitFor(
     `document.querySelectorAll('main h3').length === 1
       && document.querySelector('main h3')?.textContent?.includes('solid-pages')`,
@@ -5914,7 +5965,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.13';
+    const expectedCache = 'pc-reader-v1.8.14';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -5941,7 +5992,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.13',
+      '/sw.js?browser-regression=1.8.14',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -5985,11 +6036,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.13']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.14']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.13$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.14$/);
 
   console.log(JSON.stringify({
     shelf: {

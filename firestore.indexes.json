@@ -1,0 +1,10 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "publicBookCatalogIndexV1",
+      "fieldPath": "*",
+      "indexes": []
+    }
+  ]
+}

@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.12 전체 외부 재리뷰에서 남은 동기화 invariant P1/P2를 1.8.13 안정화 버전으로 분리해 구현했다. `bf7a9cb`와 `97e4587` 재리뷰에서 확인된 authenticated sync/convergence P1은 모두 닫혔고, `0cedf03` 재리뷰에서 남은 guest/local stale position save의 manual bookmark overwrite P1도 후속 수정했다. 수동 bookmark 5개는 분산 hard cap이 아닌 기기별 soft local-add limit으로 유지하며 pending optimistic overlay는 선택적 UI 개선으로 보류한다. 최종 full gate를 통과해 실기기 검증 단계로 전환한다.
+전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 공개 메타데이터를 compact catalog로 확장하고 책장 통합 필터·태그 검색·출처 수치·통합 인기순을 구현했다. 1.8.14 전체 자동 gate는 통과했으며 신규 Rules·index·catalog와 앱의 라이브 게시, 외부 리뷰와 PC·모바일·iPad/PWA 실기기 검증을 기다린다.
 
 ## 1. 문서의 역할
 
@@ -77,6 +77,7 @@
 | 1.8.11 | 도서 정보·플랫폼 메타데이터 | 길게 누르기 정보창·범위별 삭제·리더 정보 진입·독서 인증·읽기 전용 메타데이터 조회 | 중간 | Phase A~G 구현, 자동검증·게시·실기기 확인 진행 중 |
 | 1.8.12 | 동기화 안정화·도서 오픈 경합 | canonical bookmark 수신·adoption-first resume·초기 pagination·foreground reconciliation·도서정보 이미지 clipboard·탭→스크롤 폭 복구 | 매우 높음 | 두 외부 리뷰 및 후속 UI/layout 수정 구현·full gate 완료, 전체 재리뷰 finding은 1.8.13으로 이관 |
 | 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·durable commit/convergence 분리·guest stale-save 방어·debug trace | 매우 높음 | `0cedf03` 재리뷰 guest/local P1까지 후속 수정·최종 full gate 완료, pending overlay 선택 보류·실기기 검증 단계 |
+| 1.8.14 | 통합 책장 필터·공개 catalog | compact generation·태그 검색·출처/장르/태그 필터·통합 인기순·grid/list metadata | 중상 | 코드·실데이터 dry-run·전체 자동 gate 완료, Firebase·앱 게시와 외부 리뷰·실기기 검증 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
@@ -722,6 +723,27 @@ type Annotation = {
 - 실제 증거 없는 저장·동기화 대규모 구조 변경
 - retention/compaction 자동 삭제 활성화
 
+## 1.8.14 — 통합 책장 필터·공개 catalog
+
+상태: compact public catalog publisher·검증형 cache loader, PC·모바일 통합 필터 모달, `#태그` 검색, 통합 인기순과 grid/list·정보창 metadata 표시를 구현하고 전체 자동 gate를 통과했다. 라이브 Firebase·앱 게시와 외부 리뷰·실기기 검증 대기 — `update_1.8.14.md`
+
+### 포함
+
+- 기존 정렬 버튼을 대체하는 PC·모바일 통합 필터 버튼과 반응형 modal
+- 시리즈·카카오·노벨피아·없음(기타), canonical genre와 raw tag 조합 필터
+- 작품 수 상위 tag 15개 초기 노출과 15개 단위 더보기
+- 기본 검색창의 `#태그` 결과 우선 표시와 tag filter handoff
+- 플랫폼별 rank를 평균한 통합 인기순
+- grid/list의 genre·대표 tag·출처별 원본 수치와 정보창 전체 tag
+- immutable 24문서 generation + manifest-last CAS, point-get only Rules와 persistent Firestore cache
+- 기존 상세 256 bucket, `Book`, Drive metadata와 사용자 IndexedDB 호환 유지
+
+### 게시·실기기 게이트
+
+- Rules·index를 먼저 배포한 뒤 generation 24개 readback과 manifest CAS를 완료한다.
+- 비로그인 production REST, SQLite 원본과 실제 카드·정보창 수치를 표본 대조한다.
+- PC·모바일·iPad/PWA에서 first/cached/offline load, generation 교체와 rollback을 확인한다.
+
 ## 7. 공통 자동검증 게이트
 
 각 개별 버전은 기본적으로 다음 검증을 통과해야 한다.
@@ -857,6 +879,6 @@ docs/updates/update_1.8.2.md
 
 ## 12. 현재 다음 단계
 
-1. 1.8.11 전체 자동 gate와 외부 코드 리뷰를 완료한다.
-2. 단일기기 UX·성능·장시간 TTS·통계 관찰과 다중 탭·다중기기 sync acceptance를 계속한다.
-3. 실사용 finding은 1.8.11 후속 수정으로 마감하고 retention migration은 observe-only를 유지한다.
+1. 1.8.14 신규 Rules와 index exemption을 배포하고 compact generation 24개를 readback 검증한 뒤 manifest를 CAS 전환한다.
+2. Web Reader 1.8.14를 배포하고 production REST·PC·모바일·iPad/PWA에서 filter, tag 검색, source count와 cache/generation 경계를 확인한다.
+3. 외부 코드 리뷰와 실사용 finding을 마감하는 동안 기존 독서·동기화 acceptance와 retention observe-only 정책을 유지한다.

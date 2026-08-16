@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.13: harden sync invariants, listener recovery, and remote navigation retry.
+// 1.8.14: add the compact public catalog and unified shelf filtering.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.13`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.14`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

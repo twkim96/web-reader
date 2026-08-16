@@ -16,6 +16,10 @@
 /playwright-report/
 /test-results/
 
+# python publisher tests
+__pycache__/
+*.py[cod]
+
 # next.js
 /.next/
 /out/

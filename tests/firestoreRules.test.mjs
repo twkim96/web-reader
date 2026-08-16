@@ -51,6 +51,7 @@ const database = (uid = 'alice') => environment
   .firestore();
 
 const publicBookMetadataPath = 'publicBookMetadataV1/ab';
+const publicBookCatalogPath = 'publicBookCatalogIndexV1/manifest';
 
 const validPublicBookMetadata = () => ({
   schemaVersion: 1,
@@ -70,6 +71,37 @@ test('allows public metadata reads but blocks every client write', async () => {
   await assertFails(getDocs(collection(database(), 'publicBookMetadataV1')));
   await assertFails(setDoc(doc(database(), publicBookMetadataPath), validPublicBookMetadata()));
   await assertFails(deleteDoc(doc(database(), publicBookMetadataPath)));
+});
+
+test('allows public catalog point reads but blocks list and client writes', async () => {
+  const manifest = {
+    schemaVersion: 1,
+    generation: '0123456789abcdefabcd',
+    publishedAt: '2026-08-17T00:00:00+00:00',
+  };
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), publicBookCatalogPath), manifest);
+  });
+  await assertSucceeds(getDoc(doc(database(), publicBookCatalogPath)));
+  await assertSucceeds(getDoc(doc(
+    environment.unauthenticatedContext().firestore(),
+    publicBookCatalogPath,
+  )));
+  await assertFails(getDocs(collection(database(), 'publicBookCatalogIndexV1')));
+  await assertFails(setDoc(doc(database(), publicBookCatalogPath), manifest));
+  await assertFails(deleteDoc(doc(database(), publicBookCatalogPath)));
+});
+
+test('keeps the point-read catalog collection exempt from automatic field indexes', async () => {
+  const config = JSON.parse(await readFile('firestore.indexes.json', 'utf8'));
+  assert.deepEqual(config, {
+    indexes: [],
+    fieldOverrides: [{
+      collectionGroup: 'publicBookCatalogIndexV1',
+      fieldPath: '*',
+      indexes: [],
+    }],
+  });
 });
 
 const progressPath = (uid = 'alice') => (

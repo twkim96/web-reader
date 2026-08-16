@@ -13,7 +13,9 @@ const getStoredViewMode = (): ShelfViewMode => {
 const getStoredSortMode = (): ShelfSortMode => {
   if (typeof window === 'undefined') return 'recent';
   const saved = localStorage.getItem(SORT_MODE_KEY);
-  return saved === 'alpha' || saved === 'recent' ? saved : 'recent';
+  return saved === 'alpha' || saved === 'recent' || saved === 'popularity'
+    ? saved
+    : 'recent';
 };
 
 export const useShelfPreferences = () => {
@@ -28,18 +30,15 @@ export const useShelfPreferences = () => {
     });
   };
 
-  const toggleSortMode = () => {
-    setSortMode(current => {
-      const next = current === 'alpha' ? 'recent' : 'alpha';
-      localStorage.setItem(SORT_MODE_KEY, next);
-      return next;
-    });
+  const updateSortMode = (next: ShelfSortMode) => {
+    localStorage.setItem(SORT_MODE_KEY, next);
+    setSortMode(next);
   };
 
   return {
     viewMode,
     sortMode,
     toggleViewMode,
-    toggleSortMode,
+    setSortMode: updateSortMode,
   };
 };

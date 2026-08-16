@@ -12,11 +12,20 @@ import { EmptyState } from './EmptyState';
 import { CloudSyncStatus, FileUploader, FileUploaderHandle } from './FileUploader';
 import { ImportBookModal } from './ImportBookModal';
 import { BookInfoModal } from './BookInfoModal';
+import { ShelfFilterModal } from './ShelfFilterModal';
 import { useFilteredBooks, usePreparedShelfBooks } from './useFilteredBooks';
 import { useOfflineBookIds } from './useOfflineBookIds';
 import { useShelfPreferences } from './useShelfPreferences';
 import { DEFAULT_MAX_IMPORT_FILES } from '../../lib/bookFormats';
 import type { OwnerKey } from '../../lib/ownerIdentity';
+import { usePublicBookCatalog } from '../../hooks/usePublicBookCatalog';
+import {
+  EMPTY_SHELF_FILTERS,
+  getActiveShelfFilterCount,
+  getShelfFilterKey,
+  type ShelfFilters,
+  type ShelfSortMode,
+} from './bookUtils';
 import {
   getNextShelfVisibleCount,
   SHELF_PAGE_SIZE,
@@ -79,7 +88,13 @@ export const Shelf: React.FC<ShelfProps> = ({
 }) => {
   const [showManage, setShowManage] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showFilter, setShowFilter] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
+  const [filters, setFilters] = useState<ShelfFilters>(() => ({
+    sources: [...EMPTY_SHELF_FILTERS.sources],
+    genreIds: [...EMPTY_SHELF_FILTERS.genreIds],
+    tagIds: [...EMPTY_SHELF_FILTERS.tagIds],
+  }));
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [pendingDeleteProgressId, setPendingDeleteProgressId] = useState<string | null>(null);
   const [selectedBookInfo, setSelectedBookInfo] = useState<Book | null>(null);
@@ -96,20 +111,26 @@ export const Shelf: React.FC<ShelfProps> = ({
   const visibleBookCountRef = useRef(SHELF_PAGE_SIZE);
 
   const theme = getThemeClasses(settings);
-  const { viewMode, sortMode, toggleViewMode, toggleSortMode } = useShelfPreferences();
+  const { viewMode, sortMode, toggleViewMode, setSortMode } = useShelfPreferences();
+  const catalog = usePublicBookCatalog(books);
   const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
-  const preparedBooks = usePreparedShelfBooks(books, progress);
+  const preparedBooks = usePreparedShelfBooks(books, progress, catalog.booksById);
   const filteredBooks = useFilteredBooks(
     preparedBooks,
     searchKeyword,
     sortMode,
     recentlyImportedBookIds,
+    filters,
   );
+  const filterKey = getShelfFilterKey(filters);
+  const catalogGeneration = catalog.snapshot?.manifest.generation ?? catalog.state;
   const paginationInputsRef = useRef({
     books,
     isOfflineMode,
     searchKeyword,
     sortMode,
+    filterKey,
+    catalogGeneration,
     userEmail,
     viewMode,
   });
@@ -119,6 +140,8 @@ export const Shelf: React.FC<ShelfProps> = ({
     || previousPaginationInputs.isOfflineMode !== isOfflineMode
     || previousPaginationInputs.searchKeyword !== searchKeyword
     || previousPaginationInputs.sortMode !== sortMode
+    || previousPaginationInputs.filterKey !== filterKey
+    || previousPaginationInputs.catalogGeneration !== catalogGeneration
     || previousPaginationInputs.userEmail !== userEmail
     || previousPaginationInputs.viewMode !== viewMode
   );
@@ -154,13 +177,15 @@ export const Shelf: React.FC<ShelfProps> = ({
       isOfflineMode,
       searchKeyword,
       sortMode,
+      filterKey,
+      catalogGeneration,
       userEmail,
       viewMode,
     };
     visibleBookCountRef.current = SHELF_PAGE_SIZE;
     loadMorePendingRef.current = false;
     setVisibleBookCount(SHELF_PAGE_SIZE);
-  }, [books, isOfflineMode, searchKeyword, sortMode, userEmail, viewMode]);
+  }, [books, catalogGeneration, filterKey, isOfflineMode, searchKeyword, sortMode, userEmail, viewMode]);
 
   useEffect(() => {
     visibleBookCountRef.current = visibleBookCount;
@@ -263,10 +288,10 @@ export const Shelf: React.FC<ShelfProps> = ({
     }
   }, [onDeleteLocalBookCopy, refreshOfflineBookIds, selectedBookInfo]);
 
-  const stateRef = useRef({ showManage, showSearch, selectedBookInfo, isDeletingBook });
+  const stateRef = useRef({ showManage, showSearch, showFilter, selectedBookInfo, isDeletingBook });
   useEffect(() => {
-    stateRef.current = { showManage, showSearch, selectedBookInfo, isDeletingBook };
-  }, [isDeletingBook, selectedBookInfo, showManage, showSearch]);
+    stateRef.current = { showManage, showSearch, showFilter, selectedBookInfo, isDeletingBook };
+  }, [isDeletingBook, selectedBookInfo, showFilter, showManage, showSearch]);
 
   useEffect(() => {
     window.history.pushState({ panel: 'shelf' }, '', '');
@@ -274,12 +299,14 @@ export const Shelf: React.FC<ShelfProps> = ({
       const {
         showManage,
         showSearch,
+        showFilter,
         selectedBookInfo,
         isDeletingBook,
       } = stateRef.current;
-      if (showManage || showSearch || selectedBookInfo) {
+      if (showManage || showSearch || showFilter || selectedBookInfo) {
         if (showManage) setShowManage(false);
         if (showSearch) setShowSearch(false);
+        if (showFilter) setShowFilter(false);
         if (selectedBookInfo && !isDeletingBook) setSelectedBookInfo(null);
         window.history.pushState({ panel: 'shelf' }, '', '');
       }
@@ -302,12 +329,13 @@ export const Shelf: React.FC<ShelfProps> = ({
         userEmail={userEmail}
         searchKeyword={searchKeyword}
         sortMode={sortMode}
+        activeFilterCount={getActiveShelfFilterCount(filters)}
         viewMode={viewMode}
         onToggleCloud={onToggleCloud}
         onLogin={onLogin}
         onLogout={onLogout}
         setShowSearch={setShowSearch}
-        onToggleSortMode={toggleSortMode}
+        onShowFilters={() => setShowFilter(true)}
         onToggleViewMode={toggleViewMode}
         setShowThemeModal={setShowThemeModal}
         setShowManage={setShowManage}
@@ -360,6 +388,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                 isDownloaded={isOfflineMode || offlineIds.has(book.id)}
                 viewMode={viewMode}
                 theme={theme}
+                catalog={catalog.booksById.get(book.id)}
                 onOpen={onOpen}
                 onDeleteProgress={() => setPendingDeleteProgressId(book.id)}
                 onRequestBookInfo={handleRequestBookInfo}
@@ -410,11 +439,42 @@ export const Shelf: React.FC<ShelfProps> = ({
           initialKeyword={searchKeyword}
           theme={theme}
           books={preparedBooks}
+          filters={filters}
+          catalog={catalog.snapshot}
           sortMode={sortMode}
+          onSelectTag={(tagId) => {
+            setFilters((current) => current.tagIds.includes(tagId) ? current : ({
+              ...current,
+              tagIds: [...current.tagIds, tagId],
+            }));
+            setSearchKeyword('');
+          }}
           onOpen={onOpen}
           progress={progress}
           offlineIds={offlineIds}
           isOfflineMode={isOfflineMode}
+        />
+      )}
+
+      {showFilter && (
+        <ShelfFilterModal
+          books={preparedBooks}
+          filters={filters}
+          sortMode={sortMode}
+          catalog={catalog.snapshot}
+          catalogState={catalog.state}
+          theme={theme}
+          onRetryCatalog={catalog.retry}
+          onApply={(nextSortMode: ShelfSortMode, nextFilters: ShelfFilters) => {
+            setSortMode(nextSortMode);
+            setFilters({
+              sources: [...nextFilters.sources],
+              genreIds: [...nextFilters.genreIds],
+              tagIds: [...nextFilters.tagIds],
+            });
+            setShowFilter(false);
+          }}
+          onClose={() => setShowFilter(false)}
         />
       )}
 
@@ -452,6 +512,8 @@ export const Shelf: React.FC<ShelfProps> = ({
             && offlineIds.has(selectedBookInfo.id)
           }
           theme={theme}
+          catalog={catalog.booksById.get(selectedBookInfo.id)}
+          catalogState={catalog.state}
           isDeleting={isDeletingBook}
           onOpen={(book) => {
             if (isDeletingBook) return;

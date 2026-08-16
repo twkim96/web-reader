@@ -1,8 +1,23 @@
 import type { Book, UserProgress } from '../../types.ts';
 import { getBookTitleFromFileName } from '../../lib/bookFormats.ts';
+import type {
+  PublicBookCatalogBook,
+  PublicBookCatalogPlatformId,
+} from '../../lib/publicBookCatalogSchema.ts';
 
-export type ShelfSortMode = 'alpha' | 'recent';
+export type ShelfSortMode = 'alpha' | 'recent' | 'popularity';
 export type ShelfViewMode = 'grid' | 'list';
+export type ShelfSourceFilter = PublicBookCatalogPlatformId | 'none';
+export type ShelfFilters = {
+  sources: ShelfSourceFilter[];
+  genreIds: number[];
+  tagIds: number[];
+};
+export const EMPTY_SHELF_FILTERS: ShelfFilters = {
+  sources: [],
+  genreIds: [],
+  tagIds: [],
+};
 export type ShelfTheme = {
   bg: string;
   text: string;
@@ -16,6 +31,7 @@ export type PreparedShelfBook = {
   lastReadTime: number;
   normalizedTitle: string;
   originalIndex: number;
+  catalog?: PublicBookCatalogBook;
 };
 
 type StaticShelfBook = Omit<PreparedShelfBook, 'isReading' | 'lastReadTime'>;
@@ -80,32 +96,112 @@ export const applyShelfProgress = (
   };
 });
 
+export const applyShelfCatalog = (
+  books: PreparedShelfBook[],
+  catalogByBookId: ReadonlyMap<string, PublicBookCatalogBook>,
+): PreparedShelfBook[] => books.map((prepared) => ({
+  ...prepared,
+  catalog: catalogByBookId.get(prepared.book.id),
+}));
+
 const compareStableOrder = (a: PreparedShelfBook, b: PreparedShelfBook) => (
   a.originalIndex - b.originalIndex || a.book.id.localeCompare(b.book.id)
 );
+
+const sourceBits: Record<PublicBookCatalogPlatformId, number> = {
+  series: 1,
+  kakao: 2,
+  novelpia: 4,
+};
+
+export const getActiveShelfFilterCount = (filters: ShelfFilters) => (
+  filters.sources.length + filters.genreIds.length + filters.tagIds.length
+);
+
+export const getShelfFilterKey = (filters: ShelfFilters) => [
+  [...filters.sources].sort().join(','),
+  [...filters.genreIds].sort((a, b) => a - b).join(','),
+  [...filters.tagIds].sort((a, b) => a - b).join(','),
+].join('|');
+
+export const matchesShelfFilters = (
+  prepared: PreparedShelfBook,
+  filters: ShelfFilters,
+) => {
+  const record = prepared.catalog?.record;
+  if (filters.sources.length > 0) {
+    const matchesSource = filters.sources.some((source) => (
+      source === 'none'
+        ? !record || record.platformMask === 0
+        : Boolean(record && (record.platformMask & sourceBits[source]))
+    ));
+    if (!matchesSource) return false;
+  }
+  if (filters.genreIds.length > 0) {
+    if (
+      !record
+      || record.canonicalGenreId === null
+      || !filters.genreIds.includes(record.canonicalGenreId)
+    ) return false;
+  }
+  if (filters.tagIds.length > 0) {
+    if (!record || !filters.tagIds.every((tagId) => record.tagIds.includes(tagId))) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const comparePopularity = (a: PreparedShelfBook, b: PreparedShelfBook) => {
+  const aRecord = a.catalog?.record;
+  const bRecord = b.catalog?.record;
+  const aScore = aRecord?.popularityScore ?? null;
+  const bScore = bRecord?.popularityScore ?? null;
+  if (aScore === null && bScore === null) return compareStableOrder(a, b);
+  if (aScore === null) return 1;
+  if (bScore === null) return -1;
+  if (aScore !== bScore) return bScore - aScore;
+  const bestRank = (ranks: readonly (number | null)[] | undefined) => {
+    const present = ranks?.flatMap((rank) => (rank === null ? [] : [rank])) ?? [];
+    return present.length > 0 ? Math.max(...present) : -1;
+  };
+  const aBest = bestRank(aRecord?.sourceRanks);
+  const bBest = bestRank(bRecord?.sourceRanks);
+  if (aBest !== bBest) return bBest - aBest;
+  const aPlatforms = aRecord ? aRecord.platformMask.toString(2).replaceAll('0', '').length : 0;
+  const bPlatforms = bRecord ? bRecord.platformMask.toString(2).replaceAll('0', '').length : 0;
+  if (aPlatforms !== bPlatforms) return bPlatforms - aPlatforms;
+  return titleCollator.compare(a.displayTitle, b.displayTitle)
+    || compareStableOrder(a, b);
+};
 
 export const filterAndSortPreparedBooks = (
   books: PreparedShelfBook[],
   searchKeyword: string,
   sortMode: ShelfSortMode,
   priorityBookIds: readonly string[] = [],
+  filters: ShelfFilters = EMPTY_SHELF_FILTERS,
 ) => {
   const normalizedKeyword = normalizeBookSearchText(searchKeyword);
   const priorityRanks = new Map(priorityBookIds.map((bookId, index) => [bookId, index]));
 
   return books
-    .filter(({ normalizedTitle }) => (
-      !normalizedKeyword || normalizedTitle.includes(normalizedKeyword)
+    .filter((prepared) => (
+      matchesShelfFilters(prepared, filters)
+      && (!normalizedKeyword || prepared.normalizedTitle.includes(normalizedKeyword))
     ))
     .sort((a, b) => {
-      const aPriority = priorityRanks.get(a.book.id);
-      const bPriority = priorityRanks.get(b.book.id);
-      if (aPriority !== undefined || bPriority !== undefined) {
-        if (aPriority === undefined) return 1;
-        if (bPriority === undefined) return -1;
-        if (aPriority !== bPriority) return aPriority - bPriority;
+      if (sortMode !== 'popularity') {
+        const aPriority = priorityRanks.get(a.book.id);
+        const bPriority = priorityRanks.get(b.book.id);
+        if (aPriority !== undefined || bPriority !== undefined) {
+          if (aPriority === undefined) return 1;
+          if (bPriority === undefined) return -1;
+          if (aPriority !== bPriority) return aPriority - bPriority;
+        }
+        if (a.isReading !== b.isReading) return a.isReading ? -1 : 1;
       }
-      if (a.isReading !== b.isReading) return a.isReading ? -1 : 1;
+      if (sortMode === 'popularity') return comparePopularity(a, b);
       if (sortMode === 'alpha') {
         return titleCollator.compare(a.displayTitle, b.displayTitle)
           || compareStableOrder(a, b);
@@ -124,9 +220,11 @@ export const filterAndSortBooks = (
   sortMode: ShelfSortMode,
   progress: Record<string, UserProgress>,
   priorityBookIds: readonly string[] = [],
+  filters: ShelfFilters = EMPTY_SHELF_FILTERS,
 ) => filterAndSortPreparedBooks(
   applyShelfProgress(prepareShelfBooks(books), progress),
   searchKeyword,
   sortMode,
   priorityBookIds,
+  filters,
 );
