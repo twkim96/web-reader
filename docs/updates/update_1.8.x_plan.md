@@ -747,7 +747,7 @@ type Annotation = {
 
 ## 1.8.15 — 요청형 메타데이터 수집
 
-상태: tag 없는 도서의 정보창 요청을 Vercel server crawler로 처리하고 Firestore on-demand 원본과 compact delta generation으로 반영하는 계획을 수립했다. 공개 crawler는 env 없이 동작하고, NovelPia 성인 인증은 `disabled|credentials` provider로 분리해 Vercel sensitive env를 나중에 추가한 새 deployment에서만 활성화한다 — `update_1.8.15.md`
+상태: tag 없는 도서의 정보창 요청을 Vercel server crawler로 처리하고 Firestore on-demand 원본과 compact delta generation으로 반영하는 계획을 수립했다. 공개 crawler는 env 없이 동작하고, NovelPia 성인 인증은 email/password가 모두 있을 때만 optional provider를 생성한다. credential이 없으면 공개 검색 결과만 사용하고 넘어간다 — `update_1.8.15.md`
 
 ### 포함
 
@@ -756,7 +756,7 @@ type Annotation = {
 - Series/Kakao/NovelPia 공개 crawler의 server-only TypeScript 구현
 - per-title Firestore 원본과 immutable compact delta generation·manifest-last CAS
 - base + delta merge 후 정보창 전체 tag, list 5개, grid 2개와 필터·검색·인기순 갱신
-- env가 없어도 동작하는 public-only 기본값과 optional NovelPia credentials provider
+- 별도 mode 없이 email/password 존재 여부만 보는 optional NovelPia auth provider
 - credential·cookie·원격 응답 redaction과 client bundle secret audit
 
 ### 제외

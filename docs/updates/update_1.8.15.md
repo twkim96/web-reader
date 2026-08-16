@@ -16,7 +16,7 @@
 
 `file_check`는 파서·identity 안전선의 참고 원본일 뿐 실행하거나 import하지 않는다. 로컬 SQLite, Control Server, 사용자의 Mac과 Vercel 배포를 연결하지 않는다.
 
-초기 배포는 공개 조회만으로 완전히 동작해야 한다. NovelPia 성인 인증은 서버 수집기와 분리된 optional auth provider로 구현해, 나중에 Vercel production sensitive environment variable을 추가하고 새로 배포했을 때만 활성화할 수 있게 한다.
+초기 배포는 공개 조회만으로 완전히 동작해야 한다. NovelPia 성인 인증은 서버 수집기와 분리된 optional auth provider로 구현한다. 나중에 Vercel production에 이메일과 비밀번호를 모두 추가하고 새로 배포했을 때만 인증 검색을 시도하며, 계정이 없으면 공개 검색 결과만 사용하고 그대로 넘어간다.
 
 ## 사용자 확정 UX
 
@@ -38,7 +38,8 @@
 | 결과를 Firebase에 서버 권한으로 등록 | 수용 | 기존 public collection의 client write 차단을 유지할 수 있음 |
 | 기존 compact base generation을 요청마다 in-place 수정 | 제외 | immutable generation·dictionary·checksum 계약을 깨뜨림 |
 | per-title 원본 + compact delta generation | 수용 | 요청형 작은 변경을 base catalog와 독립적으로 게시 가능 |
-| 계정명 하나만 env에 저장 | 불충분 | 현재 NovelPia 인증에는 이메일과 비밀번호 또는 교체 가능한 session credential이 필요함 |
+| 계정명 하나만 env에 저장 | 불충분 | 현재 NovelPia 인증에는 이메일과 비밀번호가 모두 필요함 |
+| 별도 auth mode env | 제외 | 두 credential의 존재 여부만으로 인증 가능성을 판단하면 충분함 |
 | Vercel env가 없으면 전체 요청 기능 중단 | 제외 | 공개 수집은 인증 설정과 독립적으로 항상 동작해야 함 |
 | 성인 계정 credential을 repo·Firestore·로그에 저장 | 제외 | 서버 secret 경계를 위반함 |
 | 사용자가 tag 문자열을 직접 입력·수정 | 제외 | 플랫폼 출처가 증명된 metadata 요청만 다룸 |
@@ -134,7 +135,6 @@ interface PlatformCrawler {
 }
 
 interface PlatformAuthProvider {
-  readonly mode: 'disabled' | 'credentials';
   isConfigured(): boolean;
   withSession<T>(work: (session: AuthenticatedSession) => Promise<T>): Promise<T>;
 }
@@ -148,10 +148,9 @@ interface PlatformAuthProvider {
 
 ## optional NovelPia 인증 확장
 
-계정명만 추가해서는 부족하다. 현재 참고 로직의 password login을 사용할 경우 다음 세 값을 server-only로 사용한다.
+계정명만 추가해서는 부족하다. 현재 참고 로직의 password login을 사용할 경우 다음 두 값을 server-only로 사용한다.
 
 ```text
-NOVELPIA_AUTH_MODE=disabled|credentials
 NOVELPIA_EMAIL=...
 NOVELPIA_PASSWORD=...
 ```
@@ -160,8 +159,9 @@ NOVELPIA_PASSWORD=...
 
 - 변수명에 `NEXT_PUBLIC_`을 붙이지 않는다.
 - email/password는 Vercel production의 **Sensitive Environment Variables**로 등록한다.
-- 기본값은 `disabled`이고 env가 전혀 없어도 public crawler와 요청 기능은 정상 동작한다.
-- `credentials`인데 email/password 중 하나라도 없으면 authenticated path만 configuration error로 닫고 public 결과를 보존한다.
+- email/password가 둘 다 있을 때만 authenticated fallback을 시도한다.
+- 둘 다 없거나 하나만 있으면 인증 검색을 건너뛰고 public crawler 결과를 그대로 사용한다. 요청 전체를 configuration error로 만들지 않는다.
+- 공개 검색에서 찾지 못했고 credential도 없으면 `not-found`를 유지하며, 실제 미등록과 성인 작품을 억지로 구분하지 않는다.
 - env 변경은 과거 deployment에 적용되지 않으므로 새 production deployment 뒤에만 활성화됐다고 판단한다.
 - login → CAPTCHA 확인 → adult-mode/session 검증을 모두 통과한 세션만 결과 쓰기를 허용한다.
 - CAPTCHA, 성인 본인인증 미완료, session 만료는 서로 다른 status로 기록하고 partial authenticated result를 쓰지 않는다.
@@ -202,7 +202,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 1. Node.js runtime과 bounded `maxDuration`을 명시한다.
 2. Firebase Admin을 server-only singleton으로 초기화한다.
 3. Bearer ID token 검증, body size·title 길이·method·content-type 검증을 추가한다.
-4. env schema를 `disabled` 기본으로 parse하고 secret 값을 오류 메시지에서 제거한다.
+4. 두 NovelPia credential이 모두 있을 때만 auth provider를 만들고 secret 값을 오류 메시지에서 제거한다.
 5. AbortSignal 기반 overall/platform timeout을 고정한다.
 
 완료 조건:
@@ -280,15 +280,15 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 상태: 대기
 
-1. `disabled`와 `credentials` provider를 crawler에서 분리한다.
+1. credential이 모두 있을 때만 생성되는 optional auth provider를 public crawler에서 분리한다.
 2. env 완전성 검사, login/CAPTCHA/adult mode/session verification을 구현한다.
 3. public triple-miss 또는 명시적으로 restricted인 NovelPia 대상에만 authenticated fallback을 허용한다.
 4. stored remote ID가 있는 authenticated metadata refresh는 search로 identity를 바꾸지 않는다.
-5. fake provider와 redaction test를 통과한 뒤 실제 credential 추가 전까지 production mode는 `disabled`로 유지한다.
+5. fake provider와 redaction test를 통과한 뒤 실제 credential 추가 전까지 production은 public-only로 유지한다.
 
 완료 조건:
 
-- env 없음·불완전·잘못된 로그인에서도 공개 수집 결과와 기존 catalog가 보존된다.
+- env 없음·불완전·잘못된 로그인에서도 인증 검색만 건너뛰고 공개 수집 결과와 기존 catalog가 보존된다.
 - log, response, Firestore, test snapshot과 build artifact에서 secret 문자열이 0건이다.
 - 실제 계정 env를 추가하기 전에는 성인 작품 성공으로 표시하지 않는다.
 - 향후 session-cookie provider 추가가 API·crawler·저장 schema 변경 없이 가능하다.
@@ -350,7 +350,7 @@ git diff --check
 - on-demand collection과 delta manifest를 읽지 않는 1.8.14 client는 영향을 받지 않는다.
 - invalid delta는 client가 거부하고 base catalog만 사용한다.
 - delta manifest를 직전 generation으로 CAS 전환해 결과를 되돌릴 수 있다.
-- auth mode를 `disabled`로 바꾸고 새로 배포하면 credential path만 끌 수 있으며 public crawler는 유지된다.
+- 두 credential 중 하나 또는 모두를 제거하고 새로 배포하면 인증 경로만 비활성화되며 public crawler는 유지된다.
 - public request 기능 전체를 끌 때도 기존 1.8.14 catalog·필터·상세 metadata는 유지된다.
 
 ## 전체 완료 조건
@@ -360,8 +360,8 @@ git diff --check
 - 성공 결과가 Firebase와 compact delta에 원자적·재개 가능하게 반영된다.
 - 정보창 전체 tag, list 5개, grid 2개와 검색·필터·정렬이 같은 결과를 사용한다.
 - 동시 요청·rate limit·timeout·ambiguous title이 잘못된 metadata를 만들지 않는다.
-- env가 없어도 public-only 기능이 정상이며 auth provider는 disabled다.
-- 추후 email/password sensitive env 추가와 새 deployment만으로 credentials provider를 활성화할 수 있다.
+- env가 없어도 public-only 기능이 정상이며 인증 검색을 시도하지 않는다.
+- 추후 email/password sensitive env를 모두 추가하고 새로 배포하면 optional auth provider가 자동으로 사용된다.
 - secret이 source, client bundle, Firestore, log와 테스트 결과에 노출되지 않는다.
 - full gate와 public-only production acceptance를 기록하고, 실제 성인 인증 성공은 credential 설정 후 별도 증거가 있을 때만 완료 처리한다.
 
