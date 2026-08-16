@@ -776,6 +776,8 @@ git diff --check
 - 이는 화면 밀도를 줄이기 위한 표시용 합계다. 단위 차이를 보정하는 `popularityScore`와 통합 인기순 comparator, 정보창의 플랫폼별 상세 원본 수치는 변경하지 않는다.
 - `tests/bookCardLayout.test.mjs`가 list와 grid 모두 단일 합계만 출력하고 출처명·`다운로드`를 노출하지 않는지 검증한다.
 - 최종 변경 뒤 `npm run check:full`을 통과했다. Node 558개, Rules 31개, Playwright Chromium/WebKit 20개와 Chromium browser regression이 모두 통과했고 lint는 0 error·기존 Foliate warning 2개다.
+- 구현 커밋 `6209037`을 `main`에 push했고 Vercel production 배포를 완료했다. GitHub CI 첫 시도의 기존 WebKit sanitizer test가 `sanitized frame timed out`으로 1회 실패했지만, 코드 변경 없이 실패 job 재실행에서 20/20 통과해 최종 4개 job이 모두 success다.
+- production의 실제 10권 목록에서 metadata가 있는 9권을 확인했다. `1783.4만 조회`, `304.7만 조회`, `1.3억 조회`, `2928.6만 조회` 등 모두 단일 합계였고 출처명·`다운로드` 잔존 0건, 형식 위반 0건, horizontal overflow 0, 확인 구간의 신규 console error 0건이었다.
 
 ## 보류·후속 버전
 
