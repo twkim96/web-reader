@@ -47,6 +47,7 @@ export const BookCard: React.FC<BookCardProps> = ({
   const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
   const visibleTags = rawTags.slice(0, 2);
   const remainingTagCount = Math.max(0, rawTags.length - visibleTags.length);
+  const hasCatalogTags = Boolean(catalog && (catalog.genreLabel || visibleTags.length > 0));
   const sourceMetrics = catalog ? [
     { bit: 1, value: catalog.record.sourceCounts[0] },
     { bit: 2, value: catalog.record.sourceCounts[1] },
@@ -156,18 +157,30 @@ export const BookCard: React.FC<BookCardProps> = ({
         </div>
         
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-bold leading-tight group-hover:text-accent-500 transition-colors sm:text-base">
-              {getDisplayBookTitle(book.name)}
-            </h3>
-            {isDownloaded && (
-              <CheckCircle2 size={15} className="text-green-400 shrink-0" strokeWidth={3} />
-            )}
+          <div data-shelf-title-tag-group="true" className="flex min-h-10 flex-col justify-center">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-sm font-bold leading-tight group-hover:text-accent-500 transition-colors sm:text-base">
+                {getDisplayBookTitle(book.name)}
+              </h3>
+              {isDownloaded && (
+                <CheckCircle2 size={15} className="text-green-400 shrink-0" strokeWidth={3} />
+              )}
+            </div>
+            <div
+              data-shelf-tag-transition="true"
+              aria-hidden={!hasCatalogTags}
+              className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out motion-reduce:transition-none ${
+                hasCatalogTags
+                  ? 'mt-1 grid-rows-[1fr] opacity-100'
+                  : 'mt-0 grid-rows-[0fr] opacity-0'
+              }`}
+            >
+              <div className="min-h-0 overflow-hidden">{renderCatalogTags()}</div>
+            </div>
           </div>
-          <div className="mt-1 truncate text-[10px] font-bold uppercase tracking-widest text-slate-500 sm:text-[11px]">
+          <div data-shelf-book-time="true" className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-widest text-slate-500 sm:text-[11px]">
             {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
           </div>
-          <div className="mt-1 min-h-4">{renderCatalogTags()}</div>
         </div>
 
         <div className="hidden min-w-0 text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block">

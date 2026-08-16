@@ -64,6 +64,7 @@ import { getReaderTtsContentIdentity } from '../lib/readerTtsCursor';
 import { reuseOrStageReaderJump, type PendingReaderJump } from '../lib/readerNavigationCommit';
 import { useReadingSessionTracker } from '../hooks/reader/useReadingSessionTracker';
 import { useCurrentBookReadingTime } from '../hooks/reader/useCurrentBookReadingTime';
+import { usePublicBookCatalog } from '../hooks/usePublicBookCatalog';
 import { BookInfoModal } from './shelf/BookInfoModal';
 import { loadBookMetadataFromLocalV5 } from '../lib/localDBV5';
 import type { ManualBookmarkMutation } from '../lib/bookmarkSyncPolicy';
@@ -243,6 +244,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   interactionBlocked = false,
 }) => {
   const theme = getThemeClasses(settings);
+  const readerCatalogBooks = useMemo(() => [book], [book]);
+  const readerCatalog = usePublicBookCatalog(readerCatalogBooks);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
   const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
@@ -1754,6 +1757,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           isDownloaded={bookInfoDownloaded}
           isOfflineMode={isOfflineMode}
           theme={theme}
+          catalog={readerCatalog.booksById.get(book.id)}
+          catalogState={readerCatalog.state}
           showManagementActions={false}
           onClose={() => setShowBookInfo(false)}
         />

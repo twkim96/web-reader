@@ -18,6 +18,12 @@ export const EMPTY_SHELF_FILTERS: ShelfFilters = {
   genreIds: [],
   tagIds: [],
 };
+
+export const getVisibleBookInfoCatalogTags = (catalog?: PublicBookCatalogBook) => (
+  catalog?.tags
+    .filter((tag) => tag.label !== catalog.genreLabel)
+    .slice(0, 5) ?? []
+);
 export type ShelfTheme = {
   bg: string;
   text: string;

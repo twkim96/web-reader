@@ -546,7 +546,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 1. grid/list 공통 representative tag selector를 만든다.
 2. 카드에는 genre + raw tag 2개 + `+N`을 고정 높이로 표시한다.
 3. grid/list에 유효한 시리즈 다운로드·카카오 조회·노벨피아 조회 원본값의 표시용 합계를 `조회` 한 단위로 표시한다.
-4. 정보창에는 canonical genre와 deduplicated raw tag 전체를 표시한다.
+4. 정보창에는 canonical genre와 deduplicated raw tag 최대 5개를 표시한다.
 5. metadata late hydration의 layout shift와 unmounted setState를 방지한다.
 6. public detail metadata와 compact catalog의 loading/error를 독립 상태로 유지한다.
 7. 테마 포인트 색상과 좁은 화면 contrast·wrap을 확인한다.
@@ -555,7 +555,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 
 - catalog record가 있는 모든 shelf book은 grid/list에서 같은 대표 tag를 보인다.
 - grid/list의 합계가 SQLite 원본의 유효한 지정 metric 합과 일치하고 유효 수치 없음은 빈 줄을 만들지 않는다.
-- 정보창은 동일 record의 전체 tag를 빠짐없이 보인다.
+- 정보창은 동일 record의 genre와 우선순위상 앞선 raw tag 최대 5개를 보인다.
 - catalog가 없는 책도 카드 높이·열기·정보·삭제 동작이 깨지지 않는다.
 - tag chip이 카드 클릭·650ms long press·12px 이동 취소를 가로채지 않는다.
 
@@ -618,7 +618,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 - `#하렘` 태그 우선 검색과 filter handoff
 - grid/list 대표 tag와 `+N`
 - grid/list 합산 조회수와 유효 수치 없음 생략
-- 정보창 전체 tag wrap
+- 정보창 genre + raw tag 최대 5개 wrap
 - 320px horizontal overflow 0
 - long press·context menu·card click 회귀
 
@@ -704,7 +704,7 @@ git diff --check
 - 인기 태그는 작품 수 내림차순으로 처음 15개를 표시하고 `태그 15개 더보기`마다 15개씩 확장한다. 현재 페이지 밖에서 선택된 태그는 별도 `선택됨` 영역에 유지한다.
 - 기본 검색 모달에 `#태그` 모드를 추가했다. exact → prefix → substring 순으로 태그를 책 위에 표시하고, 태그 선택은 literal 검색어 대신 책장 tag filter를 적용한다.
 - grid/list 카드에는 genre, 대표 raw tag 2개와 `+N`, 연결된 출처의 표시용 합산 조회수를 표시한다. 유효 원본 수치가 없는 도서는 조회수 행을 만들지 않는다.
-- 도서 정보창은 상세 플랫폼 metadata와 별개 상태로 catalog의 genre·deduplicated 전체 tag를 표시한다.
+- 쉘프와 리더의 도서 정보창은 상세 플랫폼 metadata와 별개 상태로 같은 catalog record의 genre·deduplicated raw tag 최대 5개를 표시한다.
 - package, service worker cache와 Foliate runtime revision을 `1.8.14` / `1.8.14.1`로 동기화했다.
 
 ## 자동검증 결과
@@ -778,6 +778,17 @@ git diff --check
 - 최종 변경 뒤 `npm run check:full`을 통과했다. Node 558개, Rules 31개, Playwright Chromium/WebKit 20개와 Chromium browser regression이 모두 통과했고 lint는 0 error·기존 Foliate warning 2개다.
 - 구현 커밋 `6209037`을 `main`에 push했고 Vercel production 배포를 완료했다. GitHub CI 첫 시도의 기존 WebKit sanitizer test가 `sanitized frame timed out`으로 1회 실패했지만, 코드 변경 없이 실패 job 재실행에서 20/20 통과해 최종 4개 job이 모두 success다.
 - production의 실제 10권 목록에서 metadata가 있는 9권을 확인했다. `1783.4만 조회`, `304.7만 조회`, `1.3억 조회`, `2928.6만 조회` 등 모두 단일 합계였고 출처명·`다운로드` 잔존 0건, 형식 위반 0건, horizontal overflow 0, 확인 구간의 신규 console error 0건이었다.
+
+### 리더 도서정보·목록 hydration 후속
+
+상태: 구현·로컬 full gate 완료. production 배포 확인 대기
+
+- 리더도 현재 도서 1권을 `usePublicBookCatalog`에 join하고 `BookInfoModal`에 `catalog`와 `catalogState`를 전달한다. 쉘프와 같은 modal·catalog record를 사용하므로 장르·태그 영역이 동일하게 표시된다.
+- 도서정보의 canonical genre는 별도 chip으로 유지하고 deduplicated raw tag는 최대 5개만 표시한다.
+- 목록 본문 순서를 `제목 → 태그 → 시간`으로 바꾸고 제목·태그를 `data-shelf-title-tag-group` 하나로 묶었다.
+- 제목·태그 묶음은 `min-h-10` 안에서 세로 중앙 정렬된다. 태그가 없으면 제목이 중앙에 있고, catalog가 뒤늦게 join되면 tag container가 `0fr → 1fr`, opacity와 margin을 300ms 동안 전환해 제목과 태그가 자연스럽게 제 위치로 이동한다. reduced motion 환경에서는 전환을 끈다.
+- `tests/bookCardLayout.test.mjs` 4개가 합산 조회수, 제목·태그·시간 DOM 순서, 태그 없음 중앙 정렬 계약과 도서정보 raw tag 5개 제한을 검증한다.
+- `npm run check:full`을 통과했다. Node 560개, Rules 31개, Playwright Chromium/WebKit 20개와 Chromium browser regression이 모두 통과했고 lint는 0 error·기존 Foliate warning 2개다. 첫 full gate의 기존 storage 303개 중 1개가 병렬 실행에서 한 번 실패했지만 storage 단독 303/303과 최종 full gate에서는 재현되지 않았다.
 
 ## 보류·후속 버전
 

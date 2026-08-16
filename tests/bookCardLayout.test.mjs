@@ -4,8 +4,10 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseHTML } from 'linkedom';
 import bookCardModule from '../src/components/shelf/BookCard.tsx';
+import bookUtilsModule from '../src/components/shelf/bookUtils.ts';
 
 const { BookCard } = bookCardModule;
+const { getVisibleBookInfoCatalogTags } = bookUtilsModule;
 
 const props = {
   book: {
@@ -45,9 +47,10 @@ const props = {
   },
 };
 
-const renderCard = (viewMode) => {
+const renderCard = (viewMode, catalog = props.catalog) => {
   const html = renderToStaticMarkup(React.createElement(BookCard, {
     ...props,
+    catalog,
     viewMode,
   }));
   return parseHTML(html).document;
@@ -78,4 +81,47 @@ test('keeps grid source metrics in the card metadata block', () => {
   assert.doesNotMatch(sources.textContent, /시리즈|카카오|노벨피아|다운로드/);
   assert.equal(document.querySelector('[data-shelf-list-progress="true"]'), null);
   assert.equal(document.querySelector('[data-shelf-list-source-slot="true"]'), null);
+});
+
+test('orders list title, tags, and time while reserving a centered no-tag state', () => {
+  const withTags = renderCard('list');
+  const content = withTags.querySelector('[data-shelf-title-tag-group="true"]')?.parentElement;
+  const group = withTags.querySelector('[data-shelf-title-tag-group="true"]');
+  const transition = withTags.querySelector('[data-shelf-tag-transition="true"]');
+  const time = withTags.querySelector('[data-shelf-book-time="true"]');
+
+  assert.ok(content);
+  assert.ok(group);
+  assert.ok(transition);
+  assert.ok(time);
+  assert.equal(content.firstElementChild, group);
+  assert.equal(group.nextElementSibling, time);
+  assert.match(group.className, /min-h-10/);
+  assert.match(transition.className, /grid-rows-\[1fr\]/);
+  assert.match(transition.className, /duration-300/);
+
+  const withoutTags = renderCard('list', null);
+  const emptyGroup = withoutTags.querySelector('[data-shelf-title-tag-group="true"]');
+  const emptyTransition = withoutTags.querySelector('[data-shelf-tag-transition="true"]');
+  assert.ok(emptyGroup);
+  assert.ok(emptyTransition);
+  assert.match(emptyGroup.className, /justify-center/);
+  assert.match(emptyTransition.className, /grid-rows-\[0fr\]/);
+  assert.equal(emptyTransition.getAttribute('aria-hidden'), 'true');
+});
+
+test('limits reader book information to five catalog tags after genre', () => {
+  const catalog = {
+    ...props.catalog,
+    tags: Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1,
+      label: `태그${index + 1}`,
+      titleCount: 100 - index,
+    })),
+  };
+
+  assert.deepEqual(
+    getVisibleBookInfoCatalogTags(catalog).map(({ label }) => label),
+    ['태그1', '태그2', '태그3', '태그4', '태그5'],
+  );
 });

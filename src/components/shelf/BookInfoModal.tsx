@@ -12,6 +12,7 @@ import {
   getBookFormatLabel,
   getDisplayBookTitle,
   getProgressTime,
+  getVisibleBookInfoCatalogTags,
   type ShelfTheme,
 } from './bookUtils';
 import {
@@ -169,6 +170,7 @@ export const BookInfoModal: React.FC<Props> = ({
     ? '기기 로컬'
     : 'Google Drive';
   const progressPercent = Math.min(100, Math.max(0, progress?.progressPercent ?? 0));
+  const visibleCatalogTags = getVisibleBookInfoCatalogTags(catalog);
   const formatMetric = (value: number | null) => value === null
     ? null
     : new Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -405,8 +407,12 @@ export const BookInfoModal: React.FC<Props> = ({
                         {catalog.genreLabel}
                       </span>
                     )}
-                    {catalog.tags.filter((tag) => tag.label !== catalog.genreLabel).map((tag) => (
-                      <span key={tag.id} className="rounded-full bg-black/5 px-2 py-1 text-[10px] font-bold opacity-65 dark:bg-white/5">
+                    {visibleCatalogTags.map((tag) => (
+                      <span
+                        key={tag.id}
+                        data-book-catalog-tag="true"
+                        className="rounded-full bg-black/5 px-2 py-1 text-[10px] font-bold opacity-65 dark:bg-white/5"
+                      >
                         #{tag.label}
                       </span>
                     ))}

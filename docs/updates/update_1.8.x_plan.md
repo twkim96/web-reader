@@ -725,7 +725,7 @@ type Annotation = {
 
 ## 1.8.14 — 통합 책장 필터·공개 catalog
 
-상태: compact public catalog publisher·검증형 cache loader, PC·모바일 통합 필터 모달, `#태그` 검색, 통합 인기순과 grid/list·정보창 metadata 표시를 구현했다. Firebase generation `6ed40232b8555a45bde9`와 Vercel production을 게시했다. 스크린샷 후속으로 모바일 floating filter dialog, 목록 source metric 압축 배치와 82dvh compact mobile sort UI를 구현했고, `6209037`에서 grid/list의 플랫폼별 원본 수치를 단일 합산 `조회` 표기로 추가 압축했다. full gate·GitHub CI·production 실제 목록 검증을 완료했으며 외부 리뷰와 실제 모바일·iPad/PWA·offline/generation 교체 검증은 계속 대기 — `update_1.8.14.md`
+상태: compact public catalog publisher·검증형 cache loader, PC·모바일 통합 필터 모달, `#태그` 검색, 통합 인기순과 grid/list·정보창 metadata 표시를 구현했다. Firebase generation `6ed40232b8555a45bde9`와 Vercel production을 게시했다. 모바일 floating filter dialog, 목록 source metric 압축 배치와 합산 조회수 표기까지 배포했고, 리더 도서정보 catalog 연결·raw tag 5개 제한과 목록의 제목→태그→시간 hydration 전환을 추가 구현 중이다. 외부 리뷰와 실제 모바일·iPad/PWA·offline/generation 교체 검증은 계속 대기 — `update_1.8.14.md`
 
 ### 포함
 
