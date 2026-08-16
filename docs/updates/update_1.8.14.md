@@ -37,6 +37,8 @@ PC와 모바일 책장의 기존 정렬 버튼을 하나의 **필터 버튼**으
 9. 시리즈 다운로드 수, 카카오 조회 수, 노벨피아 조회 수를 플랫폼 차이를 보정한 하나의 인기 정렬키로 사용한다.
 10. 필터 모달의 인기 태그는 작품 수가 많은 순서로 처음 15개만 표시하고, `더보기`를 누를 때마다 다음 15개를 추가한다.
 11. 책장 그리드·목록에는 연결된 출처와 `시리즈 다운로드 / 카카오 조회 / 노벨피아 조회` 원본 수치를 표시한다. 연결된 출처가 없으면 출처 영역을 만들지 않는다.
+12. 모바일 필터는 화면 하단에 붙는 sheet가 아니라 상하좌우 여백과 네 모서리 radius를 가진 floating modal로 표시한다.
+13. 목록 보기의 출처·수치는 제목 영역 아래에 별도 행을 만들지 않고, 제목·저장 확인 표시 옆의 진행률 열에서 `%` 바로 위에 표시한다.
 
 ## 리뷰 판정
 
@@ -753,6 +755,17 @@ git diff --check
 - 다음 실제 catalog 변경 시 새 generation 전환, publish 중 network 단절, 직전 manifest rollback 확인
 
 위 항목은 PC viewport emulation이나 자동 WebKit 통과로 실기기 완료 처리하지 않는다. 이번 production 확인은 PC Chromium과 320px responsive layout까지다.
+
+## 2026-08-17 모바일 모달·목록 밀도 후속
+
+상태: 스크린샷 피드백 반영·로컬 full gate 완료. production 배포 확인 대기
+
+- 모바일 필터 overlay를 `items-end` bottom sheet에서 중앙 정렬 floating dialog로 바꾸고, 전체 `rounded-3xl`과 12px 최소 외곽 여백을 적용했다. 본문 스크롤과 고정 footer 구조는 유지한다.
+- floating modal은 320×640 browser regression에서 left/right 12px, top/bottom 38.40625px, height 563.1875px, bottom-left radius 24px, horizontal overflow 0으로 확인됐다.
+- 목록 보기의 출처별 원본 수치는 본문 제목·날짜·태그 아래에서 제거하고 `data-shelf-list-progress` 열의 `%` 바로 위 `data-shelf-list-source-slot`으로 옮겼다. 여러 출처는 6rem 모바일 열 안에서 source 단위로 줄바꿈한다.
+- 목록 row padding은 모바일 `py-3 → py-2.5`, desktop `py-3.5 → py-3`으로 줄였다. 그리드 카드의 기존 출처 위치는 변경하지 않았다.
+- `tests/bookCardLayout.test.mjs` 2개가 list source slot의 DOM 순서와 grid/list 분리를 검증한다.
+- `npm run check:full`을 다시 통과했다. Node 558개, Rules 31개, Playwright Chromium/WebKit 20개와 전체 Chromium browser regression이 통과했고 lint는 0 error·기존 Foliate warning 2개다. 최종 browser regression의 검색 17ms, 정렬 60ms, page error·long task는 0이었다.
 
 ## 보류·후속 버전
 

@@ -122,7 +122,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[180] flex items-end justify-center bg-black/65 p-2 backdrop-blur-sm sm:items-center sm:p-5"
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-black/65 p-3 backdrop-blur-sm sm:p-5"
       onClick={onClose}
     >
       <section
@@ -133,7 +133,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
         tabIndex={-1}
         data-shelf-filter-modal="true"
         onClick={(event) => event.stopPropagation()}
-        className={`flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none sm:max-h-[82dvh] sm:rounded-3xl`}
+        className={`flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none sm:max-h-[82dvh]`}
       >
         <header className={`flex items-center justify-between border-b ${theme.border} px-4 py-3`}>
           <div>
@@ -290,7 +290,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
           )}
         </div>
 
-        <footer className={`grid grid-cols-[auto_1fr] gap-2 border-t ${theme.border} px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3`}>
+        <footer className={`grid grid-cols-[auto_1fr] gap-2 border-t ${theme.border} px-4 pb-3 pt-3`}>
           <button
             type="button"
             onClick={() => {

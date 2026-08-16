@@ -739,8 +739,13 @@ try {
     return {
       left: rect?.left ?? -1,
       right: rect?.right ?? -1,
+      top: rect?.top ?? -1,
       bottom: rect?.bottom ?? -1,
+      bottomGap: rect ? innerHeight - rect.bottom : -1,
       height: rect?.height ?? -1,
+      borderBottomLeftRadius: modal
+        ? Number.parseFloat(getComputedStyle(modal).borderBottomLeftRadius)
+        : 0,
       viewportWidth: innerWidth,
       viewportHeight: innerHeight,
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
@@ -748,7 +753,14 @@ try {
   })()`);
   assert.ok(mobileFilterModal.left >= 0, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.right <= mobileFilterModal.viewportWidth, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.top >= 8, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.bottom <= mobileFilterModal.viewportHeight, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.bottomGap >= 8, JSON.stringify(mobileFilterModal));
+  assert.ok(
+    Math.abs(mobileFilterModal.top - mobileFilterModal.bottomGap) <= 2,
+    JSON.stringify(mobileFilterModal),
+  );
+  assert.ok(mobileFilterModal.borderBottomLeftRadius >= 20, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.88 + 1, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
   await evaluate(`document.querySelector('button[aria-label="책장 필터 닫기"]')?.click()`);
@@ -6049,6 +6061,7 @@ try {
       previewTitles,
       searchDurationMs,
       sortDurationMs,
+      mobileFilterModal,
       metrics: shelfMetrics,
     },
     sizeLimitUi,

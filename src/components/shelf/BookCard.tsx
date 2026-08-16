@@ -71,12 +71,22 @@ export const BookCard: React.FC<BookCardProps> = ({
       </div>
     ) : null
   );
-  const renderCatalogSources = () => sourceMetrics.length > 0 ? (
-    <div data-shelf-book-sources="true" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold opacity-50">
+  const renderCatalogSources = (placement: 'card' | 'list-progress' = 'card') => sourceMetrics.length > 0 ? (
+    <div
+      data-shelf-book-sources="true"
+      className={placement === 'list-progress'
+        ? 'flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-1 gap-y-0 text-right text-[8px] font-bold leading-tight opacity-50 sm:text-[9px]'
+        : 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold opacity-50'}
+    >
       {sourceMetrics.map(({ bit, label, metric, value }) => {
         const count = formatPublicBookCatalogMetric(value);
         return (
-          <span key={bit} className="shrink-0 whitespace-nowrap">
+          <span
+            key={bit}
+            className={placement === 'list-progress'
+              ? 'max-w-full shrink-0 truncate whitespace-nowrap'
+              : 'shrink-0 whitespace-nowrap'}
+          >
             {label}{count ? ` ${count} ${metric}` : ''}
           </span>
         );
@@ -141,7 +151,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-3 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3.5`}
+        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3`}
       >
         <div className="h-11 w-11 bg-accent-600 rounded-xl flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform duration-200 sm:h-12 sm:w-12">
           <BookOpen className="text-white" size={22} />
@@ -160,14 +170,18 @@ export const BookCard: React.FC<BookCardProps> = ({
             {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
           </div>
           <div className="mt-1 min-h-4">{renderCatalogTags()}</div>
-          {sourceMetrics.length > 0 && <div className="mt-0.5 min-h-3">{renderCatalogSources()}</div>}
         </div>
 
         <div className="hidden min-w-0 text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block">
           {getBookFormatLabel(book)}
         </div>
 
-        <div className="min-w-0 flex flex-col justify-center">
+        <div data-shelf-list-progress="true" className="min-w-0 self-stretch flex flex-col items-end justify-start pt-0.5">
+          {sourceMetrics.length > 0 && (
+            <div data-shelf-list-source-slot="true" className="mb-1 w-full min-w-0">
+              {renderCatalogSources('list-progress')}
+            </div>
+          )}
           <div className="mb-1 flex items-center justify-end gap-1.5">
             {percent > 0 && onDeleteProgress && (
               <button 
