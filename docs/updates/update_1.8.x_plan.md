@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 공개 메타데이터를 compact catalog로 확장하고 책장 통합 필터·태그 검색·출처 수치·통합 인기순을 구현했다. 1.8.14 전체 자동 gate, Firebase Rules/index/catalog 게시, Vercel production 배포와 PC Chromium/320px 검증을 완료했으며 외부 리뷰와 실제 모바일·iPad/PWA·offline/generation 교체 검증을 기다린다.
+전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 공개 메타데이터를 compact catalog로 확장하고 책장 통합 필터·태그 검색·출처 수치·통합 인기순을 구현했다. 1.8.14 최종 태그 계약은 grid 2개·list 5개·정보창 전체로 마감 gate를 통과했다. 1.8.15는 Vercel 요청형 metadata crawler, Firebase on-demand/delta 게시와 optional NovelPia 인증 provider 계획을 수립했으며 구현 전이다.
 
 ## 1. 문서의 역할
 
@@ -77,7 +77,8 @@
 | 1.8.11 | 도서 정보·플랫폼 메타데이터 | 길게 누르기 정보창·범위별 삭제·리더 정보 진입·독서 인증·읽기 전용 메타데이터 조회 | 중간 | Phase A~G 구현, 자동검증·게시·실기기 확인 진행 중 |
 | 1.8.12 | 동기화 안정화·도서 오픈 경합 | canonical bookmark 수신·adoption-first resume·초기 pagination·foreground reconciliation·도서정보 이미지 clipboard·탭→스크롤 폭 복구 | 매우 높음 | 두 외부 리뷰 및 후속 UI/layout 수정 구현·full gate 완료, 전체 재리뷰 finding은 1.8.13으로 이관 |
 | 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·durable commit/convergence 분리·guest stale-save 방어·debug trace | 매우 높음 | `0cedf03` 재리뷰 guest/local P1까지 후속 수정·최종 full gate 완료, pending overlay 선택 보류·실기기 검증 단계 |
-| 1.8.14 | 통합 책장 필터·공개 catalog | compact generation·태그 검색·출처/장르/태그 필터·통합 인기순·grid/list metadata | 중상 | `eb29d09`까지 구현·full gate·Firebase/catalog·Vercel 게시·PC Chromium/모바일 viewport·리더 정보 검증 완료, 외부 리뷰와 실제 모바일·iPad/PWA 대기 |
+| 1.8.14 | 통합 책장 필터·공개 catalog | compact generation·태그 검색·출처/장르/태그 필터·통합 인기순·grid/list metadata | 중상 | `29d1bec`까지 구현·full gate·Firebase/catalog·Vercel·GitHub CI·실제 list 5개/정보창 전체 tag 검증 완료, 실제 모바일·iPad/PWA 대기 |
+| 1.8.15 | 요청형 메타데이터 수집 | Vercel crawler·Firebase on-demand/delta·정보창 요청 UI·optional NovelPia auth provider | 높음 | 계획 수립 완료, 구현 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
@@ -725,7 +726,7 @@ type Annotation = {
 
 ## 1.8.14 — 통합 책장 필터·공개 catalog
 
-상태: compact public catalog publisher·검증형 cache loader, PC·모바일 통합 필터 모달, `#태그` 검색, 통합 인기순과 grid/list·정보창 metadata 표시를 구현했다. Firebase generation `6ed40232b8555a45bde9`와 Vercel production을 게시했다. 모바일 floating filter dialog, 목록 source metric 압축 배치·합산 조회수, 리더 도서정보 catalog 연결과 목록의 제목→태그→시간 hydration 전환을 배포했다. 최종 태그 계약은 grid 2개·list 5개·정보창 전체이며 마감 full gate를 통과하고 production 재확인 중이다. 실제 모바일·iPad/PWA·offline/generation 교체 검증은 계속 대기 — `update_1.8.14.md`
+상태: compact public catalog publisher·검증형 cache loader, PC·모바일 통합 필터 모달, `#태그` 검색, 통합 인기순과 grid/list·정보창 metadata 표시를 구현했다. Firebase generation `6ed40232b8555a45bde9`와 Vercel production을 게시했다. 최종 태그 계약은 grid 2개·list 5개·정보창 전체이며 `29d1bec`의 full gate, GitHub CI, Vercel production과 실제 10권 list·15-tag 정보창 재확인을 완료했다. 실제 모바일·iPad/PWA·offline/generation 교체 검증은 계속 대기 — `update_1.8.14.md`
 
 ### 포함
 
@@ -743,6 +744,33 @@ type Annotation = {
 - Rules·index를 먼저 배포하고 field operation 완료를 기다린 뒤 generation 24개 readback과 manifest CAS를 완료한다.
 - 비로그인 production REST, SQLite 원본과 실제 카드·정보창 수치를 표본 대조한다.
 - PC·모바일·iPad/PWA에서 first/cached/offline load, generation 교체와 rollback을 확인한다.
+
+## 1.8.15 — 요청형 메타데이터 수집
+
+상태: tag 없는 도서의 정보창 요청을 Vercel server crawler로 처리하고 Firestore on-demand 원본과 compact delta generation으로 반영하는 계획을 수립했다. 공개 crawler는 env 없이 동작하고, NovelPia 성인 인증은 `disabled|credentials` provider로 분리해 Vercel sensitive env를 나중에 추가한 새 deployment에서만 활성화한다 — `update_1.8.15.md`
+
+### 포함
+
+- shared shelf/reader 도서정보의 metadata 요청 버튼과 명시적 상태 전이
+- Firebase ID token 검증, alias lease, 사용자 quota와 전역 cooldown
+- Series/Kakao/NovelPia 공개 crawler의 server-only TypeScript 구현
+- per-title Firestore 원본과 immutable compact delta generation·manifest-last CAS
+- base + delta merge 후 정보창 전체 tag, list 5개, grid 2개와 필터·검색·인기순 갱신
+- env가 없어도 동작하는 public-only 기본값과 optional NovelPia credentials provider
+- credential·cookie·원격 응답 redaction과 client bundle secret audit
+
+### 제외
+
+- `file_check` 실행·import, 로컬 SQLite와 Control Server 연동
+- client-side crawler, 자동 대량 backfill과 사용자 tag 직접 편집
+- 기존 base catalog의 요청별 in-place 수정
+- CAPTCHA 우회, credential을 repo·Firestore·client cache에 저장
+
+### release gate
+
+- Vercel Preview에서 세 플랫폼 egress를 먼저 증명한다.
+- public-only mode의 full gate와 production request 성공·재실행 cache를 확인한다.
+- 실제 성인 인증은 사용자가 production sensitive env를 추가하고 새로 배포한 뒤 별도 acceptance 증거가 있을 때만 완료 처리한다.
 
 ## 7. 공통 자동검증 게이트
 
@@ -880,5 +908,5 @@ docs/updates/update_1.8.2.md
 ## 12. 현재 다음 단계
 
 1. 실제 Android/모바일 Chrome·iPad Safari·설치형 PWA에서 1.8.14 filter, tag 검색, source count, touch/keyboard/safe-area와 완전 offline 재실행을 확인한다.
-2. 다음 실제 catalog 변경 때 새 generation 전환·부분 게시 격리와 직전 manifest rollback을 production 증거로 추가한다.
+2. 1.8.15 Phase A에서 Vercel Preview의 Series/Kakao/NovelPia egress와 parser fixture를 먼저 증명한다.
 3. 외부 코드 리뷰와 실사용 finding을 마감하는 동안 기존 독서·동기화 acceptance와 retention observe-only 정책을 유지한다.

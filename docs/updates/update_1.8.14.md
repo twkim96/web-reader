@@ -795,13 +795,16 @@ git diff --check
 
 ### 태그 표시 개수 최종 정정
 
-상태: 사용자 의도 재확인에 따라 구현·full gate 완료, production 재확인 대기
+상태: 사용자 의도 재확인에 따라 구현·full gate·production 배포·실제 UI·GitHub CI 재확인 완료
 
 - 앞선 `도서정보 최대 5개` 해석을 폐기했다. 도서정보는 기존 계약대로 canonical genre와 중복되지 않는 raw tag 전체를 표시한다.
 - shelf list만 raw tag 최대 5개를 표시하고 나머지는 `+N`으로 표시한다. grid는 기존 최대 2개를 유지해 카드 높이를 보존한다.
 - late catalog hydration의 `0fr → 1fr` 전환, 제목 중앙 정렬, 제목→태그→시간 순서와 합산 조회수 배치는 변경하지 않는다.
 - `tests/bookCardLayout.test.mjs`에 정보창 7개 전체 유지, list 5개와 `+2`, grid 2개와 `+5` 회귀를 고정했다.
 - 최종 `npm run check:full`을 통과했다. Node 562개, Rules 31개, Playwright Chromium·WebKit 20개와 Chromium browser regression이 모두 통과했고 lint는 0 error·기존 Foliate warning 2개다. browser regression의 검색 18ms, 정렬 59ms, page error·long task는 0이었다.
+- 마감 커밋 `29d1bec`을 `main`에 push했고 Vercel production deployment가 성공했다.
+- production 실제 10권 list에서 `마왕은 학원에 간다`가 genre `판타지`, raw tag `#성장 #노력 #빙의 #생존 #하렘` 5개와 `+10`을 표시했다. 같은 도서 정보창은 raw tag 15개 전체를 표시했고 page horizontal overflow와 console error는 0건이었다. 확인 뒤 정보창을 닫아 책장 상태로 복원했다.
+- GitHub 첫 `playwright-security`는 이번 변경과 무관한 WebKit fixed-layout `page.evaluate`가 60초 timeout되어 19/20에서 끝났다. 같은 커밋 로컬 20/20 통과를 확인한 뒤 제품 수정 없이 실패 run만 재실행했고 `static-node-build`, `firestore-rules`, `browser-regression`, `playwright-security` 4개가 모두 성공했다.
 
 ## 보류·후속 버전
 
