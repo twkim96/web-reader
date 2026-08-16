@@ -758,14 +758,15 @@ git diff --check
 
 ## 2026-08-17 모바일 모달·목록 밀도 후속
 
-상태: 스크린샷 피드백 반영·로컬 full gate 완료. production 배포 확인 대기
+상태: 두 차례 스크린샷 피드백 반영·로컬 full gate 완료. production 배포 확인 대기
 
 - 모바일 필터 overlay를 `items-end` bottom sheet에서 중앙 정렬 floating dialog로 바꾸고, 전체 `rounded-3xl`과 12px 최소 외곽 여백을 적용했다. 본문 스크롤과 고정 footer 구조는 유지한다.
-- floating modal은 320×640 browser regression에서 left/right 12px, top/bottom 38.40625px, height 563.1875px, bottom-left radius 24px, horizontal overflow 0으로 확인됐다.
+- 모바일에서는 보조 설명을 숨기고 정렬 버튼을 아이콘·문구 한 줄의 44px 높이로 축약했다. filter chip, section 간격, header/body padding과 `태그 15개 더보기` 버튼도 모바일에서만 줄이고 `sm` 이상은 기존 밀도를 유지한다.
+- floating modal의 최대 높이를 `88dvh → 82dvh`로 줄였다. 320×640 browser regression에서 left/right 12px, top 57.59375px, bottom gap 57.609375px, height 524.796875px, bottom-left radius 24px, horizontal overflow 0으로 확인됐다.
 - 목록 보기의 출처별 원본 수치는 본문 제목·날짜·태그 아래에서 제거하고 `data-shelf-list-progress` 열의 `%` 바로 위 `data-shelf-list-source-slot`으로 옮겼다. 여러 출처는 6rem 모바일 열 안에서 source 단위로 줄바꿈한다.
 - 목록 row padding은 모바일 `py-3 → py-2.5`, desktop `py-3.5 → py-3`으로 줄였다. 그리드 카드의 기존 출처 위치는 변경하지 않았다.
 - `tests/bookCardLayout.test.mjs` 2개가 list source slot의 DOM 순서와 grid/list 분리를 검증한다.
-- `npm run check:full`을 다시 통과했다. Node 558개, Rules 31개, Playwright Chromium/WebKit 20개와 전체 Chromium browser regression이 통과했고 lint는 0 error·기존 Foliate warning 2개다. 최종 browser regression의 검색 17ms, 정렬 60ms, page error·long task는 0이었다.
+- `npm run check:full`을 최종 압축 변경 뒤 다시 통과했다. Node 558개, Rules 31개, Playwright Chromium/WebKit 20개와 전체 Chromium browser regression이 통과했고 lint는 0 error·기존 Foliate warning 2개다. 최종 browser regression의 검색 20ms, 정렬 41ms, page error·long task는 0이었다.
 
 ## 보류·후속 버전
 

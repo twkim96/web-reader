@@ -761,7 +761,7 @@ try {
     JSON.stringify(mobileFilterModal),
   );
   assert.ok(mobileFilterModal.borderBottomLeftRadius >= 20, JSON.stringify(mobileFilterModal));
-  assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.88 + 1, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.82 + 1, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
   await evaluate(`document.querySelector('button[aria-label="책장 필터 닫기"]')?.click()`);
   await waitFor(

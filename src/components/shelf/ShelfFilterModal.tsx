@@ -114,7 +114,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
     draftFilters,
   ).length, [books, draftFilters, draftSort]);
   const catalogReady = catalogState === 'ready' && Boolean(catalog);
-  const chip = (active: boolean) => `rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+  const chip = (active: boolean) => `rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
     active
       ? 'border-accent-500 bg-accent-500 text-white'
       : `${theme.border} bg-black/5 hover:border-accent-500/50 dark:bg-white/5`
@@ -133,12 +133,12 @@ export const ShelfFilterModal: React.FC<Props> = ({
         tabIndex={-1}
         data-shelf-filter-modal="true"
         onClick={(event) => event.stopPropagation()}
-        className={`flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none sm:max-h-[82dvh]`}
+        className={`flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none`}
       >
-        <header className={`flex items-center justify-between border-b ${theme.border} px-4 py-3`}>
+        <header className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4 sm:py-3`}>
           <div>
-            <h2 id="shelf-filter-title" className="text-base font-black sm:text-lg">책장 정렬·필터</h2>
-            <p className="mt-0.5 text-[10px] font-bold opacity-45">정렬과 조건을 함께 적용합니다.</p>
+            <h2 id="shelf-filter-title" className="text-sm font-black sm:text-lg">책장 정렬·필터</h2>
+            <p className="mt-0.5 hidden text-[10px] font-bold opacity-45 sm:block">정렬과 조건을 함께 적용합니다.</p>
           </div>
           <button
             type="button"
@@ -150,7 +150,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-3 sm:space-y-5 sm:px-4 sm:py-4">
           <section aria-labelledby="shelf-filter-sort-title">
             <h3 id="shelf-filter-sort-title" className="text-xs font-black opacity-55">정렬</h3>
             <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -162,13 +162,13 @@ export const ShelfFilterModal: React.FC<Props> = ({
                   aria-pressed={draftSort === id}
                   disabled={id === 'popularity' && !catalogReady}
                   onClick={() => setDraftSort(id)}
-                  className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-2 text-[11px] font-bold transition-colors disabled:opacity-35 ${
+                  className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1.5 text-[10px] font-bold transition-colors disabled:opacity-35 sm:min-h-16 sm:flex-col sm:px-2 sm:text-[11px] ${
                     draftSort === id
                       ? 'border-accent-500 bg-accent-500/12 text-accent-500'
                       : `${theme.border} bg-black/5 dark:bg-white/5`
                   }`}
                 >
-                  <Icon size={17} />
+                  <Icon className="size-4 shrink-0 sm:size-[17px]" />
                   {label}
                 </button>
               ))}
@@ -267,7 +267,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
                   current,
                   catalog.popularTags.length,
                 ))}
-                className={`mt-2 flex min-h-10 w-full items-center justify-center gap-1 rounded-xl border ${theme.border} text-xs font-bold opacity-65 hover:opacity-100`}
+                className={`mt-2 flex min-h-9 w-full items-center justify-center gap-1 rounded-xl border ${theme.border} text-[11px] font-bold opacity-65 hover:opacity-100 sm:min-h-10 sm:text-xs`}
               >
                 <ChevronDown size={15} /> 태그 15개 더보기
               </button>
@@ -290,7 +290,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
           )}
         </div>
 
-        <footer className={`grid grid-cols-[auto_1fr] gap-2 border-t ${theme.border} px-4 pb-3 pt-3`}>
+        <footer className={`grid grid-cols-[auto_1fr] gap-2 border-t ${theme.border} px-3 pb-3 pt-3 sm:px-4`}>
           <button
             type="button"
             onClick={() => {
