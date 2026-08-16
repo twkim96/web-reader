@@ -781,7 +781,7 @@ git diff --check
 
 ### 리더 도서정보·목록 hydration 후속
 
-상태: 구현·로컬 full gate 완료. production 배포 확인 대기
+상태: 구현·로컬 full gate·production 배포 및 실제 리더/목록 확인 완료
 
 - 리더도 현재 도서 1권을 `usePublicBookCatalog`에 join하고 `BookInfoModal`에 `catalog`와 `catalogState`를 전달한다. 쉘프와 같은 modal·catalog record를 사용하므로 장르·태그 영역이 동일하게 표시된다.
 - 도서정보의 canonical genre는 별도 chip으로 유지하고 deduplicated raw tag는 최대 5개만 표시한다.
@@ -789,6 +789,9 @@ git diff --check
 - 제목·태그 묶음은 `min-h-10` 안에서 세로 중앙 정렬된다. 태그가 없으면 제목이 중앙에 있고, catalog가 뒤늦게 join되면 tag container가 `0fr → 1fr`, opacity와 margin을 300ms 동안 전환해 제목과 태그가 자연스럽게 제 위치로 이동한다. reduced motion 환경에서는 전환을 끈다.
 - `tests/bookCardLayout.test.mjs` 4개가 합산 조회수, 제목·태그·시간 DOM 순서, 태그 없음 중앙 정렬 계약과 도서정보 raw tag 5개 제한을 검증한다.
 - `npm run check:full`을 통과했다. Node 560개, Rules 31개, Playwright Chromium/WebKit 20개와 Chromium browser regression이 모두 통과했고 lint는 0 error·기존 Foliate warning 2개다. 첫 full gate의 기존 storage 303개 중 1개가 병렬 실행에서 한 번 실패했지만 storage 단독 303/303과 최종 full gate에서는 재현되지 않았다.
+- 구현 커밋 `eb29d09`을 `main`에 push했고 Vercel production deployment와 GitHub CI 4개 job이 모두 success다.
+- production 실제 10권 목록에서 모든 행이 `제목·태그 묶음 → 시간` DOM 순서였고 tag가 있는 9권은 group height 41.484px·transition 0.3s, tag가 없는 1권은 group height 40px·grid row 0px·`aria-hidden=true`였다. horizontal overflow는 0이다.
+- production 리더에서 도서정보를 열어 `장르·태그` section, genre `현대판타지`와 raw tag `#판타지`, `#하렘`, `#현대`, `#대체역사`, `#ㅁㅁ세계`의 정확히 5개를 확인했다. modal horizontal overflow는 0이며 검증 후 10권 책장으로 원복했고 안정 구간 신규 console error는 0건이다.
 
 ## 보류·후속 버전
 
