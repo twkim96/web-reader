@@ -77,7 +77,7 @@
 | 1.8.11 | 도서 정보·플랫폼 메타데이터 | 길게 누르기 정보창·범위별 삭제·리더 정보 진입·독서 인증·읽기 전용 메타데이터 조회 | 중간 | Phase A~G 구현, 자동검증·게시·실기기 확인 진행 중 |
 | 1.8.12 | 동기화 안정화·도서 오픈 경합 | canonical bookmark 수신·adoption-first resume·초기 pagination·foreground reconciliation·도서정보 이미지 clipboard·탭→스크롤 폭 복구 | 매우 높음 | 두 외부 리뷰 및 후속 UI/layout 수정 구현·full gate 완료, 전체 재리뷰 finding은 1.8.13으로 이관 |
 | 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·durable commit/convergence 분리·guest stale-save 방어·debug trace | 매우 높음 | `0cedf03` 재리뷰 guest/local P1까지 후속 수정·최종 full gate 완료, pending overlay 선택 보류·실기기 검증 단계 |
-| 1.8.14 | 통합 책장 필터·공개 catalog | compact generation·태그 검색·출처/장르/태그 필터·통합 인기순·grid/list metadata | 중상 | `86ff457` 구현·full gate·Firebase/catalog·Vercel 게시·PC Chromium/320px 검증 완료, 외부 리뷰와 실제 모바일·iPad/PWA 대기 |
+| 1.8.14 | 통합 책장 필터·공개 catalog | compact generation·태그 검색·출처/장르/태그 필터·통합 인기순·grid/list metadata | 중상 | `a0ae1f3`까지 구현·full gate·Firebase/catalog·Vercel 게시·PC Chromium/모바일 viewport 검증 완료, 외부 리뷰와 실제 모바일·iPad/PWA 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
@@ -725,7 +725,7 @@ type Annotation = {
 
 ## 1.8.14 — 통합 책장 필터·공개 catalog
 
-상태: compact public catalog publisher·검증형 cache loader, PC·모바일 통합 필터 모달, `#태그` 검색, 통합 인기순과 grid/list·정보창 metadata 표시를 구현했다. `86ff457` full gate, Firebase generation `6ed40232b8555a45bde9`, Vercel production과 실제 PC Chromium/320px 검증까지 완료했다. 스크린샷 후속으로 모바일 floating filter dialog, 목록 source metric 압축 배치와 82dvh compact mobile sort UI를 구현하고 full gate를 다시 통과했으며 production 반영을 기다린다. 외부 리뷰와 실제 모바일·iPad/PWA·offline/generation 교체 검증은 계속 대기 — `update_1.8.14.md`
+상태: compact public catalog publisher·검증형 cache loader, PC·모바일 통합 필터 모달, `#태그` 검색, 통합 인기순과 grid/list·정보창 metadata 표시를 구현했다. Firebase generation `6ed40232b8555a45bde9`와 Vercel production을 게시했다. 스크린샷 후속으로 모바일 floating filter dialog, 목록 source metric 압축 배치와 82dvh compact mobile sort UI를 `a0ae1f3`까지 구현했고 full gate·GitHub CI·production 모바일 viewport 검증을 완료했다. 외부 리뷰와 실제 모바일·iPad/PWA·offline/generation 교체 검증은 계속 대기 — `update_1.8.14.md`
 
 ### 포함
 
