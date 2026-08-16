@@ -16,7 +16,7 @@ PC와 모바일 책장의 기존 정렬 버튼을 하나의 **필터 버튼**으
 
 기본 도서 검색창은 기존 제목 검색을 유지하면서 `#하렘`처럼 `#`으로 시작하는 검색어를 태그 검색으로 해석한다. 태그 검색 결과는 일치 태그를 최상단에, 해당 태그를 사용하는 도서를 그 아래에 보여준다. 최상단 태그를 누르면 그 태그가 책장의 활성 필터가 된다.
 
-필터에 필요한 compact catalog는 책장을 막지 않고 백그라운드에서 준비한다. 같은 데이터를 책장 카드·목록과 도서 정보창에도 재사용해 도서별 통합 장르·대표 태그와 연결된 출처별 원본 수치를 표시한다.
+필터에 필요한 compact catalog는 책장을 막지 않고 백그라운드에서 준비한다. 같은 데이터를 책장 카드·목록과 도서 정보창에도 재사용해 도서별 통합 장르·대표 태그를 표시한다. 책장에서는 원본 수치를 하나의 표시용 조회수로 합산하고, 정보창은 플랫폼별 상세를 유지한다.
 
 정렬에는 기존 `최근에 읽은 순`, `가나다순`과 함께 다음 공개 수치를 조합한 `통합 인기순`을 추가한다.
 
@@ -36,9 +36,9 @@ PC와 모바일 책장의 기존 정렬 버튼을 하나의 **필터 버튼**으
 8. 책장 그리드·목록과 도서 정보창에 도서별 장르·태그를 표시한다.
 9. 시리즈 다운로드 수, 카카오 조회 수, 노벨피아 조회 수를 플랫폼 차이를 보정한 하나의 인기 정렬키로 사용한다.
 10. 필터 모달의 인기 태그는 작품 수가 많은 순서로 처음 15개만 표시하고, `더보기`를 누를 때마다 다음 15개를 추가한다.
-11. 책장 그리드·목록에는 연결된 출처와 `시리즈 다운로드 / 카카오 조회 / 노벨피아 조회` 원본 수치를 표시한다. 연결된 출처가 없으면 출처 영역을 만들지 않는다.
+11. 책장 그리드·목록에는 연결된 플랫폼의 유효한 원본 수치를 합산해 `304.7만 조회`처럼 한 줄로 표시한다. 출처명과 `다운로드` 문구는 넣지 않으며, 합산할 수치가 없으면 영역을 만들지 않는다.
 12. 모바일 필터는 화면 하단에 붙는 sheet가 아니라 상하좌우 여백과 네 모서리 radius를 가진 floating modal로 표시한다.
-13. 목록 보기의 출처·수치는 제목 영역 아래에 별도 행을 만들지 않고, 제목·저장 확인 표시 옆의 진행률 열에서 `%` 바로 위에 표시한다.
+13. 목록 보기의 합산 조회수는 제목 영역 아래에 별도 행을 만들지 않고, 제목·저장 확인 표시 옆의 진행률 열에서 `%` 바로 위에 표시한다.
 
 ## 리뷰 판정
 
@@ -48,9 +48,9 @@ PC와 모바일 책장의 기존 정렬 버튼을 하나의 **필터 버튼**으
 | 필터 모달에서 정렬·출처·장르·태그 동시 설정 | 수용 | 전체 목록을 로컬에서 한 번에 파생 가능 |
 | `#태그` 검색과 태그 우선 결과 | 수용 | 1,295개 전체 태그를 칩으로 나열하지 않고 찾을 수 있음 |
 | 책장 카드·목록과 정보창의 태그 표시 | 수용 | 동일 compact catalog를 재사용하고 별도 도서별 요청을 만들지 않음 |
-| 책장 카드·목록의 출처·원본 수치 표시 | 수용 | 정렬에 쓰는 compact source count를 같은 derived record에서 재사용 |
+| 책장 카드·목록의 합산 조회수 표시 | 수용 | compact source count를 같은 derived record에서 재사용하되 플랫폼명 없이 한 줄로 합산 |
 | 기존 256개 상세 bucket을 전체 필터용으로 재사용 | 제외 | 약 21MB 상세 projection 대부분을 읽게 됨 |
-| raw 플랫폼 수치를 그대로 단순 합산 | 설계 보정 | 다운로드와 조회의 단위·분포가 달라 플랫폼별 순위 정규화 후 조합 |
+| raw 플랫폼 수치를 인기 점수로 그대로 단순 합산 | 설계 보정 | 다운로드와 조회의 단위·분포가 달라 정렬에는 플랫폼별 순위 정규화 후 조합 |
 | `Book`, Drive metadata, `metadata-v5`에 플랫폼 필드 저장 | 제외 | 외부 갱신 파생 데이터이며 사용자 콘텐츠 migration이 불필요함 |
 | Firestore server query로 필터 조합 실행 | 제외 | compact index를 받은 뒤 모든 검색·필터·정렬을 로컬에서 수행 |
 | 태그 제외 조건, 추천 시스템, 사용자별 필터 동기화 | 후속 보류 | 이번 요청의 필수 범위를 넘음 |
@@ -370,9 +370,8 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 - `canonical genre` 1개와 대표 raw tag 최대 2개를 compact chip으로 표시한다.
 - 나머지가 있으면 `+N`으로 표시한다.
 - 대표 태그는 전역 `titleCount` 내림차순, 원본 source order, label 순으로 안정적으로 고른다.
-- 태그 아래에 연결된 출처를 최대 3개까지 표시하며 `시리즈 22.4만 다운로드`, `카카오 12.6만 조회`, `노벨피아 100.3만 조회`처럼 compact format을 사용한다.
-- 출처는 있지만 해당 원본 수치가 `NULL`이면 출처명만 표시한다.
-- 연결된 출처가 하나도 없으면 출처 줄 자체를 렌더링하지 않는다.
+- 태그 아래에는 플랫폼별 원본 수치 중 유효한 값을 합산해 `135.3만 조회`처럼 한 줄만 표시한다. 이 합계는 책장 표시용이며 통합 인기 정렬 점수에는 사용하지 않는다.
+- 연결된 모든 출처의 원본 수치가 `NULL`이면 조회수 줄 자체를 렌더링하지 않는다.
 - tag chip은 카드 전체 열기·길게 누르기 gesture와 충돌하지 않도록 이번 버전에서는 표시 전용이다.
 
 ### 목록 행
@@ -546,7 +545,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 
 1. grid/list 공통 representative tag selector를 만든다.
 2. 카드에는 genre + raw tag 2개 + `+N`을 고정 높이로 표시한다.
-3. grid/list에 출처와 시리즈 다운로드·카카오 조회·노벨피아 조회를 compact format으로 표시한다.
+3. grid/list에 유효한 시리즈 다운로드·카카오 조회·노벨피아 조회 원본값의 표시용 합계를 `조회` 한 단위로 표시한다.
 4. 정보창에는 canonical genre와 deduplicated raw tag 전체를 표시한다.
 5. metadata late hydration의 layout shift와 unmounted setState를 방지한다.
 6. public detail metadata와 compact catalog의 loading/error를 독립 상태로 유지한다.
@@ -555,7 +554,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 완료 조건:
 
 - catalog record가 있는 모든 shelf book은 grid/list에서 같은 대표 tag를 보인다.
-- grid/list의 출처·수치가 SQLite 원본의 지정 metric과 일치하고 출처 없음은 빈 줄을 만들지 않는다.
+- grid/list의 합계가 SQLite 원본의 유효한 지정 metric 합과 일치하고 유효 수치 없음은 빈 줄을 만들지 않는다.
 - 정보창은 동일 record의 전체 tag를 빠짐없이 보인다.
 - catalog가 없는 책도 카드 높이·열기·정보·삭제 동작이 깨지지 않는다.
 - tag chip이 카드 클릭·650ms long press·12px 이동 취소를 가로채지 않는다.
@@ -618,7 +617,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 - loading/error/offline metadata filter 상태
 - `#하렘` 태그 우선 검색과 filter handoff
 - grid/list 대표 tag와 `+N`
-- grid/list 출처·원본 수치와 출처 없음 생략
+- grid/list 합산 조회수와 유효 수치 없음 생략
 - 정보창 전체 tag wrap
 - 320px horizontal overflow 0
 - long press·context menu·card click 회귀
@@ -704,7 +703,7 @@ git diff --check
 - PC·모바일 정렬 버튼을 통합 필터 버튼으로 교체하고 `최근에 읽은 순 / 가나다순 / 통합 인기순`, 출처·장르·태그 조건을 한 반응형 모달에 넣었다.
 - 인기 태그는 작품 수 내림차순으로 처음 15개를 표시하고 `태그 15개 더보기`마다 15개씩 확장한다. 현재 페이지 밖에서 선택된 태그는 별도 `선택됨` 영역에 유지한다.
 - 기본 검색 모달에 `#태그` 모드를 추가했다. exact → prefix → substring 순으로 태그를 책 위에 표시하고, 태그 선택은 literal 검색어 대신 책장 tag filter를 적용한다.
-- grid/list 카드에는 genre, 대표 raw tag 2개와 `+N`, 연결된 출처별 원본 수치를 표시한다. 연결 출처가 없는 도서는 출처 행을 만들지 않는다.
+- grid/list 카드에는 genre, 대표 raw tag 2개와 `+N`, 연결된 출처의 표시용 합산 조회수를 표시한다. 유효 원본 수치가 없는 도서는 조회수 행을 만들지 않는다.
 - 도서 정보창은 상세 플랫폼 metadata와 별개 상태로 catalog의 genre·deduplicated 전체 tag를 표시한다.
 - package, service worker cache와 Foliate runtime revision을 `1.8.14` / `1.8.14.1`로 동기화했다.
 
@@ -769,6 +768,14 @@ git diff --check
 - `npm run check:full`을 최종 압축 변경 뒤 다시 통과했다. Node 558개, Rules 31개, Playwright Chromium/WebKit 20개와 전체 Chromium browser regression이 통과했고 lint는 0 error·기존 Foliate warning 2개다. 최종 browser regression의 검색 20ms, 정렬 41ms, page error·long task는 0이었다.
 - 최종 후속 커밋 `a0ae1f3`을 `main`에 push했고 Vercel production deployment와 GitHub CI 4개 job이 모두 성공했다.
 - production `https://twreader.vercel.app`의 실제 content viewport 291×672에서 modal height 551.633px, top/bottom gap 60.547/59.820px, radius 24px, 정렬 버튼 높이 43.999px, subtitle `display:none`, footer visible, horizontal overflow 0을 확인했다. 확인 뒤 modal을 닫고 viewport override를 원복했다.
+
+### 합산 조회수 표시 후속
+
+- 책장 grid/list에서 플랫폼별 `시리즈 … 다운로드`, `카카오 … 조회`, `노벨피아 … 조회` 나열을 제거했다.
+- 현재 도서에 연결된 플랫폼의 non-null `sourceCounts`를 합산하고 compact format 뒤에 `조회`만 붙인다. 예를 들어 `166.9만 + 137.8만`은 `304.7만 조회`로 표시한다.
+- 이는 화면 밀도를 줄이기 위한 표시용 합계다. 단위 차이를 보정하는 `popularityScore`와 통합 인기순 comparator, 정보창의 플랫폼별 상세 원본 수치는 변경하지 않는다.
+- `tests/bookCardLayout.test.mjs`가 list와 grid 모두 단일 합계만 출력하고 출처명·`다운로드`를 노출하지 않는지 검증한다.
+- 최종 변경 뒤 `npm run check:full`을 통과했다. Node 558개, Rules 31개, Playwright Chromium/WebKit 20개와 Chromium browser regression이 모두 통과했고 lint는 0 error·기존 Foliate warning 2개다.
 
 ## 보류·후속 버전
 

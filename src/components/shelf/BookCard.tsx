@@ -48,10 +48,14 @@ export const BookCard: React.FC<BookCardProps> = ({
   const visibleTags = rawTags.slice(0, 2);
   const remainingTagCount = Math.max(0, rawTags.length - visibleTags.length);
   const sourceMetrics = catalog ? [
-    { bit: 1, label: '시리즈', metric: '다운로드', value: catalog.record.sourceCounts[0] },
-    { bit: 2, label: '카카오', metric: '조회', value: catalog.record.sourceCounts[1] },
-    { bit: 4, label: '노벨피아', metric: '조회', value: catalog.record.sourceCounts[2] },
+    { bit: 1, value: catalog.record.sourceCounts[0] },
+    { bit: 2, value: catalog.record.sourceCounts[1] },
+    { bit: 4, value: catalog.record.sourceCounts[2] },
   ].filter(({ bit }) => Boolean(catalog.record.platformMask & bit)) : [];
+  const combinedSourceCount = sourceMetrics.reduce<number | null>((total, { value }) => {
+    if (value === null) return total;
+    return Math.min(Number.MAX_SAFE_INTEGER, (total ?? 0) + value);
+  }, null);
   const renderCatalogTags = () => (
     catalog && (catalog.genreLabel || visibleTags.length > 0) ? (
       <div data-shelf-book-tags="true" className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
@@ -71,26 +75,20 @@ export const BookCard: React.FC<BookCardProps> = ({
       </div>
     ) : null
   );
-  const renderCatalogSources = (placement: 'card' | 'list-progress' = 'card') => sourceMetrics.length > 0 ? (
+  const renderCatalogSources = (placement: 'card' | 'list-progress' = 'card') => combinedSourceCount !== null ? (
     <div
       data-shelf-book-sources="true"
       className={placement === 'list-progress'
         ? 'flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-1 gap-y-0 text-right text-[8px] font-bold leading-tight opacity-50 sm:text-[9px]'
         : 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold opacity-50'}
     >
-      {sourceMetrics.map(({ bit, label, metric, value }) => {
-        const count = formatPublicBookCatalogMetric(value);
-        return (
-          <span
-            key={bit}
-            className={placement === 'list-progress'
-              ? 'max-w-full shrink-0 truncate whitespace-nowrap'
-              : 'shrink-0 whitespace-nowrap'}
-          >
-            {label}{count ? ` ${count} ${metric}` : ''}
-          </span>
-        );
-      })}
+      <span
+        className={placement === 'list-progress'
+          ? 'max-w-full shrink-0 truncate whitespace-nowrap'
+          : 'shrink-0 whitespace-nowrap'}
+      >
+        {formatPublicBookCatalogMetric(combinedSourceCount)} 조회
+      </span>
     </div>
   ) : null;
   const clearLongPressTimer = useCallback(() => {
@@ -177,7 +175,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         </div>
 
         <div data-shelf-list-progress="true" className="min-w-0 self-stretch flex flex-col items-end justify-start pt-0.5">
-          {sourceMetrics.length > 0 && (
+          {combinedSourceCount !== null && (
             <div data-shelf-list-source-slot="true" className="mb-1 w-full min-w-0">
               {renderCatalogSources('list-progress')}
             </div>
@@ -249,7 +247,7 @@ export const BookCard: React.FC<BookCardProps> = ({
             {getBookFormatLabel(book)}
           </p>
           <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
-          {sourceMetrics.length > 0 && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
+          {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
         </div>
 
         <div className="space-y-3">

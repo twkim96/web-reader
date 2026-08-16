@@ -53,7 +53,7 @@ const renderCard = (viewMode) => {
   return parseHTML(html).document;
 };
 
-test('places list source metrics above the progress percentage', () => {
+test('places one combined view count above the progress percentage', () => {
   const document = renderCard('list');
   const progress = document.querySelector('[data-shelf-list-progress="true"]');
   const slot = document.querySelector('[data-shelf-list-source-slot="true"]');
@@ -64,15 +64,18 @@ test('places list source metrics above the progress percentage', () => {
   assert.ok(sources);
   assert.equal(progress.firstElementChild, slot);
   assert.equal(slot.contains(sources), true);
-  assert.match(sources.textContent, /시리즈 166\.9만 다운로드/);
-  assert.match(sources.textContent, /카카오 137\.8만 조회/);
+  assert.match(sources.textContent, /304\.7만 조회/);
+  assert.doesNotMatch(sources.textContent, /시리즈|카카오|노벨피아|다운로드/);
   assert.match(progress.textContent, /42\.5%/);
 });
 
 test('keeps grid source metrics in the card metadata block', () => {
   const document = renderCard('grid');
+  const sources = document.querySelector('[data-shelf-book-sources="true"]');
 
-  assert.ok(document.querySelector('[data-shelf-book-sources="true"]'));
+  assert.ok(sources);
+  assert.match(sources.textContent, /304\.7만 조회/);
+  assert.doesNotMatch(sources.textContent, /시리즈|카카오|노벨피아|다운로드/);
   assert.equal(document.querySelector('[data-shelf-list-progress="true"]'), null);
   assert.equal(document.querySelector('[data-shelf-list-source-slot="true"]'), null);
 });
