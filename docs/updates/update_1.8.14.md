@@ -8,7 +8,7 @@
 
 이전 버전: [update_1.8.13.md](./update_1.8.13.md)
 
-상태: 코드 구현과 전체 자동검증 완료. Firebase Rules·index·catalog 라이브 게시, Web Reader 배포와 실기기 검증 대기
+상태: 코드·전체 자동검증·Firebase Rules/index/catalog 게시·Web Reader 1.8.14 production 배포와 PC Chromium/320px 검증 완료. 실제 모바일 Chrome·iPad Safari·설치형 PWA와 offline/generation 교체 검증 대기
 
 ## 목표
 
@@ -418,7 +418,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 
 ## Phase B — generation 게시·Rules·cache loader
 
-상태: 로컬 구현·자동검증 완료. 라이브 Rules·index 배포와 catalog 게시 대기
+상태: 구현·자동검증·라이브 Rules/index/catalog 게시와 public REST readback 완료
 
 주요 영역:
 
@@ -477,7 +477,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 
 ## Phase D — 필터 버튼·반응형 모달
 
-상태: 구현·데스크톱·320px browser regression 완료. 실기기 확인 대기
+상태: 구현·자동 browser regression·production PC Chromium과 320px viewport 확인 완료. 실제 모바일·iPad/PWA 확인 대기
 
 주요 영역:
 
@@ -505,7 +505,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 
 ## Phase E — `#태그` 검색
 
-상태: 구현·pure search/filter 회귀 완료. 라이브 catalog 연결 확인 대기
+상태: 구현·pure search/filter 회귀와 production `#하렘` catalog handoff 확인 완료
 
 주요 영역:
 
@@ -531,7 +531,7 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 
 ## Phase F — 카드·목록·정보창 태그 UI
 
-상태: 구현·typecheck·build 완료. 라이브 데이터 시각 확인 대기
+상태: 구현·typecheck·build와 production 카드·출처·정보창 catalog 시각 확인 완료
 
 주요 영역:
 
@@ -560,10 +560,10 @@ trim한 검색어가 `#`으로 시작하면 나머지 문자열을 tag query로 
 
 ## Phase G — release·게시·acceptance
 
-상태: 1.8.14 버전 동기화와 전체 자동 gate 완료. 라이브 게시·배포·실기기 acceptance 대기
+상태: 1.8.14 버전 동기화·전체 자동 gate·Firebase 게시·Vercel production 배포·PC Chromium/320px acceptance 완료. 실제 모바일·iPad/PWA와 offline/generation 교체 확인 대기
 
 1. Phase A dry-run의 count, collision, shard raw/Firestore encoded size와 checksum을 기록한다.
-2. Rules와 index exemption을 먼저 배포한다.
+2. Rules와 index exemption을 먼저 배포하고 Firestore field operation이 `SUCCESSFUL`이 될 때까지 기다린다.
 3. catalog generation 24개를 게시·readback 검증한 뒤 manifest를 전환한다.
 4. 비로그인 REST 표본에서 manifest, alias, catalog와 SQLite 원본을 대조한다.
 5. Web Reader 1.8.14를 배포하고 이전 1.8.13 client가 새 collection 때문에 영향받지 않는지 확인한다.
@@ -694,9 +694,9 @@ git diff --check
 
 - `scripts/publish-book-metadata.py`가 기존 256개 상세 projection을 유지하면서 같은 read-only SQLite snapshot에서 compact catalog를 함께 생성한다.
 - `scripts/public_book_catalog.py`가 16 alias shard, 8 catalog shard, tag·genre dictionary, 플랫폼 mask, source count·rank와 통합 인기 점수를 deterministic하게 만든다.
-- generation 문서는 immutable create/readback으로 게시하고 마지막 manifest만 precondition CAS로 전환한다. 이번 작업에서는 라이브 `--apply`를 실행하지 않았다.
+- generation 문서는 immutable create/readback으로 게시하고 마지막 manifest만 precondition CAS로 전환한다. 2026-08-17 `web-novel-viewer`에 generation `6ed40232b8555a45bde9`를 게시하고 manifest CAS를 완료했다.
 - `publicBookCatalogIndexV1`의 point-get only Rules와 indexing exemption 설정을 추가했다.
-- 라이브 index inventory를 읽기 전용 확인한 결과 현재 `indexes: []`, `fieldOverrides: []`였으므로 새 설정이 기존 composite index를 제거하지는 않는다. 배포 직전에는 drift를 다시 확인한다.
+- 배포 직전 라이브 index inventory가 `indexes: []`, `fieldOverrides: []`임을 재확인했고, 배포 후 `publicBookCatalogIndexV1/*`의 collection-level indexing exemption이 활성화됐다. 기존 composite index는 없었으므로 제거된 항목도 없다.
 - client는 server manifest를 확인한 뒤 generation 문서를 cache-first로 복원하고 cache miss나 checksum 불일치만 server에서 보충한다. 전체 schema·reference·count·SHA-256 checksum 검증이 끝난 snapshot만 책장에 전달한다.
 - `Book`, Drive metadata, 사용자 콘텐츠 IndexedDB와 기존 `publicBookMetadataV1` 형식은 변경하지 않았다.
 - PC·모바일 정렬 버튼을 통합 필터 버튼으로 교체하고 `최근에 읽은 순 / 가나다순 / 통합 인기순`, 출처·장르·태그 조건을 한 반응형 모달에 넣었다.
@@ -716,7 +716,7 @@ git diff --check
 - `npm run test:node`: 556개 통과
   - formats 63, Drive 49, archives 33, storage 303, shelf 93, publisher 3, service worker 9, release 3
 - `npm run test:rules`: 31개 통과. public catalog 단건 get 허용, list/create/update/delete 거부와 index exemption 설정 포함
-- Firebase CLI schema validator로 `firestore.indexes.json`을 검증했고, `npx firebase firestore:indexes --project web-novel-viewer`의 읽기 전용 결과는 composite index·field override 모두 0개였다.
+- Firebase CLI schema validator로 `firestore.indexes.json`을 검증했다. 배포 전 inventory는 composite index·field override 모두 0개였고, 배포 후에는 `publicBookCatalogIndexV1`, field path `*`, `indexes: []` override가 표시된다.
 - `npm run test:e2e`: Chromium·WebKit 20개 통과
 - `npm run test:browser:ci`: 1,100권 fixture, desktop filter apply, 320px bottom sheet·horizontal overflow 0, 기존 검색·정보창·리더·service worker 회귀 통과. 최종 실행 검색 15ms, filter를 통한 가나다순 전환 47ms, long task와 수집된 page error 0
 - `npm run check:full`: 최종 통과. ESLint에는 기존 Foliate 파일의 warning 2개만 있고 error는 0개다.
@@ -725,14 +725,34 @@ git diff --check
 
 ## 실기기 검증 결과
 
-대기. 다음 항목은 이번 로컬 작업에서 실행하거나 완료로 간주하지 않았다.
+### Firebase·catalog 게시
 
-- Firebase Rules와 `firestore.indexes.json` 라이브 배포
-- compact generation 24개 게시·readback과 manifest CAS 전환
-- 비로그인 production REST 표본과 SQLite 원본 대조
-- Web Reader 1.8.14 배포
-- production Chrome, 모바일 Chrome, iPad Safari와 설치형 PWA 확인
-- cached second load, offline 재실행과 실제 generation 교체·rollback 확인
+- 2026-08-17 `web-novel-viewer`에 Rules와 `firestore.indexes.json`을 먼저 배포했다. 배포 전 live Rules는 기준 커밋과 trailing newline 외에 같았고 `/tmp/firestore.rules.pre-1.8.14.rules`에 SHA-256 `2d5514b9f1340af405f24be668bf38663f35aca3c7f9d5c5e407f5a30c0b59c8`로 보존했다.
+- 비로그인 catalog point-get은 게시 전 404, collection list와 client write는 403, 기존 `publicBookMetadataV1/00` point-get은 200이었다.
+- index exemption field operation이 아직 `PROCESSING`일 때 첫 publisher 시도가 index-entry 한도로 중단됐다. 이때 alias 16 + catalog 2의 18개 immutable shard만 생성됐고 manifest는 없어서 incomplete generation이 client에 노출되지 않았다.
+- field operation이 `SUCCESSFUL`이고 `completedWork == estimatedWork == 18`임을 확인한 뒤 재실행했다. 기존 18개는 byte-for-byte readback 후 재사용하고 나머지 6개를 생성했으며, generation 24개 전부를 다시 읽은 뒤 manifest를 CAS 전환했다.
+- 최종 게시 결과는 상세 bucket 256개 update, catalog `created: 6`, `reused: 18`, `manifestUpdated: true`다. manifest `publishedAt`은 `2026-08-16T16:30:21+00:00`이다.
+- 비로그인 REST 25개 point-get을 `/tmp/web-reader-catalog-1.8.14-live.jsonl`과 exact 비교했다. generation은 `6ed40232b8555a45bde9`, 25문서 aggregate SHA-256은 `0acec6dfeccd41f7f8b7a68b1f34772ca2163ef0a27ee4857e65a053ad062b5e`이며 list/write는 계속 403이다.
+- 시리즈 다운로드·카카오 조회·노벨피아 조회를 플랫폼별 3개씩 총 9개 대조했다. compact `sourceCounts`, 기존 상세 projection과 SQLite 지정 metric이 9/9 일치했고 catalog miss인 로컬 도서 3개도 `없음(기타)` join으로 확인했다.
+
+### Web Reader production
+
+- 기능 커밋 `86ff457`을 `main`에 push했고 Vercel 고정 URL `https://twreader.vercel.app` 배포가 성공했다. `sw.js`는 `pc-reader-v1.8.14`와 1.8.14 설명을 제공한다.
+- 같은 커밋의 GitHub `static-node-build`, `firestore-rules`, `playwright-security`, `browser-regression` 4개 check와 Vercel deployment status가 모두 success다.
+- 실제 사용자 production 책장 PC Chromium 계열 Edge에서 10권을 확인했다. filter control 1개만 보이고 sort control은 0개였으며, catalog 매칭 9권에 tag와 source row가 표시되고 catalog miss 1권은 source row가 없었다. 가로 overflow는 0이다.
+- 필터 모달은 `최근에 읽은 순 / 가나다순 / 통합 인기순`, 네 출처, 장르, 인기 태그 15개와 `태그 15개 더보기`를 표시했다. 더보기 뒤 30개가 됐고 `통합 인기순 + 없음(기타)` 적용 결과가 `1권 보기` 및 실제 1권과 일치했다. 검증 후 초기화해 10권·최근 읽은 순으로 복원했다.
+- `#하렘` 검색은 tag 결과 7개를 도서보다 위에 표시했고 첫 결과는 `#하렘 672권`이었다. tag 선택은 실제 책장 2권 filter로 이어졌으며 검증 후 다시 초기화했다.
+- 실제 매칭 도서 정보창에서 catalog chip 6개, 상세 플랫폼 badge·수치 block 1개를 함께 확인했고 modal 가로 overflow는 0이었다.
+- 320px viewport override의 실제 content viewport 291×672에서 modal width 275, page/modal horizontal overflow 0, scroll body 활성, footer와 `10권 보기`가 화면 안에 유지됐다. 확인 후 modal을 닫고 viewport를 원래 크기로 복원했다.
+- service worker 교체 직후 첫 reload에서 이전 page의 구 chunk unload 로그가 남았지만, 현재 1.8.14 script set으로 두 번째 reload한 뒤 filter·tag/source hydration은 동일했고 새 console error는 0건이었다.
+
+### 남은 실제 기기 게이트
+
+- 실제 Android/모바일 Chrome과 iPad Safari의 touch scroll·650ms long press·safe area·키보드 확인
+- 홈 화면 설치형 PWA의 실행·cached second load·완전 offline 재실행 확인
+- 다음 실제 catalog 변경 시 새 generation 전환, publish 중 network 단절, 직전 manifest rollback 확인
+
+위 항목은 PC viewport emulation이나 자동 WebKit 통과로 실기기 완료 처리하지 않는다. 이번 production 확인은 PC Chromium과 320px responsive layout까지다.
 
 ## 보류·후속 버전
 
