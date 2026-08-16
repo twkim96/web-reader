@@ -45,7 +45,7 @@ export const BookCard: React.FC<BookCardProps> = ({
 
   const percent = progress?.progressPercent || 0;
   const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
-  const visibleTags = rawTags.slice(0, 2);
+  const visibleTags = rawTags.slice(0, viewMode === 'list' ? 5 : 2);
   const remainingTagCount = Math.max(0, rawTags.length - visibleTags.length);
   const hasCatalogTags = Boolean(catalog && (catalog.genreLabel || visibleTags.length > 0));
   const sourceMetrics = catalog ? [

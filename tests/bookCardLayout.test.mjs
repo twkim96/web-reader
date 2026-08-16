@@ -110,7 +110,7 @@ test('orders list title, tags, and time while reserving a centered no-tag state'
   assert.equal(emptyTransition.getAttribute('aria-hidden'), 'true');
 });
 
-test('limits reader book information to five catalog tags after genre', () => {
+test('keeps every catalog tag in book information after genre', () => {
   const catalog = {
     ...props.catalog,
     tags: Array.from({ length: 7 }, (_, index) => ({
@@ -122,6 +122,44 @@ test('limits reader book information to five catalog tags after genre', () => {
 
   assert.deepEqual(
     getVisibleBookInfoCatalogTags(catalog).map(({ label }) => label),
-    ['태그1', '태그2', '태그3', '태그4', '태그5'],
+    ['태그1', '태그2', '태그3', '태그4', '태그5', '태그6', '태그7'],
   );
+});
+
+test('limits shelf list tags to five and reports the remainder', () => {
+  const catalog = {
+    ...props.catalog,
+    tags: Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1,
+      label: `태그${index + 1}`,
+      titleCount: 100 - index,
+    })),
+  };
+
+  const document = renderCard('list', catalog);
+  const tags = document.querySelector('[data-shelf-book-tags="true"]');
+  assert.ok(tags);
+  assert.match(tags.textContent, /태그1/);
+  assert.match(tags.textContent, /태그5/);
+  assert.doesNotMatch(tags.textContent, /태그6|태그7/);
+  assert.match(tags.textContent, /\+2/);
+});
+
+test('keeps shelf grid tags compact', () => {
+  const catalog = {
+    ...props.catalog,
+    tags: Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1,
+      label: `태그${index + 1}`,
+      titleCount: 100 - index,
+    })),
+  };
+
+  const document = renderCard('grid', catalog);
+  const tags = document.querySelector('[data-shelf-book-tags="true"]');
+  assert.ok(tags);
+  assert.match(tags.textContent, /태그1/);
+  assert.match(tags.textContent, /태그2/);
+  assert.doesNotMatch(tags.textContent, /태그3|태그4|태그5|태그6|태그7/);
+  assert.match(tags.textContent, /\+5/);
 });
