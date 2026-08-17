@@ -52,6 +52,8 @@ const database = (uid = 'alice') => environment
 
 const publicBookMetadataPath = 'publicBookMetadataV1/ab';
 const publicBookCatalogPath = 'publicBookCatalogIndexV1/manifest';
+const publicBookOnDemandPath = `publicBookMetadataOnDemandV1/${'a'.repeat(64)}`;
+const publicBookDeltaPath = 'publicBookCatalogDeltaV1/manifest';
 
 const validPublicBookMetadata = () => ({
   schemaVersion: 1,
@@ -92,16 +94,35 @@ test('allows public catalog point reads but blocks list and client writes', asyn
   await assertFails(deleteDoc(doc(database(), publicBookCatalogPath)));
 });
 
+test('allows on-demand metadata and delta point reads but blocks list and client writes', async () => {
+  const value = { schemaVersion: 1 };
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), publicBookOnDemandPath), value);
+    await setDoc(doc(context.firestore(), publicBookDeltaPath), value);
+  });
+  for (const [path, collectionName] of [
+    [publicBookOnDemandPath, 'publicBookMetadataOnDemandV1'],
+    [publicBookDeltaPath, 'publicBookCatalogDeltaV1'],
+  ]) {
+    await assertSucceeds(getDoc(doc(environment.unauthenticatedContext().firestore(), path)));
+    await assertFails(getDocs(collection(database(), collectionName)));
+    await assertFails(setDoc(doc(database(), path), value));
+    await assertFails(deleteDoc(doc(database(), path)));
+  }
+});
+
 test('keeps the point-read catalog collection exempt from automatic field indexes', async () => {
   const config = JSON.parse(await readFile('firestore.indexes.json', 'utf8'));
-  assert.deepEqual(config, {
-    indexes: [],
-    fieldOverrides: [{
-      collectionGroup: 'publicBookCatalogIndexV1',
-      fieldPath: '*',
-      indexes: [],
-    }],
-  });
+  assert.deepEqual(config.indexes, []);
+  assert.deepEqual(config.fieldOverrides.map(({ collectionGroup }) => collectionGroup), [
+    'publicBookCatalogIndexV1',
+    'publicBookCatalogDeltaV1',
+    'publicBookMetadataOnDemandV1',
+  ]);
+  for (const override of config.fieldOverrides) {
+    assert.equal(override.fieldPath, '*');
+    assert.deepEqual(override.indexes, []);
+  }
 });
 
 const progressPath = (uid = 'alice') => (

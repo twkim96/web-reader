@@ -1759,6 +1759,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           theme={theme}
           catalog={readerCatalog.booksById.get(book.id)}
           catalogState={readerCatalog.state}
+          onCatalogRefresh={readerCatalog.retry}
           showManagementActions={false}
           onClose={() => setShowBookInfo(false)}
         />

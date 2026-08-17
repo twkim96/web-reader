@@ -123,7 +123,9 @@ export const Shelf: React.FC<ShelfProps> = ({
     filters,
   );
   const filterKey = getShelfFilterKey(filters);
-  const catalogGeneration = catalog.snapshot?.manifest.generation ?? catalog.state;
+  const catalogGeneration = catalog.snapshot
+    ? `${catalog.snapshot.manifest.generation}:${catalog.snapshot.deltaGeneration ?? 'base'}`
+    : catalog.state;
   const paginationInputsRef = useRef({
     books,
     isOfflineMode,
@@ -514,6 +516,7 @@ export const Shelf: React.FC<ShelfProps> = ({
           theme={theme}
           catalog={catalog.booksById.get(selectedBookInfo.id)}
           catalogState={catalog.state}
+          onCatalogRefresh={catalog.retry}
           isDeleting={isDeletingBook}
           onOpen={(book) => {
             if (isDeletingBook) return;

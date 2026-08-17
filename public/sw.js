@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.14: add the compact public catalog and unified shelf filtering.
+// 1.8.15: add server-side on-demand metadata crawling and catalog delta merge.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.14`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.15`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

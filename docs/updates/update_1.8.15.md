@@ -2,13 +2,13 @@
 
 작성일: 2026-08-17
 
-기준 커밋: `29d1bec`
+기준 커밋: `4a78b3a`
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 이전 버전: [update_1.8.14.md](./update_1.8.14.md)
 
-상태: 계획 수립 완료, 구현 대기
+상태: 구현·full gate·Firebase Rules/index 배포와 live get/list 경계 확인 완료. Vercel Admin credential 등록, commit/push와 public-only production acceptance 대기
 
 ## 목표
 
@@ -103,11 +103,10 @@ base `publicBookCatalogIndexV1`은 1.8.14 형식 그대로 보존한다. 요청 
 
 ```text
 publicBookCatalogDeltaV1/manifest
-publicBookCatalogDeltaV1/{generation}_alias_*
-publicBookCatalogDeltaV1/{generation}_catalog_*
+publicBookCatalogDeltaV1/{generation}_delta_0..f
 ```
 
-- delta는 on-demand 원본 전체에서 deterministic하게 다시 만들고 manifest-last CAS로 전환한다.
+- delta는 직전 검증 generation에 요청 결과 한 건을 deterministic하게 overlay하고 manifest-last CAS로 전환한다. manifest가 없는 복구 작업에서만 on-demand 원본 전체를 다시 읽는다.
 - client는 base catalog를 검증한 뒤 delta를 검증·merge한다. 같은 alias는 delta가 base record를 대체한다.
 - tag dictionary는 label 기준으로 합치고 overridden base record의 기존 tag count를 먼저 빼서 distinct title count를 이중 계산하지 않는다.
 - delta publish가 실패하면 기존 manifest는 유지한다. per-title 원본의 `publishPending` 상태를 다음 요청 또는 관리 재시도로 복구한다.
@@ -175,7 +174,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase A — 계약·fixture·위험 검증
 
-상태: 대기
+상태: 로컬 완료, Vercel Preview egress 증거 대기
 
 1. 세 플랫폼의 현재 공개 응답을 개인정보 없는 fixture로 고정한다.
 2. title normalize, exact/author match, ambiguous rejection, count/tag normalize 계약을 TypeScript 테스트로 먼저 작성한다.
@@ -190,7 +189,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase B — server auth·API 골격
 
-상태: 대기
+상태: 구현·typecheck·production build 완료
 
 주요 영역:
 
@@ -213,7 +212,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase C — 공개 platform crawler
 
-상태: 대기
+상태: fixture와 로컬 공개 egress 구현 완료, Vercel Preview/Production 표본 대기
 
 1. Series, Kakao, NovelPia crawler와 공통 result validator를 구현한다.
 2. 세 플랫폼을 병렬 실행하되 플랫폼 내부 search/detail 순서는 유지한다.
@@ -229,7 +228,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase D — lease·결과 저장·rate limit
 
-상태: 대기
+상태: 구현·Rules emulator·production Rules/index 배포 완료
 
 1. alias deterministic key와 request transaction을 구현한다.
 2. fresh cache, active lease, stale lease takeover, daily user quota와 global cooldown을 분리한다.
@@ -245,7 +244,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase E — compact delta·client merge
 
-상태: 대기
+상태: 구현·checksum/override/rerank 테스트 완료, production generation 요청 검증 대기
 
 1. on-demand 원본에서 deterministic delta shard와 checksum을 생성한다.
 2. immutable create/readback 후 manifest-last CAS로 전환한다.
@@ -262,7 +261,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase F — 요청 UI·상태
 
-상태: 대기
+상태: shared shelf/reader 구현·build 완료, production 실제 UI 대기
 
 1. shared `BookInfoModal`의 장르·태그 section을 catalog missing/empty/loading/error 상태별로 정리한다.
 2. raw tag가 0개이고 catalog loading이 끝난 도서에만 요청 버튼을 표시한다.
@@ -278,7 +277,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase G — optional auth provider
 
-상태: 대기
+상태: 구현·env 완전성 테스트 완료, 실제 credential acceptance는 별도 대기
 
 1. credential이 모두 있을 때만 생성되는 optional auth provider를 public crawler에서 분리한다.
 2. env 완전성 검사, login/CAPTCHA/adult mode/session verification을 구현한다.
@@ -295,7 +294,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase H — release·production acceptance
 
-상태: 대기
+상태: Rules/index 선배포 완료, Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` production secret 미등록으로 application 배포 대기
 
 1. Firestore Rules/index를 먼저 배포하고 live deny/get 경계를 확인한다.
 2. public-only 상태로 Vercel production을 배포한다.
@@ -367,15 +366,33 @@ git diff --check
 
 ## 구현 결과
 
-구현 후 기록한다.
+- `src/app/api/book-metadata/refresh/route.ts`에 Node.js 60초 server route를 추가했다. JSON body와 Bearer token을 제한하고 Firebase Admin ID token 검증 뒤에만 crawler와 Firestore transaction을 실행한다.
+- browser가 검색 제목을 임의로 alias와 조합할 수 없도록 요청 body는 `fileName`만 허용한다. 서버가 filename에서 기본 제목을 만들고, 기존 `publicBookMetadataV1`에 같은 alias의 검증된 display/platform title이 있을 때만 그 제목을 우선한다.
+- `src/server/bookMetadata`에 NFKC/exact-title normalizer, count/tag 정규화, 세 플랫폼 parser와 fixed-host bounded fetch를 구현했다. 세 플랫폼은 병렬이고 각 8초, 전체 22초 timeout이며 timeout·429·5xx만 bounded retry한다.
+- Series는 검색 HTML과 detail 장르·다운로드, Kakao는 category 11 BFF search/overview/about와 고정 Origin·Referer, NovelPia는 public search와 detail tag fallback을 사용한다. 동일 exact-title 후보가 복수면 `ambiguous`로 fail closed한다.
+- NovelPia password auth provider는 `NOVELPIA_EMAIL`과 `NOVELPIA_PASSWORD`가 모두 있을 때만 생성한다. login, CAPTCHA 확인, adult mode/session 검증을 통과한 request-local cookie session만 public miss fallback에 사용한다. env가 없거나 하나만 있으면 provider 자체를 만들지 않는다.
+- `publicBookMetadataOnDemandV1`, 내부 lease/quota collection, `publicBookCatalogDeltaV1`을 추가했다. alias lease, 7일 authoritative cache, 1분 cooldown, uid당 일 20회 quota를 transaction으로 구분한다.
+- delta는 16개 immutable shard의 SHA-256 checksum과 900KB ceiling을 검증하고 readback 뒤 manifest CAS를 수행한다. 실패한 per-title 결과는 `publishPending`으로 남고 다음 cache hit에서 재게시한다.
+- client는 base catalog를 유지한 채 delta alias를 overlay한다. tag/genre dictionary를 label 기준으로 합치고 overridden base title count를 빼며, base+delta 전체 raw source count로 midrank와 통합 인기점수를 다시 계산한다.
+- shared `BookInfoModal`에 tag 0개일 때만 요청 버튼과 loading/ready/not-found/ambiguous/busy/quota/offline/login/error 상태를 추가했다. 성공 후 shelf와 reader hook을 재조회하므로 정보창 전체 tag, list 5개, grid 2개, 검색·필터·인기순이 같은 merged snapshot을 쓴다.
+- `firebase-admin`을 server dependency로 추가했고 package, lockfile, Service Worker와 Foliate runtime release version을 1.8.15로 맞췄다.
 
 ## 자동검증 결과
 
-구현 후 기록한다.
+- 개인정보 없는 Series/Kakao/NovelPia fixture를 `tests/fixtures/bookMetadata`에 고정했다.
+- `bookMetadataRequest.test.mjs`: title identity 기호 보존, ambiguous rejection, 요청 body allowlist, optional auth env 완전성, 세 parser shape, 결과 상태를 검증한다.
+- `publicBookCatalogDelta.test.mjs`: manifest/shard bounds, base alias override, tag count 차감·추가와 popularity rerank를 검증한다.
+- `firestoreRules.test.mjs`: on-demand/delta의 public point-get 허용과 list/write/delete 거부, field index exemption을 emulator에서 확인했다.
+- 2026-08-17 로컬 공개 probe에서 세 고정 endpoint가 응답했고 `화산귀환` Series 복수 exact 후보가 `ambiguous`로 거부됐다. 이 결과는 Vercel egress 증거가 아니므로 Phase A production 항목은 열어 둔다.
+- 통과: `npm run lint`, `npm run typecheck`, `npm run test:shelf` 101건, `npm run test:shelf-ui` 6건, `npm run test:rules` 32건, `npm run build`.
+- 최종 로컬 후보에서 `npm run check:full`이 통과했다. Node/unit/publisher/SW/release, Rules emulator 32건, Playwright Chromium+WebKit 20건과 browser regression을 포함한다.
+- 2026-08-17 `web-novel-viewer`에 Rules/index를 선배포했다. 기존 catalog manifest 공개 get은 200, 아직 없는 delta/on-demand point-get은 404, delta collection list는 403으로 확인했다.
 
 ## 실기기 검증 결과
 
-구현 후 기록한다.
+- 아직 production에 게시하지 않았다. Vercel `twreader` 환경변수 이름 검색에서 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`이 없음을 확인했다.
+- 공개 crawler에는 NovelPia 계정 env가 필요 없지만 Firestore 서버 쓰기와 ID token 검증에는 Firebase Admin credential이 필요하다. secret 등록·재배포 전에는 실제 요청 버튼 acceptance를 완료 처리하지 않는다.
+- PC production, Android Chrome, iPad Safari와 설치형 PWA 증거는 배포 뒤 기록한다.
 
 ## 보류·후속 버전
 

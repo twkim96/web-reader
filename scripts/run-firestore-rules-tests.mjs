@@ -28,7 +28,7 @@ const result = spawnSync(firebaseBinary, [
   'firestore',
   '--project',
   'demo-web-reader',
-  'node --import tsx --test tests/firestoreRules.test.mjs',
+  'node --import tsx --test tests/firestoreRules.test.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookMetadataStoreEmulator.test.mjs',
 ], { env, stdio: 'inherit' });
 
 rmSync(resolve('firestore-debug.log'), { force: true });

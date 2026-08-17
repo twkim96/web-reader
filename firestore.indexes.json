@@ -5,6 +5,16 @@
       "collectionGroup": "publicBookCatalogIndexV1",
       "fieldPath": "*",
       "indexes": []
+    },
+    {
+      "collectionGroup": "publicBookCatalogDeltaV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "publicBookMetadataOnDemandV1",
+      "fieldPath": "*",
+      "indexes": []
     }
   ]
 }

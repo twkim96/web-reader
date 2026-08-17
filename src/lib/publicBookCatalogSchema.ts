@@ -76,6 +76,7 @@ export type PublicBookCatalogSnapshot = {
   tags: Map<number, PublicBookCatalogTag>;
   genres: Map<number, string>;
   popularTags: PublicBookCatalogTag[];
+  deltaGeneration?: string;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> => (

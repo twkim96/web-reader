@@ -11,6 +11,11 @@ import {
   type PublicBookCatalogSnapshot,
   type PublicBookCatalogTag,
 } from './publicBookCatalogSchema.ts';
+import {
+  loadPublicBookCatalogDelta,
+  mergePublicBookCatalogDelta,
+  PUBLIC_BOOK_CATALOG_DELTA_COLLECTION,
+} from './publicBookCatalogDelta.ts';
 
 export type {
   PublicBookCatalogBook,
@@ -59,6 +64,17 @@ const defaultFirestoreApi: PublicBookCatalogFirestoreApi = {
       PUBLIC_BOOK_CATALOG_COLLECTION,
       documentId,
     ));
+  },
+};
+
+const defaultDeltaFirestoreApi = {
+  getFromServer: async (documentId: string) => {
+    const { db, firestore } = await getFirestoreRuntime();
+    return firestore.getDocFromServer(firestore.doc(db, PUBLIC_BOOK_CATALOG_DELTA_COLLECTION, documentId));
+  },
+  getFromCache: async (documentId: string) => {
+    const { db, firestore } = await getFirestoreRuntime();
+    return firestore.getDocFromCache(firestore.doc(db, PUBLIC_BOOK_CATALOG_DELTA_COLLECTION, documentId));
   },
 };
 
@@ -122,10 +138,12 @@ const loadGenerationDocument = async (
 };
 
 let memorySnapshot: PublicBookCatalogSnapshot | null = null;
+let baseMemorySnapshot: PublicBookCatalogSnapshot | null = null;
 let loadPromise: Promise<PublicBookCatalogSnapshot> | null = null;
 
 export const resetPublicBookCatalogMemoryForTests = () => {
   memorySnapshot = null;
+  baseMemorySnapshot = null;
   loadPromise = null;
 };
 
@@ -135,8 +153,15 @@ export const loadPublicBookCatalog = async (
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
     const manifest = await loadManifest(api);
-    if (memorySnapshot?.manifest.generation === manifest.generation) {
-      return memorySnapshot;
+    if (baseMemorySnapshot?.manifest.generation === manifest.generation) {
+      if (api !== defaultFirestoreApi) return baseMemorySnapshot;
+      try {
+        memorySnapshot = mergePublicBookCatalogDelta(baseMemorySnapshot, await loadPublicBookCatalogDelta(defaultDeltaFirestoreApi));
+        return memorySnapshot;
+      } catch (error) {
+        console.warn('[PublicBookCatalog] delta refresh failed; retaining current snapshot', error);
+        return memorySnapshot ?? baseMemorySnapshot;
+      }
     }
     const documentIds = [
       ...manifest.aliasDocuments,
@@ -205,7 +230,7 @@ export const loadPublicBookCatalog = async (
         || left.label.localeCompare(right.label, 'ko-KR')
         || left.id - right.id
       ));
-    memorySnapshot = {
+    const baseSnapshot: PublicBookCatalogSnapshot = {
       manifest,
       aliases,
       records,
@@ -213,6 +238,17 @@ export const loadPublicBookCatalog = async (
       genres,
       popularTags,
     };
+    baseMemorySnapshot = baseSnapshot;
+    if (api !== defaultFirestoreApi) {
+      memorySnapshot = baseSnapshot;
+      return baseSnapshot;
+    }
+    try {
+      memorySnapshot = mergePublicBookCatalogDelta(baseSnapshot, await loadPublicBookCatalogDelta(defaultDeltaFirestoreApi));
+    } catch (error) {
+      console.warn('[PublicBookCatalog] delta load failed; using base catalog', error);
+      memorySnapshot = baseSnapshot;
+    }
     return memorySnapshot;
   })();
   try {

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, Trash2, X } from 'lucide-react';
+import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2, X } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -17,6 +17,7 @@ import {
 } from './bookUtils';
 import {
   loadPublicBookMetadata,
+  requestPublicBookMetadataRefresh,
   type PublicBookMetadata,
   type PublicBookPlatformMetadata,
 } from '../../lib/publicBookMetadata';
@@ -39,6 +40,7 @@ type Props = {
   onOpen?: (book: Book) => void;
   onDelete?: () => Promise<void>;
   onDeleteLocalCopy?: () => Promise<void>;
+  onCatalogRefresh?: () => void;
   onClose: () => void;
 };
 
@@ -92,6 +94,7 @@ export const BookInfoModal: React.FC<Props> = ({
   onOpen,
   onDelete,
   onDeleteLocalCopy,
+  onCatalogRefresh,
   onClose,
 }) => {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -100,9 +103,11 @@ export const BookInfoModal: React.FC<Props> = ({
   const [deleteFeedback, setDeleteFeedback] = useState('');
   const [metadata, setMetadata] = useState<PublicBookMetadata | null>(null);
   const [metadataState, setMetadataState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
+  const [requestState, setRequestState] = useState<'idle' | 'requesting' | 'ready' | 'not-found' | 'ambiguous' | 'busy' | 'quota' | 'offline' | 'login-required' | 'error'>('idle');
   const [readingTimeMs, setReadingTimeMs] = useState<number | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const captureRef = useRef<HTMLDivElement>(null);
+  const metadataRequestSequenceRef = useRef(0);
   useBodyScrollLock();
 
   useEffect(() => {
@@ -171,6 +176,38 @@ export const BookInfoModal: React.FC<Props> = ({
     : 'Google Drive';
   const progressPercent = Math.min(100, Math.max(0, progress?.progressPercent ?? 0));
   const visibleCatalogTags = getVisibleBookInfoCatalogTags(catalog);
+  const hasRawCatalogTags = visibleCatalogTags.length > 0;
+  const requestMetadata = useCallback(async () => {
+    const sequence = ++metadataRequestSequenceRef.current;
+    if (!navigator.onLine) {
+      setRequestState('offline');
+      return;
+    }
+    setRequestState('requesting');
+    try {
+      const result = await requestPublicBookMetadataRefresh(book.name);
+      if (sequence !== metadataRequestSequenceRef.current) return;
+      if (result.metadata) {
+        setMetadata(result.metadata);
+        setMetadataState('ready');
+      }
+      if (result.status === 'ready') {
+        setRequestState('ready');
+        onCatalogRefresh?.();
+      } else if (result.status === 'ambiguous') setRequestState('ambiguous');
+      else if (result.status === 'not-found') setRequestState('not-found');
+      else if (result.status === 'busy') setRequestState('busy');
+      else if (result.status === 'quota' || result.status === 'cooldown') setRequestState('quota');
+      else setRequestState('error');
+    } catch (error) {
+      if (sequence !== metadataRequestSequenceRef.current) return;
+      setRequestState(error instanceof Error && error.message === 'login-required' ? 'login-required' : 'error');
+    }
+  }, [book.name, onCatalogRefresh]);
+
+  useEffect(() => () => {
+    metadataRequestSequenceRef.current += 1;
+  }, [book.name]);
   const formatMetric = (value: number | null) => value === null
     ? null
     : new Intl.NumberFormat('ko-KR', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -393,14 +430,17 @@ export const BookInfoModal: React.FC<Props> = ({
               </div>
             </div>
 
-            {(catalog || catalogState === 'loading') && (
-              <section
-                data-book-catalog-tags="true"
-                className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}
-                aria-labelledby="book-catalog-tags-title"
-              >
-                <h4 id="book-catalog-tags-title" className="text-xs font-black sm:text-sm">장르·태그</h4>
-                {catalog ? (
+            <section
+              data-book-catalog-tags="true"
+              className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}
+              aria-labelledby="book-catalog-tags-title"
+            >
+              <h4 id="book-catalog-tags-title" className="text-xs font-black sm:text-sm">장르·태그</h4>
+              {catalogState === 'loading' && !catalog ? (
+                <p role="status" className="py-2 text-[10px] opacity-40">장르·태그를 불러오는 중…</p>
+              ) : (
+                <>
+                  {catalog && (catalog.genreLabel || visibleCatalogTags.length > 0) && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {catalog.genreLabel && (
                       <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-black text-accent-500">
@@ -417,11 +457,36 @@ export const BookInfoModal: React.FC<Props> = ({
                       </span>
                     ))}
                   </div>
-                ) : (
-                  <p role="status" className="py-2 text-[10px] opacity-40">장르·태그를 불러오는 중…</p>
-                )}
-              </section>
-            )}
+                  )}
+                  {!hasRawCatalogTags && (
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <p role="status" className="text-[10px] opacity-45">
+                      {requestState === 'requesting' && '플랫폼에서 메타데이터를 확인하는 중…'}
+                      {requestState === 'ready' && '메타데이터를 반영했습니다.'}
+                      {requestState === 'not-found' && '공개 검색에서 찾지 못함 · 성인 인증 작품일 수 있음'}
+                      {requestState === 'ambiguous' && '동일 제목 작품이 여러 개라 자동 반영하지 않았습니다.'}
+                      {requestState === 'busy' && '같은 작품을 확인 중입니다. 잠시 뒤 다시 시도해 주세요.'}
+                      {requestState === 'quota' && '요청 간격 또는 오늘의 요청 한도에 도달했습니다.'}
+                      {requestState === 'offline' && '온라인 상태에서 요청할 수 있습니다.'}
+                      {requestState === 'login-required' && '로그인 후 요청할 수 있습니다.'}
+                      {requestState === 'error' && '요청하지 못했습니다. 잠시 뒤 다시 시도해 주세요.'}
+                      {requestState === 'idle' && '등록된 태그가 없습니다.'}
+                    </p>
+                    <button
+                      type="button"
+                      data-book-metadata-request="true"
+                      disabled={requestState === 'requesting'}
+                      onClick={() => void requestMetadata()}
+                      className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-accent-500/12 px-3 text-[10px] font-black text-accent-500 disabled:opacity-45"
+                    >
+                      <RefreshCw size={12} className={requestState === 'requesting' ? 'animate-spin' : ''} />
+                      {requestState === 'requesting' ? '확인 중' : '메타데이터 요청'}
+                    </button>
+                  </div>
+                  )}
+                </>
+              )}
+            </section>
 
             <section className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`} aria-labelledby="book-platform-metadata-title">
               <div className="flex items-center justify-between gap-2">

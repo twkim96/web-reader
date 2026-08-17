@@ -14,6 +14,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /publicBookMetadataOnDemandV1/{aliasId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    match /publicBookCatalogDeltaV1/{documentId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
     function owns(uid) {
       return request.auth != null && request.auth.uid == uid;
     }
