@@ -50,6 +50,9 @@ test('parses bounded refresh requests and deterministic aliases', () => {
   assert.equal(parseBookMetadataRefreshRequest({ fileName: '' }), null);
   assert.equal(parseBookMetadataRefreshRequest({ fileName: 'x', title: '다른 작품' }), null);
   assert.equal(parseBookMetadataRefreshRequest({ fileName: 'x', url: 'https://example.com' }), null);
+  const ranged = parseBookMetadataRefreshRequest({ fileName: '회귀로 바로잡다 1-472.epub' });
+  assert.equal(ranged.queryTitle, '회귀로 바로잡다');
+  assert.equal(ranged.aliasId.length, 64);
 });
 
 test('NovelPia authentication is enabled only when both secrets exist', () => {

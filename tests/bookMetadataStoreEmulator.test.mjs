@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 import {
   acquireMetadataLease,
+  BOOK_METADATA_CRAWLER_VERSION,
   buildOnDemandMetadata,
   saveMetadataAndPublish,
 } from '../src/server/bookMetadata/store.ts';
@@ -73,4 +74,30 @@ test('stale leases can be reclaimed and the daily quota fails closed', async () 
   }
   assert.equal(results.filter(({ kind }) => kind === 'acquired').length, 20);
   assert.equal(results[20].kind, 'quota');
+});
+
+test('a corrected query and crawler version replace a fresh legacy not-found cache', async () => {
+  const aliasId = alias(300);
+  const now = 3_000_000;
+  await db.collection('publicBookMetadataOnDemandV1').doc(aliasId).set({
+    schemaVersion: 1,
+    aliasId,
+    canonicalKey: alias(301),
+    queryTitle: '회귀로 바로잡다 1-472',
+    status: 'not-found',
+    platforms: [],
+    platformStatuses: [],
+    crawledAt: new Date(now - 1_000).toISOString(),
+    nextRefreshAt: new Date(now + 60_000).toISOString(),
+    crawlerVersion: 'web-reader-1.8.15-v1',
+    publishPending: false,
+  });
+  await db.collection('bookMetadataRequestStateV1').doc(aliasId).set({
+    schemaVersion: 1, owner: null, leaseUntil: 0, lastStartedAt: now - 1_000,
+  });
+  const refreshed = await acquireMetadataLease(db, aliasId, 'alice', now, {
+    queryTitle: '회귀로 바로잡다',
+    crawlerVersion: BOOK_METADATA_CRAWLER_VERSION,
+  });
+  assert.equal(refreshed.kind, 'acquired');
 });

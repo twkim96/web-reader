@@ -1,5 +1,6 @@
 import { normalizePlatformTitle, sha256 } from './domain.ts';
 import { normalizePublicBookMetadataAlias } from '../../lib/publicBookMetadataSchema.ts';
+import { extractReadableTitle } from '../../vendor/fileCheckTitleNormalizer.js';
 
 export type BookMetadataRefreshRequest = {
   fileName: string;
@@ -12,7 +13,7 @@ export const parseBookMetadataRefreshRequest = (value: unknown) => {
   const { fileName } = record;
   if (typeof fileName !== 'string' || fileName.length < 1 || fileName.length > 1000) return null;
   const alias = normalizePublicBookMetadataAlias(fileName);
-  const queryTitle = fileName.replace(/\.(?:epub|txt|pdf|zip|cbz|7z)$/i, '')
+  const queryTitle = extractReadableTitle(fileName)
     .normalize('NFKC').replace(/\s+/g, ' ').trim();
   if (!alias || !normalizePlatformTitle(queryTitle)) return null;
   return {

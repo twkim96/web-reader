@@ -153,6 +153,8 @@ interface PlatformAuthProvider {
 - 정확 alias가 없을 때만 `file_check/extension/normalizer.js` 1.3.3의 실제 `extractCoreTitle()` 규칙으로 만든 core-title alias를 한 번 더 조회한다. 권수·회차 범위와 완결 표기뿐 아니라 제목 보호 문법, 괄호·작성자·접두 노이즈, 전각 구두점 같은 기존 다양한 경우의 수를 함께 적용한다.
 - 따라서 `주인공이 되기 위해 네토리합니다 1-231`처럼 게시 당시 관측 파일명의 `완` 표기만 다른 도서도 기존 canonical 작품에 자동 조인된다.
 - 숫자가 실제 제목인 경우를 보호하기 위해 제목 앞부분이 비지 않는 뒤쪽 메타데이터만 제거하고, 원본 alias가 있으면 fallback보다 우선한다.
+- 요청 crawler의 기본 query도 같은 1.3.3 `extractReadableTitle()`을 사용한다. 파일명 alias는 원본 파일 식별자로 유지하되 `회귀로 바로잡다 1-472`는 플랫폼에 `회귀로 바로잡다`로 검색한다.
+- query title 또는 crawler version이 달라진 fresh `not-found/ambiguous` 캐시는 재사용하지 않고 cooldown을 한 번 우회해 수정된 수집기로 교체한다.
 
 계정명만 추가해서는 부족하다. 현재 참고 로직의 password login을 사용할 경우 다음 두 값을 server-only로 사용한다.
 

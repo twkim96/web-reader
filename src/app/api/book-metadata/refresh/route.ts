@@ -5,6 +5,7 @@ import { crawlPublicBookMetadata } from '../../../../server/bookMetadata/crawler
 import { parseBookMetadataRefreshRequest, withTrustedQueryTitle } from '../../../../server/bookMetadata/requestSchema';
 import {
   acquireMetadataLease,
+  BOOK_METADATA_CRAWLER_VERSION,
   buildOnDemandMetadata,
   recoverPendingCatalogPublication,
   saveMetadataAndPublish,
@@ -55,7 +56,10 @@ export async function POST(request: Request) {
       ? (trustedEntry.platforms[0] as Record<string, unknown>).title
       : null;
   const input = withTrustedQueryTitle(parsedInput, trustedTitle);
-  const lease = await acquireMetadataLease(db, input.aliasId, uid);
+  const lease = await acquireMetadataLease(db, input.aliasId, uid, Date.now(), {
+    queryTitle: input.queryTitle,
+    crawlerVersion: BOOK_METADATA_CRAWLER_VERSION,
+  });
   if (lease.kind === 'cached') {
     let document = lease.document;
     let generation = null;

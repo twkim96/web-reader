@@ -4,6 +4,7 @@ import { canonicalGenre, sha256, type OnDemandMetadata, type PlatformCrawlResult
 import { BOOK_METADATA_LIMITS } from './config.ts';
 
 const SOURCE_BITS = { series: 1, kakao: 2, novelpia: 4 } as const;
+export const BOOK_METADATA_CRAWLER_VERSION = 'web-reader-1.8.15-v2';
 
 export type LeaseResult =
   | { kind: 'cached'; document: OnDemandMetadata }
@@ -21,11 +22,20 @@ const isFresh = (value: unknown, now: number): value is OnDemandMetadata => {
     && (record.status === 'ready' || record.status === 'not-found' || record.status === 'ambiguous');
 };
 
+const matchesCacheIdentity = (
+  value: OnDemandMetadata,
+  expected?: { queryTitle: string; crawlerVersion: string },
+) => !expected || (
+  value.queryTitle === expected.queryTitle
+  && value.crawlerVersion === expected.crawlerVersion
+);
+
 export const acquireMetadataLease = async (
   db: Firestore,
   aliasId: string,
   uid: string,
   now = Date.now(),
+  expected?: { queryTitle: string; crawlerVersion: string },
 ): Promise<LeaseResult> => {
   const owner = randomUUID();
   const sourceRef = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
@@ -39,12 +49,19 @@ export const acquireMetadataLease = async (
       transaction.get(quotaRef),
     ]);
     const sourceData = source.data();
-    if (source.exists && isFresh(sourceData, now)) return { kind: 'cached', document: sourceData };
+    const freshSource = source.exists && isFresh(sourceData, now) ? sourceData : null;
+    if (freshSource && matchesCacheIdentity(freshSource, expected)) {
+      return { kind: 'cached', document: freshSource };
+    }
+    const replacesMismatchedFreshCache = Boolean(freshSource && expected);
     const leaseData = lease.data() as Record<string, unknown> | undefined;
     const leaseUntil = typeof leaseData?.leaseUntil === 'number' ? leaseData.leaseUntil : 0;
     if (leaseUntil > now) return { kind: 'busy' };
     const lastStartedAt = typeof leaseData?.lastStartedAt === 'number' ? leaseData.lastStartedAt : 0;
-    if (lastStartedAt + BOOK_METADATA_LIMITS.aliasCooldownMs > now) return { kind: 'cooldown' };
+    if (
+      !replacesMismatchedFreshCache
+      && lastStartedAt + BOOK_METADATA_LIMITS.aliasCooldownMs > now
+    ) return { kind: 'cooldown' };
     const quotaData = quota.data() as Record<string, unknown> | undefined;
     const count = typeof quotaData?.count === 'number' ? quotaData.count : 0;
     if (count >= BOOK_METADATA_LIMITS.dailyUserLimit) return { kind: 'quota' };
@@ -96,7 +113,7 @@ export const buildOnDemandMetadata = (
     })),
     crawledAt: new Date(now).toISOString(),
     nextRefreshAt: new Date(now + cacheMs).toISOString(),
-    crawlerVersion: 'web-reader-1.8.15-v1',
+    crawlerVersion: BOOK_METADATA_CRAWLER_VERSION,
     publishPending: status === 'ready',
   };
 };

@@ -757,6 +757,7 @@ type Annotation = {
 - per-title Firestore 원본과 immutable compact delta generation·manifest-last CAS
 - base + delta merge 후 정보창 전체 tag, list 5개, grid 2개와 필터·검색·인기순 갱신
 - exact alias 우선, vendored `file_check` 1.3.3 core-title alias fallback 자동 매칭
+- 요청 crawler query에도 1.3.3 readable title을 사용하고 query/version 불일치 legacy 실패 캐시는 재수집
 - 별도 mode 없이 email/password 존재 여부만 보는 optional NovelPia auth provider
 - credential·cookie·원격 응답 redaction과 client bundle secret audit
 
