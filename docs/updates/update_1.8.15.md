@@ -294,13 +294,13 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase H — release·production acceptance
 
-상태: Rules/index 선배포 완료, Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` production secret 미등록으로 application 배포 대기
+상태: Rules/index 선배포와 Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` sensitive env 등록 완료, application 배포·production acceptance 대기
 
 1. Firestore Rules/index를 먼저 배포하고 live deny/get 경계를 확인한다.
 2. public-only 상태로 Vercel production을 배포한다.
 3. Series/Kakao/NovelPia 성공, tag empty, not-found, ambiguous와 timeout 표본을 실제 정보창에서 확인한다.
 4. request 완료 후 정보창·list/grid·filter/search·인기순과 재실행 cache를 대조한다.
-5. credential activation은 사용자가 Vercel sensitive env를 별도로 추가한 뒤 새 deployment에서 독립 acceptance한다.
+5. 최소권한 Firebase Admin credential은 Vercel Production·Preview에 sensitive env로 등록하고 새 deployment에서 독립 acceptance한다.
 
 ## 자동검증 계획
 
@@ -376,6 +376,8 @@ git diff --check
 - client는 base catalog를 유지한 채 delta alias를 overlay한다. tag/genre dictionary를 label 기준으로 합치고 overridden base title count를 빼며, base+delta 전체 raw source count로 midrank와 통합 인기점수를 다시 계산한다.
 - shared `BookInfoModal`에 tag 0개일 때만 요청 버튼과 loading/ready/not-found/ambiguous/busy/quota/offline/login/error 상태를 추가했다. 성공 후 shelf와 reader hook을 재조회하므로 정보창 전체 tag, list 5개, grid 2개, 검색·필터·인기순이 같은 merged snapshot을 쓴다.
 - `firebase-admin`을 server dependency로 추가했고 package, lockfile, Service Worker와 Foliate runtime release version을 1.8.15로 맞췄다.
+- 전용 서비스 계정에는 Cloud Datastore User와 Firebase Authentication Viewer만 부여했다. JSON key는 Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`의 Production·Preview sensitive env에 등록했고, 등록 확인 직후 로컬 다운로드 파일을 삭제했다.
+- Next.js 16.3.1, Firebase 12.17.1, Firebase Admin 14.2.0으로 올려 기존 runtime 보안 권고를 줄였다. `npm audit --omit=dev` 결과는 critical 0, high 1, moderate 6이며 남은 항목은 후속 dependency 정리 대상으로 기록한다.
 
 ## 자동검증 결과
 
@@ -385,13 +387,13 @@ git diff --check
 - `firestoreRules.test.mjs`: on-demand/delta의 public point-get 허용과 list/write/delete 거부, field index exemption을 emulator에서 확인했다.
 - 2026-08-17 로컬 공개 probe에서 세 고정 endpoint가 응답했고 `화산귀환` Series 복수 exact 후보가 `ambiguous`로 거부됐다. 이 결과는 Vercel egress 증거가 아니므로 Phase A production 항목은 열어 둔다.
 - 통과: `npm run lint`, `npm run typecheck`, `npm run test:shelf` 101건, `npm run test:shelf-ui` 6건, `npm run test:rules` 32건, `npm run build`.
-- 최종 로컬 후보에서 `npm run check:full`이 통과했다. Node/unit/publisher/SW/release, Rules emulator 32건, Playwright Chromium+WebKit 20건과 browser regression을 포함한다.
+- dependency 보안 업데이트까지 포함한 최종 로컬 후보에서 `npm run check:full`이 통과했다. Node/unit/publisher/SW/release, Rules emulator 32건과 metadata store emulator 2건, Playwright Chromium+WebKit 20건, browser regression을 포함한다.
 - 2026-08-17 `web-novel-viewer`에 Rules/index를 선배포했다. 기존 catalog manifest 공개 get은 200, 아직 없는 delta/on-demand point-get은 404, delta collection list는 403으로 확인했다.
 
 ## 실기기 검증 결과
 
-- 아직 production에 게시하지 않았다. Vercel `twreader` 환경변수 이름 검색에서 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`이 없음을 확인했다.
-- 공개 crawler에는 NovelPia 계정 env가 필요 없지만 Firestore 서버 쓰기와 ID token 검증에는 Firebase Admin credential이 필요하다. secret 등록·재배포 전에는 실제 요청 버튼 acceptance를 완료 처리하지 않는다.
+- 아직 application commit은 production에 게시하지 않았다. 다만 Vercel `twreader`에서 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`이 Sensitive·Production and Preview로 등록된 것을 확인했다.
+- 공개 crawler에는 NovelPia 계정 env가 필요 없다. Firebase Admin credential 등록은 끝났으며 새 deployment 뒤 실제 ID token·Firestore write·delta acceptance를 완료 처리한다.
 - PC production, Android Chrome, iPad Safari와 설치형 PWA 증거는 배포 뒤 기록한다.
 
 ## 보류·후속 버전
