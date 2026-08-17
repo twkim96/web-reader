@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 공개 메타데이터를 compact catalog로 확장하고 책장 통합 필터·태그 검색·출처 수치·통합 인기순을 구현했다. 1.8.14 최종 태그 계약은 grid 2개·list 5개·정보창 전체로 마감 gate를 통과했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider는 full gate와 Firebase Rules/index 선배포를 통과했고 최소권한 Admin secret도 Vercel Production·Preview에 등록했다. commit/push와 production acceptance가 남았다.
+전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 공개 메타데이터를 compact catalog로 확장하고 책장 통합 필터·태그 검색·출처 수치·통합 인기순을 구현했다. 1.8.14 최종 태그 계약은 grid 2개·list 5개·정보창 전체로 마감 gate를 통과했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider도 full gate, 최소권한 Admin secret, Rules/index, GitHub CI, Vercel production과 실제 ready/not-found·delta/cache 요청 acceptance를 마쳤다. 실제 Android/iPad/PWA 표본만 후속 확인으로 남는다.
 
 ## 1. 문서의 역할
 
@@ -78,7 +78,7 @@
 | 1.8.12 | 동기화 안정화·도서 오픈 경합 | canonical bookmark 수신·adoption-first resume·초기 pagination·foreground reconciliation·도서정보 이미지 clipboard·탭→스크롤 폭 복구 | 매우 높음 | 두 외부 리뷰 및 후속 UI/layout 수정 구현·full gate 완료, 전체 재리뷰 finding은 1.8.13으로 이관 |
 | 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·durable commit/convergence 분리·guest stale-save 방어·debug trace | 매우 높음 | `0cedf03` 재리뷰 guest/local P1까지 후속 수정·최종 full gate 완료, pending overlay 선택 보류·실기기 검증 단계 |
 | 1.8.14 | 통합 책장 필터·공개 catalog | compact generation·태그 검색·출처/장르/태그 필터·통합 인기순·grid/list metadata | 중상 | `29d1bec`까지 구현·full gate·Firebase/catalog·Vercel·GitHub CI·실제 list 5개/정보창 전체 tag 검증 완료, 실제 모바일·iPad/PWA 대기 |
-| 1.8.15 | 요청형 메타데이터 수집 | Vercel crawler·Firebase on-demand/delta·정보창 요청 UI·optional NovelPia auth provider | 높음 | full gate·Firebase Rules/index·Vercel Admin secret 완료, commit/push·production acceptance 대기 |
+| 1.8.15 | 요청형 메타데이터 수집 | Vercel crawler·Firebase on-demand/delta·정보창 요청 UI·optional NovelPia auth provider | 높음 | `21983a0` full gate·Rules/index·Admin secret·CI·Vercel production·실제 요청/delta/cache 완료, Android/iPad/PWA 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
@@ -747,7 +747,7 @@ type Annotation = {
 
 ## 1.8.15 — 요청형 메타데이터 수집
 
-상태: tag 없는 도서의 shared 정보창 요청, Vercel server crawler, Firestore on-demand 원본·16-shard compact delta, base+delta merge와 optional NovelPia auth provider를 구현했다. full gate와 `web-novel-viewer` Rules/index 선배포·live point-get/list 경계를 통과했고, 최소권한 Firebase Admin secret도 Vercel Production·Preview에 등록했다. application commit/push와 production 요청 acceptance를 대기한다. 공개 crawler는 NovelPia 계정 env 없이 동작하고 두 credential이 모두 있을 때만 인증 fallback을 만든다 — `update_1.8.15.md`
+상태: tag 없는 도서의 shared 정보창 요청, Vercel server crawler, Firestore on-demand 원본·16-shard compact delta, base+delta merge와 optional NovelPia auth provider를 구현했다. `21983a0` full gate와 `web-novel-viewer` Rules/index, 최소권한 Admin secret, GitHub CI, Vercel production, 실제 ready/not-found·delta/cache 요청 acceptance를 완료했다. 공개 crawler는 NovelPia 계정 env 없이 동작하고 두 credential이 모두 있을 때만 인증 fallback을 만든다. 실제 Android/iPad/PWA 표본은 후속 확인이다 — `update_1.8.15.md`
 
 ### 포함
 
@@ -907,5 +907,5 @@ docs/updates/update_1.8.2.md
 
 ## 12. 현재 다음 단계
 
-1. application commit/push로 새 deployment를 만들고 Vercel의 Series/Kakao/NovelPia egress, 요청 저장·delta 복원과 PC 실제 UI를 증명한다. Rules/index 선배포와 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` sensitive env 등록은 완료됐다.
-2. 실제 Android/모바일 Chrome·iPad Safari·설치형 PWA에서 1.8.14 filter 계약과 1.8.15 요청 상태·재실행을 함께 확인한다.
+1. 실제 Android/모바일 Chrome·iPad Safari·설치형 PWA에서 1.8.14 filter 계약과 1.8.15 요청 상태·재실행을 함께 확인한다.
+2. 성인 작품 인증이 필요해지면 `NOVELPIA_EMAIL`과 `NOVELPIA_PASSWORD`를 함께 sensitive env로 추가하고 CAPTCHA·adult-mode를 별도 acceptance한다. public crawler와 현재 release에는 필요 없다.

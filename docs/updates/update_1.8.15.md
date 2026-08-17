@@ -294,7 +294,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase H — release·production acceptance
 
-상태: Rules/index 선배포와 Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` sensitive env 등록 완료, application 배포·production acceptance 대기
+상태: Rules/index·최소권한 Admin secret·application push·Vercel production·실제 요청 저장/delta acceptance 완료
 
 1. Firestore Rules/index를 먼저 배포하고 live deny/get 경계를 확인한다.
 2. public-only 상태로 Vercel production을 배포한다.
@@ -389,13 +389,16 @@ git diff --check
 - 통과: `npm run lint`, `npm run typecheck`, `npm run test:shelf` 101건, `npm run test:shelf-ui` 6건, `npm run test:rules` 32건, `npm run build`.
 - dependency 보안 업데이트까지 포함한 최종 로컬 후보에서 `npm run check:full`이 통과했다. Node/unit/publisher/SW/release, Rules emulator 32건과 metadata store emulator 2건, Playwright Chromium+WebKit 20건, browser regression을 포함한다.
 - 2026-08-17 `web-novel-viewer`에 Rules/index를 선배포했다. 기존 catalog manifest 공개 get은 200, 아직 없는 delta/on-demand point-get은 404, delta collection list는 403으로 확인했다.
-- 최초 Vercel 배포에서 Firebase Admin 14.2.0의 `jose` ESM dependency가 Next/Vercel external CommonJS loader와 충돌해 route import가 빈 500으로 실패하는 것을 runtime log로 확인했다. Admin 13.10.0 고정 뒤 typecheck·production build를 다시 통과했으며 hotfix 배포에서 401/auth 경계를 재확인한다.
+- 최초 Vercel 배포에서 Firebase Admin 14.2.0의 `jose` ESM dependency가 Next/Vercel external CommonJS loader와 충돌해 route import가 빈 500으로 실패하는 것을 runtime log로 확인했다. Admin 13.10.0 고정 뒤 typecheck·production build·Rules/store emulator를 다시 통과했고, hotfix `21983a0` production에서 정상 401/200 경계를 확인했다.
+- GitHub Actions는 최종 commit `21983a0`에서 성공했다. Vercel deployment `2VXLkuDQv`도 같은 commit으로 Ready이며 `/sw.js`의 cache는 `pc-reader-v1.8.15`다.
 
 ## 실기기 검증 결과
 
-- 아직 application commit은 production에 게시하지 않았다. 다만 Vercel `twreader`에서 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`이 Sensitive·Production and Preview로 등록된 것을 확인했다.
-- 공개 crawler에는 NovelPia 계정 env가 필요 없다. Firebase Admin credential 등록은 끝났으며 새 deployment 뒤 실제 ID token·Firestore write·delta acceptance를 완료 처리한다.
-- PC production, Android Chrome, iPad Safari와 설치형 PWA 증거는 배포 뒤 기록한다.
+- Vercel `twreader`에서 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`이 Sensitive·Production and Preview로 등록됐고, 무인증 POST는 JSON `unauthorized`와 401을 반환했다. runtime log에는 인증 요청 3건이 200으로 남았으며 message/credential 출력은 없었다.
+- PC production Edge에서 tag 없는 `정보처리기사 필기 요약본.pdf` 요청이 loading 뒤 `not-found`로 전이했고, Firestore public point-get에서 schema v1·`publishPending=false`·requester identity 없음이 확인됐다.
+- `용왕이 하는 일! 01권.epub`은 trusted title `용왕이 하는 일!`로 요청되어 Kakao `ok`, Series·NovelPia `not-found`인 ready 원본을 저장했다. delta manifest generation `6a289424c6a2499dd255`는 record 1개·immutable document 16개이며 재요청은 약 1.5초 안에 cache 결과를 재사용했다.
+- 같은 production 책장 list에서 대표 tag 5개와 `+10`, 정보창에서 전체 tag 15개를 재확인했다. 요청 결과가 tag를 추가하지 못한 ready 작품은 기존 장르·플랫폼 정보와 수치를 보존한다.
+- 실제 Android Chrome, iPad Safari와 설치형 PWA의 터치·offline 표본은 데스크톱 자동화로 대체하지 않고 후속 실기기 확인으로 남긴다.
 
 ## 보류·후속 버전
 
