@@ -147,6 +147,12 @@ interface PlatformAuthProvider {
 
 ## optional NovelPia 인증 확장
 
+### 도서정보 metadata 카드 통합
+
+- 도서정보 모달의 별도 `작품 정보`와 `장르·태그` 박스를 하나의 metadata summary 카드로 합친다.
+- 카드 내부 순서는 작품 정보와 플랫폼 링크를 먼저 표시하고, 구분선 아래에 장르·전체 태그와 metadata 요청 상태를 표시한다.
+- shelf와 reader가 공유하는 `BookInfoModal`에 적용해 두 진입점의 배치를 동일하게 유지한다.
+
 ### 파일명 분량 표기 alias fallback
 
 - 공개 catalog와 상세 metadata 조회는 원본 파일명 alias를 항상 먼저 사용한다.

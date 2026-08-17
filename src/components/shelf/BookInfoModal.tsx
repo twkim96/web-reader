@@ -438,66 +438,10 @@ export const BookInfoModal: React.FC<Props> = ({
             </div>
 
             <section
-              data-book-catalog-tags="true"
+              data-book-metadata-summary="true"
               className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}
-              aria-labelledby="book-catalog-tags-title"
+              aria-labelledby="book-platform-metadata-title"
             >
-              <h4 id="book-catalog-tags-title" className="text-xs font-black sm:text-sm">장르·태그</h4>
-              {catalogState === 'loading' && !catalog ? (
-                <p role="status" className="py-2 text-[10px] opacity-40">장르·태그를 불러오는 중…</p>
-              ) : (
-                <>
-                  {catalog && (catalog.genreLabel || visibleCatalogTags.length > 0) && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {catalog.genreLabel && (
-                      <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-black text-accent-500">
-                        {catalog.genreLabel}
-                      </span>
-                    )}
-                    {visibleCatalogTags.map((tag) => (
-                      <span
-                        key={tag.id}
-                        data-book-catalog-tag="true"
-                        className="rounded-full bg-black/5 px-2 py-1 text-[10px] font-bold opacity-65 dark:bg-white/5"
-                      >
-                        #{tag.label}
-                      </span>
-                    ))}
-                  </div>
-                  )}
-                  {!hasRawCatalogTags && (
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <p role="status" className="text-[10px] opacity-45">
-                      {requestState === 'requesting' && '플랫폼에서 메타데이터를 확인하는 중…'}
-                      {requestState === 'ready' && '메타데이터를 반영했습니다.'}
-                      {requestState === 'not-found' && '공개 검색에서 찾지 못함 · 성인 인증 작품일 수 있음'}
-                      {requestState === 'ambiguous' && '동일 제목 작품이 여러 개라 자동 반영하지 않았습니다.'}
-                      {requestState === 'busy' && '같은 작품을 확인 중입니다. 잠시 뒤 다시 시도해 주세요.'}
-                      {requestState === 'quota' && '요청 간격 또는 오늘의 요청 한도에 도달했습니다.'}
-                      {requestState === 'offline' && '온라인 상태에서 요청할 수 있습니다.'}
-                      {requestState === 'login-required' && '로그인 후 요청할 수 있습니다.'}
-                      {requestState === 'error' && '요청하지 못했습니다. 잠시 뒤 다시 시도해 주세요.'}
-                      {requestState === 'idle' && '등록된 태그가 없습니다.'}
-                    </p>
-                    {canRequestMetadata && (
-                      <button
-                        type="button"
-                        data-book-metadata-request="true"
-                        disabled={requestState === 'requesting'}
-                        onClick={() => void requestMetadata()}
-                        className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-accent-500/12 px-3 text-[10px] font-black text-accent-500 disabled:opacity-45"
-                      >
-                        <RefreshCw size={12} className={requestState === 'requesting' ? 'animate-spin' : ''} />
-                        {requestState === 'requesting' ? '확인 중' : '메타데이터 요청'}
-                      </button>
-                    )}
-                  </div>
-                  )}
-                </>
-              )}
-            </section>
-
-            <section className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`} aria-labelledby="book-platform-metadata-title">
               <div className="flex items-center justify-between gap-2">
                 <h4 id="book-platform-metadata-title" className="text-xs font-black sm:text-sm">작품 정보</h4>
                 {metadata && (
@@ -535,6 +479,66 @@ export const BookInfoModal: React.FC<Props> = ({
                   {metadataState === 'error' ? '플랫폼 정보를 불러오지 못했습니다.' : '연결된 플랫폼 정보가 없습니다.'}
                 </p>
               )}
+
+              <div
+                data-book-catalog-tags="true"
+                className={`mt-3 border-t ${theme.border} pt-2.5`}
+                aria-labelledby="book-catalog-tags-title"
+              >
+                <h4 id="book-catalog-tags-title" className="text-xs font-black sm:text-sm">장르·태그</h4>
+                {catalogState === 'loading' && !catalog ? (
+                  <p role="status" className="py-2 text-[10px] opacity-40">장르·태그를 불러오는 중…</p>
+                ) : (
+                  <>
+                    {catalog && (catalog.genreLabel || visibleCatalogTags.length > 0) && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {catalog.genreLabel && (
+                        <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-black text-accent-500">
+                          {catalog.genreLabel}
+                        </span>
+                      )}
+                      {visibleCatalogTags.map((tag) => (
+                        <span
+                          key={tag.id}
+                          data-book-catalog-tag="true"
+                          className="rounded-full bg-black/5 px-2 py-1 text-[10px] font-bold opacity-65 dark:bg-white/5"
+                        >
+                          #{tag.label}
+                        </span>
+                      ))}
+                    </div>
+                    )}
+                    {!hasRawCatalogTags && (
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <p role="status" className="text-[10px] opacity-45">
+                        {requestState === 'requesting' && '플랫폼에서 메타데이터를 확인하는 중…'}
+                        {requestState === 'ready' && '메타데이터를 반영했습니다.'}
+                        {requestState === 'not-found' && '공개 검색에서 찾지 못함 · 성인 인증 작품일 수 있음'}
+                        {requestState === 'ambiguous' && '동일 제목 작품이 여러 개라 자동 반영하지 않았습니다.'}
+                        {requestState === 'busy' && '같은 작품을 확인 중입니다. 잠시 뒤 다시 시도해 주세요.'}
+                        {requestState === 'quota' && '요청 간격 또는 오늘의 요청 한도에 도달했습니다.'}
+                        {requestState === 'offline' && '온라인 상태에서 요청할 수 있습니다.'}
+                        {requestState === 'login-required' && '로그인 후 요청할 수 있습니다.'}
+                        {requestState === 'error' && '요청하지 못했습니다. 잠시 뒤 다시 시도해 주세요.'}
+                        {requestState === 'idle' && '등록된 태그가 없습니다.'}
+                      </p>
+                      {canRequestMetadata && (
+                        <button
+                          type="button"
+                          data-book-metadata-request="true"
+                          disabled={requestState === 'requesting'}
+                          onClick={() => void requestMetadata()}
+                          className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-accent-500/12 px-3 text-[10px] font-black text-accent-500 disabled:opacity-45"
+                        >
+                          <RefreshCw size={12} className={requestState === 'requesting' ? 'animate-spin' : ''} />
+                          {requestState === 'requesting' ? '확인 중' : '메타데이터 요청'}
+                        </button>
+                      )}
+                    </div>
+                    )}
+                  </>
+                )}
+              </div>
             </section>
           </div>
         </div>
