@@ -43,7 +43,8 @@ test('normalizes TTS settings and resolves automatic language tags', () => {
   assert.equal(normalizeReaderTtsVoiceUri('voice-1'), 'voice-1');
   assert.equal(normalizeReaderTtsVoiceUri('x'.repeat(501)), '');
   assert.equal(normalizeReaderTtsChapterEndAction('next'), 'next');
-  assert.equal(normalizeReaderTtsChapterEndAction('unknown'), 'stop');
+  assert.equal(normalizeReaderTtsChapterEndAction('stop'), 'stop');
+  assert.equal(normalizeReaderTtsChapterEndAction('unknown'), 'next');
   assert.equal(resolveReaderTtsLanguageTag({
     configured: 'auto',
     text: '한국어 문장',

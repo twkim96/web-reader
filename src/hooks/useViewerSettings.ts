@@ -14,6 +14,7 @@ import {
 } from '../lib/readerTts.ts';
 
 const SETTINGS_KEY = 'viewer_settings';
+const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1';
 
 export const defaultSettings: ViewerSettings = {
   fontSize: 18,
@@ -36,7 +37,7 @@ export const defaultSettings: ViewerSettings = {
   ttsLanguage: 'auto',
   ttsVoiceURI: '',
   ttsRate: 1,
-  ttsChapterEndAction: 'stop',
+  ttsChapterEndAction: 'next',
   customThemes: [],
 };
 
@@ -44,12 +45,24 @@ export const getStoredViewerSettings = () => {
   if (typeof window === 'undefined') return defaultSettings;
 
   const savedSettings = localStorage.getItem(SETTINGS_KEY);
-  if (!savedSettings) return defaultSettings;
+  if (!savedSettings) {
+    localStorage.setItem(TTS_CONTINUOUS_DEFAULTS_KEY, '1');
+    return defaultSettings;
+  }
 
   try {
     const parsed: unknown = JSON.parse(savedSettings);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaultSettings;
-    const merged = { ...defaultSettings, ...parsed } as ViewerSettings;
+    const shouldAdoptContinuousDefaults = localStorage.getItem(TTS_CONTINUOUS_DEFAULTS_KEY) !== '1';
+    const merged = {
+      ...defaultSettings,
+      ...parsed,
+      ...(shouldAdoptContinuousDefaults ? { ttsChapterEndAction: 'next' as const } : {}),
+    } as ViewerSettings;
+    if (shouldAdoptContinuousDefaults) {
+      localStorage.setItem(TTS_CONTINUOUS_DEFAULTS_KEY, '1');
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
+    }
     return {
       ...merged,
       landscapeTwoPage: merged.landscapeTwoPage === true,

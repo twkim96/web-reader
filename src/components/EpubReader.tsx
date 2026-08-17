@@ -1723,7 +1723,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onOpenToc={() => chrome.setShowToc(true)}
         onOpenTts={() => {
           chrome.setShowControls(false);
-          tts.speakFromCurrentPosition();
+          tts.speakChapterFromCurrentPosition();
         }}
         onOpenStatistics={() => {
           chrome.setShowControls(false);

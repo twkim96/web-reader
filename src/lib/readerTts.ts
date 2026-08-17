@@ -40,7 +40,7 @@ export const normalizeReaderTtsVoiceUri = (value: unknown) => (
 
 export const normalizeReaderTtsChapterEndAction = (
   value: unknown,
-): ReaderTtsChapterEndAction => value === 'next' ? 'next' : 'stop';
+): ReaderTtsChapterEndAction => value === 'stop' ? 'stop' : 'next';
 
 export const READER_TTS_NAVIGATION_REASON = 'tts-navigation';
 

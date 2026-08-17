@@ -7,14 +7,16 @@ import {
 } from '../src/hooks/useViewerSettings.ts';
 
 const SETTINGS_KEY = 'viewer_settings';
+const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1';
 
-const withStorage = async (initialValue, callback) => {
+const withStorage = async (initialValue, callback, continuousDefaultsApplied = false) => {
   const previousWindow = globalThis.window;
   const previousLocalStorage = globalThis.localStorage;
   const data = new Map();
   if (initialValue !== undefined) {
     data.set(SETTINGS_KEY, initialValue);
   }
+  if (continuousDefaultsApplied) data.set(TTS_CONTINUOUS_DEFAULTS_KEY, '1');
 
   globalThis.window = {};
   globalThis.localStorage = {
@@ -45,7 +47,7 @@ test('defaults auto-open for older stored viewer settings', async () => {
     assert.equal(settings.ttsLanguage, 'auto');
     assert.equal(settings.ttsVoiceURI, '');
     assert.equal(settings.ttsRate, 1);
-    assert.equal(settings.ttsChapterEndAction, 'stop');
+    assert.equal(settings.ttsChapterEndAction, 'next');
   });
 });
 
@@ -68,8 +70,14 @@ test('normalizes unsupported language-tool settings from older or edited storage
     assert.equal(settings.ttsLanguage, 'auto');
     assert.equal(settings.ttsVoiceURI, '');
     assert.equal(settings.ttsRate, 2);
-    assert.equal(settings.ttsChapterEndAction, 'stop');
+    assert.equal(settings.ttsChapterEndAction, 'next');
   });
+});
+
+test('preserves a stop action selected after the continuous-listening migration', async () => {
+  await withStorage(JSON.stringify({ ttsChapterEndAction: 'stop' }), () => {
+    assert.equal(getStoredViewerSettings().ttsChapterEndAction, 'stop');
+  }, true);
 });
 
 test('preserves an explicit auto-open setting', async () => {

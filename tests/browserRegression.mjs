@@ -2543,7 +2543,7 @@ try {
     };
   })()`);
   assert.equal(ttsLifecycleGuards.missing, undefined, JSON.stringify(ttsLifecycleGuards));
-  assert.match(ttsLifecycleGuards.failureFeedback, /읽을 문장을 찾지 못했습니다/);
+  assert.match(ttsLifecycleGuards.failureFeedback, /현재 장을 불러오지 못했습니다/);
   assert.equal(ttsLifecycleGuards.overlayFailureSpoke, true, JSON.stringify(ttsLifecycleGuards));
   assert.equal(ttsLifecycleGuards.overlayFailureControls, true, JSON.stringify(ttsLifecycleGuards));
   assert.equal(ttsLifecycleGuards.delayedStartStayedPaused, true, JSON.stringify(ttsLifecycleGuards));
@@ -2571,8 +2571,7 @@ try {
     const speakAfterStart = window.__browserSpeechStats.speak;
     window.__finishBrowserSpeech?.();
     const finishDeadline = performance.now() + 2000;
-    while (!document.querySelector('[data-reader-tts-controls="true"]')
-      ?.textContent?.includes('문장 완료')
+    while (window.__browserSpeechStats.speak <= speakAfterStart
       && performance.now() < finishDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -2608,12 +2607,12 @@ try {
     };
   })()`);
   assert.equal(currentPositionTts.buttonFound, true, JSON.stringify(currentPositionTts));
-  assert.match(currentPositionTts.controlsTextAtStart, /현재 문장 읽는 중/);
+  assert.match(currentPositionTts.controlsTextAtStart, /현재 장 연속 읽는 중/);
   assert.ok(currentPositionTts.firstText.length > 0, JSON.stringify(currentPositionTts));
   assert.equal(currentPositionTts.overlayShown, true, JSON.stringify(currentPositionTts));
   assert.equal(currentPositionTts.speakAfterStart, currentPositionTts.speakBefore + 1);
-  assert.equal(currentPositionTts.speakAfterNaturalEnd, currentPositionTts.speakAfterStart);
-  assert.equal(currentPositionTts.speakAfterNext, currentPositionTts.speakAfterStart + 1);
+  assert.equal(currentPositionTts.speakAfterNaturalEnd, currentPositionTts.speakAfterStart + 1);
+  assert.equal(currentPositionTts.speakAfterNext, currentPositionTts.speakAfterStart + 2);
   assert.notEqual(currentPositionTts.nextText, currentPositionTts.firstText);
   assert.equal(currentPositionTts.after, currentPositionTts.before);
   assert.equal(currentPositionTts.stopped, true);
@@ -2805,14 +2804,8 @@ try {
       window.__browserSpeechStats.speak > speakBefore
       && document.querySelector('[data-reader-tts-controls="true"]')
     ));
-    const chapterButton = [...document.querySelectorAll(
-      '[data-reader-tts-controls="true"] button',
-    )].find((button) => button.textContent?.includes('현재 장 연속 듣기'));
-    const chapterSpeakBefore = window.__browserSpeechStats.speak;
-    chapterButton?.click();
     await waitUntil(() => (
-      window.__browserSpeechStats.speak > chapterSpeakBefore
-      && document.querySelector('[data-reader-tts-controls="true"]')
+      document.querySelector('[data-reader-tts-controls="true"]')
         ?.textContent?.includes('현재 장 연속 읽는 중')
     ));
     const controlsAtStart = document.querySelector('[data-reader-tts-controls="true"]');
@@ -2914,14 +2907,8 @@ try {
       window.__browserSpeechStats.speak > resumeSpeakBefore
       && document.querySelector('[data-reader-tts-controls="true"]')
     ));
-    const resumeButton = [...document.querySelectorAll(
-      '[data-reader-tts-controls="true"] button',
-    )].find((button) => button.textContent?.includes('저장 위치 이어 듣기'));
-    const resumeChapterSpeakBefore = window.__browserSpeechStats.speak;
-    resumeButton?.click();
     await waitUntil(() => (
-      window.__browserSpeechStats.speak > resumeChapterSpeakBefore
-      && document.querySelector('[data-reader-tts-controls="true"]')
+      document.querySelector('[data-reader-tts-controls="true"]')
         ?.textContent?.includes('현재 장 연속 읽는 중')
     ), 4000);
     const resumedControls = document.querySelector('[data-reader-tts-controls="true"]');
@@ -2936,7 +2923,6 @@ try {
       advanced,
       afterWindowIndex,
       afterWindowSize,
-      chapterButtonFound: Boolean(chapterButton),
       cursorSourceIndex: cursorAfterWindow?.sourceIndex ?? -1,
       initialIndex,
       paragraphIndexes,
@@ -2945,7 +2931,7 @@ try {
       progressTrace: window.__readerProgressRegressionTrace,
       progressWrites,
       relocateReasons,
-      resumeButtonFound: Boolean(resumeButton),
+      restartStarted: window.__browserSpeechStats.speak > resumeSpeakBefore,
       resumedIndex,
       resumedText,
       retryIndex,
@@ -2964,7 +2950,6 @@ try {
     };
   })()`);
   assert.equal(chapterTts.missing, undefined, JSON.stringify(chapterTts));
-  assert.equal(chapterTts.chapterButtonFound, true, JSON.stringify(chapterTts));
   assert.ok(chapterTts.total >= 180, JSON.stringify(chapterTts));
   assert.equal(chapterTts.initialIndex, 0, JSON.stringify(chapterTts));
   assert.equal(chapterTts.advanced, 55, JSON.stringify(chapterTts));
@@ -3007,9 +2992,9 @@ try {
   assert.equal(chapterTts.timerArmed, true, JSON.stringify(chapterTts));
   assert.equal(chapterTts.sleepStopped, true, JSON.stringify(chapterTts));
   assert.match(chapterTts.sleepFeedback, /취침 타이머/);
-  assert.equal(chapterTts.resumeButtonFound, true, JSON.stringify(chapterTts));
-  assert.equal(chapterTts.resumedIndex, chapterTts.skippedToIndex, JSON.stringify(chapterTts));
-  assert.equal(chapterTts.resumedText, chapterTts.skippedToText, JSON.stringify(chapterTts));
+  assert.equal(chapterTts.restartStarted, true, JSON.stringify(chapterTts));
+  assert.ok(chapterTts.resumedIndex >= chapterTts.cursorSourceIndex, JSON.stringify(chapterTts));
+  assert.ok(chapterTts.resumedText.length > 0, JSON.stringify(chapterTts));
   const ttsStopGuards = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
     const toolbarButton = document.querySelector('button[aria-label="현재 위치부터 듣기"]');
@@ -3109,8 +3094,6 @@ try {
       && performance.now() < chapterProbeControlsDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    [...document.querySelectorAll('[data-reader-tts-controls="true"] button')]
-      .find((candidate) => candidate.textContent?.includes('현재 장 연속 듣기'))?.click();
     const chapterModeDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-tts-controls="true"]')
       ?.textContent?.includes('현재 장 연속 읽는 중')
@@ -3137,7 +3120,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     const lastSkipCancelDelta = window.__browserSpeechStats.cancel - cancelBeforeLastSkip;
-    const lastSkipSpeechStopped = window.speechSynthesis.speaking === false;
+    const lastSkipSpeechContinued = window.speechSynthesis.speaking === true;
     if (endActionSelect) {
       const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
       setter.call(endActionSelect, 'stop');
@@ -3213,7 +3196,7 @@ try {
       endTotal,
       lastChapterIndex,
       lastSkipCancelDelta,
-      lastSkipSpeechStopped,
+      lastSkipSpeechContinued,
       semanticMenuFound,
       semanticSelectedText,
       semanticTexts,
@@ -3222,10 +3205,18 @@ try {
   assert.equal(ttsRangeSemantics.missing, undefined, JSON.stringify(ttsRangeSemantics));
   assert.equal(ttsRangeSemantics.missingTarget, undefined, JSON.stringify(ttsRangeSemantics));
   assert.match(ttsRangeSemantics.endText, /Selection probe paragraph 179/);
-  assert.ok(ttsRangeSemantics.endTotal > 0 && ttsRangeSemantics.endTotal <= 21);
   assert.equal(ttsRangeSemantics.lastChapterIndex, 179, JSON.stringify(ttsRangeSemantics));
+  assert.equal(
+    ttsRangeSemantics.endTotal,
+    ttsRangeSemantics.lastChapterIndex + 1,
+    JSON.stringify(ttsRangeSemantics),
+  );
   assert.ok(ttsRangeSemantics.lastSkipCancelDelta >= 1, JSON.stringify(ttsRangeSemantics));
-  assert.equal(ttsRangeSemantics.lastSkipSpeechStopped, true, JSON.stringify(ttsRangeSemantics));
+  assert.equal(
+    ttsRangeSemantics.lastSkipSpeechContinued,
+    true,
+    JSON.stringify(ttsRangeSemantics),
+  );
   const semanticSpeech = ttsRangeSemantics.semanticTexts.join('\n');
   assert.match(semanticSpeech, /Hello world/, JSON.stringify(ttsRangeSemantics));
   assert.match(semanticSpeech, /漢字\./);
