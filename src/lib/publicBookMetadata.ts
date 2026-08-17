@@ -1,6 +1,7 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import {
+  getPublicBookMetadataAliasCandidates,
   normalizePublicBookMetadataAlias,
   parsePublicBookMetadata,
 } from './publicBookMetadataSchema';
@@ -28,26 +29,38 @@ export const getPublicBookMetadataAliasId = async (fileName: string) => {
   ));
 };
 
+const getPublicBookMetadataAliasIds = async (fileName: string) => {
+  if (!globalThis.crypto?.subtle) throw new Error('Metadata alias hashing is unavailable');
+  return Promise.all(getPublicBookMetadataAliasCandidates(fileName).map(async (alias) => toHex(
+    await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(alias)),
+  )));
+};
+
 export const loadPublicBookMetadata = async (fileName: string) => {
-  const aliasId = await getPublicBookMetadataAliasId(fileName);
-  if (!aliasId) return null;
-  const snapshot = await getDoc(doc(
-    db,
-    PUBLIC_BOOK_METADATA_COLLECTION,
-    aliasId.slice(0, 2),
-  ));
-  if (snapshot.exists()) {
-    const data = snapshot.data();
-    if (
-      data.schemaVersion === 1
-      && typeof data.entries === 'object'
-      && data.entries
-      && !Array.isArray(data.entries)
-    ) {
-      const parsed = parsePublicBookMetadata((data.entries as Record<string, unknown>)[aliasId]);
-      if (parsed) return parsed;
+  const aliasIds = await getPublicBookMetadataAliasIds(fileName);
+  if (aliasIds.length === 0) return null;
+  const bucketIds = [...new Set(aliasIds.map((aliasId) => aliasId.slice(0, 2)))];
+  const snapshots = await Promise.all(bucketIds.map(async (bucketId) => [
+    bucketId,
+    await getDoc(doc(db, PUBLIC_BOOK_METADATA_COLLECTION, bucketId)),
+  ] as const));
+  const buckets = new Map(snapshots);
+  for (const aliasId of aliasIds) {
+    const snapshot = buckets.get(aliasId.slice(0, 2));
+    if (snapshot?.exists()) {
+      const data = snapshot.data();
+      if (
+        data.schemaVersion === 1
+        && typeof data.entries === 'object'
+        && data.entries
+        && !Array.isArray(data.entries)
+      ) {
+        const parsed = parsePublicBookMetadata((data.entries as Record<string, unknown>)[aliasId]);
+        if (parsed) return parsed;
+      }
     }
   }
+  const aliasId = aliasIds[0];
   const onDemand = await getDoc(doc(db, PUBLIC_BOOK_METADATA_ON_DEMAND_COLLECTION, aliasId));
   return onDemand.exists() ? parseOnDemandPublicBookMetadata(onDemand.data()) : null;
 };

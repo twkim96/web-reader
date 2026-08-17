@@ -1,6 +1,6 @@
 import type { DocumentData, DocumentSnapshot } from 'firebase/firestore';
 import type { Book } from '../types.ts';
-import { normalizePublicBookMetadataAlias } from './publicBookMetadataSchema.ts';
+import { getPublicBookMetadataAliasCandidates } from './publicBookMetadataSchema.ts';
 import {
   parsePublicBookCatalogAliasShard,
   parsePublicBookCatalogDataShard,
@@ -82,14 +82,13 @@ const toHex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)]
   .map((byte) => byte.toString(16).padStart(2, '0'))
   .join('');
 
-const getPublicBookCatalogAliasId = async (fileName: string) => {
-  const alias = normalizePublicBookMetadataAlias(fileName);
-  if (!alias) return null;
+const getPublicBookCatalogAliasIds = async (fileName: string) => {
+  const aliases = getPublicBookMetadataAliasCandidates(fileName);
+  if (aliases.length === 0) return [];
   if (!globalThis.crypto?.subtle) throw new Error('Catalog alias hashing is unavailable');
-  return toHex(await globalThis.crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(alias),
-  ));
+  return Promise.all(aliases.map(async (alias) => toHex(await globalThis.crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(alias),
+  ))));
 };
 
 const checksum = async (value: unknown) => {
@@ -263,16 +262,18 @@ export const joinBooksToPublicCatalog = async (
   snapshot: PublicBookCatalogSnapshot,
 ) => {
   const joined = new Map<string, PublicBookCatalogBook>();
-  const normalizedNames = new Map<string, Promise<string | null>>();
+  const normalizedNames = new Map<string, Promise<string[]>>();
   await Promise.all(books.map(async (book) => {
     let aliasPromise = normalizedNames.get(book.name);
     if (!aliasPromise) {
-      aliasPromise = getPublicBookCatalogAliasId(book.name);
+      aliasPromise = getPublicBookCatalogAliasIds(book.name);
       normalizedNames.set(book.name, aliasPromise);
     }
-    const aliasId = await aliasPromise;
-    if (!aliasId) return;
-    const titleId = snapshot.aliases.get(aliasId);
+    const aliasIds = await aliasPromise;
+    const titleId = aliasIds.reduce<number | undefined>(
+      (matched, aliasId) => matched ?? snapshot.aliases.get(aliasId),
+      undefined,
+    );
     if (titleId === undefined) return;
     const record = snapshot.records.get(titleId);
     if (!record) return;

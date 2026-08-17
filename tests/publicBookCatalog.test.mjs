@@ -124,7 +124,7 @@ test('loads generation documents cache-first and joins filename aliases', async 
   assert.deepEqual(serverCalls, ['manifest']);
   assert.equal(cacheCalls.length, 24);
   assert.equal(catalog.popularTags[0].label, '하렘');
-  const books = [{ id: 'book-1', name: '테스트 작품.epub', mimeType: 'application/epub+zip' }];
+  const books = [{ id: 'book-1', name: '테스트 작품 1-231 완.epub', mimeType: 'application/epub+zip' }];
   const joined = await joinBooksToPublicCatalog(books, catalog);
   assert.equal(joined.get('book-1')?.genreLabel, '판타지');
   assert.deepEqual(joined.get('book-1')?.record.sourceCounts, [1234, 5678, null]);

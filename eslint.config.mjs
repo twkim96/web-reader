@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
     "public/7z/**",
     "public/zip/**",
     "public/foliate-js/vendor/**",
+    "src/vendor/fileCheckTitleNormalizer.js",
   ]),
 ]);
 

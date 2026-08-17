@@ -1,3 +1,8 @@
+import {
+  extractCoreTitle,
+  NORMALIZER_VERSION as FILE_CHECK_TITLE_NORMALIZER_VERSION,
+} from '../vendor/fileCheckTitleNormalizer.js';
+
 export type PublicBookPlatformId = 'series' | 'kakao' | 'novelpia';
 
 export type PublicBookPlatformMetadata = {
@@ -30,6 +35,16 @@ export const normalizePublicBookMetadataAlias = (value: string) => value
   .replace(/\.(?:epub|txt|pdf|zip|cbz|7z)$/i, '')
   .toLowerCase()
   .replace(/[^a-z0-9가-힣\u3400-\u9fff\uf900-\ufaff]/g, '');
+
+export const getPublicBookMetadataAliasCandidates = (value: string) => {
+  const aliases = [
+    normalizePublicBookMetadataAlias(value),
+    extractCoreTitle(value),
+  ].filter(Boolean);
+  return [...new Set(aliases)];
+};
+
+export { FILE_CHECK_TITLE_NORMALIZER_VERSION };
 
 const boundedString = (value: unknown, maxLength: number) => (
   typeof value === 'string' && value.length <= maxLength ? value : null

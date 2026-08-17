@@ -747,7 +747,7 @@ type Annotation = {
 
 ## 1.8.15 — 요청형 메타데이터 수집
 
-상태: metadata가 완전히 비어 있는 도서의 shared 정보창 요청, Vercel server crawler, Firestore on-demand 원본·16-shard compact delta, fallback-only base+delta merge와 optional NovelPia auth provider를 구현했다. 요청 버튼은 tag·genre·source count가 모두 없을 때만 표시하고, 이후 정기 base가 보강되면 base가 과거 요청 delta보다 우선한다. `21983a0` full gate와 `web-novel-viewer` Rules/index, 최소권한 Admin secret, GitHub CI, Vercel production, 실제 ready/not-found·delta/cache 요청 acceptance를 완료했다. 공개 crawler는 NovelPia 계정 env 없이 동작하고 두 credential이 모두 있을 때만 인증 fallback을 만든다. 실제 Android/iPad/PWA 표본은 후속 확인이다 — `update_1.8.15.md`
+상태: metadata가 완전히 비어 있는 도서의 shared 정보창 요청, Vercel server crawler, Firestore on-demand 원본·16-shard compact delta, fallback-only base+delta merge와 optional NovelPia auth provider를 구현했다. 요청 버튼은 tag·genre·source count가 모두 없을 때만 표시하고, 이후 정기 base가 보강되면 base가 과거 요청 delta보다 우선한다. 정확 파일명 alias가 없을 때 `file_check` 1.3.3의 실제 `extractCoreTitle()` 규칙으로 재조회해 관측 파일명 변형도 자동 조인한다. `21983a0` full gate와 `web-novel-viewer` Rules/index, 최소권한 Admin secret, GitHub CI, Vercel production, 실제 ready/not-found·delta/cache 요청 acceptance를 완료했다. 공개 crawler는 NovelPia 계정 env 없이 동작하고 두 credential이 모두 있을 때만 인증 fallback을 만든다. 실제 Android/iPad/PWA 표본은 후속 확인이다 — `update_1.8.15.md`
 
 ### 포함
 
@@ -756,6 +756,7 @@ type Annotation = {
 - Series/Kakao/NovelPia 공개 crawler의 server-only TypeScript 구현
 - per-title Firestore 원본과 immutable compact delta generation·manifest-last CAS
 - base + delta merge 후 정보창 전체 tag, list 5개, grid 2개와 필터·검색·인기순 갱신
+- exact alias 우선, vendored `file_check` 1.3.3 core-title alias fallback 자동 매칭
 - 별도 mode 없이 email/password 존재 여부만 보는 optional NovelPia auth provider
 - credential·cookie·원격 응답 redaction과 client bundle secret audit
 
