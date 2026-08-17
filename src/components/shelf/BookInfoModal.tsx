@@ -483,15 +483,14 @@ export const BookInfoModal: React.FC<Props> = ({
               <div
                 data-book-catalog-tags="true"
                 className={`mt-3 border-t ${theme.border} pt-2.5`}
-                aria-labelledby="book-catalog-tags-title"
+                aria-label="장르 및 태그"
               >
-                <h4 id="book-catalog-tags-title" className="text-xs font-black sm:text-sm">장르·태그</h4>
                 {catalogState === 'loading' && !catalog ? (
                   <p role="status" className="py-2 text-[10px] opacity-40">장르·태그를 불러오는 중…</p>
                 ) : (
                   <>
                     {catalog && (catalog.genreLabel || visibleCatalogTags.length > 0) && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5">
                       {catalog.genreLabel && (
                         <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-black text-accent-500">
                           {catalog.genreLabel}
@@ -509,7 +508,7 @@ export const BookInfoModal: React.FC<Props> = ({
                     </div>
                     )}
                     {!hasRawCatalogTags && (
-                    <div className="mt-2 flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <p role="status" className="text-[10px] opacity-45">
                         {requestState === 'requesting' && '플랫폼에서 메타데이터를 확인하는 중…'}
                         {requestState === 'ready' && '메타데이터를 반영했습니다.'}
