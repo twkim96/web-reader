@@ -377,7 +377,7 @@ git diff --check
 - shared `BookInfoModal`에 tag 0개일 때만 요청 버튼과 loading/ready/not-found/ambiguous/busy/quota/offline/login/error 상태를 추가했다. 성공 후 shelf와 reader hook을 재조회하므로 정보창 전체 tag, list 5개, grid 2개, 검색·필터·인기순이 같은 merged snapshot을 쓴다.
 - `firebase-admin`을 server dependency로 추가했고 package, lockfile, Service Worker와 Foliate runtime release version을 1.8.15로 맞췄다.
 - 전용 서비스 계정에는 Cloud Datastore User와 Firebase Authentication Viewer만 부여했다. JSON key는 Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`의 Production·Preview sensitive env에 등록했고, 등록 확인 직후 로컬 다운로드 파일을 삭제했다.
-- Next.js 16.3.1, Firebase 12.17.1, Firebase Admin 14.2.0으로 올려 기존 runtime 보안 권고를 줄였다. `npm audit --omit=dev` 결과는 critical 0, high 1, moderate 6이며 남은 항목은 후속 dependency 정리 대상으로 기록한다.
+- Next.js 16.3.1과 Firebase 12.17.1로 올리고 Firebase Admin은 Vercel Node 함수의 CommonJS/ESM 호환이 확인된 13.10.0으로 고정했다. `npm audit --omit=dev` 결과는 critical 0, high 0, moderate 8이며 남은 항목은 후속 dependency 정리 대상으로 기록한다.
 
 ## 자동검증 결과
 
@@ -389,6 +389,7 @@ git diff --check
 - 통과: `npm run lint`, `npm run typecheck`, `npm run test:shelf` 101건, `npm run test:shelf-ui` 6건, `npm run test:rules` 32건, `npm run build`.
 - dependency 보안 업데이트까지 포함한 최종 로컬 후보에서 `npm run check:full`이 통과했다. Node/unit/publisher/SW/release, Rules emulator 32건과 metadata store emulator 2건, Playwright Chromium+WebKit 20건, browser regression을 포함한다.
 - 2026-08-17 `web-novel-viewer`에 Rules/index를 선배포했다. 기존 catalog manifest 공개 get은 200, 아직 없는 delta/on-demand point-get은 404, delta collection list는 403으로 확인했다.
+- 최초 Vercel 배포에서 Firebase Admin 14.2.0의 `jose` ESM dependency가 Next/Vercel external CommonJS loader와 충돌해 route import가 빈 500으로 실패하는 것을 runtime log로 확인했다. Admin 13.10.0 고정 뒤 typecheck·production build를 다시 통과했으며 hotfix 배포에서 401/auth 경계를 재확인한다.
 
 ## 실기기 검증 결과
 
