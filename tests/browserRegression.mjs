@@ -4298,6 +4298,29 @@ try {
     libraryAnnotationUi.closeWidth >= 44 && libraryAnnotationUi.closeHeight >= 44,
     JSON.stringify(libraryAnnotationUi),
   );
+  const libraryAnnotationBackdropClose = await evaluate(`(async () => {
+    document.querySelector('[data-library-annotation-modal="true"]')?.click();
+    await window.__regressionNextFrame(2);
+    const stayedOpenAfterInnerClick = Boolean(
+      document.querySelector('[data-library-annotation-modal="true"]'),
+    );
+    document.querySelector('[data-library-annotation-backdrop="true"]')?.click();
+    return { stayedOpenAfterInnerClick };
+  })()`);
+  assert.equal(
+    libraryAnnotationBackdropClose.stayedOpenAfterInnerClick,
+    true,
+    JSON.stringify(libraryAnnotationBackdropClose),
+  );
+  await waitFor(
+    '!document.querySelector(\'[data-library-annotation-modal="true"]\')',
+    'library annotation backdrop close',
+  );
+  await evaluate(`document.querySelector('button[aria-label="라이브러리 전체 주석"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
+    'library annotation modal reopen after backdrop close',
+  );
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
     height: 800,

@@ -288,7 +288,11 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   if (!open || !visible) return null;
 
   return (
-    <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5">
+    <div
+      data-library-annotation-backdrop="true"
+      className="fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5"
+      onClick={onClose}
+    >
       <section
         ref={dialogRef}
         tabIndex={-1}
@@ -296,6 +300,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         role="dialog"
         aria-modal="true"
         aria-label="라이브러리 전체 주석"
+        onClick={(event) => event.stopPropagation()}
         className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden rounded-2xl border shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl ${theme.bg} ${theme.text} ${theme.border}`}
       >
         <header className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 sm:px-4 ${theme.border}`}>

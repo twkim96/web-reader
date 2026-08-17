@@ -101,7 +101,8 @@ export const BookCard: React.FC<BookCardProps> = ({
 
     const updateTagLimit = () => {
       if (window.matchMedia('(min-width: 640px)').matches) {
-        setListTagLimit(Math.min(5, rawTags.length));
+        const nextLimit = Math.min(5, rawTags.length);
+        setListTagLimit((current) => current === nextLimit ? current : nextLimit);
         return;
       }
       const genreWidth = measure.querySelector<HTMLElement>(
@@ -118,24 +119,31 @@ export const BookCard: React.FC<BookCardProps> = ({
           ]),
       );
       const parsedGap = Number.parseFloat(window.getComputedStyle(row).columnGap);
-      setListTagLimit(getFittingShelfTagCount({
+      const nextLimit = getFittingShelfTagCount({
         availableWidth: row.clientWidth,
         genreWidth,
         tagWidths,
         remainderWidths,
         gap: Number.isFinite(parsedGap) ? parsedGap : 4,
-      }));
+      });
+      setListTagLimit((current) => current === nextLimit ? current : nextLimit);
     };
 
     updateTagLimit();
+    let resizeFrame = 0;
+    const scheduleTagLimitUpdate = () => {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(updateTagLimit);
+    };
     const observer = typeof ResizeObserver === 'undefined'
       ? null
-      : new ResizeObserver(updateTagLimit);
+      : new ResizeObserver(scheduleTagLimitUpdate);
     observer?.observe(row);
-    window.addEventListener('resize', updateTagLimit);
+    window.addEventListener('resize', scheduleTagLimitUpdate);
     return () => {
+      window.cancelAnimationFrame(resizeFrame);
       observer?.disconnect();
-      window.removeEventListener('resize', updateTagLimit);
+      window.removeEventListener('resize', scheduleTagLimitUpdate);
     };
   }, [tagLayoutKey, viewMode]);
 
