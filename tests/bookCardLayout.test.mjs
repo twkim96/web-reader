@@ -6,7 +6,7 @@ import { parseHTML } from 'linkedom';
 import bookCardModule from '../src/components/shelf/BookCard.tsx';
 import bookUtilsModule from '../src/components/shelf/bookUtils.ts';
 
-const { BookCard } = bookCardModule;
+const { BookCard, getFittingShelfTagCount } = bookCardModule;
 const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
 
 const props = {
@@ -159,9 +159,28 @@ test('limits shelf list tags to five and reports the remainder', () => {
   assert.match(tags.textContent, /태그5/);
   assert.doesNotMatch(tags.textContent, /태그6|태그7/);
   assert.match(tags.textContent, /\+2/);
+  assert.match(tags.className, /flex-nowrap/);
+  assert.match(tags.className, /overflow-hidden/);
 });
 
-test('keeps shelf grid tags compact', () => {
+test('fits mobile shelf tags and the remainder into the measured row', () => {
+  assert.equal(getFittingShelfTagCount({
+    availableWidth: 174,
+    genreWidth: 48,
+    tagWidths: [40, 52, 44, 50, 48],
+    remainderWidths: new Map([[1, 18], [2, 18], [3, 18], [4, 18], [5, 18]]),
+    gap: 4,
+  }), 2);
+  assert.equal(getFittingShelfTagCount({
+    availableWidth: 260,
+    genreWidth: 48,
+    tagWidths: [40, 52, 44, 50, 48],
+    remainderWidths: new Map([[1, 18], [2, 18], [3, 18], [4, 18], [5, 18]]),
+    gap: 4,
+  }), 3);
+});
+
+test('shows every shelf grid tag', () => {
   const catalog = {
     ...props.catalog,
     tags: Array.from({ length: 7 }, (_, index) => ({
@@ -175,7 +194,6 @@ test('keeps shelf grid tags compact', () => {
   const tags = document.querySelector('[data-shelf-book-tags="true"]');
   assert.ok(tags);
   assert.match(tags.textContent, /태그1/);
-  assert.match(tags.textContent, /태그2/);
-  assert.doesNotMatch(tags.textContent, /태그3|태그4|태그5|태그6|태그7/);
-  assert.match(tags.textContent, /\+5/);
+  assert.match(tags.textContent, /태그2.*태그3.*태그4.*태그5.*태그6.*태그7/);
+  assert.doesNotMatch(tags.textContent, /\+\d/);
 });

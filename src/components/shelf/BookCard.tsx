@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BookOpen, CheckCircle2, Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
 import {
@@ -19,6 +19,35 @@ interface BookCardProps {
   catalog?: PublicBookCatalogBook;
 }
 
+interface FittingShelfTagCountInput {
+  availableWidth: number;
+  genreWidth: number;
+  tagWidths: number[];
+  remainderWidths: Map<number, number>;
+  gap: number;
+}
+
+export const getFittingShelfTagCount = ({
+  availableWidth,
+  genreWidth,
+  tagWidths,
+  remainderWidths,
+  gap,
+}: FittingShelfTagCountInput) => {
+  for (let count = tagWidths.length; count >= 0; count -= 1) {
+    const remaining = tagWidths.length - count;
+    const itemCount = (genreWidth > 0 ? 1 : 0) + count + (remaining > 0 ? 1 : 0);
+    const contentWidth = genreWidth
+      + tagWidths.slice(0, count).reduce((total, width) => total + width, 0)
+      + (remaining > 0 ? remainderWidths.get(remaining) ?? 0 : 0)
+      + Math.max(0, itemCount - 1) * gap;
+    if (contentWidth <= availableWidth) return count;
+  }
+  return 0;
+};
+
+const useClientLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
 export const BookCard: React.FC<BookCardProps> = ({
   book,
   progress,
@@ -33,6 +62,9 @@ export const BookCard: React.FC<BookCardProps> = ({
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const tagRowRef = useRef<HTMLDivElement | null>(null);
+  const tagMeasureRef = useRef<HTMLDivElement | null>(null);
+  const [listTagLimit, setListTagLimit] = useState(5);
 
   const formatDate = (timestamp: unknown) => {
     const time = getProgressTime(timestamp);
@@ -45,9 +77,12 @@ export const BookCard: React.FC<BookCardProps> = ({
 
   const percent = progress?.progressPercent || 0;
   const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
-  const visibleTags = rawTags.slice(0, viewMode === 'list' ? 5 : 2);
-  const remainingTagCount = Math.max(0, rawTags.length - visibleTags.length);
-  const hasCatalogTags = Boolean(catalog && (catalog.genreLabel || visibleTags.length > 0));
+  const tagLayoutKey = `${catalog?.genreLabel ?? ''}\u0000${rawTags.map((tag) => `${tag.id}:${tag.label}`).join('\u0000')}`;
+  const visibleTags = viewMode === 'grid' ? rawTags : rawTags.slice(0, listTagLimit);
+  const remainingTagCount = viewMode === 'grid'
+    ? 0
+    : Math.max(0, rawTags.length - visibleTags.length);
+  const hasCatalogTags = Boolean(catalog && (catalog.genreLabel || rawTags.length > 0));
   const sourceMetrics = catalog ? [
     { bit: 1, value: catalog.record.sourceCounts[0] },
     { bit: 2, value: catalog.record.sourceCounts[1] },
@@ -57,21 +92,110 @@ export const BookCard: React.FC<BookCardProps> = ({
     if (value === null) return total;
     return Math.min(Number.MAX_SAFE_INTEGER, (total ?? 0) + value);
   }, null);
+
+  useClientLayoutEffect(() => {
+    if (viewMode !== 'list') return undefined;
+    const row = tagRowRef.current;
+    const measure = tagMeasureRef.current;
+    if (!row || !measure) return undefined;
+
+    const updateTagLimit = () => {
+      if (window.matchMedia('(min-width: 640px)').matches) {
+        setListTagLimit(Math.min(5, rawTags.length));
+        return;
+      }
+      const genreWidth = measure.querySelector<HTMLElement>(
+        '[data-shelf-tag-measure-genre="true"]',
+      )?.offsetWidth ?? 0;
+      const tagWidths = [...measure.querySelectorAll<HTMLElement>(
+        '[data-shelf-tag-measure-tag="true"]',
+      )].map((element) => element.offsetWidth);
+      const remainderWidths = new Map(
+        [...measure.querySelectorAll<HTMLElement>('[data-shelf-tag-measure-remaining]')]
+          .map((element) => [
+            Number(element.dataset.shelfTagMeasureRemaining),
+            element.offsetWidth,
+          ]),
+      );
+      const parsedGap = Number.parseFloat(window.getComputedStyle(row).columnGap);
+      setListTagLimit(getFittingShelfTagCount({
+        availableWidth: row.clientWidth,
+        genreWidth,
+        tagWidths,
+        remainderWidths,
+        gap: Number.isFinite(parsedGap) ? parsedGap : 4,
+      }));
+    };
+
+    updateTagLimit();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updateTagLimit);
+    observer?.observe(row);
+    window.addEventListener('resize', updateTagLimit);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateTagLimit);
+    };
+  }, [tagLayoutKey, viewMode]);
+
+  const genreChipClass = 'shrink-0 rounded-md bg-accent-500/12 px-1.5 py-0.5 text-[9px] font-black text-accent-500';
+  const tagChipClass = 'max-w-24 shrink-0 truncate rounded-md bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5';
   const renderCatalogTags = () => (
-    catalog && (catalog.genreLabel || visibleTags.length > 0) ? (
-      <div data-shelf-book-tags="true" className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
-        {catalog.genreLabel && (
-          <span className="shrink-0 rounded-md bg-accent-500/12 px-1.5 py-0.5 text-[9px] font-black text-accent-500">
-            {catalog.genreLabel}
-          </span>
-        )}
-        {visibleTags.map((tag) => (
-          <span key={tag.id} className="max-w-24 truncate rounded-md bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5">
-            #{tag.label}
-          </span>
-        ))}
-        {remainingTagCount > 0 && (
-          <span className="shrink-0 text-[9px] font-bold opacity-40">+{remainingTagCount}</span>
+    catalog && (catalog.genreLabel || rawTags.length > 0) ? (
+      <div className="relative min-w-0">
+        <div
+          ref={viewMode === 'list' ? tagRowRef : undefined}
+          data-shelf-book-tags="true"
+          className={`flex min-w-0 items-center gap-x-1 gap-y-0.5 ${
+            viewMode === 'list'
+              ? 'flex-nowrap overflow-hidden sm:flex-wrap sm:overflow-visible'
+              : 'flex-wrap'
+          }`}
+        >
+          {catalog.genreLabel && (
+            <span className={genreChipClass}>
+              {catalog.genreLabel}
+            </span>
+          )}
+          {visibleTags.map((tag) => (
+            <span key={tag.id} className={tagChipClass}>
+              #{tag.label}
+            </span>
+          ))}
+          {remainingTagCount > 0 && (
+            <span className="shrink-0 text-[9px] font-bold opacity-40">+{remainingTagCount}</span>
+          )}
+        </div>
+        {viewMode === 'list' && (
+          <div
+            ref={tagMeasureRef}
+            aria-hidden="true"
+            className="invisible absolute left-0 top-0 flex items-center gap-x-1 whitespace-nowrap"
+          >
+            {catalog.genreLabel && (
+              <span data-shelf-tag-measure-genre="true" className={genreChipClass}>
+                {catalog.genreLabel}
+              </span>
+            )}
+            {rawTags.map((tag) => (
+              <span key={tag.id} data-shelf-tag-measure-tag="true" className={tagChipClass}>
+                #{tag.label}
+              </span>
+            ))}
+            {rawTags.map((_, index) => {
+              const remaining = rawTags.length - index;
+              return (
+                <span
+                  key={remaining}
+                  data-shelf-tag-measure-remaining={remaining}
+                  className="shrink-0 text-[9px] font-bold"
+                >
+                  +{remaining}
+                </span>
+              );
+            })}
+          </div>
         )}
       </div>
     ) : null
