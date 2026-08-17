@@ -134,6 +134,15 @@ const rerank = (records: Map<number, PublicBookCatalogRecord>, activeIds: Set<nu
   }
 };
 
+const hasAuthoritativeBaseMetadata = (record: PublicBookCatalogRecord | undefined) => Boolean(
+  record
+  && (
+    record.canonicalGenreId !== null
+    || record.tagIds.length > 0
+    || record.sourceCounts.some((count) => count !== null)
+  )
+);
+
 export const mergePublicBookCatalogDelta = (
   base: PublicBookCatalogSnapshot,
   delta: Awaited<ReturnType<typeof loadPublicBookCatalogDelta>>,
@@ -148,11 +157,13 @@ export const mergePublicBookCatalogDelta = (
   const groups = new Map<string, { record: DeltaRecord; aliases: string[]; baseId: number | null }>();
   for (const [alias, record] of delta.entries) {
     const baseId = base.aliases.get(alias) ?? null;
+    if (baseId !== null && hasAuthoritativeBaseMetadata(base.records.get(baseId))) continue;
     const key = baseId === null ? `new:${record.canonicalKey}` : `base:${baseId}`;
     const group = groups.get(key);
     if (group) group.aliases.push(alias);
     else groups.set(key, { record, aliases: [alias], baseId });
   }
+  if (groups.size === 0) return { ...base, deltaGeneration: delta.manifest.generation };
   const tagIdByLabel = new Map([...tags.values()].map((tag) => [tag.label, tag.id]));
   const genreIdByLabel = new Map([...genres].map(([id, label]) => [label, id]));
   let nextTagId = Math.max(-1, ...tags.keys()) + 1;

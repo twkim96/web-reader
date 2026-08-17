@@ -747,7 +747,7 @@ type Annotation = {
 
 ## 1.8.15 — 요청형 메타데이터 수집
 
-상태: tag 없는 도서의 shared 정보창 요청, Vercel server crawler, Firestore on-demand 원본·16-shard compact delta, base+delta merge와 optional NovelPia auth provider를 구현했다. `21983a0` full gate와 `web-novel-viewer` Rules/index, 최소권한 Admin secret, GitHub CI, Vercel production, 실제 ready/not-found·delta/cache 요청 acceptance를 완료했다. 공개 crawler는 NovelPia 계정 env 없이 동작하고 두 credential이 모두 있을 때만 인증 fallback을 만든다. 실제 Android/iPad/PWA 표본은 후속 확인이다 — `update_1.8.15.md`
+상태: metadata가 완전히 비어 있는 도서의 shared 정보창 요청, Vercel server crawler, Firestore on-demand 원본·16-shard compact delta, fallback-only base+delta merge와 optional NovelPia auth provider를 구현했다. 요청 버튼은 tag·genre·source count가 모두 없을 때만 표시하고, 이후 정기 base가 보강되면 base가 과거 요청 delta보다 우선한다. `21983a0` full gate와 `web-novel-viewer` Rules/index, 최소권한 Admin secret, GitHub CI, Vercel production, 실제 ready/not-found·delta/cache 요청 acceptance를 완료했다. 공개 crawler는 NovelPia 계정 env 없이 동작하고 두 credential이 모두 있을 때만 인증 fallback을 만든다. 실제 Android/iPad/PWA 표본은 후속 확인이다 — `update_1.8.15.md`
 
 ### 포함
 

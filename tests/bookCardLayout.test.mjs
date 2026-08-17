@@ -7,7 +7,7 @@ import bookCardModule from '../src/components/shelf/BookCard.tsx';
 import bookUtilsModule from '../src/components/shelf/bookUtils.ts';
 
 const { BookCard } = bookCardModule;
-const { getVisibleBookInfoCatalogTags } = bookUtilsModule;
+const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
 
 const props = {
   book: {
@@ -124,6 +124,22 @@ test('keeps every catalog tag in book information after genre', () => {
     getVisibleBookInfoCatalogTags(catalog).map(({ label }) => label),
     ['태그1', '태그2', '태그3', '태그4', '태그5', '태그6', '태그7'],
   );
+});
+
+test('offers metadata requests only when tags, genre, and source counts are all absent', () => {
+  assert.equal(canRequestPublicBookMetadata(undefined, 'ready', null, 'missing'), true);
+  assert.equal(canRequestPublicBookMetadata(undefined, 'loading', null, 'missing'), false);
+  assert.equal(canRequestPublicBookMetadata(undefined, 'ready', null, 'error'), false);
+  assert.equal(canRequestPublicBookMetadata(props.catalog, 'ready', null, 'missing'), false);
+  assert.equal(canRequestPublicBookMetadata({
+    ...props.catalog,
+    genreLabel: null,
+    tags: [],
+    record: { ...props.catalog.record, canonicalGenreId: null, tagIds: [], sourceCounts: [null, null, null] },
+  }, 'ready', null, 'missing'), true);
+  assert.equal(canRequestPublicBookMetadata(undefined, 'ready', {
+    platforms: [{ viewCount: 100, downloadCount: null }],
+  }, 'ready'), false);
 });
 
 test('limits shelf list tags to five and reports the remainder', () => {

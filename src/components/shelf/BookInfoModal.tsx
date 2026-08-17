@@ -10,6 +10,7 @@ import { buildReadingStatistics } from '../../lib/readingStatistics';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import {
   getBookFormatLabel,
+  canRequestPublicBookMetadata,
   getDisplayBookTitle,
   getProgressTime,
   getVisibleBookInfoCatalogTags,
@@ -177,6 +178,12 @@ export const BookInfoModal: React.FC<Props> = ({
   const progressPercent = Math.min(100, Math.max(0, progress?.progressPercent ?? 0));
   const visibleCatalogTags = getVisibleBookInfoCatalogTags(catalog);
   const hasRawCatalogTags = visibleCatalogTags.length > 0;
+  const canRequestMetadata = canRequestPublicBookMetadata(
+    catalog,
+    catalogState,
+    metadata,
+    metadataState,
+  );
   const requestMetadata = useCallback(async () => {
     const sequence = ++metadataRequestSequenceRef.current;
     if (!navigator.onLine) {
@@ -472,16 +479,18 @@ export const BookInfoModal: React.FC<Props> = ({
                       {requestState === 'error' && '요청하지 못했습니다. 잠시 뒤 다시 시도해 주세요.'}
                       {requestState === 'idle' && '등록된 태그가 없습니다.'}
                     </p>
-                    <button
-                      type="button"
-                      data-book-metadata-request="true"
-                      disabled={requestState === 'requesting'}
-                      onClick={() => void requestMetadata()}
-                      className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-accent-500/12 px-3 text-[10px] font-black text-accent-500 disabled:opacity-45"
-                    >
-                      <RefreshCw size={12} className={requestState === 'requesting' ? 'animate-spin' : ''} />
-                      {requestState === 'requesting' ? '확인 중' : '메타데이터 요청'}
-                    </button>
+                    {canRequestMetadata && (
+                      <button
+                        type="button"
+                        data-book-metadata-request="true"
+                        disabled={requestState === 'requesting'}
+                        onClick={() => void requestMetadata()}
+                        className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-accent-500/12 px-3 text-[10px] font-black text-accent-500 disabled:opacity-45"
+                      >
+                        <RefreshCw size={12} className={requestState === 'requesting' ? 'animate-spin' : ''} />
+                        {requestState === 'requesting' ? '확인 중' : '메타데이터 요청'}
+                      </button>
+                    )}
                   </div>
                   )}
                 </>

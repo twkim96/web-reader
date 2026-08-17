@@ -29,15 +29,15 @@ test('validates immutable delta manifest and alias shard', () => {
   assert.equal(parsePublicBookCatalogDeltaManifest({ ...manifest, recordCount: -1 }), null);
 });
 
-test('delta replaces the base alias, augments dictionaries, and recomputes popularity', () => {
+test('delta fills an incomplete base alias, augments dictionaries, and recomputes popularity', () => {
   const base = {
     manifest: { generation: 'base' },
     aliases: new Map([[alias, 0], ['c'.repeat(64), 1]]),
     records: new Map([
-      [0, { id: 0, platformMask: 1, canonicalGenreId: 0, tagIds: [0], popularityScore: 2500, sourceRanks: [2500, null, null], sourceCounts: [100, null, null] }],
+      [0, { id: 0, platformMask: 1, canonicalGenreId: null, tagIds: [], popularityScore: null, sourceRanks: [null, null, null], sourceCounts: [null, null, null] }],
       [1, { id: 1, platformMask: 2, canonicalGenreId: 0, tagIds: [1], popularityScore: 5000, sourceRanks: [null, 5000, null], sourceCounts: [null, 200, null] }],
     ]),
-    tags: new Map([[0, { id: 0, label: '옛태그', titleCount: 1 }], [1, { id: 1, label: '성장', titleCount: 1 }]]),
+    tags: new Map([[0, { id: 0, label: '옛태그', titleCount: 0 }], [1, { id: 1, label: '성장', titleCount: 1 }]]),
     genres: new Map([[0, '판타지']]),
     popularTags: [],
   };
@@ -50,5 +50,24 @@ test('delta replaces the base alias, augments dictionaries, and recomputes popul
   assert.equal([...merged.tags.values()].find(({ label }) => label === '옛태그').titleCount, 0);
   assert.equal([...merged.tags.values()].find(({ label }) => label === '성장').titleCount, 2);
   assert.deepEqual(merged.popularTags.map(({ label }) => label), ['성장', '회귀']);
+  assert.equal(merged.deltaGeneration, generation);
+});
+
+test('a refreshed base record wins over a stale request delta for the same alias', () => {
+  const baseRecord = { id: 0, platformMask: 3, canonicalGenreId: 0, tagIds: [0], popularityScore: 5000, sourceRanks: [5000, 5000, null], sourceCounts: [500, 600, null] };
+  const base = {
+    manifest: { generation: 'refreshed-base' },
+    aliases: new Map([[alias, 0]]),
+    records: new Map([[0, baseRecord]]),
+    tags: new Map([[0, { id: 0, label: '정기갱신', titleCount: 1 }]]),
+    genres: new Map([[0, '판타지']]),
+    popularTags: [{ id: 0, label: '정기갱신', titleCount: 1 }],
+  };
+  const merged = mergePublicBookCatalogDelta(base, { manifest: { generation }, entries: new Map([[alias, {
+    canonicalKey: 'b'.repeat(64), queryTitle: '이전 요청', platformMask: 2, genre: null, tags: [], sourceCounts: [null, 300, null],
+  }]]) });
+  assert.equal(merged.aliases.get(alias), 0);
+  assert.deepEqual(merged.records.get(0), baseRecord);
+  assert.deepEqual(merged.popularTags.map(({ label }) => label), ['정기갱신']);
   assert.equal(merged.deltaGeneration, generation);
 });

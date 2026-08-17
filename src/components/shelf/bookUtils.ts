@@ -4,6 +4,7 @@ import type {
   PublicBookCatalogBook,
   PublicBookCatalogPlatformId,
 } from '../../lib/publicBookCatalogSchema.ts';
+import type { PublicBookMetadata } from '../../lib/publicBookMetadataSchema.ts';
 
 export type ShelfSortMode = 'alpha' | 'recent' | 'popularity';
 export type ShelfViewMode = 'grid' | 'list';
@@ -24,6 +25,23 @@ export const getVisibleBookInfoCatalogTags = (catalog?: PublicBookCatalogBook) =
     .filter((tag) => tag.label !== catalog.genreLabel)
     ?? []
 );
+export const canRequestPublicBookMetadata = (
+  catalog: PublicBookCatalogBook | undefined,
+  catalogState: 'idle' | 'loading' | 'ready' | 'error',
+  metadata: PublicBookMetadata | null,
+  metadataState: 'loading' | 'ready' | 'missing' | 'error',
+) => {
+  if (catalogState !== 'ready' || (metadataState !== 'ready' && metadataState !== 'missing')) return false;
+  const hasSourceCount = Boolean(
+    catalog?.record.sourceCounts.some((count) => count !== null)
+    || metadata?.platforms.some((platform) => (
+      platform.viewCount !== null || platform.downloadCount !== null
+    )),
+  );
+  return !catalog?.genreLabel
+    && getVisibleBookInfoCatalogTags(catalog).length === 0
+    && !hasSourceCount;
+};
 export type ShelfTheme = {
   bg: string;
   text: string;

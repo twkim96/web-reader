@@ -20,7 +20,7 @@
 
 ## 사용자 확정 UX
 
-1. shelf와 reader가 공유하는 도서정보 화면에서 raw tag가 하나도 없을 때 요청 버튼을 표시한다.
+1. shelf와 reader가 공유하는 도서정보 화면에서 tag·genre·source count가 모두 없을 때만 요청 버튼을 표시한다.
 2. 버튼을 누르면 `요청 → 확인 중 → 반영 완료/결과 없음/확인 필요/재시도` 상태를 같은 영역에 표시한다.
 3. 수집 성공 직후 도서정보에는 전체 tag를 표시한다.
 4. shelf list에는 raw tag 최대 5개, grid에는 최대 2개와 `+N`을 유지한다.
@@ -107,7 +107,7 @@ publicBookCatalogDeltaV1/{generation}_delta_0..f
 ```
 
 - delta는 직전 검증 generation에 요청 결과 한 건을 deterministic하게 overlay하고 manifest-last CAS로 전환한다. manifest가 없는 복구 작업에서만 on-demand 원본 전체를 다시 읽는다.
-- client는 base catalog를 검증한 뒤 delta를 검증·merge한다. 같은 alias는 delta가 base record를 대체한다.
+- client는 base catalog를 검증한 뒤 delta를 검증·merge한다. 같은 alias의 base에 tag·genre·source count가 하나라도 생기면 정기 게시 base가 우선하고, 이 값이 전부 없는 gap에서만 요청형 delta가 대체한다.
 - tag dictionary는 label 기준으로 합치고 overridden base record의 기존 tag count를 먼저 빼서 distinct title count를 이중 계산하지 않는다.
 - delta publish가 실패하면 기존 manifest는 유지한다. per-title 원본의 `publishPending` 상태를 다음 요청 또는 관리 재시도로 복구한다.
 - client는 collection list/query를 사용하지 않고 manifest가 지정한 point-get만 수행한다.
@@ -264,7 +264,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 상태: shared shelf/reader 구현·build 완료, production 실제 UI 대기
 
 1. shared `BookInfoModal`의 장르·태그 section을 catalog missing/empty/loading/error 상태별로 정리한다.
-2. raw tag가 0개이고 catalog loading이 끝난 도서에만 요청 버튼을 표시한다.
+2. tag·genre·source count가 모두 없고 catalog/detail loading이 정상 종료된 도서에만 요청 버튼을 표시한다.
 3. request progress, cache hit, ready, confirmed-empty, not-found/restricted, ambiguous와 retryable error 문구를 구현한다.
 4. 성공 response를 현재 React catalog에 즉시 merge하고 layout transition을 유지한다.
 5. close/unmount·book switch에서 stale response가 다른 도서에 적용되지 않게 한다.
@@ -273,7 +273,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 - shelf와 reader 정보창이 같은 요청 상태·결과를 보인다.
 - 중복 클릭, Back/close, offline, token refresh와 응답 순서 역전이 안전하다.
-- tag가 이미 있는 도서에는 요청 버튼이 나타나지 않는다.
+- tag·genre·source count 중 하나라도 있는 도서에는 요청 버튼이 나타나지 않는다.
 
 ## Phase G — optional auth provider
 
@@ -354,7 +354,7 @@ git diff --check
 
 ## 전체 완료 조건
 
-- tag 없는 도서에서 로그인 사용자가 요청을 시작하고 Vercel이 직접 수집한다.
+- tag·genre·source count가 모두 없는 도서에서 로그인 사용자가 요청을 시작하고 Vercel이 직접 수집한다.
 - `file_check`와 로컬 SQLite 없이 세 플랫폼 공개 metadata를 검증·저장한다.
 - 성공 결과가 Firebase와 compact delta에 원자적·재개 가능하게 반영된다.
 - 정보창 전체 tag, list 5개, grid 2개와 검색·필터·정렬이 같은 결과를 사용한다.
@@ -374,7 +374,8 @@ git diff --check
 - `publicBookMetadataOnDemandV1`, 내부 lease/quota collection, `publicBookCatalogDeltaV1`을 추가했다. alias lease, 7일 authoritative cache, 1분 cooldown, uid당 일 20회 quota를 transaction으로 구분한다.
 - delta는 16개 immutable shard의 SHA-256 checksum과 900KB ceiling을 검증하고 readback 뒤 manifest CAS를 수행한다. 실패한 per-title 결과는 `publishPending`으로 남고 다음 cache hit에서 재게시한다.
 - client는 base catalog를 유지한 채 delta alias를 overlay한다. tag/genre dictionary를 label 기준으로 합치고 overridden base title count를 빼며, base+delta 전체 raw source count로 midrank와 통합 인기점수를 다시 계산한다.
-- shared `BookInfoModal`에 tag 0개일 때만 요청 버튼과 loading/ready/not-found/ambiguous/busy/quota/offline/login/error 상태를 추가했다. 성공 후 shelf와 reader hook을 재조회하므로 정보창 전체 tag, list 5개, grid 2개, 검색·필터·인기순이 같은 merged snapshot을 쓴다.
+- shared `BookInfoModal`에는 tag·genre·source count가 모두 없고 catalog/detail 조회가 정상 완료된 도서에만 요청 버튼과 loading/ready/not-found/ambiguous/busy/quota/offline/login/error 상태를 표시한다. 성공 후 shelf와 reader hook을 재조회하므로 정보창 전체 tag, list 5개, grid 2개, 검색·필터·인기순이 같은 merged snapshot을 쓴다.
+- 정기 publisher는 `publicBookMetadataV1`과 `publicBookCatalogIndexV1`만 새 generation으로 게시하며 on-demand 원본·delta 컬렉션을 삭제하지 않는다. 요청 원본은 cache/audit로 남지만, 이후 정기 base가 tag·genre·source count를 확보하면 client merge에서 base가 요청형 delta보다 우선한다.
 - `firebase-admin`을 server dependency로 추가했고 package, lockfile, Service Worker와 Foliate runtime release version을 1.8.15로 맞췄다.
 - 전용 서비스 계정에는 Cloud Datastore User와 Firebase Authentication Viewer만 부여했다. JSON key는 Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`의 Production·Preview sensitive env에 등록했고, 등록 확인 직후 로컬 다운로드 파일을 삭제했다.
 - Next.js 16.3.1과 Firebase 12.17.1로 올리고 Firebase Admin은 Vercel Node 함수의 CommonJS/ESM 호환이 확인된 13.10.0으로 고정했다. `npm audit --omit=dev` 결과는 critical 0, high 0, moderate 8이며 남은 항목은 후속 dependency 정리 대상으로 기록한다.
@@ -398,6 +399,7 @@ git diff --check
 - PC production Edge에서 tag 없는 `정보처리기사 필기 요약본.pdf` 요청이 loading 뒤 `not-found`로 전이했고, Firestore public point-get에서 schema v1·`publishPending=false`·requester identity 없음이 확인됐다.
 - `용왕이 하는 일! 01권.epub`은 trusted title `용왕이 하는 일!`로 요청되어 Kakao `ok`, Series·NovelPia `not-found`인 ready 원본을 저장했다. delta manifest generation `6a289424c6a2499dd255`는 record 1개·immutable document 16개이며 재요청은 약 1.5초 안에 cache 결과를 재사용했다.
 - 같은 production 책장 list에서 대표 tag 5개와 `+10`, 정보창에서 전체 tag 15개를 재확인했다. 요청 결과가 tag를 추가하지 못한 ready 작품은 기존 장르·플랫폼 정보와 수치를 보존한다.
+- 후속 정책 보강에서 요청 버튼은 tag만 없는 `용왕이 하는 일!`처럼 장르 또는 조회수가 이미 있는 작품에서는 숨기고, 정기 base가 보강된 alias가 과거 요청형 delta에 가려지지 않도록 fallback-only merge 회귀를 추가했다.
 - 실제 Android Chrome, iPad Safari와 설치형 PWA의 터치·offline 표본은 데스크톱 자동화로 대체하지 않고 후속 실기기 확인으로 남긴다.
 
 ## 보류·후속 버전
