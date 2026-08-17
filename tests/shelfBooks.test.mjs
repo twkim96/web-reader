@@ -14,6 +14,7 @@ import {
 } from '../src/components/shelf/progressiveBooks.ts';
 import {
   getNextShelfTagCount,
+  getShelfPopularTags,
   SHELF_TAG_PAGE_SIZE,
 } from '../src/components/shelf/filterTags.ts';
 import { searchPublicBookCatalogTags } from '../src/components/shelf/tagSearch.ts';
@@ -32,6 +33,34 @@ test('reveals popular tags in fixed groups of fifteen', () => {
   assert.equal(getNextShelfTagCount(15, 41), 30);
   assert.equal(getNextShelfTagCount(30, 41), 41);
   assert.equal(getNextShelfTagCount(41, 41), 41);
+});
+
+test('counts and ranks popular tags from only the books in the current shelf', () => {
+  const tags = new Map([
+    [1, { id: 1, label: '전역인기', titleCount: 900 }],
+    [2, { id: 2, label: '현재인기', titleCount: 100 }],
+    [3, { id: 3, label: '현재전용', titleCount: 10 }],
+  ]);
+  const catalog = {
+    tags,
+    popularTags: [tags.get(1), tags.get(2), tags.get(3)],
+  };
+  const prepared = [
+    { catalog: { record: { tagIds: [2, 3] } } },
+    { catalog: { record: { tagIds: [2, 2] } } },
+    { catalog: undefined },
+  ];
+
+  assert.deepEqual(
+    getShelfPopularTags(prepared, catalog).map(({ id, shelfTitleCount }) => (
+      [id, shelfTitleCount]
+    )),
+    [[2, 2], [3, 1], [1, 0]],
+  );
+  assert.deepEqual(
+    getShelfPopularTags([], catalog).map(({ id, shelfTitleCount }) => [id, shelfTitleCount]),
+    [[1, 0], [2, 0], [3, 0]],
+  );
 });
 
 test('ranks exact hashtag matches before prefix and substring matches', () => {

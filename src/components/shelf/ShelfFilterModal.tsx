@@ -20,7 +20,11 @@ import {
   type ShelfSourceFilter,
   type ShelfTheme,
 } from './bookUtils';
-import { getNextShelfTagCount, SHELF_TAG_PAGE_SIZE } from './filterTags';
+import {
+  getNextShelfTagCount,
+  getShelfPopularTags,
+  SHELF_TAG_PAGE_SIZE,
+} from './filterTags';
 
 type Props = {
   books: PreparedShelfBook[];
@@ -97,13 +101,24 @@ export const ShelfFilterModal: React.FC<Props> = ({
       left[1].localeCompare(right[1], 'ko-KR') || left[0] - right[0]
     )) : []
   ), [catalog]);
-  const visibleTags = catalog?.popularTags.slice(0, visibleTagCount) ?? [];
+  const shelfPopularTags = useMemo(
+    () => getShelfPopularTags(books, catalog),
+    [books, catalog],
+  );
+  const shelfTagCountById = useMemo(
+    () => new Map(shelfPopularTags.map((tag) => [tag.id, tag.shelfTitleCount])),
+    [shelfPopularTags],
+  );
+  const visibleTags = shelfPopularTags.slice(0, visibleTagCount);
   const visibleTagIds = new Set(visibleTags.map((tag) => tag.id));
   const selectedTags = draftFilters.tagIds.flatMap((tagId) => {
     const tag = catalog?.tags.get(tagId);
-    return tag && !visibleTagIds.has(tag.id) ? [tag] : [];
+    return tag && !visibleTagIds.has(tag.id) ? [{
+      ...tag,
+      shelfTitleCount: shelfTagCountById.get(tag.id) ?? 0,
+    }] : [];
   }).sort((left, right) => (
-    right.titleCount - left.titleCount
+    right.shelfTitleCount - left.shelfTitleCount
     || left.label.localeCompare(right.label, 'ko-KR')
   ));
   const resultCount = useMemo(() => filterAndSortPreparedBooks(
@@ -219,7 +234,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
           <section aria-labelledby="shelf-filter-tag-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="shelf-filter-tag-title" className="text-xs font-black opacity-55">인기 태그</h3>
-              <span className="text-[10px] opacity-40">작품이 많은 순</span>
+              <span className="text-[10px] opacity-40">현재 책장 작품이 많은 순</span>
             </div>
             {selectedTags.length > 0 && (
               <div data-shelf-selected-tags="true" className="mt-2 rounded-xl bg-accent-500/8 p-2">
@@ -237,6 +252,9 @@ export const ShelfFilterModal: React.FC<Props> = ({
                       className={chip(true)}
                     >
                       #{tag.label}
+                      {tag.shelfTitleCount > 0 && (
+                        <> <span className="opacity-55">{tag.shelfTitleCount.toLocaleString('ko-KR')}</span></>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -255,17 +273,20 @@ export const ShelfFilterModal: React.FC<Props> = ({
                   }))}
                   className={chip(draftFilters.tagIds.includes(tag.id))}
                 >
-                  #{tag.label} <span className="opacity-55">{tag.titleCount.toLocaleString('ko-KR')}</span>
+                  #{tag.label}
+                  {tag.shelfTitleCount > 0 && (
+                    <> <span className="opacity-55">{tag.shelfTitleCount.toLocaleString('ko-KR')}</span></>
+                  )}
                 </button>
               ))}
             </div>
-            {catalog && visibleTagCount < catalog.popularTags.length && (
+            {catalog && visibleTagCount < shelfPopularTags.length && (
               <button
                 type="button"
                 data-shelf-tags-more="true"
                 onClick={() => setVisibleTagCount((current) => getNextShelfTagCount(
                   current,
-                  catalog.popularTags.length,
+                  shelfPopularTags.length,
                 ))}
                 className={`mt-2 flex min-h-9 w-full items-center justify-center gap-1 rounded-xl border ${theme.border} text-[11px] font-bold opacity-65 hover:opacity-100 sm:min-h-10 sm:text-xs`}
               >

@@ -38,6 +38,8 @@ test('defaults auto-open for older stored viewer settings', async () => {
     const settings = getStoredViewerSettings();
 
     assert.equal(settings.fontSize, 21);
+    assert.equal(settings.theme, 'dark');
+    assert.equal(settings.accentColor, 'yellow');
     assert.equal(settings.autoOpenLastBook, true);
     assert.equal(settings.landscapeTwoPage, false);
     assert.equal(settings.translationProvider, 'auto');

@@ -63,7 +63,7 @@ const themeBootstrapScript = `
     return { '--viewer-theme-texture': 'none', '--viewer-theme-texture-size': 'auto' };
   };
 
-  let settings = { theme: 'dark', accentColor: 'sky', customThemes: [] };
+  let settings = { theme: 'dark', accentColor: 'yellow', customThemes: [] };
   try {
     const stored = localStorage.getItem('viewer_settings');
     if (stored) settings = Object.assign(settings, JSON.parse(stored));
@@ -83,7 +83,7 @@ const themeBootstrapScript = `
   const text = normalizeHex(theme.text, '#b8b8b8');
   const bgRgb = rgbString(bg);
   const textRgb = rgbString(text);
-  const accent = accents[settings.accentColor] || accents.sky;
+  const accent = accents[settings.accentColor] || accents.yellow;
   const vars = Object.assign({
     '--viewer-bootstrap-theme-bg': bg,
     '--viewer-bootstrap-theme-text': text,

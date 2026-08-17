@@ -29,7 +29,7 @@ export const defaultSettings: ViewerSettings = {
   landscapeTwoPage: false,
   autoOpenLastBook: true,
   fontFamily: 'ridi',
-  accentColor: 'sky',
+  accentColor: 'yellow',
   translationProvider: 'auto',
   translationSourceLanguage: 'auto',
   translationTargetLanguage: 'ko',
