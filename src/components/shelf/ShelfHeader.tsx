@@ -351,7 +351,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           </div>
 
           <div
-            className={`ml-3 hidden shrink-0 self-center transition-all duration-200 ease-out md:block ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
+            className={`relative -top-[0.5625rem] ml-3 hidden shrink-0 self-center transition-all duration-200 ease-out md:block ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
             ref={mobileMenuRef}
           >
             <div className={`hidden items-center md:flex ${dockClass}`}>

@@ -18,7 +18,7 @@
 
 - 책장 하단 메뉴는 Safari처럼 둥근 glass capsule, 얇은 테두리, 상단 highlight와 부드러운 그림자를 사용한다.
 - 메뉴와 화면 최하단 사이에는 별도 여백을 두고 `safe-area-inset-bottom`을 추가한다.
-- iPad·desktop 상단 메뉴는 `LOCAL/CLOUD LIBRARY` 헤더와 같은 행에 두고 두 영역을 수직 가운데 정렬한다.
+- iPad·desktop 상단 메뉴는 `LOCAL/CLOUD LIBRARY` 헤더와 같은 행에 두고, 높이가 다른 로고 버튼과 capsule의 아래쪽 끝을 맞춘다.
 - Android나 blur 미지원 브라우저에서도 모든 버튼이 정상 동작하고 읽기 쉬운 불투명 surface가 남아야 한다.
 - 아이콘 순서, 필터·검색·통계·추가·테마·관리 동작과 모바일 layout control 분리는 변경하지 않는다.
 
@@ -31,7 +31,7 @@
 - 지원 환경에서 `backdrop-filter: saturate(145%) blur(22px)`를 사용한다.
 - 기본 fallback은 `--viewer-theme-secondary` 불투명 surface이며 `prefers-reduced-transparency`에서도 blur를 제거한다.
 - 하단 간격은 mobile 20px, iPad/desktop 폭 24px에 기기 safe area를 더한다.
-- iPad·desktop의 top dock은 고정 화면 좌표가 아니라 header flex 행의 오른쪽에 배치한다. iPad 폭에서는 44px action과 좁은 gap을 사용하고 넓은 desktop에서 48px로 확장한다.
+- iPad·desktop의 top dock은 고정 화면 좌표가 아니라 header flex 행의 오른쪽에 배치한다. iPad 폭에서는 44px action과 좁은 gap을 사용하고 넓은 desktop에서 48px로 확장한다. 66px capsule은 48px 로고 버튼보다 18px 높으므로 9px 위로 보정해 아래쪽 끝을 일치시킨다.
 - 320px 회귀에서 버튼 수, overflow, capsule radius와 shadow를 검증한다.
 
 완료 조건:
@@ -91,6 +91,6 @@ git diff --check
 
 - 통과: `npm run lint`(기존 Foliate warning 2건), `npm run typecheck`, `npm run test:release` 3건, `npm run test:shelf-ui` 8건, `npm run test:shelf` 105건, `npm run test:sw`, `npm run build`, `npm run test:browser:ci`.
 - Service Worker lifecycle Chromium/WebKit 4건을 별도로 통과했다.
-- 768×1024 viewport에서 header와 dock의 top/bottom/center Y가 각각 `32/98/65px`로 동일했고 dock 426px, 가로 overflow 0을 확인했다.
+- 768×1024 viewport에서 dock 426px, 가로 overflow 0을 확인했다. 후속 시각 보정은 capsule을 9px 위로 올려 48px 로고 버튼과 아래쪽 끝을 맞춘다.
 - 390×844 viewport에서 bottom dock은 폭 374px·높이 68px, 하단 gap 20px, visible action 6개, 가로 overflow 0이었다.
 - Chromium 기반 자동 시각 검증에서 glass blur·gradient·capsule·shadow가 적용됐다. 실제 iPad Safari와 Android Chrome의 렌더링은 실기기 gate로 남긴다.
