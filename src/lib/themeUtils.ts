@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { CustomThemeTexture, ThemeClasses, ViewerSettings } from '../types';
+import { getMuzioShelfDockVariables } from './shelfDockTheme';
 
 export const CUSTOM_THEME_PREFIX = 'custom:';
 export type ThemeLookupSettings = Pick<ViewerSettings, 'theme' | 'customThemes'>;
@@ -144,6 +145,7 @@ export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperti
     '--viewer-theme-border': `rgba(${textRgb}, 0.18)`,
     '--viewer-theme-secondary': secondaryColor,
     '--viewer-reader-surface': `rgba(${bgRgb}, 0.68)`,
+    ...getMuzioShelfDockVariables(bgColor),
     ...getTextureVars(colors.texture, textColor),
   } as CSSProperties;
 };

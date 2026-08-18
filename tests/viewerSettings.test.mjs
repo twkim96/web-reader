@@ -5,6 +5,7 @@ import {
   defaultSettings,
   getStoredViewerSettings,
 } from '../src/hooks/useViewerSettings.ts';
+import { getMuzioShelfDockVariables } from '../src/lib/shelfDockTheme.ts';
 
 const SETTINGS_KEY = 'viewer_settings';
 const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1';
@@ -98,4 +99,16 @@ test('preserves only an explicit boolean landscape two-page setting', async () =
   await withStorage(JSON.stringify({ landscapeTwoPage: 'true' }), () => {
     assert.equal(getStoredViewerSettings().landscapeTwoPage, false);
   });
+});
+
+test('uses Muzio mini-player surfaces for light and dark shelf docks', () => {
+  const dark = getMuzioShelfDockVariables('#272728');
+  const light = getMuzioShelfDockVariables('#ffffff');
+
+  assert.equal(dark['--viewer-shelf-dock-surface'], 'rgba(31, 31, 31, 0.88)');
+  assert.equal(dark['--viewer-shelf-dock-border'], 'rgba(255, 255, 255, 0.045)');
+  assert.equal(dark['--viewer-shelf-dock-shadow'], 'rgba(0, 0, 0, 0.35)');
+  assert.equal(light['--viewer-shelf-dock-surface'], 'rgba(255, 255, 255, 0.88)');
+  assert.equal(light['--viewer-shelf-dock-border'], 'rgba(228, 228, 231, 0.35)');
+  assert.equal(light['--viewer-shelf-dock-shadow'], 'rgba(0, 0, 0, 0.10)');
 });

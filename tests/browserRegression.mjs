@@ -701,7 +701,8 @@ try {
     };
     return {
       mobileControlCount: mobileControls?.querySelectorAll('button').length ?? 0,
-      bottomUsesReaderSurface: bottomDock?.className.includes('bg-[color:var(--viewer-reader-surface)]') ?? false,
+      bottomUsesMuzioStyle: bottomDock?.classList.contains('shelf-muzio-dock') ?? false,
+      bottomSurfaceColor: bottomDock ? getComputedStyle(bottomDock).backgroundColor : '',
       bottomBorderRadius: bottomDock ? Number.parseFloat(getComputedStyle(bottomDock).borderRadius) : 0,
       bottomBoxShadow: bottomDock ? getComputedStyle(bottomDock).boxShadow : 'none',
       bottomButtonOpacity: bottomDock?.querySelector('button')
@@ -720,8 +721,13 @@ try {
     };
   })()`);
   assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.bottomUsesReaderSurface, true, JSON.stringify(mobileShelfControls));
-  assert.ok(mobileShelfControls.bottomBorderRadius >= 30, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomUsesMuzioStyle, true, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(31, 31, 31, 0.88)', JSON.stringify(mobileShelfControls));
+  assert.ok(
+    mobileShelfControls.bottomBorderRadius >= 15
+      && mobileShelfControls.bottomBorderRadius <= 17,
+    JSON.stringify(mobileShelfControls),
+  );
   assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
   assert.ok(mobileShelfControls.bottomButtonOpacity >= 0.8, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));

@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 compact 공개 catalog와 통합 책장 필터를 구현했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider는 full gate, 최소권한 Admin secret, Rules/index, production ready/not-found·delta/cache 및 후속 shelf/reader 보정까지 코드 릴리스를 마쳤다. 1.8.16은 Safari 계열의 반투명 floating dock을 시작으로 책장·모달·리더 UI 밀도와 반응형 배치를 정리하며 Android/iPad/PWA 실기기 gate를 함께 수행한다.
+전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 compact 공개 catalog와 통합 책장 필터를 구현했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider는 full gate, 최소권한 Admin secret, Rules/index, production ready/not-found·delta/cache 및 후속 shelf/reader 보정까지 코드 릴리스를 마쳤다. 1.8.16은 Muzio mini-player형 floating dock을 시작으로 책장·모달·리더 UI 밀도와 반응형 배치를 정리하며 Android/iPad/PWA 실기기 gate를 함께 수행한다.
 
 ## 1. 문서의 역할
 
@@ -79,7 +79,7 @@
 | 1.8.13 | 동기화 invariant 안정화 | listener zero-authoritative 복구·navigation retry·aggregate lost-update 방지·settled revision·durable commit/convergence 분리·guest stale-save 방어·debug trace | 매우 높음 | `0cedf03` 재리뷰 guest/local P1까지 후속 수정·최종 full gate 완료, pending overlay 선택 보류·실기기 검증 단계 |
 | 1.8.14 | 통합 책장 필터·공개 catalog | compact generation·태그 검색·출처/장르/태그 필터·통합 인기순·grid/list metadata | 중상 | `29d1bec`까지 구현·full gate·Firebase/catalog·Vercel·GitHub CI·실제 list 5개/정보창 전체 tag 검증 완료, 실제 모바일·iPad/PWA 대기 |
 | 1.8.15 | 요청형 메타데이터 수집 | Vercel crawler·Firebase on-demand/delta·정보창 요청 UI·optional NovelPia auth provider | 높음 | `21983a0` full gate·Rules/index·Admin secret·CI·Vercel production·실제 요청/delta/cache 완료, Android/iPad/PWA 대기 |
-| 1.8.16 | 반응형 UI 정리 | Safari형 floating dock·책장/모달/리더 밀도·모바일 safe area | 중간 | Phase A floating dock 구현·자동검증 완료, 실제 Android/iPad/PWA 확인 대기 |
+| 1.8.16 | 반응형 UI 정리 | Muzio mini-player형 dock·책장/모달/리더 밀도·모바일 safe area | 중간 | Phase A dock 스타일 이식·자동검증 완료, 실제 Android/iPad/PWA 확인 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 
@@ -777,7 +777,7 @@ type Annotation = {
 
 ## 1.8.16 — 반응형 UI 정리
 
-상태: 1.8.15 코드 릴리스를 닫고 책장 하단 dock의 Safari형 glass surface부터 구현을 시작했다. 기능·아이콘 순서와 접근성은 유지하고, 지원 브라우저에서는 blur·saturation을 사용하며 미지원 환경에서는 불투명한 theme surface로 자동 대체한다 — `update_1.8.16.md`
+상태: 1.8.15 코드 릴리스를 닫고 책장 dock에 Muzio mini-player의 responsive radius와 light/dark surface·border·shadow·blur를 이식했다. 기능·아이콘 순서와 접근성은 유지한다 — `update_1.8.16.md`
 
 ### 포함
 

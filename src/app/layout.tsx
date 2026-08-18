@@ -31,6 +31,10 @@ const themeBootstrapScript = `
     const rgb = hexToRgb(hex);
     return rgb.r + ', ' + rgb.g + ', ' + rgb.b;
   };
+  const isDarkColor = (hex) => {
+    const rgb = hexToRgb(hex);
+    return ((rgb.r * 299) + (rgb.g * 587) + (rgb.b * 114)) / 1000 < 160;
+  };
   const mixHex = (a, b, amount) => {
     const first = hexToRgb(a);
     const second = hexToRgb(b);
@@ -83,6 +87,7 @@ const themeBootstrapScript = `
   const text = normalizeHex(theme.text, '#b8b8b8');
   const bgRgb = rgbString(bg);
   const textRgb = rgbString(text);
+  const darkSurface = isDarkColor(bg);
   const accent = accents[settings.accentColor] || accents.yellow;
   const vars = Object.assign({
     '--viewer-bootstrap-theme-bg': bg,
@@ -94,7 +99,16 @@ const themeBootstrapScript = `
     '--viewer-theme-text': text,
     '--viewer-theme-border': 'rgba(' + textRgb + ', 0.18)',
     '--viewer-theme-secondary': mixHex(bg, text, 0.09),
-    '--viewer-reader-surface': 'rgba(' + bgRgb + ', 0.68)'
+    '--viewer-reader-surface': 'rgba(' + bgRgb + ', 0.68)',
+    '--viewer-shelf-dock-surface': darkSurface
+      ? 'rgba(31, 31, 31, 0.88)'
+      : 'rgba(255, 255, 255, 0.88)',
+    '--viewer-shelf-dock-border': darkSurface
+      ? 'rgba(255, 255, 255, 0.045)'
+      : 'rgba(228, 228, 231, 0.35)',
+    '--viewer-shelf-dock-shadow': darkSurface
+      ? 'rgba(0, 0, 0, 0.35)'
+      : 'rgba(0, 0, 0, 0.10)'
   }, textureVars(theme.texture, text));
   const applyTheme = (target) => {
     Object.keys(vars).forEach((key) => target.style.setProperty(key, vars[key]));
