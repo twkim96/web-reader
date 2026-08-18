@@ -701,9 +701,12 @@ try {
     };
     return {
       mobileControlCount: mobileControls?.querySelectorAll('button').length ?? 0,
-      bottomHasGlassClass: bottomDock?.classList.contains('shelf-glass-dock') ?? false,
+      bottomUsesReaderSurface: bottomDock?.className.includes('bg-[color:var(--viewer-reader-surface)]') ?? false,
       bottomBorderRadius: bottomDock ? Number.parseFloat(getComputedStyle(bottomDock).borderRadius) : 0,
       bottomBoxShadow: bottomDock ? getComputedStyle(bottomDock).boxShadow : 'none',
+      bottomButtonOpacity: bottomDock?.querySelector('button')
+        ? Number.parseFloat(getComputedStyle(bottomDock.querySelector('button')).opacity)
+        : 0,
       bottomLayoutControlCount: [...(bottomDock?.querySelectorAll(
         '[data-shelf-filter-control="true"], [data-shelf-view-control="true"]',
       ) ?? [])].filter((button) => button.getClientRects().length > 0).length,
@@ -717,9 +720,10 @@ try {
     };
   })()`);
   assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.bottomHasGlassClass, true, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomUsesReaderSurface, true, JSON.stringify(mobileShelfControls));
   assert.ok(mobileShelfControls.bottomBorderRadius >= 30, JSON.stringify(mobileShelfControls));
   assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
+  assert.ok(mobileShelfControls.bottomButtonOpacity >= 0.8, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));
   assert.ok(
     mobileShelfControls.bottomScrollWidth <= mobileShelfControls.bottomClientWidth,

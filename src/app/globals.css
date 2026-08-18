@@ -53,40 +53,6 @@ body {
   background-size: var(--viewer-theme-texture-size, auto);
 }
 
-.shelf-glass-dock {
-  border: 1px solid var(--viewer-theme-border);
-  background-color: var(--viewer-theme-secondary);
-  background-image: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.13) 0%,
-    rgba(255, 255, 255, 0.035) 38%,
-    rgba(0, 0, 0, 0.075) 100%
-  );
-  box-shadow:
-    0 18px 46px rgba(0, 0, 0, 0.32),
-    0 2px 9px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .shelf-glass-dock {
-    background-color: color-mix(in srgb, var(--viewer-theme-secondary) 76%, transparent);
-    -webkit-backdrop-filter: saturate(145%) blur(22px);
-    backdrop-filter: saturate(145%) blur(22px);
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .shelf-glass-dock {
-    background-color: var(--viewer-theme-secondary);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
 /* Chrome, Safari, Opera 등 웹킷 기반 브라우저 */
 ::-webkit-scrollbar {
   display: none;

@@ -16,10 +16,11 @@
 
 ## 사용자 확정 계약
 
-- 책장 하단 메뉴는 Safari처럼 둥근 glass capsule, 얇은 테두리, 상단 highlight와 부드러운 그림자를 사용한다.
+- 책장 하단 메뉴는 Safari처럼 둥근 capsule과 부드러운 그림자를 사용하되 색상은 기존 `--viewer-reader-surface`·theme border 조합을 유지한다.
 - 메뉴와 화면 최하단 사이에는 별도 여백을 두고 `safe-area-inset-bottom`을 추가한다.
 - iPad·desktop 상단 메뉴는 `LOCAL/CLOUD LIBRARY` 헤더와 같은 행에 두고, 높이가 다른 로고 버튼과 capsule의 아래쪽 끝을 맞춘다.
-- Android나 blur 미지원 브라우저에서도 모든 버튼이 정상 동작하고 읽기 쉬운 불투명 surface가 남아야 한다.
+- Android나 blur 미지원 브라우저에서도 모든 버튼이 정상 동작하고 같은 theme surface가 남아야 한다.
+- 일반 메뉴 아이콘은 theme text 색상을 상속하고, 기존보다 조금 높은 84% 불투명도로 표시한다.
 - 아이콘 순서, 필터·검색·통계·추가·테마·관리 동작과 모바일 layout control 분리는 변경하지 않는다.
 
 ## Phase A — Safari형 floating dock
@@ -27,9 +28,8 @@
 상태: 구현·자동검증 완료, 실기기 확인 대기
 
 - `ShelfHeader`의 상단/하단 dock surface를 공통 `shelf-glass-dock`으로 통일한다.
-- capsule radius, 미세 gradient, inset highlight와 이중 shadow를 적용한다.
-- 지원 환경에서 `backdrop-filter: saturate(145%) blur(22px)`를 사용한다.
-- 기본 fallback은 `--viewer-theme-secondary` 불투명 surface이며 `prefers-reduced-transparency`에서도 blur를 제거한다.
+- capsule radius와 기존 dock shadow를 적용한다.
+- 배경·테두리·blur는 1.8.15의 `--viewer-reader-surface`, `--viewer-theme-border`, `backdrop-blur-xl` 조합을 복원한다.
 - 하단 간격은 mobile 20px, iPad/desktop 폭 24px에 기기 safe area를 더한다.
 - iPad·desktop의 top dock은 고정 화면 좌표가 아니라 header flex 행의 오른쪽에 배치한다. iPad 폭에서는 44px action과 좁은 gap을 사용하고 넓은 desktop에서 48px로 확장한다. 66px capsule은 48px 로고 버튼보다 18px 높으므로 9px 위로 보정해 아래쪽 끝을 일치시킨다.
 - 320px 회귀에서 버튼 수, overflow, capsule radius와 shadow를 검증한다.
@@ -83,8 +83,8 @@ git diff --check
 
 ## 구현 결과
 
-- Phase A는 UA 분기나 JavaScript capability check 없이 CSS `@supports`로 glass effect를 선택한다.
-- 미지원 환경은 gradient가 얹힌 theme surface, 테두리와 shadow를 그대로 사용하므로 Android 동작 차이는 없다.
+- Phase A는 UA 분기나 JavaScript capability check 없이 기존 theme surface와 CSS blur를 사용한다.
+- 메뉴 위치·capsule 형태는 1.8.16을 유지하고 색상만 기존 dock 계약으로 복원했다.
 - Service Worker와 Foliate app cache release version을 1.8.16으로 올리되 Foliate runtime revision과 metadata crawler version은 코드가 바뀌지 않아 유지한다.
 
 ## 자동검증 결과
