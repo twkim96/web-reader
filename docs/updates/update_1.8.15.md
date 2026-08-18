@@ -2,13 +2,13 @@
 
 작성일: 2026-08-17
 
-기준 커밋: `4a78b3a`
+최종 커밋: `4e08dab`
 
 상위 계획: [update_1.8.x_plan.md](./update_1.8.x_plan.md)
 
 이전 버전: [update_1.8.14.md](./update_1.8.14.md)
 
-상태: 구현·full gate·Firebase Rules/index 배포와 live get/list 경계 확인 완료. Vercel Admin credential 등록, commit/push와 public-only production acceptance 대기
+상태: 코드 릴리스 완료. full gate, Firebase Rules/index, 최소권한 Vercel Admin credential, production 공개 요청·delta·cache와 후속 shelf/reader UI 보정을 검증했다. 실제 Android·iPad·PWA 시각 회귀는 1.8.16 UI 정리로 이관
 
 ## 목표
 
@@ -208,7 +208,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase A — 계약·fixture·위험 검증
 
-상태: 로컬 완료, Vercel Preview egress 증거 대기
+상태: 완료. production 요청에서 세 플랫폼 공개 egress와 ready/not-found 결과를 확인
 
 1. 세 플랫폼의 현재 공개 응답을 개인정보 없는 fixture로 고정한다.
 2. title normalize, exact/author match, ambiguous rejection, count/tag normalize 계약을 TypeScript 테스트로 먼저 작성한다.
@@ -246,7 +246,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase C — 공개 platform crawler
 
-상태: fixture와 로컬 공개 egress 구현 완료, Vercel Preview/Production 표본 대기
+상태: 완료. fixture, 로컬 probe와 production ready/not-found 표본 확인
 
 1. Series, Kakao, NovelPia crawler와 공통 result validator를 구현한다.
 2. 세 플랫폼을 병렬 실행하되 플랫폼 내부 search/detail 순서는 유지한다.
@@ -278,7 +278,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase E — compact delta·client merge
 
-상태: 구현·checksum/override/rerank 테스트 완료, production generation 요청 검증 대기
+상태: 완료. checksum/override/rerank 테스트와 production 16-shard generation·cache 재사용 확인
 
 1. on-demand 원본에서 deterministic delta shard와 checksum을 생성한다.
 2. immutable create/readback 후 manifest-last CAS로 전환한다.
@@ -295,7 +295,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase F — 요청 UI·상태
 
-상태: shared shelf/reader 구현·build 완료, production 실제 UI 대기
+상태: 완료. shared shelf/reader 정보창과 production list·전체 tag 반영 확인
 
 1. shared `BookInfoModal`의 장르·태그 section을 catalog missing/empty/loading/error 상태별로 정리한다.
 2. tag·genre·source count가 모두 없고 catalog/detail loading이 정상 종료된 도서에만 요청 버튼을 표시한다.
@@ -311,7 +311,7 @@ client login을 custom backend에서 확인하는 경계는 Firebase 공식 [ID 
 
 ## Phase G — optional auth provider
 
-상태: 구현·env 완전성 테스트 완료, 실제 credential acceptance는 별도 대기
+상태: 코드 완료. 실제 credential·성인 작품 acceptance는 계정 등록 뒤 별도 후속으로 유지하며 1.8.15 public-only 완료 조건에서는 제외
 
 1. credential이 모두 있을 때만 생성되는 optional auth provider를 public crawler에서 분리한다.
 2. env 완전성 검사, login/CAPTCHA/adult mode/session verification을 구현한다.
@@ -413,6 +413,9 @@ git diff --check
 - `firebase-admin`을 server dependency로 추가했고 package, lockfile, Service Worker와 Foliate runtime release version을 1.8.15로 맞췄다.
 - 전용 서비스 계정에는 Cloud Datastore User와 Firebase Authentication Viewer만 부여했다. JSON key는 Vercel `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`의 Production·Preview sensitive env에 등록했고, 등록 확인 직후 로컬 다운로드 파일을 삭제했다.
 - Next.js 16.3.1과 Firebase 12.17.1로 올리고 Firebase Admin은 Vercel Node 함수의 CommonJS/ESM 호환이 확인된 13.10.0으로 고정했다. `npm audit --omit=dev` 결과는 critical 0, high 0, moderate 8이며 남은 항목은 후속 dependency 정리 대상으로 기록한다.
+- 후속 UI 보정으로 metadata summary 카드 통합, 정보창 전체 tag와 shelf list 최대 5개·모바일 한 줄 `+N`·grid 전체 tag, 출처 수치 단일 `조회` 표기, 라이브러리 주석 backdrop 닫기를 반영했다.
+- TTS 기본 동작을 현재 장 연속 듣기와 다음 장 계속 듣기로 바꾸고, 새 설정 기본값을 dark theme·yellow accent로 맞췄다.
+- 필터 인기 tag는 현재 로컬/클라우드 책장 작품 수가 1개 이상인 tag를 수치와 함께 먼저 배치하고, 0개 tag는 숫자 없이 기존 전체 인기순으로 이어 붙인다. 이미 join된 tag ID만 순회하므로 추가 Firebase read는 없다.
 
 ## 자동검증 결과
 
@@ -425,7 +428,8 @@ git diff --check
 - dependency 보안 업데이트까지 포함한 최종 로컬 후보에서 `npm run check:full`이 통과했다. Node/unit/publisher/SW/release, Rules emulator 32건과 metadata store emulator 2건, Playwright Chromium+WebKit 20건, browser regression을 포함한다.
 - 2026-08-17 `web-novel-viewer`에 Rules/index를 선배포했다. 기존 catalog manifest 공개 get은 200, 아직 없는 delta/on-demand point-get은 404, delta collection list는 403으로 확인했다.
 - 최초 Vercel 배포에서 Firebase Admin 14.2.0의 `jose` ESM dependency가 Next/Vercel external CommonJS loader와 충돌해 route import가 빈 500으로 실패하는 것을 runtime log로 확인했다. Admin 13.10.0 고정 뒤 typecheck·production build·Rules/store emulator를 다시 통과했고, hotfix `21983a0` production에서 정상 401/200 경계를 확인했다.
-- GitHub Actions는 최종 commit `21983a0`에서 성공했다. Vercel deployment `2VXLkuDQv`도 같은 commit으로 Ready이며 `/sw.js`의 cache는 `pc-reader-v1.8.15`다.
+- 핵심 metadata 릴리스 commit `21983a0`은 GitHub Actions 전체 성공, Vercel deployment `2VXLkuDQv` Ready로 확인했다. 후속 마감 commit `4e08dab`도 Vercel Ready이며 static build·Rules·browser regression은 성공했다. security 묶음의 기존 Foliate WebKit sanitizer 1건은 원격 runner에서만 실패했고 로컬 exact/full gate 증거를 보존했다.
+- 최종 shelf 회귀 105건, typecheck, production build와 browser regression을 통과했다. `/sw.js` cache는 1.8.16 착수 전까지 `pc-reader-v1.8.15`로 고정했다.
 
 ## 실기기 검증 결과
 
@@ -434,7 +438,7 @@ git diff --check
 - `용왕이 하는 일! 01권.epub`은 trusted title `용왕이 하는 일!`로 요청되어 Kakao `ok`, Series·NovelPia `not-found`인 ready 원본을 저장했다. delta manifest generation `6a289424c6a2499dd255`는 record 1개·immutable document 16개이며 재요청은 약 1.5초 안에 cache 결과를 재사용했다.
 - 같은 production 책장 list에서 대표 tag 5개와 `+10`, 정보창에서 전체 tag 15개를 재확인했다. 요청 결과가 tag를 추가하지 못한 ready 작품은 기존 장르·플랫폼 정보와 수치를 보존한다.
 - 후속 정책 보강에서 요청 버튼은 tag만 없는 `용왕이 하는 일!`처럼 장르 또는 조회수가 이미 있는 작품에서는 숨기고, 정기 base가 보강된 alias가 과거 요청형 delta에 가려지지 않도록 fallback-only merge 회귀를 추가했다.
-- 실제 Android Chrome, iPad Safari와 설치형 PWA의 터치·offline 표본은 데스크톱 자동화로 대체하지 않고 후속 실기기 확인으로 남긴다.
+- 실제 Android Chrome, iPad Safari와 설치형 PWA의 터치·offline·반응형 표본은 데스크톱 자동화로 대체하지 않고 1.8.16 UI 정리의 통합 실기기 gate로 이관한다.
 
 ## 보류·후속 버전
 

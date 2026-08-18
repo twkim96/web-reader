@@ -701,6 +701,9 @@ try {
     };
     return {
       mobileControlCount: mobileControls?.querySelectorAll('button').length ?? 0,
+      bottomHasGlassClass: bottomDock?.classList.contains('shelf-glass-dock') ?? false,
+      bottomBorderRadius: bottomDock ? Number.parseFloat(getComputedStyle(bottomDock).borderRadius) : 0,
+      bottomBoxShadow: bottomDock ? getComputedStyle(bottomDock).boxShadow : 'none',
       bottomLayoutControlCount: [...(bottomDock?.querySelectorAll(
         '[data-shelf-filter-control="true"], [data-shelf-view-control="true"]',
       ) ?? [])].filter((button) => button.getClientRects().length > 0).length,
@@ -714,6 +717,9 @@ try {
     };
   })()`);
   assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomHasGlassClass, true, JSON.stringify(mobileShelfControls));
+  assert.ok(mobileShelfControls.bottomBorderRadius >= 30, JSON.stringify(mobileShelfControls));
+  assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));
   assert.ok(
     mobileShelfControls.bottomScrollWidth <= mobileShelfControls.bottomClientWidth,
@@ -5991,7 +5997,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.15';
+    const expectedCache = 'pc-reader-v1.8.16';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -6018,7 +6024,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.15',
+      '/sw.js?browser-regression=1.8.16',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -6062,11 +6068,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.15']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.16']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.15$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.16$/);
 
   console.log(JSON.stringify({
     shelf: {

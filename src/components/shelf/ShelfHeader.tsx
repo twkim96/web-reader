@@ -81,12 +81,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
       if (!content || !topDock) return;
 
       const contentTop = content.getBoundingClientRect().top;
-      const topDockBottom = topDock.getBoundingClientRect().bottom;
+      const restingTopDockBottom = topDock.getBoundingClientRect().bottom + window.scrollY;
       const scrollGate = isBottomDockRef.current ? 24 : 56;
       const hasScrolledIntoShelf = window.scrollY > scrollGate;
       const shouldMoveBottom = isBottomDockRef.current
-        ? hasScrolledIntoShelf && contentTop <= topDockBottom + 72
-        : hasScrolledIntoShelf && contentTop <= topDockBottom + 12;
+        ? hasScrolledIntoShelf && contentTop <= restingTopDockBottom + 72
+        : hasScrolledIntoShelf && contentTop <= restingTopDockBottom + 12;
 
       if (shouldMoveBottom !== isBottomDockRef.current) {
         isBottomDockRef.current = shouldMoveBottom;
@@ -119,25 +119,20 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     activeFilterCount > 0 ? `, 필터 ${activeFilterCount}개` : ''
   }`;
 
-  const desktopDockIconSize = 24;
+  const desktopDockIconSize = 22;
   const bottomDockIconSize = 26;
   const mobileHeaderIconSize = 20;
   const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
-  const dockSurfaceClass = "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl";
-  const dockClass = `flex h-[4.125rem] items-center rounded-[1.65rem] ${dockSurfaceClass} px-2 shadow-[0_18px_55px_rgba(0,0,0,0.18)]`;
-  const bottomDockClass = `flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-[1.55rem] ${dockSurfaceClass} px-1 shadow-[0_18px_55px_rgba(0,0,0,0.28)] md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:rounded-[1.9rem] md:px-3`;
-  const dockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] opacity-70 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
-  const activeDockButtonClass = "flex h-12 w-12 items-center justify-center rounded-[0.95rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90";
+  const dockSurfaceClass = "shelf-glass-dock text-[color:var(--viewer-theme-text)]";
+  const dockClass = `flex h-[4.125rem] items-center rounded-full ${dockSurfaceClass} gap-0.5 px-1.5 lg:gap-1.5 lg:px-2`;
+  const bottomDockClass = `flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-full ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
+  const dockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full opacity-70 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 lg:h-12 lg:w-12";
+  const activeDockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 lg:h-12 lg:w-12";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
-  const bottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
-  const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 md:h-14 md:w-14 md:rounded-[1.1rem]";
+  const bottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-70 transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14";
+  const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14";
   const accentBottomDockButtonClass = `${bottomDockButtonClass} text-accent-500`;
   const mobileHeaderButtonClass = "flex size-10 shrink-0 items-center justify-center rounded-xl bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
-  const menuShellStyle: React.CSSProperties = {
-    top: 'calc(env(safe-area-inset-top) + 2rem)',
-    right: 'max(1.5rem, calc((100vw - 80rem) / 2 + 1.5rem))',
-  };
-
   const renderLayoutControls = ({
     iconSize,
     buttonClass,
@@ -272,7 +267,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   };
 
   const bottomDock = (
-    <div className={`fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.85rem)] z-[80] flex justify-center px-2 pointer-events-none ${isBottomDock ? 'md:flex' : 'md:hidden'}`}>
+    <div className={`fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-[80] flex justify-center px-2 pointer-events-none md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)] ${isBottomDock ? 'md:flex' : 'md:hidden'}`}>
       <div data-shelf-bottom-dock="true" className={`${bottomDockClass} pointer-events-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out md:overflow-x-auto`}>
         <div className="flex w-full min-w-0 items-center justify-evenly gap-0.5 md:w-auto md:min-w-max md:justify-start md:gap-2">
           {renderDockActions({
@@ -289,7 +284,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   return (
     <>
-      <header className="relative z-40 pt-8 pb-6 transition-colors duration-300">
+      <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+2rem)] pb-6 transition-colors duration-300">
         <div className="max-w-7xl mx-auto flex h-[4.125rem] items-center justify-between px-4 md:px-6">
           <div className={`flex h-full min-w-0 flex-1 items-center gap-3 md:gap-4 ${brandSurfaceClass}`}>
             <button
@@ -356,11 +351,10 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           </div>
 
           <div
-            className={`fixed z-50 hidden transition-all duration-200 ease-out md:block ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
+            className={`ml-3 hidden shrink-0 self-center transition-all duration-200 ease-out md:block ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
             ref={mobileMenuRef}
-            style={menuShellStyle}
           >
-            <div className={`hidden items-center gap-1.5 md:flex ${dockClass}`}>
+            <div className={`hidden items-center md:flex ${dockClass}`}>
               {renderDockActions({
                 iconSize: desktopDockIconSize,
                 buttonClass: dockButtonClass,
