@@ -105,7 +105,7 @@ test('uses Muzio mini-player surfaces for light and dark shelf docks', () => {
   const dark = getMuzioShelfDockVariables('#272728');
   const light = getMuzioShelfDockVariables('#ffffff');
 
-  assert.equal(dark['--viewer-shelf-dock-surface'], 'rgba(31, 31, 31, 0.88)');
+  assert.equal(dark['--viewer-shelf-dock-surface'], 'rgba(39, 39, 40, 0.88)');
   assert.equal(dark['--viewer-shelf-dock-border'], 'rgba(255, 255, 255, 0.045)');
   assert.equal(dark['--viewer-shelf-dock-shadow'], 'rgba(0, 0, 0, 0.35)');
   assert.equal(light['--viewer-shelf-dock-surface'], 'rgba(255, 255, 255, 0.88)');

@@ -100,9 +100,7 @@ const themeBootstrapScript = `
     '--viewer-theme-border': 'rgba(' + textRgb + ', 0.18)',
     '--viewer-theme-secondary': mixHex(bg, text, 0.09),
     '--viewer-reader-surface': 'rgba(' + bgRgb + ', 0.68)',
-    '--viewer-shelf-dock-surface': darkSurface
-      ? 'rgba(31, 31, 31, 0.88)'
-      : 'rgba(255, 255, 255, 0.88)',
+    '--viewer-shelf-dock-surface': 'rgba(' + bgRgb + ', 0.88)',
     '--viewer-shelf-dock-border': darkSurface
       ? 'rgba(255, 255, 255, 0.045)'
       : 'rgba(228, 228, 231, 0.35)',

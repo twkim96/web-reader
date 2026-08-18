@@ -55,7 +55,7 @@ body {
 
 .shelf-muzio-dock {
   border: 1px solid var(--viewer-shelf-dock-border, rgba(255, 255, 255, 0.045));
-  background-color: var(--viewer-shelf-dock-surface, rgba(31, 31, 31, 0.88));
+  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface, rgba(31, 31, 31, 0.88)));
   box-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);

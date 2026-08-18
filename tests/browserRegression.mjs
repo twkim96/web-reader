@@ -722,7 +722,7 @@ try {
   })()`);
   assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomUsesMuzioStyle, true, JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(31, 31, 31, 0.88)', JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(mobileShelfControls));
   assert.ok(
     mobileShelfControls.bottomBorderRadius >= 15
       && mobileShelfControls.bottomBorderRadius <= 17,

@@ -13,9 +13,7 @@ export const getMuzioShelfDockVariables = (backgroundColor: string) => {
   const darkSurface = ((r * 299) + (g * 587) + (b * 114)) / 1000 < 160;
 
   return {
-    '--viewer-shelf-dock-surface': darkSurface
-      ? 'rgba(31, 31, 31, 0.88)'
-      : 'rgba(255, 255, 255, 0.88)',
+    '--viewer-shelf-dock-surface': `rgba(${r}, ${g}, ${b}, 0.88)`,
     '--viewer-shelf-dock-border': darkSurface
       ? 'rgba(255, 255, 255, 0.045)'
       : 'rgba(228, 228, 231, 0.35)',
