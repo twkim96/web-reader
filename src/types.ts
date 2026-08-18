@@ -40,6 +40,7 @@ export type ReaderTranslationProvider = 'auto' | 'browser' | 'google' | 'papago'
 export type ReaderDictionaryProvider = 'naver' | 'wiktionary';
 export type ReaderTtsLanguage = 'auto' | 'ko-KR' | 'en-US' | 'ja-JP';
 export type ReaderTtsChapterEndAction = 'stop' | 'next';
+export type ShelfDockStyle = 'glass' | 'modern';
 
 export interface ViewerSettings {
   fontSize: number;
@@ -63,6 +64,7 @@ export interface ViewerSettings {
   ttsVoiceURI: string;
   ttsRate: number;
   ttsChapterEndAction: ReaderTtsChapterEndAction;
+  shelfDockStyle: ShelfDockStyle;
   customThemes?: CustomTheme[];
 }
 

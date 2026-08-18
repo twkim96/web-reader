@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { CloudSyncStatus } from './FileUploader';
 import type { ShelfSortMode } from './bookUtils';
+import type { ShelfDockStyle } from '../../types';
 
 interface ShelfHeaderProps {
   shelfContentRef: React.RefObject<HTMLElement | null>;
@@ -30,6 +31,7 @@ interface ShelfHeaderProps {
   sortMode: ShelfSortMode;
   activeFilterCount: number;
   viewMode: 'grid' | 'list';
+  dockStyle: ShelfDockStyle;
   onToggleCloud: () => void;
   onLogin: () => void;
   onLogout: () => void;
@@ -54,6 +56,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   sortMode,
   activeFilterCount,
   viewMode,
+  dockStyle,
   onToggleCloud,
   onLogin,
   onLogout,
@@ -123,9 +126,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const bottomDockIconSize = 26;
   const mobileHeaderIconSize = 20;
   const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
-  const dockSurfaceClass = "shelf-muzio-dock text-[color:var(--viewer-theme-text)]";
-  const dockClass = `flex h-[4.125rem] items-center rounded-full ${dockSurfaceClass} gap-0.5 px-1.5 lg:gap-1.5 lg:px-2`;
-  const bottomDockClass = `flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-2xl sm:rounded-full ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
+  const modernDock = dockStyle === 'modern';
+  const dockSurfaceClass = modernDock
+    ? "shelf-muzio-dock text-[color:var(--viewer-theme-text)]"
+    : "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl";
+  const dockClass = `flex h-[4.125rem] items-center rounded-full ${dockSurfaceClass} gap-0.5 px-1.5 ${modernDock ? '' : 'shadow-[0_18px_55px_rgba(0,0,0,0.18)]'} lg:gap-1.5 lg:px-2`;
+  const bottomDockClass = `flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center ${modernDock ? 'rounded-2xl sm:rounded-full' : 'rounded-full shadow-[0_18px_55px_rgba(0,0,0,0.28)]'} ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
   const dockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full opacity-[0.84] transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 lg:h-12 lg:w-12";
   const activeDockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 lg:h-12 lg:w-12";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
@@ -268,7 +274,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   const bottomDock = (
     <div className={`fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-[80] flex justify-center px-2 pointer-events-none md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)] ${isBottomDock ? 'md:flex' : 'md:hidden'}`}>
-      <div data-shelf-bottom-dock="true" className={`${bottomDockClass} pointer-events-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out md:overflow-x-auto`}>
+      <div data-shelf-bottom-dock="true" data-shelf-dock-style={dockStyle} className={`${bottomDockClass} pointer-events-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out md:overflow-x-auto`}>
         <div className="flex w-full min-w-0 items-center justify-evenly gap-0.5 md:w-auto md:min-w-max md:justify-start md:gap-2">
           {renderDockActions({
             iconSize: bottomDockIconSize,
@@ -354,7 +360,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             className={`relative -top-[0.5625rem] ml-3 hidden shrink-0 self-center transition-all duration-200 ease-out md:block ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
             ref={mobileMenuRef}
           >
-            <div className={`hidden items-center md:flex ${dockClass}`}>
+            <div data-shelf-top-dock="true" data-shelf-dock-style={dockStyle} className={`hidden items-center md:flex ${dockClass}`}>
               {renderDockActions({
                 iconSize: desktopDockIconSize,
                 buttonClass: dockButtonClass,

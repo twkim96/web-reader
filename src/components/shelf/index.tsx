@@ -333,6 +333,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         sortMode={sortMode}
         activeFilterCount={getActiveShelfFilterCount(filters)}
         viewMode={viewMode}
+        dockStyle={settings.shelfDockStyle}
         onToggleCloud={onToggleCloud}
         onLogin={onLogin}
         onLogout={onLogout}

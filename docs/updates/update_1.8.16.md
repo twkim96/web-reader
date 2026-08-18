@@ -24,12 +24,14 @@
 - Android나 blur 미지원 브라우저에서도 모든 버튼이 정상 동작하고 같은 theme surface가 남아야 한다.
 - 일반 메뉴 아이콘은 theme text 색상을 상속하고, 기존보다 조금 높은 84% 불투명도로 표시한다.
 - 아이콘 순서, 필터·검색·통계·추가·테마·관리 동작과 모바일 layout control 분리는 변경하지 않는다.
+- 테마 설정에서 책장 메뉴 스타일을 `글래스 / 모던`으로 고를 수 있으며, 기본값과 기존 설정의 fallback은 Muzio 이식 전의 `글래스`다.
 
 ## Phase A — Muzio mini-player형 floating dock
 
 상태: 구현·자동검증 완료, 실기기 확인 대기
 
-- `ShelfHeader`의 상단/하단 dock surface를 공통 `shelf-muzio-dock`으로 통일한다.
+- `ShelfHeader`의 상단/하단 dock이 같은 저장 메뉴 스타일을 사용하도록 통일한다.
+- `글래스`는 기존 `viewer-reader-surface`·theme border·`backdrop-blur-xl`·둥근 capsule shadow를 사용하고, `모던`만 `shelf-muzio-dock` 계약을 사용한다.
 - Muzio의 responsive radius, surface, border, 2xl shadow와 24px blur를 적용한다.
 - Web Reader의 dark/light/sepia/blue/custom theme background를 88% surface로 사용하고, 명암 판정은 Muzio의 light/dark border·shadow 선택에만 사용한다.
 - 하단 간격은 mobile 20px, iPad/desktop 폭 24px에 기기 safe area를 더한다.
@@ -96,3 +98,4 @@ git diff --check
 - 768×1024 viewport에서 dock 426px, 가로 overflow 0을 확인했다. 후속 시각 보정은 capsule을 9px 위로 올려 48px 로고 버튼과 아래쪽 끝을 맞춘다.
 - 390×844 viewport에서 bottom dock은 폭 374px·높이 68px, 하단 gap 20px, visible action 6개, 가로 overflow 0이었다.
 - Chromium 기반 자동 시각 검증에서 Web Reader dark theme surface `rgba(39,39,40,0.88)`, mobile radius 16px, 24px blur, 2xl shadow와 icon opacity 84%가 적용된 것을 확인했다. 실제 iPad Safari와 Android Chrome의 렌더링은 실기기 gate로 남긴다.
+- 메뉴 스타일 선택 추가 후 `test:shelf` 107건과 production build가 통과했다. 로컬 Chromium에서 PC 글래스 `rgba(39,39,40,0.68)`·모던 `rgba(39,39,40,0.88)`, 모바일 390px에서 공통 폭 374px·하단 gap 20px 및 글래스 capsule·모던 16px radius 전환을 확인했다.

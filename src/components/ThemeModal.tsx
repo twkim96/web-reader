@@ -282,6 +282,37 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           ))}
         </div>
 
+        <div className="mb-6">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일</p>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              ['glass', '글래스', '부드러운 반투명'],
+              ['modern', '모던', '선명한 미니바'],
+            ] as const).map(([value, label, description]) => {
+              const selected = settings.shelfDockStyle === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  data-shelf-dock-style-option={value}
+                  onClick={() => onUpdateSettings({ shelfDockStyle: value })}
+                  className={`relative rounded-2xl border px-3 py-3 text-left transition-all active:scale-95 ${
+                    selected
+                      ? 'border-accent-500 bg-accent-500/10 ring-2 ring-accent-500/20'
+                      : `${theme.border} ${theme.secondary || ''}`
+                  }`}
+                >
+                  <span className="block text-sm font-bold">{label}</span>
+                  <span className="mt-0.5 block text-[10px] opacity-55">{description}</span>
+                  {selected && (
+                    <Check className="absolute right-3 top-3 text-accent-500" size={14} strokeWidth={3} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* 포인트 컬러 설정 섹션 */}
         <div>
           <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-3">Point Color</p>

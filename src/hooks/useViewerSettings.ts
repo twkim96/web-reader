@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { ViewerSettings } from '../types.ts';
+import type { ShelfDockStyle, ViewerSettings } from '../types.ts';
 import {
   normalizeReaderDictionaryProvider,
   normalizeReaderLanguage,
@@ -15,6 +15,10 @@ import {
 
 const SETTINGS_KEY = 'viewer_settings';
 const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1';
+
+const normalizeShelfDockStyle = (value: unknown): ShelfDockStyle => (
+  value === 'modern' ? 'modern' : 'glass'
+);
 
 export const defaultSettings: ViewerSettings = {
   fontSize: 18,
@@ -38,6 +42,7 @@ export const defaultSettings: ViewerSettings = {
   ttsVoiceURI: '',
   ttsRate: 1,
   ttsChapterEndAction: 'next',
+  shelfDockStyle: 'glass',
   customThemes: [],
 };
 
@@ -79,6 +84,7 @@ export const getStoredViewerSettings = () => {
       ttsVoiceURI: normalizeReaderTtsVoiceUri(merged.ttsVoiceURI),
       ttsRate: normalizeReaderTtsRate(merged.ttsRate),
       ttsChapterEndAction: normalizeReaderTtsChapterEndAction(merged.ttsChapterEndAction),
+      shelfDockStyle: normalizeShelfDockStyle(merged.shelfDockStyle),
     };
   } catch {
     return defaultSettings;

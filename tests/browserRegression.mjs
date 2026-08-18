@@ -151,7 +151,8 @@ try {
         localStorage.setItem('viewer_settings', JSON.stringify({
           ...storedSettings,
           theme: 'dark',
-          accentColor: 'emerald'
+          accentColor: 'emerald',
+          shelfDockStyle: 'modern'
         }));
       } catch {}
       requestAnimationFrame(() => {
@@ -741,6 +742,63 @@ try {
       && mobileShelfControls.viewRect?.right <= mobileShelfControls.viewportWidth
       && mobileShelfControls.authRect?.right <= mobileShelfControls.viewportWidth,
     JSON.stringify(mobileShelfControls),
+  );
+  await evaluate(`document.querySelector('[data-shelf-bottom-dock="true"] button[title="Change Theme"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-shelf-dock-style-option="glass"]\'))',
+    'shelf dock style controls',
+  );
+  await evaluate(`document.querySelector('[data-shelf-dock-style-option="glass"]')?.click()`);
+  await waitFor(
+    'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "glass"',
+    'glass shelf dock style',
+  );
+  const glassShelfDock = await evaluate(`(() => {
+    const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
+    const style = dock ? getComputedStyle(dock) : null;
+    return {
+      storedStyle: JSON.parse(localStorage.getItem('viewer_settings') || '{}').shelfDockStyle,
+      usesModernClass: dock?.classList.contains('shelf-muzio-dock') ?? true,
+      backgroundColor: style?.backgroundColor ?? '',
+      borderRadius: Number.parseFloat(style?.borderRadius || '0'),
+    };
+  })()`);
+  assert.equal(glassShelfDock.storedStyle, 'glass', JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.usesModernClass, false, JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.68)', JSON.stringify(glassShelfDock));
+  assert.ok(glassShelfDock.borderRadius > 30, JSON.stringify(glassShelfDock));
+
+  await evaluate(`document.querySelector('[data-shelf-dock-style-option="modern"]')?.click()`);
+  await waitFor(
+    'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "modern"',
+    'modern shelf dock style',
+  );
+  const modernShelfDock = await evaluate(`(() => {
+    const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
+    const style = dock ? getComputedStyle(dock) : null;
+    return {
+      storedStyle: JSON.parse(localStorage.getItem('viewer_settings') || '{}').shelfDockStyle,
+      usesModernClass: dock?.classList.contains('shelf-muzio-dock') ?? false,
+      backgroundColor: style?.backgroundColor ?? '',
+      borderRadius: Number.parseFloat(style?.borderRadius || '0'),
+    };
+  })()`);
+  assert.equal(modernShelfDock.storedStyle, 'modern', JSON.stringify(modernShelfDock));
+  assert.equal(modernShelfDock.usesModernClass, true, JSON.stringify(modernShelfDock));
+  assert.equal(modernShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(modernShelfDock));
+  assert.ok(
+    modernShelfDock.borderRadius >= 15 && modernShelfDock.borderRadius <= 17,
+    JSON.stringify(modernShelfDock),
+  );
+  await evaluate(`(() => {
+    const heading = [...document.querySelectorAll('h2')]
+      .find((node) => node.textContent?.trim() === '테마 설정');
+    const buttons = heading?.parentElement?.querySelectorAll('button');
+    buttons?.[buttons.length - 1]?.click();
+  })()`);
+  await waitFor(
+    '!document.querySelector(\'[data-shelf-dock-style-option="glass"]\')',
+    'theme modal close after shelf dock style switch',
   );
   await evaluate(`document.querySelector(
     '[data-shelf-mobile-layout-controls="true"] [data-shelf-filter-control="true"]',
