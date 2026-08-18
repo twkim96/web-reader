@@ -25,6 +25,7 @@ export type CanonicalRemoteNavigationResult =
 
 type CanonicalRemoteNavigationSteps = {
   isCurrent: () => boolean;
+  isCurrentAfterCommit?: () => boolean;
   ready?: () => Promise<boolean>;
   adopt: () => Promise<RemoteProgressAdoptionResult>;
   prepare: () => number;
@@ -35,6 +36,7 @@ type CanonicalRemoteNavigationSteps = {
 
 export const executeCanonicalRemoteProgressNavigation = async ({
   isCurrent,
+  isCurrentAfterCommit = isCurrent,
   ready,
   adopt,
   prepare,
@@ -60,14 +62,14 @@ export const executeCanonicalRemoteProgressNavigation = async ({
   if (adoption.status === 'blocked-by-local-work') return adoption;
   if (adoption.status === 'stale-remote') return adoption;
   if (adoption.status === 'cancelled') return { status: 'cancelled', retryable: true };
-  if (!isCurrent()) {
+  if (!isCurrentAfterCommit()) {
     return { status: 'adopted-navigation-superseded', progress: adoption.progress };
   }
 
   const preparationId = prepare();
   try {
     const navigated = await navigate();
-    if (!isCurrent()) {
+    if (!isCurrentAfterCommit()) {
       cancel(preparationId);
       return { status: 'adopted-navigation-superseded', progress: adoption.progress };
     }

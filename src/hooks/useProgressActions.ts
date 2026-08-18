@@ -595,6 +595,7 @@ export const useProgressActions = ({
 
   const adoptRemoteProgress = useCallback(async (
     remote: RemoteProgressUpdate,
+    signal?: AbortSignal,
   ): Promise<RemoteProgressAdoptionResult> => {
     const owner = ownerRuntime.capture();
     if (
@@ -602,6 +603,7 @@ export const useProgressActions = ({
       || !remote.bookId
       || (remote.operation === 'set' && !remote.cfi)
     ) return { status: 'cancelled' };
+    if (signal?.aborted) return { status: 'cancelled' };
     const candidate: RemoteProgressUpdate = {
       ...remote,
       cfi: remote.operation === 'reset' ? '' : remote.cfi,
@@ -610,12 +612,14 @@ export const useProgressActions = ({
     };
     try {
       const result = await queueProgressWrite(remote.bookId, async () => {
-        if (!ownerRuntime.isCurrent(owner)) {
+        if (!ownerRuntime.isCurrent(owner) || signal?.aborted) {
           return { status: 'cancelled' } as RemoteProgressAdoptionResult;
         }
         return adoptRemoteProgressLocallyV5(
           getSyncOwnerKey(owner.ownerKey),
           candidate,
+          Date.now(),
+          signal,
         );
       });
       if (result.status !== 'adopted') return result;

@@ -85,6 +85,7 @@ interface EpubReaderProps {
   onSaveBookmarkMutation: (bookId: string, mutation: ManualBookmarkMutation) => Promise<boolean>;
   onAdoptRemoteProgress: (
     progress: RemoteProgressUpdate,
+    signal?: AbortSignal,
   ) => Promise<RemoteProgressAdoptionResult>;
   initialCfi?: string;
   initialPercent?: number;
@@ -96,6 +97,7 @@ interface EpubReaderProps {
   onResolvedRemoteProgressConsumed?: (commandId: string) => void;
   onResolvedRemoteProgressFinalize?: (
     commandId: string,
+    signal?: AbortSignal,
   ) => Promise<RemoteProgressCommandFinalizeResult>;
   onResolvedRemoteProgressCancelled?: (commandId: string) => void;
   outboxProgressConflictRevision?: number;
@@ -386,6 +388,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     prepareRemoteRollback,
     cancelRemoteJump,
     finishRemoteJump,
+    beginRemoteNavigationAttempt,
+    isRemoteNavigationAttemptCurrent,
+    finishRemoteNavigationAttempt,
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
     adoptRemoteProgressBeforeNavigation,
@@ -475,7 +480,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     openBook,
     waitForNavigationReady,
     goTo,
+    goToStable,
     goToFraction,
+    goToFractionStable,
     prev,
     next,
     viewRef,
@@ -673,8 +680,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     localRevision: initialRevision,
     lastSaveTimeRef,
     waitForNavigationReady,
-    goTo,
-    goToFraction,
+    goToStable,
+    goToFractionStable,
     getBookmarks,
     adoptResolvedBookmarks,
     stageAutoBookmark,
@@ -683,7 +690,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     prepareRemoteRollback,
     cancelRemoteJump,
     finishRemoteJump,
+    beginRemoteNavigationAttempt,
+    isRemoteNavigationAttemptCurrent,
+    finishRemoteNavigationAttempt,
     isQuietResumeEligible,
+    isProgressConflictAutoResolveEligible,
     adoptRemoteProgressBeforeNavigation,
     completeRemoteJump,
     completeRemoteReset,

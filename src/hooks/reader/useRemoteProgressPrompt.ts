@@ -19,6 +19,7 @@ import {
   getRemoteProgressIdentity,
 } from './remoteProgressAdoption';
 import { hashReaderTraceValue, traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
+import type { ReaderRemoteNavigationAttempt } from './useReaderProgressSave';
 
 export type SyncConflict = {
   operation: 'set' | 'reset';
@@ -40,6 +41,7 @@ interface UseRemoteProgressPromptOptions {
   onResolvedRemoteProgressConsumed?: (commandId: string) => void;
   onResolvedRemoteProgressFinalize?: (
     commandId: string,
+    signal?: AbortSignal,
   ) => Promise<RemoteProgressCommandFinalizeResult>;
   onResolvedRemoteProgressCancelled?: (commandId: string) => void;
   outboxConflictRevision?: number;
@@ -51,8 +53,8 @@ interface UseRemoteProgressPromptOptions {
   localRevision?: number;
   lastSaveTimeRef: MutableRefObject<number>;
   waitForNavigationReady: () => Promise<boolean>;
-  goTo: (cfi: string) => Promise<boolean>;
-  goToFraction: (fraction: number) => Promise<boolean>;
+  goToStable: (cfi: string) => Promise<boolean>;
+  goToFractionStable: (fraction: number) => Promise<boolean>;
   getBookmarks: () => Bookmark[];
   adoptResolvedBookmarks: (bookmarks: Bookmark[]) => Bookmark[];
   stageAutoBookmark: (prevCfi: string, prevPct: number) => Bookmark[];
@@ -61,19 +63,30 @@ interface UseRemoteProgressPromptOptions {
   prepareRemoteRollback: (preparationId: number) => boolean;
   cancelRemoteJump: (preparationId: number) => void;
   finishRemoteJump: (preparationId: number) => void;
+  beginRemoteNavigationAttempt: () => ReaderRemoteNavigationAttempt;
+  isRemoteNavigationAttemptCurrent: (attempt: ReaderRemoteNavigationAttempt) => boolean;
+  finishRemoteNavigationAttempt: (attempt: ReaderRemoteNavigationAttempt) => void;
   isQuietResumeEligible: () => boolean;
+  isProgressConflictAutoResolveEligible: () => boolean;
   adoptRemoteProgressBeforeNavigation: (
     progress: RemoteProgressUpdate,
+    signal?: AbortSignal,
   ) => Promise<RemoteProgressAdoptionResult>;
   completeRemoteJump: (
     target: SyncConflict,
     bookmarks: Bookmark[],
-    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> }
+    options?: {
+      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
+      signal?: AbortSignal;
+    }
   ) => Promise<RemoteProgressJumpCompletion>;
   completeRemoteReset: (
     target: Omit<SyncConflict, 'cfi' | 'anchorCfi' | 'percent' | 'operation'>,
     bookmarks: Bookmark[],
-    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> },
+    options?: {
+      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
+      signal?: AbortSignal;
+    },
   ) => Promise<RemoteProgressJumpCompletion>;
   hasLocalProgress: boolean;
 }
@@ -94,8 +107,8 @@ export const useRemoteProgressPrompt = ({
   localRevision,
   lastSaveTimeRef,
   waitForNavigationReady,
-  goTo,
-  goToFraction,
+  goToStable,
+  goToFractionStable,
   getBookmarks,
   adoptResolvedBookmarks,
   stageAutoBookmark,
@@ -104,7 +117,11 @@ export const useRemoteProgressPrompt = ({
   prepareRemoteRollback,
   cancelRemoteJump,
   finishRemoteJump,
+  beginRemoteNavigationAttempt,
+  isRemoteNavigationAttemptCurrent,
+  finishRemoteNavigationAttempt,
   isQuietResumeEligible,
+  isProgressConflictAutoResolveEligible,
   adoptRemoteProgressBeforeNavigation,
   completeRemoteJump,
   completeRemoteReset,
@@ -145,83 +162,172 @@ export const useRemoteProgressPrompt = ({
       .catch(() => undefined)
       .then(async () => {
         const primary = target.cfi || target.anchorCfi || '';
-        if (primary && await goTo(primary)) return true;
+        if (primary && await goToStable(primary)) return true;
         const fallback = target.anchorCfi || '';
-        if (fallback && fallback !== primary) return goTo(fallback);
+        if (fallback && fallback !== primary) return goToStable(fallback);
         return false;
       });
     jumpTail.current = navigation.then(() => undefined);
     return navigation;
-  }, [goTo]);
+  }, [goToStable]);
+
+  const isRuntimeModeEligible = useCallback((
+    runtimeMode: ResolvedRemoteProgressCommand['runtimeMode'],
+  ) => {
+    if (runtimeMode === 'quiet') return isQuietResumeEligible();
+    if (runtimeMode === 'settled') return isProgressConflictAutoResolveEligible();
+    return true;
+  }, [isProgressConflictAutoResolveEligible, isQuietResumeEligible]);
+
+  const rollbackToLocalPosition = useCallback(async (preparationId: number) => {
+    if (!prepareRemoteRollback(preparationId)) return false;
+    const candidates = [currentCfi, currentAnchorCfi]
+      .filter((candidate, index, all): candidate is string => (
+        Boolean(candidate) && all.indexOf(candidate) === index
+      ));
+    for (const candidate of candidates) {
+      if (await goToStable(candidate)) return true;
+    }
+    const fraction = Math.min(1, Math.max(0, totalProgress / 100));
+    return goToFractionStable(fraction);
+  }, [
+    currentAnchorCfi,
+    currentCfi,
+    goToFractionStable,
+    goToStable,
+    prepareRemoteRollback,
+    totalProgress,
+  ]);
 
   const jumpToRemoteProgress = useCallback(async (
     target: SyncConflict,
-    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> }
+    options?: { finalize?: (signal?: AbortSignal) => Promise<RemoteProgressCommandFinalizeResult> },
+    runtimeMode: ResolvedRemoteProgressCommand['runtimeMode'] = 'explicit',
   ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
+    const attempt = beginRemoteNavigationAttempt();
+    const isCurrent = () => (
+      jumpGeneration.current === generation
+      && isRemoteNavigationAttemptCurrent(attempt)
+      && isRuntimeModeEligible(runtimeMode)
+    );
+    let rollbackRestored: boolean | null = null;
     try {
-      return await executeRemoteProgressJump({
-        isCurrent: () => jumpGeneration.current === generation,
+      const completed = await executeRemoteProgressJump({
+        isCurrent,
+        ready: waitForNavigationReady,
         prepare: prepareRemoteJump,
         cancel: cancelRemoteJump,
         finish: finishRemoteJump,
         navigate: async () => {
           const navigation = jumpTail.current
             .catch(() => undefined)
-            .then(() => goTo(target.cfi || target.anchorCfi || ''));
+            .then(() => goToStable(target.cfi || target.anchorCfi || ''));
           jumpTail.current = navigation.then(() => undefined);
           return navigation;
         },
         rollback: async (preparationId) => {
-          const rollbackCfi = currentCfi || currentAnchorCfi;
-          if (!rollbackCfi || !prepareRemoteRollback(preparationId)) return;
-          await goTo(rollbackCfi);
+          rollbackRestored = await rollbackToLocalPosition(preparationId);
+          return rollbackRestored;
         },
-        complete: () => completeRemoteJump(target, target.bookmarks ?? getBookmarks(), options),
+        complete: () => completeRemoteJump(
+          target,
+          target.bookmarks ?? getBookmarks(),
+          {
+            ...(options?.finalize
+              ? { finalize: () => options.finalize!(attempt.signal) }
+              : {}),
+            signal: attempt.signal,
+          },
+        ),
       });
+      if (!completed && rollbackRestored === false) {
+        setSyncConflictFeedback('현재 위치 복원에 실패했습니다. 충돌 창을 닫지 말고 다시 이동을 시도해 주세요.');
+      }
+      return completed;
     } catch (error) {
       console.warn('[RemoteProgress] jump failed:', error);
+      if (rollbackRestored === false) {
+        setSyncConflictFeedback('현재 위치 복원에 실패했습니다. 충돌 창을 닫지 말고 다시 이동을 시도해 주세요.');
+      }
       return false;
+    } finally {
+      finishRemoteNavigationAttempt(attempt);
     }
-  }, [cancelRemoteJump, completeRemoteJump, currentAnchorCfi, currentCfi, finishRemoteJump, getBookmarks, goTo, prepareRemoteJump, prepareRemoteRollback]);
+  }, [beginRemoteNavigationAttempt, cancelRemoteJump, completeRemoteJump, finishRemoteJump, finishRemoteNavigationAttempt, getBookmarks, goToStable, isRemoteNavigationAttemptCurrent, isRuntimeModeEligible, prepareRemoteJump, rollbackToLocalPosition, waitForNavigationReady]);
 
   const resetToRemoteProgress = useCallback(async (
     target: SyncConflict,
-    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> },
+    options?: { finalize?: (signal?: AbortSignal) => Promise<RemoteProgressCommandFinalizeResult> },
+    runtimeMode: ResolvedRemoteProgressCommand['runtimeMode'] = 'explicit',
   ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
+    const attempt = beginRemoteNavigationAttempt();
+    const isCurrent = () => (
+      jumpGeneration.current === generation
+      && isRemoteNavigationAttemptCurrent(attempt)
+      && isRuntimeModeEligible(runtimeMode)
+    );
+    let rollbackRestored: boolean | null = null;
     try {
-      return await executeRemoteProgressJump({
-        isCurrent: () => jumpGeneration.current === generation,
+      const completed = await executeRemoteProgressJump({
+        isCurrent,
+        ready: waitForNavigationReady,
         prepare: prepareRemoteJump,
         cancel: cancelRemoteJump,
         finish: finishRemoteJump,
-        navigate: () => goToFraction(0),
+        navigate: () => goToFractionStable(0),
         rollback: async (preparationId) => {
-          const rollbackCfi = currentCfi || currentAnchorCfi;
-          if (!rollbackCfi || !prepareRemoteRollback(preparationId)) return;
-          await goTo(rollbackCfi);
+          rollbackRestored = await rollbackToLocalPosition(preparationId);
+          return rollbackRestored;
         },
         complete: () => completeRemoteReset(
           target,
           target.bookmarks ?? getBookmarks(),
-          options,
+          {
+            ...(options?.finalize
+              ? { finalize: () => options.finalize!(attempt.signal) }
+              : {}),
+            signal: attempt.signal,
+          },
         ),
       });
+      if (!completed && rollbackRestored === false) {
+        setSyncConflictFeedback('현재 위치 복원에 실패했습니다. 충돌 창을 닫지 말고 다시 이동을 시도해 주세요.');
+      }
+      return completed;
     } catch (error) {
       console.warn('[RemoteProgress] reset failed:', error);
+      if (rollbackRestored === false) {
+        setSyncConflictFeedback('현재 위치 복원에 실패했습니다. 충돌 창을 닫지 말고 다시 이동을 시도해 주세요.');
+      }
       return false;
+    } finally {
+      finishRemoteNavigationAttempt(attempt);
     }
-  }, [cancelRemoteJump, completeRemoteReset, currentAnchorCfi, currentCfi, finishRemoteJump, getBookmarks, goTo, goToFraction, prepareRemoteJump, prepareRemoteRollback]);
+  }, [beginRemoteNavigationAttempt, cancelRemoteJump, completeRemoteReset, finishRemoteJump, finishRemoteNavigationAttempt, getBookmarks, goToFractionStable, isRemoteNavigationAttemptCurrent, isRuntimeModeEligible, prepareRemoteJump, rollbackToLocalPosition, waitForNavigationReady]);
 
-  const adoptAndNavigateRemoteProgress = useCallback(async (target: SyncConflict) => {
+  const adoptAndNavigateRemoteProgress = useCallback(async (
+    target: SyncConflict,
+    runtimeMode: ResolvedRemoteProgressCommand['runtimeMode'] = 'explicit',
+  ) => {
     const generation = jumpGeneration.current + 1;
     jumpGeneration.current = generation;
+    const attempt = beginRemoteNavigationAttempt();
+    const isCurrent = () => (
+      jumpGeneration.current === generation
+      && isRemoteNavigationAttemptCurrent(attempt)
+      && isRuntimeModeEligible(runtimeMode)
+    );
     try {
       return await executeCanonicalRemoteProgressNavigation({
-        isCurrent: () => jumpGeneration.current === generation,
+        isCurrent,
+        // Once canonical adoption commits, finish the viewport move even if a
+        // user input lands in the tiny post-commit window. Before commit the
+        // attempt signal aborts the IndexedDB transaction instead.
+        isCurrentAfterCommit: () => jumpGeneration.current === generation,
         ready: waitForNavigationReady,
         adopt: () => adoptRemoteProgressBeforeNavigation({
           operation: target.operation,
@@ -235,24 +341,30 @@ export const useRemoteProgressPrompt = ({
           bookmarks: target.bookmarks ?? getBookmarks(),
           syncRevision: target.syncRevision,
           acceptedEventId: target.acceptedEventId,
-        }),
+        }, attempt.signal),
         prepare: prepareRemoteJump,
         cancel: cancelRemoteJump,
         finish: finishRemoteJump,
         navigate: target.operation === 'reset'
-          ? () => goToFraction(0)
+          ? () => goToFractionStable(0)
           : () => navigateToRemoteSet(target),
       });
     } catch (error) {
       console.warn('[RemoteProgress] canonical navigation failed:', error);
       return { status: 'cancelled' as const, retryable: true };
+    } finally {
+      finishRemoteNavigationAttempt(attempt);
     }
   }, [
     adoptRemoteProgressBeforeNavigation,
+    beginRemoteNavigationAttempt,
     cancelRemoteJump,
     finishRemoteJump,
+    finishRemoteNavigationAttempt,
     getBookmarks,
-    goToFraction,
+    goToFractionStable,
+    isRemoteNavigationAttemptCurrent,
+    isRuntimeModeEligible,
     navigateToRemoteSet,
     prepareRemoteJump,
     waitForNavigationReady,
@@ -290,17 +402,17 @@ export const useRemoteProgressPrompt = ({
       };
       let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
       void resetToRemoteProgress(target, {
-        finalize: async () => {
+        finalize: async (signal) => {
           const result = await finalizeRemoteProgressCommand(
             resolvedRemoteProgressCommand,
             onResolvedRemoteProgressFinalize
-              ? () => onResolvedRemoteProgressFinalize(commandId)
+              ? () => onResolvedRemoteProgressFinalize(commandId, signal)
               : undefined,
           );
           if (result.status === 'committed') finalizedProgress = result.progress;
           return result;
         },
-      }).then((completed) => {
+      }, resolvedRemoteProgressCommand.runtimeMode).then((completed) => {
         if (jumpingRemoteIdentity.current === commandIdentity) {
           jumpingRemoteIdentity.current = null;
         }
@@ -334,17 +446,17 @@ export const useRemoteProgressPrompt = ({
     };
     let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
     void jumpToRemoteProgress(target, {
-      finalize: async () => {
+      finalize: async (signal) => {
         const result = await finalizeRemoteProgressCommand(
           resolvedRemoteProgressCommand,
           onResolvedRemoteProgressFinalize
-            ? () => onResolvedRemoteProgressFinalize(commandId)
+            ? () => onResolvedRemoteProgressFinalize(commandId, signal)
             : undefined,
         );
         if (result.status === 'committed') finalizedProgress = result.progress;
         return result;
       },
-    }).then((completed) => {
+    }, resolvedRemoteProgressCommand.runtimeMode).then((completed) => {
       if (jumpingRemoteIdentity.current === commandIdentity) {
         jumpingRemoteIdentity.current = null;
       }
@@ -468,7 +580,7 @@ export const useRemoteProgressPrompt = ({
     };
     if (action === 'jump') {
       jumpingRemoteIdentity.current = remoteIdentity;
-      void adoptAndNavigateRemoteProgress(target).then((result) => {
+      void adoptAndNavigateRemoteProgress(target, 'quiet').then((result) => {
         traceReaderBootstrap({
           event: 'remote-navigation-result',
           identityHash: hashReaderTraceValue(remoteIdentity),
@@ -572,9 +684,10 @@ export const useRemoteProgressPrompt = ({
       : syncConflict;
     let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
     const finalize = syncConflict.resolutionCommandId
-      ? async () => {
+      ? async (signal?: AbortSignal) => {
         const result = await (onResolvedRemoteProgressFinalize?.(
           syncConflict.resolutionCommandId!,
+          signal,
         ) ?? Promise.resolve({ status: 'cancelled' as const }));
         if (result.status === 'committed') finalizedProgress = result.progress;
         return result;

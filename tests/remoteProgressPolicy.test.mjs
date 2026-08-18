@@ -94,7 +94,10 @@ test('moves once without rollback after automatic resolution already committed',
       calls.push('navigate');
       return true;
     },
-    rollback: async () => calls.push('rollback'),
+    rollback: async () => {
+      calls.push('rollback');
+      return true;
+    },
     complete: () => finalizeRemoteProgressCommand(
       { committed: true, progress },
       async () => {
@@ -259,7 +262,7 @@ test('does not complete a remote jump superseded by newer user navigation', asyn
   assert.deepEqual(calls, ['prepare', 'navigate-cancelled', 'cancel']);
 });
 
-test('rolls back a committed remote navigation superseded before finalize', async () => {
+test('does not overwrite newer navigation when a remote jump is superseded before finalize', async () => {
   const calls = [];
   assert.equal(await executeRemoteProgressJump({
     isCurrent: () => false,
@@ -269,7 +272,10 @@ test('rolls back a committed remote navigation superseded before finalize', asyn
       calls.push('navigate-committed');
       return true;
     },
-    rollback: async (id) => calls.push(`rollback:${id}`),
+    rollback: async (id) => {
+      calls.push(`rollback:${id}`);
+      return true;
+    },
     complete: async () => {
       calls.push('complete');
       return true;
@@ -277,7 +283,6 @@ test('rolls back a committed remote navigation superseded before finalize', asyn
   }), false);
   assert.deepEqual(calls, [
     'navigate-committed',
-    'rollback:11',
     'cancel:11',
   ]);
 });
@@ -316,6 +321,7 @@ test('rolls the viewport back before restoring pending state when finalize fails
     },
     rollback: async (id) => {
       calls.push(`rollback:${id}`);
+      return true;
     },
     complete: async () => {
       calls.push('finalize');
@@ -331,6 +337,67 @@ test('rolls the viewport back before restoring pending state when finalize fails
   ]);
 });
 
+test('waits for reader readiness before preparing a remote conflict jump', async () => {
+  const calls = [];
+  assert.equal(await executeRemoteProgressJump({
+    isCurrent: () => true,
+    ready: async () => {
+      calls.push('ready');
+      return false;
+    },
+    prepare: () => calls.push('prepare'),
+    cancel: () => calls.push('cancel'),
+    navigate: async () => {
+      calls.push('navigate');
+      return true;
+    },
+    complete: async () => true,
+  }), false);
+  assert.deepEqual(calls, ['ready']);
+});
+
+test('retries a failed rollback after navigation readiness before restoring local state', async () => {
+  const calls = [];
+  let rollbackAttempts = 0;
+  let readyCalls = 0;
+  assert.equal(await executeRemoteProgressJump({
+    isCurrent: () => true,
+    ready: async () => {
+      readyCalls += 1;
+      calls.push(`ready:${readyCalls}`);
+      return true;
+    },
+    prepare: () => {
+      calls.push('prepare');
+      return 12;
+    },
+    cancel: (id) => calls.push(`restore:${id}`),
+    navigate: async () => {
+      calls.push('navigate-remote');
+      return true;
+    },
+    rollback: async (id) => {
+      rollbackAttempts += 1;
+      calls.push(`rollback:${id}:${rollbackAttempts}`);
+      return rollbackAttempts >= 2;
+    },
+    complete: async () => {
+      calls.push('finalize');
+      return false;
+    },
+  }), false);
+  assert.deepEqual(calls, [
+    'ready:1',
+    'prepare',
+    'navigate-remote',
+    'finalize',
+    'rollback:12:1',
+    'ready:2',
+    'rollback:12:2',
+    'restore:12',
+  ]);
+});
+
 test('stages a refreshed remote command only after the stale viewport rolls back', async () => {
   const calls = [];
   assert.equal(await executeRemoteProgressJump({
@@ -343,6 +410,7 @@ test('stages a refreshed remote command only after the stale viewport rolls back
     },
     rollback: async () => {
       calls.push('rollback');
+      return true;
     },
     complete: async () => ({
       completed: false,

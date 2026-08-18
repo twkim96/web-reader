@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.17: stabilize foreground remote-progress navigation before canonical adoption.
+// 1.8.18: make every active remote-progress path transactional with stable navigation.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.17`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.18`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

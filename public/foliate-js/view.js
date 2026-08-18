@@ -258,7 +258,7 @@ export class View extends HTMLElement {
             await customElements.whenDefined('foliate-fxl')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js?v=1.8.17.1')
+            await import('./paginator.js?v=1.8.18.1')
             await customElements.whenDefined('foliate-paginator')
             this.renderer = document.createElement('foliate-paginator')
         }
@@ -526,6 +526,20 @@ export class View extends HTMLElement {
             return false
         }
     }
+    async goToStable(target) {
+        const resolved = this.resolveNavigation(target)
+        if (!resolved) return false
+        try {
+            const committed = await this.renderer.goTo({ ...resolved, stable: true })
+            if (committed === false) return false
+            this.history.pushState(target)
+            return resolved
+        } catch(e) {
+            console.error(e)
+            console.error(`Could not stably go to ${target}`)
+            return false
+        }
+    }
     async navigateTransient(target, reason = 'navigation') {
         const resolved = typeof target === 'object' && typeof target?.index === 'number'
             ? { index: target.index, anchor: target.range ?? target.anchor }
@@ -551,6 +565,19 @@ export class View extends HTMLElement {
         } catch (e) {
             console.error(e)
             console.error(`Could not go to fraction ${frac}`)
+            return false
+        }
+    }
+    async goToFractionStable(frac) {
+        const [index, anchor] = this.#sectionProgress.getSection(frac)
+        try {
+            const committed = await this.renderer.goTo({ index, anchor, stable: true })
+            if (committed === false) return false
+            this.history.pushState({ fraction: frac })
+            return true
+        } catch (e) {
+            console.error(e)
+            console.error(`Could not stably go to fraction ${frac}`)
             return false
         }
     }

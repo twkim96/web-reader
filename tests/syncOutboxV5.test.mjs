@@ -209,6 +209,46 @@ test('adopts a verified remote position locally without creating an outbox event
   assert.equal(saved.syncRevision, 7);
 });
 
+test('aborts remote adoption atomically when user intent cancels the navigation attempt', async () => {
+  const remote = {
+    schemaVersion: 2,
+    bookId: 'book-1',
+    revision: 7,
+    acceptedEventId: 'remote-7',
+    operation: 'set',
+    position: position(70),
+    acceptedDeviceId: 'other-device',
+    acceptedSessionId: 'other-session',
+    occurredAtClient: 7,
+    updatedAtServer: {},
+    deletedAtServer: null,
+  };
+  await storeRemoteProgressHeadV5(ownerA, remote, 10);
+  const controller = new AbortController();
+  const originalPut = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function abortAfterCanonicalProgressWrite(...args) {
+    const request = originalPut.apply(this, args);
+    if (this.name === 'progress-v5') controller.abort();
+    return request;
+  };
+  try {
+    const adoption = await adoptRemoteProgressLocallyV5(ownerA, {
+      operation: 'set',
+      bookId: 'book-1',
+      cfi: remote.position.cfi,
+      anchorCfi: remote.position.cfi,
+      progressPercent: 70,
+      lastRead: 10,
+      syncRevision: 7,
+      acceptedEventId: 'remote-7',
+    }, 11, controller.signal);
+    assert.equal(adoption.status, 'cancelled');
+  } finally {
+    IDBObjectStore.prototype.put = originalPut;
+  }
+  assert.equal((await getAllLocalProgressV5(ownerA)).length, 0);
+});
+
 test('refuses quiet remote adoption while the progress target has local outbox intent', async () => {
   const remote = {
     schemaVersion: 2,

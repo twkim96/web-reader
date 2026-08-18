@@ -56,13 +56,22 @@ type RemoteJumpPreparationSnapshot = {
   unsavedSince: number | null;
 };
 
+export type ReaderRemoteNavigationAttempt = {
+  id: number;
+  interactionGeneration: number;
+  signal: AbortSignal;
+};
+
 interface UseReaderProgressSaveOptions {
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
   initialBookmarks?: Bookmark[];
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
-  onAdoptRemoteProgress: (progress: RemoteProgressUpdate) => Promise<RemoteProgressAdoptionResult>;
+  onAdoptRemoteProgress: (
+    progress: RemoteProgressUpdate,
+    signal?: AbortSignal,
+  ) => Promise<RemoteProgressAdoptionResult>;
 }
 
 const RELOCATE_SAVE_IDLE_MS = 1000;
@@ -105,6 +114,12 @@ export const useReaderProgressSave = ({
   const unsavedSinceRef = useRef<number | null>(null);
   const remoteJumpPreparationRef = useRef(0);
   const remoteJumpSnapshotRef = useRef<RemoteJumpPreparationSnapshot | null>(null);
+  const remoteNavigationAttemptIdRef = useRef(0);
+  const remoteNavigationAttemptRef = useRef<{
+    id: number;
+    interactionGeneration: number;
+    controller: AbortController;
+  } | null>(null);
   const ttsProgressFenceActiveRef = useRef(false);
   const ttsProgressFenceTailTimerRef = useRef<number | null>(null);
   const ttsFencePendingCommitRef = useRef<{
@@ -139,6 +154,41 @@ export const useReaderProgressSave = ({
     hasUserInteractedRef.current = true;
   }, []);
 
+  const beginRemoteNavigationAttempt = useCallback((): ReaderRemoteNavigationAttempt => {
+    remoteNavigationAttemptRef.current?.controller.abort();
+    const controller = new AbortController();
+    remoteNavigationAttemptIdRef.current += 1;
+    const attempt = {
+      id: remoteNavigationAttemptIdRef.current,
+      interactionGeneration: interactionGenerationRef.current,
+      controller,
+    };
+    remoteNavigationAttemptRef.current = attempt;
+    return {
+      id: attempt.id,
+      interactionGeneration: attempt.interactionGeneration,
+      signal: controller.signal,
+    };
+  }, []);
+
+  const isRemoteNavigationAttemptCurrent = useCallback((attempt: ReaderRemoteNavigationAttempt) => {
+    const current = remoteNavigationAttemptRef.current;
+    return Boolean(
+      current
+      && current.id === attempt.id
+      && current.controller.signal === attempt.signal
+      && !attempt.signal.aborted
+      && interactionGenerationRef.current === attempt.interactionGeneration,
+    );
+  }, []);
+
+  const finishRemoteNavigationAttempt = useCallback((attempt: ReaderRemoteNavigationAttempt) => {
+    const current = remoteNavigationAttemptRef.current;
+    if (current?.id === attempt.id && current.controller.signal === attempt.signal) {
+      remoteNavigationAttemptRef.current = null;
+    }
+  }, []);
+
   const markUserProgressChange = useCallback((options?: {
     forceNextRelocateSave?: boolean;
     expectedPercent?: number;
@@ -152,6 +202,8 @@ export const useReaderProgressSave = ({
     ttsProgressFenceActiveRef.current = false;
     traceReaderProgressRegression({ event: 'user-change' });
     markUserInteraction();
+    remoteNavigationAttemptRef.current?.controller.abort();
+    remoteNavigationAttemptRef.current = null;
     hasUnsavedUserChangeRef.current = true;
     interactionGenerationRef.current += 1;
     if (options?.forceNextRelocateSave) {
@@ -506,6 +558,8 @@ export const useReaderProgressSave = ({
 
   useEffect(() => () => {
     clearRelocateSaveTimer();
+    remoteNavigationAttemptRef.current?.controller.abort();
+    remoteNavigationAttemptRef.current = null;
     if (ttsProgressFenceTailTimerRef.current !== null) {
       window.clearTimeout(ttsProgressFenceTailTimerRef.current);
     }
@@ -533,8 +587,9 @@ export const useReaderProgressSave = ({
 
   const adoptRemoteProgressBeforeNavigation = useCallback(async (
     remote: RemoteProgressUpdate,
+    signal?: AbortSignal,
   ): Promise<RemoteProgressAdoptionResult> => {
-    const result = await onAdoptRemoteProgress(remote);
+    const result = await onAdoptRemoteProgress(remote, signal);
     if (result.status === 'adopted') applyCanonicalRemoteProgress(result.progress);
     return result;
   }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
@@ -542,7 +597,10 @@ export const useReaderProgressSave = ({
   const completeRemoteJump = useCallback(async (
     target: RemoteProgressTarget,
     bookmarks: Bookmark[],
-    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> }
+    options?: {
+      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
+      signal?: AbortSignal;
+    }
   ): Promise<RemoteProgressJumpCompletion> => {
     let canonicalProgress: UserProgress;
     if (options?.finalize) {
@@ -564,7 +622,7 @@ export const useReaderProgressSave = ({
         bookmarks,
         syncRevision: target.syncRevision,
         acceptedEventId: target.acceptedEventId,
-      });
+      }, options?.signal);
       if (adoption.status !== 'adopted') return false;
       canonicalProgress = adoption.progress;
     }
@@ -575,7 +633,10 @@ export const useReaderProgressSave = ({
   const completeRemoteReset = useCallback(async (
     target: Omit<RemoteProgressTarget, 'cfi' | 'anchorCfi' | 'percent'>,
     bookmarks: Bookmark[],
-    options?: { finalize?: () => Promise<RemoteProgressCommandFinalizeResult> },
+    options?: {
+      finalize?: () => Promise<RemoteProgressCommandFinalizeResult>;
+      signal?: AbortSignal;
+    },
   ): Promise<RemoteProgressJumpCompletion> => {
     let canonicalProgress: UserProgress;
     if (options?.finalize) {
@@ -597,7 +658,7 @@ export const useReaderProgressSave = ({
         bookmarks,
         syncRevision: target.syncRevision,
         acceptedEventId: target.acceptedEventId,
-      });
+      }, options?.signal);
       if (adoption.status !== 'adopted') return false;
       canonicalProgress = adoption.progress;
     }
@@ -619,6 +680,9 @@ export const useReaderProgressSave = ({
     prepareRemoteRollback,
     cancelRemoteJump,
     finishRemoteJump,
+    beginRemoteNavigationAttempt,
+    isRemoteNavigationAttemptCurrent,
+    finishRemoteNavigationAttempt,
     isQuietResumeEligible,
     isProgressConflictAutoResolveEligible,
     adoptRemoteProgressBeforeNavigation,

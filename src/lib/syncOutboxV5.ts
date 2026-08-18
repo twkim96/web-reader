@@ -353,6 +353,7 @@ export const adoptRemoteProgressLocallyV5 = async (
   ownerKey: OwnerKey,
   progress: RemoteProgressUpdate,
   now = Date.now(),
+  signal?: AbortSignal,
 ): Promise<RemoteProgressAdoptionResult> => {
   if (!progress.syncRevision || !progress.acceptedEventId) {
     return { status: 'stale-remote' };
@@ -371,85 +372,110 @@ export const adoptRemoteProgressLocallyV5 = async (
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
   const outboxStore = tx.objectStore(V5_OUTBOX_STORE);
   const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
-  const [
-    targetEvents,
-    openConflicts,
-    deferredConflicts,
-    remote,
-    existingProgress,
-    meta,
-  ] = await Promise.all([
-    outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
-      [ownerKey, targetKey, 0],
-      [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
-    )) as Promise<SyncOutboxEventV5[]>,
-    conflictStore.index('by-owner-target-state')
-      .getAll([ownerKey, targetKey, 'open']) as Promise<SyncConflictV5[]>,
-    conflictStore.index('by-owner-target-state')
-      .getAll([ownerKey, targetKey, 'deferred']) as Promise<SyncConflictV5[]>,
-    remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
-    progressStore.get([ownerKey, progress.bookId]) as Promise<
-      (UserProgress & { ownerKey?: OwnerKey }) | undefined
-    >,
-    metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
-  ]);
-  const work = {
-    pending: targetEvents.filter(({ status }) => status === 'pending').length,
-    inFlight: targetEvents.filter(({ status }) => status === 'in_flight').length,
-    blocked: targetEvents.filter(({ status }) => status === 'blocked').length,
-    conflicts: targetEvents.filter(({ status }) => status === 'conflict').length
-      + openConflicts.length
-      + deferredConflicts.length,
-    paused: targetEvents.filter(({ status }) => status === 'paused').length,
+  let abortedBySignal = false;
+  const abortTransaction = () => {
+    abortedBySignal = true;
+    try {
+      tx.abort();
+    } catch {
+      // The transaction may already be committed or aborted.
+    }
   };
-  if (
-    targetEvents.some((event) => activeStatuses.has(event.status))
-    || openConflicts.length > 0
-    || deferredConflicts.length > 0
-  ) {
-    tx.abort();
-    await tx.done.catch(() => undefined);
-    return { status: 'blocked-by-local-work', work };
+  signal?.addEventListener('abort', abortTransaction, { once: true });
+  try {
+    if (signal?.aborted) {
+      abortTransaction();
+      await tx.done.catch(() => undefined);
+      return { status: 'cancelled' };
+    }
+    const [
+      targetEvents,
+      openConflicts,
+      deferredConflicts,
+      remote,
+      existingProgress,
+      meta,
+    ] = await Promise.all([
+      outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+        [ownerKey, targetKey, 0],
+        [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
+      )) as Promise<SyncOutboxEventV5[]>,
+      conflictStore.index('by-owner-target-state')
+        .getAll([ownerKey, targetKey, 'open']) as Promise<SyncConflictV5[]>,
+      conflictStore.index('by-owner-target-state')
+        .getAll([ownerKey, targetKey, 'deferred']) as Promise<SyncConflictV5[]>,
+      remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+      progressStore.get([ownerKey, progress.bookId]) as Promise<
+        (UserProgress & { ownerKey?: OwnerKey }) | undefined
+      >,
+      metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+    ]);
+    const work = {
+      pending: targetEvents.filter(({ status }) => status === 'pending').length,
+      inFlight: targetEvents.filter(({ status }) => status === 'in_flight').length,
+      blocked: targetEvents.filter(({ status }) => status === 'blocked').length,
+      conflicts: targetEvents.filter(({ status }) => status === 'conflict').length
+        + openConflicts.length
+        + deferredConflicts.length,
+      paused: targetEvents.filter(({ status }) => status === 'paused').length,
+    };
+    if (
+      targetEvents.some((event) => activeStatuses.has(event.status))
+      || openConflicts.length > 0
+      || deferredConflicts.length > 0
+    ) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      return { status: 'blocked-by-local-work', work };
+    }
+    if (
+      !remote
+      || remote.revision !== progress.syncRevision
+      || remote.head.acceptedEventId !== progress.acceptedEventId
+      || 'bookmarkId' in remote.head
+      || remote.head.operation !== progress.operation
+    ) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      return { status: 'stale-remote' };
+    }
+    const existingBookmarks = existingProgress?.bookmarks ?? [];
+    const bookmarks = progress.bookmarks === undefined
+      ? existingBookmarks
+      : [
+        ...existingBookmarks.filter(({ type }) => type === 'manual'),
+        ...progress.bookmarks.filter(({ type }) => type === 'auto'),
+      ];
+    const storedProgress: UserProgress = {
+      bookId: progress.bookId,
+      cfi: progress.cfi,
+      anchorCfi: progress.anchorCfi,
+      progressPercent: progress.progressPercent,
+      lastRead: progress.lastRead,
+      bookmarks,
+      syncRevision: progress.syncRevision,
+      acceptedEventId: progress.acceptedEventId,
+      ignoredRemoteRevision: existingProgress?.ignoredRemoteRevision,
+    };
+    await Promise.all([
+      progressStore.put({ ...storedProgress, ownerKey }),
+      metaStore.put({
+        ...(meta ?? defaultSyncMeta(ownerKey, targetKey, now)),
+        knownRevision: Math.max(meta?.knownRevision ?? 0, progress.syncRevision),
+        updatedAt: now,
+      }),
+    ]);
+    await tx.done;
+    return { status: 'adopted', progress: storedProgress };
+  } catch (error) {
+    if (abortedBySignal || signal?.aborted) {
+      await tx.done.catch(() => undefined);
+      return { status: 'cancelled' };
+    }
+    throw error;
+  } finally {
+    signal?.removeEventListener('abort', abortTransaction);
   }
-  if (
-    !remote
-    || remote.revision !== progress.syncRevision
-    || remote.head.acceptedEventId !== progress.acceptedEventId
-    || 'bookmarkId' in remote.head
-    || remote.head.operation !== progress.operation
-  ) {
-    tx.abort();
-    await tx.done.catch(() => undefined);
-    return { status: 'stale-remote' };
-  }
-  const existingBookmarks = existingProgress?.bookmarks ?? [];
-  const bookmarks = progress.bookmarks === undefined
-    ? existingBookmarks
-    : [
-      ...existingBookmarks.filter(({ type }) => type === 'manual'),
-      ...progress.bookmarks.filter(({ type }) => type === 'auto'),
-    ];
-  const storedProgress: UserProgress = {
-    bookId: progress.bookId,
-    cfi: progress.cfi,
-    anchorCfi: progress.anchorCfi,
-    progressPercent: progress.progressPercent,
-    lastRead: progress.lastRead,
-    bookmarks,
-    syncRevision: progress.syncRevision,
-    acceptedEventId: progress.acceptedEventId,
-    ignoredRemoteRevision: existingProgress?.ignoredRemoteRevision,
-  };
-  await Promise.all([
-    progressStore.put({ ...storedProgress, ownerKey }),
-    metaStore.put({
-      ...(meta ?? defaultSyncMeta(ownerKey, targetKey, now)),
-      knownRevision: Math.max(meta?.knownRevision ?? 0, progress.syncRevision),
-      updatedAt: now,
-    }),
-  ]);
-  await tx.done;
-  return { status: 'adopted', progress: storedProgress };
 };
 
 export const hasActiveProgressTargetWorkV5 = async (

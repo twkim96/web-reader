@@ -21,6 +21,14 @@ their regression tests when updating from upstream.
 - Chromium/WebKit regression coverage verifies locked `goTo()` rejection, readiness settlement, and successful retry.
 - Runtime revision `1.8.17.1` prevents an older cached paginator from bypassing the fix.
 
+## 1.8.18 stable remote target navigation and lock cleanup
+
+- `view.js` exposes remote-only stable CFI/fraction navigation. `paginator.js` keeps the target section staged until fonts, images, and repeated layout expansion settle, then applies the target anchor and confirms two final layout frames before resolving.
+- Programmatic remote conflict navigation now uses this target-aware path rather than stabilizing only the section that happened to be visible before the jump.
+- `paginator.js` releases the page-turn lock in `finally`, including section-load and renderer exceptions, so one malformed navigation cannot permanently block later recovery.
+- Chromium/WebKit regression coverage verifies locked navigation rejection, exception cleanup, cross-section stable pagination, and later recovery.
+- Runtime revision `1.8.18.1` ensures clients do not reuse the 1.8.17 renderer after these vendored changes.
+
 ## 1.8.11 previous-section end anchor
 
 - `paginator.js` keeps a previous section staged while applying reader styles,

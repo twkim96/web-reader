@@ -109,7 +109,12 @@ export type FoliateViewElement = HTMLElement & {
     index?: number;
     anchor?: Range | ((doc: Document) => Range | Element | number);
   }>;
+  goToStable?: (cfi: string) => Promise<false | {
+    index?: number;
+    anchor?: Range | ((doc: Document) => Range | Element | number);
+  }>;
   goToFraction: (fraction: number) => Promise<boolean>;
+  goToFractionStable?: (fraction: number) => Promise<boolean>;
   navigateTransient: (
     target: string | number | {
       index: number;

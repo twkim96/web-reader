@@ -56,6 +56,21 @@ export const useFoliateNavigation = ({
     }
   }, [viewRef]);
 
+  const goToStable = useCallback(async (cfi: string) => {
+    const view = viewRef.current;
+    if (!view) return false;
+
+    try {
+      const result = view.goToStable
+        ? await view.goToStable(cfi)
+        : await view.goTo(cfi);
+      return Boolean(result);
+    } catch (error) {
+      console.error('Failed to stably navigate to CFI:', error);
+      return false;
+    }
+  }, [viewRef]);
+
   const goToFraction = useCallback(async (fraction: number) => {
     const view = viewRef.current;
     if (!view) return false;
@@ -64,6 +79,20 @@ export const useFoliateNavigation = ({
       return await view.goToFraction(fraction);
     } catch (error) {
       console.error('Failed to navigate to fraction:', error);
+      return false;
+    }
+  }, [viewRef]);
+
+  const goToFractionStable = useCallback(async (fraction: number) => {
+    const view = viewRef.current;
+    if (!view) return false;
+
+    try {
+      return view.goToFractionStable
+        ? await view.goToFractionStable(fraction)
+        : await view.goToFraction(fraction);
+    } catch (error) {
+      console.error('Failed to stably navigate to fraction:', error);
       return false;
     }
   }, [viewRef]);
@@ -80,7 +109,9 @@ export const useFoliateNavigation = ({
     openBook,
     waitForNavigationReady,
     goTo,
+    goToStable,
     goToFraction,
+    goToFractionStable,
     prev,
     next,
   };

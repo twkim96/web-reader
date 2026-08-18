@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const EXPECTED_VERSION = '1.8.17';
+const EXPECTED_VERSION = '1.8.18';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
   const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime, foliateView] = await Promise.all([
@@ -44,7 +44,7 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
   assert.equal(
-    foliateRuntime.includes("FOLIATE_RUNTIME_REVISION = '1.8.17.1'"),
+    foliateRuntime.includes("FOLIATE_RUNTIME_REVISION = '1.8.18.1'"),
     true,
   );
   assert.equal(
@@ -52,7 +52,7 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
   assert.equal(
-    foliateView.includes("import('./paginator.js?v=1.8.17.1')"),
+    foliateView.includes("import('./paginator.js?v=1.8.18.1')"),
     true,
   );
 });

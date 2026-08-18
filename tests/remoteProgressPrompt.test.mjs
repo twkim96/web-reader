@@ -58,17 +58,22 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
   let navigationAttempts = 0;
   let adoptionAttempts = 0;
   let preparationId = 0;
+  let attemptId = 0;
+  let activeAttempt = null;
 
+  const navigate = async () => {
+    navigationAttempts += 1;
+    return navigationAttempts >= 2;
+  };
   const stableOptions = {
     isLoaded: true,
     remoteProgress,
     lastSaveTimeRef,
     waitForNavigationReady: async () => true,
-    goTo: async () => {
-      navigationAttempts += 1;
-      return navigationAttempts >= 2;
-    },
+    goTo: navigate,
+    goToStable: navigate,
     goToFraction: async () => true,
+    goToFractionStable: async () => true,
     getBookmarks: () => [],
     adoptResolvedBookmarks: (bookmarks) => bookmarks,
     stageAutoBookmark: () => [],
@@ -80,7 +85,19 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
     prepareRemoteRollback: () => true,
     cancelRemoteJump: () => {},
     finishRemoteJump: () => {},
+    beginRemoteNavigationAttempt: () => {
+      attemptId += 1;
+      const controller = new AbortController();
+      activeAttempt = { id: attemptId, interactionGeneration: 0, signal: controller.signal, controller };
+      return activeAttempt;
+    },
+    isRemoteNavigationAttemptCurrent: (attempt) => activeAttempt?.id === attempt.id
+      && !attempt.signal.aborted,
+    finishRemoteNavigationAttempt: (attempt) => {
+      if (activeAttempt?.id === attempt.id) activeAttempt = null;
+    },
     isQuietResumeEligible: () => true,
+    isProgressConflictAutoResolveEligible: () => true,
     adoptRemoteProgressBeforeNavigation: async () => {
       adoptionAttempts += 1;
       return { status: 'adopted', progress: adoptedProgress };
@@ -142,6 +159,110 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
     await act(async () => {
       root.unmount();
     });
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  }
+});
+
+test('user progress input during readiness cancels automatic adoption before canonical commit', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
+  globalThis.window = window;
+  globalThis.document = window.document;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+  let releaseReady;
+  let readinessCalls = 0;
+  let adoptionAttempts = 0;
+  let navigationAttempts = 0;
+  let attemptId = 0;
+  let activeAttempt = null;
+  const ready = new Promise((resolve) => {
+    releaseReady = resolve;
+  });
+  const remoteProgress = {
+    operation: 'set',
+    bookId: 'book-1',
+    cfi: 'remote-cfi',
+    anchorCfi: 'remote-cfi',
+    progressPercent: 70,
+    lastRead: 100,
+    bookmarks: [],
+    syncRevision: 1,
+    acceptedEventId: 'remote-event-1',
+  };
+  const root = createRoot(window.document.getElementById('app'));
+  const Harness = () => {
+    useRemoteProgressPrompt({
+      isLoaded: true,
+      remoteProgress,
+      currentCfi: 'local-cfi',
+      currentAnchorCfi: 'local-cfi',
+      totalProgress: 10,
+      localRevision: 0,
+      lastSaveTimeRef: { current: 0 },
+      waitForNavigationReady: async () => {
+        readinessCalls += 1;
+        return ready;
+      },
+      goTo: async () => true,
+      goToStable: async () => {
+        navigationAttempts += 1;
+        return true;
+      },
+      goToFraction: async () => true,
+      goToFractionStable: async () => true,
+      getBookmarks: () => [],
+      adoptResolvedBookmarks: (bookmarks) => bookmarks,
+      stageAutoBookmark: () => [],
+      commitBookmarks: (bookmarks) => bookmarks,
+      prepareRemoteJump: () => 1,
+      prepareRemoteRollback: () => true,
+      cancelRemoteJump: () => {},
+      finishRemoteJump: () => {},
+      beginRemoteNavigationAttempt: () => {
+        attemptId += 1;
+        const controller = new AbortController();
+        activeAttempt = { id: attemptId, interactionGeneration: 0, signal: controller.signal, controller };
+        return activeAttempt;
+      },
+      isRemoteNavigationAttemptCurrent: (attempt) => activeAttempt?.id === attempt.id
+        && !attempt.signal.aborted,
+      finishRemoteNavigationAttempt: (attempt) => {
+        if (activeAttempt?.id === attempt.id) activeAttempt = null;
+      },
+      isQuietResumeEligible: () => true,
+      isProgressConflictAutoResolveEligible: () => true,
+      adoptRemoteProgressBeforeNavigation: async () => {
+        adoptionAttempts += 1;
+        return { status: 'cancelled' };
+      },
+      completeRemoteJump: async () => true,
+      completeRemoteReset: async () => true,
+      hasLocalProgress: true,
+    });
+    return null;
+  };
+
+  try {
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await flushMicrotasks();
+    });
+    assert.equal(readinessCalls, 1);
+    assert.equal(adoptionAttempts, 0);
+    activeAttempt.controller.abort();
+    await act(async () => {
+      releaseReady(true);
+      await flushMicrotasks();
+    });
+    assert.equal(adoptionAttempts, 0);
+    assert.equal(navigationAttempts, 0);
+  } finally {
+    await act(async () => root.unmount());
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;

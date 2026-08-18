@@ -192,9 +192,10 @@ test('paginator rejects programmatic navigation while a page turn is locked and 
     await renderer.goTo({ index: 0, anchor: 0 });
     const turn = renderer.next();
     const blocked = await renderer.goTo({ index: 0, anchor: 0.8 });
-    const ready = await renderer.waitForNavigationReady();
+    const stableDuringLock = renderer.goTo({ index: 0, anchor: 0.8, stable: true });
     await turn;
-    const accepted = await renderer.goTo({ index: 0, anchor: 0.8 });
+    const accepted = await stableDuringLock;
+    const ready = await renderer.waitForNavigationReady();
     const probe = {
       blocked,
       ready,
@@ -213,6 +214,125 @@ test('paginator rejects programmatic navigation while a page turn is locked and 
   expect(result.accepted).toBe(true);
   expect(result.page).toBeGreaterThan(1);
   expect(result.page).toBeLessThan(result.pages - 1);
+});
+
+test('paginator releases the page-turn lock after a section load failure', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const urls = [
+      '<!doctype html><html><body><p>Short first section.</p></body></html>',
+      '<!doctype html><html><body><p>Recovered second section.</p></body></html>',
+    ].map((html) => URL.createObjectURL(new Blob([html], { type: 'text/html' })));
+    let failNextSection = true;
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('max-column-count', '1');
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: [
+        { linear: 'yes', load: async () => urls[0], unload: () => undefined },
+        {
+          linear: 'yes',
+          load: async () => {
+            if (failNextSection) {
+              failNextSection = false;
+              throw new Error('injected section failure');
+            }
+            return urls[1];
+          },
+          unload: () => undefined,
+        },
+      ],
+    });
+    await renderer.goTo({ index: 0, anchor: 1 });
+    let firstRejected = false;
+    try {
+      await renderer.next();
+    } catch {
+      firstRejected = true;
+    }
+    // If #locked leaked from the rejected page turn, a direct goTo would
+    // return false before the section loader gets its recovery attempt.
+    const recovered = await renderer.goTo({ index: 1, anchor: 0 });
+    const readyAfterRecovery = await renderer.waitForNavigationReady(3000);
+    const index = renderer.getContents()[0]?.index ?? -1;
+    renderer.destroy();
+    renderer.remove();
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    return { firstRejected, readyAfterRecovery, recovered: Boolean(recovered), index };
+  });
+
+  expect(result.firstRejected).toBe(true);
+  expect(result.recovered).toBe(true);
+  expect(result.readyAfterRecovery).toBe(true);
+  expect(result.index).toBe(1);
+});
+
+test('stable cross-section navigation settles target pagination before resolving', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const firstUrl = URL.createObjectURL(new Blob([
+      '<!doctype html><html><body><p>First section.</p></body></html>',
+    ], { type: 'text/html' }));
+    const secondUrl = URL.createObjectURL(new Blob([`<!doctype html><html><body>
+      ${Array.from({ length: 80 }, (_, index) => `<p>Target paragraph ${index} ${'content '.repeat(8)}</p>`).join('')}
+      <img id="target-image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='900'%3E%3Crect width='1200' height='900' fill='black'/%3E%3C/svg%3E" alt="target" />
+      ${Array.from({ length: 80 }, (_, index) => `<p>After image ${index} ${'content '.repeat(8)}</p>`).join('')}
+    </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: [firstUrl, secondUrl].map((url) => ({
+        linear: 'yes',
+        load: async () => url,
+        unload: () => undefined,
+      })),
+    });
+    await renderer.goTo({ index: 0 });
+    const navigation = renderer.goTo({ index: 1, anchor: 0.65, stable: true });
+    const settledEarly = await Promise.race([
+      navigation.then(() => true),
+      // Stable navigation runs the target document through full pagination
+      // settling (fonts/images plus three layout frames) before it can resolve.
+      new Promise((resolve) => setTimeout(() => resolve(false), 10)),
+    ]);
+    const committed = await navigation;
+    const atCommit = {
+      index: renderer.getContents()[0]?.index ?? -1,
+      page: renderer.page,
+      pages: renderer.pages,
+    };
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const afterDelay = {
+      index: renderer.getContents()[0]?.index ?? -1,
+      page: renderer.page,
+      pages: renderer.pages,
+    };
+    renderer.destroy();
+    renderer.remove();
+    URL.revokeObjectURL(firstUrl);
+    URL.revokeObjectURL(secondUrl);
+    return { settledEarly, committed: Boolean(committed), atCommit, afterDelay };
+  });
+
+  expect(result.settledEarly).toBe(false);
+  expect(result.committed).toBe(true);
+  expect(result.atCommit.index).toBe(1);
+  expect(result.afterDelay).toEqual(result.atCommit);
 });
 
 test('paginator keeps TTS relocation metadata and lets the latest user navigation win', async ({ page }) => {
@@ -506,7 +626,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.17.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.18.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

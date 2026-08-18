@@ -941,12 +941,17 @@ export class Paginator extends HTMLElement {
         }))
         this.#scrollToAnchor(this.#anchor)
     }
-    async waitForNavigationReady(timeoutMs = PROGRAMMATIC_NAVIGATION_READY_TIMEOUT_MS) {
+    async #waitForUnlocked(timeoutMs = PROGRAMMATIC_NAVIGATION_READY_TIMEOUT_MS) {
         const deadline = Date.now() + Math.max(0, timeoutMs)
         while (this.#locked) {
             if (Date.now() >= deadline) return false
             await wait(16)
         }
+        return true
+    }
+    async waitForNavigationReady(timeoutMs = PROGRAMMATIC_NAVIGATION_READY_TIMEOUT_MS) {
+        const deadline = Date.now() + Math.max(0, timeoutMs)
+        if (!await this.#waitForUnlocked(timeoutMs)) return false
         if (!this.#view) return false
 
         const controller = new AbortController()
@@ -968,6 +973,21 @@ export class Paginator extends HTMLElement {
             throw error
         } finally {
             clearTimeout(timeout)
+        }
+    }
+    async #waitForStablePagination(view, task, timeoutMs = PROGRAMMATIC_NAVIGATION_READY_TIMEOUT_MS) {
+        const controller = new AbortController()
+        const abort = () => controller.abort()
+        task.signal.addEventListener('abort', abort, { once: true })
+        const timeout = setTimeout(abort, Math.max(1, timeoutMs))
+        try {
+            await view.waitForPagination(controller.signal)
+            if (controller.signal.aborted || !this.#navigation.isCurrent(task)) {
+                throw createAbortError()
+            }
+        } finally {
+            clearTimeout(timeout)
+            task.signal.removeEventListener('abort', abort)
         }
     }
     get scrolled() {
@@ -1206,7 +1226,7 @@ export class Paginator extends HTMLElement {
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
     async #display({
-        index, src, anchor, select, reason, navigationSource, navigationId,
+        index, src, anchor, select, reason, navigationSource, navigationId, stable,
     }, task) {
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
         const navigationContext = navigationSource
@@ -1244,7 +1264,9 @@ export class Paginator extends HTMLElement {
                 throw createAbortError()
             }
             try {
-                if (atSectionEnd) {
+                if (stable) {
+                    await this.#waitForStablePagination(view, task)
+                } else if (atSectionEnd) {
                     await view.waitForPagination(task.signal)
                 } else if (usesRidiReaderFont(this.#styles)) {
                     // RIDIBatang is embedded by the app before init. Keep the
@@ -1279,6 +1301,7 @@ export class Paginator extends HTMLElement {
         } else {
             this.#index = index
             this.#navigationContext = navigationContext
+            if (stable) await this.#waitForStablePagination(this.#view, task)
         }
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
         if (atSectionEnd && !this.scrolled) {
@@ -1293,19 +1316,27 @@ export class Paginator extends HTMLElement {
             select, reason)
         }
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
+        if (stable) {
+            const win = this.#view?.document?.defaultView ?? window
+            for (let i = 0; i < 2; i++) {
+                await waitForFrame(win, task.signal)
+                if (!this.#navigation.isCurrent(task)) throw createAbortError()
+                this.render()
+            }
+        }
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
-    async #goTo({ index, anchor, select, reason, navigationSource, navigationId }, task) {
+    async #goTo({ index, anchor, select, reason, navigationSource, navigationId, stable }, task) {
         if (index === this.#index && this.#view) return this.#display({
-            index, anchor, select, reason, navigationSource, navigationId,
+            index, anchor, select, reason, navigationSource, navigationId, stable,
         }, task)
         const src = await this.sections[index].load(task.signal)
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
         return this.#display({
-            index, src, anchor, select, reason, navigationSource, navigationId,
+            index, src, anchor, select, reason, navigationSource, navigationId, stable,
         }, task)
     }
     async #navigateResolved(resolved) {
@@ -1331,8 +1362,14 @@ export class Paginator extends HTMLElement {
         }
     }
     async goTo(target) {
-        if (this.#locked) return false
         const resolved = await target
+        if (resolved?.stable) {
+            // A user page turn can start after the app's pre-adoption readiness
+            // check but before the remote canonical commit reaches this call.
+            // Stable remote navigation owns that post-commit window and waits
+            // for the bounded page-turn lock instead of reporting a false failure.
+            if (!await this.#waitForUnlocked()) return false
+        } else if (this.#locked) return false
         if (this.#canGoToIndex(resolved?.index)) return this.#navigateResolved(resolved)
         return false
     }
@@ -1379,25 +1416,28 @@ export class Paginator extends HTMLElement {
             if (this.sections[index]?.linear !== 'no') return index
     }
     async #turnPage(dir, distance, reason = 'page') {
-        if (this.#locked) return
+        if (this.#locked) return false
         this.cancelNavigation()
         this.#locked = true
-        const prev = dir === -1
-        const isSelectionPage = reason === 'selection-page'
-        if (isSelectionPage && (prev ? this.page <= 1 : this.page >= this.pages - 2)) {
+        try {
+            const prev = dir === -1
+            const isSelectionPage = reason === 'selection-page'
+            if (isSelectionPage && (prev ? this.page <= 1 : this.page >= this.pages - 2)) {
+                return false
+            }
+            const shouldGo = await (prev
+                ? this.#scrollPrev(distance, reason)
+                : this.#scrollNext(distance, reason))
+            if (shouldGo) await this.#navigateResolved({
+                index: this.#adjacentIndex(dir),
+                anchor: prev ? SECTION_END : () => 0,
+                reason,
+            })
+            if (shouldGo || !this.hasAttribute('animated')) await wait(100)
+            return true
+        } finally {
             this.#locked = false
-            return
         }
-        const shouldGo = await (prev
-            ? this.#scrollPrev(distance, reason)
-            : this.#scrollNext(distance, reason))
-        if (shouldGo) await this.#navigateResolved({
-            index: this.#adjacentIndex(dir),
-            anchor: prev ? SECTION_END : () => 0,
-            reason,
-        })
-        if (shouldGo || !this.hasAttribute('animated')) await wait(100)
-        this.#locked = false
     }
     prev(distance) {
         return this.#turnPage(-1, distance)
