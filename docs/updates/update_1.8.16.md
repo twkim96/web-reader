@@ -99,3 +99,4 @@ git diff --check
 - 390×844 viewport에서 bottom dock은 폭 374px·높이 68px, 하단 gap 20px, visible action 6개, 가로 overflow 0이었다.
 - Chromium 기반 자동 시각 검증에서 Web Reader dark theme surface `rgba(39,39,40,0.88)`, mobile radius 16px, 24px blur, 2xl shadow와 icon opacity 84%가 적용된 것을 확인했다. 실제 iPad Safari와 Android Chrome의 렌더링은 실기기 gate로 남긴다.
 - 메뉴 스타일 선택 추가 후 `test:shelf` 107건과 production build가 통과했다. 로컬 Chromium에서 PC 글래스 `rgba(39,39,40,0.68)`·모던 `rgba(39,39,40,0.88)`, 모바일 390px에서 공통 폭 374px·하단 gap 20px 및 글래스 capsule·모던 16px radius 전환을 확인했다.
+- 책장 검색 입력행은 desktop 68px을 유지하고, mobile에서 48px→60px로 25% 높여 터치와 시각적 여유를 확보한다.

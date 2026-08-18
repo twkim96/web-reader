@@ -368,7 +368,7 @@ try {
     'document.querySelector(\'[data-shelf-search-input-row="true"]\')?.getBoundingClientRect().height',
   );
   assert.ok(
-    mobileShelfSearchHeight >= 47 && mobileShelfSearchHeight <= 49,
+    mobileShelfSearchHeight >= 59 && mobileShelfSearchHeight <= 61,
     `Unexpected mobile shelf search height: ${mobileShelfSearchHeight}`,
   );
   await command('Emulation.setDeviceMetricsOverride', {

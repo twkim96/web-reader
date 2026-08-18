@@ -112,7 +112,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
         <form
           data-shelf-search-input-row="true"
           onSubmit={handleSubmit}
-          className="relative flex h-12 shrink-0 items-center px-1 sm:h-[4.25rem] sm:px-2"
+          className="relative flex h-[3.75rem] shrink-0 items-center px-1 sm:h-[4.25rem] sm:px-2"
         >
           <div className="pl-3 pr-1.5 sm:pl-5 sm:pr-2">
             {tagMode ? <Hash className="size-5 text-accent-500 sm:size-6" /> : <Search className="size-5 opacity-50 sm:size-6" />}
