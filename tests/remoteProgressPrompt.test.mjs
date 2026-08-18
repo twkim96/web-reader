@@ -63,6 +63,7 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
     isLoaded: true,
     remoteProgress,
     lastSaveTimeRef,
+    waitForNavigationReady: async () => true,
     goTo: async () => {
       navigationAttempts += 1;
       return navigationAttempts >= 2;

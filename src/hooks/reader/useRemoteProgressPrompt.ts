@@ -50,6 +50,7 @@ interface UseRemoteProgressPromptOptions {
   totalProgress: number;
   localRevision?: number;
   lastSaveTimeRef: MutableRefObject<number>;
+  waitForNavigationReady: () => Promise<boolean>;
   goTo: (cfi: string) => Promise<boolean>;
   goToFraction: (fraction: number) => Promise<boolean>;
   getBookmarks: () => Bookmark[];
@@ -92,6 +93,7 @@ export const useRemoteProgressPrompt = ({
   totalProgress,
   localRevision,
   lastSaveTimeRef,
+  waitForNavigationReady,
   goTo,
   goToFraction,
   getBookmarks,
@@ -220,6 +222,7 @@ export const useRemoteProgressPrompt = ({
     try {
       return await executeCanonicalRemoteProgressNavigation({
         isCurrent: () => jumpGeneration.current === generation,
+        ready: waitForNavigationReady,
         adopt: () => adoptRemoteProgressBeforeNavigation({
           operation: target.operation,
           bookId: target.bookId,
@@ -252,6 +255,7 @@ export const useRemoteProgressPrompt = ({
     goToFraction,
     navigateToRemoteSet,
     prepareRemoteJump,
+    waitForNavigationReady,
   ]);
 
   const handledResolution = useRef<string | null>(null);

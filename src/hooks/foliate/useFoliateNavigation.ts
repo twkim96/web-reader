@@ -37,12 +37,19 @@ export const useFoliateNavigation = ({
     }
   }, [initView, setToc, viewRef]);
 
+  const waitForNavigationReady = useCallback(async () => {
+    const view = viewRef.current;
+    if (!view) return false;
+    return view.waitForNavigationReady ? view.waitForNavigationReady() : true;
+  }, [viewRef]);
+
   const goTo = useCallback(async (cfi: string) => {
     const view = viewRef.current;
     if (!view) return false;
 
     try {
-      return (await view.goTo(cfi)) !== false;
+      const result = await view.goTo(cfi);
+      return Boolean(result);
     } catch (error) {
       console.error('Failed to navigate to CFI:', error);
       return false;
@@ -71,6 +78,7 @@ export const useFoliateNavigation = ({
 
   return {
     openBook,
+    waitForNavigationReady,
     goTo,
     goToFraction,
     prev,

@@ -13,6 +13,14 @@ their regression tests when updating from upstream.
 - Regression coverage: `tests/foliateViewRegression.test.mjs` and
   `tests/e2e/foliateSandboxCompatibility.spec.ts`.
 
+## 1.8.17 foreground programmatic navigation readiness
+
+- `paginator.js` returns `false` instead of an ambiguous `undefined` when a programmatic `goTo()` arrives while a page turn is locked or the target is invalid.
+- `paginator.js` exposes `waitForNavigationReady()` so remote-progress adoption can wait for page-turn unlock plus font/image/resize pagination stabilization before committing the canonical remote position.
+- `view.js` forwards the readiness boundary to the app. Ordinary TOC/search/manual navigation is unchanged; the barrier is consumed only by the remote-progress adoption path.
+- Chromium/WebKit regression coverage verifies locked `goTo()` rejection, readiness settlement, and successful retry.
+- Runtime revision `1.8.17.1` prevents an older cached paginator from bypassing the fix.
+
 ## 1.8.11 previous-section end anchor
 
 - `paginator.js` keeps a previous section staged while applying reader styles,

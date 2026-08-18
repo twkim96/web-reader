@@ -165,6 +165,56 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
   expect(result.relocateReasons).toContain('selection-page');
 });
 
+test('paginator rejects programmatic navigation while a page turn is locked and becomes ready after it settles', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const url = URL.createObjectURL(new Blob([`<!doctype html><html><body>
+      ${Array.from({ length: 180 }, (_, index) => `<p>Locked navigation paragraph ${index} ${'content '.repeat(8)}</p>`).join('')}
+    </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: [{
+        linear: 'yes',
+        load: async () => url,
+        unload: () => undefined,
+      }],
+    });
+    await renderer.goTo({ index: 0, anchor: 0 });
+    const turn = renderer.next();
+    const blocked = await renderer.goTo({ index: 0, anchor: 0.8 });
+    const ready = await renderer.waitForNavigationReady();
+    await turn;
+    const accepted = await renderer.goTo({ index: 0, anchor: 0.8 });
+    const probe = {
+      blocked,
+      ready,
+      accepted: Boolean(accepted),
+      page: renderer.page,
+      pages: renderer.pages,
+    };
+    renderer.destroy();
+    renderer.remove();
+    URL.revokeObjectURL(url);
+    return probe;
+  });
+
+  expect(result.blocked).toBe(false);
+  expect(result.ready).toBe(true);
+  expect(result.accepted).toBe(true);
+  expect(result.page).toBeGreaterThan(1);
+  expect(result.page).toBeLessThan(result.pages - 1);
+});
+
 test('paginator keeps TTS relocation metadata and lets the latest user navigation win', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
@@ -456,7 +506,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.14.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.17.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

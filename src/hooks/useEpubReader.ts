@@ -46,6 +46,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
 
   const {
     openBook,
+    waitForNavigationReady,
     goTo,
     goToFraction,
     prev,
@@ -75,6 +76,7 @@ export const useEpubReader = (options?: UseEpubReaderOptions) => {
     currentChapter,
     toc,
     openBook,
+    waitForNavigationReady,
     goTo,
     goToFraction,
     prev,

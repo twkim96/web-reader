@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.16: refine the responsive shelf UI and floating navigation dock.
+// 1.8.17: stabilize foreground remote-progress navigation before canonical adoption.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.16`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.17`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

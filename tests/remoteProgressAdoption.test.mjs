@@ -17,6 +17,27 @@ const progress = {
   acceptedEventId: 'remote-2',
 };
 
+test('navigation readiness is required before canonical remote adoption', async () => {
+  const events = [];
+  const result = await executeCanonicalRemoteProgressNavigation({
+    isCurrent: () => true,
+    ready: async () => {
+      events.push('ready');
+      return false;
+    },
+    adopt: async () => {
+      events.push('adopt');
+      return { status: 'adopted', progress };
+    },
+    prepare: () => 1,
+    cancel: () => undefined,
+    navigate: async () => true,
+  });
+
+  assert.deepEqual(result, { status: 'cancelled', retryable: true });
+  assert.deepEqual(events, ['ready']);
+});
+
 test('canonical remote navigation adopts before touching the viewport', async () => {
   const events = [];
   const result = await executeCanonicalRemoteProgressNavigation({

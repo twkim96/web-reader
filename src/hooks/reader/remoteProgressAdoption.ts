@@ -25,6 +25,7 @@ export type CanonicalRemoteNavigationResult =
 
 type CanonicalRemoteNavigationSteps = {
   isCurrent: () => boolean;
+  ready?: () => Promise<boolean>;
   adopt: () => Promise<RemoteProgressAdoptionResult>;
   prepare: () => number;
   cancel: (preparationId: number) => void;
@@ -34,12 +35,22 @@ type CanonicalRemoteNavigationSteps = {
 
 export const executeCanonicalRemoteProgressNavigation = async ({
   isCurrent,
+  ready,
   adopt,
   prepare,
   cancel,
   finish,
   navigate,
 }: CanonicalRemoteNavigationSteps): Promise<CanonicalRemoteNavigationResult> => {
+  if (ready) {
+    try {
+      if (!await ready()) return { status: 'cancelled', retryable: true };
+    } catch {
+      return { status: 'cancelled', retryable: true };
+    }
+    if (!isCurrent()) return { status: 'cancelled', retryable: true };
+  }
+
   let adoption: RemoteProgressAdoptionResult;
   try {
     adoption = await adopt();

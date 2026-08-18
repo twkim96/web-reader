@@ -2,6 +2,7 @@ import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
 import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+const PROGRAMMATIC_NAVIGATION_READY_TIMEOUT_MS = 1500
 const SECTION_END = Symbol('section-end')
 const usesRidiReaderFont = styles => Array.isArray(styles)
     && typeof styles[1] === 'string'
@@ -940,6 +941,35 @@ export class Paginator extends HTMLElement {
         }))
         this.#scrollToAnchor(this.#anchor)
     }
+    async waitForNavigationReady(timeoutMs = PROGRAMMATIC_NAVIGATION_READY_TIMEOUT_MS) {
+        const deadline = Date.now() + Math.max(0, timeoutMs)
+        while (this.#locked) {
+            if (Date.now() >= deadline) return false
+            await wait(16)
+        }
+        if (!this.#view) return false
+
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()))
+        try {
+            // Foreground resume can deliver the remote-progress prompt before
+            // ResizeObserver, fonts, and replaced elements have produced their
+            // final page geometry. Stabilize the hidden modal-covered viewport
+            // first so the accepted CFI is applied only once against final layout.
+            await this.#view.waitForPagination(controller.signal)
+            if (controller.signal.aborted || this.#locked || !this.#view) return false
+            for (let i = 0; i < 2; i++) {
+                this.render()
+                await waitForFrame(window, controller.signal)
+            }
+            return !controller.signal.aborted && !this.#locked && Boolean(this.#view)
+        } catch (error) {
+            if (isAbortError(error)) return false
+            throw error
+        } finally {
+            clearTimeout(timeout)
+        }
+    }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
     }
@@ -1301,9 +1331,10 @@ export class Paginator extends HTMLElement {
         }
     }
     async goTo(target) {
-        if (this.#locked) return
+        if (this.#locked) return false
         const resolved = await target
         if (this.#canGoToIndex(resolved?.index)) return this.#navigateResolved(resolved)
+        return false
     }
     cancelNavigation(source) {
         if (source

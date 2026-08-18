@@ -258,7 +258,7 @@ export class View extends HTMLElement {
             await customElements.whenDefined('foliate-fxl')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js?v=1.8.14.1')
+            await import('./paginator.js?v=1.8.17.1')
             await customElements.whenDefined('foliate-paginator')
             this.renderer = document.createElement('foliate-paginator')
         }
@@ -506,6 +506,11 @@ export class View extends HTMLElement {
             console.error(e)
             console.error(`Could not resolve target ${target}`)
         }
+    }
+    async waitForNavigationReady(timeoutMs) {
+        return this.renderer?.waitForNavigationReady
+            ? this.renderer.waitForNavigationReady(timeoutMs)
+            : true
     }
     async goTo(target) {
         const resolved = this.resolveNavigation(target)

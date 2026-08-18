@@ -64,6 +64,7 @@ export type FoliateRenderer = {
   getAttribute: (name: string) => string | null;
   setAttribute: (name: string, value?: string) => void;
   setStyles: (styles: string[]) => void;
+  waitForNavigationReady?: (timeoutMs?: number) => Promise<boolean>;
   getContents?: () => {
     index?: number;
     doc?: Document;
@@ -103,6 +104,7 @@ export type FoliateViewElement = HTMLElement & {
   init: (options: { lastLocation: string | null }) => Promise<void>;
   prev: (distance?: number) => void;
   next: (distance?: number) => void;
+  waitForNavigationReady?: (timeoutMs?: number) => Promise<boolean>;
   goTo: (cfi: string) => Promise<false | {
     index?: number;
     anchor?: Range | ((doc: Document) => Range | Element | number);
