@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 compact 공개 catalog와 통합 책장 필터를 구현했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider는 full gate, 최소권한 Admin secret, Rules/index, production ready/not-found·delta/cache 및 후속 shelf/reader 보정까지 코드 릴리스를 마쳤다. 1.8.16은 Muzio mini-player형 floating dock을 시작으로 책장·모달·리더 UI 밀도와 반응형 배치를 정리했고, 1.8.17은 Android foreground 직후 원격 진행률 이동의 false-success와 reflow 경합을 막았다. 1.8.18은 actual revision conflict까지 preview→stable navigation→CAS finalize로 통일하고 user-intent abort·rollback·target pagination invariant를 닫는다.
+전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 compact 공개 catalog와 통합 책장 필터를 구현했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider는 full gate, 최소권한 Admin secret, Rules/index, production ready/not-found·delta/cache 및 후속 shelf/reader 보정까지 코드 릴리스를 마쳤다. 1.8.16은 Muzio mini-player형 floating dock을 시작으로 책장·모달·리더 UI 밀도와 반응형 배치를 정리했고, 1.8.17은 Android foreground 직후 원격 진행률 이동의 false-success와 reflow 경합을 막았다. 1.8.18은 actual revision conflict까지 preview→stable navigation→CAS finalize로 통일하고 user-intent abort·rollback·target pagination invariant를 닫았으며, 1.8.19는 iPad에서 큰 TXT→EPUB section의 챕터 경계 탭 이동이 blank sentinel range scan 때문에 지연되는 경로를 제거한다.
 
 ## 1. 문서의 역할
 
@@ -81,7 +81,8 @@
 | 1.8.15 | 요청형 메타데이터 수집 | Vercel crawler·Firebase on-demand/delta·정보창 요청 UI·optional NovelPia auth provider | 높음 | `21983a0` full gate·Rules/index·Admin secret·CI·Vercel production·실제 요청/delta/cache 완료, Android/iPad/PWA 대기 |
 | 1.8.16 | 반응형 UI 정리 | Muzio mini-player형 dock·책장/모달/리더 밀도·모바일 safe area | 중간 | Phase A dock 스타일 이식·자동검증 완료, 실제 Android/iPad/PWA 확인 대기 |
 | 1.8.17 | foreground 원격 진행률 이동 안정화 | paginator lock false-success·resume reflow·canonical adoption barrier | 높음 | `ddb5c10` 코드·전체 check·집중 Chromium/WebKit 회귀·push 완료, Android Chrome/PWA 실기기 재검증은 1.8.18에 통합 |
-| 1.8.18 | 원격 conflict navigation transaction 안정화 | active conflict preview/finalize·user-intent abort·target-aware stable navigation·rollback/lock cleanup | 매우 높음 | 코드 수정·전체 `npm run check`·storage 305건·집중 Chromium/WebKit 6건 완료, Android Chrome/PWA 재검증 대기 |
+| 1.8.18 | 원격 conflict navigation transaction 안정화 | active conflict preview/finalize·user-intent abort·target-aware stable navigation·rollback/lock cleanup | 매우 높음 | `30a6aa5` 코드·전체 `npm run check`·집중 Chromium/WebKit 회귀·push 완료, 실기기 검증은 후속 안정화 버전과 통합 |
+| 1.8.19 | iPad EPUB 챕터 경계 탭 이동 최적화 | blank sentinel 우회·outgoing ResizeObserver range scan 제거·prev/failure recovery | 중상 | 코드 수정·전체 `npm run check`·집중 Chromium/WebKit 8건 완료, iPad 실기기 재검증 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 

@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.18: make every active remote-progress path transactional with stable navigation.
+// 1.8.19: skip paginated sentinel work when a tap crosses an EPUB section boundary.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.18`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.19`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

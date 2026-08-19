@@ -21,6 +21,14 @@ their regression tests when updating from upstream.
 - Chromium/WebKit regression coverage verifies locked `goTo()` rejection, readiness settlement, and successful retry.
 - Runtime revision `1.8.17.1` prevents an older cached paginator from bypassing the fix.
 
+## 1.8.19 paginated section-boundary tap fast path
+
+- `paginator.js` lets discrete paginated `next()` / `prev()` calls jump directly from the last/first real content page to the adjacent spine section instead of visiting the blank outer sentinel first.
+- While the next section is staged, resize callbacks from the outgoing view no longer re-anchor that soon-to-be-discarded document. This avoids a full visible-range/CFI geometry scan over large TXT-generated chapters on iPad WebKit.
+- Swipe/snap navigation keeps its sentinel behavior; the optimization is limited to discrete page turns and does not change within-section pagination.
+- Chromium/WebKit regression coverage verifies no outgoing range scan or transient relocation occurs at the boundary, previous-section end positioning still resolves correctly, and failed section loads still recover.
+- Runtime revision `1.8.19.1` prevents clients from reusing the pre-fix paginator.
+
 ## 1.8.18 stable remote target navigation and lock cleanup
 
 - `view.js` exposes remote-only stable CFI/fraction navigation. `paginator.js` keeps the target section staged until fonts, images, and repeated layout expansion settle, then applies the target anchor and confirms two final layout frames before resolving.

@@ -548,6 +548,84 @@ test('paginator clears paginated overlay width when switching to scroll mode', a
   );
 });
 
+test('paginator page-turn tap skips the trailing sentinel before entering the next section', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const urls = [
+      URL.createObjectURL(new Blob([`<!doctype html><html><body style="font-size:22px;line-height:1.8;margin:0">
+        ${Array.from({ length: 220 }, (_, index) => `<p>Large TXT chapter paragraph ${index} ${'content '.repeat(14)}</p>`).join('')}
+        <p id="outgoing-end">OUTGOING-END</p>
+      </body></html>`], { type: 'text/html' })),
+      URL.createObjectURL(new Blob([`<!doctype html><html><body style="font-size:22px;line-height:1.8;margin:0">
+        <p id="incoming-start">INCOMING-START</p>
+        <p>${'next chapter '.repeat(80)}</p>
+      </body></html>`], { type: 'text/html' })),
+    ];
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    renderer.setAttribute('swipe-navigation', 'false');
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: urls.map((url) => ({
+        linear: 'yes',
+        load: async () => url,
+        unload: () => undefined,
+      })),
+    });
+    await renderer.goTo({ index: 0, anchor: 1 });
+    const outgoingDoc = renderer.getContents()[0]?.doc as Document;
+    const originalCreateRange = outgoingDoc.createRange.bind(outgoingDoc);
+    let outgoingRangeCreations = 0;
+    outgoingDoc.createRange = () => {
+      outgoingRangeCreations += 1;
+      return originalCreateRange();
+    };
+    const relocations: Array<{ index: number; text: string }> = [];
+    renderer.addEventListener('relocate', ((event: CustomEvent) => {
+      relocations.push({
+        index: event.detail.index,
+        text: event.detail.range?.toString?.() ?? '',
+      });
+    }) as EventListener);
+
+    const before = {
+      index: renderer.getContents()[0]?.index,
+      page: renderer.page,
+      pages: renderer.pages,
+    };
+    await renderer.next();
+    const content = renderer.getContents()[0];
+    const probe = {
+      before,
+      index: content?.index,
+      page: renderer.page,
+      outgoingRangeCreations,
+      relocations,
+      incomingVisible: content?.doc.querySelector('#incoming-start') !== null,
+    };
+    renderer.destroy();
+    renderer.remove();
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    return probe;
+  });
+
+  expect(result.before.page).toBe(result.before.pages - 2);
+  expect(result.index).toBe(1);
+  expect(result.page).toBe(1);
+  expect(result.incomingVisible).toBe(true);
+  expect(result.outgoingRangeCreations).toBe(0);
+  expect(result.relocations.length).toBeGreaterThan(0);
+  expect(result.relocations.every(({ index }) => index === 1)).toBe(true);
+});
+
 test('paginator waits for pagination and returns to the calculated last page across a section boundary', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
@@ -589,6 +667,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
     });
     await renderer.goTo({ index: 1, anchor: () => 0 });
     const before = { index: renderer.getContents()[0]?.index, page: renderer.page };
+    relocations.length = 0;
     await renderer.prev();
     await new Promise((resolve) => setTimeout(resolve, 150));
     renderer.style.width = '680px';
@@ -604,6 +683,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
       end: renderer.end,
       size: renderer.size,
       endRect: endRect ? { left: endRect.left, right: endRect.right } : null,
+      relocations,
       latestRelocation: relocations.at(-1),
     };
     renderer.destroy();
@@ -621,12 +701,13 @@ test('paginator waits for pagination and returns to the calculated last page acr
   expect(result.endRect!.left).toBeLessThanOrEqual(result.end - result.size);
   expect(result.latestRelocation?.index).toBe(0);
   expect(result.latestRelocation?.text).toContain('PREVIOUS-CHAPTER-END');
+  expect(result.relocations?.every(({ index }) => index === 0)).toBe(true);
 });
 
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.18.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.19.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

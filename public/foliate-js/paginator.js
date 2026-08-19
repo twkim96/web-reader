@@ -598,6 +598,7 @@ export class Paginator extends HTMLElement {
     #navigation = new LatestTask()
     #navigationContext = null
     #pendingNavigationSource = null
+    #sectionTransitionCount = 0
     constructor() {
         super()
         this.#root.innerHTML = `<style>
@@ -826,7 +827,9 @@ export class Paginator extends HTMLElement {
         view = new View({
             container: this,
             onExpand: () => {
-                if (this.#view === view) this.#scrollToAnchor(this.#anchor)
+                if (this.#view === view && this.#sectionTransitionCount === 0) {
+                    this.#scrollToAnchor(this.#anchor)
+                }
             },
         })
         if (staging) Object.assign(view.element.style, {
@@ -1237,6 +1240,7 @@ export class Paginator extends HTMLElement {
         if (src) {
             const oldIndex = this.#index
             const view = this.#createView(true)
+            this.#sectionTransitionCount += 1
             const afterLoad = doc => {
                 if (doc.head) {
                     const $styleBefore = doc.createElement('style')
@@ -1252,41 +1256,45 @@ export class Paginator extends HTMLElement {
             }
             const beforeRender = this.#beforeRender.bind(this)
             try {
-                await view.load(src, afterLoad, beforeRender, task.signal)
-            } catch (error) {
-                view.destroy()
-                view.element.remove()
-                throw error
-            }
-            if (!this.#navigation.isCurrent(task)) {
-                view.destroy()
-                view.element.remove()
-                throw createAbortError()
-            }
-            try {
-                if (stable) {
-                    await this.#waitForStablePagination(view, task)
-                } else if (atSectionEnd) {
-                    await view.waitForPagination(task.signal)
-                } else if (usesRidiReaderFont(this.#styles)) {
-                    // RIDIBatang is embedded by the app before init. Keep the
-                    // staging view hidden until that selected reader font has
-                    // produced its final column metrics.
-                    await view.waitForReaderFont('RIDIBatang', task.signal)
+                try {
+                    await view.load(src, afterLoad, beforeRender, task.signal)
+                } catch (error) {
+                    view.destroy()
+                    view.element.remove()
+                    throw error
                 }
-            } catch (error) {
-                view.destroy()
-                view.element.remove()
-                throw error
+                if (!this.#navigation.isCurrent(task)) {
+                    view.destroy()
+                    view.element.remove()
+                    throw createAbortError()
+                }
+                try {
+                    if (stable) {
+                        await this.#waitForStablePagination(view, task)
+                    } else if (atSectionEnd) {
+                        await view.waitForPagination(task.signal)
+                    } else if (usesRidiReaderFont(this.#styles)) {
+                        // RIDIBatang is embedded by the app before init. Keep the
+                        // staging view hidden until that selected reader font has
+                        // produced its final column metrics.
+                        await view.waitForReaderFont('RIDIBatang', task.signal)
+                    }
+                } catch (error) {
+                    view.destroy()
+                    view.element.remove()
+                    throw error
+                }
+                if (!this.#navigation.isCurrent(task)) {
+                    view.destroy()
+                    view.element.remove()
+                    throw createAbortError()
+                }
+                this.#index = index
+                this.#navigationContext = navigationContext
+                this.#showView(view)
+            } finally {
+                this.#sectionTransitionCount -= 1
             }
-            if (!this.#navigation.isCurrent(task)) {
-                view.destroy()
-                view.element.remove()
-                throw createAbortError()
-            }
-            this.#index = index
-            this.#navigationContext = navigationContext
-            this.#showView(view)
             this.sections[oldIndex]?.unload?.()
             this.setStyles(this.#styles)
             this.dispatchEvent(new CustomEvent('load', { detail: {
@@ -1425,11 +1433,21 @@ export class Paginator extends HTMLElement {
             if (isSelectionPage && (prev ? this.page <= 1 : this.page >= this.pages - 2)) {
                 return false
             }
-            const shouldGo = await (prev
+            const adjacentIndex = this.#adjacentIndex(dir)
+            const atSectionBoundary = !this.scrolled
+                && adjacentIndex != null
+                && (prev ? this.page <= 1 : this.page >= this.pages - 2)
+            // The outer pages are blank sentinels used by swipe/snap gestures.
+            // A discrete page-turn tap does not need to visit that sentinel
+            // before loading the adjacent spine section. Skipping it also avoids
+            // an expensive visible-range/CFI scan over the outgoing section,
+            // which is particularly costly for large TXT-generated chapters on
+            // iPad WebKit.
+            const shouldGo = atSectionBoundary || await (prev
                 ? this.#scrollPrev(distance, reason)
                 : this.#scrollNext(distance, reason))
             if (shouldGo) await this.#navigateResolved({
-                index: this.#adjacentIndex(dir),
+                index: adjacentIndex,
                 anchor: prev ? SECTION_END : () => 0,
                 reason,
             })
