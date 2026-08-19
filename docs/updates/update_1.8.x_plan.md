@@ -6,7 +6,7 @@
 
 기준 커밋: `0101604`
 
-전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 compact 공개 catalog와 통합 책장 필터를 구현했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider는 full gate, 최소권한 Admin secret, Rules/index, production ready/not-found·delta/cache 및 후속 shelf/reader 보정까지 코드 릴리스를 마쳤다. 1.8.16은 Muzio mini-player형 floating dock을 시작으로 책장·모달·리더 UI 밀도와 반응형 배치를 정리했고, 1.8.17은 Android foreground 직후 원격 진행률 이동의 false-success와 reflow 경합을 막았다. 1.8.18은 actual revision conflict까지 preview→stable navigation→CAS finalize로 통일하고 user-intent abort·rollback·target pagination invariant를 닫았고, 1.8.19는 iPad에서 큰 TXT→EPUB section의 챕터 경계 탭 이동이 blank sentinel range scan 때문에 지연되는 경로를 제거했다. 1.8.20은 남은 iPad cold-open 지연을 단계별로 계측하고 cloud first-open의 pre-view paginator 역참조를 방어했으며, 1.8.21은 RIDIBatang stabilization을 font load/frame/expand/Range geometry 단계로 분해해 실기기에서 9.851초가 hidden iframe frame wait에 집중됨을 확인했다. 1.8.22는 staging pagination의 frame wait를 visible host renderer로 이동해 iPad WebKit의 hidden-subframe rAF throttle을 제거했고, 1.8.23은 리더 진행바의 native range pointer 동작을 좌표 기반 pointer layer로 통일해 iPad의 2회 탭 및 thumb-only drag 차이를 제거했으며, 1.8.24는 책장 전용이던 글래스/모던 메뉴 스타일을 리더 상·하단 chrome에도 공유한다.
+전체 상태: 1.8.13 동기화 invariant 안정화 뒤 1.8.14에서 compact 공개 catalog와 통합 책장 필터를 구현했다. 1.8.15 요청형 metadata crawler, Firebase on-demand/delta, shared 요청 UI와 optional NovelPia 인증 provider는 full gate, 최소권한 Admin secret, Rules/index, production ready/not-found·delta/cache 및 후속 shelf/reader 보정까지 코드 릴리스를 마쳤다. 1.8.16은 Muzio mini-player형 floating dock을 시작으로 책장·모달·리더 UI 밀도와 반응형 배치를 정리했고, 1.8.17은 Android foreground 직후 원격 진행률 이동의 false-success와 reflow 경합을 막았다. 1.8.18은 actual revision conflict까지 preview→stable navigation→CAS finalize로 통일하고 user-intent abort·rollback·target pagination invariant를 닫았고, 1.8.19는 iPad에서 큰 TXT→EPUB section의 챕터 경계 탭 이동이 blank sentinel range scan 때문에 지연되는 경로를 제거했다. 1.8.20은 남은 iPad cold-open 지연을 단계별로 계측하고 cloud first-open의 pre-view paginator 역참조를 방어했으며, 1.8.21은 RIDIBatang stabilization을 font load/frame/expand/Range geometry 단계로 분해해 실기기에서 9.851초가 hidden iframe frame wait에 집중됨을 확인했다. 1.8.22는 staging pagination의 frame wait를 visible host renderer로 이동해 iPad WebKit의 hidden-subframe rAF throttle을 제거했고, 1.8.23은 리더 진행바의 native range pointer 동작을 좌표 기반 pointer layer로 통일해 iPad의 2회 탭 및 thumb-only drag 차이를 제거했으며, 1.8.24는 책장 전용이던 글래스/모던 메뉴 스타일을 리더 상·하단 chrome에도 공유했고, 1.8.25는 글래스 투명도를 실기기 비교용으로 높였다. 1.8.26은 1.8.23 진행바 pointer 변경 뒤 Android 짧은 탭에서 확인 모달이 즉시 닫히는 ghost click 경로를 차단한다.
 
 ## 1. 문서의 역할
 
@@ -89,6 +89,7 @@
 | 1.8.23 | iPad 리더 진행바 pointer 입력 통일 | 1회 트랙 탭 commit·임의 위치 drag·native range pointer 우회·키보드 semantics 보존 | 중간 | 구현·단위/React DOM 회귀·전체 `npm run check`·SW Chromium/WebKit 4건 완료, iPad 실기기 검증 대기 |
 | 1.8.24 | 책장/리더 메뉴 스타일 통합 | 글래스/모던 설정 공유·리더 제목/X/하단 버튼 surface·기존 리더=모던 보존 | 중간 | 구현·typecheck·ReaderToolbar React DOM 2건·release 3건·전체 `npm run check` 완료, 실기기 확인 대기 |
 | 1.8.25 | 리더 글래스 투명도 실기기 비교 | reader glass alpha 0.48→0.38·blur/border 유지·모던 불변 | 낮음 | 테스트용 조정·SW/cache bump·자동검증 후 실기기 비교 |
+| 1.8.26 | Android 진행률 확인 모달 ghost-click 방어 | 짧은 progress tap 후 합성 click·backdrop dismiss·drag/long-press 보존 | 중간 | pointer-origin backdrop dismiss로 수정·React DOM 회귀·전체 `npm run check` 완료, Android 실기기 재검증 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 

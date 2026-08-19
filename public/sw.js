@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.25: make the reader Glass menu surface more transparent for device testing.
+// 1.8.26: keep Android progress-jump confirmation open after a short progress-bar tap.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.25`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.26`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

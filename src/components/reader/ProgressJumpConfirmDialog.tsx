@@ -28,6 +28,7 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
 }) => {
   useBodyScrollLock();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const backdropPointerIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -71,10 +72,32 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
     };
   }, [onCancel, resolving]);
 
+  const handleBackdropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    backdropPointerIdRef.current = !resolving && event.target === event.currentTarget
+      ? event.pointerId
+      : null;
+  };
+
+  const handleBackdropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const shouldCancel = !resolving
+      && backdropPointerIdRef.current === event.pointerId
+      && event.target === event.currentTarget;
+    backdropPointerIdRef.current = null;
+    if (shouldCancel) onCancel();
+  };
+
+  const clearBackdropPointer = () => {
+    backdropPointerIdRef.current = null;
+  };
+
   return (
     <div
+      data-progress-jump-confirm-backdrop="true"
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-      onClick={() => { if (!resolving) onCancel(); }}
+      onPointerDown={handleBackdropPointerDown}
+      onPointerUp={handleBackdropPointerUp}
+      onPointerCancel={clearBackdropPointer}
+      onLostPointerCapture={clearBackdropPointer}
     >
       <div
         ref={dialogRef}

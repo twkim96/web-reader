@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 
+import { ProgressJumpConfirmDialog } from '../src/components/reader/ProgressJumpConfirmDialog.tsx';
 import { ReaderToolbar } from '../src/components/reader/ReaderToolbar.tsx';
 import { useReaderProgressSlider } from '../src/hooks/reader/useReaderProgressSlider.ts';
 
@@ -11,6 +12,13 @@ const installDom = () => {
   const { window } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
   window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(Date.now()), 0);
   window.cancelAnimationFrame = (id) => window.clearTimeout(id);
+  window.getComputedStyle = () => ({ paddingRight: '0px' });
+  window.scrollTo = () => undefined;
+  Object.defineProperties(window, {
+    scrollX: { configurable: true, value: 0 },
+    scrollY: { configurable: true, value: 0 },
+    innerWidth: { configurable: true, value: 1024 },
+  });
   window.matchMedia = () => ({
     matches: false,
     addEventListener: () => undefined,
@@ -85,10 +93,20 @@ const Harness = ({ menuStyle = 'modern' } = {}) => {
       onProgressSliderCommit: slider.commitSliderMove,
     }),
     slider.pendingSliderMove
-      ? React.createElement('div', {
-        id: 'pending-progress',
-        'data-target': String(slider.pendingSliderMove.targetPercent),
-      })
+      ? React.createElement(
+        React.Fragment,
+        null,
+        React.createElement('div', {
+          id: 'pending-progress',
+          'data-target': String(slider.pendingSliderMove.targetPercent),
+        }),
+        React.createElement(ProgressJumpConfirmDialog, {
+          theme: { bg: 'bg-black', text: 'text-white', border: 'border-white' },
+          targetPercent: slider.pendingSliderMove.targetPercent,
+          onCancel: slider.cancelSliderMove,
+          onConfirm: () => undefined,
+        }),
+      )
       : null,
   );
 };
@@ -127,6 +145,25 @@ test('reader progress track commits one tap and drags from any track position wi
     await Promise.resolve();
   });
   assert.equal(window.document.querySelector('#pending-progress')?.getAttribute('data-target'), '72');
+
+  const backdrop = window.document.querySelector('[data-progress-jump-confirm-backdrop="true"]');
+  assert.ok(backdrop);
+  await act(async () => {
+    backdrop.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+  });
+  assert.equal(
+    window.document.querySelector('#pending-progress')?.getAttribute('data-target'),
+    '72',
+    'a click without a backdrop pointer-down must not dismiss the Android progress modal',
+  );
+
+  await act(async () => {
+    dispatchPointer(window, backdrop, 'pointerdown', 10, 1);
+    dispatchPointer(window, backdrop, 'pointerup', 10, 0);
+    await Promise.resolve();
+  });
+  assert.equal(window.document.querySelector('#pending-progress'), null);
 
   await act(async () => {
     root.unmount();
