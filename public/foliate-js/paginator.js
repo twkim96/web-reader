@@ -2,6 +2,13 @@ import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
 import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+const READER_OPEN_TIMING_EVENT = 'foliate-reader-open-timing'
+const timingNow = () => globalThis.performance?.now?.() ?? Date.now()
+const emitReaderOpenTiming = detail => {
+    try {
+        globalThis.dispatchEvent?.(new CustomEvent(READER_OPEN_TIMING_EVENT, { detail }))
+    } catch {}
+}
 const PROGRAMMATIC_NAVIGATION_READY_TIMEOUT_MS = 1500
 const SECTION_END = Symbol('section-end')
 const usesRidiReaderFont = styles => Array.isArray(styles)
@@ -1013,7 +1020,7 @@ export class Paginator extends HTMLElement {
         return this.#container.getBoundingClientRect()[this.sideProp]
     }
     get viewSize() {
-        return this.#view.element.getBoundingClientRect()[this.sideProp]
+        return this.#view?.element?.getBoundingClientRect?.()[this.sideProp] ?? 0
     }
     get start() {
         return Math.abs(this.#container[this.scrollProp])
@@ -1039,6 +1046,7 @@ export class Paginator extends HTMLElement {
             element[scrollProp] + delta))
     }
     snap(vx, vy) {
+        if (!this.#view || !this.#scrollBounds) return false
         this.cancelNavigation()
         const velocity = this.#vertical ? vy : vx
         const [offset, a, b] = this.#scrollBounds
@@ -1257,7 +1265,14 @@ export class Paginator extends HTMLElement {
             const beforeRender = this.#beforeRender.bind(this)
             try {
                 try {
+                    const sectionLoadStartedAt = timingNow()
                     await view.load(src, afterLoad, beforeRender, task.signal)
+                    emitReaderOpenTiming({
+                        phase: 'foliate-section-load',
+                        durationMs: timingNow() - sectionLoadStartedAt,
+                        sectionIndex: index,
+                        sectionSize: this.sections[index]?.size,
+                    })
                 } catch (error) {
                     view.destroy()
                     view.element.remove()
@@ -1269,16 +1284,28 @@ export class Paginator extends HTMLElement {
                     throw createAbortError()
                 }
                 try {
+                    const stabilizationStartedAt = timingNow()
+                    let stabilization = 'none'
                     if (stable) {
+                        stabilization = 'stable'
                         await this.#waitForStablePagination(view, task)
                     } else if (atSectionEnd) {
+                        stabilization = 'section-end'
                         await view.waitForPagination(task.signal)
                     } else if (usesRidiReaderFont(this.#styles)) {
                         // RIDIBatang is embedded by the app before init. Keep the
                         // staging view hidden until that selected reader font has
                         // produced its final column metrics.
+                        stabilization = 'ridi-font'
                         await view.waitForReaderFont('RIDIBatang', task.signal)
                     }
+                    emitReaderOpenTiming({
+                        phase: 'foliate-section-stabilize',
+                        durationMs: timingNow() - stabilizationStartedAt,
+                        sectionIndex: index,
+                        sectionSize: this.sections[index]?.size,
+                        status: stabilization,
+                    })
                 } catch (error) {
                     view.destroy()
                     view.element.remove()
@@ -1312,6 +1339,7 @@ export class Paginator extends HTMLElement {
             if (stable) await this.#waitForStablePagination(this.#view, task)
         }
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
+        const anchorStartedAt = timingNow()
         if (atSectionEnd && !this.scrolled) {
             await this.#scrollToPage(Math.max(1, this.pages - 2), reason)
             // Keep subsequent font/resize expansion pinned to the calculated
@@ -1323,6 +1351,17 @@ export class Paginator extends HTMLElement {
                 ? anchor(this.#view.document) : atSectionEnd ? 1 : anchor) ?? 0,
             select, reason)
         }
+        emitReaderOpenTiming({
+            phase: 'foliate-section-anchor',
+            durationMs: timingNow() - anchorStartedAt,
+            sectionIndex: index,
+            sectionSize: this.sections[index]?.size,
+            status: atSectionEnd
+                ? 'end'
+                : typeof anchor === 'function'
+                  ? 'range'
+                  : 'fraction',
+        })
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
         if (stable) {
             const win = this.#view?.document?.defaultView ?? window

@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.19: skip paginated sentinel work when a tap crosses an EPUB section boundary.
+// 1.8.20: trace cold EPUB open phases and harden pre-view paginator access on iPad.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.19`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.20`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

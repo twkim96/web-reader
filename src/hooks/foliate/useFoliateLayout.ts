@@ -2,7 +2,7 @@
 
 import { MutableRefObject, useCallback } from 'react';
 import { FoliateRenderer, FoliateViewElement, ReaderLayout, ReaderStyle } from './types';
-import { traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
+import { traceReaderBootstrap, traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
 
 interface UseFoliateLayoutOptions {
   viewRef: MutableRefObject<FoliateViewElement | null>;
@@ -119,7 +119,13 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     styles: ReaderStyle,
     targetRenderer?: FoliateRenderer,
   ) => {
+    const fontStartedAt = performance.now();
     const beforeStyle = await loadEmbeddedRidiFontFace();
+    traceReaderOpenPerformance({
+      phase: 'reader-font-source-ready',
+      durationMs: performance.now() - fontStartedAt,
+      status: styles.fontFamily ?? 'default',
+    });
     traceReaderBootstrap({ event: 'font-ready' });
     const renderer = targetRenderer ?? viewRef.current?.renderer;
     if (!renderer) return;

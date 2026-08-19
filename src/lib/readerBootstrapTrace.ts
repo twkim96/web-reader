@@ -21,11 +21,26 @@ export type ReaderBootstrapTraceEvent = {
   viewportHeight?: number;
 };
 
+export type ReaderOpenPerformanceEvent = {
+  at: number;
+  phase: string;
+  durationMs?: number;
+  sizeBytes?: number;
+  entryCount?: number;
+  sectionCount?: number;
+  tocCount?: number;
+  sectionIndex?: number;
+  sectionSize?: number;
+  status?: string;
+};
+
 const TRACE_STORAGE_KEY = 'reader_bootstrap_trace_v1';
 const TRACE_LIMIT = 160;
+const OPEN_PERFORMANCE_TRACE_LIMIT = 96;
 
 type TraceWindow = Window & {
   __readerBootstrapTrace?: ReaderBootstrapTraceEvent[];
+  __readerOpenPerformanceTrace?: ReaderOpenPerformanceEvent[];
 };
 
 const isTraceEnabled = () => {
@@ -61,5 +76,28 @@ export const traceReaderBootstrap = (
 export const readReaderBootstrapTrace = (): ReaderBootstrapTraceEvent[] => {
   if (typeof window === 'undefined') return [];
   const buffer = (window as TraceWindow).__readerBootstrapTrace;
+  return Array.isArray(buffer) ? buffer.map((event) => ({ ...event })) : [];
+};
+
+// Reader-open timings are always kept in a small in-memory buffer so an iPad
+// user can export them after reproducing a slow cold open without first
+// enabling a hidden debug flag. The events intentionally contain only phase
+// names, durations, counts and byte sizes; no book title, CFI or user identity.
+export const traceReaderOpenPerformance = (
+  event: Omit<ReaderOpenPerformanceEvent, 'at'>,
+) => {
+  if (typeof window === 'undefined') return;
+  const traceWindow = window as TraceWindow;
+  const buffer = traceWindow.__readerOpenPerformanceTrace ?? [];
+  buffer.push({ at: Date.now(), ...event });
+  if (buffer.length > OPEN_PERFORMANCE_TRACE_LIMIT) {
+    buffer.splice(0, buffer.length - OPEN_PERFORMANCE_TRACE_LIMIT);
+  }
+  traceWindow.__readerOpenPerformanceTrace = buffer;
+};
+
+export const readReaderOpenPerformanceTrace = (): ReaderOpenPerformanceEvent[] => {
+  if (typeof window === 'undefined') return [];
+  const buffer = (window as TraceWindow).__readerOpenPerformanceTrace;
   return Array.isArray(buffer) ? buffer.map((event) => ({ ...event })) : [];
 };

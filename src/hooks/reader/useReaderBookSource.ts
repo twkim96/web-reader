@@ -29,6 +29,7 @@ import {
   throwIfAborted,
 } from '../../lib/readerLoadLifecycle';
 import { getReaderMaxColumnCount } from '../../lib/readerNavigation';
+import { traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
 
 type ReaderThemeColors = {
   bg: string;
@@ -172,6 +173,14 @@ export const useReaderBookSource = ({
     } = loadInputsRef.current;
 
     const loadBook = async () => {
+      const bookOpenStartedAt = performance.now();
+      traceReaderOpenPerformance({
+        phase: 'reader-open-start',
+        sizeBytes: typeof targetBook.size === 'number' && Number.isFinite(targetBook.size)
+          ? targetBook.size
+          : undefined,
+        status: targetBook.sourceFormat ?? targetBook.readerFormat,
+      });
       const deferredPersistence: Array<() => void> = [];
       const runDeferredPersistence = () => {
         const tasks = deferredPersistence.splice(0);
@@ -182,10 +191,21 @@ export const useReaderBookSource = ({
         await runReaderBookOpen({
           signal,
           prepare: async () => {
+            let phaseStartedAt = performance.now();
             const [localData, localMetadata] = await Promise.all([
               loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, targetBook.id),
               loadBookMetadataFromLocalV5(DEVICE_CONTENT_OWNER_KEY, targetBook.id),
             ]);
+            traceReaderOpenPerformance({
+              phase: 'indexeddb-book-read',
+              durationMs: performance.now() - phaseStartedAt,
+              sizeBytes: localData instanceof Blob
+                ? localData.size
+                : localData instanceof ArrayBuffer
+                  ? localData.byteLength
+                  : undefined,
+              status: localData ? 'hit' : 'miss',
+            });
             if (!ownerRuntime.isCurrent(owner)) throw new DOMException('Owner changed', 'AbortError');
             throwIfAborted(signal);
 
@@ -209,6 +229,7 @@ export const useReaderBookSource = ({
               let usedCachedArchiveIndex = Boolean(cachedArchiveIndex);
 
               let result: Awaited<ReturnType<typeof prepareBookSource>>;
+              const prepareStartedAt = performance.now();
               try {
                 const prepare = prepareBookSource(targetBook, content, {
                   archiveImageIndex: cachedArchiveIndex,
@@ -230,6 +251,13 @@ export const useReaderBookSource = ({
                   ? await runWithTimeout(prepare, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE)
                   : await prepare;
               }
+
+              traceReaderOpenPerformance({
+                phase: 'prepare-book-source',
+                durationMs: performance.now() - prepareStartedAt,
+                sizeBytes: content instanceof Blob ? content.size : content.byteLength,
+                status: result.format,
+              });
 
               try {
                 throwIfAborted(signal);
@@ -290,9 +318,15 @@ export const useReaderBookSource = ({
                 throw new Error('No Token');
               }
 
+              phaseStartedAt = performance.now();
               const content = targetBook.readerFormat === 'epub'
                 ? await fetchFullFile(targetBook.id, targetGoogleToken, signal)
                 : await fetchFullFileBlob(targetBook.id, targetGoogleToken, signal);
+              traceReaderOpenPerformance({
+                phase: 'cloud-book-download',
+                durationMs: performance.now() - phaseStartedAt,
+                sizeBytes: content instanceof Blob ? content.size : content.byteLength,
+              });
               throwIfAborted(signal);
               const preparedFromRemote = await prepareContent(content);
               prepared = preparedFromRemote;
@@ -352,6 +386,11 @@ export const useReaderBookSource = ({
           },
           commit: () => {
             if (!ownerRuntime.isCurrent(owner)) return;
+            traceReaderOpenPerformance({
+              phase: 'reader-open-total',
+              durationMs: performance.now() - bookOpenStartedAt,
+              status: 'committed',
+            });
             setIsLoaded(true);
             runDeferredPersistence();
           },

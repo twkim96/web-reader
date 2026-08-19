@@ -5,6 +5,13 @@ import { textWalker } from './text-walker.js'
 import { findContentByIndex, isCJKLanguage } from './view-policy.js'
 
 const SEARCH_PREFIX = 'foliate-search:'
+const READER_OPEN_TIMING_EVENT = 'foliate-reader-open-timing'
+const timingNow = () => globalThis.performance?.now?.() ?? Date.now()
+const emitReaderOpenTiming = detail => {
+    try {
+        globalThis.dispatchEvent?.(new CustomEvent(READER_OPEN_TIMING_EVENT, { detail }))
+    } catch {}
+}
 
 const isZip = async file => {
     const arr = new Uint8Array(await file.slice(0, 4).arrayBuffer())
@@ -33,7 +40,14 @@ const makeZipLoader = async file => {
         await import('./vendor/zip.js')
     configure({ useWebWorkers: false })
     const reader = new ZipReader(new BlobReader(file))
+    const startedAt = timingNow()
     const entries = await reader.getEntries()
+    emitReaderOpenTiming({
+        phase: 'foliate-zip-index',
+        durationMs: timingNow() - startedAt,
+        sizeBytes: file.size,
+        entryCount: entries.length,
+    })
     const map = new Map(entries.map(entry => [entry.filename, entry]))
     const load = f => (name, ...args) =>
         map.has(name) ? f(map.get(name), ...args) : null
@@ -101,7 +115,14 @@ export const makeBook = async file => {
         }
         else {
             const { EPUB } = await import('./epub.js')
+            const startedAt = timingNow()
             book = await new EPUB(loader).init()
+            emitReaderOpenTiming({
+                phase: 'foliate-epub-init',
+                durationMs: timingNow() - startedAt,
+                sectionCount: book.sections?.length ?? 0,
+                tocCount: book.toc?.length ?? 0,
+            })
         }
     }
     else if (await isPDF(file)) {
@@ -240,6 +261,7 @@ export class View extends HTMLElement {
         this.language = languageInfo(book.metadata?.language)
 
         if (book.splitTOCHref && book.getTOCFragment) {
+            const progressStartedAt = timingNow()
             const ids = book.sections.map(s => s.id)
             this.#sectionProgress = new SectionProgress(book.sections, 1500, 1600)
             const splitHref = book.splitTOCHref.bind(book)
@@ -250,6 +272,12 @@ export class View extends HTMLElement {
             this.#pageProgress = new TOCProgress()
             await this.#pageProgress.init({
                 toc: book.pageList ?? [], ids, splitHref, getFragment })
+            emitReaderOpenTiming({
+                phase: 'foliate-progress-index',
+                durationMs: timingNow() - progressStartedAt,
+                sectionCount: book.sections.length,
+                tocCount: book.toc?.length ?? 0,
+            })
         }
 
         this.isFixedLayout = this.book.rendition?.layout === 'pre-paginated'
@@ -258,7 +286,7 @@ export class View extends HTMLElement {
             await customElements.whenDefined('foliate-fxl')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js?v=1.8.19.1')
+            await import('./paginator.js?v=1.8.20.1')
             await customElements.whenDefined('foliate-paginator')
             this.renderer = document.createElement('foliate-paginator')
         }

@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { EPUB_MIME } from './bookFormats.ts';
+import { traceReaderOpenPerformance } from './readerBootstrapTrace.ts';
 
 const hasZipSignature = (buffer: ArrayBuffer) => {
   const view = new Uint8Array(buffer);
@@ -13,6 +14,7 @@ const hasZipSignature = (buffer: ArrayBuffer) => {
 export const isEpubBuffer = async (buffer: ArrayBuffer) => {
   if (!hasZipSignature(buffer)) return false;
 
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
   try {
     const zip = await JSZip.loadAsync(buffer);
     const mimetype = zip.file('mimetype');
@@ -21,5 +23,12 @@ export const isEpubBuffer = async (buffer: ArrayBuffer) => {
     return (await mimetype.async('string')).trim() === EPUB_MIME;
   } catch {
     return false;
+  } finally {
+    const finishedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    traceReaderOpenPerformance({
+      phase: 'epub-jszip-validation',
+      durationMs: finishedAt - startedAt,
+      sizeBytes: buffer.byteLength,
+    });
   }
 };

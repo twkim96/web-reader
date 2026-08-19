@@ -21,6 +21,15 @@ their regression tests when updating from upstream.
 - Chromium/WebKit regression coverage verifies locked `goTo()` rejection, readiness settlement, and successful retry.
 - Runtime revision `1.8.17.1` prevents an older cached paginator from bypassing the fix.
 
+## 1.8.20 reader-open timing and pre-view safety
+
+- `view.js` emits privacy-safe cold-open timing events for ZIP indexing, EPUB package/TOC initialization, and progress-index setup so iPad-only startup stalls can be separated from section layout cost.
+- `paginator.js` emits initial section load, stabilization, and anchor timing with only section index/size metadata.
+- `paginator.js` treats `viewSize` as `0` before the first internal view exists and ignores `snap()` until both a view and scroll bounds are ready. This prevents iPad touch/layout ordering from dereferencing `this.#view.element` during a cloud-book first open.
+- The app exports these timings through the existing reading-statistics diagnostics JSON without requiring the hidden bootstrap debug flag.
+- Chromium/WebKit regression coverage verifies pre-view size/page/snap probes no longer throw.
+- Runtime revision `1.8.20.1` prevents clients from reusing the 1.8.19 renderer.
+
 ## 1.8.19 paginated section-boundary tap fast path
 
 - `paginator.js` lets discrete paginated `next()` / `prev()` calls jump directly from the last/first real content page to the adjacent spine section instead of visiting the blank outer sentinel first.

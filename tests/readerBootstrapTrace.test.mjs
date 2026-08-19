@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   hashReaderTraceValue,
   readReaderBootstrapTrace,
+  readReaderOpenPerformanceTrace,
   traceReaderBootstrap,
+  traceReaderOpenPerformance,
 } from '../src/lib/readerBootstrapTrace.ts';
 
 const installWindow = ({ enabled = true } = {}) => {
@@ -47,5 +49,23 @@ test('does not allocate trace data unless the debug flag is enabled', () => {
   installWindow({ enabled: false });
   traceReaderBootstrap({ event: 'listener-attached', listener: 'progress' });
   assert.deepEqual(readReaderBootstrapTrace(), []);
+  assert.equal(window.__readerBootstrapTrace, undefined);
+});
+
+test('always keeps a bounded reader-open performance trace without private location data', () => {
+  installWindow({ enabled: false });
+  for (let index = 0; index < 100; index += 1) {
+    traceReaderOpenPerformance({
+      phase: 'foliate-section-load',
+      durationMs: index,
+      sectionIndex: index,
+      sectionSize: 30_000,
+    });
+  }
+  const trace = readReaderOpenPerformanceTrace();
+  assert.equal(trace.length, 96);
+  assert.equal(trace[0].sectionIndex, 4);
+  assert.equal(trace.at(-1).durationMs, 99);
+  assert.equal('cfi' in trace.at(-1), false);
   assert.equal(window.__readerBootstrapTrace, undefined);
 });
