@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const EXPECTED_VERSION = '1.8.22';
+const EXPECTED_VERSION = '1.8.23';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
   const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime, foliateView] = await Promise.all([

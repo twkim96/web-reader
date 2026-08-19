@@ -2529,6 +2529,80 @@ try {
   assert.equal(restoredSinglePageLayout.checked, false, JSON.stringify(restoredSinglePageLayout));
   assert.equal(restoredSinglePageLayout.configuredColumnCount, '1', JSON.stringify(restoredSinglePageLayout));
   assert.equal(restoredSinglePageLayout.storedEnabled, false, JSON.stringify(restoredSinglePageLayout));
+  const progressPointerControls = await evaluate(`(async () => {
+    const openControls = () => {
+      if (document.querySelector('nav')?.classList.contains('translate-y-0')) return;
+      const centerTarget = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+      centerTarget?.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: innerWidth / 2,
+        clientY: innerHeight / 2,
+      }));
+    };
+    openControls();
+    await window.__regressionNextFrame(2);
+    const track = document.querySelector('[data-reader-progress-pointer-track="true"]');
+    const input = document.querySelector('input[aria-label="진행률"]');
+    if (!track || !input) return { missing: true };
+    const rect = track.getBoundingClientRect();
+    const current = Number(input.value || 0);
+    const tapTarget = current < 50 ? 72 : 28;
+    const dragTarget = current < 50 ? 86 : 14;
+    const dragStart = current < 50 ? 18 : 82;
+    const xFor = (percent) => rect.left + rect.width * percent / 100;
+    const dispatchPointer = (type, percent, buttons) => track.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 41,
+      pointerType: 'touch',
+      button: type === 'pointerdown' ? 0 : -1,
+      buttons,
+      clientX: xFor(percent),
+      clientY: rect.top + rect.height / 2,
+    }));
+
+    dispatchPointer('pointerdown', tapTarget, 1);
+    dispatchPointer('pointerup', tapTarget, 0);
+    await window.__regressionNextFrame(2);
+    const tapTitle = document.querySelector('#progress-jump-confirm-title')?.textContent ?? '';
+    [...document.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === '취소')?.click();
+    await window.__regressionNextFrame(2);
+
+    dispatchPointer('pointerdown', dragStart, 1);
+    dispatchPointer('pointermove', dragTarget, 1);
+    dispatchPointer('pointerup', dragTarget, 0);
+    await window.__regressionNextFrame(2);
+    const dragTitle = document.querySelector('#progress-jump-confirm-title')?.textContent ?? '';
+    [...document.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === '취소')?.click();
+
+    return {
+      current,
+      tapTarget,
+      dragStart,
+      dragTarget,
+      tapTitle,
+      dragTitle,
+      inputPointerEvents: getComputedStyle(input).pointerEvents,
+      trackTouchAction: getComputedStyle(track).touchAction,
+    };
+  })()`);
+  assert.equal(progressPointerControls.missing, undefined, JSON.stringify(progressPointerControls));
+  assert.match(
+    progressPointerControls.tapTitle,
+    new RegExp(`^${progressPointerControls.tapTarget.toFixed(1)}%로 이동할까요\\?$`),
+    JSON.stringify(progressPointerControls),
+  );
+  assert.match(
+    progressPointerControls.dragTitle,
+    new RegExp(`^${progressPointerControls.dragTarget.toFixed(1)}%로 이동할까요\\?$`),
+    JSON.stringify(progressPointerControls),
+  );
+  assert.notEqual(progressPointerControls.dragStart, progressPointerControls.current);
+  assert.equal(progressPointerControls.inputPointerEvents, 'none');
+  assert.equal(progressPointerControls.trackTouchAction, 'none');
   const ttsLifecycleGuards = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
     const renderer = view?.renderer;
@@ -6065,7 +6139,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.22';
+    const expectedCache = 'pc-reader-v1.8.23';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -6092,7 +6166,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.22',
+      '/sw.js?browser-regression=1.8.23',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -6136,11 +6210,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.22']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.23']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.22$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.23$/);
 
   console.log(JSON.stringify({
     shelf: {

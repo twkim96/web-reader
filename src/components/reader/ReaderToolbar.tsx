@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { getBookTitleFromFileName } from '../../lib/bookFormats';
+import { getReaderProgressPercentFromPointer } from '../../lib/readerNavigation';
 import { getReaderTitleLayout, type ReaderTitleLayout } from '../../lib/readerTitleLayout';
 
 type ReaderTheme = {
@@ -110,7 +111,49 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   };
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
+  const activeProgressPointerIdRef = React.useRef<number | null>(null);
   const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
+
+  const previewProgressPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const progressPercent = getReaderProgressPercentFromPointer(
+      event.clientX,
+      rect.left,
+      rect.width,
+    );
+    if (progressPercent === null) return false;
+    onProgressSliderPreview(progressPercent);
+    return true;
+  }, [onProgressSliderPreview]);
+
+  const handleProgressPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch' && event.button !== 0) return;
+    event.preventDefault();
+    activeProgressPointerIdRef.current = event.pointerId;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {}
+    previewProgressPointer(event);
+  }, [previewProgressPointer]);
+
+  const handleProgressPointerMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activeProgressPointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    previewProgressPointer(event);
+  }, [previewProgressPointer]);
+
+  const finishProgressPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>, updateFinalPosition: boolean) => {
+    if (activeProgressPointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    if (updateFinalPosition) previewProgressPointer(event);
+    activeProgressPointerIdRef.current = null;
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {}
+    onProgressSliderCommit();
+  }, [onProgressSliderCommit, previewProgressPointer]);
 
   const updateTitleLayout = React.useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -276,20 +319,28 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <div
               className="pointer-events-none absolute inset-y-0 right-[2.8875rem] w-px bg-current/10 md:right-[3.17625rem]"
             />
+            <div
+              data-reader-progress-pointer-track="true"
+              aria-hidden="true"
+              onPointerDown={handleProgressPointerDown}
+              onPointerMove={handleProgressPointerMove}
+              onPointerUp={(event) => finishProgressPointer(event, true)}
+              onPointerCancel={(event) => finishProgressPointer(event, false)}
+              onLostPointerCapture={(event) => finishProgressPointer(event, false)}
+              onContextMenu={(event) => event.preventDefault()}
+              className="absolute inset-y-0 left-0 right-[2.8875rem] z-[5] cursor-pointer touch-none select-none [-webkit-touch-callout:none] md:right-[3.17625rem]"
+            />
             <input
               type="range"
               min="0"
               max="100"
               step="0.1"
               value={safeSliderProgress}
-              onPointerDown={onProgressSliderStart}
-              onPointerUp={onProgressSliderCommit}
-              onPointerCancel={onProgressSliderCommit}
               onKeyDown={onProgressSliderStart}
               onKeyUp={onProgressSliderCommit}
               onBlur={onProgressSliderCommit}
               onChange={(event) => onProgressSliderPreview(parseFloat(event.target.value))}
-              className="absolute inset-y-0 left-0 right-[2.8875rem] h-full cursor-pointer opacity-0 md:right-[3.17625rem]"
+              className="pointer-events-none absolute inset-y-0 left-0 right-[2.8875rem] h-full opacity-0 md:right-[3.17625rem]"
               aria-label="진행률"
             />
           </div>

@@ -8,6 +8,7 @@ import {
   getNavigationOptions,
   getReaderMaxColumnCount,
   getReaderKeyboardAction,
+  getReaderProgressPercentFromPointer,
   getReaderTapAction,
 } from '../src/lib/readerNavigation.ts';
 import {
@@ -92,6 +93,15 @@ test('enables two columns only for opted-in tap navigation', () => {
   assert.equal(getReaderMaxColumnCount('page', true), 2);
   assert.equal(getReaderMaxColumnCount('all-dir', true), 2);
   assert.equal(getReaderMaxColumnCount('scroll', true), 1);
+});
+
+test('maps reader progress pointer positions across the full track at 0.1 percent precision', () => {
+  assert.equal(getReaderProgressPercentFromPointer(100, 100, 400), 0);
+  assert.equal(getReaderProgressPercentFromPointer(300, 100, 400), 50);
+  assert.equal(getReaderProgressPercentFromPointer(223.456, 100, 400), 30.9);
+  assert.equal(getReaderProgressPercentFromPointer(0, 100, 400), 0);
+  assert.equal(getReaderProgressPercentFromPointer(600, 100, 400), 100);
+  assert.equal(getReaderProgressPercentFromPointer(100, 100, 0), null);
 });
 
 test('maps spacebar to the same next action in scroll and tap modes', () => {

@@ -1,0 +1,153 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { parseHTML } from 'linkedom';
+
+import { ReaderToolbar } from '../src/components/reader/ReaderToolbar.tsx';
+import { useReaderProgressSlider } from '../src/hooks/reader/useReaderProgressSlider.ts';
+
+const installDom = () => {
+  const { window } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
+  window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(Date.now()), 0);
+  window.cancelAnimationFrame = (id) => window.clearTimeout(id);
+  window.matchMedia = () => ({
+    matches: false,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  });
+  Object.defineProperty(window.document, 'fonts', {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    HTMLElement: window.HTMLElement,
+    SVGElement: window.SVGElement,
+    Node: window.Node,
+    Event: window.Event,
+    MouseEvent: window.MouseEvent,
+  });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  return window;
+};
+
+const dispatchPointer = (window, target, type, clientX, buttons) => {
+  const event = new window.Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    pointerId: { value: 7 },
+    pointerType: { value: 'touch' },
+    button: { value: type === 'pointerdown' ? 0 : -1 },
+    buttons: { value: buttons },
+    clientX: { value: clientX },
+    clientY: { value: 20 },
+  });
+  target.dispatchEvent(event);
+};
+
+const Harness = () => {
+  const slider = useReaderProgressSlider({
+    currentCfi: 'epubcfi(/6/2!/4/2)',
+    totalProgress: 20,
+    stageAutoBookmark: () => [],
+    commitBookmarks: (bookmarks) => bookmarks,
+    markUserProgressChange: () => undefined,
+    goToFraction: async () => true,
+    saveCurrentProgress: () => true,
+    markReadingActivity: () => undefined,
+  });
+
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(ReaderToolbar, {
+      theme: { bg: 'bg-black', text: 'text-white', border: 'border-white' },
+      bookName: 'Pointer Test.epub',
+      showControls: true,
+      sliderProgress: slider.sliderProgress,
+      isSliderPreviewing: slider.isSliderPreviewing,
+      sliderPreviewChapter: undefined,
+      bookmarkCount: 0,
+      annotationCount: 0,
+      onBack: () => undefined,
+      onOpenSearch: () => undefined,
+      onOpenSettings: () => undefined,
+      onOpenTheme: () => undefined,
+      onOpenBookmarks: () => undefined,
+      onOpenToc: () => undefined,
+      onOpenTts: () => undefined,
+      onOpenStatistics: () => undefined,
+      onOpenBookInfo: () => undefined,
+      onProgressSliderStart: slider.beginSliderMove,
+      onProgressSliderPreview: slider.previewSliderMove,
+      onProgressSliderCommit: slider.commitSliderMove,
+    }),
+    slider.pendingSliderMove
+      ? React.createElement('div', {
+        id: 'pending-progress',
+        'data-target': String(slider.pendingSliderMove.targetPercent),
+      })
+      : null,
+  );
+};
+
+test('reader progress track commits one tap and drags from any track position without native range hit testing', async () => {
+  const window = installDom();
+  const rootNode = window.document.querySelector('#root');
+  const root = createRoot(rootNode);
+
+  await act(async () => {
+    root.render(React.createElement(Harness));
+    await Promise.resolve();
+  });
+
+  const track = window.document.querySelector('[data-reader-progress-pointer-track="true"]');
+  const input = window.document.querySelector('input[aria-label="진행률"]');
+  assert.ok(track);
+  assert.ok(input);
+  assert.match(input.className, /pointer-events-none/);
+  assert.match(track.className, /touch-none/);
+  track.getBoundingClientRect = () => ({
+    left: 100,
+    right: 500,
+    top: 0,
+    bottom: 40,
+    width: 400,
+    height: 40,
+    x: 100,
+    y: 0,
+    toJSON: () => ({}),
+  });
+
+  await act(async () => {
+    dispatchPointer(window, track, 'pointerdown', 388, 1);
+    dispatchPointer(window, track, 'pointerup', 388, 0);
+    await Promise.resolve();
+  });
+  assert.equal(window.document.querySelector('#pending-progress')?.getAttribute('data-target'), '72');
+
+  await act(async () => {
+    root.unmount();
+  });
+
+  const secondRoot = createRoot(rootNode);
+  await act(async () => {
+    secondRoot.render(React.createElement(Harness));
+    await Promise.resolve();
+  });
+  const secondTrack = window.document.querySelector('[data-reader-progress-pointer-track="true"]');
+  secondTrack.getBoundingClientRect = track.getBoundingClientRect;
+
+  await act(async () => {
+    dispatchPointer(window, secondTrack, 'pointerdown', 172, 1);
+    dispatchPointer(window, secondTrack, 'pointermove', 444, 1);
+    dispatchPointer(window, secondTrack, 'pointerup', 444, 0);
+    await Promise.resolve();
+  });
+  assert.equal(window.document.querySelector('#pending-progress')?.getAttribute('data-target'), '86');
+
+  await act(async () => {
+    secondRoot.unmount();
+  });
+});

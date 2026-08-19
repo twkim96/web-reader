@@ -8,6 +8,7 @@ export const DEFAULT_TOP_BOTTOM_TAP_PERCENT = 33;
 export const DEFAULT_LEFT_RIGHT_TAP_PERCENT = 30;
 export const MIN_TAP_ZONE_PERCENT = 10;
 export const MAX_TAP_ZONE_PERCENT = 45;
+export const READER_PROGRESS_SLIDER_STEP_PERCENT = 0.1;
 
 export const getReaderMaxColumnCount = (
   navMode: ReaderNavigationMode,
@@ -17,6 +18,21 @@ export const getReaderMaxColumnCount = (
 export const clampTapZonePercent = (value: number, fallback: number) => {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(MAX_TAP_ZONE_PERCENT, Math.max(MIN_TAP_ZONE_PERCENT, Math.round(value)));
+};
+
+export const getReaderProgressPercentFromPointer = (
+  clientX: number,
+  trackLeft: number,
+  trackWidth: number,
+) => {
+  if (!Number.isFinite(clientX) || !Number.isFinite(trackLeft) || !Number.isFinite(trackWidth) || trackWidth <= 0) {
+    return null;
+  }
+
+  const rawPercent = ((clientX - trackLeft) / trackWidth) * 100;
+  const steppedPercent = Math.round(rawPercent / READER_PROGRESS_SLIDER_STEP_PERCENT)
+    * READER_PROGRESS_SLIDER_STEP_PERCENT;
+  return Math.min(100, Math.max(0, Number(steppedPercent.toFixed(1))));
 };
 
 type ReaderTapActionOptions = {

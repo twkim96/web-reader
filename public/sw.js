@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.22: avoid hidden publication iframe rAF throttling during staged pagination.
+// 1.8.23: normalize reader progress-bar pointer input across iPad Safari, Android, and desktop.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.22`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.23`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',
