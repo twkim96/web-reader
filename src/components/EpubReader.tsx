@@ -1717,6 +1717,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
       <ReaderToolbar
         theme={theme}
+        menuStyle={settings.shelfDockStyle}
         bookName={book.name}
         showControls={chrome.showControls}
         sliderProgress={sliderProgress}

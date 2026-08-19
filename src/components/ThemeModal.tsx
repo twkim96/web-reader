@@ -283,7 +283,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
         </div>
 
         <div className="mb-6">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일</p>
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일 · 책장 / 리더</p>
           <div className="grid grid-cols-2 gap-2">
             {([
               ['glass', '글래스', '부드러운 반투명'],

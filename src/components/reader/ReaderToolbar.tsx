@@ -15,6 +15,7 @@ import {
 import { getBookTitleFromFileName } from '../../lib/bookFormats';
 import { getReaderProgressPercentFromPointer } from '../../lib/readerNavigation';
 import { getReaderTitleLayout, type ReaderTitleLayout } from '../../lib/readerTitleLayout';
+import type { ShelfDockStyle } from '../../types';
 
 type ReaderTheme = {
   bg: string;
@@ -30,6 +31,7 @@ const READER_TEXT_EDGE_GAP_AT_MAX_RATIO = (
 
 interface ReaderToolbarProps {
   theme: ReaderTheme;
+  menuStyle: ShelfDockStyle;
   bookName: string;
   showControls: boolean;
   sliderProgress: number;
@@ -60,14 +62,25 @@ const getSafePercent = (progress: number) => {
   return Math.min(100, Math.max(0, progress));
 };
 
-const getReaderSurfaceStyle = (): React.CSSProperties => ({
-  backdropFilter: 'blur(18px) saturate(1.18)',
-  WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
-  backgroundColor: 'var(--viewer-reader-surface)',
-});
+const getReaderSurfaceStyle = (menuStyle: ShelfDockStyle): React.CSSProperties => (
+  menuStyle === 'glass'
+    ? {
+      backdropFilter: 'blur(28px) saturate(1.32)',
+      WebkitBackdropFilter: 'blur(28px) saturate(1.32)',
+      backgroundColor: 'var(--viewer-reader-glass-surface, var(--viewer-reader-surface))',
+      borderColor: 'var(--viewer-reader-glass-border, var(--viewer-theme-border))',
+    }
+    : {
+      // Preserve the pre-1.8.24 reader chrome as the Modern menu style.
+      backdropFilter: 'blur(18px) saturate(1.18)',
+      WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+      backgroundColor: 'var(--viewer-reader-surface)',
+    }
+);
 
 export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   theme,
+  menuStyle,
   bookName,
   showControls,
   sliderProgress,
@@ -95,7 +108,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitleFromFileName(bookName);
-  const surfaceStyle = getReaderSurfaceStyle();
+  const surfaceStyle = getReaderSurfaceStyle(menuStyle);
   const hasReaderRecords = bookmarkCount > 0 || annotationCount > 0;
   const [isLandscape, setIsLandscape] = React.useState(false);
   const readerTextMaxInlineSize = landscapeTwoPage && isLandscape
@@ -199,7 +212,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
   return (
     <>
-      <nav className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
+      <nav data-reader-menu-style={menuStyle} className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
         <button
           ref={closeButtonRef}
           type="button"
@@ -233,6 +246,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
       <div
         data-reader-toolbar-menu="true"
+        data-reader-menu-style={menuStyle}
         className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(18.90625rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
         style={menuPositionStyle}
       >

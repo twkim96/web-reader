@@ -46,7 +46,7 @@ const dispatchPointer = (window, target, type, clientX, buttons) => {
   target.dispatchEvent(event);
 };
 
-const Harness = () => {
+const Harness = ({ menuStyle = 'modern' } = {}) => {
   const slider = useReaderProgressSlider({
     currentCfi: 'epubcfi(/6/2!/4/2)',
     totalProgress: 20,
@@ -63,6 +63,7 @@ const Harness = () => {
     null,
     React.createElement(ReaderToolbar, {
       theme: { bg: 'bg-black', text: 'text-white', border: 'border-white' },
+      menuStyle,
       bookName: 'Pointer Test.epub',
       showControls: true,
       sliderProgress: slider.sliderProgress,
@@ -149,5 +150,50 @@ test('reader progress track commits one tap and drags from any track position wi
 
   await act(async () => {
     secondRoot.unmount();
+  });
+});
+
+test('reader menu style reaches the top chrome and bottom toolbar while Modern preserves the legacy surface', async () => {
+  const window = installDom();
+  const rootNode = window.document.querySelector('#root');
+  const root = createRoot(rootNode);
+
+  await act(async () => {
+    root.render(React.createElement(Harness, { menuStyle: 'glass' }));
+    await Promise.resolve();
+  });
+
+  const topMenu = window.document.querySelector('nav[data-reader-menu-style="glass"]');
+  const bottomMenu = window.document.querySelector('[data-reader-toolbar-menu="true"][data-reader-menu-style="glass"]');
+  const closeButton = window.document.querySelector('button[aria-label="Close reader"]');
+  const titleSurface = [...window.document.querySelectorAll('h2')]
+    .find((node) => node.textContent?.includes('Pointer Test'))?.parentElement;
+  const tocSurface = window.document.querySelector('button[aria-label="목차"]')?.parentElement;
+  assert.ok(topMenu);
+  assert.ok(bottomMenu);
+  assert.ok(closeButton);
+  assert.ok(titleSurface);
+  assert.ok(tocSurface);
+  for (const surface of [closeButton, titleSurface, tocSurface]) {
+    assert.match(surface.getAttribute('style') || '', /--viewer-reader-glass-surface/);
+    assert.match(surface.getAttribute('style') || '', /blur\(28px\)/);
+  }
+
+  await act(async () => {
+    root.render(React.createElement(Harness, { menuStyle: 'modern' }));
+    await Promise.resolve();
+  });
+
+  const modernTopMenu = window.document.querySelector('nav[data-reader-menu-style="modern"]');
+  const modernBottomMenu = window.document.querySelector('[data-reader-toolbar-menu="true"][data-reader-menu-style="modern"]');
+  const modernCloseButton = window.document.querySelector('button[aria-label="Close reader"]');
+  assert.ok(modernTopMenu);
+  assert.ok(modernBottomMenu);
+  assert.match(modernCloseButton?.getAttribute('style') || '', /--viewer-reader-surface/);
+  assert.match(modernCloseButton?.getAttribute('style') || '', /blur\(18px\)/);
+  assert.doesNotMatch(modernCloseButton?.getAttribute('style') || '', /--viewer-reader-glass-surface/);
+
+  await act(async () => {
+    root.unmount();
   });
 });
