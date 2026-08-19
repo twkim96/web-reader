@@ -68,10 +68,10 @@ const createCacheStorage = (entriesByCache) => {
 };
 
 test('keeps the release cache version while revising the Foliate entry separately', () => {
-  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.20');
-  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.20.1');
-  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.20');
-  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.20.1');
+  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.21');
+  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.21.1');
+  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.21');
+  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.21.1');
 });
 
 test('removes only Foliate entries from stale release caches', async () => {

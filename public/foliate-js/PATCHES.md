@@ -21,6 +21,14 @@ their regression tests when updating from upstream.
 - Chromium/WebKit regression coverage verifies locked `goTo()` rejection, readiness settlement, and successful retry.
 - Runtime revision `1.8.17.1` prevents an older cached paginator from bypassing the fix.
 
+## 1.8.21 reader-font stabilization timing split
+
+- `paginator.js` splits the existing `ridi-font` stabilization measurement into `document.fonts.load()`, one animation-frame wait, the final `expand()`, and the two layout-forcing `getBoundingClientRect()` calls used to calculate multi-column page count.
+- The detailed timings are collected only around the already-required operations; timing reads do not add new geometry/layout queries, and an app-managed counter disables the detailed measurements after initial book open.
+- The outer `foliate-section-stabilize` measurement is captured before timing events are dispatched, so diagnostic event delivery is not counted as reader work.
+- Chromium/WebKit regression coverage verifies all detailed font/pagination timing phases are emitted for a RIDIBatang section transition.
+- Runtime revision `1.8.21.1` prevents iPad clients from reusing the 1.8.20 paginator.
+
 ## 1.8.20 reader-open timing and pre-view safety
 
 - `view.js` emits privacy-safe cold-open timing events for ZIP indexing, EPUB package/TOC initialization, and progress-index setup so iPad-only startup stalls can be separated from section layout cost.

@@ -599,15 +599,17 @@ test('paginator page-turn tap skips the trailing sentinel before entering the ne
         <p>${'next chapter '.repeat(80)}</p>
       </body></html>`], { type: 'text/html' })),
     ];
-    const timings: Array<{ phase: string; sectionIndex?: number; sectionSize?: number }> = [];
+    const timings: Array<{ phase: string; durationMs?: number; sectionIndex?: number; sectionSize?: number }> = [];
     const onTiming = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       timings.push({
         phase: detail?.phase,
+        durationMs: detail?.durationMs,
         sectionIndex: detail?.sectionIndex,
         sectionSize: detail?.sectionSize,
       });
     };
+    (window as Window & { __foliateReaderOpenTimingCount?: number }).__foliateReaderOpenTimingCount = 1;
     window.addEventListener('foliate-reader-open-timing', onTiming);
     const renderer = new Paginator();
     renderer.style.cssText = 'display:block;width:720px;height:760px';
@@ -617,6 +619,7 @@ test('paginator page-turn tap skips the trailing sentinel before entering the ne
     renderer.setAttribute('max-inline-size', '1000px');
     renderer.setAttribute('max-column-count', '1');
     renderer.setAttribute('swipe-navigation', 'false');
+    renderer.setStyles(['', 'body { font-family: "RIDIBatang"; }']);
     document.body.append(renderer);
     renderer.open({
       dir: 'ltr',
@@ -659,6 +662,7 @@ test('paginator page-turn tap skips the trailing sentinel before entering the ne
       incomingVisible: content?.doc.querySelector('#incoming-start') !== null,
     };
     window.removeEventListener('foliate-reader-open-timing', onTiming);
+    (window as Window & { __foliateReaderOpenTimingCount?: number }).__foliateReaderOpenTimingCount = 0;
     renderer.destroy();
     renderer.remove();
     urls.forEach((url) => URL.revokeObjectURL(url));
@@ -681,6 +685,17 @@ test('paginator page-turn tap skips the trailing sentinel before entering the ne
   expect(result.timings.some(({ phase, sectionIndex }) => (
     phase === 'foliate-section-anchor' && sectionIndex === 1
   ))).toBe(true);
+  for (const phase of [
+    'foliate-reader-font-load',
+    'foliate-reader-font-frame',
+    'foliate-reader-font-expand',
+    'foliate-content-range-rect',
+    'foliate-root-rect',
+  ]) {
+    const timing = result.timings.find((item) => item.phase === phase && item.sectionIndex === 1);
+    expect(timing, phase).toBeTruthy();
+    expect(timing?.durationMs, phase).toBeGreaterThanOrEqual(0);
+  }
 });
 
 test('paginator waits for pagination and returns to the calculated last page across a section boundary', async ({ page }) => {
@@ -764,7 +779,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.20.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.21.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

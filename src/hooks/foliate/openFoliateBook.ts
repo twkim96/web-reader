@@ -2,6 +2,7 @@ import type { FoliateBook, FoliateViewElement } from './types';
 import { traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace.ts';
 
 type BeforeInit = (view: FoliateViewElement) => void | Promise<void>;
+type TimingWindow = Window & { __foliateReaderOpenTimingCount?: number };
 
 export const openFoliateBook = async (
   view: FoliateViewElement,
@@ -10,6 +11,7 @@ export const openFoliateBook = async (
   beforeInit?: BeforeInit,
 ) => {
   const timingTarget = typeof window !== 'undefined' ? window : null;
+  const timingWindow = timingTarget as TimingWindow | null;
   const timingNow = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
   const handleFoliateTiming = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail;
@@ -27,6 +29,9 @@ export const openFoliateBook = async (
     });
   };
   timingTarget?.addEventListener('foliate-reader-open-timing', handleFoliateTiming);
+  if (timingWindow) {
+    timingWindow.__foliateReaderOpenTimingCount = (timingWindow.__foliateReaderOpenTimingCount ?? 0) + 1;
+  }
   let fileSource = source;
   const isFile = typeof File !== 'undefined' && source instanceof File;
   if (source instanceof Blob && !isFile && typeof File !== 'undefined') {
@@ -58,5 +63,11 @@ export const openFoliateBook = async (
     });
   } finally {
     timingTarget?.removeEventListener('foliate-reader-open-timing', handleFoliateTiming);
+    if (timingWindow) {
+      timingWindow.__foliateReaderOpenTimingCount = Math.max(
+        0,
+        (timingWindow.__foliateReaderOpenTimingCount ?? 1) - 1,
+      );
+    }
   }
 };

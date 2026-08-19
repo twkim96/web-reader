@@ -6,8 +6,10 @@ import { findContentByIndex, isCJKLanguage } from './view-policy.js'
 
 const SEARCH_PREFIX = 'foliate-search:'
 const READER_OPEN_TIMING_EVENT = 'foliate-reader-open-timing'
+const isReaderOpenTimingActive = () => globalThis.__foliateReaderOpenTimingCount > 0
 const timingNow = () => globalThis.performance?.now?.() ?? Date.now()
 const emitReaderOpenTiming = detail => {
+    if (!isReaderOpenTimingActive()) return
     try {
         globalThis.dispatchEvent?.(new CustomEvent(READER_OPEN_TIMING_EVENT, { detail }))
     } catch {}
@@ -286,7 +288,7 @@ export class View extends HTMLElement {
             await customElements.whenDefined('foliate-fxl')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js?v=1.8.20.1')
+            await import('./paginator.js?v=1.8.21.1')
             await customElements.whenDefined('foliate-paginator')
             this.renderer = document.createElement('foliate-paginator')
         }

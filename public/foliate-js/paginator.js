@@ -3,8 +3,10 @@ import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const READER_OPEN_TIMING_EVENT = 'foliate-reader-open-timing'
+const isReaderOpenTimingActive = () => globalThis.__foliateReaderOpenTimingCount > 0
 const timingNow = () => globalThis.performance?.now?.() ?? Date.now()
 const emitReaderOpenTiming = detail => {
+    if (!isReaderOpenTimingActive()) return
     try {
         globalThis.dispatchEvent?.(new CustomEvent(READER_OPEN_TIMING_EVENT, { detail }))
     } catch {}
@@ -477,13 +479,20 @@ class View {
             })
         }
     }
-    expand() {
+    expand(collectTiming = false) {
+        const expandStartedAt = collectTiming ? timingNow() : 0
+        let contentRangeRectMs
+        let rootRectMs
         const { documentElement } = this.document
         if (this.#column) {
             const side = this.#vertical ? 'height' : 'width'
             const otherSide = this.#vertical ? 'width' : 'height'
+            let rectStartedAt = collectTiming ? timingNow() : 0
             const contentRect = this.#contentRange.getBoundingClientRect()
+            if (collectTiming) contentRangeRectMs = timingNow() - rectStartedAt
+            rectStartedAt = collectTiming ? timingNow() : 0
             const rootRect = documentElement.getBoundingClientRect()
+            if (collectTiming) rootRectMs = timingNow() - rectStartedAt
             // offset caused by column break at the start of the page
             // which seem to be supported only by WebKit and only for horizontal writing
             const contentStart = this.#vertical ? 0
@@ -530,6 +539,11 @@ class View {
             }
         }
         this.onExpand()
+        if (collectTiming) return {
+            durationMs: timingNow() - expandStartedAt,
+            contentRangeRectMs,
+            rootRectMs,
+        }
     }
     async waitForPagination(signal) {
         if (!this.#column) return
@@ -552,12 +566,25 @@ class View {
     }
     async waitForReaderFont(fontFamily, signal) {
         if (!this.#column || !fontFamily || !this.document.fonts?.load) return
+        const collectTiming = isReaderOpenTimingActive()
+        let startedAt = collectTiming ? timingNow() : 0
         await waitForPromise(
             this.document.fonts.load(`16px "${fontFamily}"`),
             signal,
         )
+        const fontLoadMs = collectTiming ? timingNow() - startedAt : undefined
+        startedAt = collectTiming ? timingNow() : 0
         await waitForFrame(this.document.defaultView, signal)
-        this.expand()
+        const frameWaitMs = collectTiming ? timingNow() - startedAt : undefined
+        const expandTiming = this.expand(collectTiming)
+        if (!collectTiming) return
+        return {
+            fontLoadMs,
+            frameWaitMs,
+            expandMs: expandTiming?.durationMs,
+            contentRangeRectMs: expandTiming?.contentRangeRectMs,
+            rootRectMs: expandTiming?.rootRectMs,
+        }
     }
     set overlayer(overlayer) {
         this.#overlayer = overlayer
@@ -1243,6 +1270,7 @@ export class Paginator extends HTMLElement {
         const navigationContext = navigationSource
             ? { navigationSource, navigationId }
             : null
+        const collectTiming = isReaderOpenTimingActive()
         const hasFocus = this.#view?.document?.hasFocus()
         const atSectionEnd = anchor === SECTION_END
         if (src) {
@@ -1265,9 +1293,9 @@ export class Paginator extends HTMLElement {
             const beforeRender = this.#beforeRender.bind(this)
             try {
                 try {
-                    const sectionLoadStartedAt = timingNow()
+                    const sectionLoadStartedAt = collectTiming ? timingNow() : 0
                     await view.load(src, afterLoad, beforeRender, task.signal)
-                    emitReaderOpenTiming({
+                    if (collectTiming) emitReaderOpenTiming({
                         phase: 'foliate-section-load',
                         durationMs: timingNow() - sectionLoadStartedAt,
                         sectionIndex: index,
@@ -1284,8 +1312,9 @@ export class Paginator extends HTMLElement {
                     throw createAbortError()
                 }
                 try {
-                    const stabilizationStartedAt = timingNow()
+                    const stabilizationStartedAt = collectTiming ? timingNow() : 0
                     let stabilization = 'none'
+                    let readerFontTiming
                     if (stable) {
                         stabilization = 'stable'
                         await this.#waitForStablePagination(view, task)
@@ -1297,15 +1326,49 @@ export class Paginator extends HTMLElement {
                         // staging view hidden until that selected reader font has
                         // produced its final column metrics.
                         stabilization = 'ridi-font'
-                        await view.waitForReaderFont('RIDIBatang', task.signal)
+                        readerFontTiming = await view.waitForReaderFont('RIDIBatang', task.signal)
                     }
-                    emitReaderOpenTiming({
-                        phase: 'foliate-section-stabilize',
-                        durationMs: timingNow() - stabilizationStartedAt,
+                    const stabilizationDurationMs = collectTiming
+                        ? timingNow() - stabilizationStartedAt
+                        : undefined
+                    const sectionTiming = {
                         sectionIndex: index,
                         sectionSize: this.sections[index]?.size,
+                    }
+                    if (collectTiming) emitReaderOpenTiming({
+                        phase: 'foliate-section-stabilize',
+                        durationMs: stabilizationDurationMs,
+                        ...sectionTiming,
                         status: stabilization,
                     })
+                    if (collectTiming && readerFontTiming) {
+                        emitReaderOpenTiming({
+                            phase: 'foliate-reader-font-load',
+                            durationMs: readerFontTiming.fontLoadMs,
+                            ...sectionTiming,
+                            status: 'RIDIBatang',
+                        })
+                        emitReaderOpenTiming({
+                            phase: 'foliate-reader-font-frame',
+                            durationMs: readerFontTiming.frameWaitMs,
+                            ...sectionTiming,
+                        })
+                        emitReaderOpenTiming({
+                            phase: 'foliate-reader-font-expand',
+                            durationMs: readerFontTiming.expandMs,
+                            ...sectionTiming,
+                        })
+                        emitReaderOpenTiming({
+                            phase: 'foliate-content-range-rect',
+                            durationMs: readerFontTiming.contentRangeRectMs,
+                            ...sectionTiming,
+                        })
+                        emitReaderOpenTiming({
+                            phase: 'foliate-root-rect',
+                            durationMs: readerFontTiming.rootRectMs,
+                            ...sectionTiming,
+                        })
+                    }
                 } catch (error) {
                     view.destroy()
                     view.element.remove()
@@ -1339,7 +1402,7 @@ export class Paginator extends HTMLElement {
             if (stable) await this.#waitForStablePagination(this.#view, task)
         }
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
-        const anchorStartedAt = timingNow()
+        const anchorStartedAt = collectTiming ? timingNow() : 0
         if (atSectionEnd && !this.scrolled) {
             await this.#scrollToPage(Math.max(1, this.pages - 2), reason)
             // Keep subsequent font/resize expansion pinned to the calculated
@@ -1351,7 +1414,7 @@ export class Paginator extends HTMLElement {
                 ? anchor(this.#view.document) : atSectionEnd ? 1 : anchor) ?? 0,
             select, reason)
         }
-        emitReaderOpenTiming({
+        if (collectTiming) emitReaderOpenTiming({
             phase: 'foliate-section-anchor',
             durationMs: timingNow() - anchorStartedAt,
             sectionIndex: index,
