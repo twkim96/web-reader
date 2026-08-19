@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.24: apply the shared Glass/Modern menu style to reader toolbar chrome.
+// 1.8.25: make the reader Glass menu surface more transparent for device testing.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.24`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.25`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

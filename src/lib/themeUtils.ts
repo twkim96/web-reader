@@ -145,7 +145,7 @@ export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperti
     '--viewer-theme-border': `rgba(${textRgb}, 0.18)`,
     '--viewer-theme-secondary': secondaryColor,
     '--viewer-reader-surface': `rgba(${bgRgb}, 0.68)`,
-    '--viewer-reader-glass-surface': `rgba(${bgRgb}, 0.48)`,
+    '--viewer-reader-glass-surface': `rgba(${bgRgb}, 0.38)`,
     '--viewer-reader-glass-border': `rgba(${textRgb}, 0.24)`,
     ...getMuzioShelfDockVariables(bgColor),
     ...getTextureVars(colors.texture, textColor),
