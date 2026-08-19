@@ -584,6 +584,133 @@ test('paginator clears paginated overlay width when switching to scroll mode', a
   );
 });
 
+test('paginator uses the visible host frame while staging reader-font pagination', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const url = URL.createObjectURL(new Blob([`<!doctype html><html><body>
+      <p id="hidden-frame-rAF-probe">${'staging font probe '.repeat(120)}</p>
+    </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    renderer.setStyles(['', 'body { font-family: "RIDIBatang"; }']);
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: [{ linear: 'yes', load: async () => url, unload: () => undefined }],
+    });
+
+    (window as Window & { __foliateReaderOpenTimingCount?: number }).__foliateReaderOpenTimingCount = 1;
+    const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    let sectionLoaded = false;
+    let hostFrameCalls = 0;
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      if (sectionLoaded) hostFrameCalls += 1;
+      return originalRequestAnimationFrame(callback);
+    };
+    const onTiming = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.phase === 'foliate-section-load' && detail?.sectionIndex === 0) {
+        sectionLoaded = true;
+      }
+    };
+    window.addEventListener('foliate-reader-open-timing', onTiming);
+
+    const completed = await Promise.race([
+      renderer.goTo({ index: 0, anchor: 0 }).then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 800)),
+    ]);
+
+    window.requestAnimationFrame = originalRequestAnimationFrame;
+    window.removeEventListener('foliate-reader-open-timing', onTiming);
+    (window as Window & { __foliateReaderOpenTimingCount?: number }).__foliateReaderOpenTimingCount = 0;
+    renderer.destroy();
+    renderer.remove();
+    URL.revokeObjectURL(url);
+    return { completed, sectionLoaded, hostFrameCalls };
+  });
+
+  expect(result.sectionLoaded).toBe(true);
+  expect(result.completed).toBe(true);
+  expect(result.hostFrameCalls).toBeGreaterThanOrEqual(1);
+});
+
+test('paginator uses the visible host frame while staging section-end pagination', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const urls = [
+      URL.createObjectURL(new Blob([`<!doctype html><html><body>
+        <p id="hidden-section-end-rAF-probe">${'previous section '.repeat(180)}</p>
+      </body></html>`], { type: 'text/html' })),
+      URL.createObjectURL(new Blob([`<!doctype html><html><body><p>CURRENT SECTION</p></body></html>`], { type: 'text/html' })),
+    ];
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '1');
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: urls.map((url) => ({ linear: 'yes', load: async () => url, unload: () => undefined })),
+    });
+    await renderer.goTo({ index: 1, anchor: 0 });
+
+    (window as Window & { __foliateReaderOpenTimingCount?: number }).__foliateReaderOpenTimingCount = 1;
+    const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    let sectionLoaded = false;
+    let hostFrameCalls = 0;
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      if (sectionLoaded) hostFrameCalls += 1;
+      return originalRequestAnimationFrame(callback);
+    };
+    const onTiming = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.phase === 'foliate-section-load' && detail?.sectionIndex === 0) {
+        sectionLoaded = true;
+      }
+    };
+    window.addEventListener('foliate-reader-open-timing', onTiming);
+
+    const completed = await Promise.race([
+      renderer.prev().then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 800)),
+    ]);
+    const content = renderer.getContents()[0];
+    const atSectionEnd = renderer.page === Math.max(1, renderer.pages - 2);
+
+    window.requestAnimationFrame = originalRequestAnimationFrame;
+    window.removeEventListener('foliate-reader-open-timing', onTiming);
+    (window as Window & { __foliateReaderOpenTimingCount?: number }).__foliateReaderOpenTimingCount = 0;
+    renderer.destroy();
+    renderer.remove();
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    return {
+      completed,
+      sectionLoaded,
+      hostFrameCalls,
+      index: content?.index,
+      atSectionEnd,
+    };
+  });
+
+  expect(result.sectionLoaded).toBe(true);
+  expect(result.completed).toBe(true);
+  expect(result.hostFrameCalls).toBeGreaterThanOrEqual(3);
+  expect(result.index).toBe(0);
+  expect(result.atSectionEnd).toBe(true);
+});
+
 test('paginator page-turn tap skips the trailing sentinel before entering the next section', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
@@ -779,7 +906,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.21.1';
+    const viewModule = '/foliate-js/view.js?v=1.8.22.1';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

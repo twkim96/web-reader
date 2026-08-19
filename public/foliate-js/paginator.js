@@ -548,7 +548,7 @@ class View {
     async waitForPagination(signal) {
         if (!this.#column) return
         const doc = this.document
-        const win = doc.defaultView
+        const win = this.container?.ownerDocument?.defaultView ?? globalThis
         const images = Array.from(doc.images)
         for (const image of images) image.loading = 'eager'
         await Promise.all([
@@ -574,7 +574,12 @@ class View {
         )
         const fontLoadMs = collectTiming ? timingNow() - startedAt : undefined
         startedAt = collectTiming ? timingNow() : 0
-        await waitForFrame(this.document.defaultView, signal)
+        // A staging publication iframe is intentionally visibility:hidden until
+        // its final pagination is ready. iPad WebKit can throttle rAF in that
+        // hidden subframe for ~10 seconds, so wait on the visible renderer realm
+        // instead; expand() below synchronously resolves the publication layout.
+        const win = this.container?.ownerDocument?.defaultView ?? globalThis
+        await waitForFrame(win, signal)
         const frameWaitMs = collectTiming ? timingNow() - startedAt : undefined
         const expandTiming = this.expand(collectTiming)
         if (!collectTiming) return

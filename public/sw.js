@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.21: split iPad EPUB font stabilization into font/frame/expand/geometry timings.
+// 1.8.22: avoid hidden publication iframe rAF throttling during staged pagination.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.21`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.22`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

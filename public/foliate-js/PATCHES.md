@@ -21,6 +21,14 @@ their regression tests when updating from upstream.
 - Chromium/WebKit regression coverage verifies locked `goTo()` rejection, readiness settlement, and successful retry.
 - Runtime revision `1.8.17.1` prevents an older cached paginator from bypassing the fix.
 
+## 1.8.22 host-frame staging pagination
+
+- `View.waitForReaderFont()` no longer waits on the hidden publication iframe's `requestAnimationFrame`; it waits on the visible paginator document's frame before running the existing synchronous `expand()` layout pass.
+- `View.waitForPagination()` uses the same host-frame rule for staged section-end and stable pagination, so previous-section navigation and remote stable navigation do not retain the same hidden-subframe throttle risk.
+- The change preserves font/image readiness, the existing three-frame stabilization count, final synchronous geometry calculation, abort handling, and staging visibility semantics.
+- Chromium/WebKit regression coverage verifies reader-font staging uses at least one host frame and section-end staging uses all three host frames while preserving section-boundary behavior.
+- Runtime revision `1.8.22.1` prevents iPad clients from reusing the throttled 1.8.21 paginator.
+
 ## 1.8.21 reader-font stabilization timing split
 
 - `paginator.js` splits the existing `ridi-font` stabilization measurement into `document.fonts.load()`, one animation-frame wait, the final `expand()`, and the two layout-forcing `getBoundingClientRect()` calls used to calculate multi-column page count.
