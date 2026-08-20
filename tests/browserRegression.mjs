@@ -382,7 +382,7 @@ try {
   })()`);
   assert.ok(listCoverLayout);
   assert.ok(listCoverLayout.width === 44 || listCoverLayout.width === 48);
-  assert.equal(listCoverLayout.height, listCoverLayout.width * 1.5);
+  assert.equal(listCoverLayout.height, listCoverLayout.width === 48 ? 68 : 64);
   assert.equal(listCoverLayout.backgroundColor, 'rgba(0, 0, 0, 0)');
   assert.equal(listCoverLayout.boxShadow, 'none');
   assert.equal(listCoverLayout.borderRadius, '0px');

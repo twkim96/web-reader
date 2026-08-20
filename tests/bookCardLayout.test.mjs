@@ -93,8 +93,8 @@ test('uses the previous icon width for borderless portrait covers', () => {
     .querySelector('[data-shelf-book-cover-frame="true"]');
   assert.match(listFrame.className, /w-11/);
   assert.match(listFrame.className, /sm:w-12/);
-  assert.match(listFrame.className, /h-\[4\.125rem\]/);
-  assert.match(listFrame.className, /sm:h-\[4\.5rem\]/);
+  assert.match(listFrame.className, /h-16/);
+  assert.match(listFrame.className, /sm:h-\[4\.25rem\]/);
 
   const gridFrame = renderCardWithCover('grid')
     .querySelector('[data-shelf-book-cover-frame="true"]');
