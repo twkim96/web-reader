@@ -287,8 +287,11 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerCancel={clearLongPressTimer}
         className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3`}
       >
-        <div className="relative h-11 w-11 overflow-hidden rounded-xl bg-accent-600 shadow-md transition-transform duration-200 group-hover:scale-105 sm:h-12 sm:w-12">
-          {coverUrl ? (
+        {coverUrl ? (
+          <div
+            data-shelf-book-cover-frame="true"
+            className="relative h-[4.125rem] w-11 overflow-hidden transition-transform duration-200 group-hover:scale-105 sm:h-[4.5rem] sm:w-12"
+          >
             <Image
               data-shelf-book-cover="true"
               src={coverUrl}
@@ -296,14 +299,19 @@ export const BookCard: React.FC<BookCardProps> = ({
               fill
               sizes="48px"
               unoptimized
-              className="object-contain"
+              className="object-cover"
             />
-          ) : (
+          </div>
+        ) : (
+          <div
+            data-shelf-book-icon-frame="true"
+            className="relative h-11 w-11 overflow-hidden rounded-xl bg-accent-600 shadow-md transition-transform duration-200 group-hover:scale-105 sm:h-12 sm:w-12"
+          >
             <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
               <BookOpen className="text-white" size={22} />
             </span>
-          )}
-        </div>
+          </div>
+        )}
         
         <div className="min-w-0">
           <div data-shelf-title-tag-group="true" className="flex min-h-10 flex-col justify-center">
@@ -392,8 +400,11 @@ export const BookCard: React.FC<BookCardProps> = ({
 
       <div className="relative z-10 space-y-6">
         <div className="flex justify-between items-start">
-          <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-accent-600 shadow-xl transition-transform duration-500 group-hover:scale-110">
-            {coverUrl ? (
+          {coverUrl ? (
+            <div
+              data-shelf-book-cover-frame="true"
+              className="relative h-[5.25rem] w-14 overflow-hidden transition-transform duration-500 group-hover:scale-110"
+            >
               <Image
                 data-shelf-book-cover="true"
                 src={coverUrl}
@@ -401,14 +412,19 @@ export const BookCard: React.FC<BookCardProps> = ({
                 fill
                 sizes="56px"
                 unoptimized
-                className="object-contain"
+                className="object-cover"
               />
-            ) : (
+            </div>
+          ) : (
+            <div
+              data-shelf-book-icon-frame="true"
+              className="relative h-14 w-14 overflow-hidden rounded-2xl bg-accent-600 shadow-xl transition-transform duration-500 group-hover:scale-110"
+            >
               <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
                 <BookOpen className="text-white" size={28} />
               </span>
-            )}
-          </div>
+            </div>
+          )}
           
           {isDownloaded && (
             <div className="p-2 bg-green-500/20 rounded-full border border-green-500/30 text-green-400 animate-in zoom-in duration-300">

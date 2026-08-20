@@ -317,23 +317,44 @@ try {
     'cached grid book cover',
   );
 
-  const initialShelf = await evaluate(`(() => ({
-    cardCount: document.querySelectorAll('main h3').length,
-    titles: [...document.querySelectorAll('main h3')]
-      .slice(0, 4)
-      .map((node) => node.textContent?.trim()),
-    cachedCover: Boolean(document.querySelector(
-      '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
-    )),
-    fallbackIcon: Boolean(document.querySelector(
-      '[data-shelf-book-id="book-0000"] [data-shelf-book-icon="true"]'
-    )),
-  }))()`);
+  const initialShelf = await evaluate(`(() => {
+    const coverFrame = document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-book-cover-frame="true"]'
+    );
+    const coverRect = coverFrame?.getBoundingClientRect();
+    const coverStyle = coverFrame ? getComputedStyle(coverFrame) : null;
+    return {
+      cardCount: document.querySelectorAll('main h3').length,
+      titles: [...document.querySelectorAll('main h3')]
+        .slice(0, 4)
+        .map((node) => node.textContent?.trim()),
+      cachedCover: Boolean(document.querySelector(
+        '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
+      )),
+      fallbackIcon: Boolean(document.querySelector(
+        '[data-shelf-book-id="book-0000"] [data-shelf-book-icon="true"]'
+      )),
+      coverLayout: coverRect && coverStyle ? {
+        width: coverRect.width,
+        height: coverRect.height,
+        backgroundColor: coverStyle.backgroundColor,
+        boxShadow: coverStyle.boxShadow,
+        borderRadius: coverStyle.borderRadius,
+      } : null,
+    };
+  })()`);
   assert.equal(initialShelf.cardCount, 50);
   assert.deepEqual(initialShelf.titles.slice(0, 2), ['Book 0900', 'Book 0100']);
   assert.ok(!initialShelf.titles.slice(0, 2).includes('Book 0999'));
   assert.equal(initialShelf.cachedCover, true);
   assert.equal(initialShelf.fallbackIcon, true);
+  assert.deepEqual(initialShelf.coverLayout, {
+    width: 56,
+    height: 84,
+    backgroundColor: 'rgba(0, 0, 0, 0)',
+    boxShadow: 'none',
+    borderRadius: '0px',
+  });
 
   await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
   await waitFor(
@@ -343,6 +364,30 @@ try {
       ))`,
     'cached list book cover',
   );
+  const listCoverLayout = await evaluate(`(() => {
+    const card = document.querySelector('[data-shelf-book-id="book-0001"]');
+    const frame = card?.querySelector('[data-shelf-book-cover-frame="true"]');
+    const cardRect = card?.getBoundingClientRect();
+    const frameRect = frame?.getBoundingClientRect();
+    const style = frame ? getComputedStyle(frame) : null;
+    if (!cardRect || !frameRect || !style) return null;
+    return {
+      width: frameRect.width,
+      height: frameRect.height,
+      backgroundColor: style.backgroundColor,
+      boxShadow: style.boxShadow,
+      borderRadius: style.borderRadius,
+      contained: frameRect.top >= cardRect.top && frameRect.bottom <= cardRect.bottom,
+    };
+  })()`);
+  assert.ok(listCoverLayout);
+  assert.ok(listCoverLayout.width === 44 || listCoverLayout.width === 48);
+  assert.equal(listCoverLayout.height, listCoverLayout.width * 1.5);
+  assert.equal(listCoverLayout.backgroundColor, 'rgba(0, 0, 0, 0)');
+  assert.equal(listCoverLayout.boxShadow, 'none');
+  assert.equal(listCoverLayout.borderRadius, '0px');
+  assert.equal(listCoverLayout.contained, true);
+  initialShelf.listCoverLayout = listCoverLayout;
   await evaluate(`document.querySelector('button[title="Switch to Grid View"]')?.click()`);
   await waitFor(
     `localStorage.getItem('shelf_viewMode') === 'grid'

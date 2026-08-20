@@ -68,13 +68,38 @@ const renderCardWithCover = (viewMode) => {
 test('replaces the grid and list book icon only when a cached cover exists', () => {
   for (const viewMode of ['grid', 'list']) {
     const covered = renderCardWithCover(viewMode);
-    assert.ok(covered.querySelector('[data-shelf-book-cover="true"]'));
+    const cover = covered.querySelector('[data-shelf-book-cover="true"]');
+    const coverFrame = covered.querySelector('[data-shelf-book-cover-frame="true"]');
+    assert.ok(cover);
+    assert.ok(coverFrame);
     assert.equal(covered.querySelector('[data-shelf-book-icon="true"]'), null);
+    assert.equal(covered.querySelector('[data-shelf-book-icon-frame="true"]'), null);
+    assert.match(cover.className, /object-cover/);
+    assert.doesNotMatch(coverFrame.className, /bg-accent|shadow|rounded/);
 
     const fallback = renderCard(viewMode);
     assert.equal(fallback.querySelector('[data-shelf-book-cover="true"]'), null);
+    assert.equal(fallback.querySelector('[data-shelf-book-cover-frame="true"]'), null);
     assert.ok(fallback.querySelector('[data-shelf-book-icon="true"]'));
+    assert.match(
+      fallback.querySelector('[data-shelf-book-icon-frame="true"]').className,
+      /bg-accent-600/,
+    );
   }
+});
+
+test('uses the previous icon width for borderless portrait covers', () => {
+  const listFrame = renderCardWithCover('list')
+    .querySelector('[data-shelf-book-cover-frame="true"]');
+  assert.match(listFrame.className, /w-11/);
+  assert.match(listFrame.className, /sm:w-12/);
+  assert.match(listFrame.className, /h-\[4\.125rem\]/);
+  assert.match(listFrame.className, /sm:h-\[4\.5rem\]/);
+
+  const gridFrame = renderCardWithCover('grid')
+    .querySelector('[data-shelf-book-cover-frame="true"]');
+  assert.match(gridFrame.className, /w-14/);
+  assert.match(gridFrame.className, /h-\[5\.25rem\]/);
 });
 
 test('places one combined view count above the progress percentage', () => {
