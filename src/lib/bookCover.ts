@@ -9,18 +9,18 @@ import {
 import { waitForFoliateViewRegistration } from './foliateRuntimeLoader.ts';
 import type { OwnerKey } from './ownerIdentity.ts';
 import {
+  BOOK_COVER_MAX_SOURCE_BYTES,
   getBookCoverTargetSize,
   supportsCachedBookCover,
 } from './bookCoverPolicy.ts';
 
 export {
   BOOK_COVER_MAX_HEIGHT,
+  BOOK_COVER_MAX_SOURCE_BYTES,
   BOOK_COVER_MAX_WIDTH,
   getBookCoverTargetSize,
   supportsCachedBookCover,
 } from './bookCoverPolicy.ts';
-
-const MAX_COVER_SOURCE_BYTES = 25 * 1024 * 1024;
 
 const abortError = () => new DOMException('Cover generation aborted', 'AbortError');
 
@@ -60,7 +60,7 @@ const canvasToBlob = (
 ) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
 
 export const normalizeBookCover = async (source: Blob, signal?: AbortSignal) => {
-  if (source.size === 0 || source.size > MAX_COVER_SOURCE_BYTES) return null;
+  if (source.size === 0 || source.size > BOOK_COVER_MAX_SOURCE_BYTES) return null;
   const image = await loadImage(source, signal);
   throwIfAborted(signal);
   const size = getBookCoverTargetSize(image.naturalWidth, image.naturalHeight);
@@ -79,6 +79,30 @@ export const normalizeBookCover = async (source: Blob, signal?: AbortSignal) => 
   return await canvasToBlob(canvas, 'image/jpeg', 0.86);
 };
 
+const normalizeAndSaveBookCover = async (
+  ownerKey: OwnerKey,
+  book: Book,
+  source: Blob,
+  signal?: AbortSignal,
+) => {
+  const normalized = await normalizeBookCover(source, signal);
+  if (!normalized) return false;
+  throwIfAborted(signal);
+  await saveBookCoverToLocalV14(ownerKey, book, normalized);
+  return true;
+};
+
+export const cacheBookCoverSourceIfMissing = async (
+  ownerKey: OwnerKey,
+  book: Book,
+  source: Blob,
+  signal?: AbortSignal,
+) => {
+  if (!supportsCachedBookCover(book)) return false;
+  if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
+  return await normalizeAndSaveBookCover(ownerKey, book, source, signal);
+};
+
 const saveOpenedBookCover = async (
   ownerKey: OwnerKey,
   book: Book,
@@ -90,11 +114,7 @@ const saveOpenedBookCover = async (
   throwIfAborted(signal);
   const source = await view.book?.getCover?.();
   if (!source) return false;
-  const normalized = await normalizeBookCover(source, signal);
-  if (!normalized) return false;
-  throwIfAborted(signal);
-  await saveBookCoverToLocalV14(ownerKey, book, normalized);
-  return true;
+  return await normalizeAndSaveBookCover(ownerKey, book, source, signal);
 };
 
 export const cacheOpenedBookCoverIfMissing = saveOpenedBookCover;

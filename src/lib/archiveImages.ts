@@ -3,10 +3,12 @@ import {
   ArchiveImageError,
   createArchiveImageIndex,
   createArchiveImageBook,
+  loadArchiveImageBlob,
   restoreArchiveImageInspection,
   selectArchiveImageEntries,
   type ArchiveImageIndex,
 } from './archiveImageBook.ts';
+import { BOOK_COVER_MAX_SOURCE_BYTES } from './bookCoverPolicy.ts';
 
 type ZipModule = typeof import('@zip.js/zip.js');
 type BrowserNavigator = Pick<Navigator, 'maxTouchPoints' | 'platform' | 'userAgent'>;
@@ -86,15 +88,46 @@ const openArchive = async (
   }
 };
 
-export const inspectZipImageArchive = async (blob: Blob) => {
-  const { reader, inspection } = await openArchive(blob);
-  await reader.close();
-  return {
-    imageCount: inspection.entries.length,
-    totalImageBytes: inspection.totalImageBytes,
-    names: inspection.entries.map((entry) => entry.normalizedName),
-    index: createArchiveImageIndex(inspection),
-  };
+export const inspectZipImageArchive = async (
+  blob: Blob,
+  options: { includeCoverSource?: boolean; signal?: AbortSignal } = {},
+) => {
+  const [{ BlobWriter }, { reader, inspection }] = await Promise.all([
+    loadZipModule(),
+    openArchive(blob, undefined, options.signal),
+  ]);
+  let coverSource: Blob | undefined;
+  try {
+    const firstEntry = inspection.entries[0];
+    if (
+      options.includeCoverSource
+      && firstEntry
+      && firstEntry.size <= BOOK_COVER_MAX_SOURCE_BYTES
+    ) {
+      try {
+        coverSource = await loadArchiveImageBlob(
+          firstEntry,
+          (entry, signal) => entry.source.getData(
+            new BlobWriter(entry.mimeType),
+            { signal },
+          ),
+          options.signal,
+        );
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        // Cover extraction is best-effort and must not reject a valid archive import.
+      }
+    }
+    return {
+      imageCount: inspection.entries.length,
+      totalImageBytes: inspection.totalImageBytes,
+      names: inspection.entries.map((entry) => entry.normalizedName),
+      index: createArchiveImageIndex(inspection),
+      coverSource,
+    };
+  } finally {
+    await reader.close().catch(() => undefined);
+  }
 };
 
 export const prepareZipImageBook = async (

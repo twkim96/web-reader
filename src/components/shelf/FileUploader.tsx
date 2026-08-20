@@ -24,7 +24,10 @@ import {
 } from '../../lib/bookFormats';
 import { runSequentialBatch } from '../../lib/sequentialBatch';
 import { createLocalBookId } from '../../lib/localBookIdentity';
-import { cacheImportedBookCoverIfMissing } from '../../lib/bookCover';
+import {
+  cacheBookCoverSourceIfMissing,
+  cacheImportedBookCoverIfMissing,
+} from '../../lib/bookCover';
 
 interface FileUploaderProps {
   googleToken: string | null;
@@ -147,6 +150,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     if (!sourceFormat) return { refresh: false, stop: false };
 
     let archiveImageIndex: ArchiveImageIndex | undefined;
+    let archiveCoverSource: Blob | undefined;
     if (isArchiveFormat(sourceFormat)) {
       try {
         if (sourceFormat === '7z') {
@@ -154,7 +158,12 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
           archiveImageIndex = (await inspectSevenZipImageArchive(file)).index;
         } else {
           const { inspectZipImageArchive } = await import('../../lib/archiveImages');
-          archiveImageIndex = (await inspectZipImageArchive(file)).index;
+          const inspection = await inspectZipImageArchive(file, {
+            includeCoverSource: true,
+            signal,
+          });
+          archiveImageIndex = inspection.index;
+          archiveCoverSource = inspection.coverSource;
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : '압축 파일을 확인하지 못했습니다.';
@@ -259,6 +268,21 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
           console.warn('[Import] Failed to cache book cover:', error);
+        }
+      }
+    }
+
+    if (savedLocally && archiveCoverSource && (sourceFormat === 'zip' || sourceFormat === 'cbz')) {
+      try {
+        await cacheBookCoverSourceIfMissing(
+          DEVICE_CONTENT_OWNER_KEY,
+          book,
+          archiveCoverSource,
+          signal,
+        );
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          console.warn('[Import] Failed to cache archive cover:', error);
         }
       }
     }

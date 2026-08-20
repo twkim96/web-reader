@@ -16,6 +16,7 @@ import {
   createArchiveImageIndex,
   restoreArchiveImageInspection,
 } from '../src/lib/archiveImageBook.ts';
+import { BOOK_COVER_MAX_SOURCE_BYTES } from '../src/lib/bookCoverPolicy.ts';
 
 const entry = (name, options = {}) => ({
   name,
@@ -292,6 +293,74 @@ test('shares an in-flight page extraction for concurrent loads', async () => {
   ]);
 
   assert.equal(firstUrl, secondUrl);
+  book.destroy();
+});
+
+test('reuses the loaded first ZIP page as the archive cover source', async () => {
+  const imageBlob = pngDimensionsBlob(1200, 1800);
+  let loads = 0;
+  const book = createArchiveImageBook({
+    entries: [{
+      name: '1.png',
+      normalizedName: '1.png',
+      size: imageBlob.size,
+      encrypted: false,
+      mimeType: 'image/png',
+      source: imageBlob,
+    }],
+    fileName: 'cover.cbz',
+    loadBlob: async (archiveEntry) => {
+      loads += 1;
+      return archiveEntry.source;
+    },
+    close: () => {},
+  });
+
+  await book.sections[0].load();
+  assert.equal(await book.getCover(), imageBlob);
+  assert.equal(loads, 1);
+  book.destroy();
+});
+
+test('extracts the naturally sorted first ZIP image for import cover caching', async () => {
+  const first = pngDimensionsBlob(600, 900);
+  const zip = new JSZip();
+  zip.file('pages/10.png', new Uint8Array(await pngDimensionsBlob(10, 10).arrayBuffer()));
+  zip.file('pages/1.png', new Uint8Array(await first.arrayBuffer()));
+  const blob = await zip.generateAsync({ type: 'blob' });
+
+  const inspection = await inspectZipImageArchive(blob, { includeCoverSource: true });
+
+  assert.equal(inspection.names[0], 'pages/1.png');
+  assert.ok(inspection.coverSource instanceof Blob);
+  assert.equal(inspection.coverSource.size, first.size);
+  assert.deepEqual(
+    new Uint8Array(await inspection.coverSource.arrayBuffer()),
+    new Uint8Array(await first.arrayBuffer()),
+  );
+});
+
+test('does not extract an archive cover source above the cover byte limit', async () => {
+  let loads = 0;
+  const book = createArchiveImageBook({
+    entries: [{
+      name: '1.png',
+      normalizedName: '1.png',
+      size: BOOK_COVER_MAX_SOURCE_BYTES + 1,
+      encrypted: false,
+      mimeType: 'image/png',
+      source: null,
+    }],
+    fileName: 'large-cover.cbz',
+    loadBlob: async () => {
+      loads += 1;
+      return new Blob();
+    },
+    close: () => {},
+  });
+
+  assert.equal(await book.getCover(), null);
+  assert.equal(loads, 0);
   book.destroy();
 });
 

@@ -30,13 +30,22 @@ test('detects supported formats by extension before MIME fallback', () => {
   assert.equal(getBookTitleFromFileName('sample.CBZ'), 'sample');
 });
 
-test('limits cached covers to EPUB and PDF and bounds their raster size', () => {
+test('limits cached covers to EPUB, PDF, ZIP, and CBZ and bounds their raster size', () => {
   assert.equal(supportsCachedBookCover({
     name: 'cover.epub', mimeType: 'application/epub+zip', sourceFormat: 'epub',
   }), true);
   assert.equal(supportsCachedBookCover({
     name: 'document.pdf', mimeType: 'application/pdf', sourceFormat: 'pdf',
   }), true);
+  assert.equal(supportsCachedBookCover({
+    name: 'images.zip', mimeType: 'application/zip', sourceFormat: 'zip',
+  }), true);
+  assert.equal(supportsCachedBookCover({
+    name: 'comic.cbz', mimeType: 'application/vnd.comicbook+zip', sourceFormat: 'cbz',
+  }), true);
+  assert.equal(supportsCachedBookCover({
+    name: 'images.7z', mimeType: 'application/x-7z-compressed', sourceFormat: '7z',
+  }), false);
   assert.equal(supportsCachedBookCover({
     name: 'plain.txt', mimeType: 'text/plain', sourceFormat: 'txt',
   }), false);

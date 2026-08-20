@@ -1,4 +1,5 @@
 import type { FoliateBook } from '../hooks/foliate/types';
+import { BOOK_COVER_MAX_SOURCE_BYTES } from './bookCoverPolicy.ts';
 import {
   MAX_ARCHIVE_IMAGE_DIMENSION,
   MAX_ARCHIVE_IMAGE_PIXELS,
@@ -269,6 +270,7 @@ export const restoreArchiveImageInspection = <T>(
 type CachedPage = {
   imageUrl: string;
   pageUrl: string;
+  coverSource?: Blob;
 };
 
 const createPageHtml = (imageUrl: string) => `<!DOCTYPE html>
@@ -288,6 +290,30 @@ export type ArchiveImageSource<T> = {
   entries: ArchiveImageEntry<T>[];
   loadBlob: (entry: ArchiveImageEntry<T>, signal?: AbortSignal) => Promise<Blob>;
   close: () => void;
+};
+
+export const loadArchiveImageBlob = async <T>(
+  entry: ArchiveImageEntry<T>,
+  loadBlob: ArchiveImageSource<T>['loadBlob'],
+  signal?: AbortSignal,
+) => {
+  const imageBlob = await loadBlob(entry, signal);
+  if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
+  if (imageBlob.size !== entry.size || imageBlob.size > MAX_IMAGE_BYTES) {
+    throw new ArchiveImageError(
+      'damaged',
+      `압축 해제 결과가 인덱스와 일치하지 않습니다: ${entry.normalizedName}`,
+    );
+  }
+  const dimensions = await probeArchiveImageDimensions(imageBlob, entry.mimeType);
+  if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
+  if (dimensions && exceedsArchiveImageLimits(dimensions)) {
+    throw new ArchiveImageError(
+      'image-dimensions-too-large',
+      `압축 이미지 해상도가 ${MAX_ARCHIVE_IMAGE_DIMENSION}px 또는 ${Math.round(MAX_ARCHIVE_IMAGE_PIXELS / (1024 * 1024))}MP 제한을 초과합니다: ${entry.normalizedName}`,
+    );
+  }
+  return imageBlob;
 };
 
 type CreateArchiveImageBookOptions<T> = ArchiveImageSource<T> & {
@@ -344,35 +370,21 @@ export const createArchiveImageBook = <T>({
     const loadPromise = (async () => {
       const entry = entries[index];
       try {
-        const imageBlob = await loadBlob(entry, signal);
-        if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
+        const imageBlob = await loadArchiveImageBlob(entry, loadBlob, signal);
         if (destroyed) throw new Error('Archive image source is closed.');
-        if (imageBlob.size !== entry.size || imageBlob.size > MAX_IMAGE_BYTES) {
-          destroySource();
-          throw new ArchiveImageError(
-            'damaged',
-            `압축 해제 결과가 인덱스와 일치하지 않습니다: ${entry.normalizedName}`,
-          );
-        }
-        const dimensions = await probeArchiveImageDimensions(
-          imageBlob,
-          entry.mimeType,
-        );
-        if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
-        if (dimensions && exceedsArchiveImageLimits(dimensions)) {
-          destroySource();
-          throw new ArchiveImageError(
-            'image-dimensions-too-large',
-            `압축 이미지 해상도가 ${MAX_ARCHIVE_IMAGE_DIMENSION}px 또는 ${Math.round(MAX_ARCHIVE_IMAGE_PIXELS / (1024 * 1024))}MP 제한을 초과합니다: ${entry.normalizedName}`,
-          );
-        }
 
         const imageUrl = URL.createObjectURL(imageBlob);
         const pageUrl = URL.createObjectURL(new Blob(
           [createPageHtml(imageUrl)],
           { type: 'text/html' },
         ));
-        cache.set(index, { imageUrl, pageUrl });
+        cache.set(index, {
+          imageUrl,
+          pageUrl,
+          coverSource: index === 0 && imageBlob.size <= BOOK_COVER_MAX_SOURCE_BYTES
+            ? imageBlob
+            : undefined,
+        });
 
         while (cache.size > MAX_CACHED_PAGES) {
           const oldestIndex = cache.keys().next().value;
@@ -382,7 +394,11 @@ export const createArchiveImageBook = <T>({
 
         return pageUrl;
       } catch (error) {
-        if (destroyed || isAbortError(error) || error instanceof ArchiveImageError) throw error;
+        if (destroyed || isAbortError(error)) throw error;
+        if (error instanceof ArchiveImageError) {
+          destroySource();
+          throw error;
+        }
         throw new ArchiveImageError(
           'damaged',
           `이미지 페이지를 압축 해제하지 못했습니다: ${entry.normalizedName}`,
@@ -418,6 +434,23 @@ export const createArchiveImageBook = <T>({
     }),
     splitTOCHref: (href: string) => [href, null],
     getTOCFragment: (doc: Document) => doc.documentElement,
+    getCover: async () => {
+      if (destroyed || entries.length === 0) return null;
+      const entry = entries[0];
+      if (entry.size > BOOK_COVER_MAX_SOURCE_BYTES) return null;
+      const cached = cache.get(0);
+      if (cached?.coverSource) {
+        const source = cached.coverSource;
+        delete cached.coverSource;
+        return source;
+      }
+      try {
+        return await loadArchiveImageBlob(entry, loadBlob);
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        return null;
+      }
+    },
     destroy: destroySource,
   };
 };
