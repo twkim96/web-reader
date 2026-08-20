@@ -51,6 +51,7 @@ export type FoliateBook = {
   resolveHref: (href: string) => { index: number };
   splitTOCHref?: (href: string) => [string, unknown];
   getTOCFragment?: (doc: Document, fragment?: unknown) => Node;
+  getCover?: () => Promise<Blob | null>;
   destroy?: () => void;
 };
 
@@ -99,6 +100,7 @@ export type FoliateViewElement = HTMLElement & {
   book?: {
     sections?: FoliateSection[];
     toc?: TocItem[];
+    getCover?: () => Promise<Blob | null>;
   };
   open: (source: Blob | File | string | FoliateBook) => Promise<void>;
   init: (options: { lastLocation: string | null }) => Promise<void>;

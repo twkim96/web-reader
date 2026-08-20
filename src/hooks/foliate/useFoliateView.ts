@@ -4,11 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getProgressFromRelocateDetail } from './progress';
 import { installScrollBoundaryNavigation } from './scrollBoundaryNavigation';
 import { FoliateViewElement, RelocateDetail } from './types';
-import {
-  clearStaleFoliateRuntimeEntries,
-  createRetryablePreparation,
-  FOLIATE_ENTRY_URL,
-} from '../../lib/foliateRuntimeCache';
+import { waitForFoliateViewRegistration } from '../../lib/foliateRuntimeLoader';
 
 interface UseFoliateViewOptions {
   onRelocate?: (detail: RelocateDetail) => void;
@@ -18,42 +14,6 @@ interface UseFoliateViewOptions {
   onProgressChange: (progressPercent: number) => void;
   onChapterChange: (chapter: string) => void;
 }
-
-const prepareFoliateRuntime = createRetryablePreparation(async () => {
-  if (!('caches' in window)) return;
-  await clearStaleFoliateRuntimeEntries(window.caches, window.location.origin);
-});
-
-const waitForFoliateViewRegistration = async () => {
-  await prepareFoliateRuntime();
-  if (customElements.get('foliate-view')) return;
-
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement('script');
-    script.type = 'module';
-    script.src = FOLIATE_ENTRY_URL;
-    script.onload = () => undefined;
-    script.onerror = (event) => {
-      console.error('[EpubReader] view.js load error:', event);
-      reject(event);
-    };
-    document.head.appendChild(script);
-
-    const check = window.setInterval(() => {
-      if (customElements.get('foliate-view')) {
-        window.clearInterval(check);
-        window.clearTimeout(timeout);
-        resolve();
-      }
-    }, 100);
-
-    const timeout = window.setTimeout(() => {
-      window.clearInterval(check);
-      console.warn('[EpubReader] Timeout waiting for foliate-view registration. Proceeding anyway.');
-      resolve();
-    }, 10000);
-  });
-};
 
 export const useFoliateView = ({
   onRelocate,

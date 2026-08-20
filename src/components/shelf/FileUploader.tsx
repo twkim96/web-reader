@@ -24,6 +24,7 @@ import {
 } from '../../lib/bookFormats';
 import { runSequentialBatch } from '../../lib/sequentialBatch';
 import { createLocalBookId } from '../../lib/localBookIdentity';
+import { cacheImportedBookCoverIfMissing } from '../../lib/bookCover';
 
 interface FileUploaderProps {
   googleToken: string | null;
@@ -243,6 +244,21 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
           );
         } catch (error) {
           console.warn('[Import] Failed to cache archive index:', error);
+        }
+      }
+    }
+
+    if (savedLocally && (sourceFormat === 'epub' || sourceFormat === 'pdf')) {
+      try {
+        await cacheImportedBookCoverIfMissing(
+          DEVICE_CONTENT_OWNER_KEY,
+          book,
+          file,
+          signal,
+        );
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          console.warn('[Import] Failed to cache book cover:', error);
         }
       }
     }

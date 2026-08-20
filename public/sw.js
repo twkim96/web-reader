@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.26: keep Android progress-jump confirmation open after a short progress-bar tap.
+// 1.8.27: display locally cached EPUB/PDF covers on the shelf.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.26`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.27`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

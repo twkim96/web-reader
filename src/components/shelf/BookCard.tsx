@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { BookOpen, CheckCircle2, Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
 import {
@@ -17,6 +18,7 @@ interface BookCardProps {
   onDeleteProgress?: (bookId: string) => void;
   onRequestBookInfo?: (book: Book) => void;
   catalog?: PublicBookCatalogBook;
+  coverUrl?: string;
 }
 
 interface FittingShelfTagCountInput {
@@ -58,6 +60,7 @@ export const BookCard: React.FC<BookCardProps> = ({
   onDeleteProgress,
   onRequestBookInfo,
   catalog,
+  coverUrl,
 }) => {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
@@ -284,8 +287,22 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerCancel={clearLongPressTimer}
         className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3`}
       >
-        <div className="h-11 w-11 bg-accent-600 rounded-xl flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform duration-200 sm:h-12 sm:w-12">
-          <BookOpen className="text-white" size={22} />
+        <div className="relative h-11 w-11 overflow-hidden rounded-xl bg-accent-600 shadow-md transition-transform duration-200 group-hover:scale-105 sm:h-12 sm:w-12">
+          {coverUrl ? (
+            <Image
+              data-shelf-book-cover="true"
+              src={coverUrl}
+              alt=""
+              fill
+              sizes="48px"
+              unoptimized
+              className="object-contain"
+            />
+          ) : (
+            <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
+              <BookOpen className="text-white" size={22} />
+            </span>
+          )}
         </div>
         
         <div className="min-w-0">
@@ -367,14 +384,30 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerCancel={clearLongPressTimer}
       className={`group relative select-none ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-8 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
     >
-      <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-        <BookOpen size={100} className="rotate-12" />
-      </div>
+      {!coverUrl && (
+        <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+          <BookOpen size={100} className="rotate-12" />
+        </div>
+      )}
 
       <div className="relative z-10 space-y-6">
         <div className="flex justify-between items-start">
-          <div className="w-14 h-14 bg-accent-600 rounded-2xl flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-500">
-            <BookOpen className="text-white" size={28} />
+          <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-accent-600 shadow-xl transition-transform duration-500 group-hover:scale-110">
+            {coverUrl ? (
+              <Image
+                data-shelf-book-cover="true"
+                src={coverUrl}
+                alt=""
+                fill
+                sizes="56px"
+                unoptimized
+                className="object-contain"
+              />
+            ) : (
+              <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
+                <BookOpen className="text-white" size={28} />
+              </span>
+            )}
           </div>
           
           {isDownloaded && (

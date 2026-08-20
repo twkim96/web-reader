@@ -56,6 +56,27 @@ const renderCard = (viewMode, catalog = props.catalog) => {
   return parseHTML(html).document;
 };
 
+const renderCardWithCover = (viewMode) => {
+  const html = renderToStaticMarkup(React.createElement(BookCard, {
+    ...props,
+    viewMode,
+    coverUrl: 'blob:https://reader.test/cached-cover',
+  }));
+  return parseHTML(html).document;
+};
+
+test('replaces the grid and list book icon only when a cached cover exists', () => {
+  for (const viewMode of ['grid', 'list']) {
+    const covered = renderCardWithCover(viewMode);
+    assert.ok(covered.querySelector('[data-shelf-book-cover="true"]'));
+    assert.equal(covered.querySelector('[data-shelf-book-icon="true"]'), null);
+
+    const fallback = renderCard(viewMode);
+    assert.equal(fallback.querySelector('[data-shelf-book-cover="true"]'), null);
+    assert.ok(fallback.querySelector('[data-shelf-book-icon="true"]'));
+  }
+});
+
 test('places one combined view count above the progress percentage', () => {
   const document = renderCard('list');
   const progress = document.querySelector('[data-shelf-list-progress="true"]');

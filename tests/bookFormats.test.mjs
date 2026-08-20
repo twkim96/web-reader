@@ -13,6 +13,10 @@ import {
   updateImportSelection,
 } from '../src/lib/bookFormats.ts';
 import { buildTocProgress } from '../src/hooks/foliate/toc.ts';
+import {
+  getBookCoverTargetSize,
+  supportsCachedBookCover,
+} from '../src/lib/bookCoverPolicy.ts';
 
 const file = (name, size, type = '') => ({ name, size, type });
 
@@ -24,6 +28,21 @@ test('detects supported formats by extension before MIME fallback', () => {
   assert.equal(getReaderFormat('pdf'), 'pdf');
   assert.equal(getReaderFormat('zip'), 'archive');
   assert.equal(getBookTitleFromFileName('sample.CBZ'), 'sample');
+});
+
+test('limits cached covers to EPUB and PDF and bounds their raster size', () => {
+  assert.equal(supportsCachedBookCover({
+    name: 'cover.epub', mimeType: 'application/epub+zip', sourceFormat: 'epub',
+  }), true);
+  assert.equal(supportsCachedBookCover({
+    name: 'document.pdf', mimeType: 'application/pdf', sourceFormat: 'pdf',
+  }), true);
+  assert.equal(supportsCachedBookCover({
+    name: 'plain.txt', mimeType: 'text/plain', sourceFormat: 'txt',
+  }), false);
+  assert.deepEqual(getBookCoverTargetSize(1600, 2400), { width: 480, height: 720 });
+  assert.deepEqual(getBookCoverTargetSize(240, 360), { width: 240, height: 360 });
+  assert.equal(getBookCoverTargetSize(0, 360), null);
 });
 
 test('enforces per-format limits and keeps the 500MB general total', () => {

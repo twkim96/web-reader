@@ -25,6 +25,10 @@ const {
   saveLocalAnnotationV8,
 } = await import('../src/lib/localAnnotations.ts');
 const { getPendingLocalCommitCount } = await import('../src/lib/localCommitTracker.ts');
+const {
+  loadBookCoverFromLocalV14,
+  saveBookCoverToLocalV14,
+} = await import('../src/lib/bookCoverCache.ts');
 const { getOutboxEventsV5 } = await import('../src/lib/syncOutboxV5.ts');
 const schema = await import('../src/lib/localDBSchema.ts');
 const {
@@ -197,6 +201,7 @@ test('v4 upgrade discards retired stores and creates the active schema', async (
     schema.V8_ANNOTATIONS_STORE,
     schema.V9_ANNOTATION_SETTINGS_STORE,
     schema.V10_ANNOTATION_BOOK_DELETIONS_STORE,
+    schema.V14_BOOK_COVERS_STORE,
   ]) {
     assert.equal(db.objectStoreNames.contains(storeName), true, storeName);
   }
@@ -374,12 +379,47 @@ test('removing only a device copy preserves owner progress and annotations', asy
     bookId: 'same-id', cfi: 'owner-position', progressPercent: 42, lastRead: 1,
   });
   await saveLocalAnnotationV8(ownerA, makeAnnotation('same-id', 'owner-note'));
+  await saveBookCoverToLocalV14(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['cover'], { type: 'image/webp' }),
+  );
 
   await removeBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id');
 
   assert.equal(await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id'), undefined);
+  assert.equal(
+    await loadBookCoverFromLocalV14(
+      DEVICE_CONTENT_OWNER_KEY,
+      makeBook('same-id', 'Device Book'),
+    ),
+    null,
+  );
   assert.deepEqual((await getAllLocalProgressV5(ownerA)).map(({ cfi }) => cfi), ['owner-position']);
   assert.equal((await getLocalAnnotationsV8(ownerA, 'same-id')).length, 1);
+});
+
+test('loads only a current fingerprinted book cover without rebuilding it', async () => {
+  const current = {
+    ...makeBook('cover-book', 'Cover Book.epub'),
+    size: 1024,
+    modifiedTime: '2026-08-20T00:00:00.000Z',
+  };
+  await saveBookCoverToLocalV14(
+    DEVICE_CONTENT_OWNER_KEY,
+    current,
+    new Blob(['cached-cover'], { type: 'image/webp' }),
+  );
+
+  const loaded = await loadBookCoverFromLocalV14(DEVICE_CONTENT_OWNER_KEY, current);
+  assert.equal(await loaded.text(), 'cached-cover');
+  assert.equal(
+    await loadBookCoverFromLocalV14(DEVICE_CONTENT_OWNER_KEY, {
+      ...current,
+      modifiedTime: '2026-08-21T00:00:00.000Z',
+    }),
+    null,
+  );
 });
 
 test('atomically removes one device book and only the current owner annotations', async () => {
@@ -394,6 +434,11 @@ test('atomically removes one device book and only the current owner annotations'
     'device',
     { entries: [] },
   );
+  await saveBookCoverToLocalV14(
+    DEVICE_CONTENT_OWNER_KEY,
+    makeBook('same-id', 'Device Book'),
+    new Blob(['cover'], { type: 'image/webp' }),
+  );
   await saveLocalAnnotationV8(ownerA, makeAnnotation('same-id', 'owner-a'));
   await saveLocalAnnotationV8(ownerA, makeAnnotation('other-id', 'other-book'));
   await saveLocalAnnotationV8(ownerB, makeAnnotation('same-id', 'owner-b', 'blue'));
@@ -407,6 +452,13 @@ test('atomically removes one device book and only the current owner annotations'
   assert.deepEqual(await removing, { annotationsDeleted: 1, tombstonesQueued: 0 });
   assert.equal(getPendingLocalCommitCount(), 0);
   assert.equal(await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id'), undefined);
+  assert.equal(
+    await loadBookCoverFromLocalV14(
+      DEVICE_CONTENT_OWNER_KEY,
+      makeBook('same-id', 'Device Book'),
+    ),
+    null,
+  );
   assert.deepEqual(await getLocalAnnotationsV8(ownerA, 'same-id'), []);
   assert.equal((await getLocalAnnotationsV8(ownerA, 'other-id')).length, 1);
   assert.equal((await getLocalAnnotationsV8(ownerB, 'same-id')).length, 1);

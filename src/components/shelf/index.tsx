@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { Book, UserProgress, ViewerSettings } from '../../types';
 import { ManageModal } from '../ManageModal';
 import { ShelfSearchModal } from '../ShelfSearchModal';
@@ -30,6 +30,7 @@ import {
   getNextShelfVisibleCount,
   SHELF_PAGE_SIZE,
 } from './progressiveBooks';
+import { useShelfBookCovers } from './useShelfBookCovers';
 
 interface ShelfProps {
   books: Book[];
@@ -148,8 +149,12 @@ export const Shelf: React.FC<ShelfProps> = ({
     || previousPaginationInputs.viewMode !== viewMode
   );
   const effectiveVisibleCount = paginationChanged ? SHELF_PAGE_SIZE : visibleBookCount;
-  const visibleBooks = filteredBooks.slice(0, effectiveVisibleCount);
+  const visibleBooks = useMemo(
+    () => filteredBooks.slice(0, effectiveVisibleCount),
+    [effectiveVisibleCount, filteredBooks],
+  );
   const hasMoreBooks = effectiveVisibleCount < filteredBooks.length;
+  const coverUrls = useShelfBookCovers(visibleBooks);
 
   const loadMoreBooks = useCallback(() => {
     if (loadMorePendingRef.current) {
@@ -392,6 +397,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                 viewMode={viewMode}
                 theme={theme}
                 catalog={catalog.booksById.get(book.id)}
+                coverUrl={coverUrls.get(book.id)}
                 onOpen={onOpen}
                 onDeleteProgress={() => setPendingDeleteProgressId(book.id)}
                 onRequestBookInfo={handleRequestBookInfo}

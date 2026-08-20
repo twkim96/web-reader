@@ -17,6 +17,7 @@ import {
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
   V11_READING_SESSIONS_STORE,
   V12_READING_STATISTICS_SYNC_STORE,
+  V14_BOOK_COVERS_STORE,
 } from './localDBSchema';
 import type { ArchiveImageIndex } from './archiveImageBook';
 import type { OwnerKey } from './ownerIdentity';
@@ -34,6 +35,7 @@ import {
 import { notifyProgressSyncWork } from './progressSyncWake';
 import { broadcastAnnotationSyncChange } from './annotationSyncWake';
 import type { AnnotationBookDeletionIntentV10 } from './annotationBookDeletion';
+import { notifyBookCoverCacheChanged } from './bookCoverCache';
 
 export type StoredBookMetadataV5 = Book & {
   ownerKey: OwnerKey;
@@ -211,14 +213,17 @@ export const removeBookFromLocalV5 = async (
     V5_METADATA_STORE,
     V5_PROGRESS_STORE,
     V5_ARCHIVE_INSPECTIONS_STORE,
+    V14_BOOK_COVERS_STORE,
   ], 'readwrite');
   await Promise.all([
     tx.objectStore(V5_BOOKS_STORE).delete([ownerKey, bookId]),
     tx.objectStore(V5_METADATA_STORE).delete([ownerKey, bookId]),
     tx.objectStore(V5_PROGRESS_STORE).delete([ownerKey, bookId]),
     tx.objectStore(V5_ARCHIVE_INSPECTIONS_STORE).delete([ownerKey, bookId]),
+    tx.objectStore(V14_BOOK_COVERS_STORE).delete([ownerKey, bookId]),
   ]);
   await tx.done;
+  notifyBookCoverCacheChanged(bookId);
 };
 
 export const removeBookAndAnnotationsV8 = (
@@ -234,6 +239,7 @@ export const removeBookAndAnnotationsV8 = (
     V5_METADATA_STORE,
     V5_PROGRESS_STORE,
     V5_ARCHIVE_INSPECTIONS_STORE,
+    V14_BOOK_COVERS_STORE,
     V8_ANNOTATIONS_STORE,
     V5_OUTBOX_STORE,
     V5_SYNC_META_STORE,
@@ -276,6 +282,7 @@ export const removeBookAndAnnotationsV8 = (
       tx.objectStore(V5_METADATA_STORE).delete([contentOwnerKey, bookId]),
       tx.objectStore(V5_PROGRESS_STORE).delete([contentOwnerKey, bookId]),
       tx.objectStore(V5_ARCHIVE_INSPECTIONS_STORE).delete([contentOwnerKey, bookId]),
+      tx.objectStore(V14_BOOK_COVERS_STORE).delete([contentOwnerKey, bookId]),
     ]);
     const events = syncContext
       ? await appendAnnotationEventsToTransactionV5(
@@ -305,6 +312,7 @@ export const removeBookAndAnnotationsV8 = (
       } satisfies AnnotationBookDeletionIntentV10);
     }
     await tx.done;
+    notifyBookCoverCacheChanged(bookId);
     if (events.length > 0 || syncContext) notifyProgressSyncWork(annotationOwnerKey);
     if (annotationIds.size > 0) {
       broadcastAnnotationSyncChange({ ownerKey: annotationOwnerKey, bookId });
@@ -362,6 +370,7 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
     V8_ANNOTATIONS_STORE,
     V10_ANNOTATION_BOOK_DELETIONS_STORE,
     V11_READING_SESSIONS_STORE,
+    V14_BOOK_COVERS_STORE,
   ];
   for (const storeName of indexedStores) {
     const tx = db.transaction(storeName, 'readwrite');

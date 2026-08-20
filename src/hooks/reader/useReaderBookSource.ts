@@ -30,6 +30,10 @@ import {
 } from '../../lib/readerLoadLifecycle';
 import { getReaderMaxColumnCount } from '../../lib/readerNavigation';
 import { traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
+import {
+  cacheOpenedBookCoverIfMissing,
+  supportsCachedBookCover,
+} from '../../lib/bookCover';
 
 type ReaderThemeColors = {
   bg: string;
@@ -356,25 +360,43 @@ export const useReaderBookSource = ({
             }
           },
           open: async (prepared) => {
+            const shouldCacheCover = supportsCachedBookCover(targetBook);
             const open = openTargetBook(
               prepared.source,
               targetInitialCfi,
-              prepared.format === 'epub'
+              prepared.format === 'epub' || shouldCacheCover
                 ? async (openedView) => {
-                  const current = loadInputsRef.current;
-                  const initialLayout = getReaderLayout(
-                    current.settings.navMode,
-                    current.settings.landscapeTwoPage === true,
-                  );
-                  const initialStyle = getReaderStyle(
-                    current.settings,
-                    current.themeColors,
-                    current.themeTexture,
-                  );
-                  current.setLayout(initialLayout, openedView.renderer);
-                  appliedLayoutKeyRef.current = JSON.stringify(initialLayout);
-                  await current.setStyle(initialStyle, openedView.renderer);
-                  appliedStyleKeyRef.current = JSON.stringify(initialStyle);
+                  if (prepared.format === 'epub') {
+                    const current = loadInputsRef.current;
+                    const initialLayout = getReaderLayout(
+                      current.settings.navMode,
+                      current.settings.landscapeTwoPage === true,
+                    );
+                    const initialStyle = getReaderStyle(
+                      current.settings,
+                      current.themeColors,
+                      current.themeTexture,
+                    );
+                    current.setLayout(initialLayout, openedView.renderer);
+                    appliedLayoutKeyRef.current = JSON.stringify(initialLayout);
+                    await current.setStyle(initialStyle, openedView.renderer);
+                    appliedStyleKeyRef.current = JSON.stringify(initialStyle);
+                  }
+                  if (shouldCacheCover) {
+                    deferredPersistence.push(() => {
+                      if (!ownerRuntime.isCurrent(owner) || signal.aborted) return;
+                      void cacheOpenedBookCoverIfMissing(
+                        DEVICE_CONTENT_OWNER_KEY,
+                        targetBook,
+                        openedView,
+                        signal,
+                      ).catch((error) => {
+                        if (!isAbortError(error)) {
+                          console.warn('[Reader] Failed to cache book cover:', error);
+                        }
+                      });
+                    });
+                  }
                 }
                 : undefined,
             );

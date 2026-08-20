@@ -237,11 +237,12 @@ try {
     request.onsuccess = () => {
       const db = request.result;
       const tx = db.transaction(
-        ['metadata-v5', 'progress-v5'],
+        ['metadata-v5', 'progress-v5', 'book-covers-v14'],
         'readwrite',
       );
       tx.objectStore('metadata-v5').clear();
       tx.objectStore('progress-v5').clear();
+      tx.objectStore('book-covers-v14').clear();
       const metadata = tx.objectStore('metadata-v5');
       for (let index = 0; index < 1100; index += 1) {
         const suffix = String(index).padStart(4, '0');
@@ -281,6 +282,17 @@ try {
         progressPercent: 0,
         lastRead: Date.parse('2026-06-14T13:00:00Z'),
       });
+      const coverBytes = Uint8Array.from(
+        atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='),
+        (character) => character.charCodeAt(0),
+      );
+      tx.objectStore('book-covers-v14').put({
+        ownerKey: 'guest:device-library|library:local',
+        bookId: 'book-0001',
+        fingerprint: null,
+        image: new Blob([coverBytes], { type: 'image/png' }),
+        cachedAt: Date.now(),
+      });
       tx.oncomplete = () => {
         db.close();
         resolve(true);
@@ -298,16 +310,47 @@ try {
     'document.querySelectorAll("main h3").length === 50',
     'initial 50 shelf cards',
   );
+  await waitFor(
+    `Boolean(document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
+    ))`,
+    'cached grid book cover',
+  );
 
   const initialShelf = await evaluate(`(() => ({
     cardCount: document.querySelectorAll('main h3').length,
     titles: [...document.querySelectorAll('main h3')]
       .slice(0, 4)
       .map((node) => node.textContent?.trim()),
+    cachedCover: Boolean(document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
+    )),
+    fallbackIcon: Boolean(document.querySelector(
+      '[data-shelf-book-id="book-0000"] [data-shelf-book-icon="true"]'
+    )),
   }))()`);
   assert.equal(initialShelf.cardCount, 50);
   assert.deepEqual(initialShelf.titles.slice(0, 2), ['Book 0900', 'Book 0100']);
   assert.ok(!initialShelf.titles.slice(0, 2).includes('Book 0999'));
+  assert.equal(initialShelf.cachedCover, true);
+  assert.equal(initialShelf.fallbackIcon, true);
+
+  await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
+  await waitFor(
+    `localStorage.getItem('shelf_viewMode') === 'list'
+      && Boolean(document.querySelector(
+        '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
+      ))`,
+    'cached list book cover',
+  );
+  await evaluate(`document.querySelector('button[title="Switch to Grid View"]')?.click()`);
+  await waitFor(
+    `localStorage.getItem('shelf_viewMode') === 'grid'
+      && Boolean(document.querySelector(
+        '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
+      ))`,
+    'restore cached grid book cover',
+  );
 
   await evaluate(`(() => {
     const sentinel = document.querySelector('main')?.nextElementSibling;
@@ -765,8 +808,11 @@ try {
   })()`);
   assert.equal(glassShelfDock.storedStyle, 'glass', JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.usesModernClass, false, JSON.stringify(glassShelfDock));
-  assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.68)', JSON.stringify(glassShelfDock));
-  assert.ok(glassShelfDock.borderRadius > 30, JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(glassShelfDock));
+  assert.ok(
+    glassShelfDock.borderRadius >= 15 && glassShelfDock.borderRadius <= 17,
+    JSON.stringify(glassShelfDock),
+  );
 
   await evaluate(`document.querySelector('[data-shelf-dock-style-option="modern"]')?.click()`);
   await waitFor(
@@ -1017,8 +1063,9 @@ try {
     request.onsuccess = () => {
       const db = request.result;
       const ownerKey = 'guest:device-library|library:local';
-      const tx = db.transaction('metadata-v5', 'readwrite');
+      const tx = db.transaction(['metadata-v5', 'book-covers-v14'], 'readwrite');
       const store = tx.objectStore('metadata-v5');
+      tx.objectStore('book-covers-v14').clear();
       const cursorRequest = store.openCursor();
       cursorRequest.onerror = () => reject(cursorRequest.error);
       cursorRequest.onsuccess = () => {
@@ -6013,6 +6060,7 @@ try {
     } catch (error) {
       cancelledLoadError = error?.name;
     }
+    const cover = await book.getCover();
     const result = {
       pageCount: book.sections.length,
       index: renderer.index,
@@ -6025,6 +6073,7 @@ try {
       previewBefore: renderDebug.previewBefore,
       previewFlags: renderDebug.previewFlags,
       previewGesture: renderDebug.previewGesture,
+      cover: { size: cover?.size ?? 0, type: cover?.type ?? '' },
       errorsBeforeDestroy: [...window.__regressionErrors],
     };
     renderer.destroy();
@@ -6112,6 +6161,8 @@ try {
   });
   assert.ok(pdfResult.pageZeroCanvasCount <= 1);
   assert.equal(pdfResult.cancelledLoadError, 'AbortError');
+  assert.ok(pdfResult.cover.size > 0);
+  assert.match(pdfResult.cover.type, /^image\//);
   assert.ok(pdfResult.firstPageReleaseCalls >= 1);
   assert.ok(pdfResult.highScaleCanvas.width <= 8192);
   assert.ok(pdfResult.highScaleCanvas.height <= 8192);
@@ -6139,7 +6190,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.26';
+    const expectedCache = 'pc-reader-v1.8.27';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -6166,7 +6217,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.26',
+      '/sw.js?browser-regression=1.8.27',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -6210,11 +6261,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.26']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.27']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.26$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.27$/);
 
   console.log(JSON.stringify({
     shelf: {
