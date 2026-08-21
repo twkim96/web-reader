@@ -710,12 +710,16 @@ export const useRemoteProgressPrompt = ({
           revision: target.syncRevision,
           status: result.status,
         });
-        if (
-          result.status === 'blocked-by-local-work'
-          || result.status === 'stale-remote'
-          || result.status === 'adopted-navigation-superseded'
-        ) {
-          setSyncConflict(null);
+        if (result.status === 'blocked-by-local-work') {
+          setSyncConflictFeedback('현재 기기에서 방금 이동한 위치를 저장·동기화 중입니다. 저장이 끝난 뒤 다시 이동해 주세요.');
+          return;
+        }
+        if (result.status === 'stale-remote') {
+          setSyncConflictFeedback('클라우드 위치가 갱신되었습니다. 최신 동기화 상태를 확인한 뒤 다시 이동해 주세요.');
+          return;
+        }
+        if (result.status === 'adopted-navigation-superseded') {
+          setSyncConflictFeedback('이동 중 새 페이지 조작이 감지되어 원격 이동을 취소했습니다. 다시 이동해 주세요.');
           return;
         }
         if (result.status !== 'navigated') {

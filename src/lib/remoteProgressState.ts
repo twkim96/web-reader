@@ -11,6 +11,13 @@ export const mergeRemotePositionUpdates = (
   for (const [bookId, update] of Object.entries(updates)) {
     const existing = next[bookId];
     if (existing) {
+      const existingRevision = existing.syncRevision;
+      const updateRevision = update.syncRevision;
+      if (
+        Number.isSafeInteger(existingRevision)
+        && Number.isSafeInteger(updateRevision)
+        && updateRevision! < existingRevision!
+      ) continue;
       const existingPosition = { ...existing };
       delete existingPosition.bookmarks;
       next[bookId] = { ...existingPosition, ...update };

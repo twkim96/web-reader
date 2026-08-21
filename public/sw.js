@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.27: display locally cached EPUB/PDF covers on the shelf.
+// 1.8.28: refresh active-book progress promptly on foreground and preserve blocked remote prompts.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.27`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.28`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

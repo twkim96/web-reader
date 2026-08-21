@@ -3,6 +3,7 @@ import { onIdTokenChanged, User as FirebaseUser } from 'firebase/auth';
 import {
   collection,
   doc,
+  getDocFromServer,
   onSnapshot,
   type DocumentData,
   type QueryDocumentSnapshot,
@@ -281,9 +282,91 @@ export const useProgressSync = ({
         traceReaderBootstrap({ event: 'listener-reconciled', listener: 'bookmark' });
       }
     };
+    const owner = ownerRuntime.capture();
+    const ownerMatchesUser = Boolean(
+      owner
+      && splitOwnerKey(owner.ownerKey).authOwnerKey === `firebase:${user.uid}`
+    );
+    const syncOwnerKey = owner && ownerMatchesUser ? getSyncOwnerKey(owner.ownerKey) : null;
+    const firebaseHistoryPath = user
+      ? getFirebaseSyncHistoryPath(APP_ID, user.uid)
+      : null;
+    let foregroundRefreshGeneration = 0;
+
+    const refreshActiveProgressFromServer = async () => {
+      if (
+        !activeBookId
+        || !owner
+        || !syncOwnerKey
+        || !firebaseHistoryPath
+        || !navigator.onLine
+      ) return;
+      const generation = foregroundRefreshGeneration + 1;
+      foregroundRefreshGeneration = generation;
+      try {
+        const snapshot = await getDocFromServer(doc(db, firebaseHistoryPath, activeBookId));
+        if (
+          !ownerRuntime.isCurrent(owner)
+          || foregroundRefreshGeneration !== generation
+        ) return;
+        if (!snapshot.exists()) {
+          await recordRemoteMissingV5(syncOwnerKey, activeBookId);
+          if (
+            !ownerRuntime.isCurrent(owner)
+            || foregroundRefreshGeneration !== generation
+          ) return;
+          setRemoteProgress((prev) => mergeRemotePositionUpdates(
+            prev,
+            {},
+            new Set([activeBookId]),
+          ));
+          return;
+        }
+        if (snapshot.metadata.hasPendingWrites) return;
+        const head = parseProgressHeadV2(snapshot.data());
+        await storeRemoteHeadsBatchV5(syncOwnerKey, [head]);
+        if (
+          !ownerRuntime.isCurrent(owner)
+          || foregroundRefreshGeneration !== generation
+          || isExactSyncSessionEcho(head.acceptedSessionId, getSyncSessionId())
+        ) return;
+        const serverTime = getTimestampMs(head.updatedAtServer, 0);
+        const update: RemotePositionUpdate = head.operation === 'reset'
+          ? {
+            operation: 'reset',
+            bookId: head.bookId,
+            cfi: '',
+            anchorCfi: '',
+            progressPercent: 0,
+            lastRead: serverTime,
+            syncRevision: head.revision,
+            acceptedEventId: head.acceptedEventId,
+          }
+          : {
+            operation: 'set',
+            bookId: head.bookId,
+            cfi: head.position!.cfi,
+            anchorCfi: head.position!.anchorCfi ?? head.position!.cfi,
+            progressPercent: head.position!.progressPercent,
+            lastRead: serverTime,
+            syncRevision: head.revision,
+            acceptedEventId: head.acceptedEventId,
+          };
+        setRemoteProgress((prev) => mergeRemotePositionUpdates(prev, {
+          [head.bookId]: update,
+        }));
+      } catch (error) {
+        if (ownerRuntime.isCurrent(owner) && foregroundRefreshGeneration === generation) {
+          console.warn('[ProgressV2] active-book foreground refresh failed:', error);
+        }
+      }
+    };
+
     const handleOnline = () => reconcileListeners(true);
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') reconcileListeners();
+      if (document.visibilityState !== 'visible') return;
+      reconcileListeners();
+      void refreshActiveProgressFromServer();
     };
     const unsubscribeToken = onIdTokenChanged(auth, (currentUser) => {
       if (currentUser?.uid === user.uid) reconcileListeners();
@@ -304,7 +387,7 @@ export const useProgressSync = ({
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [activeBookId, user]);
+  }, [activeBookId, setRemoteProgress, user]);
 
   return mergeSyncHealth(
     user ? progressReceiveHealth : 'healthy',

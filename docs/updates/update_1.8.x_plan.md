@@ -90,6 +90,8 @@
 | 1.8.24 | 책장/리더 메뉴 스타일 통합 | 글래스/모던 설정 공유·리더 제목/X/하단 버튼 surface·기존 리더=모던 보존 | 중간 | 구현·typecheck·ReaderToolbar React DOM 2건·release 3건·전체 `npm run check` 완료, 실기기 확인 대기 |
 | 1.8.25 | 리더 글래스 투명도 실기기 비교 | reader glass alpha 0.48→0.38·blur/border 유지·모던 불변 | 낮음 | 테스트용 조정·SW/cache bump·자동검증 후 실기기 비교 |
 | 1.8.26 | Android 진행률 확인 모달 ghost-click 방어 | 짧은 progress tap 후 합성 click·backdrop dismiss·drag/long-press 보존 | 중간 | pointer-origin backdrop dismiss로 수정·React DOM 회귀·전체 `npm run check` 완료, Android 실기기 재검증 대기 |
+| 1.8.27 | 책장 로컬 표지 캐시 | EPUB/PDF/ZIP/CBZ 표지 480×720 WebP cache·visible-books only·원본 재조회 금지 | 중간 | Codex 구현·Node/browser/E2E 검증·후속 cover layout 조정 완료 |
+| 1.8.28 | foreground 진행률 수신·late prompt 안정화 | active-book 1건 server refresh·revision 단조 merge·local outbox 차단 feedback | 높음 | 구현·집중 회귀·전체 `npm run check` 완료, Android/PWA 실기기 확인 대기 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 

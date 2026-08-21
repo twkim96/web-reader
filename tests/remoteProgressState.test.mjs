@@ -45,6 +45,19 @@ test('progress snapshots cannot overwrite or resurrect bookmark state', () => {
   assert.equal('bookmarks' in afterAnotherPosition['book-1'], false);
 });
 
+test('an older listener snapshot cannot overwrite a newer targeted foreground refresh', () => {
+  const newer = position(5);
+  const next = mergeRemotePositionUpdates({
+    'book-1': newer,
+  }, {
+    'book-1': position(4),
+  });
+
+  assert.equal(next['book-1'].syncRevision, 5);
+  assert.equal(next['book-1'].acceptedEventId, 'event-5');
+  assert.equal(next['book-1'].cfi, 'cfi-5');
+});
+
 test('removed progress heads are removed without touching other books', () => {
   const next = mergeRemotePositionUpdates({
     'book-1': position(1),

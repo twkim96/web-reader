@@ -268,3 +268,129 @@ test('user progress input during readiness cancels automatic adoption before can
     globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   }
 });
+
+test('explicit remote prompt stays open when a late local page turn is still syncing', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
+  globalThis.window = window;
+  globalThis.document = window.document;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let nextTimerId = 1;
+  const timers = new Map();
+  window.setTimeout = (callback, delay = 0) => {
+    const timerId = nextTimerId;
+    nextTimerId += 1;
+    timers.set(timerId, { callback, delay });
+    return timerId;
+  };
+  window.clearTimeout = (timerId) => {
+    timers.delete(timerId);
+  };
+
+  const remoteProgress = {
+    operation: 'set',
+    bookId: 'book-1',
+    cfi: 'remote-cfi',
+    anchorCfi: 'remote-cfi',
+    progressPercent: 70,
+    lastRead: 100,
+    bookmarks: [],
+    syncRevision: 2,
+    acceptedEventId: 'remote-event-2',
+  };
+  let adoptionAttempts = 0;
+  let navigationAttempts = 0;
+  let attemptId = 0;
+  let activeAttempt = null;
+
+  const Harness = () => {
+    const state = useRemoteProgressPrompt({
+      isLoaded: true,
+      remoteProgress,
+      currentCfi: 'local-after-turn',
+      currentAnchorCfi: 'local-after-turn',
+      totalProgress: 22,
+      localRevision: 1,
+      lastSaveTimeRef: { current: 50 },
+      waitForNavigationReady: async () => true,
+      goToStable: async () => {
+        navigationAttempts += 1;
+        return true;
+      },
+      goToFractionStable: async () => true,
+      getBookmarks: () => [],
+      adoptResolvedBookmarks: (bookmarks) => bookmarks,
+      stageAutoBookmark: () => [],
+      commitBookmarks: (bookmarks) => bookmarks,
+      prepareRemoteJump: () => 1,
+      prepareRemoteRollback: () => true,
+      cancelRemoteJump: () => {},
+      finishRemoteJump: () => {},
+      beginRemoteNavigationAttempt: () => {
+        attemptId += 1;
+        const controller = new AbortController();
+        activeAttempt = { id: attemptId, interactionGeneration: 0, signal: controller.signal, controller };
+        return activeAttempt;
+      },
+      isRemoteNavigationAttemptCurrent: (attempt) => activeAttempt?.id === attempt.id
+        && !attempt.signal.aborted,
+      finishRemoteNavigationAttempt: (attempt) => {
+        if (activeAttempt?.id === attempt.id) activeAttempt = null;
+      },
+      isQuietResumeEligible: () => false,
+      isProgressConflictAutoResolveEligible: () => false,
+      adoptRemoteProgressBeforeNavigation: async () => {
+        adoptionAttempts += 1;
+        return {
+          status: 'blocked-by-local-work',
+          work: { pending: 1, inFlight: 0, blocked: 0, conflicts: 0, paused: 0 },
+        };
+      },
+      completeRemoteJump: async () => true,
+      completeRemoteReset: async () => true,
+      hasLocalProgress: true,
+    });
+    return React.createElement(
+      'div',
+      {
+        'data-conflict': state.syncConflict ? 'open' : 'closed',
+        'data-feedback': state.syncConflictFeedback ?? '',
+      },
+      React.createElement('button', { id: 'accept', onClick: state.acceptSyncConflict }, 'accept'),
+    );
+  };
+
+  const root = createRoot(window.document.getElementById('app'));
+  try {
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await flushMicrotasks();
+    });
+    const promptTimer = [...timers.entries()].find(([, timer]) => timer.delay === 0);
+    assert.ok(promptTimer, 'remote prompt should be scheduled immediately');
+    await act(async () => {
+      timers.delete(promptTimer[0]);
+      promptTimer[1].callback();
+      await flushMicrotasks();
+    });
+    assert.equal(window.document.querySelector('[data-conflict]')?.getAttribute('data-conflict'), 'open');
+
+    await act(async () => {
+      window.document.getElementById('accept')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    const stateNode = window.document.querySelector('[data-conflict]');
+    assert.equal(adoptionAttempts, 1);
+    assert.equal(navigationAttempts, 0);
+    assert.equal(stateNode?.getAttribute('data-conflict'), 'open');
+    assert.match(stateNode?.getAttribute('data-feedback') ?? '', /저장·동기화 중/);
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  }
+});
