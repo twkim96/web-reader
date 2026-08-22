@@ -386,10 +386,18 @@ try {
   const listCoverLayout = await evaluate(`(() => {
     const card = document.querySelector('[data-shelf-book-id="book-0001"]');
     const frame = card?.querySelector('[data-shelf-book-cover-frame="true"]');
+    const titleContent = card?.querySelector('[data-shelf-title-tag-group="true"]')?.parentElement;
+    const local = card?.querySelector('[data-shelf-list-local="true"]');
+    const format = card?.querySelector('[data-shelf-list-format="true"]');
+    const progress = card?.querySelector('[data-shelf-list-progress="true"]');
     const cardRect = card?.getBoundingClientRect();
     const frameRect = frame?.getBoundingClientRect();
+    const titleRect = titleContent?.getBoundingClientRect();
+    const localRect = local?.getBoundingClientRect();
+    const formatRect = format?.getBoundingClientRect();
+    const progressRect = progress?.getBoundingClientRect();
     const style = frame ? getComputedStyle(frame) : null;
-    if (!cardRect || !frameRect || !style) return null;
+    if (!cardRect || !frameRect || !titleRect || !localRect || !formatRect || !progressRect || !style) return null;
     return {
       width: frameRect.width,
       height: frameRect.height,
@@ -397,6 +405,9 @@ try {
       boxShadow: style.boxShadow,
       borderRadius: style.borderRadius,
       contained: frameRect.top >= cardRect.top && frameRect.bottom <= cardRect.bottom,
+      titleWidthRatio: titleRect.width / cardRect.width,
+      rightOrder: [localRect.left, formatRect.left, progressRect.left],
+      formatWidth: formatRect.width,
     };
   })()`);
   assert.ok(listCoverLayout);
@@ -406,6 +417,13 @@ try {
   assert.equal(listCoverLayout.boxShadow, 'none');
   assert.equal(listCoverLayout.borderRadius, '0px');
   assert.equal(listCoverLayout.contained, true);
+  assert.ok(listCoverLayout.titleWidthRatio > 0.55, JSON.stringify(listCoverLayout));
+  assert.ok(
+    listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1]
+      && listCoverLayout.rightOrder[1] < listCoverLayout.rightOrder[2],
+    JSON.stringify(listCoverLayout),
+  );
+  assert.ok(listCoverLayout.formatWidth <= 64.5, JSON.stringify(listCoverLayout));
   initialShelf.listCoverLayout = listCoverLayout;
   await evaluate(`document.querySelector('button[title="Switch to Grid View"]')?.click()`);
   await waitFor(

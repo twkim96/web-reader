@@ -285,7 +285,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1.15fr)_9rem_10rem] sm:gap-5 sm:px-3 sm:py-3`}
+        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1fr)_2.5rem_4rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
       >
         {coverUrl ? (
           <div
@@ -315,12 +315,12 @@ export const BookCard: React.FC<BookCardProps> = ({
         
         <div className="min-w-0">
           <div data-shelf-title-tag-group="true" className="flex min-h-10 flex-col justify-center">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-bold leading-tight group-hover:text-accent-500 transition-colors sm:text-base">
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="min-w-0 flex-1 truncate text-sm font-bold leading-tight group-hover:text-accent-500 transition-colors sm:text-base">
                 {getDisplayBookTitle(book.name)}
               </h3>
               {isDownloaded && (
-                <CheckCircle2 size={15} className="text-green-400 shrink-0" strokeWidth={3} />
+                <CheckCircle2 size={15} className="shrink-0 text-green-400 sm:hidden" strokeWidth={3} />
               )}
             </div>
             <div
@@ -340,7 +340,22 @@ export const BookCard: React.FC<BookCardProps> = ({
           </div>
         </div>
 
-        <div className="hidden min-w-0 text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block">
+        <div
+          data-shelf-list-local="true"
+          className="hidden items-center justify-center sm:flex"
+          aria-label={isDownloaded ? '기기 로컬' : undefined}
+        >
+          {isDownloaded && (
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-green-500/30 bg-green-500/15 text-green-400">
+              <CheckCircle2 size={14} strokeWidth={3} />
+            </span>
+          )}
+        </div>
+
+        <div
+          data-shelf-list-format="true"
+          className="hidden min-w-0 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block"
+        >
           {getBookFormatLabel(book)}
         </div>
 
@@ -420,22 +435,26 @@ export const BookCard: React.FC<BookCardProps> = ({
                 />
               </div>
               <div className="min-w-0 pt-0.5">
-                <div className="flex items-start justify-between gap-2">
-                  <h3
-                    data-shelf-grid-cover-title="true"
-                    className="min-w-0 flex-1 text-lg font-bold leading-tight line-clamp-3 group-hover:text-accent-500 transition-colors sm:text-xl"
-                  >
-                    {getDisplayBookTitle(book.name)}
-                  </h3>
+                <h3
+                  data-shelf-grid-cover-title="true"
+                  className="min-w-0 text-lg font-bold leading-tight line-clamp-3 group-hover:text-accent-500 transition-colors sm:text-xl"
+                >
+                  {getDisplayBookTitle(book.name)}
+                </h3>
+                <div data-shelf-grid-meta="true" className="mt-4 flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    {getBookFormatLabel(book)}
+                  </span>
                   {isDownloaded && (
-                    <div className="shrink-0 p-2 bg-green-500/20 rounded-full border border-green-500/30 text-green-400 animate-in zoom-in duration-300">
-                      <CheckCircle2 size={16} strokeWidth={3} />
-                    </div>
+                    <span
+                      data-shelf-grid-local="true"
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-green-500/30 bg-green-500/15 text-green-400"
+                      aria-label="기기 로컬"
+                    >
+                      <CheckCircle2 size={14} strokeWidth={3} />
+                    </span>
                   )}
                 </div>
-                <p className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-                  {getBookFormatLabel(book)}
-                </p>
                 {combinedSourceCount !== null && <div className="mt-2 min-h-3">{renderCatalogSources()}</div>}
               </div>
             </div>
@@ -452,7 +471,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           </div>
         ) : (
           <div className="flex min-h-0 flex-col gap-6">
-            <div className="flex justify-between items-start">
+            <div>
               <div
                 data-shelf-book-icon-frame="true"
                 className="relative h-14 w-14 overflow-hidden rounded-2xl bg-accent-600 shadow-xl transition-transform duration-500 group-hover:scale-110"
@@ -461,19 +480,25 @@ export const BookCard: React.FC<BookCardProps> = ({
                   <BookOpen className="text-white" size={28} />
                 </span>
               </div>
-              {isDownloaded && (
-                <div className="p-2 bg-green-500/20 rounded-full border border-green-500/30 text-green-400 animate-in zoom-in duration-300">
-                  <CheckCircle2 size={16} strokeWidth={3} />
-                </div>
-              )}
             </div>
             <div>
               <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
                 {getDisplayBookTitle(book.name)}
               </h3>
-              <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">
-                {getBookFormatLabel(book)}
-              </p>
+              <div data-shelf-grid-meta="true" className="mt-2 flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                  {getBookFormatLabel(book)}
+                </span>
+                {isDownloaded && (
+                  <span
+                    data-shelf-grid-local="true"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-green-500/30 bg-green-500/15 text-green-400"
+                    aria-label="기기 로컬"
+                  >
+                    <CheckCircle2 size={14} strokeWidth={3} />
+                  </span>
+                )}
+              </div>
               <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
               {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
             </div>

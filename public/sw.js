@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: compact grid cards by removing forced tag expansion and align the delete icon with the progress label.
+// 1.8.31: widen shelf title space and move local/format metadata into compact right-side slots.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

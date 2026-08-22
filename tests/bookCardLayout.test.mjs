@@ -110,17 +110,23 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(gridFrame.className, /sm:w-28/);
   assert.match(gridFrame.className, /sm:h-40/);
   const gridTitle = gridCard.querySelector('[data-shelf-grid-cover-title="true"]');
+  const gridMeta = gridCard.querySelector('[data-shelf-grid-meta="true"]');
+  const gridLocal = gridCard.querySelector('[data-shelf-grid-local="true"]');
   const gridTags = gridCard.querySelector('[data-shelf-grid-cover-tags="true"]');
   const gridTagSlot = gridCard.querySelector('[data-shelf-grid-cover-tag-slot="true"]');
   const gridProgress = gridCard.querySelector('[data-shelf-grid-progress-block="true"]');
   const gridCardRoot = gridCard.querySelector('[data-shelf-book-card="true"]');
   assert.ok(gridTitle);
+  assert.ok(gridMeta);
+  assert.ok(gridLocal);
   assert.ok(gridTags);
   assert.ok(gridTagSlot);
   assert.ok(gridProgress);
   assert.ok(gridCardRoot);
   assert.match(gridTitle.className, /line-clamp-3/);
   assert.match(gridTitle.className, /sm:text-xl/);
+  assert.match(gridMeta.className, /mt-4/);
+  assert.equal(gridLocal.getAttribute('aria-label'), '기기 로컬');
   assert.match(gridTags.className, /max-h-9/);
   assert.match(gridTags.className, /overflow-hidden/);
   assert.doesNotMatch(gridTagSlot.className, /flex-1/);
@@ -136,6 +142,24 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(progressDelete.className, /h-5/);
   assert.match(progressDelete.className, /w-5/);
   assert.match(progressDelete.className, /p-0/);
+});
+
+test('gives list titles the flexible column and keeps local, format, and progress compact on the right', () => {
+  const document = renderCard('list');
+  const card = document.querySelector('[data-shelf-book-card="true"]');
+  const local = document.querySelector('[data-shelf-list-local="true"]');
+  const format = document.querySelector('[data-shelf-list-format="true"]');
+  const progress = document.querySelector('[data-shelf-list-progress="true"]');
+
+  assert.ok(card);
+  assert.ok(local);
+  assert.ok(format);
+  assert.ok(progress);
+  assert.match(card.className, /sm:grid-cols-\[3rem_minmax\(0,1fr\)_2\.5rem_4rem_10rem\]/);
+  assert.equal(local.getAttribute('aria-label'), '기기 로컬');
+  assert.match(format.textContent, /EPUB/);
+  assert.equal(local.nextElementSibling, format);
+  assert.equal(format.nextElementSibling, progress);
 });
 
 test('places one combined view count above the progress percentage', () => {
