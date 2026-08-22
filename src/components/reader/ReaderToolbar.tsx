@@ -129,7 +129,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       ? 'calc(env(safe-area-inset-right) + 1rem)'
       : `max(calc(env(safe-area-inset-right) + 1rem), ${READER_GAP_PERCENT}vw, calc((100vw - ${readerTextMaxInlineSize}px) / 2 + ${readerTextEdgeGapAtMaxWidth}px))`,
   };
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const titleRightLimitRef = React.useRef<HTMLDivElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const activeProgressPointerIdRef = React.useRef<number | null>(null);
   const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
@@ -178,13 +178,13 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const updateTitleLayout = React.useCallback(() => {
     if (typeof window === 'undefined') return;
 
-    const closeButton = closeButtonRef.current;
+    const titleRightLimit = titleRightLimitRef.current;
     const titleMeasure = titleMeasureRef.current;
-    if (!closeButton || !titleMeasure) return;
+    if (!titleRightLimit || !titleMeasure) return;
 
     const viewportWidth = window.innerWidth;
     const leftInset = window.matchMedia('(min-width: 640px)').matches ? 16 : 12;
-    const rightLimit = closeButton.getBoundingClientRect().left - 6;
+    const rightLimit = titleRightLimit.getBoundingClientRect().left - 6;
     const titleWidth = titleMeasure.getBoundingClientRect().width;
     const nextLayout = getReaderTitleLayout({
       viewportWidth,
@@ -220,14 +220,19 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   return (
     <>
       <nav data-reader-menu-style={menuStyle} className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
+        <div
+          ref={titleRightLimitRef}
+          aria-hidden="true"
+          data-reader-title-right-limit="true"
+          className="pointer-events-none invisible absolute right-[calc(env(safe-area-inset-right)+12px)] h-11 w-11"
+        />
         <button
-          ref={closeButtonRef}
           type="button"
           onClick={onBack}
           aria-label="Close reader"
           data-reader-close-button="true"
-          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 sm:top-[calc(env(safe-area-inset-top)+15px)]`}
-          style={surfaceStyle}
+          className={`pointer-events-auto absolute top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 sm:top-[calc(env(safe-area-inset-top)+15px)]`}
+          style={{ ...surfaceStyle, right: menuPositionStyle.right }}
         >
           <X size={22} />
         </button>

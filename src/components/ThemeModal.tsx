@@ -123,7 +123,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       data-theme-option={key}
       onClick={() => handleThemeClick(key)}
       className={`
-        relative p-4 rounded-2xl border-2 text-left transition-all active:scale-95
+        relative h-20 min-w-0 p-4 rounded-2xl border-2 text-left transition-all active:scale-95
         ${t.bg} ${t.text}
         ${settings.theme === key ? 'border-accent-500 ring-2 ring-accent-500/20' : `border-transparent ${theme.border}`}
       `}
@@ -288,14 +288,18 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           </>
         ))}
 
-        <div className="grid grid-cols-2 gap-3 mb-8">
+        <div
+          data-theme-list-scroll="true"
+          className="mb-8 grid max-h-[264px] grid-cols-2 gap-3 overflow-y-auto overscroll-contain"
+        >
           {Object.entries(THEMES).map(([key, t]) => renderThemeCard(key, t))}
           {customThemes.map((customTheme) => (
             <button
               key={customTheme.id}
+              data-custom-theme-option={customTheme.id}
               onClick={() => handleThemeClick(customTheme.id)}
               className={`
-                relative p-4 rounded-2xl border-2 text-left transition-all active:scale-95
+                relative h-20 min-w-0 p-4 rounded-2xl border-2 text-left transition-all active:scale-95
                 ${settings.theme === customTheme.id ? 'border-accent-500 ring-2 ring-accent-500/20' : `border-transparent ${theme.border}`}
               `}
               style={{

@@ -1057,6 +1057,23 @@ try {
       && mobileShelfControls.authRect?.right <= mobileShelfControls.viewportWidth,
     JSON.stringify(mobileShelfControls),
   );
+  await evaluate(`(() => {
+    const settings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    settings.customThemes = Array.from({ length: 8 }, (_, index) => ({
+      id: 'custom-scroll-' + (index + 1),
+      title: 'Custom Scroll ' + (index + 1),
+      bgColor: index % 2 === 0 ? '#20252b' : '#31252d',
+      textColor: '#d2d3d6',
+      texture: 'none',
+    }));
+    localStorage.setItem('viewer_settings', JSON.stringify(settings));
+    return true;
+  })()`);
+  await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-shelf-bottom-dock="true"] button[title="Change Theme"]\'))',
+    'shelf after custom theme fixture reload',
+  );
   await evaluate(`document.querySelector('[data-shelf-bottom-dock="true"] button[title="Change Theme"]')?.click()`);
   await waitFor(
     'Boolean(document.querySelector(\'[data-shelf-dock-style-option="glass"]\'))',
@@ -1102,6 +1119,62 @@ try {
     themeModalHeader.modalScrollTop > 0,
     themeModalHeader.modalScrollable,
     JSON.stringify(themeModalHeader),
+  );
+  const themeListScroll = await evaluate(`(() => {
+    const list = document.querySelector('[data-theme-list-scroll="true"]');
+    const modal = document.querySelector('[data-modal-header="theme"]')?.parentElement;
+    const cards = [...(list?.children ?? [])];
+    const listRect = list?.getBoundingClientRect();
+    const getKey = (card) => card.getAttribute('data-theme-option')
+      || card.getAttribute('data-custom-theme-option')
+      || '';
+    const fullyVisible = () => {
+      const rect = list?.getBoundingClientRect();
+      if (!rect) return [];
+      return cards.filter((card) => {
+        const cardRect = card.getBoundingClientRect();
+        return cardRect.top >= rect.top - 1 && cardRect.bottom <= rect.bottom + 1;
+      }).map(getKey);
+    };
+    const initialVisible = fullyVisible();
+    const seventhTop = cards[6]?.getBoundingClientRect().top ?? -1;
+    const modalTop = modal?.getBoundingClientRect().top ?? -1;
+    const modalScrollTop = modal?.scrollTop ?? -1;
+    if (list) list.scrollTop = list.scrollHeight;
+    const finalVisible = fullyVisible();
+    return {
+      cardCount: cards.length,
+      initialVisible,
+      finalVisible,
+      clientHeight: list?.clientHeight ?? -1,
+      scrollHeight: list?.scrollHeight ?? -1,
+      scrollTop: list?.scrollTop ?? -1,
+      overflowY: list ? getComputedStyle(list).overflowY : '',
+      seventhTop,
+      listBottom: listRect?.bottom ?? -1,
+      modalTop,
+      modalTopAfter: modal?.getBoundingClientRect().top ?? -1,
+      modalScrollTop,
+      modalScrollTopAfter: modal?.scrollTop ?? -1,
+    };
+  })()`);
+  assert.equal(themeListScroll.cardCount, 12, JSON.stringify(themeListScroll));
+  assert.deepEqual(
+    themeListScroll.initialVisible,
+    ['light', 'dark', 'sepia', 'midnight', 'custom-scroll-1', 'custom-scroll-2'],
+    JSON.stringify(themeListScroll),
+  );
+  assert.ok(themeListScroll.finalVisible.includes('custom-scroll-8'), JSON.stringify(themeListScroll));
+  assert.ok(themeListScroll.clientHeight <= 264, JSON.stringify(themeListScroll));
+  assert.ok(themeListScroll.scrollHeight > themeListScroll.clientHeight, JSON.stringify(themeListScroll));
+  assert.ok(themeListScroll.scrollTop > 0, JSON.stringify(themeListScroll));
+  assert.equal(themeListScroll.overflowY, 'auto', JSON.stringify(themeListScroll));
+  assert.ok(themeListScroll.seventhTop >= themeListScroll.listBottom, JSON.stringify(themeListScroll));
+  assert.equal(themeListScroll.modalTopAfter, themeListScroll.modalTop, JSON.stringify(themeListScroll));
+  assert.equal(
+    themeListScroll.modalScrollTopAfter,
+    themeListScroll.modalScrollTop,
+    JSON.stringify(themeListScroll),
   );
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="blue"]\'))'), false);
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="midnight"]\'))'), true);
@@ -4253,6 +4326,8 @@ try {
       ?.getBoundingClientRect();
     const closeRect = document.querySelector('[data-reader-close-button="true"]')
       ?.getBoundingClientRect();
+    const titleRightLimitRect = document.querySelector('[data-reader-title-right-limit="true"]')
+      ?.getBoundingClientRect();
     const menuRect = document.querySelector('[data-reader-toolbar-menu="true"]')
       ?.getBoundingClientRect();
     return {
@@ -4265,6 +4340,12 @@ try {
           (titleRect.top + titleRect.height / 2)
           - (closeRect.top + closeRect.height / 2)
         )
+        : -1,
+      topCloseMenuRightGap: closeRect && menuRect
+        ? Math.abs(closeRect.right - menuRect.right)
+        : -1,
+      titleRightLimitInset: titleRightLimitRect
+        ? innerWidth - titleRightLimitRect.right
         : -1,
     };
   })()`);
@@ -4279,6 +4360,16 @@ try {
   assert.ok(
     desktopToolbarProbe.topControlsCenterGap >= 0
       && desktopToolbarProbe.topControlsCenterGap <= 1,
+    JSON.stringify(desktopToolbarProbe),
+  );
+  assert.ok(
+    desktopToolbarProbe.topCloseMenuRightGap >= 0
+      && desktopToolbarProbe.topCloseMenuRightGap <= 1,
+    JSON.stringify(desktopToolbarProbe),
+  );
+  assert.ok(
+    desktopToolbarProbe.titleRightLimitInset >= 11
+      && desktopToolbarProbe.titleRightLimitInset <= 13,
     JSON.stringify(desktopToolbarProbe),
   );
   assert.ok(Math.abs(

@@ -203,17 +203,21 @@ test('reader menu styles reach the top chrome and bottom toolbar with distinct s
   const topMenu = window.document.querySelector('nav[data-reader-menu-style="glass"]');
   const bottomMenu = window.document.querySelector('[data-reader-toolbar-menu="true"][data-reader-menu-style="glass"]');
   const closeButton = window.document.querySelector('button[aria-label="Close reader"]');
+  const titleRightLimit = window.document.querySelector('[data-reader-title-right-limit="true"]');
   const titleSurface = [...window.document.querySelectorAll('h2')]
     .find((node) => node.textContent?.includes('Pointer Test'))?.parentElement;
   const tocSurface = window.document.querySelector('button[aria-label="목차"]')?.parentElement;
   assert.ok(topMenu);
   assert.ok(bottomMenu);
   assert.ok(closeButton);
+  assert.ok(titleRightLimit);
   assert.ok(titleSurface);
   assert.ok(tocSurface);
   assert.equal(closeButton.getAttribute('data-reader-close-button'), 'true');
   assert.equal(titleSurface.getAttribute('data-reader-title-surface'), 'true');
   assert.match(closeButton.className, /sm:top-\[calc\(env\(safe-area-inset-top\)\+15px\)\]/);
+  assert.equal(closeButton.style.right, bottomMenu.style.right);
+  assert.match(titleRightLimit.className, /right-\[calc\(env\(safe-area-inset-right\)\+12px\)\]/);
   for (const surface of [closeButton, titleSurface, tocSurface]) {
     assert.match(surface.className, /viewer-cime-glass/);
     assert.doesNotMatch(surface.getAttribute('style') || '', /--viewer-reader-glass-surface/);
