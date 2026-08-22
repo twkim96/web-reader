@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: keep list-row height stable while preserving the larger cached cover thumbnail.
+// 1.8.31: refine cached-cover layouts in list/grid cards and book information while preserving offline-only shelf rendering.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

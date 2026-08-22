@@ -112,6 +112,12 @@ test('caches a PDF cover only at import and falls back after that cache is remov
   const card = page.locator(`[data-shelf-book-id="${bookId}"]`);
   await expect(card.locator('[data-shelf-book-cover="true"]')).toBeVisible();
   await expect(card.locator('[data-shelf-book-icon="true"]')).toHaveCount(0);
+  await expect(card.locator('[data-shelf-grid-cover-layout="true"]')).toBeVisible();
+
+  await card.click({ button: 'right' });
+  const bookInfoModal = page.locator('[data-book-info-modal="true"]');
+  await expect(bookInfoModal.locator('[data-book-info-cover="true"]')).toBeVisible();
+  await bookInfoModal.getByRole('button', { name: '도서 정보 닫기' }).click();
 
   await page.locator('button[title="Switch to List View"]:visible').first().click();
   await expect(card.locator('[data-shelf-book-cover="true"]')).toBeVisible();

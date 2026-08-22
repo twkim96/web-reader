@@ -399,50 +399,72 @@ export const BookCard: React.FC<BookCardProps> = ({
       )}
 
       <div className="relative z-10 space-y-6">
-        <div className="flex justify-between items-start">
-          {coverUrl ? (
+        {coverUrl ? (
+          <div
+            data-shelf-grid-cover-layout="true"
+            className="grid min-h-36 grid-cols-[6rem_minmax(0,1fr)] items-start gap-4 sm:min-h-40 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-5"
+          >
             <div
               data-shelf-book-cover-frame="true"
-              className="relative h-[5.25rem] w-14 overflow-hidden transition-transform duration-500 group-hover:scale-110"
+              className="relative h-36 w-24 overflow-hidden transition-transform duration-500 group-hover:scale-[1.04] sm:h-40 sm:w-28"
             >
               <Image
                 data-shelf-book-cover="true"
                 src={coverUrl}
                 alt=""
                 fill
-                sizes="56px"
+                sizes="(min-width: 640px) 112px, 96px"
                 unoptimized
                 className="object-cover"
               />
             </div>
-          ) : (
-            <div
-              data-shelf-book-icon-frame="true"
-              className="relative h-14 w-14 overflow-hidden rounded-2xl bg-accent-600 shadow-xl transition-transform duration-500 group-hover:scale-110"
-            >
-              <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
-                <BookOpen className="text-white" size={28} />
-              </span>
+            <div className="min-w-0 pt-0.5">
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="min-w-0 text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
+                  {getDisplayBookTitle(book.name)}
+                </h3>
+                {isDownloaded && (
+                  <div className="shrink-0 p-2 bg-green-500/20 rounded-full border border-green-500/30 text-green-400 animate-in zoom-in duration-300">
+                    <CheckCircle2 size={16} strokeWidth={3} />
+                  </div>
+                )}
+              </div>
+              <p className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+                {getBookFormatLabel(book)}
+              </p>
+              <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
+              {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
             </div>
-          )}
-          
-          {isDownloaded && (
-            <div className="p-2 bg-green-500/20 rounded-full border border-green-500/30 text-green-400 animate-in zoom-in duration-300">
-              <CheckCircle2 size={16} strokeWidth={3} />
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-between items-start">
+              <div
+                data-shelf-book-icon-frame="true"
+                className="relative h-14 w-14 overflow-hidden rounded-2xl bg-accent-600 shadow-xl transition-transform duration-500 group-hover:scale-110"
+              >
+                <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
+                  <BookOpen className="text-white" size={28} />
+                </span>
+              </div>
+              {isDownloaded && (
+                <div className="p-2 bg-green-500/20 rounded-full border border-green-500/30 text-green-400 animate-in zoom-in duration-300">
+                  <CheckCircle2 size={16} strokeWidth={3} />
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        
-        <div>
-          <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
-            {getDisplayBookTitle(book.name)}
-          </h3>
-          <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">
-            {getBookFormatLabel(book)}
-          </p>
-          <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
-          {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
-        </div>
+            <div>
+              <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
+                {getDisplayBookTitle(book.name)}
+              </h3>
+              <p className="text-xs text-slate-500 font-bold mt-2 uppercase tracking-widest">
+                {getBookFormatLabel(book)}
+              </p>
+              <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
+              {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
+            </div>
+          </>
+        )}
 
         <div className="space-y-3">
           <div className="flex justify-between items-end">

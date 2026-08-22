@@ -88,7 +88,7 @@ test('replaces the grid and list book icon only when a cached cover exists', () 
   }
 });
 
-test('keeps the portrait cover large without increasing the desktop list row height', () => {
+test('keeps the list cover compact and gives grid covers a large side-by-side layout', () => {
   const listFrame = renderCardWithCover('list')
     .querySelector('[data-shelf-book-cover-frame="true"]');
   assert.match(listFrame.className, /w-11/);
@@ -97,10 +97,16 @@ test('keeps the portrait cover large without increasing the desktop list row hei
   assert.match(listFrame.className, /sm:h-\[4\.25rem\]/);
   assert.match(listFrame.className, /sm:-my-1/);
 
-  const gridFrame = renderCardWithCover('grid')
-    .querySelector('[data-shelf-book-cover-frame="true"]');
-  assert.match(gridFrame.className, /w-14/);
-  assert.match(gridFrame.className, /h-\[5\.25rem\]/);
+  const gridCard = renderCardWithCover('grid');
+  const gridFrame = gridCard.querySelector('[data-shelf-book-cover-frame="true"]');
+  const gridLayout = gridCard.querySelector('[data-shelf-grid-cover-layout="true"]');
+  assert.ok(gridLayout);
+  assert.match(gridLayout.className, /grid-cols-\[6rem_minmax\(0,1fr\)\]/);
+  assert.match(gridLayout.className, /sm:grid-cols-\[7rem_minmax\(0,1fr\)\]/);
+  assert.match(gridFrame.className, /w-24/);
+  assert.match(gridFrame.className, /h-36/);
+  assert.match(gridFrame.className, /sm:w-28/);
+  assert.match(gridFrame.className, /sm:h-40/);
 });
 
 test('places one combined view count above the progress percentage', () => {

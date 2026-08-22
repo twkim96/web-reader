@@ -13,6 +13,48 @@ const revokeUrls = (urls: ReadonlyMap<string, string>) => {
   for (const url of urls.values()) URL.revokeObjectURL(url);
 };
 
+export const useShelfBookCover = (book: Book) => {
+  const [revision, setRevision] = useState(0);
+  const [coverUrl, setCoverUrl] = useState<string | undefined>(undefined);
+  const activeUrlRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const handleChange = (event: Event) => {
+      const bookId = (event as CustomEvent<{ bookId?: string }>).detail?.bookId;
+      if (bookId === book.id) setRevision((current) => current + 1);
+    };
+    window.addEventListener(BOOK_COVER_CACHE_CHANGE_EVENT, handleChange);
+    return () => window.removeEventListener(BOOK_COVER_CACHE_CHANGE_EVENT, handleChange);
+  }, [book.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const image = supportsCachedBookCover(book)
+        ? await loadBookCoverFromLocalV14(DEVICE_CONTENT_OWNER_KEY, book)
+        : null;
+      if (cancelled) return;
+      const nextUrl = image ? URL.createObjectURL(image) : undefined;
+      const previousUrl = activeUrlRef.current;
+      activeUrlRef.current = nextUrl;
+      setCoverUrl(nextUrl);
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
+    })().catch((error) => {
+      if (!cancelled) console.warn('[Shelf] Failed to load cached book cover:', error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [book, revision]);
+
+  useEffect(() => () => {
+    if (activeUrlRef.current) URL.revokeObjectURL(activeUrlRef.current);
+    activeUrlRef.current = undefined;
+  }, []);
+
+  return coverUrl;
+};
+
 export const useShelfBookCovers = (books: readonly Book[]) => {
   const [revision, setRevision] = useState(0);
   const [coverUrls, setCoverUrls] = useState<ReadonlyMap<string, string>>(() => new Map());

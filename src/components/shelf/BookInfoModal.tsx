@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2, X } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
@@ -25,6 +26,7 @@ import {
 import { readHiddenReadingStatisticsSessionIds } from '../../lib/readingStatisticsSessionVisibility';
 import type { PublicBookCatalogBook } from '../../lib/publicBookCatalog';
 import type { PublicBookCatalogLoadState } from '../../hooks/usePublicBookCatalog';
+import { useShelfBookCover } from './useShelfBookCovers';
 
 type Props = {
   book: Book;
@@ -106,6 +108,7 @@ export const BookInfoModal: React.FC<Props> = ({
   const [metadataState, setMetadataState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [requestState, setRequestState] = useState<'idle' | 'requesting' | 'ready' | 'not-found' | 'ambiguous' | 'busy' | 'quota' | 'offline' | 'login-required' | 'error'>('idle');
   const [readingTimeMs, setReadingTimeMs] = useState<number | null>(null);
+  const coverUrl = useShelfBookCover(book);
   const dialogRef = useRef<HTMLElement>(null);
   const captureRef = useRef<HTMLDivElement>(null);
   const metadataRequestSequenceRef = useRef(0);
@@ -385,27 +388,47 @@ export const BookInfoModal: React.FC<Props> = ({
           </header>
 
           <div data-book-info-scroll-body="true" className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4">
-            <h3 className="break-words text-lg font-black leading-snug sm:text-xl">
-              {getDisplayBookTitle(book.name)}
-            </h3>
-            <p className="mt-1 break-all text-[10px] leading-4 opacity-45">{book.name}</p>
-
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
-                {getBookFormatLabel(book)}
-              </span>
-              <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isDownloaded ? 'bg-emerald-500/12 text-emerald-500' : 'bg-black/5 opacity-55 dark:bg-white/5'}`}>
-                {isDownloaded ? '기기 저장됨' : '클라우드 전용'}
-              </span>
-              {metadata?.platforms.map((platform) => (
-                <span
-                  key={platform.platform}
-                  data-book-info-platform-badge={platform.platform}
-                  className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500"
+            <div data-book-info-title-layout="true" className="flex min-w-0 items-start gap-3">
+              {coverUrl && (
+                <div
+                  data-book-info-cover-frame="true"
+                  className="relative h-28 w-[4.5rem] shrink-0 overflow-hidden sm:h-32 sm:w-[5.25rem]"
                 >
-                  {platform.label}
-                </span>
-              ))}
+                  <Image
+                    data-book-info-cover="true"
+                    src={coverUrl}
+                    alt=""
+                    fill
+                    sizes="(min-width: 640px) 84px, 72px"
+                    unoptimized
+                    className="object-cover"
+                  />
+                </div>
+              )}
+              <div className="min-w-0 flex-1 pt-0.5">
+                <h3 className="break-words text-lg font-black leading-snug sm:text-xl">
+                  {getDisplayBookTitle(book.name)}
+                </h3>
+                <p className="mt-1 break-all text-[10px] leading-4 opacity-45">{book.name}</p>
+
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
+                    {getBookFormatLabel(book)}
+                  </span>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isDownloaded ? 'bg-emerald-500/12 text-emerald-500' : 'bg-black/5 opacity-55 dark:bg-white/5'}`}>
+                    {isDownloaded ? '기기 저장됨' : '클라우드 전용'}
+                  </span>
+                  {metadata?.platforms.map((platform) => (
+                    <span
+                      key={platform.platform}
+                      data-book-info-platform-badge={platform.platform}
+                      className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500"
+                    >
+                      {platform.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <dl className="mt-4 grid grid-cols-2 gap-1.5">

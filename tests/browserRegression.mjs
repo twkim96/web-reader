@@ -349,8 +349,8 @@ try {
   assert.equal(initialShelf.cachedCover, true);
   assert.equal(initialShelf.fallbackIcon, true);
   assert.deepEqual(initialShelf.coverLayout, {
-    width: 56,
-    height: 84,
+    width: 112,
+    height: 160,
     backgroundColor: 'rgba(0, 0, 0, 0)',
     boxShadow: 'none',
     borderRadius: '0px',
