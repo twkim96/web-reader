@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: widen shelf title space and move local/format metadata into compact right-side slots.
+// 1.8.31: render device-local state as the leading green shelf tag and expand list tag capacity to ten chips.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

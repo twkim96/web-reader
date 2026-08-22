@@ -387,17 +387,17 @@ try {
     const card = document.querySelector('[data-shelf-book-id="book-0001"]');
     const frame = card?.querySelector('[data-shelf-book-cover-frame="true"]');
     const titleContent = card?.querySelector('[data-shelf-title-tag-group="true"]')?.parentElement;
-    const local = card?.querySelector('[data-shelf-list-local="true"]');
+    const localTag = card?.querySelector('[data-shelf-local-tag="true"]');
+    const tagRow = card?.querySelector('[data-shelf-book-tags="true"]');
     const format = card?.querySelector('[data-shelf-list-format="true"]');
     const progress = card?.querySelector('[data-shelf-list-progress="true"]');
     const cardRect = card?.getBoundingClientRect();
     const frameRect = frame?.getBoundingClientRect();
     const titleRect = titleContent?.getBoundingClientRect();
-    const localRect = local?.getBoundingClientRect();
     const formatRect = format?.getBoundingClientRect();
     const progressRect = progress?.getBoundingClientRect();
     const style = frame ? getComputedStyle(frame) : null;
-    if (!cardRect || !frameRect || !titleRect || !localRect || !formatRect || !progressRect || !style) return null;
+    if (!cardRect || !frameRect || !titleRect || !localTag || !tagRow || !formatRect || !progressRect || !style) return null;
     return {
       width: frameRect.width,
       height: frameRect.height,
@@ -406,7 +406,9 @@ try {
       borderRadius: style.borderRadius,
       contained: frameRect.top >= cardRect.top && frameRect.bottom <= cardRect.bottom,
       titleWidthRatio: titleRect.width / cardRect.width,
-      rightOrder: [localRect.left, formatRect.left, progressRect.left],
+      localTagFirst: tagRow.firstElementChild === localTag,
+      localTagText: localTag.textContent?.trim(),
+      rightOrder: [formatRect.left, progressRect.left],
       formatWidth: formatRect.width,
     };
   })()`);
@@ -417,10 +419,11 @@ try {
   assert.equal(listCoverLayout.boxShadow, 'none');
   assert.equal(listCoverLayout.borderRadius, '0px');
   assert.equal(listCoverLayout.contained, true);
-  assert.ok(listCoverLayout.titleWidthRatio > 0.55, JSON.stringify(listCoverLayout));
+  assert.ok(listCoverLayout.titleWidthRatio > 0.6, JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.localTagFirst, true, JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.localTagText, '로컬', JSON.stringify(listCoverLayout));
   assert.ok(
-    listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1]
-      && listCoverLayout.rightOrder[1] < listCoverLayout.rightOrder[2],
+    listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1],
     JSON.stringify(listCoverLayout),
   );
   assert.ok(listCoverLayout.formatWidth <= 64.5, JSON.stringify(listCoverLayout));
@@ -986,6 +989,19 @@ try {
       Math.max(0, document.documentElement.scrollHeight - innerHeight),
     ));
     window.__modalScrollBefore = window.scrollY;
+    window.__modalScrollToCalls = [];
+    window.__nativeModalScrollTo = window.scrollTo.bind(window);
+    window.scrollTo = (...args) => {
+      const first = args[0];
+      const requestedX = typeof first === 'object' && first !== null
+        ? Number(first.left ?? window.scrollX)
+        : Number(first ?? window.scrollX);
+      const requestedY = typeof first === 'object' && first !== null
+        ? Number(first.top ?? window.scrollY)
+        : Number(args[1] ?? window.scrollY);
+      window.__modalScrollToCalls.push({ x: requestedX, y: requestedY });
+      return window.__nativeModalScrollTo(...args);
+    };
     const button = [...document.querySelectorAll('button')]
       .find((node) => node.title === 'Add Local Book');
     button?.click();
@@ -1125,18 +1141,27 @@ try {
     `!document.querySelector('input[type="file"]')`,
     'archive import modal close',
   );
-  const modalScrollRestore = await evaluate(`(() => ({
-    bodyPosition: document.body.style.position,
-    bodyOverflow: document.body.style.overflow,
-    htmlOverflow: document.documentElement.style.overflow,
-    scrollY: window.scrollY,
-    scrollBefore: window.__modalScrollBefore,
-  }))()`);
+  const modalScrollRestore = await evaluate(`(() => {
+    const result = {
+      bodyPosition: document.body.style.position,
+      bodyOverflow: document.body.style.overflow,
+      htmlOverflow: document.documentElement.style.overflow,
+      scrollY: window.scrollY,
+      scrollBefore: window.__modalScrollBefore,
+      scrollToCalls: [...(window.__modalScrollToCalls ?? [])],
+    };
+    if (window.__nativeModalScrollTo) window.scrollTo = window.__nativeModalScrollTo;
+    delete window.__nativeModalScrollTo;
+    delete window.__modalScrollToCalls;
+    return result;
+  })()`);
   assert.equal(modalScrollRestore.bodyPosition, '');
   assert.equal(modalScrollRestore.bodyOverflow, '');
   assert.equal(modalScrollRestore.htmlOverflow, '');
   assert.ok(
-    Math.abs(modalScrollRestore.scrollY - modalScrollRestore.scrollBefore) <= 1,
+    modalScrollRestore.scrollToCalls.some(({ y }) => (
+      Math.abs(y - modalScrollRestore.scrollBefore) <= 1
+    )),
     JSON.stringify(modalScrollRestore),
   );
   await evaluate(`new Promise((resolve, reject) => {

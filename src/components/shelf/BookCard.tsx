@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { BookOpen, CheckCircle2, Eraser } from 'lucide-react';
+import { BookOpen, Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
 import {
   formatPublicBookCatalogMetric,
@@ -23,23 +23,28 @@ interface BookCardProps {
 
 interface FittingShelfTagCountInput {
   availableWidth: number;
+  localWidth?: number;
   genreWidth: number;
   tagWidths: number[];
   remainderWidths: Map<number, number>;
   gap: number;
+  maxTagCount?: number;
 }
 
 export const getFittingShelfTagCount = ({
   availableWidth,
+  localWidth = 0,
   genreWidth,
   tagWidths,
   remainderWidths,
   gap,
+  maxTagCount = tagWidths.length,
 }: FittingShelfTagCountInput) => {
-  for (let count = tagWidths.length; count >= 0; count -= 1) {
+  const fixedWidths = [localWidth, genreWidth].filter((width) => width > 0);
+  for (let count = Math.min(maxTagCount, tagWidths.length); count >= 0; count -= 1) {
     const remaining = tagWidths.length - count;
-    const itemCount = (genreWidth > 0 ? 1 : 0) + count + (remaining > 0 ? 1 : 0);
-    const contentWidth = genreWidth
+    const itemCount = fixedWidths.length + count + (remaining > 0 ? 1 : 0);
+    const contentWidth = fixedWidths.reduce((total, width) => total + width, 0)
       + tagWidths.slice(0, count).reduce((total, width) => total + width, 0)
       + (remaining > 0 ? remainderWidths.get(remaining) ?? 0 : 0)
       + Math.max(0, itemCount - 1) * gap;
@@ -67,7 +72,7 @@ export const BookCard: React.FC<BookCardProps> = ({
   const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const tagRowRef = useRef<HTMLDivElement | null>(null);
   const tagMeasureRef = useRef<HTMLDivElement | null>(null);
-  const [listTagLimit, setListTagLimit] = useState(5);
+  const [listTagLimit, setListTagLimit] = useState(10);
 
   const formatDate = (timestamp: unknown) => {
     const time = getProgressTime(timestamp);
@@ -80,12 +85,16 @@ export const BookCard: React.FC<BookCardProps> = ({
 
   const percent = progress?.progressPercent || 0;
   const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
-  const tagLayoutKey = `${catalog?.genreLabel ?? ''}\u0000${rawTags.map((tag) => `${tag.id}:${tag.label}`).join('\u0000')}`;
-  const visibleTags = viewMode === 'grid' ? rawTags : rawTags.slice(0, listTagLimit);
+  const fixedListTagCount = (isDownloaded ? 1 : 0) + (catalog?.genreLabel ? 1 : 0);
+  const maxListRawTagCount = Math.max(0, 10 - fixedListTagCount);
+  const tagLayoutKey = `${isDownloaded ? 'local' : ''}\u0000${catalog?.genreLabel ?? ''}\u0000${rawTags.map((tag) => `${tag.id}:${tag.label}`).join('\u0000')}`;
+  const visibleTags = viewMode === 'grid'
+    ? rawTags
+    : rawTags.slice(0, Math.min(listTagLimit, maxListRawTagCount));
   const remainingTagCount = viewMode === 'grid'
     ? 0
     : Math.max(0, rawTags.length - visibleTags.length);
-  const hasCatalogTags = Boolean(catalog && (catalog.genreLabel || rawTags.length > 0));
+  const hasCatalogTags = Boolean(isDownloaded || (catalog && (catalog.genreLabel || rawTags.length > 0)));
   const sourceMetrics = catalog ? [
     { bit: 1, value: catalog.record.sourceCounts[0] },
     { bit: 2, value: catalog.record.sourceCounts[1] },
@@ -104,10 +113,13 @@ export const BookCard: React.FC<BookCardProps> = ({
 
     const updateTagLimit = () => {
       if (window.matchMedia('(min-width: 640px)').matches) {
-        const nextLimit = Math.min(5, rawTags.length);
+        const nextLimit = Math.min(maxListRawTagCount, rawTags.length);
         setListTagLimit((current) => current === nextLimit ? current : nextLimit);
         return;
       }
+      const localWidth = measure.querySelector<HTMLElement>(
+        '[data-shelf-tag-measure-local="true"]',
+      )?.offsetWidth ?? 0;
       const genreWidth = measure.querySelector<HTMLElement>(
         '[data-shelf-tag-measure-genre="true"]',
       )?.offsetWidth ?? 0;
@@ -124,10 +136,12 @@ export const BookCard: React.FC<BookCardProps> = ({
       const parsedGap = Number.parseFloat(window.getComputedStyle(row).columnGap);
       const nextLimit = getFittingShelfTagCount({
         availableWidth: row.clientWidth,
+        localWidth,
         genreWidth,
         tagWidths,
         remainderWidths,
         gap: Number.isFinite(parsedGap) ? parsedGap : 4,
+        maxTagCount: maxListRawTagCount,
       });
       setListTagLimit((current) => current === nextLimit ? current : nextLimit);
     };
@@ -150,10 +164,11 @@ export const BookCard: React.FC<BookCardProps> = ({
     };
   }, [tagLayoutKey, viewMode]);
 
+  const localChipClass = 'shrink-0 rounded-md bg-green-500/15 px-1.5 py-0.5 text-[9px] font-black text-green-500';
   const genreChipClass = 'shrink-0 rounded-md bg-accent-500/12 px-1.5 py-0.5 text-[9px] font-black text-accent-500';
   const tagChipClass = 'max-w-24 shrink-0 truncate rounded-md bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5';
   const renderCatalogTags = () => (
-    catalog && (catalog.genreLabel || rawTags.length > 0) ? (
+    hasCatalogTags ? (
       <div className="relative min-w-0">
         <div
           ref={viewMode === 'list' ? tagRowRef : undefined}
@@ -164,7 +179,12 @@ export const BookCard: React.FC<BookCardProps> = ({
               : 'flex-wrap'
           }`}
         >
-          {catalog.genreLabel && (
+          {isDownloaded && (
+            <span data-shelf-local-tag="true" className={localChipClass}>
+              로컬
+            </span>
+          )}
+          {catalog?.genreLabel && (
             <span className={genreChipClass}>
               {catalog.genreLabel}
             </span>
@@ -184,7 +204,12 @@ export const BookCard: React.FC<BookCardProps> = ({
             aria-hidden="true"
             className="invisible absolute left-0 top-0 flex items-center gap-x-1 whitespace-nowrap"
           >
-            {catalog.genreLabel && (
+            {isDownloaded && (
+              <span data-shelf-tag-measure-local="true" className={localChipClass}>
+                로컬
+              </span>
+            )}
+            {catalog?.genreLabel && (
               <span data-shelf-tag-measure-genre="true" className={genreChipClass}>
                 {catalog.genreLabel}
               </span>
@@ -285,7 +310,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1fr)_2.5rem_4rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
+        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
       >
         {coverUrl ? (
           <div
@@ -319,9 +344,6 @@ export const BookCard: React.FC<BookCardProps> = ({
               <h3 className="min-w-0 flex-1 truncate text-sm font-bold leading-tight group-hover:text-accent-500 transition-colors sm:text-base">
                 {getDisplayBookTitle(book.name)}
               </h3>
-              {isDownloaded && (
-                <CheckCircle2 size={15} className="shrink-0 text-green-400 sm:hidden" strokeWidth={3} />
-              )}
             </div>
             <div
               data-shelf-tag-transition="true"
@@ -340,17 +362,6 @@ export const BookCard: React.FC<BookCardProps> = ({
           </div>
         </div>
 
-        <div
-          data-shelf-list-local="true"
-          className="hidden items-center justify-center sm:flex"
-          aria-label={isDownloaded ? '기기 로컬' : undefined}
-        >
-          {isDownloaded && (
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-green-500/30 bg-green-500/15 text-green-400">
-              <CheckCircle2 size={14} strokeWidth={3} />
-            </span>
-          )}
-        </div>
 
         <div
           data-shelf-list-format="true"
@@ -445,15 +456,6 @@ export const BookCard: React.FC<BookCardProps> = ({
                   <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
                     {getBookFormatLabel(book)}
                   </span>
-                  {isDownloaded && (
-                    <span
-                      data-shelf-grid-local="true"
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-green-500/30 bg-green-500/15 text-green-400"
-                      aria-label="기기 로컬"
-                    >
-                      <CheckCircle2 size={14} strokeWidth={3} />
-                    </span>
-                  )}
                 </div>
                 {combinedSourceCount !== null && <div className="mt-2 min-h-3">{renderCatalogSources()}</div>}
               </div>
@@ -489,15 +491,6 @@ export const BookCard: React.FC<BookCardProps> = ({
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
                   {getBookFormatLabel(book)}
                 </span>
-                {isDownloaded && (
-                  <span
-                    data-shelf-grid-local="true"
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-green-500/30 bg-green-500/15 text-green-400"
-                    aria-label="기기 로컬"
-                  >
-                    <CheckCircle2 size={14} strokeWidth={3} />
-                  </span>
-                )}
               </div>
               <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
               {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}

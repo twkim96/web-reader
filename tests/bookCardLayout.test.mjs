@@ -48,18 +48,20 @@ const props = {
   },
 };
 
-const renderCard = (viewMode, catalog = props.catalog) => {
+const renderCard = (viewMode, catalog = props.catalog, overrides = {}) => {
   const html = renderToStaticMarkup(React.createElement(BookCard, {
     ...props,
+    ...overrides,
     catalog,
     viewMode,
   }));
   return parseHTML(html).document;
 };
 
-const renderCardWithCover = (viewMode, catalog = props.catalog) => {
+const renderCardWithCover = (viewMode, catalog = props.catalog, overrides = {}) => {
   const html = renderToStaticMarkup(React.createElement(BookCard, {
     ...props,
+    ...overrides,
     catalog,
     viewMode,
     coverUrl: 'blob:https://reader.test/cached-cover',
@@ -111,14 +113,14 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(gridFrame.className, /sm:h-40/);
   const gridTitle = gridCard.querySelector('[data-shelf-grid-cover-title="true"]');
   const gridMeta = gridCard.querySelector('[data-shelf-grid-meta="true"]');
-  const gridLocal = gridCard.querySelector('[data-shelf-grid-local="true"]');
+  const gridLocalTag = gridCard.querySelector('[data-shelf-local-tag="true"]');
   const gridTags = gridCard.querySelector('[data-shelf-grid-cover-tags="true"]');
   const gridTagSlot = gridCard.querySelector('[data-shelf-grid-cover-tag-slot="true"]');
   const gridProgress = gridCard.querySelector('[data-shelf-grid-progress-block="true"]');
   const gridCardRoot = gridCard.querySelector('[data-shelf-book-card="true"]');
   assert.ok(gridTitle);
   assert.ok(gridMeta);
-  assert.ok(gridLocal);
+  assert.ok(gridLocalTag);
   assert.ok(gridTags);
   assert.ok(gridTagSlot);
   assert.ok(gridProgress);
@@ -126,7 +128,9 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(gridTitle.className, /line-clamp-3/);
   assert.match(gridTitle.className, /sm:text-xl/);
   assert.match(gridMeta.className, /mt-4/);
-  assert.equal(gridLocal.getAttribute('aria-label'), '기기 로컬');
+  assert.equal(gridLocalTag.textContent, '로컬');
+  assert.match(gridLocalTag.className, /bg-green-500\/15/);
+  assert.match(gridLocalTag.className, /text-green-500/);
   assert.match(gridTags.className, /max-h-9/);
   assert.match(gridTags.className, /overflow-hidden/);
   assert.doesNotMatch(gridTagSlot.className, /flex-1/);
@@ -144,21 +148,21 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(progressDelete.className, /p-0/);
 });
 
-test('gives list titles the flexible column and keeps local, format, and progress compact on the right', () => {
+test('gives list titles the flexible column and keeps format and progress compact on the right', () => {
   const document = renderCard('list');
   const card = document.querySelector('[data-shelf-book-card="true"]');
-  const local = document.querySelector('[data-shelf-list-local="true"]');
+  const localTag = document.querySelector('[data-shelf-local-tag="true"]');
   const format = document.querySelector('[data-shelf-list-format="true"]');
   const progress = document.querySelector('[data-shelf-list-progress="true"]');
 
   assert.ok(card);
-  assert.ok(local);
+  assert.ok(localTag);
   assert.ok(format);
   assert.ok(progress);
-  assert.match(card.className, /sm:grid-cols-\[3rem_minmax\(0,1fr\)_2\.5rem_4rem_10rem\]/);
-  assert.equal(local.getAttribute('aria-label'), '기기 로컬');
+  assert.equal(document.querySelector('[data-shelf-list-local="true"]'), null);
+  assert.match(card.className, /sm:grid-cols-\[3rem_minmax\(0,1fr\)_4rem_10rem\]/);
+  assert.equal(localTag.textContent, '로컬');
   assert.match(format.textContent, /EPUB/);
-  assert.equal(local.nextElementSibling, format);
   assert.equal(format.nextElementSibling, progress);
 });
 
@@ -206,7 +210,7 @@ test('orders list title, tags, and time while reserving a centered no-tag state'
   assert.match(transition.className, /grid-rows-\[1fr\]/);
   assert.match(transition.className, /duration-300/);
 
-  const withoutTags = renderCard('list', null);
+  const withoutTags = renderCard('list', null, { isDownloaded: false });
   const emptyGroup = withoutTags.querySelector('[data-shelf-title-tag-group="true"]');
   const emptyTransition = withoutTags.querySelector('[data-shelf-tag-transition="true"]');
   assert.ok(emptyGroup);
@@ -248,10 +252,10 @@ test('offers metadata requests only when tags, genre, and source counts are all 
   }, 'ready'), false);
 });
 
-test('limits shelf list tags to five and reports the remainder', () => {
+test('limits shelf list chips to ten including local and genre and reports the remainder', () => {
   const catalog = {
     ...props.catalog,
-    tags: Array.from({ length: 7 }, (_, index) => ({
+    tags: Array.from({ length: 12 }, (_, index) => ({
       id: index + 1,
       label: `태그${index + 1}`,
       titleCount: 100 - index,
@@ -261,10 +265,12 @@ test('limits shelf list tags to five and reports the remainder', () => {
   const document = renderCard('list', catalog);
   const tags = document.querySelector('[data-shelf-book-tags="true"]');
   assert.ok(tags);
+  assert.match(tags.textContent, /^로컬판타지/);
   assert.match(tags.textContent, /태그1/);
-  assert.match(tags.textContent, /태그5/);
-  assert.doesNotMatch(tags.textContent, /태그6|태그7/);
-  assert.match(tags.textContent, /\+2/);
+  assert.match(tags.textContent, /태그8/);
+  assert.doesNotMatch(tags.textContent, /태그9|태그10|태그11|태그12/);
+  assert.match(tags.textContent, /\+4/);
+  assert.equal(tags.querySelectorAll('span:not([data-shelf-tag-measure-remaining])').length, 11);
   assert.match(tags.className, /flex-nowrap/);
   assert.match(tags.className, /overflow-hidden/);
 });
@@ -283,6 +289,15 @@ test('fits mobile shelf tags and the remainder into the measured row', () => {
     tagWidths: [40, 52, 44, 50, 48],
     remainderWidths: new Map([[1, 18], [2, 18], [3, 18], [4, 18], [5, 18]]),
     gap: 4,
+  }), 3);
+  assert.equal(getFittingShelfTagCount({
+    availableWidth: 260,
+    localWidth: 30,
+    genreWidth: 48,
+    tagWidths: [40, 52, 44, 50, 48],
+    remainderWidths: new Map([[1, 18], [2, 18], [3, 18], [4, 18], [5, 18]]),
+    gap: 4,
+    maxTagCount: 4,
   }), 3);
 });
 
@@ -303,6 +318,7 @@ test('shows every shelf grid tag in a two-row clipped viewport', () => {
   assert.ok(tagViewport);
   assert.match(tagViewport.className, /max-h-9/);
   assert.match(tagViewport.className, /overflow-hidden/);
+  assert.match(tags.textContent, /^로컬판타지/);
   assert.match(tags.textContent, /태그1/);
   assert.match(tags.textContent, /태그2.*태그3.*태그4.*태그5.*태그6.*태그7/);
   assert.doesNotMatch(tags.textContent, /\+\d/);
