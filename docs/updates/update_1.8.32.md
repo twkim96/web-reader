@@ -45,7 +45,7 @@
 - 리더 진행률·검색·책갈피·TTS 동작 변경
 - 독서 테마와 커스텀 테마 데이터 구조 변경
 - 저장값 schema version 또는 일회성 migration
-- Google 로그인 버튼을 제외한 외부 아이콘·이미지·스크립트 반입
+- 외부 아이콘·이미지·스크립트 반입
 
 ## Phase 1 — 설정 계약 확장
 
@@ -226,17 +226,21 @@
 - Google 로그인 시작 실패와 로그인 사용자의 로그아웃 완료 뒤에도 별도 인증 화면으로 이동하지 않고 guest 책장으로 복구한다.
 - 빈 책장 액션의 기존 `240px` 폭·세로 padding·`11px` 글자 크기는 유지하고 곡률만 pill에서 `16px`로 낮춘다.
 - 빈 책장 전체 패널 곡률은 `56px`에서 `32px`, grid 도서 카드 곡률은 `40px`에서 `24px`로 낮춘다. list 도서 행은 변경하지 않는다.
-- 빈 책장, 책장 제목 옆, PC top dock, 모바일 header의 guest 로그인 버튼은 Google Identity 공식 Android + Web 1x Light square asset을 사용한다.
-  - 표준색 Google `G`, 흰 배경, 테두리, 40×40 비율을 변형하지 않는다.
-  - 외부 요청 없이 오프라인에서도 보이도록 공식 asset을 앱 번들에 포함한다.
-  - 빈 책장 문구는 공식 권장 CTA인 `Google 계정으로 로그인`으로 표시한다.
+- guest 로그인 진입은 기존 열쇠 아이콘과 문구를 유지하고, 클릭하면 Firebase 리디렉션 전에 `개인정보 처리방침` 모달을 표시한다.
+  - Firebase 인증에서 제공될 수 있는 계정 정보와 앱이 Firestore에 동기화하는 독서 데이터를 고지한다.
+  - Google Drive는 로그인과 별도의 선택 권한이며 읽기·앱 생성 파일 관리·숨겨진 앱 데이터의 실제 용도와 토큰 보관 범위를 고지한다.
+  - 모달 상단의 `Sign in with Google` 버튼만 Firebase 로그인을 시작하고, Firebase·Drive 개인정보 고지는 그 아래의 작은 안내문으로 배치한다. 취소·닫기·바깥 클릭·Escape는 guest 책장을 유지한다.
+- Firebase 리디렉션을 시작하기 전에 guest owner와 저장값을 지우거나 화면을 `loading`으로 바꾸지 않는다. Google 화면에서 취소·오류로 돌아오면 저장된 guest 상태 또는 비로그인 bootstrap으로 책장을 복구한다.
 
 ### Phase 12 완료 조건
 
 - `isGuest` 저장값이 없는 비로그인 브라우저를 reload해도 `data-app-view="shelf"`이며 guest 저장값이 생성되고 인증 landing 문구가 없다.
 - 빈 책장 세 액션의 computed width·height·font-size는 기존과 같고 border radius는 모두 `16px`다.
 - 빈 책장 패널은 `32px`, grid 도서 카드는 `24px`이며 list 모드는 기존 구조를 유지한다.
-- 빈 책장과 모바일·PC 책장 로그인 진입에 원본 및 렌더링 크기 `40×40`인 Google 공식 asset이 표시된다.
+- 빈 책장·책장 제목 옆·PC top dock·모바일 header의 로그인 진입은 기존 열쇠 아이콘이며 Google 이미지 asset이 없다.
+- 모든 guest 로그인 진입에서 개인정보 모달이 열리고 Firebase·Drive 처리 범위와 `Sign in with Google`이 표시된다.
+- 모달을 취소한 뒤 `data-app-view="shelf"`가 유지되며 로그인 취소 후 무한 `Loading Library...` 상태로 남지 않는다.
+- Firebase 리디렉션 호출 전에는 guest 저장값·owner·책장 view를 유지하고, 리디렉션 시작 실패는 guest 책장 복구 경로로 들어간다.
 
 ## 자동검증 계획
 
@@ -283,7 +287,8 @@
 - 리더 종료 X는 하단 메뉴와 같은 본문 우측 inset에 맞추고, 제목 계산에는 기존 12px 기준선을 별도로 보존했다.
 - 비로그인 최초 진입과 로그아웃 뒤에는 별도 인증 landing 대신 로컬 guest 책장을 바로 열도록 인증 bootstrap을 단순화했다.
 - 빈 책장 버튼·전체 패널·grid 카드 곡률을 각각 16px·32px·24px로 낮추고 기존 크기와 list 행은 보존했다.
-- Google 로그인 진입의 열쇠 아이콘을 공식 40×40 Google Identity asset으로 교체하고 빈 책장 CTA를 `Google 계정으로 로그인`으로 맞췄다.
+- Google 로그인 진입은 기존 열쇠 아이콘으로 되돌리고 Firebase·Drive 개인정보 처리 범위를 설명하는 사전 안내 모달을 추가했다.
+- 실제 Firebase 리디렉션 전 guest owner 삭제와 `loading` 전환을 제거해 Google 로그인 취소 뒤 무한 로딩을 막았다.
 - app, service worker, Foliate runtime cache 버전을 `1.8.32`로 맞췄다.
 
 ## 자동검증 결과
@@ -296,7 +301,9 @@
   - 표준·글래스·모던을 차례로 선택해 각 카드에 동일한 2px 선택 박스와 체크 표시가 하나만 생기는지 확인
   - Midnight, 테마색 빈 책장 액션, 기존 240px 버튼 폭·11px 글자 크기, 샘플 EPUB 설치·표지·열기, service worker `pc-reader-v1.8.32` 확인
   - 저장된 guest 상태가 없는 비로그인 최초 진입에서 인증 landing 없이 guest 책장 직접 진입과 guest 상태 저장 확인
-  - 빈 책장 액션 16px·전체 패널 32px·grid 카드 24px 곡률과 액션 크기 보존, Google 공식 로그인 asset 40×40 확인
+  - 빈 책장 액션 16px·전체 패널 32px·grid 카드 24px 곡률과 액션 크기 보존 확인
+  - 기존 열쇠 아이콘 유지, 상단 `Sign in with Google`과 하단 10px Firebase·Drive 개인정보 고지, 모달 취소 뒤 guest 책장과 scroll lock 복구 확인
+  - Firebase 리디렉션 전 guest 저장값·owner·책장 view 보존과 리디렉션 시작 실패 guest 복구를 source contract로 확인
   - 샘플 첫 장 20문단·1,000자 이상, 실제 scroll flow, 기본 본문 20px, 바깥 reader surface 메뉴 호출 확인
   - 독서 통계에서 허용한 네 역할 밖의 accent 요소 0개, 공유와 MD/JSON/진단의 중립 버튼 계층 확인
   - 도서 정보·테마 설정·리더 설정·독서 통계·라이브러리 주석·책장 정렬필터 헤더 아이콘과 1px 구분선 확인

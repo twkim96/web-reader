@@ -68,6 +68,7 @@ import {
   shouldShowSyncReviewBadge,
 } from '../lib/syncConflictPresentation';
 import { runLogoutFlow } from '../lib/logoutFlow';
+import { LoginDisclosureModal } from '../components/LoginDisclosureModal';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -103,6 +104,7 @@ export default function Page() {
   const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+  const [loginDisclosureOpen, setLoginDisclosureOpen] = useState(false);
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [annotationSyncHealth, setAnnotationSyncHealth] = useState<SyncHealth>('healthy');
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
@@ -436,7 +438,7 @@ export default function Page() {
 
   const handleConnect = () => {
     if (isGuest || !user) {
-      handleLoginTrigger();
+      setLoginDisclosureOpen(true);
       return;
     }
 
@@ -450,15 +452,8 @@ export default function Page() {
   };
 
   const handleLoginTrigger = () => {
-    ownerRuntime.clear();
-    resetLibraryState();
-    setActiveBook(null);
+    setLoginDisclosureOpen(false);
     setAuthErrorMessage(null);
-    setIsGuest(false);
-    isGuestRef.current = false;
-    localStorage.removeItem('isGuest');
-
-    setView('loading');
 
     signInWithRedirect(auth, googleProvider).catch((error) => {
       console.error('[Auth] Google redirect failed:', error);
@@ -716,7 +711,7 @@ export default function Page() {
           onRefresh={() => !isOfflineMode && googleToken && loadLibraryFromDrive(googleToken)}
           onOpen={handleOpenBook}
           onLogout={handleLogout}
-          onLogin={handleLoginTrigger}
+          onLogin={() => setLoginDisclosureOpen(true)}
           userEmail={user?.email || "Guest User"}
           isOfflineMode={isOfflineMode}
           isGuest={isGuest}
@@ -843,6 +838,14 @@ export default function Page() {
           theme={theme}
           onConfirm={executePendingAction}
           onCancel={() => setPendingAction(null)}
+        />
+      )}
+
+      {loginDisclosureOpen && (
+        <LoginDisclosureModal
+          theme={theme}
+          onClose={() => setLoginDisclosureOpen(false)}
+          onSignIn={handleLoginTrigger}
         />
       )}
 

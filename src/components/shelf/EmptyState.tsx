@@ -1,7 +1,6 @@
 import React from 'react';
-import { XCircle, WifiOff, FolderPlus, Library, FilePlus, BookOpen } from 'lucide-react';
+import { XCircle, WifiOff, FolderPlus, Library, FilePlus, KeyRound, BookOpen } from 'lucide-react';
 import { ThemeClasses } from '../../types';
-import { GoogleSignInIcon } from '../GoogleSignInIcon';
 
 interface EmptyStateProps {
   searchKeyword: string;
@@ -32,7 +31,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   isAddingSampleBook,
   sampleBookFeedback,
 }) => {
-  const actionClass = 'relative w-full max-w-[240px] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:brightness-110 disabled:cursor-wait disabled:opacity-55 disabled:active:scale-100';
+  const actionClass = 'w-full max-w-[240px] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:brightness-110 disabled:cursor-wait disabled:opacity-55 disabled:active:scale-100';
   const softActionStyle = {
     backgroundColor: 'var(--viewer-theme-action-soft)',
     color: 'var(--viewer-theme-text)',
@@ -108,8 +107,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                       className={actionClass}
                       style={themeActionStyle}
                     >
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2"><GoogleSignInIcon /></span>
-                      <span>Google 계정으로 로그인</span>
+                      <KeyRound size={16} />
+                      <span>Google 계정 연동하기</span>
                     </button>
                   )}
                   <button

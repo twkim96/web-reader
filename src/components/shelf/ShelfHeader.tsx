@@ -3,6 +3,7 @@ import {
   Library, 
   Search, 
   LogOut,
+  KeyRound,
   HardDrive,
   WifiOff,
   User as UserIcon,
@@ -19,7 +20,6 @@ import {
 import type { CloudSyncStatus } from './FileUploader';
 import type { ShelfSortMode } from './bookUtils';
 import type { ShelfDockStyle } from '../../types';
-import { GoogleSignInIcon } from '../GoogleSignInIcon';
 
 interface ShelfHeaderProps {
   shelfContentRef: React.RefObject<HTMLElement | null>;
@@ -265,11 +265,10 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             data-shelf-auth-control="true"
             onClick={() => runAction(isGuest ? onLogin : onLogout)}
             className={isGuest ? accentButtonClass : `${buttonClass} text-red-400`}
-            style={isGuest ? { opacity: 1 } : undefined}
             title={isGuest ? "Sign In" : "Sign Out"}
             aria-label={isGuest ? "Sign In" : "Sign Out"}
           >
-            {isGuest ? <GoogleSignInIcon /> : <LogOut size={iconSize} />}
+            {isGuest ? <KeyRound size={iconSize} /> : <LogOut size={iconSize} />}
           </button>
         )}
       </>
@@ -299,17 +298,15 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           <div className={`flex h-full min-w-0 flex-1 items-center gap-3 md:gap-4 ${brandSurfaceClass}`}>
             <button
               onClick={isGuest ? onLogin : onToggleCloud}
-              className={`relative shrink-0 rounded-2xl shadow-lg transition-all active:scale-90 group ${
-                isGuest
-                  ? 'bg-transparent p-1 shadow-none'
-                  : isOfflineMode
-                  ? 'bg-slate-700 p-3 shadow-none hover:bg-slate-600'
-                  : 'bg-accent-600 p-3 shadow-accent-500/20 hover:bg-accent-500'
+              className={`relative shrink-0 rounded-2xl p-3 shadow-lg transition-all active:scale-90 group ${
+                isOfflineMode
+                  ? 'bg-slate-700 shadow-none hover:bg-slate-600'
+                  : 'bg-accent-600 shadow-accent-500/20 hover:bg-accent-500'
               }`}
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
               {isGuest ? (
-                <GoogleSignInIcon />
+                <KeyRound className="text-white group-hover:text-accent-300 transition-colors" size={24} />
               ) : isOfflineMode ? (
                 <WifiOff className="text-white group-hover:text-accent-300 transition-colors" size={24} />
               ) : (
@@ -353,12 +350,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               data-shelf-auth-control="true"
               onClick={isGuest ? onLogin : onLogout}
               className={`${mobileHeaderButtonClass} ${isGuest ? 'text-accent-500' : 'text-red-400'}`}
-              style={isGuest ? { opacity: 1 } : undefined}
               title={isGuest ? "Sign In" : "Sign Out"}
               aria-label={isGuest ? "Sign In" : "Sign Out"}
             >
               {isGuest
-                ? <GoogleSignInIcon />
+                ? <KeyRound size={mobileHeaderIconSize} />
                 : <LogOut size={mobileHeaderIconSize} />}
             </button>
           </div>

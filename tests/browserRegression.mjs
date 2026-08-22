@@ -264,9 +264,6 @@ try {
       };
     };
     const panel = document.querySelector('[data-empty-shelf-panel="true"]');
-    const googleBrandIcon = document.querySelector(
-      '[data-empty-shelf-action="google"] [data-google-sign-in-icon="true"]'
-    );
     return {
       import: inspect('import'),
       google: inspect('google'),
@@ -279,12 +276,6 @@ try {
         return heading ? getComputedStyle(heading).fontStyle : '';
       })(),
       panelBorderRadius: panel ? getComputedStyle(panel).borderRadius : '',
-      googleBrandIcon: googleBrandIcon ? {
-        width: googleBrandIcon.getBoundingClientRect().width,
-        height: googleBrandIcon.getBoundingClientRect().height,
-        naturalWidth: googleBrandIcon.naturalWidth,
-        naturalHeight: googleBrandIcon.naturalHeight,
-      } : null,
       accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-600').trim(),
     };
   })()`);
@@ -300,15 +291,51 @@ try {
     assert.equal(action.borderRadius, '16px', JSON.stringify(emptyShelfActions));
   }
   assert.equal(emptyShelfActions.panelBorderRadius, '32px', JSON.stringify(emptyShelfActions));
-  assert.deepEqual(emptyShelfActions.googleBrandIcon, {
-    width: 40,
-    height: 40,
-    naturalWidth: 40,
-    naturalHeight: 40,
-  }, JSON.stringify(emptyShelfActions));
   assert.notEqual(emptyShelfActions.import.backgroundColor, emptyShelfActions.accent, JSON.stringify(emptyShelfActions));
   assert.equal(emptyShelfActions.heading, 'LIBRARY EMPTY', JSON.stringify(emptyShelfActions));
   assert.equal(emptyShelfActions.headingFontStyle, 'normal', JSON.stringify(emptyShelfActions));
+
+  await evaluate(`document.querySelector('[data-empty-shelf-action="google"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-login-disclosure-modal="true"]\'))',
+    'login privacy disclosure modal',
+  );
+  const loginDisclosure = await evaluate(`(() => {
+    const modal = document.querySelector('[data-login-disclosure-modal="true"]');
+    const confirm = modal?.querySelector('[data-login-disclosure-confirm="true"]');
+    const notice = modal?.querySelector('[data-login-disclosure-notice="true"]');
+    return {
+      text: modal?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+      confirmLabel: confirm?.textContent?.trim() ?? '',
+      confirmTop: confirm?.getBoundingClientRect().top ?? 0,
+      noticeTop: notice?.getBoundingClientRect().top ?? 0,
+      noticeFontSize: notice ? getComputedStyle(notice.querySelector('li')).fontSize : '',
+      hasGoogleBrandImage: Boolean(modal?.querySelector('[data-google-sign-in-icon="true"]')),
+      appView: document.querySelector('[data-app-view]')?.getAttribute('data-app-view') ?? '',
+      bodyPosition: document.body.style.position,
+    };
+  })()`);
+  assert.match(loginDisclosure.text, /개인정보 처리방침/);
+  assert.match(loginDisclosure.text, /Firebase 계정 로그인/);
+  assert.match(loginDisclosure.text, /고유 식별자/);
+  assert.match(loginDisclosure.text, /독서 진행률·책갈피·주석·독서 통계/);
+  assert.match(loginDisclosure.text, /Google Drive 연결 \(선택\)/);
+  assert.match(loginDisclosure.text, /현재 탭의 세션 저장소와 메모리/);
+  assert.equal(loginDisclosure.confirmLabel, 'Sign in with Google', JSON.stringify(loginDisclosure));
+  assert.ok(loginDisclosure.confirmTop < loginDisclosure.noticeTop, JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.noticeFontSize, '10px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.hasGoogleBrandImage, false, JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.appView, 'shelf', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
+  await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
+  await waitFor(
+    '!document.querySelector(\'[data-login-disclosure-modal="true"]\')',
+    'login privacy disclosure cancel',
+  );
+  assert.equal(
+    await evaluate(`document.querySelector('[data-app-view]')?.getAttribute('data-app-view')`),
+    'shelf',
+  );
 
   await evaluate(`document.querySelector('[data-empty-shelf-action="sample"]')?.click()`);
   await waitFor(
@@ -1050,7 +1077,6 @@ try {
     const filterButton = mobileControls?.querySelector('[data-shelf-filter-control="true"]');
     const viewButton = mobileControls?.querySelector('[data-shelf-view-control="true"]');
     const authButton = document.querySelector('header [data-shelf-auth-control="true"]');
-    const authBrandIcon = authButton?.querySelector('[data-google-sign-in-icon="true"]');
     const bottomDock = document.querySelector('[data-shelf-bottom-dock="true"]');
     const rect = (node) => {
       const value = node?.getBoundingClientRect();
@@ -1074,12 +1100,6 @@ try {
       filterRect: rect(filterButton),
       viewRect: rect(viewButton),
       authRect: rect(authButton),
-      authBrandIcon: authBrandIcon ? {
-        width: authBrandIcon.getBoundingClientRect().width,
-        height: authBrandIcon.getBoundingClientRect().height,
-        naturalWidth: authBrandIcon.naturalWidth,
-        naturalHeight: authBrandIcon.naturalHeight,
-      } : null,
       viewportWidth: innerWidth,
     };
   })()`);
@@ -1099,12 +1119,6 @@ try {
     JSON.stringify(mobileShelfControls),
   );
   assert.equal(mobileShelfControls.horizontalOverflow, 0, JSON.stringify(mobileShelfControls));
-  assert.deepEqual(mobileShelfControls.authBrandIcon, {
-    width: 40,
-    height: 40,
-    naturalWidth: 40,
-    naturalHeight: 40,
-  }, JSON.stringify(mobileShelfControls));
   assert.ok(
     mobileShelfControls.filterRect?.right <= mobileShelfControls.viewRect?.left
       && mobileShelfControls.viewRect?.right <= mobileShelfControls.viewportWidth

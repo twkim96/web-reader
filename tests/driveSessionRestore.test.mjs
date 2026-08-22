@@ -20,3 +20,18 @@ test('restores only the current-tab Drive session and reloads its library', asyn
     authenticatedDriveGate < authHook.indexOf('setIsOfflineMode(true)', authenticatedDriveGate),
   );
 });
+
+test('keeps the guest shelf active while Firebase redirects so login cancellation can recover', async () => {
+  const page = await readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  const loginHandler = page.match(
+    /const handleLoginTrigger = \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1] ?? '';
+
+  assert.match(loginHandler, /setLoginDisclosureOpen\(false\)/);
+  assert.match(loginHandler, /signInWithRedirect\(auth, googleProvider\)/);
+  assert.match(loginHandler, /void enterGuestShelf\(\)/);
+  assert.doesNotMatch(loginHandler, /setView\(['"]loading['"]\)/);
+  assert.doesNotMatch(loginHandler, /localStorage\.removeItem\(['"]isGuest['"]\)/);
+  assert.doesNotMatch(loginHandler, /ownerRuntime\.clear\(\)/);
+  assert.doesNotMatch(loginHandler, /resetLibraryState\(\)/);
+});
