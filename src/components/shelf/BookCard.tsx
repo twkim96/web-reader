@@ -414,7 +414,7 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`group relative flex select-none flex-col ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
+      className={`group relative flex select-none flex-col ${theme.secondary} border ${theme.border} rounded-3xl p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
     >
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <div data-shelf-grid-cover-content="true" className="flex min-h-0 flex-col">

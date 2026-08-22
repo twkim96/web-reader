@@ -143,4 +143,4 @@ export interface SaveProgressOptions {
   suppressLastReaderSession?: boolean;
 }
 
-export type ViewState = 'loading' | 'auth' | 'shelf' | 'reader';
+export type ViewState = 'loading' | 'shelf' | 'reader';

@@ -1,6 +1,7 @@
 import React from 'react';
-import { XCircle, WifiOff, FolderPlus, Library, FilePlus, KeyRound, BookOpen } from 'lucide-react';
+import { XCircle, WifiOff, FolderPlus, Library, FilePlus, BookOpen } from 'lucide-react';
 import { ThemeClasses } from '../../types';
+import { GoogleSignInIcon } from '../GoogleSignInIcon';
 
 interface EmptyStateProps {
   searchKeyword: string;
@@ -31,7 +32,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   isAddingSampleBook,
   sampleBookFeedback,
 }) => {
-  const actionClass = 'w-full max-w-[240px] py-4 rounded-full font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:brightness-110 disabled:cursor-wait disabled:opacity-55 disabled:active:scale-100';
+  const actionClass = 'relative w-full max-w-[240px] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:brightness-110 disabled:cursor-wait disabled:opacity-55 disabled:active:scale-100';
   const softActionStyle = {
     backgroundColor: 'var(--viewer-theme-action-soft)',
     color: 'var(--viewer-theme-text)',
@@ -50,7 +51,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   };
 
   return (
-    <div className={`flex flex-col items-center justify-center py-32 text-center space-y-8 ${theme.secondary} rounded-[3.5rem] border ${theme.border} backdrop-blur-sm`}>
+    <div data-empty-shelf-panel="true" className={`flex flex-col items-center justify-center py-32 text-center space-y-8 ${theme.secondary} rounded-[2rem] border ${theme.border} backdrop-blur-sm`}>
       {searchKeyword ? (
         <>
           <div className={`p-8 ${theme.secondary} rounded-[2rem] opacity-60`}>
@@ -107,8 +108,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                       className={actionClass}
                       style={themeActionStyle}
                     >
-                      <KeyRound size={16} />
-                      <span>Google 계정 연동하기</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2"><GoogleSignInIcon /></span>
+                      <span>Google 계정으로 로그인</span>
                     </button>
                   )}
                   <button

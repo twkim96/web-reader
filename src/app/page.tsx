@@ -22,7 +22,6 @@ import {
 import { removeBookAndAnnotationsV8, removeBookFromLocalV5 } from '../lib/localDBV5';
 import { deleteBookInSafeOrder } from '../lib/bookDeletion';
 import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
-import { AuthLanding } from '../components/AuthScreens';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
 import { useDriveOAuthRedirect } from '../hooks/useDriveOAuthRedirect';
@@ -370,7 +369,7 @@ export default function Page() {
   });
 
 
-  const handleGuestMode = async () => {
+  const enterGuestShelf = useCallback(async () => {
     ownerRuntime.activate(makeOwnerKey(
       makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)),
       'library:local',
@@ -386,7 +385,7 @@ export default function Page() {
     clearToken();
     await restoreLocalData({ replaceBooks: true }); // 게스트 모드는 로컬 책장만 표시
     setView('shelf');
-  };
+  }, [clearToken, resetLibraryState, restoreLocalData]);
 
   const handleLocalMode = async () => {
     setView('loading');
@@ -467,7 +466,7 @@ export default function Page() {
       setAuthErrorMessage(
         'Google 로그인을 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.'
       );
-      setView('auth');
+      void enterGuestShelf();
     });
   };
 
@@ -496,9 +495,7 @@ export default function Page() {
           clearToken();
           clearLastReaderSession();
           setBooks([]);
-          setUser(null);
-          setIsGuest(false);
-          setView('auth');
+          void enterGuestShelf();
         },
         recoverUi: (error) => {
           console.error('[Auth] Sign out failed:', error);
@@ -708,18 +705,7 @@ export default function Page() {
       className={`min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`}
       style={dynamicStyles}
     >
-      {/* 1. 로그인 화면 */}
-      {view === 'auth' && !user && (
-        <AuthLanding
-          theme={theme}
-          onGoogleSignIn={handleLoginTrigger}
-          onGuestMode={handleGuestMode}
-        />
-      )}
-
-      {/* 2. 모드 선택 화면 (제거됨 - 바로 책장으로 이동) */}
-
-      {/* 3. 책장 */}
+      {/* 책장 */}
       {view === 'shelf' && activeOwnerKey && (
         <Shelf
           books={books}

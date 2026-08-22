@@ -37,7 +37,6 @@ export const useAuthBootstrap = ({
 
   useEffect(() => {
     let isActive = true;
-    let authRedirectTimeout: number | undefined;
     let authGeneration = 0;
     let guestRestore: Promise<boolean> | null = null;
     setIsLibraryBootstrapReady(false);
@@ -59,6 +58,13 @@ export const useAuthBootstrap = ({
         if (!isActive || generation !== authGeneration) return;
         console.error('[AuthBootstrap] guest restore failed:', error);
       });
+    };
+
+    const enterGuestLibrary = (generation: number) => {
+      setIsGuest(true);
+      isGuestRef.current = true;
+      localStorage.setItem('isGuest', 'true');
+      activateGuest(generation);
     };
 
     // A remembered guest is entirely local. Do not hold its shelf behind an
@@ -90,40 +96,19 @@ export const useAuthBootstrap = ({
       } else if (isGuestRef.current) {
         activateGuest(callbackGeneration);
       } else {
-        ownerRuntime.clear();
-        resetLibraryState();
+        enterGuestLibrary(callbackGeneration);
       }
       setUser(firebaseUser);
-
-      if (authRedirectTimeout) {
-        window.clearTimeout(authRedirectTimeout);
-        authRedirectTimeout = undefined;
-      }
 
       if (firebaseUser) {
         setIsGuest(false);
         isGuestRef.current = false;
         localStorage.removeItem('isGuest');
-
-      } else if (isGuestRef.current) {
-        // The eager local restore above is shared with this callback. Its
-        // generation check prevents a late guest continuation from winning
-        // after an authenticated owner has taken over.
-      } else {
-        authRedirectTimeout = window.setTimeout(() => {
-          setView((prev) => {
-            if (prev === 'shelf') return prev;
-            return 'auth';
-          });
-        }, 500);
       }
     });
 
     return () => {
       isActive = false;
-      if (authRedirectTimeout) {
-        window.clearTimeout(authRedirectTimeout);
-      }
       unsubscribeAuth();
     };
   }, [

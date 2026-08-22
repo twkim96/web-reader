@@ -45,7 +45,7 @@
 - 리더 진행률·검색·책갈피·TTS 동작 변경
 - 독서 테마와 커스텀 테마 데이터 구조 변경
 - 저장값 schema version 또는 일회성 migration
-- 외부 아이콘·이미지·스크립트 반입
+- Google 로그인 버튼을 제외한 외부 아이콘·이미지·스크립트 반입
 
 ## Phase 1 — 설정 계약 확장
 
@@ -103,7 +103,6 @@
 - `샘플 도서 보기`는 외부 다운로드 없이 퍼블릭 도메인 이솝 우화 「토끼와 거북이」를 로컬 EPUB으로 설치한다.
 - 샘플 EPUB에는 제목·저자·언어·설명·주제·권리 metadata와 전용 표지를 포함하고 동일한 고정 ID로 중복 생성을 막는다.
 - 빈 책장 제목은 모드와 무관하게 정자체 `LIBRARY EMPTY`로 통일한다.
-- 최초 진입 제목은 정자체 `TW READER`로 표시한다.
 - 메뉴 스타일의 표준 설명은 `반투명 유리`로 쓰고, 3개 선택 카드 자체가 각 표면 재질을 미리 보여준다.
 - `#태그` 검색 결과는 전역 metadata 권수가 아닌 현재 책장 권수를 표시한다. 책장에 없는 후보는 metadata 인기순 fallback으로 결과 수만 채우고 `0권`은 표시하지 않는다.
 - 앱/service-worker/Foliate release version은 `1.8.32`를 유지한다.
@@ -114,7 +113,7 @@
 - 빈 책장 버튼의 computed background가 포인트 컬러와 무관하고, 직접 추가는 soft surface이며 Google·샘플은 동일한 테마 배경색이다.
 - 샘플 버튼 한 번으로 로컬 책장에 표지 있는 「토끼와 거북이」 EPUB이 표시되고 열 수 있다.
 - 샘플 EPUB 내부 metadata와 퍼블릭 도메인/CC0 권리 문구를 자동검증한다.
-- 빈 책장과 최초 진입 제목에 italic/transform이 없고 요청한 문구와 일치한다.
+- 빈 책장 제목에 italic/transform이 없고 요청한 문구와 일치한다.
 - 태그 검색에서 책장 권수 후보가 먼저 나오며 0권 fallback에는 숫자가 붙지 않는다.
 - 모바일에서도 메뉴 스타일 선택 카드 3개가 한 줄이고 각각 standard/glass/modern surface를 사용한다.
 
@@ -219,6 +218,26 @@
 - PC에서 리더 종료 X와 하단 메뉴의 오른쪽 끝 차이가 1px 이하다.
 - 제목 위치 계산용 기준선은 기존처럼 화면 오른쪽에서 12px이며 기존 title layout 테스트가 통과한다.
 
+## Phase 12 — 책장 직접 진입·책장 surface 곡률·Google 로그인 브랜딩
+
+상태: 완료
+
+- Firebase 사용자가 없는 최초 진입은 별도 `TW READER / Guest Mode` 화면을 거치지 않고 로컬 guest 책장을 활성화한다.
+- Google 로그인 시작 실패와 로그인 사용자의 로그아웃 완료 뒤에도 별도 인증 화면으로 이동하지 않고 guest 책장으로 복구한다.
+- 빈 책장 액션의 기존 `240px` 폭·세로 padding·`11px` 글자 크기는 유지하고 곡률만 pill에서 `16px`로 낮춘다.
+- 빈 책장 전체 패널 곡률은 `56px`에서 `32px`, grid 도서 카드 곡률은 `40px`에서 `24px`로 낮춘다. list 도서 행은 변경하지 않는다.
+- 빈 책장, 책장 제목 옆, PC top dock, 모바일 header의 guest 로그인 버튼은 Google Identity 공식 Android + Web 1x Light square asset을 사용한다.
+  - 표준색 Google `G`, 흰 배경, 테두리, 40×40 비율을 변형하지 않는다.
+  - 외부 요청 없이 오프라인에서도 보이도록 공식 asset을 앱 번들에 포함한다.
+  - 빈 책장 문구는 공식 권장 CTA인 `Google 계정으로 로그인`으로 표시한다.
+
+### Phase 12 완료 조건
+
+- `isGuest` 저장값이 없는 비로그인 브라우저를 reload해도 `data-app-view="shelf"`이며 guest 저장값이 생성되고 인증 landing 문구가 없다.
+- 빈 책장 세 액션의 computed width·height·font-size는 기존과 같고 border radius는 모두 `16px`다.
+- 빈 책장 패널은 `32px`, grid 도서 카드는 `24px`이며 list 모드는 기존 구조를 유지한다.
+- 빈 책장과 모바일·PC 책장 로그인 진입에 원본 및 렌더링 크기 `40×40`인 Google 공식 asset이 표시된다.
+
 ## 자동검증 계획
 
 - `npm run test:shelf`
@@ -248,7 +267,7 @@
 - 퍼블릭 도메인 이솝 우화를 한국어로 새로 각색한 표지·metadata 포함 로컬 EPUB 설치 경로를 추가했다.
 - 샘플 네 장을 각각 20문단·1,000자 이상으로 확장해 실제 스크롤과 리더 기능을 점검할 수 있게 했다.
 - 좁은 화면에서 `keep-all + justify`가 단어 사이를 늘리던 샘플 CSS를 자연스러운 한국어 줄바꿈으로 교정했다.
-- `LIBRARY EMPTY`, `TW READER`를 정자체로 통일하고 표준 설명을 `반투명 유리`로 변경했다.
+- `LIBRARY EMPTY`를 정자체로 통일하고 표준 설명을 `반투명 유리`로 변경했다.
 - 짧아진 빈 책장 제목에 의해 액션 폭이 줄어들지 않도록 부모를 full-width로 만들고 기존 240px 폭·11px 글자 크기를 보존했다.
 - 메뉴 스타일 카드에는 실제 standard 24px blur, glass 4px blur, modern Muzio surface를 CSS 미리보기로 적용했다.
 - 필터와 검색이 공용 책장 태그 집계를 사용하도록 바꿔 `#태그` 검색 권수와 fallback 표시를 교정했다.
@@ -262,6 +281,9 @@
 - 테마 설정을 책갈피·리더 설정과 같은 중앙 배치와 82dvh 내부 스크롤 패널로 바꿔 모달 상자 전체가 스크롤을 따라 움직이지 않게 했다.
 - 상단 테마 목록을 2열 3행·최대 6개 높이의 독립 스크롤 영역으로 제한해 커스텀 테마가 늘어도 아래 설정과 창 크기가 밀리지 않게 했다.
 - 리더 종료 X는 하단 메뉴와 같은 본문 우측 inset에 맞추고, 제목 계산에는 기존 12px 기준선을 별도로 보존했다.
+- 비로그인 최초 진입과 로그아웃 뒤에는 별도 인증 landing 대신 로컬 guest 책장을 바로 열도록 인증 bootstrap을 단순화했다.
+- 빈 책장 버튼·전체 패널·grid 카드 곡률을 각각 16px·32px·24px로 낮추고 기존 크기와 list 행은 보존했다.
+- Google 로그인 진입의 열쇠 아이콘을 공식 40×40 Google Identity asset으로 교체하고 빈 책장 CTA를 `Google 계정으로 로그인`으로 맞췄다.
 - app, service worker, Foliate runtime cache 버전을 `1.8.32`로 맞췄다.
 
 ## 자동검증 결과
@@ -273,6 +295,8 @@
   - 3종 선택 카드의 한 줄 배치·각 surface, 글래스 20% surface/4px blur/gradient rim, 표준 24px blur, 모던 확인
   - 표준·글래스·모던을 차례로 선택해 각 카드에 동일한 2px 선택 박스와 체크 표시가 하나만 생기는지 확인
   - Midnight, 테마색 빈 책장 액션, 기존 240px 버튼 폭·11px 글자 크기, 샘플 EPUB 설치·표지·열기, service worker `pc-reader-v1.8.32` 확인
+  - 저장된 guest 상태가 없는 비로그인 최초 진입에서 인증 landing 없이 guest 책장 직접 진입과 guest 상태 저장 확인
+  - 빈 책장 액션 16px·전체 패널 32px·grid 카드 24px 곡률과 액션 크기 보존, Google 공식 로그인 asset 40×40 확인
   - 샘플 첫 장 20문단·1,000자 이상, 실제 scroll flow, 기본 본문 20px, 바깥 reader surface 메뉴 호출 확인
   - 독서 통계에서 허용한 네 역할 밖의 accent 요소 0개, 공유와 MD/JSON/진단의 중립 버튼 계층 확인
   - 도서 정보·테마 설정·리더 설정·독서 통계·라이브러리 주석·책장 정렬필터 헤더 아이콘과 1px 구분선 확인
@@ -287,7 +311,7 @@
   - PC: `표준 / 글래스 / 모던`의 top 좌표가 모두 같고 3열 유지
   - 390px: 세 선택지의 top 좌표가 모두 같고 약 97px씩 3열 유지
   - 새 글래스 computed style이 `rgba(20, 21, 23, 0.2)`, `blur(4px)`, 164deg rim과 일치
-  - 최초 진입 `TW READER`와 빈 책장 `LIBRARY EMPTY`가 `font-style: normal`, transform 없음
+  - 빈 책장 `LIBRARY EMPTY`가 `font-style: normal`, transform 없음
   - 390px 빈 책장에서 직접 추가 `rgb(69, 69, 70)`, Google·샘플 `rgb(39, 39, 40)`, 세 버튼 폭 240px, 가로 overflow 0
   - 390px 샘플 첫 장에 viewport를 넘는 세로 스크롤과 20px 본문 표시 확인
   - PC Edge: 오프라인 저장소 제목 `font-style: normal`, 헤더·문서·닫기 아이콘 `rgb(184, 184, 184)`, 리더 설정 간격 20px/12px 확인

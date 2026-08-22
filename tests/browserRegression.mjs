@@ -142,7 +142,9 @@ try {
   await command('Page.addScriptToEvaluateOnNewDocument', {
     source: `(() => {
       try {
-        localStorage.setItem('isGuest', 'true');
+        if (sessionStorage.getItem('browser_regression_skip_guest_bootstrap') !== 'true') {
+          localStorage.setItem('isGuest', 'true');
+        }
         localStorage.setItem('web_reader_guest_install_id', 'browser-regression');
         localStorage.setItem('neverShowInstallPrompt', 'true');
         localStorage.setItem('shelf_viewMode', 'grid');
@@ -214,7 +216,8 @@ try {
   assert.equal(themeBootstrapEarly.rootBackground, 'rgb(39, 39, 40)');
 
   await evaluate(`(() => {
-    localStorage.setItem('isGuest', 'true');
+    sessionStorage.setItem('browser_regression_skip_guest_bootstrap', 'true');
+    localStorage.removeItem('isGuest');
     localStorage.setItem('web_reader_guest_install_id', 'browser-regression');
     localStorage.setItem('neverShowInstallPrompt', 'true');
     localStorage.setItem('shelf_viewMode', 'grid');
@@ -231,6 +234,21 @@ try {
     'empty guest shelf',
   );
 
+  const directGuestEntry = await evaluate(`(() => {
+    sessionStorage.removeItem('browser_regression_skip_guest_bootstrap');
+    return {
+      appView: document.querySelector('[data-app-view]')?.getAttribute('data-app-view') ?? '',
+      storedGuest: localStorage.getItem('isGuest'),
+      hasLandingTitle: [...document.querySelectorAll('h1')]
+        .some((node) => node.textContent?.trim() === 'TW READER'),
+      hasGuestModeAction: document.body.textContent?.includes('Guest Mode (Offline)') ?? false,
+    };
+  })()`);
+  assert.equal(directGuestEntry.appView, 'shelf', JSON.stringify(directGuestEntry));
+  assert.equal(directGuestEntry.storedGuest, 'true', JSON.stringify(directGuestEntry));
+  assert.equal(directGuestEntry.hasLandingTitle, false, JSON.stringify(directGuestEntry));
+  assert.equal(directGuestEntry.hasGuestModeAction, false, JSON.stringify(directGuestEntry));
+
   const emptyShelfActions = await evaluate(`(() => {
     const inspect = (name) => {
       const node = document.querySelector('[data-empty-shelf-action="' + name + '"]');
@@ -242,8 +260,13 @@ try {
         width: node?.getBoundingClientRect().width ?? 0,
         height: node?.getBoundingClientRect().height ?? 0,
         fontSize: style?.fontSize ?? '',
+        borderRadius: style?.borderRadius ?? '',
       };
     };
+    const panel = document.querySelector('[data-empty-shelf-panel="true"]');
+    const googleBrandIcon = document.querySelector(
+      '[data-empty-shelf-action="google"] [data-google-sign-in-icon="true"]'
+    );
     return {
       import: inspect('import'),
       google: inspect('google'),
@@ -255,6 +278,13 @@ try {
           ?.closest('.space-y-4')?.querySelector('h3');
         return heading ? getComputedStyle(heading).fontStyle : '';
       })(),
+      panelBorderRadius: panel ? getComputedStyle(panel).borderRadius : '',
+      googleBrandIcon: googleBrandIcon ? {
+        width: googleBrandIcon.getBoundingClientRect().width,
+        height: googleBrandIcon.getBoundingClientRect().height,
+        naturalWidth: googleBrandIcon.naturalWidth,
+        naturalHeight: googleBrandIcon.naturalHeight,
+      } : null,
       accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-600').trim(),
     };
   })()`);
@@ -267,7 +297,15 @@ try {
     assert.equal(action.width, 240, JSON.stringify(emptyShelfActions));
     assert.equal(action.height, emptyShelfActions.google.height, JSON.stringify(emptyShelfActions));
     assert.equal(action.fontSize, '11px', JSON.stringify(emptyShelfActions));
+    assert.equal(action.borderRadius, '16px', JSON.stringify(emptyShelfActions));
   }
+  assert.equal(emptyShelfActions.panelBorderRadius, '32px', JSON.stringify(emptyShelfActions));
+  assert.deepEqual(emptyShelfActions.googleBrandIcon, {
+    width: 40,
+    height: 40,
+    naturalWidth: 40,
+    naturalHeight: 40,
+  }, JSON.stringify(emptyShelfActions));
   assert.notEqual(emptyShelfActions.import.backgroundColor, emptyShelfActions.accent, JSON.stringify(emptyShelfActions));
   assert.equal(emptyShelfActions.heading, 'LIBRARY EMPTY', JSON.stringify(emptyShelfActions));
   assert.equal(emptyShelfActions.headingFontStyle, 'normal', JSON.stringify(emptyShelfActions));
@@ -462,6 +500,7 @@ try {
   );
 
   const initialShelf = await evaluate(`(() => {
+    const gridCard = document.querySelector('[data-shelf-book-id="book-0001"]');
     const coverFrame = document.querySelector(
       '[data-shelf-book-id="book-0001"] [data-shelf-book-cover-frame="true"]'
     );
@@ -510,6 +549,7 @@ try {
       gridCoverMetaAlignment: coverRect && coveredBottomMeta ? {
         bottomDelta: Math.abs(coverRect.bottom - coveredBottomMeta.bottom),
       } : null,
+      gridCardBorderRadius: gridCard ? getComputedStyle(gridCard).borderRadius : '',
     };
   })()`);
   assert.equal(initialShelf.cardCount, 50);
@@ -518,6 +558,7 @@ try {
   assert.equal(initialShelf.cachedCover, true);
   assert.equal(initialShelf.placeholderCover, true);
   assert.equal(initialShelf.fallbackIcon, false);
+  assert.equal(initialShelf.gridCardBorderRadius, '24px', JSON.stringify(initialShelf));
   assert.deepEqual(initialShelf.coverLayout, {
     width: 112,
     height: 160,
@@ -1009,6 +1050,7 @@ try {
     const filterButton = mobileControls?.querySelector('[data-shelf-filter-control="true"]');
     const viewButton = mobileControls?.querySelector('[data-shelf-view-control="true"]');
     const authButton = document.querySelector('header [data-shelf-auth-control="true"]');
+    const authBrandIcon = authButton?.querySelector('[data-google-sign-in-icon="true"]');
     const bottomDock = document.querySelector('[data-shelf-bottom-dock="true"]');
     const rect = (node) => {
       const value = node?.getBoundingClientRect();
@@ -1032,6 +1074,12 @@ try {
       filterRect: rect(filterButton),
       viewRect: rect(viewButton),
       authRect: rect(authButton),
+      authBrandIcon: authBrandIcon ? {
+        width: authBrandIcon.getBoundingClientRect().width,
+        height: authBrandIcon.getBoundingClientRect().height,
+        naturalWidth: authBrandIcon.naturalWidth,
+        naturalHeight: authBrandIcon.naturalHeight,
+      } : null,
       viewportWidth: innerWidth,
     };
   })()`);
@@ -1051,6 +1099,12 @@ try {
     JSON.stringify(mobileShelfControls),
   );
   assert.equal(mobileShelfControls.horizontalOverflow, 0, JSON.stringify(mobileShelfControls));
+  assert.deepEqual(mobileShelfControls.authBrandIcon, {
+    width: 40,
+    height: 40,
+    naturalWidth: 40,
+    naturalHeight: 40,
+  }, JSON.stringify(mobileShelfControls));
   assert.ok(
     mobileShelfControls.filterRect?.right <= mobileShelfControls.viewRect?.left
       && mobileShelfControls.viewRect?.right <= mobileShelfControls.viewportWidth
