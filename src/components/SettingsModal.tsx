@@ -179,9 +179,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">
+      <div
+        data-reader-settings-content="true"
+        className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-5 sm:px-6 sm:pb-6"
+      >
         <div className="space-y-5">
-          <div>
+          <div data-reader-settings-navigation="true">
             <label className={labelStyle}>Navigation Mode</label>
             <div className="flex flex-wrap items-center justify-start gap-2 pt-1.5">
               {navOptions.map(opt => (
@@ -276,9 +279,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div className="w-full h-px bg-black/10 dark:bg-white/10" />
 
-          {!isFixedLayout && (
-            <>
-              <label className="flex items-center justify-between gap-4 rounded-xl py-1 text-left">
+          <div data-reader-settings-toggle-group="true" className="space-y-3">
+            {!isFixedLayout && (
+              <label
+                data-reader-settings-landscape-two-page="true"
+                className="flex items-center justify-between gap-4 rounded-xl py-1 text-left"
+              >
                 <span className="min-w-0">
                   <span className="block text-[11px] font-bold leading-snug">
                     가로 모드 2페이지 보기
@@ -297,22 +303,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="h-4 w-4 shrink-0 accent-accent-600"
                 />
               </label>
+            )}
 
-              <div className="w-full h-px bg-black/10 dark:bg-white/10" />
-            </>
-          )}
-
-          <label className="flex items-center justify-between gap-4 rounded-xl py-1 text-left">
-            <span className="text-[11px] font-bold leading-snug">
-              마지막으로 읽던 책 자동 열기
-            </span>
-            <input
-              type="checkbox"
-              checked={settings.autoOpenLastBook}
-              onChange={(event) => onUpdateSettings({ autoOpenLastBook: event.target.checked })}
-              className="h-4 w-4 shrink-0 accent-accent-600"
-            />
-          </label>
+            <label
+              data-reader-settings-auto-open="true"
+              className="flex items-center justify-between gap-4 rounded-xl py-1 text-left"
+            >
+              <span className="text-[11px] font-bold leading-snug">
+                마지막으로 읽던 책 자동 열기
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.autoOpenLastBook}
+                onChange={(event) => onUpdateSettings({ autoOpenLastBook: event.target.checked })}
+                className="h-4 w-4 shrink-0 accent-accent-600"
+              />
+            </label>
+          </div>
 
           {!isFixedLayout && (
             <div className={`overflow-hidden rounded-2xl border ${theme.border}`}>

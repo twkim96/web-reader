@@ -63,14 +63,27 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
         className={`w-full max-w-md ${theme.bg} ${theme.text} rounded-[2rem] shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] transition-colors duration-300`}
         onClick={e => e.stopPropagation()}
       >
-        <div className={`p-6 border-b ${theme.border} flex items-center justify-between ${theme.secondary} opacity-90 transition-colors duration-300`}>
+        <div
+          data-modal-header="offline-storage"
+          className={`flex items-center justify-between border-b ${theme.border} p-6 transition-colors duration-300`}
+        >
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-accent-600 rounded-xl">
-              <HardDrive size={20} className="text-white" />
+            <div
+              data-modal-header-icon="offline-storage"
+              className={`flex size-10 items-center justify-center rounded-xl ${theme.secondary}`}
+            >
+              <HardDrive size={20} aria-hidden="true" />
             </div>
-            <h2 className="font-black text-lg uppercase italic tracking-tight">Offline Storage</h2>
+            <h2 className="text-lg font-black uppercase tracking-tight">Offline Storage</h2>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="오프라인 저장소 닫기"
+            className="flex size-10 items-center justify-center rounded-full text-current transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -85,7 +98,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
             books.map((book) => (
               <div key={book.id} className={`flex items-center justify-between p-4 ${theme.secondary} rounded-2xl border ${theme.border} hover:border-accent-500/30 transition-all group`}>
                 <div className="flex items-center gap-4 overflow-hidden">
-                  <FileText className="text-accent-400 shrink-0" size={20} />
+                  <FileText data-offline-book-icon="true" className="shrink-0 text-current" size={20} />
                   <div className="min-w-0">
                     <h3 className="font-bold text-sm truncate">{getBookTitleFromFileName(book.name)}</h3>
                     <p className="text-[10px] opacity-60 font-bold uppercase tracking-wider">
@@ -95,7 +108,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
                 </div>
                 <button
                   onClick={() => setPendingDeleteId(book.id)}
-                  className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all active:scale-95"
+                  className="p-2.5 text-current opacity-55 hover:text-red-400 hover:opacity-100 hover:bg-red-500/10 rounded-xl transition-all active:scale-95"
                   title="Delete"
                 >
                   <Trash2 size={18} />

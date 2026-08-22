@@ -211,6 +211,9 @@ test('reader menu styles reach the top chrome and bottom toolbar with distinct s
   assert.ok(closeButton);
   assert.ok(titleSurface);
   assert.ok(tocSurface);
+  assert.equal(closeButton.getAttribute('data-reader-close-button'), 'true');
+  assert.equal(titleSurface.getAttribute('data-reader-title-surface'), 'true');
+  assert.match(closeButton.className, /sm:top-\[calc\(env\(safe-area-inset-top\)\+15px\)\]/);
   for (const surface of [closeButton, titleSurface, tocSurface]) {
     assert.match(surface.className, /viewer-cime-glass/);
     assert.doesNotMatch(surface.getAttribute('style') || '', /--viewer-reader-glass-surface/);

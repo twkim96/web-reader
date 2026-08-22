@@ -905,7 +905,7 @@ try {
     window.__bookInfoOriginalAnchorClick = HTMLAnchorElement.prototype.click;
     window.__bookInfoOriginalCreateObjectURL = URL.createObjectURL;
     URL.createObjectURL = function (blob) {
-      window.__bookInfoProofBlob = blob;
+      if (blob?.type === 'image/png' && blob.size > 1_000) window.__bookInfoProofBlob = blob;
       return window.__bookInfoOriginalCreateObjectURL.call(URL, blob);
     };
     HTMLAnchorElement.prototype.click = function () {
@@ -1068,12 +1068,41 @@ try {
   );
   const themeModalHeader = await evaluate(`(() => {
     const header = document.querySelector('[data-modal-header="theme"]');
+    const modal = header?.parentElement;
+    const overlay = modal?.parentElement;
+    const beforeRect = modal?.getBoundingClientRect();
+    if (overlay) overlay.scrollTop = 80;
+    if (modal) modal.scrollTop = Math.min(80, Math.max(0, modal.scrollHeight - modal.clientHeight));
+    const afterRect = modal?.getBoundingClientRect();
     return {
       icon: Boolean(header?.querySelector('[data-modal-header-icon="theme"]')),
       divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
+      top: beforeRect?.top ?? -1,
+      height: beforeRect?.height ?? -1,
+      topAfterInnerScroll: afterRect?.top ?? -1,
+      viewportHeight: innerHeight,
+      overlayScrollable: Boolean(overlay && overlay.scrollHeight > overlay.clientHeight),
+      overlayScrollTop: overlay?.scrollTop ?? -1,
+      modalOverflowY: modal ? getComputedStyle(modal).overflowY : '',
+      modalScrollable: Boolean(modal && modal.scrollHeight > modal.clientHeight),
+      modalScrollTop: modal?.scrollTop ?? -1,
     };
   })()`);
-  assert.deepEqual(themeModalHeader, { icon: true, divider: '1px' });
+  assert.equal(themeModalHeader.icon, true, JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.divider, '1px', JSON.stringify(themeModalHeader));
+  assert.ok(Math.abs(
+    themeModalHeader.top + themeModalHeader.height / 2
+      - themeModalHeader.viewportHeight / 2
+  ) <= 1, JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.topAfterInnerScroll, themeModalHeader.top);
+  assert.equal(themeModalHeader.overlayScrollable, false, JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.overlayScrollTop, 0, JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.modalOverflowY, 'auto', JSON.stringify(themeModalHeader));
+  assert.equal(
+    themeModalHeader.modalScrollTop > 0,
+    themeModalHeader.modalScrollable,
+    JSON.stringify(themeModalHeader),
+  );
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="blue"]\'))'), false);
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="midnight"]\'))'), true);
   await evaluate(`document.querySelector('[data-theme-option="midnight"]')?.click()`);
@@ -1540,6 +1569,28 @@ try {
       ?.querySelector('button[title="Delete"]'))`,
     'offline storage delete button',
   );
+  const offlineStorageTheme = await evaluate(`(() => {
+    const header = document.querySelector('[data-modal-header="offline-storage"]');
+    const heading = header?.querySelector('h2');
+    const headerIcon = header?.querySelector('[data-modal-header-icon="offline-storage"]');
+    const closeButton = header?.querySelector('button[aria-label="오프라인 저장소 닫기"]');
+    const fileIcon = document.querySelector('[data-offline-book-icon="true"]');
+    const row = fileIcon?.closest('.group');
+    return {
+      titleFontStyle: heading ? getComputedStyle(heading).fontStyle : '',
+      headerIconUsesAccent: headerIcon?.className.includes('accent-') ?? true,
+      headerIconColor: headerIcon ? getComputedStyle(headerIcon).color : '',
+      headingColor: heading ? getComputedStyle(heading).color : '',
+      closeColor: closeButton ? getComputedStyle(closeButton).color : '',
+      fileIconColor: fileIcon ? getComputedStyle(fileIcon).color : '',
+      rowColor: row ? getComputedStyle(row).color : '',
+    };
+  })()`);
+  assert.equal(offlineStorageTheme.titleFontStyle, 'normal', JSON.stringify(offlineStorageTheme));
+  assert.equal(offlineStorageTheme.headerIconUsesAccent, false, JSON.stringify(offlineStorageTheme));
+  assert.equal(offlineStorageTheme.headerIconColor, offlineStorageTheme.headingColor);
+  assert.equal(offlineStorageTheme.closeColor, offlineStorageTheme.headingColor);
+  assert.equal(offlineStorageTheme.fileIconColor, offlineStorageTheme.rowColor);
   await evaluate(`(() => {
     const modal = [...document.querySelectorAll('div.fixed.inset-0')]
       .find((node) => node.querySelector('h2')?.textContent?.trim() === 'Offline Storage');
@@ -4198,6 +4249,10 @@ try {
     const actions = document.querySelector('[data-reader-toolbar-actions="true"]');
     const records = document.querySelector('button[aria-label="책갈피와 주석"]');
     const utilities = document.querySelector('[data-reader-toolbar-utilities="true"]');
+    const titleRect = document.querySelector('[data-reader-title-surface="true"]')
+      ?.getBoundingClientRect();
+    const closeRect = document.querySelector('[data-reader-close-button="true"]')
+      ?.getBoundingClientRect();
     const menuRect = document.querySelector('[data-reader-toolbar-menu="true"]')
       ?.getBoundingClientRect();
     return {
@@ -4205,6 +4260,12 @@ try {
       menuRightInset: menuRect ? innerWidth - menuRect.right : -1,
       actionHeight: records?.offsetHeight ?? 0,
       utilityWidth: utilities?.firstElementChild?.offsetWidth ?? 0,
+      topControlsCenterGap: titleRect && closeRect
+        ? Math.abs(
+          (titleRect.top + titleRect.height / 2)
+          - (closeRect.top + closeRect.height / 2)
+        )
+        : -1,
     };
   })()`);
   assert.ok(desktopToolbarProbe.menuWidth >= 302 && desktopToolbarProbe.menuWidth <= 303);
@@ -4215,6 +4276,11 @@ try {
   );
   assert.ok(desktopToolbarProbe.actionHeight >= 50 && desktopToolbarProbe.actionHeight <= 51);
   assert.ok(desktopToolbarProbe.utilityWidth >= 48 && desktopToolbarProbe.utilityWidth <= 49);
+  assert.ok(
+    desktopToolbarProbe.topControlsCenterGap >= 0
+      && desktopToolbarProbe.topControlsCenterGap <= 1,
+    JSON.stringify(desktopToolbarProbe),
+  );
   assert.ok(Math.abs(
     desktopToolbarProbe.menuWidth / narrowSelectionMenu.toolbarProbe.menuWidth - 1.10
   ) < 0.01, JSON.stringify({ desktopToolbarProbe, narrowSelectionMenu }));
@@ -4231,12 +4297,36 @@ try {
   );
   const settingsModalHeader = await evaluate(`(() => {
     const header = document.querySelector('[data-modal-header="settings"]');
+    const navigation = document.querySelector('[data-reader-settings-navigation="true"]');
+    const landscapeRow = document.querySelector(
+      '[data-reader-settings-landscape-two-page="true"]',
+    );
+    const autoOpenRow = document.querySelector('[data-reader-settings-auto-open="true"]');
+    const headerRect = header?.getBoundingClientRect();
+    const navigationRect = navigation?.getBoundingClientRect();
+    const landscapeRect = landscapeRow?.getBoundingClientRect();
+    const autoOpenRect = autoOpenRow?.getBoundingClientRect();
     return {
       icon: Boolean(header?.querySelector('[data-modal-header-icon="settings"]')),
       divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
+      navigationGap: headerRect && navigationRect
+        ? navigationRect.top - headerRect.bottom
+        : -1,
+      toggleGap: landscapeRect && autoOpenRect
+        ? autoOpenRect.top - landscapeRect.bottom
+        : -1,
     };
   })()`);
-  assert.deepEqual(settingsModalHeader, { icon: true, divider: '1px' });
+  assert.equal(settingsModalHeader.icon, true, JSON.stringify(settingsModalHeader));
+  assert.equal(settingsModalHeader.divider, '1px', JSON.stringify(settingsModalHeader));
+  assert.ok(
+    settingsModalHeader.navigationGap >= 19 && settingsModalHeader.navigationGap <= 21,
+    JSON.stringify(settingsModalHeader),
+  );
+  assert.ok(
+    settingsModalHeader.toggleGap >= 11 && settingsModalHeader.toggleGap <= 13,
+    JSON.stringify(settingsModalHeader),
+  );
   await evaluate(`document.querySelector('button[aria-label="리더 설정 닫기"]')?.click()`);
   await waitFor(
     '!document.querySelector(\'[data-modal-header="settings"]\')',

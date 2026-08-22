@@ -225,7 +225,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           type="button"
           onClick={onBack}
           aria-label="Close reader"
-          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+          data-reader-close-button="true"
+          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 sm:top-[calc(env(safe-area-inset-top)+15px)]`}
           style={surfaceStyle}
         >
           <X size={22} />
@@ -241,6 +242,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         </div>
         <div className={`flex min-w-0 ${usesRightTitleLayout ? 'justify-end pl-2 pr-[calc(env(safe-area-inset-right)+3.875rem)] sm:pl-3 sm:pr-[calc(env(safe-area-inset-right)+3.875rem)]' : 'justify-center px-3'}`}>
           <div
+            data-reader-title-surface="true"
             className={`pointer-events-auto relative rounded-2xl border ${theme.border} ${surfaceClass} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
             style={surfaceStyle}
           >

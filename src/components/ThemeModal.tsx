@@ -24,6 +24,7 @@ const TEXTURE_OPTIONS: Array<[CustomThemeTexture, string]> = [
 export const ThemeModal: React.FC<ThemeModalProps> = ({
   settings, onUpdateSettings, onClose, theme
 }) => {
+  const modalFrameClass = 'max-h-[82dvh] overflow-y-auto overscroll-contain p-6';
   const customThemes = useMemo(() => settings.customThemes || [], [settings.customThemes]);
   const [mode, setMode] = useState<'list' | 'create' | 'edit-select' | 'edit'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -142,7 +143,14 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     const previewText = normalizeHexColor(form.textColor, '#b8b8b8');
 
     return (
-      <ReaderModalFrame noBlur theme={theme} onClose={() => setMode('list')} maxWidth="max-w-sm" className="p-6">
+      <ReaderModalFrame
+        noBlur
+        placement="center"
+        theme={theme}
+        onClose={() => setMode('list')}
+        maxWidth="max-w-sm"
+        className={modalFrameClass}
+      >
         {renderModalHeader(mode === 'create' ? '커스텀 테마 추가' : '커스텀 테마 편집', () => setMode('list'))}
 
         <div className="space-y-4">
@@ -229,7 +237,14 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
   if (mode === 'edit-select') {
     return (
-      <ReaderModalFrame noBlur theme={theme} onClose={() => setMode('list')} maxWidth="max-w-sm" className="p-6">
+      <ReaderModalFrame
+        noBlur
+        placement="center"
+        theme={theme}
+        onClose={() => setMode('list')}
+        maxWidth="max-w-sm"
+        className={modalFrameClass}
+      >
         {renderModalHeader('편집할 테마 선택', () => setMode('list'))}
 
         <div className="space-y-2">
@@ -258,7 +273,14 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   }
 
   return (
-    <ReaderModalFrame noBlur theme={theme} onClose={onClose} maxWidth="max-w-sm" className="p-6">
+    <ReaderModalFrame
+      noBlur
+      placement="center"
+      theme={theme}
+      onClose={onClose}
+      maxWidth="max-w-sm"
+      className={modalFrameClass}
+    >
         {renderModalHeader('테마 설정', onClose, (
           <>
             <button onClick={openCreate} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors" aria-label="커스텀 테마 추가"><Plus size={19} /></button>
