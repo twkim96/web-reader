@@ -88,13 +88,14 @@ test('replaces the grid and list book icon only when a cached cover exists', () 
   }
 });
 
-test('uses the previous icon width for borderless portrait covers', () => {
+test('keeps the portrait cover large without increasing the desktop list row height', () => {
   const listFrame = renderCardWithCover('list')
     .querySelector('[data-shelf-book-cover-frame="true"]');
   assert.match(listFrame.className, /w-11/);
   assert.match(listFrame.className, /sm:w-12/);
   assert.match(listFrame.className, /h-16/);
   assert.match(listFrame.className, /sm:h-\[4\.25rem\]/);
+  assert.match(listFrame.className, /sm:-my-1/);
 
   const gridFrame = renderCardWithCover('grid')
     .querySelector('[data-shelf-book-cover-frame="true"]');

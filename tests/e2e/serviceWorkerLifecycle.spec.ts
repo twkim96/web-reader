@@ -21,7 +21,7 @@ test('runtime cache stores only allowlisted public static requests', async ({ pa
       arbitrary: `/window.svg?sw-arbitrary=${nonce}`,
       api: `/api/not-found?sw-api=${nonce}`,
     };
-    const cache = await caches.open('pc-reader-v1.8.30');
+    const cache = await caches.open('pc-reader-v1.8.31');
     await Promise.all(Object.values(urls).map((url) => cache.delete(url)));
 
     await fetch(urls.allowed);

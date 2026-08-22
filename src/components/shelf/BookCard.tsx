@@ -290,7 +290,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         {coverUrl ? (
           <div
             data-shelf-book-cover-frame="true"
-            className="relative h-16 w-11 overflow-hidden transition-transform duration-200 group-hover:scale-105 sm:h-[4.25rem] sm:w-12"
+            className="relative h-16 w-11 overflow-hidden transition-transform duration-200 group-hover:scale-105 sm:-my-1 sm:h-[4.25rem] sm:w-12"
           >
             <Image
               data-shelf-book-cover="true"

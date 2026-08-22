@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.30: fall back to metadata covers for any supported book and let committed cover caching survive reader close.
+// 1.8.31: keep list-row height stable while preserving the larger cached cover thumbnail.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.30`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',
