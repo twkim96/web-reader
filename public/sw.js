@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: refine generated cover title placement, weight, and book-info metadata alignment.
+// 1.8.32: add glass, standard, and modern shared shelf/reader menu surfaces.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.32`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

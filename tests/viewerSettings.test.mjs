@@ -51,16 +51,22 @@ test('defaults auto-open for older stored viewer settings', async () => {
     assert.equal(settings.ttsVoiceURI, '');
     assert.equal(settings.ttsRate, 1);
     assert.equal(settings.ttsChapterEndAction, 'next');
-    assert.equal(settings.shelfDockStyle, 'glass');
+    assert.equal(settings.shelfDockStyle, 'standard');
   });
 });
 
 test('preserves only a supported shelf dock style', async () => {
+  await withStorage(JSON.stringify({ shelfDockStyle: 'glass' }), () => {
+    assert.equal(getStoredViewerSettings().shelfDockStyle, 'glass');
+  });
+  await withStorage(JSON.stringify({ shelfDockStyle: 'standard' }), () => {
+    assert.equal(getStoredViewerSettings().shelfDockStyle, 'standard');
+  });
   await withStorage(JSON.stringify({ shelfDockStyle: 'modern' }), () => {
     assert.equal(getStoredViewerSettings().shelfDockStyle, 'modern');
   });
   await withStorage(JSON.stringify({ shelfDockStyle: 'legacy' }), () => {
-    assert.equal(getStoredViewerSettings().shelfDockStyle, 'glass');
+    assert.equal(getStoredViewerSettings().shelfDockStyle, 'standard');
   });
 });
 

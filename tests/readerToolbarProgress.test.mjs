@@ -190,7 +190,7 @@ test('reader progress track commits one tap and drags from any track position wi
   });
 });
 
-test('reader menu style reaches the top chrome and bottom toolbar while Modern preserves the legacy surface', async () => {
+test('reader menu styles reach the top chrome and bottom toolbar with distinct surfaces', async () => {
   const window = installDom();
   const rootNode = window.document.querySelector('#root');
   const root = createRoot(rootNode);
@@ -212,9 +212,23 @@ test('reader menu style reaches the top chrome and bottom toolbar while Modern p
   assert.ok(titleSurface);
   assert.ok(tocSurface);
   for (const surface of [closeButton, titleSurface, tocSurface]) {
-    assert.match(surface.getAttribute('style') || '', /--viewer-reader-glass-surface/);
-    assert.match(surface.getAttribute('style') || '', /blur\(28px\)/);
+    assert.match(surface.className, /viewer-cime-glass/);
+    assert.doesNotMatch(surface.getAttribute('style') || '', /--viewer-reader-glass-surface/);
   }
+
+  await act(async () => {
+    root.render(React.createElement(Harness, { menuStyle: 'standard' }));
+    await Promise.resolve();
+  });
+
+  const standardTopMenu = window.document.querySelector('nav[data-reader-menu-style="standard"]');
+  const standardBottomMenu = window.document.querySelector('[data-reader-toolbar-menu="true"][data-reader-menu-style="standard"]');
+  const standardCloseButton = window.document.querySelector('button[aria-label="Close reader"]');
+  assert.ok(standardTopMenu);
+  assert.ok(standardBottomMenu);
+  assert.match(standardCloseButton?.getAttribute('style') || '', /--viewer-reader-glass-surface/);
+  assert.match(standardCloseButton?.getAttribute('style') || '', /blur\(28px\)/);
+  assert.doesNotMatch(standardCloseButton?.className || '', /viewer-cime-glass/);
 
   await act(async () => {
     root.render(React.createElement(Harness, { menuStyle: 'modern' }));

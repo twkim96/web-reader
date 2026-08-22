@@ -284,9 +284,10 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
         <div className="mb-6">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일 · 책장 / 리더</p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {([
-              ['glass', '글래스', '부드러운 반투명'],
+              ['standard', '표준', '기존 반투명'],
+              ['glass', '글래스', '저블러 투명 유리'],
               ['modern', '모던', '선명한 미니바'],
             ] as const).map(([value, label, description]) => {
               const selected = settings.shelfDockStyle === value;
@@ -296,7 +297,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                   type="button"
                   data-shelf-dock-style-option={value}
                   onClick={() => onUpdateSettings({ shelfDockStyle: value })}
-                  className={`relative rounded-2xl border px-3 py-3 text-left transition-all active:scale-95 ${
+                  className={`relative min-w-0 rounded-2xl border px-2.5 py-3 text-left transition-all active:scale-95 ${
                     selected
                       ? 'border-accent-500 bg-accent-500/10 ring-2 ring-accent-500/20'
                       : `${theme.border} ${theme.secondary || ''}`

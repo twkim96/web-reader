@@ -127,11 +127,14 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const mobileHeaderIconSize = 20;
   const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
   const modernDock = dockStyle === 'modern';
+  const standardDock = dockStyle === 'standard';
   const dockSurfaceClass = modernDock
     ? "shelf-muzio-dock text-[color:var(--viewer-theme-text)]"
-    : "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl";
-  const dockClass = `flex h-[4.125rem] items-center rounded-full ${dockSurfaceClass} gap-0.5 px-1.5 ${modernDock ? '' : 'shadow-[0_18px_55px_rgba(0,0,0,0.18)]'} lg:gap-1.5 lg:px-2`;
-  const bottomDockClass = `flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center ${modernDock ? 'rounded-2xl sm:rounded-full' : 'rounded-full shadow-[0_18px_55px_rgba(0,0,0,0.28)]'} ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
+    : standardDock
+      ? "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl"
+      : "viewer-cime-glass border text-[color:var(--viewer-theme-text)]";
+  const dockClass = `relative flex h-[4.125rem] items-center rounded-full ${dockSurfaceClass} gap-0.5 px-1.5 ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.18)]' : ''} lg:gap-1.5 lg:px-2`;
+  const bottomDockClass = `relative flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center ${modernDock ? 'rounded-2xl sm:rounded-full' : `rounded-full ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.28)]' : ''}`} ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
   const dockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full opacity-[0.84] transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 lg:h-12 lg:w-12";
   const activeDockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 lg:h-12 lg:w-12";
   const accentDockButtonClass = `${dockButtonClass} text-accent-500`;

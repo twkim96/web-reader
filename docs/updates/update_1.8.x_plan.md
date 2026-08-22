@@ -95,6 +95,7 @@
 | 1.8.29 | TXT 메타데이터 표지 로컬 캐시 | file_check `cover_url` projection·on-demand cover·allowlisted image proxy·TXT open-time `book-covers-v14` cache·Shelf network-free 유지 | 중상 | 전체 `npm run check`·Firestore 실제 게시/readback·3플랫폼 live proxy 완료, 후속 실기기에서 non-TXT fallback/lifecycle 누락 발견 |
 | 1.8.30 | 메타데이터 표지 fallback 안정화 | 모든 지원 형식의 embedded→metadata 직렬 fallback·reader close 뒤 committed cover persistence 지속·owner 전환 abort | 중간 | 구현·자동검증 후 기존 도서 open→즉시 Shelf 복귀 실기기 확인 |
 | 1.8.31 | 책장 표지 레이아웃 개선 | 리스트 84px 행 안정화·실제/임시 표지 프레임 통일·deterministic 단색 제목 임시표지·임시표지 제목 top 15%/최소 7px/700 weight·가변 제목+우측 형식/progress compact 4열·초록 로컬 태그를 장르 앞에 통합·리스트 총 10-chip 상한·그리드 대형 표지+4줄 제목+TXT/조회수 표지 하단 정렬·전체폭 태그 최대 2줄·compact 카드 높이·progress baseline/삭제 아이콘 정렬·도서정보 태그 행 표지 하단 정렬·실제/임시 썸네일 통일 | 낮음 | **완료** · `npm run check`·production browser regression·Chromium cover-cache E2E·release/cache 검증·실기기 UI 조정 반영 |
+| 1.8.32 | 메뉴 글래스 재질 개편 | 표준/글래스/모던 3종 한 줄 배치·기존 글래스를 표준으로 보존·ci.me 기반 20% surface/4px blur/gradient rim·책장/리더 공용 적용·버튼/배치 불변 | 낮음 | **자동검증 완료 · 실기기 검증 대기** · `npm run check`·production browser regression·PC/390px 3열 확인 |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 

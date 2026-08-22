@@ -63,19 +63,25 @@ const getSafePercent = (progress: number) => {
 };
 
 const getReaderSurfaceStyle = (menuStyle: ShelfDockStyle): React.CSSProperties => (
-  menuStyle === 'glass'
+  menuStyle === 'standard'
     ? {
       backdropFilter: 'blur(28px) saturate(1.32)',
       WebkitBackdropFilter: 'blur(28px) saturate(1.32)',
       backgroundColor: 'var(--viewer-reader-glass-surface, var(--viewer-reader-surface))',
       borderColor: 'var(--viewer-reader-glass-border, var(--viewer-theme-border))',
     }
-    : {
+    : menuStyle === 'modern'
+      ? {
       // Preserve the pre-1.8.24 reader chrome as the Modern menu style.
       backdropFilter: 'blur(18px) saturate(1.18)',
       WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
       backgroundColor: 'var(--viewer-reader-surface)',
-    }
+      }
+      : {}
+);
+
+const getReaderSurfaceClass = (menuStyle: ShelfDockStyle) => (
+  menuStyle === 'glass' ? 'viewer-cime-glass' : ''
 );
 
 export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
@@ -109,6 +115,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
   const title = getBookTitleFromFileName(bookName);
   const surfaceStyle = getReaderSurfaceStyle(menuStyle);
+  const surfaceClass = getReaderSurfaceClass(menuStyle);
   const hasReaderRecords = bookmarkCount > 0 || annotationCount > 0;
   const [isLandscape, setIsLandscape] = React.useState(false);
   const readerTextMaxInlineSize = landscapeTwoPage && isLandscape
@@ -218,7 +225,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           type="button"
           onClick={onBack}
           aria-label="Close reader"
-          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
+          className={`pointer-events-auto absolute right-[calc(env(safe-area-inset-right)+12px)] top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100`}
           style={surfaceStyle}
         >
           <X size={22} />
@@ -234,7 +241,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         </div>
         <div className={`flex min-w-0 ${usesRightTitleLayout ? 'justify-end pl-2 pr-[calc(env(safe-area-inset-right)+3.875rem)] sm:pl-3 sm:pr-[calc(env(safe-area-inset-right)+3.875rem)]' : 'justify-center px-3'}`}>
           <div
-            className={`pointer-events-auto rounded-2xl border ${theme.border} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
+            className={`pointer-events-auto relative rounded-2xl border ${theme.border} ${surfaceClass} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
             style={surfaceStyle}
           >
             <h2 className={`text-center text-[15px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
@@ -253,7 +260,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         <div className="relative grid gap-y-[0.34375rem] md:gap-y-[0.378125rem]">
           {isSliderPreviewing && (
             <div
-              className={`mx-auto grid max-h-[4.5rem] w-[min(17rem,100%)] content-center overflow-hidden rounded-[1.25rem] border ${theme.border} px-4 py-1.5 text-center shadow-[0_14px_32px_rgba(0,0,0,0.22)] transition-transform duration-150`}
+              className={`relative mx-auto grid max-h-[4.5rem] w-[min(17rem,100%)] content-center overflow-hidden rounded-[1.25rem] border ${theme.border} ${surfaceClass} px-4 py-1.5 text-center shadow-[0_14px_32px_rgba(0,0,0,0.22)] transition-transform duration-150`}
               style={surfaceStyle}
             >
               {sliderPreviewChapter && (
@@ -276,7 +283,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
                 type="button"
                 onClick={onOpenTts}
                 disabled={!ttsSupported}
-                className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 md:size-[3.025rem] ${ttsActive ? 'text-accent-500' : ''}`}
+                className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 md:size-[3.025rem] ${ttsActive ? 'text-accent-500' : ''}`}
                 style={surfaceStyle}
                 aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
                 title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
@@ -287,7 +294,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenStatistics}
-              className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
+              className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
               style={surfaceStyle}
               aria-label="독서 통계"
               title="독서 통계"
@@ -297,7 +304,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenBookInfo}
-              className={`flex size-11 items-center justify-center rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
+              className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
               style={surfaceStyle}
               aria-label="도서 정보"
               title="도서 정보"
@@ -307,7 +314,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           </div>
 
           <div
-            className={`relative h-[2.8875rem] overflow-hidden rounded-full border ${theme.border} shadow-[0_12px_30px_rgba(0,0,0,0.2)] md:h-[3.17625rem]`}
+            className={`relative h-[2.8875rem] overflow-hidden rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] md:h-[3.17625rem]`}
             style={surfaceStyle}
           >
             <div
@@ -363,7 +370,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenSearch}
-              className={`flex h-[2.8875rem] items-center justify-between rounded-full border ${theme.border} px-[1.125rem] text-[15px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:px-[1.2375rem] md:text-[16.5px]`}
+              className={`relative flex h-[2.8875rem] items-center justify-between rounded-full border ${theme.border} ${surfaceClass} px-[1.125rem] text-[15px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:px-[1.2375rem] md:text-[16.5px]`}
               style={surfaceStyle}
             >
               <span>책 검색</span>
@@ -378,7 +385,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenBookmarks}
-              className={`flex h-[2.8875rem] min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border ${theme.border} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px] ${hasReaderRecords ? 'text-accent-500' : ''}`}
+              className={`relative flex h-[2.8875rem] min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border ${theme.border} ${surfaceClass} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px] ${hasReaderRecords ? 'text-accent-500' : ''}`}
               style={surfaceStyle}
               aria-label="책갈피와 주석"
               aria-describedby="reader-record-counts"
@@ -405,7 +412,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenTheme}
-              className={`flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
+              className={`relative flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} ${surfaceClass} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
               style={surfaceStyle}
               aria-label="테마"
               title="테마"
@@ -416,7 +423,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             <button
               type="button"
               onClick={onOpenSettings}
-              className={`flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
+              className={`relative flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} ${surfaceClass} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
               style={surfaceStyle}
               aria-label="설정"
               title="설정"

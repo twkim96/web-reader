@@ -906,6 +906,26 @@ try {
     'Boolean(document.querySelector(\'[data-shelf-dock-style-option="glass"]\'))',
     'shelf dock style controls',
   );
+  assert.equal(
+    await evaluate('Boolean(document.querySelector(\'[data-shelf-dock-style-option="standard"]\'))'),
+    true,
+  );
+  const shelfDockStyleLayout = await evaluate(`(() => {
+    const values = ['standard', 'glass', 'modern'];
+    const buttons = values.map((value) => document.querySelector(
+      '[data-shelf-dock-style-option="' + value + '"]'
+    ));
+    return {
+      values: buttons.map((button) => button?.dataset.shelfDockStyleOption || ''),
+      tops: buttons.map((button) => Math.round(button?.getBoundingClientRect().top || -1)),
+      gridTemplateColumns: buttons[0]?.parentElement
+        ? getComputedStyle(buttons[0].parentElement).gridTemplateColumns
+        : '',
+    };
+  })()`);
+  assert.deepEqual(shelfDockStyleLayout.values, ['standard', 'glass', 'modern']);
+  assert.equal(new Set(shelfDockStyleLayout.tops).size, 1, JSON.stringify(shelfDockStyleLayout));
+  assert.equal(shelfDockStyleLayout.gridTemplateColumns.split(' ').length, 3, JSON.stringify(shelfDockStyleLayout));
   await evaluate(`document.querySelector('[data-shelf-dock-style-option="glass"]')?.click()`);
   await waitFor(
     'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "glass"',
@@ -917,9 +937,9 @@ try {
       if (!dock) return false;
       const style = getComputedStyle(dock);
       const radius = Number.parseFloat(style.borderRadius || '0');
-      return style.backgroundColor === 'rgba(39, 39, 40, 0.88)'
-        && radius >= 15
-        && radius <= 17;
+      return style.backgroundColor === 'rgba(20, 21, 23, 0.2)'
+        && style.backdropFilter === 'blur(4px)'
+        && radius >= 30;
     })()`,
     'settled glass shelf dock style',
   );
@@ -929,17 +949,55 @@ try {
     return {
       storedStyle: JSON.parse(localStorage.getItem('viewer_settings') || '{}').shelfDockStyle,
       usesModernClass: dock?.classList.contains('shelf-muzio-dock') ?? true,
+      usesCimeGlassClass: dock?.classList.contains('viewer-cime-glass') ?? false,
       backgroundColor: style?.backgroundColor ?? '',
+      backdropFilter: style?.backdropFilter ?? '',
+      rimBackground: dock ? getComputedStyle(dock, '::before').backgroundImage : '',
       borderRadius: Number.parseFloat(style?.borderRadius || '0'),
     };
   })()`);
   assert.equal(glassShelfDock.storedStyle, 'glass', JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.usesModernClass, false, JSON.stringify(glassShelfDock));
-  assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.usesCimeGlassClass, true, JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.backgroundColor, 'rgba(20, 21, 23, 0.2)', JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.backdropFilter, 'blur(4px)', JSON.stringify(glassShelfDock));
+  assert.match(glassShelfDock.rimBackground, /linear-gradient\(164deg/, JSON.stringify(glassShelfDock));
   assert.ok(
-    glassShelfDock.borderRadius >= 15 && glassShelfDock.borderRadius <= 17,
+    glassShelfDock.borderRadius >= 30,
     JSON.stringify(glassShelfDock),
   );
+
+  await evaluate(`document.querySelector('[data-shelf-dock-style-option="standard"]')?.click()`);
+  await waitFor(
+    'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "standard"',
+    'standard shelf dock style',
+  );
+  await waitFor(
+    `(() => {
+      const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
+      if (!dock) return false;
+      const style = getComputedStyle(dock);
+      return style.backgroundColor === 'rgba(39, 39, 40, 0.68)'
+        && style.backdropFilter.includes('blur(24px)');
+    })()`,
+    'settled standard shelf dock style',
+  );
+  const standardShelfDock = await evaluate(`(() => {
+    const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
+    const style = dock ? getComputedStyle(dock) : null;
+    return {
+      storedStyle: JSON.parse(localStorage.getItem('viewer_settings') || '{}').shelfDockStyle,
+      usesModernClass: dock?.classList.contains('shelf-muzio-dock') ?? true,
+      usesCimeGlassClass: dock?.classList.contains('viewer-cime-glass') ?? true,
+      backgroundColor: style?.backgroundColor ?? '',
+      backdropFilter: style?.backdropFilter ?? '',
+    };
+  })()`);
+  assert.equal(standardShelfDock.storedStyle, 'standard', JSON.stringify(standardShelfDock));
+  assert.equal(standardShelfDock.usesModernClass, false, JSON.stringify(standardShelfDock));
+  assert.equal(standardShelfDock.usesCimeGlassClass, false, JSON.stringify(standardShelfDock));
+  assert.equal(standardShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.68)', JSON.stringify(standardShelfDock));
+  assert.match(standardShelfDock.backdropFilter, /blur\(24px\)/, JSON.stringify(standardShelfDock));
 
   await evaluate(`document.querySelector('[data-shelf-dock-style-option="modern"]')?.click()`);
   await waitFor(
@@ -6351,7 +6409,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.31';
+    const expectedCache = 'pc-reader-v1.8.32';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -6378,7 +6436,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.31',
+      '/sw.js?browser-regression=1.8.32',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -6422,11 +6480,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.31']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.32']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.31$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.32$/);
 
   console.log(JSON.stringify({
     shelf: {

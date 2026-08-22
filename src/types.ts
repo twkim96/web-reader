@@ -40,7 +40,7 @@ export type ReaderTranslationProvider = 'auto' | 'browser' | 'google' | 'papago'
 export type ReaderDictionaryProvider = 'naver' | 'wiktionary';
 export type ReaderTtsLanguage = 'auto' | 'ko-KR' | 'en-US' | 'ja-JP';
 export type ReaderTtsChapterEndAction = 'stop' | 'next';
-export type ShelfDockStyle = 'glass' | 'modern';
+export type ShelfDockStyle = 'glass' | 'standard' | 'modern';
 
 export interface ViewerSettings {
   fontSize: number;
