@@ -21,7 +21,7 @@ export const supportsEmbeddedBookCover = (
 
 export const supportsMetadataBookCover = (
   book: Pick<Book, 'name' | 'mimeType' | 'sourceFormat'>,
-) => getBookFormat(book) === 'txt';
+) => getBookFormat(book) !== null;
 
 export const supportsCachedBookCover = (
   book: Pick<Book, 'name' | 'mimeType' | 'sourceFormat'>,

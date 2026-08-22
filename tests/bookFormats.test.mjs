@@ -32,7 +32,7 @@ test('detects supported formats by extension before MIME fallback', () => {
   assert.equal(getBookTitleFromFileName('sample.CBZ'), 'sample');
 });
 
-test('separates embedded cover extraction from TXT metadata cover caching', () => {
+test('uses metadata covers as a fallback for every supported book format', () => {
   assert.equal(supportsCachedBookCover({
     name: 'cover.epub', mimeType: 'application/epub+zip', sourceFormat: 'epub',
   }), true);
@@ -47,7 +47,7 @@ test('separates embedded cover extraction from TXT metadata cover caching', () =
   }), true);
   assert.equal(supportsCachedBookCover({
     name: 'images.7z', mimeType: 'application/x-7z-compressed', sourceFormat: '7z',
-  }), false);
+  }), true);
   assert.equal(supportsCachedBookCover({
     name: 'plain.txt', mimeType: 'text/plain', sourceFormat: 'txt',
   }), true);
@@ -59,7 +59,10 @@ test('separates embedded cover extraction from TXT metadata cover caching', () =
   }), true);
   assert.equal(supportsMetadataBookCover({
     name: 'cover.epub', mimeType: 'application/epub+zip', sourceFormat: 'epub',
-  }), false);
+  }), true);
+  assert.equal(supportsMetadataBookCover({
+    name: 'images.7z', mimeType: 'application/x-7z-compressed', sourceFormat: '7z',
+  }), true);
   assert.deepEqual(getBookCoverTargetSize(1600, 2400), { width: 480, height: 720 });
   assert.deepEqual(getBookCoverTargetSize(240, 360), { width: 240, height: 360 });
   assert.equal(getBookCoverTargetSize(0, 360), null);

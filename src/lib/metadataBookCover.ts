@@ -5,8 +5,14 @@ import {
   loadBookCoverFromLocalV14,
   saveBookCoverToLocalV14,
 } from './bookCoverCache';
-import { normalizeBookCover } from './bookCover';
-import { supportsMetadataBookCover } from './bookCoverPolicy';
+import {
+  cacheOpenedBookCoverIfMissing,
+  normalizeBookCover,
+} from './bookCover';
+import {
+  supportsEmbeddedBookCover,
+  supportsMetadataBookCover,
+} from './bookCoverPolicy';
 import { loadPublicBookMetadata } from './publicBookMetadata';
 import { getPublicBookCoverCandidates } from './publicBookMetadataSchema';
 import type { OwnerKey } from './ownerIdentity';
@@ -64,4 +70,27 @@ export const cacheMetadataBookCoverIfMissing = async (
   }
   if (lastError) throw lastError;
   return false;
+};
+
+export const cacheReaderBookCoverIfMissing = async (
+  ownerKey: OwnerKey,
+  book: Book,
+  openedView?: Parameters<typeof cacheOpenedBookCoverIfMissing>[2],
+  signal?: AbortSignal,
+) => {
+  if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
+  throwIfAborted(signal);
+
+  if (openedView && supportsEmbeddedBookCover(book)) {
+    try {
+      if (await cacheOpenedBookCoverIfMissing(ownerKey, book, openedView, signal)) {
+        return true;
+      }
+    } catch (error) {
+      if (signal?.aborted) throw abortError();
+      console.warn('[Reader] Embedded cover unavailable, trying metadata cover:', error);
+    }
+  }
+
+  return cacheMetadataBookCoverIfMissing(ownerKey, book, signal);
 };

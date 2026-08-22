@@ -31,11 +31,10 @@ import {
 import { getReaderMaxColumnCount } from '../../lib/readerNavigation';
 import { traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
 import {
-  cacheOpenedBookCoverIfMissing,
+  supportsCachedBookCover,
   supportsEmbeddedBookCover,
-  supportsMetadataBookCover,
 } from '../../lib/bookCover';
-import { cacheMetadataBookCoverIfMissing } from '../../lib/metadataBookCover';
+import { cacheReaderBookCoverIfMissing } from '../../lib/metadataBookCover';
 
 type ReaderThemeColors = {
   bg: string;
@@ -188,6 +187,7 @@ export const useReaderBookSource = ({
         status: targetBook.sourceFormat ?? targetBook.readerFormat,
       });
       const deferredPersistence: Array<() => void> = [];
+      let openedCoverView: FoliateViewElement | null = null;
       const runDeferredPersistence = () => {
         const tasks = deferredPersistence.splice(0);
         window.setTimeout(() => tasks.forEach((task) => task()), 0);
@@ -384,21 +384,7 @@ export const useReaderBookSource = ({
                     await current.setStyle(initialStyle, openedView.renderer);
                     appliedStyleKeyRef.current = JSON.stringify(initialStyle);
                   }
-                  if (shouldCacheCover) {
-                    deferredPersistence.push(() => {
-                      if (!ownerRuntime.isCurrent(owner) || signal.aborted) return;
-                      void cacheOpenedBookCoverIfMissing(
-                        DEVICE_CONTENT_OWNER_KEY,
-                        targetBook,
-                        openedView,
-                        signal,
-                      ).catch((error) => {
-                        if (!isAbortError(error)) {
-                          console.warn('[Reader] Failed to cache book cover:', error);
-                        }
-                      });
-                    });
-                  }
+                  if (shouldCacheCover) openedCoverView = openedView;
                 }
                 : undefined,
             );
@@ -410,18 +396,21 @@ export const useReaderBookSource = ({
           },
           commit: () => {
             if (!ownerRuntime.isCurrent(owner)) return;
-            if (supportsMetadataBookCover(targetBook)) {
+            if (supportsCachedBookCover(targetBook)) {
               deferredPersistence.push(() => {
-                if (!ownerRuntime.isCurrent(owner) || signal.aborted) return;
-                void cacheMetadataBookCoverIfMissing(
+                if (!ownerRuntime.isCurrent(owner)) return;
+                const coverController = new AbortController();
+                const unregisterCover = ownerRuntime.registerDisposer(() => coverController.abort());
+                void cacheReaderBookCoverIfMissing(
                   DEVICE_CONTENT_OWNER_KEY,
                   targetBook,
-                  signal,
+                  openedCoverView ?? undefined,
+                  coverController.signal,
                 ).catch((error) => {
                   if (!isAbortError(error)) {
-                    console.warn('[Reader] Failed to cache metadata book cover:', error);
+                    console.warn('[Reader] Failed to cache book cover:', error);
                   }
-                });
+                }).finally(unregisterCover);
               });
             }
             traceReaderOpenPerformance({
