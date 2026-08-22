@@ -29,6 +29,7 @@ const props = {
     secondary: 'bg-white/5',
   },
   onOpen: () => undefined,
+  onDeleteProgress: () => undefined,
   catalog: {
     record: {
       id: 1,
@@ -122,10 +123,19 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(gridTitle.className, /sm:text-xl/);
   assert.match(gridTags.className, /max-h-9/);
   assert.match(gridTags.className, /overflow-hidden/);
-  assert.match(gridTagSlot.className, /flex-1/);
+  assert.doesNotMatch(gridTagSlot.className, /flex-1/);
   assert.match(gridTagSlot.className, /items-center/);
-  assert.match(gridCardRoot.className, /h-full/);
-  assert.match(gridProgress.className, /mt-6/);
+  assert.match(gridTagSlot.className, /mt-2/);
+  assert.doesNotMatch(gridCardRoot.className, /h-full/);
+  assert.match(gridCardRoot.className, /p-6/);
+  assert.match(gridProgress.className, /mt-auto/);
+  assert.match(gridProgress.className, /pt-3/);
+
+  const progressDelete = gridCard.querySelector('[data-shelf-grid-progress-delete="true"]');
+  assert.ok(progressDelete);
+  assert.match(progressDelete.className, /h-5/);
+  assert.match(progressDelete.className, /w-5/);
+  assert.match(progressDelete.className, /p-0/);
 });
 
 test('places one combined view count above the progress percentage', () => {

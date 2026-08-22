@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: align covered and fallback grid progress blocks, center clipped tags, and bottom-align progress labels.
+// 1.8.31: compact grid cards by removing forced tag expansion and align the delete icon with the progress label.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
