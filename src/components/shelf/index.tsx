@@ -431,9 +431,8 @@ export const Shelf: React.FC<ShelfProps> = ({
             theme={theme}
             onClearSearch={() => setSearchKeyword('')}
             onToggleCloud={onToggleCloud}
-            onShowImportConfirm={() => handleShowImportConfirm(true)}
             onLogin={onLogin}
-            onRefresh={onRefresh}
+            onShowImportConfirm={() => handleShowImportConfirm(true)}
             onAddSampleBook={() => void handleAddSampleBook()}
             isAddingSampleBook={isAddingSampleBook}
             sampleBookFeedback={sampleBookFeedback}

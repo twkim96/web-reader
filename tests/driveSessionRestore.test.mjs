@@ -27,11 +27,33 @@ test('keeps the guest shelf active while Firebase redirects so login cancellatio
     /const handleLoginTrigger = \(\) => \{([\s\S]*?)\n  \};/,
   )?.[1] ?? '';
 
-  assert.match(loginHandler, /setLoginDisclosureOpen\(false\)/);
+  assert.match(loginHandler, /setLoginDisclosureMode\(null\)/);
   assert.match(loginHandler, /signInWithRedirect\(auth, googleProvider\)/);
   assert.match(loginHandler, /void enterGuestShelf\(\)/);
   assert.doesNotMatch(loginHandler, /setView\(['"]loading['"]\)/);
   assert.doesNotMatch(loginHandler, /localStorage\.removeItem\(['"]isGuest['"]\)/);
   assert.doesNotMatch(loginHandler, /ownerRuntime\.clear\(\)/);
   assert.doesNotMatch(loginHandler, /resetLibraryState\(\)/);
+});
+
+test('shows privacy disclosure before both Firebase login and Drive OAuth', async () => {
+  const [page, modal] = await Promise.all([
+    readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/LoginDisclosureModal.tsx', import.meta.url), 'utf8'),
+  ]);
+  const connectHandler = page.match(
+    /const handleConnect = \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1] ?? '';
+  const driveConfirmHandler = page.match(
+    /const handleDriveConnectTrigger = \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1] ?? '';
+
+  assert.match(connectHandler, /setLoginDisclosureMode\('firebase'\)/);
+  assert.match(connectHandler, /setLoginDisclosureMode\('drive'\)/);
+  assert.doesNotMatch(connectHandler, /startDriveOAuth/);
+  assert.match(driveConfirmHandler, /startDriveOAuth\(clientId\)/);
+  assert.match(page, /onConfirm=\{loginDisclosureMode === 'firebase' \? handleLoginTrigger : handleDriveConnectTrigger\}/);
+  assert.match(modal, /data-login-disclosure-mode=\{mode\}/);
+  assert.match(modal, /mode === 'firebase'/);
+  assert.match(modal, /Google Drive 연결/);
 });

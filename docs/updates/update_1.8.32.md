@@ -96,14 +96,11 @@
 
 - 내장 `Blue` 테마를 제거하고 배경 `#141517`, 글자 `#d2d3d6`인 `Midnight`로 교체한다.
 - 새 설정의 기본 테마와 저장값을 읽기 전 최초 페인트도 `Midnight`로 시작한다. 기존에 저장된 명시적 테마 선택은 유지한다.
-- 앱의 초기 선택 테마 `dark`와 커스텀 테마 구조는 변경하지 않는다.
-- 빈 책장 액션은 포인트 컬러를 사용하지 않고 현재 테마 배경에서 계산한 밝기 계층을 사용한다.
-  - `도서 직접 추가하기`: 테마 배경보다 살짝 밝은 surface
-  - `Google 계정 연동하기`: 현재 테마 배경색
-  - `샘플 도서 보기`: Google 연동 버튼과 같은 현재 테마 배경색
+- 커스텀 테마 구조는 변경하지 않는다.
+- 빈 책장은 별도 패널·아이콘·영문 제목·박스형 액션을 제거하고 `보관함이 비어있음.` 안내문만 표시한다.
+- 안내문의 밑줄 문구 `Google 계정을 연동하거나`와 `샘플 도서를 추가해주세요`는 각각 로그인 모달과 샘플 설치를 실행하는 실제 버튼이다.
 - `샘플 도서 보기`는 외부 다운로드 없이 퍼블릭 도메인 이솝 우화 「토끼와 거북이」를 로컬 EPUB으로 설치한다.
 - 샘플 EPUB에는 제목·저자·언어·설명·주제·권리 metadata와 전용 표지를 포함하고 동일한 고정 ID로 중복 생성을 막는다.
-- 빈 책장 제목은 모드와 무관하게 정자체 `LIBRARY EMPTY`로 통일한다.
 - 메뉴 스타일의 표준 설명은 `반투명 유리`로 쓰고, 3개 선택 카드 자체가 각 표면 재질을 미리 보여준다.
 - `#태그` 검색 결과는 전역 metadata 권수가 아닌 현재 책장 권수를 표시한다. 책장에 없는 후보는 metadata 인기순 fallback으로 결과 수만 채우고 `0권`은 표시하지 않는다.
 - 앱/service-worker/Foliate release version은 `1.8.32`를 유지한다.
@@ -112,10 +109,10 @@
 
 - 내장 테마 목록에 `Blue`가 없고 `Midnight`가 정확한 두 색상으로 표시·적용된다.
 - 저장된 테마가 없는 새 설정은 `Midnight`이고, 명시적으로 저장된 기존 테마는 그대로 유지된다.
-- 빈 책장 버튼의 computed background가 포인트 컬러와 무관하고, 직접 추가는 soft surface이며 Google·샘플은 동일한 테마 배경색이다.
+- 빈 책장에는 아이콘·`LIBRARY EMPTY`·박스형 버튼·별도 surface가 없고 두 밑줄 문구가 실제 동작한다.
 - 샘플 버튼 한 번으로 로컬 책장에 표지 있는 「토끼와 거북이」 EPUB이 표시되고 열 수 있다.
 - 샘플 EPUB 내부 metadata와 퍼블릭 도메인/CC0 권리 문구를 자동검증한다.
-- 빈 책장 제목에 italic/transform이 없고 요청한 문구와 일치한다.
+- 빈 책장 제목과 본문이 요청한 한국어 문구와 일치한다.
 - 태그 검색에서 책장 권수 후보가 먼저 나오며 0권 fallback에는 숫자가 붙지 않는다.
 - 모바일에서도 메뉴 스타일 선택 카드 3개가 한 줄이고 각각 standard/glass/modern surface를 사용한다.
 
@@ -127,7 +124,6 @@
 - 샘플 본문은 연속 공백을 넣지 않고 `word-break: normal`, 한국어 strict line break를 사용해 양쪽 정렬 설정에서도 좁은 화면의 단어 사이가 과도하게 벌어지지 않게 한다.
 - EPUB 스크롤 모드에서도 publication iframe 바깥의 남는 reader content surface를 짧게 누르면 상·하단 메뉴를 호출한다. 고정 레이아웃의 기존 입력 처리는 유지한다.
 - 새 설치 또는 저장값이 누락된 리더 설정의 기본 글자 크기를 `20px`로 변경한다. 사용자가 명시적으로 저장한 기존 글자 크기는 덮어쓰지 않는다.
-- `LIBRARY EMPTY`로 제목이 짧아져도 빈 책장 액션의 부모 폭을 고정해 기존 `240px` 버튼 폭과 `11px` 글자 크기, 기존 세로 padding을 유지한다.
 
 ### Phase 6 완료 조건
 
@@ -135,7 +131,7 @@
 - 샘플 모든 문단에 연속 공백이 없고 `keep-all`/EPUB 자체 강제 양쪽 정렬을 사용하지 않는다.
 - 스크롤 모드의 바깥 빈 surface click이 숨은 reader chrome을 다시 연다.
 - 설정 저장값이 없으면 publication 본문이 `20px`이며 명시적으로 저장한 `18px`는 그대로 복원된다.
-- 390px 빈 책장에서 직접 추가·Google·샘플 버튼은 모두 `240px` 폭이고 글자 크기는 기존 `11px`다.
+- 390px 빈 책장에서 두 밑줄 액션이 읽기 쉬운 문장 흐름을 유지하고 가로 overflow가 없다.
 
 ## Phase 7 — 메뉴 스타일 선택 표시 통일
 
@@ -226,27 +222,32 @@
 
 - Firebase 사용자가 없는 최초 진입은 별도 `TW READER / Guest Mode` 화면을 거치지 않고 로컬 guest 책장을 활성화한다.
 - Google 로그인 시작 실패와 로그인 사용자의 로그아웃 완료 뒤에도 별도 인증 화면으로 이동하지 않고 guest 책장으로 복구한다.
-- 빈 책장 액션의 기존 `240px` 폭·세로 padding·`11px` 글자 크기는 유지하고 곡률만 pill에서 `16px`로 낮춘다.
-- 빈 책장 전체 패널 곡률은 `56px`에서 `32px`, grid 도서 카드 곡률은 `40px`에서 `24px`로 낮춘다. list 도서 행은 변경하지 않는다.
+- 빈 책장 전체 패널과 박스형 액션은 제거한다. grid 도서 카드 곡률은 `40px`에서 `24px`로 낮추고 list 도서 행은 변경하지 않는다.
+- 빈 책장 안내는 상태별로 분리한다. guest는 Firebase 로그인·샘플 설치, Firebase만 로그인한 상태는 Drive 로그인·로컬 업로드, Drive 연결 상태는 Drive 웹 업로드 밑줄 동작만 표시한다.
 - 책장 PC top dock과 모바일 bottom dock의 바깥 곡률은 스타일·화면 폭과 무관하게 `20px`로 통일한다. 내부 원형 아이콘 버튼은 유지한다.
 - guest 로그인 진입은 기존 열쇠 아이콘과 문구를 유지하고, 클릭하면 Firebase 리디렉션 전에 `개인정보 처리방침` 모달을 표시한다.
   - Firebase 인증에서 제공될 수 있는 계정 정보와 앱이 Firestore에 동기화하는 독서 데이터를 고지한다.
   - Google Drive는 로그인과 별도의 선택 권한이며 읽기·앱 생성 파일 관리·숨겨진 앱 데이터의 실제 용도와 토큰 보관 범위를 고지한다.
   - 모달 상단의 `Sign in with Google` 버튼만 Firebase 로그인을 시작하고, Firebase·Drive 개인정보 고지는 그 아래의 작은 안내문으로 배치한다. 취소·닫기·바깥 클릭·Escape는 guest 책장을 유지한다.
-  - 모달의 로그인 버튼은 Google Identity가 배포한 Android+Web용 `180×40` Dark rectangular 사전 승인 애셋을 원본 비율·색상·문구 그대로 번들에 포함해 사용한다.
+  - 모달 헤더에는 아이콘과 `개인정보 처리방침` 제목만 표시한다.
+  - 모달의 로그인 버튼은 Google Identity가 배포한 Android+Web용 `180×40` Light/Dark rectangular 사전 승인 애셋을 원본 비율·색상·문구 그대로 번들에 포함하고, 현재 테마 배경 휘도에 맞춰 밝은 테마는 흰색, 어두운 테마는 검은색 버튼을 사용한다.
+- Firebase 로그인 뒤 Drive 연결을 선택할 때도 OAuth 이동 전에 같은 개인정보 모달의 Drive 전용 고지와 `Google Drive 연결` 확인 버튼을 표시한다.
 - Firebase 리디렉션을 시작하기 전에 guest owner와 저장값을 지우거나 화면을 `loading`으로 바꾸지 않는다. Google 화면에서 취소·오류로 돌아오면 저장된 guest 상태 또는 비로그인 bootstrap으로 책장을 복구한다.
+- 로그아웃은 Firebase의 익명 인증 상태 콜백 한 곳에서만 guest owner를 활성화하고 로컬 책장을 복원한다. 로그아웃 코드가 owner를 다시 비우거나 별도 guest 복원을 중복 실행하지 않는다.
 
 ### Phase 12 완료 조건
 
 - `isGuest` 저장값이 없는 비로그인 브라우저를 reload해도 `data-app-view="shelf"`이며 guest 저장값이 생성되고 인증 landing 문구가 없다.
-- 빈 책장 세 액션의 computed width·height·font-size는 기존과 같고 border radius는 모두 `16px`다.
-- 빈 책장 패널은 `32px`, grid 도서 카드는 `24px`이며 list 모드는 기존 구조를 유지한다.
+- 빈 책장에는 아이콘·영문 제목·박스형 액션·surface가 없고, 두 밑줄 문구가 로그인과 샘플 설치를 실행한다.
+- Firebase만 로그인한 빈 책장은 Drive 로그인·로컬 업로드 두 밑줄 동작을, Drive 연결 뒤 빈 책장은 Drive 웹 업로드 한 밑줄 동작을 표시한다.
+- grid 도서 카드는 `24px`이며 list 모드는 기존 구조를 유지한다.
 - 책장 top/bottom dock의 computed border radius는 모두 `20px`이고 내부 아이콘 버튼의 원형은 유지된다.
 - 빈 책장·책장 제목 옆·PC top dock·모바일 header의 로그인 진입은 기존 열쇠 아이콘이고, Google 브랜드 애셋은 개인정보 모달의 실제 로그인 버튼에만 표시된다.
 - 모든 guest 로그인 진입에서 개인정보 모달이 열리고 Firebase·Drive 처리 범위와 `Sign in with Google`이 표시된다.
-- 모달의 Google 버튼 애셋은 렌더링·원본 크기가 모두 정확히 `180×40`이다.
+- 모달의 Google 버튼 컨테이너와 애셋은 렌더링·원본 크기가 모두 정확히 `180×40`이고 잘림 없이 완전히 표시되며, 밝은/어두운 테마에서 각각 Light/Dark 애셋을 선택한다.
 - 모달을 취소한 뒤 `data-app-view="shelf"`가 유지되며 로그인 취소 후 무한 `Loading Library...` 상태로 남지 않는다.
 - Firebase 리디렉션 호출 전에는 guest 저장값·owner·책장 view를 유지하고, 리디렉션 시작 실패는 guest 책장 복구 경로로 들어간다.
+- 로그인 후 로그아웃하면 인증 콜백이 guest 상태와 로컬 책장을 한 번만 복원하며 브라우저 오류 페이지나 중복 owner 초기화가 발생하지 않는다.
 - grid 도서 제목은 list와 같은 `14px / sm 16px`이며, grid 진행률 삭제 지우개는 `14px`다.
 
 ## 자동검증 계획
@@ -274,12 +275,11 @@
 - 책장 top/bottom dock과 리더 top/bottom surface에 공용 `viewer-cime-glass` 재질을 적용했다.
 - 기존 글래스의 책장 24px blur와 리더 28px blur surface는 `standard` 분기로 보존했고 `modern` 분기는 유지했다.
 - 내장 `Blue`를 정확한 `#141517 / #d2d3d6`의 `Midnight`로 교체했다.
-- 빈 책장 버튼을 테마 surface로 바꾸고 Google·샘플 버튼 배경을 동일하게 맞췄다.
+- 빈 책장을 Apple Books와 같은 한국어 안내문 중심의 평면 구성으로 바꾸고 Google·샘플 밑줄 문구에 실제 동작을 연결했다.
 - 퍼블릭 도메인 이솝 우화를 한국어로 새로 각색한 표지·metadata 포함 로컬 EPUB 설치 경로를 추가했다.
 - 샘플 네 장을 각각 20문단·1,000자 이상으로 확장해 실제 스크롤과 리더 기능을 점검할 수 있게 했다.
 - 좁은 화면에서 `keep-all + justify`가 단어 사이를 늘리던 샘플 CSS를 자연스러운 한국어 줄바꿈으로 교정했다.
-- `LIBRARY EMPTY`를 정자체로 통일하고 표준 설명을 `반투명 유리`로 변경했다.
-- 짧아진 빈 책장 제목에 의해 액션 폭이 줄어들지 않도록 부모를 full-width로 만들고 기존 240px 폭·11px 글자 크기를 보존했다.
+- 표준 설명을 `반투명 유리`로 변경했다.
 - 메뉴 스타일 카드에는 실제 standard 24px blur, glass 4px blur, modern Muzio surface를 CSS 미리보기로 적용했다.
 - 필터와 검색이 공용 책장 태그 집계를 사용하도록 바꿔 `#태그` 검색 권수와 fallback 표시를 교정했다.
 - EPUB 스크롤 모드의 iframe 바깥 reader surface에도 메뉴 호출 fallback을 추가하고, 누락 설정의 기본 글자 크기를 20px로 올렸다.
@@ -293,9 +293,13 @@
 - 상단 테마 목록을 2열 3행·최대 6개 높이의 독립 스크롤 영역으로 제한해 커스텀 테마가 늘어도 아래 설정과 창 크기가 밀리지 않게 했다.
 - 리더 종료 X는 하단 메뉴와 같은 본문 우측 inset에 맞추고, 제목 계산에는 기존 12px 기준선을 별도로 보존했다.
 - 비로그인 최초 진입과 로그아웃 뒤에는 별도 인증 landing 대신 로컬 guest 책장을 바로 열도록 인증 bootstrap을 단순화했다.
-- 빈 책장 버튼·전체 패널·grid 카드 곡률을 각각 16px·32px·24px로 낮추고 기존 크기와 list 행은 보존했다.
-- 책장 로그인 진입은 기존 열쇠 아이콘으로 되돌리고, 사전 안내 모달의 실제 로그인 동작에만 Google 공식 `180×40` 버튼 애셋을 적용했다.
+- 빈 책장 패널·아이콘·영문 제목·박스형 버튼을 제거하고 두 밑줄 동작이 있는 한국어 안내문으로 교체했으며 grid 카드 곡률은 24px로 유지했다.
+- 책장 로그인 진입은 기존 열쇠 아이콘으로 유지하고, 사전 안내 모달의 실제 로그인 동작에만 테마 휘도 기반 Google 공식 Light/Dark `180×40` 버튼 애셋을 적용했다.
+- 로그인 모달 헤더의 설명 문구를 제거해 아이콘과 제목만 남겼다.
+- Firebase 로그인 뒤 Drive 연결에도 개인정보 모달을 추가하고, Drive 권한·저장 범위 고지를 확인한 뒤에만 OAuth를 시작하도록 했다.
+- 빈 책장 안내를 guest, Firebase-only, Drive 연결의 세 상태로 나눠 각 상태에 가능한 밑줄 동작만 표시하고 기존 cloud 빈 책장 패널·아이콘·영문 버튼을 제거했다.
 - 실제 Firebase 리디렉션 전 guest owner 삭제와 `loading` 전환을 제거해 Google 로그인 취소 뒤 무한 로딩을 막았다.
+- 로그인 후 로그아웃 시 Firebase 인증 콜백과 수동 guest 전환이 겹치던 경합을 제거하고, 로그인 전 완료된 guest 복원 Promise도 인증 사용자 확인 시 폐기해 현재 guest 책장을 새로 복원하도록 했다.
 - grid 제목을 list와 동일한 `14px / sm 16px`로 낮추고 grid 진행률 지우개를 `14px`로 축소했으며, 새 기본 테마와 최초 페인트를 `Midnight`로 변경했다.
 - 책장 상·하단 dock의 바깥 곡률을 맥OS Dock에 가까운 `20px`로 통일하고 내부 원형 버튼은 보존했다.
 - app, service worker, Foliate runtime cache 버전을 `1.8.32`로 맞췄다.
@@ -308,11 +312,11 @@
 - `npm run test:browser:ci`: 통과
   - 3종 선택 카드의 한 줄 배치·각 surface, 글래스 20% surface/4px blur/gradient rim, 표준 24px blur, 모던 확인
   - 표준·글래스·모던을 차례로 선택해 각 카드에 동일한 2px 선택 박스와 체크 표시가 하나만 생기는지 확인
-  - Midnight, 테마색 빈 책장 액션, 기존 240px 버튼 폭·11px 글자 크기, 샘플 EPUB 설치·표지·열기, service worker `pc-reader-v1.8.32` 확인
+  - Midnight, 한국어 빈 책장 안내·두 밑줄 동작, 샘플 EPUB 설치·표지·열기, service worker `pc-reader-v1.8.32` 확인
   - 저장된 guest 상태가 없는 비로그인 최초 진입에서 인증 landing 없이 guest 책장 직접 진입과 guest 상태 저장 확인
-  - 빈 책장 액션 16px·전체 패널 32px·grid 카드 24px 곡률과 액션 크기 보존 확인
+  - 빈 책장 surface·아이콘·영문 제목·박스형 버튼 제거와 grid 카드 24px 곡률 확인
   - PC top dock과 모바일 bottom dock의 3개 스타일 모두 20px 곡률이며 내부 버튼 구조가 유지되는지 확인
-  - 기존 열쇠 아이콘 유지, 상단 `Sign in with Google`과 하단 10px Firebase·Drive 개인정보 고지, 모달 취소 뒤 guest 책장과 scroll lock 복구 확인
+  - 기존 열쇠 아이콘 유지, 테마별 Light/Dark `Sign in with Google` 180×40 완전 표시와 하단 10px Firebase·Drive 개인정보 고지, 모달 취소 뒤 guest 책장과 scroll lock 복구 확인
   - Firebase 리디렉션 전 guest 저장값·owner·책장 view 보존과 리디렉션 시작 실패 guest 복구를 source contract로 확인
   - 샘플 첫 장 20문단·1,000자 이상, 실제 scroll flow, 기본 본문 20px, 바깥 reader surface 메뉴 호출 확인
   - 독서 통계에서 허용한 네 역할 밖의 accent 요소 0개, 공유와 MD/JSON/진단의 중립 버튼 계층 확인
@@ -328,8 +332,8 @@
   - PC: `표준 / 글래스 / 모던`의 top 좌표가 모두 같고 3열 유지
   - 390px: 세 선택지의 top 좌표가 모두 같고 약 97px씩 3열 유지
   - 새 글래스 computed style이 `rgba(20, 21, 23, 0.2)`, `blur(4px)`, 164deg rim과 일치
-  - 빈 책장 `LIBRARY EMPTY`가 `font-style: normal`, transform 없음
-  - 390px 빈 책장에서 직접 추가 `rgb(69, 69, 70)`, Google·샘플 `rgb(39, 39, 40)`, 세 버튼 폭 240px, 가로 overflow 0
+  - 빈 책장 아이콘·영문 제목·박스형 버튼·surface가 없고 한국어 제목과 두 밑줄 동작만 표시됨
+  - 390px 빈 책장에서 Google·샘플 밑줄 동작과 가로 overflow 0 확인
   - 390px 샘플 첫 장에 viewport를 넘는 세로 스크롤과 20px 본문 표시 확인
   - PC Edge: 오프라인 저장소 제목 `font-style: normal`, 헤더·문서·닫기 아이콘 `rgb(184, 184, 184)`, 리더 설정 간격 20px/12px 확인
   - PC Edge: 리더 제목 surface와 종료 버튼 중심 차이 `0.71px` 확인

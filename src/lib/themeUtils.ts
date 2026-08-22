@@ -4,6 +4,7 @@ import { getMuzioShelfDockVariables } from './shelfDockTheme.ts';
 
 export const CUSTOM_THEME_PREFIX = 'custom:';
 export type ThemeLookupSettings = Pick<ViewerSettings, 'theme' | 'customThemes'>;
+export type GoogleSignInButtonVariant = 'light' | 'dark';
 
 export const normalizeHexColor = (value: string, fallback: string) => {
   const trimmed = value.trim();
@@ -26,6 +27,23 @@ const hexToRgb = (hex: string) => {
     g: (value >> 8) & 255,
     b: value & 255,
   };
+};
+
+export const getGoogleSignInButtonVariant = (backgroundColor: string): GoogleSignInButtonVariant => {
+  const match = /^#([0-9a-f]{6})$/i.exec(backgroundColor.trim());
+  if (!match) return 'dark';
+
+  const value = Number.parseInt(match[1], 16);
+  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  const weights = [0.2126, 0.7152, 0.0722];
+  const luminance = channels
+    .map((channel) => channel / 255)
+    .map((channel) => channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, channel, index) => sum + channel * weights[index], 0);
+
+  return luminance > 0.5 ? 'light' : 'dark';
 };
 
 const getRgbString = (hex: string) => {

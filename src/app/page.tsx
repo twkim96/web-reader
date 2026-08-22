@@ -68,7 +68,7 @@ import {
   shouldShowSyncReviewBadge,
 } from '../lib/syncConflictPresentation';
 import { runLogoutFlow } from '../lib/logoutFlow';
-import { LoginDisclosureModal } from '../components/LoginDisclosureModal';
+import { LoginDisclosureModal, type LoginDisclosureMode } from '../components/LoginDisclosureModal';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -104,7 +104,7 @@ export default function Page() {
   const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
-  const [loginDisclosureOpen, setLoginDisclosureOpen] = useState(false);
+  const [loginDisclosureMode, setLoginDisclosureMode] = useState<LoginDisclosureMode | null>(null);
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [annotationSyncHealth, setAnnotationSyncHealth] = useState<SyncHealth>('healthy');
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
@@ -438,9 +438,16 @@ export default function Page() {
 
   const handleConnect = () => {
     if (isGuest || !user) {
-      setLoginDisclosureOpen(true);
+      setLoginDisclosureMode('firebase');
       return;
     }
+
+    setLoginDisclosureMode('drive');
+  };
+
+  const handleDriveConnectTrigger = () => {
+    setLoginDisclosureMode(null);
+    setAuthErrorMessage(null);
 
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
     if (!clientId) {
@@ -452,7 +459,7 @@ export default function Page() {
   };
 
   const handleLoginTrigger = () => {
-    setLoginDisclosureOpen(false);
+    setLoginDisclosureMode(null);
     setAuthErrorMessage(null);
 
     signInWithRedirect(auth, googleProvider).catch((error) => {
@@ -475,24 +482,24 @@ export default function Page() {
     if (action === 'logout') {
       await runLogoutFlow({
         prepareUi: () => {
-          // Keep the authenticated owner alive until Firebase confirms sign-out.
-          // Sync effects may still observe `user` during this transition.
+          // Mark the upcoming anonymous auth state as a guest transition before
+          // Firebase emits it. The auth bootstrap owns the single library reset
+          // and restore, so logout cannot race a second manual guest restore.
           setActiveBook(null);
           setView('loading');
-          isGuestRef.current = false;
-          localStorage.removeItem('isGuest');
+          isGuestRef.current = true;
+          localStorage.setItem('isGuest', 'true');
         },
         signOut: () => signOut(auth),
         commitLocalCleanup: () => {
           if (driveCacheKey) invalidateDriveCache(driveCacheKey);
-          ownerRuntime.clear();
-          resetLibraryState();
           clearToken();
           clearLastReaderSession();
-          setBooks([]);
-          void enterGuestShelf();
         },
         recoverUi: (error) => {
+          isGuestRef.current = false;
+          localStorage.removeItem('isGuest');
+          setIsGuest(false);
           console.error('[Auth] Sign out failed:', error);
           setAuthErrorMessage('로그아웃하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.');
           setView('shelf');
@@ -711,7 +718,7 @@ export default function Page() {
           onRefresh={() => !isOfflineMode && googleToken && loadLibraryFromDrive(googleToken)}
           onOpen={handleOpenBook}
           onLogout={handleLogout}
-          onLogin={() => setLoginDisclosureOpen(true)}
+          onLogin={() => setLoginDisclosureMode('firebase')}
           userEmail={user?.email || "Guest User"}
           isOfflineMode={isOfflineMode}
           isGuest={isGuest}
@@ -841,11 +848,13 @@ export default function Page() {
         />
       )}
 
-      {loginDisclosureOpen && (
+      {loginDisclosureMode && (
         <LoginDisclosureModal
           theme={theme}
-          onClose={() => setLoginDisclosureOpen(false)}
-          onSignIn={handleLoginTrigger}
+          mode={loginDisclosureMode}
+          themeBackgroundColor={themeColors.bg}
+          onClose={() => setLoginDisclosureMode(null)}
+          onConfirm={loginDisclosureMode === 'firebase' ? handleLoginTrigger : handleDriveConnectTrigger}
         />
       )}
 

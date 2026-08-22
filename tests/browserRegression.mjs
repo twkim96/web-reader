@@ -152,7 +152,7 @@ try {
         const storedSettings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
         localStorage.setItem('viewer_settings', JSON.stringify({
           ...storedSettings,
-          theme: 'dark',
+          theme: sessionStorage.getItem('browser_regression_theme_override') || 'dark',
           accentColor: 'emerald',
           shelfDockStyle: 'modern'
         }));
@@ -249,51 +249,31 @@ try {
   assert.equal(directGuestEntry.hasLandingTitle, false, JSON.stringify(directGuestEntry));
   assert.equal(directGuestEntry.hasGuestModeAction, false, JSON.stringify(directGuestEntry));
 
-  const emptyShelfActions = await evaluate(`(() => {
-    const inspect = (name) => {
-      const node = document.querySelector('[data-empty-shelf-action="' + name + '"]');
-      const style = node ? getComputedStyle(node) : null;
-      return {
-        exists: Boolean(node),
-        backgroundColor: style?.backgroundColor ?? '',
-        color: style?.color ?? '',
-        width: node?.getBoundingClientRect().width ?? 0,
-        height: node?.getBoundingClientRect().height ?? 0,
-        fontSize: style?.fontSize ?? '',
-        borderRadius: style?.borderRadius ?? '',
-      };
-    };
+  const emptyShelfPresentation = await evaluate(`(() => {
     const panel = document.querySelector('[data-empty-shelf-panel="true"]');
+    const google = panel?.querySelector('[data-empty-shelf-action="google"]');
+    const sample = panel?.querySelector('[data-empty-shelf-action="sample"]');
     return {
-      import: inspect('import'),
-      google: inspect('google'),
-      sample: inspect('sample'),
-      heading: document.querySelector('[data-empty-shelf-action="import"]')
-        ?.closest('.space-y-4')?.querySelector('h3')?.textContent?.trim() ?? '',
-      headingFontStyle: (() => {
-        const heading = document.querySelector('[data-empty-shelf-action="import"]')
-          ?.closest('.space-y-4')?.querySelector('h3');
-        return heading ? getComputedStyle(heading).fontStyle : '';
-      })(),
+      text: panel?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+      heading: panel?.querySelector('[data-empty-shelf-heading="true"]')?.textContent?.trim() ?? '',
+      iconCount: panel?.querySelectorAll('svg').length ?? 0,
+      importExists: Boolean(panel?.querySelector('[data-empty-shelf-action="import"]')),
+      visualButtonCount: panel?.querySelectorAll('.rounded-2xl, .rounded-full').length ?? 0,
+      googleDecoration: google ? getComputedStyle(google).textDecorationLine : '',
+      sampleDecoration: sample ? getComputedStyle(sample).textDecorationLine : '',
+      panelBackground: panel ? getComputedStyle(panel).backgroundColor : '',
       panelBorderRadius: panel ? getComputedStyle(panel).borderRadius : '',
-      accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-600').trim(),
     };
   })()`);
-  assert.equal(emptyShelfActions.import.backgroundColor, 'rgb(69, 69, 70)', JSON.stringify(emptyShelfActions));
-  assert.equal(emptyShelfActions.google.backgroundColor, 'rgb(39, 39, 40)', JSON.stringify(emptyShelfActions));
-  assert.equal(emptyShelfActions.sample.backgroundColor, 'rgb(39, 39, 40)', JSON.stringify(emptyShelfActions));
-  assert.equal(emptyShelfActions.sample.backgroundColor, emptyShelfActions.google.backgroundColor, JSON.stringify(emptyShelfActions));
-  assert.equal(emptyShelfActions.import.color, 'rgb(184, 184, 184)', JSON.stringify(emptyShelfActions));
-  for (const action of [emptyShelfActions.import, emptyShelfActions.google, emptyShelfActions.sample]) {
-    assert.equal(action.width, 240, JSON.stringify(emptyShelfActions));
-    assert.equal(action.height, emptyShelfActions.google.height, JSON.stringify(emptyShelfActions));
-    assert.equal(action.fontSize, '11px', JSON.stringify(emptyShelfActions));
-    assert.equal(action.borderRadius, '16px', JSON.stringify(emptyShelfActions));
-  }
-  assert.equal(emptyShelfActions.panelBorderRadius, '32px', JSON.stringify(emptyShelfActions));
-  assert.notEqual(emptyShelfActions.import.backgroundColor, emptyShelfActions.accent, JSON.stringify(emptyShelfActions));
-  assert.equal(emptyShelfActions.heading, 'LIBRARY EMPTY', JSON.stringify(emptyShelfActions));
-  assert.equal(emptyShelfActions.headingFontStyle, 'normal', JSON.stringify(emptyShelfActions));
+  assert.equal(emptyShelfPresentation.heading, '보관함이 비어있음.', JSON.stringify(emptyShelfPresentation));
+  assert.match(emptyShelfPresentation.text, /책을 보관함에 추가하려면 Google 계정을 연동하거나 샘플 도서를 추가해주세요\./);
+  assert.equal(emptyShelfPresentation.iconCount, 0, JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.importExists, false, JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.visualButtonCount, 0, JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.googleDecoration, 'underline', JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.sampleDecoration, 'underline', JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.panelBackground, 'rgba(0, 0, 0, 0)', JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.panelBorderRadius, '0px', JSON.stringify(emptyShelfPresentation));
 
   await evaluate(`document.querySelector('[data-empty-shelf-action="google"]')?.click()`);
   await waitFor(
@@ -308,6 +288,10 @@ try {
       text: modal?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
       confirmLabel: confirm?.textContent?.trim() ?? '',
       confirmTop: confirm?.getBoundingClientRect().top ?? 0,
+      confirmRect: confirm ? {
+        width: confirm.getBoundingClientRect().width,
+        height: confirm.getBoundingClientRect().height,
+      } : null,
       noticeTop: notice?.getBoundingClientRect().top ?? 0,
       noticeFontSize: notice ? getComputedStyle(notice.querySelector('li')).fontSize : '',
       brandAsset: (() => {
@@ -317,13 +301,25 @@ try {
           height: asset.getBoundingClientRect().height,
           naturalWidth: asset.naturalWidth,
           naturalHeight: asset.naturalHeight,
+          variant: asset.dataset.googleSignInBrandVariant,
+          fullyVisible: (() => {
+            const assetRect = asset.getBoundingClientRect();
+            const confirmRect = confirm?.getBoundingClientRect();
+            return Boolean(confirmRect
+              && assetRect.top >= confirmRect.top
+              && assetRect.bottom <= confirmRect.bottom
+              && assetRect.left >= confirmRect.left
+              && assetRect.right <= confirmRect.right);
+          })(),
         } : null;
       })(),
       appView: document.querySelector('[data-app-view]')?.getAttribute('data-app-view') ?? '',
+      mode: modal?.getAttribute('data-login-disclosure-mode') ?? '',
       bodyPosition: document.body.style.position,
     };
   })()`);
   assert.match(loginDisclosure.text, /개인정보 처리방침/);
+  assert.doesNotMatch(loginDisclosure.text, /Google 로그인과 Drive 연결은 서로 다른 권한입니다/);
   assert.match(loginDisclosure.text, /Firebase 계정 로그인/);
   assert.match(loginDisclosure.text, /고유 식별자/);
   assert.match(loginDisclosure.text, /독서 진행률·책갈피·주석·독서 통계/);
@@ -332,13 +328,17 @@ try {
   assert.equal(loginDisclosure.confirmLabel, 'Sign in with Google', JSON.stringify(loginDisclosure));
   assert.ok(loginDisclosure.confirmTop < loginDisclosure.noticeTop, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.noticeFontSize, '10px', JSON.stringify(loginDisclosure));
+  assert.deepEqual(loginDisclosure.confirmRect, { width: 180, height: 40 }, JSON.stringify(loginDisclosure));
   assert.deepEqual(loginDisclosure.brandAsset, {
     width: 180,
     height: 40,
     naturalWidth: 180,
     naturalHeight: 40,
+    variant: 'dark',
+    fullyVisible: true,
   }, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.appView, 'shelf', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.mode, 'firebase', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
   await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
   await waitFor(
@@ -349,6 +349,47 @@ try {
     await evaluate(`document.querySelector('[data-app-view]')?.getAttribute('data-app-view')`),
     'shelf',
   );
+
+  await evaluate(`(() => {
+    const settings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    settings.theme = 'light';
+    localStorage.setItem('viewer_settings', JSON.stringify(settings));
+    sessionStorage.setItem('browser_regression_theme_override', 'light');
+  })()`);
+  await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    'document.querySelector(\'[data-empty-shelf-heading="true"]\')?.textContent?.trim() === "보관함이 비어있음."',
+    'light empty guest shelf',
+  );
+  await evaluate(`document.querySelector('[data-empty-shelf-action="google"]')?.click()`);
+  await waitFor(
+    'document.querySelector(\'[data-google-sign-in-brand-asset="true"]\')?.dataset.googleSignInBrandVariant === "light"',
+    'light Google sign-in asset',
+  );
+  assert.deepEqual(
+    await evaluate(`(() => {
+      const asset = document.querySelector('[data-google-sign-in-brand-asset="true"]');
+      return asset ? [asset.naturalWidth, asset.naturalHeight, asset.getBoundingClientRect().width, asset.getBoundingClientRect().height] : [];
+    })()`),
+    [180, 40, 180, 40],
+  );
+  await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
+  await waitFor(
+    '!document.querySelector(\'[data-login-disclosure-modal="true"]\')',
+    'light login privacy disclosure cancel',
+  );
+  await evaluate(`(() => {
+    const settings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
+    settings.theme = 'midnight';
+    localStorage.setItem('viewer_settings', JSON.stringify(settings));
+    sessionStorage.setItem('browser_regression_theme_override', 'midnight');
+  })()`);
+  await command('Page.reload', { ignoreCache: true });
+  await waitFor(
+    'document.querySelector(\'[data-empty-shelf-heading="true"]\')?.textContent?.trim() === "보관함이 비어있음."',
+    'restored Midnight empty guest shelf',
+  );
+  await evaluate(`sessionStorage.removeItem('browser_regression_theme_override')`);
 
   await evaluate(`document.querySelector('[data-empty-shelf-action="sample"]')?.click()`);
   await waitFor(

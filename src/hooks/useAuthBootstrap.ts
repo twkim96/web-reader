@@ -77,6 +77,9 @@ export const useAuthBootstrap = ({
       const callbackGeneration = ++authGeneration;
       const previousOwner = ownerRuntime.capture();
       if (firebaseUser) {
+        // A later logout must hydrate the guest owner again instead of reusing
+        // the guest restore that may have completed before the login redirect.
+        guestRestore = null;
         const authOwnerKey = makeFirebaseOwnerKey(firebaseUser.uid);
         const nextOwner = ownerRuntime.activate(makeOwnerKey(authOwnerKey, 'library:local'));
         if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
@@ -94,6 +97,7 @@ export const useAuthBootstrap = ({
           setView((prev) => prev === 'reader' ? 'reader' : 'shelf');
         })();
       } else if (isGuestRef.current) {
+        setIsGuest(true);
         activateGuest(callbackGeneration);
       } else {
         enterGuestLibrary(callbackGeneration);

@@ -4,10 +4,12 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseHTML } from 'linkedom';
 import bookCardModule from '../src/components/shelf/BookCard.tsx';
+import emptyStateModule from '../src/components/shelf/EmptyState.tsx';
 import bookUtilsModule from '../src/components/shelf/bookUtils.ts';
 import generatedBookCoverModule from '../src/components/shelf/GeneratedBookCover.tsx';
 
 const { BookCard, getFittingShelfTagCount } = bookCardModule;
+const { EmptyState } = emptyStateModule;
 const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
 const { GeneratedBookCover, getGeneratedBookCoverStyle } = generatedBookCoverModule;
 
@@ -70,6 +72,48 @@ const renderCardWithCover = (viewMode, catalog = props.catalog, overrides = {}) 
   }));
   return parseHTML(html).document;
 };
+
+const renderEmptyState = ({ isGuest, isOfflineMode }) => {
+  const html = renderToStaticMarkup(React.createElement(EmptyState, {
+    searchKeyword: '',
+    isGuest,
+    isOfflineMode,
+    theme: props.theme,
+    onClearSearch: () => undefined,
+    onToggleCloud: () => undefined,
+    onLogin: () => undefined,
+    onShowImportConfirm: () => undefined,
+    onAddSampleBook: () => undefined,
+    isAddingSampleBook: false,
+    sampleBookFeedback: '',
+  }));
+  return parseHTML(html).document;
+};
+
+test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive states', () => {
+  const guest = renderEmptyState({ isGuest: true, isOfflineMode: true });
+  assert.equal(guest.querySelector('[data-empty-shelf-heading="true"]')?.textContent, '보관함이 비어있음.');
+  assert.equal(guest.querySelector('[data-empty-shelf-action="google"]')?.textContent.trim(), 'Google 계정을 연동하거나');
+  assert.equal(guest.querySelector('[data-empty-shelf-action="sample"]')?.textContent.trim(), '샘플 도서를 추가해주세요');
+  assert.equal(guest.querySelector('[data-empty-shelf-action="import"]'), null);
+
+  const firebaseOnly = renderEmptyState({ isGuest: false, isOfflineMode: true });
+  assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="cloud"]')?.textContent.trim(), '드라이브에 로그인하거나');
+  assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="import"]')?.textContent.trim(), '파일을 로컬에 업로드해주세요');
+  assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="sample"]'), null);
+
+  const drive = renderEmptyState({ isGuest: false, isOfflineMode: false });
+  const driveUpload = drive.querySelector('[data-empty-shelf-action="drive"]');
+  assert.equal(driveUpload?.textContent.trim(), '파일을 드라이브에 업로드해주세요');
+  assert.equal(driveUpload?.getAttribute('href'), 'https://drive.google.com/');
+  assert.equal(drive.querySelector('[data-empty-shelf-action="sample"]'), null);
+
+  for (const document of [guest, firebaseOnly, drive]) {
+    const panel = document.querySelector('[data-empty-shelf-panel="true"]');
+    assert.equal(panel?.querySelector('svg'), null);
+    assert.doesNotMatch(panel?.textContent ?? '', /LIBRARY EMPTY|REFRESH LIBRARY|OPEN GOOGLE DRIVE/);
+  }
+});
 
 test('uses the same cover frame for cached and generated shelf covers', () => {
   for (const viewMode of ['grid', 'list']) {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { XCircle, WifiOff, FolderPlus, Library, FilePlus, KeyRound, BookOpen } from 'lucide-react';
+import { XCircle } from 'lucide-react';
 import { ThemeClasses } from '../../types';
 
 interface EmptyStateProps {
@@ -9,9 +9,8 @@ interface EmptyStateProps {
   theme: ThemeClasses;
   onClearSearch: () => void;
   onToggleCloud: () => void;
-  onShowImportConfirm: () => void;
   onLogin: () => void;
-  onRefresh: () => void;
+  onShowImportConfirm: () => void;
   onAddSampleBook: () => void;
   isAddingSampleBook: boolean;
   sampleBookFeedback: string;
@@ -24,33 +23,16 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   theme,
   onClearSearch,
   onToggleCloud,
-  onShowImportConfirm,
   onLogin,
-  onRefresh,
+  onShowImportConfirm,
   onAddSampleBook,
   isAddingSampleBook,
   sampleBookFeedback,
 }) => {
-  const actionClass = 'w-full max-w-[240px] py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:brightness-110 disabled:cursor-wait disabled:opacity-55 disabled:active:scale-100';
-  const softActionStyle = {
-    backgroundColor: 'var(--viewer-theme-action-soft)',
-    color: 'var(--viewer-theme-text)',
-  };
-  const themeActionStyle = {
-    backgroundColor: 'var(--viewer-theme-bg)',
-    color: 'var(--viewer-theme-text)',
-  };
-  const strongActionStyle = {
-    backgroundColor: 'var(--viewer-theme-action-strong)',
-    color: 'var(--viewer-theme-text)',
-  };
-  const quietActionStyle = {
-    backgroundColor: 'var(--viewer-theme-secondary)',
-    color: 'var(--viewer-theme-text)',
-  };
+  const linkClass = 'inline border-0 bg-transparent p-0 font-semibold underline decoration-1 underline-offset-4 transition-opacity hover:opacity-100 disabled:cursor-wait disabled:opacity-45';
 
   return (
-    <div data-empty-shelf-panel="true" className={`flex flex-col items-center justify-center py-32 text-center space-y-8 ${theme.secondary} rounded-[2rem] border ${theme.border} backdrop-blur-sm`}>
+    <div data-empty-shelf-panel="true" className="flex min-h-[60dvh] flex-col items-center justify-center px-6 py-24 text-center">
       {searchKeyword ? (
         <>
           <div className={`p-8 ${theme.secondary} rounded-[2rem] opacity-60`}>
@@ -68,137 +50,47 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           </button>
         </>
       ) : (
-        <>
-          <div className={`p-8 rounded-[2rem] shadow-inner ${isOfflineMode ? 'bg-slate-700/50 text-slate-400' : 'bg-accent-600/20 text-accent-400'}`}>
-            {isOfflineMode ? <WifiOff size={64} /> : <FolderPlus size={64} />}
-          </div>
-          
-          <div className="w-full max-w-sm space-y-4">
-            {isOfflineMode ? (
+        <div className="max-w-md space-y-2 opacity-65">
+          <h3 data-empty-shelf-heading="true" className="text-lg font-bold">보관함이 비어있음.</h3>
+          <p className="text-sm font-medium leading-relaxed">
+            책을 보관함에 추가하려면{' '}
+            {isGuest ? (
               <>
-                <h3 className="text-2xl font-black uppercase tracking-tighter">LIBRARY EMPTY</h3>
-                <div className="flex flex-col gap-3 items-center w-full mt-2">
-                  {!isGuest && isOfflineMode && (
-                    <button 
-                      onClick={onToggleCloud} 
-                      data-empty-shelf-action="cloud"
-                      className={actionClass}
-                      style={themeActionStyle}
-                    >
-                      <Library size={16} />
-                      <span>Cloud Library 연결하기</span>
-                    </button>
-                  )}
-
-                  <button 
-                    onClick={onShowImportConfirm} 
-                    data-empty-shelf-action="import"
-                    className={actionClass}
-                    style={softActionStyle}
-                  >
-                    <FilePlus size={16} />
-                    <span>도서 직접 추가하기</span>
-                  </button>
-
-                  {isGuest && (
-                    <button 
-                      onClick={onLogin} 
-                      data-empty-shelf-action="google"
-                      className={actionClass}
-                      style={themeActionStyle}
-                    >
-                      <KeyRound size={16} />
-                      <span>Google 계정 연동하기</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={onAddSampleBook}
-                    disabled={isAddingSampleBook}
-                    data-empty-shelf-action="sample"
-                    className={actionClass}
-                    style={themeActionStyle}
-                  >
-                    <BookOpen size={16} />
-                    <span>{isAddingSampleBook ? '샘플 도서 추가 중…' : '샘플 도서 보기'}</span>
-                  </button>
-                  {sampleBookFeedback && (
-                    <p role="status" className="max-w-[240px] text-xs font-bold opacity-65">
-                      {sampleBookFeedback}
-                    </p>
-                  )}
-                </div>
+                <button type="button" onClick={onLogin} data-empty-shelf-action="google" className={linkClass}>
+                  Google 계정을 연동하거나
+                </button>{' '}
+                <button
+                  type="button"
+                  onClick={onAddSampleBook}
+                  disabled={isAddingSampleBook}
+                  data-empty-shelf-action="sample"
+                  className={linkClass}
+                >
+                  {isAddingSampleBook ? '샘플 도서를 추가하고 있습니다' : '샘플 도서를 추가해주세요'}
+                </button>
+              </>
+            ) : isOfflineMode ? (
+              <>
+                <button type="button" onClick={onToggleCloud} data-empty-shelf-action="cloud" className={linkClass}>
+                  드라이브에 로그인하거나
+                </button>{' '}
+                <button type="button" onClick={onShowImportConfirm} data-empty-shelf-action="import" className={linkClass}>
+                  파일을 로컬에 업로드해주세요
+                </button>
               </>
             ) : (
-              <>
-                <h3 className="text-2xl font-black uppercase tracking-tighter">LIBRARY EMPTY</h3>
-                <p className="opacity-60 text-sm leading-relaxed font-medium">
-                  구글 드라이브의 <span className="text-accent-500 font-black">&ldquo;web viewer&rdquo;</span> 폴더에 TXT, EPUB, PDF, ZIP, CBZ 또는 7Z 도서를 추가해 주세요.
-                </p>
-                <div className="flex flex-col gap-3 items-center w-full mt-2">
-                  <button 
-                    onClick={onShowImportConfirm} 
-                    data-empty-shelf-action="import"
-                    className={actionClass}
-                    style={softActionStyle}
-                  >
-                    <FilePlus size={16} />
-                    <span>도서 직접 추가하기</span>
-                  </button>
-                  <a 
-                    href="https://drive.google.com/" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    data-empty-shelf-action="drive"
-                    className={actionClass}
-                    style={quietActionStyle}
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M7.74023 6L4.64023 11.38L8.60023 18.25L11.7002 12.87L7.74023 6Z" fill="#0066DA"/>
-                      <path d="M21.5 13.5L15.3 13.5L12.21 18.82L15.41 24L21.5 13.5Z" fill="#0066DA" opacity="0"/>
-                      <path d="M21.5002 13.5002L18.4002 18.8802L12.3002 18.8802L15.4002 13.5002L21.5002 13.5002Z" fill="#2684FF"/>
-                      <path d="M12.3002 18.88L15.4002 13.5L8.60023 18.25L12.3002 18.88Z" fill="#0066DA" opacity="0"/>
-                      <path d="M15.4002 13.5002L12.3002 8.12015L6.2002 8.12015L9.3002 13.5002L15.4002 13.5002Z" fill="#FFBC00"/>
-                      <path d="M15.4002 13.5002L12.3002 8.12015L11.7002 12.87L15.4002 13.5002Z" fill="#0066DA" opacity="0"/>
-                      <path d="M9.30023 13.5002L6.19022 18.8802L3.10022 13.5001L6.20023 8.12012L9.30023 13.5002Z" fill="#00AC47"/>
-                      <path d="M6.2002 8.12012L9.3002 13.5002L12.3002 8.12012L9.2002 2.74012L3.1002 2.74012L6.2002 8.12012Z" fill="#EA4335" opacity="0"/>
-                      <path d="M15.4002 2.74011L9.2002 2.74011L6.10022 8.12011L12.3002 8.12011L15.4002 2.74011Z" fill="#00AC47" opacity="0"/>
-                      <path d="M9.3002 2.74011L3.2002 2.74011L6.2002 8.12011L9.3002 2.74011Z" fill="#0066DA" opacity="0"/>
-                      <path d="M12.3002 8.12011L9.2002 2.74011L15.4002 2.74011L18.5002 8.12011L12.3002 8.12011Z" fill="#00AC47" opacity="0"/>
-                      <path d="M15.41 12.87L18.51 8.12L12.41 8.12L9.31006 13.5L15.41 12.87Z" fill="#0066DA" opacity="0"/>
-                      <path d="M18.5 8.12011L15.4 2.74011L9.3 2.74011L12.4 8.12011L18.5 8.12011Z" fill="#0066DA" opacity="0"/>
-                    </svg>
-                    <span>Open Google Drive</span>
-                  </a>
-                  <button 
-                    onClick={onRefresh} 
-                    data-empty-shelf-action="refresh"
-                    className={actionClass}
-                    style={strongActionStyle}
-                  >
-                    Refresh Library
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onAddSampleBook}
-                    disabled={isAddingSampleBook}
-                    data-empty-shelf-action="sample"
-                    className={`${actionClass} border ${theme.border}`}
-                    style={themeActionStyle}
-                  >
-                    <BookOpen size={16} />
-                    <span>{isAddingSampleBook ? '샘플 도서 추가 중…' : '샘플 도서 보기'}</span>
-                  </button>
-                  {sampleBookFeedback && (
-                    <p role="status" className="max-w-[240px] text-xs font-bold opacity-65">
-                      {sampleBookFeedback}
-                    </p>
-                  )}
-                </div>
-              </>
+              <a href="https://drive.google.com/" target="_blank" rel="noopener noreferrer" data-empty-shelf-action="drive" className={linkClass}>
+                파일을 드라이브에 업로드해주세요
+              </a>
             )}
-          </div>
-        </>
+            .
+          </p>
+          {isGuest && sampleBookFeedback && (
+            <p role="status" className="pt-2 text-xs font-bold opacity-80">
+              {sampleBookFeedback}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

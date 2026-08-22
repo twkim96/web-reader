@@ -8,7 +8,11 @@ import {
 } from '../src/hooks/useViewerSettings.ts';
 import { getMuzioShelfDockVariables } from '../src/lib/shelfDockTheme.ts';
 import { THEMES } from '../src/lib/constants.ts';
-import { getThemeColors, getThemeCssVariables } from '../src/lib/themeUtils.ts';
+import {
+  getGoogleSignInButtonVariant,
+  getThemeColors,
+  getThemeCssVariables,
+} from '../src/lib/themeUtils.ts';
 
 const SETTINGS_KEY = 'viewer_settings';
 const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1';
@@ -59,6 +63,14 @@ test('uses Midnight as the new default while preserving an explicit saved theme'
   const layout = await readFile(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   assert.match(layout, /let settings = \{ theme: 'midnight'/);
   assert.match(layout, /builtInThemes\[settings\.theme\] \|\| builtInThemes\.midnight/);
+});
+
+test('selects the official Google button contrast from the active theme background', () => {
+  assert.equal(getGoogleSignInButtonVariant('#ffffff'), 'light');
+  assert.equal(getGoogleSignInButtonVariant('#f4ecd8'), 'light');
+  assert.equal(getGoogleSignInButtonVariant('#272728'), 'dark');
+  assert.equal(getGoogleSignInButtonVariant('#141517'), 'dark');
+  assert.equal(getGoogleSignInButtonVariant('invalid'), 'dark');
 });
 
 test('defaults auto-open for older stored viewer settings', async () => {
