@@ -390,7 +390,7 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`group relative select-none ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-8 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
+      className={`group relative flex h-full select-none flex-col ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-8 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
     >
       {!coverUrl && (
         <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -398,9 +398,9 @@ export const BookCard: React.FC<BookCardProps> = ({
         </div>
       )}
 
-      <div className="relative z-10 space-y-6">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         {coverUrl ? (
-          <div data-shelf-grid-cover-content="true" className="space-y-3">
+          <div data-shelf-grid-cover-content="true" className="flex min-h-0 flex-1 flex-col">
             <div
               data-shelf-grid-cover-layout="true"
               className="grid min-h-36 grid-cols-[6rem_minmax(0,1fr)] items-start gap-4 sm:min-h-40 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-5"
@@ -440,16 +440,18 @@ export const BookCard: React.FC<BookCardProps> = ({
               </div>
             </div>
             {hasCatalogTags && (
-              <div
-                data-shelf-grid-cover-tags="true"
-                className="max-h-9 overflow-hidden"
-              >
-                {renderCatalogTags()}
+              <div data-shelf-grid-cover-tag-slot="true" className="flex min-h-12 flex-1 items-center py-3">
+                <div
+                  data-shelf-grid-cover-tags="true"
+                  className="max-h-9 w-full overflow-hidden"
+                >
+                  {renderCatalogTags()}
+                </div>
               </div>
             )}
           </div>
         ) : (
-          <>
+          <div className="flex min-h-0 flex-1 flex-col gap-6">
             <div className="flex justify-between items-start">
               <div
                 data-shelf-book-icon-frame="true"
@@ -475,15 +477,15 @@ export const BookCard: React.FC<BookCardProps> = ({
               <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
               {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
             </div>
-          </>
+          </div>
         )}
 
-        <div className="space-y-3">
+        <div data-shelf-grid-progress-block="true" className="mt-6 space-y-3">
           <div className="flex justify-between items-end">
-            <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
+            <span data-shelf-grid-progress-date="true" className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
               {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
             </span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-end gap-1.5">
               {percent > 0 && onDeleteProgress && (
                 <button 
                   onClick={(e) => {
@@ -497,7 +499,7 @@ export const BookCard: React.FC<BookCardProps> = ({
                   <Eraser size={18} strokeWidth={2.5} />
                 </button>
               )}
-              <span className="text-xs font-black text-accent-400">{percent.toFixed(1)}%</span>
+              <span data-shelf-grid-progress-percent="true" className="text-xs font-black text-accent-400">{percent.toFixed(1)}%</span>
             </div>
           </div>
           <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden">

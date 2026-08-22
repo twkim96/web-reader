@@ -110,12 +110,22 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(gridFrame.className, /sm:h-40/);
   const gridTitle = gridCard.querySelector('[data-shelf-grid-cover-title="true"]');
   const gridTags = gridCard.querySelector('[data-shelf-grid-cover-tags="true"]');
+  const gridTagSlot = gridCard.querySelector('[data-shelf-grid-cover-tag-slot="true"]');
+  const gridProgress = gridCard.querySelector('[data-shelf-grid-progress-block="true"]');
+  const gridCardRoot = gridCard.querySelector('[data-shelf-book-card="true"]');
   assert.ok(gridTitle);
   assert.ok(gridTags);
+  assert.ok(gridTagSlot);
+  assert.ok(gridProgress);
+  assert.ok(gridCardRoot);
   assert.match(gridTitle.className, /line-clamp-3/);
   assert.match(gridTitle.className, /sm:text-xl/);
   assert.match(gridTags.className, /max-h-9/);
   assert.match(gridTags.className, /overflow-hidden/);
+  assert.match(gridTagSlot.className, /flex-1/);
+  assert.match(gridTagSlot.className, /items-center/);
+  assert.match(gridCardRoot.className, /h-full/);
+  assert.match(gridProgress.className, /mt-6/);
 });
 
 test('places one combined view count above the progress percentage', () => {

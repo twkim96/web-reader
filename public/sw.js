@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: refine cached-cover grid hierarchy with a larger title block and a two-row clipped tag area while preserving offline-only shelf rendering.
+// 1.8.31: align covered and fallback grid progress blocks, center clipped tags, and bottom-align progress labels.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

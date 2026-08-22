@@ -323,6 +323,18 @@ try {
     );
     const coverRect = coverFrame?.getBoundingClientRect();
     const coverStyle = coverFrame ? getComputedStyle(coverFrame) : null;
+    const fallbackProgress = document.querySelector(
+      '[data-shelf-book-id="book-0000"] [data-shelf-grid-progress-block="true"]'
+    )?.getBoundingClientRect();
+    const coveredProgress = document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-grid-progress-block="true"]'
+    )?.getBoundingClientRect();
+    const coveredDate = document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-grid-progress-date="true"]'
+    )?.getBoundingClientRect();
+    const coveredPercent = document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-grid-progress-percent="true"]'
+    )?.getBoundingClientRect();
     return {
       cardCount: document.querySelectorAll('main h3').length,
       titles: [...document.querySelectorAll('main h3')]
@@ -341,6 +353,10 @@ try {
         boxShadow: coverStyle.boxShadow,
         borderRadius: coverStyle.borderRadius,
       } : null,
+      gridProgressAlignment: fallbackProgress && coveredProgress && coveredDate && coveredPercent ? {
+        topDelta: Math.abs(fallbackProgress.top - coveredProgress.top),
+        labelBottomDelta: Math.abs(coveredDate.bottom - coveredPercent.bottom),
+      } : null,
     };
   })()`);
   assert.equal(initialShelf.cardCount, 50);
@@ -355,6 +371,9 @@ try {
     boxShadow: 'none',
     borderRadius: '0px',
   });
+  assert.ok(initialShelf.gridProgressAlignment);
+  assert.ok(initialShelf.gridProgressAlignment.topDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
+  assert.ok(initialShelf.gridProgressAlignment.labelBottomDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
 
   await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
   await waitFor(
