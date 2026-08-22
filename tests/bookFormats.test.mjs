@@ -16,6 +16,8 @@ import { buildTocProgress } from '../src/hooks/foliate/toc.ts';
 import {
   getBookCoverTargetSize,
   supportsCachedBookCover,
+  supportsEmbeddedBookCover,
+  supportsMetadataBookCover,
 } from '../src/lib/bookCoverPolicy.ts';
 
 const file = (name, size, type = '') => ({ name, size, type });
@@ -30,7 +32,7 @@ test('detects supported formats by extension before MIME fallback', () => {
   assert.equal(getBookTitleFromFileName('sample.CBZ'), 'sample');
 });
 
-test('limits cached covers to EPUB, PDF, ZIP, and CBZ and bounds their raster size', () => {
+test('separates embedded cover extraction from TXT metadata cover caching', () => {
   assert.equal(supportsCachedBookCover({
     name: 'cover.epub', mimeType: 'application/epub+zip', sourceFormat: 'epub',
   }), true);
@@ -48,6 +50,15 @@ test('limits cached covers to EPUB, PDF, ZIP, and CBZ and bounds their raster si
   }), false);
   assert.equal(supportsCachedBookCover({
     name: 'plain.txt', mimeType: 'text/plain', sourceFormat: 'txt',
+  }), true);
+  assert.equal(supportsEmbeddedBookCover({
+    name: 'plain.txt', mimeType: 'text/plain', sourceFormat: 'txt',
+  }), false);
+  assert.equal(supportsMetadataBookCover({
+    name: 'plain.txt', mimeType: 'text/plain', sourceFormat: 'txt',
+  }), true);
+  assert.equal(supportsMetadataBookCover({
+    name: 'cover.epub', mimeType: 'application/epub+zip', sourceFormat: 'epub',
   }), false);
   assert.deepEqual(getBookCoverTargetSize(1600, 2400), { width: 480, height: 720 });
   assert.deepEqual(getBookCoverTargetSize(240, 360), { width: 240, height: 360 });

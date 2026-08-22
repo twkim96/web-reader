@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   FILE_CHECK_TITLE_NORMALIZER_VERSION,
+  getPublicBookCoverCandidates,
   getPublicBookMetadataAliasCandidates,
   normalizePublicBookMetadataAlias,
   parsePublicBookMetadata,
@@ -43,6 +44,7 @@ test('accepts a bounded public platform record and rejects unsafe URLs', () => {
       label: '카카오페이지',
       title: '마왕은 학원에 간다',
       url: 'https://page.kakao.com/content/1',
+      coverUrl: 'https://dn-img-page.kakao.com/download/resource?kid=test&filename=o1',
       downloadCount: null,
       interestCount: null,
       viewCount: 123456,
@@ -57,4 +59,37 @@ test('accepts a bounded public platform record and rejects unsafe URLs', () => {
     ...payload,
     platforms: [{ ...payload.platforms[0], url: 'javascript:alert(1)' }],
   }), null);
+  assert.equal(parsePublicBookMetadata({
+    ...payload,
+    platforms: [{ ...payload.platforms[0], coverUrl: 'http://example.test/cover.jpg' }],
+  }), null);
+
+  const legacy = parsePublicBookMetadata({
+    ...payload,
+    platforms: [{
+      ...payload.platforms[0],
+      coverUrl: undefined,
+    }],
+  });
+  assert.equal(legacy.platforms[0].coverUrl, null);
+});
+
+test('orders metadata cover candidates by stable platform priority', () => {
+  const metadata = {
+    schemaVersion: 1,
+    titleKey: '작품',
+    displayTitle: '작품',
+    normalizerVersion: '1.3.3',
+    publishedAt: '2026-08-22T00:00:00+00:00',
+    platforms: [
+      { platform: 'novelpia', coverUrl: 'https://novelpia.com/cover.jpg' },
+      { platform: 'kakao', coverUrl: 'https://dn-img-page.kakao.com/cover.jpg' },
+      { platform: 'series', coverUrl: 'https://comicthumb-phinf.pstatic.net/cover.jpg' },
+    ],
+  };
+  assert.deepEqual(getPublicBookCoverCandidates(metadata), [
+    { platform: 'series', coverUrl: 'https://comicthumb-phinf.pstatic.net/cover.jpg' },
+    { platform: 'kakao', coverUrl: 'https://dn-img-page.kakao.com/cover.jpg' },
+    { platform: 'novelpia', coverUrl: 'https://novelpia.com/cover.jpg' },
+  ]);
 });

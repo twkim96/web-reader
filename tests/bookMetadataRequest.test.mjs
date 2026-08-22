@@ -13,10 +13,12 @@ import {
 import { parseBookMetadataRefreshRequest, withTrustedQueryTitle } from '../src/server/bookMetadata/requestSchema.ts';
 import { novelpiaCredentialsConfigured } from '../src/server/bookMetadata/config.ts';
 import {
+  getKakaoCoverUrl,
   parseKakaoCandidates,
   parseKakaoOverview,
   parseKakaoTags,
   parseNovelpiaTags,
+  parseOpenGraphCover,
   parseSeriesCandidates,
   parseSeriesDetail,
 } from '../src/server/bookMetadata/crawlers.ts';
@@ -67,20 +69,29 @@ test('parses the three public platform fixture shapes', async () => {
   assert.deepEqual(seriesCandidates, [{ id: '123', title: '테스트 작품 (총 120화)' }]);
   assert.deepEqual(parseSeriesDetail(await fixture('series-detail.html')), {
     title: '테스트 작품', sourceCount: 12000, genre: '현판',
+    coverUrl: 'https://comicthumb-phinf.pstatic.net/test-cover.jpg',
   });
   assert.deepEqual(parseKakaoCandidates(await fixture('kakao-search.json', true)), [
     { id: '456', title: '테스트 작품', sourceCount: 25000 },
   ]);
   assert.deepEqual(parseKakaoOverview(await fixture('kakao-overview.json', true)), {
     title: '테스트 작품', sourceCount: 26000, genre: '현대판타지',
+    coverUrl: getKakaoCoverUrl('sample/kakao-cover-key'),
   });
   assert.deepEqual(parseKakaoTags(await fixture('kakao-about.json', true)), ['성장', '먼치킨']);
   assert.deepEqual(parseNovelpiaTags((await fixture('novelpia-search.json', true)).list[0]), ['판타지', '하렘', '성장']);
+  assert.equal(
+    parseOpenGraphCover('<meta content="https://images.novelpia.com/cover.jpg" property="og:image">'),
+    'https://images.novelpia.com/cover.jpg',
+  );
+  assert.equal(parseOpenGraphCover('<meta property="og:image" content="http://example.test/cover.jpg">'), null);
 });
 
 test('builds ready, ambiguous, and retryable results without inventing metadata', () => {
-  const ok = { platform: 'kakao', status: 'ok', remoteId: '1', remoteTitle: '작품', url: 'https://page.kakao.com/content/1', genre: '판타지', tags: ['성장'], sourceCount: 10 };
-  const notFound = (platform) => ({ platform, status: 'not-found', remoteId: null, remoteTitle: null, url: null, genre: null, tags: null, sourceCount: null });
-  assert.equal(buildOnDemandMetadata('a'.repeat(64), 'b'.repeat(64), '작품', [notFound('series'), ok, notFound('novelpia')]).status, 'ready');
+  const ok = { platform: 'kakao', status: 'ok', remoteId: '1', remoteTitle: '작품', url: 'https://page.kakao.com/content/1', coverUrl: 'https://dn-img-page.kakao.com/cover.jpg', genre: '판타지', tags: ['성장'], sourceCount: 10 };
+  const notFound = (platform) => ({ platform, status: 'not-found', remoteId: null, remoteTitle: null, url: null, coverUrl: null, genre: null, tags: null, sourceCount: null });
+  const ready = buildOnDemandMetadata('a'.repeat(64), 'b'.repeat(64), '작품', [notFound('series'), ok, notFound('novelpia')]);
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.platforms[0].coverUrl, ok.coverUrl);
   assert.equal(buildOnDemandMetadata('a'.repeat(64), 'b'.repeat(64), '작품', [notFound('series'), { ...notFound('kakao'), status: 'ambiguous' }, notFound('novelpia')]).status, 'ambiguous');
 });

@@ -12,6 +12,8 @@ import {
   BOOK_COVER_MAX_SOURCE_BYTES,
   getBookCoverTargetSize,
   supportsCachedBookCover,
+  supportsEmbeddedBookCover,
+  supportsMetadataBookCover,
 } from './bookCoverPolicy.ts';
 
 export {
@@ -20,6 +22,8 @@ export {
   BOOK_COVER_MAX_WIDTH,
   getBookCoverTargetSize,
   supportsCachedBookCover,
+  supportsEmbeddedBookCover,
+  supportsMetadataBookCover,
 } from './bookCoverPolicy.ts';
 
 const abortError = () => new DOMException('Cover generation aborted', 'AbortError');
@@ -98,7 +102,7 @@ export const cacheBookCoverSourceIfMissing = async (
   source: Blob,
   signal?: AbortSignal,
 ) => {
-  if (!supportsCachedBookCover(book)) return false;
+  if (!supportsEmbeddedBookCover(book)) return false;
   if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
   return await normalizeAndSaveBookCover(ownerKey, book, source, signal);
 };
@@ -109,7 +113,7 @@ const saveOpenedBookCover = async (
   view: FoliateViewElement,
   signal?: AbortSignal,
 ) => {
-  if (!supportsCachedBookCover(book)) return false;
+  if (!supportsEmbeddedBookCover(book)) return false;
   if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
   throwIfAborted(signal);
   const source = await view.book?.getCover?.();
@@ -125,7 +129,7 @@ export const cacheImportedBookCoverIfMissing = async (
   source: File,
   signal?: AbortSignal,
 ) => {
-  if (!supportsCachedBookCover(book)) return false;
+  if (!supportsEmbeddedBookCover(book)) return false;
   if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
   throwIfAborted(signal);
   await waitForFoliateViewRegistration();

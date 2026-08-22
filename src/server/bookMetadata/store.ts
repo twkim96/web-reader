@@ -4,7 +4,7 @@ import { canonicalGenre, sha256, type OnDemandMetadata, type PlatformCrawlResult
 import { BOOK_METADATA_LIMITS } from './config.ts';
 
 const SOURCE_BITS = { series: 1, kakao: 2, novelpia: 4 } as const;
-export const BOOK_METADATA_CRAWLER_VERSION = 'web-reader-1.8.15-v2';
+export const BOOK_METADATA_CRAWLER_VERSION = 'web-reader-1.8.29-v3';
 
 export type LeaseResult =
   | { kind: 'cached'; document: OnDemandMetadata }
@@ -85,6 +85,7 @@ export const buildOnDemandMetadata = (
         remoteId: result.remoteId,
         remoteTitle: result.remoteTitle,
         url: result.url,
+        coverUrl: result.coverUrl,
         genre: result.genre,
         tags: result.tags,
         sourceCount: result.sourceCount,

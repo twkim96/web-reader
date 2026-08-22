@@ -84,6 +84,7 @@ export const parseOnDemandPublicBookMetadata = (value: unknown) => {
         label: item.platform === 'series' ? '네이버 시리즈' : item.platform === 'kakao' ? '카카오페이지' : '노벨피아',
         title: item.remoteTitle,
         url: item.url,
+        coverUrl: typeof item.coverUrl === 'string' ? item.coverUrl : null,
         downloadCount: item.platform === 'series' ? count : null,
         viewCount: item.platform === 'series' ? null : count,
         interestCount: null,

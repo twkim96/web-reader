@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.28: refresh active-book progress promptly on foreground and preserve blocked remote prompts.
+// 1.8.29: cache TXT cover art from published metadata without shelf-time network fetches.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.28`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.29`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

@@ -100,6 +100,11 @@ def require_schema(
     missing = sorted(required - names)
     if missing:
         raise RuntimeError(f"required file_check schema is missing: {', '.join(missing)}")
+    platform_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(catalog_platform_stats)")
+    }
+    if "cover_url" not in platform_columns:
+        raise RuntimeError("file_check catalog_platform_stats.cover_url is required")
 
 
 def alias_text(value: str) -> str:
@@ -131,6 +136,11 @@ def public_platform(row: sqlite3.Row) -> dict[str, Any]:
         "url": row["remote_url"],
         "lastSuccessAt": row["last_success_at"],
     }
+    cover_url = row["cover_url"]
+    if cover_url is not None:
+        if not str(cover_url).startswith("https://"):
+            raise ValueError(f"invalid cover_url for {row['platform']}: {cover_url!r}")
+        payload["coverUrl"] = cover_url
     for field in METRIC_FIELDS:
         camel = field.split("_")[0] + "".join(part.title() for part in field.split("_")[1:])
         payload[camel] = row[field]

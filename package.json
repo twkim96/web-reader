@@ -1,6 +1,6 @@
 {
   "name": "viewer",
-  "version": "1.8.28",
+  "version": "1.8.29",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/epubValidation.test.mjs tests/foliateBookOpen.test.mjs tests/foliateRuntimeCache.test.mjs tests/foliateViewRegression.test.mjs tests/publicationSanitizer.test.mjs tests/latestTask.test.mjs tests/pdfPageLifecycle.test.mjs tests/readerLoadLifecycle.test.mjs tests/readerNavigation.test.mjs tests/readerTextSelection.test.mjs tests/readerTitleLayout.test.mjs tests/txtToEpub.test.mjs",
+    "test:formats": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookFormats.test.mjs tests/bookCoverProxy.test.mjs tests/epubValidation.test.mjs tests/foliateBookOpen.test.mjs tests/foliateRuntimeCache.test.mjs tests/foliateViewRegression.test.mjs tests/publicationSanitizer.test.mjs tests/latestTask.test.mjs tests/pdfPageLifecycle.test.mjs tests/readerLoadLifecycle.test.mjs tests/readerNavigation.test.mjs tests/readerTextSelection.test.mjs tests/readerTitleLayout.test.mjs tests/txtToEpub.test.mjs",
     "test:drive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/driveLoadCoordinator.test.mjs tests/driveTokenMemory.test.mjs tests/driveSessionRestore.test.mjs tests/googleDriveOAuth.test.mjs tests/driveUpload.test.mjs tests/googleDrive.test.mjs tests/sequentialBatch.test.mjs",
     "test:archives": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/archiveImageDimensions.test.mjs tests/archiveImages.test.mjs tests/latestRequestQueue.test.mjs tests/sevenZipImages.test.mjs",
     "test:browser": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/browserRegression.mjs",

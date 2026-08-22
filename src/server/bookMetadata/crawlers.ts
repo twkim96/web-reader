@@ -27,12 +27,58 @@ const firstValue = (value: unknown, keys: string[]) => {
   )) ?? null;
 };
 
+const normalizeCoverUrl = (value: unknown, base?: string) => {
+  if (value === null || value === undefined) return null;
+  const raw = stripHtml(String(value)).trim();
+  if (!raw) return null;
+  try {
+    const url = raw.startsWith('//')
+      ? new URL(`https:${raw}`)
+      : base
+        ? new URL(raw, base)
+        : new URL(raw);
+    return url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+export const parseOpenGraphCover = (page: string) => {
+  for (const pattern of [
+    /<meta\b[^>]*(?:property|name)=["'](?:og:image|og:image:secure_url)["'][^>]*content=["']([^"']+)["']/i,
+    /<meta\b[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["'](?:og:image|og:image:secure_url)["']/i,
+  ]) {
+    const cover = normalizeCoverUrl(page.match(pattern)?.[1]);
+    if (cover) return cover;
+  }
+  return null;
+};
+
+export const getKakaoCoverUrl = (value: unknown) => {
+  const direct = normalizeCoverUrl(value);
+  if (direct) return direct;
+  const imageKey = String(value ?? '').trim();
+  if (!imageKey || imageKey.includes('://')) return null;
+  const url = new URL('https://dn-img-page.kakao.com/download/resource');
+  url.searchParams.set('kid', imageKey);
+  url.searchParams.set('filename', 'o1');
+  return url.toString();
+};
+
+const getNovelpiaSearchCover = (record: unknown) => normalizeCoverUrl(
+  firstValue(record, [
+    'cover_url', 'coverUrl', 'novel_thumb_all', 'novelThumbAll', 'novel_thumb', 'novelThumb',
+  ]),
+  'https://novelpia.com/',
+);
+
 const safeError = (platform: PlatformId, error: unknown): PlatformCrawlResult => ({
   platform,
   status: 'error',
   remoteId: null,
   remoteTitle: null,
   url: null,
+  coverUrl: null,
   genre: null,
   tags: null,
   sourceCount: null,
@@ -45,6 +91,7 @@ const empty = (platform: PlatformId, status: 'not-found' | 'ambiguous'): Platfor
   remoteId: null,
   remoteTitle: null,
   url: null,
+  coverUrl: null,
   genre: null,
   tags: null,
   sourceCount: null,
@@ -129,7 +176,12 @@ export const parseSeriesDetail = (page: string) => {
   const download = page.match(/class=["'][^"']*btn_download[^"']*["'][\s\S]*?<span[^>]*>([\s\S]*?)<\/span>/i)?.[1];
   const info = page.match(/<ul\b[^>]*class=["'][^"']*\bend_info\b[^"']*["'][^>]*>[\s\S]{0,5000}/i)?.[0] ?? '';
   const genre = info.match(/categoryTypeCode=genre(?:&amp;|&)genreCode=[^"']+["'][^>]*>([\s\S]*?)<\/a>/i)?.[1];
-  return { title, sourceCount: download ? parseCount(stripHtml(download)) : null, genre: genre ? stripHtml(genre).replace(/^#+\s*/, '') : null };
+  return {
+    title,
+    sourceCount: download ? parseCount(stripHtml(download)) : null,
+    genre: genre ? stripHtml(genre).replace(/^#+\s*/, '') : null,
+    coverUrl: parseOpenGraphCover(page),
+  };
 };
 
 const crawlSeries = async (title: string, signal: AbortSignal): Promise<PlatformCrawlResult> => {
@@ -145,7 +197,7 @@ const crawlSeries = async (title: string, signal: AbortSignal): Promise<Platform
   const detail = parseSeriesDetail(await fetchBounded(detailUrl, signal) as string);
   if (!detail.title || detail.title.replace(/\s/g, '').includes('판매중지상품안내')) throw new Error('Series detail is unavailable');
   if (!titlesMatch(title, detail.title)) return empty('series', 'not-found');
-  return { platform: 'series', status: 'ok', remoteId: selected.candidate.id, remoteTitle: detail.title, url: detailUrl.toString(), genre: detail.genre, tags: null, sourceCount: detail.sourceCount };
+  return { platform: 'series', status: 'ok', remoteId: selected.candidate.id, remoteTitle: detail.title, url: detailUrl.toString(), coverUrl: detail.coverUrl, genre: detail.genre, tags: null, sourceCount: detail.sourceCount };
 };
 
 export const parseKakaoCandidates = (data: unknown): Candidate[] => {
@@ -172,6 +224,7 @@ export const parseKakaoOverview = (data: unknown) => {
     title: String(firstValue(content, ['title', 'name', 'seoTitle']) ?? ''),
     sourceCount: parseCount(firstValue(props, ['viewCount', 'view_count', 'readCount', 'read_count'])),
     genre: firstValue(content, ['sub_category', 'subCategory']) === null ? null : String(firstValue(content, ['sub_category', 'subCategory'])).replace(/^#+\s*/, '').trim(),
+    coverUrl: getKakaoCoverUrl(firstValue(content, ['thumbnail', 'coverImage', 'image'])),
   };
 };
 
@@ -201,7 +254,7 @@ const crawlKakao = async (title: string, signal: AbortSignal): Promise<PlatformC
   } catch {
     tags = null;
   }
-  return { platform: 'kakao', status: 'ok', remoteId: selected.candidate.id, remoteTitle: overview.title, url: `https://page.kakao.com/content/${selected.candidate.id}`, genre: overview.genre, tags, sourceCount: overview.sourceCount ?? selected.candidate.sourceCount ?? null };
+  return { platform: 'kakao', status: 'ok', remoteId: selected.candidate.id, remoteTitle: overview.title, url: `https://page.kakao.com/content/${selected.candidate.id}`, coverUrl: overview.coverUrl, genre: overview.genre, tags, sourceCount: overview.sourceCount ?? selected.candidate.sourceCount ?? null };
 };
 
 const novelpiaTitle = (record: unknown) => String(firstValue(record, ['novel_name', 'novelName', 'title', 'name', 'subject']) ?? '');
@@ -260,13 +313,21 @@ const crawlNovelpia = async (title: string, signal: AbortSignal, _authProvider: 
   if (!selected.candidate) return empty('novelpia', selected.status === 'ambiguous' ? 'ambiguous' : 'not-found');
   const record = selected.candidate.record ?? {};
   let tags: string[] | null;
+  let coverUrl = getNovelpiaSearchCover(record);
   try { tags = parseNovelpiaTags(record); } catch { tags = null; }
-  if (tags === null) {
-    try { tags = parseNovelpiaDetailTags(await fetchBounded(new URL(`https://novelpia.com/novel/${selected.candidate.id}`), signal) as string); } catch { tags = null; }
+  try {
+    const detailPage = await fetchBounded(
+      new URL(`https://novelpia.com/novel/${selected.candidate.id}`),
+      signal,
+    ) as string;
+    coverUrl = parseOpenGraphCover(detailPage) ?? coverUrl;
+    if (tags === null) tags = parseNovelpiaDetailTags(detailPage);
+  } catch {
+    // Search metadata is still usable when the optional detail page is unavailable.
   }
   return {
     platform: 'novelpia', status: 'ok', remoteId: selected.candidate.id, remoteTitle: selected.candidate.title,
-    url: `https://novelpia.com/novel/${selected.candidate.id}`, genre: tags?.[0] ?? null, tags,
+    url: `https://novelpia.com/novel/${selected.candidate.id}`, coverUrl, genre: tags?.[0] ?? null, tags,
     sourceCount: parseCount(firstValue(record, ['count_view', 'view_count', 'viewCount', 'hit', 'hits'])),
   };
 };

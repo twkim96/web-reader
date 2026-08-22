@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const BOOK_METADATA_CRAWLER_VERSION = 'web-reader-1.8.15-v1';
+export const BOOK_METADATA_CRAWLER_VERSION = 'web-reader-1.8.29-v3';
 export const BOOK_METADATA_NORMALIZER_VERSION = 'web-reader-title-v1';
 
 export type PlatformId = 'series' | 'kakao' | 'novelpia';
@@ -12,6 +12,7 @@ export type PlatformCrawlResult = {
   remoteId: string | null;
   remoteTitle: string | null;
   url: string | null;
+  coverUrl: string | null;
   genre: string | null;
   tags: string[] | null;
   sourceCount: number | null;
@@ -29,6 +30,7 @@ export type OnDemandMetadata = {
     remoteId: string;
     remoteTitle: string;
     url: string;
+    coverUrl: string | null;
     genre: string | null;
     tags: string[] | null;
     sourceCount: number | null;

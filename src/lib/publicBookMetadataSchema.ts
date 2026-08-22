@@ -10,6 +10,7 @@ export type PublicBookPlatformMetadata = {
   label: string;
   title: string;
   url: string;
+  coverUrl: string | null;
   downloadCount: number | null;
   interestCount: number | null;
   viewCount: number | null;
@@ -29,6 +30,7 @@ export type PublicBookMetadata = {
 };
 
 const platformIds = new Set<PublicBookPlatformId>(['series', 'kakao', 'novelpia']);
+const coverPlatformPriority: readonly PublicBookPlatformId[] = ['series', 'kakao', 'novelpia'];
 
 export const normalizePublicBookMetadataAlias = (value: string) => value
   .normalize('NFC')
@@ -65,6 +67,9 @@ const parsePlatform = (value: unknown): PublicBookPlatformMetadata | null => {
   const label = boundedString(record.label, 32);
   const title = boundedString(record.title, 500);
   const url = boundedString(record.url, 1000);
+  const coverUrl = record.coverUrl === undefined || record.coverUrl === null
+    ? null
+    : boundedString(record.coverUrl, 2000);
   const lastSuccessAt = boundedString(record.lastSuccessAt, 40);
   if (
     typeof platform !== 'string'
@@ -72,8 +77,10 @@ const parsePlatform = (value: unknown): PublicBookPlatformMetadata | null => {
     || label === null
     || title === null
     || url === null
+    || coverUrl === null && record.coverUrl !== undefined && record.coverUrl !== null
     || lastSuccessAt === null
     || !/^https:\/\//.test(url)
+    || coverUrl !== null && !/^https:\/\//.test(coverUrl)
   ) return null;
   const metrics = {
     downloadCount: nullableMetric(record.downloadCount),
@@ -89,9 +96,22 @@ const parsePlatform = (value: unknown): PublicBookPlatformMetadata | null => {
     label,
     title,
     url,
+    coverUrl,
     lastSuccessAt,
     ...metrics as Record<keyof typeof metrics, number | null>,
   };
+};
+
+export const getPublicBookCoverCandidates = (metadata: PublicBookMetadata | null) => {
+  if (!metadata) return [];
+  const byPlatform = new Map(metadata.platforms.map((platform) => [platform.platform, platform]));
+  const seen = new Set<string>();
+  return coverPlatformPriority.flatMap((platformId) => {
+    const coverUrl = byPlatform.get(platformId)?.coverUrl;
+    if (!coverUrl || seen.has(coverUrl)) return [];
+    seen.add(coverUrl);
+    return [{ platform: platformId, coverUrl }];
+  });
 };
 
 export const parsePublicBookMetadata = (value: unknown): PublicBookMetadata | null => {

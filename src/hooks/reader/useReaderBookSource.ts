@@ -32,8 +32,10 @@ import { getReaderMaxColumnCount } from '../../lib/readerNavigation';
 import { traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
 import {
   cacheOpenedBookCoverIfMissing,
-  supportsCachedBookCover,
+  supportsEmbeddedBookCover,
+  supportsMetadataBookCover,
 } from '../../lib/bookCover';
+import { cacheMetadataBookCoverIfMissing } from '../../lib/metadataBookCover';
 
 type ReaderThemeColors = {
   bg: string;
@@ -360,7 +362,7 @@ export const useReaderBookSource = ({
             }
           },
           open: async (prepared) => {
-            const shouldCacheCover = supportsCachedBookCover(targetBook);
+            const shouldCacheCover = supportsEmbeddedBookCover(targetBook);
             const open = openTargetBook(
               prepared.source,
               targetInitialCfi,
@@ -408,6 +410,20 @@ export const useReaderBookSource = ({
           },
           commit: () => {
             if (!ownerRuntime.isCurrent(owner)) return;
+            if (supportsMetadataBookCover(targetBook)) {
+              deferredPersistence.push(() => {
+                if (!ownerRuntime.isCurrent(owner) || signal.aborted) return;
+                void cacheMetadataBookCoverIfMissing(
+                  DEVICE_CONTENT_OWNER_KEY,
+                  targetBook,
+                  signal,
+                ).catch((error) => {
+                  if (!isAbortError(error)) {
+                    console.warn('[Reader] Failed to cache metadata book cover:', error);
+                  }
+                });
+              });
+            }
             traceReaderOpenPerformance({
               phase: 'reader-open-total',
               durationMs: performance.now() - bookOpenStartedAt,

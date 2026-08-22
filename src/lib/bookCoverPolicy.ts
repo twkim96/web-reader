@@ -5,15 +5,27 @@ export const BOOK_COVER_MAX_WIDTH = 480;
 export const BOOK_COVER_MAX_HEIGHT = 720;
 export const BOOK_COVER_MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 
-export const supportsCachedBookCover = (
+const getBookFormat = (
+  book: Pick<Book, 'name' | 'mimeType' | 'sourceFormat'>,
+) => book.sourceFormat ?? getSourceBookFormat(book.name, book.mimeType);
+
+export const supportsEmbeddedBookCover = (
   book: Pick<Book, 'name' | 'mimeType' | 'sourceFormat'>,
 ) => {
-  const format = book.sourceFormat ?? getSourceBookFormat(book.name, book.mimeType);
+  const format = getBookFormat(book);
   return format === 'epub'
     || format === 'pdf'
     || format === 'zip'
     || format === 'cbz';
 };
+
+export const supportsMetadataBookCover = (
+  book: Pick<Book, 'name' | 'mimeType' | 'sourceFormat'>,
+) => getBookFormat(book) === 'txt';
+
+export const supportsCachedBookCover = (
+  book: Pick<Book, 'name' | 'mimeType' | 'sourceFormat'>,
+) => supportsEmbeddedBookCover(book) || supportsMetadataBookCover(book);
 
 export const getBookCoverTargetSize = (width: number, height: number) => {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
