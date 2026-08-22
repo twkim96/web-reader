@@ -47,6 +47,7 @@ type DocumentBinding = {
     maxDistance: number;
   } | null;
   selectionGesture: boolean;
+  suppressSelectionReadUntil: number;
   suppressNextClick: boolean;
 };
 
@@ -189,13 +190,28 @@ export const useReaderTextSelection = ({
       index,
       pointerGesture: null,
       selectionGesture: false,
+      suppressSelectionReadUntil: 0,
       suppressNextClick: false,
     };
 
     const handleSelectionChange = () => {
-      if (hasNonCollapsedSelection(doc.getSelection())) {
+      const activeSelection = hasNonCollapsedSelection(doc.getSelection());
+      if (activeSelection && performance.now() <= binding.suppressSelectionReadUntil) {
+        try {
+          doc.getSelection()?.removeAllRanges();
+        } catch {
+          // Ignore a late selection event from a publication frame being replaced.
+        }
+        binding.selectionGesture = false;
+        activeDocumentRef.current = null;
+        hasSelectionRef.current = false;
+        setSelection(null);
+        return;
+      }
+      if (activeSelection) {
         binding.selectionGesture = true;
       }
+      if (binding.pointerGesture) return;
       scheduleRead(doc);
     };
     const handlePointerDown = (event: PointerEvent) => {
@@ -203,6 +219,7 @@ export const useReaderTextSelection = ({
         event.button !== 0
         || (binding.pointerGesture && binding.pointerGesture.pointerId !== event.pointerId)
       ) return;
+      binding.suppressSelectionReadUntil = 0;
       binding.suppressNextClick = false;
       binding.pointerGesture = {
         pointerId: event.pointerId,
@@ -272,7 +289,10 @@ export const useReaderTextSelection = ({
         return;
       }
       if (activeSelection && !rapidNavigationContinuation) {
-        scheduleRead(doc);
+        binding.suppressSelectionReadUntil = performance.now() + 250;
+        clearRapidTapSelection();
+        binding.suppressNextClick = true;
+        lastNavigationTapRef.current = null;
         return;
       }
       if (rapidNavigationContinuation) clearRapidTapSelection();

@@ -7,6 +7,7 @@ import {
   Download,
   FileJson,
   FileText,
+  Highlighter,
   Search,
   Share2,
   X,
@@ -303,10 +304,15 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         onClick={(event) => event.stopPropagation()}
         className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden rounded-2xl border shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl ${theme.bg} ${theme.text} ${theme.border}`}
       >
-        <header className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-base font-black md:text-lg">라이브러리 주석</h2>
-            <p className="text-[10px] font-bold opacity-45">로컬 {annotations.length}개 · 삭제 기록 제외 · 위치 오류 항목 포함</p>
+        <header data-modal-header="annotations" className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div data-modal-header-icon="annotations" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
+              <Highlighter size={19} aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-black md:text-lg">라이브러리 주석</h2>
+              <p className="text-[10px] font-bold opacity-45">로컬 {annotations.length}개 · 삭제 기록 제외 · 위치 오류 항목 포함</p>
+            </div>
           </div>
           <button
             type="button"

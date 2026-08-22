@@ -728,12 +728,18 @@ try {
       width: rect?.width ?? 0,
       height: rect?.height ?? 0,
       alphaDisabled: modal?.querySelector('[data-shelf-filter-sort="alpha"]')?.disabled ?? true,
+      headerIcon: modal?.querySelector('[data-modal-header-icon="shelf-filter"]') !== null,
+      headerDivider: modal?.querySelector('[data-modal-header="shelf-filter"]')
+        ? getComputedStyle(modal.querySelector('[data-modal-header="shelf-filter"]')).borderBottomWidth
+        : '0px',
     };
   })()`);
   assert.equal(desktopFilterModal.title, '책장 정렬·필터');
   assert.ok(desktopFilterModal.width <= 576, JSON.stringify(desktopFilterModal));
   assert.ok(desktopFilterModal.height <= 800 * 0.82 + 1, JSON.stringify(desktopFilterModal));
   assert.equal(desktopFilterModal.alphaDisabled, false);
+  assert.equal(desktopFilterModal.headerIcon, true, JSON.stringify(desktopFilterModal));
+  assert.notEqual(desktopFilterModal.headerDivider, '0px', JSON.stringify(desktopFilterModal));
   await evaluate(`document.querySelector('[data-shelf-filter-sort="alpha"]')?.click()`);
   await evaluate('window.__regressionNextFrame(2)');
   await evaluate(`document.querySelector('[data-shelf-filter-apply="true"]')?.click()`);
@@ -805,6 +811,10 @@ try {
       hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
       hasGeneratedCover: Boolean(modal?.querySelector('[data-generated-book-cover="true"]')),
       hasCachedCover: Boolean(modal?.querySelector('[data-book-info-cover="true"]')),
+      headerIcon: modal?.querySelector('[data-modal-header-icon="book-info"]') !== null,
+      headerDivider: modal?.querySelector('[data-modal-header="book-info"]')
+        ? getComputedStyle(modal.querySelector('[data-modal-header="book-info"]')).borderBottomWidth
+        : '0px',
       tagRowBottomDelta: infoCover && infoTagRow ? Math.abs(infoCover.bottom - infoTagRow.bottom) : null,
       generatedTitleTopRatio: generatedCover && generatedTitle
         ? (generatedTitle.top - generatedCover.top) / generatedCover.height
@@ -815,6 +825,8 @@ try {
   assert.match(bookInfoUi.text, /파일 형식/);
   assert.match(bookInfoUi.text, /파일 크기/);
   assert.match(bookInfoUi.text, /읽은 시간/);
+  assert.equal(bookInfoUi.headerIcon, true, JSON.stringify(bookInfoUi));
+  assert.notEqual(bookInfoUi.headerDivider, '0px', JSON.stringify(bookInfoUi));
   assert.equal(
     await evaluate(`document.querySelector('[data-book-info-value="reading-time"]')?.textContent?.trim()`),
     '',
@@ -1054,6 +1066,14 @@ try {
     await evaluate('Boolean(document.querySelector(\'[data-shelf-dock-style-option="standard"]\'))'),
     true,
   );
+  const themeModalHeader = await evaluate(`(() => {
+    const header = document.querySelector('[data-modal-header="theme"]');
+    return {
+      icon: Boolean(header?.querySelector('[data-modal-header-icon="theme"]')),
+      divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
+    };
+  })()`);
+  assert.deepEqual(themeModalHeader, { icon: true, divider: '1px' });
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="blue"]\'))'), false);
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="midnight"]\'))'), true);
   await evaluate(`document.querySelector('[data-theme-option="midnight"]')?.click()`);
@@ -1084,6 +1104,10 @@ try {
       descriptions: buttons.map((button) => button?.querySelectorAll('span')[1]?.textContent?.trim() || ''),
       previewClasses: buttons.map((button) => button?.className || ''),
       previewBlur: buttons.map((button) => button ? getComputedStyle(button).backdropFilter : ''),
+      selectedBoxes: buttons.map((button) => Boolean(
+        button?.querySelector('[data-shelf-dock-style-selected-box="true"]')
+      )),
+      storedStyle: JSON.parse(localStorage.getItem('viewer_settings') || '{}').shelfDockStyle,
       gridTemplateColumns: buttons[0]?.parentElement
         ? getComputedStyle(buttons[0].parentElement).gridTemplateColumns
         : '',
@@ -1097,6 +1121,11 @@ try {
   assert.match(shelfDockStyleLayout.previewClasses[1], /viewer-cime-glass/);
   assert.match(shelfDockStyleLayout.previewClasses[2], /shelf-muzio-dock/);
   assert.equal(shelfDockStyleLayout.previewBlur[1], 'blur(4px)');
+  assert.equal(shelfDockStyleLayout.selectedBoxes.filter(Boolean).length, 1);
+  assert.equal(
+    shelfDockStyleLayout.values[shelfDockStyleLayout.selectedBoxes.indexOf(true)],
+    shelfDockStyleLayout.storedStyle,
+  );
   await evaluate(`document.querySelector('[data-shelf-dock-style-option="glass"]')?.click()`);
   await waitFor(
     'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "glass"',
@@ -1137,6 +1166,12 @@ try {
     glassShelfDock.borderRadius >= 30,
     JSON.stringify(glassShelfDock),
   );
+  assert.equal(
+    await evaluate(`Boolean(document.querySelector(
+      '[data-shelf-dock-style-option="glass"] [data-shelf-dock-style-selected-box="true"]'
+    ))`),
+    true,
+  );
 
   await evaluate(`document.querySelector('[data-shelf-dock-style-option="standard"]')?.click()`);
   await waitFor(
@@ -1169,11 +1204,23 @@ try {
   assert.equal(standardShelfDock.usesCimeGlassClass, false, JSON.stringify(standardShelfDock));
   assert.equal(standardShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.68)', JSON.stringify(standardShelfDock));
   assert.match(standardShelfDock.backdropFilter, /blur\(24px\)/, JSON.stringify(standardShelfDock));
+  assert.equal(
+    await evaluate(`Boolean(document.querySelector(
+      '[data-shelf-dock-style-option="standard"] [data-shelf-dock-style-selected-box="true"]'
+    ))`),
+    true,
+  );
 
   await evaluate(`document.querySelector('[data-shelf-dock-style-option="modern"]')?.click()`);
   await waitFor(
     'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "modern"',
     'modern shelf dock style',
+  );
+  assert.equal(
+    await evaluate(`Boolean(document.querySelector(
+      '[data-shelf-dock-style-option="modern"] [data-shelf-dock-style-selected-box="true"]'
+    ))`),
+    true,
   );
   await waitFor(
     `(() => {
@@ -2045,6 +2092,58 @@ try {
   assert.equal(actualTextTapClosed.start, actualTextTapProbe.beforeStart);
   assert.equal(actualTextTapClosed.staleFoliateRemoved, true);
   assert.equal(actualTextTapClosed.versionedEntry, true);
+  await evaluate(`(() => {
+    window.__doubleClickSelectionMenuMounts = 0;
+    window.__doubleClickSelectionObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (!(node instanceof Element)) continue;
+          if (node.matches('[data-reader-selection-menu="true"]')
+            || node.querySelector('[data-reader-selection-menu="true"]')) {
+            window.__doubleClickSelectionMenuMounts += 1;
+          }
+        }
+      }
+    });
+    window.__doubleClickSelectionObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  })()`);
+  for (const clickCount of [1, 2]) {
+    await command('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: actualTextTapProbe.x,
+      y: actualTextTapProbe.y,
+      button: 'left',
+      clickCount,
+    });
+    await command('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: actualTextTapProbe.x,
+      y: actualTextTapProbe.y,
+      button: 'left',
+      clickCount,
+    });
+  }
+  await sleep(300);
+  const doubleClickSelectionUi = await evaluate(`(() => {
+    window.__doubleClickSelectionObserver?.disconnect();
+    const doc = document.querySelector('foliate-view')?.renderer?.getContents?.()[0]?.doc;
+    return {
+      menuVisible: Boolean(document.querySelector('[data-reader-selection-menu="true"]')),
+      menuMounts: window.__doubleClickSelectionMenuMounts,
+      selectedText: doc?.getSelection()?.toString() ?? '',
+    };
+  })()`);
+  assert.deepEqual(doubleClickSelectionUi, {
+    menuVisible: false,
+    menuMounts: 0,
+    selectedText: '',
+  });
+  if (await evaluate(`document.querySelector('nav')?.classList.contains('translate-y-0')`)) {
+    await dispatchActualTextClick();
+  }
   const selectionActions = await evaluate(`(async () => {
     const view = document.querySelector('foliate-view');
     const renderer = view?.renderer;
@@ -2078,10 +2177,45 @@ try {
     range.setStart(textNode, start);
     range.setEnd(textNode, start + selectionProbe.length);
     const selectedText = range.toString();
+    const dragRect = range.getBoundingClientRect();
+    const dragTarget = textNode.parentElement ?? doc.body;
+    dragTarget.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 77,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: dragRect.left,
+      clientY: dragRect.top + dragRect.height / 2,
+    }));
     const selection = doc.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
     doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
+    dragTarget.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 77,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: dragRect.left + 24,
+      clientY: dragRect.top + dragRect.height / 2,
+    }));
+    dragTarget.dispatchEvent(new doc.defaultView.PointerEvent('pointerup', {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 77,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      buttons: 0,
+      clientX: dragRect.left + 24,
+      clientY: dragRect.top + dragRect.height / 2,
+    }));
     const menuDeadline = performance.now() + 2000;
     while (!document.querySelector('[data-reader-selection-menu="true"]')
       && performance.now() < menuDeadline) {
@@ -4090,12 +4224,37 @@ try {
   assert.ok(Math.abs(
     desktopToolbarProbe.utilityWidth / narrowSelectionMenu.toolbarProbe.ttsWidth - 1.10
   ) < 0.02, JSON.stringify({ desktopToolbarProbe, narrowSelectionMenu }));
+  await evaluate(`document.querySelector('button[aria-label="설정"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-modal-header="settings"]\'))',
+    'reader settings modal header',
+  );
+  const settingsModalHeader = await evaluate(`(() => {
+    const header = document.querySelector('[data-modal-header="settings"]');
+    return {
+      icon: Boolean(header?.querySelector('[data-modal-header-icon="settings"]')),
+      divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
+    };
+  })()`);
+  assert.deepEqual(settingsModalHeader, { icon: true, divider: '1px' });
+  await evaluate(`document.querySelector('button[aria-label="리더 설정 닫기"]')?.click()`);
+  await waitFor(
+    '!document.querySelector(\'[data-modal-header="settings"]\')',
+    'reader settings modal close after header check',
+  );
   await evaluate(`document.querySelector('button[aria-label="독서 통계"]')?.click()`);
   await waitFor(
     'Boolean(document.querySelector(\'[data-reading-statistics-modal="true"]\'))',
     'reader statistics modal',
   );
   assert.equal(await evaluate(`document.querySelector('[data-reading-statistics-modal="true"]')?.offsetParent !== null`), true);
+  assert.deepEqual(await evaluate(`(() => {
+    const header = document.querySelector('[data-modal-header="statistics"]');
+    return {
+      icon: Boolean(header?.querySelector('[data-modal-header-icon="statistics"]')),
+      divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
+    };
+  })()`), { icon: true, divider: '1px' });
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
   await waitFor(
     '!document.querySelector(\'[data-reading-statistics-modal="true"]\')',
@@ -4867,6 +5026,10 @@ try {
       bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
       closeWidth: closeRect?.width ?? 0,
       closeHeight: closeRect?.height ?? 0,
+      headerIcon: Boolean(modal?.querySelector('[data-modal-header-icon="annotations"]')),
+      headerDivider: modal?.querySelector('[data-modal-header="annotations"]')
+        ? getComputedStyle(modal.querySelector('[data-modal-header="annotations"]')).borderBottomWidth
+        : '0px',
     };
   })()`);
   assert.ok(
@@ -4877,6 +5040,8 @@ try {
     libraryAnnotationUi.modalHeight <= libraryAnnotationUi.viewportHeight * 0.8,
     JSON.stringify(libraryAnnotationUi),
   );
+  assert.equal(libraryAnnotationUi.headerIcon, true, JSON.stringify(libraryAnnotationUi));
+  assert.notEqual(libraryAnnotationUi.headerDivider, '0px', JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.horizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.bodyHorizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
   assert.ok(
@@ -5806,6 +5971,19 @@ try {
     const body = modal?.querySelector('[data-reading-statistics-body="true"]');
     const rect = modal?.getBoundingClientRect();
     const markdownButton = modal?.querySelector('[data-reading-statistics-export="markdown"]');
+    const shareButton = modal?.querySelector('[data-reading-statistics-share="true"]');
+    const modalTextColor = modal ? getComputedStyle(modal).color : '';
+    const headlineValueColors = [...(modal?.querySelectorAll('[data-reading-statistics-headline]') ?? [])]
+      .map((headline) => getComputedStyle(headline.lastElementChild).color);
+    const modeValueColors = [...(modal?.querySelectorAll('[data-reading-statistics-mode-total]') ?? [])]
+      .map((value) => getComputedStyle(value).color);
+    const unexpectedAccentElements = [...(modal?.querySelectorAll('[class*="accent-"]') ?? [])]
+      .filter((element) => !(
+        element.closest('[data-reading-statistics-refresh="true"]')
+        || element.matches('[data-reading-statistics-range][aria-pressed="true"]')
+        || element.matches('[data-reading-statistics-book-filter="true"] button[aria-pressed="true"]')
+        || element.matches('[data-reading-statistics-book-duration="true"]')
+      ));
     const buttons = [...modal.querySelectorAll('button')].map((button) => {
       const buttonRect = button.getBoundingClientRect();
       return {
@@ -5839,8 +6017,19 @@ try {
       jsonEnabled: !modal?.querySelector('[data-reading-statistics-export="json"]')?.disabled,
       accentName: modal?.getAttribute('data-reading-statistics-accent'),
       accentValue: modal?.style.getPropertyValue('--accent-500').trim(),
+      headerIcon: Boolean(modal?.querySelector('[data-modal-header-icon="statistics"]')),
+      headerDivider: modal?.querySelector('[data-modal-header="statistics"]')
+        ? getComputedStyle(modal.querySelector('[data-modal-header="statistics"]')).borderBottomWidth
+        : '0px',
+      modalTextColor,
+      headlineValueColors,
+      modeValueColors,
+      unexpectedAccentCount: unexpectedAccentElements.length,
       markdownBorderColor: markdownButton ? getComputedStyle(markdownButton).borderColor : '',
       markdownTextColor: markdownButton ? getComputedStyle(markdownButton).color : '',
+      markdownBackground: markdownButton ? getComputedStyle(markdownButton).backgroundColor : '',
+      shareTextColor: shareButton ? getComputedStyle(shareButton).color : '',
+      shareBackground: shareButton ? getComputedStyle(shareButton).backgroundColor : '',
     };
   })()`);
   assert.match(readingStatisticsUi.text, /오늘/);
@@ -5859,7 +6048,20 @@ try {
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.accentName, 'emerald', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.accentValue, '#10b981', JSON.stringify(readingStatisticsUi));
-  assert.equal(readingStatisticsUi.markdownTextColor, 'rgb(16, 185, 129)', JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.headerIcon, true, JSON.stringify(readingStatisticsUi));
+  assert.notEqual(readingStatisticsUi.headerDivider, '0px', JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.unexpectedAccentCount, 0, JSON.stringify(readingStatisticsUi));
+  assert.ok(
+    readingStatisticsUi.headlineValueColors.every((color) => color === readingStatisticsUi.modalTextColor),
+    JSON.stringify(readingStatisticsUi),
+  );
+  assert.ok(
+    readingStatisticsUi.modeValueColors.every((color) => color === readingStatisticsUi.modalTextColor),
+    JSON.stringify(readingStatisticsUi),
+  );
+  assert.equal(readingStatisticsUi.markdownTextColor, readingStatisticsUi.modalTextColor, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.shareTextColor, readingStatisticsUi.markdownTextColor, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.shareBackground, readingStatisticsUi.markdownBackground, JSON.stringify(readingStatisticsUi));
   assert.notEqual(readingStatisticsUi.markdownBorderColor, readingStatisticsUi.markdownTextColor, JSON.stringify(readingStatisticsUi));
   const bookRoundUi = await evaluate(`(() => {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');

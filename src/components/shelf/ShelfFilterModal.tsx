@@ -6,6 +6,7 @@ import {
   Flame,
   LoaderCircle,
   RotateCcw,
+  SlidersHorizontal,
   X,
 } from 'lucide-react';
 import type { PublicBookCatalogSnapshot } from '../../lib/publicBookCatalog';
@@ -150,10 +151,15 @@ export const ShelfFilterModal: React.FC<Props> = ({
         onClick={(event) => event.stopPropagation()}
         className={`flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none`}
       >
-        <header className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4 sm:py-3`}>
-          <div>
-            <h2 id="shelf-filter-title" className="text-sm font-black sm:text-lg">책장 정렬·필터</h2>
-            <p className="mt-0.5 hidden text-[10px] font-bold opacity-45 sm:block">정렬과 조건을 함께 적용합니다.</p>
+        <header data-modal-header="shelf-filter" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4 sm:py-3`}>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div data-modal-header-icon="shelf-filter" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
+              <SlidersHorizontal size={19} aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h2 id="shelf-filter-title" className="text-sm font-black sm:text-lg">책장 정렬·필터</h2>
+              <p className="mt-0.5 hidden text-[10px] font-bold opacity-45 sm:block">정렬과 조건을 함께 적용합니다.</p>
+            </div>
           </div>
           <button
             type="button"

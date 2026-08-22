@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Database, Download, FileJson, FileText, Headphones, Monitor, RefreshCw, Share2, X } from 'lucide-react';
+import { BarChart3, Database, Download, FileJson, FileText, Headphones, Monitor, RefreshCw, Share2, X } from 'lucide-react';
 import type { ThemeClasses } from '../types';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import {
@@ -427,10 +427,15 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         onClick={(event) => event.stopPropagation()}
         className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl`}
       >
-        <header className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
-          <div className="min-w-0">
-            <h2 id="reading-statistics-title" className="text-base font-black sm:text-lg">독서 통계</h2>
-            <p aria-live="polite" className="mt-0.5 text-[11px] opacity-55">{serverCheckLabel}</p>
+        <header data-modal-header="statistics" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div data-modal-header-icon="statistics" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
+              <BarChart3 size={19} aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h2 id="reading-statistics-title" className="text-base font-black sm:text-lg">독서 통계</h2>
+              <p aria-live="polite" className="mt-0.5 text-[11px] opacity-55">{serverCheckLabel}</p>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button
@@ -477,7 +482,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                 {(['today', 'week', 'month'] as const).map((value) => (
                   <div key={value} data-reading-statistics-headline={value} className={`min-w-0 rounded-xl border ${theme.border} px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}>
                     <div className="text-[10px] font-bold opacity-50">{rangeLabels.find((item) => item.value === value)?.label}</div>
-                    <div className="mt-0.5 truncate text-xs font-black text-accent-500 sm:text-base">{formatReadingDuration(headlineTotals[value])}</div>
+                    <div className="mt-0.5 truncate text-xs font-black sm:text-base">{formatReadingDuration(headlineTotals[value])}</div>
                   </div>
                 ))}
               </div>
@@ -500,11 +505,11 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               <div className="mt-2.5 grid grid-cols-2 gap-1.5">
                 <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Monitor size={14} /> 화면 독서</div>
-                  <div data-reading-statistics-mode-total="screen" className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.screenMs)}</div>
+                  <div data-reading-statistics-mode-total="screen" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.screenMs)}</div>
                 </div>
                 <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Headphones size={14} /> TTS 듣기</div>
-                  <div data-reading-statistics-mode-total="tts" className="mt-0.5 text-sm font-black text-accent-500">{formatReadingDuration(summary.ttsMs)}</div>
+                  <div data-reading-statistics-mode-total="tts" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.ttsMs)}</div>
                 </div>
               </div>
 
@@ -572,13 +577,13 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                         <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle} · {book.roundNumber}회차</h4>
                         <p className="mt-0.5 truncate text-[10px] opacity-50">시작 {formatReadingDate(book.startedLocalDate)} · {book.endProgressPercent.toFixed(1)}%</p>
                         {completionExpanded && book.completedLocalDate && (
-                          <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold text-accent-500/80">
+                          <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold opacity-65">
                             시작 {formatReadingDate(book.startedLocalDate)} · 종료 {formatReadingDate(book.completedLocalDate)}
                           </p>
                         )}
                       </div>
                       <div className="flex shrink-0 flex-col items-end">
-                        <strong className="text-xs text-accent-500 sm:text-sm">{formatReadingDuration(book.totalMs)}</strong>
+                        <strong data-reading-statistics-book-duration="true" className="text-xs text-accent-500 sm:text-sm">{formatReadingDuration(book.totalMs)}</strong>
                         {book.completed ? (
                           <button
                             type="button"
@@ -591,7 +596,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                               else next.add(rowKey);
                               return next;
                             })}
-                            className="mt-0.5 rounded-md bg-accent-500/10 px-1.5 py-0.5 text-xs font-bold text-accent-500 hover:bg-accent-500/20 sm:text-sm"
+                            className={`mt-0.5 rounded-md border ${theme.border} ${theme.secondary} px-1.5 py-0.5 text-xs font-bold opacity-65 hover:opacity-100 sm:text-sm`}
                           >
                             완료됨
                           </button>
@@ -606,7 +611,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                               book.roundNumber,
                               rowKey,
                             )}
-                            className="mt-0.5 rounded-md bg-accent-500/10 px-1.5 py-0.5 text-xs font-bold text-accent-500 hover:bg-accent-500/20 disabled:opacity-30 sm:text-sm"
+                            className={`mt-0.5 rounded-md border ${theme.border} ${theme.secondary} px-1.5 py-0.5 text-xs font-bold opacity-65 hover:opacity-100 disabled:opacity-30 sm:text-sm`}
                           >
                             {completingRoundKey === rowKey ? '처리 중' : '완료하기'}
                           </button>
@@ -626,18 +631,18 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         </div>
 
         <footer className={`border-t ${theme.border} px-3 py-2 sm:px-4`}>
-          {feedback && <p role="status" className="mb-2 text-center text-xs font-bold text-accent-500">{feedback}</p>}
+          {feedback && <p role="status" className="mb-2 text-center text-xs font-bold opacity-70">{feedback}</p>}
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <FileText size={15} /><Download size={13} /> MD
             </button>
-            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <FileJson size={15} /><Download size={13} /> JSON
             </button>
-            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-accent-600 text-xs font-bold text-white disabled:opacity-30">
+            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <Share2 size={15} /> 공유
             </button>
-            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold text-accent-500 hover:bg-accent-500/10 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <Database size={15} /><Download size={13} /> 진단
             </button>
           </div>

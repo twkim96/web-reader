@@ -1,6 +1,6 @@
 // src/components/SettingsModal.tsx
 import React, { useState } from 'react';
-import { ChevronDown, Languages, RotateCcw, X } from 'lucide-react';
+import { ChevronDown, Languages, RotateCcw, Settings, X } from 'lucide-react';
 import type {
   AnnotationPaletteItem,
   HighlightColorId,
@@ -169,12 +169,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       maxWidth="max-w-[21.25rem]"
       className="font-sans h-[34rem] max-h-[85vh] p-0 flex flex-col"
     >
-      <div className="flex shrink-0 items-center justify-between px-5 pt-5 pb-3 sm:px-6 sm:pt-6">
-          <h2 className="font-bold text-lg">리더 설정</h2>
+      <div data-modal-header="settings" className={`flex shrink-0 items-center gap-2.5 border-b ${theme.border} px-5 py-3 sm:px-6`}>
+          <div data-modal-header-icon="settings" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
+            <Settings size={19} aria-hidden="true" />
+          </div>
+          <h2 className="min-w-0 flex-1 font-bold text-lg">리더 설정</h2>
           <button aria-label="리더 설정 닫기" onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">
             <X size={20} />
           </button>
-        </div>
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">
         <div className="space-y-5">

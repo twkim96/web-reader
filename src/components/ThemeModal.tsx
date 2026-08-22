@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { CustomTheme, CustomThemeTexture, ViewerSettings } from '../types';
-import { X, Check, Plus, Pencil, Trash2 } from 'lucide-react';
+import { X, Check, Palette, Plus, Pencil, Trash2 } from 'lucide-react';
 import { THEMES, ACCENT_COLORS, ACCENT_PALETTE } from '../lib/constants';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
 import { createCustomThemeId, getTexturePreviewStyle, normalizeHexColor } from '../lib/themeUtils';
@@ -98,6 +98,23 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     setEditingId(null);
   };
 
+  const renderModalHeader = (
+    title: string,
+    onDismiss: () => void,
+    actions?: React.ReactNode,
+  ) => (
+    <div data-modal-header="theme" className={`-mx-6 -mt-6 mb-6 flex items-center gap-2.5 border-b ${theme.border} px-6 py-3`}>
+      <div data-modal-header-icon="theme" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary || ''}`}>
+        <Palette size={19} aria-hidden="true" />
+      </div>
+      <h2 className="min-w-0 flex-1 truncate text-lg font-bold">{title}</h2>
+      <div className="flex shrink-0 items-center gap-1">
+        {actions}
+        <button onClick={onDismiss} aria-label={`${title} 닫기`} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
+      </div>
+    </div>
+  );
+
   const renderThemeCard = (key: string, t: { bg: string; text: string }, label = key) => (
     <button
       key={key}
@@ -125,11 +142,8 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     const previewText = normalizeHexColor(form.textColor, '#b8b8b8');
 
     return (
-      <ReaderModalFrame noBlur theme={theme} onClose={() => setMode('list')} maxWidth="max-w-sm" className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-bold text-lg">{mode === 'create' ? '커스텀 테마 추가' : '커스텀 테마 편집'}</h2>
-          <button onClick={() => setMode('list')} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
-        </div>
+      <ReaderModalFrame noBlur theme={theme} onClose={() => setMode('list')} maxWidth="max-w-sm" className="p-6">
+        {renderModalHeader(mode === 'create' ? '커스텀 테마 추가' : '커스텀 테마 편집', () => setMode('list'))}
 
         <div className="space-y-4">
           <label className="block">
@@ -216,10 +230,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   if (mode === 'edit-select') {
     return (
       <ReaderModalFrame noBlur theme={theme} onClose={() => setMode('list')} maxWidth="max-w-sm" className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="font-bold text-lg">편집할 테마 선택</h2>
-          <button onClick={() => setMode('list')} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
-        </div>
+        {renderModalHeader('편집할 테마 선택', () => setMode('list'))}
 
         <div className="space-y-2">
           {customThemes.length === 0 ? (
@@ -248,14 +259,12 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
   return (
     <ReaderModalFrame noBlur theme={theme} onClose={onClose} maxWidth="max-w-sm" className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="font-bold text-lg">테마 설정</h2>
-          <div className="flex items-center gap-1">
+        {renderModalHeader('테마 설정', onClose, (
+          <>
             <button onClick={openCreate} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors" aria-label="커스텀 테마 추가"><Plus size={19} /></button>
             <button onClick={() => setMode('edit-select')} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors" aria-label="커스텀 테마 편집"><Pencil size={18} /></button>
-            <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
-          </div>
-        </div>
+          </>
+        ))}
 
         <div className="grid grid-cols-2 gap-3 mb-8">
           {Object.entries(THEMES).map(([key, t]) => renderThemeCard(key, t))}
@@ -304,16 +313,19 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                   type="button"
                   data-shelf-dock-style-option={value}
                   onClick={() => onUpdateSettings({ shelfDockStyle: value })}
-                  className={`relative min-w-0 overflow-hidden rounded-2xl border px-2.5 py-3 text-left text-[color:var(--viewer-theme-text)] transition-all active:scale-95 ${previewClass} ${
-                    selected
-                      ? 'ring-2 ring-accent-500 ring-offset-1 ring-offset-transparent'
-                      : ''
-                  }`}
+                  className={`relative min-w-0 overflow-hidden rounded-2xl border px-2.5 py-3 text-left text-[color:var(--viewer-theme-text)] transition-all active:scale-95 ${previewClass}`}
                 >
                   <span className="relative z-[1] block text-sm font-bold">{label}</span>
                   <span className="relative z-[1] mt-0.5 block text-[10px] opacity-55">{description}</span>
                   {selected && (
-                    <Check className="absolute right-3 top-3 z-[1] text-accent-500" size={14} strokeWidth={3} />
+                    <>
+                      <span
+                        data-shelf-dock-style-selected-box="true"
+                        className="pointer-events-none absolute inset-0 z-[2] rounded-2xl border-2 border-accent-500"
+                        aria-hidden="true"
+                      />
+                      <Check className="absolute right-3 top-3 z-[3] text-accent-500" size={14} strokeWidth={3} />
+                    </>
                   )}
                 </button>
               );

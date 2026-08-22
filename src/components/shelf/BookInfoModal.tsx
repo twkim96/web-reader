@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2, X } from 'lucide-react';
+import { CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, Info, RefreshCw, Trash2, X } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -367,10 +367,10 @@ export const BookInfoModal: React.FC<Props> = ({
           data-book-info-capture-root="true"
           className={`flex min-h-0 flex-1 flex-col overflow-hidden ${theme.bg} ${theme.text}`}
         >
-          <header className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
+          <header data-modal-header="book-info" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-500/15 text-accent-500">
-                <BookOpen size={19} />
+              <div data-modal-header-icon="book-info" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
+                <Info size={19} aria-hidden="true" />
               </div>
               <div className="min-w-0">
                 <h2 id="book-info-title" className="text-base font-black sm:text-lg">도서 정보</h2>
