@@ -56,9 +56,10 @@ const renderCard = (viewMode, catalog = props.catalog) => {
   return parseHTML(html).document;
 };
 
-const renderCardWithCover = (viewMode) => {
+const renderCardWithCover = (viewMode, catalog = props.catalog) => {
   const html = renderToStaticMarkup(React.createElement(BookCard, {
     ...props,
+    catalog,
     viewMode,
     coverUrl: 'blob:https://reader.test/cached-cover',
   }));
@@ -107,6 +108,14 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(gridFrame.className, /h-36/);
   assert.match(gridFrame.className, /sm:w-28/);
   assert.match(gridFrame.className, /sm:h-40/);
+  const gridTitle = gridCard.querySelector('[data-shelf-grid-cover-title="true"]');
+  const gridTags = gridCard.querySelector('[data-shelf-grid-cover-tags="true"]');
+  assert.ok(gridTitle);
+  assert.ok(gridTags);
+  assert.match(gridTitle.className, /line-clamp-3/);
+  assert.match(gridTitle.className, /sm:text-xl/);
+  assert.match(gridTags.className, /max-h-9/);
+  assert.match(gridTags.className, /overflow-hidden/);
 });
 
 test('places one combined view count above the progress percentage', () => {
@@ -233,7 +242,7 @@ test('fits mobile shelf tags and the remainder into the measured row', () => {
   }), 3);
 });
 
-test('shows every shelf grid tag', () => {
+test('shows every shelf grid tag in a two-row clipped viewport', () => {
   const catalog = {
     ...props.catalog,
     tags: Array.from({ length: 7 }, (_, index) => ({
@@ -243,9 +252,13 @@ test('shows every shelf grid tag', () => {
     })),
   };
 
-  const document = renderCard('grid', catalog);
+  const document = renderCardWithCover('grid', catalog);
   const tags = document.querySelector('[data-shelf-book-tags="true"]');
+  const tagViewport = document.querySelector('[data-shelf-grid-cover-tags="true"]');
   assert.ok(tags);
+  assert.ok(tagViewport);
+  assert.match(tagViewport.className, /max-h-9/);
+  assert.match(tagViewport.className, /overflow-hidden/);
   assert.match(tags.textContent, /태그1/);
   assert.match(tags.textContent, /태그2.*태그3.*태그4.*태그5.*태그6.*태그7/);
   assert.doesNotMatch(tags.textContent, /\+\d/);
