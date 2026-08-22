@@ -15,7 +15,7 @@ import {
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import {
   normalizeShelfTagQuery,
-  searchPublicBookCatalogTags,
+  searchShelfCatalogTags,
 } from './shelf/tagSearch';
 
 interface ShelfSearchModalProps {
@@ -62,8 +62,8 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
   ), [books]);
   const matchingTags = useMemo(() => {
     if (!tagMode || !catalog) return [];
-    return searchPublicBookCatalogTags(catalog.tags.values(), tagQuery, 8);
-  }, [catalog, tagMode, tagQuery]);
+    return searchShelfCatalogTags(books, catalog.tags.values(), tagQuery, 8);
+  }, [books, catalog, tagMode, tagQuery]);
   const matchingTagIds = useMemo(
     () => new Set(matchingTags.map((tag) => tag.id)),
     [matchingTags],
@@ -154,7 +154,10 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                       onClick={() => selectTag(tag.id)}
                       className="rounded-full bg-accent-500/12 px-3 py-1.5 text-xs font-black text-accent-500 hover:bg-accent-500 hover:text-white"
                     >
-                      #{tag.label} <span className="opacity-55">{tag.titleCount.toLocaleString('ko-KR')}권</span>
+                      #{tag.label}
+                      {tag.shelfTitleCount > 0 && (
+                        <> <span className="opacity-55">{tag.shelfTitleCount.toLocaleString('ko-KR')}권</span></>
+                      )}
                     </button>
                   ))}
                 </div>

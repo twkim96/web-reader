@@ -101,6 +101,8 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   const renderThemeCard = (key: string, t: { bg: string; text: string }, label = key) => (
     <button
       key={key}
+      type="button"
+      data-theme-option={key}
       onClick={() => handleThemeClick(key)}
       className={`
         relative p-4 rounded-2xl border-2 text-left transition-all active:scale-95
@@ -286,27 +288,32 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일 · 책장 / 리더</p>
           <div className="grid grid-cols-3 gap-2">
             {([
-              ['standard', '표준', '기존 반투명'],
+              ['standard', '표준', '반투명 유리'],
               ['glass', '글래스', '저블러 투명 유리'],
               ['modern', '모던', '선명한 미니바'],
             ] as const).map(([value, label, description]) => {
               const selected = settings.shelfDockStyle === value;
+              const previewClass = value === 'glass'
+                ? 'viewer-cime-glass'
+                : value === 'modern'
+                  ? 'shelf-muzio-dock'
+                  : 'border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-glass-surface,var(--viewer-reader-surface))] backdrop-blur-xl';
               return (
                 <button
                   key={value}
                   type="button"
                   data-shelf-dock-style-option={value}
                   onClick={() => onUpdateSettings({ shelfDockStyle: value })}
-                  className={`relative min-w-0 rounded-2xl border px-2.5 py-3 text-left transition-all active:scale-95 ${
+                  className={`relative min-w-0 overflow-hidden rounded-2xl border px-2.5 py-3 text-left text-[color:var(--viewer-theme-text)] transition-all active:scale-95 ${previewClass} ${
                     selected
-                      ? 'border-accent-500 bg-accent-500/10 ring-2 ring-accent-500/20'
-                      : `${theme.border} ${theme.secondary || ''}`
+                      ? 'ring-2 ring-accent-500 ring-offset-1 ring-offset-transparent'
+                      : ''
                   }`}
                 >
-                  <span className="block text-sm font-bold">{label}</span>
-                  <span className="mt-0.5 block text-[10px] opacity-55">{description}</span>
+                  <span className="relative z-[1] block text-sm font-bold">{label}</span>
+                  <span className="relative z-[1] mt-0.5 block text-[10px] opacity-55">{description}</span>
                   {selected && (
-                    <Check className="absolute right-3 top-3 text-accent-500" size={14} strokeWidth={3} />
+                    <Check className="absolute right-3 top-3 z-[1] text-accent-500" size={14} strokeWidth={3} />
                   )}
                 </button>
               );

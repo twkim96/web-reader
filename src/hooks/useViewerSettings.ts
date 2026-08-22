@@ -23,7 +23,7 @@ const normalizeShelfDockStyle = (value: unknown): ShelfDockStyle => (
 );
 
 export const defaultSettings: ViewerSettings = {
-  fontSize: 18,
+  fontSize: 20,
   lineHeight: 1.9,
   paragraphSpacing: 1,
   padding: 24,

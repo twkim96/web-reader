@@ -31,6 +31,7 @@ import {
   SHELF_PAGE_SIZE,
 } from './progressiveBooks';
 import { useShelfBookCovers } from './useShelfBookCovers';
+import { installSampleBook } from '../../lib/sampleBook';
 
 interface ShelfProps {
   books: Book[];
@@ -104,6 +105,8 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [isDeletingBook, setIsDeletingBook] = useState(false);
   const [visibleBookCount, setVisibleBookCount] = useState(SHELF_PAGE_SIZE);
   const [needsLoadMoreButton, setNeedsLoadMoreButton] = useState(false);
+  const [isAddingSampleBook, setIsAddingSampleBook] = useState(false);
+  const [sampleBookFeedback, setSampleBookFeedback] = useState('');
 
   const fileUploaderRef = useRef<FileUploaderHandle>(null);
   const shelfContentRef = useRef<HTMLElement | null>(null);
@@ -273,6 +276,22 @@ export const Shelf: React.FC<ShelfProps> = ({
     void fileUploaderRef.current?.importFiles(files);
   }, []);
 
+  const handleAddSampleBook = useCallback(async () => {
+    if (isAddingSampleBook) return;
+    setIsAddingSampleBook(true);
+    setSampleBookFeedback('');
+    try {
+      const book = await installSampleBook();
+      onBookImported?.(book, true);
+      await refreshOfflineBookIds();
+    } catch (error) {
+      console.error('[Shelf] Failed to install sample book:', error);
+      setSampleBookFeedback('샘플 도서를 추가하지 못했습니다. 다시 시도해 주세요.');
+    } finally {
+      setIsAddingSampleBook(false);
+    }
+  }, [isAddingSampleBook, onBookImported, refreshOfflineBookIds]);
+
   const handleConfirmDeleteBook = useCallback(async () => {
     if (!selectedBookInfo || !onDeleteBook) return;
     setIsDeletingBook(true);
@@ -415,6 +434,9 @@ export const Shelf: React.FC<ShelfProps> = ({
             onShowImportConfirm={() => handleShowImportConfirm(true)}
             onLogin={onLogin}
             onRefresh={onRefresh}
+            onAddSampleBook={() => void handleAddSampleBook()}
+            isAddingSampleBook={isAddingSampleBook}
+            sampleBookFeedback={sampleBookFeedback}
           />
         )}
       </main>

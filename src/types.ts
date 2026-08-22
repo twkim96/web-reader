@@ -15,7 +15,7 @@ export interface Book {
   md5Checksum?: string;
 }
 
-export type ThemeType = 'light' | 'dark' | 'sepia' | 'blue';
+export type ThemeType = 'light' | 'dark' | 'sepia' | 'midnight';
 
 export interface ThemeClasses {
   bg: string;

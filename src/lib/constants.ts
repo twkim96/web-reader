@@ -23,11 +23,11 @@ export const THEMES = {
     border: 'border-[#e4dcc8]',
     secondary: 'bg-[#e4dcc8]'
   },
-  blue: {
-    bg: 'bg-[#eef2f7]',
-    text: 'text-[#2c3e50]',
-    border: 'border-[#dde4ed]',
-    secondary: 'bg-[#dde4ed]'
+  midnight: {
+    bg: 'bg-[#141517]',
+    text: 'text-[#d2d3d6]',
+    border: 'border-white/10',
+    secondary: 'bg-white/5'
   },
 };
 

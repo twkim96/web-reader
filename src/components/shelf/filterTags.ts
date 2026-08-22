@@ -7,20 +7,26 @@ export type ShelfPopularTag = PublicBookCatalogTag & {
   shelfTitleCount: number;
 };
 
+export const getShelfTagTitleCounts = (
+  books: readonly PreparedShelfBook[],
+) => {
+  const shelfCounts = new Map<number, number>();
+  for (const prepared of books) {
+    const tagIds = new Set(prepared.catalog?.record.tagIds ?? []);
+    for (const tagId of tagIds) {
+      shelfCounts.set(tagId, (shelfCounts.get(tagId) ?? 0) + 1);
+    }
+  }
+  return shelfCounts;
+};
+
 export const getShelfPopularTags = (
   books: readonly PreparedShelfBook[],
   catalog: PublicBookCatalogSnapshot | null,
 ): ShelfPopularTag[] => {
   if (!catalog) return [];
   const popularTagRank = new Map(catalog.popularTags.map((tag, index) => [tag.id, index]));
-  const shelfCounts = new Map<number, number>();
-  for (const prepared of books) {
-    const tagIds = new Set(prepared.catalog?.record.tagIds ?? []);
-    for (const tagId of tagIds) {
-      if (!popularTagRank.has(tagId)) continue;
-      shelfCounts.set(tagId, (shelfCounts.get(tagId) ?? 0) + 1);
-    }
-  }
+  const shelfCounts = getShelfTagTitleCounts(books);
   return catalog.popularTags
     .map((tag) => ({ ...tag, shelfTitleCount: shelfCounts.get(tag.id) ?? 0 }))
     .sort((left, right) => (

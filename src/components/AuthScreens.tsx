@@ -23,7 +23,7 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({
     <div className="p-10 bg-accent-600 text-white rounded-[3.5rem] shadow-2xl shadow-accent-500/20">
       <HardDrive size={64} />
     </div>
-    <h1 className="text-4xl font-black italic uppercase tracking-tighter">TW-WEB Reader</h1>
+    <h1 className="text-4xl font-black uppercase tracking-tighter">TW READER</h1>
     <div className="flex flex-col gap-4 w-full max-w-xs">
       <button onClick={onGoogleSignIn} className={`w-full py-5 ${theme.secondary} border ${theme.border} font-black rounded-[2rem] text-xs uppercase tracking-widest shadow-xl active:scale-95 hover:opacity-80 transition-all`}>
         Sign in with Google

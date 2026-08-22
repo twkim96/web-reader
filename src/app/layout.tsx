@@ -7,7 +7,7 @@ const themeBootstrapScript = `
   const builtInThemes = {
     light: { bg: '#ffffff', text: '#222222', texture: 'none' },
     dark: { bg: '#272728', text: '#b8b8b8', texture: 'none' },
-    blue: { bg: '#eef2f7', text: '#2c3e50', texture: 'none' },
+    midnight: { bg: '#141517', text: '#d2d3d6', texture: 'none' },
     sepia: { bg: '#f4ecd8', text: '#5b4636', texture: 'none' }
   };
   const accents = {
@@ -99,6 +99,8 @@ const themeBootstrapScript = `
     '--viewer-theme-text': text,
     '--viewer-theme-border': 'rgba(' + textRgb + ', 0.18)',
     '--viewer-theme-secondary': mixHex(bg, text, 0.09),
+    '--viewer-theme-action-soft': mixHex(bg, '#ffffff', 0.14),
+    '--viewer-theme-action-strong': mixHex(bg, '#000000', 0.18),
     '--viewer-reader-surface': 'rgba(' + bgRgb + ', 0.68)',
     '--viewer-reader-glass-surface': 'rgba(' + bgRgb + ', 0.38)',
     '--viewer-reader-glass-border': 'rgba(' + textRgb + ', 0.24)',

@@ -6,6 +6,8 @@ import {
   getStoredViewerSettings,
 } from '../src/hooks/useViewerSettings.ts';
 import { getMuzioShelfDockVariables } from '../src/lib/shelfDockTheme.ts';
+import { THEMES } from '../src/lib/constants.ts';
+import { getThemeColors, getThemeCssVariables } from '../src/lib/themeUtils.ts';
 
 const SETTINGS_KEY = 'viewer_settings';
 const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1';
@@ -33,6 +35,16 @@ const withStorage = async (initialValue, callback, continuousDefaultsApplied = f
     globalThis.localStorage = previousLocalStorage;
   }
 };
+
+test('uses 20px only as the default font size and preserves an explicit saved size', async () => {
+  await withStorage(undefined, () => {
+    assert.equal(getStoredViewerSettings().fontSize, 20);
+    assert.equal(defaultSettings.fontSize, 20);
+  });
+  await withStorage(JSON.stringify({ fontSize: 18 }), () => {
+    assert.equal(getStoredViewerSettings().fontSize, 18);
+  });
+});
 
 test('defaults auto-open for older stored viewer settings', async () => {
   await withStorage(JSON.stringify({ fontSize: 21 }), () => {
@@ -127,4 +139,20 @@ test('uses Muzio mini-player surfaces for light and dark shelf docks', () => {
   assert.equal(light['--viewer-shelf-dock-surface'], 'rgba(255, 255, 255, 0.88)');
   assert.equal(light['--viewer-shelf-dock-border'], 'rgba(228, 228, 231, 0.35)');
   assert.equal(light['--viewer-shelf-dock-shadow'], 'rgba(0, 0, 0, 0.10)');
+});
+
+test('replaces the built-in Blue theme with exact Midnight colors and theme action surfaces', () => {
+  assert.equal('blue' in THEMES, false);
+  assert.deepEqual(THEMES.midnight, {
+    bg: 'bg-[#141517]',
+    text: 'text-[#d2d3d6]',
+    border: 'border-white/10',
+    secondary: 'bg-white/5',
+  });
+
+  const colors = getThemeColors({ theme: 'midnight', customThemes: [] });
+  const variables = getThemeCssVariables({ theme: 'midnight', customThemes: [] });
+  assert.deepEqual(colors, { bg: '#141517', text: '#d2d3d6', texture: 'none' });
+  assert.equal(variables['--viewer-theme-action-soft'], '#353637');
+  assert.equal(variables['--viewer-theme-action-strong'], '#101113');
 });

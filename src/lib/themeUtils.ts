@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import { CustomThemeTexture, ThemeClasses, ViewerSettings } from '../types';
-import { getMuzioShelfDockVariables } from './shelfDockTheme';
+import type { CustomThemeTexture, ThemeClasses, ViewerSettings } from '../types.ts';
+import { getMuzioShelfDockVariables } from './shelfDockTheme.ts';
 
 export const CUSTOM_THEME_PREFIX = 'custom:';
 export type ThemeLookupSettings = Pick<ViewerSettings, 'theme' | 'customThemes'>;
@@ -65,11 +65,12 @@ export const getThemeColors = (settings: ThemeLookupSettings) => {
       return { bg: '#ffffff', text: '#222222', texture: 'none' as CustomThemeTexture };
     case 'dark':
       return { bg: '#272728', text: '#b8b8b8', texture: 'none' as CustomThemeTexture };
-    case 'blue':
-      return { bg: '#eef2f7', text: '#2c3e50', texture: 'none' as CustomThemeTexture };
+    case 'midnight':
+      return { bg: '#141517', text: '#d2d3d6', texture: 'none' as CustomThemeTexture };
     case 'sepia':
-    default:
       return { bg: '#f4ecd8', text: '#5b4636', texture: 'none' as CustomThemeTexture };
+    default:
+      return { bg: '#272728', text: '#b8b8b8', texture: 'none' as CustomThemeTexture };
   }
 };
 
@@ -138,12 +139,16 @@ export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperti
   const bgRgb = getRgbString(bgColor);
   const textRgb = getRgbString(textColor);
   const secondaryColor = mixHex(bgColor, textColor, 0.09);
+  const actionSoftColor = mixHex(bgColor, '#ffffff', 0.14);
+  const actionStrongColor = mixHex(bgColor, '#000000', 0.18);
 
   return {
     '--viewer-theme-bg': bgColor,
     '--viewer-theme-text': textColor,
     '--viewer-theme-border': `rgba(${textRgb}, 0.18)`,
     '--viewer-theme-secondary': secondaryColor,
+    '--viewer-theme-action-soft': actionSoftColor,
+    '--viewer-theme-action-strong': actionStrongColor,
     '--viewer-reader-surface': `rgba(${bgRgb}, 0.68)`,
     '--viewer-reader-glass-surface': `rgba(${bgRgb}, 0.38)`,
     '--viewer-reader-glass-border': `rgba(${textRgb}, 0.24)`,

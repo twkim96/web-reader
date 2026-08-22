@@ -1,5 +1,5 @@
 import React from 'react';
-import { XCircle, WifiOff, FolderPlus, Library, FilePlus, KeyRound } from 'lucide-react';
+import { XCircle, WifiOff, FolderPlus, Library, FilePlus, KeyRound, BookOpen } from 'lucide-react';
 import { ThemeClasses } from '../../types';
 
 interface EmptyStateProps {
@@ -12,6 +12,9 @@ interface EmptyStateProps {
   onShowImportConfirm: () => void;
   onLogin: () => void;
   onRefresh: () => void;
+  onAddSampleBook: () => void;
+  isAddingSampleBook: boolean;
+  sampleBookFeedback: string;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -23,8 +26,29 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   onToggleCloud,
   onShowImportConfirm,
   onLogin,
-  onRefresh
+  onRefresh,
+  onAddSampleBook,
+  isAddingSampleBook,
+  sampleBookFeedback,
 }) => {
+  const actionClass = 'w-full max-w-[240px] py-4 rounded-full font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 hover:brightness-110 disabled:cursor-wait disabled:opacity-55 disabled:active:scale-100';
+  const softActionStyle = {
+    backgroundColor: 'var(--viewer-theme-action-soft)',
+    color: 'var(--viewer-theme-text)',
+  };
+  const themeActionStyle = {
+    backgroundColor: 'var(--viewer-theme-bg)',
+    color: 'var(--viewer-theme-text)',
+  };
+  const strongActionStyle = {
+    backgroundColor: 'var(--viewer-theme-action-strong)',
+    color: 'var(--viewer-theme-text)',
+  };
+  const quietActionStyle = {
+    backgroundColor: 'var(--viewer-theme-secondary)',
+    color: 'var(--viewer-theme-text)',
+  };
+
   return (
     <div className={`flex flex-col items-center justify-center py-32 text-center space-y-8 ${theme.secondary} rounded-[3.5rem] border ${theme.border} backdrop-blur-sm`}>
       {searchKeyword ? (
@@ -49,17 +73,17 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             {isOfflineMode ? <WifiOff size={64} /> : <FolderPlus size={64} />}
           </div>
           
-          <div className="space-y-4 max-w-sm">
+          <div className="w-full max-w-sm space-y-4">
             {isOfflineMode ? (
               <>
-                <h3 className="text-2xl font-black italic uppercase tracking-tighter">
-                  {isGuest ? 'Guest Library Empty' : 'Local Library Empty'}
-                </h3>
+                <h3 className="text-2xl font-black uppercase tracking-tighter">LIBRARY EMPTY</h3>
                 <div className="flex flex-col gap-3 items-center w-full mt-2">
                   {!isGuest && isOfflineMode && (
                     <button 
                       onClick={onToggleCloud} 
-                      className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
+                      data-empty-shelf-action="cloud"
+                      className={actionClass}
+                      style={themeActionStyle}
                     >
                       <Library size={16} />
                       <span>Cloud Library 연결하기</span>
@@ -68,11 +92,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
                   <button 
                     onClick={onShowImportConfirm} 
-                    className={`w-full max-w-[240px] py-4 rounded-full font-black text-[11px] uppercase tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${
-                      !isGuest && isOfflineMode 
-                        ? `bg-white/5 border-2 ${theme.border} hover:bg-white/10 opacity-70` 
-                        : "bg-accent-600 text-white hover:bg-accent-500"
-                    }`}
+                    data-empty-shelf-action="import"
+                    className={actionClass}
+                    style={softActionStyle}
                   >
                     <FilePlus size={16} />
                     <span>도서 직접 추가하기</span>
@@ -81,24 +103,44 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                   {isGuest && (
                     <button 
                       onClick={onLogin} 
-                      className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95 flex items-center justify-center gap-2"
+                      data-empty-shelf-action="google"
+                      className={actionClass}
+                      style={themeActionStyle}
                     >
                       <KeyRound size={16} />
                       <span>Google 계정 연동하기</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={onAddSampleBook}
+                    disabled={isAddingSampleBook}
+                    data-empty-shelf-action="sample"
+                    className={actionClass}
+                    style={themeActionStyle}
+                  >
+                    <BookOpen size={16} />
+                    <span>{isAddingSampleBook ? '샘플 도서 추가 중…' : '샘플 도서 보기'}</span>
+                  </button>
+                  {sampleBookFeedback && (
+                    <p role="status" className="max-w-[240px] text-xs font-bold opacity-65">
+                      {sampleBookFeedback}
+                    </p>
+                  )}
                 </div>
               </>
             ) : (
               <>
-                <h3 className="text-2xl font-black italic uppercase tracking-tighter">No Books Found</h3>
+                <h3 className="text-2xl font-black uppercase tracking-tighter">LIBRARY EMPTY</h3>
                 <p className="opacity-60 text-sm leading-relaxed font-medium">
                   구글 드라이브의 <span className="text-accent-500 font-black">&ldquo;web viewer&rdquo;</span> 폴더에 TXT, EPUB, PDF, ZIP, CBZ 또는 7Z 도서를 추가해 주세요.
                 </p>
                 <div className="flex flex-col gap-3 items-center w-full mt-2">
                   <button 
                     onClick={onShowImportConfirm} 
-                    className="w-full max-w-[240px] py-4 bg-slate-700 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-slate-600 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                    data-empty-shelf-action="import"
+                    className={actionClass}
+                    style={softActionStyle}
                   >
                     <FilePlus size={16} />
                     <span>도서 직접 추가하기</span>
@@ -107,7 +149,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                     href="https://drive.google.com/" 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className={`w-full max-w-[240px] py-4 border-2 border-accent-500/30 bg-accent-500/5 ${theme.text} rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500/10 transition-all flex items-center justify-center gap-3 active:scale-95 shadow-sm`}
+                    data-empty-shelf-action="drive"
+                    className={actionClass}
+                    style={quietActionStyle}
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M7.74023 6L4.64023 11.38L8.60023 18.25L11.7002 12.87L7.74023 6Z" fill="#0066DA"/>
@@ -128,10 +172,28 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                   </a>
                   <button 
                     onClick={onRefresh} 
-                    className="w-full max-w-[240px] py-4 bg-accent-600 text-white rounded-full font-black text-[11px] uppercase tracking-widest hover:bg-accent-500 transition-all shadow-xl shadow-accent-500/20 active:scale-95"
+                    data-empty-shelf-action="refresh"
+                    className={actionClass}
+                    style={strongActionStyle}
                   >
                     Refresh Library
                   </button>
+                  <button
+                    type="button"
+                    onClick={onAddSampleBook}
+                    disabled={isAddingSampleBook}
+                    data-empty-shelf-action="sample"
+                    className={`${actionClass} border ${theme.border}`}
+                    style={themeActionStyle}
+                  >
+                    <BookOpen size={16} />
+                    <span>{isAddingSampleBook ? '샘플 도서 추가 중…' : '샘플 도서 보기'}</span>
+                  </button>
+                  {sampleBookFeedback && (
+                    <p role="status" className="max-w-[240px] text-xs font-bold opacity-65">
+                      {sampleBookFeedback}
+                    </p>
+                  )}
                 </div>
               </>
             )}

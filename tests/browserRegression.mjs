@@ -231,6 +231,150 @@ try {
     'empty guest shelf',
   );
 
+  const emptyShelfActions = await evaluate(`(() => {
+    const inspect = (name) => {
+      const node = document.querySelector('[data-empty-shelf-action="' + name + '"]');
+      const style = node ? getComputedStyle(node) : null;
+      return {
+        exists: Boolean(node),
+        backgroundColor: style?.backgroundColor ?? '',
+        color: style?.color ?? '',
+        width: node?.getBoundingClientRect().width ?? 0,
+        height: node?.getBoundingClientRect().height ?? 0,
+        fontSize: style?.fontSize ?? '',
+      };
+    };
+    return {
+      import: inspect('import'),
+      google: inspect('google'),
+      sample: inspect('sample'),
+      heading: document.querySelector('[data-empty-shelf-action="import"]')
+        ?.closest('.space-y-4')?.querySelector('h3')?.textContent?.trim() ?? '',
+      headingFontStyle: (() => {
+        const heading = document.querySelector('[data-empty-shelf-action="import"]')
+          ?.closest('.space-y-4')?.querySelector('h3');
+        return heading ? getComputedStyle(heading).fontStyle : '';
+      })(),
+      accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-600').trim(),
+    };
+  })()`);
+  assert.equal(emptyShelfActions.import.backgroundColor, 'rgb(69, 69, 70)', JSON.stringify(emptyShelfActions));
+  assert.equal(emptyShelfActions.google.backgroundColor, 'rgb(39, 39, 40)', JSON.stringify(emptyShelfActions));
+  assert.equal(emptyShelfActions.sample.backgroundColor, 'rgb(39, 39, 40)', JSON.stringify(emptyShelfActions));
+  assert.equal(emptyShelfActions.sample.backgroundColor, emptyShelfActions.google.backgroundColor, JSON.stringify(emptyShelfActions));
+  assert.equal(emptyShelfActions.import.color, 'rgb(184, 184, 184)', JSON.stringify(emptyShelfActions));
+  for (const action of [emptyShelfActions.import, emptyShelfActions.google, emptyShelfActions.sample]) {
+    assert.equal(action.width, 240, JSON.stringify(emptyShelfActions));
+    assert.equal(action.height, emptyShelfActions.google.height, JSON.stringify(emptyShelfActions));
+    assert.equal(action.fontSize, '11px', JSON.stringify(emptyShelfActions));
+  }
+  assert.notEqual(emptyShelfActions.import.backgroundColor, emptyShelfActions.accent, JSON.stringify(emptyShelfActions));
+  assert.equal(emptyShelfActions.heading, 'LIBRARY EMPTY', JSON.stringify(emptyShelfActions));
+  assert.equal(emptyShelfActions.headingFontStyle, 'normal', JSON.stringify(emptyShelfActions));
+
+  await evaluate(`document.querySelector('[data-empty-shelf-action="sample"]')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-shelf-book-id="sample-aesop-tortoise-hare-ko-v1"]\'))',
+    'installed local sample book',
+  );
+  await waitFor(
+    'Boolean(document.querySelector(\'[data-shelf-book-id="sample-aesop-tortoise-hare-ko-v1"] [data-shelf-book-cover="true"]\'))',
+    'sample book cover',
+  );
+  const installedSample = await evaluate(`new Promise((resolve, reject) => {
+    const request = indexedDB.open('web-reader-db');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(['metadata-v5', 'book-covers-v14'], 'readonly');
+      const metadataRequest = tx.objectStore('metadata-v5').get([
+        'guest:device-library|library:local',
+        'sample-aesop-tortoise-hare-ko-v1',
+      ]);
+      const coverRequest = tx.objectStore('book-covers-v14').get([
+        'guest:device-library|library:local',
+        'sample-aesop-tortoise-hare-ko-v1',
+      ]);
+      tx.oncomplete = () => {
+        db.close();
+        resolve({
+          title: metadataRequest.result?.name || '',
+          source: metadataRequest.result?.source || '',
+          format: metadataRequest.result?.sourceFormat || '',
+          coverType: coverRequest.result?.image?.type || '',
+          coverSize: coverRequest.result?.image?.size || 0,
+        });
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+  })`);
+  assert.match(installedSample.title, /^토끼와 거북이/);
+  assert.equal(installedSample.source, 'local');
+  assert.equal(installedSample.format, 'epub');
+  assert.equal(installedSample.coverType, 'image/svg+xml');
+  assert.ok(installedSample.coverSize > 0);
+
+  await evaluate(`document.querySelector(
+    '[data-shelf-book-id="sample-aesop-tortoise-hare-ko-v1"]'
+  )?.click()`);
+  await waitFor(
+    `Boolean(document.querySelector('foliate-view')?.renderer?.getContents?.()[0]?.doc?.body)`,
+    'opened expanded sample book',
+  );
+  await waitFor(
+    `!document.querySelector('nav')?.classList.contains('translate-y-0')`,
+    'sample reader controls auto-hide',
+    8_000,
+  );
+  const sampleReader = await evaluate(`(async () => {
+    const view = document.querySelector('foliate-view');
+    const renderer = view?.renderer;
+    const doc = renderer?.getContents?.()[0]?.doc;
+    const content = document.querySelector('[data-reader-content="true"]');
+    if (!renderer || !doc || !content) return { missing: true };
+    const paragraphCount = doc.querySelectorAll('p').length;
+    const textLength = doc.body?.innerText?.length ?? 0;
+    const fontSize = doc.defaultView?.getComputedStyle(doc.body).fontSize ?? '';
+    const firstParagraphStyle = doc.defaultView?.getComputedStyle(doc.querySelector('p'));
+    const hasRepeatedSpaces = [...doc.querySelectorAll('p')]
+      .some((paragraph) => /[ \u00a0]{2,}/.test(paragraph.textContent ?? ''));
+    const before = document.querySelector('nav')?.classList.contains('translate-y-0') ?? false;
+    content.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: innerWidth / 2,
+      clientY: innerHeight * 0.75,
+    }));
+    await window.__regressionNextFrame(2);
+    const after = document.querySelector('nav')?.classList.contains('translate-y-0') ?? false;
+    return {
+      paragraphCount,
+      textLength,
+      fontSize,
+      wordBreak: firstParagraphStyle?.wordBreak ?? '',
+      hasRepeatedSpaces,
+      flow: renderer.getAttribute('flow'),
+      scrollable: renderer.viewSize > renderer.size,
+      controlsBeforeOuterBlankTap: before,
+      controlsAfterOuterBlankTap: after,
+    };
+  })()`);
+  assert.equal(sampleReader.missing, undefined, JSON.stringify(sampleReader));
+  assert.ok(sampleReader.paragraphCount >= 20, JSON.stringify(sampleReader));
+  assert.ok(sampleReader.textLength >= 1_000, JSON.stringify(sampleReader));
+  assert.equal(sampleReader.fontSize, '20px', JSON.stringify(sampleReader));
+  assert.equal(sampleReader.wordBreak, 'normal', JSON.stringify(sampleReader));
+  assert.equal(sampleReader.hasRepeatedSpaces, false, JSON.stringify(sampleReader));
+  assert.equal(sampleReader.flow, 'scrolled', JSON.stringify(sampleReader));
+  assert.equal(sampleReader.scrollable, true, JSON.stringify(sampleReader));
+  assert.equal(sampleReader.controlsBeforeOuterBlankTap, false, JSON.stringify(sampleReader));
+  assert.equal(sampleReader.controlsAfterOuterBlankTap, true, JSON.stringify(sampleReader));
+  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await waitFor(
+    `Boolean(document.querySelector('[data-shelf-book-id="sample-aesop-tortoise-hare-ko-v1"]'))`,
+    'returned from expanded sample book',
+  );
+
   await evaluate(`new Promise((resolve, reject) => {
     const request = indexedDB.open('web-reader-db');
     request.onerror = () => reject(request.error);
@@ -910,6 +1054,25 @@ try {
     await evaluate('Boolean(document.querySelector(\'[data-shelf-dock-style-option="standard"]\'))'),
     true,
   );
+  assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="blue"]\'))'), false);
+  assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="midnight"]\'))'), true);
+  await evaluate(`document.querySelector('[data-theme-option="midnight"]')?.click()`);
+  await waitFor(
+    `getComputedStyle(document.documentElement).getPropertyValue('--viewer-theme-bg').trim() === '#141517'
+      && getComputedStyle(document.documentElement).getPropertyValue('--viewer-theme-text').trim() === '#d2d3d6'`,
+    'exact Midnight theme colors',
+  );
+  const midnightTheme = await evaluate(`(() => ({
+    storedTheme: JSON.parse(localStorage.getItem('viewer_settings') || '{}').theme,
+    background: getComputedStyle(document.documentElement).getPropertyValue('--viewer-theme-bg').trim(),
+    text: getComputedStyle(document.documentElement).getPropertyValue('--viewer-theme-text').trim(),
+  }))()`);
+  assert.deepEqual(midnightTheme, { storedTheme: 'midnight', background: '#141517', text: '#d2d3d6' });
+  await evaluate(`document.querySelector('[data-theme-option="dark"]')?.click()`);
+  await waitFor(
+    `getComputedStyle(document.documentElement).getPropertyValue('--viewer-theme-bg').trim() === '#272728'`,
+    'restored dark theme after Midnight check',
+  );
   const shelfDockStyleLayout = await evaluate(`(() => {
     const values = ['standard', 'glass', 'modern'];
     const buttons = values.map((value) => document.querySelector(
@@ -918,6 +1081,9 @@ try {
     return {
       values: buttons.map((button) => button?.dataset.shelfDockStyleOption || ''),
       tops: buttons.map((button) => Math.round(button?.getBoundingClientRect().top || -1)),
+      descriptions: buttons.map((button) => button?.querySelectorAll('span')[1]?.textContent?.trim() || ''),
+      previewClasses: buttons.map((button) => button?.className || ''),
+      previewBlur: buttons.map((button) => button ? getComputedStyle(button).backdropFilter : ''),
       gridTemplateColumns: buttons[0]?.parentElement
         ? getComputedStyle(buttons[0].parentElement).gridTemplateColumns
         : '',
@@ -926,6 +1092,11 @@ try {
   assert.deepEqual(shelfDockStyleLayout.values, ['standard', 'glass', 'modern']);
   assert.equal(new Set(shelfDockStyleLayout.tops).size, 1, JSON.stringify(shelfDockStyleLayout));
   assert.equal(shelfDockStyleLayout.gridTemplateColumns.split(' ').length, 3, JSON.stringify(shelfDockStyleLayout));
+  assert.deepEqual(shelfDockStyleLayout.descriptions, ['반투명 유리', '저블러 투명 유리', '선명한 미니바']);
+  assert.match(shelfDockStyleLayout.previewClasses[0], /backdrop-blur-xl/);
+  assert.match(shelfDockStyleLayout.previewClasses[1], /viewer-cime-glass/);
+  assert.match(shelfDockStyleLayout.previewClasses[2], /shelf-muzio-dock/);
+  assert.equal(shelfDockStyleLayout.previewBlur[1], 'blur(4px)');
   await evaluate(`document.querySelector('[data-shelf-dock-style-option="glass"]')?.click()`);
   await waitFor(
     'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "glass"',

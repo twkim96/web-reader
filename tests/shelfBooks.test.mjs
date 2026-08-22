@@ -18,6 +18,7 @@ import {
   SHELF_TAG_PAGE_SIZE,
 } from '../src/components/shelf/filterTags.ts';
 import { searchPublicBookCatalogTags } from '../src/components/shelf/tagSearch.ts';
+import { searchShelfCatalogTags } from '../src/components/shelf/tagSearch.ts';
 
 const book = (id, name, source = 'cloud') => ({
   id,
@@ -72,6 +73,25 @@ test('ranks exact hashtag matches before prefix and substring matches', () => {
   assert.deepEqual(
     searchPublicBookCatalogTags(tags, ' 하렘 ').map(({ id }) => id),
     [3, 1, 2],
+  );
+});
+
+test('hashtag suggestions show shelf counts first and use metadata popularity only as fallback', () => {
+  const tags = [
+    { id: 1, label: '판타지전역', titleCount: 900 },
+    { id: 2, label: '판타지책장', titleCount: 20 },
+    { id: 3, label: '판타지보조', titleCount: 100 },
+  ];
+  const prepared = [
+    { catalog: { record: { tagIds: [2] } } },
+    { catalog: { record: { tagIds: [2] } } },
+  ];
+
+  assert.deepEqual(
+    searchShelfCatalogTags(prepared, tags, '판타지').map(({ id, shelfTitleCount }) => (
+      [id, shelfTitleCount]
+    )),
+    [[2, 2], [1, 0], [3, 0]],
   );
 });
 
