@@ -9,7 +9,7 @@ import generatedBookCoverModule from '../src/components/shelf/GeneratedBookCover
 
 const { BookCard, getFittingShelfTagCount } = bookCardModule;
 const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
-const { getGeneratedBookCoverStyle } = generatedBookCoverModule;
+const { GeneratedBookCover, getGeneratedBookCoverStyle } = generatedBookCoverModule;
 
 const props = {
   book: {
@@ -119,6 +119,25 @@ test('keeps generated cover colors deterministic and readable', () => {
   );
   assert.ok(foregrounds.has('#FFFFFF'));
   assert.ok(foregrounds.has('#111827'));
+});
+
+test('starts generated cover titles near the top and keeps list text at seven pixels', () => {
+  const html = renderToStaticMarkup(React.createElement(GeneratedBookCover, {
+    identity: 'layout-book',
+    title: '레이아웃 검증',
+    variant: 'list',
+  }));
+  const document = parseHTML(html).document;
+  const cover = document.querySelector('[data-generated-book-cover="true"]');
+  const title = document.querySelector('[data-generated-book-cover-title="true"]');
+
+  assert.ok(cover);
+  assert.ok(title);
+  assert.equal(cover.getAttribute('data-generated-book-cover-variant'), 'list');
+  assert.match(cover.className, /text-\[7px\]/);
+  assert.match(title.className, /top-\[15%\]/);
+  assert.match(title.className, /left-\[9%\]/);
+  assert.match(title.className, /right-\[9%\]/);
 });
 
 test('keeps the list cover compact and gives grid covers a large side-by-side layout', () => {

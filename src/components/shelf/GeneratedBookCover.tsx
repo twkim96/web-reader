@@ -68,9 +68,9 @@ interface GeneratedBookCoverProps {
 }
 
 const variantClasses: Record<GeneratedBookCoverVariant, string> = {
-  grid: 'p-2.5 text-[9px] leading-[1.15] sm:p-3 sm:text-[10px]',
-  list: 'p-1 text-[5px] leading-[1.08] sm:text-[5.5px]',
-  info: 'p-2 text-[7px] leading-[1.12] sm:p-2.5 sm:text-[8px]',
+  grid: 'text-[9px] leading-[1.15] sm:text-[10px]',
+  list: 'text-[7px] leading-[1.08]',
+  info: 'text-[7px] leading-[1.12] sm:text-[8px]',
 };
 
 export const GeneratedBookCover: React.FC<GeneratedBookCoverProps> = ({
@@ -86,10 +86,14 @@ export const GeneratedBookCover: React.FC<GeneratedBookCoverProps> = ({
       aria-hidden="true"
       data-generated-book-cover="true"
       data-generated-book-cover-palette={paletteIndex}
-      className={`flex h-full w-full items-center justify-center overflow-hidden text-center font-black ${variantClasses[variant]} ${className}`}
+      data-generated-book-cover-variant={variant}
+      className={`relative h-full w-full overflow-hidden text-center font-black ${variantClasses[variant]} ${className}`}
       style={{ backgroundColor, color }}
     >
-      <span className="line-clamp-6 break-words [overflow-wrap:anywhere]">
+      <span
+        data-generated-book-cover-title="true"
+        className="absolute left-[9%] right-[9%] top-[15%] line-clamp-6 break-words [overflow-wrap:anywhere]"
+      >
         {title}
       </span>
     </div>

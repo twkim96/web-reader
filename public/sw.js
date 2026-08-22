@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: use deterministic generated title covers when no cached book cover exists.
+// 1.8.31: refine generated cover title placement and align book-info metadata to the cover baseline.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

@@ -412,13 +412,16 @@ export const BookInfoModal: React.FC<Props> = ({
                   />
                 )}
               </div>
-              <div className="min-w-0 flex-1 pt-0.5">
+              <div
+                data-book-info-title-meta-column="true"
+                className="flex min-h-28 min-w-0 flex-1 flex-col pt-0.5 sm:min-h-32"
+              >
                 <h3 className="break-words text-lg font-black leading-snug sm:text-xl">
                   {getDisplayBookTitle(book.name)}
                 </h3>
                 <p className="mt-1 break-all text-[10px] leading-4 opacity-45">{book.name}</p>
 
-                <div className="mt-3 flex flex-wrap gap-1.5">
+                <div data-book-info-tag-row="true" className="mt-auto flex flex-wrap gap-1.5 pt-3">
                   <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
                     {getBookFormatLabel(book)}
                   </span>

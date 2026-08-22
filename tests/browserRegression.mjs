@@ -635,6 +635,10 @@ try {
     const modal = document.querySelector('[data-book-info-modal="true"]');
     const card = document.querySelector('[data-shelf-book-card="true"]');
     const rect = modal?.getBoundingClientRect();
+    const infoCover = modal?.querySelector('[data-book-info-cover-frame="true"]')?.getBoundingClientRect();
+    const infoTagRow = modal?.querySelector('[data-book-info-tag-row="true"]')?.getBoundingClientRect();
+    const generatedCover = modal?.querySelector('[data-generated-book-cover="true"]')?.getBoundingClientRect();
+    const generatedTitle = modal?.querySelector('[data-generated-book-cover-title="true"]')?.getBoundingClientRect();
     const cardStyle = card ? getComputedStyle(card) : null;
     const modalStyle = modal ? getComputedStyle(modal) : null;
     return {
@@ -657,6 +661,10 @@ try {
       hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
       hasGeneratedCover: Boolean(modal?.querySelector('[data-generated-book-cover="true"]')),
       hasCachedCover: Boolean(modal?.querySelector('[data-book-info-cover="true"]')),
+      tagRowBottomDelta: infoCover && infoTagRow ? Math.abs(infoCover.bottom - infoTagRow.bottom) : null,
+      generatedTitleTopRatio: generatedCover && generatedTitle
+        ? (generatedTitle.top - generatedCover.top) / generatedCover.height
+        : null,
     };
   })()`);
   assert.match(bookInfoUi.title, /Book/);
@@ -681,6 +689,12 @@ try {
   assert.equal(bookInfoUi.captureRootContainsActions, false);
   assert.equal(bookInfoUi.hasCopyImageButton, true);
   assert.equal(bookInfoUi.hasCaptureButton, true);
+  assert.ok(bookInfoUi.tagRowBottomDelta !== null && bookInfoUi.tagRowBottomDelta <= 1, JSON.stringify(bookInfoUi));
+  assert.ok(
+    bookInfoUi.generatedTitleTopRatio !== null
+      && Math.abs(bookInfoUi.generatedTitleTopRatio - 0.15) <= 0.02,
+    JSON.stringify(bookInfoUi),
+  );
   const bookInfoActions = await evaluate(`(() => {
     const footer = document.querySelector('[data-book-info-actions="true"]');
     return [...(footer?.querySelectorAll('button') ?? [])].map((button) => ({
@@ -897,6 +911,18 @@ try {
     'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "glass"',
     'glass shelf dock style',
   );
+  await waitFor(
+    `(() => {
+      const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
+      if (!dock) return false;
+      const style = getComputedStyle(dock);
+      const radius = Number.parseFloat(style.borderRadius || '0');
+      return style.backgroundColor === 'rgba(39, 39, 40, 0.88)'
+        && radius >= 15
+        && radius <= 17;
+    })()`,
+    'settled glass shelf dock style',
+  );
   const glassShelfDock = await evaluate(`(() => {
     const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
     const style = dock ? getComputedStyle(dock) : null;
@@ -919,6 +945,18 @@ try {
   await waitFor(
     'document.querySelector(\'[data-shelf-bottom-dock="true"]\')?.dataset.shelfDockStyle === "modern"',
     'modern shelf dock style',
+  );
+  await waitFor(
+    `(() => {
+      const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
+      if (!dock) return false;
+      const style = getComputedStyle(dock);
+      const radius = Number.parseFloat(style.borderRadius || '0');
+      return style.backgroundColor === 'rgba(39, 39, 40, 0.88)'
+        && radius >= 15
+        && radius <= 17;
+    })()`,
+    'settled modern shelf dock style',
   );
   const modernShelfDock = await evaluate(`(() => {
     const dock = document.querySelector('[data-shelf-bottom-dock="true"]');
