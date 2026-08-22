@@ -445,19 +445,25 @@ export const BookCard: React.FC<BookCardProps> = ({
                   className="object-cover"
                 />
               </div>
-              <div className="min-w-0 pt-0.5">
+              <div className="flex h-36 min-w-0 flex-col pt-0.5 sm:h-40">
                 <h3
                   data-shelf-grid-cover-title="true"
-                  className="min-w-0 text-lg font-bold leading-tight line-clamp-3 group-hover:text-accent-500 transition-colors sm:text-xl"
+                  className="min-w-0 text-lg font-bold leading-tight line-clamp-4 group-hover:text-accent-500 transition-colors sm:text-xl"
                 >
                   {getDisplayBookTitle(book.name)}
                 </h3>
-                <div data-shelf-grid-meta="true" className="mt-4 flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                    {getBookFormatLabel(book)}
-                  </span>
+                <div data-shelf-grid-cover-bottom-meta="true" className="mt-auto">
+                  <div data-shelf-grid-meta="true" className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                      {getBookFormatLabel(book)}
+                    </span>
+                  </div>
+                  {combinedSourceCount !== null && (
+                    <div data-shelf-grid-cover-source-slot="true" className="mt-2 min-h-3">
+                      {renderCatalogSources()}
+                    </div>
+                  )}
                 </div>
-                {combinedSourceCount !== null && <div className="mt-2 min-h-3">{renderCatalogSources()}</div>}
               </div>
             </div>
             {hasCatalogTags && (

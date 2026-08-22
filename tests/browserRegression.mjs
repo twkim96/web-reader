@@ -335,6 +335,9 @@ try {
     const coveredPercent = document.querySelector(
       '[data-shelf-book-id="book-0001"] [data-shelf-grid-progress-percent="true"]'
     )?.getBoundingClientRect();
+    const coveredBottomMeta = document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-grid-cover-bottom-meta="true"]'
+    )?.getBoundingClientRect();
     return {
       cardCount: document.querySelectorAll('main h3').length,
       titles: [...document.querySelectorAll('main h3')]
@@ -357,6 +360,9 @@ try {
         topDelta: Math.abs(fallbackProgress.top - coveredProgress.top),
         labelBottomDelta: Math.abs(coveredDate.bottom - coveredPercent.bottom),
       } : null,
+      gridCoverMetaAlignment: coverRect && coveredBottomMeta ? {
+        bottomDelta: Math.abs(coverRect.bottom - coveredBottomMeta.bottom),
+      } : null,
     };
   })()`);
   assert.equal(initialShelf.cardCount, 50);
@@ -374,6 +380,8 @@ try {
   assert.ok(initialShelf.gridProgressAlignment);
   assert.ok(initialShelf.gridProgressAlignment.topDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
   assert.ok(initialShelf.gridProgressAlignment.labelBottomDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
+  assert.ok(initialShelf.gridCoverMetaAlignment);
+  assert.ok(initialShelf.gridCoverMetaAlignment.bottomDelta <= 1, JSON.stringify(initialShelf.gridCoverMetaAlignment));
 
   await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
   await waitFor(
