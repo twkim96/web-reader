@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: extend covered grid titles and anchor TXT/view-count metadata to the cover bottom.
+// 1.8.31: use deterministic generated title covers when no cached book cover exists.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { BookOpen, Eraser } from 'lucide-react';
+import { Eraser } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
 import {
   formatPublicBookCatalogMetric,
   type PublicBookCatalogBook,
 } from '../../lib/publicBookCatalog';
 import { getBookFormatLabel, getDisplayBookTitle, getProgressTime, ShelfTheme } from './bookUtils';
+import { GeneratedBookCover } from './GeneratedBookCover';
 
 interface BookCardProps {
   book: Book;
@@ -312,11 +313,11 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerCancel={clearLongPressTimer}
         className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
       >
-        {coverUrl ? (
-          <div
-            data-shelf-book-cover-frame="true"
-            className="relative h-16 w-11 overflow-hidden transition-transform duration-200 group-hover:scale-105 sm:-my-1 sm:h-[4.25rem] sm:w-12"
-          >
+        <div
+          data-shelf-book-cover-frame="true"
+          className="relative h-16 w-11 overflow-hidden transition-transform duration-200 group-hover:scale-105 sm:-my-1 sm:h-[4.25rem] sm:w-12"
+        >
+          {coverUrl ? (
             <Image
               data-shelf-book-cover="true"
               src={coverUrl}
@@ -326,17 +327,14 @@ export const BookCard: React.FC<BookCardProps> = ({
               unoptimized
               className="object-cover"
             />
-          </div>
-        ) : (
-          <div
-            data-shelf-book-icon-frame="true"
-            className="relative h-11 w-11 overflow-hidden rounded-xl bg-accent-600 shadow-md transition-transform duration-200 group-hover:scale-105 sm:h-12 sm:w-12"
-          >
-            <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
-              <BookOpen className="text-white" size={22} />
-            </span>
-          </div>
-        )}
+          ) : (
+            <GeneratedBookCover
+              identity={book.id}
+              title={getDisplayBookTitle(book.name)}
+              variant="list"
+            />
+          )}
+        </div>
         
         <div className="min-w-0">
           <div data-shelf-title-tag-group="true" className="flex min-h-10 flex-col justify-center">
@@ -418,23 +416,17 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerCancel={clearLongPressTimer}
       className={`group relative flex select-none flex-col ${theme.secondary} border ${theme.border} rounded-[2.5rem] p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
     >
-      {!coverUrl && (
-        <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-          <BookOpen size={100} className="rotate-12" />
-        </div>
-      )}
-
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        {coverUrl ? (
-          <div data-shelf-grid-cover-content="true" className="flex min-h-0 flex-col">
+        <div data-shelf-grid-cover-content="true" className="flex min-h-0 flex-col">
+          <div
+            data-shelf-grid-cover-layout="true"
+            className="grid min-h-36 grid-cols-[6rem_minmax(0,1fr)] items-start gap-4 sm:min-h-40 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-5"
+          >
             <div
-              data-shelf-grid-cover-layout="true"
-              className="grid min-h-36 grid-cols-[6rem_minmax(0,1fr)] items-start gap-4 sm:min-h-40 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-5"
+              data-shelf-book-cover-frame="true"
+              className="relative h-36 w-24 overflow-hidden transition-transform duration-500 group-hover:scale-[1.04] sm:h-40 sm:w-28"
             >
-              <div
-                data-shelf-book-cover-frame="true"
-                className="relative h-36 w-24 overflow-hidden transition-transform duration-500 group-hover:scale-[1.04] sm:h-40 sm:w-28"
-              >
+              {coverUrl ? (
                 <Image
                   data-shelf-book-cover="true"
                   src={coverUrl}
@@ -444,65 +436,46 @@ export const BookCard: React.FC<BookCardProps> = ({
                   unoptimized
                   className="object-cover"
                 />
-              </div>
-              <div className="flex h-36 min-w-0 flex-col pt-0.5 sm:h-40">
-                <h3
-                  data-shelf-grid-cover-title="true"
-                  className="min-w-0 text-lg font-bold leading-tight line-clamp-4 group-hover:text-accent-500 transition-colors sm:text-xl"
-                >
-                  {getDisplayBookTitle(book.name)}
-                </h3>
-                <div data-shelf-grid-cover-bottom-meta="true" className="mt-auto">
-                  <div data-shelf-grid-meta="true" className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                      {getBookFormatLabel(book)}
-                    </span>
-                  </div>
-                  {combinedSourceCount !== null && (
-                    <div data-shelf-grid-cover-source-slot="true" className="mt-2 min-h-3">
-                      {renderCatalogSources()}
-                    </div>
-                  )}
-                </div>
-              </div>
+              ) : (
+                <GeneratedBookCover
+                  identity={book.id}
+                  title={getDisplayBookTitle(book.name)}
+                  variant="grid"
+                />
+              )}
             </div>
-            {hasCatalogTags && (
-              <div data-shelf-grid-cover-tag-slot="true" className="mt-2 flex min-h-9 items-center">
-                <div
-                  data-shelf-grid-cover-tags="true"
-                  className="max-h-9 w-full overflow-hidden"
-                >
-                  {renderCatalogTags()}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-col gap-6">
-            <div>
-              <div
-                data-shelf-book-icon-frame="true"
-                className="relative h-14 w-14 overflow-hidden rounded-2xl bg-accent-600 shadow-xl transition-transform duration-500 group-hover:scale-110"
+            <div className="flex h-36 min-w-0 flex-col pt-0.5 sm:h-40">
+              <h3
+                data-shelf-grid-cover-title="true"
+                className="min-w-0 text-lg font-bold leading-tight line-clamp-4 group-hover:text-accent-500 transition-colors sm:text-xl"
               >
-                <span data-shelf-book-icon="true" className="flex h-full w-full items-center justify-center">
-                  <BookOpen className="text-white" size={28} />
-                </span>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-lg font-bold leading-tight line-clamp-2 group-hover:text-accent-500 transition-colors">
                 {getDisplayBookTitle(book.name)}
               </h3>
-              <div data-shelf-grid-meta="true" className="mt-2 flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                  {getBookFormatLabel(book)}
-                </span>
+              <div data-shelf-grid-cover-bottom-meta="true" className="mt-auto">
+                <div data-shelf-grid-meta="true" className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                    {getBookFormatLabel(book)}
+                  </span>
+                </div>
+                {combinedSourceCount !== null && (
+                  <div data-shelf-grid-cover-source-slot="true" className="mt-2 min-h-3">
+                    {renderCatalogSources()}
+                  </div>
+                )}
               </div>
-              <div className="mt-2 min-h-4">{renderCatalogTags()}</div>
-              {combinedSourceCount !== null && <div className="mt-1 min-h-3">{renderCatalogSources()}</div>}
             </div>
           </div>
-        )}
+          {hasCatalogTags && (
+            <div data-shelf-grid-cover-tag-slot="true" className="mt-2 flex min-h-9 items-center">
+              <div
+                data-shelf-grid-cover-tags="true"
+                className="max-h-9 w-full overflow-hidden"
+              >
+                {renderCatalogTags()}
+              </div>
+            </div>
+          )}
+        </div>
 
         <div data-shelf-grid-progress-block="true" className="mt-auto space-y-2 pt-3">
           <div className="flex justify-between items-end">

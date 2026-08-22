@@ -143,7 +143,8 @@ test('caches a PDF cover only at import and falls back after that cache is remov
   await page.reload();
   const fallbackCard = page.locator(`[data-shelf-book-id="${bookId}"]`);
   await expect(fallbackCard.locator('[data-shelf-book-cover="true"]')).toHaveCount(0);
-  await expect(fallbackCard.locator('[data-shelf-book-icon="true"]')).toBeVisible();
+  await expect(fallbackCard.locator('[data-generated-book-cover="true"]')).toBeVisible();
+  await expect(fallbackCard.locator('[data-shelf-book-icon="true"]')).toHaveCount(0);
 });
 
 test('uses the naturally sorted first CBZ image as the cached shelf cover', async ({

@@ -5,9 +5,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { parseHTML } from 'linkedom';
 import bookCardModule from '../src/components/shelf/BookCard.tsx';
 import bookUtilsModule from '../src/components/shelf/bookUtils.ts';
+import generatedBookCoverModule from '../src/components/shelf/GeneratedBookCover.tsx';
 
 const { BookCard, getFittingShelfTagCount } = bookCardModule;
 const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
+const { getGeneratedBookCoverStyle } = generatedBookCoverModule;
 
 const props = {
   book: {
@@ -69,27 +71,54 @@ const renderCardWithCover = (viewMode, catalog = props.catalog, overrides = {}) 
   return parseHTML(html).document;
 };
 
-test('replaces the grid and list book icon only when a cached cover exists', () => {
+test('uses the same cover frame for cached and generated shelf covers', () => {
   for (const viewMode of ['grid', 'list']) {
     const covered = renderCardWithCover(viewMode);
     const cover = covered.querySelector('[data-shelf-book-cover="true"]');
     const coverFrame = covered.querySelector('[data-shelf-book-cover-frame="true"]');
     assert.ok(cover);
     assert.ok(coverFrame);
+    assert.equal(covered.querySelector('[data-generated-book-cover="true"]'), null);
     assert.equal(covered.querySelector('[data-shelf-book-icon="true"]'), null);
     assert.equal(covered.querySelector('[data-shelf-book-icon-frame="true"]'), null);
     assert.match(cover.className, /object-cover/);
     assert.doesNotMatch(coverFrame.className, /bg-accent|shadow|rounded/);
 
     const fallback = renderCard(viewMode);
+    const generated = fallback.querySelector('[data-generated-book-cover="true"]');
+    const fallbackFrame = fallback.querySelector('[data-shelf-book-cover-frame="true"]');
     assert.equal(fallback.querySelector('[data-shelf-book-cover="true"]'), null);
-    assert.equal(fallback.querySelector('[data-shelf-book-cover-frame="true"]'), null);
-    assert.ok(fallback.querySelector('[data-shelf-book-icon="true"]'));
-    assert.match(
-      fallback.querySelector('[data-shelf-book-icon-frame="true"]').className,
-      /bg-accent-600/,
-    );
+    assert.ok(fallbackFrame);
+    assert.ok(generated);
+    assert.equal(fallback.querySelector('[data-shelf-book-icon="true"]'), null);
+    assert.equal(fallback.querySelector('[data-shelf-book-icon-frame="true"]'), null);
+    assert.match(generated.textContent, /레이아웃 검증/);
   }
+});
+
+test('keeps generated cover colors deterministic and readable', () => {
+  const first = getGeneratedBookCoverStyle('layout-book');
+  const repeated = getGeneratedBookCoverStyle('layout-book');
+  assert.deepEqual(first, repeated);
+
+  const parseHex = (hex) => [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
+  const linear = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  const luminance = (hex) => {
+    const [red, green, blue] = parseHex(hex).map(linear);
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const contrast = (left, right) => {
+    const firstLuma = luminance(left);
+    const secondLuma = luminance(right);
+    return (Math.max(firstLuma, secondLuma) + 0.05) / (Math.min(firstLuma, secondLuma) + 0.05);
+  };
+
+  assert.ok(contrast(first.backgroundColor, first.color) >= 4.5);
+  const foregrounds = new Set(
+    Array.from({ length: 64 }, (_, index) => getGeneratedBookCoverStyle(`book-${index}`).color),
+  );
+  assert.ok(foregrounds.has('#FFFFFF'));
+  assert.ok(foregrounds.has('#111827'));
 });
 
 test('keeps the list cover compact and gives grid covers a large side-by-side layout', () => {

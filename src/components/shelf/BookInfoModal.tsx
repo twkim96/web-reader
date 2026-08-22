@@ -27,6 +27,7 @@ import { readHiddenReadingStatisticsSessionIds } from '../../lib/readingStatisti
 import type { PublicBookCatalogBook } from '../../lib/publicBookCatalog';
 import type { PublicBookCatalogLoadState } from '../../hooks/usePublicBookCatalog';
 import { useShelfBookCover } from './useShelfBookCovers';
+import { GeneratedBookCover } from './GeneratedBookCover';
 
 type Props = {
   book: Book;
@@ -389,11 +390,11 @@ export const BookInfoModal: React.FC<Props> = ({
 
           <div data-book-info-scroll-body="true" className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4">
             <div data-book-info-title-layout="true" className="flex min-w-0 items-start gap-3">
-              {coverUrl && (
-                <div
-                  data-book-info-cover-frame="true"
-                  className="relative h-28 w-[4.5rem] shrink-0 overflow-hidden sm:h-32 sm:w-[5.25rem]"
-                >
+              <div
+                data-book-info-cover-frame="true"
+                className="relative h-28 w-[4.5rem] shrink-0 overflow-hidden sm:h-32 sm:w-[5.25rem]"
+              >
+                {coverUrl ? (
                   <Image
                     data-book-info-cover="true"
                     src={coverUrl}
@@ -403,8 +404,14 @@ export const BookInfoModal: React.FC<Props> = ({
                     unoptimized
                     className="object-cover"
                   />
-                </div>
-              )}
+                ) : (
+                  <GeneratedBookCover
+                    identity={book.id}
+                    title={getDisplayBookTitle(book.name)}
+                    variant="info"
+                  />
+                )}
+              </div>
               <div className="min-w-0 flex-1 pt-0.5">
                 <h3 className="break-words text-lg font-black leading-snug sm:text-xl">
                   {getDisplayBookTitle(book.name)}

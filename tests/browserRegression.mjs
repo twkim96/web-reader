@@ -346,6 +346,9 @@ try {
       cachedCover: Boolean(document.querySelector(
         '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
       )),
+      placeholderCover: Boolean(document.querySelector(
+        '[data-shelf-book-id="book-0000"] [data-generated-book-cover="true"]'
+      )),
       fallbackIcon: Boolean(document.querySelector(
         '[data-shelf-book-id="book-0000"] [data-shelf-book-icon="true"]'
       )),
@@ -369,7 +372,8 @@ try {
   assert.deepEqual(initialShelf.titles.slice(0, 2), ['Book 0900', 'Book 0100']);
   assert.ok(!initialShelf.titles.slice(0, 2).includes('Book 0999'));
   assert.equal(initialShelf.cachedCover, true);
-  assert.equal(initialShelf.fallbackIcon, true);
+  assert.equal(initialShelf.placeholderCover, true);
+  assert.equal(initialShelf.fallbackIcon, false);
   assert.deepEqual(initialShelf.coverLayout, {
     width: 112,
     height: 160,
@@ -651,6 +655,8 @@ try {
       ),
       hasCopyImageButton: Boolean(modal?.querySelector('[data-book-info-copy-image="true"]')),
       hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
+      hasGeneratedCover: Boolean(modal?.querySelector('[data-generated-book-cover="true"]')),
+      hasCachedCover: Boolean(modal?.querySelector('[data-book-info-cover="true"]')),
     };
   })()`);
   assert.match(bookInfoUi.title, /Book/);
@@ -665,6 +671,8 @@ try {
   assert.ok(bookInfoUi.width <= Math.min(bookInfoUi.viewportWidth * 0.9, 576), JSON.stringify(bookInfoUi));
   assert.ok(bookInfoUi.height <= bookInfoUi.viewportHeight * 0.82, JSON.stringify(bookInfoUi));
   assert.equal(bookInfoUi.deleteConfirmation, false);
+  assert.equal(bookInfoUi.hasGeneratedCover, true);
+  assert.equal(bookInfoUi.hasCachedCover, false);
   assert.equal(bookInfoUi.cardUserSelect, 'none');
   assert.equal(bookInfoUi.cardTouchCalloutDeclared, true);
   assert.equal(bookInfoUi.modalUserSelect, 'text');
