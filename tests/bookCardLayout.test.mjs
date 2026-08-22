@@ -135,6 +135,8 @@ test('starts generated cover titles near the top and keeps list text at seven pi
   assert.ok(title);
   assert.equal(cover.getAttribute('data-generated-book-cover-variant'), 'list');
   assert.match(cover.className, /text-\[7px\]/);
+  assert.match(cover.className, /font-bold/);
+  assert.doesNotMatch(cover.className, /font-black/);
   assert.match(title.className, /top-\[15%\]/);
   assert.match(title.className, /left-\[9%\]/);
   assert.match(title.className, /right-\[9%\]/);

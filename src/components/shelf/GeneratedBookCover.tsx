@@ -87,7 +87,7 @@ export const GeneratedBookCover: React.FC<GeneratedBookCoverProps> = ({
       data-generated-book-cover="true"
       data-generated-book-cover-palette={paletteIndex}
       data-generated-book-cover-variant={variant}
-      className={`relative h-full w-full overflow-hidden text-center font-black ${variantClasses[variant]} ${className}`}
+      className={`relative h-full w-full overflow-hidden text-center font-bold ${variantClasses[variant]} ${className}`}
       style={{ backgroundColor, color }}
     >
       <span

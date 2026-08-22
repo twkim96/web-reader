@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.31: refine generated cover title placement and align book-info metadata to the cover baseline.
+// 1.8.31: refine generated cover title placement, weight, and book-info metadata alignment.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.31`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
