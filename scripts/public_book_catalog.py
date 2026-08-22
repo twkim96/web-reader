@@ -10,7 +10,7 @@ import sqlite3
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Optional, Sequence, Tuple
 
 
 PLATFORMS = ("series", "kakao", "novelpia")
@@ -25,7 +25,7 @@ CATALOG_SHARDS = 8
 SAFE_DOCUMENT_BYTES = 900_000
 
 GenreResolver = Callable[
-    [Iterable[tuple[str, object, Sequence[object] | None]]],
+    [Iterable[Tuple[str, object, Optional[Sequence[object]]]]],
     object,
 ]
 

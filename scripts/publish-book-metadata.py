@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -303,6 +304,49 @@ def firestore_document_payload(document: Any) -> dict[str, Any]:
     }
 
 
+def authorized_firestore_session(project: str):
+    """Create a Firestore session from an action secret or normal ADC.
+
+    Control Server actions can pass the same service-account JSON shape used by
+    the Vercel server without writing a temporary credential file. Local CLI
+    users can keep using Application Default Credentials.
+    """
+    try:
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+        from google.oauth2 import service_account
+    except ImportError as error:
+        raise RuntimeError("google-auth[requests] is required for --apply") from error
+
+    raw_service_account = os.environ.get("FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON", "").strip()
+    if raw_service_account:
+        try:
+            service_account_info = json.loads(raw_service_account)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                "FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON must be valid JSON"
+            ) from error
+        if not isinstance(service_account_info, dict):
+            raise RuntimeError("FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON must contain a JSON object")
+        try:
+            credentials = service_account.Credentials.from_service_account_info(
+                service_account_info,
+                scopes=("https://www.googleapis.com/auth/datastore",),
+            )
+        except (TypeError, ValueError) as error:
+            raise RuntimeError("FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON is invalid") from error
+        detected_project = str(service_account_info.get("project_id") or "") or None
+    else:
+        credentials, detected_project = google.auth.default(
+            scopes=("https://www.googleapis.com/auth/datastore",),
+        )
+
+    project_id = project or detected_project
+    if not project_id:
+        raise RuntimeError("--project is required when credentials have no project id")
+    return AuthorizedSession(credentials), project_id
+
+
 def publish_documents(
     documents: Iterable[dict[str, Any]],
     *,
@@ -310,19 +354,7 @@ def publish_documents(
     collection: str,
     allow_create: bool,
 ) -> tuple[int, int]:
-    try:
-        import google.auth
-        from google.auth.transport.requests import AuthorizedSession
-    except ImportError as error:
-        raise RuntimeError("google-auth[requests] is required for --apply") from error
-
-    credentials, detected_project = google.auth.default(
-        scopes=("https://www.googleapis.com/auth/datastore",),
-    )
-    project_id = project or detected_project
-    if not project_id:
-        raise RuntimeError("--project is required when ADC has no project id")
-    session = AuthorizedSession(credentials)
+    session, project_id = authorized_firestore_session(project)
     base = (
         f"https://firestore.googleapis.com/v1/projects/{quote(project_id, safe='')}"
         f"/databases/(default)/documents/{quote(collection, safe='')}"
@@ -362,19 +394,7 @@ def publish_catalog_documents(
     collection: str,
 ) -> tuple[int, int]:
     """Create immutable generation documents, verify them, then CAS the manifest."""
-    try:
-        import google.auth
-        from google.auth.transport.requests import AuthorizedSession
-    except ImportError as error:
-        raise RuntimeError("google-auth[requests] is required for --apply") from error
-
-    credentials, detected_project = google.auth.default(
-        scopes=("https://www.googleapis.com/auth/datastore",),
-    )
-    project_id = project or detected_project
-    if not project_id:
-        raise RuntimeError("--project is required when ADC has no project id")
-    session = AuthorizedSession(credentials)
+    session, project_id = authorized_firestore_session(project)
     base = (
         f"https://firestore.googleapis.com/v1/projects/{quote(project_id, safe='')}"
         f"/databases/(default)/documents/{quote(collection, safe='')}"
