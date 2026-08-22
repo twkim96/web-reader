@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   defaultSettings,
@@ -46,12 +47,26 @@ test('uses 20px only as the default font size and preserves an explicit saved si
   });
 });
 
+test('uses Midnight as the new default while preserving an explicit saved theme', async () => {
+  await withStorage(undefined, () => {
+    assert.equal(getStoredViewerSettings().theme, 'midnight');
+    assert.equal(defaultSettings.theme, 'midnight');
+  });
+  await withStorage(JSON.stringify({ theme: 'dark' }), () => {
+    assert.equal(getStoredViewerSettings().theme, 'dark');
+  });
+
+  const layout = await readFile(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
+  assert.match(layout, /let settings = \{ theme: 'midnight'/);
+  assert.match(layout, /builtInThemes\[settings\.theme\] \|\| builtInThemes\.midnight/);
+});
+
 test('defaults auto-open for older stored viewer settings', async () => {
   await withStorage(JSON.stringify({ fontSize: 21 }), () => {
     const settings = getStoredViewerSettings();
 
     assert.equal(settings.fontSize, 21);
-    assert.equal(settings.theme, 'dark');
+    assert.equal(settings.theme, 'midnight');
     assert.equal(settings.accentColor, 'yellow');
     assert.equal(settings.autoOpenLastBook, true);
     assert.equal(settings.landscapeTwoPage, false);

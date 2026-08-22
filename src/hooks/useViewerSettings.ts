@@ -28,7 +28,7 @@ export const defaultSettings: ViewerSettings = {
   paragraphSpacing: 1,
   padding: 24,
   textAlign: 'justify',
-  theme: 'dark',
+  theme: 'midnight',
   navMode: 'scroll',
   tapTopBottomPercent: 33,
   tapLeftRightPercent: 30,

@@ -310,7 +310,15 @@ try {
       confirmTop: confirm?.getBoundingClientRect().top ?? 0,
       noticeTop: notice?.getBoundingClientRect().top ?? 0,
       noticeFontSize: notice ? getComputedStyle(notice.querySelector('li')).fontSize : '',
-      hasGoogleBrandImage: Boolean(modal?.querySelector('[data-google-sign-in-icon="true"]')),
+      brandAsset: (() => {
+        const asset = modal?.querySelector('[data-google-sign-in-brand-asset="true"]');
+        return asset ? {
+          width: asset.getBoundingClientRect().width,
+          height: asset.getBoundingClientRect().height,
+          naturalWidth: asset.naturalWidth,
+          naturalHeight: asset.naturalHeight,
+        } : null;
+      })(),
       appView: document.querySelector('[data-app-view]')?.getAttribute('data-app-view') ?? '',
       bodyPosition: document.body.style.position,
     };
@@ -324,7 +332,12 @@ try {
   assert.equal(loginDisclosure.confirmLabel, 'Sign in with Google', JSON.stringify(loginDisclosure));
   assert.ok(loginDisclosure.confirmTop < loginDisclosure.noticeTop, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.noticeFontSize, '10px', JSON.stringify(loginDisclosure));
-  assert.equal(loginDisclosure.hasGoogleBrandImage, false, JSON.stringify(loginDisclosure));
+  assert.deepEqual(loginDisclosure.brandAsset, {
+    width: 180,
+    height: 40,
+    naturalWidth: 180,
+    naturalHeight: 40,
+  }, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.appView, 'shelf', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
   await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
@@ -548,6 +561,9 @@ try {
     const coveredBottomMeta = document.querySelector(
       '[data-shelf-book-id="book-0001"] [data-shelf-grid-cover-bottom-meta="true"]'
     )?.getBoundingClientRect();
+    const gridTitle = gridCard?.querySelector('[data-shelf-grid-cover-title="true"]');
+    const gridDeleteIcon = document.querySelector('[data-shelf-grid-progress-delete-icon="true"]');
+    const gridDeleteIconRect = gridDeleteIcon?.getBoundingClientRect();
     return {
       cardCount: document.querySelectorAll('main h3').length,
       titles: [...document.querySelectorAll('main h3')]
@@ -577,6 +593,11 @@ try {
         bottomDelta: Math.abs(coverRect.bottom - coveredBottomMeta.bottom),
       } : null,
       gridCardBorderRadius: gridCard ? getComputedStyle(gridCard).borderRadius : '',
+      gridTitleFontSize: gridTitle ? getComputedStyle(gridTitle).fontSize : '',
+      gridDeleteIconSize: gridDeleteIconRect ? {
+        width: gridDeleteIconRect.width,
+        height: gridDeleteIconRect.height,
+      } : null,
     };
   })()`);
   assert.equal(initialShelf.cardCount, 50);
@@ -586,6 +607,8 @@ try {
   assert.equal(initialShelf.placeholderCover, true);
   assert.equal(initialShelf.fallbackIcon, false);
   assert.equal(initialShelf.gridCardBorderRadius, '24px', JSON.stringify(initialShelf));
+  assert.equal(initialShelf.gridTitleFontSize, '16px', JSON.stringify(initialShelf));
+  assert.deepEqual(initialShelf.gridDeleteIconSize, { width: 14, height: 14 });
   assert.deepEqual(initialShelf.coverLayout, {
     width: 112,
     height: 160,
@@ -611,6 +634,7 @@ try {
     const card = document.querySelector('[data-shelf-book-id="book-0001"]');
     const frame = card?.querySelector('[data-shelf-book-cover-frame="true"]');
     const titleContent = card?.querySelector('[data-shelf-title-tag-group="true"]')?.parentElement;
+    const title = card?.querySelector('[data-shelf-title-tag-group="true"] h3');
     const localTag = card?.querySelector('[data-shelf-local-tag="true"]');
     const tagRow = card?.querySelector('[data-shelf-book-tags="true"]');
     const format = card?.querySelector('[data-shelf-list-format="true"]');
@@ -634,6 +658,7 @@ try {
       localTagText: localTag.textContent?.trim(),
       rightOrder: [formatRect.left, progressRect.left],
       formatWidth: formatRect.width,
+      titleFontSize: title ? getComputedStyle(title).fontSize : '',
     };
   })()`);
   assert.ok(listCoverLayout);
@@ -651,6 +676,10 @@ try {
     JSON.stringify(listCoverLayout),
   );
   assert.ok(listCoverLayout.formatWidth <= 64.5, JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.titleFontSize, initialShelf.gridTitleFontSize, JSON.stringify({
+    grid: initialShelf.gridTitleFontSize,
+    list: listCoverLayout.titleFontSize,
+  }));
   initialShelf.listCoverLayout = listCoverLayout;
   await evaluate(`document.querySelector('button[title="Switch to Grid View"]')?.click()`);
   await waitFor(
@@ -1077,6 +1106,7 @@ try {
     const filterButton = mobileControls?.querySelector('[data-shelf-filter-control="true"]');
     const viewButton = mobileControls?.querySelector('[data-shelf-view-control="true"]');
     const authButton = document.querySelector('header [data-shelf-auth-control="true"]');
+    const topDock = document.querySelector('[data-shelf-top-dock="true"]');
     const bottomDock = document.querySelector('[data-shelf-bottom-dock="true"]');
     const rect = (node) => {
       const value = node?.getBoundingClientRect();
@@ -1086,6 +1116,7 @@ try {
       mobileControlCount: mobileControls?.querySelectorAll('button').length ?? 0,
       bottomUsesMuzioStyle: bottomDock?.classList.contains('shelf-muzio-dock') ?? false,
       bottomSurfaceColor: bottomDock ? getComputedStyle(bottomDock).backgroundColor : '',
+      topBorderRadius: topDock ? Number.parseFloat(getComputedStyle(topDock).borderRadius) : 0,
       bottomBorderRadius: bottomDock ? Number.parseFloat(getComputedStyle(bottomDock).borderRadius) : 0,
       bottomBoxShadow: bottomDock ? getComputedStyle(bottomDock).boxShadow : 'none',
       bottomButtonOpacity: bottomDock?.querySelector('button')
@@ -1106,11 +1137,8 @@ try {
   assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomUsesMuzioStyle, true, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(mobileShelfControls));
-  assert.ok(
-    mobileShelfControls.bottomBorderRadius >= 15
-      && mobileShelfControls.bottomBorderRadius <= 17,
-    JSON.stringify(mobileShelfControls),
-  );
+  assert.equal(mobileShelfControls.topBorderRadius, 20, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomBorderRadius, 20, JSON.stringify(mobileShelfControls));
   assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
   assert.ok(mobileShelfControls.bottomButtonOpacity >= 0.8, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));
@@ -1309,7 +1337,7 @@ try {
       const radius = Number.parseFloat(style.borderRadius || '0');
       return style.backgroundColor === 'rgba(20, 21, 23, 0.2)'
         && style.backdropFilter === 'blur(4px)'
-        && radius >= 30;
+        && radius === 20;
     })()`,
     'settled glass shelf dock style',
   );
@@ -1332,10 +1360,7 @@ try {
   assert.equal(glassShelfDock.backgroundColor, 'rgba(20, 21, 23, 0.2)', JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.backdropFilter, 'blur(4px)', JSON.stringify(glassShelfDock));
   assert.match(glassShelfDock.rimBackground, /linear-gradient\(164deg/, JSON.stringify(glassShelfDock));
-  assert.ok(
-    glassShelfDock.borderRadius >= 30,
-    JSON.stringify(glassShelfDock),
-  );
+  assert.equal(glassShelfDock.borderRadius, 20, JSON.stringify(glassShelfDock));
   assert.equal(
     await evaluate(`Boolean(document.querySelector(
       '[data-shelf-dock-style-option="glass"] [data-shelf-dock-style-selected-box="true"]'
@@ -1367,6 +1392,7 @@ try {
       usesCimeGlassClass: dock?.classList.contains('viewer-cime-glass') ?? true,
       backgroundColor: style?.backgroundColor ?? '',
       backdropFilter: style?.backdropFilter ?? '',
+      borderRadius: Number.parseFloat(style?.borderRadius || '0'),
     };
   })()`);
   assert.equal(standardShelfDock.storedStyle, 'standard', JSON.stringify(standardShelfDock));
@@ -1374,6 +1400,7 @@ try {
   assert.equal(standardShelfDock.usesCimeGlassClass, false, JSON.stringify(standardShelfDock));
   assert.equal(standardShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.68)', JSON.stringify(standardShelfDock));
   assert.match(standardShelfDock.backdropFilter, /blur\(24px\)/, JSON.stringify(standardShelfDock));
+  assert.equal(standardShelfDock.borderRadius, 20, JSON.stringify(standardShelfDock));
   assert.equal(
     await evaluate(`Boolean(document.querySelector(
       '[data-shelf-dock-style-option="standard"] [data-shelf-dock-style-selected-box="true"]'
@@ -1399,8 +1426,7 @@ try {
       const style = getComputedStyle(dock);
       const radius = Number.parseFloat(style.borderRadius || '0');
       return style.backgroundColor === 'rgba(39, 39, 40, 0.88)'
-        && radius >= 15
-        && radius <= 17;
+        && radius === 20;
     })()`,
     'settled modern shelf dock style',
   );
@@ -1417,10 +1443,7 @@ try {
   assert.equal(modernShelfDock.storedStyle, 'modern', JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.usesModernClass, true, JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(modernShelfDock));
-  assert.ok(
-    modernShelfDock.borderRadius >= 15 && modernShelfDock.borderRadius <= 17,
-    JSON.stringify(modernShelfDock),
-  );
+  assert.equal(modernShelfDock.borderRadius, 20, JSON.stringify(modernShelfDock));
   await evaluate(`(() => {
     const heading = [...document.querySelectorAll('h2')]
       .find((node) => node.textContent?.trim() === '테마 설정');

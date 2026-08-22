@@ -180,7 +180,10 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.ok(gridProgress);
   assert.ok(gridCardRoot);
   assert.match(gridTitle.className, /line-clamp-4/);
-  assert.match(gridTitle.className, /sm:text-xl/);
+  assert.match(gridTitle.className, /text-sm/);
+  assert.match(gridTitle.className, /sm:text-base/);
+  assert.doesNotMatch(gridTitle.className, /text-lg/);
+  assert.doesNotMatch(gridTitle.className, /sm:text-xl/);
   assert.match(gridTitle.parentElement.className, /h-36/);
   assert.match(gridTitle.parentElement.className, /sm:h-40/);
   assert.match(gridTitle.parentElement.className, /flex-col/);
@@ -204,6 +207,10 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(progressDelete.className, /h-5/);
   assert.match(progressDelete.className, /w-5/);
   assert.match(progressDelete.className, /p-0/);
+  const progressDeleteIcon = gridCard.querySelector('[data-shelf-grid-progress-delete-icon="true"]');
+  assert.ok(progressDeleteIcon);
+  assert.equal(progressDeleteIcon.getAttribute('width'), '14');
+  assert.equal(progressDeleteIcon.getAttribute('height'), '14');
 });
 
 test('gives list titles the flexible column and keeps format and progress compact on the right', () => {

@@ -67,7 +67,7 @@ const themeBootstrapScript = `
     return { '--viewer-theme-texture': 'none', '--viewer-theme-texture-size': 'auto' };
   };
 
-  let settings = { theme: 'dark', accentColor: 'yellow', customThemes: [] };
+  let settings = { theme: 'midnight', accentColor: 'yellow', customThemes: [] };
   try {
     const stored = localStorage.getItem('viewer_settings');
     if (stored) settings = Object.assign(settings, JSON.parse(stored));
@@ -82,7 +82,7 @@ const themeBootstrapScript = `
       text: normalizeHex(customTheme.textColor, '#b8b8b8'),
       texture: customTheme.texture || 'none'
     }
-    : (builtInThemes[settings.theme] || builtInThemes.dark);
+    : (builtInThemes[settings.theme] || builtInThemes.midnight);
   const bg = normalizeHex(theme.bg, '#272728');
   const text = normalizeHex(theme.text, '#b8b8b8');
   const bgRgb = rgbString(bg);

@@ -447,7 +447,7 @@ export const BookCard: React.FC<BookCardProps> = ({
             <div className="flex h-36 min-w-0 flex-col pt-0.5 sm:h-40">
               <h3
                 data-shelf-grid-cover-title="true"
-                className="min-w-0 text-lg font-bold leading-tight line-clamp-4 group-hover:text-accent-500 transition-colors sm:text-xl"
+                className="min-w-0 text-sm font-bold leading-tight line-clamp-4 group-hover:text-accent-500 transition-colors sm:text-base"
               >
                 {getDisplayBookTitle(book.name)}
               </h3>
@@ -494,7 +494,11 @@ export const BookCard: React.FC<BookCardProps> = ({
                   className="flex h-5 w-5 items-center justify-center rounded-full p-0 text-slate-500 transition-colors hover:bg-white/5 hover:text-red-400"
                   title="Delete Progress"
                 >
-                  <Eraser size={18} strokeWidth={2.5} />
+                  <Eraser
+                    data-shelf-grid-progress-delete-icon="true"
+                    size={14}
+                    strokeWidth={2.5}
+                  />
                 </button>
               )}
               <span data-shelf-grid-progress-percent="true" className="text-xs font-black leading-none text-accent-400">{percent.toFixed(1)}%</span>

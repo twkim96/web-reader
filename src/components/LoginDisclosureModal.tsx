@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Database, HardDrive, ShieldCheck, X } from 'lucide-react';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { GoogleSignInButtonAsset } from './GoogleSignInButtonAsset';
 
 interface LoginDisclosureModalProps {
   theme: {
@@ -65,9 +66,11 @@ export const LoginDisclosureModal: React.FC<LoginDisclosureModalProps> = ({
             type="button"
             data-login-disclosure-confirm="true"
             onClick={onSignIn}
-            className="min-h-13 w-full rounded-2xl bg-accent-600 px-4 text-sm font-bold text-white shadow-lg shadow-accent-500/20 transition-colors hover:bg-accent-500"
+            aria-label="Google 계정으로 로그인"
+            className="mx-auto block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
           >
-            Sign in with Google
+            <GoogleSignInButtonAsset />
+            <span className="sr-only">Sign in with Google</span>
           </button>
           <p className="mt-2 text-center text-[10px] font-semibold leading-relaxed opacity-50">
             계속하면 아래의 로그인 정보 처리 내용을 확인하고 동의한 것으로 간주합니다.
