@@ -37,7 +37,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-xs ${theme.bg} ${theme.text} rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
+        className={`app-panel-radius w-full max-w-xs ${theme.bg} ${theme.text} p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
       >
         <div className="flex flex-col items-center text-center gap-3">
           <div className={`p-3 rounded-2xl ${isDanger ? 'bg-red-500/10 text-red-400' : 'bg-accent-500/10 text-accent-400'}`}>

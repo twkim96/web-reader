@@ -43,7 +43,7 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className={`w-full ${maxWidth} ${theme.bg} ${theme.text || ''} rounded-3xl shadow-2xl border ${theme.border} overflow-hidden animate-in zoom-in-95 duration-200 ${className}`}
+        className={`app-panel-radius w-full ${maxWidth} ${theme.bg} ${theme.text || ''} shadow-2xl border ${theme.border} overflow-hidden animate-in zoom-in-95 duration-200 ${className}`}
       >
         {children}
       </div>

@@ -130,7 +130,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
     draftFilters,
   ).length, [books, draftFilters, draftSort]);
   const catalogReady = catalogState === 'ready' && Boolean(catalog);
-  const chip = (active: boolean) => `rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
+  const chip = (active: boolean) => `app-tag-radius border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
     active
       ? 'border-accent-500 bg-accent-500 text-white'
       : `${theme.border} bg-black/5 hover:border-accent-500/50 dark:bg-white/5`
@@ -149,7 +149,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
         tabIndex={-1}
         data-shelf-filter-modal="true"
         onClick={(event) => event.stopPropagation()}
-        className={`flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none`}
+        className={`app-panel-radius flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none`}
       >
         <header data-modal-header="shelf-filter" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4 sm:py-3`}>
           <div className="flex min-w-0 items-center gap-2.5">

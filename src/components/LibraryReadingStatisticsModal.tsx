@@ -425,7 +425,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         data-reading-statistics-accent={accentColor}
         style={accentStyle}
         onClick={(event) => event.stopPropagation()}
-        className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh] sm:rounded-3xl`}
+        className={`app-panel-radius flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh]`}
       >
         <header data-modal-header="statistics" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
           <div className="flex min-w-0 items-center gap-2.5">

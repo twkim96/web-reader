@@ -87,7 +87,7 @@ export const ReaderTtsControls = ({
       data-reader-tts-total={state.total}
       data-reader-tts-window-size={windowSize}
       aria-label="텍스트 음성 읽기"
-      className={`fixed bottom-[calc(env(safe-area-inset-bottom)+2.25rem)] left-1/2 z-[85] max-h-[calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_3rem)] w-[min(28rem,calc(100vw-1rem))] -translate-x-1/2 overflow-y-auto overscroll-contain rounded-3xl border ${theme.border} ${theme.bg} ${theme.text} p-3 font-sans shadow-2xl`}
+      className={`app-panel-radius fixed bottom-[calc(env(safe-area-inset-bottom)+2.25rem)] left-1/2 z-[85] max-h-[calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_3rem)] w-[min(28rem,calc(100vw-1rem))] -translate-x-1/2 overflow-y-auto overscroll-contain border ${theme.border} ${theme.bg} ${theme.text} p-3 font-sans shadow-2xl`}
     >
       <div className="flex items-start gap-3">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accent-500/15 text-accent-500">

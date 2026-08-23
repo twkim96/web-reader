@@ -108,7 +108,7 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
         aria-busy={resolving}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className={`w-full max-w-[19rem] rounded-3xl border p-5 font-sans shadow-2xl ${theme.bg} ${theme.text || ''} ${theme.border}`}
+        className={`app-panel-radius w-full max-w-[19rem] border p-5 font-sans shadow-2xl ${theme.bg} ${theme.text || ''} ${theme.border}`}
       >
         <div className="space-y-4 text-center">
       <div>

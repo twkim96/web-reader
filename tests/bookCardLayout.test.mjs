@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseHTML } from 'linkedom';
@@ -12,6 +13,24 @@ const { BookCard, getFittingShelfTagCount } = bookCardModule;
 const { EmptyState } = emptyStateModule;
 const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
 const { GeneratedBookCover, getGeneratedBookCoverStyle } = generatedBookCoverModule;
+
+const modalSurfaceSources = [
+  '../src/components/reader/ReaderModalFrame.tsx',
+  '../src/components/ConfirmDialog.tsx',
+  '../src/components/EpubSearchModal.tsx',
+  '../src/components/LibraryAnnotationModal.tsx',
+  '../src/components/LibraryReadingStatisticsModal.tsx',
+  '../src/components/LoginDisclosureModal.tsx',
+  '../src/components/ManageModal.tsx',
+  '../src/components/ShelfSearchModal.tsx',
+  '../src/components/SyncConflictResolutionDialog.tsx',
+  '../src/components/reader/ProgressJumpConfirmDialog.tsx',
+  '../src/components/reader/ReaderTtsControls.tsx',
+  '../src/components/reader/SyncConflictDialog.tsx',
+  '../src/components/shelf/BookInfoModal.tsx',
+  '../src/components/shelf/ImportBookModal.tsx',
+  '../src/components/shelf/ShelfFilterModal.tsx',
+];
 
 const props = {
   book: {
@@ -73,6 +92,39 @@ const renderCardWithCover = (viewMode, catalog = props.catalog, overrides = {}) 
   return parseHTML(html).document;
 };
 
+test('uses one 16px outer radius for grid cards and every modal surface', async () => {
+  const [globals, bookCardSource, ...modalSources] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/BookCard.tsx', import.meta.url), 'utf8'),
+    ...modalSurfaceSources.map((path) => readFile(new URL(path, import.meta.url), 'utf8')),
+  ]);
+
+  assert.match(globals, /\.app-panel-radius\s*\{\s*border-radius:\s*16px;/);
+  assert.match(bookCardSource, /data-shelf-book-card="true"[\s\S]*?className=\{`app-panel-radius/);
+  modalSources.forEach((source, index) => {
+    assert.match(source, /app-panel-radius/, modalSurfaceSources[index]);
+  });
+});
+
+test('uses one 16px radius for shelf metadata tags and chips', async () => {
+  const [globals, bookCardSource, searchSource, filterSource, bookInfoSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/BookCard.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ShelfSearchModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/ShelfFilterModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/BookInfoModal.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(globals, /\.app-tag-radius\s*\{\s*border-radius:\s*16px;/);
+  assert.match(bookCardSource, /const localChipClass = 'app-tag-radius/);
+  assert.match(bookCardSource, /const genreChipClass = 'app-tag-radius/);
+  assert.match(bookCardSource, /const tagChipClass = 'app-tag-radius/);
+  assert.match(searchSource, /data-shelf-tag-search-result=\{tag\.id\}[\s\S]*?className="app-tag-radius/);
+  assert.match(filterSource, /const chip = \(active: boolean\) => `app-tag-radius/);
+  assert.match(bookInfoSource, /data-book-info-tag-row="true"[\s\S]*?app-tag-radius/);
+  assert.match(bookInfoSource, /data-book-catalog-tag="true"[\s\S]*?className="app-tag-radius/);
+});
+
 const renderEmptyState = ({ isGuest, isOfflineMode }) => {
   const html = renderToStaticMarkup(React.createElement(EmptyState, {
     searchKeyword: '',
@@ -95,6 +147,8 @@ test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive
   assert.equal(guest.querySelector('[data-empty-shelf-heading="true"]')?.textContent, '보관함이 비어있음.');
   assert.equal(guest.querySelector('[data-empty-shelf-action="google"]')?.textContent.trim(), 'Google 계정을 연동');
   assert.equal(guest.querySelector('[data-empty-shelf-action="sample"]')?.textContent.trim(), '샘플 도서를 추가');
+  assert.match(guest.querySelector('[data-empty-shelf-action="google"]')?.className ?? '', /text-accent-500/);
+  assert.match(guest.querySelector('[data-empty-shelf-action="sample"]')?.className ?? '', /text-accent-500/);
   assert.equal(guest.querySelector('p')?.textContent.replace(/\s+/g, ' ').trim(), '책을 보관함에 추가하려면 Google 계정을 연동하거나 샘플 도서를 추가해주세요.');
   assert.deepEqual(
     [...guest.querySelectorAll('[data-empty-shelf-copy-line]')].map((line) => [
@@ -111,6 +165,8 @@ test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive
   const firebaseOnly = renderEmptyState({ isGuest: false, isOfflineMode: true });
   assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="cloud"]')?.textContent.trim(), '드라이브에 로그인');
   assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="import"]')?.textContent.trim(), '파일을 로컬에 업로드');
+  assert.match(firebaseOnly.querySelector('[data-empty-shelf-action="cloud"]')?.className ?? '', /text-accent-500/);
+  assert.match(firebaseOnly.querySelector('[data-empty-shelf-action="import"]')?.className ?? '', /text-accent-500/);
   assert.equal(firebaseOnly.querySelector('p')?.textContent.replace(/\s+/g, ' ').trim(), '책을 보관함에 추가하려면 드라이브에 로그인하거나 파일을 로컬에 업로드해주세요.');
   assert.deepEqual(
     [...firebaseOnly.querySelectorAll('[data-empty-shelf-copy-line]')].map((line) => (
@@ -126,6 +182,7 @@ test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive
   assert.equal(drive.querySelector('p')?.textContent.replace(/\s+/g, ' ').trim(), '책을 보관함에 추가하려면 파일을 드라이브에 업로드해주세요.');
   assert.equal(driveUpload?.tagName, 'BUTTON');
   assert.equal(driveUpload?.getAttribute('type'), 'button');
+  assert.match(driveUpload?.className ?? '', /text-accent-500/);
   assert.equal(drive.querySelector('[data-empty-shelf-copy-line]'), null);
   assert.equal(drive.querySelector('[data-empty-shelf-action="sample"]'), null);
 

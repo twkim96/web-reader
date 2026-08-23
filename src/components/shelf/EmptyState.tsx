@@ -29,7 +29,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   isAddingSampleBook,
   sampleBookFeedback,
 }) => {
-  const linkClass = 'inline border-0 bg-transparent p-0 font-semibold underline decoration-1 underline-offset-4 transition-opacity hover:opacity-100 disabled:cursor-wait disabled:opacity-45';
+  const linkClass = 'inline border-0 bg-transparent p-0 font-semibold text-accent-500 underline decoration-1 underline-offset-4 transition-opacity hover:opacity-100 disabled:cursor-wait disabled:opacity-45';
 
   return (
     <div data-empty-shelf-panel="true" className="flex min-h-[60dvh] flex-col items-center justify-center px-6 py-24 text-center">

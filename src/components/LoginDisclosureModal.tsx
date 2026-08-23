@@ -48,7 +48,7 @@ export const LoginDisclosureModal: React.FC<LoginDisclosureModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="login-disclosure-title"
-        className={`flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border shadow-2xl ${theme.bg} ${theme.text} ${theme.border}`}
+        className={`app-panel-radius flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden border shadow-2xl ${theme.bg} ${theme.text} ${theme.border}`}
       >
         <header className={`flex shrink-0 items-center gap-3 border-b px-4 py-3 ${theme.border}`}>
           <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>

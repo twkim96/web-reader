@@ -497,10 +497,10 @@ export default function Page() {
           if (driveCacheKey) invalidateDriveCache(driveCacheKey);
           clearToken();
           clearLastReaderSession();
-          // iOS standalone/Chrome WebView can retain Firebase redirect history
-          // after sign-out. Re-enter through the canonical root so the next
-          // document always boots directly into the remembered guest shelf.
-          window.location.replace(`${window.location.origin}/`);
+          // Keep the current React document alive while normalizing the history
+          // entry. A full-document replace can expose the WebView's native load
+          // error page between sign-out and the restored guest shelf.
+          window.history.replaceState(null, '', '/');
         },
         recoverUi: (error) => {
           if (logoutOwner) ownerRuntime.activate(logoutOwner.ownerKey);

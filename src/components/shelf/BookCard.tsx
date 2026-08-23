@@ -165,9 +165,9 @@ export const BookCard: React.FC<BookCardProps> = ({
     };
   }, [tagLayoutKey, viewMode]);
 
-  const localChipClass = 'shrink-0 rounded-md bg-green-500/15 px-1.5 py-0.5 text-[9px] font-black text-green-500';
-  const genreChipClass = 'shrink-0 rounded-md bg-accent-500/12 px-1.5 py-0.5 text-[9px] font-black text-accent-500';
-  const tagChipClass = 'max-w-24 shrink-0 truncate rounded-md bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5';
+  const localChipClass = 'app-tag-radius shrink-0 bg-green-500/15 px-1.5 py-0.5 text-[9px] font-black text-green-500';
+  const genreChipClass = 'app-tag-radius shrink-0 bg-accent-500/12 px-1.5 py-0.5 text-[9px] font-black text-accent-500';
+  const tagChipClass = 'app-tag-radius max-w-24 shrink-0 truncate bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5';
   const renderCatalogTags = () => (
     hasCatalogTags ? (
       <div className="relative min-w-0">
@@ -414,7 +414,7 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`group relative flex select-none flex-col ${theme.secondary} border ${theme.border} rounded-3xl p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
+      className={`app-panel-radius group relative flex select-none flex-col ${theme.secondary} border ${theme.border} p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
     >
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <div data-shelf-grid-cover-content="true" className="flex min-h-0 flex-col">

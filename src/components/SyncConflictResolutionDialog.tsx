@@ -209,7 +209,7 @@ export const SyncConflictResolutionDialog = ({
       aria-describedby="sync-conflict-description"
       aria-busy={resolving}
       tabIndex={-1}
-      className={`max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border p-5 shadow-2xl sm:p-6 ${theme.bg} ${theme.text} ${theme.border}`}
+      className={`app-panel-radius max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto border p-5 shadow-2xl sm:p-6 ${theme.bg} ${theme.text} ${theme.border}`}
     >
       <h2 id="sync-conflict-title" className="text-xl font-black">동기화 충돌</h2>
       {bookTitle && <p className="mt-1 truncate text-sm font-bold opacity-70">{bookTitle}</p>}

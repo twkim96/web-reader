@@ -104,7 +104,7 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className={`max-h-full w-full max-w-sm overflow-y-auto ${theme.bg} ${theme.text} rounded-3xl p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
+        className={`app-panel-radius max-h-full w-full max-w-sm overflow-y-auto ${theme.bg} ${theme.text} p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
       >
         <input
           ref={fileInputRef}

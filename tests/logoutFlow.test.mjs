@@ -62,7 +62,8 @@ test('lets the Firebase auth callback perform exactly one guest-library transiti
   assert.match(prepareUi, /ownerRuntime\.clear\(\)/);
   assert.doesNotMatch(prepareUi, /setView\('loading'\)/);
   assert.doesNotMatch(cleanup, /ownerRuntime\.clear|resetLibraryState|setBooks|enterGuestShelf/);
-  assert.match(cleanup, /window\.location\.replace\(`\$\{window\.location\.origin\}\/`\)/);
+  assert.match(cleanup, /window\.history\.replaceState\(null, '', '\/'\)/);
+  assert.doesNotMatch(cleanup, /window\.location\.(?:replace|assign|reload)/);
   assert.match(recovery, /isGuestRef\.current = false/);
   assert.match(recovery, /ownerRuntime\.activate\(logoutOwner\.ownerKey\)/);
   assert.match(recovery, /localStorage\.removeItem\('isGuest'\)/);

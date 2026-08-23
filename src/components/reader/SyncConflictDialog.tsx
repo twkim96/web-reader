@@ -80,7 +80,7 @@ export const SyncConflictDialog: React.FC<SyncConflictDialogProps> = ({
         aria-labelledby="remote-progress-dialog-title"
         aria-describedby="remote-progress-dialog-description"
         tabIndex={-1}
-        className={`${theme.bg} rounded-2xl p-6 shadow-2xl border border-white/10 w-full max-w-sm`}
+        className={`app-panel-radius ${theme.bg} p-6 shadow-2xl border border-white/10 w-full max-w-sm`}
       >
         <div className="flex items-center gap-3 text-accent-500 mb-2">
           <RefreshCw size={22} />

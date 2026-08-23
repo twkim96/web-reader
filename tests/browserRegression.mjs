@@ -253,6 +253,11 @@ try {
     const panel = document.querySelector('[data-empty-shelf-panel="true"]');
     const google = panel?.querySelector('[data-empty-shelf-action="google"]');
     const sample = panel?.querySelector('[data-empty-shelf-action="sample"]');
+    const accentProbe = document.createElement('span');
+    accentProbe.className = 'text-accent-500';
+    document.body.append(accentProbe);
+    const accentColor = getComputedStyle(accentProbe).color;
+    accentProbe.remove();
     return {
       text: panel?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
       heading: panel?.querySelector('[data-empty-shelf-heading="true"]')?.textContent?.trim() ?? '',
@@ -261,6 +266,9 @@ try {
       visualButtonCount: panel?.querySelectorAll('.rounded-2xl, .rounded-full').length ?? 0,
       googleDecoration: google ? getComputedStyle(google).textDecorationLine : '',
       sampleDecoration: sample ? getComputedStyle(sample).textDecorationLine : '',
+      googleColor: google ? getComputedStyle(google).color : '',
+      sampleColor: sample ? getComputedStyle(sample).color : '',
+      accentColor,
       panelBackground: panel ? getComputedStyle(panel).backgroundColor : '',
       panelBorderRadius: panel ? getComputedStyle(panel).borderRadius : '',
     };
@@ -272,6 +280,8 @@ try {
   assert.equal(emptyShelfPresentation.visualButtonCount, 0, JSON.stringify(emptyShelfPresentation));
   assert.equal(emptyShelfPresentation.googleDecoration, 'underline', JSON.stringify(emptyShelfPresentation));
   assert.equal(emptyShelfPresentation.sampleDecoration, 'underline', JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.googleColor, emptyShelfPresentation.accentColor, JSON.stringify(emptyShelfPresentation));
+  assert.equal(emptyShelfPresentation.sampleColor, emptyShelfPresentation.accentColor, JSON.stringify(emptyShelfPresentation));
   assert.equal(emptyShelfPresentation.panelBackground, 'rgba(0, 0, 0, 0)', JSON.stringify(emptyShelfPresentation));
   assert.equal(emptyShelfPresentation.panelBorderRadius, '0px', JSON.stringify(emptyShelfPresentation));
 
@@ -315,6 +325,7 @@ try {
       })(),
       appView: document.querySelector('[data-app-view]')?.getAttribute('data-app-view') ?? '',
       mode: modal?.getAttribute('data-login-disclosure-mode') ?? '',
+      borderRadius: modal ? getComputedStyle(modal).borderRadius : '',
       bodyPosition: document.body.style.position,
     };
   })()`);
@@ -339,6 +350,7 @@ try {
   }, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.appView, 'shelf', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.mode, 'firebase', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.borderRadius, '16px', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
   await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
   await waitFor(
@@ -647,7 +659,7 @@ try {
   assert.equal(initialShelf.cachedCover, true);
   assert.equal(initialShelf.placeholderCover, true);
   assert.equal(initialShelf.fallbackIcon, false);
-  assert.equal(initialShelf.gridCardBorderRadius, '24px', JSON.stringify(initialShelf));
+  assert.equal(initialShelf.gridCardBorderRadius, '16px', JSON.stringify(initialShelf));
   assert.equal(initialShelf.gridTitleFontSize, '16px', JSON.stringify(initialShelf));
   assert.deepEqual(initialShelf.gridDeleteIconSize, { width: 14, height: 14 });
   assert.deepEqual(initialShelf.coverLayout, {
@@ -697,6 +709,7 @@ try {
       titleWidthRatio: titleRect.width / cardRect.width,
       localTagFirst: tagRow.firstElementChild === localTag,
       localTagText: localTag.textContent?.trim(),
+      localTagBorderRadius: getComputedStyle(localTag).borderRadius,
       rightOrder: [formatRect.left, progressRect.left],
       formatWidth: formatRect.width,
       titleFontSize: title ? getComputedStyle(title).fontSize : '',
@@ -712,6 +725,7 @@ try {
   assert.ok(listCoverLayout.titleWidthRatio > 0.6, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagFirst, true, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagText, '로컬', JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.localTagBorderRadius, '16px', JSON.stringify(listCoverLayout));
   assert.ok(
     listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1],
     JSON.stringify(listCoverLayout),
@@ -925,6 +939,8 @@ try {
     const rect = modal?.getBoundingClientRect();
     const infoCover = modal?.querySelector('[data-book-info-cover-frame="true"]')?.getBoundingClientRect();
     const infoTagRow = modal?.querySelector('[data-book-info-tag-row="true"]')?.getBoundingClientRect();
+    const infoTagRadii = [...(modal?.querySelectorAll('[data-book-info-tag-row="true"] > span') ?? [])]
+      .map((tag) => getComputedStyle(tag).borderRadius);
     const generatedCover = modal?.querySelector('[data-generated-book-cover="true"]')?.getBoundingClientRect();
     const generatedTitle = modal?.querySelector('[data-generated-book-cover-title="true"]')?.getBoundingClientRect();
     const cardStyle = card ? getComputedStyle(card) : null;
@@ -954,6 +970,7 @@ try {
         ? getComputedStyle(modal.querySelector('[data-modal-header="book-info"]')).borderBottomWidth
         : '0px',
       tagRowBottomDelta: infoCover && infoTagRow ? Math.abs(infoCover.bottom - infoTagRow.bottom) : null,
+      infoTagRadii,
       generatedTitleTopRatio: generatedCover && generatedTitle
         ? (generatedTitle.top - generatedCover.top) / generatedCover.height
         : null,
@@ -984,6 +1001,8 @@ try {
   assert.equal(bookInfoUi.hasCopyImageButton, true);
   assert.equal(bookInfoUi.hasCaptureButton, true);
   assert.ok(bookInfoUi.tagRowBottomDelta !== null && bookInfoUi.tagRowBottomDelta <= 1, JSON.stringify(bookInfoUi));
+  assert.ok(bookInfoUi.infoTagRadii.length > 0, JSON.stringify(bookInfoUi));
+  assert.ok(bookInfoUi.infoTagRadii.every((radius) => radius === '16px'), JSON.stringify(bookInfoUi));
   assert.ok(
     bookInfoUi.generatedTitleTopRatio !== null
       && Math.abs(bookInfoUi.generatedTitleTopRatio - 0.15) <= 0.02,
@@ -1529,7 +1548,7 @@ try {
     Math.abs(mobileFilterModal.top - mobileFilterModal.bottomGap) <= 2,
     JSON.stringify(mobileFilterModal),
   );
-  assert.ok(mobileFilterModal.borderBottomLeftRadius >= 20, JSON.stringify(mobileFilterModal));
+  assert.equal(mobileFilterModal.borderBottomLeftRadius, 16, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.82 + 1, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
   await evaluate(`document.querySelector('button[aria-label="책장 필터 닫기"]')?.click()`);

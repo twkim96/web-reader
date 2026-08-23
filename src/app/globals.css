@@ -53,6 +53,16 @@ body {
   background-size: var(--viewer-theme-texture-size, auto);
 }
 
+/* Shared outer geometry for shelf grid cards and every modal surface. */
+.app-panel-radius {
+  border-radius: 16px;
+}
+
+/* Shared geometry for metadata tags, genres, formats, and status chips. */
+.app-tag-radius {
+  border-radius: 16px;
+}
+
 .shelf-muzio-dock {
   border: 1px solid var(--viewer-shelf-dock-border, rgba(255, 255, 255, 0.045));
   background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface, rgba(31, 31, 31, 0.88)));

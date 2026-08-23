@@ -304,8 +304,11 @@
 - 실제 Firebase 리디렉션 전 guest owner 삭제와 `loading` 전환을 제거해 Google 로그인 취소 뒤 무한 로딩을 막았다.
 - 로그인 후 로그아웃 시 Firebase 인증 콜백과 수동 guest 전환이 겹치던 경합을 제거하고, 로그인 전 완료된 guest 복원 Promise도 인증 사용자 확인 시 폐기해 현재 guest 책장을 새로 복원하도록 했다.
 - 로그아웃 준비 단계에서 책장을 `loading` 화면으로 언마운트하지 않고 같은 앱 화면에서 Firebase 인증 콜백이 guest 소유자로 교체하게 해 standalone 브라우저의 로드 오류 화면 전환을 방지했다.
-- 실기기에서 오류가 계속되어 Firebase 로그아웃 성공 뒤 canonical root `/`를 `location.replace`하도록 보강했다. 로그인 redirect와 PWA history를 폐기하고 저장된 guest 상태로 새 문서를 부팅하므로 WebView의 `This page couldn't load` history 재진입을 피한다.
 - 로그아웃 직전에 authenticated owner를 먼저 invalidate해 진행률·책갈피·주석·통계 Firestore listener와 outbox worker를 동기적으로 폐기한다. Firebase credential이 사라진 뒤 남은 작업이 `permission-denied`로 정지되는 경합과 그에 따른 권한 경고를 막는다.
+- 로그아웃 후 canonical root 정리는 전체 문서를 다시 여는 `location.replace` 대신 `history.replaceState`로 수행한다. 현재 React 문서에서 guest 복원을 계속하므로 WebView 기본 `This page couldn't load` 화면이 잠깐 노출되지 않는다.
+- 책장 grid 카드와 모든 modal/dialog 외곽 셸에 공통 `app-panel-radius`를 적용해 곡률을 `16px`로 통일했다. 버튼, 목록 행, 색상 원 등 내부 요소의 역할별 곡률은 유지한다.
+- 검색·필터·도서정보·책장 카드의 태그 및 메타데이터 칩에 공통 `app-tag-radius`를 적용해 곡률을 `16px`로 통일했다.
+- 빈 책장 안내의 밑줄 동작 문구만 `text-accent-500` 포인트 컬러로 표시하고 나머지 안내 문장은 테마 본문색을 유지한다.
 - grid 제목을 list와 동일한 `14px / sm 16px`로 낮추고 grid 진행률 지우개를 `14px`로 축소했으며, 새 기본 테마와 최초 페인트를 `Midnight`로 변경했다.
 - 책장 상·하단 dock의 바깥 곡률을 맥OS Dock에 가까운 `20px`로 통일하고 내부 원형 버튼은 보존했다.
 - app, service worker, Foliate runtime cache 버전을 `1.8.32`로 맞췄다.

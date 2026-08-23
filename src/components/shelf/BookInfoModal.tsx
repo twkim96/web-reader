@@ -360,7 +360,7 @@ export const BookInfoModal: React.FC<Props> = ({
         data-book-info-modal="true"
         data-book-info-id={book.id}
         onClick={(event) => event.stopPropagation()}
-        className={`flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 select-text flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none focus:outline-none sm:max-h-[82dvh] sm:rounded-3xl`}
+        className={`app-panel-radius flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 select-text flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none focus:outline-none sm:max-h-[82dvh]`}
       >
         <div
           ref={captureRef}
@@ -422,17 +422,17 @@ export const BookInfoModal: React.FC<Props> = ({
                 <p className="mt-1 break-all text-[10px] leading-4 opacity-45">{book.name}</p>
 
                 <div data-book-info-tag-row="true" className="mt-auto flex flex-wrap gap-1.5 pt-3">
-                  <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
+                  <span className="app-tag-radius bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500">
                     {getBookFormatLabel(book)}
                   </span>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isDownloaded ? 'bg-emerald-500/12 text-emerald-500' : 'bg-black/5 opacity-55 dark:bg-white/5'}`}>
+                  <span className={`app-tag-radius px-2 py-1 text-[10px] font-bold ${isDownloaded ? 'bg-emerald-500/12 text-emerald-500' : 'bg-black/5 opacity-55 dark:bg-white/5'}`}>
                     {isDownloaded ? '기기 저장됨' : '클라우드 전용'}
                   </span>
                   {metadata?.platforms.map((platform) => (
                     <span
                       key={platform.platform}
                       data-book-info-platform-badge={platform.platform}
-                      className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500"
+                      className="app-tag-radius bg-accent-500/12 px-2 py-1 text-[10px] font-bold text-accent-500"
                     >
                       {platform.label}
                     </span>
@@ -525,7 +525,7 @@ export const BookInfoModal: React.FC<Props> = ({
                     {catalog && (catalog.genreLabel || visibleCatalogTags.length > 0) && (
                     <div className="flex flex-wrap gap-1.5">
                       {catalog.genreLabel && (
-                        <span className="rounded-full bg-accent-500/12 px-2 py-1 text-[10px] font-black text-accent-500">
+                        <span className="app-tag-radius bg-accent-500/12 px-2 py-1 text-[10px] font-black text-accent-500">
                           {catalog.genreLabel}
                         </span>
                       )}
@@ -533,7 +533,7 @@ export const BookInfoModal: React.FC<Props> = ({
                         <span
                           key={tag.id}
                           data-book-catalog-tag="true"
-                          className="rounded-full bg-black/5 px-2 py-1 text-[10px] font-bold opacity-65 dark:bg-white/5"
+                          className="app-tag-radius bg-black/5 px-2 py-1 text-[10px] font-bold opacity-65 dark:bg-white/5"
                         >
                           #{tag.label}
                         </span>
@@ -640,7 +640,7 @@ export const BookInfoModal: React.FC<Props> = ({
             aria-labelledby="book-info-delete-title"
             data-book-info-delete-confirmation="true"
             onClick={(event) => event.stopPropagation()}
-            className={`w-full max-w-sm rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} p-4 shadow-2xl outline-none`}
+            className={`app-panel-radius w-full max-w-sm border ${theme.border} ${theme.bg} ${theme.text} p-4 shadow-2xl outline-none`}
           >
             <h3 id="book-info-delete-title" className="text-base font-black">이 도서를 삭제하시겠습니까?</h3>
             <p className="mt-2 text-xs leading-5 opacity-65">

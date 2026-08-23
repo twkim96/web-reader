@@ -60,7 +60,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={onClose}>
       <div
-        className={`w-full max-w-md ${theme.bg} ${theme.text} rounded-[2rem] shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] transition-colors duration-300`}
+        className={`app-panel-radius w-full max-w-md ${theme.bg} ${theme.text} shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] transition-colors duration-300`}
         onClick={e => e.stopPropagation()}
       >
         <div
