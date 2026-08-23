@@ -44,7 +44,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           </div>
           <button 
             onClick={onClearSearch} 
-            className="px-8 py-3 bg-accent-600 text-white rounded-full font-bold text-xs uppercase hover:bg-accent-500 transition-all"
+            className="app-control-radius-lg px-8 py-3 bg-accent-600 text-white font-bold text-xs uppercase hover:bg-accent-500 transition-all"
           >
             전체 목록 보기
           </button>

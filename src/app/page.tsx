@@ -711,7 +711,7 @@ export default function Page() {
     <div
       data-app-view={view}
       data-library-bootstrap-ready={isLibraryBootstrapReady ? 'true' : 'false'}
-      className={`min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`}
+      className={`app-optical-radius min-h-screen font-sans ${theme.bg} ${theme.text} transition-colors duration-300`}
       style={dynamicStyles}
     >
       {/* 책장 */}

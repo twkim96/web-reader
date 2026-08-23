@@ -3,6 +3,12 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --app-radius-xs: 4px;
+  --app-radius-sm: 6px;
+  --app-radius-md: 8px;
+  --app-radius-lg: 10px;
+  --app-radius-xl: 12px;
+  --app-radius-2xl: 14px;
 }
 
 @font-face {
@@ -60,13 +66,50 @@ body {
 
 /* Shared geometry for metadata tags, genres, formats, and status chips. */
 .app-tag-radius {
-  border-radius: 10px;
+  border-radius: var(--app-radius-md);
 }
 
 /* Spotlight-like outer geometry reserved for search surfaces. */
 .app-search-modal-radius {
   border-radius: 20px;
 }
+
+/*
+ * Optical radius scale for non-reader chrome. Existing rounded utilities keep
+ * expressing relative size while the actual curve follows the control size.
+ * Search surfaces and reader menus opt out so their established geometry stays
+ * untouched.
+ */
+.app-optical-radius :where(.rounded):not(.app-radius-exempt, .app-radius-exempt *) {
+  border-radius: var(--app-radius-xs);
+}
+
+.app-optical-radius :where(.rounded-md):not(.app-radius-exempt, .app-radius-exempt *) {
+  border-radius: var(--app-radius-sm);
+}
+
+.app-optical-radius :where(.rounded-lg):not(.app-radius-exempt, .app-radius-exempt *) {
+  border-radius: var(--app-radius-md);
+}
+
+.app-optical-radius :where(.rounded-xl):not(.app-radius-exempt, .app-radius-exempt *) {
+  border-radius: var(--app-radius-lg);
+}
+
+.app-optical-radius :where(.rounded-2xl):not(.app-radius-exempt, .app-radius-exempt *) {
+  border-radius: var(--app-radius-xl);
+}
+
+.app-optical-radius :where(.rounded-3xl):not(.app-radius-exempt, .app-radius-exempt *) {
+  border-radius: var(--app-radius-2xl);
+}
+
+.app-control-radius-xs { border-radius: var(--app-radius-xs); }
+.app-control-radius-sm { border-radius: var(--app-radius-sm); }
+.app-control-radius-md { border-radius: var(--app-radius-md); }
+.app-control-radius-lg { border-radius: var(--app-radius-lg); }
+.app-control-radius-xl { border-radius: var(--app-radius-xl); }
+.app-control-radius-2xl { border-radius: var(--app-radius-2xl); }
 
 .shelf-muzio-dock {
   border: 1px solid var(--viewer-shelf-dock-border, rgba(255, 255, 255, 0.045));

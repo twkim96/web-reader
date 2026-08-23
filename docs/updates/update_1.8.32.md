@@ -307,8 +307,9 @@
 - 로그아웃 직전에 authenticated owner를 먼저 invalidate해 진행률·책갈피·주석·통계 Firestore listener와 outbox worker를 동기적으로 폐기한다. Firebase credential이 사라진 뒤 남은 작업이 `permission-denied`로 정지되는 경합과 그에 따른 권한 경고를 막는다.
 - 로그아웃 후 canonical root 정리는 전체 문서를 다시 여는 `location.replace` 대신 `history.replaceState`로 수행한다. 현재 React 문서에서 guest 복원을 계속하므로 WebView 기본 `This page couldn't load` 화면이 잠깐 노출되지 않는다.
 - 책장 grid 카드와 모든 modal/dialog 외곽 셸에 공통 `app-panel-radius`를 적용해 곡률을 `16px`로 통일했다. 버튼, 목록 행, 색상 원 등 내부 요소의 역할별 곡률은 유지한다.
-- 검색·필터·도서정보·책장 카드의 태그 및 메타데이터 칩에 공통 `app-tag-radius`를 적용해 곡률을 `10px`로 통일했다.
+- 검색·필터·도서정보·책장 카드의 태그 및 메타데이터 칩에 공통 `app-tag-radius`를 적용해 곡률을 `8px`로 통일했다.
 - 책장 검색과 리더 본문 검색 모달은 Spotlight에 가까운 전용 `20px` 외곽 곡률을 사용한다.
+- 검색 모달과 리더 메뉴를 제외한 앱 요소는 `4/6/8/10/12/14px` optical radius 스케일을 사용한다. 작은 입력·선택 요소부터 큰 내부 카드까지 역할별 곡률을 유지하며, 실제 원형 아이콘과 진행 막대만 `rounded-full`을 유지한다.
 - 빈 책장 안내의 밑줄 동작 문구만 `text-accent-500` 포인트 컬러로 표시하고 나머지 안내 문장은 테마 본문색을 유지한다.
 - grid 제목을 list와 동일한 `14px / sm 16px`로 낮추고 grid 진행률 지우개를 `14px`로 축소했으며, 새 기본 테마와 최초 페인트를 `Midnight`로 변경했다.
 - 책장 상·하단 dock의 바깥 곡률을 맥OS Dock에 가까운 `20px`로 통일하고 내부 원형 버튼은 보존했다.

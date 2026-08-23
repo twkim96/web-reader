@@ -219,7 +219,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
   return (
     <>
-      <nav data-reader-menu-style={menuStyle} className={`fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
+      <nav data-reader-menu-style={menuStyle} className={`app-radius-exempt fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
         <div
           ref={titleRightLimitRef}
           aria-hidden="true"
@@ -261,7 +261,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       <div
         data-reader-toolbar-menu="true"
         data-reader-menu-style={menuStyle}
-        className={`fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(18.90625rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
+        className={`app-radius-exempt fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(18.90625rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
         style={menuPositionStyle}
       >
         <div className="relative grid gap-y-[0.34375rem] md:gap-y-[0.378125rem]">

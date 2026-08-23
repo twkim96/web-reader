@@ -446,7 +446,7 @@ export const Shelf: React.FC<ShelfProps> = ({
             <button
               type="button"
               onClick={loadMoreBooks}
-              className="rounded-full bg-accent-500 px-5 py-2 text-sm font-bold text-white"
+              className="app-control-radius-lg bg-accent-500 px-5 py-2 text-sm font-bold text-white"
             >
               더 보기
             </button>

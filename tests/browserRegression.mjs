@@ -326,6 +326,12 @@ try {
       appView: document.querySelector('[data-app-view]')?.getAttribute('data-app-view') ?? '',
       mode: modal?.getAttribute('data-login-disclosure-mode') ?? '',
       borderRadius: modal ? getComputedStyle(modal).borderRadius : '',
+      cancelBorderRadius: modal?.querySelector('[data-login-disclosure-cancel="true"]')
+        ? getComputedStyle(modal.querySelector('[data-login-disclosure-cancel="true"]')).borderRadius
+        : '',
+      headerIconBorderRadius: modal?.querySelector('header > div')
+        ? getComputedStyle(modal.querySelector('header > div')).borderRadius
+        : '',
       bodyPosition: document.body.style.position,
     };
   })()`);
@@ -351,6 +357,8 @@ try {
   assert.equal(loginDisclosure.appView, 'shelf', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.mode, 'firebase', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.borderRadius, '16px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.cancelBorderRadius, '12px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.headerIconBorderRadius, '10px', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
   await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
   await waitFor(
@@ -725,7 +733,7 @@ try {
   assert.ok(listCoverLayout.titleWidthRatio > 0.6, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagFirst, true, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagText, '로컬', JSON.stringify(listCoverLayout));
-  assert.equal(listCoverLayout.localTagBorderRadius, '10px', JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.localTagBorderRadius, '8px', JSON.stringify(listCoverLayout));
   assert.ok(
     listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1],
     JSON.stringify(listCoverLayout),
@@ -1006,7 +1014,7 @@ try {
   assert.equal(bookInfoUi.hasCaptureButton, true);
   assert.ok(bookInfoUi.tagRowBottomDelta !== null && bookInfoUi.tagRowBottomDelta <= 1, JSON.stringify(bookInfoUi));
   assert.ok(bookInfoUi.infoTagRadii.length > 0, JSON.stringify(bookInfoUi));
-  assert.ok(bookInfoUi.infoTagRadii.every((radius) => radius === '10px'), JSON.stringify(bookInfoUi));
+  assert.ok(bookInfoUi.infoTagRadii.every((radius) => radius === '8px'), JSON.stringify(bookInfoUi));
   assert.ok(
     bookInfoUi.generatedTitleTopRatio !== null
       && Math.abs(bookInfoUi.generatedTitleTopRatio - 0.15) <= 0.02,
@@ -4377,6 +4385,7 @@ try {
       const feedbackRect = feedback?.getBoundingClientRect();
       const result = {
         innerWidth,
+        menuBorderRadius: menu ? getComputedStyle(menu).borderRadius : '',
         menuRect: menuRect ? {
           left: menuRect.left,
           right: menuRect.right,
@@ -4468,6 +4477,7 @@ try {
     JSON.stringify(narrowSelectionMenu),
   );
   assert.ok(narrowSelectionMenu.menuRect, JSON.stringify(narrowSelectionMenu));
+  assert.equal(narrowSelectionMenu.menuBorderRadius, '16px', JSON.stringify(narrowSelectionMenu));
   assert.ok(narrowSelectionMenu.menuRect.left >= 0, JSON.stringify(narrowSelectionMenu));
   assert.ok(
     narrowSelectionMenu.menuRect.right <= narrowSelectionMenu.innerWidth,
@@ -4506,6 +4516,9 @@ try {
       titleRightLimitInset: titleRightLimitRect
         ? innerWidth - titleRightLimitRect.right
         : -1,
+      titleBorderRadius: document.querySelector('[data-reader-title-surface="true"]')
+        ? getComputedStyle(document.querySelector('[data-reader-title-surface="true"]')).borderRadius
+        : '',
     };
   })()`);
   assert.ok(desktopToolbarProbe.menuWidth >= 302 && desktopToolbarProbe.menuWidth <= 303);
@@ -4516,6 +4529,7 @@ try {
   );
   assert.ok(desktopToolbarProbe.actionHeight >= 50 && desktopToolbarProbe.actionHeight <= 51);
   assert.ok(desktopToolbarProbe.utilityWidth >= 48 && desktopToolbarProbe.utilityWidth <= 49);
+  assert.equal(desktopToolbarProbe.titleBorderRadius, '16px', JSON.stringify(desktopToolbarProbe));
   assert.ok(
     desktopToolbarProbe.topControlsCenterGap >= 0
       && desktopToolbarProbe.topControlsCenterGap <= 1,

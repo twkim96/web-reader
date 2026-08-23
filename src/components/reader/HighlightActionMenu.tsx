@@ -74,7 +74,7 @@ export const HighlightActionMenu: React.FC<HighlightActionMenuProps> = ({
       data-reader-highlight-menu="true"
       role="toolbar"
       aria-label="하이라이트 작업"
-      className={`fixed z-[81] flex max-w-[calc(100vw-24px)] flex-col items-stretch gap-1 rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} p-1.5 shadow-2xl`}
+      className={`app-radius-exempt fixed z-[81] flex max-w-[calc(100vw-24px)] flex-col items-stretch gap-1 rounded-2xl border ${theme.border} ${theme.bg} ${theme.text} p-1.5 shadow-2xl`}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >

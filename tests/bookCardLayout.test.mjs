@@ -106,7 +106,7 @@ test('uses one 16px outer radius for grid cards and every modal surface', async 
   });
 });
 
-test('uses one 10px radius for shelf metadata tags and chips', async () => {
+test('uses one 8px radius for shelf metadata tags and chips', async () => {
   const [globals, bookCardSource, searchSource, filterSource, bookInfoSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/BookCard.tsx', import.meta.url), 'utf8'),
@@ -115,7 +115,7 @@ test('uses one 10px radius for shelf metadata tags and chips', async () => {
     readFile(new URL('../src/components/shelf/BookInfoModal.tsx', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(globals, /\.app-tag-radius\s*\{\s*border-radius:\s*10px;/);
+  assert.match(globals, /\.app-tag-radius\s*\{\s*border-radius:\s*var\(--app-radius-md\);/);
   assert.match(bookCardSource, /const localChipClass = 'app-tag-radius/);
   assert.match(bookCardSource, /const genreChipClass = 'app-tag-radius/);
   assert.match(bookCardSource, /const tagChipClass = 'app-tag-radius/);
@@ -135,6 +135,30 @@ test('uses a Spotlight-like 20px radius for both search modals', async () => {
   assert.match(globals, /\.app-search-modal-radius\s*\{\s*border-radius:\s*20px;/);
   assert.match(shelfSearchSource, /data-shelf-search-modal="true"[\s\S]*?app-search-modal-radius/);
   assert.match(epubSearchSource, /data-epub-search-modal="true"[\s\S]*?app-search-modal-radius/);
+});
+
+test('maps non-reader controls to an optical radius scale and keeps exclusions explicit', async () => {
+  const [globals, pageSource, shelfSearchSource, epubSearchSource, readerToolbarSource, selectionMenuSource, highlightMenuSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ShelfSearchModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/EpubSearchModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/ReaderToolbar.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/TextSelectionMenu.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/HighlightActionMenu.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(globals, /--app-radius-xs:\s*4px;/);
+  assert.match(globals, /--app-radius-sm:\s*6px;/);
+  assert.match(globals, /--app-radius-md:\s*8px;/);
+  assert.match(globals, /--app-radius-lg:\s*10px;/);
+  assert.match(globals, /--app-radius-xl:\s*12px;/);
+  assert.match(globals, /--app-radius-2xl:\s*14px;/);
+  assert.match(globals, /\.app-optical-radius :where\(\.rounded-xl\):not\(\.app-radius-exempt, \.app-radius-exempt \*\)/);
+  assert.match(globals, /\.app-optical-radius :where\(\.rounded-2xl\):not\(\.app-radius-exempt, \.app-radius-exempt \*\)/);
+  assert.match(pageSource, /className=\{`app-optical-radius min-h-screen/);
+  [shelfSearchSource, epubSearchSource, readerToolbarSource, selectionMenuSource, highlightMenuSource]
+    .forEach((source) => assert.match(source, /app-radius-exempt/));
 });
 
 const renderEmptyState = ({ isGuest, isOfflineMode }) => {
