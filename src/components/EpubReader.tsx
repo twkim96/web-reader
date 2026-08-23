@@ -42,6 +42,7 @@ import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
 import { useReaderChrome } from '../hooks/reader/useReaderChrome';
 import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
+import { useReaderDocumentInput } from '../hooks/reader/useReaderDocumentInput';
 import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
 import { useReaderLanguageTools } from '../hooks/reader/useReaderLanguageTools';
 import { useReaderTts } from '../hooks/reader/useReaderTts';
@@ -374,7 +375,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || editingAnnotationId !== null
     || interactionBlocked;
   const isReaderPanelOpenRef = useRef(false);
-  const showControlsRef = useRef(chrome.showControls);
   const {
     lastSaveTimeRef,
     updateSaveContext,
@@ -429,6 +429,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     onHighlightTap: handleAnnotationTap,
   });
 
+  const bindReaderDocumentInput = useReaderDocumentInput({
+    scrollMode: effectiveNavMode === 'scroll',
+    controlsVisible: chrome.showControls,
+    hasSelectionRef,
+    onWheel: (event) => wheelNavigationRef.current(event),
+    onKeyDown: (event) => keyboardNavigationRef.current(event),
+    markUserProgressChange,
+  });
+
   useEffect(() => {
     onRegisterQuietResumeEligibility?.(isQuietResumeEligible);
     return () => onRegisterQuietResumeEligibility?.(null);
@@ -447,17 +456,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const handleReaderLoad = useCallback((doc?: Document, index?: number) => {
     if (!doc) return;
     bindSelectionDocument(doc, index);
-    doc.addEventListener('wheel', (event) => wheelNavigationRef.current(event), { passive: false });
-    doc.addEventListener('touchmove', (event) => {
-      if (showControlsRef.current && !hasSelectionRef.current) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-      if (!hasSelectionRef.current) markUserProgressChange();
-    }, { passive: false, capture: true });
-    doc.addEventListener('keydown', (event) => keyboardNavigationRef.current(event));
-  }, [bindSelectionDocument, hasSelectionRef, markUserProgressChange]);
+    bindReaderDocumentInput(doc);
+  }, [bindReaderDocumentInput, bindSelectionDocument]);
 
   const handleReaderRelocate = useCallback((detail: RelocateDetail) => {
     if (
@@ -780,10 +780,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   useLayoutEffect(() => {
     isReaderPanelOpenRef.current = isReaderPanelOpen;
   }, [isReaderPanelOpen]);
-
-  useLayoutEffect(() => {
-    showControlsRef.current = chrome.showControls;
-  }, [chrome.showControls]);
 
   useEffect(() => {
     if (isReaderPanelOpen) {

@@ -47,21 +47,6 @@ export const installScrollBoundaryNavigation = (
     touchStartY = ev.touches[0].clientY;
   }, { passive: true });
 
-  doc.addEventListener('touchmove', (ev: TouchEvent) => {
-    const viewEl = viewRef.current;
-    if (!viewEl || !viewEl.renderer) return;
-    const renderer = viewEl.renderer;
-    if (renderer.getAttribute('flow') !== 'scrolled') return;
-
-    const currentY = ev.touches[0].clientY;
-    const deltaY = touchStartY - currentY;
-    const scrollPos = renderer.start;
-
-    if (scrollPos <= 0 && deltaY < 0) {
-      if (ev.cancelable) ev.preventDefault();
-    }
-  }, { passive: false });
-
   doc.addEventListener('touchend', (ev: TouchEvent) => {
     const viewEl = viewRef.current;
     if (!viewEl || !viewEl.renderer) return;

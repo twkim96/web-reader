@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.32: add glass, standard, and modern shared shelf/reader menu surfaces.
+// 1.8.33: keep scroll-mode wheel and touch input on passive browser paths.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.32`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.33`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

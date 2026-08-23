@@ -3,6 +3,14 @@
 The files in this directory are vendored runtime code. Keep these patches and
 their regression tests when updating from upstream.
 
+## 1.8.33 passive scrolled input
+
+- `paginator.js` rebinds its touch listeners when `flow` changes. Scrolled mode uses a passive `touchmove` listener while paginated swipe mode retains the cancelable listener it needs for custom page movement.
+- The scrolled container uses `overscroll-behavior: contain`, allowing the app's boundary navigation to rely on passive touch start/end distance checks instead of a blocking move listener.
+- App-owned publication wheel/touch bindings use the same mode-specific policy; a blocking touchmove exists only while the reader controls intentionally freeze the document.
+- Node policy/source regression and Chromium/WebKit Foliate compatibility coverage preserve page swipe, section navigation, annotations, and runtime cache behavior.
+- Runtime revision `1.8.33` prevents clients from reusing the pre-optimization paginator.
+
 ## 1.7.0 locale and media-overlay lookup
 
 - `view.js`: use the BCP 47 language code `ko` instead of `kr` when deciding

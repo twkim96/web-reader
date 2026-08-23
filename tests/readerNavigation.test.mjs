@@ -15,6 +15,7 @@ import {
   createPendingSliderMove,
   reuseOrStageReaderJump,
 } from '../src/lib/readerNavigationCommit.ts';
+import { getReaderDocumentInputPolicy } from '../src/hooks/reader/useReaderDocumentInput.ts';
 
 test('preserves tap navigation modes for fixed-layout books', () => {
   assert.equal(getEffectiveNavigationMode('page', true), 'page');
@@ -109,6 +110,32 @@ test('maps spacebar to the same next action in scroll and tap modes', () => {
   assert.equal(getReaderKeyboardAction('page', ' '), 'next');
   assert.equal(getReaderKeyboardAction('left-right', 'Spacebar'), 'next');
   assert.equal(getReaderKeyboardAction('all-dir', 'Space'), 'next');
+});
+
+test('uses passive document input while ordinary scroll mode is active', () => {
+  assert.deepEqual(getReaderDocumentInputPolicy(true, false), {
+    wheelPassive: true,
+    blockTouchMove: false,
+  });
+  assert.deepEqual(getReaderDocumentInputPolicy(false, false), {
+    wheelPassive: false,
+    blockTouchMove: false,
+  });
+  assert.deepEqual(getReaderDocumentInputPolicy(true, true), {
+    wheelPassive: true,
+    blockTouchMove: true,
+  });
+});
+
+test('keeps scroll boundary navigation free of blocking touchmove listeners', async () => {
+  const [boundarySource, paginatorSource] = await Promise.all([
+    readFile(new URL('../src/hooks/foliate/scrollBoundaryNavigation.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../public/foliate-js/paginator.js', import.meta.url), 'utf8'),
+  ]);
+
+  assert.doesNotMatch(boundarySource, /addEventListener\('touchmove'/);
+  assert.match(paginatorSource, /passive: this\.scrolled/);
+  assert.match(paginatorSource, /overscroll-behavior: contain/);
 });
 
 test('freezes recovery bookmarks before slider navigation and reuses them on retry', () => {

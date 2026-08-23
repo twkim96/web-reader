@@ -633,6 +633,9 @@ export class Paginator extends HTMLElement {
     #scrollBounds
     #touchState
     #touchScrolled
+    #touchStartListener = this.#onTouchStart.bind(this)
+    #touchMoveListener = this.#onTouchMove.bind(this)
+    #touchEndListener = this.#onTouchEnd.bind(this)
     #lastVisibleRange
     #navigation = new LatestTask()
     #navigationContext = null
@@ -702,6 +705,7 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             overflow: auto;
+            overscroll-behavior: contain;
         }
         #header {
             grid-column: 3 / 4;
@@ -757,14 +761,9 @@ export class Paginator extends HTMLElement {
             }
         }, 250))
 
-        const opts = { passive: false }
-        this.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
-        this.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
-        this.addEventListener('touchend', this.#onTouchEnd.bind(this))
+        this.#bindTouchListeners(this)
         this.addEventListener('load', ({ detail: { doc } }) => {
-            doc.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
-            doc.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
-            doc.addEventListener('touchend', this.#onTouchEnd.bind(this))
+            this.#bindTouchListeners(doc)
         })
 
         this.addEventListener('relocate', ({ detail }) => {
@@ -821,6 +820,8 @@ export class Paginator extends HTMLElement {
     attributeChangedCallback(name, _, value) {
         switch (name) {
             case 'flow':
+                this.#bindTouchListeners(this)
+                if (this.#view?.document) this.#bindTouchListeners(this.#view.document)
                 this.render()
                 break
             case 'gap':
@@ -1105,6 +1106,16 @@ export class Paginator extends HTMLElement {
             t: e.timeStamp,
             vx: 0, xy: 0,
         }
+    }
+    #bindTouchListeners(target) {
+        target.removeEventListener('touchstart', this.#touchStartListener)
+        target.removeEventListener('touchmove', this.#touchMoveListener)
+        target.removeEventListener('touchend', this.#touchEndListener)
+        target.addEventListener('touchstart', this.#touchStartListener, { passive: true })
+        target.addEventListener('touchmove', this.#touchMoveListener, {
+            passive: this.scrolled,
+        })
+        target.addEventListener('touchend', this.#touchEndListener, { passive: true })
     }
     #onTouchMove(e) {
         const state = this.#touchState
