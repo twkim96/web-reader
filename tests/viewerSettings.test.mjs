@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import {
@@ -71,6 +72,22 @@ test('selects the official Google button contrast from the active theme backgrou
   assert.equal(getGoogleSignInButtonVariant('#272728'), 'dark');
   assert.equal(getGoogleSignInButtonVariant('#141517'), 'dark');
   assert.equal(getGoogleSignInButtonVariant('invalid'), 'dark');
+});
+
+test('keeps both embedded Google button PNGs byte-identical to the official assets', async () => {
+  const source = await readFile(new URL('../src/components/GoogleSignInButtonAsset.tsx', import.meta.url), 'utf8');
+  const expectedHashes = {
+    DARK: '64cbfc1f786effc40f449e4b3c1fcd104825bfc087704e453cd8c9d70396f957',
+    LIGHT: '42a5750ee95926ca5410404ee5a34f8b6d58d290317200bf7e33e126873f4b83',
+  };
+
+  for (const [variant, expectedHash] of Object.entries(expectedHashes)) {
+    const encoded = source.match(
+      new RegExp(`GOOGLE_SIGN_IN_${variant}_BUTTON = 'data:image\\/png;base64,([^']+)'`),
+    )?.[1];
+    assert.ok(encoded, `${variant} Google button data was not found`);
+    assert.equal(createHash('sha256').update(Buffer.from(encoded, 'base64')).digest('hex'), expectedHash);
+  }
 });
 
 test('defaults auto-open for older stored viewer settings', async () => {

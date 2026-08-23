@@ -50,15 +50,15 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           </button>
         </>
       ) : (
-        <div className="max-w-md space-y-2 opacity-65">
+        <div className="max-w-[min(90vw,48rem)] space-y-2 opacity-65">
           <h3 data-empty-shelf-heading="true" className="text-lg font-bold">보관함이 비어있음.</h3>
-          <p className="text-sm font-medium leading-relaxed">
+          <p className="text-sm font-medium leading-relaxed md:whitespace-nowrap">
             책을 보관함에 추가하려면{' '}
             {isGuest ? (
               <>
                 <button type="button" onClick={onLogin} data-empty-shelf-action="google" className={linkClass}>
-                  Google 계정을 연동하거나
-                </button>{' '}
+                  Google 계정을 연동
+                </button>하거나{' '}
                 <button
                   type="button"
                   onClick={onAddSampleBook}
@@ -66,24 +66,24 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                   data-empty-shelf-action="sample"
                   className={linkClass}
                 >
-                  {isAddingSampleBook ? '샘플 도서를 추가하고 있습니다' : '샘플 도서를 추가해주세요'}
-                </button>
+                  샘플 도서를 추가
+                </button>해주세요
               </>
             ) : isOfflineMode ? (
               <>
                 <button type="button" onClick={onToggleCloud} data-empty-shelf-action="cloud" className={linkClass}>
-                  드라이브에 로그인하거나
-                </button>{' '}
+                  드라이브에 로그인
+                </button>하거나{' '}
                 <button type="button" onClick={onShowImportConfirm} data-empty-shelf-action="import" className={linkClass}>
-                  파일을 로컬에 업로드해주세요
-                </button>
+                  파일을 로컬에 업로드
+                </button>해주세요
               </>
             ) : (
-              <a href="https://drive.google.com/" target="_blank" rel="noopener noreferrer" data-empty-shelf-action="drive" className={linkClass}>
-                파일을 드라이브에 업로드해주세요
-              </a>
+              <button type="button" onClick={onShowImportConfirm} data-empty-shelf-action="drive" className={linkClass}>
+                파일을 드라이브에 업로드
+              </button>
             )}
-            .
+            {!isGuest && !isOfflineMode && '해주세요'}.
           </p>
           {isGuest && sampleBookFeedback && (
             <p role="status" className="pt-2 text-xs font-bold opacity-80">

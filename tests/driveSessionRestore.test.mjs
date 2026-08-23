@@ -55,5 +55,6 @@ test('shows privacy disclosure before both Firebase login and Drive OAuth', asyn
   assert.match(page, /onConfirm=\{loginDisclosureMode === 'firebase' \? handleLoginTrigger : handleDriveConnectTrigger\}/);
   assert.match(modal, /data-login-disclosure-mode=\{mode\}/);
   assert.match(modal, /mode === 'firebase'/);
-  assert.match(modal, /Google Drive 연결/);
+  assert.match(modal, /aria-label=\{mode === 'firebase' \? 'Google 계정으로 로그인' : 'Google Drive에 로그인'\}/);
+  assert.equal((modal.match(/<GoogleSignInButtonAsset/g) ?? []).length, 1);
 });

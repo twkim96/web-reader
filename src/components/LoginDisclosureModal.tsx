@@ -68,28 +68,16 @@ export const LoginDisclosureModal: React.FC<LoginDisclosureModalProps> = ({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-          {mode === 'firebase' ? (
-            <button
-              type="button"
-              data-login-disclosure-confirm="true"
-              onClick={onConfirm}
-              aria-label="Google 계정으로 로그인"
-              className="mx-auto block h-10 w-[180px] overflow-hidden rounded p-0 leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
-            >
-              <GoogleSignInButtonAsset backgroundColor={themeBackgroundColor} />
-              <span className="sr-only">Sign in with Google</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-login-disclosure-confirm="true"
-              onClick={onConfirm}
-              className={`mx-auto flex min-h-11 w-full max-w-xs items-center justify-center gap-2 rounded-xl border px-5 text-sm font-bold transition-colors hover:brightness-110 ${theme.border} ${theme.secondary}`}
-            >
-              <HardDrive size={17} aria-hidden="true" />
-              Google Drive 연결
-            </button>
-          )}
+          <button
+            type="button"
+            data-login-disclosure-confirm="true"
+            onClick={onConfirm}
+            aria-label={mode === 'firebase' ? 'Google 계정으로 로그인' : 'Google Drive에 로그인'}
+            className="mx-auto block h-10 w-[180px] overflow-hidden rounded p-0 leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+          >
+            <GoogleSignInButtonAsset backgroundColor={themeBackgroundColor} />
+            <span className="sr-only">Sign in with Google</span>
+          </button>
           <p className="mt-2 text-center text-[10px] font-semibold leading-relaxed opacity-50">
             계속하면 아래의 {mode === 'firebase' ? '로그인 정보' : 'Drive 정보'} 처리 내용을 확인하고 동의한 것으로 간주합니다.
           </p>

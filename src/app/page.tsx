@@ -486,7 +486,6 @@ export default function Page() {
           // Firebase emits it. The auth bootstrap owns the single library reset
           // and restore, so logout cannot race a second manual guest restore.
           setActiveBook(null);
-          setView('loading');
           isGuestRef.current = true;
           localStorage.setItem('isGuest', 'true');
         },
