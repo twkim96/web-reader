@@ -51,7 +51,7 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
     <div className="fixed inset-0 z-[110] bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[10vh] p-4 animate-in fade-in duration-200" onClick={onClose}>
       <div
         data-epub-search-modal="true"
-        className={`app-panel-radius w-full max-w-2xl ${theme.bg} ${theme.text} shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] animate-in slide-in-from-top-4 zoom-in-95 duration-300`}
+        className={`app-panel-radius app-search-modal-radius w-full max-w-2xl ${theme.bg} ${theme.text} shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] animate-in slide-in-from-top-4 zoom-in-95 duration-300`}
         onClick={e => e.stopPropagation()}
       >
         <div

@@ -106,7 +106,7 @@ test('uses one 16px outer radius for grid cards and every modal surface', async 
   });
 });
 
-test('uses one 16px radius for shelf metadata tags and chips', async () => {
+test('uses one 10px radius for shelf metadata tags and chips', async () => {
   const [globals, bookCardSource, searchSource, filterSource, bookInfoSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/BookCard.tsx', import.meta.url), 'utf8'),
@@ -115,7 +115,7 @@ test('uses one 16px radius for shelf metadata tags and chips', async () => {
     readFile(new URL('../src/components/shelf/BookInfoModal.tsx', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(globals, /\.app-tag-radius\s*\{\s*border-radius:\s*16px;/);
+  assert.match(globals, /\.app-tag-radius\s*\{\s*border-radius:\s*10px;/);
   assert.match(bookCardSource, /const localChipClass = 'app-tag-radius/);
   assert.match(bookCardSource, /const genreChipClass = 'app-tag-radius/);
   assert.match(bookCardSource, /const tagChipClass = 'app-tag-radius/);
@@ -123,6 +123,18 @@ test('uses one 16px radius for shelf metadata tags and chips', async () => {
   assert.match(filterSource, /const chip = \(active: boolean\) => `app-tag-radius/);
   assert.match(bookInfoSource, /data-book-info-tag-row="true"[\s\S]*?app-tag-radius/);
   assert.match(bookInfoSource, /data-book-catalog-tag="true"[\s\S]*?className="app-tag-radius/);
+});
+
+test('uses a Spotlight-like 20px radius for both search modals', async () => {
+  const [globals, shelfSearchSource, epubSearchSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ShelfSearchModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/EpubSearchModal.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(globals, /\.app-search-modal-radius\s*\{\s*border-radius:\s*20px;/);
+  assert.match(shelfSearchSource, /data-shelf-search-modal="true"[\s\S]*?app-search-modal-radius/);
+  assert.match(epubSearchSource, /data-epub-search-modal="true"[\s\S]*?app-search-modal-radius/);
 });
 
 const renderEmptyState = ({ isGuest, isOfflineMode }) => {

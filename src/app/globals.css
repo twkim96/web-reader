@@ -60,7 +60,12 @@ body {
 
 /* Shared geometry for metadata tags, genres, formats, and status chips. */
 .app-tag-radius {
-  border-radius: 16px;
+  border-radius: 10px;
+}
+
+/* Spotlight-like outer geometry reserved for search surfaces. */
+.app-search-modal-radius {
+  border-radius: 20px;
 }
 
 .shelf-muzio-dock {

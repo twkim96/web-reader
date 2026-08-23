@@ -725,7 +725,7 @@ try {
   assert.ok(listCoverLayout.titleWidthRatio > 0.6, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagFirst, true, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagText, '로컬', JSON.stringify(listCoverLayout));
-  assert.equal(listCoverLayout.localTagBorderRadius, '16px', JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.localTagBorderRadius, '10px', JSON.stringify(listCoverLayout));
   assert.ok(
     listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1],
     JSON.stringify(listCoverLayout),
@@ -789,6 +789,10 @@ try {
   const desktopShelfSearchHeight = await evaluate(
     'document.querySelector(\'[data-shelf-search-input-row="true"]\')?.getBoundingClientRect().height',
   );
+  const desktopShelfSearchRadius = await evaluate(
+    'getComputedStyle(document.querySelector(\'[data-shelf-search-modal="true"]\')).borderRadius',
+  );
+  assert.equal(desktopShelfSearchRadius, '20px');
   assert.ok(
     desktopShelfSearchHeight >= 64 && desktopShelfSearchHeight <= 69,
     `Unexpected desktop shelf search height: ${desktopShelfSearchHeight}`,
@@ -1002,7 +1006,7 @@ try {
   assert.equal(bookInfoUi.hasCaptureButton, true);
   assert.ok(bookInfoUi.tagRowBottomDelta !== null && bookInfoUi.tagRowBottomDelta <= 1, JSON.stringify(bookInfoUi));
   assert.ok(bookInfoUi.infoTagRadii.length > 0, JSON.stringify(bookInfoUi));
-  assert.ok(bookInfoUi.infoTagRadii.every((radius) => radius === '16px'), JSON.stringify(bookInfoUi));
+  assert.ok(bookInfoUi.infoTagRadii.every((radius) => radius === '10px'), JSON.stringify(bookInfoUi));
   assert.ok(
     bookInfoUi.generatedTitleTopRatio !== null
       && Math.abs(bookInfoUi.generatedTitleTopRatio - 0.15) <= 0.02,
@@ -4236,6 +4240,10 @@ try {
     const mobileEpubSearchHeight = await evaluate(
       'document.querySelector(\'[data-epub-search-input-row="true"]\')?.getBoundingClientRect().height',
     );
+    const mobileEpubSearchRadius = await evaluate(
+      'getComputedStyle(document.querySelector(\'[data-epub-search-modal="true"]\')).borderRadius',
+    );
+    assert.equal(mobileEpubSearchRadius, '20px');
     assert.ok(
       mobileEpubSearchHeight >= 47 && mobileEpubSearchHeight <= 49,
       `Unexpected mobile EPUB search height: ${mobileEpubSearchHeight}`,
