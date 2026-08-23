@@ -3,12 +3,12 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --app-radius-xs: 4px;
-  --app-radius-sm: 6px;
-  --app-radius-md: 8px;
-  --app-radius-lg: 10px;
-  --app-radius-xl: 12px;
-  --app-radius-2xl: 14px;
+  --app-radius-xs: 3px;
+  --app-radius-sm: 5px;
+  --app-radius-md: 7px;
+  --app-radius-lg: 8px;
+  --app-radius-xl: 10px;
+  --app-radius-2xl: 12px;
 }
 
 @font-face {
@@ -61,7 +61,7 @@ body {
 
 /* Shared outer geometry for shelf grid cards and every modal surface. */
 .app-panel-radius {
-  border-radius: 16px;
+  border-radius: 14px;
 }
 
 /* Shared geometry for metadata tags, genres, formats, and status chips. */

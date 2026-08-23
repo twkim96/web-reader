@@ -92,21 +92,21 @@ const renderCardWithCover = (viewMode, catalog = props.catalog, overrides = {}) 
   return parseHTML(html).document;
 };
 
-test('uses one 16px outer radius for grid cards and every modal surface', async () => {
+test('uses one 14px outer radius for grid cards and every modal surface', async () => {
   const [globals, bookCardSource, ...modalSources] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/BookCard.tsx', import.meta.url), 'utf8'),
     ...modalSurfaceSources.map((path) => readFile(new URL(path, import.meta.url), 'utf8')),
   ]);
 
-  assert.match(globals, /\.app-panel-radius\s*\{\s*border-radius:\s*16px;/);
+  assert.match(globals, /\.app-panel-radius\s*\{\s*border-radius:\s*14px;/);
   assert.match(bookCardSource, /data-shelf-book-card="true"[\s\S]*?className=\{`app-panel-radius/);
   modalSources.forEach((source, index) => {
     assert.match(source, /app-panel-radius/, modalSurfaceSources[index]);
   });
 });
 
-test('uses one 8px radius for shelf metadata tags and chips', async () => {
+test('uses one 7px radius for shelf metadata tags and chips', async () => {
   const [globals, bookCardSource, searchSource, filterSource, bookInfoSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/BookCard.tsx', import.meta.url), 'utf8'),
@@ -148,12 +148,12 @@ test('maps non-reader controls to an optical radius scale and keeps exclusions e
     readFile(new URL('../src/components/reader/HighlightActionMenu.tsx', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(globals, /--app-radius-xs:\s*4px;/);
-  assert.match(globals, /--app-radius-sm:\s*6px;/);
-  assert.match(globals, /--app-radius-md:\s*8px;/);
-  assert.match(globals, /--app-radius-lg:\s*10px;/);
-  assert.match(globals, /--app-radius-xl:\s*12px;/);
-  assert.match(globals, /--app-radius-2xl:\s*14px;/);
+  assert.match(globals, /--app-radius-xs:\s*3px;/);
+  assert.match(globals, /--app-radius-sm:\s*5px;/);
+  assert.match(globals, /--app-radius-md:\s*7px;/);
+  assert.match(globals, /--app-radius-lg:\s*8px;/);
+  assert.match(globals, /--app-radius-xl:\s*10px;/);
+  assert.match(globals, /--app-radius-2xl:\s*12px;/);
   assert.match(globals, /\.app-optical-radius :where\(\.rounded-xl\):not\(\.app-radius-exempt, \.app-radius-exempt \*\)/);
   assert.match(globals, /\.app-optical-radius :where\(\.rounded-2xl\):not\(\.app-radius-exempt, \.app-radius-exempt \*\)/);
   assert.match(pageSource, /className=\{`app-optical-radius min-h-screen/);

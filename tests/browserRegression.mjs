@@ -356,9 +356,9 @@ try {
   }, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.appView, 'shelf', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.mode, 'firebase', JSON.stringify(loginDisclosure));
-  assert.equal(loginDisclosure.borderRadius, '16px', JSON.stringify(loginDisclosure));
-  assert.equal(loginDisclosure.cancelBorderRadius, '12px', JSON.stringify(loginDisclosure));
-  assert.equal(loginDisclosure.headerIconBorderRadius, '10px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.borderRadius, '14px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.cancelBorderRadius, '10px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.headerIconBorderRadius, '8px', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
   await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
   await waitFor(
@@ -667,7 +667,7 @@ try {
   assert.equal(initialShelf.cachedCover, true);
   assert.equal(initialShelf.placeholderCover, true);
   assert.equal(initialShelf.fallbackIcon, false);
-  assert.equal(initialShelf.gridCardBorderRadius, '16px', JSON.stringify(initialShelf));
+  assert.equal(initialShelf.gridCardBorderRadius, '14px', JSON.stringify(initialShelf));
   assert.equal(initialShelf.gridTitleFontSize, '16px', JSON.stringify(initialShelf));
   assert.deepEqual(initialShelf.gridDeleteIconSize, { width: 14, height: 14 });
   assert.deepEqual(initialShelf.coverLayout, {
@@ -733,7 +733,7 @@ try {
   assert.ok(listCoverLayout.titleWidthRatio > 0.6, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagFirst, true, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagText, '로컬', JSON.stringify(listCoverLayout));
-  assert.equal(listCoverLayout.localTagBorderRadius, '8px', JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.localTagBorderRadius, '7px', JSON.stringify(listCoverLayout));
   assert.ok(
     listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1],
     JSON.stringify(listCoverLayout),
@@ -1014,7 +1014,7 @@ try {
   assert.equal(bookInfoUi.hasCaptureButton, true);
   assert.ok(bookInfoUi.tagRowBottomDelta !== null && bookInfoUi.tagRowBottomDelta <= 1, JSON.stringify(bookInfoUi));
   assert.ok(bookInfoUi.infoTagRadii.length > 0, JSON.stringify(bookInfoUi));
-  assert.ok(bookInfoUi.infoTagRadii.every((radius) => radius === '8px'), JSON.stringify(bookInfoUi));
+  assert.ok(bookInfoUi.infoTagRadii.every((radius) => radius === '7px'), JSON.stringify(bookInfoUi));
   assert.ok(
     bookInfoUi.generatedTitleTopRatio !== null
       && Math.abs(bookInfoUi.generatedTitleTopRatio - 0.15) <= 0.02,
@@ -1209,7 +1209,7 @@ try {
   assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomUsesMuzioStyle, true, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.topBorderRadius, 20, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.topBorderRadius, 16, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomBorderRadius, 20, JSON.stringify(mobileShelfControls));
   assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
   assert.ok(mobileShelfControls.bottomButtonOpacity >= 0.8, JSON.stringify(mobileShelfControls));
@@ -1560,7 +1560,7 @@ try {
     Math.abs(mobileFilterModal.top - mobileFilterModal.bottomGap) <= 2,
     JSON.stringify(mobileFilterModal),
   );
-  assert.equal(mobileFilterModal.borderBottomLeftRadius, 16, JSON.stringify(mobileFilterModal));
+  assert.equal(mobileFilterModal.borderBottomLeftRadius, 14, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.82 + 1, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
   await evaluate(`document.querySelector('button[aria-label="책장 필터 닫기"]')?.click()`);

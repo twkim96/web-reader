@@ -133,7 +133,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     : standardDock
       ? "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl"
       : "viewer-cime-glass border text-[color:var(--viewer-theme-text)]";
-  const dockClass = `relative flex h-[4.125rem] items-center rounded-[20px] ${dockSurfaceClass} gap-0.5 px-1.5 ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.18)]' : ''} lg:gap-1.5 lg:px-2`;
+  const dockClass = `relative flex h-[4.125rem] items-center rounded-[16px] ${dockSurfaceClass} gap-0.5 px-1.5 ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.18)]' : ''} lg:gap-1.5 lg:px-2`;
   const bottomDockClass = `relative flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-[20px] ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.28)]' : ''} ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
   const dockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full opacity-[0.84] transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 lg:h-12 lg:w-12";
   const activeDockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 lg:h-12 lg:w-12";
