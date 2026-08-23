@@ -137,6 +137,13 @@ test('uses a Spotlight-like 20px radius for both search modals', async () => {
   assert.match(epubSearchSource, /data-epub-search-modal="true"[\s\S]*?app-search-modal-radius/);
 });
 
+test('keeps the shelf dock at 34px on mobile and 20px on desktop', async () => {
+  const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
+
+  assert.match(shelfHeaderSource, /const dockClass = `[^`]*rounded-\[20px\]/);
+  assert.match(shelfHeaderSource, /const bottomDockClass = `[^`]*rounded-\[34px\] md:rounded-\[20px\]/);
+});
+
 test('maps non-reader controls to an optical radius scale and keeps exclusions explicit', async () => {
   const [globals, pageSource, shelfSearchSource, epubSearchSource, readerToolbarSource, selectionMenuSource, highlightMenuSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),

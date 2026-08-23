@@ -224,7 +224,7 @@
 - Google 로그인 시작 실패와 로그인 사용자의 로그아웃 완료 뒤에도 별도 인증 화면으로 이동하지 않고 guest 책장으로 복구한다.
 - 빈 책장 전체 패널과 박스형 액션은 제거한다. grid 도서 카드 곡률은 `40px`에서 `24px`로 낮추고 list 도서 행은 변경하지 않는다.
 - 빈 책장 안내는 상태별로 분리한다. guest는 Firebase 로그인·샘플 설치, Firebase만 로그인한 상태는 Drive 로그인·로컬 업로드, Drive 연결 상태는 Drive 웹 업로드 밑줄 동작만 표시한다.
-- 책장 PC top dock과 모바일 bottom dock의 바깥 곡률은 스타일·화면 폭과 무관하게 `20px`로 통일한다. 내부 원형 아이콘 버튼은 유지한다.
+- 책장 dock은 화면 크기에 맞춰 PC `20px`, 모바일 `34px`의 바깥 곡률을 사용한다. 내부 원형 아이콘 버튼은 유지한다.
 - guest 로그인 진입은 기존 열쇠 아이콘과 문구를 유지하고, 클릭하면 Firebase 리디렉션 전에 `개인정보 처리방침` 모달을 표시한다.
   - Firebase 인증에서 제공될 수 있는 계정 정보와 앱이 Firestore에 동기화하는 독서 데이터를 고지한다.
   - Google Drive는 로그인과 별도의 선택 권한이며 읽기·앱 생성 파일 관리·숨겨진 앱 데이터의 실제 용도와 토큰 보관 범위를 고지한다.
@@ -241,7 +241,7 @@
 - 빈 책장에는 아이콘·영문 제목·박스형 액션·surface가 없고, 두 밑줄 문구가 로그인과 샘플 설치를 실행한다.
 - Firebase만 로그인한 빈 책장은 Drive 로그인·로컬 업로드 두 밑줄 동작을, Drive 연결 뒤 빈 책장은 Drive 웹 업로드 한 밑줄 동작을 표시한다.
 - grid 도서 카드는 `24px`이며 list 모드는 기존 구조를 유지한다.
-- 책장 top/bottom dock의 computed border radius는 모두 `20px`이고 내부 아이콘 버튼의 원형은 유지된다.
+- 책장 dock의 computed border radius는 PC `20px`, 모바일 `34px`이고 내부 아이콘 버튼의 원형은 유지된다.
 - 빈 책장·책장 제목 옆·PC top dock·모바일 header의 로그인 진입은 기존 열쇠 아이콘이고, Google 브랜드 애셋은 개인정보 모달의 실제 로그인 버튼에만 표시된다.
 - 모든 guest 로그인 진입에서 개인정보 모달이 열리고 Firebase·Drive 처리 범위와 `Sign in with Google`이 표시된다.
 - 모달의 Google 버튼 컨테이너와 애셋은 렌더링·원본 크기가 모두 정확히 `180×40`이고 잘림 없이 완전히 표시되며, 밝은/어두운 테마에서 각각 Light/Dark 애셋을 선택한다.
@@ -309,10 +309,10 @@
 - 책장 grid 카드와 모든 modal/dialog 외곽 셸에 공통 `app-panel-radius`를 적용해 곡률을 `14px`로 통일했다. 버튼, 목록 행, 색상 원 등 내부 요소의 역할별 곡률은 유지한다.
 - 검색·필터·도서정보·책장 카드의 태그 및 메타데이터 칩에 공통 `app-tag-radius`를 적용해 곡률을 `7px`로 통일했다.
 - 책장 검색과 리더 본문 검색 모달은 Spotlight에 가까운 전용 `20px` 외곽 곡률을 사용한다.
-- 검색 모달과 리더 메뉴를 제외한 앱 요소는 `3/5/7/8/10/12px` optical radius 스케일을 사용한다. 작은 입력·선택 요소부터 큰 내부 카드까지 역할별 곡률을 유지하며, 실제 원형 아이콘과 진행 막대만 `rounded-full`을 유지한다. PC 책장 상단 메뉴바는 `16px`로 낮췄다.
+- 검색 모달과 리더 메뉴를 제외한 앱 요소는 `3/5/7/8/10/12px` optical radius 스케일을 사용한다. 작은 입력·선택 요소부터 큰 내부 카드까지 역할별 곡률을 유지하며, 실제 원형 아이콘과 진행 막대만 `rounded-full`을 유지한다. 책장 메뉴바는 별도 예외로 PC `20px`, 모바일 `34px`를 사용한다.
 - 빈 책장 안내의 밑줄 동작 문구만 `text-accent-500` 포인트 컬러로 표시하고 나머지 안내 문장은 테마 본문색을 유지한다.
 - grid 제목을 list와 동일한 `14px / sm 16px`로 낮추고 grid 진행률 지우개를 `14px`로 축소했으며, 새 기본 테마와 최초 페인트를 `Midnight`로 변경했다.
-- 책장 상·하단 dock의 바깥 곡률을 맥OS Dock에 가까운 `20px`로 통일하고 내부 원형 버튼은 보존했다.
+- 책장 dock의 바깥 곡률을 PC `20px`, 모바일 `34px`로 조정하고 내부 원형 버튼은 보존했다.
 - app, service worker, Foliate runtime cache 버전을 `1.8.32`로 맞췄다.
 
 ## 자동검증 결과
@@ -326,7 +326,7 @@
   - Midnight, 한국어 빈 책장 안내·두 밑줄 동작, 샘플 EPUB 설치·표지·열기, service worker `pc-reader-v1.8.32` 확인
   - 저장된 guest 상태가 없는 비로그인 최초 진입에서 인증 landing 없이 guest 책장 직접 진입과 guest 상태 저장 확인
   - 빈 책장 surface·아이콘·영문 제목·박스형 버튼 제거와 grid 카드 24px 곡률 확인
-  - PC top dock과 모바일 bottom dock의 3개 스타일 모두 20px 곡률이며 내부 버튼 구조가 유지되는지 확인
+  - PC top dock은 20px, 모바일 bottom dock은 34px 곡률이며 3개 스타일과 내부 버튼 구조가 유지되는지 확인
   - 기존 열쇠 아이콘 유지, 테마별 Light/Dark `Sign in with Google` 180×40 완전 표시와 하단 10px Firebase·Drive 개인정보 고지, 모달 취소 뒤 guest 책장과 scroll lock 복구 확인
   - Firebase 리디렉션 전 guest 저장값·owner·책장 view 보존과 리디렉션 시작 실패 guest 복구를 source contract로 확인
   - 샘플 첫 장 20문단·1,000자 이상, 실제 scroll flow, 기본 본문 20px, 바깥 reader surface 메뉴 호출 확인
