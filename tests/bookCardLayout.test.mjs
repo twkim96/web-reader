@@ -96,12 +96,28 @@ test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive
   assert.equal(guest.querySelector('[data-empty-shelf-action="google"]')?.textContent.trim(), 'Google 계정을 연동');
   assert.equal(guest.querySelector('[data-empty-shelf-action="sample"]')?.textContent.trim(), '샘플 도서를 추가');
   assert.equal(guest.querySelector('p')?.textContent.replace(/\s+/g, ' ').trim(), '책을 보관함에 추가하려면 Google 계정을 연동하거나 샘플 도서를 추가해주세요.');
+  assert.deepEqual(
+    [...guest.querySelectorAll('[data-empty-shelf-copy-line]')].map((line) => [
+      line.getAttribute('data-empty-shelf-copy-line'),
+      line.textContent.replace(/\s+/g, ' ').trim(),
+    ]),
+    [
+      ['first', '책을 보관함에 추가하려면 Google 계정을 연동'],
+      ['second', '하거나 샘플 도서를 추가해주세요'],
+    ],
+  );
   assert.equal(guest.querySelector('[data-empty-shelf-action="import"]'), null);
 
   const firebaseOnly = renderEmptyState({ isGuest: false, isOfflineMode: true });
   assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="cloud"]')?.textContent.trim(), '드라이브에 로그인');
   assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="import"]')?.textContent.trim(), '파일을 로컬에 업로드');
   assert.equal(firebaseOnly.querySelector('p')?.textContent.replace(/\s+/g, ' ').trim(), '책을 보관함에 추가하려면 드라이브에 로그인하거나 파일을 로컬에 업로드해주세요.');
+  assert.deepEqual(
+    [...firebaseOnly.querySelectorAll('[data-empty-shelf-copy-line]')].map((line) => (
+      line.getAttribute('data-empty-shelf-copy-line')
+    )),
+    ['first', 'second'],
+  );
   assert.equal(firebaseOnly.querySelector('[data-empty-shelf-action="sample"]'), null);
 
   const drive = renderEmptyState({ isGuest: false, isOfflineMode: false });
@@ -110,12 +126,12 @@ test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive
   assert.equal(drive.querySelector('p')?.textContent.replace(/\s+/g, ' ').trim(), '책을 보관함에 추가하려면 파일을 드라이브에 업로드해주세요.');
   assert.equal(driveUpload?.tagName, 'BUTTON');
   assert.equal(driveUpload?.getAttribute('type'), 'button');
+  assert.equal(drive.querySelector('[data-empty-shelf-copy-line]'), null);
   assert.equal(drive.querySelector('[data-empty-shelf-action="sample"]'), null);
 
   for (const document of [guest, firebaseOnly, drive]) {
     const panel = document.querySelector('[data-empty-shelf-panel="true"]');
     assert.equal(panel?.querySelector('svg'), null);
-    assert.match(panel?.querySelector('p')?.className ?? '', /md:whitespace-nowrap/);
     assert.doesNotMatch(panel?.textContent ?? '', /LIBRARY EMPTY|REFRESH LIBRARY|OPEN GOOGLE DRIVE/);
   }
 });

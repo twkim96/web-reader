@@ -480,12 +480,15 @@ export default function Page() {
     setPendingAction(null);
 
     if (action === 'logout') {
+      const logoutOwner = ownerRuntime.capture();
       await runLogoutFlow({
         prepareUi: () => {
           // Mark the upcoming anonymous auth state as a guest transition before
-          // Firebase emits it. The auth bootstrap owns the single library reset
-          // and restore, so logout cannot race a second manual guest restore.
+          // Firebase emits it. Invalidate the authenticated owner first so every
+          // Firestore listener and outbox worker observes a stale owner before
+          // Firebase drops its credential and cannot pause work as permission-denied.
           setActiveBook(null);
+          ownerRuntime.clear();
           isGuestRef.current = true;
           localStorage.setItem('isGuest', 'true');
         },
@@ -494,8 +497,13 @@ export default function Page() {
           if (driveCacheKey) invalidateDriveCache(driveCacheKey);
           clearToken();
           clearLastReaderSession();
+          // iOS standalone/Chrome WebView can retain Firebase redirect history
+          // after sign-out. Re-enter through the canonical root so the next
+          // document always boots directly into the remembered guest shelf.
+          window.location.replace(`${window.location.origin}/`);
         },
         recoverUi: (error) => {
+          if (logoutOwner) ownerRuntime.activate(logoutOwner.ownerKey);
           isGuestRef.current = false;
           localStorage.removeItem('isGuest');
           setIsGuest(false);

@@ -52,38 +52,52 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       ) : (
         <div className="max-w-[min(90vw,48rem)] space-y-2 opacity-65">
           <h3 data-empty-shelf-heading="true" className="text-lg font-bold">보관함이 비어있음.</h3>
-          <p className="text-sm font-medium leading-relaxed md:whitespace-nowrap">
-            책을 보관함에 추가하려면{' '}
+          <p className="text-sm font-medium leading-relaxed">
             {isGuest ? (
               <>
-                <button type="button" onClick={onLogin} data-empty-shelf-action="google" className={linkClass}>
-                  Google 계정을 연동
-                </button>하거나{' '}
-                <button
-                  type="button"
-                  onClick={onAddSampleBook}
-                  disabled={isAddingSampleBook}
-                  data-empty-shelf-action="sample"
-                  className={linkClass}
-                >
-                  샘플 도서를 추가
-                </button>해주세요
+                <span data-empty-shelf-copy-line="first" className="block whitespace-nowrap">
+                  책을 보관함에 추가하려면{' '}
+                  <button type="button" onClick={onLogin} data-empty-shelf-action="google" className={linkClass}>
+                    Google 계정을 연동
+                  </button>
+                </span>
+                <span data-empty-shelf-copy-line="second" className="block whitespace-nowrap">
+                  하거나{' '}
+                  <button
+                    type="button"
+                    onClick={onAddSampleBook}
+                    disabled={isAddingSampleBook}
+                    data-empty-shelf-action="sample"
+                    className={linkClass}
+                  >
+                    샘플 도서를 추가
+                  </button>해주세요
+                </span>
               </>
             ) : isOfflineMode ? (
               <>
-                <button type="button" onClick={onToggleCloud} data-empty-shelf-action="cloud" className={linkClass}>
-                  드라이브에 로그인
-                </button>하거나{' '}
-                <button type="button" onClick={onShowImportConfirm} data-empty-shelf-action="import" className={linkClass}>
-                  파일을 로컬에 업로드
-                </button>해주세요
+                <span data-empty-shelf-copy-line="first" className="block whitespace-nowrap">
+                  책을 보관함에 추가하려면{' '}
+                  <button type="button" onClick={onToggleCloud} data-empty-shelf-action="cloud" className={linkClass}>
+                    드라이브에 로그인
+                  </button>
+                </span>
+                <span data-empty-shelf-copy-line="second" className="block whitespace-nowrap">
+                  하거나{' '}
+                  <button type="button" onClick={onShowImportConfirm} data-empty-shelf-action="import" className={linkClass}>
+                    파일을 로컬에 업로드
+                  </button>해주세요
+                </span>
               </>
             ) : (
-              <button type="button" onClick={onShowImportConfirm} data-empty-shelf-action="drive" className={linkClass}>
-                파일을 드라이브에 업로드
-              </button>
+              <>
+                책을 보관함에 추가하려면{' '}
+                <button type="button" onClick={onShowImportConfirm} data-empty-shelf-action="drive" className={linkClass}>
+                  파일을 드라이브에 업로드
+                </button>해주세요
+              </>
             )}
-            {!isGuest && !isOfflineMode && '해주세요'}.
+            .
           </p>
           {isGuest && sampleBookFeedback && (
             <p role="status" className="pt-2 text-xs font-bold opacity-80">

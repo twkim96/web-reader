@@ -168,6 +168,31 @@ test('late response after owner switch cannot acknowledge the old owner', async 
   assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'in_flight');
 });
 
+test('permission error after logout invalidation cannot pause the old owner event', async () => {
+  await seed();
+  const owner = ownerRuntime.activate(ownerA);
+  let pauseCalls = 0;
+  const worker = new ProgressSyncWorker(
+    owner,
+    'tab-a',
+    async () => {
+      ownerRuntime.clear();
+      throw Object.assign(new Error('signed out'), { code: 'permission-denied' });
+    },
+    {
+      now: () => clockNow,
+      async pause() {
+        pauseCalls += 1;
+        return true;
+      },
+    },
+  );
+
+  assert.equal(await worker.flushOne(10), 'stale_owner');
+  assert.equal(pauseCalls, 0);
+  assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'in_flight');
+});
+
 test('same worker recovers an in-flight event after its lease expires during transport', async () => {
   await seed();
   const owner = ownerRuntime.activate(ownerA);

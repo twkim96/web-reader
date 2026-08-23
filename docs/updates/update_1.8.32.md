@@ -298,12 +298,14 @@
 - 로그인 모달 헤더의 설명 문구를 제거해 아이콘과 제목만 남겼다.
 - Firebase 로그인 뒤 Drive 연결에도 개인정보 모달을 추가하고, Drive 권한·저장 범위 고지를 확인한 뒤에만 OAuth를 시작하도록 했다.
 - 빈 책장 안내를 guest, Firebase-only, Drive 연결의 세 상태로 나눠 각 상태에 가능한 밑줄 동작만 표시하고 기존 cloud 빈 책장 패널·아이콘·영문 버튼을 제거했다.
-- 빈 책장 제목과 설명을 별도 줄로 고정하고 밑줄 범위를 동사 어간까지로 줄였다: guest는 `Google 계정을 연동`·`샘플 도서를 추가`, Firebase-only는 `드라이브에 로그인`·`파일을 로컬에 업로드`, Drive 연결은 `파일을 드라이브에 업로드`만 동작한다.
+- 빈 책장 guest·Firebase-only 설명은 첫 줄을 `책을 보관함에 추가하려면 …연동/로그인`, 둘째 줄을 `하거나 …추가해주세요`로 중앙 정렬해 화면 폭과 무관하게 정확히 두 줄로 고정했다. Drive 연결 설명만 한 줄을 유지한다. 밑줄 범위는 guest의 `Google 계정을 연동`·`샘플 도서를 추가`, Firebase-only의 `드라이브에 로그인`·`파일을 로컬에 업로드`, Drive 연결의 `파일을 드라이브에 업로드`만 해당한다.
 - Drive 연결 상태의 `파일을 드라이브에 업로드`도 외부 Drive 페이지를 열지 않고 기존 도서 추가 모달을 열어 앱의 업로드 흐름을 그대로 사용한다.
 - Firebase 로그인과 Drive 연결 모달 모두 테마 휘도에 맞는 공식 `Sign in with Google` 애셋을 사용한다. Dark 애셋의 손상된 base64 한 글자를 원본으로 교정하고 Light/Dark SHA-256 계약 검증을 추가했다.
 - 실제 Firebase 리디렉션 전 guest owner 삭제와 `loading` 전환을 제거해 Google 로그인 취소 뒤 무한 로딩을 막았다.
 - 로그인 후 로그아웃 시 Firebase 인증 콜백과 수동 guest 전환이 겹치던 경합을 제거하고, 로그인 전 완료된 guest 복원 Promise도 인증 사용자 확인 시 폐기해 현재 guest 책장을 새로 복원하도록 했다.
 - 로그아웃 준비 단계에서 책장을 `loading` 화면으로 언마운트하지 않고 같은 앱 화면에서 Firebase 인증 콜백이 guest 소유자로 교체하게 해 standalone 브라우저의 로드 오류 화면 전환을 방지했다.
+- 실기기에서 오류가 계속되어 Firebase 로그아웃 성공 뒤 canonical root `/`를 `location.replace`하도록 보강했다. 로그인 redirect와 PWA history를 폐기하고 저장된 guest 상태로 새 문서를 부팅하므로 WebView의 `This page couldn't load` history 재진입을 피한다.
+- 로그아웃 직전에 authenticated owner를 먼저 invalidate해 진행률·책갈피·주석·통계 Firestore listener와 outbox worker를 동기적으로 폐기한다. Firebase credential이 사라진 뒤 남은 작업이 `permission-denied`로 정지되는 경합과 그에 따른 권한 경고를 막는다.
 - grid 제목을 list와 동일한 `14px / sm 16px`로 낮추고 grid 진행률 지우개를 `14px`로 축소했으며, 새 기본 테마와 최초 페인트를 `Midnight`로 변경했다.
 - 책장 상·하단 dock의 바깥 곡률을 맥OS Dock에 가까운 `20px`로 통일하고 내부 원형 버튼은 보존했다.
 - app, service worker, Foliate runtime cache 버전을 `1.8.32`로 맞췄다.
