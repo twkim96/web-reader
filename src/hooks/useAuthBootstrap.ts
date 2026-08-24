@@ -37,6 +37,7 @@ export const useAuthBootstrap = ({
 
   useEffect(() => {
     let isActive = true;
+    let initialAuthSettled = false;
     let authGeneration = 0;
     let guestRestore: Promise<boolean> | null = null;
     setIsLibraryBootstrapReady(false);
@@ -71,7 +72,14 @@ export const useAuthBootstrap = ({
     // external Firebase callback; that callback may arrive late or not at all.
     if (isGuestRef.current) activateGuest(++authGeneration);
 
+    const authFallbackTimer = window.setTimeout(() => {
+      if (!isActive || initialAuthSettled || isGuestRef.current || auth.currentUser) return;
+      enterGuestLibrary(++authGeneration);
+    }, 3_000);
+
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      initialAuthSettled = true;
+      window.clearTimeout(authFallbackTimer);
       setIsAuthenticatedLibraryReady(false);
       setIsLibraryBootstrapReady(false);
       const callbackGeneration = ++authGeneration;
@@ -113,6 +121,7 @@ export const useAuthBootstrap = ({
 
     return () => {
       isActive = false;
+      window.clearTimeout(authFallbackTimer);
       unsubscribeAuth();
     };
   }, [

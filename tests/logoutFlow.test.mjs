@@ -69,4 +69,7 @@ test('lets the Firebase auth callback perform exactly one guest-library transiti
   assert.match(recovery, /localStorage\.removeItem\('isGuest'\)/);
   assert.match(authBootstrap, /if \(firebaseUser\) \{\s+\/\/[^\n]+\n\s+\/\/[^\n]+\n\s+guestRestore = null;/);
   assert.match(authBootstrap, /else if \(isGuestRef\.current\) \{\s+setIsGuest\(true\);\s+activateGuest/);
+  assert.match(authBootstrap, /if \(!isActive \|\| initialAuthSettled \|\| isGuestRef\.current \|\| auth\.currentUser\) return;/);
+  assert.match(authBootstrap, /enterGuestLibrary\(\+\+authGeneration\);/);
+  assert.match(authBootstrap, /window\.clearTimeout\(authFallbackTimer\)/);
 });

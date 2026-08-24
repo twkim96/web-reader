@@ -85,10 +85,10 @@ export const buildOnDemandMetadata = (
         remoteId: result.remoteId,
         remoteTitle: result.remoteTitle,
         url: result.url,
-        coverUrl: result.coverUrl,
-        genre: result.genre,
-        tags: result.tags,
-        sourceCount: result.sourceCount,
+        coverUrl: result.coverUrl ?? null,
+        genre: result.genre ?? null,
+        tags: result.tags ?? null,
+        sourceCount: result.sourceCount ?? null,
       }]
       : []
   ));

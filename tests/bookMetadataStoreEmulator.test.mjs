@@ -51,6 +51,7 @@ test('one of ten concurrent requests owns the alias lease and replay uses the ca
     platform: 'kakao', status: 'ok', remoteId: '123', remoteTitle: '테스트 작품',
     url: 'https://page.kakao.com/content/123', genre: '현대판타지', tags: ['성장', '회귀'], sourceCount: 1234,
   }], 1_000_100);
+  assert.equal(document.platforms[0].coverUrl, null);
   const generation = await saveMetadataAndPublish(db, document, acquired[0].owner);
   assert.match(generation, /^[0-9a-f]{20}$/);
 
