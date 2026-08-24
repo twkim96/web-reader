@@ -900,7 +900,9 @@ test('paginator waits for pagination and returns to the calculated last page acr
   expect(result.endRect!.left).toBeLessThanOrEqual(result.end - result.size);
   expect(result.latestRelocation?.index).toBe(0);
   expect(result.latestRelocation?.text).toContain('PREVIOUS-CHAPTER-END');
-  expect(result.relocations?.every(({ index }) => index === 0)).toBe(true);
+  const firstPreviousRelocation = result.relocations.findIndex(({ index }) => index === 0);
+  expect(firstPreviousRelocation).toBeGreaterThanOrEqual(0);
+  expect(result.relocations.slice(firstPreviousRelocation).every(({ index }) => index === 0)).toBe(true);
 });
 
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {

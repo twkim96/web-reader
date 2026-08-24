@@ -113,8 +113,9 @@
 - 입력 정책 집중 회귀: 통과 — tap/8px 이동 분리, Ctrl+wheel, single-touch identifier·시작/종료 경계·cancel 계약 포함
 - Firestore Admin 저장 시 크롤러가 제공하지 않은 `coverUrl`·장르·태그·권수 필드는 `undefined` 대신 스키마가 허용하는 `null`로 정규화한다.
 - Firebase 최초 인증 콜백이 오지 않고 확인된 사용자도 없으면 3초 뒤 로컬 게스트 책장을 복원한다. 늦게 도착한 실제 인증 콜백은 기존 owner generation 전환으로 다시 수렴한다.
-- CI와 같은 Firebase 가짜 설정의 production browser에서도 게스트 책장 bootstrap까지 통과했으며, 이후 기존 PNG clipboard proof 대기에서 중단되는 현재 headless 한계를 재확인했다.
-- production browser 장거리 회귀는 기존 독서 인증 PNG clipboard 대기와 TXT selection fixture 로더의 headless 불안정으로 이번 보정분 끝까지 재완주하지 못했다. 위의 기존 1.8.33 출시 회귀 통과 기록은 유지하되, 이번 변경의 실브라우저 확인은 iPad Safari/PWA 검증과 함께 다시 수행한다.
+- GitHub Actions `browser-regression`은 Firebase 가짜 설정의 게스트 책장 bootstrap부터 PNG clipboard·TXT 선택을 포함한 production browser 장거리 회귀까지 통과했다.
+- WebKit 장 경계 회귀는 이전 장 relocation이 시작된 뒤 현재 장으로 되돌아오는지만 검사해, 전환 직전의 정상적인 outgoing relocation을 실패로 오인하지 않는다.
+- 위 WebKit 장 경계 회귀는 동일 조건 5회 반복에서도 모두 통과했다.
 
 ## 실기기 검증 상태
 
