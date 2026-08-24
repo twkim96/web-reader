@@ -39,6 +39,7 @@ export const AnnotationNoteDialog: React.FC<AnnotationNoteDialogProps> = ({
 
   return (
     <ReaderModalFrame
+      ariaLabel="주석 메모"
       theme={theme}
       onClose={onClose}
       placement="center"

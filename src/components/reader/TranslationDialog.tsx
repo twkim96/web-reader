@@ -103,6 +103,7 @@ export const TranslationDialog = ({
 
   return (
     <ReaderModalFrame
+      ariaLabel="번역"
       theme={theme}
       onClose={onClose}
       placement="center"

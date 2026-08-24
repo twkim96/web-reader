@@ -25,7 +25,7 @@ export const JumpDialog: React.FC<JumpDialogProps> = ({
   onSubmit,
   onClose,
 }) => (
-  <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" className="p-6" zIndex="z-[120]">
+  <ReaderModalFrame ariaLabel="진행률 이동" theme={theme} onClose={onClose} maxWidth="max-w-md" className="p-6" zIndex="z-[120]">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-bold text-lg">위치로 이동</h3>
         <button onClick={onClose} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors">

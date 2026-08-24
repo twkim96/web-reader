@@ -27,7 +27,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
   const allChapters = flattenToc(toc);
 
   return (
-    <ReaderModalFrame theme={theme} onClose={onClose} maxWidth="max-w-md" placement="high" className="flex flex-col max-h-[min(30rem,72vh)] sm:max-h-[32rem]">
+    <ReaderModalFrame ariaLabel="목차" theme={theme} onClose={onClose} maxWidth="max-w-md" placement="high" className="flex flex-col max-h-[min(30rem,72vh)] sm:max-h-[32rem]">
         {/* Header */}
         <div className={`flex items-center justify-between p-5 border-b ${theme.border}`}>
           <div className="flex items-center gap-3">

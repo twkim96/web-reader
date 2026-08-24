@@ -61,10 +61,10 @@ export const useFoliateView = ({
 
     view.addEventListener('load', ((event: CustomEvent<{ doc?: Document; index?: number }>) => {
       const { doc, index } = event.detail || {};
+      onLoad?.(doc, index);
       if (doc) {
         installScrollBoundaryNavigation(viewRef, doc);
       }
-      onLoad?.(doc, index);
     }) as EventListener);
 
     containerRef.current.appendChild(view);

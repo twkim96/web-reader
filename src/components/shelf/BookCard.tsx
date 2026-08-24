@@ -85,6 +85,7 @@ export const BookCard: React.FC<BookCardProps> = ({
   };
 
   const percent = progress?.progressPercent || 0;
+  const displayBookTitle = getDisplayBookTitle(book.name);
   const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
   const fixedListTagCount = (isDownloaded ? 1 : 0) + (catalog?.genreLabel ? 1 : 0);
   const maxListRawTagCount = Math.max(0, 10 - fixedListTagCount);
@@ -260,6 +261,8 @@ export const BookCard: React.FC<BookCardProps> = ({
     longPressStartRef.current = null;
   }, []);
 
+  useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
+
   const startLongPress = useCallback((event: React.PointerEvent) => {
     if (!onRequestBookInfo || (event.pointerType === 'mouse' && event.button !== 0)) return;
     clearLongPressTimer();
@@ -293,6 +296,13 @@ export const BookCard: React.FC<BookCardProps> = ({
     onOpen(book);
   }, [book, onOpen]);
 
+  const handleCardKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    handleCardClick();
+  }, [handleCardClick]);
+
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     if (!onRequestBookInfo) return;
     event.preventDefault();
@@ -304,14 +314,18 @@ export const BookCard: React.FC<BookCardProps> = ({
       <div 
         data-shelf-book-card="true"
         data-shelf-book-id={book.id}
+        role="button"
+        tabIndex={0}
+        aria-label={`${displayBookTitle} 열기`}
         onClick={handleCardClick}
+        onKeyDown={handleCardKeyDown}
         onContextMenu={handleContextMenu}
         onPointerDown={startLongPress}
         onPointerMove={handlePointerMove}
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
+        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
       >
         <div
           data-shelf-book-cover-frame="true"
@@ -407,14 +421,18 @@ export const BookCard: React.FC<BookCardProps> = ({
     <div 
       data-shelf-book-card="true"
       data-shelf-book-id={book.id}
+      role="button"
+      tabIndex={0}
+      aria-label={`${displayBookTitle} 열기`}
       onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
       onContextMenu={handleContextMenu}
       onPointerDown={startLongPress}
       onPointerMove={handlePointerMove}
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`app-panel-radius group relative flex select-none flex-col ${theme.secondary} border ${theme.border} p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden`}
+      className={`app-panel-radius group relative flex select-none flex-col ${theme.secondary} border ${theme.border} p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500`}
     >
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <div data-shelf-grid-cover-content="true" className="flex min-h-0 flex-col">

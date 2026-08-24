@@ -320,7 +320,9 @@ export const Shelf: React.FC<ShelfProps> = ({
   }, [isDeletingBook, selectedBookInfo, showFilter, showManage, showSearch]);
 
   useEffect(() => {
-    window.history.pushState({ panel: 'shelf' }, '', '');
+    if (window.history.state?.panel !== 'shelf') {
+      window.history.pushState({ panel: 'shelf' }, '', '');
+    }
     const handlePopState = () => {
       const {
         showManage,

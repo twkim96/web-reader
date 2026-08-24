@@ -435,6 +435,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     hasSelectionRef,
     onWheel: (event) => wheelNavigationRef.current(event),
     onKeyDown: (event) => keyboardNavigationRef.current(event),
+    markUserInteraction,
     markUserProgressChange,
   });
 
@@ -708,6 +709,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     beginSliderMove,
     previewSliderMove,
     commitSliderMove,
+    cancelSliderPreview,
     cancelSliderMove,
     confirmSliderMove,
   } = useReaderProgressSlider({
@@ -1250,6 +1252,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
     const handleWheelNavigation = (event: WheelEvent | React.WheelEvent) => {
       if (event.ctrlKey) {
+        if (effectiveNavMode === 'scroll') return;
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -1750,6 +1753,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onProgressSliderStart={beginSliderMove}
         onProgressSliderPreview={previewSliderMove}
         onProgressSliderCommit={commitSliderMove}
+        onProgressSliderCancel={cancelSliderPreview}
       />
 
       {showBookInfo && (

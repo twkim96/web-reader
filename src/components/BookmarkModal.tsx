@@ -75,6 +75,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
 
   return (
     <ReaderModalFrame
+      ariaLabel="책갈피와 주석"
       theme={theme}
       onClose={onClose}
       maxWidth="max-w-[21.25rem]"

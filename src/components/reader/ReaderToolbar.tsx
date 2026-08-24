@@ -55,6 +55,7 @@ interface ReaderToolbarProps {
   onProgressSliderStart: () => void;
   onProgressSliderPreview: (progressPercent: number) => void;
   onProgressSliderCommit: () => void;
+  onProgressSliderCancel: () => void;
 }
 
 const getSafePercent = (progress: number) => {
@@ -110,6 +111,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   onProgressSliderStart,
   onProgressSliderPreview,
   onProgressSliderCommit,
+  onProgressSliderCancel,
 }) => {
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
@@ -129,7 +131,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       ? 'calc(env(safe-area-inset-right) + 1rem)'
       : `max(calc(env(safe-area-inset-right) + 1rem), ${READER_GAP_PERCENT}vw, calc((100vw - ${readerTextMaxInlineSize}px) / 2 + ${readerTextEdgeGapAtMaxWidth}px))`,
   };
-  const titleRightLimitRef = React.useRef<HTMLDivElement>(null);
+  const titleRightLimitRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const activeProgressPointerIdRef = React.useRef<number | null>(null);
   const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
@@ -175,6 +177,18 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     onProgressSliderCommit();
   }, [onProgressSliderCommit, previewProgressPointer]);
 
+  const cancelProgressPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activeProgressPointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    activeProgressPointerIdRef.current = null;
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {}
+    onProgressSliderCancel();
+  }, [onProgressSliderCancel]);
+
   const updateTitleLayout = React.useCallback(() => {
     if (typeof window === 'undefined') return;
 
@@ -199,12 +213,20 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   React.useLayoutEffect(() => {
     const frameId = window.requestAnimationFrame(updateTitleLayout);
     return () => window.cancelAnimationFrame(frameId);
-  }, [title, updateTitleLayout]);
+  }, [isFixedLayout, isLandscape, landscapeTwoPage, menuStyle, title, updateTitleLayout]);
 
   React.useEffect(() => {
     window.addEventListener('resize', updateTitleLayout);
     void document.fonts?.ready.then(updateTitleLayout);
-    return () => window.removeEventListener('resize', updateTitleLayout);
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updateTitleLayout);
+    if (titleRightLimitRef.current) observer?.observe(titleRightLimitRef.current);
+    if (titleMeasureRef.current) observer?.observe(titleMeasureRef.current);
+    return () => {
+      window.removeEventListener('resize', updateTitleLayout);
+      observer?.disconnect();
+    };
   }, [updateTitleLayout]);
 
   React.useLayoutEffect(() => {
@@ -220,17 +242,13 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   return (
     <>
       <nav data-reader-menu-style={menuStyle} className={`app-radius-exempt fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
-        <div
-          ref={titleRightLimitRef}
-          aria-hidden="true"
-          data-reader-title-right-limit="true"
-          className="pointer-events-none invisible absolute right-[calc(env(safe-area-inset-right)+12px)] h-11 w-11"
-        />
         <button
+          ref={titleRightLimitRef}
           type="button"
           onClick={onBack}
           aria-label="Close reader"
           data-reader-close-button="true"
+          data-reader-title-right-limit="true"
           className={`pointer-events-auto absolute top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 sm:top-[calc(env(safe-area-inset-top)+15px)]`}
           style={{ ...surfaceStyle, right: menuPositionStyle.right }}
         >
@@ -245,7 +263,12 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             {title}
           </span>
         </div>
-        <div className={`flex min-w-0 ${usesRightTitleLayout ? 'justify-end pl-2 pr-[calc(env(safe-area-inset-right)+3.875rem)] sm:pl-3 sm:pr-[calc(env(safe-area-inset-right)+3.875rem)]' : 'justify-center px-3'}`}>
+        <div
+          className={`flex min-w-0 ${usesRightTitleLayout ? 'justify-end pl-2 sm:pl-3' : 'justify-center px-3'}`}
+          style={usesRightTitleLayout
+            ? { paddingRight: `calc(${String(menuPositionStyle.right)} + 3.875rem)` }
+            : undefined}
+        >
           <div
             data-reader-title-surface="true"
             className={`pointer-events-auto relative rounded-2xl border ${theme.border} ${surfaceClass} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
@@ -321,7 +344,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           </div>
 
           <div
-            className={`relative h-[2.8875rem] overflow-hidden rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] md:h-[3.17625rem]`}
+            className={`relative h-[2.8875rem] overflow-hidden rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] focus-within:ring-2 focus-within:ring-accent-500/70 md:h-[3.17625rem]`}
             style={surfaceStyle}
           >
             <div
@@ -353,8 +376,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               onPointerDown={handleProgressPointerDown}
               onPointerMove={handleProgressPointerMove}
               onPointerUp={(event) => finishProgressPointer(event, true)}
-              onPointerCancel={(event) => finishProgressPointer(event, false)}
-              onLostPointerCapture={(event) => finishProgressPointer(event, false)}
+              onPointerCancel={cancelProgressPointer}
+              onLostPointerCapture={cancelProgressPointer}
               onContextMenu={(event) => event.preventDefault()}
               className="absolute inset-y-0 left-0 right-[2.8875rem] z-[5] cursor-pointer touch-none select-none [-webkit-touch-callout:none] md:right-[3.17625rem]"
             />

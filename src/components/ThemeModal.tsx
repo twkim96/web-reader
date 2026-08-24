@@ -121,6 +121,8 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       key={key}
       type="button"
       data-theme-option={key}
+      aria-label={`${label} 테마`}
+      aria-pressed={settings.theme === key}
       onClick={() => handleThemeClick(key)}
       className={`
         relative h-20 min-w-0 p-4 rounded-2xl border-2 text-left transition-all active:scale-95
@@ -144,6 +146,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
     return (
       <ReaderModalFrame
+        ariaLabel={mode === 'create' ? '커스텀 테마 추가' : '커스텀 테마 편집'}
         noBlur
         placement="center"
         theme={theme}
@@ -238,6 +241,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   if (mode === 'edit-select') {
     return (
       <ReaderModalFrame
+        ariaLabel="편집할 테마 선택"
         noBlur
         placement="center"
         theme={theme}
@@ -274,6 +278,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
   return (
     <ReaderModalFrame
+      ariaLabel="테마 설정"
       noBlur
       placement="center"
       theme={theme}

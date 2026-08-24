@@ -207,14 +207,14 @@
 - 내장 테마와 커스텀 테마의 기존 순서·2열 카드 크기는 유지하되, 상단 테마 목록은 80px 카드 3행인 최대 6개까지만 한 번에 표시한다.
 - 7번째 테마부터는 상단 테마 목록만 세로 스크롤되며 메뉴 스타일·Point Color 영역과 모달 위치는 그 스크롤을 따라 움직이지 않는다.
 - 리더 종료 X의 오른쪽 끝은 본문 텍스트와 하단 메뉴가 공유하는 오른쪽 inset 계산값에 맞춘다.
-- 제목은 기존 화면 중앙/우측 전환 계산과 기존 오른쪽 12px 기준선을 그대로 사용해 X 이동의 영향을 받지 않는다.
+- 제목은 화면 중앙 배치를 우선하되 실제 X 버튼의 왼쪽 경계를 충돌 한계로 사용해 본문 inset이 넓어져도 겹치지 않는다.
 
 ### Phase 11 완료 조건
 
 - 내장 4개와 커스텀 8개를 넣었을 때 최초 표시 항목이 위에서부터 정확히 6개이고, 스크롤 후 마지막 커스텀 테마까지 보인다.
 - 테마 목록의 client height는 264px이며 목록 scrollTop만 변하고 모달 top·scrollTop은 변하지 않는다.
 - PC에서 리더 종료 X와 하단 메뉴의 오른쪽 끝 차이가 1px 이하다.
-- 제목 위치 계산용 기준선은 기존처럼 화면 오른쪽에서 12px이며 기존 title layout 테스트가 통과한다.
+- 제목 위치 계산용 기준선은 실제 X 버튼과 일치하며 넓은 화면·2페이지 모드에서도 기존 title layout 테스트가 통과한다.
 
 ## Phase 12 — 책장 직접 진입·책장 surface 곡률·Google 로그인 브랜딩
 
@@ -249,6 +249,36 @@
 - Firebase 리디렉션 호출 전에는 guest 저장값·owner·책장 view를 유지하고, 리디렉션 시작 실패는 guest 책장 복구 경로로 들어간다.
 - 로그인 후 로그아웃하면 인증 콜백이 guest 상태와 로컬 책장을 한 번만 복원하며 브라우저 오류 페이지나 중복 owner 초기화가 발생하지 않는다.
 - grid 도서 제목은 list와 같은 `14px / sm 16px`이며, grid 진행률 삭제 지우개는 `14px`다.
+
+## Phase 13 — 대규모 리뷰 후 UI·입력 경계 마감
+
+상태: 리뷰 안정화 구현·자동검증 완료, 실기기 확인 대기
+
+- 리더 위에 독서 통계·인증·확인·설치·LocalDB lifecycle 모달이 열리면 전역 `interactionBlocked`로 키보드·본문 이동을 막는다.
+- `hideCancel` 확인창은 취소 버튼뿐 아니라 backdrop·Escape 취소도 비활성화하고, 일반 확인창과 공용 reader modal은 pointer-origin backdrop, dialog semantics, focus 진입·순환·복원을 사용한다.
+- 리더 X는 이미 `history.back()`을 사용하므로 유지하고, 책장 재마운트 때 현재 shelf sentinel이 있으면 중복 history entry를 추가하지 않는다.
+- 리더 제목 충돌은 실제 X 버튼 위치를 관찰하고 우측 정렬 padding도 동일한 본문 inset을 사용한다.
+- 진행률 slider의 `pointercancel`·lost capture는 미리보기만 취소하며 이동 확인창을 열지 않고, 숨은 range의 keyboard focus는 바깥 track ring으로 표시한다.
+- 책장 표지는 `bookId + fingerprint + cover revision`이 같은 object URL을 재사용하고 바뀐 책만 IndexedDB에서 다시 읽는다. 한 항목 실패는 나머지 표지를 막지 않으며 이전 URL은 새 DOM commit 뒤 해제한다.
+- 책 카드는 Enter·Space로 열 수 있고 long-press timer를 unmount 때 정리한다. 테마 카드는 `aria-pressed`·이름을 제공한다.
+- 빈 책장 동작 링크는 부모 opacity에서 분리해 포인트색 대비를 유지하고, 모바일에서는 자연스러운 줄바꿈을 허용하되 넓은 화면의 의도한 2줄/1줄 배치는 유지한다.
+
+### 리뷰 판정과 보류 범위
+
+- P1의 X 버튼 직접 `setView` 지적은 현재 코드와 달랐다. X는 이미 `history.back()`이므로 유지하고 반복 진입 때 실제로 누적되던 shelf sentinel만 최소 수정했다.
+- Page 전체 history state machine 교체는 현재 hotfix로 재현 결함이 사라지므로 1.8.32 범위에서 수행하지 않았다.
+- 공용 reader/confirm frame의 dialog·focus·Escape·pointer-origin 계약은 보강했다. 별도 `ModalLayerProvider`, background `inert`, modal/notification stack 통합은 타당한 후속 아키텍처지만 독립 설계·전 모달 이관이 필요한 작업이라 이번 릴리스 게이트에서는 보류한다.
+- 책 카드의 keyboard 진입과 timer 정리는 반영했다. 카드 본문과 보조 삭제 동작을 완전히 분리하는 `article + open button` 구조 변경은 시각·포인터 계약 영향이 커 후속 접근성 리팩터링으로 남긴다.
+
+### Phase 13 완료 조건
+
+- 독서 통계 위에서 Arrow·Space를 눌러도 reader 위치와 진행률이 바뀌지 않는다.
+- `hideCancel` 안내는 backdrop·Escape로 닫히지 않으며 일반 dialog는 동일 pointer에서 시작·종료한 backdrop gesture만 닫힌다.
+- `shelf → reader → X` 반복 뒤 shelf sentinel이 누적되지 않는다.
+- 2560px·2페이지 레이아웃에서 긴 제목이 실제 X 버튼과 겹치지 않는다.
+- slider pointer 취소 뒤 이동 확인창이 뜨지 않고 keyboard focus ring이 보인다.
+- grid/list 전환이나 progress 한 건 변경만으로 기존 표지 object URL이 재생성되지 않는다.
+- keyboard만으로 책 카드를 열고 테마 선택 상태를 확인할 수 있다.
 
 ## 자동검증 계획
 
@@ -291,14 +321,14 @@
 - PC 리더 종료 버튼의 위치를 제목 메뉴 중심선에 맞춰 상단 두 컨트롤이 같은 텍스트 라인에 보이게 했다.
 - 테마 설정을 책갈피·리더 설정과 같은 중앙 배치와 82dvh 내부 스크롤 패널로 바꿔 모달 상자 전체가 스크롤을 따라 움직이지 않게 했다.
 - 상단 테마 목록을 2열 3행·최대 6개 높이의 독립 스크롤 영역으로 제한해 커스텀 테마가 늘어도 아래 설정과 창 크기가 밀리지 않게 했다.
-- 리더 종료 X는 하단 메뉴와 같은 본문 우측 inset에 맞추고, 제목 계산에는 기존 12px 기준선을 별도로 보존했다.
+- 리더 종료 X는 하단 메뉴와 같은 본문 우측 inset에 맞추고, 제목 계산도 실제 X 버튼의 왼쪽 경계를 공유하도록 보정했다.
 - 비로그인 최초 진입과 로그아웃 뒤에는 별도 인증 landing 대신 로컬 guest 책장을 바로 열도록 인증 bootstrap을 단순화했다.
 - 빈 책장 패널·아이콘·영문 제목·박스형 버튼을 제거하고 두 밑줄 동작이 있는 한국어 안내문으로 교체했으며 grid 카드 곡률은 24px로 유지했다.
 - 책장 로그인 진입은 기존 열쇠 아이콘으로 유지하고, 사전 안내 모달의 실제 로그인 동작에만 테마 휘도 기반 Google 공식 Light/Dark `180×40` 버튼 애셋을 적용했다.
 - 로그인 모달 헤더의 설명 문구를 제거해 아이콘과 제목만 남겼다.
 - Firebase 로그인 뒤 Drive 연결에도 개인정보 모달을 추가하고, Drive 권한·저장 범위 고지를 확인한 뒤에만 OAuth를 시작하도록 했다.
 - 빈 책장 안내를 guest, Firebase-only, Drive 연결의 세 상태로 나눠 각 상태에 가능한 밑줄 동작만 표시하고 기존 cloud 빈 책장 패널·아이콘·영문 버튼을 제거했다.
-- 빈 책장 guest·Firebase-only 설명은 첫 줄을 `책을 보관함에 추가하려면 …연동/로그인`, 둘째 줄을 `하거나 …추가해주세요`로 중앙 정렬해 화면 폭과 무관하게 정확히 두 줄로 고정했다. Drive 연결 설명만 한 줄을 유지한다. 밑줄 범위는 guest의 `Google 계정을 연동`·`샘플 도서를 추가`, Firebase-only의 `드라이브에 로그인`·`파일을 로컬에 업로드`, Drive 연결의 `파일을 드라이브에 업로드`만 해당한다.
+- 빈 책장 guest·Firebase-only 설명은 첫 줄을 `책을 보관함에 추가하려면 …연동/로그인`, 둘째 줄을 `하거나 …추가해주세요`로 중앙 정렬한다. 좁은 화면·확대 글꼴에서는 각 줄 내부의 자연스러운 추가 줄바꿈을 허용하고 Drive 연결 설명은 하나의 문장 블록을 유지한다. 밑줄 범위는 guest의 `Google 계정을 연동`·`샘플 도서를 추가`, Firebase-only의 `드라이브에 로그인`·`파일을 로컬에 업로드`, Drive 연결의 `파일을 드라이브에 업로드`만 해당한다.
 - Drive 연결 상태의 `파일을 드라이브에 업로드`도 외부 Drive 페이지를 열지 않고 기존 도서 추가 모달을 열어 앱의 업로드 흐름을 그대로 사용한다.
 - Firebase 로그인과 Drive 연결 모달 모두 테마 휘도에 맞는 공식 `Sign in with Google` 애셋을 사용한다. Dark 애셋의 손상된 base64 한 글자를 원본으로 교정하고 Light/Dark SHA-256 계약 검증을 추가했다.
 - 실제 Firebase 리디렉션 전 guest owner 삭제와 `loading` 전환을 제거해 Google 로그인 취소 뒤 무한 로딩을 막았다.
@@ -320,6 +350,11 @@
 - `npm run check`: 통과
   - ESLint 오류 0건, 기존 경고 4건
   - TypeScript, 전체 Node 회귀, Next.js production build 통과
+- `npm run test:shelf-ui`: 25건 통과
+  - `hideCancel` dismiss 차단, pointer-origin backdrop, slider 취소, keyboard 책 카드, 빈 책장 반응형 계약 포함
+- `npm run test:epub-sandbox`: Chromium/WebKit 30건 통과
+- `git diff --check`: 통과
+- `npm run test:browser:ci` 재실행은 이번 변경 이전부터 존재한 독서 인증 PNG clipboard 생성 대기에서 시간 초과했다. 해당 단계를 진단용으로 건너뛴 실행도 기존 TXT selection fixture 로더에서 멈춰, 이번에 추가한 표지 URL 재사용·독서 통계 뒤 입력 차단 검사는 장거리 runner 끝까지 도달하지 못했다. 임시 우회 코드는 남기지 않았으며 관련 단위·React DOM·Foliate 회귀는 모두 통과했다.
 - `npm run test:browser:ci`: 통과
   - 3종 선택 카드의 한 줄 배치·각 surface, 글래스 20% surface/4px blur/gradient rim, 표준 24px blur, 모던 확인
   - 표준·글래스·모던을 차례로 선택해 각 카드에 동일한 2px 선택 박스와 체크 표시가 하나만 생기는지 확인

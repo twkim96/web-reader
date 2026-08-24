@@ -26,3 +26,12 @@ test('right-aligns titles that would cross either centered boundary', () => {
     titleWidth: 330,
   }), 'right');
 });
+
+test('uses the inset close-button edge on wide reader layouts', () => {
+  assert.equal(getReaderTitleLayout({
+    viewportWidth: 2560,
+    leftInset: 16,
+    rightLimit: 1794,
+    titleWidth: 1200,
+  }), 'right');
+});

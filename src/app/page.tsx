@@ -353,6 +353,16 @@ export default function Page() {
   ]);
   const showSyncConflictDialog = shouldShowSyncConflictDialog(syncConflictPresentation);
   const showSyncReviewBadge = shouldShowSyncReviewBadge(syncConflictPresentation);
+  const readerInteractionBlocked = showSyncConflictDialog
+    || readingStatisticsOpen
+    || pendingAction !== null
+    || loginDisclosureMode !== null
+    || cloudAuthExpiredMessage !== null
+    || cloudPermissionMessage !== null
+    || authErrorMessage !== null
+    || progressPersistenceError !== null
+    || localDBLifecycleEvent !== null
+    || showInstallPrompt;
   const outboxProgressConflictRevision = syncConflictResolution.activeProgressConflictRevision;
   useNetworkLibrarySync({
     user,
@@ -803,7 +813,7 @@ export default function Page() {
           onRegisterProgressConflictAutoResolveEligibility={(check) => {
             readerProgressConflictAutoResolveEligibilityRef.current = check;
           }}
-          interactionBlocked={showSyncConflictDialog}
+          interactionBlocked={readerInteractionBlocked}
         />
       )}
 

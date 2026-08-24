@@ -127,15 +127,48 @@ test('uses passive document input while ordinary scroll mode is active', () => {
   });
 });
 
-test('keeps scroll boundary navigation free of blocking touchmove listeners', async () => {
-  const [boundarySource, paginatorSource] = await Promise.all([
+test('keeps scroll boundary gestures passive, single-touch, and anchored to the starting edge', async () => {
+  const [boundarySource, paginatorSource, inputSource, readerSource] = await Promise.all([
     readFile(new URL('../src/hooks/foliate/scrollBoundaryNavigation.ts', import.meta.url), 'utf8'),
     readFile(new URL('../public/foliate-js/paginator.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/hooks/reader/useReaderDocumentInput.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/EpubReader.tsx', import.meta.url), 'utf8'),
   ]);
 
-  assert.doesNotMatch(boundarySource, /addEventListener\('touchmove'/);
+  assert.match(boundarySource, /addEventListener\('touchmove', handleTouchMove, \{ passive: true \}\)/);
+  assert.match(boundarySource, /addEventListener\('touchcancel', handleTouchCancel, \{ passive: true \}\)/);
+  assert.match(boundarySource, /ev\.touches\.length !== 1/);
+  assert.match(boundarySource, /gesture\.startedAtTop && endedAtTop/);
+  assert.match(boundarySource, /gesture\.startedAtBottom && endedAtBottom/);
+  assert.match(inputSource, /const handleTouchStart = \(event: TouchEvent\) => \{\s*markUserInteractionRef\.current\(\)/);
+  assert.doesNotMatch(inputSource, /handleTouchStart[\s\S]{0,500}markUserProgressChangeRef\.current\(\)/);
+  assert.match(inputSource, /Math\.hypot\([\s\S]*TOUCH_PROGRESS_THRESHOLD_PX[\s\S]*markUserProgressChangeRef\.current\(\)/);
+  assert.match(readerSource, /if \(event\.ctrlKey\) \{\s*if \(effectiveNavMode === 'scroll'\) return;/);
   assert.match(paginatorSource, /passive: this\.scrolled/);
   assert.match(paginatorSource, /overscroll-behavior: contain/);
+});
+
+test('blocks reader navigation for every page-level modal that can cover the reader', async () => {
+  const pageSource = await readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  const blockedExpression = pageSource.match(
+    /const readerInteractionBlocked = ([\s\S]*?);\s*const outboxProgressConflictRevision/,
+  )?.[1] || '';
+
+  for (const state of [
+    'showSyncConflictDialog',
+    'readingStatisticsOpen',
+    'pendingAction',
+    'loginDisclosureMode',
+    'cloudAuthExpiredMessage',
+    'cloudPermissionMessage',
+    'authErrorMessage',
+    'progressPersistenceError',
+    'localDBLifecycleEvent',
+    'showInstallPrompt',
+  ]) {
+    assert.match(blockedExpression, new RegExp(state));
+  }
+  assert.match(pageSource, /interactionBlocked=\{readerInteractionBlocked\}/);
 });
 
 test('freezes recovery bookmarks before slider navigation and reuses them on retry', () => {

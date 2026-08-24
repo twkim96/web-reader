@@ -87,6 +87,12 @@ export const useReaderProgressSlider = ({
     }));
   }, [currentCfi, stageAutoBookmark, totalProgress]);
 
+  const cancelSliderPreview = useCallback(() => {
+    draftProgressRef.current = null;
+    startRef.current = null;
+    setDraftProgress(null);
+  }, []);
+
   const cancelSliderMove = useCallback(() => {
     if (isCommittingMove) return;
     setPendingMove(null);
@@ -126,6 +132,7 @@ export const useReaderProgressSlider = ({
     beginSliderMove,
     previewSliderMove,
     commitSliderMove,
+    cancelSliderPreview,
     cancelSliderMove,
     confirmSliderMove,
   };

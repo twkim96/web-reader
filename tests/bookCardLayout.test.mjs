@@ -234,6 +234,45 @@ test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive
     assert.equal(panel?.querySelector('svg'), null);
     assert.doesNotMatch(panel?.textContent ?? '', /LIBRARY EMPTY|REFRESH LIBRARY|OPEN GOOGLE DRIVE/);
   }
+
+  for (const line of guest.querySelectorAll('[data-empty-shelf-copy-line]')) {
+    assert.match(line.className, /whitespace-normal/);
+    assert.match(line.className, /sm:whitespace-nowrap/);
+  }
+  assert.doesNotMatch(
+    guest.querySelector('[data-empty-shelf-heading="true"]')?.parentElement?.className ?? '',
+    /opacity-65/,
+  );
+});
+
+test('keeps shelf cards keyboard-operable and clears long-press work on unmount', async () => {
+  for (const viewMode of ['grid', 'list']) {
+    const card = renderCard(viewMode).querySelector('[data-shelf-book-card="true"]');
+    assert.equal(card?.getAttribute('role'), 'button');
+    assert.equal(card?.getAttribute('tabindex'), '0');
+    assert.equal(card?.getAttribute('aria-label'), '레이아웃 검증 열기');
+    assert.match(card?.className ?? '', /focus-visible:ring/);
+  }
+
+  const bookCardSource = await readFile(new URL('../src/components/shelf/BookCard.tsx', import.meta.url), 'utf8');
+  assert.match(bookCardSource, /useEffect\(\(\) => clearLongPressTimer, \[clearLongPressTimer\]\)/);
+  assert.match(bookCardSource, /event\.key !== 'Enter' && event\.key !== ' '/);
+});
+
+test('deduplicates shelf history, reuses cover URLs, and labels theme choices', async () => {
+  const [shelfSource, coverSource, themeSource] = await Promise.all([
+    readFile(new URL('../src/components/shelf/index.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/useShelfBookCovers.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ThemeModal.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(shelfSource, /if \(window\.history\.state\?\.panel !== 'shelf'\) \{\s*window\.history\.pushState/);
+  assert.match(coverSource, /existing\.fingerprint === fingerprint/);
+  assert.match(coverSource, /existing\.revision === bookRevision/);
+  assert.match(coverSource, /catch \(error\) \{\s*console\.warn\(`\[Shelf\] Failed to load cached book cover for/);
+  assert.match(coverSource, /useLayoutEffect\(\(\) => \{\s*const staleUrls = pendingRevocationsRef\.current/);
+  assert.match(themeSource, /aria-pressed=\{settings\.theme === key\}/);
+  assert.match(themeSource, /aria-label=\{`\$\{label\} 테마`\}/);
 });
 
 test('uses the same cover frame for cached and generated shelf covers', () => {

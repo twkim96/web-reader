@@ -91,6 +91,7 @@ const Harness = ({ menuStyle = 'modern' } = {}) => {
       onProgressSliderStart: slider.beginSliderMove,
       onProgressSliderPreview: slider.previewSliderMove,
       onProgressSliderCommit: slider.commitSliderMove,
+      onProgressSliderCancel: slider.cancelSliderPreview,
     }),
     slider.pendingSliderMove
       ? React.createElement(
@@ -127,6 +128,7 @@ test('reader progress track commits one tap and drags from any track position wi
   assert.ok(input);
   assert.match(input.className, /pointer-events-none/);
   assert.match(track.className, /touch-none/);
+  assert.match(track.parentElement?.className || '', /focus-within:ring-2/);
   track.getBoundingClientRect = () => ({
     left: 100,
     right: 500,
@@ -179,6 +181,18 @@ test('reader progress track commits one tap and drags from any track position wi
 
   await act(async () => {
     dispatchPointer(window, secondTrack, 'pointerdown', 172, 1);
+    dispatchPointer(window, secondTrack, 'pointermove', 300, 1);
+    dispatchPointer(window, secondTrack, 'pointercancel', 300, 0);
+    await Promise.resolve();
+  });
+  assert.equal(
+    window.document.querySelector('#pending-progress'),
+    null,
+    'a cancelled system gesture must discard the preview without opening confirmation',
+  );
+
+  await act(async () => {
+    dispatchPointer(window, secondTrack, 'pointerdown', 172, 1);
     dispatchPointer(window, secondTrack, 'pointermove', 444, 1);
     dispatchPointer(window, secondTrack, 'pointerup', 444, 0);
     await Promise.resolve();
@@ -214,10 +228,11 @@ test('reader menu styles reach the top chrome and bottom toolbar with distinct s
   assert.ok(titleSurface);
   assert.ok(tocSurface);
   assert.equal(closeButton.getAttribute('data-reader-close-button'), 'true');
+  assert.equal(titleRightLimit, closeButton);
   assert.equal(titleSurface.getAttribute('data-reader-title-surface'), 'true');
   assert.match(closeButton.className, /sm:top-\[calc\(env\(safe-area-inset-top\)\+15px\)\]/);
   assert.equal(closeButton.style.right, bottomMenu.style.right);
-  assert.match(titleRightLimit.className, /right-\[calc\(env\(safe-area-inset-right\)\+12px\)\]/);
+  assert.equal(titleRightLimit.style.right, bottomMenu.style.right);
   for (const surface of [closeButton, titleSurface, tocSurface]) {
     assert.match(surface.className, /viewer-cime-glass/);
     assert.doesNotMatch(surface.getAttribute('style') || '', /--viewer-reader-glass-surface/);

@@ -633,6 +633,9 @@ try {
       cachedCover: Boolean(document.querySelector(
         '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
       )),
+      cachedCoverSrc: document.querySelector(
+        '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
+      )?.getAttribute('src') ?? '',
       placeholderCover: Boolean(document.querySelector(
         '[data-shelf-book-id="book-0000"] [data-generated-book-cover="true"]'
       )),
@@ -721,6 +724,7 @@ try {
       rightOrder: [formatRect.left, progressRect.left],
       formatWidth: formatRect.width,
       titleFontSize: title ? getComputedStyle(title).fontSize : '',
+      coverSrc: card?.querySelector('[data-shelf-book-cover="true"]')?.getAttribute('src') ?? '',
     };
   })()`);
   assert.ok(listCoverLayout);
@@ -743,6 +747,7 @@ try {
     grid: initialShelf.gridTitleFontSize,
     list: listCoverLayout.titleFontSize,
   }));
+  assert.equal(listCoverLayout.coverSrc, initialShelf.cachedCoverSrc);
   initialShelf.listCoverLayout = listCoverLayout;
   await evaluate(`document.querySelector('button[title="Switch to Grid View"]')?.click()`);
   await waitFor(
@@ -751,6 +756,13 @@ try {
         '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
       ))`,
     'restore cached grid book cover',
+  );
+  assert.equal(
+    await evaluate(`document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
+    )?.getAttribute('src') ?? ''`),
+    initialShelf.cachedCoverSrc,
+    'view changes must reuse the existing cached-cover object URL',
   );
 
   await evaluate(`(() => {
@@ -1209,8 +1221,8 @@ try {
   assert.equal(mobileShelfControls.mobileControlCount, 2, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomUsesMuzioStyle, true, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.topBorderRadius, 16, JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.bottomBorderRadius, 20, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.topBorderRadius, 20, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomBorderRadius, 34, JSON.stringify(mobileShelfControls));
   assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
   assert.ok(mobileShelfControls.bottomButtonOpacity >= 0.8, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));
@@ -1409,7 +1421,7 @@ try {
       const radius = Number.parseFloat(style.borderRadius || '0');
       return style.backgroundColor === 'rgba(20, 21, 23, 0.2)'
         && style.backdropFilter === 'blur(4px)'
-        && radius === 20;
+        && radius === 34;
     })()`,
     'settled glass shelf dock style',
   );
@@ -1432,7 +1444,7 @@ try {
   assert.equal(glassShelfDock.backgroundColor, 'rgba(20, 21, 23, 0.2)', JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.backdropFilter, 'blur(4px)', JSON.stringify(glassShelfDock));
   assert.match(glassShelfDock.rimBackground, /linear-gradient\(164deg/, JSON.stringify(glassShelfDock));
-  assert.equal(glassShelfDock.borderRadius, 20, JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.borderRadius, 34, JSON.stringify(glassShelfDock));
   assert.equal(
     await evaluate(`Boolean(document.querySelector(
       '[data-shelf-dock-style-option="glass"] [data-shelf-dock-style-selected-box="true"]'
@@ -1472,7 +1484,7 @@ try {
   assert.equal(standardShelfDock.usesCimeGlassClass, false, JSON.stringify(standardShelfDock));
   assert.equal(standardShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.68)', JSON.stringify(standardShelfDock));
   assert.match(standardShelfDock.backdropFilter, /blur\(24px\)/, JSON.stringify(standardShelfDock));
-  assert.equal(standardShelfDock.borderRadius, 20, JSON.stringify(standardShelfDock));
+  assert.equal(standardShelfDock.borderRadius, 34, JSON.stringify(standardShelfDock));
   assert.equal(
     await evaluate(`Boolean(document.querySelector(
       '[data-shelf-dock-style-option="standard"] [data-shelf-dock-style-selected-box="true"]'
@@ -1498,7 +1510,7 @@ try {
       const style = getComputedStyle(dock);
       const radius = Number.parseFloat(style.borderRadius || '0');
       return style.backgroundColor === 'rgba(39, 39, 40, 0.88)'
-        && radius === 20;
+        && radius === 34;
     })()`,
     'settled modern shelf dock style',
   );
@@ -1515,7 +1527,7 @@ try {
   assert.equal(modernShelfDock.storedStyle, 'modern', JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.usesModernClass, true, JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(modernShelfDock));
-  assert.equal(modernShelfDock.borderRadius, 20, JSON.stringify(modernShelfDock));
+  assert.equal(modernShelfDock.borderRadius, 34, JSON.stringify(modernShelfDock));
   await evaluate(`(() => {
     const heading = [...document.querySelectorAll('h2')]
       .find((node) => node.textContent?.trim() === '테마 설정');
@@ -4541,8 +4553,9 @@ try {
     JSON.stringify(desktopToolbarProbe),
   );
   assert.ok(
-    desktopToolbarProbe.titleRightLimitInset >= 11
-      && desktopToolbarProbe.titleRightLimitInset <= 13,
+    Math.abs(
+      desktopToolbarProbe.titleRightLimitInset - desktopToolbarProbe.menuRightInset
+    ) <= 1,
     JSON.stringify(desktopToolbarProbe),
   );
   assert.ok(Math.abs(
@@ -4602,6 +4615,27 @@ try {
     'reader statistics modal',
   );
   assert.equal(await evaluate(`document.querySelector('[data-reading-statistics-modal="true"]')?.offsetParent !== null`), true);
+  const statisticsBlockedPosition = await evaluate(`(() => {
+    const view = document.querySelector('foliate-view');
+    return {
+      start: view?.renderer?.start ?? null,
+      progress: document.querySelector('[data-reader-status-progress="true"]')?.textContent ?? '',
+    };
+  })()`);
+  await evaluate(`(() => {
+    for (const key of ['ArrowDown', ' ']) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true }));
+    }
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.deepEqual(await evaluate(`(() => {
+    const view = document.querySelector('foliate-view');
+    return {
+      start: view?.renderer?.start ?? null,
+      progress: document.querySelector('[data-reader-status-progress="true"]')?.textContent ?? '',
+    };
+  })()`), statisticsBlockedPosition, 'reader position must not change behind the statistics modal');
   assert.deepEqual(await evaluate(`(() => {
     const header = document.querySelector('[data-modal-header="statistics"]');
     return {

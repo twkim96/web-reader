@@ -162,6 +162,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <ReaderModalFrame
+      ariaLabel="리더 설정"
       noBlur
       placement="center"
       theme={theme}

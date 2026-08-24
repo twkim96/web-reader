@@ -9,7 +9,25 @@ type ReaderDocumentInputOptions = {
   hasSelectionRef: MutableRefObject<boolean>;
   onWheel: (event: WheelEvent) => void;
   onKeyDown: (event: KeyboardEvent) => void;
+  markUserInteraction: () => void;
   markUserProgressChange: () => void;
+};
+
+const TOUCH_PROGRESS_THRESHOLD_PX = 8;
+
+type TrackedTouchGesture = {
+  identifier: number;
+  startX: number;
+  startY: number;
+  progressMarked: boolean;
+};
+
+const findTrackedTouch = (touches: TouchList, identifier: number) => {
+  for (let index = 0; index < touches.length; index += 1) {
+    const touch = touches[index];
+    if (touch?.identifier === identifier) return touch;
+  }
+  return null;
 };
 
 export const getReaderDocumentInputPolicy = (
@@ -26,49 +44,93 @@ export const useReaderDocumentInput = ({
   hasSelectionRef,
   onWheel,
   onKeyDown,
+  markUserInteraction,
   markUserProgressChange,
 }: ReaderDocumentInputOptions) => {
   const documentsRef = useRef(new Set<Document>());
   const bindingCleanupsRef = useRef(new Map<Document, () => void>());
   const unloadCleanupsRef = useRef(new Map<Document, () => void>());
+  const markUserInteractionRef = useRef(markUserInteraction);
   const markUserProgressChangeRef = useRef(markUserProgressChange);
   const onWheelRef = useRef(onWheel);
   const onKeyDownRef = useRef(onKeyDown);
 
   useEffect(() => {
+    markUserInteractionRef.current = markUserInteraction;
     markUserProgressChangeRef.current = markUserProgressChange;
     onWheelRef.current = onWheel;
     onKeyDownRef.current = onKeyDown;
-  }, [markUserProgressChange, onKeyDown, onWheel]);
+  }, [markUserInteraction, markUserProgressChange, onKeyDown, onWheel]);
 
   const bindDocumentInput = useCallback((doc: Document) => {
     bindingCleanupsRef.current.get(doc)?.();
 
     const policy = getReaderDocumentInputPolicy(scrollMode, controlsVisible);
+    let touchGesture: TrackedTouchGesture | null = null;
     const handleWheel = (event: WheelEvent) => onWheelRef.current(event);
-    const handleTouchStart = () => {
-      if (!hasSelectionRef.current) markUserProgressChangeRef.current();
+    const handleTouchStart = (event: TouchEvent) => {
+      markUserInteractionRef.current();
+      if (hasSelectionRef.current || event.touches.length !== 1) {
+        touchGesture = null;
+        return;
+      }
+      const touch = event.touches[0];
+      touchGesture = touch ? {
+        identifier: touch.identifier,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        progressMarked: false,
+      } : null;
     };
-    const handleTouchMoveBlock = (event: TouchEvent) => {
-      if (hasSelectionRef.current) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
+    const handleTouchMove = (event: TouchEvent) => {
+      if (hasSelectionRef.current) {
+        touchGesture = null;
+        return;
+      }
+      if (policy.blockTouchMove) {
+        touchGesture = null;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (!touchGesture || event.touches.length !== 1) {
+        touchGesture = null;
+        return;
+      }
+      const touch = findTrackedTouch(event.touches, touchGesture.identifier);
+      if (!touch) {
+        touchGesture = null;
+        return;
+      }
+      if (
+        !touchGesture.progressMarked
+        && Math.hypot(
+          touch.clientX - touchGesture.startX,
+          touch.clientY - touchGesture.startY,
+        ) >= TOUCH_PROGRESS_THRESHOLD_PX
+      ) {
+        touchGesture.progressMarked = true;
+        markUserProgressChangeRef.current();
+      }
+    };
+    const clearTouchGesture = () => {
+      touchGesture = null;
     };
     const handleKeyDown = (event: KeyboardEvent) => onKeyDownRef.current(event);
 
     doc.addEventListener('wheel', handleWheel, { passive: policy.wheelPassive });
     doc.addEventListener('touchstart', handleTouchStart, { passive: true, capture: true });
-    if (policy.blockTouchMove) {
-      doc.addEventListener('touchmove', handleTouchMoveBlock, { passive: false, capture: true });
-    }
+    doc.addEventListener('touchmove', handleTouchMove, { passive: !policy.blockTouchMove, capture: true });
+    doc.addEventListener('touchend', clearTouchGesture, { passive: true, capture: true });
+    doc.addEventListener('touchcancel', clearTouchGesture, { passive: true, capture: true });
     doc.addEventListener('keydown', handleKeyDown);
 
     const cleanup = () => {
       doc.removeEventListener('wheel', handleWheel);
       doc.removeEventListener('touchstart', handleTouchStart, true);
-      if (policy.blockTouchMove) {
-        doc.removeEventListener('touchmove', handleTouchMoveBlock, true);
-      }
+      doc.removeEventListener('touchmove', handleTouchMove, true);
+      doc.removeEventListener('touchend', clearTouchGesture, true);
+      doc.removeEventListener('touchcancel', clearTouchGesture, true);
       doc.removeEventListener('keydown', handleKeyDown);
       if (bindingCleanupsRef.current.get(doc) === cleanup) {
         bindingCleanupsRef.current.delete(doc);
