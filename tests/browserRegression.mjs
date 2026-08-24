@@ -4619,7 +4619,8 @@ try {
     const view = document.querySelector('foliate-view');
     return {
       start: view?.renderer?.start ?? null,
-      progress: document.querySelector('[data-reader-status-progress="true"]')?.textContent ?? '',
+      scrollTop: view?.renderer?.scrollTop ?? null,
+      scrollLeft: view?.renderer?.scrollLeft ?? null,
     };
   })()`);
   await evaluate(`(() => {
@@ -4633,7 +4634,8 @@ try {
     const view = document.querySelector('foliate-view');
     return {
       start: view?.renderer?.start ?? null,
-      progress: document.querySelector('[data-reader-status-progress="true"]')?.textContent ?? '',
+      scrollTop: view?.renderer?.scrollTop ?? null,
+      scrollLeft: view?.renderer?.scrollLeft ?? null,
     };
   })()`), statisticsBlockedPosition, 'reader position must not change behind the statistics modal');
   assert.deepEqual(await evaluate(`(() => {
