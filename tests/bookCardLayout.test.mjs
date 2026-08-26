@@ -141,6 +141,19 @@ test('uses a Spotlight-like 20px radius for both search modals', async () => {
   assert.match(epubSearchSource, /data-epub-search-modal="true"[\s\S]*?app-search-modal-radius/);
 });
 
+test('keeps the reader search surface aligned with the shelf search geometry', async () => {
+  const [shelfSearchSource, epubSearchSource] = await Promise.all([
+    readFile(new URL('../src/components/ShelfSearchModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/EpubSearchModal.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  for (const source of [shelfSearchSource, epubSearchSource]) {
+    assert.match(source, /p-4 pt-\[15vh\] backdrop-blur-sm/);
+    assert.match(source, /max-h-\[72dvh\]/);
+    assert.match(source, /h-\[3\.75rem\] shrink-0 items-center px-1 sm:h-\[4\.25rem\] sm:px-2/);
+  }
+});
+
 test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
 

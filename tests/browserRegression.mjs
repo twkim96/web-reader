@@ -4298,7 +4298,7 @@ try {
     );
     assert.equal(mobileEpubSearchRadius, '20px');
     assert.ok(
-      mobileEpubSearchHeight >= 47 && mobileEpubSearchHeight <= 49,
+      mobileEpubSearchHeight >= 59 && mobileEpubSearchHeight <= 61,
       `Unexpected mobile EPUB search height: ${mobileEpubSearchHeight}`,
     );
     await evaluate(
