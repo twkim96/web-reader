@@ -825,6 +825,7 @@ export default function Page() {
           ownerKey={activeOwnerKey}
           books={books}
           theme={theme}
+          themeVariables={themeCssVariables}
           onClose={() => setLibraryAnnotationsOpen(false)}
           onJump={(annotation, book) => {
             if (!handleOpenBook(book)) return;
@@ -843,6 +844,7 @@ export default function Page() {
           visible={view === 'shelf' || view === 'reader'}
           ownerKey={activeOwnerKey}
           theme={theme}
+          themeVariables={themeCssVariables}
           accentColor={settings.accentColor}
           syncHealth={readingStatisticsSync.health}
           quarantinedDocumentCount={readingStatisticsSync.quarantinedCount}

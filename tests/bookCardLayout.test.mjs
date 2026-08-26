@@ -150,10 +150,10 @@ test('uses light title-cased shelf library labels', async () => {
   assert.match(shelfHeaderSource, /data-shelf-library-label="true"/);
   assert.match(shelfHeaderSource, /isGuest \? 'Guest Library' : \(isOfflineMode \? 'Local Library' : 'Cloud Library'\)/);
   const headingSource = shelfHeaderSource.match(/<span[\s\S]*?role="heading"[\s\S]*?data-shelf-library-label="true"[\s\S]*?<\/span>/)?.[0] ?? '';
-  assert.match(headingSource, /\bfont-normal\b/);
+  assert.match(headingSource, /\bfont-medium\b/);
   assert.match(headingSource, /text-\[19px\]/);
   assert.match(headingSource, /\bmd:text-xl\b/);
-  assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-black\b/);
+  assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-normal\b|\bfont-black\b/);
 });
 
 test('keeps the shelf header closer to the mobile safe area without changing desktop spacing', async () => {
@@ -392,6 +392,21 @@ test('starts generated cover titles near the top and keeps list text at seven pi
   assert.match(title.className, /top-\[15%\]/);
   assert.match(title.className, /left-\[9%\]/);
   assert.match(title.className, /right-\[9%\]/);
+});
+
+test('uses a substantially larger generated-cover title in simple view', () => {
+  const html = renderToStaticMarkup(React.createElement(GeneratedBookCover, {
+    identity: 'layout-book',
+    title: '레이아웃 검증',
+    variant: 'simple',
+  }));
+  const document = parseHTML(html).document;
+  const cover = document.querySelector('[data-generated-book-cover="true"]');
+
+  assert.ok(cover);
+  assert.equal(cover.getAttribute('data-generated-book-cover-variant'), 'simple');
+  assert.match(cover.className, /text-\[14px\]/);
+  assert.match(cover.className, /sm:text-\[15px\]/);
 });
 
 test('keeps the list cover compact and fills the left side of grid cards with a large cover', () => {

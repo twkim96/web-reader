@@ -50,6 +50,7 @@ type Props = {
   visible: boolean;
   ownerKey: OwnerKey;
   theme: ThemeClasses;
+  themeVariables: React.CSSProperties;
   accentColor: string;
   syncHealth: SyncHealth;
   quarantinedDocumentCount: number;
@@ -80,6 +81,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   visible,
   ownerKey,
   theme,
+  themeVariables,
   accentColor,
   syncHealth,
   quarantinedDocumentCount,
@@ -423,7 +425,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         tabIndex={-1}
         data-reading-statistics-modal="true"
         data-reading-statistics-accent={accentColor}
-        style={accentStyle}
+        style={{ ...themeVariables, ...accentStyle }}
         onClick={(event) => event.stopPropagation()}
         className={`app-panel-radius flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh]`}
       >

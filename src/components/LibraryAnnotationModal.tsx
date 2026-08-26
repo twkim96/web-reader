@@ -52,6 +52,7 @@ type Props = {
   ownerKey: OwnerKey;
   books: Book[];
   theme: ThemeClasses;
+  themeVariables: React.CSSProperties;
   onClose: () => void;
   onJump: (annotation: Annotation, book: Book) => void;
 };
@@ -85,6 +86,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   ownerKey,
   books,
   theme,
+  themeVariables,
   onClose,
   onJump,
 }) => {
@@ -302,6 +304,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         aria-modal="true"
         aria-label="라이브러리 전체 주석"
         onClick={(event) => event.stopPropagation()}
+        style={themeVariables}
         className={`app-panel-radius flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border shadow-2xl sm:max-h-[82dvh] ${theme.bg} ${theme.text} ${theme.border}`}
       >
         <header data-modal-header="annotations" className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 sm:px-4 ${theme.border}`}>

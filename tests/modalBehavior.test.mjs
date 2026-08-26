@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
@@ -114,4 +115,17 @@ test('dismissible dialog primitives require a matching backdrop pointer origin',
   assert.equal(closeCount, 1);
 
   await act(async () => root.unmount());
+});
+
+test('pins library annotation and statistics modals to the active theme variables', async () => {
+  const [pageSource, annotationSource, statisticsSource] = await Promise.all([
+    readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/LibraryAnnotationModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/LibraryReadingStatisticsModal.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(pageSource, /<LibraryAnnotationModal[\s\S]*?themeVariables=\{themeCssVariables\}/);
+  assert.match(pageSource, /<LibraryReadingStatisticsModal[\s\S]*?themeVariables=\{themeCssVariables\}/);
+  assert.match(annotationSource, /data-library-annotation-modal="true"[\s\S]*?style=\{themeVariables\}/);
+  assert.match(statisticsSource, /data-reading-statistics-modal="true"[\s\S]*?style=\{\{ \.\.\.themeVariables, \.\.\.accentStyle \}\}/);
 });

@@ -68,7 +68,7 @@ interface GeneratedBookCoverProps {
 }
 
 const variantClasses: Record<GeneratedBookCoverVariant, string> = {
-  simple: 'text-[10px] leading-[1.15] sm:text-[11px]',
+  simple: 'text-[14px] leading-[1.15] sm:text-[15px]',
   grid: 'text-[9px] leading-[1.15] sm:text-[10px]',
   list: 'text-[7px] leading-[1.08]',
   info: 'text-[7px] leading-[1.12] sm:text-[8px]',
