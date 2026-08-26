@@ -19,6 +19,21 @@ export const findCustomTheme = (settings: ThemeLookupSettings, themeId = setting
   settings.customThemes?.find((theme) => theme.id === themeId)
 );
 
+const getRelativeLuminance = (backgroundColor: string) => {
+  const match = /^#([0-9a-f]{6})$/i.exec(backgroundColor.trim());
+  if (!match) return 0;
+
+  const value = Number.parseInt(match[1], 16);
+  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  const weights = [0.2126, 0.7152, 0.0722];
+  return channels
+    .map((channel) => channel / 255)
+    .map((channel) => channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, channel, index) => sum + channel * weights[index], 0);
+};
+
 const hexToRgb = (hex: string) => {
   const normalized = normalizeHexColor(hex, '#000000').slice(1);
   const value = Number.parseInt(normalized, 16);
@@ -30,20 +45,7 @@ const hexToRgb = (hex: string) => {
 };
 
 export const getGoogleSignInButtonVariant = (backgroundColor: string): GoogleSignInButtonVariant => {
-  const match = /^#([0-9a-f]{6})$/i.exec(backgroundColor.trim());
-  if (!match) return 'dark';
-
-  const value = Number.parseInt(match[1], 16);
-  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255];
-  const weights = [0.2126, 0.7152, 0.0722];
-  const luminance = channels
-    .map((channel) => channel / 255)
-    .map((channel) => channel <= 0.04045
-      ? channel / 12.92
-      : ((channel + 0.055) / 1.055) ** 2.4)
-    .reduce((sum, channel, index) => sum + channel * weights[index], 0);
-
-  return luminance > 0.5 ? 'light' : 'dark';
+  return getRelativeLuminance(backgroundColor) > 0.5 ? 'light' : 'dark';
 };
 
 const getRgbString = (hex: string) => {
@@ -159,6 +161,7 @@ export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperti
   const secondaryColor = mixHex(bgColor, textColor, 0.09);
   const actionSoftColor = mixHex(bgColor, '#ffffff', 0.14);
   const actionStrongColor = mixHex(bgColor, '#000000', 0.18);
+  const lightBackground = getRelativeLuminance(bgColor) > 0.5;
 
   return {
     '--viewer-theme-bg': bgColor,
@@ -170,6 +173,16 @@ export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperti
     '--viewer-reader-surface': `rgba(${bgRgb}, 0.68)`,
     '--viewer-reader-glass-surface': `rgba(${bgRgb}, 0.38)`,
     '--viewer-reader-glass-border': `rgba(${textRgb}, 0.24)`,
+    '--viewer-shelf-glass-surface': `rgba(${bgRgb}, 0.24)`,
+    '--viewer-shelf-glass-ink': lightBackground
+      ? 'rgba(20, 21, 23, 0.88)'
+      : 'rgba(245, 246, 248, 0.90)',
+    '--viewer-shelf-glass-ink-edge': lightBackground
+      ? 'rgba(255, 255, 255, 0.58)'
+      : 'rgba(0, 0, 0, 0.58)',
+    '--viewer-shelf-glass-shadow': lightBackground
+      ? 'rgba(20, 21, 23, 0.14)'
+      : 'rgba(0, 0, 0, 0.24)',
     ...getMuzioShelfDockVariables(bgColor),
     ...getTextureVars(colors.texture, textColor),
   } as CSSProperties;

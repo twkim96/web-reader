@@ -150,6 +150,20 @@ test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', asy
   assert.doesNotMatch(shelfHeaderSource, /data-shelf-top-dock|isBottomDock|md:hidden[^\n]*bottomDock/);
 });
 
+test('keeps the glass dock low-blur while stabilizing its background and icon contrast', async () => {
+  const [globals, shelfHeaderSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(globals, /\.viewer-cime-glass\s*\{[\s\S]*?background-color:\s*var\(--viewer-shelf-glass-surface/);
+  assert.match(globals, /backdrop-filter:\s*blur\(4px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /\.viewer-cime-glass \.shelf-glass-contrast-icon svg[\s\S]*?drop-shadow/);
+  assert.match(shelfHeaderSource, /viewer-cime-glass border text-\[color:var\(--viewer-shelf-glass-ink\)\]/);
+  assert.match(shelfHeaderSource, /bottomDockButtonClass = `\$\{bottomDockButtonBaseClass\} shelf-glass-contrast-icon`/);
+  assert.doesNotMatch(shelfHeaderSource, /viewer-cime-glass border text-\[color:var\(--viewer-theme-text\)\]/);
+});
+
 test('uses light title-cased shelf library labels', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
 

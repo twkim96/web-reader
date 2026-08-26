@@ -121,10 +121,16 @@ body {
 
 .viewer-cime-glass {
   border-color: transparent;
-  background-color: rgba(20, 21, 23, 0.2);
-  box-shadow: 0 4px 12px rgba(20, 21, 23, 0.1);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  background-color: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
+  box-shadow: 0 4px 12px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14));
+  -webkit-backdrop-filter: blur(4px) saturate(90%) contrast(82%);
+  backdrop-filter: blur(4px) saturate(90%) contrast(82%);
+}
+
+.viewer-cime-glass .shelf-glass-contrast-icon svg {
+  filter:
+    drop-shadow(0 1px 0 var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58)))
+    drop-shadow(0 -1px 0 var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58)));
 }
 
 .viewer-cime-glass::before {
