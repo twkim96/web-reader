@@ -380,7 +380,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
       </header>
       <div
         data-shelf-mobile-layout-controls="true"
-        className="relative z-40 mx-auto -mt-4 flex max-w-7xl justify-end gap-1 px-6 pb-1 md:hidden"
+        className="relative z-40 mx-auto -mt-4 flex max-w-7xl justify-end gap-1 px-6 md:hidden"
       >
         {renderLayoutControls({
           iconSize: mobileHeaderIconSize,

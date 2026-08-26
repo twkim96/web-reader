@@ -161,6 +161,20 @@ test('keeps the shelf header closer to the mobile safe area without changing des
   assert.match(shelfHeaderSource, /md:pt-\[calc\(env\(safe-area-inset-top\)\+2rem\)\]/);
 });
 
+test('matches the mobile layout-control-to-card spacing to the grid card gap', async () => {
+  const [shelfHeaderSource, shelfSource] = await Promise.all([
+    readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/index.tsx', import.meta.url), 'utf8'),
+  ]);
+  const mobileControls = shelfHeaderSource.match(/data-shelf-mobile-layout-controls="true"[\s\S]*?<\/div>/)?.[0] ?? '';
+  const shelfContent = shelfSource.match(/data-shelf-content="true"[^>]+/)?.[0] ?? '';
+
+  assert.doesNotMatch(mobileControls, /\bpb-/);
+  assert.match(shelfContent, /\bpt-4\b/);
+  assert.match(shelfContent, /\bmd:pt-5\b/);
+  assert.match(shelfSource, /grid-cols-1 gap-4 sm:grid-cols-2/);
+});
+
 test('keeps the shelf identity control flat and the user label light', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
   const identityStart = shelfHeaderSource.indexOf('data-shelf-brand-control="true"');
