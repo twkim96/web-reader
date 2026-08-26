@@ -151,6 +151,8 @@ test('uses light title-cased shelf library labels', async () => {
   assert.match(shelfHeaderSource, /isGuest \? 'Guest Library' : \(isOfflineMode \? 'Local Library' : 'Cloud Library'\)/);
   const headingSource = shelfHeaderSource.match(/<span[\s\S]*?role="heading"[\s\S]*?data-shelf-library-label="true"[\s\S]*?<\/span>/)?.[0] ?? '';
   assert.match(headingSource, /\bfont-normal\b/);
+  assert.match(headingSource, /text-\[19px\]/);
+  assert.match(headingSource, /\bmd:text-xl\b/);
   assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-black\b/);
 });
 
@@ -161,7 +163,7 @@ test('keeps the shelf header closer to the mobile safe area without changing des
   assert.match(shelfHeaderSource, /md:pt-\[calc\(env\(safe-area-inset-top\)\+2rem\)\]/);
 });
 
-test('matches the mobile layout-control-to-card spacing to the grid card gap', async () => {
+test('optically matches the mobile layout controls to the grid card gap', async () => {
   const [shelfHeaderSource, shelfSource] = await Promise.all([
     readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/index.tsx', import.meta.url), 'utf8'),
@@ -170,7 +172,7 @@ test('matches the mobile layout-control-to-card spacing to the grid card gap', a
   const shelfContent = shelfSource.match(/data-shelf-content="true"[^>]+/)?.[0] ?? '';
 
   assert.doesNotMatch(mobileControls, /\bpb-/);
-  assert.match(shelfContent, /\bpt-4\b/);
+  assert.match(shelfContent, /\bpt-2\b/);
   assert.match(shelfContent, /\bmd:pt-5\b/);
   assert.match(shelfSource, /grid-cols-1 gap-4 sm:grid-cols-2/);
 });

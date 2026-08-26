@@ -317,7 +317,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   role="heading"
                   aria-level={1}
                   data-shelf-library-label="true"
-                  className="block truncate whitespace-nowrap text-lg font-normal tracking-tight md:text-xl"
+                  className="block truncate whitespace-nowrap text-[19px] font-normal tracking-tight md:text-xl"
                 >
                   {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
                 </span>
