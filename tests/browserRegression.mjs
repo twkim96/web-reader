@@ -619,10 +619,14 @@ try {
     const coveredPercent = document.querySelector(
       '[data-shelf-book-id="book-0001"] [data-shelf-grid-progress-percent="true"]'
     )?.getBoundingClientRect();
-    const coveredBottomMeta = document.querySelector(
-      '[data-shelf-book-id="book-0001"] [data-shelf-grid-cover-bottom-meta="true"]'
+    const coveredFormat = document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-grid-meta="true"]'
     )?.getBoundingClientRect();
     const gridTitle = gridCard?.querySelector('[data-shelf-grid-cover-title="true"]');
+    const gridTitleRect = gridTitle?.getBoundingClientRect();
+    const coveredTags = document.querySelector(
+      '[data-shelf-book-id="book-0001"] [data-shelf-grid-cover-tag-slot="true"]'
+    )?.getBoundingClientRect();
     const gridDeleteIcon = document.querySelector('[data-shelf-grid-progress-delete-icon="true"]');
     const gridDeleteIconRect = gridDeleteIcon?.getBoundingClientRect();
     return {
@@ -653,9 +657,17 @@ try {
         topDelta: Math.abs(fallbackProgress.top - coveredProgress.top),
         labelBottomDelta: Math.abs(coveredDate.bottom - coveredPercent.bottom),
       } : null,
-      gridCoverMetaAlignment: coverRect && coveredBottomMeta ? {
-        bottomDelta: Math.abs(coverRect.bottom - coveredBottomMeta.bottom),
+      gridCoverProgressAlignment: coverRect && coveredProgress ? {
+        bottomDelta: Math.abs(coverRect.bottom - coveredProgress.bottom),
       } : null,
+      gridInfoOrder: coveredFormat && gridTitleRect && coveredTags && coveredProgress
+        ? coveredFormat.top <= gridTitleRect.top
+          && gridTitleRect.bottom <= coveredTags.top
+          && coveredTags.bottom <= coveredProgress.top
+        : false,
+      gridColumnCount: gridCard?.parentElement
+        ? getComputedStyle(gridCard.parentElement).gridTemplateColumns.split(' ').length
+        : 0,
       gridCardBorderRadius: gridCard ? getComputedStyle(gridCard).borderRadius : '',
       gridTitleFontSize: gridTitle ? getComputedStyle(gridTitle).fontSize : '',
       gridDeleteIconSize: gridDeleteIconRect ? {
@@ -674,8 +686,8 @@ try {
   assert.equal(initialShelf.gridTitleFontSize, '16px', JSON.stringify(initialShelf));
   assert.deepEqual(initialShelf.gridDeleteIconSize, { width: 14, height: 14 });
   assert.deepEqual(initialShelf.coverLayout, {
-    width: 112,
-    height: 160,
+    width: 136,
+    height: 208,
     backgroundColor: 'rgba(0, 0, 0, 0)',
     boxShadow: 'none',
     borderRadius: '0px',
@@ -683,8 +695,10 @@ try {
   assert.ok(initialShelf.gridProgressAlignment);
   assert.ok(initialShelf.gridProgressAlignment.topDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
   assert.ok(initialShelf.gridProgressAlignment.labelBottomDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
-  assert.ok(initialShelf.gridCoverMetaAlignment);
-  assert.ok(initialShelf.gridCoverMetaAlignment.bottomDelta <= 1, JSON.stringify(initialShelf.gridCoverMetaAlignment));
+  assert.ok(initialShelf.gridCoverProgressAlignment);
+  assert.ok(initialShelf.gridCoverProgressAlignment.bottomDelta <= 1, JSON.stringify(initialShelf.gridCoverProgressAlignment));
+  assert.equal(initialShelf.gridInfoOrder, true, JSON.stringify(initialShelf));
+  assert.equal(initialShelf.gridColumnCount, 2, JSON.stringify(initialShelf));
 
   await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
   await waitFor(
