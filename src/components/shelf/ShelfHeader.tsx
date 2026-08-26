@@ -303,7 +303,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
-              <span className="flex size-9 shrink-0 items-center justify-center opacity-75 transition-opacity group-hover:opacity-100">
+              <span className="flex size-9 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
                 {isGuest ? (
                   <KeyRound size={28} />
                 ) : isOfflineMode ? (
