@@ -16,6 +16,10 @@ test('keeps the reader footer chapter and percentage visually light', async () =
   );
   assert.match(source, /data-reader-status-main="true"[\s\S]*?font-normal/);
   assert.doesNotMatch(source, /data-reader-status-main="true"[\s\S]*?font-black/);
+  assert.match(
+    source,
+    /data-reader-status-title="true"[\s\S]*?font-sans[\s\S]*?font-normal[\s\S]*?not-italic/,
+  );
 });
 
 const installDom = () => {

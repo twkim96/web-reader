@@ -2214,6 +2214,7 @@ try {
   const readerBookTime = await evaluate(`(() => {
     const node = document.querySelector('[data-reader-book-reading-time="true"]');
     const main = document.querySelector('[data-reader-status-main="true"]');
+    const title = document.querySelector('[data-reader-status-title="true"]');
     const progress = document.querySelector('[data-reader-status-progress="true"]');
     const jump = document.querySelector('[data-reader-status-jump="true"]');
     const rect = node?.getBoundingClientRect();
@@ -2227,6 +2228,9 @@ try {
       fontFamily: node ? getComputedStyle(node).fontFamily : '',
       fontSize: node ? getComputedStyle(node).fontSize : '',
       mainFontSize: main ? getComputedStyle(main).fontSize : '',
+      titleFontFamily: title ? getComputedStyle(title).fontFamily : '',
+      titleFontWeight: title ? getComputedStyle(title).fontWeight : '',
+      titleFontStyle: title ? getComputedStyle(title).fontStyle : '',
       centerDelta: rect && mainRect
         ? Math.abs((rect.top + rect.bottom) / 2 - (mainRect.top + mainRect.bottom) / 2)
         : null,
@@ -2245,6 +2249,9 @@ try {
   assert.equal(readerBookTime.fontWeight, '400', JSON.stringify(readerBookTime));
   assert.match(readerBookTime.fontFamily, /serif/i, JSON.stringify(readerBookTime));
   assert.equal(readerBookTime.fontSize, readerBookTime.mainFontSize, JSON.stringify(readerBookTime));
+  assert.match(readerBookTime.titleFontFamily, /Pretendard/i, JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.titleFontWeight, '400', JSON.stringify(readerBookTime));
+  assert.equal(readerBookTime.titleFontStyle, 'normal', JSON.stringify(readerBookTime));
   assert.ok(readerBookTime.centerDelta !== null && readerBookTime.centerDelta <= 1, JSON.stringify(readerBookTime));
   assert.equal(readerBookTime.mainText.includes(readerBookTime.text), true, JSON.stringify(readerBookTime));
   assert.equal(readerBookTime.insideMain, true, JSON.stringify(readerBookTime));

@@ -26,7 +26,10 @@ export const ReaderStatusBar: React.FC<ReaderStatusBarProps> = ({
 }) => (
   <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-[45] flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+2px)] font-sans ${theme.text}`}>
     <div data-reader-status-main="true" className="flex max-w-[calc(100vw-2rem)] items-center gap-2 text-[11px] font-normal tracking-widest">
-      <span className="max-w-[42vw] truncate opacity-70">
+      <span
+        data-reader-status-title="true"
+        className="max-w-[42vw] truncate font-sans font-normal not-italic opacity-70"
+      >
         {currentChapter || 'Reading'}
       </span>
       <span data-reader-status-progress="true" className="text-accent-500">
