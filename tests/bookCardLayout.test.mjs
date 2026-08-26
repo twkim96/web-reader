@@ -482,6 +482,7 @@ test('renders the simple shelf card as cover, fixed metadata, title, and compact
   const local = document.querySelector('[data-shelf-local-tag="true"]');
   const genre = document.querySelector('[data-shelf-simple-genre="true"]');
   const format = document.querySelector('[data-shelf-simple-format="true"]');
+  const sourceCount = document.querySelector('[data-shelf-simple-source-count="true"]');
   const title = document.querySelector('[data-shelf-simple-title="true"]');
   const progress = document.querySelector('[data-shelf-simple-progress="true"]');
   const deleteButton = document.querySelector('[data-shelf-simple-progress-delete="true"]');
@@ -492,6 +493,7 @@ test('renders the simple shelf card as cover, fixed metadata, title, and compact
   assert.ok(local);
   assert.ok(genre);
   assert.ok(format);
+  assert.ok(sourceCount);
   assert.ok(title);
   assert.ok(progress);
   assert.ok(deleteButton);
@@ -500,14 +502,18 @@ test('renders the simple shelf card as cover, fixed metadata, title, and compact
   assert.equal(meta.children[0], local);
   assert.equal(meta.children[1], genre);
   assert.equal(meta.children[2], format);
+  assert.equal(meta.children[3], sourceCount);
   assert.equal(local.textContent, '로컬');
   assert.equal(genre.textContent, '판타지');
   assert.equal(format.textContent, 'EPUB');
+  assert.equal(sourceCount.textContent, '304.7만 조회');
+  assert.match(meta.className, /flex-wrap/);
   assert.equal(meta.nextElementSibling, title);
   assert.equal(title.nextElementSibling, progress);
   assert.match(title.textContent, /레이아웃 검증/);
   assert.match(progress.textContent, /42\.5%/);
-  assert.match(progress.textContent, /08\.17\./);
+  assert.match(progress.textContent, /2026/);
+  assert.doesNotMatch(progress.textContent, /--\.--\./);
   assert.equal(deleteButton.querySelector('svg')?.getAttribute('width'), '13');
   assert.doesNotMatch(card.className, /app-panel-radius|\bborder\b|\bbg-/);
 });

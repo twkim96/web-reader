@@ -90,13 +90,6 @@ export const BookCard: React.FC<BookCardProps> = ({
     });
   };
 
-  const formatShortDate = (timestamp: unknown) => {
-    const time = getProgressTime(timestamp);
-    if (!time) return '--.--.';
-    const date = new Date(time);
-    return `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}.`;
-  };
-
   const percent = progress?.progressPercent || 0;
   const displayBookTitle = getDisplayBookTitle(book.name);
   const simpleFormatLabel = getBookFormatLabel(book).split(' ')[0];
@@ -366,7 +359,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           )}
         </div>
 
-        <div data-shelf-simple-meta="true" className="mt-2 flex min-w-0 items-center gap-1 overflow-hidden">
+        <div data-shelf-simple-meta="true" className="mt-2 flex min-h-10 min-w-0 flex-wrap content-start items-center gap-1 overflow-hidden">
           {isDownloaded && (
             <span data-shelf-local-tag="true" className={localChipClass}>
               로컬
@@ -383,6 +376,11 @@ export const BookCard: React.FC<BookCardProps> = ({
           >
             {simpleFormatLabel}
           </span>
+          {combinedSourceCount !== null && (
+            <span data-shelf-simple-source-count="true" className="min-w-0 truncate text-[9px] font-bold opacity-50">
+              {formatPublicBookCatalogMetric(combinedSourceCount)} 조회
+            </span>
+          )}
         </div>
 
         <h3
@@ -392,7 +390,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           {displayBookTitle}
         </h3>
 
-        <div data-shelf-simple-progress="true" className="mt-1.5 flex min-w-0 items-center gap-1 text-[10px] font-normal leading-none text-slate-500">
+        <div data-shelf-simple-progress="true" className="mt-1.5 flex min-w-0 items-center gap-1 text-[9px] font-normal leading-none text-slate-500 sm:text-[10px]">
           {percent > 0 && onDeleteProgress && (
             <button
               type="button"
@@ -414,7 +412,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           </span>
           <span aria-hidden="true" className="opacity-35">|</span>
           <span data-shelf-simple-read-date="true" className="min-w-0 truncate">
-            {progress?.lastRead && percent > 0 ? formatShortDate(progress.lastRead) : '--.--.'}
+            {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
           </span>
         </div>
       </div>
