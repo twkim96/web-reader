@@ -1422,7 +1422,10 @@ try {
   assert.match(shelfDockStyleLayout.previewClasses[0], /backdrop-blur-xl/);
   assert.match(shelfDockStyleLayout.previewClasses[1], /viewer-cime-glass/);
   assert.match(shelfDockStyleLayout.previewClasses[2], /shelf-muzio-dock/);
-  assert.equal(shelfDockStyleLayout.previewBlur[1], 'blur(4px)');
+  assert.equal(
+    shelfDockStyleLayout.previewBlur[1],
+    'blur(4px) saturate(0.9) contrast(0.82)',
+  );
   assert.equal(shelfDockStyleLayout.selectedBoxes.filter(Boolean).length, 1);
   assert.equal(
     shelfDockStyleLayout.values[shelfDockStyleLayout.selectedBoxes.indexOf(true)],
@@ -1439,8 +1442,7 @@ try {
       if (!dock) return false;
       const style = getComputedStyle(dock);
       const radius = Number.parseFloat(style.borderRadius || '0');
-      return style.backgroundColor === 'rgba(20, 21, 23, 0.2)'
-        && style.backdropFilter === 'blur(4px)'
+      return style.backdropFilter === 'blur(4px) saturate(0.9) contrast(0.82)'
         && radius === 34;
     })()`,
     'settled glass shelf dock style',
@@ -1461,8 +1463,12 @@ try {
   assert.equal(glassShelfDock.storedStyle, 'glass', JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.usesModernClass, false, JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.usesCimeGlassClass, true, JSON.stringify(glassShelfDock));
-  assert.equal(glassShelfDock.backgroundColor, 'rgba(20, 21, 23, 0.2)', JSON.stringify(glassShelfDock));
-  assert.equal(glassShelfDock.backdropFilter, 'blur(4px)', JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.24)', JSON.stringify(glassShelfDock));
+  assert.equal(
+    glassShelfDock.backdropFilter,
+    'blur(4px) saturate(0.9) contrast(0.82)',
+    JSON.stringify(glassShelfDock),
+  );
   assert.match(glassShelfDock.rimBackground, /linear-gradient\(164deg/, JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.borderRadius, 34, JSON.stringify(glassShelfDock));
   assert.equal(
