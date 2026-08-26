@@ -42,7 +42,7 @@ const setupGuestShelf = async (page: Page, installId: string) => {
     localStorage.setItem('isGuest', 'true');
     localStorage.setItem('web_reader_guest_install_id', id);
     localStorage.setItem('neverShowInstallPrompt', 'true');
-    localStorage.setItem('shelf_viewMode', 'grid');
+    localStorage.setItem('shelf_viewMode_v2', 'grid');
   }, installId);
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();

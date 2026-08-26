@@ -7,7 +7,7 @@ import type {
 import type { PublicBookMetadata } from '../../lib/publicBookMetadataSchema.ts';
 
 export type ShelfSortMode = 'alpha' | 'recent' | 'popularity';
-export type ShelfViewMode = 'grid' | 'list';
+export type ShelfViewMode = 'simple' | 'grid' | 'list';
 export type ShelfSourceFilter = PublicBookCatalogPlatformId | 'none';
 export type ShelfFilters = {
   sources: ShelfSourceFilter[];

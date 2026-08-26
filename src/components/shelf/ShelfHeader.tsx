@@ -18,7 +18,7 @@ import {
   X
 } from 'lucide-react';
 import type { CloudSyncStatus } from './FileUploader';
-import type { ShelfSortMode } from './bookUtils';
+import type { ShelfSortMode, ShelfViewMode } from './bookUtils';
 import type { ShelfDockStyle } from '../../types';
 
 interface ShelfHeaderProps {
@@ -30,7 +30,7 @@ interface ShelfHeaderProps {
   searchKeyword: string;
   sortMode: ShelfSortMode;
   activeFilterCount: number;
-  viewMode: 'grid' | 'list';
+  viewMode: ShelfViewMode;
   dockStyle: ShelfDockStyle;
   onToggleCloud: () => void;
   onLogin: () => void;
@@ -147,8 +147,20 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   }: {
     iconSize: number;
     buttonClass: string;
-  }) => (
-    <>
+  }) => {
+    const nextViewTitle = viewMode === 'simple'
+      ? 'Switch to Grid View'
+      : viewMode === 'grid'
+        ? 'Switch to List View'
+        : 'Switch to Simple View';
+    const nextViewLabel = viewMode === 'simple'
+      ? '그리드 보기'
+      : viewMode === 'grid'
+        ? '목록 보기'
+        : '심플 보기';
+
+    return (
+      <>
       <button
         type="button"
         data-shelf-filter-control="true"
@@ -172,13 +184,18 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
         data-shelf-view-control="true"
         onClick={onToggleViewMode}
         className={buttonClass}
-        title={viewMode === 'grid' ? "Switch to List View" : "Switch to Grid View"}
-        aria-label={viewMode === 'grid' ? "목록 보기" : "그리드 보기"}
+        title={nextViewTitle}
+        aria-label={nextViewLabel}
       >
-        {viewMode === 'grid' ? <List size={iconSize} /> : <LayoutGrid size={iconSize} />}
+        {viewMode === 'simple'
+          ? <LayoutGrid size={iconSize} />
+          : viewMode === 'grid'
+            ? <List size={iconSize} />
+            : <Library size={iconSize} />}
       </button>
-    </>
-  );
+      </>
+    );
+  };
 
   const renderDockActions = ({
     iconSize,

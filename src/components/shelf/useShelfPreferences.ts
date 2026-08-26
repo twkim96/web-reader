@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { ShelfSortMode, ShelfViewMode } from './bookUtils';
 
-const VIEW_MODE_KEY = 'shelf_viewMode';
+const VIEW_MODE_KEY = 'shelf_viewMode_v2';
 const SORT_MODE_KEY = 'shelf_sortMode';
 
 const getStoredViewMode = (): ShelfViewMode => {
-  if (typeof window === 'undefined') return 'grid';
+  if (typeof window === 'undefined') return 'simple';
   const saved = localStorage.getItem(VIEW_MODE_KEY);
-  return saved === 'grid' || saved === 'list' ? saved : 'grid';
+  return saved === 'simple' || saved === 'grid' || saved === 'list' ? saved : 'simple';
 };
 
 const getStoredSortMode = (): ShelfSortMode => {
@@ -24,7 +24,11 @@ export const useShelfPreferences = () => {
 
   const toggleViewMode = () => {
     setViewMode(current => {
-      const next = current === 'grid' ? 'list' : 'grid';
+      const next = current === 'simple'
+        ? 'grid'
+        : current === 'grid'
+          ? 'list'
+          : 'simple';
       localStorage.setItem(VIEW_MODE_KEY, next);
       return next;
     });

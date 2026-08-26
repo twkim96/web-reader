@@ -147,7 +147,7 @@ try {
         }
         localStorage.setItem('web_reader_guest_install_id', 'browser-regression');
         localStorage.setItem('neverShowInstallPrompt', 'true');
-        localStorage.setItem('shelf_viewMode', 'grid');
+        localStorage.setItem('shelf_viewMode_v2', 'grid');
         localStorage.setItem('shelf_sortMode', 'recent');
         const storedSettings = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
         localStorage.setItem('viewer_settings', JSON.stringify({
@@ -220,7 +220,7 @@ try {
     localStorage.removeItem('isGuest');
     localStorage.setItem('web_reader_guest_install_id', 'browser-regression');
     localStorage.setItem('neverShowInstallPrompt', 'true');
-    localStorage.setItem('shelf_viewMode', 'grid');
+    localStorage.setItem('shelf_viewMode_v2', 'grid');
     localStorage.setItem('shelf_sortMode', 'recent');
     localStorage.removeItem('viewer_settings');
     localStorage.removeItem('last_reader_session');
@@ -702,7 +702,7 @@ try {
 
   await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
   await waitFor(
-    `localStorage.getItem('shelf_viewMode') === 'list'
+    `localStorage.getItem('shelf_viewMode_v2') === 'list'
       && Boolean(document.querySelector(
         '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
       ))`,
@@ -763,9 +763,14 @@ try {
   }));
   assert.equal(listCoverLayout.coverSrc, initialShelf.cachedCoverSrc);
   initialShelf.listCoverLayout = listCoverLayout;
+  await evaluate(`document.querySelector('button[title="Switch to Simple View"]')?.click()`);
+  await waitFor(
+    `localStorage.getItem('shelf_viewMode_v2') === 'simple'`,
+    'simple shelf view before restoring grid',
+  );
   await evaluate(`document.querySelector('button[title="Switch to Grid View"]')?.click()`);
   await waitFor(
-    `localStorage.getItem('shelf_viewMode') === 'grid'
+    `localStorage.getItem('shelf_viewMode_v2') === 'grid'
       && Boolean(document.querySelector(
         '[data-shelf-book-id="book-0001"] [data-shelf-book-cover="true"]'
       ))`,

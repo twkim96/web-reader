@@ -294,7 +294,7 @@ test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive
 });
 
 test('keeps shelf cards keyboard-operable and clears long-press work on unmount', async () => {
-  for (const viewMode of ['grid', 'list']) {
+  for (const viewMode of ['simple', 'grid', 'list']) {
     const card = renderCard(viewMode).querySelector('[data-shelf-book-card="true"]');
     assert.equal(card?.getAttribute('role'), 'button');
     assert.equal(card?.getAttribute('tabindex'), '0');
@@ -324,7 +324,7 @@ test('deduplicates shelf history, reuses cover URLs, and labels theme choices', 
 });
 
 test('uses the same cover frame for cached and generated shelf covers', () => {
-  for (const viewMode of ['grid', 'list']) {
+  for (const viewMode of ['simple', 'grid', 'list']) {
     const covered = renderCardWithCover(viewMode);
     const cover = covered.querySelector('[data-shelf-book-cover="true"]');
     const coverFrame = covered.querySelector('[data-shelf-book-cover-frame="true"]');
@@ -459,13 +459,74 @@ test('keeps the list cover compact and fills the left side of grid cards with a 
   assert.equal(progressDeleteIcon.getAttribute('height'), '14');
 });
 
+test('renders the simple shelf card as cover, fixed metadata, title, and compact progress', () => {
+  const document = renderCardWithCover('simple');
+  const card = document.querySelector('[data-shelf-simple-card="true"]');
+  const cover = document.querySelector('[data-shelf-simple-cover="true"]');
+  const meta = document.querySelector('[data-shelf-simple-meta="true"]');
+  const local = document.querySelector('[data-shelf-local-tag="true"]');
+  const genre = document.querySelector('[data-shelf-simple-genre="true"]');
+  const format = document.querySelector('[data-shelf-simple-format="true"]');
+  const title = document.querySelector('[data-shelf-simple-title="true"]');
+  const progress = document.querySelector('[data-shelf-simple-progress="true"]');
+  const deleteButton = document.querySelector('[data-shelf-simple-progress-delete="true"]');
+
+  assert.ok(card);
+  assert.ok(cover);
+  assert.ok(meta);
+  assert.ok(local);
+  assert.ok(genre);
+  assert.ok(format);
+  assert.ok(title);
+  assert.ok(progress);
+  assert.ok(deleteButton);
+  assert.match(cover.className, /aspect-\[2\/3\]/);
+  assert.match(cover.className, /app-tag-radius/);
+  assert.equal(meta.children[0], local);
+  assert.equal(meta.children[1], genre);
+  assert.equal(meta.children[2], format);
+  assert.equal(local.textContent, '로컬');
+  assert.equal(genre.textContent, '판타지');
+  assert.equal(format.textContent, 'EPUB');
+  assert.equal(meta.nextElementSibling, title);
+  assert.equal(title.nextElementSibling, progress);
+  assert.match(title.textContent, /레이아웃 검증/);
+  assert.match(progress.textContent, /42\.5%/);
+  assert.match(progress.textContent, /08\.17\./);
+  assert.equal(deleteButton.querySelector('svg')?.getAttribute('width'), '13');
+  assert.doesNotMatch(card.className, /app-panel-radius|\bborder\b|\bbg-/);
+});
+
+test('defaults to simple view and cycles simple, grid, and list modes', async () => {
+  const [preferencesSource, headerSource] = await Promise.all([
+    readFile(new URL('../src/components/shelf/useShelfPreferences.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(preferencesSource, /const VIEW_MODE_KEY = 'shelf_viewMode_v2'/);
+  assert.match(preferencesSource, /typeof window === 'undefined'\) return 'simple'/);
+  assert.match(preferencesSource, /saved === 'simple' \|\| saved === 'grid' \|\| saved === 'list'/);
+  assert.match(preferencesSource, /current === 'simple'[\s\S]*?\? 'grid'[\s\S]*?current === 'grid'[\s\S]*?\? 'list'[\s\S]*?: 'simple'/);
+  assert.match(headerSource, /Switch to Simple View/);
+  assert.match(headerSource, /심플 보기/);
+});
+
 test('keeps horizontal grid cards readable in one mobile column and two wider columns', async () => {
   const shelfSource = await readFile(
     new URL('../src/components/shelf/index.tsx', import.meta.url),
     'utf8',
   );
-  assert.match(shelfSource, /viewMode === 'grid' \? 'grid-cols-1 gap-4 sm:grid-cols-2'/);
+  assert.match(shelfSource, /viewMode === 'grid'[\s\S]*?\? 'grid-cols-1 gap-4 sm:grid-cols-2'/);
   assert.doesNotMatch(shelfSource, /lg:grid-cols-3|xl:grid-cols-4/);
+});
+
+test('uses a cover-led responsive column layout for simple view', async () => {
+  const shelfSource = await readFile(
+    new URL('../src/components/shelf/index.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(shelfSource, /viewMode === 'simple'[\s\S]*?grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5/);
 });
 
 test('gives list titles the flexible column and keeps format and progress compact on the right', () => {

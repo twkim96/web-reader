@@ -58,7 +58,7 @@ export const getGeneratedBookCoverStyle = (identity: string) => {
   return { backgroundColor, color, paletteIndex };
 };
 
-type GeneratedBookCoverVariant = 'grid' | 'list' | 'info';
+type GeneratedBookCoverVariant = 'simple' | 'grid' | 'list' | 'info';
 
 interface GeneratedBookCoverProps {
   identity: string;
@@ -68,6 +68,7 @@ interface GeneratedBookCoverProps {
 }
 
 const variantClasses: Record<GeneratedBookCoverVariant, string> = {
+  simple: 'text-[10px] leading-[1.15] sm:text-[11px]',
   grid: 'text-[9px] leading-[1.15] sm:text-[10px]',
   list: 'text-[7px] leading-[1.08]',
   info: 'text-[7px] leading-[1.12] sm:text-[8px]',

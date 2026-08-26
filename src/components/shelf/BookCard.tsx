@@ -6,14 +6,20 @@ import {
   formatPublicBookCatalogMetric,
   type PublicBookCatalogBook,
 } from '../../lib/publicBookCatalog';
-import { getBookFormatLabel, getDisplayBookTitle, getProgressTime, ShelfTheme } from './bookUtils';
+import {
+  getBookFormatLabel,
+  getDisplayBookTitle,
+  getProgressTime,
+  type ShelfTheme,
+  type ShelfViewMode,
+} from './bookUtils';
 import { GeneratedBookCover } from './GeneratedBookCover';
 
 interface BookCardProps {
   book: Book;
   progress?: UserProgress;
   isDownloaded: boolean;
-  viewMode: 'grid' | 'list';
+  viewMode: ShelfViewMode;
   theme: ShelfTheme;
   onOpen: (book: Book) => void;
   onDeleteProgress?: (bookId: string) => void;
@@ -84,8 +90,16 @@ export const BookCard: React.FC<BookCardProps> = ({
     });
   };
 
+  const formatShortDate = (timestamp: unknown) => {
+    const time = getProgressTime(timestamp);
+    if (!time) return '--.--.';
+    const date = new Date(time);
+    return `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}.`;
+  };
+
   const percent = progress?.progressPercent || 0;
   const displayBookTitle = getDisplayBookTitle(book.name);
+  const simpleFormatLabel = getBookFormatLabel(book).split(' ')[0];
   const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
   const fixedListTagCount = (isDownloaded ? 1 : 0) + (catalog?.genreLabel ? 1 : 0);
   const maxListRawTagCount = Math.max(0, 10 - fixedListTagCount);
@@ -308,6 +322,104 @@ export const BookCard: React.FC<BookCardProps> = ({
     event.preventDefault();
     onRequestBookInfo(book);
   }, [book, onRequestBookInfo]);
+
+  if (viewMode === 'simple') {
+    return (
+      <div
+        data-shelf-book-card="true"
+        data-shelf-book-id={book.id}
+        data-shelf-simple-card="true"
+        role="button"
+        tabIndex={0}
+        aria-label={`${displayBookTitle} 열기`}
+        onClick={handleCardClick}
+        onKeyDown={handleCardKeyDown}
+        onContextMenu={handleContextMenu}
+        onPointerDown={startLongPress}
+        onPointerMove={handlePointerMove}
+        onPointerUp={clearLongPressTimer}
+        onPointerLeave={clearLongPressTimer}
+        onPointerCancel={clearLongPressTimer}
+        className="group min-w-0 select-none cursor-pointer [-webkit-touch-callout:none] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+      >
+        <div
+          data-shelf-book-cover-frame="true"
+          data-shelf-simple-cover="true"
+          className="app-tag-radius relative aspect-[2/3] w-full overflow-hidden transition-transform duration-300 group-hover:scale-[1.015]"
+        >
+          {coverUrl ? (
+            <Image
+              data-shelf-book-cover="true"
+              src={coverUrl}
+              alt=""
+              fill
+              sizes="(min-width: 1024px) 224px, (min-width: 768px) 25vw, (min-width: 640px) 33vw, 50vw"
+              unoptimized
+              className="object-cover"
+            />
+          ) : (
+            <GeneratedBookCover
+              identity={book.id}
+              title={displayBookTitle}
+              variant="simple"
+            />
+          )}
+        </div>
+
+        <div data-shelf-simple-meta="true" className="mt-2 flex min-w-0 items-center gap-1 overflow-hidden">
+          {isDownloaded && (
+            <span data-shelf-local-tag="true" className={localChipClass}>
+              로컬
+            </span>
+          )}
+          {catalog?.genreLabel && (
+            <span data-shelf-simple-genre="true" className={genreChipClass}>
+              {catalog.genreLabel}
+            </span>
+          )}
+          <span
+            data-shelf-simple-format="true"
+            className="app-tag-radius min-w-0 shrink truncate bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5"
+          >
+            {simpleFormatLabel}
+          </span>
+        </div>
+
+        <h3
+          data-shelf-simple-title="true"
+          className="mt-2 min-h-10 line-clamp-2 text-sm font-medium leading-5 transition-colors group-hover:text-accent-500"
+        >
+          {displayBookTitle}
+        </h3>
+
+        <div data-shelf-simple-progress="true" className="mt-1.5 flex min-w-0 items-center gap-1 text-[10px] font-normal leading-none text-slate-500">
+          {percent > 0 && onDeleteProgress && (
+            <button
+              type="button"
+              data-shelf-simple-progress-delete="true"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDeleteProgress(book.id);
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="flex size-5 shrink-0 items-center justify-center p-0 transition-colors hover:text-red-400"
+              title="Delete Progress"
+              aria-label={`${displayBookTitle} 읽기 진행률 삭제`}
+            >
+              <Eraser size={13} strokeWidth={2.25} />
+            </button>
+          )}
+          <span data-shelf-simple-progress-percent="true" className="shrink-0 text-accent-400">
+            {percent.toFixed(1)}%
+          </span>
+          <span aria-hidden="true" className="opacity-35">|</span>
+          <span data-shelf-simple-read-date="true" className="min-w-0 truncate">
+            {progress?.lastRead && percent > 0 ? formatShortDate(progress.lastRead) : '--.--.'}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   if (viewMode === 'list') {
     return (
