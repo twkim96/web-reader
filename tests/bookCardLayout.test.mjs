@@ -154,6 +154,13 @@ test('uses light title-cased shelf library labels', async () => {
   assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-black\b/);
 });
 
+test('keeps the shelf header closer to the mobile safe area without changing desktop spacing', async () => {
+  const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
+
+  assert.match(shelfHeaderSource, /pt-\[calc\(env\(safe-area-inset-top\)\+1rem\)\]/);
+  assert.match(shelfHeaderSource, /md:pt-\[calc\(env\(safe-area-inset-top\)\+2rem\)\]/);
+});
+
 test('keeps the shelf identity control flat and the user label light', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
   const identityStart = shelfHeaderSource.indexOf('data-shelf-brand-control="true"');

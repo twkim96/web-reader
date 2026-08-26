@@ -292,7 +292,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   return (
     <>
-      <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+2rem)] pb-6 transition-colors duration-300">
+      <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+1rem)] pb-6 transition-colors duration-300 md:pt-[calc(env(safe-area-inset-top)+2rem)]">
         <div className="max-w-7xl mx-auto flex h-[4.125rem] items-center justify-between px-4 md:px-6">
           <div className="flex h-full min-w-0 flex-1 items-center gap-2">
             <button
