@@ -137,11 +137,12 @@ test('uses a Spotlight-like 20px radius for both search modals', async () => {
   assert.match(epubSearchSource, /data-epub-search-modal="true"[\s\S]*?app-search-modal-radius/);
 });
 
-test('keeps the shelf dock at 34px on mobile and 20px on desktop', async () => {
+test('keeps one persistent bottom shelf dock at 34px on mobile and 20px on desktop', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
 
-  assert.match(shelfHeaderSource, /const dockClass = `[^`]*rounded-\[20px\]/);
   assert.match(shelfHeaderSource, /const bottomDockClass = `[^`]*rounded-\[34px\] md:rounded-\[20px\]/);
+  assert.match(shelfHeaderSource, /data-shelf-bottom-dock="true"/);
+  assert.doesNotMatch(shelfHeaderSource, /data-shelf-top-dock|isBottomDock|md:hidden[^\n]*bottomDock/);
 });
 
 test('uses light title-cased shelf library labels', async () => {
@@ -163,7 +164,7 @@ test('keeps the shelf header closer to the mobile safe area without changing des
   assert.match(shelfHeaderSource, /md:pt-\[calc\(env\(safe-area-inset-top\)\+2rem\)\]/);
 });
 
-test('optically matches the mobile layout controls to the grid card gap', async () => {
+test('keeps mobile layout and auth controls in the header while tightening the shelf gap', async () => {
   const [shelfHeaderSource, shelfSource] = await Promise.all([
     readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/index.tsx', import.meta.url), 'utf8'),
@@ -171,9 +172,11 @@ test('optically matches the mobile layout controls to the grid card gap', async 
   const mobileControls = shelfHeaderSource.match(/data-shelf-mobile-layout-controls="true"[\s\S]*?<\/div>/)?.[0] ?? '';
   const shelfContent = shelfSource.match(/data-shelf-content="true"[^>]+/)?.[0] ?? '';
 
-  assert.doesNotMatch(mobileControls, /\bpb-/);
+  assert.match(mobileControls, /data-shelf-filter-control|renderLayoutControls/);
+  assert.match(mobileControls, /data-shelf-auth-control/);
+  assert.match(shelfHeaderSource, /\bpb-2\b/);
   assert.match(shelfContent, /\bpt-2\b/);
-  assert.match(shelfContent, /\bmd:pt-5\b/);
+  assert.doesNotMatch(shelfContent, /\bmd:pt-/);
   assert.match(shelfSource, /grid-cols-1 gap-4 sm:grid-cols-2/);
 });
 

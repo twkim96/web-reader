@@ -109,7 +109,6 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [sampleBookFeedback, setSampleBookFeedback] = useState('');
 
   const fileUploaderRef = useRef<FileUploaderHandle>(null);
-  const shelfContentRef = useRef<HTMLElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMorePendingRef = useRef(false);
   const visibleBookCountRef = useRef(SHELF_PAGE_SIZE);
@@ -349,7 +348,6 @@ export const Shelf: React.FC<ShelfProps> = ({
       style={themeStyle}
     >
       <ShelfHeader 
-        shelfContentRef={shelfContentRef}
         isOfflineMode={isOfflineMode}
         isGuest={isGuest}
         syncStatus={syncStatus}
@@ -406,7 +404,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         </div>
       )}
 
-      <main ref={shelfContentRef} data-shelf-content="true" className="max-w-7xl mx-auto px-6 pt-2 pb-8 md:pt-5">
+      <main data-shelf-content="true" className="max-w-7xl mx-auto px-6 pt-2 pb-8">
         {filteredBooks.length > 0 ? (
           <div className={`grid ${
             viewMode === 'simple'

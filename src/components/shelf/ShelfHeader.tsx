@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import { 
   Library, 
   Search, 
@@ -22,7 +22,6 @@ import type { ShelfSortMode, ShelfViewMode } from './bookUtils';
 import type { ShelfDockStyle } from '../../types';
 
 interface ShelfHeaderProps {
-  shelfContentRef: React.RefObject<HTMLElement | null>;
   isOfflineMode: boolean;
   isGuest: boolean;
   syncStatus: CloudSyncStatus;
@@ -47,7 +46,6 @@ interface ShelfHeaderProps {
 }
 
 export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
-  shelfContentRef,
   isOfflineMode,
   isGuest,
   syncStatus,
@@ -70,48 +68,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   onShowStatistics,
   onCancelSync
 }) => {
-  const [isBottomDock, setIsBottomDock] = useState(false);
-  const mobileMenuRef = useRef<HTMLDivElement>(null);
-  const isBottomDockRef = useRef(false);
-
-  useEffect(() => {
-    let frameId = 0;
-
-    const measureDockMode = () => {
-      frameId = 0;
-      const content = shelfContentRef.current;
-      const topDock = mobileMenuRef.current;
-      if (!content || !topDock) return;
-
-      const contentTop = content.getBoundingClientRect().top;
-      const restingTopDockBottom = topDock.getBoundingClientRect().bottom + window.scrollY;
-      const scrollGate = isBottomDockRef.current ? 24 : 56;
-      const hasScrolledIntoShelf = window.scrollY > scrollGate;
-      const shouldMoveBottom = isBottomDockRef.current
-        ? hasScrolledIntoShelf && contentTop <= restingTopDockBottom + 72
-        : hasScrolledIntoShelf && contentTop <= restingTopDockBottom + 12;
-
-      if (shouldMoveBottom !== isBottomDockRef.current) {
-        isBottomDockRef.current = shouldMoveBottom;
-        setIsBottomDock(shouldMoveBottom);
-      }
-    };
-
-    const scheduleMeasure = () => {
-      if (frameId) return;
-      frameId = window.requestAnimationFrame(measureDockMode);
-    };
-
-    scheduleMeasure();
-    window.addEventListener('scroll', scheduleMeasure, { passive: true });
-    window.addEventListener('resize', scheduleMeasure);
-    return () => {
-      if (frameId) window.cancelAnimationFrame(frameId);
-      window.removeEventListener('scroll', scheduleMeasure);
-      window.removeEventListener('resize', scheduleMeasure);
-    };
-  }, [shelfContentRef]);
-
   const sortLabel = sortMode === 'alpha'
     ? '가나다순'
     : sortMode === 'popularity'
@@ -122,7 +78,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     activeFilterCount > 0 ? `, 필터 ${activeFilterCount}개` : ''
   }`;
 
-  const desktopDockIconSize = 22;
   const bottomDockIconSize = 26;
   const mobileHeaderIconSize = 20;
   const modernDock = dockStyle === 'modern';
@@ -132,11 +87,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     : standardDock
       ? "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl"
       : "viewer-cime-glass border text-[color:var(--viewer-theme-text)]";
-  const dockClass = `relative flex h-[4.125rem] items-center rounded-[20px] ${dockSurfaceClass} gap-0.5 px-1.5 ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.18)]' : ''} lg:gap-1.5 lg:px-2`;
   const bottomDockClass = `relative flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-[34px] md:rounded-[20px] ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.28)]' : ''} ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
-  const dockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full opacity-[0.84] transition-all hover:bg-current/10 hover:opacity-100 active:scale-90 lg:h-12 lg:w-12";
-  const activeDockButtonClass = "flex h-11 w-11 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-lg shadow-accent-500/20 transition-all active:scale-90 lg:h-12 lg:w-12";
-  const accentDockButtonClass = `${dockButtonClass} text-accent-500`;
   const bottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14";
   const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14";
   const accentBottomDockButtonClass = `${bottomDockButtonClass} text-accent-500`;
@@ -202,7 +153,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     buttonClass,
     activeButtonClass,
     accentButtonClass,
-    includeAuth = false,
     includeLayoutControls = true,
     layoutControlsClassName = '',
   }: {
@@ -210,7 +160,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     buttonClass: string;
     activeButtonClass: string;
     accentButtonClass: string;
-    includeAuth?: boolean;
     includeLayoutControls?: boolean;
     layoutControlsClassName?: string;
   }) => {
@@ -275,24 +224,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           <HardDrive size={iconSize} />
         </button>
 
-        {includeAuth && (
-          <button
-            type="button"
-            data-shelf-auth-control="true"
-            onClick={() => runAction(isGuest ? onLogin : onLogout)}
-            className={isGuest ? accentButtonClass : `${buttonClass} text-red-400`}
-            title={isGuest ? "Sign In" : "Sign Out"}
-            aria-label={isGuest ? "Sign In" : "Sign Out"}
-          >
-            {isGuest ? <KeyRound size={iconSize} /> : <LogOut size={iconSize} />}
-          </button>
-        )}
       </>
     );
   };
 
   const bottomDock = (
-    <div className={`fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-[80] flex justify-center px-2 pointer-events-none md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)] ${isBottomDock ? 'md:flex' : 'md:hidden'}`}>
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-[80] flex justify-center px-2 md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)]">
       <div data-shelf-bottom-dock="true" data-shelf-dock-style={dockStyle} className={`${bottomDockClass} pointer-events-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out md:overflow-x-auto`}>
         <div className="flex w-full min-w-0 items-center justify-evenly gap-0.5 md:w-auto md:min-w-max md:justify-start md:gap-2">
           {renderDockActions({
@@ -309,7 +246,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   return (
     <>
-      <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+1rem)] pb-6 transition-colors duration-300 md:pt-[calc(env(safe-area-inset-top)+2rem)]">
+      <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+1rem)] pb-2 transition-colors duration-300 md:pt-[calc(env(safe-area-inset-top)+2rem)]">
         <div className="max-w-7xl mx-auto flex h-[4.125rem] items-center justify-between px-4 md:px-6">
           <div className="flex h-full min-w-0 flex-1 items-center gap-2">
             <button
@@ -364,7 +301,16 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             )}
           </div>
 
-          <div className="ml-1 flex shrink-0 items-center md:hidden">
+          <div
+            data-shelf-mobile-layout-controls="true"
+            className="ml-1 flex shrink-0 items-center gap-0.5"
+          >
+            <span className="flex items-center gap-0.5 md:hidden">
+              {renderLayoutControls({
+                iconSize: mobileHeaderIconSize,
+                buttonClass: mobileHeaderButtonClass,
+              })}
+            </span>
             <button
               type="button"
               data-shelf-auth-control="true"
@@ -378,32 +324,8 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                 : <LogOut size={mobileHeaderIconSize} />}
             </button>
           </div>
-
-          <div
-            className={`relative -top-[0.5625rem] ml-3 hidden shrink-0 self-center transition-all duration-200 ease-out md:block ${isBottomDock ? 'pointer-events-none -translate-y-2 opacity-0' : 'translate-y-0 opacity-100'}`}
-            ref={mobileMenuRef}
-          >
-            <div data-shelf-top-dock="true" data-shelf-dock-style={dockStyle} className={`hidden items-center md:flex ${dockClass}`}>
-              {renderDockActions({
-                iconSize: desktopDockIconSize,
-                buttonClass: dockButtonClass,
-                activeButtonClass: activeDockButtonClass,
-                accentButtonClass: accentDockButtonClass,
-                includeAuth: true,
-              })}
-            </div>
-          </div>
       </div>
       </header>
-      <div
-        data-shelf-mobile-layout-controls="true"
-        className="relative z-40 mx-auto -mt-4 flex max-w-7xl justify-end gap-1 px-6 md:hidden"
-      >
-        {renderLayoutControls({
-          iconSize: mobileHeaderIconSize,
-          buttonClass: mobileHeaderButtonClass,
-        })}
-      </div>
       {bottomDock}
     </>
   );
