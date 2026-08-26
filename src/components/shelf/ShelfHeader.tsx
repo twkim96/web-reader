@@ -79,7 +79,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   }`;
 
   const bottomDockIconSize = 26;
-  const mobileHeaderIconSize = 20;
+  const mobileHeaderIconSize = 22;
   const modernDock = dockStyle === 'modern';
   const standardDock = dockStyle === 'standard';
   const dockSurfaceClass = modernDock
@@ -246,7 +246,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   return (
     <>
-      <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+1rem)] pb-2 transition-colors duration-300 md:pt-[calc(env(safe-area-inset-top)+2rem)]">
+      <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 transition-colors duration-300">
         <div className="max-w-7xl mx-auto flex h-[4.125rem] items-center justify-between px-4 md:px-6">
           <div className="flex h-full min-w-0 flex-1 items-center gap-2">
             <button
@@ -257,13 +257,13 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
-              <span className="flex size-9 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
+              <span className="flex size-10 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
                 {isGuest ? (
-                  <KeyRound size={28} />
+                  <KeyRound size={31} />
                 ) : isOfflineMode ? (
-                  <WifiOff size={28} />
+                  <WifiOff size={31} />
                 ) : (
-                  <Library size={28} />
+                  <Library size={31} />
                 )}
               </span>
               <span className="min-w-0">
@@ -271,7 +271,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   role="heading"
                   aria-level={1}
                   data-shelf-library-label="true"
-                  className="block truncate whitespace-nowrap text-[19px] font-medium tracking-tight md:text-xl"
+                  className="block truncate whitespace-nowrap text-[21px] font-medium tracking-tight md:text-[22px]"
                 >
                   {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
                 </span>

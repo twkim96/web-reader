@@ -156,16 +156,16 @@ test('uses light title-cased shelf library labels', async () => {
   assert.match(shelfHeaderSource, /isGuest \? 'Guest Library' : \(isOfflineMode \? 'Local Library' : 'Cloud Library'\)/);
   const headingSource = shelfHeaderSource.match(/<span[\s\S]*?role="heading"[\s\S]*?data-shelf-library-label="true"[\s\S]*?<\/span>/)?.[0] ?? '';
   assert.match(headingSource, /\bfont-medium\b/);
-  assert.match(headingSource, /text-\[19px\]/);
-  assert.match(headingSource, /\bmd:text-xl\b/);
+  assert.match(headingSource, /text-\[21px\]/);
+  assert.match(headingSource, /md:text-\[22px\]/);
   assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-normal\b|\bfont-black\b/);
 });
 
-test('keeps the shelf header closer to the mobile safe area without changing desktop spacing', async () => {
+test('keeps the shelf header close to the safe area on mobile and desktop', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
 
-  assert.match(shelfHeaderSource, /pt-\[calc\(env\(safe-area-inset-top\)\+1rem\)\]/);
-  assert.match(shelfHeaderSource, /md:pt-\[calc\(env\(safe-area-inset-top\)\+2rem\)\]/);
+  assert.match(shelfHeaderSource, /pt-\[calc\(env\(safe-area-inset-top\)\+0\.5rem\)\]/);
+  assert.doesNotMatch(shelfHeaderSource, /md:pt-/);
 });
 
 test('keeps mobile layout and auth controls in the header while tightening the shelf gap', async () => {
@@ -192,11 +192,12 @@ test('keeps the shelf identity control flat and the user label light', async () 
 
   assert.match(identityControl, /\bh-full\b/);
   assert.match(identityControl, /text-\[color:var\(--viewer-theme-text\)\]/);
-  assert.match(identityControl, /\bsize-9\b/);
+  assert.match(identityControl, /\bsize-10\b/);
   assert.doesNotMatch(identityControl, /bg-accent|bg-slate|shadow|rounded-/);
   assert.match(identityControl, /\btext-accent-500\b/);
-  assert.match(identityControl, /<(?:KeyRound|WifiOff|Library) size=\{28\} \/>/);
+  assert.match(identityControl, /<(?:KeyRound|WifiOff|Library) size=\{31\} \/>/);
   assert.match(identityControl, /text-\[10px\] font-normal tracking-wide opacity-55/);
+  assert.match(shelfHeaderSource, /const mobileHeaderIconSize = 22/);
 });
 
 test('maps non-reader controls to an optical radius scale and keeps exclusions explicit', async () => {
