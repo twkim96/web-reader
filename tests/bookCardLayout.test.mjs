@@ -149,22 +149,23 @@ test('uses light title-cased shelf library labels', async () => {
 
   assert.match(shelfHeaderSource, /data-shelf-library-label="true"/);
   assert.match(shelfHeaderSource, /isGuest \? 'Guest Library' : \(isOfflineMode \? 'Local Library' : 'Cloud Library'\)/);
-  const headingSource = shelfHeaderSource.match(/<h1[\s\S]*?<\/h1>/)?.[0] ?? '';
+  const headingSource = shelfHeaderSource.match(/<span[\s\S]*?role="heading"[\s\S]*?data-shelf-library-label="true"[\s\S]*?<\/span>/)?.[0] ?? '';
   assert.match(headingSource, /\bfont-normal\b/);
   assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-black\b/);
 });
 
 test('keeps the shelf identity control flat and the user label light', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
-  const identityControlClass = shelfHeaderSource.match(
-    /data-shelf-brand-control="true"[\s\S]*?className="([^"]+)"/,
-  )?.[1] ?? '';
+  const identityStart = shelfHeaderSource.indexOf('data-shelf-brand-control="true"');
+  const identityEnd = shelfHeaderSource.indexOf('</button>', identityStart);
+  const identityControl = shelfHeaderSource.slice(identityStart, identityEnd);
 
-  assert.match(identityControlClass, /text-\[color:var\(--viewer-theme-text\)\]/);
-  assert.match(identityControlClass, /\bsize-9\b/);
-  assert.doesNotMatch(identityControlClass, /bg-accent|bg-slate|shadow|rounded-/);
-  assert.match(shelfHeaderSource, /<(?:KeyRound|WifiOff|Library) size=\{28\} \/>/);
-  assert.match(shelfHeaderSource, /text-\[10px\] font-normal tracking-wide opacity-55/);
+  assert.match(identityControl, /\bh-full\b/);
+  assert.match(identityControl, /text-\[color:var\(--viewer-theme-text\)\]/);
+  assert.match(identityControl, /\bsize-9\b/);
+  assert.doesNotMatch(identityControl, /bg-accent|bg-slate|shadow|rounded-/);
+  assert.match(identityControl, /<(?:KeyRound|WifiOff|Library) size=\{28\} \/>/);
+  assert.match(identityControl, /text-\[10px\] font-normal tracking-wide opacity-55/);
 });
 
 test('maps non-reader controls to an optical radius scale and keeps exclusions explicit', async () => {

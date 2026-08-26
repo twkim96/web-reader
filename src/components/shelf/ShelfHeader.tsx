@@ -294,55 +294,57 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     <>
       <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+2rem)] pb-6 transition-colors duration-300">
         <div className="max-w-7xl mx-auto flex h-[4.125rem] items-center justify-between px-4 md:px-6">
-          <div className="flex h-full min-w-0 flex-1 items-center gap-2.5">
+          <div className="flex h-full min-w-0 flex-1 items-center gap-2">
             <button
               type="button"
               data-shelf-brand-control="true"
               onClick={isGuest ? onLogin : onToggleCloud}
-              className="relative flex size-9 shrink-0 items-center justify-center text-[color:var(--viewer-theme-text)] opacity-75 transition-[transform,opacity] hover:opacity-100 active:scale-95"
+              className="group flex h-full min-w-0 items-center gap-2.5 text-left text-[color:var(--viewer-theme-text)] transition-opacity active:opacity-70"
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
-              {isGuest ? (
-                <KeyRound size={28} />
-              ) : isOfflineMode ? (
-                <WifiOff size={28} />
-              ) : (
-                <Library size={28} />
-              )}
-            </button>
-
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1
+              <span className="flex size-9 shrink-0 items-center justify-center opacity-75 transition-opacity group-hover:opacity-100">
+                {isGuest ? (
+                  <KeyRound size={28} />
+                ) : isOfflineMode ? (
+                  <WifiOff size={28} />
+                ) : (
+                  <Library size={28} />
+                )}
+              </span>
+              <span className="min-w-0">
+                <span
+                  role="heading"
+                  aria-level={1}
                   data-shelf-library-label="true"
-                  className="truncate whitespace-nowrap text-lg font-normal tracking-tight md:text-xl"
+                  className="block truncate whitespace-nowrap text-lg font-normal tracking-tight md:text-xl"
                 >
                   {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
-                </h1>
-                {syncStatus && (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500/10 border border-accent-500/20 rounded-xl text-accent-500 animate-in fade-in zoom-in duration-300">
-                    <CloudLightning size={14} className="animate-bounce" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.1em]">
-                      {syncStatus.retryCount > 0 ? `재시도 ${syncStatus.retryCount}` : `${syncStatus.progressPercent}%`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={onCancelSync}
-                      className="rounded p-0.5 hover:bg-accent-500/10"
-                      title="클라우드 업로드 취소"
-                      aria-label="클라우드 업로드 취소"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                )}
+                </span>
+                <span className="flex items-center gap-1.5 text-[10px] font-normal tracking-wide opacity-55">
+                  {isGuest && <UserIcon size={10} />}
+                  <span className="truncate">{userEmail}</span>
+                </span>
+              </span>
+            </button>
+
+            {syncStatus && (
+              <div className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 bg-accent-500/10 border border-accent-500/20 rounded-xl text-accent-500 animate-in fade-in zoom-in duration-300">
+                <CloudLightning size={14} className="animate-bounce" />
+                <span className="text-[10px] font-black uppercase tracking-[0.1em]">
+                  {syncStatus.retryCount > 0 ? `재시도 ${syncStatus.retryCount}` : `${syncStatus.progressPercent}%`}
+                </span>
+                <button
+                  type="button"
+                  onClick={onCancelSync}
+                  className="rounded p-0.5 hover:bg-accent-500/10"
+                  title="클라우드 업로드 취소"
+                  aria-label="클라우드 업로드 취소"
+                >
+                  <X size={13} />
+                </button>
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] font-normal tracking-wide opacity-55">
-                {isGuest && <UserIcon size={10} />}
-                <span className="truncate">{userEmail}</span>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="ml-1 flex shrink-0 items-center md:hidden">
