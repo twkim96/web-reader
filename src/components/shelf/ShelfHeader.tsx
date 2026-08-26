@@ -125,7 +125,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const desktopDockIconSize = 22;
   const bottomDockIconSize = 26;
   const mobileHeaderIconSize = 20;
-  const brandSurfaceClass = "drop-shadow-[0_10px_24px_rgba(0,0,0,0.34)]";
   const modernDock = dockStyle === 'modern';
   const standardDock = dockStyle === 'standard';
   const dockSurfaceClass = modernDock
@@ -295,22 +294,21 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     <>
       <header className="relative z-40 pt-[calc(env(safe-area-inset-top)+2rem)] pb-6 transition-colors duration-300">
         <div className="max-w-7xl mx-auto flex h-[4.125rem] items-center justify-between px-4 md:px-6">
-          <div className={`flex h-full min-w-0 flex-1 items-center gap-3 md:gap-4 ${brandSurfaceClass}`}>
+          <div className="flex h-full min-w-0 flex-1 items-center gap-2.5">
             <button
+              type="button"
+              data-shelf-brand-control="true"
               onClick={isGuest ? onLogin : onToggleCloud}
-              className={`relative shrink-0 rounded-2xl p-3 shadow-lg transition-all active:scale-90 group ${
-                isOfflineMode
-                  ? 'bg-slate-700 shadow-none hover:bg-slate-600'
-                  : 'bg-accent-600 shadow-accent-500/20 hover:bg-accent-500'
-              }`}
+              className="relative flex size-8 shrink-0 items-center justify-center text-[color:var(--viewer-theme-text)] opacity-75 transition-[transform,opacity] hover:opacity-100 active:scale-95"
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
+              aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
               {isGuest ? (
-                <KeyRound className="text-white group-hover:text-accent-300 transition-colors" size={24} />
+                <KeyRound size={24} />
               ) : isOfflineMode ? (
-                <WifiOff className="text-white group-hover:text-accent-300 transition-colors" size={24} />
+                <WifiOff size={24} />
               ) : (
-                <Library className="text-white" size={24} />
+                <Library size={24} />
               )}
             </button>
 
@@ -340,7 +338,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] opacity-60 font-bold uppercase tracking-widest">
+              <div className="flex items-center gap-1.5 text-[10px] font-normal tracking-wide opacity-55">
                 {isGuest && <UserIcon size={10} />}
                 <span className="truncate">{userEmail}</span>
               </div>

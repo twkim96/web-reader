@@ -154,6 +154,17 @@ test('uses light title-cased shelf library labels', async () => {
   assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-black\b/);
 });
 
+test('keeps the shelf identity control flat and the user label light', async () => {
+  const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
+  const identityControlClass = shelfHeaderSource.match(
+    /data-shelf-brand-control="true"[\s\S]*?className="([^"]+)"/,
+  )?.[1] ?? '';
+
+  assert.match(identityControlClass, /text-\[color:var\(--viewer-theme-text\)\]/);
+  assert.doesNotMatch(identityControlClass, /bg-accent|bg-slate|shadow|rounded-/);
+  assert.match(shelfHeaderSource, /text-\[10px\] font-normal tracking-wide opacity-55/);
+});
+
 test('maps non-reader controls to an optical radius scale and keeps exclusions explicit', async () => {
   const [globals, pageSource, shelfSearchSource, epubSearchSource, readerToolbarSource, selectionMenuSource, highlightMenuSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),

@@ -130,3 +130,4 @@
 - WebKit CI가 느린 환경에서도 publication sanitizer의 sandbox frame 보안 검증이 비결정적으로 실패하지 않도록, 검증 조건은 유지한 채 frame load 대기 한도만 15초로 보강한다.
 - 리더 최하단의 현재 제목은 본문 글꼴을 상속하지 않고 Pretendard 고딕(`font-sans`)을 명시적으로 사용한다. 기존 크기·위치·얇은 굵기는 유지한다.
 - 책장 상단 상태명은 `Guest Library`·`Local Library`·`Cloud Library`를 유지하되 전체 대문자 강제 스타일을 제거하고 `font-normal`로 가볍게 표시한다.
+- 상단 상태 아이콘은 포인트색 버튼 배경·테두리·그림자를 없애고 테마 글자색의 아이콘만 남긴다. 축소된 아이콘 영역에 맞춰 상태명을 왼쪽으로 당기며, 이메일·`Guest User`도 대문자 강제 없이 얇은 굵기로 표시한다.
