@@ -359,14 +359,14 @@ export const BookCard: React.FC<BookCardProps> = ({
           )}
         </div>
 
-        <div data-shelf-simple-meta="true" className="mt-2 flex min-h-10 min-w-0 flex-wrap content-start items-center gap-1 overflow-hidden">
+        <div data-shelf-simple-meta="true" className="mt-2 flex h-5 min-w-0 flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap">
           {isDownloaded && (
             <span data-shelf-local-tag="true" className={localChipClass}>
               로컬
             </span>
           )}
           {catalog?.genreLabel && (
-            <span data-shelf-simple-genre="true" className={genreChipClass}>
+            <span data-shelf-simple-genre="true" className={`${genreChipClass} max-w-[40%] truncate`}>
               {catalog.genreLabel}
             </span>
           )}
@@ -377,7 +377,7 @@ export const BookCard: React.FC<BookCardProps> = ({
             {simpleFormatLabel}
           </span>
           {combinedSourceCount !== null && (
-            <span data-shelf-simple-source-count="true" className="min-w-0 truncate text-[9px] font-bold opacity-50">
+            <span data-shelf-simple-source-count="true" className="min-w-0 flex-1 truncate text-[9px] font-bold opacity-50">
               {formatPublicBookCatalogMetric(combinedSourceCount)} 조회
             </span>
           )}
@@ -390,7 +390,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           {displayBookTitle}
         </h3>
 
-        <div data-shelf-simple-progress="true" className="mt-1.5 flex min-w-0 items-center gap-1 text-[9px] font-normal leading-none text-slate-500 sm:text-[10px]">
+        <div data-shelf-simple-progress="true" className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap text-[9px] font-normal leading-none text-slate-500 sm:text-[10px]">
           {percent > 0 && onDeleteProgress && (
             <button
               type="button"
