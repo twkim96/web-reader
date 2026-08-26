@@ -1204,6 +1204,7 @@ try {
   });
   await evaluate('window.scrollTo(0, 0)');
   await evaluate('window.__regressionNextFrame(2)');
+  await sleep(250);
   const mobileShelfControls = await evaluate(`(() => {
     const mobileControls = document.querySelector('[data-shelf-mobile-layout-controls="true"]');
     const filterButton = mobileControls?.querySelector('[data-shelf-filter-control="true"]');
