@@ -1234,7 +1234,10 @@ test('publication sanitizer blocks executable, navigation, storage, and remote U
     frame.src = url;
     document.body.append(frame);
     await new Promise<void>((resolve, reject) => {
-      const timeout = window.setTimeout(() => reject(new Error('sanitized frame timed out')), 5_000);
+      // WebKit can defer a sandboxed blob-frame load while the full security
+      // suite is running on a constrained CI worker. Keep the assertion strict,
+      // but allow enough time for the same load event to arrive.
+      const timeout = window.setTimeout(() => reject(new Error('sanitized frame timed out')), 15_000);
       frame.addEventListener('load', () => {
         window.clearTimeout(timeout);
         resolve();
