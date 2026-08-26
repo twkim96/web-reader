@@ -299,16 +299,16 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               type="button"
               data-shelf-brand-control="true"
               onClick={isGuest ? onLogin : onToggleCloud}
-              className="relative flex size-8 shrink-0 items-center justify-center text-[color:var(--viewer-theme-text)] opacity-75 transition-[transform,opacity] hover:opacity-100 active:scale-95"
+              className="relative flex size-9 shrink-0 items-center justify-center text-[color:var(--viewer-theme-text)] opacity-75 transition-[transform,opacity] hover:opacity-100 active:scale-95"
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
               {isGuest ? (
-                <KeyRound size={24} />
+                <KeyRound size={28} />
               ) : isOfflineMode ? (
-                <WifiOff size={24} />
+                <WifiOff size={28} />
               ) : (
-                <Library size={24} />
+                <Library size={28} />
               )}
             </button>
 

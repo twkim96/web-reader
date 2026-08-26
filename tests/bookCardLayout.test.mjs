@@ -161,7 +161,9 @@ test('keeps the shelf identity control flat and the user label light', async () 
   )?.[1] ?? '';
 
   assert.match(identityControlClass, /text-\[color:var\(--viewer-theme-text\)\]/);
+  assert.match(identityControlClass, /\bsize-9\b/);
   assert.doesNotMatch(identityControlClass, /bg-accent|bg-slate|shadow|rounded-/);
+  assert.match(shelfHeaderSource, /<(?:KeyRound|WifiOff|Library) size=\{28\} \/>/);
   assert.match(shelfHeaderSource, /text-\[10px\] font-normal tracking-wide opacity-55/);
 });
 
