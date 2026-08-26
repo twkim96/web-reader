@@ -346,7 +346,7 @@ test('starts generated cover titles near the top and keeps list text at seven pi
   assert.match(title.className, /right-\[9%\]/);
 });
 
-test('keeps the list cover compact and gives grid covers a large side-by-side layout', () => {
+test('keeps the list cover compact and fills the left side of grid cards with a large cover', () => {
   const listFrame = renderCardWithCover('list')
     .querySelector('[data-shelf-book-cover-frame="true"]');
   assert.match(listFrame.className, /w-11/);
@@ -359,15 +359,14 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   const gridFrame = gridCard.querySelector('[data-shelf-book-cover-frame="true"]');
   const gridLayout = gridCard.querySelector('[data-shelf-grid-cover-layout="true"]');
   assert.ok(gridLayout);
-  assert.match(gridLayout.className, /grid-cols-\[6rem_minmax\(0,1fr\)\]/);
-  assert.match(gridLayout.className, /sm:grid-cols-\[7rem_minmax\(0,1fr\)\]/);
-  assert.match(gridFrame.className, /w-24/);
-  assert.match(gridFrame.className, /h-36/);
-  assert.match(gridFrame.className, /sm:w-28/);
-  assert.match(gridFrame.className, /sm:h-40/);
+  assert.match(gridLayout.className, /grid-cols-\[7\.5rem_minmax\(0,1fr\)\]/);
+  assert.match(gridLayout.className, /sm:grid-cols-\[8\.5rem_minmax\(0,1fr\)\]/);
+  assert.match(gridLayout.className, /min-h-48/);
+  assert.match(gridLayout.className, /sm:min-h-52/);
+  assert.match(gridFrame.className, /h-full/);
+  assert.match(gridFrame.className, /w-full/);
   const gridTitle = gridCard.querySelector('[data-shelf-grid-cover-title="true"]');
   const gridMeta = gridCard.querySelector('[data-shelf-grid-meta="true"]');
-  const gridBottomMeta = gridCard.querySelector('[data-shelf-grid-cover-bottom-meta="true"]');
   const gridSourceSlot = gridCard.querySelector('[data-shelf-grid-cover-source-slot="true"]');
   const gridLocalTag = gridCard.querySelector('[data-shelf-local-tag="true"]');
   const gridTags = gridCard.querySelector('[data-shelf-grid-cover-tags="true"]');
@@ -376,7 +375,6 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   const gridCardRoot = gridCard.querySelector('[data-shelf-book-card="true"]');
   assert.ok(gridTitle);
   assert.ok(gridMeta);
-  assert.ok(gridBottomMeta);
   assert.ok(gridSourceSlot);
   assert.ok(gridLocalTag);
   assert.ok(gridTags);
@@ -388,21 +386,17 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.match(gridTitle.className, /sm:text-base/);
   assert.doesNotMatch(gridTitle.className, /text-lg/);
   assert.doesNotMatch(gridTitle.className, /sm:text-xl/);
-  assert.match(gridTitle.parentElement.className, /h-36/);
-  assert.match(gridTitle.parentElement.className, /sm:h-40/);
-  assert.match(gridTitle.parentElement.className, /flex-col/);
-  assert.match(gridBottomMeta.className, /mt-auto/);
-  assert.match(gridSourceSlot.className, /mt-2/);
+  assert.equal(gridMeta.nextElementSibling, gridTitle);
+  assert.equal(gridTitle.nextElementSibling, gridTagSlot);
+  assert.equal(gridTagSlot.nextElementSibling, gridProgress);
   assert.equal(gridLocalTag.textContent, '로컬');
   assert.match(gridLocalTag.className, /bg-green-500\/15/);
   assert.match(gridLocalTag.className, /text-green-500/);
   assert.match(gridTags.className, /max-h-9/);
   assert.match(gridTags.className, /overflow-hidden/);
-  assert.doesNotMatch(gridTagSlot.className, /flex-1/);
-  assert.match(gridTagSlot.className, /items-center/);
-  assert.match(gridTagSlot.className, /mt-2/);
+  assert.match(gridTagSlot.className, /mt-3/);
   assert.doesNotMatch(gridCardRoot.className, /h-full/);
-  assert.match(gridCardRoot.className, /p-6/);
+  assert.match(gridCardRoot.className, /p-4/);
   assert.match(gridProgress.className, /mt-auto/);
   assert.match(gridProgress.className, /pt-3/);
 
@@ -415,6 +409,15 @@ test('keeps the list cover compact and gives grid covers a large side-by-side la
   assert.ok(progressDeleteIcon);
   assert.equal(progressDeleteIcon.getAttribute('width'), '14');
   assert.equal(progressDeleteIcon.getAttribute('height'), '14');
+});
+
+test('keeps horizontal grid cards readable in one mobile column and two wider columns', async () => {
+  const shelfSource = await readFile(
+    new URL('../src/components/shelf/index.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(shelfSource, /viewMode === 'grid' \? 'grid-cols-1 gap-4 sm:grid-cols-2'/);
+  assert.doesNotMatch(shelfSource, /lg:grid-cols-3|xl:grid-cols-4/);
 });
 
 test('gives list titles the flexible column and keeps format and progress compact on the right', () => {

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
@@ -7,6 +8,15 @@ import { parseHTML } from 'linkedom';
 import { ProgressJumpConfirmDialog } from '../src/components/reader/ProgressJumpConfirmDialog.tsx';
 import { ReaderToolbar } from '../src/components/reader/ReaderToolbar.tsx';
 import { useReaderProgressSlider } from '../src/hooks/reader/useReaderProgressSlider.ts';
+
+test('keeps the reader footer chapter and percentage visually light', async () => {
+  const source = await readFile(
+    new URL('../src/components/reader/ReaderStatusBar.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /data-reader-status-main="true"[\s\S]*?font-normal/);
+  assert.doesNotMatch(source, /data-reader-status-main="true"[\s\S]*?font-black/);
+});
 
 const installDom = () => {
   const { window } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');

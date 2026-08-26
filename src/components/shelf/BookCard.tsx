@@ -432,101 +432,98 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`app-panel-radius group relative flex select-none flex-col ${theme.secondary} border ${theme.border} p-6 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500`}
+      className={`app-panel-radius group relative select-none ${theme.secondary} border ${theme.border} p-4 sm:p-5 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500`}
     >
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <div data-shelf-grid-cover-content="true" className="flex min-h-0 flex-col">
-          <div
-            data-shelf-grid-cover-layout="true"
-            className="grid min-h-36 grid-cols-[6rem_minmax(0,1fr)] items-start gap-4 sm:min-h-40 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-5"
-          >
-            <div
-              data-shelf-book-cover-frame="true"
-              className="relative h-36 w-24 overflow-hidden transition-transform duration-500 group-hover:scale-[1.04] sm:h-40 sm:w-28"
-            >
-              {coverUrl ? (
-                <Image
-                  data-shelf-book-cover="true"
-                  src={coverUrl}
-                  alt=""
-                  fill
-                  sizes="(min-width: 640px) 112px, 96px"
-                  unoptimized
-                  className="object-cover"
-                />
-              ) : (
-                <GeneratedBookCover
-                  identity={book.id}
-                  title={getDisplayBookTitle(book.name)}
-                  variant="grid"
-                />
-              )}
-            </div>
-            <div className="flex h-36 min-w-0 flex-col pt-0.5 sm:h-40">
-              <h3
-                data-shelf-grid-cover-title="true"
-                className="min-w-0 text-sm font-bold leading-tight line-clamp-4 group-hover:text-accent-500 transition-colors sm:text-base"
-              >
-                {getDisplayBookTitle(book.name)}
-              </h3>
-              <div data-shelf-grid-cover-bottom-meta="true" className="mt-auto">
-                <div data-shelf-grid-meta="true" className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                    {getBookFormatLabel(book)}
-                  </span>
-                </div>
-                {combinedSourceCount !== null && (
-                  <div data-shelf-grid-cover-source-slot="true" className="mt-2 min-h-3">
-                    {renderCatalogSources()}
-                  </div>
-                )}
+      <div
+        data-shelf-grid-cover-layout="true"
+        className="relative z-10 grid min-h-48 grid-cols-[7.5rem_minmax(0,1fr)] gap-4 sm:min-h-52 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-5"
+      >
+        <div
+          data-shelf-book-cover-frame="true"
+          className="relative h-full min-h-48 w-full overflow-hidden transition-transform duration-500 group-hover:scale-[1.025] sm:min-h-52"
+        >
+          {coverUrl ? (
+            <Image
+              data-shelf-book-cover="true"
+              src={coverUrl}
+              alt=""
+              fill
+              sizes="(min-width: 640px) 136px, 120px"
+              unoptimized
+              className="object-cover"
+            />
+          ) : (
+            <GeneratedBookCover
+              identity={book.id}
+              title={getDisplayBookTitle(book.name)}
+              variant="grid"
+            />
+          )}
+        </div>
+
+        <div data-shelf-grid-cover-content="true" className="flex min-h-48 min-w-0 flex-col sm:min-h-52">
+          <div data-shelf-grid-meta="true" className="flex min-w-0 items-center justify-between gap-2">
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:text-[11px]">
+              {getBookFormatLabel(book)}
+            </span>
+            {combinedSourceCount !== null && (
+              <div data-shelf-grid-cover-source-slot="true" className="min-w-0">
+                {renderCatalogSources()}
               </div>
-            </div>
+            )}
           </div>
-          {hasCatalogTags && (
-            <div data-shelf-grid-cover-tag-slot="true" className="mt-2 flex min-h-9 items-center">
+
+          <h3
+            data-shelf-grid-cover-title="true"
+            className="mt-2 min-w-0 text-sm font-bold leading-snug line-clamp-4 transition-colors group-hover:text-accent-500 sm:text-base"
+          >
+            {getDisplayBookTitle(book.name)}
+          </h3>
+
+          <div data-shelf-grid-cover-tag-slot="true" className="mt-3 min-h-9">
+            {hasCatalogTags && (
               <div
                 data-shelf-grid-cover-tags="true"
                 className="max-h-9 w-full overflow-hidden"
               >
                 {renderCatalogTags()}
               </div>
-            </div>
-          )}
-        </div>
-
-        <div data-shelf-grid-progress-block="true" className="mt-auto space-y-2 pt-3">
-          <div className="flex justify-between items-end">
-            <span data-shelf-grid-progress-date="true" className="text-[10px] font-black uppercase leading-none text-slate-500 tracking-tighter">
-              {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
-            </span>
-            <div className="flex items-end gap-1.5">
-              {percent > 0 && onDeleteProgress && (
-                <button 
-                  data-shelf-grid-progress-delete="true"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteProgress(book.id);
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className="flex h-5 w-5 items-center justify-center rounded-full p-0 text-slate-500 transition-colors hover:bg-white/5 hover:text-red-400"
-                  title="Delete Progress"
-                >
-                  <Eraser
-                    data-shelf-grid-progress-delete-icon="true"
-                    size={14}
-                    strokeWidth={2.5}
-                  />
-                </button>
-              )}
-              <span data-shelf-grid-progress-percent="true" className="text-xs font-black leading-none text-accent-400">{percent.toFixed(1)}%</span>
-            </div>
+            )}
           </div>
-          <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-accent-500 rounded-full transition-all duration-1000 ease-out"
-              style={{ width: `${percent}%` }}
-            />
+
+          <div data-shelf-grid-progress-block="true" className="mt-auto space-y-2 pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <span data-shelf-grid-progress-date="true" className="truncate text-[9px] font-normal uppercase leading-none tracking-tight text-slate-500 sm:text-[10px]">
+                {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
+              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {percent > 0 && onDeleteProgress && (
+                  <button
+                    data-shelf-grid-progress-delete="true"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteProgress(book.id);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="flex h-5 w-5 items-center justify-center rounded-full p-0 text-slate-500 transition-colors hover:bg-white/5 hover:text-red-400"
+                    title="Delete Progress"
+                  >
+                    <Eraser
+                      data-shelf-grid-progress-delete-icon="true"
+                      size={14}
+                      strokeWidth={2.5}
+                    />
+                  </button>
+                )}
+                <span data-shelf-grid-progress-percent="true" className="text-xs font-bold leading-none text-accent-400">{percent.toFixed(1)}%</span>
+              </div>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/30">
+              <div
+                className="h-full rounded-full bg-accent-500 transition-all duration-1000 ease-out"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
           </div>
         </div>
       </div>
