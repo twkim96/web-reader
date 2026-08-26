@@ -12,8 +12,10 @@ const { DEVICE_CONTENT_OWNER_KEY } = await import('../src/lib/ownerIdentity.ts')
 const {
   createSampleBookPackage,
   installSampleBook,
+  installSampleBooks,
   SAMPLE_BOOK_ID,
   SAMPLE_BOOK_TITLE,
+  SAMPLE_BOOK_VARIANTS,
 } = await import('../src/lib/sampleBook.ts');
 
 test.after(async () => {
@@ -85,4 +87,29 @@ test('installs one stable sample book and its cover in the device-local namespac
   assert.ok(content instanceof Blob);
   assert.ok(content.size > 0);
   assert.equal(cover?.type, 'image/svg+xml');
+});
+
+test('builds and installs eight stable sample variants with distinct cover themes', async () => {
+  const samples = await Promise.all(SAMPLE_BOOK_VARIANTS.map((variant) => createSampleBookPackage(variant)));
+  const coverSvgs = await Promise.all(samples.map(({ cover }) => cover.text()));
+  const installed = await installSampleBooks();
+  const installedAgain = await installSampleBooks();
+
+  assert.equal(SAMPLE_BOOK_VARIANTS.length, 8);
+  assert.equal(new Set(samples.map(({ book }) => book.id)).size, 8);
+  assert.equal(new Set(samples.map(({ book }) => book.name)).size, 8);
+  assert.equal(new Set(coverSvgs).size, 8);
+  assert.equal(installed.length, 8);
+  assert.deepEqual(installedAgain.map(({ id }) => id), installed.map(({ id }) => id));
+
+  for (const [index, book] of installed.entries()) {
+    const variant = SAMPLE_BOOK_VARIANTS[index];
+    const metadata = await loadBookMetadataFromLocalV5(DEVICE_CONTENT_OWNER_KEY, variant.id);
+    const content = await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, variant.id);
+    const cover = await loadBookCoverFromLocalV14(DEVICE_CONTENT_OWNER_KEY, book);
+    assert.equal(metadata?.name, variant.fileName);
+    assert.ok(content instanceof Blob);
+    assert.ok(content.size > 0);
+    assert.equal(cover?.type, 'image/svg+xml');
+  }
 });

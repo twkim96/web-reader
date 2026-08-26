@@ -141,10 +141,11 @@ test('uses a Spotlight-like 20px radius for both search modals', async () => {
   assert.match(epubSearchSource, /data-epub-search-modal="true"[\s\S]*?app-search-modal-radius/);
 });
 
-test('keeps one persistent bottom shelf dock at 34px on mobile and 20px on desktop', async () => {
+test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
 
-  assert.match(shelfHeaderSource, /const bottomDockClass = `[^`]*rounded-\[34px\] md:rounded-\[20px\]/);
+  assert.match(shelfHeaderSource, /const bottomDockClass = `[^`]*rounded-\[34px\]/);
+  assert.doesNotMatch(shelfHeaderSource, /md:rounded-/);
   assert.match(shelfHeaderSource, /data-shelf-bottom-dock="true"/);
   assert.doesNotMatch(shelfHeaderSource, /data-shelf-top-dock|isBottomDock|md:hidden[^\n]*bottomDock/);
 });
@@ -179,7 +180,7 @@ test('keeps mobile layout and auth controls in the header while tightening the s
   assert.match(mobileControls, /data-shelf-filter-control|renderLayoutControls/);
   assert.match(mobileControls, /data-shelf-auth-control/);
   assert.match(shelfHeaderSource, /\bpb-2\b/);
-  assert.match(shelfContent, /\bpt-2\b/);
+  assert.match(shelfContent, /\bpt-3\b/);
   assert.doesNotMatch(shelfContent, /\bmd:pt-/);
   assert.match(shelfSource, /grid-cols-1 gap-4 sm:grid-cols-2/);
 });

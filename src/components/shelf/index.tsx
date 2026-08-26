@@ -31,7 +31,7 @@ import {
   SHELF_PAGE_SIZE,
 } from './progressiveBooks';
 import { useShelfBookCovers } from './useShelfBookCovers';
-import { installSampleBook } from '../../lib/sampleBook';
+import { installSampleBooks } from '../../lib/sampleBook';
 
 interface ShelfProps {
   books: Book[];
@@ -281,8 +281,10 @@ export const Shelf: React.FC<ShelfProps> = ({
     setIsAddingSampleBook(true);
     setSampleBookFeedback('');
     try {
-      const book = await installSampleBook();
-      onBookImported?.(book, true);
+      const books = await installSampleBooks();
+      books.forEach((book, index) => {
+        onBookImported?.(book, index === books.length - 1);
+      });
       await refreshOfflineBookIds();
     } catch (error) {
       console.error('[Shelf] Failed to install sample book:', error);
@@ -405,7 +407,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         </div>
       )}
 
-      <main data-shelf-content="true" className="max-w-7xl mx-auto px-6 pt-2 pb-8">
+      <main data-shelf-content="true" className="max-w-7xl mx-auto px-6 pt-3 pb-8">
         {filteredBooks.length > 0 ? (
           <div className={`grid ${
             viewMode === 'simple'

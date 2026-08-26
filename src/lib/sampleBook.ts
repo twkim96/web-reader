@@ -11,6 +11,88 @@ export const SAMPLE_BOOK_TITLE = '토끼와 거북이';
 export const SAMPLE_BOOK_FILE_NAME = `${SAMPLE_BOOK_TITLE} — 이솝 우화.epub`;
 export const SAMPLE_BOOK_MODIFIED_TIME = '2026-08-22T00:00:00.000Z';
 
+interface SampleBookCoverTheme {
+  label: string;
+  skyStart: string;
+  skyEnd: string;
+  hillStart: string;
+  hillEnd: string;
+  foregroundHill: string;
+  moon: string;
+  moonCutout: string;
+  primaryText: string;
+  secondaryText: string;
+  rabbit: string;
+  turtle: string;
+  turtleShell: string;
+}
+
+export interface SampleBookVariant {
+  id: string;
+  title: string;
+  fileName: string;
+  modifiedTime: string;
+  coverTheme: SampleBookCoverTheme;
+}
+
+const createSampleBookVariant = (
+  index: number,
+  label: string,
+  coverTheme: Omit<SampleBookCoverTheme, 'label'>,
+): SampleBookVariant => {
+  const title = index === 0 ? SAMPLE_BOOK_TITLE : `${SAMPLE_BOOK_TITLE} — ${label}`;
+  return {
+    id: index === 0 ? SAMPLE_BOOK_ID : `sample-aesop-tortoise-hare-ko-v${index + 1}`,
+    title,
+    fileName: index === 0 ? SAMPLE_BOOK_FILE_NAME : `${title} · 이솝 우화.epub`,
+    modifiedTime: `2026-08-22T00:0${index}:00.000Z`,
+    coverTheme: { label, ...coverTheme },
+  };
+};
+
+export const SAMPLE_BOOK_VARIANTS: readonly SampleBookVariant[] = [
+  createSampleBookVariant(0, '달빛', {
+    skyStart: '#141517', skyEnd: '#283941', hillStart: '#46705d', hillEnd: '#203b34',
+    foregroundHill: '#172b27', moon: '#f2dda0', moonCutout: '#1a2023', primaryText: '#ffffff',
+    secondaryText: '#d2d3d6', rabbit: '#d2d3d6', turtle: '#87a56b', turtleShell: '#526f4d',
+  }),
+  createSampleBookVariant(1, '새벽', {
+    skyStart: '#99C7E8', skyEnd: '#467377', hillStart: '#696843', hillEnd: '#4D4720',
+    foregroundHill: '#31351f', moon: '#E8E899', moonCutout: '#778793', primaryText: '#141517',
+    secondaryText: '#26363a', rabbit: '#f4f0e2', turtle: '#B3CACC', turtleShell: '#467377',
+  }),
+  createSampleBookVariant(2, '햇살', {
+    skyStart: '#E8E899', skyEnd: '#CCC9B4', hillStart: '#467377', hillEnd: '#294f52',
+    foregroundHill: '#233f42', moon: '#E89A99', moonCutout: '#CCC9B4', primaryText: '#141517',
+    secondaryText: '#4D4720', rabbit: '#fffdf2', turtle: '#E8E899', turtleShell: '#696843',
+  }),
+  createSampleBookVariant(3, '장미', {
+    skyStart: '#E89A99', skyEnd: '#CCB4C2', hillStart: '#696843', hillEnd: '#4D4720',
+    foregroundHill: '#35351f', moon: '#E8E899', moonCutout: '#778793', primaryText: '#141517',
+    secondaryText: '#4D4720', rabbit: '#fff7f0', turtle: '#B3CACC', turtleShell: '#467377',
+  }),
+  createSampleBookVariant(4, '안개', {
+    skyStart: '#B3CACC', skyEnd: '#778793', hillStart: '#696843', hillEnd: '#4D4720',
+    foregroundHill: '#363921', moon: '#CCC9B4', moonCutout: '#467377', primaryText: '#141517',
+    secondaryText: '#293b3e', rabbit: '#f7f5ec', turtle: '#E8E899', turtleShell: '#696843',
+  }),
+  createSampleBookVariant(5, '라일락', {
+    skyStart: '#CCB4C2', skyEnd: '#778793', hillStart: '#467377', hillEnd: '#294f52',
+    foregroundHill: '#233f42', moon: '#E8E899', moonCutout: '#696843', primaryText: '#141517',
+    secondaryText: '#4D4720', rabbit: '#fff9f5', turtle: '#E89A99', turtleShell: '#4D4720',
+  }),
+  createSampleBookVariant(6, '노을', {
+    skyStart: '#CCC9B4', skyEnd: '#E89A99', hillStart: '#778793', hillEnd: '#467377',
+    foregroundHill: '#324f52', moon: '#E8E899', moonCutout: '#4D4720', primaryText: '#141517',
+    secondaryText: '#4D4720', rabbit: '#f7f3e8', turtle: '#E8E899', turtleShell: '#696843',
+  }),
+  createSampleBookVariant(7, '숲', {
+    skyStart: '#467377', skyEnd: '#4D4720', hillStart: '#99C7E8', hillEnd: '#778793',
+    foregroundHill: '#364b50', moon: '#E8E899', moonCutout: '#141517', primaryText: '#ffffff',
+    secondaryText: '#e7e5dc', rabbit: '#f6f2e8', turtle: '#CCB4C2', turtleShell: '#696843',
+  }),
+] as const;
+
 const EPUB_MIME = 'application/epub+zip';
 const COVER_MIME = 'image/svg+xml';
 
@@ -135,45 +217,50 @@ const chapters = [
   },
 ] as const;
 
-const SAMPLE_BOOK_COVER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="720" viewBox="0 0 480 720" role="img" aria-labelledby="title desc">
-  <title id="title">토끼와 거북이 표지</title>
+const createSampleBookCoverSvg = (variant: SampleBookVariant) => {
+  const theme = variant.coverTheme;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="720" viewBox="0 0 480 720" role="img" aria-labelledby="title desc">
+  <title id="title">${escapeXml(variant.title)} 표지</title>
   <desc id="desc">달빛 아래 언덕을 함께 바라보는 토끼와 거북이</desc>
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#141517"/>
-      <stop offset="1" stop-color="#283941"/>
+      <stop offset="0" stop-color="${theme.skyStart}"/>
+      <stop offset="1" stop-color="${theme.skyEnd}"/>
     </linearGradient>
     <linearGradient id="hill" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#46705d"/>
-      <stop offset="1" stop-color="#203b34"/>
+      <stop offset="0" stop-color="${theme.hillStart}"/>
+      <stop offset="1" stop-color="${theme.hillEnd}"/>
     </linearGradient>
   </defs>
   <rect width="480" height="720" rx="28" fill="url(#sky)"/>
-  <circle cx="374" cy="112" r="56" fill="#f2dda0" opacity=".95"/>
-  <circle cx="392" cy="96" r="56" fill="#1a2023"/>
+  <circle cx="374" cy="112" r="56" fill="${theme.moon}" opacity=".95"/>
+  <circle cx="392" cy="96" r="56" fill="${theme.moonCutout}"/>
   <path d="M0 450 Q130 360 260 438 T480 410 V720 H0Z" fill="url(#hill)"/>
-  <path d="M0 532 Q160 452 316 522 T480 486 V720 H0Z" fill="#172b27"/>
-  <g transform="translate(96 424)" fill="#d2d3d6">
+  <path d="M0 532 Q160 452 316 522 T480 486 V720 H0Z" fill="${theme.foregroundHill}"/>
+  <g transform="translate(96 424)" fill="${theme.rabbit}">
     <ellipse cx="52" cy="58" rx="44" ry="29"/>
     <circle cx="91" cy="35" r="22"/>
     <ellipse cx="94" cy="5" rx="8" ry="30" transform="rotate(-10 94 5)"/>
     <ellipse cx="111" cy="8" rx="8" ry="31" transform="rotate(8 111 8)"/>
-    <circle cx="98" cy="31" r="3" fill="#141517"/>
+    <circle cx="98" cy="31" r="3" fill="${theme.moonCutout}"/>
   </g>
   <g transform="translate(280 480)">
-    <ellipse cx="56" cy="44" rx="54" ry="34" fill="#87a56b"/>
-    <path d="M18 44 Q56 4 94 44 Q56 78 18 44Z" fill="#526f4d"/>
-    <path d="M36 25 L76 63 M76 25 L36 63" stroke="#87a56b" stroke-width="6" opacity=".7"/>
-    <circle cx="112" cy="43" r="19" fill="#9fbb7c"/>
-    <circle cx="118" cy="38" r="3" fill="#141517"/>
+    <ellipse cx="56" cy="44" rx="54" ry="34" fill="${theme.turtle}"/>
+    <path d="M18 44 Q56 4 94 44 Q56 78 18 44Z" fill="${theme.turtleShell}"/>
+    <path d="M36 25 L76 63 M76 25 L36 63" stroke="${theme.turtle}" stroke-width="6" opacity=".7"/>
+    <circle cx="112" cy="43" r="19" fill="${theme.turtle}"/>
+    <circle cx="118" cy="38" r="3" fill="${theme.moonCutout}"/>
   </g>
-  <text x="48" y="122" fill="#d2d3d6" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="21" font-weight="700" letter-spacing="5">이솝 우화</text>
-  <text x="48" y="188" fill="#ffffff" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="48" font-weight="800">토끼와</text>
-  <text x="48" y="246" fill="#ffffff" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="48" font-weight="800">거북이</text>
-  <text x="48" y="668" fill="#d2d3d6" opacity=".72" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="16">WEB READER SAMPLE</text>
+  <text x="48" y="122" fill="${theme.secondaryText}" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="21" font-weight="700" letter-spacing="3">이솝 우화 · ${escapeXml(theme.label)}</text>
+  <text x="48" y="188" fill="${theme.primaryText}" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="48" font-weight="800">토끼와</text>
+  <text x="48" y="246" fill="${theme.primaryText}" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="48" font-weight="800">거북이</text>
+  <text x="48" y="668" fill="${theme.secondaryText}" opacity=".82" font-family="Apple SD Gothic Neo, Noto Sans KR, sans-serif" font-size="16">WEB READER SAMPLE · ${escapeXml(theme.label)}</text>
 </svg>`;
+};
 
-export const createSampleBookCover = () => new Blob([SAMPLE_BOOK_COVER_SVG], { type: COVER_MIME });
+export const createSampleBookCover = (variant: SampleBookVariant = SAMPLE_BOOK_VARIANTS[0]) => (
+  new Blob([createSampleBookCoverSvg(variant)], { type: COVER_MIME })
+);
 
 const chapterXhtml = (title: string, body: readonly string[]) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -189,18 +276,19 @@ const chapterXhtml = (title: string, body: readonly string[]) => `<?xml version=
 </body>
 </html>`;
 
-export const createSampleBookPackage = async () => {
-  const cover = createSampleBookCover();
+export const createSampleBookPackage = async (variant: SampleBookVariant = SAMPLE_BOOK_VARIANTS[0]) => {
+  const coverSvg = createSampleBookCoverSvg(variant);
+  const cover = new Blob([coverSvg], { type: COVER_MIME });
   const zip = new JSZip();
   zip.file('mimetype', EPUB_MIME, { compression: 'STORE' });
   zip.file('META-INF/container.xml', `<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
 </container>`);
-  zip.file('OEBPS/cover.svg', SAMPLE_BOOK_COVER_SVG);
+  zip.file('OEBPS/cover.svg', coverSvg);
   zip.file('OEBPS/style.css', `body{margin:0 auto;padding:7vh 8vw;max-width:42rem;font-family:serif;line-height:1.9;word-break:normal;line-break:strict;overflow-wrap:anywhere}h1{font-size:1.55em;margin:0 0 2.4em}p{margin:0 0 1.25em}small{opacity:.72}`);
   zip.file('OEBPS/cover.xhtml', `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ko" lang="ko"><head><title>표지</title><meta name="viewport" content="width=480,height=720"/></head><body style="margin:0"><img src="cover.svg" alt="토끼와 거북이 표지" style="display:block;width:100%;height:auto"/></body></html>`);
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ko" lang="ko"><head><title>표지</title><meta name="viewport" content="width=480,height=720"/></head><body style="margin:0"><img src="cover.svg" alt="${escapeXml(variant.title)} 표지" style="display:block;width:100%;height:auto"/></body></html>`);
   for (const chapter of chapters) {
     zip.file(`OEBPS/${chapter.id}.xhtml`, chapterXhtml(chapter.title, chapter.body));
   }
@@ -216,8 +304,8 @@ export const createSampleBookPackage = async () => {
   zip.file('OEBPS/content.opf', `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="ko">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="bookid">urn:web-reader:${SAMPLE_BOOK_ID}</dc:identifier>
-    <dc:title>${SAMPLE_BOOK_TITLE}</dc:title>
+    <dc:identifier id="bookid">urn:web-reader:${variant.id}</dc:identifier>
+    <dc:title>${escapeXml(variant.title)}</dc:title>
     <dc:creator id="creator">이솝 (Aesop)</dc:creator>
     <dc:language>ko</dc:language>
     <dc:publisher>Web Reader</dc:publisher>
@@ -225,7 +313,7 @@ export const createSampleBookPackage = async () => {
     <dc:description>빠른 토끼와 꾸준한 거북이가 함께 배우는 이솝 우화 샘플</dc:description>
     <dc:rights>Public domain source; Web Reader Korean adaptation and cover dedicated to CC0.</dc:rights>
     <meta refines="#creator" property="role" scheme="marc:relators">aut</meta>
-    <meta property="dcterms:modified">2026-08-22T00:00:00Z</meta>
+    <meta property="dcterms:modified">${variant.modifiedTime.replace('.000Z', 'Z')}</meta>
   </metadata>
   <manifest>
     <item id="cover-image" href="cover.svg" media-type="image/svg+xml" properties="cover-image"/>
@@ -255,21 +343,29 @@ ${navItems}
     compressionOptions: { level: 6 },
   });
   const book: Book = {
-    id: SAMPLE_BOOK_ID,
-    name: SAMPLE_BOOK_FILE_NAME,
+    id: variant.id,
+    name: variant.fileName,
     mimeType: EPUB_MIME,
     size: content.size,
     source: 'local',
     sourceFormat: 'epub',
     readerFormat: 'epub',
-    modifiedTime: SAMPLE_BOOK_MODIFIED_TIME,
+    modifiedTime: variant.modifiedTime,
   };
   return { book, content, cover };
 };
 
-export const installSampleBook = async () => {
-  const sample = await createSampleBookPackage();
+export const installSampleBook = async (variant: SampleBookVariant = SAMPLE_BOOK_VARIANTS[0]) => {
+  const sample = await createSampleBookPackage(variant);
   await saveBookToLocalV5(DEVICE_CONTENT_OWNER_KEY, sample.book, sample.content);
   await saveBookCoverToLocalV14(DEVICE_CONTENT_OWNER_KEY, sample.book, sample.cover);
   return sample.book;
+};
+
+export const installSampleBooks = async () => {
+  const books: Book[] = [];
+  for (const variant of SAMPLE_BOOK_VARIANTS) {
+    books.push(await installSampleBook(variant));
+  }
+  return books;
 };
