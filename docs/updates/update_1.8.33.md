@@ -129,4 +129,4 @@
 - production browser 회귀는 2열·136×208px 표지와 우측 정보 순서, 표지·진행률 하단 정렬을 새 레이아웃 계약으로 검증한다.
 - WebKit CI가 느린 환경에서도 publication sanitizer의 sandbox frame 보안 검증이 비결정적으로 실패하지 않도록, 검증 조건은 유지한 채 frame load 대기 한도만 15초로 보강한다.
 - 리더 최하단의 현재 제목은 본문 글꼴을 상속하지 않고 Pretendard 고딕(`font-sans`)을 명시적으로 사용한다. 기존 크기·위치·얇은 굵기는 유지한다.
-- 책장 상단 상태명은 `Guest Library`·`Local Library`·`Cloud Library`에서 `Guest`·`Local`·`Cloud`로 간결하게 바꾸고, 전체 대문자 강제 스타일을 제거해 첫 글자만 대문자로 표시한다.
+- 책장 상단 상태명은 `Guest Library`·`Local Library`·`Cloud Library`를 유지하되 전체 대문자 강제 스타일을 제거하고 `font-normal`로 가볍게 표시한다.

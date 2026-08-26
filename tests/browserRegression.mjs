@@ -230,7 +230,7 @@ try {
 
   await command('Page.reload', { ignoreCache: true });
   await waitFor(
-    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"',
+    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"',
     'empty guest shelf',
   );
 
@@ -586,7 +586,7 @@ try {
 
   await command('Page.reload', { ignoreCache: true });
   await waitFor(
-    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"',
+    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"',
     'guest shelf',
   );
   await waitFor(
@@ -2017,7 +2017,7 @@ try {
   })()`);
   await command('Page.reload', { ignoreCache: true });
   await waitFor(
-    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"
+    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"
       && !document.querySelector('foliate-view')`,
     'selection TXT shelf reload',
   );
@@ -4710,7 +4710,7 @@ try {
     document.querySelector('button[aria-label="Close reader"]')?.click();
   })()`);
   await waitFor(
-    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"`,
+    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after selection TXT reader',
   );
   await evaluate(`(() => {
@@ -5055,7 +5055,7 @@ try {
   await evaluate(`document.querySelector('button[aria-label="책갈피와 주석 닫기"]')?.click()`);
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
-    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"`,
+    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after highlight reopen',
   );
   await evaluate(`(async () => {
@@ -5135,7 +5135,7 @@ try {
   assert.equal(highlightResolution.anchorState, 'active');
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
-    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"`,
+    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after annotation section reconciliation',
   );
   await evaluate(`(async () => {
@@ -5238,7 +5238,7 @@ try {
   assert.equal(invalidCfiResolution.normalAnchorState, 'active');
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
-    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"`,
+    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after invalid CFI check',
   );
   await evaluate(`(async () => {
@@ -5372,7 +5372,7 @@ try {
   assert.equal(highlightRepair.quote, selectionActions.selectedText);
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
-    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"`,
+    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after unresolved highlight check',
   );
   await evaluate(`(() => {
@@ -5712,7 +5712,7 @@ try {
   );
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
-    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"',
+    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"',
     'shelf after auto-open close',
   );
   await waitFor(
@@ -5721,7 +5721,7 @@ try {
   );
   await command('Page.reload', { ignoreCache: true });
   await waitFor(
-    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"
+    `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"
       && !document.querySelector('foliate-view')`,
     'shelf remains after reader close reload',
   );
@@ -6244,7 +6244,7 @@ try {
 
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
-    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest"',
+    'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"',
     'shelf after themed reader close',
   );
   const shelfThemeAfterReaderClose = await evaluate(`(() => {

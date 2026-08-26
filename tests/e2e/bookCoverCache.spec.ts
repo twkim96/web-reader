@@ -45,7 +45,7 @@ const setupGuestShelf = async (page: Page, installId: string) => {
     localStorage.setItem('shelf_viewMode', 'grid');
   }, installId);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Guest', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
 };
 
 const findCachedCoverBookId = async (page: Page, bookName: string) => (
