@@ -144,6 +144,18 @@ test('keeps the shelf dock at 34px on mobile and 20px on desktop', async () => {
   assert.match(shelfHeaderSource, /const bottomDockClass = `[^`]*rounded-\[34px\] md:rounded-\[20px\]/);
 });
 
+test('uses concise title-cased shelf labels without Library', async () => {
+  const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
+
+  assert.match(shelfHeaderSource, /data-shelf-library-label="true"/);
+  assert.match(shelfHeaderSource, /isGuest \? 'Guest' : \(isOfflineMode \? 'Local' : 'Cloud'\)/);
+  assert.doesNotMatch(shelfHeaderSource, /Guest Library|Local Library|Cloud Library/);
+  assert.doesNotMatch(
+    shelfHeaderSource.match(/<h1[\s\S]*?<\/h1>/)?.[0] ?? '',
+    /\buppercase\b/,
+  );
+});
+
 test('maps non-reader controls to an optical radius scale and keeps exclusions explicit', async () => {
   const [globals, pageSource, shelfSearchSource, epubSearchSource, readerToolbarSource, selectionMenuSource, highlightMenuSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),

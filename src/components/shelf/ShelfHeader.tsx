@@ -316,8 +316,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="truncate whitespace-nowrap text-lg font-black uppercase tracking-tight md:text-xl">
-                  {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
+                <h1
+                  data-shelf-library-label="true"
+                  className="truncate whitespace-nowrap text-lg font-black tracking-tight md:text-xl"
+                >
+                  {isGuest ? 'Guest' : (isOfflineMode ? 'Local' : 'Cloud')}
                 </h1>
                 {syncStatus && (
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500/10 border border-accent-500/20 rounded-xl text-accent-500 animate-in fade-in zoom-in duration-300">
