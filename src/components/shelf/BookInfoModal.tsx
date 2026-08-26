@@ -36,6 +36,7 @@ type Props = {
   isDownloaded: boolean;
   isOfflineMode: boolean;
   theme: ShelfTheme;
+  themeBackgroundColor?: string;
   catalog?: PublicBookCatalogBook;
   catalogState?: PublicBookCatalogLoadState;
   isDeleting?: boolean;
@@ -90,6 +91,7 @@ export const BookInfoModal: React.FC<Props> = ({
   isDownloaded,
   isOfflineMode,
   theme,
+  themeBackgroundColor,
   catalog,
   catalogState = 'ready',
   isDeleting = false,
@@ -409,6 +411,7 @@ export const BookInfoModal: React.FC<Props> = ({
                     identity={book.id}
                     title={getDisplayBookTitle(book.name)}
                     variant="info"
+                    surroundingBackgroundColor={themeBackgroundColor}
                   />
                 )}
               </div>

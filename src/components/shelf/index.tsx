@@ -4,7 +4,7 @@ import { ManageModal } from '../ManageModal';
 import { ShelfSearchModal } from '../ShelfSearchModal';
 import { ThemeModal } from '../ThemeModal';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { getThemeClasses } from '../../lib/themeUtils';
+import { getThemeClasses, getThemeColors } from '../../lib/themeUtils';
 
 import { ShelfHeader } from './ShelfHeader';
 import { BookCard } from './BookCard';
@@ -114,6 +114,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const visibleBookCountRef = useRef(SHELF_PAGE_SIZE);
 
   const theme = getThemeClasses(settings);
+  const themeBackgroundColor = getThemeColors(settings).bg;
   const { viewMode, sortMode, toggleViewMode, setSortMode } = useShelfPreferences();
   const catalog = usePublicBookCatalog(books);
   const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
@@ -421,6 +422,7 @@ export const Shelf: React.FC<ShelfProps> = ({
                 isDownloaded={isOfflineMode || offlineIds.has(book.id)}
                 viewMode={viewMode}
                 theme={theme}
+                themeBackgroundColor={themeBackgroundColor}
                 catalog={catalog.booksById.get(book.id)}
                 coverUrl={coverUrls.get(book.id)}
                 onOpen={onOpen}
@@ -548,6 +550,7 @@ export const Shelf: React.FC<ShelfProps> = ({
             && offlineIds.has(selectedBookInfo.id)
           }
           theme={theme}
+          themeBackgroundColor={themeBackgroundColor}
           catalog={catalog.booksById.get(selectedBookInfo.id)}
           catalogState={catalog.state}
           onCatalogRefresh={catalog.retry}

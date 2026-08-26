@@ -12,7 +12,11 @@ import generatedBookCoverModule from '../src/components/shelf/GeneratedBookCover
 const { BookCard, getFittingShelfTagCount } = bookCardModule;
 const { EmptyState } = emptyStateModule;
 const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
-const { GeneratedBookCover, getGeneratedBookCoverStyle } = generatedBookCoverModule;
+const {
+  GENERATED_BOOK_COVER_PALETTE,
+  GeneratedBookCover,
+  getGeneratedBookCoverStyle,
+} = generatedBookCoverModule;
 
 const modalSurfaceSources = [
   '../src/components/reader/ReaderModalFrame.tsx',
@@ -352,8 +356,13 @@ test('uses the same cover frame for cached and generated shelf covers', () => {
 });
 
 test('keeps generated cover colors deterministic and readable', () => {
-  const first = getGeneratedBookCoverStyle('layout-book');
-  const repeated = getGeneratedBookCoverStyle('layout-book');
+  assert.deepEqual(GENERATED_BOOK_COVER_PALETTE, [
+    '#B3CACC', '#99C7E8', '#CCC9B4', '#E8E899', '#CCB4C2',
+    '#E89A99', '#467377', '#778793', '#4D4720', '#696843',
+  ]);
+
+  const first = getGeneratedBookCoverStyle('layout-book', '#141517');
+  const repeated = getGeneratedBookCoverStyle('layout-book', '#141517');
   assert.deepEqual(first, repeated);
 
   const parseHex = (hex) => [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
@@ -369,11 +378,31 @@ test('keeps generated cover colors deterministic and readable', () => {
   };
 
   assert.ok(contrast(first.backgroundColor, first.color) >= 4.5);
+  for (const backgroundColor of GENERATED_BOOK_COVER_PALETTE) {
+    const selected = getGeneratedBookCoverStyle('layout-book', backgroundColor);
+    assert.notEqual(selected.backgroundColor, backgroundColor);
+    assert.ok(contrast(selected.backgroundColor, backgroundColor) >= 1.5);
+  }
   const foregrounds = new Set(
     Array.from({ length: 64 }, (_, index) => getGeneratedBookCoverStyle(`book-${index}`).color),
   );
   assert.ok(foregrounds.has('#FFFFFF'));
   assert.ok(foregrounds.has('#111827'));
+});
+
+test('passes the active shelf background to generated covers', async () => {
+  const document = renderCard('simple', props.catalog, { themeBackgroundColor: '#B3CACC' });
+  const generated = document.querySelector('[data-generated-book-cover="true"]');
+  assert.ok(generated);
+  assert.notEqual(generated.style.backgroundColor.toUpperCase(), '#B3CACC');
+
+  const [shelfSource, infoSource] = await Promise.all([
+    readFile(new URL('../src/components/shelf/index.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/BookInfoModal.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.match(shelfSource, /const themeBackgroundColor = getThemeColors\(settings\)\.bg/);
+  assert.match(shelfSource, /<BookCard[\s\S]*?themeBackgroundColor=\{themeBackgroundColor\}/);
+  assert.match(infoSource, /surroundingBackgroundColor=\{themeBackgroundColor\}/);
 });
 
 test('starts generated cover titles near the top and keeps list text at seven pixels', () => {

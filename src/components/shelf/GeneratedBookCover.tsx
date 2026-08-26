@@ -2,24 +2,22 @@
 
 import React from 'react';
 
-const GENERATED_BOOK_COVER_PALETTE = [
-  '#F59E0B',
-  '#F97316',
-  '#FB7185',
-  '#E11D48',
-  '#D946EF',
-  '#A855F7',
-  '#8B5CF6',
-  '#6366F1',
-  '#3B82F6',
-  '#0EA5E9',
-  '#06B6D4',
-  '#14B8A6',
-  '#10B981',
-  '#22C55E',
-  '#84CC16',
-  '#EAB308',
+export const GENERATED_BOOK_COVER_PALETTE = [
+  '#B3CACC',
+  '#99C7E8',
+  '#CCC9B4',
+  '#E8E899',
+  '#CCB4C2',
+  '#E89A99',
+  '#467377',
+  '#778793',
+  '#4D4720',
+  '#696843',
 ] as const;
+
+const MIN_SURROUNDING_CONTRAST_RATIO = 1.5;
+const LIGHT_COVER_TEXT = '#FFFFFF';
+const DARK_COVER_TEXT = '#111827';
 
 const hashIdentity = (value: string) => {
   let hash = 2166136261;
@@ -48,13 +46,49 @@ const getRelativeLuminance = (hex: string) => {
   );
 };
 
-export const getGeneratedBookCoverStyle = (identity: string) => {
-  const paletteIndex = hashIdentity(identity) % GENERATED_BOOK_COVER_PALETTE.length;
+const getContrastRatio = (left: string, right: string) => {
+  const leftLuminance = getRelativeLuminance(left);
+  const rightLuminance = getRelativeLuminance(right);
+  return (
+    (Math.max(leftLuminance, rightLuminance) + 0.05)
+    / (Math.min(leftLuminance, rightLuminance) + 0.05)
+  );
+};
+
+const normalizeBackgroundColor = (value?: string) => {
+  const trimmed = value?.trim();
+  if (!trimmed || !/^#[0-9a-f]{6}$/i.test(trimmed)) return null;
+  return trimmed.toUpperCase();
+};
+
+const selectPaletteIndex = (identity: string, surroundingBackgroundColor?: string) => {
+  const startIndex = hashIdentity(identity) % GENERATED_BOOK_COVER_PALETTE.length;
+  const surrounding = normalizeBackgroundColor(surroundingBackgroundColor);
+  if (!surrounding) return startIndex;
+
+  let bestIndex = startIndex;
+  let bestContrast = 0;
+  for (let offset = 0; offset < GENERATED_BOOK_COVER_PALETTE.length; offset += 1) {
+    const paletteIndex = (startIndex + offset) % GENERATED_BOOK_COVER_PALETTE.length;
+    const contrast = getContrastRatio(GENERATED_BOOK_COVER_PALETTE[paletteIndex], surrounding);
+    if (contrast > bestContrast) {
+      bestIndex = paletteIndex;
+      bestContrast = contrast;
+    }
+    if (contrast >= MIN_SURROUNDING_CONTRAST_RATIO) return paletteIndex;
+  }
+  return bestIndex;
+};
+
+export const getGeneratedBookCoverStyle = (
+  identity: string,
+  surroundingBackgroundColor?: string,
+) => {
+  const paletteIndex = selectPaletteIndex(identity, surroundingBackgroundColor);
   const backgroundColor = GENERATED_BOOK_COVER_PALETTE[paletteIndex];
-  const luminance = getRelativeLuminance(backgroundColor);
-  const lightContrast = 1.05 / (luminance + 0.05);
-  const darkContrast = (luminance + 0.05) / 0.05;
-  const color = lightContrast >= darkContrast ? '#FFFFFF' : '#111827';
+  const lightContrast = getContrastRatio(backgroundColor, LIGHT_COVER_TEXT);
+  const darkContrast = getContrastRatio(backgroundColor, DARK_COVER_TEXT);
+  const color = lightContrast >= darkContrast ? LIGHT_COVER_TEXT : DARK_COVER_TEXT;
   return { backgroundColor, color, paletteIndex };
 };
 
@@ -64,6 +98,7 @@ interface GeneratedBookCoverProps {
   identity: string;
   title: string;
   variant: GeneratedBookCoverVariant;
+  surroundingBackgroundColor?: string;
   className?: string;
 }
 
@@ -78,9 +113,13 @@ export const GeneratedBookCover: React.FC<GeneratedBookCoverProps> = ({
   identity,
   title,
   variant,
+  surroundingBackgroundColor,
   className = '',
 }) => {
-  const { backgroundColor, color, paletteIndex } = getGeneratedBookCoverStyle(identity);
+  const { backgroundColor, color, paletteIndex } = getGeneratedBookCoverStyle(
+    identity,
+    surroundingBackgroundColor,
+  );
 
   return (
     <div

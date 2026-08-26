@@ -21,6 +21,7 @@ interface BookCardProps {
   isDownloaded: boolean;
   viewMode: ShelfViewMode;
   theme: ShelfTheme;
+  themeBackgroundColor?: string;
   onOpen: (book: Book) => void;
   onDeleteProgress?: (bookId: string) => void;
   onRequestBookInfo?: (book: Book) => void;
@@ -68,6 +69,7 @@ export const BookCard: React.FC<BookCardProps> = ({
   isDownloaded,
   viewMode,
   theme,
+  themeBackgroundColor,
   onOpen,
   onDeleteProgress,
   onRequestBookInfo,
@@ -355,6 +357,7 @@ export const BookCard: React.FC<BookCardProps> = ({
               identity={book.id}
               title={displayBookTitle}
               variant="simple"
+              surroundingBackgroundColor={themeBackgroundColor}
             />
           )}
         </div>
@@ -456,6 +459,7 @@ export const BookCard: React.FC<BookCardProps> = ({
               identity={book.id}
               title={getDisplayBookTitle(book.name)}
               variant="list"
+              surroundingBackgroundColor={themeBackgroundColor}
             />
           )}
         </div>
@@ -567,6 +571,7 @@ export const BookCard: React.FC<BookCardProps> = ({
               identity={book.id}
               title={getDisplayBookTitle(book.name)}
               variant="grid"
+              surroundingBackgroundColor={themeBackgroundColor}
             />
           )}
         </div>
