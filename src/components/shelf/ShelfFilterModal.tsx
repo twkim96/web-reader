@@ -6,8 +6,6 @@ import {
   Flame,
   LoaderCircle,
   RotateCcw,
-  SlidersHorizontal,
-  X,
 } from 'lucide-react';
 import type { PublicBookCatalogSnapshot } from '../../lib/publicBookCatalog';
 import type { PublicBookCatalogLoadState } from '../../hooks/usePublicBookCatalog';
@@ -26,6 +24,7 @@ import {
   getShelfPopularTags,
   SHELF_TAG_PAGE_SIZE,
 } from './filterTags';
+import { MenuSheetHeader } from '../MenuSheetHeader';
 
 type Props = {
   books: PreparedShelfBook[];
@@ -138,7 +137,8 @@ export const ShelfFilterModal: React.FC<Props> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[180] flex items-center justify-center bg-black/65 p-3 backdrop-blur-sm sm:p-5"
+      data-menu-sheet-backdrop="true"
+      className="app-menu-sheet-backdrop fixed inset-0 z-[180] flex items-center justify-center bg-black/65 p-3 backdrop-blur-sm sm:p-5"
       onClick={onClose}
     >
       <section
@@ -148,28 +148,11 @@ export const ShelfFilterModal: React.FC<Props> = ({
         aria-labelledby="shelf-filter-title"
         tabIndex={-1}
         data-shelf-filter-modal="true"
+        data-menu-sheet="true"
         onClick={(event) => event.stopPropagation()}
-        className={`app-panel-radius flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none`}
+        className={`app-panel-radius app-menu-sheet flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none`}
       >
-        <header data-modal-header="shelf-filter" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4 sm:py-3`}>
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div data-modal-header-icon="shelf-filter" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
-              <SlidersHorizontal size={19} aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <h2 id="shelf-filter-title" className="text-sm font-black sm:text-lg">책장 정렬·필터</h2>
-              <p className="mt-0.5 hidden text-[10px] font-bold opacity-45 sm:block">정렬과 조건을 함께 적용합니다.</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="책장 필터 닫기"
-            className="flex size-11 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X size={21} />
-          </button>
-        </header>
+        <MenuSheetHeader kind="shelf-filter" title="책장 정렬·필터" titleId="shelf-filter-title" subtitle="정렬과 조건을 함께 적용합니다." onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-3 sm:space-y-5 sm:px-4 sm:py-4">
           <section aria-labelledby="shelf-filter-sort-title">

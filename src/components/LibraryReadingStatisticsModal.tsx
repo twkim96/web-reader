@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, Database, Download, FileJson, FileText, Headphones, Monitor, RefreshCw, Share2, X } from 'lucide-react';
+import { Database, Download, FileJson, FileText, Headphones, Monitor, RefreshCw, Share2 } from 'lucide-react';
 import type { ThemeClasses } from '../types';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import {
@@ -44,6 +44,7 @@ import {
   hideReadingStatisticsRound,
   readHiddenReadingStatisticsSessionIds,
 } from '../lib/readingStatisticsSessionVisibility';
+import { MenuSheetHeader } from './MenuSheetHeader';
 
 type Props = {
   open: boolean;
@@ -414,7 +415,8 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   return (
     <>
     <div
-      className={`fixed inset-0 z-[105] ${visible ? 'flex' : 'hidden'} items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5`}
+      data-menu-sheet-backdrop="true"
+      className={`app-menu-sheet-backdrop fixed inset-0 z-[105] ${visible ? 'flex' : 'hidden'} items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5`}
       onClick={onClose}
     >
       <section
@@ -424,22 +426,21 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         aria-labelledby="reading-statistics-title"
         tabIndex={-1}
         data-reading-statistics-modal="true"
+        data-menu-sheet="true"
         data-reading-statistics-accent={accentColor}
         style={{ ...themeVariables, ...accentStyle }}
         onClick={(event) => event.stopPropagation()}
-        className={`app-panel-radius flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh]`}
+        className={`app-panel-radius app-menu-sheet flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh]`}
       >
-        <header data-modal-header="statistics" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div data-modal-header-icon="statistics" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
-              <BarChart3 size={19} aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <h2 id="reading-statistics-title" className="text-base font-black sm:text-lg">독서 통계</h2>
-              <p aria-live="polite" className="mt-0.5 text-[11px] opacity-55">{serverCheckLabel}</p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
+        <MenuSheetHeader
+          title="독서 통계"
+          kind="statistics"
+          titleId="reading-statistics-title"
+          subtitle={<span aria-live="polite">{serverCheckLabel}</span>}
+          onClose={onClose}
+          borderClass={theme.border}
+          secondaryClass={theme.secondary}
+          trailing={(
             <button
               type="button"
               data-reading-statistics-refresh="true"
@@ -451,11 +452,8 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
             >
               <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
             </button>
-            <button type="button" onClick={onClose} aria-label="독서 통계 닫기" className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10">
-              <X size={22} />
-            </button>
-          </div>
-        </header>
+          )}
+        />
 
         <div data-reading-statistics-body="true" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5 sm:px-4 sm:py-3">
           {(syncHealth !== 'healthy' || quarantinedDocumentCount > 0) && (

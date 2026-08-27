@@ -4,12 +4,13 @@ import React, { useEffect, useState } from 'react';
 import { getAllOfflineBooksV5, removeBookFromLocalV5 } from '../lib/localDBV5';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { DEVICE_CONTENT_OWNER_KEY } from '../lib/ownerIdentity';
-import { Trash2, HardDrive, X, FileText } from 'lucide-react';
+import { Trash2, HardDrive, FileText } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Book, ThemeClasses } from '../types';
 import { getBookTitleFromFileName } from '../lib/bookFormats';
 import { getBookFormatLabel } from './shelf/bookUtils';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { MenuSheetHeader } from './MenuSheetHeader';
 
 interface ManageModalProps {
   onClose: () => void;
@@ -58,33 +59,13 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={onClose}>
+    <div data-menu-sheet-backdrop="true" className="app-menu-sheet-backdrop fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6" onClick={onClose}>
       <div
-        className={`app-panel-radius w-full max-w-md ${theme.bg} ${theme.text} shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] transition-colors duration-300`}
+        data-menu-sheet="true"
+        className={`app-panel-radius app-menu-sheet w-full max-w-md ${theme.bg} ${theme.text} shadow-2xl border ${theme.border} overflow-hidden flex flex-col max-h-[80vh] transition-colors duration-300`}
         onClick={e => e.stopPropagation()}
       >
-        <div
-          data-modal-header="offline-storage"
-          className={`flex items-center justify-between border-b ${theme.border} p-6 transition-colors duration-300`}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              data-modal-header-icon="offline-storage"
-              className={`flex size-10 items-center justify-center rounded-xl ${theme.secondary}`}
-            >
-              <HardDrive size={20} aria-hidden="true" />
-            </div>
-            <h2 className="text-lg font-black uppercase tracking-tight">Offline Storage</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="오프라인 저장소 닫기"
-            className="flex size-10 items-center justify-center rounded-full text-current transition-colors hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X size={20} />
-          </button>
-        </div>
+        <MenuSheetHeader kind="offline-storage" title="Offline Storage" onClose={onClose} closeLabel="오프라인 저장소 닫기" borderClass={theme.border} secondaryClass={theme.secondary} />
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {books.length === 0 ? (

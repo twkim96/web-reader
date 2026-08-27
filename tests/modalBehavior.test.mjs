@@ -7,6 +7,7 @@ import { parseHTML } from 'linkedom';
 
 import { ConfirmDialog } from '../src/components/ConfirmDialog.tsx';
 import { ReaderModalFrame } from '../src/components/reader/ReaderModalFrame.tsx';
+import { MenuSheetHeader } from '../src/components/MenuSheetHeader.tsx';
 
 const theme = {
   bg: 'bg-black',
@@ -115,6 +116,49 @@ test('dismissible dialog primitives require a matching backdrop pointer origin',
   assert.equal(closeCount, 1);
 
   await act(async () => root.unmount());
+});
+
+test('menu sheet frames and headers expose one shared Apple-like contract', async () => {
+  const window = installDom();
+  const root = createRoot(window.document.querySelector('#root'));
+
+  await act(async () => {
+    root.render(React.createElement(
+      ReaderModalFrame,
+      {
+        ariaLabel: '메뉴 시트 테스트',
+        menuSheet: true,
+        theme,
+        onClose: () => undefined,
+      },
+      React.createElement(MenuSheetHeader, {
+        kind: 'test',
+        title: '테스트 제목',
+        borderClass: theme.border,
+        secondaryClass: theme.secondary,
+        onClose: () => undefined,
+      }),
+    ));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  const backdrop = window.document.querySelector('[data-menu-sheet-backdrop="true"]');
+  const dialog = window.document.querySelector('[data-menu-sheet="true"]');
+  const header = window.document.querySelector('[data-menu-sheet-header="true"]');
+  assert.ok(backdrop?.classList.contains('app-menu-sheet-backdrop'));
+  assert.ok(dialog?.classList.contains('app-menu-sheet'));
+  assert.equal(header?.getAttribute('data-modal-header'), 'test');
+  assert.equal(header?.querySelector('h2')?.textContent, '테스트 제목');
+  assert.ok(header?.querySelector('[data-menu-sheet-close="true"]'));
+
+  await act(async () => root.unmount());
+});
+
+test('mobile menu sheets use a bottom-attached themed surface', async () => {
+  const globals = await readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  assert.match(globals, /\.app-menu-sheet\s*\{[\s\S]*?background-color:\s*var\(--viewer-theme-bg\)\s*!important/);
+  assert.match(globals, /@media \(max-width:\s*639px\)[\s\S]*?\.app-menu-sheet-backdrop\s*\{[\s\S]*?align-items:\s*flex-end\s*!important/);
+  assert.match(globals, /\.app-menu-sheet\s*\{[\s\S]*?max-height:\s*88dvh\s*!important[\s\S]*?border-radius:\s*22px 22px 0 0\s*!important/);
 });
 
 test('pins library annotation and statistics modals to the active theme variables', async () => {

@@ -9,6 +9,7 @@ import {
   updateImportSelection,
 } from '../../lib/bookFormats';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
+import { MenuSheetHeader } from '../MenuSheetHeader';
 
 interface ImportBookModalProps {
   theme: { bg: string; text: string; border: string; secondary: string };
@@ -99,13 +100,18 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
+      data-menu-sheet-backdrop="true"
+      className="app-menu-sheet-backdrop fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
+        data-menu-sheet="true"
         onClick={(event) => event.stopPropagation()}
-        className={`app-panel-radius max-h-full w-full max-w-sm overflow-y-auto ${theme.bg} ${theme.text} p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
+        className={`app-panel-radius app-menu-sheet max-h-full w-full max-w-sm overflow-y-auto ${theme.bg} ${theme.text} p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
       >
+        <div className="-mx-6 -mt-6">
+          <MenuSheetHeader kind="import-book" title="도서 추가" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
+        </div>
         <input
           ref={fileInputRef}
           type="file"

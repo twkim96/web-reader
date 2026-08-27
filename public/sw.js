@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.33: keep scroll-mode wheel and touch input on passive browser paths.
+// 1.8.34: unify toolbar dialogs as themed mobile bottom sheets and desktop panels.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.33`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.34`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

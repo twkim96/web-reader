@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, Info, RefreshCw, Trash2, X } from 'lucide-react';
+import { CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2 } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -28,6 +28,7 @@ import type { PublicBookCatalogBook } from '../../lib/publicBookCatalog';
 import type { PublicBookCatalogLoadState } from '../../hooks/usePublicBookCatalog';
 import { useShelfBookCover } from './useShelfBookCovers';
 import { GeneratedBookCover } from './GeneratedBookCover';
+import { MenuSheetHeader } from '../MenuSheetHeader';
 
 type Props = {
   book: Book;
@@ -350,7 +351,8 @@ export const BookInfoModal: React.FC<Props> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[180] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5"
+      data-menu-sheet-backdrop="true"
+      className="app-menu-sheet-backdrop fixed inset-0 z-[180] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5"
       onClick={() => { if (!isDeleting) onClose(); }}
     >
       <section
@@ -360,35 +362,17 @@ export const BookInfoModal: React.FC<Props> = ({
         aria-labelledby="book-info-title"
         tabIndex={-1}
         data-book-info-modal="true"
+        data-menu-sheet="true"
         data-book-info-id={book.id}
         onClick={(event) => event.stopPropagation()}
-        className={`app-panel-radius flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 select-text flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none focus:outline-none sm:max-h-[82dvh]`}
+        className={`app-panel-radius app-menu-sheet flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 select-text flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none focus:outline-none sm:max-h-[82dvh]`}
       >
         <div
           ref={captureRef}
           data-book-info-capture-root="true"
           className={`flex min-h-0 flex-1 flex-col overflow-hidden ${theme.bg} ${theme.text}`}
         >
-          <header data-modal-header="book-info" className={`flex items-center justify-between border-b ${theme.border} px-3 py-2 sm:px-4`}>
-            <div className="flex min-w-0 items-center gap-2.5">
-              <div data-modal-header-icon="book-info" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
-                <Info size={19} aria-hidden="true" />
-              </div>
-              <div className="min-w-0">
-                <h2 id="book-info-title" className="text-base font-black sm:text-lg">도서 정보</h2>
-                <p className="truncate text-[10px] font-bold opacity-45">{getBookFormatLabel(book)} · {sourceLabel}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isDeleting}
-              aria-label="도서 정보 닫기"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-black/5 disabled:opacity-35 dark:hover:bg-white/10"
-            >
-              <X size={22} />
-            </button>
-          </header>
+          <MenuSheetHeader kind="book-info" title="도서 정보" titleId="book-info-title" subtitle={`${getBookFormatLabel(book)} · ${sourceLabel}`} onClose={onClose} closeDisabled={isDeleting} borderClass={theme.border} secondaryClass={theme.secondary} />
 
           <div data-book-info-scroll-body="true" className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4">
             <div data-book-info-title-layout="true" className="flex min-w-0 items-start gap-3">

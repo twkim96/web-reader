@@ -7,7 +7,6 @@ import {
   Download,
   FileJson,
   FileText,
-  Highlighter,
   Search,
   Share2,
   X,
@@ -43,6 +42,7 @@ import {
 import { subscribeAnnotationSyncChanges } from '../lib/annotationSyncWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { getBookFormatLabel } from './shelf/bookUtils';
+import { MenuSheetHeader } from './MenuSheetHeader';
 
 type ExportMode = 'markdown-library' | 'markdown-book' | 'json-library';
 
@@ -293,39 +293,23 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   return (
     <div
       data-library-annotation-backdrop="true"
-      className="fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5"
+      data-menu-sheet-backdrop="true"
+      className="app-menu-sheet-backdrop fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5"
       onClick={onClose}
     >
       <section
         ref={dialogRef}
         tabIndex={-1}
         data-library-annotation-modal="true"
+        data-menu-sheet="true"
         role="dialog"
         aria-modal="true"
         aria-label="라이브러리 전체 주석"
         onClick={(event) => event.stopPropagation()}
         style={themeVariables}
-        className={`app-panel-radius flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border shadow-2xl sm:max-h-[82dvh] ${theme.bg} ${theme.text} ${theme.border}`}
+        className={`app-panel-radius app-menu-sheet flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border shadow-2xl sm:max-h-[82dvh] ${theme.bg} ${theme.text} ${theme.border}`}
       >
-        <header data-modal-header="annotations" className={`flex shrink-0 items-center gap-2 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <div data-modal-header-icon="annotations" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
-              <Highlighter size={19} aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-base font-black md:text-lg">라이브러리 주석</h2>
-              <p className="text-[10px] font-bold opacity-45">로컬 {annotations.length}개 · 삭제 기록 제외 · 위치 오류 항목 포함</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="라이브러리 주석 닫기"
-            className="flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X size={20} />
-          </button>
-        </header>
+        <MenuSheetHeader kind="annotations" title="라이브러리 주석" subtitle={`로컬 ${annotations.length}개 · 삭제 기록 제외 · 위치 오류 항목 포함`} onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         <div className={`shrink-0 space-y-1.5 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
           <label className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 ${theme.border} bg-black/5 dark:bg-white/5`}>

@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { CustomTheme, CustomThemeTexture, ViewerSettings } from '../types';
-import { X, Check, Palette, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Check, Plus, Pencil, Trash2 } from 'lucide-react';
 import { THEMES, ACCENT_COLORS, ACCENT_PALETTE } from '../lib/constants';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
+import { MenuSheetHeader } from './MenuSheetHeader';
 import { createCustomThemeId, getTexturePreviewStyle, normalizeHexColor } from '../lib/themeUtils';
 
 interface ThemeModalProps {
@@ -104,15 +105,8 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     onDismiss: () => void,
     actions?: React.ReactNode,
   ) => (
-    <div data-modal-header="theme" className={`-mx-6 -mt-6 mb-6 flex items-center gap-2.5 border-b ${theme.border} px-6 py-3`}>
-      <div data-modal-header-icon="theme" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${theme.secondary || ''}`}>
-        <Palette size={19} aria-hidden="true" />
-      </div>
-      <h2 className="min-w-0 flex-1 truncate text-lg font-bold">{title}</h2>
-      <div className="flex shrink-0 items-center gap-1">
-        {actions}
-        <button onClick={onDismiss} aria-label={`${title} 닫기`} className="p-2 -mr-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors"><X size={20} /></button>
-      </div>
+    <div className="-mx-6 -mt-6 mb-6">
+      <MenuSheetHeader kind="theme" title={title} onClose={onDismiss} borderClass={theme.border} secondaryClass={theme.secondary} trailing={actions} />
     </div>
   );
 
@@ -147,6 +141,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     return (
       <ReaderModalFrame
         ariaLabel={mode === 'create' ? '커스텀 테마 추가' : '커스텀 테마 편집'}
+        menuSheet
         noBlur
         placement="center"
         theme={theme}
@@ -242,6 +237,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     return (
       <ReaderModalFrame
         ariaLabel="편집할 테마 선택"
+        menuSheet
         noBlur
         placement="center"
         theme={theme}
@@ -279,6 +275,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   return (
     <ReaderModalFrame
       ariaLabel="테마 설정"
+      menuSheet
       noBlur
       placement="center"
       theme={theme}

@@ -18,6 +18,7 @@ interface ReaderModalFrameProps {
   placement?: 'upper' | 'high' | 'center';
   ariaLabel?: string;
   dismissible?: boolean;
+  menuSheet?: boolean;
 }
 
 export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
@@ -31,6 +32,7 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   placement = 'upper',
   ariaLabel = '리더 대화상자',
   dismissible = true,
+  menuSheet = false,
 }) => {
   useBodyScrollLock();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -113,7 +115,8 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   return (
     <div
       data-reader-modal-backdrop="true"
-      className={`fixed inset-0 ${zIndex} flex ${placementClass} ${noBlur ? 'bg-black/20' : 'bg-black/60 backdrop-blur-sm'} animate-in fade-in duration-200`}
+      data-menu-sheet-backdrop={menuSheet ? 'true' : undefined}
+      className={`fixed inset-0 ${zIndex} flex ${placementClass} ${menuSheet ? 'app-menu-sheet-backdrop' : ''} ${noBlur ? 'bg-black/20' : 'bg-black/60 backdrop-blur-sm'} animate-in fade-in duration-200`}
       onPointerDown={handleBackdropPointerDown}
       onPointerUp={handleBackdropPointerUp}
       onPointerCancel={clearBackdropPointer}
@@ -125,9 +128,10 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
+        data-menu-sheet={menuSheet ? 'true' : undefined}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className={`app-panel-radius w-full ${maxWidth} ${theme.bg} ${theme.text || ''} shadow-2xl border ${theme.border} overflow-hidden animate-in zoom-in-95 duration-200 ${className}`}
+        className={`app-panel-radius w-full ${maxWidth} ${menuSheet ? 'app-menu-sheet' : ''} ${theme.bg} ${theme.text || ''} shadow-2xl border ${theme.border} overflow-hidden animate-in zoom-in-95 duration-200 ${className}`}
       >
         {children}
       </div>

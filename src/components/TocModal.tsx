@@ -1,8 +1,8 @@
 import React from 'react';
-import { X, List } from 'lucide-react';
 import { TocItem } from '../hooks/foliate/types';
 import { ThemeClasses } from '../types';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
+import { MenuSheetHeader } from './MenuSheetHeader';
 
 interface TocModalProps {
   toc: TocItem[];
@@ -27,22 +27,8 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
   const allChapters = flattenToc(toc);
 
   return (
-    <ReaderModalFrame ariaLabel="목차" theme={theme} onClose={onClose} maxWidth="max-w-md" placement="high" className="flex flex-col max-h-[min(30rem,72vh)] sm:max-h-[32rem]">
-        {/* Header */}
-        <div className={`flex items-center justify-between p-5 border-b ${theme.border}`}>
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-accent-500/10 rounded-xl text-accent-500">
-              <List size={20} />
-            </div>
-            <div>
-              <h3 className="font-bold tracking-tight">목차</h3>
-              <p className="text-[10px] opacity-40 font-bold uppercase tracking-widest mt-0.5">Table of Contents</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors opacity-40 hover:opacity-100">
-            <X size={20} />
-          </button>
-        </div>
+    <ReaderModalFrame ariaLabel="목차" menuSheet theme={theme} onClose={onClose} maxWidth="max-w-md" placement="high" className="flex flex-col max-h-[min(30rem,72vh)] sm:max-h-[32rem]">
+        <MenuSheetHeader kind="toc" title="목차" subtitle="Table of Contents" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         {/* List */}
         <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">

@@ -2,11 +2,8 @@
 
 import React, { useState } from 'react';
 import {
-  Bookmark as BookmarkIcon,
-  Highlighter,
   History,
   Trash2,
-  X,
 } from 'lucide-react';
 import type {
   Annotation,
@@ -17,6 +14,7 @@ import type {
 } from '../types';
 import { AnnotationPanel } from './AnnotationModal';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
+import { MenuSheetHeader } from './MenuSheetHeader';
 
 interface BookmarkModalProps {
   bookmarks: Bookmark[];
@@ -76,28 +74,14 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
   return (
     <ReaderModalFrame
       ariaLabel="책갈피와 주석"
+      menuSheet
       theme={theme}
       onClose={onClose}
       maxWidth="max-w-[21.25rem]"
       placement="center"
       className="flex h-[34rem] max-h-[85vh] flex-col"
     >
-      <div className={`flex shrink-0 items-center justify-between border-b ${theme.border} px-4 py-2`}>
-        <div className="flex min-w-0 items-center gap-2">
-          {activeTab === 'annotations'
-            ? <Highlighter className="shrink-0 text-accent-500" size={19} />
-            : <BookmarkIcon className="shrink-0 text-accent-500" size={19} />}
-          <h2 className="truncate text-base font-black">책갈피·주석</h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="책갈피와 주석 닫기"
-          className="flex size-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          <X size={20} />
-        </button>
-      </div>
+      <MenuSheetHeader kind="bookmarks" title="책갈피·주석" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
       <div
         role="tablist"

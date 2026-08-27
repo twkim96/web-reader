@@ -74,6 +74,41 @@ body {
   border-radius: 20px;
 }
 
+/* Toolbar-owned dialogs share one Apple-like themed surface. */
+.app-menu-sheet {
+  background-color: var(--viewer-theme-bg) !important;
+  color: var(--viewer-theme-text);
+}
+
+@keyframes app-menu-sheet-enter {
+  from { transform: translate3d(0, 28px, 0); opacity: 0.82; }
+  to { transform: translate3d(0, 0, 0); opacity: 1; }
+}
+
+@media (max-width: 639px) {
+  .app-menu-sheet-backdrop {
+    align-items: flex-end !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+  }
+
+  .app-menu-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: 88dvh !important;
+    border-right-width: 0 !important;
+    border-bottom-width: 0 !important;
+    border-left-width: 0 !important;
+    border-radius: 22px 22px 0 0 !important;
+    animation: app-menu-sheet-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-menu-sheet { animation: none !important; }
+}
+
 /*
  * Optical radius scale for non-reader chrome. Existing rounded utilities keep
  * expressing relative size while the actual curve follows the control size.

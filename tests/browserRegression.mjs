@@ -846,10 +846,25 @@ try {
   const mobileShelfSearchHeight = await evaluate(
     'document.querySelector(\'[data-shelf-search-input-row="true"]\')?.getBoundingClientRect().height',
   );
+  const mobileShelfSearchSheet = await evaluate(`(() => {
+    const modal = document.querySelector('[data-shelf-search-modal="true"]');
+    const rect = modal?.getBoundingClientRect();
+    const style = modal ? getComputedStyle(modal) : null;
+    return {
+      bottomGap: rect ? innerHeight - rect.bottom : -1,
+      topRadius: style?.borderTopLeftRadius ?? '',
+      bottomRadius: style?.borderBottomLeftRadius ?? '',
+    };
+  })()`);
   assert.ok(
     mobileShelfSearchHeight >= 59 && mobileShelfSearchHeight <= 61,
     `Unexpected mobile shelf search height: ${mobileShelfSearchHeight}`,
   );
+  assert.deepEqual(mobileShelfSearchSheet, {
+    bottomGap: 0,
+    topRadius: '22px',
+    bottomRadius: '0px',
+  });
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
     height: 800,
@@ -923,7 +938,7 @@ try {
       width: rect?.width ?? 0,
       height: rect?.height ?? 0,
       alphaDisabled: modal?.querySelector('[data-shelf-filter-sort="alpha"]')?.disabled ?? true,
-      headerIcon: modal?.querySelector('[data-modal-header-icon="shelf-filter"]') !== null,
+      headerClose: modal?.querySelector('[data-menu-sheet-close="true"]') !== null,
       headerDivider: modal?.querySelector('[data-modal-header="shelf-filter"]')
         ? getComputedStyle(modal.querySelector('[data-modal-header="shelf-filter"]')).borderBottomWidth
         : '0px',
@@ -933,7 +948,7 @@ try {
   assert.ok(desktopFilterModal.width <= 576, JSON.stringify(desktopFilterModal));
   assert.ok(desktopFilterModal.height <= 800 * 0.82 + 1, JSON.stringify(desktopFilterModal));
   assert.equal(desktopFilterModal.alphaDisabled, false);
-  assert.equal(desktopFilterModal.headerIcon, true, JSON.stringify(desktopFilterModal));
+  assert.equal(desktopFilterModal.headerClose, true, JSON.stringify(desktopFilterModal));
   assert.notEqual(desktopFilterModal.headerDivider, '0px', JSON.stringify(desktopFilterModal));
   await evaluate(`document.querySelector('[data-shelf-filter-sort="alpha"]')?.click()`);
   await evaluate('window.__regressionNextFrame(2)');
@@ -1008,7 +1023,7 @@ try {
       hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
       hasGeneratedCover: Boolean(modal?.querySelector('[data-generated-book-cover="true"]')),
       hasCachedCover: Boolean(modal?.querySelector('[data-book-info-cover="true"]')),
-      headerIcon: modal?.querySelector('[data-modal-header-icon="book-info"]') !== null,
+      headerClose: modal?.querySelector('[data-menu-sheet-close="true"]') !== null,
       headerDivider: modal?.querySelector('[data-modal-header="book-info"]')
         ? getComputedStyle(modal.querySelector('[data-modal-header="book-info"]')).borderBottomWidth
         : '0px',
@@ -1023,7 +1038,7 @@ try {
   assert.match(bookInfoUi.text, /파일 형식/);
   assert.match(bookInfoUi.text, /파일 크기/);
   assert.match(bookInfoUi.text, /읽은 시간/);
-  assert.equal(bookInfoUi.headerIcon, true, JSON.stringify(bookInfoUi));
+  assert.equal(bookInfoUi.headerClose, true, JSON.stringify(bookInfoUi));
   assert.notEqual(bookInfoUi.headerDivider, '0px', JSON.stringify(bookInfoUi));
   assert.equal(
     await evaluate(`document.querySelector('[data-book-info-value="reading-time"]')?.textContent?.trim()`),
@@ -1285,14 +1300,14 @@ try {
   );
   const themeModalHeader = await evaluate(`(() => {
     const header = document.querySelector('[data-modal-header="theme"]');
-    const modal = header?.parentElement;
+    const modal = header?.closest('[data-menu-sheet="true"]');
     const overlay = modal?.parentElement;
     const beforeRect = modal?.getBoundingClientRect();
     if (overlay) overlay.scrollTop = 80;
     if (modal) modal.scrollTop = Math.min(80, Math.max(0, modal.scrollHeight - modal.clientHeight));
     const afterRect = modal?.getBoundingClientRect();
     return {
-      icon: Boolean(header?.querySelector('[data-modal-header-icon="theme"]')),
+      close: Boolean(header?.querySelector('[data-menu-sheet-close="true"]')),
       divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
       top: beforeRect?.top ?? -1,
       height: beforeRect?.height ?? -1,
@@ -1305,7 +1320,7 @@ try {
       modalScrollTop: modal?.scrollTop ?? -1,
     };
   })()`);
-  assert.equal(themeModalHeader.icon, true, JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.close, true, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.divider, '1px', JSON.stringify(themeModalHeader));
   assert.ok(Math.abs(
     themeModalHeader.top + themeModalHeader.height / 2
@@ -1322,7 +1337,7 @@ try {
   );
   const themeListScroll = await evaluate(`(() => {
     const list = document.querySelector('[data-theme-list-scroll="true"]');
-    const modal = document.querySelector('[data-modal-header="theme"]')?.parentElement;
+    const modal = document.querySelector('[data-modal-header="theme"]')?.closest('[data-menu-sheet="true"]');
     const cards = [...(list?.children ?? [])];
     const listRect = list?.getBoundingClientRect();
     const getKey = (card) => card.getAttribute('data-theme-option')
@@ -1591,15 +1606,11 @@ try {
   })()`);
   assert.ok(mobileFilterModal.left >= 0, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.right <= mobileFilterModal.viewportWidth, JSON.stringify(mobileFilterModal));
-  assert.ok(mobileFilterModal.top >= 8, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.top >= 0, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.bottom <= mobileFilterModal.viewportHeight, JSON.stringify(mobileFilterModal));
-  assert.ok(mobileFilterModal.bottomGap >= 8, JSON.stringify(mobileFilterModal));
-  assert.ok(
-    Math.abs(mobileFilterModal.top - mobileFilterModal.bottomGap) <= 2,
-    JSON.stringify(mobileFilterModal),
-  );
-  assert.equal(mobileFilterModal.borderBottomLeftRadius, 14, JSON.stringify(mobileFilterModal));
-  assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.82 + 1, JSON.stringify(mobileFilterModal));
+  assert.equal(mobileFilterModal.bottomGap, 0, JSON.stringify(mobileFilterModal));
+  assert.equal(mobileFilterModal.borderBottomLeftRadius, 0, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.88 + 1, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
   await evaluate(`document.querySelector('button[aria-label="책장 필터 닫기"]')?.click()`);
   await waitFor(
@@ -1846,14 +1857,11 @@ try {
   const offlineStorageTheme = await evaluate(`(() => {
     const header = document.querySelector('[data-modal-header="offline-storage"]');
     const heading = header?.querySelector('h2');
-    const headerIcon = header?.querySelector('[data-modal-header-icon="offline-storage"]');
     const closeButton = header?.querySelector('button[aria-label="오프라인 저장소 닫기"]');
     const fileIcon = document.querySelector('[data-offline-book-icon="true"]');
     const row = fileIcon?.closest('.group');
     return {
       titleFontStyle: heading ? getComputedStyle(heading).fontStyle : '',
-      headerIconUsesAccent: headerIcon?.className.includes('accent-') ?? true,
-      headerIconColor: headerIcon ? getComputedStyle(headerIcon).color : '',
       headingColor: heading ? getComputedStyle(heading).color : '',
       closeColor: closeButton ? getComputedStyle(closeButton).color : '',
       fileIconColor: fileIcon ? getComputedStyle(fileIcon).color : '',
@@ -1861,8 +1869,6 @@ try {
     };
   })()`);
   assert.equal(offlineStorageTheme.titleFontStyle, 'normal', JSON.stringify(offlineStorageTheme));
-  assert.equal(offlineStorageTheme.headerIconUsesAccent, false, JSON.stringify(offlineStorageTheme));
-  assert.equal(offlineStorageTheme.headerIconColor, offlineStorageTheme.headingColor);
   assert.equal(offlineStorageTheme.closeColor, offlineStorageTheme.headingColor);
   assert.equal(offlineStorageTheme.fileIconColor, offlineStorageTheme.rowColor);
   await evaluate(`(() => {
@@ -2409,7 +2415,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     staleFoliateRemoved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.33')
+      script.src.endsWith('/foliate-js/view.js?v=1.8.34')
     )),
   }))()`);
   actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
@@ -4293,10 +4299,17 @@ try {
     const mobileEpubSearchHeight = await evaluate(
       'document.querySelector(\'[data-epub-search-input-row="true"]\')?.getBoundingClientRect().height',
     );
-    const mobileEpubSearchRadius = await evaluate(
-      'getComputedStyle(document.querySelector(\'[data-epub-search-modal="true"]\')).borderRadius',
-    );
-    assert.equal(mobileEpubSearchRadius, '20px');
+    const mobileEpubSearchSheet = await evaluate(`(() => {
+      const modal = document.querySelector('[data-epub-search-modal="true"]');
+      const rect = modal?.getBoundingClientRect();
+      const style = modal ? getComputedStyle(modal) : null;
+      return {
+        bottomGap: rect ? innerHeight - rect.bottom : -1,
+        topRadius: style?.borderTopLeftRadius ?? '',
+        bottomRadius: style?.borderBottomLeftRadius ?? '',
+      };
+    })()`);
+    assert.deepEqual(mobileEpubSearchSheet, { bottomGap: 0, topRadius: '22px', bottomRadius: '0px' });
     assert.ok(
       mobileEpubSearchHeight >= 59 && mobileEpubSearchHeight <= 61,
       `Unexpected mobile EPUB search height: ${mobileEpubSearchHeight}`,
@@ -4617,7 +4630,7 @@ try {
     const landscapeRect = landscapeRow?.getBoundingClientRect();
     const autoOpenRect = autoOpenRow?.getBoundingClientRect();
     return {
-      icon: Boolean(header?.querySelector('[data-modal-header-icon="settings"]')),
+      close: Boolean(header?.querySelector('[data-menu-sheet-close="true"]')),
       divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
       navigationGap: headerRect && navigationRect
         ? navigationRect.top - headerRect.bottom
@@ -4627,7 +4640,7 @@ try {
         : -1,
     };
   })()`);
-  assert.equal(settingsModalHeader.icon, true, JSON.stringify(settingsModalHeader));
+  assert.equal(settingsModalHeader.close, true, JSON.stringify(settingsModalHeader));
   assert.equal(settingsModalHeader.divider, '1px', JSON.stringify(settingsModalHeader));
   assert.ok(
     settingsModalHeader.navigationGap >= 19 && settingsModalHeader.navigationGap <= 21,
@@ -4674,10 +4687,10 @@ try {
   assert.deepEqual(await evaluate(`(() => {
     const header = document.querySelector('[data-modal-header="statistics"]');
     return {
-      icon: Boolean(header?.querySelector('[data-modal-header-icon="statistics"]')),
+      close: Boolean(header?.querySelector('[data-menu-sheet-close="true"]')),
       divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
     };
-  })()`), { icon: true, divider: '1px' });
+  })()`), { close: true, divider: '1px' });
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
   await waitFor(
     '!document.querySelector(\'[data-reading-statistics-modal="true"]\')',
@@ -5449,7 +5462,7 @@ try {
       bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
       closeWidth: closeRect?.width ?? 0,
       closeHeight: closeRect?.height ?? 0,
-      headerIcon: Boolean(modal?.querySelector('[data-modal-header-icon="annotations"]')),
+      headerClose: Boolean(modal?.querySelector('[data-menu-sheet-close="true"]')),
       headerDivider: modal?.querySelector('[data-modal-header="annotations"]')
         ? getComputedStyle(modal.querySelector('[data-modal-header="annotations"]')).borderBottomWidth
         : '0px',
@@ -5460,10 +5473,10 @@ try {
     JSON.stringify(libraryAnnotationUi),
   );
   assert.ok(
-    libraryAnnotationUi.modalHeight <= libraryAnnotationUi.viewportHeight * 0.8,
+    libraryAnnotationUi.modalHeight <= libraryAnnotationUi.viewportHeight * 0.89,
     JSON.stringify(libraryAnnotationUi),
   );
-  assert.equal(libraryAnnotationUi.headerIcon, true, JSON.stringify(libraryAnnotationUi));
+  assert.equal(libraryAnnotationUi.headerClose, true, JSON.stringify(libraryAnnotationUi));
   assert.notEqual(libraryAnnotationUi.headerDivider, '0px', JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.horizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.bodyHorizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
@@ -6440,7 +6453,7 @@ try {
       jsonEnabled: !modal?.querySelector('[data-reading-statistics-export="json"]')?.disabled,
       accentName: modal?.getAttribute('data-reading-statistics-accent'),
       accentValue: modal?.style.getPropertyValue('--accent-500').trim(),
-      headerIcon: Boolean(modal?.querySelector('[data-modal-header-icon="statistics"]')),
+      headerClose: Boolean(modal?.querySelector('[data-menu-sheet-close="true"]')),
       headerDivider: modal?.querySelector('[data-modal-header="statistics"]')
         ? getComputedStyle(modal.querySelector('[data-modal-header="statistics"]')).borderBottomWidth
         : '0px',
@@ -6462,7 +6475,7 @@ try {
   assert.ok(readingStatisticsUi.modalWidth <= readingStatisticsUi.viewportWidth, JSON.stringify(readingStatisticsUi));
   assert.ok(readingStatisticsUi.modalWidth <= readingStatisticsUi.viewportWidth * 0.92, JSON.stringify(readingStatisticsUi));
   assert.ok(readingStatisticsUi.modalHeight <= readingStatisticsUi.viewportHeight, JSON.stringify(readingStatisticsUi));
-  assert.ok(readingStatisticsUi.modalHeight <= readingStatisticsUi.viewportHeight * 0.8, JSON.stringify(readingStatisticsUi));
+  assert.ok(readingStatisticsUi.modalHeight <= readingStatisticsUi.viewportHeight * 0.89, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.horizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.bodyHorizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.actionButtonsReachable, true, JSON.stringify(readingStatisticsUi));
@@ -6471,7 +6484,7 @@ try {
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.accentName, 'emerald', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.accentValue, '#10b981', JSON.stringify(readingStatisticsUi));
-  assert.equal(readingStatisticsUi.headerIcon, true, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.headerClose, true, JSON.stringify(readingStatisticsUi));
   assert.notEqual(readingStatisticsUi.headerDivider, '0px', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.unexpectedAccentCount, 0, JSON.stringify(readingStatisticsUi));
   assert.ok(
@@ -7205,7 +7218,7 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.33';
+    const expectedCache = 'pc-reader-v1.8.34';
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -7232,7 +7245,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.33',
+      '/sw.js?browser-regression=1.8.34',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -7276,11 +7289,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.33']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.34']);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.33$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.34$/);
 
   console.log(JSON.stringify({
     shelf: {
