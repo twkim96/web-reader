@@ -1575,12 +1575,9 @@ try {
   assert.equal(modernShelfDock.usesModernClass, true, JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.borderRadius, 34, JSON.stringify(modernShelfDock));
-  await evaluate(`(() => {
-    const heading = [...document.querySelectorAll('h2')]
-      .find((node) => node.textContent?.trim() === '테마 설정');
-    const buttons = heading?.parentElement?.querySelectorAll('button');
-    buttons?.[buttons.length - 1]?.click();
-  })()`);
+  await evaluate(`document.querySelector(
+    '[data-modal-header="theme"] [data-menu-sheet-close="true"]',
+  )?.click()`);
   await waitFor(
     '!document.querySelector(\'[data-shelf-dock-style-option="glass"]\')',
     'theme modal close after shelf dock style switch',
