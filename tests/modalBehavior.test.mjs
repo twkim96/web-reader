@@ -176,12 +176,19 @@ test('uses the shared themed close surface in modal headers with custom markup',
     readFile(new URL('../src/components/LoginDisclosureModal.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/reader/AnnotationNoteDialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/reader/TranslationDialog.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/reader/JumpDialog.tsx', import.meta.url), 'utf8'),
   ]);
 
   for (const source of sources) {
     assert.match(source, /aria-label="[^"]*닫기"[\s\S]*?className="[^"]*app-modal-close/);
   }
+});
+
+test('uses the shared menu sheet material for reader percentage jumps', async () => {
+  const source = await readFile(new URL('../src/components/reader/JumpDialog.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /<ReaderModalFrame[\s\S]*?ariaLabel="진행률 이동"[\s\S]*?menuSheet/);
+  assert.match(source, /<MenuSheetHeader[\s\S]*?kind="jump"[\s\S]*?closeLabel="위치 이동 닫기"/);
+  assert.match(source, /data-reader-jump-dialog="true"[^>]*app-menu-sheet-content/);
 });
 
 test('hides the shelf dock behind every modal family with a lightweight transition', async () => {

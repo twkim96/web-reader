@@ -1,13 +1,14 @@
 'use client';
 
 import React from 'react';
-import { X } from 'lucide-react';
+import { MenuSheetHeader } from '../MenuSheetHeader';
 import { ReaderModalFrame } from './ReaderModalFrame';
 
 type ReaderTheme = {
   bg: string;
   text?: string;
   border: string;
+  secondary?: string;
 };
 
 interface JumpDialogProps {
@@ -25,14 +26,25 @@ export const JumpDialog: React.FC<JumpDialogProps> = ({
   onSubmit,
   onClose,
 }) => (
-  <ReaderModalFrame ariaLabel="진행률 이동" theme={theme} onClose={onClose} maxWidth="max-w-md" className="p-6" zIndex="z-[120]">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-bold text-lg">위치로 이동</h3>
-        <button onClick={onClose} aria-label="위치 이동 닫기" className="app-modal-close -mr-2 rounded-full p-2 transition-opacity hover:opacity-80">
-          <X size={20} />
-        </button>
-      </div>
-      <p className="text-xs opacity-50 mb-5">퍼센트 (예: 42.5) 또는 CFI 값을 입력하세요</p>
+  <ReaderModalFrame
+    ariaLabel="진행률 이동"
+    menuSheet
+    theme={theme}
+    onClose={onClose}
+    maxWidth="max-w-md"
+    className="flex flex-col"
+    zIndex="z-[120]"
+  >
+    <MenuSheetHeader
+      kind="jump"
+      title="위치로 이동"
+      onClose={onClose}
+      closeLabel="위치 이동 닫기"
+      borderClass={theme.border}
+      secondaryClass={theme.secondary}
+    />
+    <div data-reader-jump-dialog="true" className="app-menu-sheet-content px-4 py-5 sm:px-5">
+      <p className="mb-5 text-xs opacity-50">퍼센트 (예: 42.5) 또는 CFI 값을 입력하세요</p>
       <div className="flex gap-3">
         <input
           autoFocus
@@ -46,9 +58,10 @@ export const JumpDialog: React.FC<JumpDialogProps> = ({
           placeholder="예: 42.5 또는 epubcfi(...)"
           className={`flex-1 px-4 py-3 rounded-xl text-sm border ${theme.border} bg-transparent outline-none focus:ring-2 focus:ring-accent-500`}
         />
-        <button onClick={onSubmit} className="px-5 py-3 rounded-xl bg-accent-500 text-white font-bold text-sm hover:bg-accent-600 transition-colors">
+        <button type="button" onClick={onSubmit} className="px-5 py-3 rounded-xl bg-accent-500 text-white font-bold text-sm hover:bg-accent-600 transition-colors">
           이동
         </button>
       </div>
+    </div>
   </ReaderModalFrame>
 );
