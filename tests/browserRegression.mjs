@@ -1618,7 +1618,9 @@ try {
   assert.equal(mobileFilterModal.borderBottomLeftRadius, 0, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.88 + 1, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
-  await evaluate(`document.querySelector('button[aria-label="책장 필터 닫기"]')?.click()`);
+  await evaluate(`document.querySelector(
+    '[data-shelf-filter-modal="true"] [data-menu-sheet-close="true"]',
+  )?.click()`);
   await waitFor(
     '!document.querySelector(\'[data-shelf-filter-modal="true"]\')',
     'mobile unified shelf filter modal close',
