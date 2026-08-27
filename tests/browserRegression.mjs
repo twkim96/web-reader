@@ -1329,8 +1329,8 @@ try {
   assert.equal(themeModalHeader.close, true, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.divider, '1px', JSON.stringify(themeModalHeader));
   assert.ok(Math.abs(
-    themeModalHeader.top + themeModalHeader.height / 2
-      - (themeModalHeader.overlayTop + themeModalHeader.overlayHeight / 2)
+    themeModalHeader.top + themeModalHeader.height
+      - (themeModalHeader.overlayTop + themeModalHeader.overlayHeight)
   ) <= 1, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.topAfterInnerScroll, themeModalHeader.top);
   assert.equal(themeModalHeader.overlayScrollable, false, JSON.stringify(themeModalHeader));
