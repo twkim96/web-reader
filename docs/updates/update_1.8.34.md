@@ -25,7 +25,7 @@ Shelf와 Reader 메뉴바에서 여는 모달의 정보 구조와 표면을 하�
 - Shelf: 도서 검색, 도서 추가, 정렬·필터, 라이브러리 주석, 독서 통계, 테마 설정, 오프라인 저장소.
 - Reader: 본문 검색, 리더 설정, 테마 설정, 책갈피·주석, 목차, 독서 통계, 도서 정보.
 - 공통 `MenuSheetHeader`와 `ReaderModalFrame.menuSheet` 계약을 추가한다.
-- 640px 미만에서 하단 고정, 최대 높이 88dvh, 상단 22px 곡률과 짧은 상승 애니메이션을 적용한다.
+- 640px 미만에서 하단 고정, 최대 높이 88dvh, 상단 22px 곡률과 짧은 페이드 전환을 적용한다. 기존 `animate-in` transform과 중첩되어 시트가 하단 아래로 밀리지 않도록 위치 transform은 명시적으로 제거한다.
 - 모든 화면 크기에서 모달 표면은 현재 `--viewer-theme-bg`와 `--viewer-theme-text`를 명시적으로 사용한다.
 
 ## 검증 계약

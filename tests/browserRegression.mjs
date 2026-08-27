@@ -843,15 +843,17 @@ try {
     mobile: false,
   });
   await evaluate('window.__regressionNextFrame(2)');
+  await new Promise((resolve) => setTimeout(resolve, 260));
   const mobileShelfSearchHeight = await evaluate(
     'document.querySelector(\'[data-shelf-search-input-row="true"]\')?.getBoundingClientRect().height',
   );
   const mobileShelfSearchSheet = await evaluate(`(() => {
     const modal = document.querySelector('[data-shelf-search-modal="true"]');
     const rect = modal?.getBoundingClientRect();
+    const backdropRect = modal?.parentElement?.getBoundingClientRect();
     const style = modal ? getComputedStyle(modal) : null;
     return {
-      bottomGap: rect ? innerHeight - rect.bottom : -1,
+      bottomGap: rect && backdropRect ? backdropRect.bottom - rect.bottom : -1,
       topRadius: style?.borderTopLeftRadius ?? '',
       bottomRadius: style?.borderBottomLeftRadius ?? '',
     };
@@ -933,6 +935,7 @@ try {
   const desktopFilterModal = await evaluate(`(() => {
     const modal = document.querySelector('[data-shelf-filter-modal="true"]');
     const rect = modal?.getBoundingClientRect();
+    const backdropRect = modal?.parentElement?.getBoundingClientRect();
     return {
       title: modal?.querySelector('h2')?.textContent?.trim() ?? '',
       width: rect?.width ?? 0,
@@ -1586,6 +1589,7 @@ try {
     'Boolean(document.querySelector(\'[data-shelf-filter-modal="true"]\'))',
     'mobile unified shelf filter modal',
   );
+  await new Promise((resolve) => setTimeout(resolve, 260));
   const mobileFilterModal = await evaluate(`(() => {
     const modal = document.querySelector('[data-shelf-filter-modal="true"]');
     const rect = modal?.getBoundingClientRect();
@@ -1594,7 +1598,8 @@ try {
       right: rect?.right ?? -1,
       top: rect?.top ?? -1,
       bottom: rect?.bottom ?? -1,
-      bottomGap: rect ? innerHeight - rect.bottom : -1,
+      backdropBottom: backdropRect?.bottom ?? -1,
+      bottomGap: rect && backdropRect ? backdropRect.bottom - rect.bottom : -1,
       height: rect?.height ?? -1,
       borderBottomLeftRadius: modal
         ? Number.parseFloat(getComputedStyle(modal).borderBottomLeftRadius)
@@ -1607,7 +1612,7 @@ try {
   assert.ok(mobileFilterModal.left >= 0, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.right <= mobileFilterModal.viewportWidth, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.top >= 0, JSON.stringify(mobileFilterModal));
-  assert.ok(mobileFilterModal.bottom <= mobileFilterModal.viewportHeight, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.bottom <= mobileFilterModal.backdropBottom, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.bottomGap, 0, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.borderBottomLeftRadius, 0, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.88 + 1, JSON.stringify(mobileFilterModal));
@@ -4296,15 +4301,17 @@ try {
       'Boolean(document.querySelector(\'[data-epub-search-input-row="true"]\'))',
       'mobile EPUB search modal',
     );
+    await new Promise((resolve) => setTimeout(resolve, 260));
     const mobileEpubSearchHeight = await evaluate(
       'document.querySelector(\'[data-epub-search-input-row="true"]\')?.getBoundingClientRect().height',
     );
     const mobileEpubSearchSheet = await evaluate(`(() => {
       const modal = document.querySelector('[data-epub-search-modal="true"]');
       const rect = modal?.getBoundingClientRect();
+      const backdropRect = modal?.parentElement?.getBoundingClientRect();
       const style = modal ? getComputedStyle(modal) : null;
       return {
-        bottomGap: rect ? innerHeight - rect.bottom : -1,
+        bottomGap: rect && backdropRect ? backdropRect.bottom - rect.bottom : -1,
         topRadius: style?.borderTopLeftRadius ?? '',
         bottomRadius: style?.borderBottomLeftRadius ?? '',
       };
