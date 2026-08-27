@@ -371,7 +371,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                 key={color}
                 onClick={() => onUpdateSettings({ accentColor: color })}
                 className={`w-6 h-6 rounded-full shrink-0 transition-all outline-none ${settings.accentColor === color ? 'ring-2 ring-offset-2 ring-accent-500 ring-offset-transparent scale-110 shadow-lg shadow-accent-500/20' : 'opacity-40 hover:opacity-100 hover:scale-110'}`}
-                style={{ backgroundColor: ACCENT_PALETTE[color]?.[500] || ACCENT_PALETTE.indigo[500] }}
+                style={{ backgroundColor: ACCENT_PALETTE[color]?.[500] || ACCENT_PALETTE.rose[500] }}
                 title={`${color}`}
               />
             ))}

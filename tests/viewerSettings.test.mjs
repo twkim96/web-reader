@@ -108,7 +108,7 @@ test('defaults auto-open for older stored viewer settings', async () => {
 
     assert.equal(settings.fontSize, 21);
     assert.equal(settings.theme, 'midnight');
-    assert.equal(settings.accentColor, 'yellow');
+    assert.equal(settings.accentColor, 'rose');
     assert.equal(settings.autoOpenLastBook, true);
     assert.equal(settings.landscapeTwoPage, false);
     assert.equal(settings.translationProvider, 'auto');

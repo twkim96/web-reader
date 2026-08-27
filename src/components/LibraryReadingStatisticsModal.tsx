@@ -111,7 +111,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const bookListLongPressTimerRef = useRef<number | null>(null);
   const bookListLongPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   useBodyScrollLock(open && visible);
-  const accent = ACCENT_PALETTE[accentColor] || ACCENT_PALETTE.indigo;
+  const accent = ACCENT_PALETTE[accentColor] || ACCENT_PALETTE.rose;
   const accentStyle = {
     '--accent-400': accent[400],
     '--accent-500': accent[500],

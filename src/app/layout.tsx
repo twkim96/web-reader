@@ -67,7 +67,7 @@ const themeBootstrapScript = `
     return { '--viewer-theme-texture': 'none', '--viewer-theme-texture-size': 'auto' };
   };
 
-  let settings = { theme: 'midnight', accentColor: 'yellow', customThemes: [] };
+  let settings = { theme: 'midnight', accentColor: 'rose', customThemes: [] };
   try {
     const stored = localStorage.getItem('viewer_settings');
     if (stored) settings = Object.assign(settings, JSON.parse(stored));
@@ -88,7 +88,7 @@ const themeBootstrapScript = `
   const bgRgb = rgbString(bg);
   const textRgb = rgbString(text);
   const darkSurface = isDarkColor(bg);
-  const accent = accents[settings.accentColor] || accents.yellow;
+  const accent = accents[settings.accentColor] || accents.rose;
   const vars = Object.assign({
     '--viewer-bootstrap-theme-bg': bg,
     '--viewer-bootstrap-theme-text': text,

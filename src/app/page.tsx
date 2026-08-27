@@ -147,7 +147,7 @@ export default function Page() {
   });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const accentColorObj = useMemo(
-    () => ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo,
+    () => ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.rose,
     [settings.accentColor],
   );
   const themeLookupSettings = useMemo(

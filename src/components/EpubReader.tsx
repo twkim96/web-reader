@@ -251,7 +251,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const readerCatalog = usePublicBookCatalog(readerCatalogBooks);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
-  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.indigo;
+  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.rose;
   const readerShellStyle = useMemo(() => ({
     '--accent-400': accentColorObj[400],
     '--accent-500': accentColorObj[500],

@@ -35,7 +35,7 @@ export const defaultSettings: ViewerSettings = {
   landscapeTwoPage: false,
   autoOpenLastBook: true,
   fontFamily: 'ridi',
-  accentColor: 'yellow',
+  accentColor: 'rose',
   translationProvider: 'auto',
   translationSourceLanguage: 'auto',
   translationTargetLanguage: 'ko',
