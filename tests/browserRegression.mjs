@@ -1306,6 +1306,7 @@ try {
     const modal = header?.closest('[data-menu-sheet="true"]');
     const overlay = modal?.parentElement;
     const beforeRect = modal?.getBoundingClientRect();
+    const overlayRect = overlay?.getBoundingClientRect();
     if (overlay) overlay.scrollTop = 80;
     if (modal) modal.scrollTop = Math.min(80, Math.max(0, modal.scrollHeight - modal.clientHeight));
     const afterRect = modal?.getBoundingClientRect();
@@ -1316,6 +1317,8 @@ try {
       height: beforeRect?.height ?? -1,
       topAfterInnerScroll: afterRect?.top ?? -1,
       viewportHeight: innerHeight,
+      overlayTop: overlayRect?.top ?? -1,
+      overlayHeight: overlayRect?.height ?? -1,
       overlayScrollable: Boolean(overlay && overlay.scrollHeight > overlay.clientHeight),
       overlayScrollTop: overlay?.scrollTop ?? -1,
       modalOverflowY: modal ? getComputedStyle(modal).overflowY : '',
@@ -1327,7 +1330,7 @@ try {
   assert.equal(themeModalHeader.divider, '1px', JSON.stringify(themeModalHeader));
   assert.ok(Math.abs(
     themeModalHeader.top + themeModalHeader.height / 2
-      - themeModalHeader.viewportHeight / 2
+      - (themeModalHeader.overlayTop + themeModalHeader.overlayHeight / 2)
   ) <= 1, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.topAfterInnerScroll, themeModalHeader.top);
   assert.equal(themeModalHeader.overlayScrollable, false, JSON.stringify(themeModalHeader));
