@@ -11,6 +11,7 @@ import { getMuzioShelfDockVariables } from '../src/lib/shelfDockTheme.ts';
 import { THEMES } from '../src/lib/constants.ts';
 import {
   getGoogleSignInButtonVariant,
+  getThemeAccentColor,
   getThemeColors,
   getThemeCssVariables,
 } from '../src/lib/themeUtils.ts';
@@ -84,6 +85,29 @@ test('derives dedicated low-blur glass contrast tokens from theme luminance', ()
   assert.equal(midnight['--viewer-shelf-glass-surface'], 'rgba(20, 21, 23, 0.24)');
   assert.equal(midnight['--viewer-shelf-glass-ink'], 'rgba(245, 246, 248, 0.90)');
   assert.equal(midnight['--viewer-shelf-glass-ink-edge'], 'rgba(0, 0, 0, 0.58)');
+});
+
+test('pins built-in accents and stores accent choices only on custom themes', () => {
+  const legacyAccent = { accentColor: 'indigo', customThemes: [] };
+  assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'light' }), 'rose');
+  assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'sepia' }), 'emerald');
+  assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'dark' }), 'yellow');
+  assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'midnight' }), 'rose');
+
+  const customThemes = [{
+    id: 'custom:accent',
+    title: 'Accent',
+    bgColor: '#202124',
+    textColor: '#f2f2f2',
+    texture: 'none',
+    accentColor: 'sky',
+  }];
+  assert.equal(getThemeAccentColor({ theme: 'custom:accent', accentColor: 'amber', customThemes }), 'sky');
+  assert.equal(getThemeAccentColor({
+    theme: 'custom:legacy',
+    accentColor: 'amber',
+    customThemes: [{ ...customThemes[0], id: 'custom:legacy', accentColor: undefined }],
+  }), 'amber');
 });
 
 test('keeps both embedded Google button PNGs byte-identical to the official assets', async () => {

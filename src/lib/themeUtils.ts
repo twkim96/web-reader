@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { CustomThemeTexture, ThemeClasses, ViewerSettings } from '../types.ts';
+import { ACCENT_PALETTE, BUILT_IN_THEME_ACCENTS } from './constants.ts';
 import { getMuzioShelfDockVariables } from './shelfDockTheme.ts';
 
 export const CUSTOM_THEME_PREFIX = 'custom:';
@@ -18,6 +19,19 @@ export const createCustomThemeId = () => `${CUSTOM_THEME_PREFIX}${Date.now().toS
 export const findCustomTheme = (settings: ThemeLookupSettings, themeId = settings.theme) => (
   settings.customThemes?.find((theme) => theme.id === themeId)
 );
+
+export const getThemeAccentColor = (
+  settings: Pick<ViewerSettings, 'theme' | 'customThemes' | 'accentColor'>,
+) => {
+  const customTheme = findCustomTheme(settings);
+  if (customTheme) {
+    if (customTheme.accentColor && ACCENT_PALETTE[customTheme.accentColor]) {
+      return customTheme.accentColor;
+    }
+    return ACCENT_PALETTE[settings.accentColor] ? settings.accentColor : 'rose';
+  }
+  return BUILT_IN_THEME_ACCENTS[settings.theme] || 'rose';
+};
 
 const getRelativeLuminance = (backgroundColor: string) => {
   const match = /^#([0-9a-f]{6})$/i.exec(backgroundColor.trim());

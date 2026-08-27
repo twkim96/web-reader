@@ -32,6 +32,7 @@ export interface CustomTheme {
   bgColor: string;
   textColor: string;
   texture: CustomThemeTexture;
+  accentColor?: string;
 }
 
 export type ReaderLanguage = 'ko' | 'en' | 'ja';

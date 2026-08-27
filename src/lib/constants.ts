@@ -43,6 +43,13 @@ export const ACCENT_COLORS = [
   'yellow'
 ];
 
+export const BUILT_IN_THEME_ACCENTS: Record<string, string> = {
+  light: 'rose',
+  sepia: 'emerald',
+  dark: 'yellow',
+  midnight: 'rose',
+};
+
 /**
  * 포인트 컬러의 실제 HEX 값
  */

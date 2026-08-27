@@ -18,6 +18,12 @@ const themeBootstrapScript = `
     sky: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7' },
     yellow: { 400: '#fbdf7e', 500: '#d4af37', 600: '#9a7b0c' }
   };
+  const builtInThemeAccents = {
+    light: 'rose',
+    sepia: 'emerald',
+    dark: 'yellow',
+    midnight: 'rose'
+  };
   const normalizeHex = (value, fallback) => {
     const raw = String(value || '').trim();
     const hex = raw.startsWith('#') ? raw : '#' + raw;
@@ -88,7 +94,10 @@ const themeBootstrapScript = `
   const bgRgb = rgbString(bg);
   const textRgb = rgbString(text);
   const darkSurface = isDarkColor(bg);
-  const accent = accents[settings.accentColor] || accents.rose;
+  const accentName = customTheme
+    ? (accents[customTheme.accentColor] ? customTheme.accentColor : settings.accentColor)
+    : builtInThemeAccents[settings.theme];
+  const accent = accents[accentName] || accents.rose;
   const vars = Object.assign({
     '--viewer-bootstrap-theme-bg': bg,
     '--viewer-bootstrap-theme-text': text,

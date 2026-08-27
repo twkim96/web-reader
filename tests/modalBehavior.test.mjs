@@ -205,8 +205,8 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
 
   assert.match(themeSource, /modalFrameClass = 'flex max-h-\[82dvh\] flex-col overflow-hidden'/);
   assert.match(themeSource, /data-theme-modal-scroll-body="true"[^>]*min-h-0 flex-1 overflow-y-auto/);
-  assert.match(themeSource, /data-theme-list-scroll="true"[\s\S]*?overflow-y-auto overscroll-y-auto/);
-  assert.doesNotMatch(themeSource, /data-theme-list-scroll="true"[\s\S]*?overflow-y-auto overscroll-contain/);
+  assert.match(themeSource, /data-custom-theme-list-scroll="true"[^>]*overflow-y-auto overscroll-y-auto/);
+  assert.doesNotMatch(themeSource, /data-custom-theme-list-scroll="true"[^>]*overscroll-contain/);
   assert.match(bookInfoSource, /data-book-info-capture-root="true"[\s\S]*?app-menu-sheet-content/);
   assert.match(bookInfoSource, /data-book-info-actions="true"[\s\S]*?app-menu-sheet-footer/);
   assert.match(statisticsSource, /app-menu-sheet-footer shrink-0/);
@@ -218,4 +218,19 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
   assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?0 18px 44px/);
   assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?backdrop-filter:\s*blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
   assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet-action\s*\{[\s\S]*?0 6px 14px/);
+});
+
+test('uses compact square theme and menu-style previews with custom-only accent controls', async () => {
+  const themeSource = await readFile(new URL('../src/components/ThemeModal.tsx', import.meta.url), 'utf8');
+
+  assert.match(themeSource, /\['light', '라이트'\][\s\S]*?\['sepia', '세피아'\][\s\S]*?\['dark', '다크'\][\s\S]*?\['midnight', '자정'\]/);
+  assert.match(themeSource, /data-theme-list-scroll="true"[^>]*grid-cols-4/);
+  assert.match(themeSource, /data-theme-option=\{key\}[\s\S]*?aspect-square[\s\S]*?>Aa</);
+  assert.match(themeSource, />메뉴 스타일<\/p>[\s\S]*?grid-cols-3/);
+  assert.match(themeSource, /data-shelf-dock-style-option=\{value\}[\s\S]*?aspect-square[\s\S]*?data-menu-style-texture-preview="true"/);
+  assert.doesNotMatch(themeSource, /메뉴 스타일 · 책장 \/ 리더|Point Color/);
+  assert.doesNotMatch(themeSource, />Theme Title<|>Texture</);
+  assert.match(themeSource, />테마 이름<|>질감</);
+  assert.match(themeSource, /data-custom-theme-accent-picker="true"[\s\S]*?ACCENT_COLORS\.map/);
+  assert.match(themeSource, /accentColor:\s*form\.accentColor/);
 });

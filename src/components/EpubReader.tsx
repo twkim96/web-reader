@@ -20,7 +20,7 @@ import {
 import { isSelectionRelocateReason } from '../lib/readerTextSelection';
 import { isReaderTtsNavigationReason } from '../lib/readerTts';
 import { ACCENT_PALETTE } from '../lib/constants';
-import { getThemeClasses, getThemeColors, getThemeCssVariables, getThemeTextureCss } from '../lib/themeUtils';
+import { getThemeAccentColor, getThemeClasses, getThemeColors, getThemeCssVariables, getThemeTextureCss } from '../lib/themeUtils';
 import { SettingsModal } from './SettingsModal';
 import { ThemeModal } from './ThemeModal';
 import { BookmarkModal } from './BookmarkModal';
@@ -251,7 +251,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const readerCatalog = usePublicBookCatalog(readerCatalogBooks);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
-  const accentColorObj = ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.rose;
+  const effectiveAccentColor = getThemeAccentColor(settings);
+  const accentColorObj = ACCENT_PALETTE[effectiveAccentColor] || ACCENT_PALETTE.rose;
   const readerShellStyle = useMemo(() => ({
     '--accent-400': accentColorObj[400],
     '--accent-500': accentColorObj[500],

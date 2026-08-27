@@ -22,6 +22,13 @@ const TEXTURE_OPTIONS: Array<[CustomThemeTexture, string]> = [
   ['grain', '입자'],
 ];
 
+const BUILT_IN_THEME_OPTIONS = [
+  ['light', '라이트'],
+  ['sepia', '세피아'],
+  ['dark', '다크'],
+  ['midnight', '자정'],
+] as const;
+
 export const ThemeModal: React.FC<ThemeModalProps> = ({
   settings, onUpdateSettings, onClose, theme
 }) => {
@@ -34,6 +41,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     bgColor: '#272728',
     textColor: '#b8b8b8',
     texture: 'none' as CustomThemeTexture,
+    accentColor: 'rose',
   });
 
   const editingTheme = useMemo(
@@ -47,10 +55,11 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
   const openCreate = () => {
     setForm({
-      title: `Custom ${customThemes.length + 1}`,
+      title: `커스텀 ${customThemes.length + 1}`,
       bgColor: '#272728',
       textColor: '#b8b8b8',
       texture: 'none',
+      accentColor: 'rose',
     });
     setEditingId(null);
     setMode('create');
@@ -62,19 +71,23 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       bgColor: normalizeHexColor(customTheme.bgColor, '#272728'),
       textColor: normalizeHexColor(customTheme.textColor, '#b8b8b8'),
       texture: customTheme.texture || 'none',
+      accentColor: customTheme.accentColor && ACCENT_PALETTE[customTheme.accentColor]
+        ? customTheme.accentColor
+        : (ACCENT_PALETTE[settings.accentColor] ? settings.accentColor : 'rose'),
     });
     setEditingId(customTheme.id);
     setMode('edit');
   };
 
   const saveCustomTheme = () => {
-    const title = form.title.trim() || 'Custom Theme';
+    const title = form.title.trim() || '커스텀 테마';
     const nextTheme: CustomTheme = {
       id: editingTheme?.id || createCustomThemeId(),
       title,
       bgColor: normalizeHexColor(form.bgColor, '#272728'),
       textColor: normalizeHexColor(form.textColor, '#b8b8b8'),
       texture: form.texture,
+      accentColor: form.accentColor,
     };
 
     const nextThemes = editingTheme
@@ -106,7 +119,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     actions?: React.ReactNode,
   ) => <MenuSheetHeader kind="theme" title={title} onClose={onDismiss} borderClass={theme.border} secondaryClass={theme.secondary} trailing={actions} />;
 
-  const renderThemeCard = (key: string, t: { bg: string; text: string }, label = key) => (
+  const renderThemeCard = (key: string, t: { bg: string; text: string }, label: string) => (
     <button
       key={key}
       type="button"
@@ -115,16 +128,16 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       aria-pressed={settings.theme === key}
       onClick={() => handleThemeClick(key)}
       className={`
-        relative h-20 min-w-0 p-4 rounded-2xl border-2 text-left transition-all active:scale-95
+        relative flex aspect-square min-w-0 flex-col items-center justify-center rounded-[14px] border border-current/15 text-center transition-all active:scale-95
         ${t.bg} ${t.text}
-        ${settings.theme === key ? 'border-accent-500 ring-2 ring-accent-500/20' : `border-transparent ${theme.border}`}
+        ${settings.theme === key ? 'outline outline-2 outline-offset-2 outline-current' : ''}
       `}
     >
-      <div className="font-bold capitalize mb-1 truncate">{label}</div>
-      <div className="text-[10px] opacity-60">Comfortable reading</div>
+      <span className="font-serif text-[1.65rem] font-medium leading-none">Aa</span>
+      <span className="mt-1.5 max-w-full truncate px-1 text-[9px] font-medium sm:text-[10px]">{label}</span>
       {settings.theme === key && (
-        <div className="absolute top-3 right-3 text-accent-500">
-          <Check size={16} strokeWidth={3} />
+        <div className="absolute right-1.5 top-1.5 text-current">
+          <Check size={13} strokeWidth={3} />
         </div>
       )}
     </button>
@@ -150,7 +163,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
         <div data-theme-modal-scroll-body="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
           <div className="space-y-4">
             <label className="block">
-              <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Theme Title</span>
+              <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">테마 이름</span>
               <input
                 value={form.title}
                 onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
@@ -185,8 +198,28 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
             ))}
           </div>
 
+          <div data-custom-theme-accent-picker="true">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest opacity-40">포인트 색상</p>
+            <div className="grid grid-cols-6 gap-2">
+              {ACCENT_COLORS.map((color) => {
+                const selected = form.accentColor === color;
+                return (
+                  <button
+                    key={color}
+                    type="button"
+                    aria-label={`${color} 포인트 색상`}
+                    aria-pressed={selected}
+                    onClick={() => setForm((prev) => ({ ...prev, accentColor: color }))}
+                    className={`aspect-square rounded-full border-2 border-transparent transition-transform active:scale-90 ${selected ? 'outline outline-2 outline-offset-2 outline-current' : 'opacity-55 hover:opacity-100'}`}
+                    style={{ backgroundColor: ACCENT_PALETTE[color]?.[500] || ACCENT_PALETTE.rose[500] }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
           <div>
-            <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-1.5">Texture</p>
+            <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-1.5">질감</p>
             <div className="grid grid-cols-3 gap-2">
               {TEXTURE_OPTIONS.map(([value, label]) => (
                 <button
@@ -201,7 +234,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           </div>
 
           <div
-            className="rounded-2xl border border-current/10 p-3"
+            className="rounded-[14px] border border-current/10 p-3"
             style={{
               backgroundColor: previewBg,
               color: previewText,
@@ -210,6 +243,10 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           >
             <p className="text-sm font-bold">미리보기 문장입니다.</p>
             <p className="mt-1.5 text-xs opacity-65">배경색, 글자색, 질감 설정을 확인하세요.</p>
+            <span
+              className="mt-3 block h-1.5 w-20 rounded-full"
+              style={{ backgroundColor: ACCENT_PALETTE[form.accentColor]?.[500] || ACCENT_PALETTE.rose[500] }}
+            />
           </div>
 
             <div className="flex gap-2 pt-1">
@@ -290,46 +327,52 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
         </>
       ))}
 
-      <div data-theme-modal-scroll-body="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
-        <div
-          data-theme-list-scroll="true"
-          className="mb-8 grid max-h-[264px] grid-cols-2 gap-3 overflow-y-auto overscroll-y-auto"
-        >
-          {Object.entries(THEMES).map(([key, t]) => renderThemeCard(key, t))}
-          {customThemes.map((customTheme) => (
-            <button
-              key={customTheme.id}
-              data-custom-theme-option={customTheme.id}
-              onClick={() => handleThemeClick(customTheme.id)}
-              className={`
-                relative h-20 min-w-0 p-4 rounded-2xl border-2 text-left transition-all active:scale-95
-                ${settings.theme === customTheme.id ? 'border-accent-500 ring-2 ring-accent-500/20' : `border-transparent ${theme.border}`}
-              `}
-              style={{
-                backgroundColor: customTheme.bgColor,
-                color: customTheme.textColor,
-                ...getTexturePreviewStyle(customTheme.texture || 'none', customTheme.textColor),
-              }}
-            >
-              <div className="font-bold mb-1 truncate">{customTheme.title}</div>
-              <div className="text-[10px] opacity-60">Custom theme</div>
-              {settings.theme === customTheme.id && (
-                <div className="absolute top-3 right-3 text-accent-500">
-                  <Check size={16} strokeWidth={3} />
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
+      <div data-theme-modal-scroll-body="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:p-6">
+        <section className="mb-6">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">읽기 테마</p>
+          <div data-theme-list-scroll="true" className="grid grid-cols-4 gap-2">
+            {BUILT_IN_THEME_OPTIONS.map(([key, label]) => renderThemeCard(key, THEMES[key], label))}
+          </div>
+        </section>
+
+        {customThemes.length > 0 && (
+          <section className="mb-6">
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">커스텀 테마</p>
+            <div data-custom-theme-list-scroll="true" className="grid max-h-[9.75rem] grid-cols-4 gap-2 overflow-y-auto overscroll-y-auto p-1">
+              {customThemes.map((customTheme) => (
+                <button
+                  key={customTheme.id}
+                  type="button"
+                  data-custom-theme-option={customTheme.id}
+                  aria-label={`${customTheme.title} 커스텀 테마`}
+                  aria-pressed={settings.theme === customTheme.id}
+                  onClick={() => handleThemeClick(customTheme.id)}
+                  className={`relative flex aspect-square min-w-0 flex-col items-center justify-center rounded-[14px] border border-current/15 text-center transition-all active:scale-95 ${settings.theme === customTheme.id ? 'outline outline-2 outline-offset-2 outline-current' : ''}`}
+                  style={{
+                    backgroundColor: customTheme.bgColor,
+                    color: customTheme.textColor,
+                    ...getTexturePreviewStyle(customTheme.texture || 'none', customTheme.textColor),
+                  }}
+                >
+                  <span className="font-serif text-[1.65rem] font-medium leading-none">Aa</span>
+                  <span className="mt-1.5 max-w-full truncate px-1 text-[9px] font-medium sm:text-[10px]">{customTheme.title}</span>
+                  {settings.theme === customTheme.id && (
+                    <Check className="absolute right-1.5 top-1.5 text-current" size={13} strokeWidth={3} />
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         <div className="mb-6">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일 · 책장 / 리더</p>
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일</p>
           <div className="grid grid-cols-3 gap-2">
             {([
-              ['standard', '표준', '반투명 유리'],
-              ['glass', '글래스', '저블러 투명 유리'],
-              ['modern', '모던', '선명한 미니바'],
-            ] as const).map(([value, label, description]) => {
+              ['standard', '표준'],
+              ['glass', '글래스'],
+              ['modern', '모던'],
+            ] as const).map(([value, label]) => {
               const selected = settings.shelfDockStyle === value;
               const previewClass = value === 'glass'
                 ? 'viewer-cime-glass'
@@ -342,39 +385,27 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                   type="button"
                   data-shelf-dock-style-option={value}
                   onClick={() => onUpdateSettings({ shelfDockStyle: value })}
-                  className={`relative min-w-0 overflow-hidden rounded-2xl border px-2.5 py-3 text-left text-[color:var(--viewer-theme-text)] transition-all active:scale-95 ${previewClass}`}
+                  className={`relative flex aspect-square min-w-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-[14px] border p-2 text-center text-[color:var(--viewer-theme-text)] transition-all active:scale-95 ${previewClass}`}
                 >
-                  <span className="relative z-[1] block text-sm font-bold">{label}</span>
-                  <span className="relative z-[1] mt-0.5 block text-[10px] opacity-55">{description}</span>
+                  <span data-menu-style-texture-preview="true" className="relative z-[1] flex h-9 w-full items-end justify-center gap-1 overflow-hidden rounded-lg border border-current/10 bg-current/5 px-2 py-1.5">
+                    <span className="h-2.5 w-1 rounded-full bg-current opacity-30" />
+                    <span className="h-4 w-1 rounded-full bg-current opacity-55" />
+                    <span className="h-3 w-1 rounded-full bg-current opacity-40" />
+                  </span>
+                  <span className="relative z-[1] block text-xs font-medium sm:text-sm">{label}</span>
                   {selected && (
                     <>
                       <span
                         data-shelf-dock-style-selected-box="true"
-                        className="pointer-events-none absolute inset-0 z-[2] rounded-2xl border-2 border-accent-500"
+                        className="pointer-events-none absolute inset-0 z-[2] rounded-[14px] border-2 border-current"
                         aria-hidden="true"
                       />
-                      <Check className="absolute right-3 top-3 z-[3] text-accent-500" size={14} strokeWidth={3} />
+                      <Check className="absolute right-1.5 top-1.5 z-[3] text-current" size={13} strokeWidth={3} />
                     </>
                   )}
                 </button>
               );
             })}
-          </div>
-        </div>
-
-        {/* 포인트 컬러 설정 섹션 */}
-        <div>
-          <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mb-3">Point Color</p>
-          <div className="flex items-center gap-3.5">
-            {ACCENT_COLORS.map(color => (
-              <button
-                key={color}
-                onClick={() => onUpdateSettings({ accentColor: color })}
-                className={`w-6 h-6 rounded-full shrink-0 transition-all outline-none ${settings.accentColor === color ? 'ring-2 ring-offset-2 ring-accent-500 ring-offset-transparent scale-110 shadow-lg shadow-accent-500/20' : 'opacity-40 hover:opacity-100 hover:scale-110'}`}
-                style={{ backgroundColor: ACCENT_PALETTE[color]?.[500] || ACCENT_PALETTE.rose[500] }}
-                title={`${color}`}
-              />
-            ))}
           </div>
         </div>
       </div>

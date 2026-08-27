@@ -212,7 +212,7 @@ try {
     'early theme bootstrap',
   );
   assert.equal(themeBootstrapEarly.rootThemeBg, '#272728');
-  assert.equal(themeBootstrapEarly.rootAccent, '#10b981');
+  assert.equal(themeBootstrapEarly.rootAccent, '#d4af37');
   assert.equal(themeBootstrapEarly.rootBackground, 'rgb(39, 39, 40)');
 
   await evaluate(`(() => {
@@ -1347,64 +1347,34 @@ try {
   assert.equal(themeModalHeader.modalScrollTop, 0, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.bodyOverflowY, 'auto', JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.bodyScrollTop > 0, themeModalHeader.bodyScrollable, JSON.stringify(themeModalHeader));
-  const themeListScroll = await evaluate(`(() => {
-    const list = document.querySelector('[data-theme-list-scroll="true"]');
-    const modal = document.querySelector('[data-modal-header="theme"]')?.closest('[data-menu-sheet="true"]');
-    const cards = [...(list?.children ?? [])];
-    const listRect = list?.getBoundingClientRect();
-    const getKey = (card) => card.getAttribute('data-theme-option')
-      || card.getAttribute('data-custom-theme-option')
-      || '';
-    const fullyVisible = () => {
-      const rect = list?.getBoundingClientRect();
-      if (!rect) return [];
-      return cards.filter((card) => {
-        const cardRect = card.getBoundingClientRect();
-        return cardRect.top >= rect.top - 1 && cardRect.bottom <= rect.bottom + 1;
-      }).map(getKey);
+  const themeCardLayout = await evaluate(`(() => {
+    const builtInList = document.querySelector('[data-theme-list-scroll="true"]');
+    const customList = document.querySelector('[data-custom-theme-list-scroll="true"]');
+    const builtInCards = [...(builtInList?.querySelectorAll('[data-theme-option]') ?? [])];
+    const customCards = [...(customList?.querySelectorAll('[data-custom-theme-option]') ?? [])];
+    const cardRect = (card) => {
+      const rect = card?.getBoundingClientRect();
+      return rect ? { width: rect.width, height: rect.height } : null;
     };
-    const initialVisible = fullyVisible();
-    const seventhTop = cards[6]?.getBoundingClientRect().top ?? -1;
-    const modalTop = modal?.getBoundingClientRect().top ?? -1;
-    const modalScrollTop = modal?.scrollTop ?? -1;
-    if (list) list.scrollTop = list.scrollHeight;
-    const finalVisible = fullyVisible();
     return {
-      cardCount: cards.length,
-      initialVisible,
-      finalVisible,
-      clientHeight: list?.clientHeight ?? -1,
-      scrollHeight: list?.scrollHeight ?? -1,
-      scrollTop: list?.scrollTop ?? -1,
-      overflowY: list ? getComputedStyle(list).overflowY : '',
-      overscrollBehaviorY: list ? getComputedStyle(list).overscrollBehaviorY : '',
-      seventhTop,
-      listBottom: listRect?.bottom ?? -1,
-      modalTop,
-      modalTopAfter: modal?.getBoundingClientRect().top ?? -1,
-      modalScrollTop,
-      modalScrollTopAfter: modal?.scrollTop ?? -1,
+      builtInKeys: builtInCards.map((card) => card.getAttribute('data-theme-option')),
+      builtInLabels: builtInCards.map((card) => card.querySelector('span:nth-of-type(2)')?.textContent?.trim()),
+      builtInColumns: builtInList ? getComputedStyle(builtInList).gridTemplateColumns.split(' ').length : 0,
+      builtInRects: builtInCards.map(cardRect),
+      customCount: customCards.length,
+      customColumns: customList ? getComputedStyle(customList).gridTemplateColumns.split(' ').length : 0,
+      customOverflowY: customList ? getComputedStyle(customList).overflowY : '',
+      customRects: customCards.map(cardRect),
     };
   })()`);
-  assert.equal(themeListScroll.cardCount, 12, JSON.stringify(themeListScroll));
-  assert.deepEqual(
-    themeListScroll.initialVisible,
-    ['light', 'dark', 'sepia', 'midnight', 'custom-scroll-1', 'custom-scroll-2'],
-    JSON.stringify(themeListScroll),
-  );
-  assert.ok(themeListScroll.finalVisible.includes('custom-scroll-8'), JSON.stringify(themeListScroll));
-  assert.ok(themeListScroll.clientHeight <= 264, JSON.stringify(themeListScroll));
-  assert.ok(themeListScroll.scrollHeight > themeListScroll.clientHeight, JSON.stringify(themeListScroll));
-  assert.ok(themeListScroll.scrollTop > 0, JSON.stringify(themeListScroll));
-  assert.equal(themeListScroll.overflowY, 'auto', JSON.stringify(themeListScroll));
-  assert.equal(themeListScroll.overscrollBehaviorY, 'auto', JSON.stringify(themeListScroll));
-  assert.ok(themeListScroll.seventhTop >= themeListScroll.listBottom, JSON.stringify(themeListScroll));
-  assert.equal(themeListScroll.modalTopAfter, themeListScroll.modalTop, JSON.stringify(themeListScroll));
-  assert.equal(
-    themeListScroll.modalScrollTopAfter,
-    themeListScroll.modalScrollTop,
-    JSON.stringify(themeListScroll),
-  );
+  assert.deepEqual(themeCardLayout.builtInKeys, ['light', 'sepia', 'dark', 'midnight'], JSON.stringify(themeCardLayout));
+  assert.deepEqual(themeCardLayout.builtInLabels, ['라이트', '세피아', '다크', '자정'], JSON.stringify(themeCardLayout));
+  assert.equal(themeCardLayout.builtInColumns, 4, JSON.stringify(themeCardLayout));
+  assert.ok(themeCardLayout.builtInRects.every((rect) => Math.abs(rect.width - rect.height) <= 1), JSON.stringify(themeCardLayout));
+  assert.equal(themeCardLayout.customCount, 8, JSON.stringify(themeCardLayout));
+  assert.equal(themeCardLayout.customColumns, 4, JSON.stringify(themeCardLayout));
+  assert.equal(themeCardLayout.customOverflowY, 'auto', JSON.stringify(themeCardLayout));
+  assert.ok(themeCardLayout.customRects.every((rect) => Math.abs(rect.width - rect.height) <= 1), JSON.stringify(themeCardLayout));
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="blue"]\'))'), false);
   assert.equal(await evaluate('Boolean(document.querySelector(\'[data-theme-option="midnight"]\'))'), true);
   await evaluate(`document.querySelector('[data-theme-option="midnight"]')?.click()`);
@@ -1421,7 +1391,8 @@ try {
   assert.deepEqual(midnightTheme, { storedTheme: 'midnight', background: '#141517', text: '#d2d3d6' });
   await evaluate(`document.querySelector('[data-theme-option="dark"]')?.click()`);
   await waitFor(
-    `getComputedStyle(document.documentElement).getPropertyValue('--viewer-theme-bg').trim() === '#272728'`,
+    `getComputedStyle(document.documentElement).getPropertyValue('--viewer-theme-bg').trim() === '#272728'
+      && getComputedStyle(document.documentElement).getPropertyValue('--accent-500').trim() === '#d4af37'`,
     'restored dark theme after Midnight check',
   );
   const shelfDockStyleLayout = await evaluate(`(() => {
@@ -1432,7 +1403,12 @@ try {
     return {
       values: buttons.map((button) => button?.dataset.shelfDockStyleOption || ''),
       tops: buttons.map((button) => Math.round(button?.getBoundingClientRect().top || -1)),
-      descriptions: buttons.map((button) => button?.querySelectorAll('span')[1]?.textContent?.trim() || ''),
+      labels: buttons.map((button) => button?.querySelector(':scope > span:last-of-type')?.textContent?.trim() || ''),
+      texturePreviews: buttons.map((button) => Boolean(button?.querySelector('[data-menu-style-texture-preview="true"]'))),
+      squareDeltas: buttons.map((button) => {
+        const rect = button?.getBoundingClientRect();
+        return rect ? Math.abs(rect.width - rect.height) : -1;
+      }),
       previewClasses: buttons.map((button) => button?.className || ''),
       previewBlur: buttons.map((button) => button ? getComputedStyle(button).backdropFilter : ''),
       selectedBoxes: buttons.map((button) => Boolean(
@@ -1447,7 +1423,9 @@ try {
   assert.deepEqual(shelfDockStyleLayout.values, ['standard', 'glass', 'modern']);
   assert.equal(new Set(shelfDockStyleLayout.tops).size, 1, JSON.stringify(shelfDockStyleLayout));
   assert.equal(shelfDockStyleLayout.gridTemplateColumns.split(' ').length, 3, JSON.stringify(shelfDockStyleLayout));
-  assert.deepEqual(shelfDockStyleLayout.descriptions, ['반투명 유리', '저블러 투명 유리', '선명한 미니바']);
+  assert.deepEqual(shelfDockStyleLayout.labels, ['표준', '글래스', '모던']);
+  assert.deepEqual(shelfDockStyleLayout.texturePreviews, [true, true, true]);
+  assert.ok(shelfDockStyleLayout.squareDeltas.every((delta) => delta <= 1), JSON.stringify(shelfDockStyleLayout));
   assert.match(shelfDockStyleLayout.previewClasses[0], /backdrop-blur-xl/);
   assert.match(shelfDockStyleLayout.previewClasses[1], /viewer-cime-glass/);
   assert.match(shelfDockStyleLayout.previewClasses[2], /shelf-muzio-dock/);
@@ -6060,22 +6038,18 @@ try {
     themeButton?.click();
     await window.__regressionNextFrame();
 
-    const darkTheme = [...document.querySelectorAll('button')]
-      .find((node) => node.textContent?.includes('dark')
-        && node.textContent?.includes('Comfortable reading'));
+    const darkTheme = document.querySelector('[data-theme-option="dark"]');
     darkTheme?.click();
     await window.__regressionNextFrame();
 
-    const emeraldAccent = document.querySelector('button[title="emerald"]');
-    emeraldAccent?.click();
-    await window.__regressionNextFrame();
+    const globalAccentPicker = document.querySelector('button[title="emerald"]');
     await new Promise((resolve, reject) => {
       const deadline = performance.now() + 3000;
       const waitForPaint = () => {
         const readerRoot = document.querySelector('foliate-view')?.closest('.h-screen.w-screen');
         const rootStyle = getComputedStyle(document.documentElement);
         const readerRootStyle = readerRoot ? getComputedStyle(readerRoot) : null;
-        const hasThemePaint = rootStyle.getPropertyValue('--accent-500').trim() === '#10b981'
+        const hasThemePaint = rootStyle.getPropertyValue('--accent-500').trim() === '#d4af37'
           && rootStyle.getPropertyValue('--viewer-reader-surface').trim() === 'rgba(39, 39, 40, 0.68)'
           && readerRootStyle?.backgroundColor === 'rgb(39, 39, 40)';
 
@@ -6106,7 +6080,7 @@ try {
     return {
       opened: Boolean(themeButton),
       selected: Boolean(darkTheme),
-      accentSelected: Boolean(emeraldAccent),
+      globalAccentAvailable: Boolean(globalAccentPicker),
       storedTheme: stored.theme,
       storedAccent: stored.accentColor,
       rootAccent: rootStyle.getPropertyValue('--accent-500').trim(),
@@ -6119,10 +6093,10 @@ try {
   })()`);
   assert.equal(themeSettings.opened, true);
   assert.equal(themeSettings.selected, true);
-  assert.equal(themeSettings.accentSelected, true);
+  assert.equal(themeSettings.globalAccentAvailable, false);
   assert.equal(themeSettings.storedTheme, 'dark');
   assert.equal(themeSettings.storedAccent, 'emerald');
-  assert.equal(themeSettings.rootAccent, '#10b981');
+  assert.equal(themeSettings.rootAccent, '#d4af37');
   assert.equal(themeSettings.rootReaderSurface, 'rgba(39, 39, 40, 0.68)');
   assert.equal(themeSettings.bodyBackground, 'rgb(39, 39, 40)');
   assert.equal(themeSettings.readerRootBackground, 'rgb(39, 39, 40)');
@@ -6329,7 +6303,7 @@ try {
   })()`);
   assert.equal(shelfThemeAfterReaderClose.storedTheme, 'dark');
   assert.equal(shelfThemeAfterReaderClose.storedAccent, 'emerald');
-  assert.equal(shelfThemeAfterReaderClose.rootAccent, '#10b981');
+  assert.equal(shelfThemeAfterReaderClose.rootAccent, '#d4af37');
   assert.equal(shelfThemeAfterReaderClose.rootThemeBg, '#272728');
   assert.equal(shelfThemeAfterReaderClose.shelfBackground, 'rgb(39, 39, 40)');
   assert.equal(shelfThemeAfterReaderClose.shelfColor, 'rgb(184, 184, 184)');
@@ -6523,8 +6497,8 @@ try {
   assert.equal(readingStatisticsUi.rangeButtonsCompact, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.refreshButtonFound, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
-  assert.equal(readingStatisticsUi.accentName, 'emerald', JSON.stringify(readingStatisticsUi));
-  assert.equal(readingStatisticsUi.accentValue, '#10b981', JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.accentName, 'yellow', JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.accentValue, '#d4af37', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.headerClose, true, JSON.stringify(readingStatisticsUi));
   assert.notEqual(readingStatisticsUi.headerDivider, '0px', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.unexpectedAccentCount, 0, JSON.stringify(readingStatisticsUi));

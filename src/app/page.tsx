@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic';
 const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
 import { Book, Bookmark, SaveProgressOptions, ViewState } from '../types';
 import { ACCENT_PALETTE } from '../lib/constants';
-import { getThemeClasses, getThemeColors, getThemeCssVariables } from '../lib/themeUtils';
+import { getThemeAccentColor, getThemeClasses, getThemeColors, getThemeCssVariables } from '../lib/themeUtils';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import {
   deleteDriveFile,
@@ -146,9 +146,13 @@ export default function Page() {
     onPersistenceError: setProgressPersistenceError,
   });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const effectiveAccentColor = useMemo(
+    () => getThemeAccentColor(settings),
+    [settings],
+  );
   const accentColorObj = useMemo(
-    () => ACCENT_PALETTE[settings.accentColor] || ACCENT_PALETTE.rose,
-    [settings.accentColor],
+    () => ACCENT_PALETTE[effectiveAccentColor] || ACCENT_PALETTE.rose,
+    [effectiveAccentColor],
   );
   const themeLookupSettings = useMemo(
     () => ({
@@ -846,7 +850,7 @@ export default function Page() {
           ownerKey={activeOwnerKey}
           theme={theme}
           themeVariables={themeCssVariables}
-          accentColor={settings.accentColor}
+          accentColor={effectiveAccentColor}
           syncHealth={readingStatisticsSync.health}
           quarantinedDocumentCount={readingStatisticsSync.quarantinedCount}
           canRefresh={readingStatisticsSync.canRefresh}
