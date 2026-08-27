@@ -142,16 +142,24 @@ test('uses a Spotlight-like 20px radius for both search modals', async () => {
 });
 
 test('keeps the reader search surface aligned with the shelf search geometry', async () => {
-  const [shelfSearchSource, epubSearchSource] = await Promise.all([
+  const [globals, shelfSearchSource, epubSearchSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/ShelfSearchModal.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/EpubSearchModal.tsx', import.meta.url), 'utf8'),
   ]);
 
   for (const source of [shelfSearchSource, epubSearchSource]) {
+    assert.match(source, /app-search-modal-radius app-search-surface app-radius-exempt/);
+    assert.doesNotMatch(source, /app-menu-sheet/);
     assert.match(source, /p-4 pt-\[15vh\] backdrop-blur-sm/);
     assert.match(source, /max-h-\[72dvh\]/);
     assert.match(source, /h-\[3\.75rem\] shrink-0 items-center px-1 sm:h-\[4\.25rem\] sm:px-2/);
   }
+
+  assert.match(globals, /data-viewer-menu-style='standard'\] \.app-search-surface[\s\S]*?blur\(28px\) saturate\(1\.32\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-surface[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='modern'\] \.app-search-surface[\s\S]*?blur\(24px\)/);
+  assert.doesNotMatch(globals, /@media \(max-width:\s*639px\)[\s\S]*?\.app-search-surface\s*\{[\s\S]*?align-items:\s*flex-end/);
 });
 
 test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', async () => {

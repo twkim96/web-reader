@@ -106,7 +106,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
     <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/40 p-4 pt-[15vh] backdrop-blur-sm" onClick={onClose}>
       <div
         data-shelf-search-modal="true"
-        className={`app-panel-radius app-search-modal-radius app-radius-exempt flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl`}
+        className={`app-panel-radius app-search-modal-radius app-search-surface app-radius-exempt flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl`}
         onClick={(event) => event.stopPropagation()}
       >
         <form

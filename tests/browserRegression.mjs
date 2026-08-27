@@ -831,7 +831,23 @@ try {
   const desktopShelfSearchRadius = await evaluate(
     'getComputedStyle(document.querySelector(\'[data-shelf-search-modal="true"]\')).borderRadius',
   );
+  const desktopShelfSearchMaterial = await evaluate(`(() => {
+    const modal = document.querySelector('[data-shelf-search-modal="true"]');
+    const style = modal ? getComputedStyle(modal) : null;
+    return {
+      surfaceClass: modal?.classList.contains('app-search-surface') ?? false,
+      menuStyle: document.documentElement.dataset.viewerMenuStyle,
+      background: style?.backgroundColor ?? '',
+      backdropFilter: style?.backdropFilter ?? '',
+    };
+  })()`);
   assert.equal(desktopShelfSearchRadius, '20px');
+  assert.deepEqual(desktopShelfSearchMaterial, {
+    surfaceClass: true,
+    menuStyle: 'modern',
+    background: 'rgba(39, 39, 40, 0.88)',
+    backdropFilter: 'blur(24px)',
+  });
   assert.ok(
     desktopShelfSearchHeight >= 64 && desktopShelfSearchHeight <= 69,
     `Unexpected desktop shelf search height: ${desktopShelfSearchHeight}`,
@@ -4323,12 +4339,22 @@ try {
       const backdropRect = modal?.parentElement?.getBoundingClientRect();
       const style = modal ? getComputedStyle(modal) : null;
       return {
-        bottomGap: rect && backdropRect ? backdropRect.bottom - rect.bottom : -1,
+        topGap: rect && backdropRect ? rect.top - backdropRect.top : -1,
+        sideGap: rect && backdropRect ? rect.left - backdropRect.left : -1,
         topRadius: style?.borderTopLeftRadius ?? '',
         bottomRadius: style?.borderBottomLeftRadius ?? '',
+        surfaceClass: modal?.classList.contains('app-search-surface') ?? false,
+        backdropFilter: style?.backdropFilter ?? '',
       };
     })()`);
-    assert.deepEqual(mobileEpubSearchSheet, { bottomGap: 0, topRadius: '22px', bottomRadius: '0px' });
+    assert.deepEqual(mobileEpubSearchSheet, {
+      topGap: 72,
+      sideGap: 16,
+      topRadius: '20px',
+      bottomRadius: '20px',
+      surfaceClass: true,
+      backdropFilter: 'blur(24px)',
+    });
     assert.ok(
       mobileEpubSearchHeight >= 59 && mobileEpubSearchHeight <= 61,
       `Unexpected mobile EPUB search height: ${mobileEpubSearchHeight}`,
