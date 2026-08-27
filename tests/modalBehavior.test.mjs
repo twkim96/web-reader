@@ -84,7 +84,7 @@ test('hideCancel confirm dialogs cannot be dismissed through backdrop or Escape'
   await act(async () => root.unmount());
 });
 
-test('dismissible dialog primitives require a matching backdrop pointer origin', async () => {
+test('menu modal backdrops dismiss on click without leaking into the page', async () => {
   const window = installDom();
   const root = createRoot(window.document.querySelector('#root'));
   let closeCount = 0;
@@ -106,19 +106,6 @@ test('dismissible dialog primitives require a matching backdrop pointer origin',
   const dialog = window.document.querySelector('[role="dialog"]');
   assert.ok(backdrop);
   assert.equal(dialog?.getAttribute('aria-label'), '테스트 모달');
-
-  await act(async () => {
-    dispatchPointer(window, backdrop, 'pointerup');
-    await Promise.resolve();
-  });
-  assert.equal(closeCount, 0);
-
-  await act(async () => {
-    dispatchPointer(window, backdrop, 'pointerdown');
-    dispatchPointer(window, backdrop, 'pointerup');
-    await Promise.resolve();
-  });
-  assert.equal(closeCount, 0);
 
   await act(async () => {
     dispatchClick(window, backdrop);

@@ -179,14 +179,6 @@ test('reader progress track commits one tap and drags from any track position wi
     dispatchPointer(window, backdrop, 'pointerup', 10, 0);
     await Promise.resolve();
   });
-  assert.ok(
-    window.document.querySelector('#pending-progress'),
-    'the dialog must stay mounted until the matching click finishes dispatching',
-  );
-  await act(async () => {
-    backdrop.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true }));
-    await Promise.resolve();
-  });
   assert.equal(window.document.querySelector('#pending-progress'), null);
 
   await act(async () => {

@@ -34,7 +34,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   const dismissible = dismissibleProp ?? !hideCancel;
   const dialogRef = useRef<HTMLDivElement>(null);
   const backdropPointerIdRef = useRef<number | null>(null);
-  const backdropClickArmedRef = useRef(false);
   const onCancelRef = useRef(onCancel);
   const titleId = useId();
   const descriptionId = useId();
@@ -86,32 +85,21 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   }, [dismissible]);
 
   const handleBackdropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    backdropClickArmedRef.current = false;
     backdropPointerIdRef.current = dismissible && event.target === event.currentTarget
       ? event.pointerId
       : null;
   };
 
   const handleBackdropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    backdropClickArmedRef.current = dismissible
+    const shouldDismiss = dismissible
       && backdropPointerIdRef.current === event.pointerId
       && event.target === event.currentTarget;
     backdropPointerIdRef.current = null;
-  };
-
-  const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const shouldDismiss = backdropClickArmedRef.current
-      && event.target === event.currentTarget;
-    backdropClickArmedRef.current = false;
-    if (!shouldDismiss) return;
-    event.preventDefault();
-    event.stopPropagation();
-    onCancel();
+    if (shouldDismiss) onCancel();
   };
 
   const clearBackdropPointer = () => {
     backdropPointerIdRef.current = null;
-    backdropClickArmedRef.current = false;
   };
 
   return (
@@ -120,7 +108,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
       onPointerDown={handleBackdropPointerDown}
       onPointerUp={handleBackdropPointerUp}
-      onClick={handleBackdropClick}
       onPointerCancel={clearBackdropPointer}
       onLostPointerCapture={clearBackdropPointer}
     >
