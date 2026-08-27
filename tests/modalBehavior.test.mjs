@@ -167,6 +167,18 @@ test('mobile menu sheets use a floating height-bounded themed surface', async ()
   assert.match(globals, /data-viewer-menu-style='modern'[\s\S]*?blur\(24px\)/);
 });
 
+test('hides the shelf dock behind every modal family with a lightweight transition', async () => {
+  const [globals, shelfHeaderSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(shelfHeaderSource, /data-shelf-bottom-dock="true"/);
+  assert.match(globals, /\[data-shelf-bottom-dock='true'\]\s*\{[\s\S]*?opacity 150ms ease[\s\S]*?transform 180ms/);
+  assert.match(globals, /body:has\([\s\S]*?data-menu-sheet-backdrop[\s\S]*?data-shelf-search-modal[\s\S]*?aria-modal[\s\S]*?\) \[data-shelf-bottom-dock='true'\]\s*\{[\s\S]*?pointer-events:\s*none[\s\S]*?visibility:\s*hidden[\s\S]*?opacity:\s*0[\s\S]*?scale\(0\.96\)/);
+  assert.match(globals, /prefers-reduced-motion:\s*reduce[\s\S]*?\[data-shelf-bottom-dock='true'\][\s\S]*?transition:\s*none\s*!important/);
+});
+
 test('pins library annotation and statistics modals to the active theme variables', async () => {
   const [pageSource, annotationSource, statisticsSource] = await Promise.all([
     readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),

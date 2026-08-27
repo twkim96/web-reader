@@ -74,6 +74,27 @@ body {
   border-radius: 20px;
 }
 
+/* Shelf dialogs temporarily yield the viewport to their modal surface. */
+[data-shelf-bottom-dock='true'] {
+  transform-origin: bottom center;
+  transition:
+    opacity 150ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0s;
+}
+
+body:has(
+  [data-menu-sheet-backdrop='true'],
+  [data-shelf-search-modal='true'],
+  [role='dialog'][aria-modal='true']
+) [data-shelf-bottom-dock='true'] {
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(0.5rem) scale(0.96);
+  transition-delay: 0s, 0s, 180ms;
+}
+
 /* Toolbar-owned dialogs share one Apple-like themed surface. */
 .app-menu-sheet-backdrop {
   background-color: rgba(0, 0, 0, 0.20) !important;
@@ -136,6 +157,18 @@ html[data-viewer-menu-style='modern'] .app-menu-sheet {
 
 @media (prefers-reduced-motion: reduce) {
   .app-menu-sheet { animation: none !important; }
+
+  [data-shelf-bottom-dock='true'] {
+    transition: none !important;
+  }
+
+  body:has(
+    [data-menu-sheet-backdrop='true'],
+    [data-shelf-search-modal='true'],
+    [role='dialog'][aria-modal='true']
+  ) [data-shelf-bottom-dock='true'] {
+    transform: none;
+  }
 }
 
 /*
