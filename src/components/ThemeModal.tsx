@@ -293,7 +293,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       <div data-theme-modal-scroll-body="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
         <div
           data-theme-list-scroll="true"
-          className="mb-8 grid max-h-[264px] grid-cols-2 gap-3 overflow-y-auto overscroll-contain"
+          className="mb-8 grid max-h-[264px] grid-cols-2 gap-3 overflow-y-auto overscroll-y-auto"
         >
           {Object.entries(THEMES).map(([key, t]) => renderThemeCard(key, t))}
           {customThemes.map((customTheme) => (

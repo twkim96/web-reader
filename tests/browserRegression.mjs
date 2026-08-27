@@ -1377,6 +1377,7 @@ try {
       scrollHeight: list?.scrollHeight ?? -1,
       scrollTop: list?.scrollTop ?? -1,
       overflowY: list ? getComputedStyle(list).overflowY : '',
+      overscrollBehaviorY: list ? getComputedStyle(list).overscrollBehaviorY : '',
       seventhTop,
       listBottom: listRect?.bottom ?? -1,
       modalTop,
@@ -1396,6 +1397,7 @@ try {
   assert.ok(themeListScroll.scrollHeight > themeListScroll.clientHeight, JSON.stringify(themeListScroll));
   assert.ok(themeListScroll.scrollTop > 0, JSON.stringify(themeListScroll));
   assert.equal(themeListScroll.overflowY, 'auto', JSON.stringify(themeListScroll));
+  assert.equal(themeListScroll.overscrollBehaviorY, 'auto', JSON.stringify(themeListScroll));
   assert.ok(themeListScroll.seventhTop >= themeListScroll.listBottom, JSON.stringify(themeListScroll));
   assert.equal(themeListScroll.modalTopAfter, themeListScroll.modalTop, JSON.stringify(themeListScroll));
   assert.equal(
@@ -1581,13 +1583,36 @@ try {
   assert.equal(modernShelfDock.usesModernClass, true, JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(modernShelfDock));
   assert.equal(modernShelfDock.borderRadius, 34, JSON.stringify(modernShelfDock));
-  await evaluate(`document.querySelector(
-    '[data-modal-header="theme"] [data-menu-sheet-close="true"]',
-  )?.click()`);
+  const backdropDismissPoint = await evaluate(`(() => {
+    const probe = document.createElement('button');
+    probe.type = 'button';
+    probe.dataset.backdropClickProbe = 'true';
+    probe.style.cssText = 'position:fixed;left:0;top:0;width:32px;height:32px;z-index:1';
+    probe.addEventListener('click', () => { window.__themeBackdropClickThrough = true; });
+    document.body.appendChild(probe);
+    window.__themeBackdropClickThrough = false;
+    return { x: 12, y: 12 };
+  })()`);
+  await command('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: backdropDismissPoint.x,
+    y: backdropDismissPoint.y,
+    button: 'left',
+    clickCount: 1,
+  });
+  await command('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: backdropDismissPoint.x,
+    y: backdropDismissPoint.y,
+    button: 'left',
+    clickCount: 1,
+  });
   await waitFor(
     '!document.querySelector(\'[data-shelf-dock-style-option="glass"]\')',
-    'theme modal close after shelf dock style switch',
+    'theme modal backdrop close after shelf dock style switch',
   );
+  assert.equal(await evaluate('window.__themeBackdropClickThrough'), false);
+  await evaluate(`document.querySelector('[data-backdrop-click-probe="true"]')?.remove()`);
   await evaluate(`document.querySelector(
     '[data-shelf-mobile-layout-controls="true"] [data-shelf-filter-control="true"]',
   )?.click()`);

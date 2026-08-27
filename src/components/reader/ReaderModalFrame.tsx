@@ -37,6 +37,7 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   useBodyScrollLock();
   const dialogRef = useRef<HTMLDivElement>(null);
   const backdropPointerIdRef = useRef<number | null>(null);
+  const backdropClickArmedRef = useRef(false);
   const onCloseRef = useRef(onClose);
   const dialogId = useId();
 
@@ -89,21 +90,32 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   }, [dismissible]);
 
   const handleBackdropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    backdropClickArmedRef.current = false;
     backdropPointerIdRef.current = dismissible && event.target === event.currentTarget
       ? event.pointerId
       : null;
   };
 
   const handleBackdropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const shouldDismiss = dismissible
+    backdropClickArmedRef.current = dismissible
       && backdropPointerIdRef.current === event.pointerId
       && event.target === event.currentTarget;
     backdropPointerIdRef.current = null;
-    if (shouldDismiss) onClose();
+  };
+
+  const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const shouldDismiss = backdropClickArmedRef.current
+      && event.target === event.currentTarget;
+    backdropClickArmedRef.current = false;
+    if (!shouldDismiss) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
   };
 
   const clearBackdropPointer = () => {
     backdropPointerIdRef.current = null;
+    backdropClickArmedRef.current = false;
   };
 
   const placementClass = placement === 'center'
@@ -119,6 +131,7 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
       className={`fixed inset-0 ${zIndex} flex ${placementClass} ${menuSheet ? 'app-menu-sheet-backdrop' : ''} ${noBlur ? 'bg-black/20' : 'bg-black/60 backdrop-blur-sm'} animate-in fade-in duration-200`}
       onPointerDown={handleBackdropPointerDown}
       onPointerUp={handleBackdropPointerUp}
+      onClick={handleBackdropClick}
       onPointerCancel={clearBackdropPointer}
       onLostPointerCapture={clearBackdropPointer}
     >

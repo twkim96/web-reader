@@ -40,6 +40,10 @@ const dispatchPointer = (window, target, type, pointerId = 3) => {
   target.dispatchEvent(event);
 };
 
+const dispatchClick = (window, target) => {
+  target.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true }));
+};
+
 const dispatchEscape = (window) => {
   const event = new window.Event('keydown', { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'key', { value: 'Escape' });
@@ -71,6 +75,7 @@ test('hideCancel confirm dialogs cannot be dismissed through backdrop or Escape'
   await act(async () => {
     dispatchPointer(window, backdrop, 'pointerdown');
     dispatchPointer(window, backdrop, 'pointerup');
+    dispatchClick(window, backdrop);
     dispatchEscape(window);
     await Promise.resolve();
   });
@@ -113,6 +118,12 @@ test('dismissible dialog primitives require a matching backdrop pointer origin',
     dispatchPointer(window, backdrop, 'pointerup');
     await Promise.resolve();
   });
+  assert.equal(closeCount, 0);
+
+  await act(async () => {
+    dispatchClick(window, backdrop);
+    await Promise.resolve();
+  });
   assert.equal(closeCount, 1);
 
   await act(async () => root.unmount());
@@ -149,7 +160,9 @@ test('menu sheet frames and headers expose one shared Apple-like contract', asyn
   assert.ok(dialog?.classList.contains('app-menu-sheet'));
   assert.equal(header?.getAttribute('data-modal-header'), 'test');
   assert.equal(header?.querySelector('h2')?.textContent, '테스트 제목');
-  assert.ok(header?.querySelector('[data-menu-sheet-close="true"]'));
+  const closeButton = header?.querySelector('[data-menu-sheet-close="true"]');
+  assert.ok(closeButton?.classList.contains('size-10'));
+  assert.equal(closeButton?.querySelector('svg')?.getAttribute('width'), '20');
 
   await act(async () => root.unmount());
 });
@@ -189,6 +202,8 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
 
   assert.match(themeSource, /modalFrameClass = 'flex max-h-\[82dvh\] flex-col overflow-hidden'/);
   assert.match(themeSource, /data-theme-modal-scroll-body="true"[^>]*min-h-0 flex-1 overflow-y-auto/);
+  assert.match(themeSource, /data-theme-list-scroll="true"[\s\S]*?overflow-y-auto overscroll-y-auto/);
+  assert.doesNotMatch(themeSource, /data-theme-list-scroll="true"[\s\S]*?overflow-y-auto overscroll-contain/);
   assert.match(bookInfoSource, /data-book-info-capture-root="true"[\s\S]*?app-menu-sheet-content/);
   assert.match(bookInfoSource, /data-book-info-actions="true"[\s\S]*?app-menu-sheet-footer/);
   assert.match(statisticsSource, /app-menu-sheet-footer shrink-0/);
