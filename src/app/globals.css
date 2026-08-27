@@ -143,6 +143,35 @@ body:has(
   background-color: color-mix(in srgb, var(--viewer-theme-text) 7%, transparent) !important;
 }
 
+/* Modal close controls retain their existing geometry while sharing the
+ * selected menu material. */
+.app-modal-close {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--viewer-theme-border);
+  background-color: var(--viewer-theme-secondary) !important;
+  color: inherit;
+}
+
+html[data-viewer-menu-style='standard'] .app-modal-close {
+  border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
+  background-color: var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) !important;
+  box-shadow:
+    0 5px 14px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(28px) saturate(1.32);
+  backdrop-filter: blur(28px) saturate(1.32);
+}
+
+html[data-viewer-menu-style='modern'] .app-modal-close {
+  border-color: var(--viewer-shelf-dock-border, var(--viewer-theme-border)) !important;
+  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) !important;
+  box-shadow: 0 8px 20px -8px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+
 html[data-viewer-menu-style='standard'] .app-menu-sheet {
   border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
   background-color: var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) !important;
@@ -288,6 +317,18 @@ html[data-viewer-menu-style='glass'] .app-menu-sheet-action {
     inset 0 -1px 0 rgba(0, 0, 0, 0.08);
 }
 
+html[data-viewer-menu-style='glass'] .app-modal-close {
+  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
+  background-color: color-mix(in srgb, var(--viewer-theme-bg) 34%, transparent) !important;
+  color: var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) !important;
+  box-shadow:
+    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  -webkit-backdrop-filter: blur(4.2px) saturate(90%) contrast(82%);
+  backdrop-filter: blur(4.2px) saturate(90%) contrast(82%);
+}
+
 .viewer-cime-glass .shelf-glass-contrast-icon svg {
   filter:
     drop-shadow(0 1px 0 var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58)))
@@ -296,7 +337,8 @@ html[data-viewer-menu-style='glass'] .app-menu-sheet-action {
 
 .viewer-cime-glass::before,
 html[data-viewer-menu-style='glass'] .app-menu-sheet::before,
-html[data-viewer-menu-style='glass'] .app-search-surface::before {
+html[data-viewer-menu-style='glass'] .app-search-surface::before,
+html[data-viewer-menu-style='glass'] .app-modal-close::before {
   content: '';
   position: absolute;
   inset: 0;

@@ -60,7 +60,7 @@ export const AnnotationNoteDialog: React.FC<AnnotationNoteDialogProps> = ({
             </div>
             <p className="mt-1 text-[11px] font-bold opacity-45">하이라이트 메모</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="메모 닫기" className="flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10">
+          <button type="button" onClick={onClose} aria-label="메모 닫기" className="app-modal-close flex size-11 shrink-0 items-center justify-center rounded-full hover:opacity-80">
             <X size={19} />
           </button>
         </div>

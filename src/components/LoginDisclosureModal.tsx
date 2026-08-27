@@ -61,7 +61,7 @@ export const LoginDisclosureModal: React.FC<LoginDisclosureModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="로그인 안내 닫기"
-            className="flex size-11 shrink-0 items-center justify-center rounded-xl hover:bg-black/5 dark:hover:bg-white/10"
+            className="app-modal-close flex size-11 shrink-0 items-center justify-center rounded-xl hover:opacity-80"
           >
             <X size={21} />
           </button>

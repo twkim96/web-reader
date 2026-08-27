@@ -150,6 +150,7 @@ test('menu sheet frames and headers expose one shared Apple-like contract', asyn
   assert.equal(header?.querySelector('h2')?.textContent, '테스트 제목');
   const closeButton = header?.querySelector('[data-menu-sheet-close="true"]');
   assert.ok(closeButton?.classList.contains('size-10'));
+  assert.ok(closeButton?.classList.contains('app-modal-close'));
   assert.equal(closeButton?.querySelector('svg')?.getAttribute('width'), '20');
 
   await act(async () => root.unmount());
@@ -165,6 +166,22 @@ test('mobile menu sheets use a floating height-bounded themed surface', async ()
   assert.match(globals, /data-viewer-menu-style='standard'[\s\S]*?blur\(28px\)/);
   assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?blur\(4\.2px\)/);
   assert.match(globals, /data-viewer-menu-style='modern'[\s\S]*?blur\(24px\)/);
+  assert.match(globals, /data-viewer-menu-style='standard'\] \.app-modal-close[\s\S]*?blur\(28px\) saturate\(1\.32\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-modal-close[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='modern'\] \.app-modal-close[\s\S]*?blur\(24px\)/);
+});
+
+test('uses the shared themed close surface in modal headers with custom markup', async () => {
+  const sources = await Promise.all([
+    readFile(new URL('../src/components/LoginDisclosureModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/AnnotationNoteDialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/TranslationDialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/JumpDialog.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  for (const source of sources) {
+    assert.match(source, /aria-label="[^"]*닫기"[\s\S]*?className="[^"]*app-modal-close/);
+  }
 });
 
 test('hides the shelf dock behind every modal family with a lightweight transition', async () => {

@@ -37,7 +37,7 @@ export const MenuSheetHeader: React.FC<MenuSheetHeaderProps> = ({
       onClick={onClose}
       disabled={closeDisabled}
       aria-label={closeLabel}
-      className={`flex size-10 shrink-0 items-center justify-center rounded-full ${secondaryClass} transition-opacity hover:opacity-75 disabled:opacity-35`}
+      className={`app-modal-close flex size-10 shrink-0 items-center justify-center rounded-full ${secondaryClass} transition-opacity hover:opacity-75 disabled:opacity-35`}
     >
       <X size={20} strokeWidth={2.2} />
     </button>

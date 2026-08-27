@@ -128,7 +128,7 @@ export const TranslationDialog = ({
               {languageLabel(state.sourceLanguage)} → {languageLabel(state.targetLanguage)} · 브라우저 내장
             </p>
           </div>
-          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="번역 닫기" className="flex size-11 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10">
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="번역 닫기" className="app-modal-close flex size-11 items-center justify-center rounded-full hover:opacity-80">
             <X size={19} />
           </button>
         </header>
