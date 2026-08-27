@@ -77,7 +77,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
             </div>
           ) : (
             books.map((book) => (
-              <div key={book.id} className={`flex items-center justify-between p-4 ${theme.secondary} rounded-2xl border ${theme.border} hover:border-accent-500/30 transition-all group`}>
+              <div key={book.id} data-offline-book-row="true" className={`app-menu-sheet-action flex items-center justify-between rounded-2xl border ${theme.border} p-4 transition-all hover:border-accent-500/30 group`}>
                 <div className="flex items-center gap-4 overflow-hidden">
                   <FileText data-offline-book-icon="true" className="shrink-0 text-current" size={20} />
                   <div className="min-w-0">

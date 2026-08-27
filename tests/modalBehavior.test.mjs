@@ -144,6 +144,7 @@ test('menu sheet frames and headers expose one shared Apple-like contract', asyn
   const dialog = window.document.querySelector('[data-menu-sheet="true"]');
   const header = window.document.querySelector('[data-menu-sheet-header="true"]');
   assert.ok(backdrop?.classList.contains('app-menu-sheet-backdrop'));
+  assert.equal(backdrop?.getAttribute('data-reader-modal-placement'), 'center');
   assert.ok(dialog?.classList.contains('app-menu-sheet'));
   assert.equal(header?.getAttribute('data-modal-header'), 'test');
   assert.equal(header?.querySelector('h2')?.textContent, '테스트 제목');
@@ -180,10 +181,13 @@ test('pins library annotation and statistics modals to the active theme variable
 });
 
 test('keeps theme headers and action-footers outside the scrolling modal body', async () => {
-  const [themeSource, bookInfoSource, statisticsSource, globals] = await Promise.all([
+  const [themeSource, bookInfoSource, statisticsSource, manageSource, tocSource, frameSource, globals] = await Promise.all([
     readFile(new URL('../src/components/ThemeModal.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/BookInfoModal.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/LibraryReadingStatisticsModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ManageModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/TocModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/ReaderModalFrame.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
   ]);
 
@@ -195,5 +199,10 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
   assert.match(bookInfoSource, /data-book-info-actions="true"[\s\S]*?app-menu-sheet-footer/);
   assert.match(statisticsSource, /app-menu-sheet-footer shrink-0/);
   assert.equal((statisticsSource.match(/app-menu-sheet-action/g) ?? []).length, 4);
+  assert.match(manageSource, /data-offline-book-row="true"[\s\S]*?app-menu-sheet-action/);
+  assert.doesNotMatch(tocSource, /placement="high"/);
+  assert.match(frameSource, /placement \?\? \(menuSheet \? 'center' : 'upper'\)/);
   assert.match(globals, /\.app-menu-sheet-content,[\s\S]*?\.app-menu-sheet-footer\s*\{[\s\S]*?background-color:\s*transparent\s*!important/);
+  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?0 18px 44px/);
+  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet-action\s*\{[\s\S]*?0 6px 14px/);
 });

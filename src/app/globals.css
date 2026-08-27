@@ -192,12 +192,27 @@ html[data-viewer-menu-style='modern'] .app-menu-sheet {
 }
 
 html[data-viewer-menu-style='glass'] .app-menu-sheet {
-  border-color: transparent !important;
+  position: relative;
+  isolation: isolate;
+  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
   background-color: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) !important;
   color: var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) !important;
-  box-shadow: 0 4px 12px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14));
+  box-shadow:
+    0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
+    0 3px 10px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
   -webkit-backdrop-filter: blur(4px) saturate(90%) contrast(82%);
   backdrop-filter: blur(4px) saturate(90%) contrast(82%);
+}
+
+html[data-viewer-menu-style='glass'] .app-menu-sheet-action {
+  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent) !important;
+  background-color: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent) !important;
+  box-shadow:
+    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
 }
 
 .viewer-cime-glass .shelf-glass-contrast-icon svg {

@@ -29,7 +29,7 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
   className = '',
   zIndex = 'z-[110]',
   noBlur = false,
-  placement = 'upper',
+  placement,
   ariaLabel = '리더 대화상자',
   dismissible = true,
   menuSheet = false,
@@ -94,9 +94,10 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
     onClose();
   };
 
-  const placementClass = placement === 'center'
+  const resolvedPlacement = placement ?? (menuSheet ? 'center' : 'upper');
+  const placementClass = resolvedPlacement === 'center'
     ? 'items-center justify-center p-4 sm:p-6'
-    : placement === 'high'
+    : resolvedPlacement === 'high'
       ? 'items-start justify-center overflow-y-auto p-4 pt-[7vh] sm:p-6 sm:pt-[8vh]'
       : 'items-start justify-center overflow-y-auto p-4 pt-[18vh] sm:p-6 sm:pt-[16vh]';
 
@@ -104,6 +105,7 @@ export const ReaderModalFrame: React.FC<ReaderModalFrameProps> = ({
     <div
       data-reader-modal-backdrop="true"
       data-menu-sheet-backdrop={menuSheet ? 'true' : undefined}
+      data-reader-modal-placement={resolvedPlacement}
       className={`fixed inset-0 ${zIndex} flex ${placementClass} ${menuSheet ? 'app-menu-sheet-backdrop' : ''} ${noBlur ? 'bg-black/20' : 'bg-black/60 backdrop-blur-sm'} animate-in fade-in duration-200`}
       onClick={handleBackdropClick}
     >

@@ -27,7 +27,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
   const allChapters = flattenToc(toc);
 
   return (
-    <ReaderModalFrame ariaLabel="목차" menuSheet theme={theme} onClose={onClose} maxWidth="max-w-md" placement="high" className="flex flex-col max-h-[min(30rem,72vh)] sm:max-h-[32rem]">
+    <ReaderModalFrame ariaLabel="목차" menuSheet theme={theme} onClose={onClose} maxWidth="max-w-md" className="flex flex-col max-h-[min(30rem,72vh)] sm:max-h-[32rem]">
         <MenuSheetHeader kind="toc" title="목차" subtitle="Table of Contents" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         {/* List */}
