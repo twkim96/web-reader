@@ -630,19 +630,19 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
           )}
         </div>
 
-        <footer className={`border-t ${theme.border} px-3 py-2 sm:px-4`}>
+        <footer className={`app-menu-sheet-footer shrink-0 border-t ${theme.border} px-3 py-2 sm:px-4`}>
           {feedback && <p role="status" className="mb-2 text-center text-xs font-bold opacity-70">{feedback}</p>}
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={visibleSessions.length === 0} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <FileText size={15} /><Download size={13} /> MD
             </button>
-            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <FileJson size={15} /><Download size={13} /> JSON
             </button>
-            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <Share2 size={15} /> 공유
             </button>
-            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} ${theme.secondary} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
+            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
               <Database size={15} /><Download size={13} /> 진단
             </button>
           </div>

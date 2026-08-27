@@ -243,6 +243,8 @@ export const BookInfoModal: React.FC<Props> = ({
       captureNode = source.cloneNode(true) as HTMLElement;
       const sourceStyle = getComputedStyle(source);
       const dialogStyle = dialogRef.current ? getComputedStyle(dialogRef.current) : sourceStyle;
+      const captureBackgroundColor = sourceStyle.getPropertyValue('--viewer-theme-bg').trim()
+        || dialogStyle.backgroundColor;
       for (let index = 0; index < sourceStyle.length; index += 1) {
         const property = sourceStyle.item(index);
         if (property.startsWith('--')) {
@@ -263,7 +265,7 @@ export const BookInfoModal: React.FC<Props> = ({
         border: dialogStyle.border,
         borderRadius: dialogStyle.borderRadius,
         boxShadow: dialogStyle.boxShadow,
-        backgroundColor: sourceStyle.backgroundColor,
+        backgroundColor: captureBackgroundColor,
       });
       const scrollBody = captureNode.querySelector<HTMLElement>('[data-book-info-scroll-body="true"]');
       if (scrollBody) Object.assign(scrollBody.style, {
@@ -281,7 +283,7 @@ export const BookInfoModal: React.FC<Props> = ({
       const blob = await toBlob(captureNode, {
         cacheBust: true,
         pixelRatio: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
-        backgroundColor: sourceStyle.backgroundColor,
+        backgroundColor: captureBackgroundColor,
       });
       if (!blob || blob.size === 0) throw new Error('Reading proof PNG is empty');
       return blob;
@@ -370,7 +372,7 @@ export const BookInfoModal: React.FC<Props> = ({
         <div
           ref={captureRef}
           data-book-info-capture-root="true"
-          className={`flex min-h-0 flex-1 flex-col overflow-hidden ${theme.bg} ${theme.text}`}
+          className={`app-menu-sheet-content flex min-h-0 flex-1 flex-col overflow-hidden ${theme.text}`}
         >
           <MenuSheetHeader kind="book-info" title="도서 정보" titleId="book-info-title" subtitle={`${getBookFormatLabel(book)} · ${sourceLabel}`} onClose={onClose} closeDisabled={isDeleting} borderClass={theme.border} secondaryClass={theme.secondary} />
 
@@ -562,7 +564,7 @@ export const BookInfoModal: React.FC<Props> = ({
           </div>
         </div>
 
-        <footer data-book-info-actions="true" className={`shrink-0 border-t ${theme.border} px-3 py-2 sm:px-4`}>
+        <footer data-book-info-actions="true" className={`app-menu-sheet-footer shrink-0 border-t ${theme.border} px-3 py-2 sm:px-4`}>
           {captureFeedback && (
             <p data-book-info-capture-status="true" role="status" className="mb-1.5 text-center text-[10px] font-bold text-accent-500">
               {captureFeedback}

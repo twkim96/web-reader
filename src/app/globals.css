@@ -75,9 +75,24 @@ body {
 }
 
 /* Toolbar-owned dialogs share one Apple-like themed surface. */
+.app-menu-sheet-backdrop {
+  background-color: rgba(0, 0, 0, 0.20) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 .app-menu-sheet {
   background-color: var(--viewer-theme-bg) !important;
   color: var(--viewer-theme-text);
+}
+
+.app-menu-sheet-content,
+.app-menu-sheet-footer {
+  background-color: transparent !important;
+}
+
+.app-menu-sheet-action {
+  background-color: color-mix(in srgb, var(--viewer-theme-text) 7%, transparent) !important;
 }
 
 html[data-viewer-menu-style='standard'] .app-menu-sheet {

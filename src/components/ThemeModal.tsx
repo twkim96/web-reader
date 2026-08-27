@@ -25,7 +25,7 @@ const TEXTURE_OPTIONS: Array<[CustomThemeTexture, string]> = [
 export const ThemeModal: React.FC<ThemeModalProps> = ({
   settings, onUpdateSettings, onClose, theme
 }) => {
-  const modalFrameClass = 'max-h-[82dvh] overflow-y-auto overscroll-contain p-6';
+  const modalFrameClass = 'flex max-h-[82dvh] flex-col overflow-hidden';
   const customThemes = useMemo(() => settings.customThemes || [], [settings.customThemes]);
   const [mode, setMode] = useState<'list' | 'create' | 'edit-select' | 'edit'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -104,11 +104,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
     title: string,
     onDismiss: () => void,
     actions?: React.ReactNode,
-  ) => (
-    <div className="-mx-6 -mt-6 mb-6">
-      <MenuSheetHeader kind="theme" title={title} onClose={onDismiss} borderClass={theme.border} secondaryClass={theme.secondary} trailing={actions} />
-    </div>
-  );
+  ) => <MenuSheetHeader kind="theme" title={title} onClose={onDismiss} borderClass={theme.border} secondaryClass={theme.secondary} trailing={actions} />;
 
   const renderThemeCard = (key: string, t: { bg: string; text: string }, label = key) => (
     <button
@@ -151,16 +147,17 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       >
         {renderModalHeader(mode === 'create' ? '커스텀 테마 추가' : '커스텀 테마 편집', () => setMode('list'))}
 
-        <div className="space-y-4">
-          <label className="block">
-            <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Theme Title</span>
-            <input
-              value={form.title}
-              onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-              className={`mt-1.5 w-full rounded-xl border ${theme.border} ${theme.secondary || ''} px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-accent-500`}
-              placeholder="내 테마"
-            />
-          </label>
+        <div data-theme-modal-scroll-body="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
+          <div className="space-y-4">
+            <label className="block">
+              <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Theme Title</span>
+              <input
+                value={form.title}
+                onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                className={`mt-1.5 w-full rounded-xl border ${theme.border} ${theme.secondary || ''} px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-accent-500`}
+                placeholder="내 테마"
+              />
+            </label>
 
           <div className="grid grid-cols-2 gap-3">
             {[
@@ -215,18 +212,19 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
             <p className="mt-1.5 text-xs opacity-65">배경색, 글자색, 질감 설정을 확인하세요.</p>
           </div>
 
-          <div className="flex gap-2 pt-1">
-            {mode === 'edit' && (
-              <button onClick={deleteCustomTheme} className="flex h-11 w-11 items-center justify-center rounded-xl text-red-400 hover:bg-red-500/10">
-                <Trash2 size={18} />
+            <div className="flex gap-2 pt-1">
+              {mode === 'edit' && (
+                <button onClick={deleteCustomTheme} className="flex h-11 w-11 items-center justify-center rounded-xl text-red-400 hover:bg-red-500/10">
+                  <Trash2 size={18} />
+                </button>
+              )}
+              <button onClick={() => setMode('list')} className={`h-11 flex-1 rounded-xl ${theme.secondary || ''} text-sm font-bold opacity-70 hover:opacity-100`}>
+                취소
               </button>
-            )}
-            <button onClick={() => setMode('list')} className={`h-11 flex-1 rounded-xl ${theme.secondary || ''} text-sm font-bold opacity-70 hover:opacity-100`}>
-              취소
-            </button>
-            <button onClick={saveCustomTheme} className="h-11 flex-1 rounded-xl bg-accent-600 text-sm font-bold text-white shadow-lg shadow-accent-500/20">
-              확인
-            </button>
+              <button onClick={saveCustomTheme} className="h-11 flex-1 rounded-xl bg-accent-600 text-sm font-bold text-white shadow-lg shadow-accent-500/20">
+                확인
+              </button>
+            </div>
           </div>
         </div>
       </ReaderModalFrame>
@@ -247,26 +245,28 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       >
         {renderModalHeader('편집할 테마 선택', () => setMode('list'))}
 
-        <div className="space-y-2">
-          {customThemes.length === 0 ? (
-            <div className={`rounded-2xl ${theme.secondary || ''} p-8 text-center text-xs font-bold opacity-50`}>
-              아직 커스텀 테마가 없습니다.
-            </div>
-          ) : (
-            customThemes.map((customTheme) => (
-              <button
-                key={customTheme.id}
-                onClick={() => openEdit(customTheme)}
-                className={`flex w-full items-center justify-between rounded-2xl border ${theme.border} ${theme.secondary || ''} p-4 text-left transition-all active:scale-95`}
-              >
-                <span className="font-bold">{customTheme.title}</span>
-                <span className="flex items-center gap-2">
-                  <span className="h-5 w-5 rounded-full border border-current/10" style={{ backgroundColor: customTheme.bgColor }} />
-                  <span className="h-5 w-5 rounded-full border border-current/10" style={{ backgroundColor: customTheme.textColor }} />
-                </span>
-              </button>
-            ))
-          )}
+        <div data-theme-modal-scroll-body="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
+          <div className="space-y-2">
+            {customThemes.length === 0 ? (
+              <div className={`rounded-2xl ${theme.secondary || ''} p-8 text-center text-xs font-bold opacity-50`}>
+                아직 커스텀 테마가 없습니다.
+              </div>
+            ) : (
+              customThemes.map((customTheme) => (
+                <button
+                  key={customTheme.id}
+                  onClick={() => openEdit(customTheme)}
+                  className={`flex w-full items-center justify-between rounded-2xl border ${theme.border} ${theme.secondary || ''} p-4 text-left transition-all active:scale-95`}
+                >
+                  <span className="font-bold">{customTheme.title}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="h-5 w-5 rounded-full border border-current/10" style={{ backgroundColor: customTheme.bgColor }} />
+                    <span className="h-5 w-5 rounded-full border border-current/10" style={{ backgroundColor: customTheme.textColor }} />
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       </ReaderModalFrame>
     );
@@ -283,13 +283,14 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       maxWidth="max-w-sm"
       className={modalFrameClass}
     >
-        {renderModalHeader('테마 설정', onClose, (
-          <>
-            <button onClick={openCreate} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors" aria-label="커스텀 테마 추가"><Plus size={19} /></button>
-            <button onClick={() => setMode('edit-select')} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors" aria-label="커스텀 테마 편집"><Pencil size={18} /></button>
-          </>
-        ))}
+      {renderModalHeader('테마 설정', onClose, (
+        <>
+          <button onClick={openCreate} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors" aria-label="커스텀 테마 추가"><Plus size={19} /></button>
+          <button onClick={() => setMode('edit-select')} className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors" aria-label="커스텀 테마 편집"><Pencil size={18} /></button>
+        </>
+      ))}
 
+      <div data-theme-modal-scroll-body="true" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
         <div
           data-theme-list-scroll="true"
           className="mb-8 grid max-h-[264px] grid-cols-2 gap-3 overflow-y-auto overscroll-contain"
@@ -376,6 +377,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
             ))}
           </div>
         </div>
+      </div>
     </ReaderModalFrame>
   );
 };

@@ -1306,11 +1306,12 @@ try {
   const themeModalHeader = await evaluate(`(() => {
     const header = document.querySelector('[data-modal-header="theme"]');
     const modal = header?.closest('[data-menu-sheet="true"]');
+    const body = modal?.querySelector('[data-theme-modal-scroll-body="true"]');
     const overlay = modal?.parentElement;
     const beforeRect = modal?.getBoundingClientRect();
     const overlayRect = overlay?.getBoundingClientRect();
     if (overlay) overlay.scrollTop = 80;
-    if (modal) modal.scrollTop = Math.min(80, Math.max(0, modal.scrollHeight - modal.clientHeight));
+    if (body) body.scrollTop = Math.min(80, Math.max(0, body.scrollHeight - body.clientHeight));
     const afterRect = modal?.getBoundingClientRect();
     return {
       close: Boolean(header?.querySelector('[data-menu-sheet-close="true"]')),
@@ -1327,6 +1328,9 @@ try {
       modalOverflowY: modal ? getComputedStyle(modal).overflowY : '',
       modalScrollable: Boolean(modal && modal.scrollHeight > modal.clientHeight),
       modalScrollTop: modal?.scrollTop ?? -1,
+      bodyOverflowY: body ? getComputedStyle(body).overflowY : '',
+      bodyScrollable: Boolean(body && body.scrollHeight > body.clientHeight),
+      bodyScrollTop: body?.scrollTop ?? -1,
     };
   })()`);
   assert.equal(themeModalHeader.close, true, JSON.stringify(themeModalHeader));
@@ -1339,12 +1343,10 @@ try {
   assert.equal(themeModalHeader.topAfterInnerScroll, themeModalHeader.top);
   assert.equal(themeModalHeader.overlayScrollable, false, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.overlayScrollTop, 0, JSON.stringify(themeModalHeader));
-  assert.equal(themeModalHeader.modalOverflowY, 'auto', JSON.stringify(themeModalHeader));
-  assert.equal(
-    themeModalHeader.modalScrollTop > 0,
-    themeModalHeader.modalScrollable,
-    JSON.stringify(themeModalHeader),
-  );
+  assert.equal(themeModalHeader.modalOverflowY, 'hidden', JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.modalScrollTop, 0, JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.bodyOverflowY, 'auto', JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.bodyScrollTop > 0, themeModalHeader.bodyScrollable, JSON.stringify(themeModalHeader));
   const themeListScroll = await evaluate(`(() => {
     const list = document.querySelector('[data-theme-list-scroll="true"]');
     const modal = document.querySelector('[data-modal-header="theme"]')?.closest('[data-menu-sheet="true"]');
