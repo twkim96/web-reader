@@ -853,7 +853,8 @@ try {
     const backdropRect = modal?.parentElement?.getBoundingClientRect();
     const style = modal ? getComputedStyle(modal) : null;
     return {
-      bottomGap: rect && backdropRect ? backdropRect.bottom - rect.bottom : -1,
+      topGap: rect && backdropRect ? rect.top - backdropRect.top : -1,
+      sideGap: rect && backdropRect ? rect.left - backdropRect.left : -1,
       topRadius: style?.borderTopLeftRadius ?? '',
       bottomRadius: style?.borderBottomLeftRadius ?? '',
     };
@@ -863,9 +864,10 @@ try {
     `Unexpected mobile shelf search height: ${mobileShelfSearchHeight}`,
   );
   assert.deepEqual(mobileShelfSearchSheet, {
-    bottomGap: 0,
-    topRadius: '22px',
-    bottomRadius: '0px',
+    topGap: 96,
+    sideGap: 16,
+    topRadius: '20px',
+    bottomRadius: '20px',
   });
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
@@ -1319,6 +1321,7 @@ try {
       viewportHeight: innerHeight,
       overlayTop: overlayRect?.top ?? -1,
       overlayHeight: overlayRect?.height ?? -1,
+      sideGap: beforeRect && overlayRect ? beforeRect.left - overlayRect.left : -1,
       overlayScrollable: Boolean(overlay && overlay.scrollHeight > overlay.clientHeight),
       overlayScrollTop: overlay?.scrollTop ?? -1,
       modalOverflowY: modal ? getComputedStyle(modal).overflowY : '',
@@ -1330,8 +1333,9 @@ try {
   assert.equal(themeModalHeader.divider, '1px', JSON.stringify(themeModalHeader));
   assert.ok(Math.abs(
     themeModalHeader.top + themeModalHeader.height
-      - (themeModalHeader.overlayTop + themeModalHeader.overlayHeight)
+      - (themeModalHeader.overlayTop + themeModalHeader.overlayHeight) + 12
   ) <= 1, JSON.stringify(themeModalHeader));
+  assert.ok(themeModalHeader.sideGap >= 19 && themeModalHeader.sideGap <= 21, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.topAfterInnerScroll, themeModalHeader.top);
   assert.equal(themeModalHeader.overlayScrollable, false, JSON.stringify(themeModalHeader));
   assert.equal(themeModalHeader.overlayScrollTop, 0, JSON.stringify(themeModalHeader));
@@ -1614,9 +1618,9 @@ try {
   assert.ok(mobileFilterModal.right <= mobileFilterModal.viewportWidth, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.top >= 0, JSON.stringify(mobileFilterModal));
   assert.ok(mobileFilterModal.bottom <= mobileFilterModal.backdropBottom, JSON.stringify(mobileFilterModal));
-  assert.equal(mobileFilterModal.bottomGap, 0, JSON.stringify(mobileFilterModal));
-  assert.equal(mobileFilterModal.borderBottomLeftRadius, 0, JSON.stringify(mobileFilterModal));
-  assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.88 + 1, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.bottomGap >= 11 && mobileFilterModal.bottomGap <= 13, JSON.stringify(mobileFilterModal));
+  assert.equal(mobileFilterModal.borderBottomLeftRadius, 22, JSON.stringify(mobileFilterModal));
+  assert.ok(mobileFilterModal.height <= mobileFilterModal.viewportHeight * 0.60 + 1, JSON.stringify(mobileFilterModal));
   assert.equal(mobileFilterModal.horizontalOverflow, 0, JSON.stringify(mobileFilterModal));
   await evaluate(`document.querySelector(
     '[data-shelf-filter-modal="true"] [data-menu-sheet-close="true"]',

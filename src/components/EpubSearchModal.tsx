@@ -4,7 +4,6 @@ import { Search, X, ArrowRight, Loader2 } from 'lucide-react';
 import { SearchResultPayload } from '../hooks/foliate/types';
 import { ThemeClasses } from '../types';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-import { MenuSheetHeader } from './MenuSheetHeader';
 
 interface EpubSearchModalProps {
   theme: ThemeClasses;
@@ -49,14 +48,12 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
 
 
   return (
-    <div data-menu-sheet-backdrop="true" className="app-menu-sheet-backdrop fixed inset-0 z-[110] flex items-start justify-center bg-black/40 p-4 pt-[15vh] backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/40 p-4 pt-[15vh] backdrop-blur-sm" onClick={onClose}>
       <div
         data-epub-search-modal="true"
-        data-menu-sheet="true"
-        className={`app-panel-radius app-search-modal-radius app-radius-exempt app-menu-sheet flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl`}
+        className={`app-panel-radius app-search-modal-radius app-radius-exempt flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl`}
         onClick={e => e.stopPropagation()}
       >
-        <MenuSheetHeader kind="reader-search" title="본문 검색" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
         <div
           data-epub-search-input-row="true"
           className="relative flex h-[3.75rem] shrink-0 items-center px-1 sm:h-[4.25rem] sm:px-2"

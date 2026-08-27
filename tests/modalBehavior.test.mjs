@@ -154,11 +154,15 @@ test('menu sheet frames and headers expose one shared Apple-like contract', asyn
   await act(async () => root.unmount());
 });
 
-test('mobile menu sheets use a bottom-attached themed surface', async () => {
+test('mobile menu sheets use a floating height-bounded themed surface', async () => {
   const globals = await readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   assert.match(globals, /\.app-menu-sheet\s*\{[\s\S]*?background-color:\s*var\(--viewer-theme-bg\)\s*!important/);
   assert.match(globals, /@media \(max-width:\s*639px\)[\s\S]*?\.app-menu-sheet-backdrop\s*\{[\s\S]*?align-items:\s*flex-end\s*!important/);
-  assert.match(globals, /\.app-menu-sheet\s*\{[\s\S]*?max-height:\s*88dvh\s*!important[\s\S]*?border-radius:\s*22px 22px 0 0\s*!important/);
+  assert.match(globals, /\.app-menu-sheet-backdrop\s*\{[\s\S]*?padding:\s*0 1\.25rem max\(0\.75rem, env\(safe-area-inset-bottom\)\)\s*!important/);
+  assert.match(globals, /\.app-menu-sheet\s*\{[\s\S]*?max-height:\s*60dvh\s*!important[\s\S]*?border-radius:\s*22px\s*!important/);
+  assert.match(globals, /data-viewer-menu-style='standard'[\s\S]*?blur\(28px\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?blur\(4px\)/);
+  assert.match(globals, /data-viewer-menu-style='modern'[\s\S]*?blur\(24px\)/);
 });
 
 test('pins library annotation and statistics modals to the active theme variables', async () => {

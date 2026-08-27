@@ -17,7 +17,6 @@ import {
   normalizeShelfTagQuery,
   searchShelfCatalogTags,
 } from './shelf/tagSearch';
-import { MenuSheetHeader } from './MenuSheetHeader';
 
 interface ShelfSearchModalProps {
   onClose: () => void;
@@ -104,14 +103,12 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
   };
 
   return (
-    <div data-menu-sheet-backdrop="true" className="app-menu-sheet-backdrop fixed inset-0 z-[110] flex items-start justify-center bg-black/40 p-4 pt-[15vh] backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/40 p-4 pt-[15vh] backdrop-blur-sm" onClick={onClose}>
       <div
         data-shelf-search-modal="true"
-        data-menu-sheet="true"
-        className={`app-panel-radius app-search-modal-radius app-radius-exempt app-menu-sheet flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl`}
+        className={`app-panel-radius app-search-modal-radius app-radius-exempt flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl`}
         onClick={(event) => event.stopPropagation()}
       >
-        <MenuSheetHeader kind="shelf-search" title="도서 검색" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
         <form
           data-shelf-search-input-row="true"
           onSubmit={handleSubmit}
