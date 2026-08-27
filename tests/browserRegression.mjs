@@ -1593,6 +1593,7 @@ try {
   const mobileFilterModal = await evaluate(`(() => {
     const modal = document.querySelector('[data-shelf-filter-modal="true"]');
     const rect = modal?.getBoundingClientRect();
+    const backdropRect = modal?.parentElement?.getBoundingClientRect();
     return {
       left: rect?.left ?? -1,
       right: rect?.right ?? -1,
