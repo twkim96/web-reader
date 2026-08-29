@@ -21,6 +21,24 @@ test('restores only the current-tab Drive session and reloads its library', asyn
   );
 });
 
+test('bridges only the short-lived OAuth state across browser contexts', async () => {
+  const [oauthHook, oauthState, tokenHook] = await Promise.all([
+    readFile(new URL('../src/hooks/useDriveOAuthRedirect.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/lib/googleDriveOAuth.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/hooks/useGoogleDriveToken.ts', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(oauthHook, /rememberGoogleDriveOAuthState\(sessionStorage, localStorage, state\)/);
+  assert.match(oauthHook, /consumeGoogleDriveOAuthState\(\s*sessionStorage,\s*localStorage,/);
+  assert.match(oauthState, /GOOGLE_DRIVE_OAUTH_STATE_TTL_MS = 10 \* 60 \* 1000/);
+  const rememberState = oauthState.match(
+    /export const rememberGoogleDriveOAuthState = \(([\s\S]*?)\n\};/,
+  )?.[0] ?? '';
+  assert.match(rememberState, /writePendingGoogleDriveOAuthStates/);
+  assert.doesNotMatch(rememberState, /accessToken|DRIVE_TOKEN_SESSION_KEY/);
+  assert.doesNotMatch(tokenHook, /localStorage\.setItem\(DRIVE_TOKEN_SESSION_KEY/);
+});
+
 test('keeps the guest shelf active while Firebase redirects so login cancellation can recover', async () => {
   const page = await readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
   const loginHandler = page.match(

@@ -54,7 +54,10 @@ import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
 import { useAnnotationSyncConflictResolution } from '../hooks/useAnnotationSyncConflictResolution';
 import { useServiceWorkerUpdate } from '../hooks/useServiceWorkerUpdate';
 import { mergeLatestProgressForDisplay } from '../lib/progressDisplay';
-import { hasPendingGoogleDriveOAuth } from '../lib/googleDriveOAuth';
+import {
+  clearPendingGoogleDriveOAuthStates,
+  hasPendingGoogleDriveOAuth,
+} from '../lib/googleDriveOAuth';
 import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
@@ -133,7 +136,7 @@ export default function Page() {
     [],
   );
   const shouldHoldShelfForDrive = useCallback(() => (
-    hasPendingGoogleDriveOAuth(sessionStorage, window.location.hash)
+    hasPendingGoogleDriveOAuth(sessionStorage, localStorage, window.location.hash)
     || hasRestorableDriveTokenSession(sessionStorage)
   ), []);
 
@@ -511,11 +514,8 @@ export default function Page() {
         commitLocalCleanup: () => {
           if (driveCacheKey) invalidateDriveCache(driveCacheKey);
           clearToken();
+          clearPendingGoogleDriveOAuthStates(sessionStorage, localStorage);
           clearLastReaderSession();
-          // Keep the current React document alive while normalizing the history
-          // entry. A full-document replace can expose the WebView's native load
-          // error page between sign-out and the restored guest shelf.
-          window.history.replaceState(null, '', '/');
         },
         recoverUi: (error) => {
           if (logoutOwner) ownerRuntime.activate(logoutOwner.ownerKey);
@@ -531,6 +531,7 @@ export default function Page() {
       await revokeToken();
       if (driveCacheKey) invalidateDriveCache(driveCacheKey);
       clearToken();
+      clearPendingGoogleDriveOAuthStates(sessionStorage, localStorage);
       clearLastReaderSession();
       await handleLocalMode();
     }

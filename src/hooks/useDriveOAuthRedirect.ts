@@ -2,8 +2,9 @@ import { Dispatch, SetStateAction, useCallback, useEffect } from 'react';
 import { ViewState } from '../types';
 import {
   buildGoogleDriveOAuthUrl,
-  GOOGLE_DRIVE_OAUTH_STATE_KEY,
+  consumeGoogleDriveOAuthState,
   parseGoogleDriveOAuthResult,
+  rememberGoogleDriveOAuthState,
 } from '../lib/googleDriveOAuth';
 
 interface UseDriveOAuthRedirectOptions {
@@ -22,44 +23,42 @@ export const useDriveOAuthRedirect = ({
   useEffect(() => {
     const result = parseGoogleDriveOAuthResult(window.location.hash);
     if (!result) return;
+    const hasValidState = consumeGoogleDriveOAuthState(
+      sessionStorage,
+      localStorage,
+      result.state,
+    );
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-    let active = true;
 
-    window.queueMicrotask(() => {
-      const expectedState = sessionStorage.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
-      sessionStorage.removeItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
-      if (!active) return;
+    if (
+      result.error
+      || !result.accessToken
+      || !Number.isFinite(result.expiresIn)
+      || result.expiresIn <= 0
+    ) {
+      setAuthErrorMessage('Google Drive 연결을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      setView('shelf');
+      return;
+    }
+    if (!hasValidState) {
+      setAuthErrorMessage('Google Drive 연결 상태를 확인하지 못했습니다. 다시 시도해 주세요.');
+      setView('shelf');
+      return;
+    }
 
-      if (
-        result.error
-        || !result.accessToken
-        || !Number.isFinite(result.expiresIn)
-        || result.expiresIn <= 0
-      ) {
-        setAuthErrorMessage('Google Drive 연결을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        setView('shelf');
-        return;
-      }
-      if (!expectedState || result.state !== expectedState) {
-        setAuthErrorMessage('Google Drive 연결 상태를 확인하지 못했습니다. 다시 시도해 주세요.');
-        setView('shelf');
-        return;
-      }
-
-      saveToken(result.accessToken, result.expiresIn);
-      setIsOfflineMode(false);
-      setView('loading');
-    });
-
-    return () => {
-      active = false;
-    };
+    saveToken(result.accessToken, result.expiresIn);
+    setIsOfflineMode(false);
+    setView('loading');
   }, [saveToken, setAuthErrorMessage, setIsOfflineMode, setView]);
 
   return useCallback((clientId: string) => {
     const state = crypto.randomUUID();
-    sessionStorage.setItem(GOOGLE_DRIVE_OAUTH_STATE_KEY, state);
+    if (!rememberGoogleDriveOAuthState(sessionStorage, localStorage, state)) {
+      setAuthErrorMessage('Google Drive 연결 상태를 저장하지 못했습니다. 다시 시도해 주세요.');
+      setView('shelf');
+      return;
+    }
     const redirectUri = `${window.location.origin}${window.location.pathname}`;
     window.location.assign(buildGoogleDriveOAuthUrl(clientId, redirectUri, state));
-  }, []);
+  }, [setAuthErrorMessage, setView]);
 };

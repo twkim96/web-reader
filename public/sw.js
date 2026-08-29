@@ -1,8 +1,8 @@
 importScripts('/sw-policy.js');
 
-// 1.8.34: unify toolbar dialogs as themed mobile bottom sheets and desktop panels.
+// 1.8.35: stabilize logout and the first Drive OAuth callback across app contexts.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.34`;
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.35`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',

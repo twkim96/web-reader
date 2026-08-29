@@ -1,0 +1,90 @@
+# Web Reader 1.8.35 — 로그인·Drive 연결 수명주기 안정화
+
+작성일: 2026-08-29
+
+상태: 개발 완료 · 실사용 확인 대기
+
+기준 커밋: `bfea3e7`
+
+이전 버전: [1.8.34 메뉴 모달·모바일 바텀시트 통일](./update_1.8.34.md)
+
+상위 계획: [1.8.x 전체 계획](./update_1.8.x_plan.md)
+
+## 목표
+
+Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우저 실행 컨텍스트에 의존하지 않도록 안정화한다.
+
+- 로그아웃 과정에서 전체 문서 이동뿐 아니라 History API URL 변경도 하지 않는다.
+- Firebase 로그인 직후 시작한 첫 Drive 연결에서 OAuth `state` 검증이 실패하지 않게 한다.
+- Drive 접근 토큰은 기존대로 메모리와 현재 탭 `sessionStorage`에만 보관한다.
+- 공유 저장소에는 접근 토큰이 아니라 짧게 만료되고 한 번만 소비되는 임의의 OAuth `state`만 보관한다.
+- 일반 탭, 설치형 PWA, OAuth 복귀로 새로 열린 동일 출처 실행 컨텍스트에서 같은 검증 계약을 사용한다.
+
+## 확인된 증상과 경계
+
+### 로그아웃 로드 오류
+
+- 1.8.34가 적용된 설치형 앱에서도 로그아웃 중 브라우저의 `This page couldn’t load` 화면이 노출됐다.
+- 구버전 PWA 잔존을 원인으로 확정하지 않는다.
+- 현재 로그아웃 경로에 남아 있는 `window.history.replaceState()`를 제거해 인증 상태 변경과 URL 수명주기를 완전히 분리한다.
+
+### 첫 Drive 연결의 `state` 검증 실패
+
+- Firebase 로그인 뒤 첫 Drive OAuth는 `Google Drive 연결 상태를 확인하지 못했습니다`로 실패하고 두 번째 시도는 성공한다.
+- 실제 요청과 Google 콜백의 `state`는 첫 시도에서도 일치했다.
+- 1.8.34에서는 기대 `state`를 현재 실행 컨텍스트의 `sessionStorage` 한 곳에만 저장했다.
+- 콜백은 반환된 `state`가 현재 세션 또는 동일 출처의 짧은 수명 pending-state 집합 중 하나와 일치할 때만 통과시킨다.
+
+## Phase 1 — 문서·릴리스 경계
+
+상태: 완료
+
+- 1.8.34를 종료 상태로 고정한다.
+- 1.8.35를 인증 안정화 전용 버전으로 추가한다.
+- UI 개편이나 업로드 전송 로직 변경을 이번 버전에 섞지 않는다.
+
+## Phase 2 — Drive OAuth pending-state 복구
+
+상태: 완료
+
+- OAuth 시작 시 현재 탭 `sessionStorage`와 동일 출처 공유 pending-state 저장소에 임의 state를 기록한다.
+- 공유 레코드는 생성 시각을 포함하고 10분 뒤 만료하며 최대 개수를 제한한다.
+- 콜백에서는 URL fragment를 지우기 전에 반환 state를 동기적으로 검증하고 한 번만 소비한다.
+- 다른 값, 만료된 값, 이미 소비된 값은 계속 실패 처리한다.
+- 로그아웃과 Drive 연결 해제에서 남은 pending state를 제거한다.
+
+## Phase 3 — 로그아웃 문서 수명주기 분리
+
+상태: 완료
+
+- Firebase `signOut()` 전후에 `location`·`history` 기반 이동을 하지 않는다.
+- guest owner 활성화와 로컬 책장 복원은 기존 `onAuthStateChanged` 단일 경로가 계속 담당한다.
+- sign-out 실패 시 기존 owner와 UI를 복원하는 계약을 보존한다.
+
+## Phase 4 — 버전·회귀 검증
+
+상태: 자동검증 완료
+
+- package, lockfile, service worker, Foliate runtime과 관련 회귀 기대값을 `1.8.35`로 맞춘다.
+- OAuth state의 현재 컨텍스트 성공, 새 컨텍스트 fallback, 일회 소비, TTL 만료, 다중 pending state를 검증한다.
+- 로그아웃 경로에 `window.location`과 `window.history` 이동이 없음을 검증한다.
+- `npm run test:drive`, `npm run test:shelf`, `npm run test:release`, `npm run check`를 통과한다.
+
+## 완료 조건
+
+- Firebase 로그인 뒤 첫 Drive 연결이 별도 재시도 없이 완료된다.
+- Google 콜백의 state가 앱이 발급한 유효 pending state와 일치하지 않으면 계속 거부된다.
+- 접근 토큰은 `localStorage`에 기록되지 않는다.
+- 로그아웃은 현재 React 문서를 유지하고 guest 책장으로 전환된다.
+- 1.8.35 버전·캐시 정합성과 자동 회귀가 통과한다.
+
+## 검증 결과
+
+상태: 자동검증 완료 · 실사용 확인 대기
+
+- `npm run test:drive`: 56개 통과
+- `npm run test:shelf`: 121개 통과
+- `npm run test:release`: 3개 통과
+- `npm run check`: lint 오류 0건(기존 경고 4건), TypeScript, 전체 Node/Python 회귀, Next.js production build 통과
+- 코드·테스트 런타임 영역에 남은 `1.8.34` 버전 참조 없음
+- 실제 계정의 로그아웃 → Firebase 재로그인 → 첫 Drive 연결은 현재 로그인 세션을 끊지 않기 위해 자동검증에서 제외했다. 이 1회차 실사용 확인 뒤 완료 조건을 최종 승인한다.

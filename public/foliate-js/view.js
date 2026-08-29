@@ -288,7 +288,7 @@ export class View extends HTMLElement {
             await customElements.whenDefined('foliate-fxl')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js?v=1.8.34')
+            await import('./paginator.js?v=1.8.35')
             await customElements.whenDefined('foliate-paginator')
             this.renderer = document.createElement('foliate-paginator')
         }
