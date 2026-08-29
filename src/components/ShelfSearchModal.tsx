@@ -222,8 +222,16 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
             )}
 
             {!tagMode && filteredBooks.length > 0 && (
-              <div className={`flex justify-center border-t p-4 ${theme.border} ${theme.secondary}`}>
-                <button type="button" onClick={handleSubmit} className="flex items-center gap-2 rounded-full bg-black/5 px-4 py-2 text-[10px] font-black uppercase tracking-widest opacity-60 hover:opacity-100">
+              <div
+                data-shelf-search-results-footer="true"
+                className={`app-search-results-footer flex justify-center border-t p-4 ${theme.border}`}
+              >
+                <button
+                  type="button"
+                  data-shelf-search-results-action="true"
+                  onClick={handleSubmit}
+                  className={`app-search-results-action relative z-[1] flex items-center gap-2 rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-[filter] hover:brightness-110 ${theme.border}`}
+                >
                   <Search size={14} /> 전체 검색 결과 화면 보기
                 </button>
               </div>

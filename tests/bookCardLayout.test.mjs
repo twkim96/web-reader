@@ -162,6 +162,22 @@ test('keeps the reader search surface aligned with the shelf search geometry', a
   assert.doesNotMatch(globals, /@media \(max-width:\s*639px\)[\s\S]*?\.app-search-surface\s*\{[\s\S]*?align-items:\s*flex-end/);
 });
 
+test('uses a darker menu-style material for the shelf full-results footer', async () => {
+  const [globals, shelfSearchSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/ShelfSearchModal.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(shelfSearchSource, /data-shelf-search-results-footer="true"[\s\S]*?app-search-results-footer/);
+  assert.match(shelfSearchSource, /data-shelf-search-results-action="true"[\s\S]*?app-search-results-action/);
+  assert.doesNotMatch(shelfSearchSource, /app-search-results-footer[^\n]*theme\.secondary/);
+  assert.match(globals, /data-viewer-menu-style='standard'\] \.app-search-results-footer[\s\S]*?black 16%[\s\S]*?blur\(28px\) saturate\(1\.32\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-footer[\s\S]*?rgba\(0, 0, 0, 0\.62\) 18%[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='modern'\] \.app-search-results-footer[\s\S]*?black 14%[\s\S]*?blur\(24px\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-footer::before/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-action[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+});
+
 test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', async () => {
   const shelfHeaderSource = await readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8');
 

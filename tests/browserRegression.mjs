@@ -329,9 +329,16 @@ try {
       cancelBorderRadius: modal?.querySelector('[data-login-disclosure-cancel="true"]')
         ? getComputedStyle(modal.querySelector('[data-login-disclosure-cancel="true"]')).borderRadius
         : '',
-      headerIconBorderRadius: modal?.querySelector('header > div')
-        ? getComputedStyle(modal.querySelector('header > div')).borderRadius
+      headerIconBorderRadius: modal?.querySelector('[data-login-disclosure-icon="true"]')
+        ? getComputedStyle(modal.querySelector('[data-login-disclosure-icon="true"]')).borderRadius
         : '',
+      closeIsFirst: modal?.querySelector('header')?.firstElementChild
+        ?.matches('[data-menu-sheet-close="true"].app-modal-close') ?? false,
+      closeIsLeftOfTitle: (() => {
+        const close = modal?.querySelector('[data-menu-sheet-close="true"]');
+        const title = modal?.querySelector('#login-disclosure-title');
+        return Boolean(close && title && close.getBoundingClientRect().right <= title.getBoundingClientRect().left);
+      })(),
       bodyPosition: document.body.style.position,
     };
   })()`);
@@ -359,6 +366,8 @@ try {
   assert.equal(loginDisclosure.borderRadius, '14px', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.cancelBorderRadius, '10px', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.headerIconBorderRadius, '8px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.closeIsFirst, true, JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.closeIsLeftOfTitle, true, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
   await evaluate(`document.querySelector('[data-login-disclosure-cancel="true"]')?.click()`);
   await waitFor(
@@ -913,6 +922,26 @@ try {
   })()`);
   assert.match(previewTitles[0], /Book 0900/);
   assert.match(previewTitles[1], /Book 0100/);
+  const shelfSearchFooterMaterial = await evaluate(`(() => {
+    const modal = document.querySelector('[data-shelf-search-modal="true"]');
+    const footer = modal?.querySelector('[data-shelf-search-results-footer="true"]');
+    const action = footer?.querySelector('[data-shelf-search-results-action="true"]');
+    const footerStyle = footer ? getComputedStyle(footer) : null;
+    const modalStyle = modal ? getComputedStyle(modal) : null;
+    return {
+      footerClass: footer?.classList.contains('app-search-results-footer') ?? false,
+      actionClass: action?.classList.contains('app-search-results-action') ?? false,
+      backgroundDiffersFromBody: Boolean(footerStyle && modalStyle
+        && footerStyle.backgroundColor !== modalStyle.backgroundColor),
+      backdropFilter: footerStyle?.backdropFilter ?? '',
+    };
+  })()`);
+  assert.deepEqual(shelfSearchFooterMaterial, {
+    footerClass: true,
+    actionClass: true,
+    backgroundDiffersFromBody: true,
+    backdropFilter: 'blur(24px)',
+  });
 
   assert.equal(
     await setInputValue('[data-shelf-search-input="true"]', 'Book 1099'),

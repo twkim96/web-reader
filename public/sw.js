@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.35 hotfix: keep owner cleanup timer callbacks receiver-safe during logout.
+// 1.8.35 UI follow-up: align privacy and search actions with the selected menu material.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.35`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

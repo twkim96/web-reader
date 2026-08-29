@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
-import { Database, HardDrive, ShieldCheck, X } from 'lucide-react';
+import { Database, HardDrive, ShieldCheck } from 'lucide-react';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { GoogleSignInButtonAsset } from './GoogleSignInButtonAsset';
+import { MenuSheetHeader } from './MenuSheetHeader';
 
 export type LoginDisclosureMode = 'firebase' | 'drive';
 
@@ -50,22 +51,23 @@ export const LoginDisclosureModal: React.FC<LoginDisclosureModalProps> = ({
         aria-labelledby="login-disclosure-title"
         className={`app-panel-radius flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden border shadow-2xl ${theme.bg} ${theme.text} ${theme.border}`}
       >
-        <header className={`flex shrink-0 items-center gap-3 border-b px-4 py-3 ${theme.border}`}>
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}>
-            <ShieldCheck size={21} aria-hidden="true" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 id="login-disclosure-title" className="text-base font-black">개인정보 처리방침</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="로그인 안내 닫기"
-            className="app-modal-close flex size-11 shrink-0 items-center justify-center rounded-xl hover:opacity-80"
-          >
-            <X size={21} />
-          </button>
-        </header>
+        <MenuSheetHeader
+          kind="login-disclosure"
+          title="개인정보 처리방침"
+          titleId="login-disclosure-title"
+          onClose={onClose}
+          closeLabel="로그인 안내 닫기"
+          borderClass={theme.border}
+          secondaryClass={theme.secondary}
+          trailing={(
+            <div
+              data-login-disclosure-icon="true"
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}
+            >
+              <ShieldCheck size={21} aria-hidden="true" />
+            </div>
+          )}
+        />
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
           <button

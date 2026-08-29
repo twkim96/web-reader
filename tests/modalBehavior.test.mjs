@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 
 import { ConfirmDialog } from '../src/components/ConfirmDialog.tsx';
+import { LoginDisclosureModal } from '../src/components/LoginDisclosureModal.tsx';
 import { ReaderModalFrame } from '../src/components/reader/ReaderModalFrame.tsx';
 import { MenuSheetHeader } from '../src/components/MenuSheetHeader.tsx';
 
@@ -173,7 +174,6 @@ test('mobile menu sheets use a floating height-bounded themed surface', async ()
 
 test('uses the shared themed close surface in modal headers with custom markup', async () => {
   const sources = await Promise.all([
-    readFile(new URL('../src/components/LoginDisclosureModal.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/reader/AnnotationNoteDialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/reader/TranslationDialog.tsx', import.meta.url), 'utf8'),
   ]);
@@ -181,6 +181,33 @@ test('uses the shared themed close surface in modal headers with custom markup',
   for (const source of sources) {
     assert.match(source, /aria-label="[^"]*닫기"[\s\S]*?className="[^"]*app-modal-close/);
   }
+});
+
+test('puts the privacy disclosure close control first in the shared themed header', async () => {
+  const window = installDom();
+  const root = createRoot(window.document.querySelector('#root'));
+
+  await act(async () => {
+    root.render(React.createElement(LoginDisclosureModal, {
+      theme,
+      mode: 'firebase',
+      themeBackgroundColor: '#111111',
+      onClose: () => undefined,
+      onConfirm: () => undefined,
+    }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  const header = window.document.querySelector('[data-modal-header="login-disclosure"]');
+  const closeButton = header?.firstElementChild;
+  assert.equal(closeButton?.getAttribute('data-menu-sheet-close'), 'true');
+  assert.equal(closeButton?.getAttribute('aria-label'), '로그인 안내 닫기');
+  assert.ok(closeButton?.classList.contains('app-modal-close'));
+  assert.ok(closeButton?.classList.contains('rounded-full'));
+  assert.equal(header?.querySelector('h2')?.id, 'login-disclosure-title');
+  assert.ok(header?.querySelector('[data-login-disclosure-icon="true"]'));
+
+  await act(async () => root.unmount());
 });
 
 test('uses the shared menu sheet material for reader percentage jumps', async () => {
