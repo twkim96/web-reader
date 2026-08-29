@@ -4,10 +4,11 @@ import { ThemeClasses } from '../../types';
 
 interface EmptyStateProps {
   searchKeyword: string;
+  activeFilterCount: number;
   isOfflineMode: boolean;
   isGuest: boolean;
   theme: ThemeClasses;
-  onClearSearch: () => void;
+  onClearFilters: () => void;
   onToggleCloud: () => void;
   onLogin: () => void;
   onShowImportConfirm: () => void;
@@ -18,10 +19,11 @@ interface EmptyStateProps {
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
   searchKeyword,
+  activeFilterCount,
   isOfflineMode,
   isGuest,
   theme,
-  onClearSearch,
+  onClearFilters,
   onToggleCloud,
   onLogin,
   onShowImportConfirm,
@@ -30,20 +32,29 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   sampleBookFeedback,
 }) => {
   const linkClass = 'inline border-0 bg-transparent p-0 font-semibold text-accent-500 underline decoration-1 underline-offset-4 transition-opacity hover:opacity-100 disabled:cursor-wait disabled:opacity-45';
+  const hasActiveShelfQuery = Boolean(searchKeyword) || activeFilterCount > 0;
+  const activeQueryDescription = [
+    searchKeyword ? `“${searchKeyword}”` : '',
+    activeFilterCount > 0 ? `필터 ${activeFilterCount}개` : '',
+  ].filter(Boolean).join(' · ');
 
   return (
     <div data-empty-shelf-panel="true" className="flex min-h-[60dvh] flex-col items-center justify-center px-6 py-24 text-center">
-      {searchKeyword ? (
+      {hasActiveShelfQuery ? (
         <>
           <div className={`p-8 ${theme.secondary} rounded-[2rem] opacity-60`}>
             <XCircle size={64} />
           </div>
           <div className="space-y-2">
             <h3 className="text-xl font-bold">검색 결과가 없습니다</h3>
-            <p className="opacity-60 text-sm">&ldquo;{searchKeyword}&rdquo;</p>
+            <p data-empty-shelf-filter-description="true" className="opacity-60 text-sm">
+              {activeQueryDescription}
+            </p>
           </div>
-          <button 
-            onClick={onClearSearch} 
+          <button
+            type="button"
+            data-empty-shelf-clear-filter="true"
+            onClick={onClearFilters}
             className="app-control-radius-lg px-8 py-3 bg-accent-600 text-white font-bold text-xs uppercase hover:bg-accent-500 transition-all"
           >
             전체 목록 보기

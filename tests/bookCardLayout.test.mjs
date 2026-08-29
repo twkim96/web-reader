@@ -276,13 +276,19 @@ test('maps non-reader controls to an optical radius scale and keeps exclusions e
     .forEach((source) => assert.match(source, /app-radius-exempt/));
 });
 
-const renderEmptyState = ({ isGuest, isOfflineMode }) => {
+const renderEmptyState = ({
+  isGuest,
+  isOfflineMode,
+  searchKeyword = '',
+  activeFilterCount = 0,
+}) => {
   const html = renderToStaticMarkup(React.createElement(EmptyState, {
-    searchKeyword: '',
+    searchKeyword,
+    activeFilterCount,
     isGuest,
     isOfflineMode,
     theme: props.theme,
-    onClearSearch: () => undefined,
+    onClearFilters: () => undefined,
     onToggleCloud: () => undefined,
     onLogin: () => undefined,
     onShowImportConfirm: () => undefined,
@@ -292,6 +298,39 @@ const renderEmptyState = ({ isGuest, isOfflineMode }) => {
   }));
   return parseHTML(html).document;
 };
+
+test('treats active shelf filters as a filtered empty result without a keyword', () => {
+  const filtered = renderEmptyState({
+    isGuest: false,
+    isOfflineMode: true,
+    activeFilterCount: 2,
+  });
+
+  assert.equal(filtered.querySelector('h3')?.textContent, '검색 결과가 없습니다');
+  assert.equal(
+    filtered.querySelector('[data-empty-shelf-filter-description="true"]')?.textContent,
+    '필터 2개',
+  );
+  assert.equal(
+    filtered.querySelector('[data-empty-shelf-clear-filter="true"]')?.textContent.trim(),
+    '전체 목록 보기',
+  );
+  assert.equal(filtered.querySelector('[data-empty-shelf-heading="true"]'), null);
+});
+
+test('exposes one shelf clear action for search, tags, genres, and sources while preserving sort', async () => {
+  const shelfSource = await readFile(new URL('../src/components/shelf/index.tsx', import.meta.url), 'utf8');
+  const clearShelfQuery = shelfSource.match(/const clearShelfQuery = useCallback\(\(\) => \{[\s\S]*?\n  \}, \[\]\);/)?.[0] ?? '';
+
+  assert.match(shelfSource, /const activeFilterCount = getActiveShelfFilterCount\(filters\);/);
+  assert.match(shelfSource, /const hasActiveShelfQuery = Boolean\(searchKeyword\) \|\| activeFilterCount > 0;/);
+  assert.match(shelfSource, /\{hasActiveShelfQuery && \([\s\S]*?data-shelf-clear-filter="true"/);
+  assert.match(clearShelfQuery, /setSearchKeyword\(''\);/);
+  assert.match(clearShelfQuery, /setFilters\(\{/);
+  assert.doesNotMatch(clearShelfQuery, /setSortMode/);
+  assert.match(shelfSource, /activeFilterCount=\{activeFilterCount\}/);
+  assert.match(shelfSource, /onClearFilters=\{clearShelfQuery\}/);
+});
 
 test('uses distinct flat empty-shelf actions for guest, Firebase-only, and Drive states', () => {
   const guest = renderEmptyState({ isGuest: true, isOfflineMode: true });

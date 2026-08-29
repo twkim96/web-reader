@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.35 UI follow-up: align privacy and search actions with the selected menu material.
+// 1.8.35 UI follow-up: keep one clear action visible for search and active shelf filters.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.35`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

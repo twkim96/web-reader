@@ -119,6 +119,8 @@ export const Shelf: React.FC<ShelfProps> = ({
   const catalog = usePublicBookCatalog(books);
   const { offlineIds, refreshOfflineBookIds } = useOfflineBookIds(books);
   const preparedBooks = usePreparedShelfBooks(books, progress, catalog.booksById);
+  const activeFilterCount = getActiveShelfFilterCount(filters);
+  const hasActiveShelfQuery = Boolean(searchKeyword) || activeFilterCount > 0;
   const filteredBooks = useFilteredBooks(
     preparedBooks,
     searchKeyword,
@@ -158,6 +160,15 @@ export const Shelf: React.FC<ShelfProps> = ({
   );
   const hasMoreBooks = effectiveVisibleCount < filteredBooks.length;
   const coverUrls = useShelfBookCovers(visibleBooks);
+
+  const clearShelfQuery = useCallback(() => {
+    setSearchKeyword('');
+    setFilters({
+      sources: [...EMPTY_SHELF_FILTERS.sources],
+      genreIds: [...EMPTY_SHELF_FILTERS.genreIds],
+      tagIds: [...EMPTY_SHELF_FILTERS.tagIds],
+    });
+  }, []);
 
   const loadMoreBooks = useCallback(() => {
     if (loadMorePendingRef.current) {
@@ -358,7 +369,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         userEmail={userEmail}
         searchKeyword={searchKeyword}
         sortMode={sortMode}
-        activeFilterCount={getActiveShelfFilterCount(filters)}
+        activeFilterCount={activeFilterCount}
         viewMode={viewMode}
         dockStyle={settings.shelfDockStyle}
         onToggleCloud={onToggleCloud}
@@ -386,20 +397,41 @@ export const Shelf: React.FC<ShelfProps> = ({
         onCloudAuthExpired={handleCloudAuthExpired}
       />
 
-      {searchKeyword && (
-        <div className="max-w-7xl mx-auto px-6 pt-4 pb-0">
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <span className="text-accent-400 font-bold">&quot;{searchKeyword}&quot;</span>
-            <span>검색 결과</span>
+      {hasActiveShelfQuery && (
+        <div
+          data-shelf-results-summary="true"
+          data-shelf-active-filter-count={activeFilterCount}
+          className="max-w-7xl mx-auto px-6 pt-4 pb-0"
+        >
+          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+            {searchKeyword ? (
+              <>
+                <span className="text-accent-400 font-bold">&quot;{searchKeyword}&quot;</span>
+                <span>검색 결과</span>
+              </>
+            ) : (
+              <span className="text-accent-400 font-bold">필터 결과</span>
+            )}
+            {activeFilterCount > 0 && (
+              <span
+                data-shelf-active-filters="true"
+                className="rounded-md bg-accent-500/10 px-2 py-0.5 text-xs font-bold text-accent-400"
+              >
+                필터 {activeFilterCount}개
+              </span>
+            )}
             <span className="bg-white/10 px-2 py-0.5 rounded-md text-xs font-bold text-white">
               {filteredBooks.length}
             </span>
             <span className="text-xs">
               {visibleBooks.length}개 표시
             </span>
-            <button 
-              onClick={() => setSearchKeyword('')} 
-              className="ml-auto text-xs font-bold text-slate-500 hover:text-white uppercase tracking-wider"
+            <button
+              type="button"
+              data-shelf-clear-filter="true"
+              aria-label="검색 및 필터 초기화"
+              onClick={clearShelfQuery}
+              className="ml-auto whitespace-nowrap text-xs font-bold text-slate-500 hover:text-white uppercase tracking-wider"
             >
               Clear Filter
             </button>
@@ -436,10 +468,11 @@ export const Shelf: React.FC<ShelfProps> = ({
         ) : (
           <EmptyState 
             searchKeyword={searchKeyword}
+            activeFilterCount={activeFilterCount}
             isOfflineMode={isOfflineMode}
             isGuest={isGuest}
             theme={theme}
-            onClearSearch={() => setSearchKeyword('')}
+            onClearFilters={clearShelfQuery}
             onToggleCloud={onToggleCloud}
             onLogin={onLogin}
             onShowImportConfirm={() => handleShowImportConfirm(true)}
