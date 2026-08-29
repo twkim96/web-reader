@@ -213,3 +213,31 @@ test('drops snapshots queued behind a failed subscription generation', async () 
   await flushTasks();
   assert.deepEqual(calls, ['first', 'fresh']);
 });
+
+test('does not rebind timer adapters while disposing a pending retry', () => {
+  let listenerError;
+  let clearCalls = 0;
+  const controller = new SnapshotListenerRecovery({
+    subscribe(_onSnapshot, onError) {
+      listenerError = onError;
+      return () => undefined;
+    },
+    onSnapshot: () => undefined,
+    isAuthoritative: () => true,
+    onHealthChange: () => undefined,
+    setTimer: function setTimer() {
+      assert.equal(this, undefined);
+      return 1;
+    },
+    clearTimer: function clearTimer() {
+      assert.equal(this, undefined);
+      clearCalls += 1;
+    },
+  });
+
+  controller.start();
+  listenerError({ code: 'unavailable' });
+  controller.dispose();
+  controller.dispose();
+  assert.equal(clearCalls, 1);
+});

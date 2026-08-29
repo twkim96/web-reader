@@ -68,3 +68,28 @@ test('keeps fallback polling alive when health refresh fails', async () => {
   assert.equal(harness.takeOnlyTimer().delay, 30_000);
   controller.dispose();
 });
+
+test('does not rebind timer adapters and disposes an active timer only once', () => {
+  let nextTimerId = 1;
+  let clearCalls = 0;
+  const controller = new ProgressSyncPumpController({
+    poll: async () => 30_000,
+    refreshHealth: async () => undefined,
+    reportHealthError: () => undefined,
+    isOnline: () => true,
+    isVisible: () => true,
+    setTimer: function setTimer() {
+      assert.equal(this, undefined);
+      return nextTimerId++;
+    },
+    clearTimer: function clearTimer() {
+      assert.equal(this, undefined);
+      clearCalls += 1;
+    },
+  });
+
+  controller.request();
+  controller.dispose();
+  controller.dispose();
+  assert.equal(clearCalls, 1);
+});

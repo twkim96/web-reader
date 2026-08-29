@@ -1,6 +1,6 @@
 importScripts('/sw-policy.js');
 
-// 1.8.35: stabilize logout and the first Drive OAuth callback across app contexts.
+// 1.8.35 hotfix: keep owner cleanup timer callbacks receiver-safe during logout.
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.35`;
 const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];

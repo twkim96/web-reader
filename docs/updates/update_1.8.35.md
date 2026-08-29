@@ -2,7 +2,7 @@
 
 작성일: 2026-08-29
 
-상태: 개발 완료 · 실사용 확인 대기
+상태: 2차 수정 자동검증 완료 · 실사용 재확인 대기
 
 기준 커밋: `bfea3e7`
 
@@ -26,7 +26,10 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 
 - 1.8.34가 적용된 설치형 앱에서도 로그아웃 중 브라우저의 `This page couldn’t load` 화면이 노출됐다.
 - 구버전 PWA 잔존을 원인으로 확정하지 않는다.
-- 현재 로그아웃 경로에 남아 있는 `window.history.replaceState()`를 제거해 인증 상태 변경과 URL 수명주기를 완전히 분리한다.
+- 1차 패치 `d3d15b3`에서 `window.history.replaceState()`를 제거했지만 실제 로그아웃에서 같은 화면이 재현됐다. URL 탐색 가설은 직접 원인이 아니었다.
+- 실제 화면은 브라우저 네트워크 오류 문서가 아니라 Next.js가 앱 루트에 렌더링한 전역 오류 fallback이었다.
+- 콘솔은 `OwnerRuntime` 정리 중 `ProgressSyncPumpController.dispose()`가 `TypeError: Illegal invocation`을 던졌음을 가리켰다.
+- pump가 브라우저 `clearTimeout`을 인스턴스 메서드처럼 다시 바인딩했고, owner 정리 뒤 React effect cleanup이 같은 비멱등 disposer를 다시 호출하면서 오류가 전역 경계까지 전파됐다.
 
 ### 첫 Drive 연결의 `state` 검증 실패
 
@@ -55,7 +58,7 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 
 ## Phase 3 — 로그아웃 문서 수명주기 분리
 
-상태: 완료
+상태: 1차 수정 완료 · 직접 원인 아님
 
 - Firebase `signOut()` 전후에 `location`·`history` 기반 이동을 하지 않는다.
 - guest owner 활성화와 로컬 책장 복원은 기존 `onAuthStateChanged` 단일 경로가 계속 담당한다.
@@ -70,6 +73,16 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 - 로그아웃 경로에 `window.location`과 `window.history` 이동이 없음을 검증한다.
 - `npm run test:drive`, `npm run test:shelf`, `npm run test:release`, `npm run check`를 통과한다.
 
+## Phase 5 — owner cleanup disposer 안정화
+
+상태: 2차 수정 자동검증 완료
+
+- sync pump의 timer adapter를 closure로 호출해 브라우저 함수에 잘못된 receiver를 전달하지 않는다.
+- pump dispose는 첫 호출에서 timer handle을 먼저 비우고, 이후 호출은 아무 작업 없이 끝나는 멱등 연산으로 만든다.
+- 같은 timer adapter 패턴을 쓰는 snapshot listener recovery도 동일하게 보정한다.
+- receiver 재바인딩 금지와 pending timer 일회 해제를 집중 회귀로 고정한다.
+- 같은 1.8.35 안에서 서비스워커 script 내용도 갱신해 설치형 앱이 2차 수정 배포를 감지하게 한다.
+
 ## 완료 조건
 
 - Firebase 로그인 뒤 첫 Drive 연결이 별도 재시도 없이 완료된다.
@@ -80,11 +93,14 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 
 ## 검증 결과
 
-상태: 자동검증 완료 · 실사용 확인 대기
+상태: 2차 수정 자동검증 완료 · 실사용 재확인 대기
 
+- 1차 실사용 검증: 실패. `d3d15b3` 적용 뒤에도 로그아웃 시 같은 오류 화면 재현.
+- 브라우저 실측: URL은 `/`에 유지됐고 Next.js 오류 fallback과 `ProgressSyncPumpController.dispose()`의 `TypeError: Illegal invocation` 스택 확인.
+- timer receiver·멱등 disposer·로그아웃 집중 회귀: 16개 통과
 - `npm run test:drive`: 56개 통과
 - `npm run test:shelf`: 121개 통과
 - `npm run test:release`: 3개 통과
-- `npm run check`: lint 오류 0건(기존 경고 4건), TypeScript, 전체 Node/Python 회귀, Next.js production build 통과
+- 2차 수정 `npm run check`: lint 오류 0건(기존 경고 4건), TypeScript, 전체 Node/Python 회귀, Next.js production build 통과
 - 코드·테스트 런타임 영역에 남은 `1.8.34` 버전 참조 없음
-- 실제 계정의 로그아웃 → Firebase 재로그인 → 첫 Drive 연결은 현재 로그인 세션을 끊지 않기 위해 자동검증에서 제외했다. 이 1회차 실사용 확인 뒤 완료 조건을 최종 승인한다.
+- 배포 뒤 실제 계정의 로그아웃 → Firebase 재로그인 → 첫 Drive 연결을 다시 확인하고 완료 조건을 최종 승인한다.

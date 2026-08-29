@@ -66,9 +66,17 @@ export class SnapshotListenerRecovery<T> {
   private readonly now;
 
   constructor(private readonly options: SnapshotListenerRecoveryOptions<T>) {
-    this.setTimer = options.setTimer ?? ((callback, delay) => setTimeout(callback, delay));
-    this.clearTimer = options.clearTimer ?? clearTimeout;
-    this.now = options.now ?? Date.now;
+    const customSetTimer = options.setTimer;
+    const customClearTimer = options.clearTimer;
+    const customNow = options.now;
+    this.setTimer = (callback: () => void, delay: number) => (
+      customSetTimer ? customSetTimer(callback, delay) : setTimeout(callback, delay)
+    );
+    this.clearTimer = (timer: TimerHandle) => {
+      if (customClearTimer) customClearTimer(timer);
+      else clearTimeout(timer);
+    };
+    this.now = () => customNow ? customNow() : Date.now();
   }
 
   start() {
@@ -218,8 +226,9 @@ export class SnapshotListenerRecovery<T> {
 
   private clearRetryTimer() {
     if (this.retryTimer === undefined) return;
-    this.clearTimer(this.retryTimer);
+    const timer = this.retryTimer;
     this.retryTimer = undefined;
+    this.clearTimer(timer);
   }
 
   private detachSubscription() {
