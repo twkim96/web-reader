@@ -272,7 +272,10 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
 });
 
 test('uses compact square theme and menu-style previews with custom-only accent controls', async () => {
-  const themeSource = await readFile(new URL('../src/components/ThemeModal.tsx', import.meta.url), 'utf8');
+  const [themeSource, constantsSource] = await Promise.all([
+    readFile(new URL('../src/components/ThemeModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/lib/constants.ts', import.meta.url), 'utf8'),
+  ]);
 
   assert.match(themeSource, /\['light', '라이트'\][\s\S]*?\['sepia', '세피아'\][\s\S]*?\['dark', '다크'\][\s\S]*?\['midnight', '자정'\]/);
   assert.match(themeSource, /data-theme-list-scroll="true"[^>]*grid-cols-4/);
@@ -284,5 +287,8 @@ test('uses compact square theme and menu-style previews with custom-only accent 
   assert.doesNotMatch(themeSource, />Theme Title<|>Texture</);
   assert.match(themeSource, />테마 이름<|>질감</);
   assert.match(themeSource, /data-custom-theme-accent-picker="true"[\s\S]*?ACCENT_COLORS\.map/);
+  assert.match(themeSource, /data-custom-theme-accent-picker="true"[\s\S]*?flex flex-wrap gap-3[\s\S]*?size-6 shrink-0 rounded-full/);
   assert.match(themeSource, /accentColor:\s*form\.accentColor/);
+  assert.match(constantsSource, /emerald:\s*\{[^}]*500:\s*'#5C6F5C'/);
+  assert.match(constantsSource, /sky:\s*\{[^}]*500:\s*'#5B7B94'/);
 });

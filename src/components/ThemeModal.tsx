@@ -200,7 +200,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
           <div data-custom-theme-accent-picker="true">
             <p className="mb-2 text-[10px] font-bold uppercase tracking-widest opacity-40">포인트 색상</p>
-            <div className="grid grid-cols-6 gap-2">
+            <div className="flex flex-wrap gap-3">
               {ACCENT_COLORS.map((color) => {
                 const selected = form.accentColor === color;
                 return (
@@ -210,7 +210,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                     aria-label={`${color} 포인트 색상`}
                     aria-pressed={selected}
                     onClick={() => setForm((prev) => ({ ...prev, accentColor: color }))}
-                    className={`aspect-square rounded-full border-2 border-transparent transition-transform active:scale-90 ${selected ? 'outline outline-2 outline-offset-2 outline-current' : 'opacity-55 hover:opacity-100'}`}
+                    className={`size-6 shrink-0 rounded-full border-2 border-transparent transition-transform active:scale-90 ${selected ? 'outline outline-2 outline-offset-1 outline-current' : 'opacity-55 hover:opacity-100'}`}
                     style={{ backgroundColor: ACCENT_PALETTE[color]?.[500] || ACCENT_PALETTE.rose[500] }}
                   />
                 );

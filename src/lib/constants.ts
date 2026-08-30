@@ -56,8 +56,8 @@ export const BUILT_IN_THEME_ACCENTS: Record<string, string> = {
 export const ACCENT_PALETTE: Record<string, { 400: string; 500: string; 600: string }> = {
   indigo: { 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5' },
   rose: { 400: '#fb7185', 500: '#f43f5e', 600: '#e11d48' },
-  emerald: { 400: '#34d399', 500: '#10b981', 600: '#059669' },
+  emerald: { 400: '#7d8c7d', 500: '#5C6F5C', 600: '#4b5b4b' },
   amber: { 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706' },
-  sky: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7' },
+  sky: { 400: '#7c95a9', 500: '#5B7B94', 600: '#4b6579' },
   yellow: { 400: '#fbdf7e', 500: '#d4af37', 600: '#9a7b0c' },
 };
