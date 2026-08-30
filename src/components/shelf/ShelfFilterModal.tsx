@@ -129,10 +129,10 @@ export const ShelfFilterModal: React.FC<Props> = ({
     draftFilters,
   ).length, [books, draftFilters, draftSort]);
   const catalogReady = catalogState === 'ready' && Boolean(catalog);
-  const chip = (active: boolean) => `app-tag-radius border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
+  const chip = (active: boolean) => `app-menu-sheet-section app-menu-sheet-chip app-tag-radius border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
     active
       ? 'border-accent-500 bg-accent-500 text-white'
-      : `${theme.border} bg-black/5 hover:border-accent-500/50 dark:bg-white/5`
+      : `${theme.border} hover:border-accent-500/50`
   }`;
 
   return (
@@ -166,10 +166,10 @@ export const ShelfFilterModal: React.FC<Props> = ({
                   aria-pressed={draftSort === id}
                   disabled={id === 'popularity' && !catalogReady}
                   onClick={() => setDraftSort(id)}
-                  className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1.5 text-[10px] font-bold transition-colors disabled:opacity-35 sm:min-h-16 sm:flex-col sm:px-2 sm:text-[11px] ${
+                  className={`app-menu-sheet-section app-menu-sheet-choice flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1.5 text-[10px] font-bold transition-colors disabled:opacity-35 sm:min-h-16 sm:flex-col sm:px-2 sm:text-[11px] ${
                     draftSort === id
                       ? 'border-accent-500 bg-accent-500/12 text-accent-500'
-                      : `${theme.border} bg-black/5 dark:bg-white/5`
+                      : theme.border
                   }`}
                 >
                   <Icon className="size-4 shrink-0 sm:size-[17px]" />
@@ -277,7 +277,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
                   current,
                   shelfPopularTags.length,
                 ))}
-                className={`mt-2 flex min-h-9 w-full items-center justify-center gap-1 rounded-xl border ${theme.border} text-[11px] font-bold opacity-65 hover:opacity-100 sm:min-h-10 sm:text-xs`}
+                className={`app-menu-sheet-section mt-2 flex min-h-9 w-full items-center justify-center gap-1 rounded-xl border ${theme.border} text-[11px] font-bold opacity-65 hover:opacity-100 sm:min-h-10 sm:text-xs`}
               >
                 <ChevronDown size={15} /> 태그 15개 더보기
               </button>
@@ -285,7 +285,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
           </section>
 
           {catalogState !== 'ready' && (
-            <div className={`rounded-xl border ${theme.border} p-3 text-xs`} role="status">
+            <div className={`app-menu-sheet-section rounded-xl border ${theme.border} p-3 text-xs`} role="status">
               {catalogState === 'loading' ? (
                 <span className="flex items-center gap-2 opacity-60">
                   <LoaderCircle size={15} className="animate-spin" /> 카탈로그를 불러오는 중…

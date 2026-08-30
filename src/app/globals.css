@@ -405,6 +405,14 @@ html[data-viewer-menu-style='glass'] .app-menu-sheet-section {
     inset 0 -1px 0 rgba(0, 0, 0, 0.08);
 }
 
+.app-menu-sheet-section.app-menu-sheet-chip[aria-pressed='true'] {
+  background-color: var(--accent-500, var(--color-sky-500)) !important;
+}
+
+.app-menu-sheet-section.app-menu-sheet-choice[aria-pressed='true'] {
+  background-color: color-mix(in srgb, var(--accent-500, var(--color-sky-500)) 12%, transparent) !important;
+}
+
 html[data-viewer-menu-style='glass'] .app-modal-close {
   border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
   background-color: color-mix(in srgb, var(--viewer-theme-bg) 34%, transparent) !important;
