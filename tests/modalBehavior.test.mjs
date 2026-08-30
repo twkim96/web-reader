@@ -277,8 +277,8 @@ test('uses compact square theme and menu-style previews with custom-only accent 
   assert.match(themeSource, /\['light', '라이트'\][\s\S]*?\['sepia', '세피아'\][\s\S]*?\['dark', '다크'\][\s\S]*?\['midnight', '자정'\]/);
   assert.match(themeSource, /data-theme-list-scroll="true"[^>]*grid-cols-4/);
   assert.match(themeSource, /data-theme-option=\{key\}[\s\S]*?aspect-square[\s\S]*?>Aa</);
-  assert.match(themeSource, />메뉴 스타일<\/p>[\s\S]*?grid-cols-3/);
-  assert.match(themeSource, /data-shelf-dock-style-option=\{value\}[\s\S]*?aspect-square[\s\S]*?data-menu-style-texture-preview="true"/);
+  assert.match(themeSource, />메뉴 스타일<\/p>[\s\S]*?grid-cols-4/);
+  assert.match(themeSource, /data-shelf-dock-style-option=\{value\}[\s\S]*?aspect-square[\s\S]*?data-menu-style-texture-preview="true"[^>]*w-\[90%\]/);
   assert.doesNotMatch(themeSource, /메뉴 스타일 · 책장 \/ 리더|Point Color/);
   assert.doesNotMatch(themeSource, />Theme Title<|>Texture</);
   assert.match(themeSource, />테마 이름<|>질감</);

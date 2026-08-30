@@ -367,7 +367,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 
         <div className="mb-6">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-widest opacity-40">메뉴 스타일</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {([
               ['standard', '표준'],
               ['glass', '글래스'],
@@ -387,7 +387,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                   onClick={() => onUpdateSettings({ shelfDockStyle: value })}
                   className={`relative flex aspect-square min-w-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-[14px] border p-2 text-center text-[color:var(--viewer-theme-text)] transition-all active:scale-95 ${previewClass}`}
                 >
-                  <span data-menu-style-texture-preview="true" className="relative z-[1] flex h-9 w-full items-end justify-center gap-1 overflow-hidden rounded-lg border border-current/10 bg-current/5 px-2 py-1.5">
+                  <span data-menu-style-texture-preview="true" className="relative z-[1] flex h-9 w-[90%] items-end justify-center gap-1 overflow-hidden rounded-lg border border-current/10 bg-current/5 px-2 py-1.5">
                     <span className="h-2.5 w-1 rounded-full bg-current opacity-30" />
                     <span className="h-4 w-1 rounded-full bg-current opacity-55" />
                     <span className="h-3 w-1 rounded-full bg-current opacity-40" />
