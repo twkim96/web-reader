@@ -523,7 +523,7 @@ html[data-viewer-menu-style='glass'] .app-modal-close {
 .viewer-cime-glass .shelf-glass-contrast-icon svg {
   filter:
     drop-shadow(0 1px 0 var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58)))
-    drop-shadow(0 -1px 0 var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58)));
+    drop-shadow(0 -1px 0 var(--viewer-shelf-glass-ink-edge-opposite, var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58))));
 }
 
 .viewer-cime-glass::before,

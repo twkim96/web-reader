@@ -197,7 +197,7 @@ test('keeps the glass dock low-blur while stabilizing its background and icon co
 
   assert.match(globals, /\.viewer-cime-glass\s*\{[\s\S]*?background-color:\s*var\(--viewer-shelf-glass-surface/);
   assert.match(globals, /backdrop-filter:\s*blur\(4px\) saturate\(90%\) contrast\(82%\)/);
-  assert.match(globals, /\.viewer-cime-glass \.shelf-glass-contrast-icon svg[\s\S]*?drop-shadow/);
+  assert.match(globals, /\.viewer-cime-glass \.shelf-glass-contrast-icon svg[\s\S]*?drop-shadow[\s\S]*?--viewer-shelf-glass-ink-edge-opposite/);
   assert.match(shelfHeaderSource, /viewer-cime-glass border text-\[color:var\(--viewer-shelf-glass-ink\)\]/);
   assert.match(shelfHeaderSource, /bottomDockButtonClass = `\$\{bottomDockButtonBaseClass\} shelf-glass-contrast-icon`/);
   assert.doesNotMatch(shelfHeaderSource, /viewer-cime-glass border text-\[color:var\(--viewer-theme-text\)\]/);

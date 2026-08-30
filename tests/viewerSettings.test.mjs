@@ -81,10 +81,12 @@ test('derives dedicated low-blur glass contrast tokens from theme luminance', ()
 
   assert.equal(light['--viewer-shelf-glass-surface'], 'rgba(255, 255, 255, 0.24)');
   assert.equal(light['--viewer-shelf-glass-ink'], 'rgba(20, 21, 23, 0.88)');
-  assert.equal(light['--viewer-shelf-glass-ink-edge'], 'rgba(255, 255, 255, 0.58)');
+  assert.equal(light['--viewer-shelf-glass-ink-edge'], 'rgba(255, 255, 255, 0.18)');
+  assert.equal(light['--viewer-shelf-glass-ink-edge-opposite'], 'transparent');
   assert.equal(midnight['--viewer-shelf-glass-surface'], 'rgba(20, 21, 23, 0.24)');
   assert.equal(midnight['--viewer-shelf-glass-ink'], 'rgba(245, 246, 248, 0.90)');
-  assert.equal(midnight['--viewer-shelf-glass-ink-edge'], 'rgba(0, 0, 0, 0.58)');
+  assert.equal(midnight['--viewer-shelf-glass-ink-edge'], 'rgba(0, 0, 0, 0.18)');
+  assert.equal(midnight['--viewer-shelf-glass-ink-edge-opposite'], 'transparent');
 });
 
 test('pins built-in accents and stores accent choices only on custom themes', () => {
