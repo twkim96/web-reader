@@ -317,7 +317,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {!isFixedLayout && (
-            <div className={`overflow-hidden rounded-2xl border ${theme.border}`}>
+            <div className={`app-menu-sheet-section overflow-hidden rounded-2xl border ${theme.border}`}>
               <button
                 type="button"
                 aria-expanded={showLanguageTools}
@@ -419,7 +419,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {!isFixedLayout && (
-            <div className={`overflow-hidden rounded-2xl border ${theme.border}`}>
+            <div className={`app-menu-sheet-section overflow-hidden rounded-2xl border ${theme.border}`}>
               <button
                 type="button"
                 aria-expanded={showAnnotationPalette}

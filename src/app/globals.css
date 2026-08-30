@@ -199,7 +199,8 @@ body:has(
   background-color: transparent !important;
 }
 
-.app-menu-sheet-action {
+.app-menu-sheet-action,
+.app-menu-sheet-section {
   background-color: color-mix(in srgb, var(--viewer-theme-text) 7%, transparent) !important;
 }
 
@@ -394,7 +395,8 @@ html[data-viewer-menu-style='glass'] .app-search-results-action {
   backdrop-filter: blur(4.2px) saturate(90%) contrast(82%);
 }
 
-html[data-viewer-menu-style='glass'] .app-menu-sheet-action {
+html[data-viewer-menu-style='glass'] .app-menu-sheet-action,
+html[data-viewer-menu-style='glass'] .app-menu-sheet-section {
   border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent) !important;
   background-color: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent) !important;
   box-shadow:

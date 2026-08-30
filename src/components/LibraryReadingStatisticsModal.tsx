@@ -480,7 +480,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
             <>
               <div className="grid grid-cols-3 gap-1.5">
                 {(['today', 'week', 'month'] as const).map((value) => (
-                  <div key={value} data-reading-statistics-headline={value} className={`min-w-0 rounded-xl border ${theme.border} px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}>
+                  <div key={value} data-reading-statistics-headline={value} className={`app-menu-sheet-section min-w-0 rounded-xl border ${theme.border} px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}>
                     <div className="text-[10px] font-bold opacity-50">{rangeLabels.find((item) => item.value === value)?.label}</div>
                     <div className="mt-0.5 truncate text-xs font-black sm:text-base">{formatReadingDuration(headlineTotals[value])}</div>
                   </div>
@@ -503,11 +503,11 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               </div>
 
               <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
+                <div className={`app-menu-sheet-section rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Monitor size={14} /> 화면 독서</div>
                   <div data-reading-statistics-mode-total="screen" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.screenMs)}</div>
                 </div>
-                <div className={`rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
+                <div className={`app-menu-sheet-section rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Headphones size={14} /> TTS 듣기</div>
                   <div data-reading-statistics-mode-total="tts" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.ttsMs)}</div>
                 </div>
@@ -539,7 +539,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
               <div className="mt-2 min-w-0 grid gap-1.5">
                 {visibleBookRounds.length === 0 ? (
-                  <div className={`rounded-2xl border ${theme.border} py-12 text-center text-sm opacity-45`}>아직 기록된 독서 시간이 없습니다.</div>
+                  <div className={`app-menu-sheet-section rounded-2xl border ${theme.border} py-12 text-center text-sm opacity-45`}>아직 기록된 독서 시간이 없습니다.</div>
                 ) : visibleBookRounds.map((book) => {
                   const rowKey = `${book.bookId}:${book.roundNumber}`;
                   const completionExpanded = expandedCompletionRows.has(rowKey);
@@ -570,7 +570,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                         sourceSessionIds: book.sourceSessionIds,
                       });
                     }}
-                    className={`min-w-0 touch-manipulation select-none overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}
+                    className={`app-menu-sheet-section min-w-0 touch-manipulation select-none overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}
                   >
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">

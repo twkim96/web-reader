@@ -155,7 +155,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                   <button
                     type="button"
                     onClick={() => onJump(bookmark.cfi, bookmark.progressPercent)}
-                    className="flex w-full gap-2.5 overflow-hidden rounded-xl border border-white/5 bg-white/5 p-2.5 pr-12 text-left transition-transform hover:bg-white/10 active:scale-95"
+                    className="app-menu-sheet-section flex w-full gap-2.5 overflow-hidden rounded-xl border border-white/5 p-2.5 pr-12 text-left transition-transform hover:brightness-110 active:scale-95"
                   >
                     <div className={`w-1.5 self-stretch rounded-full ${bookmark.color}`} />
                     <div className="min-w-0 flex-1">
@@ -201,7 +201,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 type="button"
                 key={bookmark.id}
                 onClick={() => onJump(bookmark.cfi, bookmark.progressPercent)}
-                className="flex w-full gap-2.5 rounded-xl border border-white/5 bg-white/5 p-2.5 text-left transition-transform hover:bg-white/10 active:scale-95"
+                className="app-menu-sheet-section flex w-full gap-2.5 rounded-xl border border-white/5 p-2.5 text-left transition-transform hover:brightness-110 active:scale-95"
               >
                 <div className="w-1.5 self-stretch rounded-full bg-slate-500" />
                 <div className="min-w-0 flex-1">

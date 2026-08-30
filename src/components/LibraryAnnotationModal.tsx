@@ -423,7 +423,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
                   <article
                     key={`${annotation.bookId}:${annotation.id}`}
                     data-library-annotation-item={annotation.id}
-                    className={`min-w-0 overflow-hidden rounded-xl border px-2.5 py-2 ${theme.border}`}
+                    className={`app-menu-sheet-section min-w-0 overflow-hidden rounded-xl border px-2.5 py-2 ${theme.border}`}
                   >
                     <div className="flex items-start gap-2">
                       <span className="mt-1 size-3 shrink-0 rounded-full" style={{ backgroundColor: color.color }} />

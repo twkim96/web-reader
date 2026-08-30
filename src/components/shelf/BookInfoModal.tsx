@@ -437,7 +437,7 @@ export const BookInfoModal: React.FC<Props> = ({
                 { icon: Clock3, label: '읽은 시간', value: formatBookReadingTime(readingTimeMs) },
                 { icon: CalendarClock, label: '최근 독서', value: formatLastRead(progress?.lastRead) },
               ].map(({ icon: Icon, label, value }) => (
-                <div key={label} className={`min-w-0 rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
+                <div key={label} className={`app-menu-sheet-section min-w-0 rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
                   <dt className="flex items-center gap-1 text-[10px] font-bold opacity-45"><Icon size={12} />{label}</dt>
                   <dd
                     data-book-info-value={label === '읽은 시간' ? 'reading-time' : undefined}
@@ -449,7 +449,7 @@ export const BookInfoModal: React.FC<Props> = ({
               ))}
             </dl>
 
-            <div className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}>
+            <div className={`app-menu-sheet-section mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}>
               <div className="flex items-center justify-between gap-3 text-xs font-bold">
                 <span className="opacity-55">읽기 진행률</span>
                 <strong className="text-accent-500">{progressPercent.toFixed(1)}%</strong>
@@ -461,7 +461,7 @@ export const BookInfoModal: React.FC<Props> = ({
 
             <section
               data-book-metadata-summary="true"
-              className={`mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}
+              className={`app-menu-sheet-section mt-3 rounded-xl border ${theme.border} px-3 py-2.5 sm:rounded-2xl`}
               aria-labelledby="book-platform-metadata-title"
             >
               <div className="flex items-center justify-between gap-2">
