@@ -159,7 +159,7 @@ test('keeps the reader search surface aligned with the shelf search geometry', a
   }
 
   assert.match(globals, /data-viewer-menu-style='standard'\] \.app-search-surface[\s\S]*?blur\(28px\) saturate\(1\.32\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-surface[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-surface[\s\S]*?blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
   assert.match(globals, /data-viewer-menu-style='modern'\] \.app-search-surface[\s\S]*?blur\(24px\)/);
   assert.doesNotMatch(globals, /@media \(max-width:\s*639px\)[\s\S]*?\.app-search-surface\s*\{[\s\S]*?align-items:\s*flex-end/);
 });
@@ -174,10 +174,10 @@ test('uses a darker menu-style material for the shelf full-results footer', asyn
   assert.match(shelfSearchSource, /data-shelf-search-results-action="true"[\s\S]*?app-search-results-action/);
   assert.doesNotMatch(shelfSearchSource, /app-search-results-footer[^\n]*theme\.secondary/);
   assert.match(globals, /data-viewer-menu-style='standard'\] \.app-search-results-footer[\s\S]*?black 16%[\s\S]*?blur\(28px\) saturate\(1\.32\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-footer[\s\S]*?rgba\(0, 0, 0, 0\.62\) 18%[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-footer[\s\S]*?rgba\(0, 0, 0, 0\.62\) 18%[\s\S]*?blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
   assert.match(globals, /data-viewer-menu-style='modern'\] \.app-search-results-footer[\s\S]*?black 14%[\s\S]*?blur\(24px\)/);
   assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-footer::before/);
-  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-action[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-action[\s\S]*?blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
 });
 
 test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', async () => {
@@ -196,7 +196,7 @@ test('keeps the glass dock low-blur while stabilizing its background and icon co
   ]);
 
   assert.match(globals, /\.viewer-cime-glass\s*\{[\s\S]*?background-color:\s*var\(--viewer-shelf-glass-surface/);
-  assert.match(globals, /backdrop-filter:\s*blur\(4px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /backdrop-filter:\s*blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
   assert.match(globals, /\.viewer-cime-glass \.shelf-glass-contrast-icon svg[\s\S]*?drop-shadow[\s\S]*?--viewer-shelf-glass-ink-edge-opposite/);
   assert.match(shelfHeaderSource, /viewer-cime-glass border text-\[color:var\(--viewer-shelf-glass-ink\)\]/);
   assert.match(shelfHeaderSource, /bottomDockButtonClass = `\$\{bottomDockButtonBaseClass\} shelf-glass-contrast-icon`/);
