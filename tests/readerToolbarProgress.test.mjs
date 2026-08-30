@@ -219,6 +219,7 @@ test('reader progress track commits one tap and drags from any track position wi
 });
 
 test('reader menu styles reach the top chrome and bottom toolbar with distinct surfaces', async () => {
+  const globals = await readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8');
   const window = installDom();
   const rootNode = window.document.querySelector('#root');
   const root = createRoot(rootNode);
@@ -248,6 +249,7 @@ test('reader menu styles reach the top chrome and bottom toolbar with distinct s
   assert.equal(closeButton.style.right, bottomMenu.style.right);
   assert.equal(titleRightLimit.style.right, bottomMenu.style.right);
   for (const surface of [closeButton, titleSurface, tocSurface]) {
+    assert.match(surface.className, /app-reader-menu-surface/);
     assert.match(surface.className, /viewer-cime-glass/);
     assert.doesNotMatch(surface.getAttribute('style') || '', /--viewer-reader-glass-surface/);
   }
@@ -262,8 +264,8 @@ test('reader menu styles reach the top chrome and bottom toolbar with distinct s
   const standardCloseButton = window.document.querySelector('button[aria-label="Close reader"]');
   assert.ok(standardTopMenu);
   assert.ok(standardBottomMenu);
-  assert.match(standardCloseButton?.getAttribute('style') || '', /--viewer-reader-glass-surface/);
-  assert.match(standardCloseButton?.getAttribute('style') || '', /blur\(28px\)/);
+  assert.match(standardCloseButton?.className || '', /app-reader-menu-surface/);
+  assert.doesNotMatch(standardCloseButton?.getAttribute('style') || '', /--viewer-reader-glass-surface|blur\(28px\)/);
   assert.doesNotMatch(standardCloseButton?.className || '', /viewer-cime-glass/);
 
   await act(async () => {
@@ -276,9 +278,12 @@ test('reader menu styles reach the top chrome and bottom toolbar with distinct s
   const modernCloseButton = window.document.querySelector('button[aria-label="Close reader"]');
   assert.ok(modernTopMenu);
   assert.ok(modernBottomMenu);
-  assert.match(modernCloseButton?.getAttribute('style') || '', /--viewer-reader-surface/);
-  assert.match(modernCloseButton?.getAttribute('style') || '', /blur\(18px\)/);
-  assert.doesNotMatch(modernCloseButton?.getAttribute('style') || '', /--viewer-reader-glass-surface/);
+  assert.match(modernCloseButton?.className || '', /app-reader-menu-surface/);
+  assert.doesNotMatch(modernCloseButton?.getAttribute('style') || '', /--viewer-reader-surface|blur\(18px\)|--viewer-reader-glass-surface/);
+  assert.match(globals, /data-viewer-menu-style='standard'\]\s*\{[^}]*--app-menu-reader-filter:\s*var\(--app-menu-filter\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-reader-surface:\s*var\(--app-menu-dock-surface\)/);
+  assert.match(globals, /data-viewer-menu-style='modern'\]\s*\{[^}]*--app-menu-reader-filter:\s*blur\(18px\) saturate\(1\.18\)/);
+  assert.match(globals, /\.app-reader-menu-surface\s*\{[\s\S]*?background-color:\s*var\(--app-menu-reader-surface[\s\S]*?backdrop-filter:\s*var\(--app-menu-reader-filter/);
 
   await act(async () => {
     root.unmount();

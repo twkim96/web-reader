@@ -381,18 +381,14 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
               ['modern', '모던'],
             ] as const).map(([value, label]) => {
               const selected = settings.shelfDockStyle === value;
-              const previewClass = value === 'glass'
-                ? 'viewer-cime-glass'
-                : value === 'modern'
-                  ? 'shelf-muzio-dock'
-                  : 'border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-glass-surface,var(--viewer-reader-surface))] backdrop-blur-xl';
               return (
                 <button
                   key={value}
                   type="button"
                   data-shelf-dock-style-option={value}
+                  data-menu-style-material={value}
                   onClick={() => onUpdateSettings({ shelfDockStyle: value })}
-                  className={`relative flex aspect-square min-w-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-[14px] border p-2 text-center text-[color:var(--viewer-theme-text)] transition-all active:scale-95 ${previewClass}`}
+                  className="app-menu-style-preview relative flex aspect-square min-w-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-[14px] border p-2 text-center transition-all active:scale-95"
                 >
                   <span data-menu-style-texture-preview="true" className="relative z-[1] flex h-9 w-[90%] items-end justify-center gap-1 overflow-hidden rounded-lg border border-current/10 bg-current/5 px-2 py-1.5">
                     <span className="h-2.5 w-1 rounded-full bg-current opacity-30" />

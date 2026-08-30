@@ -75,6 +75,97 @@ body {
 }
 
 /*
+ * Menu material tokens are the single source of truth for the shelf dock,
+ * reader chrome, search, modal sheets, and their close/action controls.
+ * Components only choose a menu style; all visual tuning happens here.
+ */
+[data-menu-style-material='standard'],
+html[data-viewer-menu-style='standard'] {
+  --app-menu-surface: var(--viewer-reader-glass-surface, var(--viewer-reader-surface));
+  --app-menu-border: var(--viewer-reader-glass-border, var(--viewer-theme-border));
+  --app-menu-ink: var(--viewer-theme-text);
+  --app-menu-filter: blur(28px) saturate(1.32);
+  --app-menu-panel-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
+  --app-menu-control-surface: var(--viewer-reader-glass-surface, var(--viewer-reader-surface));
+  --app-menu-control-border: var(--viewer-reader-glass-border, var(--viewer-theme-border));
+  --app-menu-control-shadow: 0 5px 14px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --app-menu-footer-surface: color-mix(
+    in srgb,
+    var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) 84%,
+    black 16%
+  );
+  --app-menu-footer-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --app-menu-dock-surface: var(--viewer-reader-surface);
+  --app-menu-dock-border: var(--viewer-theme-border);
+  --app-menu-dock-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
+  --app-menu-dock-filter: blur(24px);
+  --app-menu-preview-shadow: none;
+  --app-menu-reader-surface: var(--viewer-reader-glass-surface, var(--viewer-reader-surface));
+  --app-menu-reader-border: var(--viewer-reader-glass-border, var(--viewer-theme-border));
+  --app-menu-reader-filter: var(--app-menu-filter);
+}
+
+[data-menu-style-material='glass'],
+html[data-viewer-menu-style='glass'] {
+  --app-menu-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
+  --app-menu-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent);
+  --app-menu-ink: var(--viewer-shelf-glass-ink, var(--viewer-theme-text));
+  --app-menu-filter: blur(1.5px) saturate(90%) contrast(82%);
+  --app-menu-panel-shadow:
+    0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
+    0 3px 10px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  --app-menu-control-surface: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent);
+  --app-menu-close-surface: color-mix(in srgb, var(--viewer-theme-bg) 34%, transparent);
+  --app-menu-control-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent);
+  --app-menu-control-shadow:
+    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  --app-menu-footer-surface: color-mix(
+    in srgb,
+    var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) 82%,
+    rgba(0, 0, 0, 0.62) 18%
+  );
+  --app-menu-footer-shadow: 0 -8px 24px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.12)), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --app-menu-dock-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
+  --app-menu-dock-border: transparent;
+  --app-menu-dock-shadow: 0 4px 12px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14));
+  --app-menu-dock-filter: var(--app-menu-filter);
+  --app-menu-preview-shadow: var(--app-menu-dock-shadow);
+  --app-menu-reader-surface: var(--app-menu-dock-surface);
+  --app-menu-reader-border: var(--app-menu-border);
+  --app-menu-reader-filter: var(--app-menu-filter);
+}
+
+[data-menu-style-material='modern'],
+html[data-viewer-menu-style='modern'] {
+  --app-menu-surface: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface));
+  --app-menu-border: var(--viewer-shelf-dock-border, var(--viewer-theme-border));
+  --app-menu-ink: var(--viewer-theme-text);
+  --app-menu-filter: blur(24px);
+  --app-menu-panel-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
+  --app-menu-control-surface: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface));
+  --app-menu-control-border: var(--viewer-shelf-dock-border, var(--viewer-theme-border));
+  --app-menu-control-shadow: 0 8px 20px -8px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
+  --app-menu-footer-surface: color-mix(
+    in srgb,
+    var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) 86%,
+    black 14%
+  );
+  --app-menu-footer-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  --app-menu-dock-surface: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface));
+  --app-menu-dock-border: var(--viewer-shelf-dock-border, var(--viewer-theme-border));
+  --app-menu-dock-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
+  --app-menu-dock-filter: var(--app-menu-filter);
+  --app-menu-preview-shadow: var(--app-menu-dock-shadow);
+  --app-menu-reader-surface: var(--viewer-reader-surface);
+  --app-menu-reader-border: var(--viewer-theme-border);
+  --app-menu-reader-filter: blur(18px) saturate(1.18);
+}
+
+/*
  * Search keeps its Spotlight geometry and placement, but borrows only the
  * selected menu style's material treatment.
  */
@@ -85,20 +176,13 @@ body {
   color: var(--viewer-theme-text);
 }
 
-html[data-viewer-menu-style='standard'] .app-search-surface {
-  border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
-  -webkit-backdrop-filter: blur(28px) saturate(1.32);
-  backdrop-filter: blur(28px) saturate(1.32);
-}
-
-html[data-viewer-menu-style='modern'] .app-search-surface {
-  border-color: var(--viewer-shelf-dock-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+html[data-viewer-menu-style] :is(.app-search-surface, .app-menu-sheet, .app-menu-material) {
+  border-color: var(--app-menu-border) !important;
+  background-color: var(--app-menu-surface) !important;
+  color: var(--app-menu-ink) !important;
+  box-shadow: var(--app-menu-panel-shadow);
+  -webkit-backdrop-filter: var(--app-menu-filter);
+  backdrop-filter: var(--app-menu-filter);
 }
 
 /* Search result actions continue the selected surface material, with a
@@ -119,46 +203,22 @@ html[data-viewer-menu-style='modern'] .app-search-surface {
   color: inherit;
 }
 
-html[data-viewer-menu-style='standard'] .app-search-results-footer {
-  border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
-  background-color: color-mix(
-    in srgb,
-    var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) 84%,
-    black 16%
-  ) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  -webkit-backdrop-filter: blur(28px) saturate(1.32);
-  backdrop-filter: blur(28px) saturate(1.32);
+html[data-viewer-menu-style] .app-search-results-footer {
+  border-color: var(--app-menu-border) !important;
+  background-color: var(--app-menu-footer-surface) !important;
+  color: var(--app-menu-ink) !important;
+  box-shadow: var(--app-menu-footer-shadow);
+  -webkit-backdrop-filter: var(--app-menu-filter);
+  backdrop-filter: var(--app-menu-filter);
 }
 
-html[data-viewer-menu-style='standard'] .app-search-results-action {
-  border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) !important;
-  box-shadow:
-    0 5px 14px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  -webkit-backdrop-filter: blur(28px) saturate(1.32);
-  backdrop-filter: blur(28px) saturate(1.32);
-}
-
-html[data-viewer-menu-style='modern'] .app-search-results-footer {
-  border-color: var(--viewer-shelf-dock-border, var(--viewer-theme-border)) !important;
-  background-color: color-mix(
-    in srgb,
-    var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) 86%,
-    black 14%
-  ) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-}
-
-html[data-viewer-menu-style='modern'] .app-search-results-action {
-  border-color: var(--viewer-shelf-dock-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 8px 20px -8px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+html[data-viewer-menu-style] .app-search-results-action {
+  border-color: var(--app-menu-control-border) !important;
+  background-color: var(--app-menu-control-surface) !important;
+  color: var(--app-menu-ink) !important;
+  box-shadow: var(--app-menu-control-shadow);
+  -webkit-backdrop-filter: var(--app-menu-filter);
+  backdrop-filter: var(--app-menu-filter);
 }
 
 /* Shelf dialogs temporarily yield the viewport to their modal surface. */
@@ -220,54 +280,13 @@ body:has(
   color: inherit;
 }
 
-html[data-viewer-menu-style='standard'] .app-modal-close {
-  border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) !important;
-  box-shadow:
-    0 5px 14px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  -webkit-backdrop-filter: blur(28px) saturate(1.32);
-  backdrop-filter: blur(28px) saturate(1.32);
-}
-
-html[data-viewer-menu-style='modern'] .app-modal-close {
-  border-color: var(--viewer-shelf-dock-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 8px 20px -8px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-}
-
-html[data-viewer-menu-style='standard'] .app-menu-sheet {
-  border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
-  -webkit-backdrop-filter: blur(28px) saturate(1.32);
-  backdrop-filter: blur(28px) saturate(1.32);
-}
-
-html[data-viewer-menu-style='standard'] .app-menu-material {
-  border-color: var(--viewer-reader-glass-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
-  -webkit-backdrop-filter: blur(28px) saturate(1.32);
-  backdrop-filter: blur(28px) saturate(1.32);
-}
-
-html[data-viewer-menu-style='modern'] .app-menu-sheet {
-  border-color: var(--viewer-shelf-dock-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-}
-
-html[data-viewer-menu-style='modern'] .app-menu-material {
-  border-color: var(--viewer-shelf-dock-border, var(--viewer-theme-border)) !important;
-  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) !important;
-  box-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+html[data-viewer-menu-style] .app-modal-close {
+  border-color: var(--app-menu-control-border) !important;
+  background-color: var(--app-menu-close-surface, var(--app-menu-control-surface)) !important;
+  color: var(--app-menu-ink) !important;
+  box-shadow: var(--app-menu-control-shadow);
+  -webkit-backdrop-filter: var(--app-menu-filter);
+  backdrop-filter: var(--app-menu-filter);
 }
 
 @keyframes app-menu-sheet-enter {
@@ -346,107 +365,50 @@ html[data-viewer-menu-style='modern'] .app-menu-material {
 .app-control-radius-xl { border-radius: var(--app-radius-xl); }
 .app-control-radius-2xl { border-radius: var(--app-radius-2xl); }
 
-.shelf-muzio-dock {
-  border: 1px solid var(--viewer-shelf-dock-border, rgba(255, 255, 255, 0.045));
-  background-color: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface, rgba(31, 31, 31, 0.88)));
-  box-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+.app-menu-dock {
+  border: 1px solid var(--app-menu-dock-border, var(--viewer-theme-border));
+  background-color: var(--app-menu-dock-surface, var(--viewer-reader-surface));
+  box-shadow: var(--app-menu-dock-shadow, 0 18px 55px rgba(0, 0, 0, 0.28));
+  -webkit-backdrop-filter: var(--app-menu-dock-filter, blur(24px));
+  backdrop-filter: var(--app-menu-dock-filter, blur(24px));
+}
+
+.app-menu-style-preview {
+  border-color: var(--app-menu-dock-border, var(--viewer-theme-border));
+  background-color: var(--app-menu-dock-surface, var(--viewer-reader-surface));
+  color: var(--app-menu-ink, var(--viewer-theme-text));
+  box-shadow: var(--app-menu-preview-shadow, none);
+  -webkit-backdrop-filter: var(--app-menu-dock-filter, blur(24px));
+  backdrop-filter: var(--app-menu-dock-filter, blur(24px));
+}
+
+.app-reader-menu-surface {
+  border-color: var(--app-menu-reader-border, var(--viewer-theme-border)) !important;
+  background-color: var(--app-menu-reader-surface, var(--viewer-reader-surface)) !important;
+  color: var(--app-menu-ink, var(--viewer-theme-text));
+  -webkit-backdrop-filter: var(--app-menu-reader-filter, blur(18px) saturate(1.18));
+  backdrop-filter: var(--app-menu-reader-filter, blur(18px) saturate(1.18));
 }
 
 .viewer-cime-glass {
-  border-color: transparent;
-  background-color: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
-  box-shadow: 0 4px 12px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14));
-  -webkit-backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-  backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
+  color: var(--app-menu-ink, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)));
 }
 
-html[data-viewer-menu-style='glass'] .app-menu-sheet {
+html[data-viewer-menu-style='glass'] :is(.app-menu-sheet, .app-menu-material, .app-search-surface) {
   position: relative;
   isolation: isolate;
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
-  background-color: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) !important;
-  color: var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) !important;
-  box-shadow:
-    0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
-    0 3px 10px rgba(0, 0, 0, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
-  -webkit-backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-  backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-}
-
-html[data-viewer-menu-style='glass'] .app-menu-material {
-  position: relative;
-  isolation: isolate;
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
-  background-color: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) !important;
-  color: var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) !important;
-  box-shadow:
-    0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
-    0 3px 10px rgba(0, 0, 0, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
-  -webkit-backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-  backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-}
-
-html[data-viewer-menu-style='glass'] .app-search-surface {
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
-  background-color: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) !important;
-  color: var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) !important;
-  box-shadow:
-    0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
-    0 3px 10px rgba(0, 0, 0, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
-  -webkit-backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-  backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-}
-
-html[data-viewer-menu-style='glass'] .app-search-results-footer {
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
-  background-color: color-mix(
-    in srgb,
-    var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) 82%,
-    rgba(0, 0, 0, 0.62) 18%
-  ) !important;
-  box-shadow:
-    0 -8px 24px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.12)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  -webkit-backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-  backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-}
-
-html[data-viewer-menu-style='glass'] .app-search-results-action {
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent) !important;
-  background-color: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent) !important;
-  color: var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) !important;
-  box-shadow:
-    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
-  -webkit-backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-  backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
 }
 
 html[data-viewer-menu-style='glass'] .app-menu-sheet-action {
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent) !important;
-  background-color: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent) !important;
-  box-shadow:
-    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  border-color: var(--app-menu-control-border) !important;
+  background-color: var(--app-menu-control-surface) !important;
+  box-shadow: var(--app-menu-control-shadow);
 }
 
 html[data-viewer-menu-style='glass'] .app-menu-sheet-section {
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent) !important;
-  background-color: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent) !important;
-  box-shadow:
-    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  border-color: var(--app-menu-control-border) !important;
+  background-color: var(--app-menu-control-surface) !important;
+  box-shadow: var(--app-menu-control-shadow);
 }
 
 /* Tags keep their semantic tint while blending label text with the active
@@ -481,12 +443,9 @@ button.app-tag-material:hover {
 }
 
 html[data-viewer-menu-style='glass'] .app-filter-tag-material {
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent) !important;
-  background-color: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent) !important;
-  box-shadow:
-    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  border-color: var(--app-menu-control-border) !important;
+  background-color: var(--app-menu-control-surface) !important;
+  box-shadow: var(--app-menu-control-shadow);
 }
 
 .app-menu-sheet-section.app-menu-sheet-chip[aria-pressed='true'] {
@@ -506,18 +465,6 @@ html[data-viewer-menu-style='glass'] .app-filter-tag-material {
   border-color: var(--app-tag-color) !important;
   background-color: color-mix(in srgb, var(--app-tag-color) 32%, var(--viewer-theme-bg)) !important;
   color: color-mix(in srgb, var(--app-tag-color) 64%, var(--viewer-theme-text)) !important;
-}
-
-html[data-viewer-menu-style='glass'] .app-modal-close {
-  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent) !important;
-  background-color: color-mix(in srgb, var(--viewer-theme-bg) 34%, transparent) !important;
-  color: var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) !important;
-  box-shadow:
-    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
-  -webkit-backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
-  backdrop-filter: blur(1.5px) saturate(90%) contrast(82%);
 }
 
 .viewer-cime-glass .shelf-glass-contrast-icon svg {

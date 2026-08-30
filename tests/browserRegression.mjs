@@ -1471,12 +1471,10 @@ try {
   assert.deepEqual(shelfDockStyleLayout.labels, ['표준', '글래스', '모던']);
   assert.deepEqual(shelfDockStyleLayout.texturePreviews, [true, true, true]);
   assert.ok(shelfDockStyleLayout.squareDeltas.every((delta) => delta <= 1), JSON.stringify(shelfDockStyleLayout));
-  assert.match(shelfDockStyleLayout.previewClasses[0], /backdrop-blur-xl/);
-  assert.match(shelfDockStyleLayout.previewClasses[1], /viewer-cime-glass/);
-  assert.match(shelfDockStyleLayout.previewClasses[2], /shelf-muzio-dock/);
+  assert.ok(shelfDockStyleLayout.previewClasses.every((value) => /app-menu-style-preview/.test(value)));
   assert.equal(
     shelfDockStyleLayout.previewBlur[1],
-    'blur(4px) saturate(0.9) contrast(0.82)',
+    'blur(1.5px) saturate(0.9) contrast(0.82)',
   );
   assert.equal(shelfDockStyleLayout.selectedBoxes.filter(Boolean).length, 1);
   assert.equal(

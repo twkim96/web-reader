@@ -67,6 +67,17 @@ test('uses Midnight as the new default while preserving an explicit saved theme'
   assert.match(layout, /builtInThemes\[settings\.theme\] \|\| builtInThemes\.midnight/);
 });
 
+test('uses Glass as the default menu material while preserving explicit styles', async () => {
+  await withStorage(undefined, () => {
+    assert.equal(getStoredViewerSettings().shelfDockStyle, 'glass');
+    assert.equal(defaultSettings.shelfDockStyle, 'glass');
+  });
+
+  const layout = await readFile(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
+  assert.match(layout, /shelfDockStyle: 'glass'/);
+  assert.match(layout, /root\.dataset\.viewerMenuStyle = \['standard', 'glass', 'modern'\]\.includes\(settings\.shelfDockStyle\)/);
+});
+
 test('selects the official Google button contrast from the active theme background', () => {
   assert.equal(getGoogleSignInButtonVariant('#ffffff'), 'light');
   assert.equal(getGoogleSignInButtonVariant('#f4ecd8'), 'light');
@@ -145,7 +156,7 @@ test('defaults auto-open for older stored viewer settings', async () => {
     assert.equal(settings.ttsVoiceURI, '');
     assert.equal(settings.ttsRate, 1);
     assert.equal(settings.ttsChapterEndAction, 'next');
-    assert.equal(settings.shelfDockStyle, 'standard');
+    assert.equal(settings.shelfDockStyle, 'glass');
   });
 });
 
@@ -160,7 +171,7 @@ test('preserves only a supported shelf dock style', async () => {
     assert.equal(getStoredViewerSettings().shelfDockStyle, 'modern');
   });
   await withStorage(JSON.stringify({ shelfDockStyle: 'legacy' }), () => {
-    assert.equal(getStoredViewerSettings().shelfDockStyle, 'standard');
+    assert.equal(getStoredViewerSettings().shelfDockStyle, 'glass');
   });
 });
 

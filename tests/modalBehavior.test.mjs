@@ -164,12 +164,10 @@ test('mobile menu sheets use a floating height-bounded themed surface', async ()
   assert.match(globals, /@media \(max-width:\s*639px\)[\s\S]*?\.app-menu-sheet-backdrop\s*\{[\s\S]*?align-items:\s*flex-end\s*!important/);
   assert.match(globals, /\.app-menu-sheet-backdrop\s*\{[\s\S]*?padding:\s*0 1\.25rem max\(0\.75rem, env\(safe-area-inset-bottom\)\)\s*!important/);
   assert.match(globals, /\.app-menu-sheet\s*\{[\s\S]*?max-height:\s*60dvh\s*!important[\s\S]*?border-radius:\s*22px\s*!important/);
-  assert.match(globals, /data-viewer-menu-style='standard'[\s\S]*?blur\(28px\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?blur\(1\.5px\)/);
-  assert.match(globals, /data-viewer-menu-style='modern'[\s\S]*?blur\(24px\)/);
-  assert.match(globals, /data-viewer-menu-style='standard'\] \.app-modal-close[\s\S]*?blur\(28px\) saturate\(1\.32\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-modal-close[\s\S]*?blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
-  assert.match(globals, /data-viewer-menu-style='modern'\] \.app-modal-close[\s\S]*?blur\(24px\)/);
+  assert.match(globals, /data-viewer-menu-style='standard'\]\s*\{[^}]*--app-menu-filter:\s*blur\(28px\) saturate\(1\.32\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-filter:\s*blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='modern'\]\s*\{[^}]*--app-menu-filter:\s*blur\(24px\)/);
+  assert.match(globals, /\.app-modal-close\s*\{[\s\S]*?background-color:\s*var\(--app-menu-close-surface, var\(--app-menu-control-surface\)\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-filter\)/);
 });
 
 test('uses the shared themed close surface in modal headers with custom markup', async () => {
@@ -266,9 +264,11 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
   assert.doesNotMatch(tocSource, /placement="high"/);
   assert.match(frameSource, /placement \?\? \(menuSheet \? 'center' : 'upper'\)/);
   assert.match(globals, /\.app-menu-sheet-content,[\s\S]*?\.app-menu-sheet-footer\s*\{[\s\S]*?background-color:\s*transparent\s*!important/);
-  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?0 18px 44px/);
-  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?backdrop-filter:\s*blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet-action\s*\{[\s\S]*?0 6px 14px/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-panel-shadow:[^}]*0 18px 44px/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-filter:\s*blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /:is\(\.app-search-surface, \.app-menu-sheet, \.app-menu-material\)[\s\S]*?box-shadow:\s*var\(--app-menu-panel-shadow\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-filter\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-control-shadow:[^}]*0 6px 14px/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-menu-sheet-action\s*\{[\s\S]*?box-shadow:\s*var\(--app-menu-control-shadow\)/);
 });
 
 test('uses compact square theme and menu-style previews with custom-only accent controls', async () => {

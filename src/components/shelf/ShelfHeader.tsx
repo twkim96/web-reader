@@ -85,9 +85,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const dockSurfaceClass = modernDock
     ? "shelf-muzio-dock text-[color:var(--viewer-theme-text)]"
     : standardDock
-      ? "border border-[color:var(--viewer-theme-border)] bg-[color:var(--viewer-reader-surface)] text-[color:var(--viewer-theme-text)] backdrop-blur-xl"
-      : "viewer-cime-glass border text-[color:var(--viewer-shelf-glass-ink)]";
-  const bottomDockClass = `relative flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-[34px] ${standardDock ? 'shadow-[0_18px_55px_rgba(0,0,0,0.28)]' : ''} ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
+      ? "text-[color:var(--viewer-theme-text)]"
+      : "viewer-cime-glass text-[color:var(--viewer-shelf-glass-ink)]";
+  const bottomDockClass = `app-menu-dock relative flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
   const bottomDockButtonBaseClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14";
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
   const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14";

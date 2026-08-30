@@ -19,7 +19,7 @@ const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1'
 const normalizeShelfDockStyle = (value: unknown): ShelfDockStyle => (
   value === 'glass' || value === 'modern' || value === 'standard'
     ? value
-    : 'standard'
+    : 'glass'
 );
 
 export const defaultSettings: ViewerSettings = {
@@ -44,7 +44,7 @@ export const defaultSettings: ViewerSettings = {
   ttsVoiceURI: '',
   ttsRate: 1,
   ttsChapterEndAction: 'next',
-  shelfDockStyle: 'standard',
+  shelfDockStyle: 'glass',
   customThemes: [],
 };
 

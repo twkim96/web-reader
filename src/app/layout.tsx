@@ -73,7 +73,7 @@ const themeBootstrapScript = `
     return { '--viewer-theme-texture': 'none', '--viewer-theme-texture-size': 'auto' };
   };
 
-  let settings = { theme: 'midnight', accentColor: 'rose', customThemes: [] };
+  let settings = { theme: 'midnight', accentColor: 'rose', shelfDockStyle: 'glass', customThemes: [] };
   try {
     const stored = localStorage.getItem('viewer_settings');
     if (stored) settings = Object.assign(settings, JSON.parse(stored));
@@ -128,6 +128,9 @@ const themeBootstrapScript = `
   };
   const root = document.documentElement;
   root.dataset.viewerThemeBootstrapped = 'true';
+  root.dataset.viewerMenuStyle = ['standard', 'glass', 'modern'].includes(settings.shelfDockStyle)
+    ? settings.shelfDockStyle
+    : 'glass';
   applyTheme(root);
 
   const style = document.createElement('style');
