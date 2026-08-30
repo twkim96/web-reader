@@ -131,9 +131,10 @@ export const ShelfFilterModal: React.FC<Props> = ({
   const catalogReady = catalogState === 'ready' && Boolean(catalog);
   const chip = (active: boolean) => `app-tag-radius app-tag-material app-menu-sheet-section app-menu-sheet-chip border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
     active
-      ? 'border-accent-500 [--app-tag-color:var(--accent-500)]'
+      ? 'border-accent-500'
       : `${theme.border} hover:border-accent-500/50`
   }`;
+  const tagColorStyle = (color: string) => ({ '--app-tag-color': color } as React.CSSProperties);
 
   return (
     <div
@@ -193,6 +194,9 @@ export const ShelfFilterModal: React.FC<Props> = ({
                     sources: toggle(current.sources, id),
                   }))}
                   className={`${chip(draftFilters.sources.includes(id))} disabled:opacity-35`}
+                  style={tagColorStyle(
+                    id === 'series' ? '#448755' : id === 'kakao' ? '#F1B967' : id === 'novelpia' ? '#7E419B' : 'var(--viewer-theme-secondary)'
+                  )}
                 >
                   {label}
                 </button>
@@ -213,6 +217,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
                     genreIds: toggle(current.genreIds, id),
                   }))}
                   className={chip(draftFilters.genreIds.includes(id))}
+                  style={tagColorStyle('#FFA213')}
                 >
                   {label}
                 </button>
@@ -239,6 +244,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
                         tagIds: toggle(current.tagIds, tag.id),
                       }))}
                       className={chip(true)}
+                      style={tagColorStyle('var(--accent-500)')}
                     >
                       #{tag.label}
                       {tag.shelfTitleCount > 0 && (
@@ -261,6 +267,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
                     tagIds: toggle(current.tagIds, tag.id),
                   }))}
                   className={chip(draftFilters.tagIds.includes(tag.id))}
+                  style={draftFilters.tagIds.includes(tag.id) ? tagColorStyle('var(--accent-500)') : undefined}
                 >
                   #{tag.label}
                   {tag.shelfTitleCount > 0 && (

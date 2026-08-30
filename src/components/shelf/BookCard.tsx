@@ -175,8 +175,8 @@ export const BookCard: React.FC<BookCardProps> = ({
     };
   }, [tagLayoutKey, viewMode]);
 
-  const localChipClass = 'app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 text-[9px] font-black [--app-tag-color:var(--color-green-500)]';
-  const genreChipClass = 'app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 text-[9px] font-black [--app-tag-color:var(--accent-500)]';
+  const localChipClass = 'app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 text-[9px] font-black [--app-tag-color:#4B75FF]';
+  const genreChipClass = 'app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 text-[9px] font-black [--app-tag-color:#FFA213]';
   const tagChipClass = 'app-tag-radius app-tag-material max-w-24 shrink-0 truncate px-1.5 py-0.5 text-[9px] font-bold';
   const renderCatalogTags = () => (
     hasCatalogTags ? (
@@ -375,7 +375,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           )}
           <span
             data-shelf-simple-format="true"
-            className="app-tag-radius app-tag-material min-w-0 shrink truncate px-1.5 py-0.5 text-[9px] font-bold"
+            className="app-tag-radius app-tag-material min-w-0 shrink truncate px-1.5 py-0.5 text-[9px] font-bold [--app-tag-color:#ADEEC5]"
           >
             {simpleFormatLabel}
           </span>
@@ -491,7 +491,7 @@ export const BookCard: React.FC<BookCardProps> = ({
 
         <div
           data-shelf-list-format="true"
-          className="hidden min-w-0 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block"
+          className="app-tag-radius app-tag-material hidden min-w-0 px-1.5 py-0.5 text-center text-[11px] font-bold uppercase tracking-widest [--app-tag-color:#ADEEC5] sm:block"
         >
           {getBookFormatLabel(book)}
         </div>
@@ -578,7 +578,7 @@ export const BookCard: React.FC<BookCardProps> = ({
 
         <div data-shelf-grid-cover-content="true" className="flex min-h-48 min-w-0 flex-col sm:min-h-52">
           <div data-shelf-grid-meta="true" className="flex min-w-0 items-center justify-between gap-2">
-            <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:text-[11px]">
+            <span className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] [--app-tag-color:#ADEEC5] sm:text-[11px]">
               {getBookFormatLabel(book)}
             </span>
             {combinedSourceCount !== null && (

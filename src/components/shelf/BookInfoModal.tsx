@@ -411,17 +411,23 @@ export const BookInfoModal: React.FC<Props> = ({
                 <p className="mt-1 break-all text-[10px] leading-4 opacity-45">{book.name}</p>
 
                 <div data-book-info-tag-row="true" className="mt-auto flex flex-wrap gap-1.5 pt-3">
-                  <span className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-bold [--app-tag-color:var(--accent-500)]`}>
+                  <span className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-bold [--app-tag-color:#ADEEC5]`}>
                     {getBookFormatLabel(book)}
                   </span>
-                  <span className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-bold ${isDownloaded ? '[--app-tag-color:var(--color-emerald-500)]' : ''}`}>
+                  <span className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-bold ${isDownloaded ? '[--app-tag-color:#E1BCBF]' : ''}`}>
                     {isDownloaded ? '기기 저장됨' : '클라우드 전용'}
                   </span>
                   {metadata?.platforms.map((platform) => (
                     <span
                       key={platform.platform}
                       data-book-info-platform-badge={platform.platform}
-                      className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-bold [--app-tag-color:var(--accent-500)]`}
+                      className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-bold ${
+                        platform.platform === 'series'
+                          ? '[--app-tag-color:#448755]'
+                          : platform.platform === 'kakao'
+                            ? '[--app-tag-color:#F1B967]'
+                            : '[--app-tag-color:#7E419B]'
+                      }`}
                     >
                       {platform.label}
                     </span>
@@ -514,7 +520,7 @@ export const BookInfoModal: React.FC<Props> = ({
                     {catalog && (catalog.genreLabel || visibleCatalogTags.length > 0) && (
                     <div className="flex flex-wrap gap-1.5">
                       {catalog.genreLabel && (
-                        <span className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-black [--app-tag-color:var(--accent-500)]`}>
+                        <span className={`app-tag-radius app-tag-material app-menu-sheet-section border ${theme.border} px-2 py-1 text-[10px] font-black [--app-tag-color:#FFA213]`}>
                           {catalog.genreLabel}
                         </span>
                       )}

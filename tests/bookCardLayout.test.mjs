@@ -128,6 +128,12 @@ test('uses one 7px radius for shelf metadata tags and chips', async () => {
   assert.match(filterSource, /const chip = \(active: boolean\) => `app-tag-radius app-tag-material/);
   assert.match(bookInfoSource, /data-book-info-tag-row="true"[\s\S]*?app-tag-radius app-tag-material/);
   assert.match(bookInfoSource, /data-book-catalog-tag="true"[\s\S]*?className=\{`app-tag-radius app-tag-material/);
+  assert.match(bookCardSource, /localChipClass[\s\S]*?--app-tag-color:#4B75FF/);
+  assert.match(bookCardSource, /genreChipClass[\s\S]*?--app-tag-color:#FFA213/);
+  assert.match(bookCardSource, /data-shelf-simple-format="true"[\s\S]*?--app-tag-color:#ADEEC5/);
+  assert.match(bookInfoSource, /기기 저장됨[\s\S]*?--app-tag-color:#E1BCBF|--app-tag-color:#E1BCBF[\s\S]*?기기 저장됨/);
+  assert.match(bookInfoSource, /platform\.platform === 'series'[\s\S]*?#448755[\s\S]*?#F1B967[\s\S]*?#7E419B/);
+  assert.match(filterSource, /id === 'series' \? '#448755'[\s\S]*?id === 'kakao' \? '#F1B967'[\s\S]*?id === 'novelpia' \? '#7E419B'/);
 });
 
 test('uses a Spotlight-like 20px radius for both search modals', async () => {
@@ -579,7 +585,7 @@ test('keeps the list cover compact and fills the left side of grid cards with a 
   assert.equal(gridTagSlot.nextElementSibling, gridProgress);
   assert.equal(gridLocalTag.textContent, '로컬');
   assert.match(gridLocalTag.className, /app-tag-material/);
-  assert.match(gridLocalTag.className, /--app-tag-color:var\(--color-green-500\)/);
+  assert.match(gridLocalTag.className, /--app-tag-color:#4B75FF/);
   assert.match(gridTags.className, /max-h-9/);
   assert.match(gridTags.className, /overflow-hidden/);
   assert.match(gridTagSlot.className, /mt-3/);
