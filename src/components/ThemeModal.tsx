@@ -4,7 +4,13 @@ import { Check, Plus, Pencil, Trash2 } from 'lucide-react';
 import { THEMES, ACCENT_COLORS, ACCENT_PALETTE } from '../lib/constants';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
 import { MenuSheetHeader } from './MenuSheetHeader';
-import { createCustomThemeId, getTexturePreviewStyle, normalizeHexColor } from '../lib/themeUtils';
+import {
+  createCustomThemeId,
+  getTexturePreviewStyle,
+  getThemeAccentColor,
+  getThemeColors,
+  normalizeHexColor,
+} from '../lib/themeUtils';
 
 interface ThemeModalProps {
   settings: ViewerSettings;
@@ -54,12 +60,13 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
   };
 
   const openCreate = () => {
+    const currentColors = getThemeColors(settings);
     setForm({
       title: `커스텀 ${customThemes.length + 1}`,
-      bgColor: '#272728',
-      textColor: '#b8b8b8',
-      texture: 'none',
-      accentColor: 'rose',
+      bgColor: normalizeHexColor(currentColors.bg, '#272728'),
+      textColor: normalizeHexColor(currentColors.text, '#b8b8b8'),
+      texture: currentColors.texture || 'none',
+      accentColor: getThemeAccentColor(settings),
     });
     setEditingId(null);
     setMode('create');

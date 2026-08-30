@@ -289,7 +289,8 @@ test('uses compact square theme and menu-style previews with custom-only accent 
   assert.match(themeSource, /data-custom-theme-accent-picker="true"[\s\S]*?ACCENT_COLORS\.map/);
   assert.match(themeSource, /data-custom-theme-accent-picker="true"[\s\S]*?flex flex-wrap gap-3[\s\S]*?size-6 shrink-0 rounded-full/);
   assert.match(themeSource, /accentColor:\s*form\.accentColor/);
-  assert.match(constantsSource, /emerald:\s*\{[^}]*500:\s*'#5C6F5C'/);
+  assert.match(themeSource, /openCreate[\s\S]*?getThemeColors\(settings\)[\s\S]*?bgColor:\s*normalizeHexColor\(currentColors\.bg[\s\S]*?textColor:\s*normalizeHexColor\(currentColors\.text[\s\S]*?texture:\s*currentColors\.texture[\s\S]*?accentColor:\s*getThemeAccentColor\(settings\)/);
+  assert.match(constantsSource, /emerald:\s*\{[^}]*500:\s*'#5A896F'/);
   assert.match(constantsSource, /amber:\s*\{[^}]*500:\s*'#C05A46'/);
-  assert.match(constantsSource, /sky:\s*\{[^}]*500:\s*'#5B7B94'/);
+  assert.match(constantsSource, /sky:\s*\{[^}]*500:\s*'#506C82'/);
 });
