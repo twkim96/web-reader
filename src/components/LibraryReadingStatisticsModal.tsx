@@ -487,7 +487,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                 ))}
               </div>
 
-              <div className={`mt-2.5 flex gap-0.5 overflow-x-auto rounded-xl border ${theme.border} p-0.5 sm:rounded-2xl`}>
+              <div className={`app-menu-sheet-section mt-2.5 flex gap-0.5 overflow-x-auto rounded-xl border ${theme.border} p-0.5 sm:rounded-2xl`}>
                 {rangeLabels.map((item) => (
                   <button
                     key={item.value}
@@ -495,7 +495,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                     data-reading-statistics-range={item.value}
                     onClick={() => setRange(item.value)}
                     aria-pressed={range === item.value}
-                    className={`min-h-10 min-w-[3.75rem] flex-1 rounded-lg px-2 text-[11px] font-bold sm:rounded-xl sm:text-xs ${range === item.value ? 'bg-accent-600 text-white' : 'opacity-60 hover:opacity-100'}`}
+                    className={`min-h-8 min-w-[3.75rem] flex-1 rounded-lg px-2 text-[11px] font-bold sm:min-h-9 sm:rounded-xl sm:text-xs ${range === item.value ? 'bg-accent-600 text-white' : 'opacity-60 hover:opacity-100'}`}
                   >
                     {item.label}
                   </button>

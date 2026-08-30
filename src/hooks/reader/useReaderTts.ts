@@ -184,6 +184,7 @@ export const useReaderTts = ({
   const sleepTimerRef = useRef<number | null>(null);
   const speechStartTimerRef = useRef<number | null>(null);
   const resumeValidationTimerRef = useRef<number | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const speechStartedGenerationRef = useRef<number | null>(null);
   const sleepTimerEndsAtRef = useRef<number | null>(null);
   const wasPlayingWhenHiddenRef = useRef(false);
@@ -271,6 +272,7 @@ export const useReaderTts = ({
     speechStartedGenerationRef.current = null;
     viewRef.current?.cancelTransientNavigation?.('tts');
     getBrowserSpeechSynthesisDependencies()?.synthesis.cancel();
+    utteranceRef.current = null;
   }, [clearResumeValidationTimer, clearSpeechStartTimer, viewRef]);
 
   const stop = useCallback(() => {
@@ -465,7 +467,12 @@ export const useReaderTts = ({
     generationRef.current = generation;
     speechStartedGenerationRef.current = null;
     desiredPlaybackRef.current = 'playing';
-    dependencies.synthesis.cancel();
+    if (
+      dependencies.synthesis.speaking === true
+      || dependencies.synthesis.pending === true
+      || dependencies.synthesis.paused === true
+    ) dependencies.synthesis.cancel();
+    utteranceRef.current = null;
     queue.index = nextIndex;
     const language = resolveReaderTtsLanguageTag({
       configured: settings.ttsLanguage,
@@ -490,6 +497,7 @@ export const useReaderTts = ({
       if (generationRef.current !== generation) return;
       clearSpeechStartTimer();
       clearResumeValidationTimer();
+      utteranceRef.current = null;
       if (queue.mode === 'chapter' && isRetryableBrowserSpeechError(error)) {
         generationRef.current += 1;
         clearOverlay();
@@ -536,7 +544,7 @@ export const useReaderTts = ({
         dependencies.synthesis.cancel();
         handleFailure(new Error('speech-start-timeout'));
       }, SPEECH_START_TIMEOUT_MS);
-      startBrowserSpeech({
+      utteranceRef.current = startBrowserSpeech({
         text: item.text,
         language,
         rate: settings.ttsRate,
@@ -557,6 +565,7 @@ export const useReaderTts = ({
           if (generationRef.current !== generation) return;
           clearSpeechStartTimer();
           clearResumeValidationTimer();
+          utteranceRef.current = null;
           queue.retryCount = 0;
           if (queue.autoAdvance) {
             advanceRef.current();
@@ -1071,6 +1080,7 @@ export const useReaderTts = ({
       generationRef.current += 1;
       speechStartedGenerationRef.current = null;
       getBrowserSpeechSynthesisDependencies()?.synthesis.cancel();
+      utteranceRef.current = null;
       queueRef.current = null;
       clearRetryTimer();
       clearSpeechStartTimer();

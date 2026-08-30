@@ -56,8 +56,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showAnnotationPalette, setShowAnnotationPalette] = useState(false);
   const [showLanguageTools, setShowLanguageTools] = useState(false);
   const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
-  const optionBtnStyle = `h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
-  const stepperBtnStyle = `w-7 h-7 flex items-center justify-center ${theme.secondary} rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
+  const optionBtnStyle = `app-menu-sheet-action app-menu-sheet-choice h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
+  const stepperBtnStyle = `app-menu-sheet-action w-7 h-7 flex items-center justify-center rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
   const stepperGroupStyle = "flex items-center gap-1.5 mr-1.5";
   const valueStyle = "font-black text-lg tabular-nums leading-none w-10 text-left";
   const toggleAdvancedSizing = () => setShowAdvancedSizing((current) => !current);
@@ -185,8 +185,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {navOptions.map(opt => (
                 <button
                   key={opt.value}
+                  aria-pressed={selectedNavMode === opt.value}
                   onClick={() => onUpdateSettings({ navMode: opt.value })}
-                  className={`${optionBtnStyle} ${selectedNavMode === opt.value ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
+                  className={`${optionBtnStyle} ${selectedNavMode === opt.value ? 'bg-accent-600 text-white shadow-lg' : ''}`}
                 >
                   {opt.label}
                 </button>
@@ -201,8 +202,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {(['sans', 'serif', 'ridi'] as const).map(f => (
                   <button
                     key={f}
+                    aria-pressed={settings.fontFamily === f}
                     onClick={() => onUpdateSettings({ fontFamily: f })}
-                    className={`${optionBtnStyle} ${settings.fontFamily === f ? 'bg-accent-600 text-white shadow-lg' : theme.secondary}`}
+                    className={`${optionBtnStyle} ${settings.fontFamily === f ? 'bg-accent-600 text-white shadow-lg' : ''}`}
                   >
                     {f === 'ridi' ? 'Ridi Batang' : f}
                   </button>
@@ -344,7 +346,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onChange={(event) => onUpdateSettings({
                         translationProvider: event.target.value as ViewerSettings['translationProvider'],
                       })}
-                      className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-3 text-xs font-bold outline-none`}
+                      className={`app-menu-sheet-action min-h-10 w-full rounded-xl border ${theme.border} px-3 text-xs font-bold outline-none`}
                     >
                       {READER_TRANSLATION_PROVIDERS.map((provider) => (
                         <option
@@ -369,7 +371,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onChange={(event) => onUpdateSettings({
                           translationSourceLanguage: event.target.value as ViewerSettings['translationSourceLanguage'],
                         })}
-                        className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-2 text-xs font-bold outline-none`}
+                        className={`app-menu-sheet-action min-h-10 w-full rounded-xl border ${theme.border} px-2 text-xs font-bold outline-none`}
                       >
                         <option value="auto">자동 추정</option>
                         {READER_LANGUAGE_OPTIONS.map((language) => (
@@ -385,7 +387,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onChange={(event) => onUpdateSettings({
                           translationTargetLanguage: event.target.value as ViewerSettings['translationTargetLanguage'],
                         })}
-                        className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-2 text-xs font-bold outline-none`}
+                        className={`app-menu-sheet-action min-h-10 w-full rounded-xl border ${theme.border} px-2 text-xs font-bold outline-none`}
                       >
                         {READER_LANGUAGE_OPTIONS.map((language) => (
                           <option key={language.value} value={language.value}>{language.label}</option>
@@ -402,7 +404,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onChange={(event) => onUpdateSettings({
                         dictionaryProvider: event.target.value as ViewerSettings['dictionaryProvider'],
                       })}
-                      className={`min-h-10 w-full rounded-xl border ${theme.border} bg-transparent px-3 text-xs font-bold outline-none`}
+                      className={`app-menu-sheet-action min-h-10 w-full rounded-xl border ${theme.border} px-3 text-xs font-bold outline-none`}
                     >
                       {READER_DICTIONARY_PROVIDERS.map((provider) => (
                         <option key={provider.value} value={provider.value}>{provider.label}</option>
@@ -444,7 +446,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         maxLength={ANNOTATION_PALETTE_LABEL_MAX_LENGTH}
                         aria-label={`${getHighlightColor(item.id).label} 표시명`}
                         onBlur={(event) => onUpdatePaletteItem(item.id, { label: event.target.value })}
-                        className={`min-w-0 rounded-lg border ${theme.border} bg-black/5 px-2 py-2 text-xs font-bold outline-none focus:border-accent-500 dark:bg-white/5`}
+                        className={`app-menu-sheet-action min-w-0 rounded-lg border ${theme.border} px-2 py-2 text-xs font-bold outline-none focus:border-accent-500`}
                       />
                       <input
                         value={item.meaning}
@@ -452,7 +454,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         aria-label={`${getHighlightColor(item.id).label} 의미`}
                         placeholder="의미"
                         onChange={(event) => onUpdatePaletteItem(item.id, { meaning: event.target.value })}
-                        className={`min-w-0 rounded-lg border ${theme.border} bg-black/5 px-2 py-2 text-xs outline-none focus:border-accent-500 dark:bg-white/5`}
+                        className={`app-menu-sheet-action min-w-0 rounded-lg border ${theme.border} px-2 py-2 text-xs outline-none focus:border-accent-500`}
                       />
                     </div>
                   ))}

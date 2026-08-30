@@ -312,7 +312,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         <MenuSheetHeader kind="annotations" title="라이브러리 주석" subtitle={`로컬 ${annotations.length}개 · 삭제 기록 제외 · 위치 오류 항목 포함`} onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         <div className={`shrink-0 space-y-1.5 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
-          <label className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 ${theme.border} bg-black/5 dark:bg-white/5`}>
+          <label className={`app-menu-sheet-action flex min-h-11 items-center gap-2 rounded-xl border px-3 ${theme.border}`}>
             <Search size={17} className="shrink-0 opacity-45" />
             <input
               data-library-annotation-search="true"
@@ -332,7 +332,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
               aria-label="주석 도서 필터"
               value={bookId}
               onChange={(event) => setBookFilter(event.target.value)}
-              className={`min-h-10 min-w-0 rounded-lg border bg-transparent px-2 text-xs font-bold outline-none md:max-w-64 ${theme.border}`}
+              className={`app-menu-sheet-action min-h-10 min-w-0 rounded-lg border px-2 text-xs font-bold outline-none md:max-w-64 ${theme.border}`}
             >
               <option value="">모든 책</option>
               {annotatedBooks.map((book) => <option key={book.id} value={book.id}>{book.label}</option>)}
@@ -341,7 +341,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
               aria-label="주석 색상 필터"
               value={colorId}
               onChange={(event) => { setColorId(event.target.value as HighlightColorId | ''); resetPage(); }}
-              className={`min-h-10 rounded-lg border bg-transparent px-2 text-xs font-bold outline-none ${theme.border}`}
+              className={`app-menu-sheet-action min-h-10 rounded-lg border px-2 text-xs font-bold outline-none ${theme.border}`}
             >
               <option value="">모든 색상</option>
               {palette.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -350,11 +350,11 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
               aria-label="라이브러리 주석 정렬"
               value={sort}
               onChange={(event) => { setSort(event.target.value as LibraryAnnotationSort); resetPage(); }}
-              className={`min-h-10 rounded-lg border bg-transparent px-2 text-xs font-bold outline-none ${theme.border}`}
+              className={`app-menu-sheet-action min-h-10 rounded-lg border px-2 text-xs font-bold outline-none ${theme.border}`}
             >
               {sortLabels.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-            <label className={`flex min-h-10 items-center gap-2 rounded-lg border px-2 text-xs font-bold ${theme.border}`}>
+            <label className={`app-menu-sheet-action flex min-h-10 items-center gap-2 rounded-lg border px-2 text-xs font-bold ${theme.border}`}>
               <input
                 type="checkbox"
                 checked={noteOnly}
@@ -368,7 +368,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
 
         <div className={`shrink-0 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1.5">
-            <label className={`relative flex min-h-10 items-center rounded-lg border ${theme.border}`}>
+            <label className={`app-menu-sheet-action relative flex min-h-10 items-center rounded-lg border ${theme.border}`}>
               {exportMode === 'json-library' ? <FileJson size={16} className="ml-2.5 opacity-50" /> : <FileText size={16} className="ml-2.5 opacity-50" />}
               <select
                 data-library-annotation-export-format="true"
@@ -388,7 +388,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
               data-library-annotation-download="true"
               onClick={runDownload}
               disabled={loading}
-              className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-black disabled:opacity-40 ${theme.border}`}
+              className={`app-menu-sheet-action flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-black disabled:opacity-40 ${theme.border}`}
             >
               <Download size={16} /> <span className="hidden sm:inline">다운로드</span>
             </button>
@@ -398,12 +398,12 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
               onClick={() => void runShare()}
               disabled={loading || sharing}
               title="시스템 공유 또는 다운로드"
-              className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-black disabled:opacity-40 ${theme.border}`}
+              className={`app-menu-sheet-action flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-black disabled:opacity-40 ${theme.border}`}
             >
               <Share2 size={16} /> <span className="hidden sm:inline">공유</span>
             </button>
           </div>
-          {feedback && <p role="status" className="mt-1.5 text-[10px] font-bold opacity-60">{feedback}</p>}
+          {feedback && <p role="status" className={`app-menu-sheet-section mt-1.5 rounded-lg border ${theme.border} px-2 py-1.5 text-[10px] font-bold opacity-60`}>{feedback}</p>}
         </div>
 
         <div data-library-annotation-body="true" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-2 sm:px-4 sm:py-3">
@@ -455,7 +455,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setVisibleCount((current) => current + PAGE_SIZE)}
-                  className={`min-h-11 w-full rounded-xl border text-xs font-black ${theme.border}`}
+                  className={`app-menu-sheet-action min-h-11 w-full rounded-xl border text-xs font-black ${theme.border}`}
                 >
                   더 보기 ({results.length - visibleResults.length}개 남음)
                 </button>

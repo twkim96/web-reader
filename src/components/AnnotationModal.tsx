@@ -136,7 +136,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
   return (
       <div data-reader-annotation-modal="true" className="flex min-h-0 flex-1 flex-col font-sans">
         <div className={`shrink-0 space-y-1.5 border-b ${theme.border} p-2.5`}>
-          <label className={`flex min-h-10 items-center gap-2 rounded-xl border ${theme.border} bg-black/5 px-2.5 dark:bg-white/5`}>
+          <label className={`app-menu-sheet-action flex min-h-10 items-center gap-2 rounded-xl border ${theme.border} px-2.5`}>
             <Search size={15} className="shrink-0 opacity-45" />
             <input
               data-reader-annotation-search="true"
@@ -156,11 +156,11 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
               aria-label="하이라이트 정렬"
               value={sort}
               onChange={(event) => setSort(event.target.value as AnnotationSort)}
-              className={`min-h-9 rounded-lg border ${theme.border} bg-transparent px-2 text-[11px] font-bold outline-none`}
+              className={`app-menu-sheet-action min-h-9 rounded-lg border ${theme.border} px-2 text-[11px] font-bold outline-none`}
             >
               {sortLabels.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
-            <label className={`flex min-h-9 items-center gap-1.5 rounded-lg border ${theme.border} px-2 text-[11px] font-bold`}>
+            <label className={`app-menu-sheet-action flex min-h-9 items-center gap-1.5 rounded-lg border ${theme.border} px-2 text-[11px] font-bold`}>
               <input
                 type="checkbox"
                 data-reader-annotation-note-filter="true"
@@ -234,7 +234,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
               const isCollapsed = collapsed.has(colorId) && (!filtering || items.length === 0);
               const total = totalCounts.get(colorId) ?? 0;
               return (
-                <section key={colorId} className={`overflow-hidden rounded-xl border ${theme.border}`}>
+                <section key={colorId} className={`app-menu-sheet-section overflow-hidden rounded-xl border ${theme.border}`}>
                   <button
                     type="button"
                     data-reader-annotation-group={colorId}

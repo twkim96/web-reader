@@ -216,7 +216,7 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
                 </div>
               </button>
             )) : (
-              <p className="rounded-xl bg-black/5 py-2.5 text-center text-[11px] opacity-30">대량 이동 시 자동으로 생성됩니다.</p>
+                <p className={`app-menu-sheet-section rounded-xl border ${theme.border} py-2.5 text-center text-[11px] opacity-30`}>대량 이동 시 자동으로 생성됩니다.</p>
             )}
           </section>
         </div>

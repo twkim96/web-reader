@@ -87,7 +87,7 @@ export const ReaderTtsControls = ({
       data-reader-tts-total={state.total}
       data-reader-tts-window-size={windowSize}
       aria-label="텍스트 음성 읽기"
-      className={`app-panel-radius fixed bottom-[calc(env(safe-area-inset-bottom)+2.25rem)] left-1/2 z-[85] max-h-[calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_3rem)] w-[min(28rem,calc(100vw-1rem))] -translate-x-1/2 overflow-y-auto overscroll-contain border ${theme.border} ${theme.bg} ${theme.text} p-3 font-sans shadow-2xl`}
+      className={`app-panel-radius app-menu-material fixed bottom-[calc(env(safe-area-inset-bottom)+2.25rem)] left-1/2 z-[85] max-h-[calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_3rem)] w-[min(28rem,calc(100vw-1rem))] -translate-x-1/2 overflow-y-auto overscroll-contain border ${theme.border} ${theme.bg} ${theme.text} p-3 font-sans shadow-2xl`}
     >
       <div className="flex items-start gap-3">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accent-500/15 text-accent-500">
@@ -105,7 +105,7 @@ export const ReaderTtsControls = ({
       </div>
 
       {state.error && (
-        <p role="alert" className="mt-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-500">
+        <p role="alert" className={`app-menu-sheet-section mt-2 rounded-xl border ${theme.border} px-3 py-2 text-xs font-bold text-amber-500`}>
           {state.error}
         </p>
       )}
@@ -116,7 +116,7 @@ export const ReaderTtsControls = ({
           onClick={onPrevious}
           disabled={!canPrevious}
           aria-label="이전 문장"
-          className={`flex min-h-11 items-center justify-center rounded-xl border ${theme.border} disabled:opacity-30`}
+          className={`app-menu-sheet-action flex min-h-11 items-center justify-center rounded-xl border ${theme.border} disabled:opacity-30`}
         >
           <ChevronLeft size={20} />
         </button>
@@ -134,7 +134,7 @@ export const ReaderTtsControls = ({
           onClick={onNext}
           disabled={!canNext}
           aria-label="다음 문장"
-          className={`flex min-h-11 items-center justify-center rounded-xl border ${theme.border} disabled:opacity-30`}
+          className={`app-menu-sheet-action flex min-h-11 items-center justify-center rounded-xl border ${theme.border} disabled:opacity-30`}
         >
           <ChevronRight size={20} />
         </button>
@@ -142,7 +142,7 @@ export const ReaderTtsControls = ({
           type="button"
           onClick={onStop}
           aria-label="TTS 중지"
-          className={`flex min-h-11 items-center justify-center rounded-xl border ${theme.border}`}
+          className={`app-menu-sheet-action flex min-h-11 items-center justify-center rounded-xl border ${theme.border}`}
         >
           <Square size={17} />
         </button>
@@ -153,7 +153,7 @@ export const ReaderTtsControls = ({
           <button
             type="button"
             onClick={onStartChapter}
-            className={`min-h-11 rounded-xl border ${theme.border} px-3 text-xs font-bold`}
+            className={`app-menu-sheet-action min-h-11 rounded-xl border ${theme.border} px-3 text-xs font-bold`}
           >
             현재 장 연속 듣기
           </button>
@@ -182,7 +182,7 @@ export const ReaderTtsControls = ({
                 ttsLanguage: event.target.value as ViewerSettings['ttsLanguage'],
                 ttsVoiceURI: '',
               })}
-              className={`min-h-11 rounded-xl border ${theme.border} ${theme.bg} px-3 text-xs font-bold normal-case tracking-normal outline-none`}
+              className={`app-menu-sheet-action min-h-11 rounded-xl border ${theme.border} px-3 text-xs font-bold normal-case tracking-normal outline-none`}
             >
               {READER_TTS_LANGUAGE_OPTIONS.map(({ value, label }) => (
                 <option key={value} value={value}>{label}</option>
@@ -194,7 +194,7 @@ export const ReaderTtsControls = ({
             <select
               value={settings.ttsVoiceURI}
               onChange={(event) => onUpdateSettings({ ttsVoiceURI: event.target.value })}
-              className={`min-h-11 min-w-0 rounded-xl border ${theme.border} ${theme.bg} px-3 text-xs font-bold normal-case tracking-normal outline-none`}
+              className={`app-menu-sheet-action min-h-11 min-w-0 rounded-xl border ${theme.border} px-3 text-xs font-bold normal-case tracking-normal outline-none`}
             >
               <option value="">언어에 맞게 자동 선택</option>
               {visibleVoices.map((voice) => (
@@ -225,7 +225,7 @@ export const ReaderTtsControls = ({
               onChange={(event) => onUpdateSettings({
                 ttsChapterEndAction: event.target.value as ViewerSettings['ttsChapterEndAction'],
               })}
-              className={`min-h-11 rounded-xl border ${theme.border} ${theme.bg} px-3 text-xs font-bold normal-case tracking-normal outline-none`}
+              className={`app-menu-sheet-action min-h-11 rounded-xl border ${theme.border} px-3 text-xs font-bold normal-case tracking-normal outline-none`}
             >
               <option value="stop">현재 장에서 멈춤</option>
               <option value="next">다음 장 계속 듣기</option>
@@ -246,7 +246,7 @@ export const ReaderTtsControls = ({
                     (minutes === 0 && sleepTimerEndsAt === null)
                     || (minutes > 0 && sleepTimerEndsAt !== null && minutes === sleepTimerMinutes)
                   ) || undefined}
-                  className={`min-h-11 rounded-xl border ${theme.border} text-xs font-bold ${
+                  className={`app-menu-sheet-action min-h-11 rounded-xl border ${theme.border} text-xs font-bold ${
                     (minutes === 0 && sleepTimerEndsAt === null)
                     || (minutes > 0 && sleepTimerEndsAt !== null && minutes === sleepTimerMinutes)
                       ? 'text-accent-500'

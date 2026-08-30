@@ -165,10 +165,10 @@ test('mobile menu sheets use a floating height-bounded themed surface', async ()
   assert.match(globals, /\.app-menu-sheet-backdrop\s*\{[\s\S]*?padding:\s*0 1\.25rem max\(0\.75rem, env\(safe-area-inset-bottom\)\)\s*!important/);
   assert.match(globals, /\.app-menu-sheet\s*\{[\s\S]*?max-height:\s*60dvh\s*!important[\s\S]*?border-radius:\s*22px\s*!important/);
   assert.match(globals, /data-viewer-menu-style='standard'[\s\S]*?blur\(28px\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?blur\(4\.2px\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?blur\(4px\)/);
   assert.match(globals, /data-viewer-menu-style='modern'[\s\S]*?blur\(24px\)/);
   assert.match(globals, /data-viewer-menu-style='standard'\] \.app-modal-close[\s\S]*?blur\(28px\) saturate\(1\.32\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-modal-close[\s\S]*?blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-modal-close[\s\S]*?blur\(4px\) saturate\(90%\) contrast\(82%\)/);
   assert.match(globals, /data-viewer-menu-style='modern'\] \.app-modal-close[\s\S]*?blur\(24px\)/);
 });
 
@@ -267,7 +267,7 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
   assert.match(frameSource, /placement \?\? \(menuSheet \? 'center' : 'upper'\)/);
   assert.match(globals, /\.app-menu-sheet-content,[\s\S]*?\.app-menu-sheet-footer\s*\{[\s\S]*?background-color:\s*transparent\s*!important/);
   assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?0 18px 44px/);
-  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?backdrop-filter:\s*blur\(4\.2px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet\s*\{[\s\S]*?backdrop-filter:\s*blur\(4px\) saturate\(90%\) contrast\(82%\)/);
   assert.match(globals, /data-viewer-menu-style='glass'[\s\S]*?\.app-menu-sheet-action\s*\{[\s\S]*?0 6px 14px/);
 });
 
