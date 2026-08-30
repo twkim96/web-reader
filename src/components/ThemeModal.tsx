@@ -392,7 +392,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
                     <span className="h-4 w-1 rounded-full bg-current opacity-55" />
                     <span className="h-3 w-1 rounded-full bg-current opacity-40" />
                   </span>
-                  <span className="relative z-[1] block text-xs font-medium sm:text-sm">{label}</span>
+                  <span className="relative z-[1] block max-w-full truncate px-1 text-[9px] font-medium sm:text-[10px]">{label}</span>
                   {selected && (
                     <>
                       <span
