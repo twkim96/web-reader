@@ -474,6 +474,21 @@ button.app-tag-material:hover {
   background-color: color-mix(in srgb, var(--app-tag-color) 26%, var(--viewer-theme-bg)) !important;
 }
 
+/* Search suggestions and shelf filters share one translucent chip material
+ * without making the Spotlight search surface a menu sheet. */
+.app-filter-tag-material {
+  background-color: color-mix(in srgb, var(--viewer-theme-text) 7%, transparent) !important;
+}
+
+html[data-viewer-menu-style='glass'] .app-filter-tag-material {
+  border-color: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent) !important;
+  background-color: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent) !important;
+  box-shadow:
+    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
 .app-menu-sheet-section.app-menu-sheet-chip[aria-pressed='true'] {
   background-color: var(--accent-500, var(--color-sky-500)) !important;
 }

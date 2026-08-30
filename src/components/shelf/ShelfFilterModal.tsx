@@ -129,7 +129,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
     draftFilters,
   ).length, [books, draftFilters, draftSort]);
   const catalogReady = catalogState === 'ready' && Boolean(catalog);
-  const chip = (active: boolean) => `app-tag-radius app-tag-material app-menu-sheet-section app-menu-sheet-chip border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
+  const chip = (active: boolean) => `app-tag-radius app-tag-material app-filter-tag-material app-menu-sheet-section app-menu-sheet-chip border px-2.5 py-1 text-[11px] font-bold transition-colors sm:px-3 sm:py-1.5 sm:text-xs ${
     active
       ? 'border-accent-500 [--app-tag-color:var(--accent-500)]'
       : `${theme.border} hover:border-accent-500/50`

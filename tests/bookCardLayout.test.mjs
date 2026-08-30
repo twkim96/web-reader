@@ -124,8 +124,9 @@ test('uses one 7px radius for shelf metadata tags and chips', async () => {
   assert.match(bookCardSource, /const localChipClass = 'app-tag-radius app-tag-material/);
   assert.match(bookCardSource, /const genreChipClass = 'app-tag-radius app-tag-material/);
   assert.match(bookCardSource, /const tagChipClass = 'app-tag-radius app-tag-material/);
-  assert.match(searchSource, /data-shelf-tag-search-result=\{tag\.id\}[\s\S]*?className="app-tag-radius app-tag-material/);
-  assert.match(filterSource, /const chip = \(active: boolean\) => `app-tag-radius app-tag-material/);
+  assert.match(globals, /\.app-filter-tag-material\s*\{[\s\S]*?var\(--viewer-theme-text\) 7%, transparent/);
+  assert.match(searchSource, /data-shelf-tag-search-result=\{tag\.id\}[\s\S]*?className=\{`app-tag-radius app-tag-material app-filter-tag-material/);
+  assert.match(filterSource, /const chip = \(active: boolean\) => `app-tag-radius app-tag-material app-filter-tag-material/);
   assert.match(bookInfoSource, /data-book-info-tag-row="true"[\s\S]*?app-tag-radius app-tag-material/);
   assert.match(bookInfoSource, /data-book-catalog-tag="true"[\s\S]*?className=\{`app-tag-radius app-tag-material/);
 });

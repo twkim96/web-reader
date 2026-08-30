@@ -152,7 +152,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                       type="button"
                       data-shelf-tag-search-result={tag.id}
                       onClick={() => selectTag(tag.id)}
-                      className="app-tag-radius app-tag-material border px-3 py-1.5 text-xs font-black [--app-tag-color:var(--accent-500)]"
+                      className={`app-tag-radius app-tag-material app-filter-tag-material border ${theme.border} px-3 py-1.5 text-xs font-black transition-colors hover:border-accent-500/50`}
                     >
                       #{tag.label}
                       {tag.shelfTitleCount > 0 && (
