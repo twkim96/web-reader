@@ -120,13 +120,14 @@ test('uses one 7px radius for shelf metadata tags and chips', async () => {
   ]);
 
   assert.match(globals, /\.app-tag-radius\s*\{\s*border-radius:\s*var\(--app-radius-md\);/);
-  assert.match(bookCardSource, /const localChipClass = 'app-tag-radius/);
-  assert.match(bookCardSource, /const genreChipClass = 'app-tag-radius/);
-  assert.match(bookCardSource, /const tagChipClass = 'app-tag-radius/);
-  assert.match(searchSource, /data-shelf-tag-search-result=\{tag\.id\}[\s\S]*?className="app-tag-radius/);
-  assert.match(filterSource, /const chip = \(active: boolean\) => `app-tag-radius/);
-  assert.match(bookInfoSource, /data-book-info-tag-row="true"[\s\S]*?app-tag-radius/);
-  assert.match(bookInfoSource, /data-book-catalog-tag="true"[\s\S]*?className="app-tag-radius/);
+  assert.match(globals, /\.app-tag-material\s*\{[\s\S]*?color-mix\([\s\S]*?var\(--app-tag-color\)[\s\S]*?var\(--viewer-theme-text\)/);
+  assert.match(bookCardSource, /const localChipClass = 'app-tag-radius app-tag-material/);
+  assert.match(bookCardSource, /const genreChipClass = 'app-tag-radius app-tag-material/);
+  assert.match(bookCardSource, /const tagChipClass = 'app-tag-radius app-tag-material/);
+  assert.match(searchSource, /data-shelf-tag-search-result=\{tag\.id\}[\s\S]*?className="app-tag-radius app-tag-material/);
+  assert.match(filterSource, /const chip = \(active: boolean\) => `app-tag-radius app-tag-material/);
+  assert.match(bookInfoSource, /data-book-info-tag-row="true"[\s\S]*?app-tag-radius app-tag-material/);
+  assert.match(bookInfoSource, /data-book-catalog-tag="true"[\s\S]*?className=\{`app-tag-radius app-tag-material/);
 });
 
 test('uses a Spotlight-like 20px radius for both search modals', async () => {
@@ -577,8 +578,8 @@ test('keeps the list cover compact and fills the left side of grid cards with a 
   assert.equal(gridTitle.nextElementSibling, gridTagSlot);
   assert.equal(gridTagSlot.nextElementSibling, gridProgress);
   assert.equal(gridLocalTag.textContent, '로컬');
-  assert.match(gridLocalTag.className, /bg-green-500\/15/);
-  assert.match(gridLocalTag.className, /text-green-500/);
+  assert.match(gridLocalTag.className, /app-tag-material/);
+  assert.match(gridLocalTag.className, /--app-tag-color:var\(--color-green-500\)/);
   assert.match(gridTags.className, /max-h-9/);
   assert.match(gridTags.className, /overflow-hidden/);
   assert.match(gridTagSlot.className, /mt-3/);

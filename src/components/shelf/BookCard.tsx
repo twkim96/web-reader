@@ -175,9 +175,9 @@ export const BookCard: React.FC<BookCardProps> = ({
     };
   }, [tagLayoutKey, viewMode]);
 
-  const localChipClass = 'app-tag-radius shrink-0 bg-green-500/15 px-1.5 py-0.5 text-[9px] font-black text-green-500';
-  const genreChipClass = 'app-tag-radius shrink-0 bg-accent-500/12 px-1.5 py-0.5 text-[9px] font-black text-accent-500';
-  const tagChipClass = 'app-tag-radius max-w-24 shrink-0 truncate bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5';
+  const localChipClass = 'app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 text-[9px] font-black [--app-tag-color:var(--color-green-500)]';
+  const genreChipClass = 'app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 text-[9px] font-black [--app-tag-color:var(--accent-500)]';
+  const tagChipClass = 'app-tag-radius app-tag-material max-w-24 shrink-0 truncate px-1.5 py-0.5 text-[9px] font-bold';
   const renderCatalogTags = () => (
     hasCatalogTags ? (
       <div className="relative min-w-0">
@@ -375,7 +375,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           )}
           <span
             data-shelf-simple-format="true"
-            className="app-tag-radius min-w-0 shrink truncate bg-black/5 px-1.5 py-0.5 text-[9px] font-bold opacity-60 dark:bg-white/5"
+            className="app-tag-radius app-tag-material min-w-0 shrink truncate px-1.5 py-0.5 text-[9px] font-bold"
           >
             {simpleFormatLabel}
           </span>

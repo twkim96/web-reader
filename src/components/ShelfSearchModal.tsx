@@ -152,7 +152,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                       type="button"
                       data-shelf-tag-search-result={tag.id}
                       onClick={() => selectTag(tag.id)}
-                      className="app-tag-radius bg-accent-500/12 px-3 py-1.5 text-xs font-black text-accent-500 hover:bg-accent-500 hover:text-white"
+                      className="app-tag-radius app-tag-material border px-3 py-1.5 text-xs font-black [--app-tag-color:var(--accent-500)]"
                     >
                       #{tag.label}
                       {tag.shelfTitleCount > 0 && (
@@ -206,9 +206,15 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                           )}
                         </div>
                         {(prepared?.catalog?.genreLabel || tagPreview.length > 0) && (
-                          <div className="mt-1 flex min-w-0 gap-1 overflow-hidden text-[9px] font-bold opacity-55">
-                            {prepared?.catalog?.genreLabel && <span>{prepared.catalog.genreLabel}</span>}
-                            {tagPreview.map((tag) => <span key={tag.id}>#{tag.label}</span>)}
+                          <div className="mt-1 flex min-w-0 gap-1 overflow-hidden text-[9px] font-bold">
+                            {prepared?.catalog?.genreLabel && (
+                              <span className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 [--app-tag-color:var(--accent-500)]">
+                                {prepared.catalog.genreLabel}
+                              </span>
+                            )}
+                            {tagPreview.map((tag) => (
+                              <span key={tag.id} className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5">#{tag.label}</span>
+                            ))}
                           </div>
                         )}
                       </div>

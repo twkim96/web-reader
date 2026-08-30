@@ -449,6 +449,31 @@ html[data-viewer-menu-style='glass'] .app-menu-sheet-section {
     inset 0 -1px 0 rgba(0, 0, 0, 0.08);
 }
 
+/* Tags keep their semantic tint while blending label text with the active
+ * theme, matching the clearer material used by reference chips. */
+.app-tag-material {
+  --app-tag-color: var(--viewer-theme-text);
+  border-color: color-mix(
+    in srgb,
+    var(--app-tag-color) 24%,
+    var(--viewer-theme-border)
+  ) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--app-tag-color) 18%,
+    var(--viewer-theme-bg)
+  ) !important;
+  color: color-mix(
+    in srgb,
+    var(--app-tag-color) 64%,
+    var(--viewer-theme-text)
+  ) !important;
+}
+
+button.app-tag-material:hover {
+  background-color: color-mix(in srgb, var(--app-tag-color) 26%, var(--viewer-theme-bg)) !important;
+}
+
 .app-menu-sheet-section.app-menu-sheet-chip[aria-pressed='true'] {
   background-color: var(--accent-500, var(--color-sky-500)) !important;
 }
@@ -459,6 +484,13 @@ html[data-viewer-menu-style='glass'] .app-menu-sheet-section {
 
 .app-menu-sheet-action.app-menu-sheet-choice[aria-pressed='true'] {
   background-color: var(--accent-600, var(--color-sky-600)) !important;
+}
+
+.app-tag-material[aria-pressed='true'],
+.app-menu-sheet-section.app-menu-sheet-chip.app-tag-material[aria-pressed='true'] {
+  border-color: var(--app-tag-color) !important;
+  background-color: color-mix(in srgb, var(--app-tag-color) 32%, var(--viewer-theme-bg)) !important;
+  color: color-mix(in srgb, var(--app-tag-color) 64%, var(--viewer-theme-text)) !important;
 }
 
 html[data-viewer-menu-style='glass'] .app-modal-close {
