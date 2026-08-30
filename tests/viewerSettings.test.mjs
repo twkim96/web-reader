@@ -90,7 +90,7 @@ test('derives dedicated low-blur glass contrast tokens from theme luminance', ()
 test('pins built-in accents and stores accent choices only on custom themes', () => {
   const legacyAccent = { accentColor: 'indigo', customThemes: [] };
   assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'light' }), 'rose');
-  assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'sepia' }), 'emerald');
+  assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'sepia' }), 'amber');
   assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'dark' }), 'yellow');
   assert.equal(getThemeAccentColor({ ...legacyAccent, theme: 'midnight' }), 'rose');
 
