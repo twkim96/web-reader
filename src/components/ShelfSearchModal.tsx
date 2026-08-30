@@ -208,7 +208,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                         {(prepared?.catalog?.genreLabel || tagPreview.length > 0) && (
                           <div className="mt-1 flex min-w-0 gap-1 overflow-hidden text-[9px] font-bold">
                             {prepared?.catalog?.genreLabel && (
-                              <span className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 [--app-tag-color:#FFA213]">
+                              <span className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 [--app-tag-color:var(--accent-500)]">
                                 {prepared.catalog.genreLabel}
                               </span>
                             )}
