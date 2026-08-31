@@ -280,7 +280,7 @@ test('opens mobile shelf overflow actions in the dock material and closes before
   assert.ok(menu?.classList.contains('bottom-[calc(100%+0.5rem)]'));
   assert.ok(menu?.classList.contains('right-0'));
   assert.ok(menu?.parentElement?.classList.contains('w-[calc(100vw-4.25rem)]'));
-  assert.ok(menu?.parentElement?.classList.contains('max-w-xs'));
+  assert.ok(menu?.parentElement?.classList.contains('max-w-[20.75rem]'));
   assert.equal(menu?.getAttribute('data-menu-style-material'), 'glass');
   assert.equal(moreControl?.getAttribute('aria-expanded'), 'true');
 
