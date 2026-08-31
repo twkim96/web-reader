@@ -15,7 +15,6 @@ import {
   CloudLightning,
   Highlighter,
   BarChart3,
-  EllipsisVertical,
   X
 } from 'lucide-react';
 import type { CloudSyncStatus } from './FileUploader';
@@ -78,16 +77,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const filterTitle = `책장 정렬·필터: ${sortLabel}${
     activeFilterCount > 0 ? `, 필터 ${activeFilterCount}개` : ''
   }`;
-  const [mobileMoreOpen, setMobileMoreOpen] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!mobileMoreOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileMoreOpen(false);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [mobileMoreOpen]);
 
   const bottomDockIconSize = 26;
   const mobileHeaderIconSize = 22;
@@ -98,8 +87,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     : standardDock
       ? "text-[color:var(--viewer-theme-text)]"
       : "viewer-cime-glass text-[color:var(--viewer-shelf-glass-ink)]";
-  const bottomDockFrameClass = "relative w-[calc(100vw-4.25rem)] max-w-[20.75rem] md:w-fit md:max-w-[calc(100vw-1rem)]";
-  const bottomDockClass = `app-menu-dock relative flex h-[4.25rem] w-full items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-fit md:px-3`;
+  const bottomDockClass = `app-menu-dock relative flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
   const bottomDockButtonBaseClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14";
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
   const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14";
@@ -177,7 +165,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     layoutControlsClassName?: string;
   }) => {
     const runAction = (action: () => void) => {
-      setMobileMoreOpen(false);
       action();
     };
 
@@ -192,9 +179,8 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
         </button>
 
         <button
-          data-shelf-dock-action="annotations"
           onClick={() => runAction(onShowAnnotations)}
-          className={`${buttonClass} hidden md:flex`}
+          className={buttonClass}
           title="라이브러리 전체 주석"
           aria-label="라이브러리 전체 주석"
         >
@@ -232,26 +218,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
         </button>
 
         <button
-          data-shelf-dock-action="offline-storage"
           onClick={() => runAction(() => setShowManage(true))}
-          className={`${buttonClass} hidden md:flex`}
+          className={buttonClass}
           title="Manage Offline Books"
         >
           <HardDrive size={iconSize} />
-        </button>
-
-        <button
-          type="button"
-          data-shelf-more-control="true"
-          onClick={() => setMobileMoreOpen((current) => !current)}
-          className={`${buttonClass} md:hidden ${mobileMoreOpen ? 'bg-current/10 opacity-100' : ''}`}
-          title="더보기"
-          aria-label="더보기"
-          aria-haspopup="menu"
-          aria-expanded={mobileMoreOpen}
-          aria-controls="shelf-mobile-more-menu"
-        >
-          <EllipsisVertical size={iconSize} />
         </button>
 
       </>
@@ -259,75 +230,19 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   };
 
   const bottomDock = (
-    <>
-      {mobileMoreOpen && (
-        <button
-          type="button"
-          data-shelf-more-backdrop="true"
-          className="fixed inset-0 z-[79] cursor-default bg-transparent md:hidden"
-          onClick={() => setMobileMoreOpen(false)}
-          aria-label="더보기 메뉴 닫기"
-        />
-      )}
-      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-[80] flex justify-center px-2 md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-        <div className={`${bottomDockFrameClass} pointer-events-auto`}>
-          {mobileMoreOpen && (
-            <div
-              id="shelf-mobile-more-menu"
-              role="menu"
-              tabIndex={-1}
-              autoFocus
-              data-shelf-more-menu="true"
-              data-menu-style-material={dockStyle}
-              aria-label="책장 더보기"
-              className={`app-menu-dock app-panel-radius absolute bottom-[calc(100%+0.5rem)] right-0 z-10 w-56 origin-bottom-right ${dockSurfaceClass} p-2 animate-in fade-in zoom-in-95 duration-150 md:hidden`}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                data-shelf-more-action="offline-storage"
-                onClick={() => {
-                  setMobileMoreOpen(false);
-                  setShowManage(true);
-                }}
-                className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-medium transition-colors hover:bg-current/10 active:bg-current/15"
-              >
-                <span className="app-menu-sheet-action app-radius-exempt shelf-glass-contrast-icon flex size-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-menu-control-border)]">
-                  <HardDrive size={21} />
-                </span>
-                <span>오프라인 스토리지</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-shelf-more-action="annotations"
-                onClick={() => {
-                  setMobileMoreOpen(false);
-                  onShowAnnotations();
-                }}
-                className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-medium transition-colors hover:bg-current/10 active:bg-current/15"
-              >
-                <span className="app-menu-sheet-action app-radius-exempt shelf-glass-contrast-icon flex size-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-menu-control-border)]">
-                  <Highlighter size={21} />
-                </span>
-                <span>라이브러리 주석</span>
-              </button>
-            </div>
-          )}
-          <div data-shelf-bottom-dock="true" data-shelf-dock-style={dockStyle} className={`${bottomDockClass} pointer-events-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out md:overflow-x-auto`}>
-            <div className="flex w-full min-w-0 items-center justify-evenly gap-0.5 md:w-auto md:min-w-max md:justify-start md:gap-2">
-              {renderDockActions({
-                iconSize: bottomDockIconSize,
-                buttonClass: bottomDockButtonClass,
-                activeButtonClass: activeBottomDockButtonClass,
-                accentButtonClass: accentBottomDockButtonClass,
-                layoutControlsClassName: 'hidden md:flex',
-              })}
-            </div>
-          </div>
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-[80] flex justify-center px-2 md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+      <div data-shelf-bottom-dock="true" data-shelf-dock-style={dockStyle} className={`${bottomDockClass} pointer-events-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out md:overflow-x-auto`}>
+        <div className="flex w-full min-w-0 items-center justify-evenly gap-0.5 md:w-auto md:min-w-max md:justify-start md:gap-2">
+          {renderDockActions({
+            iconSize: bottomDockIconSize,
+            buttonClass: bottomDockButtonClass,
+            activeButtonClass: activeBottomDockButtonClass,
+            accentButtonClass: accentBottomDockButtonClass,
+            layoutControlsClassName: 'hidden md:flex',
+          })}
         </div>
       </div>
-    </>
+    </div>
   );
 
   return (
