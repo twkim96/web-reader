@@ -228,6 +228,24 @@ test('hides the shelf dock behind every modal family with a lightweight transiti
   assert.match(globals, /prefers-reduced-motion:\s*reduce[\s\S]*?\[data-shelf-bottom-dock='true'\][\s\S]*?transition:\s*none\s*!important/);
 });
 
+test('hides reader chrome through one derived panel-open decision and restores it on close', async () => {
+  const [source, chromeSource] = await Promise.all([
+    readFile(new URL('../src/components/EpubReader.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/hooks/reader/useReaderChrome.ts', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(source, /const shouldHideReaderChrome = isReaderPanelOpen \|\| Boolean\(tts\.state\.mode\)/);
+  assert.match(source, /showControls=\{chrome\.showControls && !shouldHideReaderChrome\}/);
+  assert.match(source, /const isBaseReaderPanelOpen = chrome\.showSettings[\s\S]*?\|\| showBookInfo[\s\S]*?\|\| interactionBlocked/);
+  const openBookInfo = source.match(/const openBookInfo = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[/)?.[1] ?? '';
+  const openStatistics = source.match(/onOpenStatistics=\{\(\) => \{([\s\S]*?)\n        \}\}/)?.[1] ?? '';
+  const openTts = source.match(/onOpenTts=\{\(\) => \{([\s\S]*?)\n        \}\}/)?.[1] ?? '';
+  assert.doesNotMatch(openBookInfo, /setShowControls\(false\)|setShowReaderControls\(false\)/);
+  assert.doesNotMatch(openStatistics, /setShowControls\(false\)|setShowReaderControls\(false\)/);
+  assert.doesNotMatch(openTts, /setShowControls\(false\)|setShowReaderControls\(false\)/);
+  assert.doesNotMatch(chromeSource, /const openJumpInput = useCallback\(\(\) => \{[\s\S]*?setShowControls\(false\)/);
+});
+
 test('pins library annotation and statistics modals to the active theme variables', async () => {
   const [pageSource, annotationSource, statisticsSource] = await Promise.all([
     readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),

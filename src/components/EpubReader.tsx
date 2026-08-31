@@ -358,7 +358,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [onBack]);
 
   const chrome = useReaderChrome({ onBack: handleReaderBack });
-  const setShowReaderControls = chrome.setShowControls;
   const [showBookInfo, setShowBookInfo] = React.useState(false);
   const [bookInfoDownloaded, setBookInfoDownloaded] = React.useState(
     isOfflineMode || book.source === 'local',
@@ -728,6 +727,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || syncConflict !== null
     || pendingSliderMove !== null
     || isSliderMoveCommitting;
+  const shouldHideReaderChrome = isReaderPanelOpen || Boolean(tts.state.mode);
   const {
     flushActiveSession: flushReadingSession,
     getActiveSessionPreview,
@@ -749,7 +749,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     getActiveSessionPreview,
   });
   const openBookInfo = useCallback(() => {
-    setShowReaderControls(false);
     setBookInfoLastRead(lastSaveTimeRef.current || initialTime || 0);
     setShowBookInfo(true);
     if (isOfflineMode || book.source === 'local') {
@@ -762,7 +761,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         console.warn('[BookInfo] local copy lookup failed:', error);
         setBookInfoDownloaded(false);
       });
-  }, [book.id, book.source, initialTime, isOfflineMode, lastSaveTimeRef, setShowReaderControls]);
+  }, [book.id, book.source, initialTime, isOfflineMode, lastSaveTimeRef]);
   useLayoutEffect(() => {
     markReadingActivityRef.current = markReadingActivity;
   }, [markReadingActivity]);
@@ -1719,7 +1718,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         theme={theme}
         menuStyle={settings.shelfDockStyle}
         bookName={book.name}
-        showControls={chrome.showControls}
+        showControls={chrome.showControls && !shouldHideReaderChrome}
         sliderProgress={sliderProgress}
         isSliderPreviewing={isSliderPreviewing}
         sliderPreviewChapter={sliderTargetChapter}
@@ -1736,11 +1735,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onOpenBookmarks={() => chrome.setShowBookmarks(true)}
         onOpenToc={() => chrome.setShowToc(true)}
         onOpenTts={() => {
-          chrome.setShowControls(false);
           tts.speakChapterFromCurrentPosition();
         }}
         onOpenStatistics={() => {
-          chrome.setShowControls(false);
           void flushReadingSession().then(onOpenStatistics).catch((error) => {
             console.error('[ReadingStatistics] active session flush failed:', error);
             onOpenStatistics();

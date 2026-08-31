@@ -8,7 +8,12 @@ import {
   getStoredViewerSettings,
 } from '../src/hooks/useViewerSettings.ts';
 import { getMuzioShelfDockVariables } from '../src/lib/shelfDockTheme.ts';
-import { THEMES } from '../src/lib/constants.ts';
+import {
+  ACCENT_PALETTE,
+  BUILT_IN_THEME_ACCENTS,
+  BUILT_IN_THEME_COLORS,
+  THEMES,
+} from '../src/lib/constants.ts';
 import {
   getGoogleSignInButtonVariant,
   getThemeAccentColor,
@@ -65,6 +70,25 @@ test('uses Midnight as the new default while preserving an explicit saved theme'
   const layout = await readFile(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   assert.match(layout, /let settings = \{ theme: 'midnight'/);
   assert.match(layout, /builtInThemes\[settings\.theme\] \|\| builtInThemes\.midnight/);
+});
+
+test('shares the saved-theme bootstrap palette with runtime rendering', async () => {
+  const [layout, page] = await Promise.all([
+    readFile(new URL('../src/app/layout.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.deepEqual(getThemeColors({ theme: 'sepia', customThemes: [] }), BUILT_IN_THEME_COLORS.sepia);
+  assert.equal(BUILT_IN_THEME_ACCENTS.sepia, 'amber');
+  assert.equal(ACCENT_PALETTE.emerald[500], '#5A896F');
+  assert.equal(ACCENT_PALETTE.amber[500], '#C05A46');
+  assert.equal(ACCENT_PALETTE.sky[500], '#506C82');
+  assert.match(layout, /JSON\.stringify\(BUILT_IN_THEME_COLORS\)/);
+  assert.match(layout, /JSON\.stringify\(ACCENT_PALETTE\)/);
+  assert.match(layout, /JSON\.stringify\(BUILT_IN_THEME_ACCENTS\)/);
+  assert.match(layout, /<html lang="ko" suppressHydrationWarning>/);
+  assert.doesNotMatch(layout, /'#10b981'|'#f59e0b'|'#0ea5e9'/);
+  assert.match(page, /data-app-view=\{view\}[\s\S]*?viewer-theme-texture[\s\S]*?backgroundColor: 'var\(--viewer-theme-bg, #141517\)'[\s\S]*?color: 'var\(--viewer-theme-text, #d2d3d6\)'/);
 });
 
 test('uses Glass as the default menu material while preserving explicit styles', async () => {

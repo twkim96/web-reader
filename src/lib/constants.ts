@@ -32,6 +32,17 @@ export const THEMES = {
 };
 
 /**
+ * 첫 페인트와 React 런타임이 함께 사용하는 내장 테마 원색입니다.
+ * 서버 레이아웃의 초기 테마 주입에서도 이 값을 직렬화해 사용합니다.
+ */
+export const BUILT_IN_THEME_COLORS = {
+  light: { bg: '#ffffff', text: '#222222', texture: 'none' },
+  dark: { bg: '#272728', text: '#b8b8b8', texture: 'none' },
+  sepia: { bg: '#f4ecd8', text: '#5b4636', texture: 'none' },
+  midnight: { bg: '#141517', text: '#d2d3d6', texture: 'none' },
+} as const;
+
+/**
  * 포인트 컬러 리스트
  */
 export const ACCENT_COLORS = [

@@ -1,6 +1,10 @@
 import type { CSSProperties } from 'react';
 import type { CustomThemeTexture, ThemeClasses, ViewerSettings } from '../types.ts';
-import { ACCENT_PALETTE, BUILT_IN_THEME_ACCENTS } from './constants.ts';
+import {
+  ACCENT_PALETTE,
+  BUILT_IN_THEME_ACCENTS,
+  BUILT_IN_THEME_COLORS,
+} from './constants.ts';
 import { getMuzioShelfDockVariables } from './shelfDockTheme.ts';
 
 export const CUSTOM_THEME_PREFIX = 'custom:';
@@ -88,24 +92,15 @@ export const getThemeColors = (settings: ThemeLookupSettings) => {
   const customTheme = findCustomTheme(settings);
   if (customTheme) {
     return {
-      bg: normalizeHexColor(customTheme.bgColor, '#f4ecd8'),
-      text: normalizeHexColor(customTheme.textColor, '#5b4636'),
+      bg: normalizeHexColor(customTheme.bgColor, BUILT_IN_THEME_COLORS.midnight.bg),
+      text: normalizeHexColor(customTheme.textColor, BUILT_IN_THEME_COLORS.midnight.text),
       texture: customTheme.texture,
     };
   }
 
-  switch (settings.theme) {
-    case 'light':
-      return { bg: '#ffffff', text: '#222222', texture: 'none' as CustomThemeTexture };
-    case 'dark':
-      return { bg: '#272728', text: '#b8b8b8', texture: 'none' as CustomThemeTexture };
-    case 'midnight':
-      return { bg: '#141517', text: '#d2d3d6', texture: 'none' as CustomThemeTexture };
-    case 'sepia':
-      return { bg: '#f4ecd8', text: '#5b4636', texture: 'none' as CustomThemeTexture };
-    default:
-      return { bg: '#272728', text: '#b8b8b8', texture: 'none' as CustomThemeTexture };
-  }
+  return BUILT_IN_THEME_COLORS[
+    settings.theme as keyof typeof BUILT_IN_THEME_COLORS
+  ] ?? BUILT_IN_THEME_COLORS.midnight;
 };
 
 const getTextureVars = (texture: CustomThemeTexture, textColor: string) => {

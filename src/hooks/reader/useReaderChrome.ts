@@ -25,7 +25,6 @@ export const useReaderChrome = ({ onBack }: UseReaderChromeOptions) => {
 
   const openJumpInput = useCallback(() => {
     setShowJumpInput(true);
-    setShowControls(false);
   }, []);
 
   const closeJumpInput = useCallback(() => {

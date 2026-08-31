@@ -1,29 +1,17 @@
 // src/app/layout.tsx
 import type { Metadata, Viewport } from "next";
+import {
+  ACCENT_PALETTE,
+  BUILT_IN_THEME_ACCENTS,
+  BUILT_IN_THEME_COLORS,
+} from "../lib/constants";
 import "./globals.css";
 
 const themeBootstrapScript = `
 (() => {
-  const builtInThemes = {
-    light: { bg: '#ffffff', text: '#222222', texture: 'none' },
-    dark: { bg: '#272728', text: '#b8b8b8', texture: 'none' },
-    midnight: { bg: '#141517', text: '#d2d3d6', texture: 'none' },
-    sepia: { bg: '#f4ecd8', text: '#5b4636', texture: 'none' }
-  };
-  const accents = {
-    indigo: { 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5' },
-    rose: { 400: '#fb7185', 500: '#f43f5e', 600: '#e11d48' },
-    emerald: { 400: '#34d399', 500: '#10b981', 600: '#059669' },
-    amber: { 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706' },
-    sky: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7' },
-    yellow: { 400: '#fbdf7e', 500: '#d4af37', 600: '#9a7b0c' }
-  };
-  const builtInThemeAccents = {
-    light: 'rose',
-    sepia: 'emerald',
-    dark: 'yellow',
-    midnight: 'rose'
-  };
+  const builtInThemes = ${JSON.stringify(BUILT_IN_THEME_COLORS)};
+  const accents = ${JSON.stringify(ACCENT_PALETTE)};
+  const builtInThemeAccents = ${JSON.stringify(BUILT_IN_THEME_ACCENTS)};
   const normalizeHex = (value, fallback) => {
     const raw = String(value || '').trim();
     const hex = raw.startsWith('#') ? raw : '#' + raw;
@@ -84,13 +72,13 @@ const themeBootstrapScript = `
     : null;
   const theme = customTheme
     ? {
-      bg: normalizeHex(customTheme.bgColor, '#272728'),
-      text: normalizeHex(customTheme.textColor, '#b8b8b8'),
+      bg: normalizeHex(customTheme.bgColor, builtInThemes.midnight.bg),
+      text: normalizeHex(customTheme.textColor, builtInThemes.midnight.text),
       texture: customTheme.texture || 'none'
     }
     : (builtInThemes[settings.theme] || builtInThemes.midnight);
-  const bg = normalizeHex(theme.bg, '#272728');
-  const text = normalizeHex(theme.text, '#b8b8b8');
+  const bg = normalizeHex(theme.bg, builtInThemes.midnight.bg);
+  const text = normalizeHex(theme.text, builtInThemes.midnight.text);
   const bgRgb = rgbString(bg);
   const textRgb = rgbString(text);
   const darkSurface = isDarkColor(bg);
@@ -174,7 +162,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" />
         <script

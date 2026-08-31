@@ -714,8 +714,11 @@ export default function Page() {
       <div
         data-app-view={view}
         data-library-bootstrap-ready={isLibraryBootstrapReady ? 'true' : 'false'}
-        className={`h-screen w-screen flex flex-col items-center justify-center ${theme.bg} ${theme.text} gap-4 transition-colors duration-300`}
-        style={dynamicStyles}
+        className="viewer-theme-texture h-screen w-screen flex flex-col items-center justify-center gap-4 transition-colors duration-300"
+        style={{
+          backgroundColor: 'var(--viewer-theme-bg, #141517)',
+          color: 'var(--viewer-theme-text, #d2d3d6)',
+        }}
       >
         <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
         <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
