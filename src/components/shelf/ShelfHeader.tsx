@@ -98,7 +98,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     : standardDock
       ? "text-[color:var(--viewer-theme-text)]"
       : "viewer-cime-glass text-[color:var(--viewer-shelf-glass-ink)]";
-  const bottomDockFrameClass = "relative w-[calc(100vw-1rem)] max-w-sm md:w-fit md:max-w-[calc(100vw-1rem)]";
+  const bottomDockFrameClass = "relative w-[calc(100vw-4.25rem)] max-w-xs md:w-fit md:max-w-[calc(100vw-1rem)]";
   const bottomDockClass = `app-menu-dock relative flex h-[4.25rem] w-full items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-fit md:px-3`;
   const bottomDockButtonBaseClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14";
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
@@ -280,7 +280,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               data-shelf-more-menu="true"
               data-menu-style-material={dockStyle}
               aria-label="책장 더보기"
-              className={`app-menu-dock app-panel-radius absolute bottom-0 right-[3.25rem] z-10 w-56 origin-bottom-right ${dockSurfaceClass} p-2 animate-in fade-in zoom-in-95 duration-150 md:hidden`}
+              className={`app-menu-dock app-panel-radius absolute bottom-[calc(100%+0.5rem)] right-0 z-10 w-56 origin-bottom-right ${dockSurfaceClass} p-2 animate-in fade-in zoom-in-95 duration-150 md:hidden`}
             >
               <button
                 type="button"

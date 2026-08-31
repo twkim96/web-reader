@@ -277,6 +277,10 @@ test('opens mobile shelf overflow actions in the dock material and closes before
 
   const menu = window.document.querySelector('[data-shelf-more-menu="true"]');
   assert.ok(menu?.classList.contains('app-menu-dock'));
+  assert.ok(menu?.classList.contains('bottom-[calc(100%+0.5rem)]'));
+  assert.ok(menu?.classList.contains('right-0'));
+  assert.ok(menu?.parentElement?.classList.contains('w-[calc(100vw-4.25rem)]'));
+  assert.ok(menu?.parentElement?.classList.contains('max-w-xs'));
   assert.equal(menu?.getAttribute('data-menu-style-material'), 'glass');
   assert.equal(moreControl?.getAttribute('aria-expanded'), 'true');
 
