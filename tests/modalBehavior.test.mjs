@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../src/components/ConfirmDialog.tsx';
 import { LoginDisclosureModal } from '../src/components/LoginDisclosureModal.tsx';
 import { ReaderModalFrame } from '../src/components/reader/ReaderModalFrame.tsx';
 import { MenuSheetHeader } from '../src/components/MenuSheetHeader.tsx';
+import { ShelfHeader } from '../src/components/shelf/ShelfHeader.tsx';
 
 const theme = {
   bg: 'bg-black',
@@ -226,6 +227,90 @@ test('hides the shelf dock behind every modal family with a lightweight transiti
   assert.match(globals, /\[data-shelf-bottom-dock='true'\]\s*\{[\s\S]*?opacity 150ms ease[\s\S]*?transform 180ms/);
   assert.match(globals, /body:has\([\s\S]*?data-menu-sheet-backdrop[\s\S]*?data-shelf-search-modal[\s\S]*?aria-modal[\s\S]*?\) \[data-shelf-bottom-dock='true'\]\s*\{[\s\S]*?pointer-events:\s*none[\s\S]*?visibility:\s*hidden[\s\S]*?opacity:\s*0[\s\S]*?scale\(0\.96\)/);
   assert.match(globals, /prefers-reduced-motion:\s*reduce[\s\S]*?\[data-shelf-bottom-dock='true'\][\s\S]*?transition:\s*none\s*!important/);
+});
+
+test('opens mobile shelf overflow actions in the dock material and closes before dispatch', async () => {
+  const window = installDom();
+  const root = createRoot(window.document.querySelector('#root'));
+  let annotationCount = 0;
+  let statisticsCount = 0;
+  const manageStates = [];
+
+  await act(async () => {
+    root.render(React.createElement(ShelfHeader, {
+      isOfflineMode: true,
+      isGuest: true,
+      syncStatus: null,
+      userEmail: 'Guest User',
+      searchKeyword: '',
+      sortMode: 'recent',
+      activeFilterCount: 0,
+      viewMode: 'simple',
+      dockStyle: 'glass',
+      onToggleCloud: () => undefined,
+      onLogin: () => undefined,
+      onLogout: () => undefined,
+      setShowSearch: () => undefined,
+      onShowFilters: () => undefined,
+      onToggleViewMode: () => undefined,
+      setShowThemeModal: () => undefined,
+      setShowManage: (value) => manageStates.push(value),
+      setShowImportConfirm: () => undefined,
+      onShowAnnotations: () => { annotationCount += 1; },
+      onShowStatistics: () => { statisticsCount += 1; },
+      onCancelSync: () => undefined,
+    }));
+    await Promise.resolve();
+  });
+
+  const moreControl = window.document.querySelector('[data-shelf-more-control="true"]');
+  assert.match(
+    window.document.querySelector('[data-shelf-dock-action="annotations"]')?.className ?? '',
+    /hidden md:flex/,
+  );
+  assert.match(
+    window.document.querySelector('[data-shelf-dock-action="offline-storage"]')?.className ?? '',
+    /hidden md:flex/,
+  );
+  assert.equal(window.document.querySelector('[data-shelf-more-menu="true"]'), null);
+  await act(async () => dispatchClick(window, moreControl));
+
+  const menu = window.document.querySelector('[data-shelf-more-menu="true"]');
+  assert.ok(menu?.classList.contains('app-menu-dock'));
+  assert.equal(menu?.getAttribute('data-menu-style-material'), 'glass');
+  assert.equal(moreControl?.getAttribute('aria-expanded'), 'true');
+
+  await act(async () => dispatchClick(
+    window,
+    menu.querySelector('[data-shelf-more-action="annotations"]'),
+  ));
+  assert.equal(annotationCount, 1);
+  assert.equal(window.document.querySelector('[data-shelf-more-menu="true"]'), null);
+
+  await act(async () => dispatchClick(window, moreControl));
+  await act(async () => dispatchClick(
+    window,
+    window.document.querySelector('[data-shelf-more-action="offline-storage"]'),
+  ));
+  assert.deepEqual(manageStates, [true]);
+  assert.equal(window.document.querySelector('[data-shelf-more-menu="true"]'), null);
+
+  await act(async () => dispatchClick(window, moreControl));
+  await act(async () => dispatchClick(
+    window,
+    window.document.querySelector('button[aria-label="독서 통계"]'),
+  ));
+  assert.equal(statisticsCount, 1);
+  assert.equal(window.document.querySelector('[data-shelf-more-menu="true"]'), null);
+
+  await act(async () => dispatchClick(window, moreControl));
+  await act(async () => dispatchClick(
+    window,
+    window.document.querySelector('[data-shelf-more-backdrop="true"]'),
+  ));
+  assert.equal(window.document.querySelector('[data-shelf-more-menu="true"]'), null);
+
+  await act(async () => root.unmount());
 });
 
 test('hides reader chrome through one derived panel-open decision and restores it on close', async () => {
