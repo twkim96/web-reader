@@ -289,6 +289,26 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
   assert.match(globals, /data-viewer-menu-style='glass'\] \.app-menu-sheet-action\s*\{[\s\S]*?box-shadow:\s*var\(--app-menu-control-shadow\)/);
 });
 
+test('keeps the glass TTS material fixed above the reader bottom edge', async () => {
+  const [globals, ttsSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/reader/ReaderTtsControls.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(
+    ttsSource,
+    /data-reader-tts-controls="true"[\s\S]*?app-menu-material fixed bottom-\[calc\(env\(safe-area-inset-bottom\)\+2\.25rem\)\]/,
+  );
+  assert.match(
+    globals,
+    /data-viewer-menu-style='glass'\] :is\(\.app-menu-sheet, \.app-menu-material, \.app-search-surface\) \{\s*isolation:\s*isolate;\s*\}/,
+  );
+  assert.match(
+    globals,
+    /data-viewer-menu-style='glass'\] :is\(\.app-menu-sheet, \.app-search-surface\) \{\s*position:\s*relative;\s*\}/,
+  );
+});
+
 test('uses compact square theme and menu-style previews with custom-only accent controls', async () => {
   const [themeSource, constantsSource] = await Promise.all([
     readFile(new URL('../src/components/ThemeModal.tsx', import.meta.url), 'utf8'),

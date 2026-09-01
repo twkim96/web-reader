@@ -395,8 +395,11 @@ html[data-viewer-menu-style] .app-modal-close {
 }
 
 html[data-viewer-menu-style='glass'] :is(.app-menu-sheet, .app-menu-material, .app-search-surface) {
-  position: relative;
   isolation: isolate;
+}
+
+html[data-viewer-menu-style='glass'] :is(.app-menu-sheet, .app-search-surface) {
+  position: relative;
 }
 
 html[data-viewer-menu-style='glass'] .app-menu-sheet-action {
