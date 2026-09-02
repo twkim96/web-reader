@@ -1468,7 +1468,7 @@ try {
     return {
       values: buttons.map((button) => button?.dataset.shelfDockStyleOption || ''),
       tops: buttons.map((button) => Math.round(button?.getBoundingClientRect().top || -1)),
-      labels: buttons.map((button) => button?.querySelector(':scope > span:last-of-type')?.textContent?.trim() || ''),
+      labels: buttons.map((button) => button?.textContent?.trim() || ''),
       texturePreviews: buttons.map((button) => Boolean(button?.querySelector('[data-menu-style-texture-preview="true"]'))),
       squareDeltas: buttons.map((button) => {
         const rect = button?.getBoundingClientRect();
