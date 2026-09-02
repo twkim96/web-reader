@@ -166,11 +166,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
                   aria-pressed={draftSort === id}
                   disabled={id === 'popularity' && !catalogReady}
                   onClick={() => setDraftSort(id)}
-                  className={`app-menu-sheet-section app-menu-sheet-choice flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1.5 text-[10px] font-bold transition-colors disabled:opacity-35 sm:min-h-16 sm:flex-col sm:px-2 sm:text-[11px] ${
-                    draftSort === id
-                      ? 'border-accent-500 bg-accent-500/12 text-accent-500'
-                      : theme.border
-                  }`}
+                  className={`app-menu-sheet-section app-menu-sheet-choice flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1.5 text-[10px] font-bold transition-colors disabled:opacity-35 sm:min-h-16 sm:flex-col sm:px-2 sm:text-[11px] ${theme.border}`}
                 >
                   <Icon className="size-4 shrink-0 sm:size-[17px]" />
                   {label}
@@ -316,7 +312,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
             type="button"
             data-shelf-filter-apply="true"
             onClick={() => onApply(draftSort, draftFilters)}
-            className="min-h-11 rounded-xl bg-accent-600 px-4 text-sm font-black text-white"
+            className={`app-menu-sheet-action app-menu-sheet-accent-action min-h-11 rounded-xl border ${theme.border} px-4 text-sm font-black`}
           >
             {resultCount.toLocaleString('ko-KR')}권 보기
           </button>

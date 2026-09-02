@@ -170,13 +170,21 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 
 ## Phase 13 — 독서 완료 확인·삭제 확인창 재질 통일
 
-상태: 구현·자동검증 완료 · production Rules 배포 대기
+상태: 구현·자동검증 완료 · production Rules 배포 완료
 
 - 독서 통계의 최신 미완료 회차는 진행률과 관계없이 언제든 `완료하기`를 선택할 수 있다.
 - `완료하기`를 누르면 즉시 기록하지 않고 도서명·회차와 완독 여부를 다시 묻는 확인창을 먼저 표시한다.
 - 확인 뒤 생성되는 immutable 완료 마커는 로컬 스키마·집계·Firestore Rules 모두 진행률 하한이 없는 같은 계약으로 검증한다. 이미 완료됐거나 최신 회차가 바뀐 경우는 계속 거부한다.
 - 공용 `ConfirmDialog`의 배경·본체·안내 섹션·취소/확인 버튼을 `app-menu-sheet-*` 토큰으로 통일한다. 통계 회차 삭제, 읽은 내역 삭제, 오프라인 도서 삭제 등 같은 공용 확인창도 표준·글래스·모던 질감을 함께 따른다.
 - 도서 정보의 로컬 사본/전체 삭제 다중 선택창도 같은 토큰을 사용하고, 삭제 의미는 별도 단색 면이 아니라 공용 재질 위의 약한 적색 tint로만 구분한다.
+
+## Phase 14 — 모달 주요 CTA 재질 통일
+
+상태: 완료
+
+- 도서 정보의 `읽기`와 정렬·필터의 `N권 보기`는 단색 포인트 배경을 제거하고 공용 `app-menu-sheet-action` 재질을 사용한다.
+- 두 CTA와 정렬 선택 카드는 `app-menu-sheet-accent-action` 계약으로 같은 포인트 컬러 12% tint, 테마 재질, 외곽선과 그림자를 공유한다.
+- 포인트 농도와 재질 합성은 `globals.css` 한 곳에서 조절하며 컴포넌트별 `bg-accent-600` 오버라이드는 두지 않는다.
 
 ## 검증 결과
 
@@ -200,4 +208,5 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 - 메뉴 재질 토큰 중앙화 뒤 `npm run test:shelf-ui` 50개, `npm run test:shelf` 122개, `npm run typecheck`, `npm run build` 통과
 - 글래스 최종 계약: 모든 공용 메뉴 표면 `blur(1.5px)`, 밝은·어두운 테마 아이콘 단방향 외곽 대비, 저장값이 없는 설정의 글래스 기본값을 회귀로 고정
 - 독서 완료·삭제 확인창 후속 검증: 독서 통계 도메인 54개, Shelf UI 52개, Firestore Rules 32개+보조 3개, `npm run typecheck`, `npm run build` 통과
+- 2026-09-02 production 프로젝트 `web-novel-viewer`에 저진도 완료 계약을 포함한 `firestore.rules`를 컴파일·배포 완료
 - 배포 뒤 실제 계정의 로그아웃 → Firebase 재로그인 → 첫 Drive 연결을 다시 확인하고 완료 조건을 최종 승인한다.

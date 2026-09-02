@@ -469,8 +469,26 @@ html[data-viewer-menu-style='glass'] .app-filter-tag-material {
   background-color: var(--accent-500, var(--color-sky-500)) !important;
 }
 
-.app-menu-sheet-section.app-menu-sheet-choice[aria-pressed='true'] {
-  background-color: color-mix(in srgb, var(--accent-500, var(--color-sky-500)) 12%, transparent) !important;
+/* Selected choices and primary modal CTAs share one lightly accent-tinted
+ * material instead of replacing the active menu texture with a solid color. */
+.app-menu-sheet-section.app-menu-sheet-choice[aria-pressed='true'],
+.app-menu-sheet-action.app-menu-sheet-accent-action {
+  border-color: color-mix(
+    in srgb,
+    var(--accent-500, var(--color-sky-500)) 42%,
+    var(--app-menu-control-border, var(--viewer-theme-border))
+  ) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--accent-500, var(--color-sky-500)) 12%,
+    var(--app-menu-control-surface, var(--viewer-theme-bg))
+  ) !important;
+  color: color-mix(
+    in srgb,
+    var(--accent-500, var(--color-sky-500)) 68%,
+    var(--viewer-theme-text)
+  ) !important;
+  box-shadow: var(--app-menu-control-shadow, none);
 }
 
 .app-menu-sheet-action.app-menu-sheet-choice[aria-pressed='true'] {

@@ -574,9 +574,10 @@ export const BookInfoModal: React.FC<Props> = ({
             {showManagementActions && (
               <button
                 type="button"
+                data-book-info-open="true"
                 onClick={() => onOpen?.(book)}
                 aria-label="읽기"
-                className="min-h-11 rounded-xl bg-accent-600 px-4 text-xs font-bold text-white"
+                className={`app-menu-sheet-action app-menu-sheet-accent-action min-h-11 rounded-xl border ${theme.border} px-4 text-xs font-bold`}
               >
                 읽기
               </button>

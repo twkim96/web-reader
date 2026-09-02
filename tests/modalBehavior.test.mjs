@@ -295,6 +295,24 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
   assert.match(globals, /data-viewer-menu-style='glass'\] \.app-menu-sheet-action\s*\{[\s\S]*?box-shadow:\s*var\(--app-menu-control-shadow\)/);
 });
 
+test('uses one lightly tinted menu material for selected sort and shelf primary actions', async () => {
+  const [globals, filterSource, bookInfoSource] = await Promise.all([
+    readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/ShelfFilterModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/shelf/BookInfoModal.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(
+    globals,
+    /\.app-menu-sheet-section\.app-menu-sheet-choice\[aria-pressed='true'\],[\s\S]*?\.app-menu-sheet-action\.app-menu-sheet-accent-action\s*\{[\s\S]*?var\(--accent-500[^;]*12%[\s\S]*?var\(--app-menu-control-surface/,
+  );
+  assert.match(filterSource, /data-shelf-filter-sort=\{id\}[\s\S]*?app-menu-sheet-section app-menu-sheet-choice/);
+  assert.match(filterSource, /data-shelf-filter-apply="true"[\s\S]*?app-menu-sheet-action app-menu-sheet-accent-action/);
+  assert.match(bookInfoSource, /data-book-info-open="true"[\s\S]*?app-menu-sheet-action app-menu-sheet-accent-action/);
+  assert.doesNotMatch(filterSource, /data-shelf-filter-apply="true"[\s\S]{0,240}?bg-accent-600/);
+  assert.doesNotMatch(bookInfoSource, /data-book-info-open="true"[\s\S]{0,240}?bg-accent-600/);
+});
+
 test('keeps the glass TTS material fixed above the reader bottom edge', async () => {
   const [globals, ttsSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
