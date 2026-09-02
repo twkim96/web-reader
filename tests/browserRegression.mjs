@@ -1512,7 +1512,7 @@ try {
       if (!dock) return false;
       const style = getComputedStyle(dock);
       const radius = Number.parseFloat(style.borderRadius || '0');
-      return style.backdropFilter === 'blur(4px) saturate(0.9) contrast(0.82)'
+      return style.backdropFilter === 'blur(1.5px) saturate(0.9) contrast(0.82)'
         && radius === 34;
     })()`,
     'settled glass shelf dock style',
@@ -1536,7 +1536,7 @@ try {
   assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.24)', JSON.stringify(glassShelfDock));
   assert.equal(
     glassShelfDock.backdropFilter,
-    'blur(4px) saturate(0.9) contrast(0.82)',
+    'blur(1.5px) saturate(0.9) contrast(0.82)',
     JSON.stringify(glassShelfDock),
   );
   assert.match(glassShelfDock.rimBackground, /linear-gradient\(164deg/, JSON.stringify(glassShelfDock));
