@@ -1487,7 +1487,7 @@ try {
   })()`);
   assert.deepEqual(shelfDockStyleLayout.values, ['standard', 'glass', 'modern']);
   assert.equal(new Set(shelfDockStyleLayout.tops).size, 1, JSON.stringify(shelfDockStyleLayout));
-  assert.equal(shelfDockStyleLayout.gridTemplateColumns.split(' ').length, 3, JSON.stringify(shelfDockStyleLayout));
+  assert.equal(shelfDockStyleLayout.gridTemplateColumns.split(' ').length, 4, JSON.stringify(shelfDockStyleLayout));
   assert.deepEqual(shelfDockStyleLayout.labels, ['표준', '글래스', '모던']);
   assert.deepEqual(shelfDockStyleLayout.texturePreviews, [true, true, true]);
   assert.ok(shelfDockStyleLayout.squareDeltas.every((delta) => delta <= 1), JSON.stringify(shelfDockStyleLayout));
