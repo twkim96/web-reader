@@ -1151,18 +1151,11 @@ test('creates immutable reading statistic sessions and replays the same payload'
   await assertFails(deleteDoc(doc(db, readingStatisticsPath())));
 });
 
-test('allows only an explicit eligible reading-round completion marker', async () => {
+test('allows an explicit reading-round completion marker at any progress', async () => {
   const db = database();
   await assertSucceeds(setDoc(doc(db, readingStatisticsPath('completion-marker')), {
     ...validReadingSession('completion-marker'),
-    endProgressPercent: 99,
-    completed: true,
-    completionConfirmedAtClient: 62_000,
-    uploadedAtServer: serverTimestamp(),
-  }));
-  await assertFails(setDoc(doc(db, readingStatisticsPath('completion-too-early')), {
-    ...validReadingSession('completion-too-early'),
-    endProgressPercent: 98.9,
+    endProgressPercent: 20,
     completed: true,
     completionConfirmedAtClient: 62_000,
     uploadedAtServer: serverTimestamp(),

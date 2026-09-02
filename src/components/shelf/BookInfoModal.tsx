@@ -620,28 +620,35 @@ export const BookInfoModal: React.FC<Props> = ({
 
       {confirmingDelete && showManagementActions && (
         <div
-          className="fixed inset-0 z-[190] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
-          onClick={() => { if (!isDeleting) setConfirmingDelete(false); }}
+          data-menu-sheet-backdrop="true"
+          className="app-menu-sheet-backdrop fixed inset-0 z-[190] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!isDeleting) setConfirmingDelete(false);
+          }}
         >
           <section
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="book-info-delete-title"
             data-book-info-delete-confirmation="true"
+            data-menu-sheet="true"
             onClick={(event) => event.stopPropagation()}
-            className={`app-panel-radius w-full max-w-sm border ${theme.border} ${theme.bg} ${theme.text} p-4 shadow-2xl outline-none`}
+            className={`app-panel-radius app-menu-sheet w-full max-w-sm border ${theme.border} ${theme.bg} ${theme.text} p-4 shadow-2xl outline-none`}
           >
-            <h3 id="book-info-delete-title" className="text-base font-black">이 도서를 삭제하시겠습니까?</h3>
-            <p className="mt-2 text-xs leading-5 opacity-65">
-              {canDeleteLocalCopy
-                ? '기기에 저장된 사본만 삭제하거나 Google Drive 원본까지 전체 삭제할 수 있습니다.'
-                : sourceLabel === '기기 로컬'
-                  ? '로컬 저장소에서 영구 삭제됩니다.'
-                  : 'Google Drive 원본과 기기에 저장된 사본이 모두 삭제됩니다.'}
-            </p>
-            {deleteFeedback && (
-              <p role="status" className="mt-2 text-xs font-bold text-red-400">{deleteFeedback}</p>
-            )}
+            <div className={`app-menu-sheet-section rounded-2xl border ${theme.border} p-4`}>
+              <h3 id="book-info-delete-title" className="text-base font-black">이 도서를 삭제하시겠습니까?</h3>
+              <p className="mt-2 text-xs leading-5 opacity-65">
+                {canDeleteLocalCopy
+                  ? '기기에 저장된 사본만 삭제하거나 Google Drive 원본까지 전체 삭제할 수 있습니다.'
+                  : sourceLabel === '기기 로컬'
+                    ? '로컬 저장소에서 영구 삭제됩니다.'
+                    : 'Google Drive 원본과 기기에 저장된 사본이 모두 삭제됩니다.'}
+              </p>
+              {deleteFeedback && (
+                <p role="status" className="mt-2 text-xs font-bold text-red-400">{deleteFeedback}</p>
+              )}
+            </div>
             <div className="mt-4 grid gap-1.5">
               {canDeleteLocalCopy && onDeleteLocalCopy && (
                 <button
@@ -649,7 +656,7 @@ export const BookInfoModal: React.FC<Props> = ({
                   data-book-info-delete-local="true"
                   onClick={() => void deleteLocalCopy()}
                   disabled={isDeleting}
-                  className={`min-h-11 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-40`}
+                  className={`app-menu-sheet-action min-h-11 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-40`}
                 >
                   {isDeleting ? '삭제 중…' : '로컬 삭제'}
                 </button>
@@ -659,7 +666,7 @@ export const BookInfoModal: React.FC<Props> = ({
                 data-book-info-confirm-delete="true"
                 onClick={() => void onDelete?.()}
                 disabled={isDeleting}
-                className="min-h-11 rounded-xl bg-red-500 px-4 text-xs font-bold text-white disabled:opacity-50"
+                className="app-menu-sheet-action app-menu-dialog-danger min-h-11 rounded-xl border px-4 text-xs font-bold disabled:opacity-50"
               >
                 {isDeleting ? '삭제 중…' : canDeleteLocalCopy ? '전체 삭제' : '영구 삭제'}
               </button>
@@ -667,7 +674,7 @@ export const BookInfoModal: React.FC<Props> = ({
                 type="button"
                 onClick={() => setConfirmingDelete(false)}
                 disabled={isDeleting}
-                className={`min-h-11 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-35`}
+                className={`app-menu-sheet-action min-h-11 rounded-xl border ${theme.border} text-xs font-bold disabled:opacity-35`}
               >
                 취소
               </button>

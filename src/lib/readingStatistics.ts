@@ -204,7 +204,6 @@ export const isReadingSessionV1 = (value: unknown): value is ReadingSessionV1 =>
       !isSafeTimestamp(value.completionConfirmedAtClient)
       || Number(value.completionConfirmedAtClient) < Number(value.endedAtClient)
       || value.completed !== true
-      || Number(value.endProgressPercent) < READING_ROUND_COMPLETION_PERCENT
     )
   ) return false;
   const clockFields = [
@@ -264,7 +263,7 @@ export const sameReadingSessionPayload = (
 export const isConfirmedReadingCompletion = (session: ReadingSessionV1) => (
   Number.isSafeInteger(session.completionConfirmedAtClient)
   && Number(session.completionConfirmedAtClient) >= session.endedAtClient
-  && session.endProgressPercent >= READING_ROUND_COMPLETION_PERCENT
+  && session.completed
 );
 
 type ReadingBookRoundGroup = {
@@ -310,7 +309,7 @@ const buildReadingBookRoundGroups = (
 
 export type ReadingRoundCompletionResult =
   | { status: 'created'; session: ReadingSessionV1 }
-  | { status: 'already-completed' | 'not-eligible' | 'round-changed' };
+  | { status: 'already-completed' | 'round-changed' };
 
 export const createReadingRoundCompletionSession = ({
   sessions,
@@ -340,20 +339,13 @@ export const createReadingRoundCompletionSession = ({
   if (!latestRound || rounds.length !== expectedRoundNumber) return { status: 'round-changed' };
   if (latestRound.completed) return { status: 'already-completed' };
 
-  const summary = buildReadingStatistics(latestRound.sessions);
-  const book = summary.books.find((candidate) => candidate.bookId === bookId);
-  if (!book || book.endProgressPercent < READING_ROUND_COMPLETION_PERCENT) {
-    return { status: 'not-eligible' };
-  }
   const source = [...latestRound.sessions].sort((left, right) => {
     const leftCorrection = getClockCorrection(left, samplesByDevice) ?? 0;
     const rightCorrection = getClockCorrection(right, samplesByDevice) ?? 0;
     return left.endedAtClient + leftCorrection - (right.endedAtClient + rightCorrection)
       || left.sessionId.localeCompare(right.sessionId);
   }).at(-1);
-  if (!source || source.endProgressPercent < READING_ROUND_COMPLETION_PERCENT) {
-    return { status: 'not-eligible' };
-  }
+  if (!source) return { status: 'round-changed' };
   return {
     status: 'created',
     session: {
@@ -792,8 +784,7 @@ export const buildReadingBookRounds = (
           Number(completion.completionConfirmedAtClient) + completionCorrection,
           completion.timezoneOffsetMinutes,
         ) : null,
-        canComplete: !round.completed
-          && book.endProgressPercent >= READING_ROUND_COMPLETION_PERCENT,
+        canComplete: !round.completed,
         sourceSessionIds: visibleSessions.map(({ sessionId }) => sessionId),
       });
     });

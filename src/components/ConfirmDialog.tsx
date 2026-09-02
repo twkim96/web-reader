@@ -105,7 +105,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   return (
     <div
       data-confirm-dialog-backdrop="true"
-      className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
+      data-menu-sheet-backdrop="true"
+      className="app-menu-sheet-backdrop fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
       onPointerDown={handleBackdropPointerDown}
       onPointerUp={handleBackdropPointerUp}
       onPointerCancel={clearBackdropPointer}
@@ -115,14 +116,19 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        data-menu-sheet="true"
+        data-confirm-dialog-surface="true"
         aria-labelledby={titleId}
         aria-describedby={subMessage ? descriptionId : undefined}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className={`app-panel-radius w-full max-w-xs ${theme.bg} ${theme.text} p-6 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-5`}
+        className={`app-panel-radius app-menu-sheet w-full max-w-xs ${theme.bg} ${theme.text} p-4 shadow-2xl border ${theme.border} animate-in zoom-in-95 duration-200 space-y-3`}
       >
-        <div className="flex flex-col items-center text-center gap-3">
-          <div className={`p-3 rounded-2xl ${isDanger ? 'bg-red-500/10 text-red-400' : 'bg-accent-500/10 text-accent-400'}`}>
+        <div
+          data-confirm-dialog-section="true"
+          className={`app-menu-sheet-section flex flex-col items-center gap-3 rounded-2xl border ${theme.border} p-4 text-center`}
+        >
+          <div className={`app-menu-sheet-action rounded-2xl border p-3 ${isDanger ? 'app-menu-dialog-danger' : 'app-menu-dialog-info'}`}>
             {isDanger ? (
               <AlertTriangle size={22} />
             ) : (
@@ -139,7 +145,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             <button
               type="button"
               onClick={onCancel}
-              className="flex-1 py-3 bg-white/5 hover:bg-white/10 font-bold rounded-2xl text-sm transition-colors active:scale-95"
+              data-confirm-dialog-action="cancel"
+              className={`app-menu-sheet-action flex-1 rounded-2xl border ${theme.border} py-3 text-sm font-bold transition-colors active:scale-95`}
             >
               {cancelLabel}
             </button>
@@ -147,10 +154,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <button
             type="button"
             onClick={onConfirm}
-            className={`${hideCancel ? 'w-full' : 'flex-1'} py-3 font-bold rounded-2xl text-sm transition-all active:scale-95 text-white shadow-lg ${
-              isDanger 
-                ? 'bg-red-500 hover:bg-red-400 shadow-red-500/20' 
-                : 'bg-accent-600 hover:bg-accent-500 shadow-accent-500/20'
+            data-confirm-dialog-action="confirm"
+            className={`app-menu-sheet-action ${hideCancel ? 'w-full' : 'flex-1'} rounded-2xl border py-3 text-sm font-bold transition-all active:scale-95 ${
+              isDanger ? 'app-menu-dialog-danger' : 'app-menu-dialog-info'
             }`}
           >
             {confirmLabel}

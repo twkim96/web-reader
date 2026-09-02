@@ -212,7 +212,37 @@ test('keeps end-to-start reading in one round until completion is explicitly con
   assert.equal(rounds[0].roundNumber, 1);
   assert.equal(rounds[0].completed, false);
   assert.equal(rounds[0].totalMs, 120_000);
-  assert.equal(rounds[0].canComplete, false);
+  assert.equal(rounds[0].canComplete, true);
+});
+
+test('explicitly completes a partial reading round and starts the next read as a new round', () => {
+  const partial = session({
+    sessionId: 'partial-reading', startedAtClient: 1_000, endedAtClient: 61_000,
+    startProgressPercent: 0, endProgressPercent: 20,
+  });
+  const completion = createReadingRoundCompletionSession({
+    sessions: [partial],
+    bookId: 'book-1',
+    expectedRoundNumber: 1,
+    sessionId: 'partial-completion-marker',
+    confirmedAtClient: 62_000,
+  });
+  assert.equal(completion.status, 'created');
+  if (completion.status !== 'created') return;
+  assert.equal(completion.session.endProgressPercent, 20);
+
+  const rounds = buildReadingBookRounds([
+    partial,
+    completion.session,
+    session({
+      sessionId: 'next-reading', startedAtClient: 63_000, endedAtClient: 123_000,
+      startProgressPercent: 20, endProgressPercent: 30,
+    }),
+  ]);
+  assert.deepEqual(rounds.map(({ roundNumber, completed }) => ({ roundNumber, completed })), [
+    { roundNumber: 1, completed: true },
+    { roundNumber: 2, completed: false },
+  ]);
 });
 
 test('starts the next round only below 99 percent after explicit completion', () => {

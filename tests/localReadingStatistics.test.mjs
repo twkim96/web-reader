@@ -110,7 +110,7 @@ test('stores Firebase sessions pending, replays idempotently, and hydrates them 
   );
 });
 
-test('atomically confirms only the latest eligible reading round', async () => {
+test('atomically confirms only the latest reading round', async () => {
   await saveLocalReadingSessionV11(owner, {
     ...makeSession('eligible-round'),
     endProgressPercent: 99,
@@ -128,16 +128,18 @@ test('atomically confirms only the latest eligible reading round', async () => {
   assert.equal((await confirmLocalReadingRoundV11(owner, 'book-1', 1, 63_000)).status, 'already-completed');
 });
 
-test('does not confirm a reading round below 99 percent', async () => {
+test('confirms a reading round below 99 percent when the user explicitly completes it', async () => {
   await saveLocalReadingSessionV11(owner, {
-    ...makeSession('ineligible-round'),
+    ...makeSession('partial-round'),
     endProgressPercent: 98.9,
   });
-  assert.equal(
-    (await confirmLocalReadingRoundV11(owner, 'book-1', 1, 62_000)).status,
-    'not-eligible',
-  );
-  assert.equal((await getLocalReadingSessionsV11(owner)).length, 1);
+  const result = await confirmLocalReadingRoundV11(owner, 'book-1', 1, 62_000);
+  assert.equal(result.status, 'created');
+  const stored = await getLocalReadingSessionsV11(owner);
+  assert.equal(stored.length, 2);
+  assert.equal(stored.some(({ completionConfirmedAtClient }) => (
+    completionConfirmedAtClient === 62_000
+  )), true);
 });
 
 test('round-trips TTS active wall-clock intervals without compressing gaps', async () => {

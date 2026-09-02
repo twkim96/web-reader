@@ -69,6 +69,12 @@ type PendingBookListDeletion = {
   roundNumber: number;
   sourceSessionIds: string[];
 };
+type PendingRoundCompletion = {
+  bookId: string;
+  bookTitle: string;
+  roundNumber: number;
+  rowKey: string;
+};
 
 const rangeLabels: Array<{ value: ReadingStatisticsRange; label: string }> = [
   { value: 'today', label: '오늘' },
@@ -103,6 +109,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const [sharing, setSharing] = useState(false);
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [completingRoundKey, setCompletingRoundKey] = useState<string | null>(null);
+  const [pendingRoundCompletion, setPendingRoundCompletion] = useState<PendingRoundCompletion | null>(null);
   const [hiddenSessionIds, setHiddenSessionIds] = useState<Set<string>>(() => new Set());
   const [pendingBookListDeletion, setPendingBookListDeletion] = useState<PendingBookListDeletion | null>(null);
   const [aggregationNow, setAggregationNow] = useState(() => Date.now());
@@ -181,11 +188,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (pendingBookListDeletion) setPendingBookListDeletion(null);
+        if (pendingRoundCompletion) setPendingRoundCompletion(null);
+        else if (pendingBookListDeletion) setPendingBookListDeletion(null);
         else onClose();
         return;
       }
-      if (pendingBookListDeletion) return;
+      if (pendingRoundCompletion || pendingBookListDeletion) return;
       if (event.key !== 'Tab' || !dialog) return;
       const focusable = [...dialog.querySelectorAll<HTMLElement>(selector)]
         .filter((element) => element.getClientRects().length > 0);
@@ -209,7 +217,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       window.removeEventListener('keydown', handleKeyDown);
       previous?.focus();
     };
-  }, [onClose, open, pendingBookListDeletion, visible]);
+  }, [onClose, open, pendingBookListDeletion, pendingRoundCompletion, visible]);
 
   const visibleSessions = useMemo(() => sessions.filter(({ sessionId }) => (
     !hiddenSessionIds.has(sessionId)
@@ -275,8 +283,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         setFeedback(`${roundNumber}회차를 완료했습니다.`);
       } else if (result.status === 'already-completed') {
         setFeedback('이미 완료된 회차입니다.');
-      } else if (result.status === 'not-eligible') {
-        setFeedback('진행률 99%부터 완료할 수 있습니다.');
       } else {
         setFeedback('최신 회차가 바뀌었습니다. 목록을 다시 확인해 주세요.');
       }
@@ -606,11 +612,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                             data-reading-statistics-confirm-complete="true"
                             disabled={completingRoundKey !== null}
                             aria-label={`${book.bookTitle} ${book.roundNumber}회차 완료 처리`}
-                            onClick={() => void confirmRound(
-                              book.bookId,
-                              book.roundNumber,
+                            onClick={() => setPendingRoundCompletion({
+                              bookId: book.bookId,
+                              bookTitle: book.bookTitle,
+                              roundNumber: book.roundNumber,
                               rowKey,
-                            )}
+                            })}
                             className={`mt-0.5 rounded-md border ${theme.border} ${theme.secondary} px-1.5 py-0.5 text-xs font-bold opacity-65 hover:opacity-100 disabled:opacity-30 sm:text-sm`}
                           >
                             {completingRoundKey === rowKey ? '처리 중' : '완료하기'}
@@ -649,6 +656,21 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         </footer>
       </section>
     </div>
+    {pendingRoundCompletion && (
+      <ConfirmDialog
+        message={`“${pendingRoundCompletion.bookTitle}” ${pendingRoundCompletion.roundNumber}회차를 정말 완료할까요?`}
+        subMessage="완료 후 이어서 읽은 기록은 새 회차로 집계될 수 있습니다. 실제로 완독한 경우에만 완료해 주세요."
+        confirmLabel="완료 처리"
+        variant="info"
+        theme={theme}
+        onConfirm={() => {
+          const pending = pendingRoundCompletion;
+          setPendingRoundCompletion(null);
+          void confirmRound(pending.bookId, pending.roundNumber, pending.rowKey);
+        }}
+        onCancel={() => setPendingRoundCompletion(null)}
+      />
+    )}
     {pendingBookListDeletion && (
       <ConfirmDialog
         message={`“${pendingBookListDeletion.bookTitle}” ${pendingBookListDeletion.roundNumber}회차를 목록에서 삭제할까요?`}

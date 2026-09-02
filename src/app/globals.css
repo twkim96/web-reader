@@ -414,6 +414,20 @@ html[data-viewer-menu-style='glass'] .app-menu-sheet-section {
   box-shadow: var(--app-menu-control-shadow);
 }
 
+/* Confirmation surfaces keep destructive/informational meaning while using
+ * the same material tokens as every other modal control. */
+.app-menu-sheet-action.app-menu-dialog-danger {
+  border-color: color-mix(in srgb, #ef4444 42%, var(--app-menu-control-border)) !important;
+  background-color: color-mix(in srgb, #ef4444 16%, var(--app-menu-control-surface)) !important;
+  color: color-mix(in srgb, #ef4444 78%, var(--viewer-theme-text)) !important;
+}
+
+.app-menu-sheet-action.app-menu-dialog-info {
+  border-color: color-mix(in srgb, var(--accent-500) 42%, var(--app-menu-control-border)) !important;
+  background-color: color-mix(in srgb, var(--accent-500) 16%, var(--app-menu-control-surface)) !important;
+  color: color-mix(in srgb, var(--accent-500) 68%, var(--viewer-theme-text)) !important;
+}
+
 /* Tags keep their semantic tint while blending label text with the active
  * theme, matching the clearer material used by reference chips. */
 .app-tag-material {

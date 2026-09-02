@@ -1249,6 +1249,26 @@ try {
       .map((button) => button.textContent?.trim())`),
     ['영구 삭제', '취소'],
   );
+  const bookDeleteMaterial = await evaluate(`(() => {
+    const confirmation = document.querySelector('[data-book-info-delete-confirmation="true"]');
+    const backdrop = confirmation?.parentElement;
+    return {
+      sheet: confirmation?.classList.contains('app-menu-sheet') ?? false,
+      backdrop: backdrop?.classList.contains('app-menu-sheet-backdrop') ?? false,
+      section: confirmation?.querySelector('.app-menu-sheet-section') !== null,
+      actions: [...(confirmation?.querySelectorAll('button') ?? [])]
+        .every((button) => button.classList.contains('app-menu-sheet-action')),
+      danger: confirmation?.querySelector('[data-book-info-confirm-delete="true"]')
+        ?.classList.contains('app-menu-dialog-danger') ?? false,
+    };
+  })()`);
+  assert.deepEqual(bookDeleteMaterial, {
+    sheet: true,
+    backdrop: true,
+    section: true,
+    actions: true,
+    danger: true,
+  });
   await evaluate(`(() => {
     const confirmation = document.querySelector('[data-book-info-delete-confirmation="true"]');
     [...(confirmation?.querySelectorAll('button') ?? [])]
@@ -6453,7 +6473,7 @@ try {
         };
         put('round-fixture-first-start', 0, 0, 50, false);
         put('round-fixture-first-finish', 61_000, 50, 100, true, base + 121_000);
-        put('round-fixture-second-start', 122_000, 0, 99, false);
+        put('round-fixture-second-start', 122_000, 0, 25, false);
       };
       transaction.oncomplete = () => { db.close(); resolve(true); };
       transaction.onerror = () => reject(transaction.error);
@@ -6654,6 +6674,26 @@ try {
   await evaluate(`document.querySelector(
     ${JSON.stringify(`${fixtureRoundSelector}[data-reading-statistics-round="2"] [data-reading-statistics-confirm-complete="true"]`)}
   )?.click()`);
+  await waitFor(
+    `Boolean(document.querySelector('[data-confirm-dialog-surface="true"]'))`,
+    'reading round completion confirmation',
+  );
+  const completionConfirmationUi = await evaluate(`(() => {
+    const dialog = document.querySelector('[data-confirm-dialog-surface="true"]');
+    return {
+      text: dialog?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+      sheet: dialog?.classList.contains('app-menu-sheet') ?? false,
+      section: dialog?.querySelector('[data-confirm-dialog-section="true"]')
+        ?.classList.contains('app-menu-sheet-section') ?? false,
+      actions: [...(dialog?.querySelectorAll('[data-confirm-dialog-action]') ?? [])]
+        .every((button) => button.classList.contains('app-menu-sheet-action')),
+    };
+  })()`);
+  assert.match(completionConfirmationUi.text, /정말 완료/);
+  assert.equal(completionConfirmationUi.sheet, true, JSON.stringify(completionConfirmationUi));
+  assert.equal(completionConfirmationUi.section, true, JSON.stringify(completionConfirmationUi));
+  assert.equal(completionConfirmationUi.actions, true, JSON.stringify(completionConfirmationUi));
+  await evaluate(`document.querySelector('[data-confirm-dialog-action="confirm"]')?.click()`);
   await waitFor(
     `!document.querySelector(${JSON.stringify(
       `${fixtureRoundSelector}[data-reading-statistics-round="2"] [data-reading-statistics-confirm-complete="true"]`,

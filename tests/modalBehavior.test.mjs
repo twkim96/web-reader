@@ -72,6 +72,12 @@ test('hideCancel confirm dialogs cannot be dismissed through backdrop or Escape'
   assert.ok(backdrop);
   assert.ok(dialog);
   assert.equal(dialog.getAttribute('aria-modal'), 'true');
+  assert.ok(backdrop.classList.contains('app-menu-sheet-backdrop'));
+  assert.equal(backdrop.getAttribute('data-menu-sheet-backdrop'), 'true');
+  assert.ok(dialog.classList.contains('app-menu-sheet'));
+  assert.equal(dialog.getAttribute('data-menu-sheet'), 'true');
+  assert.ok(dialog.querySelector('[data-confirm-dialog-section="true"]')?.classList.contains('app-menu-sheet-section'));
+  assert.ok(dialog.querySelector('[data-confirm-dialog-action="confirm"]')?.classList.contains('app-menu-sheet-action'));
 
   await act(async () => {
     dispatchPointer(window, backdrop, 'pointerdown');
