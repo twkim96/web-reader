@@ -186,6 +186,14 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 - 두 CTA와 정렬 선택 카드는 `app-menu-sheet-accent-action` 계약으로 같은 포인트 컬러 12% tint, 테마 재질, 외곽선과 그림자를 공유한다.
 - 포인트 농도와 재질 합성은 `globals.css` 한 곳에서 조절하며 컴포넌트별 `bg-accent-600` 오버라이드는 두지 않는다.
 
+## Phase 15 — Android 시스템 기본 TTS 음성 존중
+
+상태: 완료
+
+- `시스템·브라우저 기본 음성`에서는 앱이 임의의 동일 언어 음성을 골라 `SpeechSynthesisUtterance.voice`에 넣지 않는다.
+- 음성을 명시적으로 선택했을 때만 해당 voice를 지정하고, 자동 상태에서는 감지한 언어만 전달해 Android·Chrome의 기본 음성 선택에 맡긴다.
+- 음성 선택 목록은 한국어·일본어·영어 음성만 유지해 Android에서 노출되는 불필요한 다국어 음성으로 인한 목록 혼잡을 줄인다.
+
 ## 검증 결과
 
 상태: 인증·후속 UI 자동검증 완료 · 인증 실사용 재확인 대기
@@ -209,4 +217,5 @@ Firebase 로그아웃과 후속 Google Drive OAuth 연결을 하나의 브라우
 - 글래스 최종 계약: 모든 공용 메뉴 표면 `blur(1.5px)`, 밝은·어두운 테마 아이콘 단방향 외곽 대비, 저장값이 없는 설정의 글래스 기본값을 회귀로 고정
 - 독서 완료·삭제 확인창 후속 검증: 독서 통계 도메인 54개, Shelf UI 52개, Firestore Rules 32개+보조 3개, `npm run typecheck`, `npm run build` 통과
 - 2026-09-02 production 프로젝트 `web-novel-viewer`에 저진도 완료 계약을 포함한 `firestore.rules`를 컴파일·배포 완료
+- 시스템 기본 TTS 위임·한/일/영 음성 필터 집중 회귀 23개, `npm run typecheck`, `npm run build` 통과
 - 배포 뒤 실제 계정의 로그아웃 → Firebase 재로그인 → 첫 Drive 연결을 다시 확인하고 완료 조건을 최종 승인한다.

@@ -192,11 +192,11 @@ export const ReaderTtsControls = ({
           <label className="grid gap-1 text-[10px] font-black uppercase tracking-wider opacity-70">
             음성
             <select
-              value={settings.ttsVoiceURI}
+              value={selectedVoice ? settings.ttsVoiceURI : ''}
               onChange={(event) => onUpdateSettings({ ttsVoiceURI: event.target.value })}
               className={`app-menu-sheet-action min-h-11 min-w-0 rounded-xl border ${theme.border} px-3 text-xs font-bold normal-case tracking-normal outline-none`}
             >
-              <option value="">언어에 맞게 자동 선택</option>
+              <option value="">시스템·브라우저 기본 음성</option>
               {visibleVoices.map((voice) => (
                 <option key={voice.voiceURI} value={voice.voiceURI}>
                   {voice.name} · {voice.lang}{voice.localService ? ' · 기기' : ''}

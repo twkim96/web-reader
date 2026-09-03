@@ -175,6 +175,12 @@ export type ReaderTtsVoiceLike = {
 
 const baseLanguage = (language: string) => language.toLowerCase().split('-')[0];
 
+const readerTtsVoiceLanguageBases = new Set(['ko', 'ja', 'en']);
+
+export const filterReaderTtsVoices = <T extends ReaderTtsVoiceLike>(
+  voices: ReadonlyArray<T>,
+) => voices.filter(({ lang }) => readerTtsVoiceLanguageBases.has(baseLanguage(lang)));
+
 export const sortReaderTtsVoices = <T extends ReaderTtsVoiceLike>(
   voices: ReadonlyArray<T>,
 ) => [...voices].sort((left, right) => (
@@ -187,17 +193,7 @@ export const sortReaderTtsVoices = <T extends ReaderTtsVoiceLike>(
 export const selectReaderTtsVoice = <T extends ReaderTtsVoiceLike>(
   voices: ReadonlyArray<T>,
   preferredVoiceUri: string,
-  language: string,
 ): T | null => {
-  const preferred = voices.find(({ voiceURI }) => voiceURI === preferredVoiceUri);
-  if (preferred) return preferred;
-  if (!language) return voices.find(({ default: isDefault }) => isDefault) ?? voices[0] ?? null;
-  const exact = voices.filter(({ lang }) => lang.toLowerCase() === language.toLowerCase());
-  if (exact.length > 0) return sortReaderTtsVoices(exact)[0];
-  const languageBase = baseLanguage(language);
-  const matching = voices.filter(({ lang }) => baseLanguage(lang) === languageBase);
-  return sortReaderTtsVoices(matching)[0]
-    ?? voices.find(({ default: isDefault }) => isDefault)
-    ?? voices[0]
-    ?? null;
+  if (!preferredVoiceUri) return null;
+  return voices.find(({ voiceURI }) => voiceURI === preferredVoiceUri) ?? null;
 };

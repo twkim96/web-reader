@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  filterReaderTtsVoices,
   normalizeReaderTtsChapterEndAction,
   normalizeReaderTtsLanguage,
   normalizeReaderTtsRate,
@@ -60,17 +61,29 @@ test('normalizes TTS settings and resolves automatic language tags', () => {
   }), 'en-US');
 });
 
-test('prefers an explicit voice then exact and base-language local voices', () => {
+test('limits selectable voices to Korean, Japanese, and English', () => {
   const voices = [
     { voiceURI: 'default', name: 'Default', lang: 'en-GB', default: true, localService: false },
     { voiceURI: 'ko-cloud', name: 'Korean Cloud', lang: 'ko-KR', default: false, localService: false },
     { voiceURI: 'ko-local', name: 'Korean Local', lang: 'ko-KR', default: false, localService: true },
+    { voiceURI: 'ja-local', name: 'Japanese Local', lang: 'ja-JP', default: false, localService: true },
+    { voiceURI: 'fr-local', name: 'French Local', lang: 'fr-FR', default: false, localService: true },
   ];
   assert.equal(sortReaderTtsVoices(voices)[0].voiceURI, 'default');
-  assert.equal(selectReaderTtsVoice(voices, 'ko-cloud', 'ko-KR').voiceURI, 'ko-cloud');
-  assert.equal(selectReaderTtsVoice(voices, '', 'ko-KR').voiceURI, 'ko-local');
-  assert.equal(selectReaderTtsVoice(voices, '', 'ko').voiceURI, 'ko-local');
-  assert.equal(selectReaderTtsVoice(voices, '', 'ja-JP').voiceURI, 'default');
+  assert.deepEqual(
+    filterReaderTtsVoices(voices).map(({ voiceURI }) => voiceURI),
+    ['default', 'ko-cloud', 'ko-local', 'ja-local'],
+  );
+});
+
+test('uses only an explicit voice and otherwise defers to the system default', () => {
+  const voices = [
+    { voiceURI: 'ko-cloud', name: 'Korean Cloud', lang: 'ko-KR' },
+    { voiceURI: 'ko-local', name: 'Korean Local', lang: 'ko-KR' },
+  ];
+  assert.equal(selectReaderTtsVoice(voices, 'ko-cloud')?.voiceURI, 'ko-cloud');
+  assert.equal(selectReaderTtsVoice(voices, ''), null);
+  assert.equal(selectReaderTtsVoice(voices, 'missing'), null);
 });
 
 test('configures one browser utterance and forwards lifecycle events', () => {
@@ -110,6 +123,37 @@ test('configures one browser utterance and forwards lifecycle events', () => {
   assert.equal(utterance.rate, 1.2);
   assert.equal(utterance.voice, voice);
   assert.deepEqual(events, ['speak', 'start', 'end']);
+});
+
+test('leaves the browser utterance voice unset for system-default playback', () => {
+  let spoken;
+  class FakeUtterance {
+    constructor(text) {
+      this.text = text;
+      this.lang = '';
+      this.rate = 1;
+      this.voice = null;
+    }
+  }
+  const synthesis = new EventTarget();
+  synthesis.getVoices = () => [];
+  synthesis.cancel = () => undefined;
+  synthesis.pause = () => undefined;
+  synthesis.resume = () => undefined;
+  synthesis.speak = (utterance) => { spoken = utterance; };
+
+  startBrowserSpeech({
+    text: '시스템 음성으로 읽습니다.',
+    language: 'ko-KR',
+    rate: 1,
+    voice: null,
+    onStart: () => undefined,
+    onEnd: () => undefined,
+    onError: () => undefined,
+  }, { synthesis, Utterance: FakeUtterance });
+
+  assert.equal(spoken.lang, 'ko-KR');
+  assert.equal(spoken.voice, null);
 });
 
 test('maps browser speech errors to actionable reader messages', () => {

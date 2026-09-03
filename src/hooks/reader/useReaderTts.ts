@@ -14,6 +14,7 @@ import {
 } from '../../lib/browserSpeechSynthesis';
 import {
   READER_TTS_NAVIGATION_REASON,
+  filterReaderTtsVoices,
   resolveReaderTtsLanguageTag,
   selectReaderTtsVoice,
   sortReaderTtsVoices,
@@ -479,7 +480,7 @@ export const useReaderTts = ({
       text: item.text,
       documentLanguage: item.documentLanguage,
     });
-    const voice = selectReaderTtsVoice(voices, settings.ttsVoiceURI, language);
+    const voice = selectReaderTtsVoice(voices, settings.ttsVoiceURI);
     const windowed = queue.windowed;
     setState({
       status: 'starting',
@@ -1026,7 +1027,9 @@ export const useReaderTts = ({
     let active = true;
     const updateVoices = () => {
       if (!active) return;
-      setVoices(sortReaderTtsVoices(readBrowserSpeechVoices(dependencies)));
+      setVoices(sortReaderTtsVoices(filterReaderTtsVoices(
+        readBrowserSpeechVoices(dependencies),
+      )));
     };
     updateVoices();
     dependencies.synthesis.addEventListener('voiceschanged', updateVoices);
