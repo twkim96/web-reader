@@ -4,6 +4,8 @@
 
 Drive에는 원본 `.txt`/`.epub` 파일을 보관하고, 실제 리더와 로컬 책장은 EPUB 기반으로 동작합니다.
 
+디자인을 다른 프로젝트에 재사용하려면 **[Web Reader Design Kit](ui-kit/README.md)**를 참고하세요. `ui-kit/index.html`에서 테마·재질·질감·요소·모달을 확인하고, `ui-kit/ADOPT.md`로 적용 범위를 전달할 수 있습니다.
+
 ---
 
 ## Core Technologies

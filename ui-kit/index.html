@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Web Reader · Design Kit</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="preview.css">
+<script src="preview.js" defer>
+</script>
+</head>
+<body class="wr-kit wr-texture" data-theme="midnight" data-material="standard" data-texture="none">
+<div class="kit-shell">
+<header class="kit-top wr-spread">
+<a class="kit-brand" href="#">web reader <span>/ kit</span>
+</a>
+<nav class="wr-row" aria-label="키트 파일">
+<a href="README.md">사용 가이드 ↗</a>
+<a href="ADOPT.md">적용 프롬프트 ↗</a>
+</nav>
+</header>
+<div class="kit-hero">
+<div>
+<div class="wr-label kit-eyebrow">Design essentials / 01</div>
+<h1>조용한 표면.<br>익숙한 디테일.</h1>
+<p>Web Reader의 색, 질감, 모달과 작은 요소들.<br>다른 화면에서도 같은 분위기를 이어갈 수 있는 디자인 키트.</p>
+<div class="wr-row">
+<span class="wr-chip">4 themes</span>
+<span class="wr-chip">3 materials</span>
+<span class="wr-chip">6 textures</span>
+</div>
+</div>
+<div class="kit-scene wr-texture">
+<span class="wr-label wr-muted">A small moment</span>
+<div class="wr-panel">
+<h3>이어서 펼치는 공간</h3>
+<p class="wr-muted">낮은 대비의 경계와 은은한 포인트.</p>
+<div class="wr-spread">
+<span class="wr-chip wr-chip--success">준비됨</span>
+<button class="wr-button wr-button--primary" type="button" data-open="settings">계속하기 <svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</div>
+</div>
+<div class="wr-dock">
+<button class="wr-icon-button" type="button" aria-label="목차 예시" data-open="toc">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
+</svg>
+</button>
+<button class="wr-icon-button" type="button" aria-label="검색 예시" data-open="search">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<circle cx="10.5" cy="10.5" r="6.5"/>
+<path d="m16 16 4 4"/>
+</svg>
+</button>
+<button class="wr-icon-button" type="button" aria-label="설정 예시" data-open="settings">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M4 6h16M4 12h16M4 18h16"/>
+<circle cx="8" cy="6" r="2"/>
+<circle cx="16" cy="12" r="2"/>
+<circle cx="10" cy="18" r="2"/>
+</svg>
+</button>
+</div>
+</div>
+</div>
+<div class="kit-controls" aria-label="디자인 조합">
+<label class="wr-field" for="theme">
+<span class="wr-label wr-muted">색상 테마</span>
+<select class="wr-input" id="theme">
+<option value="midnight" selected>midnight</option>
+<option value="dark">dark</option>
+<option value="sepia">sepia</option>
+<option value="light">light</option>
+</select>
+</label>
+<label class="wr-field" for="material">
+<span class="wr-label wr-muted">메뉴 재질</span>
+<select class="wr-input" id="material">
+<option value="standard" selected>standard</option>
+<option value="glass">glass</option>
+<option value="modern">modern</option>
+</select>
+</label>
+<label class="wr-field" for="texture">
+<span class="wr-label wr-muted">배경 질감</span>
+<select class="wr-input" id="texture">
+<option value="none" selected>none</option>
+<option value="paper">paper</option>
+<option value="linen">linen</option>
+<option value="canvas">canvas</option>
+<option value="grid">grid</option>
+<option value="grain">grain</option>
+</select>
+</label>
+<label class="wr-field" for="accent">
+<span class="wr-label wr-muted">포인트 색</span>
+<select class="wr-input" id="accent">
+<option value="theme default" selected>theme default</option>
+<option value="indigo">indigo</option>
+<option value="rose">rose</option>
+<option value="emerald">emerald</option>
+<option value="amber">amber</option>
+<option value="sky">sky</option>
+<option value="yellow">yellow</option>
+</select>
+</label>
+</div>
+<nav class="kit-nav wr-row" aria-label="카탈로그 섹션">
+<a href="#s1">기본 요소</a>
+<a href="#s2">재질과 질감</a>
+<a href="#s3">컨트롤</a>
+<a href="#s4">조합 패턴</a>
+<a href="#s5">모달</a>
+<a href="#s6">가져가기</a>
+</nav>
+<section class="kit-section" id="s1">
+<div class="kit-section-heading">
+<span>01</span>
+<h2>기본 요소</h2>
+<p>실제 테마 값 + 간결한 크기 규칙</p>
+</div>
+<div class="kit-grid">
+<article class="kit-specimen">
+<h3>COLOR / 색상</h3>
+<div class="kit-colors">
+<div>
+<div class="kit-color" style="background:var(--viewer-theme-bg)">
+</div>
+<code>BG</code>
+</div>
+<div>
+<div class="kit-color" style="background:var(--viewer-theme-text)">
+</div>
+<code>INK</code>
+</div>
+<div>
+<div class="kit-color" style="background:var(--viewer-theme-secondary)">
+</div>
+<code>SURFACE</code>
+</div>
+<div>
+<div class="kit-color" style="background:var(--accent-500)">
+</div>
+<code>ACCENT</code>
+</div>
+</div>
+<div class="kit-palette">
+<span title="indigo" style="background:#6366f1">
+</span>
+<span title="rose" style="background:#f43f5e">
+</span>
+<span title="emerald" style="background:#5a896f">
+</span>
+<span title="amber" style="background:#c05a46">
+</span>
+<span title="sky" style="background:#506c82">
+</span>
+<span title="yellow" style="background:#d4af37">
+</span>
+</div>
+</article>
+<article class="kit-specimen">
+<h3>TYPE / Pretendard</h3>
+<div class="kit-sample-title">읽기 좋은 균형</div>
+<p>본문은 편안하게, 제목은 단단하게.</p>
+<p class="wr-muted">보조 텍스트는 테마 본문색을 기준으로.</p>
+<span class="wr-label">A quiet interface / 11px</span>
+</article>
+<article class="kit-specimen">
+<h3>SHAPE / 모서리</h3>
+<div class="wr-row">
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:3px">
+</div>
+<span class="kit-caption">3</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:5px">
+</div>
+<span class="kit-caption">5</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:7px">
+</div>
+<span class="kit-caption">7</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:8px">
+</div>
+<span class="kit-caption">8</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:10px">
+</div>
+<span class="kit-caption">10</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:12px">
+</div>
+<span class="kit-caption">12</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:14px">
+</div>
+<span class="kit-caption">14</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:20px">
+</div>
+<span class="kit-caption">20</span>
+</div>
+<div class="kit-radius-item">
+<div class="kit-radius" style="border-radius:22px">
+</div>
+<span class="kit-caption">22</span>
+</div>
+</div>
+</article>
+</div>
+</section>
+<section class="kit-section" id="s2">
+<div class="kit-section-heading">
+<span>02</span>
+<h2>재질과 질감</h2>
+<p>재질은 표면에, 질감은 배경에</p>
+</div>
+<div class="kit-grid">
+<div class="kit-material-preview wr-kit wr-texture" data-material="standard" data-theme="midnight" data-texture="grid">
+<div class="wr-panel">
+<strong>Standard</strong>
+<span class="wr-muted">28px blur · 부드러운 확산</span>
+<div style="margin-top:16px">
+<button class="wr-button wr-button--primary" type="button" data-demo="재질 비교용 버튼입니다.">선택됨</button>
+</div>
+</div>
+</div>
+<div class="kit-material-preview wr-kit wr-texture" data-material="glass" data-theme="midnight" data-texture="grid">
+<div class="wr-panel">
+<strong>Glass</strong>
+<span class="wr-muted">1.5px blur · 배경이 비치는 유리</span>
+<div style="margin-top:16px">
+<button class="wr-button wr-button--primary" type="button" data-demo="재질 비교용 버튼입니다.">선택됨</button>
+</div>
+</div>
+</div>
+<div class="kit-material-preview wr-kit wr-texture" data-material="modern" data-theme="midnight" data-texture="grid">
+<div class="wr-panel">
+<strong>Modern</strong>
+<span class="wr-muted">24px blur · 밀도 있는 표면</span>
+<div style="margin-top:16px">
+<button class="wr-button wr-button--primary" type="button" data-demo="재질 비교용 버튼입니다.">선택됨</button>
+</div>
+</div>
+</div>
+</div>
+<div class="kit-textures" style="margin-top:16px">
+<div class="kit-texture wr-kit wr-texture" data-theme="midnight" data-texture="none">none</div>
+<div class="kit-texture wr-kit wr-texture" data-theme="midnight" data-texture="paper">paper</div>
+<div class="kit-texture wr-kit wr-texture" data-theme="midnight" data-texture="linen">linen</div>
+<div class="kit-texture wr-kit wr-texture" data-theme="midnight" data-texture="canvas">canvas</div>
+<div class="kit-texture wr-kit wr-texture" data-theme="midnight" data-texture="grid">grid</div>
+<div class="kit-texture wr-kit wr-texture" data-theme="midnight" data-texture="grain">grain</div>
+</div>
+</section>
+<section class="kit-section" id="s3">
+<div class="kit-section-heading">
+<span>03</span>
+<h2>컨트롤</h2>
+<p>기본 · 선택 · 포커스 · 비활성 · 오류</p>
+</div>
+<div class="kit-grid">
+<article class="kit-specimen">
+<h3>ACTIONS / 버튼</h3>
+<div class="wr-row">
+<button class="wr-button wr-button--primary" type="button" data-demo="주요 동작 예시입니다.">주요 동작</button>
+<button class="wr-button " type="button" data-demo="보조 동작 예시입니다.">보조 동작</button>
+<button class="wr-button wr-button--danger" type="button" data-open="confirm">삭제</button>
+<button class="wr-button wr-button--ghost" type="button" data-demo="텍스트 버튼 예시입니다.">텍스트</button>
+<button class="wr-button " type="button" disabled>사용 불가</button>
+<button class="wr-button " type="button" disabled aria-busy="true">처리 중…</button>
+</div>
+<div class="wr-row" style="margin-top:16px">
+<button class="wr-icon-button" type="button" aria-label="추가 예시" data-open="settings">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v14M5 12h14"/>
+</svg>
+</button>
+<button class="wr-icon-button" type="button" aria-label="추가 메뉴" data-open="actions">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<circle cx="5" cy="12" r="1"/>
+<circle cx="12" cy="12" r="1"/>
+<circle cx="19" cy="12" r="1"/>
+</svg>
+</button>
+</div>
+</article>
+<article class="kit-specimen">
+<h3>CHOICES / 선택</h3>
+<div class="wr-row" data-choice-group>
+<button class="wr-button wr-choice" type="button" aria-pressed="true">전체</button>
+<button class="wr-button wr-choice" type="button" aria-pressed="false">최근</button>
+<button class="wr-button wr-choice" type="button" aria-pressed="false">보관함</button>
+</div>
+<div class="wr-row" style="margin-top:16px">
+<span class="wr-chip">EPUB</span>
+<span class="wr-chip wr-chip--success">완료</span>
+<span class="wr-chip wr-chip--warning">확인 필요</span>
+<button type="button" class="wr-chip wr-chip--accent" aria-pressed="false" data-toggle>즐겨찾기</button>
+</div>
+</article>
+<article class="kit-specimen">
+<h3>INPUTS / 입력</h3>
+<div class="wr-stack">
+<label class="wr-field">이름<input class="wr-input" placeholder="컬렉션 이름">
+</label>
+<label class="wr-field">입력 오류 예시<input class="wr-input" value="" placeholder="이름을 입력하세요" aria-invalid="true" aria-describedby="field-error">
+</label>
+<span class="wr-error" id="field-error">이름을 입력해 주세요.</span>
+<label class="wr-toggle">
+<input type="checkbox" role="switch" checked>자동으로 이어보기</label>
+<label class="wr-field">크기 <input class="wr-range" type="range" min="12" max="28" value="18">
+</label>
+</div>
+</article>
+</div>
+</section>
+<section class="kit-section" id="s4">
+<div class="kit-section-heading">
+<span>04</span>
+<h2>조합 패턴</h2>
+<p>화면이 달라도 반복되는 구조</p>
+</div>
+<div class="kit-grid">
+<article class="kit-specimen">
+<h3>CARD / 카드</h3>
+<div class="wr-panel wr-stack">
+<div class="wr-row" style="flex-wrap:nowrap">
+<div class="kit-cover">ESSAY<span>작은<br>기록들</span>
+</div>
+<div class="kit-grow">
+<strong>작은 기록들</strong>
+<p class="wr-muted">일상을 모아두는 컬렉션</p>
+<span class="wr-chip">에세이</span>
+</div>
+</div>
+<progress class="wr-progress" value="42" max="100" aria-label="진행률 42%">
+</progress>
+<div class="wr-spread">
+<span class="kit-caption">42% 완료</span>
+<button class="wr-button wr-button--primary" type="button" data-demo="카드의 주 동작 예시입니다.">이어서 보기</button>
+</div>
+</div>
+</article>
+<article class="kit-specimen">
+<h3>LIST / 목록</h3>
+<div class="wr-list">
+<button type="button" class="wr-list-button" data-open="toc">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
+</svg>
+<span>목차와 목록</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-open="search">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<circle cx="10.5" cy="10.5" r="6.5"/>
+<path d="m16 16 4 4"/>
+</svg>
+<span>검색과 필터</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-open="settings">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M4 6h16M4 12h16M4 18h16"/>
+<circle cx="8" cy="6" r="2"/>
+<circle cx="16" cy="12" r="2"/>
+<circle cx="10" cy="18" r="2"/>
+</svg>
+<span>설정과 테마</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</div>
+<p class="kit-caption">구분선 · 보조 문구 · 오른쪽 이동 표시</p>
+</article>
+<article class="kit-specimen">
+<h3>CHROME / 도구 모음</h3>
+<div class="wr-stack">
+<div class="wr-dock">
+<button class="wr-icon-button" type="button" aria-label="도구 모음 목차" data-open="toc">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
+</svg>
+</button>
+<button class="wr-icon-button" type="button" aria-label="도구 모음 검색" data-open="search">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<circle cx="10.5" cy="10.5" r="6.5"/>
+<path d="m16 16 4 4"/>
+</svg>
+</button>
+<button class="wr-icon-button" type="button" aria-label="도구 모음 설정" data-open="settings">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M4 6h16M4 12h16M4 18h16"/>
+<circle cx="8" cy="6" r="2"/>
+<circle cx="16" cy="12" r="2"/>
+<circle cx="10" cy="18" r="2"/>
+</svg>
+</button>
+</div>
+<div class="wr-reader-bar">
+<button type="button" class="wr-button wr-button--ghost" data-open="jump">#</button>
+<progress class="wr-progress" value="42" max="100" aria-label="리더 진행률">
+</progress>
+<span class="kit-caption">42%</span>
+</div>
+<div class="wr-menu">
+<button type="button" class="wr-list-button" data-open="note">메모 추가</button>
+<button type="button" class="wr-list-button" data-demo="텍스트 선택 메뉴의 번역 항목 예시입니다.">번역</button>
+</div>
+</div>
+</article>
+<article class="kit-specimen">
+<h3>EMPTY / 빈 화면</h3>
+<div class="kit-empty">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
+</svg>
+<p>
+<strong>아직 담긴 항목이 없어요</strong>
+</p>
+<p class="wr-muted">첫 항목을 추가해 공간을 채워보세요.</p>
+<button class="wr-button wr-button--primary" type="button" data-open="settings">항목 추가</button>
+</div>
+</article>
+<article class="kit-specimen">
+<h3>FEEDBACK / 피드백</h3>
+<div class="wr-stack">
+<div class="wr-notice">
+<strong>변경 내용을 저장했어요</strong>
+<p class="wr-muted">테마에 맞춘 안내 표면입니다.</p>
+</div>
+<button class="wr-button " type="button" data-demo="변경 내용을 저장했어요.">토스트 보기</button>
+</div>
+</article>
+<article class="kit-specimen">
+<h3>LOADING / 로딩</h3>
+<div class="wr-stack" aria-label="로딩 상태 예시">
+<div class="wr-skeleton" style="width:55%">
+</div>
+<div class="wr-skeleton">
+</div>
+<div class="wr-skeleton" style="width:80%">
+</div>
+<p class="wr-muted">콘텐츠를 불러오고 있어요…</p>
+</div>
+</article>
+</div>
+</section>
+<section class="kit-section" id="s5">
+<div class="kit-section-heading">
+<span>05</span>
+<h2>모달과 작은 창</h2>
+<p>직접 열어 보고 화면 폭을 줄여보세요</p>
+</div>
+<div class="kit-grid">
+<article class="kit-specimen kit-modal-launch">
+<h3>설정 시트</h3>
+<p>공통 헤더, 원형 닫기, 본문 스크롤, 하단 동작.</p>
+<button class="wr-button " type="button" data-open="settings">예시 열기 <svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</article>
+<article class="kit-specimen kit-modal-launch">
+<h3>Spotlight 검색</h3>
+<p>20px 곡률과 상단 배치, 결과 목록과 어두운 푸터.</p>
+<button class="wr-button " type="button" data-open="search">예시 열기 <svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</article>
+<article class="kit-specimen kit-modal-launch">
+<h3>삭제 확인</h3>
+<p>테마 재질을 유지하는 위험 동작과 안전한 초기 포커스.</p>
+<button class="wr-button " type="button" data-open="confirm">예시 열기 <svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</article>
+<article class="kit-specimen kit-modal-launch">
+<h3># 진행률 이동</h3>
+<p>툴바의 작은 진입점에도 동일한 시트 재질.</p>
+<button class="wr-button " type="button" data-open="jump">예시 열기 <svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</article>
+<article class="kit-specimen kit-modal-launch">
+<h3>충돌 확인</h3>
+<p>현재 상태와 새 상태를 비교하고 선택하는 구성.</p>
+<button class="wr-button " type="button" data-open="conflict">예시 열기 <svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</article>
+<article class="kit-specimen kit-modal-launch">
+<h3>메모 · 번역 입력</h3>
+<p>작은 상단 대화상자와 다중 행 입력.</p>
+<button class="wr-button " type="button" data-open="note">예시 열기 <svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</article>
+</div>
+</section>
+<section class="kit-section" id="s6">
+<div class="kit-section-heading">
+<span>06</span>
+<h2>다른 프로젝트로 가져가기</h2>
+<p>폴더를 복사하고, 적용 범위를 함께 전달하세요</p>
+</div>
+<div class="kit-specimen">
+<div class="kit-guide">
+<strong>01 / 복사</strong>
+<p>ui-kit 폴더 전체를 대상 프로젝트로 옮기세요. 폰트와 질감도 함께 이동합니다.</p>
+<strong>02 / 적용</strong>
+<p>tokens.css → components.css 순서로 불러오고 .wr-kit 아래에 화면을 구성하세요.</p>
+<strong>03 / 확인</strong>
+<p>ADOPT.md의 프롬프트와 COVERAGE.md 체크리스트로 모달과 상태별 누락을 점검하세요.</p>
+</div>
+<details class="kit-example-code">
+<summary>최소 사용 예시</summary>
+<pre>&lt;link rel="stylesheet" href="ui-kit/tokens.css"&gt;
+&lt;link rel="stylesheet" href="ui-kit/components.css"&gt;
+&lt;main class="wr-kit wr-texture" data-theme="midnight"
+      data-material="glass" data-texture="grain"&gt;
+  &lt;section class="wr-panel"&gt;
+    &lt;button class="wr-button wr-button--primary"&gt;계속하기&lt;/button&gt;
+  &lt;/section&gt;
+&lt;/main&gt;</pre>
+</details>
+</div>
+</section>
+<footer class="kit-footer">
+<span>Web Reader / Design Kit v1</span>
+<a href="tokens.json">토큰 JSON ↗</a>
+<a href="COVERAGE.md">누락 점검표 ↗</a>
+<span>원본 v1.8.36 기반 · 독립 HTML/CSS</span>
+</footer>
+</div>
+<div class="kit-toast wr-notice" id="toast" role="status" aria-live="polite">
+</div>
+<dialog id="settings" class="wr-dialog wr-sheet" aria-labelledby="settings-title">
+<header class="wr-dialog-header">
+<button class="wr-icon-button wr-close" type="button" data-close aria-label="보기 설정 닫기" >
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+<div>
+<h2 id="settings-title">보기 설정</h2>
+<p>공통 시트 / 스크롤 가능한 본문</p>
+</div>
+</header>
+<div class="wr-dialog-body wr-stack">
+<label class="wr-toggle">
+<input type="checkbox" role="switch" checked>마지막 위치 이어보기</label>
+<label class="wr-field">표시 이름<input class="wr-input" value="나의 공간">
+</label>
+<label class="wr-field">본문 크기<input class="wr-range" type="range" min="12" max="28" value="18">
+</label>
+<div class="wr-row" data-choice-group>
+<button class="wr-button wr-choice" type="button" aria-pressed="true">편안하게</button>
+<button class="wr-button wr-choice" type="button" aria-pressed="false">촘촘하게</button>
+</div>
+<div class="wr-notice">모바일에서는 높이 60dvh 이하의 하단 시트로 바뀝니다.</div>
+<label class="wr-toggle">
+<input type="checkbox" role="switch" checked>예시 표시 옵션 1</label>
+<label class="wr-toggle">
+<input type="checkbox" role="switch" >예시 표시 옵션 2</label>
+<label class="wr-toggle">
+<input type="checkbox" role="switch" checked>예시 표시 옵션 3</label>
+<label class="wr-toggle">
+<input type="checkbox" role="switch" >예시 표시 옵션 4</label>
+<label class="wr-toggle">
+<input type="checkbox" role="switch" checked>예시 표시 옵션 5</label>
+</div>
+<footer class="wr-dialog-footer">
+<button class="wr-button " type="button" data-close>취소</button>
+<button class="wr-button wr-button--primary" type="button" data-close data-demo="예시 설정을 저장했어요.">저장</button>
+</footer>
+</dialog>
+<dialog id="confirm" class="wr-dialog wr-sheet" aria-labelledby="confirm-title">
+<header class="wr-dialog-header">
+<button class="wr-icon-button wr-close" type="button" data-close aria-label="항목을 삭제할까요? 닫기" autofocus>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+<div>
+<h2 id="confirm-title">항목을 삭제할까요?</h2>
+<p>확인 대화상자</p>
+</div>
+</header>
+<div class="wr-dialog-body wr-stack">
+<p>선택한 항목을 목록에서 삭제합니다. 이 카탈로그에서는 실제 데이터를 삭제하지 않습니다.</p>
+</div>
+<footer class="wr-dialog-footer">
+<button class="wr-button " type="button" data-close>취소</button>
+<button class="wr-button wr-button--danger" type="button" data-close data-demo="삭제 확인 디자인 예시입니다.">삭제</button>
+</footer>
+</dialog>
+<dialog id="jump" class="wr-dialog wr-sheet" aria-labelledby="jump-title">
+<header class="wr-dialog-header">
+<button class="wr-icon-button wr-close" type="button" data-close aria-label="진행률 이동 닫기" >
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+<div>
+<h2 id="jump-title">진행률 이동</h2>
+<p>작은 진입점도 같은 테마로</p>
+</div>
+</header>
+<div class="wr-dialog-body wr-stack">
+<form id="jump-form" class="wr-stack">
+<label class="wr-field">이동할 위치 (%)<input class="wr-input" type="number" min="0" max="100" value="42" required autofocus>
+</label>
+<p class="wr-muted">0부터 100 사이의 위치를 입력하세요.</p>
+</form>
+</div>
+<footer class="wr-dialog-footer">
+<button class="wr-button " type="button" data-close>취소</button>
+<button class="wr-button wr-button--primary" type="submit" form="jump-form">이동</button>
+</footer>
+</dialog>
+<dialog id="conflict" class="wr-dialog wr-sheet" aria-labelledby="conflict-title">
+<header class="wr-dialog-header">
+<button class="wr-icon-button wr-close" type="button" data-close aria-label="어디에서 이어볼까요? 닫기" >
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+<div>
+<h2 id="conflict-title">어디에서 이어볼까요?</h2>
+<p>상태 비교 / 선택 확인</p>
+</div>
+</header>
+<div class="wr-dialog-body wr-stack">
+<div class="wr-panel">
+<span class="wr-label wr-muted">현재 기기</span>
+<p>
+<strong>42% · 4장</strong>
+</p>
+</div>
+<div class="wr-panel">
+<span class="wr-label wr-muted">다른 기기</span>
+<p>
+<strong>68% · 7장</strong>
+</p>
+</div>
+</div>
+<footer class="wr-dialog-footer">
+<button class="wr-button " type="button" data-close>현재 위치 유지</button>
+<button class="wr-button wr-button--primary" type="button" data-close data-demo="새 위치 선택 예시입니다.">새 위치로 이동</button>
+</footer>
+</dialog>
+<dialog id="note" class="wr-dialog wr-dialog--compact" aria-labelledby="note-title">
+<header class="wr-dialog-header">
+<button class="wr-icon-button wr-close" type="button" data-close aria-label="메모 추가 닫기" >
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+<div>
+<h2 id="note-title">메모 추가</h2>
+<p>간단한 텍스트 대화상자</p>
+</div>
+</header>
+<div class="wr-dialog-body wr-stack">
+<label class="wr-field">메모<textarea class="wr-input" rows="5" placeholder="남기고 싶은 생각을 적어보세요." autofocus>
+</textarea>
+</label>
+</div>
+<footer class="wr-dialog-footer">
+<button class="wr-button " type="button" data-close>취소</button>
+<button class="wr-button wr-button--primary" type="button" data-close data-demo="예시 설정을 저장했어요.">저장</button>
+</footer>
+</dialog>
+<dialog id="toc" class="wr-dialog wr-sheet" aria-labelledby="toc-title">
+<header class="wr-dialog-header">
+<button class="wr-icon-button wr-close" type="button" data-close aria-label="목차 닫기" >
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+<div>
+<h2 id="toc-title">목차</h2>
+<p>목록형 시트</p>
+</div>
+</header>
+<div class="wr-dialog-body wr-stack">
+<div class="wr-list">
+<button type="button" class="wr-list-button" data-close data-demo="1장 선택 예시입니다.">
+<span>01　작은 기록 1</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="2장 선택 예시입니다.">
+<span>02　작은 기록 2</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="3장 선택 예시입니다.">
+<span>03　작은 기록 3</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="4장 선택 예시입니다.">
+<span>04　작은 기록 4</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="5장 선택 예시입니다.">
+<span>05　작은 기록 5</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="6장 선택 예시입니다.">
+<span>06　작은 기록 6</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="7장 선택 예시입니다.">
+<span>07　작은 기록 7</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="8장 선택 예시입니다.">
+<span>08　작은 기록 8</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="9장 선택 예시입니다.">
+<span>09　작은 기록 9</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="10장 선택 예시입니다.">
+<span>10　작은 기록 10</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="11장 선택 예시입니다.">
+<span>11　작은 기록 11</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-close data-demo="12장 선택 예시입니다.">
+<span>12　작은 기록 12</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</div>
+</div>
+<footer class="wr-dialog-footer">
+<button class="wr-button " type="button" data-close>닫기</button>
+</footer>
+</dialog>
+<dialog id="actions" class="wr-dialog wr-sheet" aria-labelledby="actions-title">
+<header class="wr-dialog-header">
+<button class="wr-icon-button wr-close" type="button" data-close aria-label="항목 동작 닫기" >
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+<div>
+<h2 id="actions-title">항목 동작</h2>
+<p>카드의 보조 동작</p>
+</div>
+</header>
+<div class="wr-dialog-body wr-stack">
+<div class="wr-list">
+<button type="button" class="wr-list-button" data-close data-demo="상세 보기 예시입니다.">상세 보기</button>
+<button type="button" class="wr-list-button" data-close data-demo="즐겨찾기 예시입니다.">즐겨찾기</button>
+</div>
+</div>
+<footer class="wr-dialog-footer">
+<button class="wr-button " type="button" data-close>닫기</button>
+</footer>
+</dialog>
+<dialog id="search" class="wr-dialog wr-search" aria-labelledby="search-title">
+<header class="wr-dialog-header">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<circle cx="10.5" cy="10.5" r="6.5"/>
+<path d="m16 16 4 4"/>
+</svg>
+<h2 id="search-title" hidden>검색</h2>
+<input class="wr-input" type="search" placeholder="제목이나 키워드로 검색" aria-label="검색어" autofocus>
+<button type="button" class="wr-icon-button wr-close" data-close aria-label="검색 닫기">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m6 6 12 12M6 18 18 6"/>
+</svg>
+</button>
+</header>
+<div class="wr-dialog-body">
+<div class="wr-row" style="margin-bottom:16px">
+<span class="wr-chip">최근 검색</span>
+<span class="wr-chip wr-chip--accent">기록</span>
+</div>
+<div class="wr-list">
+<button type="button" class="wr-list-button" data-result="작은 기록들" data-close data-demo="작은 기록들 선택 예시입니다.">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
+</svg>
+<span>작은 기록들</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-result="오늘의 문장" data-close data-demo="오늘의 문장 선택 예시입니다.">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
+</svg>
+<span>오늘의 문장</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+<button type="button" class="wr-list-button" data-result="조용한 오후" data-close data-demo="조용한 오후 선택 예시입니다.">
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
+</svg>
+<span>조용한 오후</span>
+<svg viewBox="0 0 24 24" aria-hidden="true">
+<path d="m9 5 7 7-7 7"/>
+</svg>
+</button>
+</div>
+<p class="kit-search-empty wr-muted" hidden>검색 결과가 없어요.</p>
+</div>
+<footer class="wr-dialog-footer">
+<span class="wr-muted">제목을 입력해 결과를 확인하세요.</span>
+<button class="wr-button " type="button" data-close data-demo="전체 결과 화면으로 이동하는 동작 예시입니다.">전체 결과 보기</button>
+</footer>
+</dialog>
+</body>
+</html>
