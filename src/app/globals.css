@@ -110,7 +110,7 @@ html[data-viewer-menu-style='glass'] {
   --app-menu-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
   --app-menu-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent);
   --app-menu-ink: var(--viewer-shelf-glass-ink, var(--viewer-theme-text));
-  --app-menu-filter: blur(1.5px) saturate(90%) contrast(82%);
+  --app-menu-filter: blur(1.3px) saturate(90%) contrast(82%);
   --app-menu-panel-shadow:
     0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
     0 3px 10px rgba(0, 0, 0, 0.16),

@@ -60,7 +60,7 @@ CSS는 `tokens.css` → `components.css` → 대상 앱의 배치/보정 CSS 순
 - **주요 버튼은 약하게 물들입니다.** 포인트색 배경 12%, 경계 42%, 텍스트 68% 혼합이 원본 CTA 규칙입니다. 삭제는 별도의 붉은 의미색 16% 표면을 사용합니다. 선택된 필터 태그는 32% 표면입니다.
 - **크기에 맞는 곡률을 씁니다.** 컨트롤 3/5/7/8/10/12px, 패널·카드 14px, 검색 20px, 모바일 시트 22px입니다. 모든 요소를 큰 pill 모양으로 만들지 않습니다.
 - **타이포그래피는 Pretendard를 기본으로 합니다.** UI 본문 14px, 보조 11–12px, 모달 제목 16→18px를 레시피 기준으로 삼습니다. 카탈로그의 대형 제목과 여백은 전시용입니다. 독서 본문용 RIDIBatang은 이 UI 키트에 포함하지 않았습니다.
-- **glass는 큰 blur가 아닙니다.** 원본의 1.5px blur, saturate 90%, contrast 82%, 164도 테두리 하이라이트를 유지합니다. standard는 28px blur, modern은 24px blur를 씁니다.
+- **glass는 큰 blur가 아닙니다.** 원본의 1.3px blur, saturate 90%, contrast 82%, 164도 테두리 하이라이트를 유지합니다. standard는 28px blur, modern은 24px blur를 씁니다.
 
 ## 모달을 가져갈 때
 
