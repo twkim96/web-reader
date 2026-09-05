@@ -1,5 +1,5 @@
 // src/components/EpubSearchModal.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, ArrowRight, Loader2 } from 'lucide-react';
 import { SearchResultPayload } from '../hooks/foliate/types';
 import { ThemeClasses } from '../types';
@@ -9,7 +9,7 @@ interface EpubSearchModalProps {
   theme: ThemeClasses;
   onClose: () => void;
   onSelect: (cfi: string, progressPercent?: number) => void;
-  onSearch: (query: string, onResult: (res: SearchResultPayload) => void, onProgress: (p: number) => void) => Promise<void>;
+  onSearch: (query: string, onResult: (res: SearchResultPayload) => void, onProgress: (p: number) => void, signal?: AbortSignal) => Promise<void>;
   onClear: () => void;
 }
 
@@ -21,34 +21,58 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
   const [isSearching, setIsSearching] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      onClear();
-      return;
-    }
+  const activeSearch = useRef<AbortController | null>(null);
 
-    const timer = setTimeout(async () => {
+  const updateQuery = (value: string) => {
+    activeSearch.current?.abort();
+    setQuery(value);
+    setResults([]);
+    setIsSearching(false);
+    setProgress(0);
+    onClear();
+  };
+  const close = () => {
+    activeSearch.current?.abort();
+    onClose();
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    activeSearch.current = controller;
+    if (query.trim().length < 2) onClear();
+    const isCurrent = () => !controller.signal.aborted;
+    const timer = query.trim().length < 2 ? undefined : setTimeout(async () => {
+      if (!isCurrent()) return;
       setResults([]);
       setIsSearching(true);
       setProgress(0);
       onClear();
-      
-      await onSearch(
-        query, 
-        (res) => setResults(prev => [...prev, res]),
-        (p) => setProgress(p)
-      );
-      
-      setIsSearching(false);
+      try {
+        await onSearch(
+          query,
+          (res) => {
+            if (isCurrent()) setResults(prev => isCurrent() ? [...prev, res] : prev);
+          },
+          (p) => { if (isCurrent()) setProgress(p); },
+          controller.signal,
+        );
+      } catch (error) {
+        if (isCurrent()) console.error('[Search] failed:', error);
+      } finally {
+        if (isCurrent()) setIsSearching(false);
+      }
     }, 500);
 
-    return () => clearTimeout(timer);
+    return () => {
+      controller.abort();
+      if (timer !== undefined) clearTimeout(timer);
+    };
   }, [query, onSearch, onClear]);
 
 
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/40 p-4 pt-[15vh] backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/40 p-4 pt-[15vh] backdrop-blur-sm" onClick={close}>
       <div
         data-epub-search-modal="true"
         className={`app-panel-radius app-search-modal-radius app-search-surface app-radius-exempt flex max-h-[72dvh] w-full max-w-2xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl`}
@@ -67,14 +91,14 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
             autoFocus
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => updateQuery(e.target.value)}
             placeholder="본문에서 검색어 입력..."
             className="h-full min-w-0 w-full bg-transparent pr-2 text-base font-bold focus:outline-none placeholder:opacity-30 sm:pr-4 sm:text-lg"
           />
           {query && (
             <button 
               type="button"
-              onClick={() => { setQuery(''); setResults([]); onClear(); }}
+              onClick={() => updateQuery('')}
               aria-label="본문 검색어 지우기"
               className="mr-0.5 flex size-11 shrink-0 items-center justify-center rounded-full opacity-50 transition-all hover:bg-black/10 hover:opacity-100 sm:mr-1"
             >
@@ -112,7 +136,7 @@ export const EpubSearchModal: React.FC<EpubSearchModalProps> = ({ theme, onClose
                      {section.subitems.map((res, i) => (
                        <button
                          key={`${si}-${i}`}
-                         onClick={() => { onClose(); onSelect(res.cfi, section.progress * 100); }}
+                         onClick={() => { close(); onSelect(res.cfi, section.progress * 100); }}
                          className="w-full text-left px-6 py-4 hover:bg-accent-500/10 transition-colors group flex flex-col gap-1.5 border-b border-black/5 dark:border-white/5 last:border-none"
                        >
                          <div className="flex items-center justify-between">

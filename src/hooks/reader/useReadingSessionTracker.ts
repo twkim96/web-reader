@@ -30,6 +30,8 @@ import {
   getReadingStatisticsDraftKey,
   getReadingStatisticsDraftPrefix,
   getReadingStatisticsDraftRecoveryEnd,
+  holdReadingStatisticsDraftWriter,
+  recoverReadingStatisticsDraft,
 } from '../../lib/readingStatisticsDraft';
 import {
   detachReadingActivityTargets,
@@ -63,6 +65,7 @@ type ReadingSessionDraft = ActiveSegment & {
   deviceId: string;
   state?: 'active' | 'closed-pending';
   closedAtClient?: number;
+  writerId?: string;
 };
 
 const clampProgress = (value: number) => (
@@ -207,6 +210,7 @@ export const useReadingSessionTracker = ({
   const progressRef = useRef(progressPercent);
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const deviceIdRef = useRef('');
+  const writerIdRef = useRef('');
   const bookRef = useRef(book);
   const ttsGapStartedAtMonotonicRef = useRef<number | null>(null);
   // Mobile browsers may report document.hasFocus() as false while a visible
@@ -249,7 +253,7 @@ export const useReadingSessionTracker = ({
     const session = toClosedSession(draft, endedAtClient);
     if (!session) {
       localStorage.removeItem(key);
-      return;
+      return Promise.resolve();
     }
     persistChainRef.current = persistChainRef.current.then(async () => {
       await saveLocalReadingSessionV11(draft.ownerKey, session);
@@ -264,6 +268,7 @@ export const useReadingSessionTracker = ({
     }).catch((error) => {
       console.error('[ReadingStatistics] session persistence failed:', error);
     });
+    return persistChainRef.current;
   }, []);
 
   const writeDraft = useCallback((segment: ActiveSegment) => {
@@ -277,6 +282,7 @@ export const useReadingSessionTracker = ({
       bookTitle: currentBook.name || '제목 없음',
       deviceId,
       state: 'active',
+      writerId: writerIdRef.current,
       ...segment,
     };
     try {
@@ -339,6 +345,7 @@ export const useReadingSessionTracker = ({
       bookTitle: currentBook.name || '제목 없음',
       deviceId,
       state: 'closed-pending',
+      writerId: writerIdRef.current,
       closedAtClient: endedAtClient,
       ...segment,
       endProgressPercent: clampProgress(progressRef.current),
@@ -556,28 +563,27 @@ export const useReadingSessionTracker = ({
   useEffect(() => {
     const deviceId = providedDeviceId?.trim() || getOrCreateDeviceId(localStorage);
     deviceIdRef.current = deviceId;
+    const writerId = crypto.randomUUID();
+    writerIdRef.current = writerId;
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    const releaseWriter = holdReadingStatisticsDraftWriter(writerId, locks);
     lastActivityAtRef.current = 0;
     const prefix = getReadingStatisticsDraftPrefix(ownerKey, deviceId);
     const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
       .filter((key): key is string => Boolean(key?.startsWith(prefix)));
     for (const key of keys) {
-      try {
-        const value = localStorage.getItem(key);
-        if (!value) continue;
-        const draft = JSON.parse(value) as unknown;
-        if (!isDraft(draft) || draft.ownerKey !== ownerKey || draft.deviceId !== deviceId) {
-          localStorage.removeItem(key);
-          continue;
+      void recoverReadingStatisticsDraft(key, () => {
+        try {
+          const value = localStorage.getItem(key);
+          if (!value) return null;
+          const draft = JSON.parse(value) as unknown;
+          return isDraft(draft) && draft.ownerKey === ownerKey && draft.deviceId === deviceId
+            ? draft : null;
+        } catch {
+          return null;
         }
-        const recovered = toClosedSession(
-          draft,
-          getReadingStatisticsDraftRecoveryEnd(draft),
-        );
-        if (recovered) queuePersist(draft, recovered.endedAtClient, key);
-        else localStorage.removeItem(key);
-      } catch {
-        localStorage.removeItem(key);
-      }
+      }, (draft) => queuePersist(draft, getReadingStatisticsDraftRecoveryEnd(draft), key), locks)
+        .catch((error) => console.warn('[ReadingStatistics] draft recovery failed:', error));
     }
     reconcile();
     return () => {
@@ -588,6 +594,7 @@ export const useReadingSessionTracker = ({
         : getMonotonicNow();
       ttsGapStartedAtMonotonicRef.current = null;
       closeSegment(segment ? getSegmentWallTime(segment, endAtMonotonic) : Date.now());
+      releaseWriter();
       deviceIdRef.current = '';
     };
   }, [

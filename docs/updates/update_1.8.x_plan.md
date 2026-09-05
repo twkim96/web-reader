@@ -98,7 +98,8 @@
 | 1.8.32 | 메뉴 글래스·빈 책장 온보딩·모달 시각 개편 | 표준/글래스/모던 3종 한 줄 배치·각 카드 surface 미리보기·공용 선택 박스·Blue→Midnight 및 새 기본값·한국어 빈 책장 안내와 밑줄 동작·표지/metadata 포함 장문 로컬 샘플 동화·책장 기준 `#태그` 권수·스크롤 빈 surface 메뉴 호출·기본 본문 20px·독서 통계 포인트색 절제·6종 모달 헤더 아이콘/구분선 통일·PC 더블클릭 선택 메뉴 점멸 방지·리더 설정 간격/오프라인 저장소 아이콘·테마 중앙 고정·상단 테마 6개 독립 스크롤·리더 종료·제목 충돌 정렬·guest 책장 직접 진입·grid 카드 저곡률·책장 dock PC 20px/모바일 34px 곡률·grid 제목/list 크기 통일·grid 지우개 축소·테마별 Google Light/Dark 버튼·개인정보 고지·로그인 취소 복구·전역 모달 입력 차단·dialog 취소 계약·history sentinel 중복 방지·증분 표지 URL·카드 keyboard | 낮음 | **리뷰 안정화 완료** · `npm run check`·shelf UI 25건·Chromium/WebKit 30건 통과, production 장거리 browser 기존 fixture timeout 및 실기기 확인 대기 |
 | 1.8.33 | EPUB 스크롤 입력 경로 최적화 | 스크롤 wheel/touch passive 전환·tap/실제 이동 progress generation 분리·Ctrl+wheel 확대 허용·메뉴 표시 중 입력 차단 보존·single-touch 시작/종료 경계 챕터 이동·Foliate flow별 listener 재등록·overscroll containment | 중간 | **리뷰 보정 완료** · 전체 check·입력 집중 회귀·Chromium/WebKit Foliate 30건 통과, iPad 관성 스크롤 및 production 장거리 browser 재확인 대기 |
 | 1.8.34 | 메뉴 모달·모바일 바텀시트 통일 | Shelf/Reader 메뉴 모달 공통 헤더·모바일 하단 시트·PC 테마 표면·기존 작업 대화상자 배치 보존 | 중간 | **종료** · `npm run check`·shelf UI 44건·release 3건 통과, production browser는 기존 PNG clipboard fixture timeout |
-| 1.8.35 | 로그인·Drive 연결 수명주기 안정화 | 로그아웃 무탐색 전환·owner disposer receiver/멱등성·Drive OAuth state의 세션/동일 출처 fallback·일회 소비·TTL 검증 | 높음 | **2차 수정 자동검증 완료 · 실사용 재확인 대기** · 1차 History 가설 기각, 실제 `ProgressSyncPump.dispose()`의 `Illegal invocation` 수정·집중 16건·전체 `npm run check` 통과 |
+| 1.8.35 | 로그인·Drive 연결 수명주기 안정화 | 로그아웃 무탐색 전환·owner disposer receiver/멱등성·Drive OAuth state의 세션/동일 출처 fallback·일회 소비·TTL 검증 | 높음 | **종료** · `36bdc4c`까지 고정, 리뷰 수정·검증 파이프라인 보강은 1.8.36으로 이관 |
+| 1.8.36 | 전체 리뷰 경합·업데이트 수정 | outbox 순서·ACK·인증·통계·검색·다운로드·팔레트·PWA 자동 배포 식별 | 높음 | **완료** · Node 712·Python 3·Rules 36·E2E 38(기존 2 생략)·production browser/build 통과, Rules 배포 · [상세 기록](./update_1.8.36.md) |
 
 예정 버전 번호는 기능 순서를 설명하기 위한 슬롯이다. 앞 버전 출시 후 안정화 패치가 필요하면 다음 patch 번호를 안정화 전용으로 사용하고 이후 기능 번호를 순서대로 미룬다. 결함 수정과 다음 기능을 한 릴리스에 합치지 않는다.
 

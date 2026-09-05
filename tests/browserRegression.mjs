@@ -2493,14 +2493,14 @@ try {
   const actualTextTapClosed = await evaluate(`(() => ({
     controlsClosed: !document.querySelector('nav')?.classList.contains('translate-y-0'),
     start: document.querySelector('foliate-view')?.renderer?.start,
-    staleFoliateRemoved: false,
+    previousFoliatePreserved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.endsWith('/foliate-js/view.js?v=1.8.35')
+      script.src.includes('/foliate-js/view.js?v=1.8.36-')
     )),
   }))()`);
-  actualTextTapClosed.staleFoliateRemoved = await evaluate(`(async () => {
+  actualTextTapClosed.previousFoliatePreserved = await evaluate(`(async () => {
     const staleCache = await caches.open('pc-reader-v1.7.10');
-    return !(await staleCache.match('/foliate-js/view.js'));
+    return Boolean(await staleCache.match('/foliate-js/view.js'));
   })()`);
   assert.equal(
     actualTextTapClosed.controlsClosed,
@@ -2508,7 +2508,7 @@ try {
     JSON.stringify({ actualTextTapProbe, actualTextTapClosed }),
   );
   assert.equal(actualTextTapClosed.start, actualTextTapProbe.beforeStart);
-  assert.equal(actualTextTapClosed.staleFoliateRemoved, true);
+  assert.equal(actualTextTapClosed.previousFoliatePreserved, true);
   assert.equal(actualTextTapClosed.versionedEntry, true);
   await evaluate(`(() => {
     window.__doubleClickSelectionMenuMounts = 0;
@@ -2724,6 +2724,22 @@ try {
     const selectionTtsOverlayCleared = !renderer.getContents().some(({ overlayer }) => (
       overlayer?.element?.querySelector('[data-reader-tts-highlight="true"]')
     ));
+    const voiceSelect = document.querySelector('[data-reader-tts-controls="true"]')?.querySelectorAll('select')[1];
+    if (voiceSelect) {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      setter?.call(voiceSelect, 'voice-en');
+      voiceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      document.querySelector('[data-reader-tts-controls="true"] button[aria-label="재생"]')?.click();
+      const explicitVoiceDeadline = performance.now() + 2000;
+      while (window.__browserSpeechStats.speak < 2 && performance.now() < explicitVoiceDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      window.__finishBrowserSpeech?.();
+      setter?.call(voiceSelect, '');
+      voiceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
       ?.click();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -3303,12 +3319,13 @@ try {
   assert.equal(selectionActions.selectionTtsOverlayCleared, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.selectionTtsStopped, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.afterSelectionTts, selectionActions.beforeSelectionTts);
-  assert.equal(selectionActions.browserSpeechStats.speak, 1);
+  assert.equal(selectionActions.browserSpeechStats.speak, 2);
   assert.equal(selectionActions.browserSpeechStats.pause, 1);
   assert.equal(selectionActions.browserSpeechStats.resume, 1);
   assert.match(selectionActions.browserSpeechStats.texts[0], /probe paragraph/);
   assert.equal(selectionActions.browserSpeechStats.languages[0], 'en-US');
-  assert.equal(selectionActions.browserSpeechStats.voices[0], 'voice-en');
+  assert.equal(selectionActions.browserSpeechStats.voices[0], null);
+  assert.equal(selectionActions.browserSpeechStats.voices[1], 'voice-en');
   assert.equal(selectionActions.translationDialogShown, true, JSON.stringify(selectionActions));
   assert.equal(selectionActions.translationClosedByBack, true, JSON.stringify(selectionActions));
   assert.match(selectionActions.translationResult, /번역:probe paragraph/);
@@ -3510,14 +3527,14 @@ try {
       storedEnabled: JSON.parse(localStorage.getItem('viewer_settings') || '{}')
         .landscapeTwoPage,
     };
-    [...document.querySelectorAll('h2')]
-      .find((node) => node.textContent?.trim() === '리더 설정')
-      ?.parentElement?.querySelector('button')?.click();
-    return result;
+    document.querySelector('button[aria-label="리더 설정 닫기"]')?.click();
+    await window.__regressionNextFrame(2);
+    return { ...result, settingsClosed: !document.querySelector('button[aria-label="리더 설정 닫기"]') };
   })()`);
   assert.equal(restoredSinglePageLayout.checked, false, JSON.stringify(restoredSinglePageLayout));
   assert.equal(restoredSinglePageLayout.configuredColumnCount, '1', JSON.stringify(restoredSinglePageLayout));
   assert.equal(restoredSinglePageLayout.storedEnabled, false, JSON.stringify(restoredSinglePageLayout));
+  assert.equal(restoredSinglePageLayout.settingsClosed, true, JSON.stringify(restoredSinglePageLayout));
   const progressPointerControls = await evaluate(`(async () => {
     const openControls = () => {
       if (document.querySelector('nav')?.classList.contains('translate-y-0')) return;
@@ -3775,7 +3792,8 @@ try {
     selection.removeAllRanges();
     selection.addRange(range);
     doc.dispatchEvent(new doc.defaultView.Event('selectionchange'));
-    await waitUntil(() => document.querySelector('[data-reader-selection-menu="true"]'));
+    const menuReady = await waitUntil(() => document.querySelector('[data-reader-selection-menu="true"]'));
+    if (!menuReady) return { missingSelectionMenu: true };
     const speakBefore = window.__browserSpeechStats.speak;
     document.querySelector(
       '[data-reader-selection-menu="true"] [data-reader-selection-speak="true"]',
@@ -3808,6 +3826,7 @@ try {
     return { advanced, finalIndex, finalWindowSize, indexes, initialWindowSize, total };
   })()`);
   assert.equal(largeSelectionTts.missing, undefined, JSON.stringify(largeSelectionTts));
+  assert.equal(largeSelectionTts.missingSelectionMenu, undefined, JSON.stringify(largeSelectionTts));
   assert.equal(largeSelectionTts.total, 180, JSON.stringify(largeSelectionTts));
   assert.ok(largeSelectionTts.initialWindowSize <= 51, JSON.stringify(largeSelectionTts));
   assert.ok(largeSelectionTts.finalWindowSize <= 51, JSON.stringify(largeSelectionTts));
@@ -5154,7 +5173,7 @@ try {
   assert.equal(annotationManager.managerStayedOpenAfterBack, true);
   assert.match(annotationManager.modalFeedback, /메모 저장됨/);
   assert.match(annotationManager.modalFeedback, /실행 취소/);
-  await evaluate(`document.querySelector('button[aria-label="책갈피와 주석 닫기"]')?.click()`);
+  await evaluate(`document.querySelector('button[aria-label="책갈피·주석 닫기"]')?.click()`);
   await waitFor(
     `!document.querySelector('[data-reader-annotation-modal="true"]')`,
     'combined records modal close before reopen',
@@ -5169,7 +5188,7 @@ try {
     `Boolean(document.querySelector('[data-reader-annotation-modal="true"]'))`,
     'annotation manager reopen',
   );
-  await evaluate(`document.querySelector('button[aria-label="책갈피와 주석 닫기"]')?.click()`);
+  await evaluate(`document.querySelector('button[aria-label="책갈피·주석 닫기"]')?.click()`);
   await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
   await waitFor(
     `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
@@ -5572,10 +5591,9 @@ try {
   assert.notEqual(libraryAnnotationUi.headerDivider, '0px', JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.horizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.bodyHorizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
-  assert.ok(
-    libraryAnnotationUi.closeWidth >= 44 && libraryAnnotationUi.closeHeight >= 44,
-    JSON.stringify(libraryAnnotationUi),
-  );
+  // Shared MenuSheetHeader uses the established size-10 close control.
+  assert.equal(libraryAnnotationUi.closeWidth, 40, JSON.stringify(libraryAnnotationUi));
+  assert.equal(libraryAnnotationUi.closeHeight, 40, JSON.stringify(libraryAnnotationUi));
   const libraryAnnotationBackdropClose = await evaluate(`(async () => {
     document.querySelector('[data-library-annotation-modal="true"]')?.click();
     await window.__regressionNextFrame(2);
@@ -5985,9 +6003,7 @@ try {
     }));
     await window.__regressionNextFrame();
     const scaleAfterModalKey = renderer?.userScale ?? null;
-    const heading = [...document.querySelectorAll('h2')]
-      .find((node) => node.textContent?.trim() === '리더 설정');
-    heading?.parentElement?.querySelector('button')?.click();
+    document.querySelector('button[aria-label="리더 설정 닫기"]')?.click();
     return {
       initial,
       updated,
@@ -6146,10 +6162,7 @@ try {
     const themeModalFrame = [...document.querySelectorAll('div.fixed.inset-0 > div')]
       .find((node) => node.textContent?.includes('테마 설정'));
     const toolbarSurface = getComputedStyle(document.querySelector('nav button')).backgroundColor;
-    const heading = [...document.querySelectorAll('h2')]
-      .find((node) => node.textContent?.trim() === '테마 설정');
-    heading?.parentElement?.querySelector('button[aria-label="커스텀 테마 추가"]')
-      ?.parentElement?.querySelector('button:last-child')?.click();
+    document.querySelector('button[aria-label="테마 설정 닫기"]')?.click();
     return {
       opened: Boolean(themeButton),
       selected: Boolean(darkTheme),
@@ -6173,7 +6186,7 @@ try {
   assert.equal(themeSettings.rootReaderSurface, 'rgba(39, 39, 40, 0.68)');
   assert.equal(themeSettings.bodyBackground, 'rgb(39, 39, 40)');
   assert.equal(themeSettings.readerRootBackground, 'rgb(39, 39, 40)');
-  assert.equal(themeSettings.themeModalBackground, 'rgb(39, 39, 40)');
+  assert.equal(themeSettings.themeModalBackground, 'rgba(39, 39, 40, 0.88)');
   assert.equal(themeSettings.toolbarSurface, 'rgba(39, 39, 40, 0.68)');
 
   await evaluate(`(async () => {
@@ -6515,6 +6528,7 @@ try {
         width: buttonRect.width,
         height: buttonRect.height,
         range: button.getAttribute('data-reading-statistics-range'),
+        headerClose: button.hasAttribute('data-menu-sheet-close'),
         compact: Boolean(
           button.closest('[data-reading-statistics-book-filter="true"]')
           || button.hasAttribute('data-reading-statistics-complete')
@@ -6532,11 +6546,14 @@ try {
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
       bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
       actionButtonsReachable: buttons
-        .filter(({ range, compact }) => !range && !compact)
+        .filter(({ range, compact, headerClose }) => !range && !compact && !headerClose)
         .every(({ width, height }) => width >= 44 && height >= 44),
+      headerCloseSize: buttons.filter(({ headerClose }) => headerClose)
+        .map(({ width, height }) => ({ width, height })),
       rangeButtonsCompact: buttons
         .filter(({ range }) => Boolean(range))
-        .every(({ height }) => height >= 40 && height <= 41),
+        .every(({ height }) => height >= 32 && height <= 33),
+      rangeButtonHeights: buttons.filter(({ range }) => Boolean(range)).map(({ height }) => height),
       refreshButtonFound: Boolean(modal?.querySelector('[data-reading-statistics-refresh="true"]')),
       jsonEnabled: !modal?.querySelector('[data-reading-statistics-export="json"]')?.disabled,
       accentName: modal?.getAttribute('data-reading-statistics-accent'),
@@ -6567,6 +6584,7 @@ try {
   assert.equal(readingStatisticsUi.horizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.bodyHorizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.actionButtonsReachable, true, JSON.stringify(readingStatisticsUi));
+  assert.deepEqual(readingStatisticsUi.headerCloseSize, [{ width: 40, height: 40 }]);
   assert.equal(readingStatisticsUi.rangeButtonsCompact, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.refreshButtonFound, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
@@ -7326,7 +7344,9 @@ try {
   await command('Network.setBypassServiceWorker', { bypass: false });
   const serviceWorkerResult = await evaluate(`(async () => {
     const cachePrefix = 'pc-reader-';
-    const expectedCache = 'pc-reader-v1.8.35';
+    const buildScript = await (await fetch('/sw-build.js')).text();
+    const buildId = JSON.parse(buildScript.split(' = ')[1].replace(';', ''));
+    const expectedCache = 'pc-reader-v1.8.36-' + buildId;
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -7353,7 +7373,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.35',
+      '/sw.js?browser-regression=1.8.36',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -7388,6 +7408,7 @@ try {
       })),
     );
     const result = {
+      expectedCache,
       cacheNames: cacheNames.filter((name) => name.startsWith(cachePrefix)),
       oldCacheDeleted: !cacheNames.includes(staleCache),
       legacyFontDeleted: !await releaseCache.match('/fonts/SUIT-Variable.woff2'),
@@ -7397,11 +7418,11 @@ try {
     await registration.unregister();
     return result;
   })()`);
-  assert.deepEqual(serviceWorkerResult.cacheNames, ['pc-reader-v1.8.35']);
+  assert.deepEqual(serviceWorkerResult.cacheNames, [serviceWorkerResult.expectedCache]);
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.35$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.36$/);
 
   console.log(JSON.stringify({
     shelf: {

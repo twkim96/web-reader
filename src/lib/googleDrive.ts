@@ -19,10 +19,11 @@ import {
  */
 const abortError = () => new DOMException('Request aborted', 'AbortError');
 
-export const fetchWithTimeout = async (
+export const fetchAndConsumeWithTimeout = async <T>(
   url: string,
-  options: RequestInit = {},
-  timeout = 5000,
+  options: RequestInit,
+  timeout: number,
+  consume: (response: Response) => Promise<T>,
 ) => {
   const controller = new AbortController();
   const callerSignal = options.signal;
@@ -41,7 +42,7 @@ export const fetchWithTimeout = async (
       ...options,
       signal: controller.signal,
     });
-    return response;
+    return await consume(response);
   } catch (error: unknown) {
     if (callerSignal?.aborted) throw abortError();
     if (didTimeout) throw new Error('Network timeout');
@@ -51,6 +52,12 @@ export const fetchWithTimeout = async (
     callerSignal?.removeEventListener('abort', abortFromCaller);
   }
 };
+
+export const fetchWithTimeout = (
+  url: string,
+  options: RequestInit = {},
+  timeout = 5000,
+) => fetchAndConsumeWithTimeout(url, options, timeout, async (response) => response);
 
 export class GoogleDriveAuthError extends Error {
   constructor(message = 'Google Drive authorization expired') {
@@ -611,41 +618,41 @@ export const fetchDriveFiles = async (
 
 export const fetchFullFile = async (fileId: string, token: string, signal?: AbortSignal) => {
   // [Modified] 파일 다운로드는 대용량(10MB+)을 고려하여 3분(180초) 대기
-  const response = await fetchWithTimeout(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-      signal,
-    },
-    180000 
-  );
-
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('파일 로드 실패');
-  }
-  
-  return await response.arrayBuffer();
-};
-
-export const fetchFullFileBlob = async (fileId: string, token: string, signal?: AbortSignal) => {
-  const response = await fetchWithTimeout(
+  return fetchAndConsumeWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
     {
       headers: { Authorization: `Bearer ${token}` },
       signal,
     },
     180000,
+    async (response) => {
+      if (!response.ok) {
+        throwIfGoogleDriveAuthError(response);
+        throwIfGoogleDrivePermissionError(response);
+        throw new Error('파일 로드 실패');
+      }
+      return response.arrayBuffer();
+    },
   );
+};
 
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('파일 로드 실패');
-  }
-
-  return response.blob();
+export const fetchFullFileBlob = async (fileId: string, token: string, signal?: AbortSignal) => {
+  return fetchAndConsumeWithTimeout(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    },
+    180000,
+    async (response) => {
+      if (!response.ok) {
+        throwIfGoogleDriveAuthError(response);
+        throwIfGoogleDrivePermissionError(response);
+        throw new Error('파일 로드 실패');
+      }
+      return response.blob();
+    },
+  );
 };
 
 export const deleteDriveFile = async (fileId: string, token: string) => {

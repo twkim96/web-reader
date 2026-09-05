@@ -29,6 +29,7 @@ import {
   parseAnnotationPaletteHeadV1,
   toAnnotationSyncSchemaError,
   type AnnotationHeadV1,
+  type AnnotationPaletteHeadV1,
 } from '../lib/annotationSyncSchema';
 import {
   applyRemoteAnnotationBookDeletionMarkerV5,
@@ -40,11 +41,10 @@ import {
 } from '../lib/annotationSyncLocal';
 import { getAuthoritativeRemoteAnnotationHeadV1 } from '../lib/annotationSyncRemote';
 import {
-  hasActiveSyncTargetWorkV5,
   storeRemoteHeadsBatchV5,
   type AnnotationSyncContextV5,
 } from '../lib/syncOutboxV5';
-import { annotationPaletteTargetKeyV1 } from '../lib/annotationSyncSchema';
+import type { AdoptRemoteAnnotationPaletteResultV9 } from '../lib/localAnnotationPalette';
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from '../lib/annotationPolicy';
 import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
@@ -63,7 +63,10 @@ type UseAnnotationSyncOptions = {
   bookId: string;
   context?: AnnotationSyncContextV5;
   palette: AnnotationPaletteItem[];
-  applyRemotePalette: (value: unknown) => Promise<AnnotationPaletteItem[]>;
+  applyRemotePalette: (
+    head: AnnotationPaletteHeadV1,
+    isCurrent: () => boolean,
+  ) => Promise<AdoptRemoteAnnotationPaletteResultV9>;
 };
 
 export const useAnnotationSync = ({
@@ -332,16 +335,7 @@ export const useAnnotationSync = ({
       await storeRemoteHeadsBatchV5(syncOwnerKey, [head]);
       if (!isCurrent()) return;
       if (isExactSyncSessionEcho(head.acceptedSessionId, context.sessionId)) return;
-      const localPaletteBeforeCheck = JSON.stringify(paletteRef.current);
-      if (await hasActiveSyncTargetWorkV5(
-        syncOwnerKey,
-        annotationPaletteTargetKeyV1(),
-      )) return;
-      if (
-        !isCurrent()
-        || JSON.stringify(paletteRef.current) !== localPaletteBeforeCheck
-      ) return;
-      await applyRemotePalette(head.palette.items);
+      await applyRemotePalette(head, isCurrent);
     };
 
     const recovery = new SnapshotListenerRecovery<FirestoreDocumentSnapshot>({

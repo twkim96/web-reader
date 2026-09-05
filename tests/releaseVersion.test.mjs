@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { computeAppBuildId } from '../scripts/app-build-id.mjs';
 
-const EXPECTED_VERSION = '1.8.35';
+test('build identity is deterministic and includes deployment public configuration', () => {
+  const root = new URL('..', import.meta.url).pathname;
+  const first = computeAppBuildId(root, { NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'first' });
+  assert.equal(first, computeAppBuildId(root, { NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'first' }));
+  assert.notEqual(first, computeAppBuildId(root, { NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'second' }));
+});
+
+const EXPECTED_VERSION = '1.8.36';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
   const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime, foliateView] = await Promise.all([
@@ -21,12 +29,12 @@ test('keeps package metadata and service worker cache on the release version', a
   assert.equal(packageLock.packages[''].version, EXPECTED_VERSION);
   assert.equal(
     serviceWorker.includes(
-      'const CACHE_NAME = `${CACHE_PREFIX}v' + EXPECTED_VERSION + '`;',
+      'const CACHE_NAME = `${CACHE_PREFIX}v' + EXPECTED_VERSION + '-${self.PC_READER_BUILD_ID}`;',
     ),
     true,
   );
   assert.equal(
-    browserRegression.includes(`const expectedCache = 'pc-reader-v${EXPECTED_VERSION}';`),
+    browserRegression.includes(`const expectedCache = 'pc-reader-v${EXPECTED_VERSION}-' + buildId;`),
     true,
   );
   assert.equal(
@@ -44,7 +52,7 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
   assert.equal(
-    foliateRuntime.includes(`FOLIATE_RUNTIME_REVISION = '${EXPECTED_VERSION}'`),
+    foliateRuntime.includes('FOLIATE_RUNTIME_REVISION = `${FOLIATE_RUNTIME_VERSION}-${BUILD_ID}`'),
     true,
   );
   assert.equal(
@@ -52,7 +60,7 @@ test('keeps package metadata and service worker cache on the release version', a
     true,
   );
   assert.equal(
-    foliateView.includes(`import('./paginator.js?v=${EXPECTED_VERSION}')`),
+    foliateView.includes("new URL(import.meta.url).searchParams.get('v')"),
     true,
   );
 });

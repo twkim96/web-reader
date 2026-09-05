@@ -77,7 +77,7 @@ service cloud.firestore {
           'startProgressPercent', 'endProgressPercent', 'timezoneOffsetMinutes',
           'localDate', 'completed', 'uploadedAtServer', 'clockOffsetMs',
           'clockUncertaintyMs', 'clockMeasuredAtClient', 'activeIntervals',
-          'completionConfirmedAtClient'
+          'completionConfirmedAtClient', 'completionRoundNumber'
         ])
         && data.schemaVersion == 1
         && data.sessionId == sessionId
@@ -112,6 +112,15 @@ service cloud.firestore {
             validClientTime(data.completionConfirmedAtClient)
             && data.completionConfirmedAtClient >= data.endedAtClient
             && data.completed == true
+          )
+        )
+        && (
+          !data.keys().hasAny(['completionRoundNumber'])
+          || (
+            data.completionRoundNumber is int
+            && data.completionRoundNumber >= 1
+            && data.completionRoundNumber <= 9007199254740991
+            && data.keys().hasAll(['completionConfirmedAtClient'])
           )
         )
         && (

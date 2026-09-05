@@ -32,7 +32,7 @@ export const useServiceWorkerUpdate = ({
       });
     };
 
-    void navigator.serviceWorker.register('/sw.js').then((nextRegistration) => {
+    void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((nextRegistration) => {
       if (!active) return;
       registration = nextRegistration;
       inspectWaiting();

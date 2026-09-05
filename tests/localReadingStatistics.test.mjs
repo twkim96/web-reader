@@ -32,7 +32,12 @@ import {
   makeGuestOwnerKey,
   makeOwnerKey,
 } from '../src/lib/ownerIdentity.ts';
-import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
+import {
+  buildReadingBookRounds,
+  buildReadingStatistics,
+  createReadingRoundCompletionSession,
+  getReadingSessionLocalDate,
+} from '../src/lib/readingStatistics.ts';
 
 const owner = makeOwnerKey(makeFirebaseOwnerKey('stats-alice'), 'library:local');
 const guest = makeOwnerKey(makeGuestOwnerKey('stats-guest'), 'library:local');
@@ -124,6 +129,7 @@ test('atomically confirms only the latest reading round', async () => {
   ));
   assert.equal(marker?.completed, true);
   assert.equal(marker?.completionConfirmedAtClient, 62_000);
+  assert.equal(marker?.completionRoundNumber, 1);
   assert.equal(marker?.syncState, 'pending');
   assert.equal((await confirmLocalReadingRoundV11(owner, 'book-1', 1, 63_000)).status, 'already-completed');
 });
@@ -140,6 +146,30 @@ test('confirms a reading round below 99 percent when the user explicitly complet
   assert.equal(stored.some(({ completionConfirmedAtClient }) => (
     completionConfirmedAtClient === 62_000
   )), true);
+});
+
+test('concurrent local confirmation and offline remote duplicate converge on one completed round', async () => {
+  const source = makeSession('shared-round');
+  await saveLocalReadingSessionV11(owner, source);
+  const outcomes = await Promise.all([
+    confirmLocalReadingRoundV11(owner, source.bookId, 1, 62_000),
+    confirmLocalReadingRoundV11(owner, source.bookId, 1, 63_000),
+  ]);
+  assert.deepEqual(outcomes.map(({ status }) => status).sort(), ['already-completed', 'created']);
+  const offline = createReadingRoundCompletionSession({
+    sessions: [source], bookId: source.bookId, expectedRoundNumber: 1,
+    sessionId: 'remote-offline-confirmation', confirmedAtClient: 64_000,
+  });
+  assert.equal(offline.status, 'created');
+  await hydrateRemoteReadingSessionsPageV12(owner, [offline.session], null, cursor(1, offline.session.sessionId), true);
+  const records = await getLocalReadingSessionsV11(owner);
+  assert.equal(records.length, 3);
+  assert.equal(records.find(({ sessionId }) => sessionId === offline.session.sessionId).completionRoundNumber, 1);
+  const rounds = buildReadingBookRounds(records);
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].completed, true);
+  assert.equal(rounds[0].totalMs, 60_000);
+  assert.equal(buildReadingStatistics(records).totalMs, 60_000);
 });
 
 test('round-trips TTS active wall-clock intervals without compressing gaps', async () => {

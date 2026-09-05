@@ -239,6 +239,7 @@ export class View extends HTMLElement {
     #sectionProgress
     #tocProgress
     #pageProgress
+    #searchGeneration = 0
     #searchResults = new Map()
     #searchDraw
     #searchDrawOptions
@@ -288,7 +289,7 @@ export class View extends HTMLElement {
             await customElements.whenDefined('foliate-fxl')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js?v=1.8.35')
+            await import(`./paginator.js?v=${encodeURIComponent(new URL(import.meta.url).searchParams.get('v') ?? '1.8.36')}`)
             await customElements.whenDefined('foliate-paginator')
             this.renderer = document.createElement('foliate-paginator')
         }
@@ -334,6 +335,7 @@ export class View extends HTMLElement {
         }
     }
     close() {
+        this.#searchGeneration += 1
         this.renderer?.destroy()
         this.renderer?.remove()
         this.book?.destroy?.()
@@ -426,11 +428,16 @@ export class View extends HTMLElement {
                 .catch(e => console.error(e))
         })
     }
-    async addAnnotation(annotation, remove) {
+    async addAnnotation(annotation, remove, isCurrent = () => true) {
+        const searchGeneration = this.#searchGeneration
         const { value } = annotation
         if (value.startsWith(SEARCH_PREFIX)) {
             const cfi = value.replace(SEARCH_PREFIX, '')
             const { index, anchor } = await this.resolveNavigation(cfi)
+            if (!remove && (!isCurrent() || searchGeneration !== this.#searchGeneration)) return
+            if (remove && searchGeneration !== this.#searchGeneration
+                && Array.from(this.#searchResults.values()).some(list =>
+                    list.some(item => item.value === value))) return
             const obj = this.#getOverlayer(index)
             if (obj) {
                 const { overlayer, doc } = obj
@@ -661,16 +668,19 @@ export class View extends HTMLElement {
     goRight() {
         return this.book.dir === 'rtl' ? this.prev() : this.next()
     }
-    async * #searchSection(matcher, query, index) {
+    async * #searchSection(matcher, query, index, isCurrent) {
         const doc = await this.book.sections[index].createDocument()
+        if (!isCurrent()) return
         for (const { range, excerpt } of matcher(doc, query))
             yield { cfi: this.getCFI(index, range), excerpt }
     }
-    async * #searchBook(matcher, query) {
+    async * #searchBook(matcher, query, isCurrent) {
         const { sections } = this.book
         for (const [index, { createDocument }] of sections.entries()) {
+            if (!isCurrent()) return
             if (!createDocument) continue
             const doc = await createDocument()
+            if (!isCurrent()) return
             const subitems = Array.from(matcher(doc, query), ({ range, excerpt }) =>
                 ({ cfi: this.getCFI(index, range), excerpt }))
             const progress = (index + 1) / sections.length
@@ -679,27 +689,36 @@ export class View extends HTMLElement {
         }
     }
     async * search(opts) {
+        if (opts.signal?.aborted) return
         this.clearSearch()
+        const generation = this.#searchGeneration
+        const isCurrent = () => generation === this.#searchGeneration && !opts.signal?.aborted
         this.#searchDraw = opts.draw ?? Overlayer.outline
         this.#searchDrawOptions = opts.drawOptions
         const { searchMatcher } = await import('./search.js')
+        if (!isCurrent()) return
         const { query, index } = opts
         const matcher = searchMatcher(textWalker,
             { defaultLocale: this.language, ...opts })
         const iter = index != null
-            ? this.#searchSection(matcher, query, index)
-            : this.#searchBook(matcher, query)
+            ? this.#searchSection(matcher, query, index, isCurrent)
+            : this.#searchBook(matcher, query, isCurrent)
 
         const list = []
         this.#searchResults.set(index, list)
 
         for await (const result of iter) {
+            if (!isCurrent()) return
             if (result.subitems){
                 const list = result.subitems
                     .map(({ cfi }) => ({ value: SEARCH_PREFIX + cfi }))
                 this.#searchResults.set(result.index, list)
-                for (const item of list) this.addAnnotation(item)
-                 yield {
+                for (const item of list) {
+                    if (!isCurrent()) return
+                    await this.addAnnotation(item, false, isCurrent)
+                }
+                if (!isCurrent()) return
+                yield {
                     index: result.index,
                     label: this.#tocProgress.getProgress(result.index)?.label ?? '',
                     subitems: result.subitems,
@@ -709,14 +728,16 @@ export class View extends HTMLElement {
                 if (result.cfi) {
                     const item = { value: SEARCH_PREFIX + result.cfi }
                     list.push(item)
-                    this.addAnnotation(item)
+                    await this.addAnnotation(item, false, isCurrent)
                 }
+                if (!isCurrent()) return
                 yield result
             }
         }
-        yield 'done'
+        if (isCurrent()) yield 'done'
     }
     clearSearch() {
+        this.#searchGeneration += 1
         for (const list of this.#searchResults.values())
             for (const item of list) this.deleteAnnotation(item)
         this.#searchResults.clear()

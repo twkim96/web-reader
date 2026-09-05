@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 type RendererProbe = {
   contentIndexes: number[];
@@ -14,9 +14,15 @@ type RendererProbe = {
 };
 
 const preparePage = async (page: import('@playwright/test').Page) => {
-  await page.goto('/?foliate-sandbox-gate=1');
+  // These are standalone renderer probes. Mounting over the live app would
+  // destroy React's root during hydration and start unrelated auth requests.
+  await page.route('**/__foliate-sandbox-fixture', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: '<!doctype html><html><head><title>Foliate renderer fixture</title></head><body></body></html>',
+  }));
+  await page.goto('/__foliate-sandbox-fixture');
   await page.evaluate(() => {
-    document.body.replaceChildren();
     Object.assign(window, {
       __publicationInlineHandlerRan: false,
       __publicationScriptRan: false,
@@ -79,7 +85,11 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
       new frameWindow.MouseEvent('click', { bubbles: true }),
     );
     firstDoc.dispatchEvent(new frameWindow.KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }));
-    firstDoc.dispatchEvent(new frameWindow.Event('touchstart', { bubbles: true }));
+    const initialTouchStart = new frameWindow.Event('touchstart', { bubbles: true });
+    const initialTouch = { screenX: 100, screenY: 120 };
+    Object.defineProperty(initialTouchStart, 'changedTouches', { value: [initialTouch] });
+    Object.defineProperty(initialTouchStart, 'touches', { value: [initialTouch] });
+    firstDoc.dispatchEvent(initialTouchStart);
     const selectionNode = firstDoc.querySelector('#selection')?.firstChild;
     if (selectionNode) {
       const range = firstDoc.createRange();
@@ -908,7 +918,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.35';
+    const viewModule = '/foliate-js/view.js?v=1.8.36';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [
@@ -1162,7 +1172,11 @@ test('fixed layout blocks publication scripts and preserves navigation indexes',
       new frameWindow.MouseEvent('click', { bubbles: true }),
     );
     firstDoc.dispatchEvent(new frameWindow.KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }));
-    firstDoc.dispatchEvent(new frameWindow.Event('touchstart', { bubbles: true }));
+    const initialTouchStart = new frameWindow.Event('touchstart', { bubbles: true });
+    const initialTouch = { screenX: 100, screenY: 120 };
+    Object.defineProperty(initialTouchStart, 'changedTouches', { value: [initialTouch] });
+    Object.defineProperty(initialTouchStart, 'touches', { value: [initialTouch] });
+    firstDoc.dispatchEvent(initialTouchStart);
     const selectionNode = firstDoc.querySelector('#selection')?.firstChild;
     if (selectionNode) {
       const range = firstDoc.createRange();

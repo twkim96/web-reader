@@ -503,6 +503,7 @@ export const useProgressActions = ({
   const deleteProgress = useCallback(async (bookId: string) => {
     const owner = ownerRuntime.capture();
     if (!owner) return;
+    const generation = beginLocalWrite(bookId);
     const resetData: UserProgress = {
       bookId,
       cfi: '',
@@ -528,14 +529,21 @@ export const useProgressActions = ({
       ));
       if (!canonical) return false;
       rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
-      setProgress((prev) => ({ ...prev, [bookId]: canonical }));
-      progressRef.current = { ...progressRef.current, [bookId]: canonical };
+      const canApply = () => convergenceActiveRef.current
+        && ownerRuntime.isCurrent(owner)
+        && isLatestLocalWrite(bookId, generation);
+      if (!canApply()) return true;
+      setProgress((prev) => {
+        if (!canApply()) return prev;
+        progressRef.current = { ...progressRef.current, [bookId]: canonical };
+        return { ...prev, [bookId]: canonical };
+      });
       return true;
     } catch (error) {
       reportPersistenceError(error);
       return false;
     }
-  }, [getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
+  }, [beginLocalWrite, getCommittedProgress, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
 
   const deleteBookProgress = useCallback(async (
     bookId: string,

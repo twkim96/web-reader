@@ -1176,6 +1176,34 @@ test('allows an explicit reading-round completion marker at any progress', async
   }));
 });
 
+test('accepts a logical completion round only on a valid confirmed marker', async () => {
+  const db = database();
+  await assertSucceeds(setDoc(doc(db, readingStatisticsPath('logical-completion')), {
+    ...validReadingSession('logical-completion'),
+    completed: true,
+    completionConfirmedAtClient: 62_000,
+    completionRoundNumber: 1,
+    uploadedAtServer: serverTimestamp(),
+  }));
+  for (const [index, patch] of [
+    { completionRoundNumber: 0 },
+    { completionRoundNumber: 1.5 },
+    { completionRoundNumber: 9007199254740992 },
+    { completed: false },
+  ].entries()) {
+    const id = `invalid-logical-completion-${index}`;
+    await assertFails(setDoc(doc(db, readingStatisticsPath(id)), {
+      ...validReadingSession(id), completed: true, completionConfirmedAtClient: 62_000,
+      completionRoundNumber: 1, ...patch, uploadedAtServer: serverTimestamp(),
+    }));
+  }
+  await assertFails(setDoc(doc(db, readingStatisticsPath('unconfirmed-logical-round')), {
+    ...validReadingSession('unconfirmed-logical-round'),
+    completionRoundNumber: 1,
+    uploadedAtServer: serverTimestamp(),
+  }));
+});
+
 test('accepts bounded TTS active intervals and rejects a mismatched wall timeline', async () => {
   const db = database();
   const startedAtClient = 1_000;

@@ -1,18 +1,12 @@
 'use client';
 
 import {
-  clearStaleFoliateRuntimeEntries,
   createRetryablePreparation,
   FOLIATE_ENTRY_URL,
 } from './foliateRuntimeCache.ts';
 
-const prepareFoliateRuntime = createRetryablePreparation(async () => {
-  if (!('caches' in window)) return;
-  await clearStaleFoliateRuntimeEntries(window.caches, window.location.origin);
-});
-
 const registerFoliateView = createRetryablePreparation(async () => {
-  await prepareFoliateRuntime();
+  // Only SW activation may retire a cache: an older worker can still control this page.
   if (customElements.get('foliate-view')) return;
 
   await new Promise<void>((resolve, reject) => {

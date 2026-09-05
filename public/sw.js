@@ -1,9 +1,8 @@
-importScripts('/sw-policy.js');
+importScripts('/sw-policy.js', '/sw-build.js');
 
-// 1.8.35 UI follow-up: keep one clear action visible for search and active shelf filters.
 const CACHE_PREFIX = 'pc-reader-';
-const CACHE_NAME = `${CACHE_PREFIX}v1.8.35`;
-const REQUIRED_PRECACHE_URLS = ['/', '/manifest.json'];
+const CACHE_NAME = `${CACHE_PREFIX}v1.8.36-${self.PC_READER_BUILD_ID}`;
+const REQUIRED_PRECACHE_URLS = ['/manifest.json'];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',
   '/icon-192.png',
@@ -23,7 +22,8 @@ const putInCache = async (request, response) => {
 };
 
 const cacheFirst = (event) => {
-  const response = caches.match(event.request).then(async (cached) => {
+  const response = caches.open(CACHE_NAME).then(async (cache) => {
+    const cached = await cache.match(event.request);
     if (cached) return cached;
     const networkResponse = await fetch(event.request);
     await putInCache(event.request, networkResponse);
@@ -33,18 +33,35 @@ const cacheFirst = (event) => {
   return response;
 };
 
-const navigationNetworkFirst = async (event) => {
+const navigationShellFirst = async (event) => {
+  const cache = await caches.open(CACHE_NAME);
+  // Keep HTML and unversioned runtime modules on one approved deployment.
+  // Registration.update() detects the next build independently of navigation.
+  if (new URL(event.request.url).pathname === '/') {
+    const installedShell = await cache.match('/');
+    if (installedShell) return installedShell;
+  }
   try {
     return await fetch(event.request);
   } catch {
-    return (await caches.match('/')) ?? Response.error();
+    return (await cache.match('/')) ?? Response.error();
   }
 };
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
+    // Publish the offline HTML only after all of its initial Next assets are ready.
+    // Keep that shell fixed for this build; a later online response may belong to
+    // a deployment whose worker the user has not yet approved.
+    const shell = await fetch('/', { cache: 'reload' });
+    if (!shell.ok) throw new Error('Offline shell download failed');
+    const html = await shell.clone().text();
+    const assets = [...new Set(html.match(/\/_next\/static\/[^\s"'<>\\]+/g) ?? [])]
+      .map((url) => url.replaceAll('&amp;', '&'));
+    await cache.addAll(assets);
     await cache.addAll(REQUIRED_PRECACHE_URLS);
+    await cache.put('/', shell);
     await Promise.allSettled(OPTIONAL_PRECACHE_URLS.map((url) => cache.add(url)));
     await Promise.all(OBSOLETE_PRECACHE_URLS.map((url) => cache.delete(url)));
   })());
@@ -66,7 +83,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (policy.isPrivateRequest(event.request, url, self.location.origin)) return;
   if (event.request.mode === 'navigate') {
-    event.respondWith(navigationNetworkFirst(event));
+    event.respondWith(navigationShellFirst(event));
     return;
   }
   if (policy.isStaticAssetPath(url.pathname)) {

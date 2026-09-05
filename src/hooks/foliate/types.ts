@@ -130,7 +130,7 @@ export type FoliateViewElement = HTMLElement & {
     index?: number;
     anchor?: Range | ((doc: Document) => Range | Element | number);
   } | null;
-  search: (options: { query: string }) => AsyncIterable<FoliateSearchResult>;
+  search: (options: { query: string; signal?: AbortSignal }) => AsyncIterable<FoliateSearchResult>;
   clearSearch?: () => void;
   getCFI: (index: number, range?: Range) => string;
   addAnnotation: (annotation: FoliateAnnotationPayload) => Promise<{

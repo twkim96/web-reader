@@ -1,4 +1,65 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+
+test('same-version build updates its imported worker script and prepares the new offline shell', async ({ page }) => {
+  const [worker, policy] = await Promise.all([
+    readFile('public/sw.js', 'utf8'), readFile('public/sw-policy.js', 'utf8'),
+  ]);
+  let build = 'first';
+  let unavailable = false;
+  const server = createServer((request, response) => {
+    if (unavailable) { request.socket.destroy(); return; }
+    response.setHeader('Cache-Control', 'no-store');
+    if (request.url === '/sw.js' || request.url === '/sw-policy.js' || request.url === '/sw-build.js') {
+      response.setHeader('Content-Type', 'application/javascript');
+      response.end(request.url === '/sw.js' ? worker : request.url === '/sw-policy.js' ? policy
+        : `self.PC_READER_BUILD_ID = "${build}";`);
+    } else if (request.url?.startsWith('/_next/static/')) {
+      response.setHeader('Content-Type', 'application/javascript');
+      response.end(`document.title = "${build}";`);
+    } else if (request.url === '/') {
+      response.setHeader('Content-Type', 'text/html');
+      response.end(`<html><head><script src="/_next/static/${build}.js"></script></head><body>${build}</body></html>`);
+    } else {
+      response.end('{}');
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('missing fixture address');
+  try {
+    await page.goto(`http://127.0.0.1:${address.port}/`);
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+      await navigator.serviceWorker.ready;
+    });
+    await page.reload();
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+    build = 'second';
+    await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.update());
+    await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.waiting?.state))
+      .toBe('installed');
+    expect(await page.title()).toBe('first');
+    await page.reload();
+    await expect(page).toHaveTitle('first');
+    await page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      await new Promise<void>((resolve) => {
+        navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true });
+        registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
+      });
+    });
+    // Fail transport at the server: WebKit's setOffline can bypass SW navigation.
+    unavailable = true;
+    await page.reload();
+    await expect(page).toHaveTitle('second');
+    await expect(page.locator('body')).toHaveText('second');
+  } finally {
+    unavailable = false;
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 const waitForController = async (page: import('@playwright/test').Page) => {
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
@@ -21,7 +82,9 @@ test('runtime cache stores only allowlisted public static requests', async ({ pa
       arbitrary: `/window.svg?sw-arbitrary=${nonce}`,
       api: `/api/not-found?sw-api=${nonce}`,
     };
-    const cache = await caches.open('pc-reader-v1.8.35');
+    const buildScript = await (await fetch('/sw-build.js')).text();
+    const buildId = JSON.parse(buildScript.split(' = ')[1].replace(';', ''));
+    const cache = await caches.open('pc-reader-v1.8.36-' + buildId);
     await Promise.all(Object.values(urls).map((url) => cache.delete(url)));
 
     await fetch(urls.allowed);

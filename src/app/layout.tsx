@@ -126,11 +126,6 @@ const themeBootstrapScript = `
   style.textContent = 'html[data-viewer-theme-bootstrapped] [style*="--viewer-theme-bg"]{--viewer-theme-bg:var(--viewer-bootstrap-theme-bg)!important;--viewer-theme-text:var(--viewer-bootstrap-theme-text)!important;background-color:var(--viewer-bootstrap-theme-bg)!important;color:var(--viewer-bootstrap-theme-text)!important}html[data-viewer-theme-bootstrapped] body{background:var(--viewer-bootstrap-theme-bg)!important;color:var(--viewer-bootstrap-theme-text)!important}';
   document.head.appendChild(style);
 
-  const applyBody = () => {
-    if (document.body) applyTheme(document.body);
-  };
-  if (document.body) applyBody();
-  else document.addEventListener('DOMContentLoaded', applyBody, { once: true });
 })();
 `;
 

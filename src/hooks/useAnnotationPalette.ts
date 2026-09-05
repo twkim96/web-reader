@@ -8,6 +8,7 @@ import {
   normalizeAnnotationPalette,
   saveStoredAnnotationPalette,
 } from '../lib/annotationPalette';
+import type { AnnotationPaletteHeadV1 } from '../lib/annotationSyncSchema';
 import type { AnnotationSyncContextV5 } from '../lib/syncOutboxV5';
 import { trackLocalCommit } from '../lib/localCommitTracker';
 import {
@@ -16,6 +17,7 @@ import {
   subscribeAnnotationSyncChanges,
 } from '../lib/annotationSyncWake';
 import {
+  adoptRemoteAnnotationPaletteV9,
   initializeLocalAnnotationPaletteV9,
   saveLocalAnnotationPaletteV9,
 } from '../lib/localAnnotationPalette';
@@ -104,14 +106,20 @@ export const useAnnotationPalette = (
     });
   }, [ownerKey, syncContext]);
 
-  const applyRemotePalette = useCallback(async (value: unknown) => {
-    const next = normalizeAnnotationPalette(value);
-    const saved = await saveLocalAnnotationPaletteV9(ownerKey, next);
+  const applyRemotePalette = useCallback(async (
+    head: AnnotationPaletteHeadV1,
+    isCurrent: () => boolean,
+  ) => {
+    const previous = paletteRef.current;
+    const canApply = () => isCurrent() && paletteRef.current === previous;
+    const result = await adoptRemoteAnnotationPaletteV9(ownerKey, head, canApply);
+    if (result.status !== 'applied' || !canApply()) return result;
+    const saved = result.palette;
     paletteRef.current = saved;
     saveStoredAnnotationPalette(ownerKey, saved);
-    setPalette(saved);
+    setPalette((current) => isCurrent() && paletteRef.current === saved ? saved : current);
     notifyAnnotationSyncChange({ ownerKey, palette: saved });
-    return saved;
+    return result;
   }, [ownerKey]);
 
   return { palette, updatePaletteItem, resetPalette, applyRemotePalette };

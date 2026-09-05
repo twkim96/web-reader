@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   deleteDriveFile,
   fetchFullFileBlob,
+  fetchFullFile,
+  fetchAndConsumeWithTimeout,
   fetchWithTimeout,
   fetchDriveFiles,
   getDriveLibraryFolderId,
@@ -18,6 +20,55 @@ import {
   isCachedBookCurrent,
   shouldUseCachedBookContent,
 } from '../src/lib/bookFingerprint.ts';
+
+test('keeps cancellation connected through full download body consumption and cleans up on success', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  for (const download of [fetchFullFile, fetchFullFileBlob]) {
+    let signal;
+    let body;
+    globalThis.fetch = async (_url, options) => {
+      signal = options.signal;
+      return new Response(new ReadableStream({ start(controller) {
+        body = controller;
+        signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+      } }));
+    };
+    const caller = new AbortController();
+    const pending = download('book', 'token', caller.signal);
+    const rejected = assert.rejects(pending, { name: 'AbortError' });
+    await new Promise(setImmediate);
+    body.enqueue(new Uint8Array([1]));
+    caller.abort();
+    await rejected;
+    assert.equal(signal.aborted, true);
+
+    const successfulCaller = new AbortController();
+    const successful = download('book', 'token', successfulCaller.signal);
+    await new Promise(setImmediate);
+    body.enqueue(new Uint8Array([1, 2]));
+    body.close();
+    const result = await successful;
+    assert.equal(result.byteLength ?? result.size, 2);
+    successfulCaller.abort();
+    assert.equal(signal.aborted, false, 'completed requests remove the caller abort listener');
+  }
+});
+
+test('download deadline remains active when headers arrive but the body stalls', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let signal;
+  globalThis.fetch = async (_url, options) => {
+    signal = options.signal;
+    return new Response(new ReadableStream({ start(controller) {
+      signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+    } }));
+  };
+  await assert.rejects(fetchAndConsumeWithTimeout('https://fixture.test', {}, 5,
+    (response) => response.arrayBuffer()), /Network timeout/);
+  assert.equal(signal.aborted, true);
+});
 
 test('treats an already missing Drive file as a successful idempotent delete', async (t) => {
   const originalFetch = globalThis.fetch;

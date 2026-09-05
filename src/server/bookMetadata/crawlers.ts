@@ -8,6 +8,7 @@ import {
   type PlatformId,
 } from './domain.ts';
 import { BOOK_METADATA_LIMITS, type PlatformAuthProvider } from './config.ts';
+import { fetchAllowedRedirects, readBoundedBody } from '../boundedFetch.ts';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36';
 const ALLOWED_HOSTS = new Set([
@@ -110,21 +111,20 @@ const fetchBounded = async (url: URL, signal: AbortSignal, json = false) => {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const response = await fetch(url, { headers, signal, redirect: 'follow', cache: 'no-store' });
+      const response = await fetchAllowedRedirects(url, { headers, signal, cache: 'no-store' },
+        (target) => target.protocol === 'https:' && ALLOWED_HOSTS.has(target.hostname)
+          && !target.username && !target.password);
       const finalUrl = new URL(response.url);
       if (finalUrl.protocol !== 'https:' || !ALLOWED_HOSTS.has(finalUrl.hostname)) throw new Error('platform redirect is not allowed');
       if (!response.ok) {
+        await response.body?.cancel();
         if ((response.status === 429 || response.status >= 500) && attempt < 2) {
           await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
           continue;
         }
         throw new Error(`platform HTTP ${response.status}`);
       }
-      const declaredLength = Number(response.headers.get('content-length'));
-      if (Number.isFinite(declaredLength) && declaredLength > BOOK_METADATA_LIMITS.responseBytes) {
-        throw new Error('platform response is too large');
-      }
-      const buffer = await response.arrayBuffer();
+      const buffer = await readBoundedBody(response, BOOK_METADATA_LIMITS.responseBytes);
       if (buffer.byteLength > BOOK_METADATA_LIMITS.responseBytes) throw new Error('platform response is too large');
       const text = new TextDecoder().decode(buffer);
       return json ? JSON.parse(text) as unknown : text;
@@ -137,10 +137,11 @@ const fetchBounded = async (url: URL, signal: AbortSignal, json = false) => {
 };
 
 const parseBoundedResponse = async (response: Response, json: boolean) => {
-  if (!response.ok) throw new Error(`platform HTTP ${response.status}`);
-  const declaredLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > BOOK_METADATA_LIMITS.responseBytes) throw new Error('platform response is too large');
-  const buffer = await response.arrayBuffer();
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`platform HTTP ${response.status}`);
+  }
+  const buffer = await readBoundedBody(response, BOOK_METADATA_LIMITS.responseBytes);
   if (buffer.byteLength > BOOK_METADATA_LIMITS.responseBytes) throw new Error('platform response is too large');
   const text = new TextDecoder().decode(buffer);
   return json ? JSON.parse(text) as unknown : text;
@@ -295,7 +296,7 @@ const crawlNovelpia = async (title: string, signal: AbortSignal, _authProvider: 
     try {
       const authenticated = await _authProvider.withSession(async (session) => (
         parseBoundedResponse(await session.fetch(search, { signal }), true)
-      ));
+      ), signal);
       const authenticatedList = authenticated && typeof authenticated === 'object' && !Array.isArray(authenticated)
         ? (authenticated as Record<string, unknown>).list
         : null;

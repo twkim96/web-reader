@@ -1054,6 +1054,23 @@ const toLocalProgress = (
     bookmarks: input.localBookmarks ?? existing?.bookmarks ?? [],
   };
 
+// Only the unsubmitted tail can absorb a newer intent. Crossing a reset,
+// another session, or an attempted event would change server application order.
+const getCoalescibleProgressTail = (
+  unresolved: ProgressOutboxEventV5[],
+  input: Pick<EnqueueProgressInput, 'operation' | 'sessionId'>,
+) => {
+  const tail = unresolved.at(-1);
+  return input.operation === 'progress.set'
+    && tail?.operation === 'progress.set'
+    && tail.status === 'pending'
+    && tail.sessionId === input.sessionId
+    && tail.attempts === 0
+    && tail.claimedByTabId === null
+    ? tail
+    : undefined;
+};
+
 export const enqueueProgressEventV5 = async (
   ownerKey: OwnerKey,
   input: EnqueueProgressInput,
@@ -1086,14 +1103,7 @@ export const enqueueProgressEventV5 = async (
   ]);
   const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, occurredAtClient);
   const unresolved = targetEvents.filter((event) => activeStatuses.has(event.status)).sort(eventSort);
-  const coalesced = input.operation === 'progress.set'
-    ? [...unresolved].reverse().find((event) => (
-      event.operation === 'progress.set'
-      && event.status === 'pending'
-      && event.sessionId === input.sessionId
-      && event.claimedByTabId === null
-    ))
-    : undefined;
+  const coalesced = getCoalescibleProgressTail(unresolved, input);
 
   await progressStore.put({
     ...toLocalProgress(input, existingProgress, occurredAtClient),
@@ -1371,14 +1381,7 @@ export const enqueueProgressMutationBatchV5 = async (
     const unresolved = targetEvents
       .filter((event) => activeStatuses.has(event.status))
       .sort(eventSort);
-    const coalesced = eventInput.operation === 'progress.set'
-      ? [...unresolved].reverse().find((event) => (
-        event.operation === 'progress.set'
-        && event.status === 'pending'
-        && event.sessionId === eventInput.sessionId
-        && event.claimedByTabId === null
-      ))
-      : undefined;
+    const coalesced = getCoalescibleProgressTail(unresolved, eventInput);
     const openConflict = targetConflicts[0];
     if (openConflict) {
       await conflictStore.put(reopenConflictWithLocalPayload(
@@ -1539,6 +1542,7 @@ export const acknowledgeProgressEventV5 = async (
     V5_REMOTE_HEADS_STORE,
     V5_SYNC_META_STORE,
   ], 'readwrite');
+  void tx.done.catch(() => undefined);
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   const event = await outbox.get([ownerKey, eventId]) as SyncOutboxEventV5 | undefined;
   if (!event || !ownsExpectedClaim(event, expectedClaim)) {
@@ -1546,27 +1550,52 @@ export const acknowledgeProgressEventV5 = async (
     return false;
   }
   const metaStore = tx.objectStore(V5_SYNC_META_STORE);
-  const meta = await metaStore.get([ownerKey, event.targetKey]) as SyncMetaV5 | undefined;
+  const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
+  const [meta, cached] = await Promise.all([
+    metaStore.get([ownerKey, event.targetKey]) as Promise<SyncMetaV5 | undefined>,
+    remoteStore.get([ownerKey, event.targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+  ]);
+  if (cached?.revision === head.revision
+    && cached.head.acceptedEventId !== head.acceptedEventId) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    throw Object.assign(
+      new Error(`같은 sync revision에 서로 다른 acceptedEventId가 있습니다: ${event.targetKey}`),
+      { code: 'invalid-argument' },
+    );
+  }
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
   const progress = event.target.kind === 'progress' && 'position' in head
     ? await progressStore.get([ownerKey, event.target.bookId]) as
       (UserProgress & { ownerKey: OwnerKey }) | undefined
     : undefined;
+  if (progress?.syncRevision === head.revision
+    && progress.acceptedEventId
+    && progress.acceptedEventId !== head.acceptedEventId) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    throw Object.assign(
+      new Error(`로컬 sync revision의 acceptedEventId가 일치하지 않습니다: ${event.targetKey}`),
+      { code: 'invalid-argument' },
+    );
+  }
   await Promise.all([
     outbox.delete([ownerKey, eventId]),
-    tx.objectStore(V5_REMOTE_HEADS_STORE).put({
-      ownerKey,
-      targetKey: event.targetKey,
-      revision: head.revision,
-      head,
-      updatedAt: now,
-    } satisfies RemoteHeadCacheV5),
+    !cached || head.revision > cached.revision
+      ? remoteStore.put({
+        ownerKey,
+        targetKey: event.targetKey,
+        revision: head.revision,
+        head,
+        updatedAt: now,
+      } satisfies RemoteHeadCacheV5)
+      : Promise.resolve(),
     metaStore.put({
       ...(meta ?? defaultSyncMeta(ownerKey, event.targetKey, now)),
       knownRevision: Math.max(meta?.knownRevision ?? 0, head.revision),
       updatedAt: now,
     }),
-    progress
+    progress && head.revision >= (progress.syncRevision ?? 0)
       ? progressStore.put({
         ...progress,
         syncRevision: head.revision,

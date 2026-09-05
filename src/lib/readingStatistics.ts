@@ -40,6 +40,9 @@ export type ReadingSessionV1 = {
   localDate: string;
   completed: boolean;
   completionConfirmedAtClient?: number;
+  // Book + round number is the logical completion identity across devices.
+  // The record remains append-only, but concurrent confirmations close one round.
+  completionRoundNumber?: number;
   activeIntervals?: ReadingActiveIntervalV1[];
   clockOffsetMs?: number;
   clockUncertaintyMs?: number;
@@ -206,6 +209,14 @@ export const isReadingSessionV1 = (value: unknown): value is ReadingSessionV1 =>
       || value.completed !== true
     )
   ) return false;
+  if (
+    value.completionRoundNumber !== undefined
+    && (
+      !Number.isSafeInteger(value.completionRoundNumber)
+      || Number(value.completionRoundNumber) < 1
+      || value.completionConfirmedAtClient === undefined
+    )
+  ) return false;
   const clockFields = [
     value.clockOffsetMs,
     value.clockUncertaintyMs,
@@ -245,6 +256,9 @@ export const toReadingSessionPayload = (
   ...(session.completionConfirmedAtClient !== undefined ? {
     completionConfirmedAtClient: session.completionConfirmedAtClient,
   } : {}),
+  ...(session.completionRoundNumber !== undefined ? {
+    completionRoundNumber: session.completionRoundNumber,
+  } : {}),
   ...(session.activeIntervals ? {
     activeIntervals: session.activeIntervals.map((interval) => ({ ...interval })),
   } : {}),
@@ -267,9 +281,21 @@ export const isConfirmedReadingCompletion = (session: ReadingSessionV1) => (
 );
 
 type ReadingBookRoundGroup = {
+  roundNumber: number;
   sessions: ReadingSessionV1[];
   completed: boolean;
 };
+
+const getReadingSessionSourceIdentity = (session: ReadingSessionV1) => JSON.stringify([
+  session.deviceId,
+  session.startedAtClient,
+  session.endedAtClient,
+  session.mode,
+  session.startProgressPercent,
+  session.endProgressPercent,
+  session.durationMs,
+  session.activeIntervals,
+]);
 
 const getOrderedReadingSessions = (
   records: readonly ReadingSessionV1[],
@@ -290,21 +316,65 @@ const getOrderedReadingSessions = (
 const buildReadingBookRoundGroups = (
   ordered: readonly ReadingSessionV1[],
 ): ReadingBookRoundGroup[] => {
-  const rounds: ReadingBookRoundGroup[] = [];
+  const rounds = new Map<number, ReadingBookRoundGroup>();
+  const roundBySource = new Map<string, ReadingBookRoundGroup>();
+  const confirmedSourceRounds = new Map<string, number>();
+  // A marker copies its source interval. Use that identity even if earlier
+  // history or the marker itself is delivered in a different hydration page.
   for (const session of ordered) {
-    let round = rounds.at(-1);
-    if (!round || (
+    if (session.completionRoundNumber === undefined) continue;
+    const identity = getReadingSessionSourceIdentity(session);
+    confirmedSourceRounds.set(identity, Math.min(
+      confirmedSourceRounds.get(identity) ?? session.completionRoundNumber,
+      session.completionRoundNumber,
+    ));
+  }
+  let latestRound: ReadingBookRoundGroup | undefined;
+  const getRound = (roundNumber: number) => {
+    let round = rounds.get(roundNumber);
+    if (!round) {
+      round = { roundNumber, sessions: [], completed: false };
+      rounds.set(roundNumber, round);
+    }
+    if (!latestRound || roundNumber > latestRound.roundNumber) latestRound = round;
+    return round;
+  };
+  for (const session of ordered) {
+    const identity = getReadingSessionSourceIdentity(session);
+    if (session.completionRoundNumber !== undefined) {
+      const target = getRound(session.completionRoundNumber);
+      target.sessions.push(session);
+      target.completed = true;
+      // A completion carries metadata only. It cannot start a reread or
+      // duplicate its source interval. Keep its logical round even when its
+      // source has not arrived yet, so later reading keeps the correct ordinal.
+      continue;
+    }
+    if (isConfirmedReadingCompletion(session)) {
+      // Older clients cloned a reading interval to represent confirmation.
+      // Recover that source identity without changing legacy timed records.
+      const target = roundBySource.get(identity);
+      if (target) {
+        target.sessions.push(session);
+        target.completed = true;
+        continue;
+      }
+    }
+    const confirmedRoundNumber = confirmedSourceRounds.get(identity);
+    let round = confirmedRoundNumber === undefined ? latestRound : getRound(confirmedRoundNumber);
+    if (!round || (confirmedRoundNumber === undefined
+      &&
       round.completed
       && Math.min(session.startProgressPercent, session.endProgressPercent)
         < READING_ROUND_COMPLETION_PERCENT
     )) {
-      round = { sessions: [], completed: false };
-      rounds.push(round);
+      round = getRound((latestRound?.roundNumber ?? 0) + 1);
     }
     round.sessions.push(session);
     round.completed ||= isConfirmedReadingCompletion(session);
+    roundBySource.set(identity, round);
   }
-  return rounds;
+  return [...rounds.values()].sort((left, right) => left.roundNumber - right.roundNumber);
 };
 
 export type ReadingRoundCompletionResult =
@@ -336,7 +406,7 @@ export const createReadingRoundCompletionSession = ({
   }
   const rounds = buildReadingBookRoundGroups(getOrderedReadingSessions(records, samplesByDevice));
   const latestRound = rounds.at(-1);
-  if (!latestRound || rounds.length !== expectedRoundNumber) return { status: 'round-changed' };
+  if (!latestRound || latestRound.roundNumber !== expectedRoundNumber) return { status: 'round-changed' };
   if (latestRound.completed) return { status: 'already-completed' };
 
   const source = [...latestRound.sessions].sort((left, right) => {
@@ -353,6 +423,7 @@ export const createReadingRoundCompletionSession = ({
       sessionId,
       completed: true,
       completionConfirmedAtClient: Math.max(confirmedAtClient, source.endedAtClient),
+      completionRoundNumber: expectedRoundNumber,
     },
   };
 };
@@ -603,7 +674,9 @@ export const buildReadingStatistics = (
     byClockDomain.set(item.clockDomain, domain);
   }
   const slices = [...byClockDomain.values()]
-    .flatMap(buildDomainTimeline)
+    .flatMap((domain) => buildDomainTimeline(domain.filter(({ session }) => (
+      session.completionRoundNumber === undefined
+    ))))
     .flatMap(splitSliceAtLocalMidnights)
     .filter((slice) => {
       const localDate = getReadingSessionLocalDate(
@@ -749,7 +822,7 @@ export const buildReadingBookRounds = (
     const ordered = getOrderedReadingSessions(records, samplesByDevice);
     const rounds = buildReadingBookRoundGroups(ordered);
 
-    rounds.forEach((round, index) => {
+    rounds.forEach((round) => {
       const visibleSessions = round.sessions.filter(({ sessionId }) => (
         !hiddenSessionIds.has(sessionId)
       ));
@@ -772,7 +845,7 @@ export const buildReadingBookRounds = (
       rows.push({
         ...book,
         completed: round.completed,
-        roundNumber: index + 1,
+        roundNumber: round.roundNumber,
         startedLocalDate: getReadingSessionLocalDate(
           first.startedAtClient + firstCorrection,
           first.timezoneOffsetMinutes,

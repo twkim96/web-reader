@@ -1321,3 +1321,130 @@ test('restoring a remotely deleted bookmark assigns a new bookmark id', async ()
   assert.equal(replacement.payload.bookmarkId, replacement.target.bookmarkId);
   assert.equal(replacement.baseRevision, 0);
 });
+
+for (const mode of ['single', 'batch']) {
+  const write = (overrides) => {
+    const input = {
+      bookId: 'book-1', operation: 'progress.set', position: position(10),
+      deviceId: 'device-1', sessionId: 'session-1', occurredAtClient: 1, ...overrides,
+    };
+    return mode === 'single' ? enqueueProgressEventV5(ownerA, input)
+      : enqueueProgressMutationBatchV5(ownerA, {
+        progress: {
+          bookId: input.bookId, cfi: input.position?.cfi ?? '',
+          anchorCfi: input.position?.cfi ?? '', progressPercent: input.position?.progressPercent ?? 0,
+          lastRead: input.occurredAtClient, bookmarks: [],
+        },
+        progressEvent: input, bookmarkEvents: [],
+      });
+  };
+  test(`${mode}: set-reset-set preserves the latest local and server position`, async () => {
+    await write({ eventId: 'set-1' });
+    await write({ eventId: 'reset-2', operation: 'progress.reset', position: null, occurredAtClient: 2 });
+    await write({ eventId: 'set-3', position: position(30), occurredAtClient: 3 });
+    const events = await getOutboxEventsV5(ownerA);
+    assert.deepEqual(events.map(({ operation }) => operation), ['progress.set', 'progress.reset', 'progress.set']);
+    assert.deepEqual(events.map(({ baseRevision }) => baseRevision), [0, 1, 2]);
+    const { decideProgressTransaction } = await import('../src/lib/progressSyncTransaction.ts');
+    let storedHead;
+    for (const event of events) {
+      const decision = decideProgressTransaction({ event, storedHead, storedReceipt: undefined, serverTime: {} });
+      assert.equal(decision.status, 'apply');
+      storedHead = decision.head;
+    }
+    assert.equal(storedHead.position.progressPercent, 30);
+    assert.equal((await getAllLocalProgressV5(ownerA))[0].progressPercent, 30);
+  });
+  test(`${mode}: another session forms a coalescing boundary`, async () => {
+    await write({ eventId: 'session-a-1' });
+    await write({ eventId: 'session-b-2', sessionId: 'session-2', occurredAtClient: 2 });
+    await write({ eventId: 'session-a-3', position: position(30), occurredAtClient: 3 });
+    const events = await getOutboxEventsV5(ownerA);
+    assert.deepEqual(events.map(({ eventId }) => eventId), ['session-a-1', 'session-b-2', 'session-a-3']);
+    assert.equal(events[0].payload.progressPercent, 10);
+  });
+  for (const retry of [false, true]) {
+    test(`${mode}: ${retry ? 'retried' : 'claimed'} events retain their submitted payload`, async () => {
+      await write({ eventId: 'submitted' });
+      const claim = await claimNext(10);
+      if (retry) await scheduleProgressEventRetryV5(ownerA, 'submitted', 'unavailable', claim.expectedClaim, 12, 0);
+      await write({ eventId: 'new-intent', position: position(30), occurredAtClient: 13 });
+      const events = await getOutboxEventsV5(ownerA);
+      assert.equal(events.length, 2);
+      assert.equal(events[0].payload.progressPercent, 10);
+      assert.equal(events[1].payload.progressPercent, 30);
+    });
+  }
+}
+
+const ackHead = (eventId = 'ack-1', revision = 1) => ({
+  schemaVersion: 2, bookId: 'book-1', revision, acceptedEventId: eventId,
+  operation: 'set', position: position(revision * 10), acceptedDeviceId: 'device-1',
+  acceptedSessionId: 'session-1', occurredAtClient: revision, updatedAtServer: {}, deletedAtServer: null,
+});
+
+test('r2 snapshot then r1 ACK preserves r2 cache and allows its adoption', async () => {
+  await enqueue(ownerA, { eventId: 'ack-1' });
+  const claim = await claimNext(10);
+  const newer = ackHead('remote-2', 2);
+  await storeRemoteHeadsBatchV5(ownerA, [newer], 12);
+  assert.equal(await acknowledgeProgressEventV5(ownerA, 'ack-1', ackHead(), claim.expectedClaim, 13), true);
+  const { initDB } = await import('../src/lib/localDB.ts');
+  const db = await initDB();
+  assert.equal((await db.get('remote-heads-v5', [ownerA, 'progress:book-1'])).revision, 2);
+  assert.equal(await acknowledgeProgressEventV5(ownerA, 'ack-1', ackHead(), claim.expectedClaim, 14), false);
+  assert.equal((await adoptRemoteProgressLocallyV5(ownerA, {
+    operation: 'set', bookId: 'book-1', cfi: newer.position.cfi, anchorCfi: newer.position.cfi,
+    progressPercent: 20, lastRead: 2, syncRevision: 2, acceptedEventId: 'remote-2',
+  })).status, 'adopted');
+});
+
+test('ACK does not lower an already adopted local revision and rejects equal-revision identity mismatch atomically', async () => {
+  await enqueue(ownerA, { eventId: 'ack-1' });
+  const claim = await claimNext(10);
+  const { initDB } = await import('../src/lib/localDB.ts');
+  const db = await initDB();
+  const [progress] = await getAllLocalProgressV5(ownerA);
+  await db.put('progress-v5', { ...progress, ownerKey: ownerA, syncRevision: 2, acceptedEventId: 'remote-2' });
+  await storeRemoteHeadsBatchV5(ownerA, [ackHead('other-event', 1)]);
+  await assert.rejects(acknowledgeProgressEventV5(ownerA, 'ack-1', ackHead(), claim.expectedClaim), { code: 'invalid-argument' });
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 1);
+  await storeRemoteHeadsBatchV5(ownerA, [ackHead('remote-2', 2)]);
+  assert.equal(await acknowledgeProgressEventV5(ownerA, 'ack-1', ackHead(), claim.expectedClaim), true);
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].syncRevision, 2);
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].acceptedEventId, 'remote-2');
+});
+
+test('palette ACK uses the same monotone cache policy as progress', async () => {
+  const { enqueueAnnotationPaletteEventV5 } = await import('../src/lib/syncOutboxV5.ts');
+  const { DEFAULT_ANNOTATION_PALETTE } = await import('../src/lib/annotationPalette.ts');
+  await enqueueAnnotationPaletteEventV5(ownerA, {
+    eventId: 'palette-ack', payload: { items: DEFAULT_ANNOTATION_PALETTE }, occurredAtClient: 1,
+  }, { deviceId: 'device-1', sessionId: 'session-1' });
+  const claim = await claimNext(10);
+  const head = {
+    schemaVersion: 1, revision: 1, acceptedEventId: 'palette-ack', operation: 'set',
+    palette: { items: DEFAULT_ANNOTATION_PALETTE }, acceptedDeviceId: 'device-1',
+    acceptedSessionId: 'session-1', occurredAtClient: 1, updatedAtServer: {},
+  };
+  await storeRemoteHeadsBatchV5(ownerA, [{ ...head, revision: 2, acceptedEventId: 'palette-remote-2' }]);
+  assert.equal(await acknowledgeProgressEventV5(ownerA, 'palette-ack', head, claim.expectedClaim), true);
+  const { initDB } = await import('../src/lib/localDB.ts');
+  const db = await initDB();
+  assert.equal((await db.get('remote-heads-v5', [ownerA, claim.event.targetKey])).revision, 2);
+});
+
+test('ACK first then older and duplicate snapshots retain the acknowledged head', async () => {
+  await enqueue(ownerA, { eventId: 'ack-2' });
+  const claim = await claimNext(10);
+  const head = ackHead('ack-2', 2);
+  assert.equal(await acknowledgeProgressEventV5(ownerA, 'ack-2', head, claim.expectedClaim), true);
+  await storeRemoteHeadsBatchV5(ownerA, [ackHead('older-1', 1)]);
+  await storeRemoteHeadsBatchV5(ownerA, [head]);
+  const { initDB } = await import('../src/lib/localDB.ts');
+  const db = await initDB();
+  const cached = await db.get('remote-heads-v5', [ownerA, 'progress:book-1']);
+  assert.equal(cached.revision, 2);
+  assert.equal(cached.head.acceptedEventId, 'ack-2');
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].syncRevision, 2);
+});

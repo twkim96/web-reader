@@ -631,13 +631,20 @@ export const useRemoteProgressPrompt = ({
       return;
     }
 
-    lastProcessedRemoteIdentity.current = remoteIdentity;
-    isInitialSync.current = false;
+    let active = true;
     const timeoutId = window.setTimeout(() => {
+      if (!active) return;
+      // Only consume this head once the prompt is actually published. A
+      // relocate before this timer fires must be free to schedule it again.
+      lastProcessedRemoteIdentity.current = remoteIdentity;
+      isInitialSync.current = false;
       setSyncConflictFeedback(null);
       setSyncConflict(target);
     }, 0);
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
   }, [
     adoptAndNavigateRemoteProgress,
     currentAnchorCfi,

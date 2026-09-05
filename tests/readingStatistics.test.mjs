@@ -27,6 +27,114 @@ test('formats compact reader time as an unlabeled hour-minute clock', () => {
   assert.equal(formatReadingClock(360_000_000), '100:00');
 });
 
+test('merges offline confirmations of one low-progress round without duplicating time', () => {
+  const source = session({ sessionId: 'source', startedAtClient: 1_000, endedAtClient: 61_000, startProgressPercent: 20, endProgressPercent: 30 });
+  const complete = (records, round, id, at) => {
+    const result = createReadingRoundCompletionSession({
+      sessions: records, bookId: source.bookId, expectedRoundNumber: round,
+      sessionId: id, confirmedAtClient: at,
+    });
+    assert.equal(result.status, 'created');
+    return result.session;
+  };
+  const a = complete([source], 1, 'completion-a', 62_000);
+  const b = complete([source], 1, 'completion-b', 200_000);
+  assert.equal(a.completionRoundNumber, 1);
+  assert.equal(b.completionRoundNumber, 1);
+  for (const records of [[source, a, b], [b, a, source, b]]) {
+    const rounds = buildReadingBookRounds(records);
+    assert.equal(rounds.length, 1);
+    assert.equal(rounds[0].completed, true);
+    assert.equal(rounds[0].totalMs, source.durationMs);
+    assert.equal(buildReadingStatistics(records).totalMs, source.durationMs);
+    assert.equal(buildReadingStatistics(records).countedSessionCount, 1);
+  }
+
+  // A real reread starts after the first confirmation. A delayed offline
+  // confirmation still belongs to round one and cannot complete round two.
+  const reread = session({
+    sessionId: 'reread', startedAtClient: 70_000, endedAtClient: 130_000,
+    startProgressPercent: 0, endProgressPercent: 10,
+  });
+  const records = [source, a, reread, b];
+  let rounds = buildReadingBookRounds(records);
+  assert.deepEqual(rounds.map(({ completed }) => completed), [true, false]);
+  const second = complete(records, 2, 'second-round-completion', 210_000);
+  assert.equal(second.completionRoundNumber, 2);
+  rounds = buildReadingBookRounds([...records, second]);
+  assert.deepEqual(rounds.map(({ completed }) => completed), [true, true]);
+  assert.equal(rounds.reduce((total, round) => total + round.totalMs, 0), 120_000);
+  assert.equal(buildReadingStatistics([...records, second]).totalMs, 120_000);
+});
+
+test('reconciles legacy cloned completion markers against their source interval', () => {
+  const source = session({ sessionId: 'source', startedAtClient: 1_000, endedAtClient: 61_000, startProgressPercent: 20, endProgressPercent: 30 });
+  const records = [source, ...['legacy-a', 'legacy-b'].map((sessionId, index) => ({
+    ...source, sessionId, completed: true, completionConfirmedAtClient: 62_000 + index,
+  }))];
+  const rounds = buildReadingBookRounds(records);
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].totalMs, 60_000);
+  assert.equal(rounds[0].completed, true);
+});
+
+test('validates logical completion identities and never counts a marker alone as reading', () => {
+  const source = session({ sessionId: 'source', startedAtClient: 1_000, endedAtClient: 61_000 });
+  const result = createReadingRoundCompletionSession({
+    sessions: [source], bookId: source.bookId, expectedRoundNumber: 1,
+    sessionId: 'marker-only', confirmedAtClient: 62_000,
+  });
+  assert.equal(result.status, 'created');
+  assert.equal(buildReadingStatistics([result.session]).totalMs, 0);
+  assert.equal(isReadingSessionV1({ ...result.session, completionRoundNumber: 0 }), false);
+  assert.equal(isReadingSessionV1({ ...result.session, completionRoundNumber: 1.5 }), false);
+  assert.equal(isReadingSessionV1({ ...source, completionRoundNumber: 1 }), false);
+});
+
+test('preserves logical rounds across marker-first hydration and missing earlier history', () => {
+  const first = session({ sessionId: 'first', startedAtClient: 1_000, endedAtClient: 61_000 });
+  const complete = (records, roundNumber, id, at) => {
+    const result = createReadingRoundCompletionSession({
+      sessions: records, bookId: first.bookId, expectedRoundNumber: roundNumber,
+      sessionId: id, confirmedAtClient: at,
+    });
+    assert.equal(result.status, 'created');
+    return result.session;
+  };
+  const marker1 = complete([first], 1, 'marker1', 62_000);
+  const second = session({
+    sessionId: 'second', startedAtClient: 70_000, endedAtClient: 130_000,
+    startProgressPercent: 0, endProgressPercent: 10,
+  });
+  const marker2 = complete([first, marker1, second], 2, 'marker2', 131_000);
+  for (const records of [[marker1, second, marker2], [second, marker2]]) {
+    const rounds = buildReadingBookRounds(records);
+    assert.deepEqual(rounds.map(({ roundNumber, completed, totalMs }) => (
+      { roundNumber, completed, totalMs }
+    )), [{ roundNumber: 2, completed: true, totalMs: 60_000 }]);
+    assert.equal(createReadingRoundCompletionSession({
+      sessions: records, bookId: first.bookId, expectedRoundNumber: 2,
+      sessionId: 'duplicate', confirmedAtClient: 132_000,
+    }).status, 'already-completed');
+  }
+  const markerOnly = [marker1, marker2];
+  assert.deepEqual(buildReadingBookRounds(markerOnly), []);
+  assert.equal(createReadingRoundCompletionSession({
+    sessions: markerOnly, bookId: first.bookId, expectedRoundNumber: 2,
+    sessionId: 'duplicate', confirmedAtClient: 132_000,
+  }).status, 'already-completed');
+  const restored = buildReadingBookRounds([marker2, second, marker1, first]);
+  assert.deepEqual(restored.map(({ roundNumber, completed, totalMs }) => (
+    { roundNumber, completed, totalMs }
+  )), [
+    { roundNumber: 1, completed: true, totalMs: 60_000 },
+    { roundNumber: 2, completed: true, totalMs: 60_000 },
+  ]);
+  // A huge but schema-valid ordinal must not allocate millions of placeholders.
+  const high = { ...marker2, completionRoundNumber: Number.MAX_SAFE_INTEGER };
+  assert.equal(buildReadingBookRounds([second, high])[0].roundNumber, Number.MAX_SAFE_INTEGER);
+});
+
 test('derives rereading rounds after completion without changing stored sessions', () => {
   const rounds = buildReadingBookRounds([
     session({

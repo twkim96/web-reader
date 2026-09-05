@@ -1,6 +1,6 @@
 'use client';
 
-import { MutableRefObject, useCallback } from 'react';
+import { MutableRefObject, useCallback, useEffect, useRef } from 'react';
 import { FoliateViewElement, SearchResultPayload } from './types';
 
 interface UseFoliateSearchOptions {
@@ -8,21 +8,32 @@ interface UseFoliateSearchOptions {
 }
 
 export const useFoliateSearch = ({ viewRef }: UseFoliateSearchOptions) => {
+  const activeSearch = useRef<AbortController | null>(null);
+  useEffect(() => () => activeSearch.current?.abort(), []);
+
   const searchBook = useCallback(async (
     query: string,
     onResult: (result: SearchResultPayload) => void,
     onProgress: (progress: number) => void,
+    signal?: AbortSignal,
   ): Promise<void> => {
+    activeSearch.current?.abort();
+    const controller = new AbortController();
+    activeSearch.current = controller;
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
     const view = viewRef.current;
-    if (!view || !query.trim()) return;
+    const isCurrent = () => !controller.signal.aborted && viewRef.current === view;
 
     try {
+      if (!view || !query.trim() || !isCurrent()) return;
       const total = view.book?.sections?.length || 1;
       let lastProgress = 0;
-      const iter = view.search({ query });
+      const iter = view.search({ query, signal: controller.signal });
 
       for await (const result of iter) {
-        if (result === 'done') break;
+        if (!isCurrent() || result === 'done') break;
 
         if (typeof result?.progress === 'number') {
           lastProgress = result.progress;
@@ -38,16 +49,18 @@ export const useFoliateSearch = ({ viewRef }: UseFoliateSearchOptions) => {
         }
       }
     } catch (error) {
-      console.error('[Search] failed:', error);
+      if (isCurrent()) console.error('[Search] failed:', error);
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+      if (activeSearch.current === controller) activeSearch.current = null;
     }
   }, [viewRef]);
 
   const clearSearch = useCallback(() => {
+    activeSearch.current?.abort();
+    activeSearch.current = null;
     viewRef.current?.clearSearch?.();
   }, [viewRef]);
 
-  return {
-    searchBook,
-    clearSearch,
-  };
+  return { searchBook, clearSearch };
 };

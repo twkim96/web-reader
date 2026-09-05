@@ -3,6 +3,7 @@ import {
   parseBookCoverSourceUrl,
   sniffBookCoverContentType,
 } from '../../../../server/bookCoverProxy';
+import { fetchAllowedRedirects, readBoundedBody, ResponseSizeError } from '../../../../server/boundedFetch';
 
 export const runtime = 'nodejs';
 export const maxDuration = 20;
@@ -44,24 +45,19 @@ export async function POST(request: Request) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(sourceUrl, {
+    const response = await fetchAllowedRedirects(sourceUrl, {
       signal: controller.signal,
-      redirect: 'follow',
       cache: 'no-store',
       headers: {
         Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.5',
         'User-Agent': USER_AGENT,
       },
-    });
+    }, (url) => Boolean(parseBookCoverSourceUrl(url.href)));
     if (!response.ok) return errorResponse(502, `cover HTTP ${response.status}`);
     if (!parseBookCoverSourceUrl(response.url)) {
       return errorResponse(502, 'cover redirect is not allowed');
     }
-    const declaredSourceBytes = Number(response.headers.get('content-length'));
-    if (Number.isFinite(declaredSourceBytes) && declaredSourceBytes > BOOK_COVER_PROXY_MAX_BYTES) {
-      return errorResponse(413, 'cover is too large');
-    }
-    const buffer = await response.arrayBuffer();
+    const buffer = await readBoundedBody(response, BOOK_COVER_PROXY_MAX_BYTES);
     if (buffer.byteLength === 0 || buffer.byteLength > BOOK_COVER_PROXY_MAX_BYTES) {
       return errorResponse(buffer.byteLength === 0 ? 502 : 413, 'cover size is invalid');
     }
@@ -77,10 +73,12 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof ResponseSizeError) return errorResponse(413, 'cover is too large');
     if (controller.signal.aborted) return errorResponse(504, 'cover fetch timed out');
     console.warn('[BookCoverProxy] cover fetch failed:', error);
     return errorResponse(502, 'cover fetch failed');
   } finally {
     clearTimeout(timer);
+    controller.abort();
   }
 }

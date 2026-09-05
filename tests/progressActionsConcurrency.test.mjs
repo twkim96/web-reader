@@ -350,3 +350,70 @@ test('durable bookmark commit stays successful when the first convergence read f
     globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   }
 });
+
+for (const scenario of ['owner-switch', 'newer-write', 'deferred-updater']) {
+  test(`delete completion preserves the current display during ${scenario}`, async () => {
+    const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT'];
+    const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
+    const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
+    Object.assign(globalThis, { window, document: window.document, CustomEvent: window.CustomEvent,
+      BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true });
+    const ownerA = makeOwnerKey(makeGuestOwnerKey(`delete-A-${scenario}`), 'library:local');
+    const ownerB = makeOwnerKey(makeGuestOwnerKey(`delete-B-${scenario}`), 'library:local');
+    const initial = progress([]);
+    const next = progress([], { cfi: 'new-position', anchorCfi: 'new-position', progressPercent: 70 });
+    await saveProgressToLocalV5(ownerA, initial);
+    await saveProgressToLocalV5(ownerB, next);
+    ownerRuntime.activate(ownerA);
+    const progressRef = { current: { 'book-1': initial } };
+    let display = progressRef.current, actions, nextWrite;
+    const deferredUpdaters = [];
+    let deferUpdater = false;
+    const setProgress = update => {
+      if (deferUpdater) deferredUpdaters.push(update);
+      else display = typeof update === 'function' ? update(display) : update;
+    };
+    const switchOwner = () => {
+      ownerRuntime.activate(ownerB);
+      display = { 'book-1': next };
+      progressRef.current = display;
+    };
+    function Harness() {
+      const currentActions = useProgressActions({ activeBook: { id: 'book-1' }, user: null,
+        deviceId: { current: 'device' }, progressRef, setProgress });
+      useEffect(() => { actions = currentActions; }, [currentActions]);
+      return null;
+    }
+    const root = createRoot(document.getElementById('app'));
+    const originalPut = IDBObjectStore.prototype.put;
+    try {
+      await act(async () => root.render(React.createElement(Harness)));
+      IDBObjectStore.prototype.put = function(value, ...args) {
+        const request = originalPut.call(this, value, ...args);
+        if (value.ownerKey === ownerA && value.cfi === '') {
+          if (scenario === 'owner-switch') switchOwner();
+          if (scenario === 'newer-write') nextWrite = actions.saveProgress('new-position', 70, [], { force: true });
+        }
+        return request;
+      };
+      if (scenario === 'deferred-updater') deferUpdater = true;
+      await act(async () => assert.equal(await actions.deleteProgress('book-1'), true));
+      if (scenario === 'deferred-updater') {
+        assert.equal(deferredUpdaters.length, 1);
+        switchOwner();
+        for (const update of deferredUpdaters) display = update(display);
+      }
+      assert.equal(display['book-1'].progressPercent, 70);
+      assert.equal(progressRef.current['book-1'].progressPercent, 70);
+      if (nextWrite) await act(async () => assert.equal(await nextWrite, true));
+      const storedB = await loadProgressFromLocalV5(ownerB, 'book-1');
+      assert.equal(storedB.progressPercent, 70);
+      const storedA = await loadProgressFromLocalV5(ownerA, 'book-1');
+      assert.equal(storedA.progressPercent, scenario === 'newer-write' ? 70 : 0);
+    } finally {
+      IDBObjectStore.prototype.put = originalPut;
+      await act(async () => root.unmount());
+      Object.assign(globalThis, previous);
+    }
+  });
+}
