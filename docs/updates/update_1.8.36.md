@@ -43,3 +43,12 @@
 - production browser에서 시스템 기본/명시적 음성 검증을 분리했다. 이전 실패 이후 도달하지 못했던 TTS 대량 선택 구간은 리더 설정창을 닫지 못하던 기존 fixture 선택자를 수정하고 닫힘 assertion을 추가했다. 180문장·55문장 연속 처리 기대값은 유지한다. 후반부의 공용 헤더 닫기 이름·40px 크기·기존 반투명 메뉴 재질 기대값도 현재 계약에 맞췄으며 앱 UI 크기나 재질을 바꾸지 않았다. `npm run test:browser:ci` 최종 exit 0으로 TTS·주석·통계 완료/삭제·fixed-layout·PDF·PWA 검사까지 통과했다.
 
 - `check:full` 구성 검사 모두 통과. 수정하지 않은 입력의 Node/Python·Rules 성공 증거는 재사용했고, 후속 body bootstrap 수정은 lint·typecheck·E2E·production build·전체 browser regression을 재실행했다.
+
+## 원격 CI 환경 보정
+
+- 첫 release 커밋 `325ce10`의 Vercel production 배포는 성공했으며 공개 `/sw.js`에서 1.8.36, `/sw-build.js`에서 배포 해시를 확인했다.
+- GitHub Linux CI에서는 병렬 테스트 CPU 경합으로 기존 20,000개 통계 이력의 2.5초 시간 기준이 초과됐다. 동일 입력의 이전/current 집계는 약 271/267ms로 회귀가 없어 앱 알고리즘·시간 기준을 바꾸지 않고 storage suite의 동시 실행 수를 2로 제한한다. 기존 clock correction의 선형 샘플 탐색은 별도 성능 개선 후보로 남긴다.
+- 슬라이더 회귀는 매 포인터 이벤트의 실제 clientX와 현재 track 폭으로 소수점 기대값을 산출해 Linux 좌표 반올림 차이를 검증한다.
+- WebKit에서 Next 개발 서버의 stack-symbolication 요청 자체가 실패하는 정확한 진단 경로만 제외하며 원래 앱 오류 수집은 유지한다.
+
+- CI 환경 보정 뒤 로컬 lint, storage 354개, E2E 38개(기존 2 생략), production build·TypeScript, 전체 production browser regression 모두 재통과.

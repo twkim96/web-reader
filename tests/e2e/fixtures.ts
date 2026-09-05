@@ -14,6 +14,9 @@ export const test = base.extend<{ consoleErrors: void }>({
       && text.endsWith('due to access control checks.')
     );
     page.on('pageerror', (error) => {
+      // WebKit can reject Next dev's follow-up stack-symbolication request.
+      // The original application error is still independently captured above/below.
+      if (error.message === '/127.0.0.1:3107/__nextjs_original-stack-frames due to access control checks.') return;
       if (!isExternalCatalogTransportError(error.message)) errors.push(error.message);
     });
     page.on('console', (message) => {

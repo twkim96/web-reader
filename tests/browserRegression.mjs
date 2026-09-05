@@ -3551,25 +3551,34 @@ try {
     const track = document.querySelector('[data-reader-progress-pointer-track="true"]');
     const input = document.querySelector('input[aria-label="진행률"]');
     if (!track || !input) return { missing: true };
-    const rect = track.getBoundingClientRect();
     const current = Number(input.value || 0);
     const tapTarget = current < 50 ? 72 : 28;
     const dragTarget = current < 50 ? 86 : 14;
     const dragStart = current < 50 ? 18 : 82;
-    const xFor = (percent) => rect.left + rect.width * percent / 100;
-    const dispatchPointer = (type, percent, buttons) => track.dispatchEvent(new PointerEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      pointerId: 41,
-      pointerType: 'touch',
-      button: type === 'pointerdown' ? 0 : -1,
-      buttons,
-      clientX: xFor(percent),
-      clientY: rect.top + rect.height / 2,
-    }));
+    const dispatchPointer = (type, percent, buttons) => {
+      // The track may settle after cancelling the previous dialog. Derive
+      // each gesture from its current bounds and the actual event coordinate.
+      const rect = track.getBoundingClientRect();
+      const event = new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 41,
+        pointerType: 'touch',
+        button: type === 'pointerdown' ? 0 : -1,
+        buttons,
+        clientX: rect.left + rect.width * percent / 100,
+        clientY: rect.top + rect.height / 2,
+      });
+      const expectedPercent = Math.min(100, Math.max(0,
+        Math.round(((event.clientX - rect.left) / rect.width) * 1000) / 10,
+      ));
+      const pointer = { clientX: event.clientX, trackLeft: rect.left, trackWidth: rect.width, expectedPercent };
+      track.dispatchEvent(event);
+      return pointer;
+    };
 
     dispatchPointer('pointerdown', tapTarget, 1);
-    dispatchPointer('pointerup', tapTarget, 0);
+    const tapPointer = dispatchPointer('pointerup', tapTarget, 0);
     await window.__regressionNextFrame(2);
     const tapTitle = document.querySelector('#progress-jump-confirm-title')?.textContent ?? '';
     [...document.querySelectorAll('button')]
@@ -3578,7 +3587,7 @@ try {
 
     dispatchPointer('pointerdown', dragStart, 1);
     dispatchPointer('pointermove', dragTarget, 1);
-    dispatchPointer('pointerup', dragTarget, 0);
+    const dragPointer = dispatchPointer('pointerup', dragTarget, 0);
     await window.__regressionNextFrame(2);
     const dragTitle = document.querySelector('#progress-jump-confirm-title')?.textContent ?? '';
     [...document.querySelectorAll('button')]
@@ -3591,6 +3600,8 @@ try {
       dragTarget,
       tapTitle,
       dragTitle,
+      tapPointer,
+      dragPointer,
       inputPointerEvents: getComputedStyle(input).pointerEvents,
       trackTouchAction: getComputedStyle(track).touchAction,
     };
@@ -3598,12 +3609,12 @@ try {
   assert.equal(progressPointerControls.missing, undefined, JSON.stringify(progressPointerControls));
   assert.match(
     progressPointerControls.tapTitle,
-    new RegExp(`^${progressPointerControls.tapTarget.toFixed(1)}%로 이동할까요\\?$`),
+    new RegExp(`^${progressPointerControls.tapPointer.expectedPercent.toFixed(1)}%로 이동할까요\\?$`),
     JSON.stringify(progressPointerControls),
   );
   assert.match(
     progressPointerControls.dragTitle,
-    new RegExp(`^${progressPointerControls.dragTarget.toFixed(1)}%로 이동할까요\\?$`),
+    new RegExp(`^${progressPointerControls.dragPointer.expectedPercent.toFixed(1)}%로 이동할까요\\?$`),
     JSON.stringify(progressPointerControls),
   );
   assert.notEqual(progressPointerControls.dragStart, progressPointerControls.current);
