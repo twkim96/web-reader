@@ -93,6 +93,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const [showFilter, setShowFilter] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [filters, setFilters] = useState<ShelfFilters>(() => ({
+    formats: [...EMPTY_SHELF_FILTERS.formats],
     sources: [...EMPTY_SHELF_FILTERS.sources],
     genreIds: [...EMPTY_SHELF_FILTERS.genreIds],
     tagIds: [...EMPTY_SHELF_FILTERS.tagIds],
@@ -164,6 +165,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   const clearShelfQuery = useCallback(() => {
     setSearchKeyword('');
     setFilters({
+      formats: [...EMPTY_SHELF_FILTERS.formats],
       sources: [...EMPTY_SHELF_FILTERS.sources],
       genreIds: [...EMPTY_SHELF_FILTERS.genreIds],
       tagIds: [...EMPTY_SHELF_FILTERS.tagIds],
@@ -541,6 +543,7 @@ export const Shelf: React.FC<ShelfProps> = ({
           onApply={(nextSortMode: ShelfSortMode, nextFilters: ShelfFilters) => {
             setSortMode(nextSortMode);
             setFilters({
+              formats: [...nextFilters.formats],
               sources: [...nextFilters.sources],
               genreIds: [...nextFilters.genreIds],
               tagIds: [...nextFilters.tagIds],

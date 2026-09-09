@@ -15,6 +15,7 @@ import {
   filterAndSortPreparedBooks,
   type PreparedShelfBook,
   type ShelfFilters,
+  type ShelfFormatFilter,
   type ShelfSortMode,
   type ShelfSourceFilter,
   type ShelfTheme,
@@ -43,6 +44,13 @@ const sourceOptions: Array<{ id: ShelfSourceFilter; label: string }> = [
   { id: 'kakao', label: '카카오' },
   { id: 'novelpia', label: '노벨피아' },
   { id: 'none', label: '없음(기타)' },
+];
+
+const formatOptions: Array<{ id: ShelfFormatFilter; label: string }> = [
+  { id: 'txt', label: 'TXT' },
+  { id: 'epub', label: 'EPUB' },
+  { id: 'pdf', label: 'PDF' },
+  { id: 'zip', label: 'ZIP' },
 ];
 
 const sortOptions: Array<{
@@ -74,6 +82,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
   const dialogRef = useRef<HTMLElement>(null);
   const [draftSort, setDraftSort] = useState(sortMode);
   const [draftFilters, setDraftFilters] = useState<ShelfFilters>(() => ({
+    formats: [...filters.formats],
     sources: [...filters.sources],
     genreIds: [...filters.genreIds],
     tagIds: [...filters.tagIds],
@@ -169,6 +178,27 @@ export const ShelfFilterModal: React.FC<Props> = ({
                   className={`app-menu-sheet-section app-menu-sheet-choice flex min-h-11 items-center justify-center gap-1 rounded-xl border px-1.5 text-[10px] font-bold transition-colors disabled:opacity-35 sm:min-h-16 sm:flex-col sm:px-2 sm:text-[11px] ${theme.border}`}
                 >
                   <Icon className="size-4 shrink-0 sm:size-[17px]" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section aria-labelledby="shelf-filter-format-title">
+            <h3 id="shelf-filter-format-title" className="text-xs font-black opacity-55">도서 형식</h3>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {formatOptions.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  data-shelf-filter-format={id}
+                  aria-pressed={draftFilters.formats.includes(id)}
+                  onClick={() => setDraftFilters((current) => ({
+                    ...current,
+                    formats: toggle(current.formats, id),
+                  }))}
+                  className={chip(draftFilters.formats.includes(id))}
+                >
                   {label}
                 </button>
               ))}
@@ -301,7 +331,12 @@ export const ShelfFilterModal: React.FC<Props> = ({
             type="button"
             onClick={() => {
               setDraftSort('recent');
-              setDraftFilters({ ...EMPTY_SHELF_FILTERS });
+              setDraftFilters({
+                formats: [...EMPTY_SHELF_FILTERS.formats],
+                sources: [...EMPTY_SHELF_FILTERS.sources],
+                genreIds: [...EMPTY_SHELF_FILTERS.genreIds],
+                tagIds: [...EMPTY_SHELF_FILTERS.tagIds],
+              });
               setVisibleTagCount(SHELF_TAG_PAGE_SIZE);
             }}
             className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} px-4 text-xs font-bold`}

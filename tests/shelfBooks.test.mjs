@@ -6,6 +6,8 @@ import {
   applyShelfProgress,
   EMPTY_SHELF_FILTERS,
   filterAndSortPreparedBooks,
+  getActiveShelfFilterCount,
+  getShelfFilterKey,
   prepareShelfBooks,
 } from '../src/components/shelf/bookUtils.ts';
 import {
@@ -231,6 +233,7 @@ test('combines source OR, genre OR, tag AND, and category AND filters', () => {
   );
   assert.deepEqual(
     filterAndSortPreparedBooks(books, '', 'alpha', [], {
+      formats: [],
       sources: ['series', 'none'],
       genreIds: [],
       tagIds: [],
@@ -239,6 +242,7 @@ test('combines source OR, genre OR, tag AND, and category AND filters', () => {
   );
   assert.deepEqual(
     filterAndSortPreparedBooks(books, '', 'alpha', [], {
+      formats: [],
       sources: ['series', 'kakao'],
       genreIds: [2, 3],
       tagIds: [7, 8],
@@ -302,10 +306,38 @@ test('recent import priority never bypasses an active metadata filter', () => {
   );
   assert.deepEqual(
     filterAndSortPreparedBooks(books, '', 'recent', ['imported-unmatched'], {
+      formats: [],
       sources: ['kakao'],
       genreIds: [],
       tagIds: [],
     }).map(({ id }) => id),
     ['matched'],
   );
+});
+
+
+test('format filters preserve original TXT, resolve legacy files, and combine with metadata', () => {
+  const books = applyShelfCatalog(applyShelfProgress(prepareShelfBooks([
+    { ...book('txt', 'converted.epub'), sourceFormat: 'txt' },
+    book('epub', 'original.epub'),
+    book('pdf', 'legacy.PDF'),
+    { ...book('mime-pdf', 'extensionless'), mimeType: 'application/pdf' },
+    book('zip', 'images.zip'),
+    book('cbz', 'images.cbz'),
+    book('7z', 'images.7z'),
+  ]), {}), new Map([['txt', catalog({ platformMask: 1 })]]));
+  const select = (formats, extra = {}) => filterAndSortPreparedBooks(
+    books, '', 'recent', [], { ...EMPTY_SHELF_FILTERS, formats, ...extra },
+  ).map(({ id }) => id);
+  assert.deepEqual(select(['txt']), ['txt']);
+  assert.deepEqual(select(['epub']), ['epub']);
+  assert.deepEqual(select(['pdf']), ['pdf', 'mime-pdf']);
+  assert.deepEqual(select(['zip']), ['zip', 'cbz', '7z']);
+  assert.deepEqual(select(['txt', 'epub']), ['txt', 'epub']);
+  assert.deepEqual(select(['txt', 'epub'], { sources: ['series'] }), ['txt']);
+  assert.equal(select([]).length, 7, 'clearing formats restores all books without catalog metadata');
+  const filters = { ...EMPTY_SHELF_FILTERS, formats: ['txt', 'pdf'] };
+  assert.equal(getActiveShelfFilterCount(filters), 2);
+  assert.notEqual(getShelfFilterKey(filters), getShelfFilterKey(EMPTY_SHELF_FILTERS));
+  assert.equal(getShelfFilterKey(filters), getShelfFilterKey({ ...filters, formats: ['pdf', 'txt'] }));
 });

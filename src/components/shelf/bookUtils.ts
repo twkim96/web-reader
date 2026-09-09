@@ -1,5 +1,5 @@
 import type { Book, UserProgress } from '../../types.ts';
-import { getBookTitleFromFileName } from '../../lib/bookFormats.ts';
+import { getBookTitleFromFileName, getSourceBookFormat, isArchiveFormat } from '../../lib/bookFormats.ts';
 import type {
   PublicBookCatalogBook,
   PublicBookCatalogPlatformId,
@@ -9,12 +9,15 @@ import type { PublicBookMetadata } from '../../lib/publicBookMetadataSchema.ts';
 export type ShelfSortMode = 'alpha' | 'recent' | 'popularity';
 export type ShelfViewMode = 'simple' | 'grid' | 'list';
 export type ShelfSourceFilter = PublicBookCatalogPlatformId | 'none';
+export type ShelfFormatFilter = 'txt' | 'epub' | 'pdf' | 'zip';
 export type ShelfFilters = {
+  formats: ShelfFormatFilter[];
   sources: ShelfSourceFilter[];
   genreIds: number[];
   tagIds: number[];
 };
 export const EMPTY_SHELF_FILTERS: ShelfFilters = {
+  formats: [],
   sources: [],
   genreIds: [],
   tagIds: [],
@@ -139,10 +142,11 @@ const sourceBits: Record<PublicBookCatalogPlatformId, number> = {
 };
 
 export const getActiveShelfFilterCount = (filters: ShelfFilters) => (
-  filters.sources.length + filters.genreIds.length + filters.tagIds.length
+  filters.formats.length + filters.sources.length + filters.genreIds.length + filters.tagIds.length
 );
 
 export const getShelfFilterKey = (filters: ShelfFilters) => [
+  [...filters.formats].sort().join(','),
   [...filters.sources].sort().join(','),
   [...filters.genreIds].sort((a, b) => a - b).join(','),
   [...filters.tagIds].sort((a, b) => a - b).join(','),
@@ -152,6 +156,13 @@ export const matchesShelfFilters = (
   prepared: PreparedShelfBook,
   filters: ShelfFilters,
 ) => {
+  if (filters.formats.length > 0) {
+    // Keep converted TXT books in their original format; legacy entries use filename/MIME.
+    const book = prepared.book;
+    const sourceFormat = book.sourceFormat ?? getSourceBookFormat(book.name, book.mimeType) ?? 'epub';
+    const format = isArchiveFormat(sourceFormat) ? 'zip' : sourceFormat;
+    if (!filters.formats.includes(format)) return false;
+  }
   const record = prepared.catalog?.record;
   if (filters.sources.length > 0) {
     const matchesSource = filters.sources.some((source) => (
