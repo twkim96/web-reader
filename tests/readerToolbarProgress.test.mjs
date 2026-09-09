@@ -55,7 +55,7 @@ const installDom = () => {
   return window;
 };
 
-const dispatchPointer = (window, target, type, clientX, buttons) => {
+const dispatchPointer = (window, target, type, clientX, buttons, clientY = 20) => {
   const event = new window.Event(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, {
     pointerId: { value: 7 },
@@ -63,7 +63,7 @@ const dispatchPointer = (window, target, type, clientX, buttons) => {
     button: { value: type === 'pointerdown' ? 0 : -1 },
     buttons: { value: buttons },
     clientX: { value: clientX },
-    clientY: { value: 20 },
+    clientY: { value: clientY },
   });
   target.dispatchEvent(event);
 };
@@ -409,5 +409,35 @@ test('menu jumps share provisional rollback and confirmation preserves live manu
     await act(async () => { finishSave(); await confirmation; });
     assert.deepEqual(commits[0].map(item => item.id), ['added-during-save', 'origin']);
     assert.equal(commits[0][1].cfi, 'cfi-30');
+  } finally { await act(async () => root.unmount()); }
+});
+
+
+test('lifting the progress gesture enables quarter-speed scrubbing without jumps or mode chatter', async () => {
+  const window = installDom();
+  const root = createRoot(document.querySelector('#root'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const track = document.querySelector('[data-reader-progress-pointer-track]');
+    track.getBoundingClientRect = () => ({ left: 0, top: 200, width: 400, height: 40 });
+    const move = async (type, x, y, buttons = 1) => {
+      await act(async () => dispatchPointer(window, track, type, x, buttons, y));
+      return Number(document.querySelector('input[aria-label="진행률"]').value);
+    };
+    assert.equal(await move('pointerdown', 120, 220), 30);
+    assert.equal(await move('pointermove', 160, 220), 40, 'ordinary scrubbing keeps absolute positioning');
+    assert.equal(await move('pointermove', 160, 140), 40, 'lifting alone does not move the target');
+    assert.equal(await move('pointermove', 240, 140), 45, '80px gives 5%, not 20%');
+    assert.equal(document.querySelector('[data-reader-progress-precision]').getAttribute('data-reader-progress-precision'), 'fine');
+    assert.equal(await move('pointermove', 240, 165), 45, 'vertical jitter preserves selection and fine mode');
+    assert.equal(document.querySelector('[data-reader-progress-precision]').getAttribute('data-reader-progress-precision'), 'fine');
+    assert.equal(await move('pointermove', 240, 220), 45, 'returning to the bar must not snap to the finger');
+    assert.equal(await move('pointermove', 280, 220), 55, 'normal speed resumes from current selection');
+    await move('pointerup', 280, 220, 0);
+    assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '55');
+    await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '취소').click());
+    assert.equal(await move('pointerdown', 80, 220), 20, 'a new gesture resets to absolute positioning');
+    await move('pointercancel', 80, 220, 0);
+    assert.equal(document.querySelector('[data-reader-progress-precision]'), null);
   } finally { await act(async () => root.unmount()); }
 });

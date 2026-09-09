@@ -115,22 +115,36 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const titleRightLimitRef = React.useRef<HTMLButtonElement>(null);
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const activeProgressPointerIdRef = React.useRef<number | null>(null);
+  const progressGestureRef = React.useRef<{
+    x: number; percent: number; precise: boolean; relative: boolean;
+  } | null>(null);
+  const [isPreciseProgress, setIsPreciseProgress] = React.useState(false);
   const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
 
   const previewProgressPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const progressPercent = getReaderProgressPercentFromPointer(
-      event.clientX,
-      rect.left,
-      rect.width,
-    );
+    if (rect.width <= 0) return false;
+    const gesture = progressGestureRef.current;
+    // Separate enter/exit thresholds prevent mode chatter from small vertical tremors.
+    const aboveTrack = rect.top - event.clientY;
+    const precise = gesture ? (gesture.precise ? aboveTrack > 24 : aboveTrack >= 48) : false;
+    const relative = Boolean(gesture?.relative || precise);
+    const progressPercent = gesture && relative
+      ? Math.min(100, Math.max(0, gesture.percent
+        + (event.clientX - gesture.x) / rect.width * 100 * (precise ? 0.25 : 1)))
+      : getReaderProgressPercentFromPointer(event.clientX, rect.left, rect.width);
     if (progressPercent === null) return false;
+    // Keep the fractional accumulator: rounding each move loses slow fine gestures.
+    progressGestureRef.current = { x: event.clientX, percent: progressPercent, precise, relative };
+    setIsPreciseProgress(precise);
     onProgressSliderPreview(progressPercent);
     return true;
   }, [onProgressSliderPreview]);
 
   const handleProgressPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activeProgressPointerIdRef.current !== null) return;
     if (event.pointerType !== 'touch' && event.button !== 0) return;
+    progressGestureRef.current = null;
     event.preventDefault();
     activeProgressPointerIdRef.current = event.pointerId;
     try {
@@ -150,6 +164,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     event.preventDefault();
     if (updateFinalPosition) previewProgressPointer(event);
     activeProgressPointerIdRef.current = null;
+    progressGestureRef.current = null;
+    setIsPreciseProgress(false);
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -162,6 +178,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     if (activeProgressPointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
     activeProgressPointerIdRef.current = null;
+    progressGestureRef.current = null;
+    setIsPreciseProgress(false);
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -279,6 +297,9 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               )}
               <div className="text-[10.5px] font-medium text-accent-500 md:text-[11.55px]">
                 {progressLabel}
+                <span role="status" data-reader-progress-precision={isPreciseProgress ? 'fine' : 'normal'} className="ml-2">
+                  {isPreciseProgress ? '¼ 정밀 이동' : '위로 끌면 ¼ 정밀 이동'}
+                </span>
               </div>
             </div>
           )}
