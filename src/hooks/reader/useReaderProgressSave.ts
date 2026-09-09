@@ -100,6 +100,13 @@ export const useReaderProgressSave = ({
   onSaveProgress,
   onAdoptRemoteProgress,
 }: UseReaderProgressSaveOptions) => {
+  const provisionalRef = useRef<{
+    original: PersistableReaderLocation;
+    latest: PersistableReaderLocation;
+    pending: RemoteJumpPreparationSnapshot;
+    skipNextSave: boolean;
+    commit: Promise<boolean> | null;
+  } | null>(null);
   const lastSaveTimeRef = useRef(initialTime || 0);
   const skipNextSaveRef = useRef(true);
   const hasUserInteractedRef = useRef(false);
@@ -157,6 +164,7 @@ export const useReaderProgressSave = ({
   const beginRemoteNavigationAttempt = useCallback((): ReaderRemoteNavigationAttempt => {
     remoteNavigationAttemptRef.current?.controller.abort();
     const controller = new AbortController();
+    if (provisionalRef.current) controller.abort();
     remoteNavigationAttemptIdRef.current += 1;
     const attempt = {
       id: remoteNavigationAttemptIdRef.current,
@@ -174,7 +182,8 @@ export const useReaderProgressSave = ({
   const isRemoteNavigationAttemptCurrent = useCallback((attempt: ReaderRemoteNavigationAttempt) => {
     const current = remoteNavigationAttemptRef.current;
     return Boolean(
-      current
+      !provisionalRef.current
+      && current
       && current.id === attempt.id
       && current.controller.signal === attempt.signal
       && !attempt.signal.aborted
@@ -194,6 +203,10 @@ export const useReaderProgressSave = ({
     expectedPercent?: number;
     bookmarks?: Bookmark[];
   }) => {
+    if (provisionalRef.current) {
+      markUserInteraction();
+      return;
+    }
     if (ttsProgressFenceTailTimerRef.current !== null) {
       window.clearTimeout(ttsProgressFenceTailTimerRef.current);
       ttsProgressFenceTailTimerRef.current = null;
@@ -234,7 +247,7 @@ export const useReaderProgressSave = ({
     unsavedSinceRef.current = null;
   }, [clearRelocateSaveTimer]);
 
-  const saveProgressIfChanged = useCallback(async (
+  const commitProgressIfChanged = useCallback(async (
     cfi: string,
     pct: number,
     nextBookmarks: Bookmark[],
@@ -291,6 +304,13 @@ export const useReaderProgressSave = ({
     }
     return true;
   }, [clearPendingSave, onSaveProgress]);
+
+  const saveProgressIfChanged = useCallback((
+    cfi: string, pct: number, bookmarks: Bookmark[], options?: SaveProgressOptions,
+  ) => {
+    if (provisionalRef.current) return Promise.resolve(false);
+    return commitProgressIfChanged(cfi, pct, bookmarks, options);
+  }, [commitProgressIfChanged]);
 
   const savePendingRelocate = useCallback((options?: SaveProgressOptions) => {
     const pending = pendingRelocateSaveRef.current;
@@ -399,6 +419,13 @@ export const useReaderProgressSave = ({
       fenceActive: ttsProgressFenceActiveRef.current,
     });
     const { totalProgress, bookmarks, hasSyncConflict } = saveContextRef.current;
+    const provisional = provisionalRef.current;
+    if (provisional) {
+      provisional.latest = updatePersistableReaderLocation(
+        provisional.latest, detail, totalProgress, false,
+      );
+      return;
+    }
     const fallbackPercent = pendingExpectedPercentRef.current ?? totalProgress;
     const previousPersistableLocation = lastPersistableLocationRef.current;
     const persistableLocation = updatePersistableReaderLocation(
@@ -436,6 +463,7 @@ export const useReaderProgressSave = ({
   }, [scheduleRelocateSave]);
 
   const saveCurrentProgress = useCallback((options?: SaveProgressOptions) => {
+    if (provisionalRef.current) return false;
     traceReaderProgressRegression({
       event: 'save-current',
       force: Boolean(options?.force),
@@ -458,7 +486,78 @@ export const useReaderProgressSave = ({
     );
   }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
 
+  const beginProvisionalNavigation = useCallback(() => {
+    if (provisionalRef.current) return;
+    clearRelocateSaveTimer();
+    remoteNavigationAttemptRef.current?.controller.abort();
+    remoteNavigationAttemptRef.current = null;
+    provisionalRef.current = {
+      original: { ...lastPersistableLocationRef.current },
+      latest: { ...lastPersistableLocationRef.current },
+      skipNextSave: skipNextSaveRef.current,
+      pending: {
+        id: 0,
+        hasUnsavedUserChange: hasUnsavedUserChangeRef.current,
+        forceNextRelocateSave: forceNextRelocateSaveRef.current,
+        pendingExpectedPercent: pendingExpectedPercentRef.current,
+        pendingBookmarks: pendingBookmarksRef.current,
+        pendingRelocateSave: pendingRelocateSaveRef.current,
+        unsavedSince: unsavedSinceRef.current,
+      },
+      commit: null,
+    };
+    // An older commit may finish while previewing; it must not clear this session.
+    interactionGenerationRef.current += 1;
+    clearPendingSave();
+  }, [clearPendingSave, clearRelocateSaveTimer]);
+
+  const confirmProvisionalNavigation = useCallback((bookmarks?: Bookmark[]): Promise<boolean> => {
+    const transaction = provisionalRef.current;
+    if (!transaction) return Promise.resolve(false);
+    if (transaction.commit) return transaction.commit;
+    if (saveContextRef.current.hasSyncConflict) return Promise.resolve(false);
+    const location = { ...transaction.latest };
+    const commit = commitProgressIfChanged(
+      location.cfi, location.percent,
+      bookmarks ?? saveContextRef.current.bookmarks,
+      { force: true, anchorCfi: location.anchorCfi },
+    ).then((committed) => {
+      if (committed && provisionalRef.current === transaction) {
+        lastPersistableLocationRef.current = location;
+        provisionalRef.current = null;
+        skipNextSaveRef.current = false;
+        clearPendingSave();
+      }
+      return committed;
+    }).finally(() => {
+      transaction.commit = null;
+    });
+    transaction.commit = commit;
+    return commit;
+  }, [clearPendingSave, commitProgressIfChanged]);
+
+  const cancelProvisionalNavigation = useCallback(() => {
+    const transaction = provisionalRef.current;
+    if (!transaction || transaction.commit) return;
+    const snapshot = transaction.pending;
+    lastPersistableLocationRef.current = transaction.original;
+    provisionalRef.current = null;
+    skipNextSaveRef.current = transaction.skipNextSave;
+    hasUnsavedUserChangeRef.current = snapshot.hasUnsavedUserChange;
+    forceNextRelocateSaveRef.current = snapshot.forceNextRelocateSave;
+    pendingExpectedPercentRef.current = snapshot.pendingExpectedPercent;
+    pendingBookmarksRef.current = snapshot.pendingBookmarks;
+    pendingRelocateSaveRef.current = snapshot.pendingRelocateSave;
+    unsavedSinceRef.current = snapshot.unsavedSince;
+    if (snapshot.pendingRelocateSave) {
+      scheduleRelocateSave(snapshot.pendingRelocateSave);
+    }
+  }, [scheduleRelocateSave]);
+
+  const isProvisionalNavigationActive = useCallback(() => provisionalRef.current !== null, []);
+
   const prepareRemoteJump = useCallback(() => {
+    if (provisionalRef.current) return -1;
     remoteJumpPreparationRef.current += 1;
     remoteJumpSnapshotRef.current = {
       id: remoteJumpPreparationRef.current,
@@ -517,7 +616,7 @@ export const useReaderProgressSave = ({
   }, []);
 
   const getPersistenceState = useCallback(() => ({
-    hasUnsavedUserChange: hasUnsavedUserChangeRef.current,
+    hasUnsavedUserChange: Boolean(provisionalRef.current) || hasUnsavedUserChangeRef.current,
     hasPendingRelocateSave: pendingRelocateSaveRef.current !== null,
     inFlightCommitCount: inFlightCommitCountRef.current,
   }), []);
@@ -532,6 +631,7 @@ export const useReaderProgressSave = ({
   ), [getPersistenceState]);
 
   const flushCurrentProgress = useCallback(async () => {
+    if (provisionalRef.current) return false;
     if (
       ttsProgressFenceActiveRef.current
       && !pendingRelocateSaveRef.current
@@ -566,6 +666,7 @@ export const useReaderProgressSave = ({
   }, [clearRelocateSaveTimer]);
 
   const applyCanonicalRemoteProgress = useCallback((progress: UserProgress) => {
+    if (provisionalRef.current) return;
     const safePercent = toClampedPercent(progress.progressPercent) ?? 0;
     const cfi = progress.cfi || '';
     const anchorCfi = progress.anchorCfi || cfi;
@@ -589,6 +690,7 @@ export const useReaderProgressSave = ({
     remote: RemoteProgressUpdate,
     signal?: AbortSignal,
   ): Promise<RemoteProgressAdoptionResult> => {
+    if (provisionalRef.current) return { status: 'cancelled' };
     const result = await onAdoptRemoteProgress(remote, signal);
     if (result.status === 'adopted') applyCanonicalRemoteProgress(result.progress);
     return result;
@@ -602,6 +704,7 @@ export const useReaderProgressSave = ({
       signal?: AbortSignal;
     }
   ): Promise<RemoteProgressJumpCompletion> => {
+    if (provisionalRef.current) return false;
     let canonicalProgress: UserProgress;
     if (options?.finalize) {
       const result = await options.finalize();
@@ -638,6 +741,7 @@ export const useReaderProgressSave = ({
       signal?: AbortSignal;
     },
   ): Promise<RemoteProgressJumpCompletion> => {
+    if (provisionalRef.current) return false;
     let canonicalProgress: UserProgress;
     if (options?.finalize) {
       const result = await options.finalize();
@@ -667,6 +771,10 @@ export const useReaderProgressSave = ({
   }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
 
   return {
+    beginProvisionalNavigation,
+    confirmProvisionalNavigation,
+    cancelProvisionalNavigation,
+    isProvisionalNavigationActive,
     lastSaveTimeRef,
     updateSaveContext,
     markUserInteraction,

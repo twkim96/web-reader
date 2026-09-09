@@ -1,4 +1,4 @@
-export const FOLIATE_RUNTIME_VERSION = '1.8.36';
+export const FOLIATE_RUNTIME_VERSION = '1.8.37';
 const BUILD_ID = process.env.NEXT_PUBLIC_APP_BUILD_ID ?? 'development';
 export const FOLIATE_RUNTIME_REVISION = `${FOLIATE_RUNTIME_VERSION}-${BUILD_ID}`;
 export const FOLIATE_RUNTIME_CACHE_NAME = `pc-reader-v${FOLIATE_RUNTIME_REVISION}`;

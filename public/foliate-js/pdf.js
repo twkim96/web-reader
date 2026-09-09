@@ -329,6 +329,7 @@ export const makePDF = async file => {
     const pending = new Map()
     const cleanupTasks = new Set()
     const auxiliaryTasks = new Set()
+    const previewRenderTasks = new Set()
     let destroyed = false
     let destroyPromise = null
 
@@ -425,6 +426,42 @@ export const makePDF = async file => {
         return [pageID(index), null]
     }
     book.getTOCFragment = doc => doc.documentElement
+    book.getPagePreview = (index, signal) => {
+        if (destroyed) return Promise.reject(new Error('PDF source is closed'))
+        return trackAuxiliary((async () => {
+            const check = () => {
+                if (destroyed || signal?.aborted)
+                    throw new DOMException('Preview aborted', 'AbortError')
+            }
+            check()
+            const page = await pdf.getPage(index + 1)
+            let canvas
+            let task
+            const cancel = () => task?.cancel()
+            try {
+                check()
+                const base = page.getViewport({ scale: 1 })
+                const viewport = page.getViewport({ scale: Math.min(1, 900 / Math.max(base.width, base.height)) })
+                canvas = document.createElement('canvas')
+                canvas.width = Math.ceil(viewport.width)
+                canvas.height = Math.ceil(viewport.height)
+                task = page.render({ canvasContext: canvas.getContext('2d'), viewport })
+                previewRenderTasks.add(task)
+                signal?.addEventListener('abort', cancel, { once: true })
+                await task.promise
+                check()
+                const blob = await new Promise(resolve => canvas.toBlob(resolve))
+                check()
+                return blob
+            } finally {
+                previewRenderTasks.delete(task)
+                signal?.removeEventListener('abort', cancel)
+                if (canvas) canvas.width = canvas.height = 0
+                // Leave shared pages to the main renderer; release preview-only resources.
+                if (!cache.has(index) && !pending.has(index)) page.cleanup()
+            }
+        })())
+    }
     book.getCover = () => {
         if (destroyed) return Promise.reject(new Error('PDF source is closed'))
         return trackAuxiliary((async () => {
@@ -439,6 +476,7 @@ export const makePDF = async file => {
     book.destroy = () => {
         if (destroyed) return destroyPromise
         destroyed = true
+        for (const task of previewRenderTasks) task.cancel()
         for (const index of cache.keys()) revokePage(index)
         destroyPromise = Promise.allSettled([
             ...[...pending.values()].map(({ promise }) => promise),

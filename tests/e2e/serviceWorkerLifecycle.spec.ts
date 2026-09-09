@@ -84,7 +84,7 @@ test('runtime cache stores only allowlisted public static requests', async ({ pa
     };
     const buildScript = await (await fetch('/sw-build.js')).text();
     const buildId = JSON.parse(buildScript.split(' = ')[1].replace(';', ''));
-    const cache = await caches.open('pc-reader-v1.8.36-' + buildId);
+    const cache = await caches.open('pc-reader-v1.8.37-' + buildId);
     await Promise.all(Object.values(urls).map((url) => cache.delete(url)));
 
     await fetch(urls.allowed);

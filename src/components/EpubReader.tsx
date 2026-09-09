@@ -41,6 +41,7 @@ import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
 import { useReaderChrome } from '../hooks/reader/useReaderChrome';
 import { useReaderProgressSave } from '../hooks/reader/useReaderProgressSave';
+import { ProgressContentPreview } from './reader/ProgressContentPreview';
 import { useReaderProgressSlider } from '../hooks/reader/useReaderProgressSlider';
 import { useReaderDocumentInput } from '../hooks/reader/useReaderDocumentInput';
 import { useReaderTextSelection } from '../hooks/reader/useReaderTextSelection';
@@ -384,6 +385,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     handleRelocateForSave,
     saveCurrentProgress,
     flushCurrentProgress,
+    isProvisionalNavigationActive,
+    beginProvisionalNavigation,
+    confirmProvisionalNavigation,
+    cancelProvisionalNavigation,
     prepareRemoteJump,
     prepareRemoteRollback,
     cancelRemoteJump,
@@ -706,20 +711,26 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     isSliderPreviewing,
     pendingSliderMove,
     isSliderMoveCommitting,
+    sliderMoveError,
     beginSliderMove,
     previewSliderMove,
     commitSliderMove,
     cancelSliderPreview,
     cancelSliderMove,
     confirmSliderMove,
+    navigateWithinPreview,
   } = useReaderProgressSlider({
-    currentCfi,
+    currentCfi: currentAnchorCfi || currentCfi,
     totalProgress,
     stageAutoBookmark,
     commitBookmarks,
-    markUserProgressChange,
-    goToFraction,
-    saveCurrentProgress,
+    getBookmarks,
+    getCurrentPercent: () => (viewRef.current?.lastLocation?.progressPercent ?? (viewRef.current?.lastLocation?.fraction ?? totalProgress / 100) * 100),
+    goTo: goToStable,
+    goToFraction: goToFractionStable,
+    beginProvisionalNavigation,
+    confirmProvisionalNavigation,
+    cancelProvisionalNavigation,
     markReadingActivity: () => markReadingActivityRef.current(),
   });
   const isReaderPanelOpen = isBaseReaderPanelOpen
@@ -727,7 +738,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || syncConflict !== null
     || pendingSliderMove !== null
     || isSliderMoveCommitting;
-  const shouldHideReaderChrome = isReaderPanelOpen || Boolean(tts.state.mode);
+  const shouldHideReaderChrome = isBaseReaderPanelOpen
+    || translation !== null || syncConflict !== null || Boolean(tts.state.mode);
   const {
     flushActiveSession: flushReadingSession,
     getActiveSessionPreview,
@@ -737,7 +749,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     book,
     deviceId: readingStatsDeviceId,
     isLoaded,
-    suspended: isReaderPanelOpen,
+    suspended: isReaderPanelOpen || isSliderPreviewing,
     ttsStatus: tts.state.status,
     progressPercent: totalProgress,
     viewRef,
@@ -1396,6 +1408,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const pendingManualJumpRef = useRef<PendingReaderJump | null>(null);
 
   const performCfiJump = useCallback(async (targetCfi: string, expectedPercent?: number) => {
+    if (isProvisionalNavigationActive()) return navigateWithinPreview(() => goToStable(targetCfi));
     const currentLocationCfi = currentAnchorCfi || currentCfi;
     if (!currentCfi) return false;
     const key = `cfi:${targetCfi}`;
@@ -1432,7 +1445,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
     }
     return saved;
-  }, [commitBookmarks, currentAnchorCfi, currentCfi, goTo, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
+  }, [isProvisionalNavigationActive, navigateWithinPreview, goToStable, commitBookmarks, currentAnchorCfi, currentCfi, goTo, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
 
   const performJump = useCallback(
     (targetCfi: string) => performCfiJump(targetCfi),
@@ -1445,6 +1458,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   );
 
   const performJumpFraction = useCallback(async (fraction: number) => {
+    if (isProvisionalNavigationActive()) return navigateWithinPreview(() => goToFractionStable(fraction));
     const targetPct = fraction * 100;
     const key = `fraction:${targetPct.toFixed(6)}`;
     const staged = reuseOrStageReaderJump(
@@ -1475,7 +1489,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
     }
     return saved;
-  }, [commitBookmarks, currentAnchorCfi, currentCfi, goToFraction, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
+  }, [isProvisionalNavigationActive, navigateWithinPreview, goToFractionStable, commitBookmarks, currentAnchorCfi, currentCfi, goToFraction, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
 
   const handledLibraryAnnotationJumpRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1718,7 +1732,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         theme={theme}
         menuStyle={settings.shelfDockStyle}
         bookName={book.name}
-        showControls={chrome.showControls && !shouldHideReaderChrome}
+        showControls={(chrome.showControls || pendingSliderMove !== null || isSliderPreviewing) && !shouldHideReaderChrome}
         sliderProgress={sliderProgress}
         isSliderPreviewing={isSliderPreviewing}
         sliderPreviewChapter={sliderTargetChapter}
@@ -1897,12 +1911,20 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         />
       )}
 
+      <ProgressContentPreview
+        viewRef={viewRef}
+        percent={sliderProgress}
+        visible={isSliderPreviewing}
+        chapter={sliderTargetChapter}
+        theme={theme}
+      />
       {pendingSliderMove && (
         <ProgressJumpConfirmDialog
           theme={theme}
           targetPercent={pendingSliderMove.targetPercent}
           targetChapter={pendingSliderTargetChapter}
           resolving={isSliderMoveCommitting}
+          error={sliderMoveError}
           onCancel={cancelSliderMove}
           onConfirm={() => { void confirmSliderMove(); }}
         />

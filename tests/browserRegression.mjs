@@ -102,6 +102,12 @@ const waitFor = async (expression, label, timeoutMs = 30_000) => {
       lastReaderAutoOpen: document.documentElement.dataset.lastReaderAutoOpen,
       viewerSettings: localStorage.getItem('viewer_settings'),
       regressionErrors: window.__regressionErrors ?? [],
+      proofDiagnostics: window.__bookInfoProofDiagnostics ?? [],
+      clipboardItemSupported: typeof ClipboardItem !== 'undefined',
+      proofStatus: document.querySelector('[data-book-info-capture-status]')?.textContent,
+      proofClones: document.querySelectorAll('[data-book-info-capture-root]').length,
+      fontsStatus: document.fonts.status,
+      bookInfoText: document.querySelector('[data-book-info-actions]')?.parentElement?.textContent?.slice(-1200),
       liveFoliateDocuments: view?.renderer?.getContents?.().map(({ doc }) => ({
         visibilityState: doc?.visibilityState,
         connected: Boolean(doc?.defaultView?.frameElement?.isConnected),
@@ -1139,6 +1145,12 @@ try {
   assert.ok(Math.abs(bookInfoActions[2].height - bookInfoActions[3].height) <= 1);
   await evaluate(`(() => {
     window.__bookInfoClipboardBlob = null;
+    window.__bookInfoProofDiagnostics = [];
+    const nativeError = console.error;
+    console.error = (...args) => {
+      if (String(args[0]).startsWith('[BookInfo]')) window.__bookInfoProofDiagnostics.push(args.map(value => String(value?.stack ?? value)).join(' '));
+      nativeError(...args);
+    };
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: {
@@ -2495,7 +2507,7 @@ try {
     start: document.querySelector('foliate-view')?.renderer?.start,
     previousFoliatePreserved: false,
     versionedEntry: [...document.scripts].some((script) => (
-      script.src.includes('/foliate-js/view.js?v=1.8.36-')
+      script.src.includes('/foliate-js/view.js?v=1.8.37-')
     )),
   }))()`);
   actualTextTapClosed.previousFoliatePreserved = await evaluate(`(async () => {
@@ -3551,6 +3563,16 @@ try {
     const track = document.querySelector('[data-reader-progress-pointer-track="true"]');
     const input = document.querySelector('input[aria-label="진행률"]');
     if (!track || !input) return { missing: true };
+    const waitForCancel = async () => {
+      const deadline = performance.now() + 5000;
+      while (document.querySelector('#progress-jump-confirm-title') && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      if (document.querySelector('#progress-jump-confirm-title')) throw new Error('Provisional rollback did not finish');
+    };
+    const view = document.querySelector('foliate-view');
+    const originalCfi = view?.lastLocation?.cfi;
+    window.__readerProgressRegressionTrace = [];
     const current = Number(input.value || 0);
     const tapTarget = current < 50 ? 72 : 28;
     const dragTarget = current < 50 ? 86 : 14;
@@ -3581,20 +3603,34 @@ try {
     const tapPointer = dispatchPointer('pointerup', tapTarget, 0);
     await window.__regressionNextFrame(2);
     const tapTitle = document.querySelector('#progress-jump-confirm-title')?.textContent ?? '';
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    const provisionalCfi = view?.lastLocation?.cfi;
+    const provisionalSaves = window.__readerProgressRegressionTrace.filter(item => item.event === 'save-attempt').length;
     [...document.querySelectorAll('button')]
       .find((button) => button.textContent?.trim() === '취소')?.click();
+    await waitForCancel();
     await window.__regressionNextFrame(2);
 
     dispatchPointer('pointerdown', dragStart, 1);
     dispatchPointer('pointermove', dragTarget, 1);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const contentPreview = document.querySelector('[data-progress-content-preview]');
+    const previewText = contentPreview?.querySelector('p')?.textContent ?? '';
+    const previewDoesNotIntercept = contentPreview ? getComputedStyle(contentPreview).pointerEvents === 'none' : false;
     const dragPointer = dispatchPointer('pointerup', dragTarget, 0);
     await window.__regressionNextFrame(2);
     const dragTitle = document.querySelector('#progress-jump-confirm-title')?.textContent ?? '';
     [...document.querySelectorAll('button')]
       .find((button) => button.textContent?.trim() === '취소')?.click();
+    await waitForCancel();
 
     return {
       current,
+      movedBeforeConfirmation: Boolean(provisionalCfi && provisionalCfi !== originalCfi),
+      restoredOriginal: view?.lastLocation?.cfi === originalCfi,
+      provisionalSaves,
+      previewText,
+      previewDoesNotIntercept,
       tapTarget,
       dragStart,
       dragTarget,
@@ -3609,14 +3645,19 @@ try {
   assert.equal(progressPointerControls.missing, undefined, JSON.stringify(progressPointerControls));
   assert.match(
     progressPointerControls.tapTitle,
-    new RegExp(`^${progressPointerControls.tapPointer.expectedPercent.toFixed(1)}%로 이동할까요\\?$`),
+    new RegExp(`^${progressPointerControls.tapPointer.expectedPercent.toFixed(1)}% · 임시 이동$`),
     JSON.stringify(progressPointerControls),
   );
   assert.match(
     progressPointerControls.dragTitle,
-    new RegExp(`^${progressPointerControls.dragPointer.expectedPercent.toFixed(1)}%로 이동할까요\\?$`),
+    new RegExp(`^${progressPointerControls.dragPointer.expectedPercent.toFixed(1)}% · 임시 이동$`),
     JSON.stringify(progressPointerControls),
   );
+  assert.equal(progressPointerControls.movedBeforeConfirmation, true, JSON.stringify(progressPointerControls));
+  assert.equal(progressPointerControls.restoredOriginal, true, JSON.stringify(progressPointerControls));
+  assert.equal(progressPointerControls.provisionalSaves, 0, JSON.stringify(progressPointerControls));
+  assert.equal(progressPointerControls.previewDoesNotIntercept, true);
+  assert.ok(progressPointerControls.previewText && progressPointerControls.previewText !== '미리보기 불러오는 중…');
   assert.notEqual(progressPointerControls.dragStart, progressPointerControls.current);
   assert.equal(progressPointerControls.inputPointerEvents, 'none');
   assert.equal(progressPointerControls.trackTouchAction, 'none');
@@ -7225,8 +7266,14 @@ try {
     } catch (error) {
       cancelledLoadError = error?.name;
     }
+    const pagePreview = await book.getPagePreview(2);
+    let cancelledPreviewError;
+    try { await book.getPagePreview(2, cancelledController.signal); }
+    catch (error) { cancelledPreviewError = error?.name; }
     const cover = await book.getCover();
     const result = {
+      pagePreview: { size: pagePreview?.size ?? 0, type: pagePreview?.type ?? '' },
+      cancelledPreviewError,
       pageCount: book.sections.length,
       index: renderer.index,
       layers,
@@ -7328,6 +7375,9 @@ try {
   assert.equal(pdfResult.cancelledLoadError, 'AbortError');
   assert.ok(pdfResult.cover.size > 0);
   assert.match(pdfResult.cover.type, /^image\//);
+  assert.ok(pdfResult.pagePreview.size > 0);
+  assert.match(pdfResult.pagePreview.type, /^image\//);
+  assert.equal(pdfResult.cancelledPreviewError, 'AbortError');
   assert.ok(pdfResult.firstPageReleaseCalls >= 1);
   assert.ok(pdfResult.highScaleCanvas.width <= 8192);
   assert.ok(pdfResult.highScaleCanvas.height <= 8192);
@@ -7357,7 +7407,7 @@ try {
     const cachePrefix = 'pc-reader-';
     const buildScript = await (await fetch('/sw-build.js')).text();
     const buildId = JSON.parse(buildScript.split(' = ')[1].replace(';', ''));
-    const expectedCache = 'pc-reader-v1.8.36-' + buildId;
+    const expectedCache = 'pc-reader-v1.8.37-' + buildId;
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
       '/',
@@ -7384,7 +7434,7 @@ try {
     await existingReleaseCache.put('/fonts/SUIT-Variable.woff2', new Response('obsolete'));
 
     const registration = await navigator.serviceWorker.register(
-      '/sw.js?browser-regression=1.8.36',
+      '/sw.js?browser-regression=1.8.37',
       { scope: '/' },
     );
     const worker = registration.installing
@@ -7433,7 +7483,7 @@ try {
   assert.equal(serviceWorkerResult.oldCacheDeleted, true);
   assert.equal(serviceWorkerResult.legacyFontDeleted, true);
   assert.ok(serviceWorkerResult.preCacheHits.every(({ cached }) => cached));
-  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.36$/);
+  assert.match(serviceWorkerResult.scriptUrl, /\/sw\.js\?browser-regression=1\.8\.37$/);
 
   console.log(JSON.stringify({
     shelf: {

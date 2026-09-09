@@ -30,6 +30,7 @@ export type FoliateSection = {
   href?: string;
   linear?: string;
   size?: number;
+  createDocument?: () => Promise<Document>;
   load?: (signal?: AbortSignal) => Promise<string> | string;
 };
 
@@ -51,6 +52,7 @@ export type FoliateBook = {
   resolveHref: (href: string) => { index: number };
   splitTOCHref?: (href: string) => [string, unknown];
   getTOCFragment?: (doc: Document, fragment?: unknown) => Node;
+  getPagePreview?: (index: number, signal?: AbortSignal) => Promise<Blob | null>;
   getCover?: () => Promise<Blob | null>;
   destroy?: () => void;
 };
@@ -100,6 +102,7 @@ export type FoliateViewElement = HTMLElement & {
   book?: {
     sections?: FoliateSection[];
     toc?: TocItem[];
+    getPagePreview?: (index: number, signal?: AbortSignal) => Promise<Blob | null>;
     getCover?: () => Promise<Blob | null>;
   };
   open: (source: Blob | File | string | FoliateBook) => Promise<void>;
@@ -126,9 +129,9 @@ export type FoliateViewElement = HTMLElement & {
     reason: string,
   ) => Promise<unknown>;
   cancelTransientNavigation?: (source?: string) => boolean | undefined;
-  resolveNavigation: (href: string) => {
+  resolveNavigation: (href: string | { fraction: number }) => {
     index?: number;
-    anchor?: Range | ((doc: Document) => Range | Element | number);
+    anchor?: number | Range | ((doc: Document) => Range | Element | number);
   } | null;
   search: (options: { query: string; signal?: AbortSignal }) => AsyncIterable<FoliateSearchResult>;
   clearSearch?: () => void;

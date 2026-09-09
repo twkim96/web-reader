@@ -1,11 +1,8 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 
 const processes = [];
-const userDataDir = await mkdtemp(join(tmpdir(), 'web-reader-chromium-'));
+let browser;
 
 const start = (command, args, options = {}) => {
   const child = spawn(command, args, { stdio: 'inherit', ...options });
@@ -52,15 +49,12 @@ try {
   start('npm', ['run', 'start', '--', '--hostname', '127.0.0.1', '--port', '3000']);
   await waitForUrl('http://127.0.0.1:3000', 'Next production server');
 
-  start(chromium.executablePath(), [
-    '--headless=new',
-    '--no-sandbox',
-    '--disable-dev-shm-usage',
-    '--remote-debugging-address=127.0.0.1',
-    '--remote-debugging-port=9223',
-    `--user-data-dir=${userDataDir}`,
-    'about:blank',
-  ]);
+  // Use Playwright's supported headless runtime and launch defaults. Launching
+  // the headed executable with --headless=new can stall RAF on macOS.
+  browser = await chromium.launch({
+    headless: true,
+    args: ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9223'],
+  });
   await waitForUrl('http://127.0.0.1:9223/json/version', 'Chromium CDP endpoint');
 
   await waitForExit(start(process.execPath, ['tests/browserRegression.mjs'], {
@@ -71,11 +65,6 @@ try {
     },
   }));
 } finally {
+  await browser?.close();
   await Promise.all(processes.reverse().map(terminateAndWait));
-  await rm(userDataDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 200,
-  });
 }

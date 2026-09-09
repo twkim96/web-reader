@@ -1,6 +1,7 @@
 export const makeComicBook = ({ entries, loadBlob, getSize }, file) => {
     const cache = new Map()
     const urls = new Map()
+    let destroyed = false
     const load = async name => {
         if (cache.has(name)) return cache.get(name)
         const src = URL.createObjectURL(await loadBlob(name))
@@ -32,6 +33,13 @@ export const makeComicBook = ({ entries, loadBlob, getSize }, file) => {
     if (!files.length) throw new Error('No supported image files in archive')
 
     const book = {}
+    book.getPagePreview = async (index, signal) => {
+        if (destroyed || signal?.aborted) throw new DOMException('Preview aborted', 'AbortError')
+        if (!files[index]) return null
+        const blob = await loadBlob(files[index])
+        if (destroyed || signal?.aborted) throw new DOMException('Preview aborted', 'AbortError')
+        return blob
+    }
     book.getCover = () => loadBlob(files[0])
     book.metadata = { title: file.name }
     book.sections = files.map(name => ({
@@ -46,6 +54,7 @@ export const makeComicBook = ({ entries, loadBlob, getSize }, file) => {
     book.splitTOCHref = href => [href, null]
     book.getTOCFragment = doc => doc.documentElement
     book.destroy = () => {
+        destroyed = true
         for (const arr of urls.values())
             for (const url of arr) URL.revokeObjectURL(url)
     }

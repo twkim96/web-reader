@@ -42,8 +42,8 @@ test('shares one in-flight Foliate runtime preparation', async () => {
 });
 
 test('keeps the release cache version while revising the Foliate entry separately', () => {
-  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.36');
-  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.36-development');
-  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.36-development');
-  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.36-development');
+  assert.equal(FOLIATE_RUNTIME_VERSION, '1.8.37');
+  assert.equal(FOLIATE_RUNTIME_REVISION, '1.8.37-development');
+  assert.equal(FOLIATE_RUNTIME_CACHE_NAME, 'pc-reader-v1.8.37-development');
+  assert.equal(FOLIATE_ENTRY_URL, '/foliate-js/view.js?v=1.8.37-development');
 });

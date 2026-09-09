@@ -10,7 +10,7 @@ test('build identity is deterministic and includes deployment public configurati
   assert.notEqual(first, computeAppBuildId(root, { NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'second' }));
 });
 
-const EXPECTED_VERSION = '1.8.36';
+const EXPECTED_VERSION = '1.8.37';
 
 test('keeps package metadata and service worker cache on the release version', async () => {
   const [packageText, lockText, serviceWorker, browserRegression, foliateRuntime, foliateView] = await Promise.all([

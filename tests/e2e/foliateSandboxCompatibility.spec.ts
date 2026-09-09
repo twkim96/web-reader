@@ -918,7 +918,7 @@ test('paginator waits for pagination and returns to the calculated last page acr
 test('Foliate range annotations draw, receive taps, and delete in the active overlayer', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {
-    const viewModule = '/foliate-js/view.js?v=1.8.36';
+    const viewModule = '/foliate-js/view.js?v=1.8.37';
     await import(viewModule);
     await customElements.whenDefined('foliate-view');
     const urls = [

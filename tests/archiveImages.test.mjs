@@ -497,3 +497,32 @@ test('opens a ZIP book from its cached serializable image index', async () => {
   assert.deepEqual(book.sections.map(({ id }) => id), ['2.png', '10.jpg']);
   book.destroy();
 });
+
+test('independent archive previews preserve the displayed page and reject late cancelled results', async () => {
+  const blob = pngDimensionsBlob(20, 30);
+  const inspection = selectArchiveImageEntries([entry('1.png', { size: blob.size })]);
+  let resolvePreview;
+  let delayed = false;
+  let closes = 0;
+  const book = createArchiveImageBook({
+    entries: inspection.entries,
+    fileName: 'preview.zip',
+    loadBlob: async () => delayed ? new Promise(resolve => { resolvePreview = resolve; }) : blob,
+    close: () => { closes += 1; },
+  });
+  const pageUrl = await book.sections[0].load();
+  assert.equal(await book.getPagePreview(0), blob);
+  assert.equal((await fetch(pageUrl)).ok, true);
+  delayed = true;
+  const controller = new AbortController();
+  const preview = book.getPagePreview(0, controller.signal);
+  controller.abort();
+  resolvePreview(blob);
+  await assert.rejects(preview, { name: 'AbortError' });
+  assert.equal(await book.sections[0].load(), pageUrl);
+  const late = book.getPagePreview(0);
+  book.destroy();
+  resolvePreview(blob);
+  await assert.rejects(late, { name: 'AbortError' });
+  assert.equal(closes, 1);
+});

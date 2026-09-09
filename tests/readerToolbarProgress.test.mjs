@@ -72,11 +72,15 @@ const Harness = ({ menuStyle = 'modern' } = {}) => {
   const slider = useReaderProgressSlider({
     currentCfi: 'epubcfi(/6/2!/4/2)',
     totalProgress: 20,
+    getCurrentPercent: () => 20,
+    getBookmarks: () => [],
     stageAutoBookmark: () => [],
     commitBookmarks: (bookmarks) => bookmarks,
-    markUserProgressChange: () => undefined,
+    beginProvisionalNavigation: () => undefined,
+    cancelProvisionalNavigation: () => undefined,
+    confirmProvisionalNavigation: async () => true,
+    goTo: async () => true,
     goToFraction: async () => true,
-    saveCurrentProgress: () => true,
     markReadingActivity: () => undefined,
   });
 
@@ -178,6 +182,10 @@ test('reader progress track commits one tap and drags from any track position wi
     dispatchPointer(window, backdrop, 'pointerdown', 10, 1);
     dispatchPointer(window, backdrop, 'pointerup', 10, 0);
     await Promise.resolve();
+  });
+  assert.ok(window.document.querySelector('#pending-progress'), 'outside pointer clicks must not cancel provisional navigation');
+  await act(async () => {
+    [...window.document.querySelectorAll('button')].find(button => button.textContent === '취소').click();
   });
   assert.equal(window.document.querySelector('#pending-progress'), null);
 
@@ -288,4 +296,118 @@ test('reader menu styles reach the top chrome and bottom toolbar with distinct s
   await act(async () => {
     root.unmount();
   });
+});
+
+test('provisional slider moves navigate immediately, preserve first origin across moves, and only confirm saves', async () => {
+  installDom();
+  const root = createRoot(document.querySelector('#root'));
+  const navigations = [], saves = [], rollbacks = [], bookmarks = [];
+  let slider, position = 30, active = false;
+  function TransactionHarness() {
+    const [, rerender] = React.useState(0);
+    const state = useReaderProgressSlider({
+      currentCfi: `cfi-${position}`, totalProgress: position,
+      getCurrentPercent: () => position, getBookmarks: () => [],
+      stageAutoBookmark: (cfi, percent) => [{ id: "origin", type: "auto", cfi, progressPercent: percent }],
+      commitBookmarks: value => { bookmarks.push(value); return value; },
+      beginProvisionalNavigation: () => { active = true; },
+      cancelProvisionalNavigation: () => { active = false; },
+      confirmProvisionalNavigation: async () => { saves.push(position); active = false; return true; },
+      goTo: async cfi => { rollbacks.push(cfi); position = Number(cfi.slice(4)); rerender(n => n + 1); return true; },
+      goToFraction: async fraction => { position = fraction * 100; navigations.push(position); rerender(n => n + 1); return true; },
+      markReadingActivity: () => {},
+    });
+    React.useLayoutEffect(() => { slider = state; });
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(TransactionHarness)));
+    for (const target of [40, 50, 60]) {
+      await act(async () => { slider.previewSliderMove(target); slider.commitSliderMove(); });
+      assert.equal(position, target);
+      assert.equal(slider.pendingSliderMove.startPercent, 30);
+      assert.equal(active, true);
+      assert.deepEqual(saves, []);
+    }
+    assert.deepEqual(navigations, [40, 50, 60]);
+    await act(async () => slider.cancelSliderMove());
+    assert.deepEqual(rollbacks, ['cfi-30']);
+    assert.equal(position, 30);
+    assert.deepEqual(saves, []);
+    assert.deepEqual(bookmarks, []);
+    await act(async () => { slider.previewSliderMove(75); slider.commitSliderMove(); });
+    await act(async () => slider.confirmSliderMove());
+    assert.deepEqual(saves, [75]);
+    assert.equal(bookmarks[0][0].cfi, 'cfi-30');
+    assert.equal(slider.pendingSliderMove, null);
+    assert.equal(active, false);
+  } finally { await act(async () => root.unmount()); }
+});
+
+test('cancel waits for an outstanding provisional jump before restoring its original CFI', async () => {
+  installDom();
+  const root = createRoot(document.querySelector('#root'));
+  let slider, finishNavigation;
+  const events = [];
+  function Harness() {
+    const state = useReaderProgressSlider({
+      currentCfi: 'original', totalProgress: 30, getCurrentPercent: () => 60, getBookmarks: () => [], stageAutoBookmark: () => [], commitBookmarks: x => x,
+      beginProvisionalNavigation: () => events.push('gate'),
+      cancelProvisionalNavigation: () => events.push('release'),
+      confirmProvisionalNavigation: async () => { events.push('save'); return true; },
+      goTo: async cfi => { events.push(cfi); return true; },
+      goToFraction: () => new Promise(resolve => { finishNavigation = () => { events.push('jump'); resolve(true); }; }),
+      markReadingActivity: () => {},
+    });
+    React.useLayoutEffect(() => { slider = state; });
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(async () => { slider.previewSliderMove(60); slider.commitSliderMove(); });
+    let cancellation;
+    await act(async () => { cancellation = slider.cancelSliderMove(); });
+    assert.deepEqual(events, ['gate']);
+    await act(async () => { finishNavigation(); await cancellation; });
+    assert.deepEqual(events, ['gate', 'jump', 'original', 'release']);
+  } finally { await act(async () => root.unmount()); }
+});
+
+test('menu jumps share provisional rollback and confirmation preserves live manual bookmarks', async () => {
+  installDom();
+  const root = createRoot(document.querySelector('#root'));
+  let slider, position = 30, liveBookmarks = [{ id: 'deleted', type: 'manual' }];
+  const commits = [], events = [];
+  let finishSave;
+  function Harness() {
+    const state = useReaderProgressSlider({
+      currentCfi: `cfi-${position}`, totalProgress: position,
+      getCurrentPercent: () => position, getBookmarks: () => liveBookmarks,
+      stageAutoBookmark: () => [...liveBookmarks, { id: 'origin', type: 'auto', cfi: `cfi-${position}` }],
+      commitBookmarks: value => { commits.push(value); return value; },
+      beginProvisionalNavigation: () => events.push('gate'), cancelProvisionalNavigation: () => events.push('release'),
+      confirmProvisionalNavigation: () => new Promise(resolve => { finishSave = () => resolve(true); }),
+      goTo: async () => { position = 30; return true; },
+      goToFraction: async fraction => { position = fraction * 100; return true; }, markReadingActivity: () => {},
+    });
+    React.useLayoutEffect(() => { slider = state; });
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(async () => { slider.beginSliderMove(); slider.commitSliderMove(); });
+    assert.deepEqual(events, ['gate', 'release'], 'focus/key events without a target release the gate');
+    await act(async () => { slider.previewSliderMove(40); slider.commitSliderMove(); });
+    await act(async () => slider.navigateWithinPreview(async () => { position = 55; return true; }));
+    assert.equal(slider.pendingSliderMove.startPercent, 30);
+    assert.equal(slider.pendingSliderMove.targetPercent, 55);
+    liveBookmarks = [{ id: 'added', type: 'manual' }];
+    await act(async () => { slider.previewSliderMove(60); slider.commitSliderMove(); });
+    let confirmation;
+    await act(async () => { confirmation = slider.confirmSliderMove(); });
+    liveBookmarks = [{ id: 'added-during-save', type: 'manual' }];
+    await act(async () => { finishSave(); await confirmation; });
+    assert.deepEqual(commits[0].map(item => item.id), ['added-during-save', 'origin']);
+    assert.equal(commits[0][1].cfi, 'cfi-30');
+  } finally { await act(async () => root.unmount()); }
 });
