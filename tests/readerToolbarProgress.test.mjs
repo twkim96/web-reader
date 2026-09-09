@@ -413,7 +413,7 @@ test('menu jumps share provisional rollback and confirmation preserves live manu
 });
 
 
-test('lifting the progress gesture enables fifth-speed scrubbing without jumps or mode chatter', async () => {
+test('vertical progress gestures enable fifth and tenth speed without jumps or mode chatter', async () => {
   const window = installDom();
   const root = createRoot(document.querySelector('#root'));
   try {
@@ -433,7 +433,17 @@ test('lifting the progress gesture enables fifth-speed scrubbing without jumps o
     assert.equal(document.querySelector('[data-reader-progress-precision]').getAttribute('data-reader-progress-precision'), 'fine');
     assert.equal(await move('pointermove', 240, 220), 44, 'returning to the bar must not snap to the finger');
     assert.equal(await move('pointermove', 280, 220), 54, 'normal speed resumes from current selection');
-    await move('pointerup', 280, 220, 0);
+    assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '일반 이동');
+    assert.equal(await move('pointermove', 280, 300), 54, 'lowering alone preserves the target');
+    assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '1/10 정밀 이동');
+    assert.equal(await move('pointermove', 360, 300), 56, '80px below the bar gives 2%');
+    assert.equal(await move('pointermove', 360, 275), 56, 'downward mode survives boundary jitter');
+    assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '1/10 정밀 이동');
+    assert.equal(await move('pointermove', 360, 140), 56, 'switching directly upward preserves selection');
+    assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '1/5 정밀 이동');
+    assert.equal(await move('pointermove', 320, 140), 54, 'upward mode resumes fifth-speed movement');
+    assert.equal(await move('pointermove', 320, 220), 54, 'returning to normal preserves selection');
+    await move('pointerup', 320, 220, 0);
     assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '54');
     await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '취소').click());
     assert.equal(await move('pointerdown', 80, 220), 20, 'a new gesture resets to absolute positioning');

@@ -116,9 +116,9 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const activeProgressPointerIdRef = React.useRef<number | null>(null);
   const progressGestureRef = React.useRef<{
-    x: number; percent: number; precise: boolean; relative: boolean;
+    x: number; percent: number; precision: 1 | 5 | 10; relative: boolean;
   } | null>(null);
-  const [isPreciseProgress, setIsPreciseProgress] = React.useState(false);
+  const [progressPrecision, setProgressPrecision] = React.useState<1 | 5 | 10>(1);
   const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
 
   const previewProgressPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -127,16 +127,22 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     const gesture = progressGestureRef.current;
     // Separate enter/exit thresholds prevent mode chatter from small vertical tremors.
     const aboveTrack = rect.top - event.clientY;
-    const precise = gesture ? (gesture.precise ? aboveTrack > 24 : aboveTrack >= 48) : false;
-    const relative = Boolean(gesture?.relative || precise);
+    const belowTrack = event.clientY - (rect.top + rect.height);
+    const precision: 1 | 5 | 10 = !gesture ? 1
+      : aboveTrack >= 48 ? 5
+      : belowTrack >= 48 ? 10
+      : gesture.precision === 5 && aboveTrack > 24 ? 5
+      : gesture.precision === 10 && belowTrack > 24 ? 10
+      : 1;
+    const relative = Boolean(gesture?.relative || precision !== 1);
     const progressPercent = gesture && relative
       ? Math.min(100, Math.max(0, gesture.percent
-        + (event.clientX - gesture.x) / rect.width * 100 * (precise ? 0.2 : 1)))
+        + (event.clientX - gesture.x) / rect.width * 100 / precision))
       : getReaderProgressPercentFromPointer(event.clientX, rect.left, rect.width);
     if (progressPercent === null) return false;
     // Keep the fractional accumulator: rounding each move loses slow fine gestures.
-    progressGestureRef.current = { x: event.clientX, percent: progressPercent, precise, relative };
-    setIsPreciseProgress(precise);
+    progressGestureRef.current = { x: event.clientX, percent: progressPercent, precision, relative };
+    setProgressPrecision(precision);
     onProgressSliderPreview(progressPercent);
     return true;
   }, [onProgressSliderPreview]);
@@ -165,7 +171,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     if (updateFinalPosition) previewProgressPointer(event);
     activeProgressPointerIdRef.current = null;
     progressGestureRef.current = null;
-    setIsPreciseProgress(false);
+    setProgressPrecision(1);
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -179,7 +185,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     event.preventDefault();
     activeProgressPointerIdRef.current = null;
     progressGestureRef.current = null;
-    setIsPreciseProgress(false);
+    setProgressPrecision(1);
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -456,10 +462,10 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       {showControls && isSliderPreviewing && (
         <div
           role="status"
-          data-reader-progress-precision={isPreciseProgress ? 'fine' : 'normal'}
+          data-reader-progress-precision={progressPrecision === 10 ? 'finer' : progressPrecision === 5 ? 'fine' : 'normal'}
           className={`app-radius-exempt pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 z-[95] -translate-x-1/2 whitespace-nowrap rounded-full border ${theme.border} ${surfaceClass} px-4 py-1.5 text-xs font-medium shadow-[0_6px_20px_rgba(0,0,0,0.25)]`}
         >
-          {isPreciseProgress ? '1/5 정밀 이동' : '일반 이동 · 위로 끌면 1/5'}
+          {progressPrecision === 1 ? '일반 이동' : `1/${progressPrecision} 정밀 이동`}
         </div>
       )}
     </>
