@@ -116,7 +116,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const activeProgressPointerIdRef = React.useRef<number | null>(null);
   const progressGestureRef = React.useRef<{
-    x: number; percent: number; precision: 1 | 5 | 10; relative: boolean;
+    x: number; y: number; verticalAnchor: { x: number; y: number } | null; percent: number; precision: 1 | 5 | 10; relative: boolean;
   } | null>(null);
   const [progressPrecision, setProgressPrecision] = React.useState<1 | 5 | 10>(1);
   const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
@@ -134,14 +134,29 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       : gesture.precision === 5 && aboveTrack > 24 ? 5
       : gesture.precision === 10 && belowTrack > 24 ? 10
       : 1;
-    const relative = Boolean(gesture?.relative || precision !== 1);
+    const dx = gesture ? event.clientX - gesture.x : 0;
+    const dy = gesture ? event.clientY - gesture.y : 0;
+    let verticalAnchor = gesture?.verticalAnchor ?? null;
+    let horizontalDelta = dx;
+    if (gesture && (Math.abs(dy) > Math.abs(dx) * 1.5 || precision !== gesture.precision)) {
+      // Discard sideways drift while changing height, including the mode boundary.
+      verticalAnchor = { x: event.clientX, y: event.clientY };
+    } else if (verticalAnchor) {
+      const intentX = event.clientX - verticalAnchor.x;
+      const intentY = event.clientY - verticalAnchor.y;
+      if (Math.abs(intentX) >= 4 && Math.abs(intentX) > Math.abs(intentY) * 1.5) {
+        horizontalDelta = intentX;
+        verticalAnchor = null;
+      }
+    }
+    const relative = Boolean(gesture?.relative || precision !== 1 || verticalAnchor);
     const progressPercent = gesture && relative
       ? Math.min(100, Math.max(0, gesture.percent
-        + (event.clientX - gesture.x) / rect.width * 100 / precision))
+        + (verticalAnchor ? 0 : horizontalDelta) / rect.width * 100 / precision))
       : getReaderProgressPercentFromPointer(event.clientX, rect.left, rect.width);
     if (progressPercent === null) return false;
     // Keep the fractional accumulator: rounding each move loses slow fine gestures.
-    progressGestureRef.current = { x: event.clientX, percent: progressPercent, precision, relative };
+    progressGestureRef.current = { x: event.clientX, y: event.clientY, verticalAnchor, percent: progressPercent, precision, relative };
     setProgressPrecision(precision);
     onProgressSliderPreview(progressPercent);
     return true;

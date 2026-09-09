@@ -451,3 +451,32 @@ test('vertical progress gestures enable fifth and tenth speed without jumps or m
     assert.equal(document.querySelector('[data-reader-progress-precision]'), null);
   } finally { await act(async () => root.unmount()); }
 });
+
+
+test('vertical mode changes discard sideways drift and resume from fresh horizontal intent', async () => {
+  const window = installDom();
+  const root = createRoot(document.querySelector('#root'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const track = document.querySelector('[data-reader-progress-pointer-track]');
+    track.getBoundingClientRect = () => ({ left: 0, top: 200, width: 400, height: 40 });
+    const move = async (type, x, y) => {
+      await act(async () => dispatchPointer(window, track, type, x, 1, y));
+      return Number(document.querySelector('input[aria-label="진행률"]').value);
+    };
+    assert.equal(await move('pointerdown', 160, 220), 40);
+    assert.equal(await move('pointermove', 164, 200), 40, 'freeze before reaching the precision boundary');
+    assert.equal(await move('pointermove', 168, 175), 40);
+    assert.equal(await move('pointermove', 172, 140), 40, 'upward diagonal drift never changes progress');
+    assert.equal(await move('pointermove', 173, 140), 40, 'small resting tremor stays locked');
+    assert.equal(await move('pointermove', 174, 140), 40);
+    assert.equal(await move('pointermove', 176, 140), 40.2, 'slow horizontal intent accumulates and resumes');
+    assert.equal(await move('pointermove', 196, 140), 41.2);
+    assert.equal(await move('pointermove', 202, 220), 41.2, 'returning to the bar discards diagonal drift');
+    assert.equal(await move('pointermove', 208, 300), 41.2, 'downward transition also holds position');
+    assert.equal(await move('pointermove', 248, 300), 42.2, 'horizontal movement resumes at tenth speed');
+    assert.equal(await move('pointermove', 252, 220), 42.2);
+    assert.equal(await move('pointermove', 272, 220), 47.2, 'normal mode resumes without catching up discarded drift');
+    await move('pointercancel', 272, 220);
+  } finally { await act(async () => root.unmount()); }
+});
