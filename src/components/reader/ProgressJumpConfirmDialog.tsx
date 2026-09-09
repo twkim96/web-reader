@@ -22,8 +22,9 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
     <div role="dialog" aria-modal="false" aria-labelledby="progress-jump-confirm-title"
       aria-describedby="progress-jump-confirm-description" aria-busy={resolving}
       onClick={(event) => event.stopPropagation()}
+      style={{ backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' }}
       className={`pointer-events-auto app-panel-radius app-reader-menu-surface w-full max-w-[22rem] border p-3 font-sans shadow-xl ${theme.text || ''} ${theme.border}`}>
-      <div className={`app-menu-sheet-section rounded-xl border p-3 ${theme.border}`}>
+      <div className="p-3">
         {targetChapter && <p className="truncate text-center text-[10px] opacity-60">{targetChapter}</p>}
         <h3 id="progress-jump-confirm-title" className="text-center text-sm font-bold">
           {targetPercent.toFixed(1)}% · 임시 이동

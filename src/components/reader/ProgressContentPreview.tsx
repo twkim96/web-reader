@@ -75,7 +75,13 @@ export function ProgressContentPreview({ viewRef, percent, visible, chapter, the
       data-progress-content-preview="true"
       aria-hidden="true"
       className={`pointer-events-none fixed left-1/2 top-1/2 z-[90] flex -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border p-5 shadow-2xl ${theme.bg} ${theme.text || ''} ${theme.border}`}
-      style={{ width: 'min(90vw, max(320px, 50vw))', height: '50dvh', opacity: 0.75 }}
+      style={{
+        width: 'min(90vw, max(320px, 50vw))',
+        height: '50dvh',
+        backgroundColor: 'color-mix(in srgb, var(--viewer-theme-bg) 85%, transparent)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+      }}
     >
       <div className="mb-3 flex shrink-0 gap-3 text-xs opacity-70">
         <span className="min-w-0 flex-1 truncate">{chapter}</span>
