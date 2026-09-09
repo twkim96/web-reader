@@ -22,7 +22,6 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
     <div role="dialog" aria-modal="false" aria-labelledby="progress-jump-confirm-title"
       aria-describedby="progress-jump-confirm-description" aria-busy={resolving}
       onClick={(event) => event.stopPropagation()}
-      style={{ backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' }}
       className={`pointer-events-auto app-panel-radius app-reader-menu-surface w-full max-w-[22rem] border p-3 font-sans shadow-xl ${theme.text || ''} ${theme.border}`}>
       <div className="p-3">
         {targetChapter && <p className="truncate text-center text-[10px] opacity-60">{targetChapter}</p>}
@@ -30,7 +29,8 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
           {targetPercent.toFixed(1)}% · 임시 이동
         </h3>
         <p id="progress-jump-confirm-description" className="mt-1 text-center text-xs opacity-65">
-          확인하면 현재 위치를 저장하고, 취소하면 처음 위치로 돌아갑니다.
+          확인하면 현재 위치를 저장하고,<br />
+          취소하면 처음 위치로 돌아갑니다.
         </p>
         {error && <p role="alert" className="mt-2 text-xs text-red-500">{error}</p>}
       </div>
