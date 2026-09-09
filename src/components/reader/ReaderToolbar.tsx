@@ -116,8 +116,20 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const titleMeasureRef = React.useRef<HTMLDivElement>(null);
   const activeProgressPointerIdRef = React.useRef<number | null>(null);
   const progressGestureRef = React.useRef<{
-    x: number; y: number; verticalAnchor: { x: number; y: number } | null; percent: number; precision: 1 | 5 | 10; relative: boolean;
+    x: number;
+    y: number;
+    tapX: number;
+    dragging: boolean;
+    verticalAnchor: { x: number; y: number } | null;
+    percent: number;
+    precision: 1 | 5 | 10;
   } | null>(null);
+  const progressHoldTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearProgressHold = React.useCallback(() => {
+    if (progressHoldTimerRef.current !== null) clearTimeout(progressHoldTimerRef.current);
+    progressHoldTimerRef.current = null;
+  }, []);
+  React.useEffect(() => clearProgressHold, [clearProgressHold]);
   const [progressPrecision, setProgressPrecision] = React.useState<1 | 5 | 10>(1);
   const [titleLayout, setTitleLayout] = React.useState<ReaderTitleLayout>('center');
 
@@ -125,20 +137,23 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0) return false;
     const gesture = progressGestureRef.current;
+    if (!gesture) return false;
+    // Hold the initial position until movement is intentional; tiny tap jitter is ignored.
+    if (!gesture.dragging && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 4) return true;
+    clearProgressHold();
     // Separate enter/exit thresholds prevent mode chatter from small vertical tremors.
     const aboveTrack = rect.top - event.clientY;
     const belowTrack = event.clientY - (rect.top + rect.height);
-    const precision: 1 | 5 | 10 = !gesture ? 1
-      : aboveTrack >= 48 ? 5
+    const precision: 1 | 5 | 10 = aboveTrack >= 48 ? 5
       : belowTrack >= 48 ? 10
       : gesture.precision === 5 && aboveTrack > 24 ? 5
       : gesture.precision === 10 && belowTrack > 24 ? 10
       : 1;
-    const dx = gesture ? event.clientX - gesture.x : 0;
-    const dy = gesture ? event.clientY - gesture.y : 0;
-    let verticalAnchor = gesture?.verticalAnchor ?? null;
+    const dx = event.clientX - gesture.x;
+    const dy = event.clientY - gesture.y;
+    let verticalAnchor = gesture.verticalAnchor;
     let horizontalDelta = dx;
-    if (gesture && (Math.abs(dy) > Math.abs(dx) * 1.5 || precision !== gesture.precision)) {
+    if (Math.abs(dy) > Math.abs(dx) * 1.5 || precision !== gesture.precision) {
       // Discard sideways drift while changing height, including the mode boundary.
       verticalAnchor = { x: event.clientX, y: event.clientY };
     } else if (verticalAnchor) {
@@ -149,30 +164,45 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         verticalAnchor = null;
       }
     }
-    const relative = Boolean(gesture?.relative || precision !== 1 || verticalAnchor);
-    const progressPercent = gesture && relative
-      ? Math.min(100, Math.max(0, gesture.percent
-        + (verticalAnchor ? 0 : horizontalDelta) / rect.width * 100 / precision))
-      : getReaderProgressPercentFromPointer(event.clientX, rect.left, rect.width);
-    if (progressPercent === null) return false;
+    const progressPercent = Math.min(100, Math.max(0, gesture.percent
+      + (verticalAnchor ? 0 : horizontalDelta) / rect.width * 100 / precision));
     // Keep the fractional accumulator: rounding each move loses slow fine gestures.
-    progressGestureRef.current = { x: event.clientX, y: event.clientY, verticalAnchor, percent: progressPercent, precision, relative };
+    progressGestureRef.current = {
+      ...gesture, x: event.clientX, y: event.clientY, dragging: true,
+      verticalAnchor, percent: progressPercent, precision,
+    };
     setProgressPrecision(precision);
     onProgressSliderPreview(progressPercent);
     return true;
-  }, [onProgressSliderPreview]);
+  }, [clearProgressHold, onProgressSliderPreview]);
 
   const handleProgressPointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (activeProgressPointerIdRef.current !== null) return;
     if (event.pointerType !== 'touch' && event.button !== 0) return;
-    progressGestureRef.current = null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    clearProgressHold();
+    progressGestureRef.current = {
+      x: event.clientX, y: event.clientY, tapX: event.clientX,
+      dragging: false, verticalAnchor: null, percent: safeSliderProgress, precision: 1,
+    };
+    setProgressPrecision(1);
     event.preventDefault();
     activeProgressPointerIdRef.current = event.pointerId;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {}
-    previewProgressPointer(event);
-  }, [previewProgressPointer]);
+    onProgressSliderPreview(safeSliderProgress);
+    progressHoldTimerRef.current = setTimeout(() => {
+      progressHoldTimerRef.current = null;
+      const gesture = progressGestureRef.current;
+      if (!gesture || gesture.dragging) return;
+      const target = getReaderProgressPercentFromPointer(gesture.tapX, rect.left, rect.width);
+      if (target === null) return;
+      gesture.percent = target;
+      onProgressSliderPreview(target);
+    }, 350);
+  }, [clearProgressHold, onProgressSliderPreview, safeSliderProgress]);
 
   const handleProgressPointerMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (activeProgressPointerIdRef.current !== event.pointerId) return;
@@ -183,7 +213,15 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const finishProgressPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>, updateFinalPosition: boolean) => {
     if (activeProgressPointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
+    clearProgressHold();
     if (updateFinalPosition) previewProgressPointer(event);
+    const gesture = progressGestureRef.current;
+    const isTap = gesture && !gesture.dragging;
+    if (isTap) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const target = getReaderProgressPercentFromPointer(gesture.tapX, rect.left, rect.width);
+      if (target !== null) onProgressSliderPreview(target);
+    }
     activeProgressPointerIdRef.current = null;
     progressGestureRef.current = null;
     setProgressPrecision(1);
@@ -192,12 +230,14 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
     } catch {}
-    onProgressSliderCommit();
-  }, [onProgressSliderCommit, previewProgressPointer]);
+    if (gesture?.dragging || isTap) onProgressSliderCommit();
+    else onProgressSliderCancel();
+  }, [clearProgressHold, onProgressSliderCancel, onProgressSliderCommit, onProgressSliderPreview, previewProgressPointer]);
 
   const cancelProgressPointer = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (activeProgressPointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
+    clearProgressHold();
     activeProgressPointerIdRef.current = null;
     progressGestureRef.current = null;
     setProgressPrecision(1);
@@ -207,7 +247,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       }
     } catch {}
     onProgressSliderCancel();
-  }, [onProgressSliderCancel]);
+  }, [clearProgressHold, onProgressSliderCancel]);
 
   const updateTitleLayout = React.useCallback(() => {
     if (typeof window === 'undefined') return;

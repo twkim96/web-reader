@@ -3575,8 +3575,6 @@ try {
     window.__readerProgressRegressionTrace = [];
     const current = Number(input.value || 0);
     const tapTarget = current < 50 ? 72 : 28;
-    const dragTarget = current < 50 ? 86 : 14;
-    const dragStart = current < 50 ? 18 : 82;
     const dispatchPointer = (type, percent, buttons) => {
       // The track may settle after cancelling the previous dialog. Derive
       // each gesture from its current bounds and the actual event coordinate.
@@ -3611,13 +3609,21 @@ try {
     await waitForCancel();
     await window.__regressionNextFrame(2);
 
-    dispatchPointer('pointerdown', dragStart, 1);
+    const dragStartingProgress = Number(input.value || 0);
+    const dragTarget = dragStartingProgress < 50 ? 86 : 14;
+    const dragStart = dragStartingProgress < 50 ? 18 : 82;
+    const dragStartPointer = dispatchPointer('pointerdown', dragStart, 1);
     dispatchPointer('pointermove', dragTarget, 1);
     await new Promise(resolve => setTimeout(resolve, 250));
     const contentPreview = document.querySelector('[data-progress-content-preview]');
     const previewText = contentPreview?.querySelector('p')?.textContent ?? '';
     const previewDoesNotIntercept = contentPreview ? getComputedStyle(contentPreview).pointerEvents === 'none' : false;
     const dragPointer = dispatchPointer('pointerup', dragTarget, 0);
+    const dragExpectedPercent = Math.min(100, Math.max(0,
+      Math.round((dragStartingProgress
+        + (dragPointer.clientX - dragStartPointer.clientX)
+          / dragStartPointer.trackWidth * 100) * 10) / 10,
+    ));
     await window.__regressionNextFrame(2);
     const dragTitle = document.querySelector('#progress-jump-confirm-title')?.textContent ?? '';
     [...document.querySelectorAll('button')]
@@ -3626,6 +3632,7 @@ try {
 
     return {
       current,
+      dragStartingProgress,
       movedBeforeConfirmation: Boolean(provisionalCfi && provisionalCfi !== originalCfi),
       restoredOriginal: view?.lastLocation?.cfi === originalCfi,
       provisionalSaves,
@@ -3637,7 +3644,9 @@ try {
       tapTitle,
       dragTitle,
       tapPointer,
+      dragStartPointer,
       dragPointer,
+      dragExpectedPercent,
       inputPointerEvents: getComputedStyle(input).pointerEvents,
       trackTouchAction: getComputedStyle(track).touchAction,
     };
@@ -3650,7 +3659,7 @@ try {
   );
   assert.match(
     progressPointerControls.dragTitle,
-    new RegExp(`^${progressPointerControls.dragPointer.expectedPercent.toFixed(1)}% · 임시 이동$`),
+    new RegExp(`^${progressPointerControls.dragExpectedPercent.toFixed(1)}% · 임시 이동$`),
     JSON.stringify(progressPointerControls),
   );
   assert.equal(progressPointerControls.movedBeforeConfirmation, true, JSON.stringify(progressPointerControls));

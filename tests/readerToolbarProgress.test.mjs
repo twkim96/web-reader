@@ -55,7 +55,7 @@ const installDom = () => {
   return window;
 };
 
-const dispatchPointer = (window, target, type, clientX, buttons, clientY = 20) => {
+const dispatchPointer = (window, target, type, clientX, buttons, clientY = 20, timeStamp) => {
   const event = new window.Event(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, {
     pointerId: { value: 7 },
@@ -65,6 +65,7 @@ const dispatchPointer = (window, target, type, clientX, buttons, clientY = 20) =
     clientX: { value: clientX },
     clientY: { value: clientY },
   });
+  if (timeStamp !== undefined) Object.defineProperty(event, 'timeStamp', { value: timeStamp });
   target.dispatchEvent(event);
 };
 
@@ -219,7 +220,7 @@ test('reader progress track commits one tap and drags from any track position wi
     dispatchPointer(window, secondTrack, 'pointerup', 444, 0);
     await Promise.resolve();
   });
-  assert.equal(window.document.querySelector('#pending-progress')?.getAttribute('data-target'), '86');
+  assert.equal(window.document.querySelector('#pending-progress')?.getAttribute('data-target'), '88');
 
   await act(async () => {
     secondRoot.unmount();
@@ -424,29 +425,29 @@ test('vertical progress gestures enable fifth and tenth speed without jumps or m
       await act(async () => dispatchPointer(window, track, type, x, buttons, y));
       return Number(document.querySelector('input[aria-label="진행률"]').value);
     };
-    assert.equal(await move('pointerdown', 120, 220), 30);
-    assert.equal(await move('pointermove', 160, 220), 40, 'ordinary scrubbing keeps absolute positioning');
-    assert.equal(await move('pointermove', 160, 140), 40, 'lifting alone does not move the target');
-    assert.equal(await move('pointermove', 240, 140), 44, '80px gives 4%, not 20%');
+    assert.equal(await move('pointerdown', 120, 220), 20);
+    assert.equal(await move('pointermove', 160, 220), 30, 'ordinary scrubbing follows finger displacement from current progress');
+    assert.equal(await move('pointermove', 160, 140), 30, 'lifting alone does not move the target');
+    assert.equal(await move('pointermove', 240, 140), 34, '80px gives 4%, not 20%');
     assert.equal(document.querySelector('[data-reader-progress-precision]').getAttribute('data-reader-progress-precision'), 'fine');
-    assert.equal(await move('pointermove', 240, 165), 44, 'vertical jitter preserves selection and fine mode');
+    assert.equal(await move('pointermove', 240, 165), 34, 'vertical jitter preserves selection and fine mode');
     assert.equal(document.querySelector('[data-reader-progress-precision]').getAttribute('data-reader-progress-precision'), 'fine');
-    assert.equal(await move('pointermove', 240, 220), 44, 'returning to the bar must not snap to the finger');
-    assert.equal(await move('pointermove', 280, 220), 54, 'normal speed resumes from current selection');
+    assert.equal(await move('pointermove', 240, 220), 34, 'returning to the bar must not snap to the finger');
+    assert.equal(await move('pointermove', 280, 220), 44, 'normal speed resumes from current selection');
     assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '일반 이동');
-    assert.equal(await move('pointermove', 280, 300), 54, 'lowering alone preserves the target');
+    assert.equal(await move('pointermove', 280, 300), 44, 'lowering alone preserves the target');
     assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '1/10 정밀 이동');
-    assert.equal(await move('pointermove', 360, 300), 56, '80px below the bar gives 2%');
-    assert.equal(await move('pointermove', 360, 275), 56, 'downward mode survives boundary jitter');
+    assert.equal(await move('pointermove', 360, 300), 46, '80px below the bar gives 2%');
+    assert.equal(await move('pointermove', 360, 275), 46, 'downward mode survives boundary jitter');
     assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '1/10 정밀 이동');
-    assert.equal(await move('pointermove', 360, 140), 56, 'switching directly upward preserves selection');
+    assert.equal(await move('pointermove', 360, 140), 46, 'switching directly upward preserves selection');
     assert.equal(document.querySelector('[data-reader-progress-precision]').textContent, '1/5 정밀 이동');
-    assert.equal(await move('pointermove', 320, 140), 54, 'upward mode resumes fifth-speed movement');
-    assert.equal(await move('pointermove', 320, 220), 54, 'returning to normal preserves selection');
+    assert.equal(await move('pointermove', 320, 140), 44, 'upward mode resumes fifth-speed movement');
+    assert.equal(await move('pointermove', 320, 220), 44, 'returning to normal preserves selection');
     await move('pointerup', 320, 220, 0);
-    assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '54');
+    assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '44');
     await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '취소').click());
-    assert.equal(await move('pointerdown', 80, 220), 20, 'a new gesture resets to absolute positioning');
+    assert.equal(await move('pointerdown', 80, 220), 20, 'a new gesture starts at the restored current progress');
     await move('pointercancel', 80, 220, 0);
     assert.equal(document.querySelector('[data-reader-progress-precision]'), null);
   } finally { await act(async () => root.unmount()); }
@@ -464,19 +465,50 @@ test('vertical mode changes discard sideways drift and resume from fresh horizon
       await act(async () => dispatchPointer(window, track, type, x, 1, y));
       return Number(document.querySelector('input[aria-label="진행률"]').value);
     };
-    assert.equal(await move('pointerdown', 160, 220), 40);
-    assert.equal(await move('pointermove', 164, 200), 40, 'freeze before reaching the precision boundary');
-    assert.equal(await move('pointermove', 168, 175), 40);
-    assert.equal(await move('pointermove', 172, 140), 40, 'upward diagonal drift never changes progress');
-    assert.equal(await move('pointermove', 173, 140), 40, 'small resting tremor stays locked');
-    assert.equal(await move('pointermove', 174, 140), 40);
-    assert.equal(await move('pointermove', 176, 140), 40.2, 'slow horizontal intent accumulates and resumes');
-    assert.equal(await move('pointermove', 196, 140), 41.2);
-    assert.equal(await move('pointermove', 202, 220), 41.2, 'returning to the bar discards diagonal drift');
-    assert.equal(await move('pointermove', 208, 300), 41.2, 'downward transition also holds position');
-    assert.equal(await move('pointermove', 248, 300), 42.2, 'horizontal movement resumes at tenth speed');
-    assert.equal(await move('pointermove', 252, 220), 42.2);
-    assert.equal(await move('pointermove', 272, 220), 47.2, 'normal mode resumes without catching up discarded drift');
+    assert.equal(await move('pointerdown', 160, 220), 20);
+    assert.equal(await move('pointermove', 164, 200), 20, 'freeze before reaching the precision boundary');
+    assert.equal(await move('pointermove', 168, 175), 20);
+    assert.equal(await move('pointermove', 172, 140), 20, 'upward diagonal drift never changes progress');
+    assert.equal(await move('pointermove', 173, 140), 20, 'small resting tremor stays locked');
+    assert.equal(await move('pointermove', 174, 140), 20);
+    assert.equal(await move('pointermove', 176, 140), 20.2, 'slow horizontal intent accumulates and resumes');
+    assert.equal(await move('pointermove', 196, 140), 21.2);
+    assert.equal(await move('pointermove', 202, 220), 21.2, 'returning to the bar discards diagonal drift');
+    assert.equal(await move('pointermove', 208, 300), 21.2, 'downward transition also holds position');
+    assert.equal(await move('pointermove', 248, 300), 22.2, 'horizontal movement resumes at tenth speed');
+    assert.equal(await move('pointermove', 252, 220), 22.2);
+    assert.equal(await move('pointermove', 272, 220), 27.2, 'normal mode resumes without catching up discarded drift');
     await move('pointercancel', 272, 220);
+  } finally { await act(async () => root.unmount()); }
+});
+
+
+test('press holds progress, tap jumps on release, and long press reanchors the following drag', async () => {
+  const window = installDom();
+  const root = createRoot(document.querySelector('#root'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const track = document.querySelector('[data-reader-progress-pointer-track]');
+    track.getBoundingClientRect = () => ({ left: 0, top: 200, width: 400, height: 40 });
+    const move = async (type, x, y, time) => {
+      await act(async () => dispatchPointer(window, track, type, x, type === 'pointerup' ? 0 : 1, y, time));
+      return Number(document.querySelector('input[aria-label="진행률"]').value);
+    };
+    assert.equal(await move('pointerdown', 320, 220, 0), 20, 'an imprecise initial touch does not move the target');
+    assert.equal(await move('pointermove', 322, 221, 50), 20, 'tap jitter does not move the target');
+    assert.equal(document.querySelector('#pending-progress'), null);
+    await move('pointerup', 322, 221, 100);
+    assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '80', 'brief tap uses initial contact position');
+    assert.equal(await move('pointerdown', 120, 220, 200), 80, 'another press starts from pending progress');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 380)); });
+    assert.equal(Number(document.querySelector('input[aria-label="진행률"]').value), 30, 'long press selects the touched position while still held');
+    assert.equal(await move('pointermove', 160, 220, 600), 40, 'drag after long press starts from the touched position');
+    await move('pointerup', 160, 220, 650);
+    assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '40');
+    await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '취소').click());
+    assert.equal(await move('pointerdown', 320, 220, 1000), 20);
+    assert.equal(await move('pointermove', 324, 220, 1100), 21, 'drag follows current progress, without jumping to initial finger position');
+    await move('pointerup', 324, 220, 1200);
+    assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '21');
   } finally { await act(async () => root.unmount()); }
 });
