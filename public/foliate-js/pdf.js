@@ -1,5 +1,6 @@
 const pdfjsPath = path => new URL(`vendor/pdfjs/${path}`, import.meta.url).toString()
 
+import './pdfjs-compat.js'
 import './vendor/pdfjs/pdf.mjs'
 import { LatestFrame } from './latest-task.js'
 import {
@@ -7,7 +8,7 @@ import {
     getPDFRenderMetrics,
 } from './pdf-page-lifecycle.js'
 const pdfjsLib = globalThis.pdfjsLib
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsPath('pdf.worker.mjs')
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdf-worker.js', import.meta.url).toString()
 
 const fetchText = async url => await (await fetch(url)).text()
 

@@ -91,7 +91,47 @@ test('caches a PDF cover only at import and falls back after that cache is remov
     browserName === 'webkit',
     'Playwright WebKit cannot persist an input-backed File Blob to IndexedDB.',
   );
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(Map.prototype, 'getOrInsertComputed');
+    Reflect.deleteProperty(WeakMap.prototype, 'getOrInsertComputed');
+    const mainMissing = !('getOrInsertComputed' in Map.prototype)
+      && !('getOrInsertComputed' in WeakMap.prototype);
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.dataset.pdfCompatMainMissing = String(mainMissing);
+    });
+  });
+  const workerProbes: string[] = [];
+  const pdfWorkers: string[] = [];
+  page.on('worker', (worker) => {
+    if (new URL(worker.url()).pathname === '/foliate-js/pdf-worker.js') {
+      pdfWorkers.push(worker.url());
+    }
+  });
+  await page.context().route('**/__pdf-compat-worker-probe?*', async (route) => {
+    workerProbes.push(new URL(route.request().url()).searchParams.get('missing') ?? '');
+    await route.fulfill({ status: 204, body: '' });
+  });
+  await page.context().route('**/foliate-js/pdf-worker.js*', async (route) => {
+    const entryUrl = new URL(route.request().url());
+    if (entryUrl.searchParams.has('compat-test-original')) {
+      await route.continue();
+      return;
+    }
+    entryUrl.searchParams.set('compat-test-original', '1');
+    await route.fulfill({
+      contentType: 'text/javascript',
+      body: `
+        delete Map.prototype.getOrInsertComputed;
+        delete WeakMap.prototype.getOrInsertComputed;
+        const missing = !('getOrInsertComputed' in Map.prototype)
+          && !('getOrInsertComputed' in WeakMap.prototype);
+        await fetch('/__pdf-compat-worker-probe?missing=' + missing);
+        await import(${JSON.stringify(entryUrl.href)});
+      `,
+    });
+  });
   await setupGuestShelf(page, 'cover-cache-e2e');
+  await expect(page.locator('html')).toHaveAttribute('data-pdf-compat-main-missing', 'true');
 
   await page.locator('button[title="Add Local Book"]:visible').first().click();
   const input = page.locator('input[type="file"]');
@@ -108,6 +148,9 @@ test('caches a PDF cover only at import and falls back after that cache is remov
     return bookId;
   }, { timeout: 30_000 }).not.toBeNull();
   if (!bookId) throw new Error('PDF cover cache was not created.');
+  expect(pdfWorkers.length, 'real PDF worker started').toBeGreaterThan(0);
+  expect(workerProbes.length, 'PDF worker compatibility preflight ran').toBeGreaterThan(0);
+  expect(workerProbes.every((missing) => missing === 'true')).toBe(true);
 
   const card = page.locator(`[data-shelf-book-id="${bookId}"]`);
   await expect(card.locator('[data-shelf-book-cover="true"]')).toBeVisible();

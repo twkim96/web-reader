@@ -91,3 +91,33 @@ test('does not wait when PDF page cleanup succeeds immediately', async () => {
   assert.equal(cleanupCalls, 1);
   assert.equal(idleRead, false);
 });
+
+
+test('PDF collection compatibility preserves cached undefined and computes each missing key once', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { runInNewContext } = await import('node:vm');
+  const source = await readFile(new URL('../public/foliate-js/pdfjs-compat.js', import.meta.url), 'utf8');
+  const context = { assert };
+  runInNewContext('delete Map.prototype.getOrInsertComputed; delete WeakMap.prototype.getOrInsertComputed;', context);
+  runInNewContext(source, context);
+  runInNewContext(`
+    for (const Collection of [Map, WeakMap]) {
+      const cache = new Collection();
+      const key = {};
+      let calls = 0;
+      const compute = received => { assert.equal(received, key); calls++; return undefined; };
+      assert.equal(cache.getOrInsertComputed(key, compute), undefined);
+      assert.equal(cache.getOrInsertComputed(key, compute), undefined);
+      assert.equal(calls, 1);
+      assert.equal(cache.has(key), true);
+      assert.equal(Object.getOwnPropertyDescriptor(Collection.prototype, 'getOrInsertComputed').enumerable, false);
+      const failedKey = {};
+      assert.throws(() => cache.getOrInsertComputed(failedKey, () => { throw new Error('failed'); }));
+      assert.equal(cache.has(failedKey), false);
+    }
+    globalThis.mapMethod = Map.prototype.getOrInsertComputed;
+    globalThis.weakMethod = WeakMap.prototype.getOrInsertComputed;
+  `, context);
+  runInNewContext(source, context);
+  runInNewContext('assert.equal(Map.prototype.getOrInsertComputed, mapMethod); assert.equal(WeakMap.prototype.getOrInsertComputed, weakMethod);', context);
+});
