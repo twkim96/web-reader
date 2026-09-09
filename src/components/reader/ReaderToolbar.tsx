@@ -131,7 +131,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     const relative = Boolean(gesture?.relative || precise);
     const progressPercent = gesture && relative
       ? Math.min(100, Math.max(0, gesture.percent
-        + (event.clientX - gesture.x) / rect.width * 100 * (precise ? 0.25 : 1)))
+        + (event.clientX - gesture.x) / rect.width * 100 * (precise ? 0.2 : 1)))
       : getReaderProgressPercentFromPointer(event.clientX, rect.left, rect.width);
     if (progressPercent === null) return false;
     // Keep the fractional accumulator: rounding each move loses slow fine gestures.
@@ -297,9 +297,6 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
               )}
               <div className="text-[10.5px] font-medium text-accent-500 md:text-[11.55px]">
                 {progressLabel}
-                <span role="status" data-reader-progress-precision={isPreciseProgress ? 'fine' : 'normal'} className="ml-2">
-                  {isPreciseProgress ? '¼ 정밀 이동' : '위로 끌면 ¼ 정밀 이동'}
-                </span>
               </div>
             </div>
           )}
@@ -456,6 +453,15 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           </div>
         </div>
       </div>
+      {showControls && isSliderPreviewing && (
+        <div
+          role="status"
+          data-reader-progress-precision={isPreciseProgress ? 'fine' : 'normal'}
+          className={`app-radius-exempt pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 z-[95] -translate-x-1/2 whitespace-nowrap rounded-full border ${theme.border} ${surfaceClass} px-4 py-1.5 text-xs font-medium shadow-[0_6px_20px_rgba(0,0,0,0.25)]`}
+        >
+          {isPreciseProgress ? '1/5 정밀 이동' : '일반 이동 · 위로 끌면 1/5'}
+        </div>
+      )}
     </>
   );
 };
