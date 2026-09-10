@@ -79,7 +79,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   }`;
 
   const bottomDockIconSize = 26;
-  const mobileHeaderIconSize = 18;
+  const mobileHeaderIconSize = 23;
   const modernDock = dockStyle === 'modern';
   const standardDock = dockStyle === 'standard';
   const dockSurfaceClass = modernDock
@@ -92,7 +92,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
   const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14";
   const accentBottomDockButtonClass = `${bottomDockButtonBaseClass} text-accent-500`;
-  const mobileHeaderButtonClass = "flex size-8 md:size-10 md:[&>svg]:size-[22px] shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
+  const mobileHeaderButtonClass = "flex size-10 md:size-10 md:[&>svg]:size-[22px] shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const renderLayoutControls = ({
     iconSize,
     buttonClass,
@@ -248,7 +248,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   return (
     <>
       <header data-shelf-top-dock="true" className="pointer-events-none sticky top-0 z-[80] md:relative md:z-40 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 transition-colors duration-300">
-        <div className="max-w-7xl mx-auto flex h-10 md:h-[4.125rem] items-center justify-between gap-2 px-2 md:gap-0 md:px-6">
+        <div className="max-w-7xl mx-auto flex h-[50px] md:h-[4.125rem] items-center justify-between gap-2 px-2 md:gap-0 md:px-6">
           <div className="pointer-events-auto relative flex h-full min-w-0 flex-1 items-center gap-2">
             <button
               type="button"
@@ -258,13 +258,13 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
-              <span className="flex size-5 md:size-10 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
+              <span className="flex size-6 md:size-10 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
                 {isGuest ? (
-                  <KeyRound className="size-[19px] md:size-[31px]" />
+                  <KeyRound className="size-[24px] md:size-[31px]" />
                 ) : isOfflineMode ? (
-                  <WifiOff className="size-[19px] md:size-[31px]" />
+                  <WifiOff className="size-[24px] md:size-[31px]" />
                 ) : (
-                  <Library className="size-[19px] md:size-[31px]" />
+                  <Library className="size-[24px] md:size-[31px]" />
                 )}
               </span>
               <span className="flex h-full min-w-0 flex-1 flex-col justify-center md:h-auto md:flex-none">
@@ -274,7 +274,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   data-shelf-library-label="true"
                   className="block truncate whitespace-nowrap text-[16px] font-medium tracking-tight md:text-[22px]"
                 >
-                  <span className="md:hidden">{isGuest ? '게스트' : (isOfflineMode ? '로컬' : '클라우드')}</span>
+                  <span className="md:hidden">{isGuest ? 'Guest' : (isOfflineMode ? 'Local' : 'Cloud')}</span>
                   <span className="hidden md:inline">{isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}</span>
                 </span>
                 <span className="hidden md:flex items-center gap-1.5 text-[10px] font-normal tracking-wide opacity-55">
