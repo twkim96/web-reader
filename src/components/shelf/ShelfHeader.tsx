@@ -92,7 +92,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
   const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14";
   const accentBottomDockButtonClass = `${bottomDockButtonBaseClass} text-accent-500`;
-  const mobileHeaderButtonClass = "shelf-mobile-header-pill flex size-10 shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
+  const mobileHeaderButtonClass = "flex size-10 shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const renderLayoutControls = ({
     iconSize,
     buttonClass,
@@ -254,11 +254,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               type="button"
               data-shelf-brand-control="true"
               onClick={isGuest ? onLogin : onToggleCloud}
-              className="group flex h-full min-w-0 flex-1 md:flex-none items-center gap-2.5 text-left text-[color:var(--viewer-theme-text)] transition-opacity active:opacity-70"
+              className="shelf-mobile-header-pill group px-2.5 md:px-0 flex h-full min-w-0 flex-1 md:flex-none items-center gap-2.5 text-left text-[color:var(--viewer-theme-text)] transition-opacity active:opacity-70"
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
-              <span className="shelf-mobile-header-pill flex size-10 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
+              <span className="flex size-10 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
                 {isGuest ? (
                   <KeyRound size={31} />
                 ) : isOfflineMode ? (
@@ -267,7 +267,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   <Library size={31} />
                 )}
               </span>
-              <span className="shelf-mobile-header-pill flex h-full min-w-0 flex-1 flex-col justify-center px-3 md:h-auto md:flex-none md:px-0">
+              <span className="flex h-full min-w-0 flex-1 flex-col justify-center md:h-auto md:flex-none">
                 <span
                   role="heading"
                   aria-level={1}
@@ -304,9 +304,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
           <div
             data-shelf-mobile-layout-controls="true"
-            className="pointer-events-auto flex h-full shrink-0 items-center gap-1.5 md:ml-1 md:gap-0.5"
+            className="shelf-mobile-header-pill pointer-events-auto flex h-full shrink-0 items-center gap-0.5 px-1.5 md:ml-1 md:gap-0.5 md:px-0"
           >
-            <span className="flex items-center gap-1.5 md:hidden">
+            <span className="flex items-center gap-0.5 md:hidden">
               {renderLayoutControls({
                 iconSize: mobileHeaderIconSize,
                 buttonClass: mobileHeaderButtonClass,
