@@ -556,22 +556,14 @@ body.reader-paged-navigation {
   overscroll-behavior: none;
 }
 
-/* Mobile shelf header floats in the same material as the bottom dock. */
-@media (width < 48rem) {
-  .shelf-mobile-header-pill {
-    position: relative;
-    color: var(--app-menu-ink, var(--viewer-theme-text));
-    border: 1px solid var(--app-menu-dock-border, var(--viewer-theme-border));
-    border-radius: 9999px;
-    background-color: var(--app-menu-dock-surface, var(--viewer-reader-surface));
-    box-shadow: var(--app-menu-dock-shadow, 0 18px 55px rgba(0, 0, 0, 0.28));
-    -webkit-backdrop-filter: var(--app-menu-dock-filter, blur(24px));
-    backdrop-filter: var(--app-menu-dock-filter, blur(24px));
-  }
-}
-
-@media (width >= 48rem) {
-  .shelf-mobile-header-pill::before {
-    display: none;
-  }
+/* Shelf header uses the same material and rim as the bottom dock. */
+.shelf-mobile-header-pill {
+  position: relative;
+  color: var(--app-menu-ink, var(--viewer-theme-text));
+  border: 1px solid var(--app-menu-dock-border, var(--viewer-theme-border));
+  border-radius: 9999px;
+  background-color: var(--app-menu-dock-surface, var(--viewer-reader-surface));
+  box-shadow: var(--app-menu-dock-shadow, 0 18px 55px rgba(0, 0, 0, 0.28));
+  -webkit-backdrop-filter: var(--app-menu-dock-filter, blur(24px));
+  backdrop-filter: var(--app-menu-dock-filter, blur(24px));
 }

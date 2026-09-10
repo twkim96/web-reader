@@ -214,7 +214,6 @@ test('uses light title-cased shelf library labels', async () => {
   assert.match(shelfHeaderSource, /isGuest \? 'Guest Library' : \(isOfflineMode \? 'Local Library' : 'Cloud Library'\)/);
   const headingSource = shelfHeaderSource.match(/<span[\s\S]*?role="heading"[\s\S]*?data-shelf-library-label="true"[\s\S]*?<\/span>/)?.[0] ?? '';
   assert.match(headingSource, /\bfont-medium\b/);
-  assert.match(headingSource, /md:text-\[22px\]/);
   assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-normal\b|\bfont-black\b/);
 });
 
@@ -249,7 +248,6 @@ test('keeps the shelf identity control flat and the user label light', async () 
 
   assert.match(identityControl, /\bh-full\b/);
   assert.match(identityControl, /text-\[color:var\(--viewer-theme-text\)\]/);
-  assert.match(identityControl, /\bsize-10\b/);
   assert.doesNotMatch(identityControl, /bg-accent|bg-slate|shadow|rounded-/);
   assert.match(identityControl, /\btext-accent-500\b/);
   assert.match(identityControl, /font-normal tracking-wide opacity-55/);

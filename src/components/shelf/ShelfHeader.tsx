@@ -87,12 +87,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     : standardDock
       ? "text-[color:var(--viewer-theme-text)]"
       : "viewer-cime-glass text-[color:var(--viewer-shelf-glass-ink)]";
-  const bottomDockClass = `app-menu-dock relative flex h-[3.6125rem] w-[calc(90vw-0.9rem)] max-w-[21.6rem] items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 [&_svg]:size-[24.7px] md:[&_svg]:size-[26px] md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
-  const bottomDockButtonBaseClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:flex-none md:shrink-0";
+  const bottomDockClass = `app-menu-dock relative flex h-[3.6125rem] w-[calc(90vw-0.9rem)] max-w-[21.6rem] items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 [&_svg]:size-[24.7px] md:[&_svg]:size-[26px] md:h-16 md:w-auto md:max-w-[calc(100vw-1rem)] md:px-2`;
+  const bottomDockButtonBaseClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-12 md:w-12 md:flex-none md:shrink-0";
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
-  const activeBottomDockButtonClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14 md:flex-none md:shrink-0";
+  const activeBottomDockButtonClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-12 md:w-12 md:flex-none md:shrink-0";
   const accentBottomDockButtonClass = `${bottomDockButtonBaseClass} text-accent-500`;
-  const mobileHeaderButtonClass = "flex size-10 md:size-10 md:[&>svg]:size-[22px] shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
+  const mobileHeaderButtonClass = "flex size-10 md:size-11 md:[&>svg]:size-[26px] shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const renderLayoutControls = ({
     iconSize,
     buttonClass,
@@ -232,13 +232,13 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const bottomDock = (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-[80] flex justify-center px-2 md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)]">
       <div data-shelf-bottom-dock="true" data-shelf-dock-style={dockStyle} className={`${bottomDockClass} pointer-events-auto overflow-x-hidden animate-in fade-in slide-in-from-bottom-3 duration-200 ease-out md:overflow-x-auto`}>
-        <div className="flex w-full min-w-0 items-center justify-evenly gap-0.5 md:w-auto md:min-w-max md:justify-start md:gap-2">
+        <div className="flex w-full min-w-0 items-center justify-evenly gap-0.5 md:w-auto md:min-w-max md:justify-start md:gap-1.5">
           {renderDockActions({
             iconSize: bottomDockIconSize,
             buttonClass: bottomDockButtonClass,
             activeButtonClass: activeBottomDockButtonClass,
             accentButtonClass: accentBottomDockButtonClass,
-            layoutControlsClassName: 'hidden md:flex',
+            includeLayoutControls: false,
           })}
         </div>
       </div>
@@ -247,24 +247,24 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
   return (
     <>
-      <header data-shelf-top-dock="true" className="pointer-events-none sticky top-0 z-[80] md:relative md:z-40 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 transition-colors duration-300">
-        <div className="max-w-7xl mx-auto flex h-12 md:h-[4.125rem] items-center justify-between gap-2 px-2 md:gap-0 md:px-6">
+      <header data-shelf-top-dock="true" className="pointer-events-none sticky top-0 z-[80] pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 transition-colors duration-300">
+        <div className="max-w-7xl mx-auto flex h-12 md:h-14 items-center justify-between gap-2 px-2 md:gap-0 md:px-6">
           <div className="pointer-events-auto relative flex h-full min-w-0 flex-1 items-center gap-2">
             <button
               type="button"
               data-shelf-brand-control="true"
               onClick={isGuest ? onLogin : onToggleCloud}
-              className="shelf-mobile-header-pill group px-4 md:px-0 flex h-full min-w-0 max-w-full items-center gap-1.5 md:gap-2.5 text-left text-[color:var(--viewer-theme-text)] transition-opacity active:opacity-70"
+              className="shelf-mobile-header-pill group px-4 md:px-5 flex h-full min-w-0 max-w-full items-center gap-1.5 md:gap-2.5 text-left text-[color:var(--viewer-theme-text)] transition-opacity active:opacity-70"
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
-              <span className="flex size-6 md:size-10 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
+              <span className="flex size-6 md:size-7 shrink-0 items-center justify-center text-accent-500 opacity-90 transition-opacity group-hover:opacity-100">
                 {isGuest ? (
-                  <KeyRound className="size-[24px] md:size-[31px]" />
+                  <KeyRound className="size-[24px] md:size-[28px]" />
                 ) : isOfflineMode ? (
-                  <WifiOff className="size-[24px] md:size-[31px]" />
+                  <WifiOff className="size-[24px] md:size-[28px]" />
                 ) : (
-                  <Library className="size-[24px] md:size-[31px]" />
+                  <Library className="size-[24px] md:size-[28px]" />
                 )}
               </span>
               <span className="flex h-full min-w-0 flex-1 flex-col justify-center md:h-auto md:flex-none">
@@ -272,11 +272,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   role="heading"
                   aria-level={1}
                   data-shelf-library-label="true"
-                  className="block truncate whitespace-nowrap text-[13px] leading-tight font-medium tracking-tight md:text-[22px]"
+                  className="block truncate whitespace-nowrap text-[13px] leading-tight font-medium tracking-tight md:text-[16px]"
                 >
                   {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
                 </span>
-                <span className="flex min-w-0 items-center gap-1 text-[9px] leading-tight font-normal tracking-wide opacity-55 md:gap-1.5 md:text-[10px]">
+                <span className="flex min-w-0 items-center gap-1 text-[9px] leading-tight font-normal tracking-wide opacity-55 md:gap-1.5 md:text-[11px]">
                   {isGuest && <UserIcon size={10} />}
                   <span className="truncate">{userEmail}</span>
                 </span>
@@ -304,9 +304,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
           <div
             data-shelf-mobile-layout-controls="true"
-            className="shelf-mobile-header-pill pointer-events-auto flex h-full shrink-0 items-center gap-0.5 px-1 md:ml-1 md:gap-0.5 md:px-0"
+            className="shelf-mobile-header-pill pointer-events-auto flex h-full shrink-0 items-center gap-0.5 px-1 md:ml-1 md:gap-1 md:px-2"
           >
-            <span className="flex items-center gap-0.5 md:hidden">
+            <span className="flex items-center gap-0.5 md:gap-1">
               {renderLayoutControls({
                 iconSize: mobileHeaderIconSize,
                 buttonClass: mobileHeaderButtonClass,
