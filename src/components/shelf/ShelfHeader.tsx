@@ -248,7 +248,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   return (
     <>
       <header data-shelf-top-dock="true" className="pointer-events-none sticky top-0 z-[80] md:relative md:z-40 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 transition-colors duration-300">
-        <div className="max-w-7xl mx-auto flex h-[50px] md:h-[4.125rem] items-center justify-between gap-2 px-2 md:gap-0 md:px-6">
+        <div className="max-w-7xl mx-auto flex h-12 md:h-[4.125rem] items-center justify-between gap-2 px-2 md:gap-0 md:px-6">
           <div className="pointer-events-auto relative flex h-full min-w-0 flex-1 items-center gap-2">
             <button
               type="button"
