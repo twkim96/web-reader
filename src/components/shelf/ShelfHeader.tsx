@@ -87,10 +87,10 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     : standardDock
       ? "text-[color:var(--viewer-theme-text)]"
       : "viewer-cime-glass text-[color:var(--viewer-shelf-glass-ink)]";
-  const bottomDockClass = `app-menu-dock relative flex h-[4.25rem] w-[calc(100vw-1rem)] max-w-sm items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
-  const bottomDockButtonBaseClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14";
+  const bottomDockClass = `app-menu-dock relative flex h-[3.6125rem] w-[calc(90vw-0.9rem)] max-w-[21.6rem] items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 [&_svg]:size-[24.7px] md:[&_svg]:size-[26px] md:h-[4.5rem] md:w-auto md:max-w-[calc(100vw-1rem)] md:px-3`;
+  const bottomDockButtonBaseClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-14 md:w-14 md:flex-none md:shrink-0";
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
-  const activeBottomDockButtonClass = "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14";
+  const activeBottomDockButtonClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-14 md:w-14 md:flex-none md:shrink-0";
   const accentBottomDockButtonClass = `${bottomDockButtonBaseClass} text-accent-500`;
   const mobileHeaderButtonClass = "flex size-10 md:size-10 md:[&>svg]:size-[22px] shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const renderLayoutControls = ({
