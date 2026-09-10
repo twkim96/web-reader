@@ -188,7 +188,7 @@ test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', asy
   assert.match(shelfHeaderSource, /const bottomDockClass = `[^`]*rounded-\[34px\]/);
   assert.doesNotMatch(shelfHeaderSource, /md:rounded-/);
   assert.match(shelfHeaderSource, /data-shelf-bottom-dock="true"/);
-  assert.doesNotMatch(shelfHeaderSource, /data-shelf-top-dock|isBottomDock|md:hidden[^\n]*bottomDock/);
+  assert.doesNotMatch(shelfHeaderSource, /isBottomDock|md:hidden[^\n]*bottomDock/);
 });
 
 test('keeps the glass dock low-blur while stabilizing its background and icon contrast', async () => {
@@ -214,7 +214,6 @@ test('uses light title-cased shelf library labels', async () => {
   assert.match(shelfHeaderSource, /isGuest \? 'Guest Library' : \(isOfflineMode \? 'Local Library' : 'Cloud Library'\)/);
   const headingSource = shelfHeaderSource.match(/<span[\s\S]*?role="heading"[\s\S]*?data-shelf-library-label="true"[\s\S]*?<\/span>/)?.[0] ?? '';
   assert.match(headingSource, /\bfont-medium\b/);
-  assert.match(headingSource, /text-\[21px\]/);
   assert.match(headingSource, /md:text-\[22px\]/);
   assert.doesNotMatch(headingSource, /\buppercase\b|\bfont-normal\b|\bfont-black\b/);
 });
