@@ -319,7 +319,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           aria-hidden="true"
           className="pointer-events-none invisible fixed left-0 top-0 -z-10 w-max rounded-2xl border border-transparent px-[1.125rem] py-[0.65rem] sm:px-5"
         >
-          <span className="whitespace-nowrap text-[15px] font-bold leading-snug">
+          <span className="whitespace-nowrap text-[12px] md:text-[15px] font-bold leading-snug">
             {title}
           </span>
         </div>
@@ -333,7 +333,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             data-reader-title-surface="true"
             className={`pointer-events-auto relative rounded-2xl border ${theme.border} ${surfaceClass} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
           >
-            <h2 className={`text-center text-[15px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
+            <h2 className={`text-center text-[12px] md:text-[15px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
               {title}
             </h2>
           </div>
