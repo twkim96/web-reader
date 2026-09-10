@@ -309,17 +309,17 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           aria-label="Close reader"
           data-reader-close-button="true"
           data-reader-title-right-limit="true"
-          className={`pointer-events-auto absolute top-[calc(env(safe-area-inset-top)+11px)] flex h-11 w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 sm:top-[calc(env(safe-area-inset-top)+15px)]`}
+          className={`pointer-events-auto absolute top-[calc(env(safe-area-inset-top)+11px)] flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_10px_28px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 sm:top-[calc(env(safe-area-inset-top)+15px)]`}
           style={{ right: menuPositionStyle.right }}
         >
-          <X size={22} />
+          <X className="size-[23px] md:size-[22px]" />
         </button>
         <div
           ref={titleMeasureRef}
           aria-hidden="true"
           className="pointer-events-none invisible fixed left-0 top-0 -z-10 w-max rounded-2xl border border-transparent px-[1.125rem] py-[0.65rem] sm:px-5"
         >
-          <span className="whitespace-nowrap text-[12px] md:text-[15px] font-bold leading-snug">
+          <span className="whitespace-nowrap text-[13px] md:text-[15px] font-bold leading-snug">
             {title}
           </span>
         </div>
@@ -333,7 +333,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             data-reader-title-surface="true"
             className={`pointer-events-auto relative rounded-2xl border ${theme.border} ${surfaceClass} px-[1.125rem] py-[0.65rem] shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:px-5 ${usesRightTitleLayout ? 'w-fit max-w-full' : 'w-max max-w-none'}`}
           >
-            <h2 className={`text-center text-[12px] md:text-[15px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
+            <h2 className={`text-center text-[13px] md:text-[15px] font-bold leading-snug ${usesRightTitleLayout ? 'break-words' : 'whitespace-nowrap'}`}>
               {title}
             </h2>
           </div>
