@@ -254,7 +254,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
               type="button"
               data-shelf-brand-control="true"
               onClick={isGuest ? onLogin : onToggleCloud}
-              className="shelf-mobile-header-pill group px-2.5 md:px-0 flex h-full min-w-0 max-w-full items-center gap-1.5 md:gap-2.5 text-left text-[color:var(--viewer-theme-text)] transition-opacity active:opacity-70"
+              className="shelf-mobile-header-pill group px-4 md:px-0 flex h-full min-w-0 max-w-full items-center gap-1.5 md:gap-2.5 text-left text-[color:var(--viewer-theme-text)] transition-opacity active:opacity-70"
               title={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
               aria-label={isGuest ? "Sign in" : isOfflineMode ? "Connect to Cloud" : "Disconnect Cloud"}
             >
