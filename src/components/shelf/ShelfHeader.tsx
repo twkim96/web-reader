@@ -90,15 +90,17 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const bottomDockClass = `app-menu-dock relative flex h-[3.6125rem] w-[calc(90vw-0.9rem)] max-w-[21.6rem] items-center justify-center rounded-[34px] ${dockSurfaceClass} px-1 [&_svg]:size-[24.7px] md:[&_svg]:size-[26px] md:h-16 md:w-auto md:max-w-[calc(100vw-1rem)] md:px-2`;
   const bottomDockButtonBaseClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full opacity-[0.84] transition-[transform,opacity,background-color] duration-150 hover:bg-current/10 hover:opacity-100 active:scale-90 md:h-12 md:w-12 md:flex-none md:shrink-0";
   const bottomDockButtonClass = `${bottomDockButtonBaseClass} shelf-glass-contrast-icon`;
-  const activeBottomDockButtonClass = "flex h-10 w-10 min-w-0 flex-1 items-center justify-center rounded-full bg-accent-600 text-white opacity-100 shadow-[0_5px_16px_rgba(0,0,0,0.18)] transition-[transform,background-color] duration-150 active:scale-90 md:h-12 md:w-12 md:flex-none md:shrink-0";
+
   const accentBottomDockButtonClass = `${bottomDockButtonBaseClass} text-accent-500`;
   const mobileHeaderButtonClass = "flex size-10 md:size-11 md:[&>svg]:size-[26px] shrink-0 items-center justify-center rounded-full bg-transparent p-0 opacity-75 transition-all hover:bg-current/10 hover:opacity-100 active:scale-90";
   const renderLayoutControls = ({
     iconSize,
     buttonClass,
+    control,
   }: {
     iconSize: number;
     buttonClass: string;
+    control: 'filter' | 'view';
   }) => {
     const nextViewTitle = viewMode === 'simple'
       ? 'Switch to Grid View'
@@ -113,7 +115,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
     return (
       <>
-      <button
+      {control === 'filter' && <button
         type="button"
         data-shelf-filter-control="true"
         onClick={onShowFilters}
@@ -129,9 +131,9 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             </span>
           )}
         </div>
-      </button>
+      </button>}
 
-      <button
+      {control === 'view' && <button
         type="button"
         data-shelf-view-control="true"
         onClick={onToggleViewMode}
@@ -144,7 +146,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           : viewMode === 'grid'
             ? <List size={iconSize} />
             : <Library size={iconSize} />}
-      </button>
+      </button>}
       </>
     );
   };
@@ -152,17 +154,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   const renderDockActions = ({
     iconSize,
     buttonClass,
-    activeButtonClass,
     accentButtonClass,
-    includeLayoutControls = true,
-    layoutControlsClassName = '',
   }: {
     iconSize: number;
     buttonClass: string;
-    activeButtonClass: string;
     accentButtonClass: string;
-    includeLayoutControls?: boolean;
-    layoutControlsClassName?: string;
   }) => {
     const runAction = (action: () => void) => {
       action();
@@ -170,13 +166,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
     return (
       <>
-        <button
-          onClick={() => runAction(() => setShowSearch(true))}
-          className={searchKeyword ? activeButtonClass : buttonClass}
-          title="Search Books"
-        >
-          <Search size={iconSize} />
-        </button>
+        {renderLayoutControls({ iconSize, buttonClass, control: 'view' })}
 
         <button
           onClick={() => runAction(onShowAnnotations)}
@@ -204,10 +194,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           <FilePlus size={iconSize} />
         </button>
 
-        {includeLayoutControls && renderLayoutControls({
-          iconSize,
-          buttonClass: `${buttonClass} ${layoutControlsClassName}`,
-        })}
+
 
         <button
           onClick={() => runAction(() => setShowThemeModal(true))}
@@ -236,9 +223,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           {renderDockActions({
             iconSize: bottomDockIconSize,
             buttonClass: bottomDockButtonClass,
-            activeButtonClass: activeBottomDockButtonClass,
             accentButtonClass: accentBottomDockButtonClass,
-            includeLayoutControls: false,
           })}
         </div>
       </div>
@@ -306,8 +291,18 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             data-shelf-mobile-layout-controls="true"
             className="shelf-mobile-header-pill pointer-events-auto flex h-full shrink-0 items-center gap-0.5 px-1 md:ml-1 md:gap-1 md:px-2"
           >
+            <button
+              type="button"
+              onClick={() => setShowSearch(true)}
+              className={`${mobileHeaderButtonClass} ${searchKeyword ? 'text-accent-500 opacity-100' : ''}`}
+              title="Search Books"
+              aria-label="Search Books"
+            >
+              <Search size={mobileHeaderIconSize} />
+            </button>
             <span className="flex items-center gap-0.5 md:gap-1">
               {renderLayoutControls({
+                control: 'filter',
                 iconSize: mobileHeaderIconSize,
                 buttonClass: mobileHeaderButtonClass,
               })}
