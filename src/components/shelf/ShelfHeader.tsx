@@ -272,12 +272,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
                   role="heading"
                   aria-level={1}
                   data-shelf-library-label="true"
-                  className="block truncate whitespace-nowrap text-[16px] font-medium tracking-tight md:text-[22px]"
+                  className="block truncate whitespace-nowrap text-[13px] leading-tight font-medium tracking-tight md:text-[22px]"
                 >
-                  <span className="md:hidden">{isGuest ? 'Guest' : (isOfflineMode ? 'Local' : 'Cloud')}</span>
-                  <span className="hidden md:inline">{isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}</span>
+                  {isGuest ? 'Guest Library' : (isOfflineMode ? 'Local Library' : 'Cloud Library')}
                 </span>
-                <span className="hidden md:flex items-center gap-1.5 text-[10px] font-normal tracking-wide opacity-55">
+                <span className="flex min-w-0 items-center gap-1 text-[9px] leading-tight font-normal tracking-wide opacity-55 md:gap-1.5 md:text-[10px]">
                   {isGuest && <UserIcon size={10} />}
                   <span className="truncate">{userEmail}</span>
                 </span>

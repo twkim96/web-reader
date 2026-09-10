@@ -252,7 +252,7 @@ test('keeps the shelf identity control flat and the user label light', async () 
   assert.match(identityControl, /\bsize-10\b/);
   assert.doesNotMatch(identityControl, /bg-accent|bg-slate|shadow|rounded-/);
   assert.match(identityControl, /\btext-accent-500\b/);
-  assert.match(identityControl, /text-\[10px\] font-normal tracking-wide opacity-55/);
+  assert.match(identityControl, /font-normal tracking-wide opacity-55/);
 });
 
 test('maps non-reader controls to an optical radius scale and keeps exclusions explicit', async () => {
