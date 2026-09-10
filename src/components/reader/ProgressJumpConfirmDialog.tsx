@@ -18,7 +18,7 @@ export const ProgressJumpConfirmDialog: React.FC<ProgressJumpConfirmDialogProps>
   theme, targetPercent, targetChapter, onCancel, onConfirm, resolving = false, error,
 }) => (
   <div data-progress-jump-confirm-backdrop="true"
-    className="pointer-events-none fixed inset-x-0 top-1/2 -translate-y-1/2 z-[65] flex justify-center px-4 md:top-[calc(env(safe-area-inset-top)+4.5rem)] md:translate-y-0">
+    className="pointer-events-none fixed inset-x-0 top-1/2 -translate-y-1/2 z-[65] flex justify-center px-4">
     <div role="dialog" aria-modal="false" aria-labelledby="progress-jump-confirm-title"
       aria-describedby="progress-jump-confirm-description" aria-busy={resolving}
       onClick={(event) => event.stopPropagation()}
