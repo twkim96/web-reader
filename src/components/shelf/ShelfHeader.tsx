@@ -166,8 +166,6 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
 
     return (
       <>
-        {renderLayoutControls({ iconSize, buttonClass, control: 'view' })}
-
         <button
           onClick={() => runAction(onShowAnnotations)}
           className={buttonClass}
@@ -210,6 +208,16 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
           title="Manage Offline Books"
         >
           <HardDrive size={iconSize} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowSearch(true)}
+          className={`${buttonClass} ${searchKeyword ? 'text-accent-500 opacity-100' : ''}`}
+          title="Search Books"
+          aria-label="Search Books"
+        >
+          <Search size={iconSize} />
         </button>
 
       </>
@@ -291,15 +299,11 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
             data-shelf-mobile-layout-controls="true"
             className="shelf-mobile-header-pill pointer-events-auto flex h-full shrink-0 items-center gap-0.5 px-1 md:ml-1 md:gap-1 md:px-2"
           >
-            <button
-              type="button"
-              onClick={() => setShowSearch(true)}
-              className={`${mobileHeaderButtonClass} ${searchKeyword ? 'text-accent-500 opacity-100' : ''}`}
-              title="Search Books"
-              aria-label="Search Books"
-            >
-              <Search size={mobileHeaderIconSize} />
-            </button>
+            {renderLayoutControls({
+              control: 'view',
+              iconSize: mobileHeaderIconSize,
+              buttonClass: mobileHeaderButtonClass,
+            })}
             <span className="flex items-center gap-0.5 md:gap-1">
               {renderLayoutControls({
                 control: 'filter',

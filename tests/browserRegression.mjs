@@ -1303,7 +1303,7 @@ try {
   const mobileShelfControls = await evaluate(`(() => {
     const mobileControls = document.querySelector('[data-shelf-mobile-layout-controls="true"]');
     const filterButton = mobileControls?.querySelector('[data-shelf-filter-control="true"]');
-    const searchButton = mobileControls?.querySelector('button[title="Search Books"]');
+    const viewButton = mobileControls?.querySelector('[data-shelf-view-control="true"]');
     const authButton = document.querySelector('header [data-shelf-auth-control="true"]');
     const topDock = document.querySelector('[data-shelf-top-dock="true"]');
     const bottomDock = document.querySelector('[data-shelf-bottom-dock="true"]');
@@ -1328,11 +1328,13 @@ try {
       bottomScrollWidth: bottomDock?.scrollWidth ?? 0,
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
       filterRect: rect(filterButton),
-      searchRect: rect(searchButton),
+      viewRect: rect(viewButton),
+      searchIsLast: bottomDock?.querySelector('button:last-child')?.title === 'Search Books',
       authRect: rect(authButton),
       viewportWidth: innerWidth,
     };
   })()`);
+  assert.equal(mobileShelfControls.searchIsLast, true, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.mobileControlCount, 3, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomUsesMuzioStyle, true, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(mobileShelfControls));
@@ -1340,15 +1342,15 @@ try {
   assert.equal(mobileShelfControls.bottomBorderRadius, 34, JSON.stringify(mobileShelfControls));
   assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
   assert.ok(mobileShelfControls.bottomButtonOpacity >= 0.8, JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.bottomLayoutControlCount, 1, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));
   assert.ok(
     mobileShelfControls.bottomScrollWidth <= mobileShelfControls.bottomClientWidth,
     JSON.stringify(mobileShelfControls),
   );
   assert.equal(mobileShelfControls.horizontalOverflow, 0, JSON.stringify(mobileShelfControls));
   assert.ok(
-    mobileShelfControls.searchRect?.right <= mobileShelfControls.filterRect?.left
-      && mobileShelfControls.searchRect?.right <= mobileShelfControls.viewportWidth
+    mobileShelfControls.viewRect?.right <= mobileShelfControls.filterRect?.left
+      && mobileShelfControls.viewRect?.right <= mobileShelfControls.viewportWidth
       && mobileShelfControls.authRect?.right <= mobileShelfControls.viewportWidth,
     JSON.stringify(mobileShelfControls),
   );
