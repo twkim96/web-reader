@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { getThemeClasses, getThemeColors } from '../../lib/themeUtils';
 
 import { ShelfHeader } from './ShelfHeader';
+import { ShelfMenuEdgeShade } from './ShelfMenuEdgeShade';
 import { BookCard } from './BookCard';
 import { EmptyState } from './EmptyState';
 import { CloudSyncStatus, FileUploader, FileUploaderHandle } from './FileUploader';
@@ -363,7 +364,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-36 transition-colors duration-300`}
       style={themeStyle}
     >
-      <div className="shelf-menu-edge-shade" aria-hidden="true" />
+      <ShelfMenuEdgeShade />
       <ShelfHeader 
         isOfflineMode={isOfflineMode}
         isGuest={isGuest}

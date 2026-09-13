@@ -579,9 +579,29 @@ html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade {
   inset: 0;
   z-index: 70;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s;
   background:
-    linear-gradient(to bottom, rgb(0 0 0 / 15%), transparent) top / 100% calc(env(safe-area-inset-top) + 8rem) no-repeat,
-    linear-gradient(to top, rgb(0 0 0 / 15%), transparent) bottom / 100% calc(env(safe-area-inset-bottom) + 9rem) no-repeat;
+    linear-gradient(to bottom, rgb(0 0 0 / 85%), transparent) top / 100% calc(env(safe-area-inset-top) + 136px) no-repeat,
+    linear-gradient(to top, #000, transparent 80%) bottom / 100% calc(env(safe-area-inset-bottom) + 100px) no-repeat;
+}
+
+html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade[data-scrolled='true'] {
+  opacity: 1;
+}
+
+@media (width < 768px) {
+  html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade {
+    background:
+      linear-gradient(to bottom, rgb(20 21 23 / 70%) 10%, rgb(20 21 23 / 50%) 60%, rgb(20 21 23 / 30%) 80%, transparent) top / 100% calc(env(safe-area-inset-top) + 108px) no-repeat,
+      linear-gradient(to top, #000, transparent 80%) bottom / 100% calc(env(safe-area-inset-bottom) + 100px) no-repeat;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf-menu-edge-shade {
+    transition: none !important;
+  }
 }
 
 /* Fade the frosted surface in behind compact-cover text, leaving the artwork visible. */
