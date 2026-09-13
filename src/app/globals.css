@@ -580,8 +580,8 @@ html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade {
   z-index: 70;
   pointer-events: none;
   background:
-    linear-gradient(to bottom, rgb(0 0 0 / 6%) calc(env(safe-area-inset-top) + 4rem), transparent) top / 100% calc(env(safe-area-inset-top) + 8rem) no-repeat,
-    linear-gradient(to top, rgb(0 0 0 / 6%) calc(env(safe-area-inset-bottom) + 5.5rem), transparent) bottom / 100% calc(env(safe-area-inset-bottom) + 9rem) no-repeat;
+    linear-gradient(to bottom, rgb(0 0 0 / 30%) calc(env(safe-area-inset-top) + 4rem), transparent) top / 100% calc(env(safe-area-inset-top) + 8rem) no-repeat,
+    linear-gradient(to top, rgb(0 0 0 / 30%) calc(env(safe-area-inset-bottom) + 5.5rem), transparent) bottom / 100% calc(env(safe-area-inset-bottom) + 9rem) no-repeat;
 }
 
 /* Fade the frosted surface in behind compact-cover text, leaving the artwork visible. */
