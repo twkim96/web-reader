@@ -587,13 +587,13 @@ html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade {
 .shelf-menu-edge-shade[data-edge='top'] {
   top: 0;
   height: calc(env(safe-area-inset-top) + 136px);
-  background: linear-gradient(to bottom, rgb(0 0 0 / 85%), transparent);
+  background: linear-gradient(to bottom, rgb(0 0 0 / 50%), transparent);
 }
 
 .shelf-menu-edge-shade[data-edge='bottom'] {
   bottom: 0;
   height: calc(env(safe-area-inset-bottom) + 100px);
-  background: linear-gradient(to top, #000, transparent 80%);
+  background: linear-gradient(to top, rgb(0 0 0 / 50%), transparent 80%);
 }
 
 html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade[data-visible='true'] {
@@ -603,7 +603,7 @@ html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade[data-visible='true']
 @media (width < 768px) {
   .shelf-menu-edge-shade[data-edge='top'] {
     height: calc(env(safe-area-inset-top) + 108px);
-    background: linear-gradient(to bottom, rgb(20 21 23 / 70%) 10%, rgb(20 21 23 / 50%) 60%, rgb(20 21 23 / 30%) 80%, transparent);
+    background: linear-gradient(to bottom, rgb(20 21 23 / 50%) 10%, rgb(20 21 23 / 35.7%) 60%, rgb(20 21 23 / 21.4%) 80%, transparent);
   }
 }
 
