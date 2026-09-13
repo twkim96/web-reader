@@ -568,6 +568,12 @@ body.reader-paged-navigation {
   backdrop-filter: var(--app-menu-dock-filter, blur(24px));
 }
 
+/* A faint shade gives the shelf glass rims a little more separation. */
+html[data-viewer-menu-style='glass'] .shelf-mobile-header-pill,
+[data-shelf-bottom-dock='true'].viewer-cime-glass {
+  background-image: linear-gradient(to bottom, transparent, rgb(0 0 0 / 3%) 50%, rgb(0 0 0 / 6%));
+}
+
 /* Fade the frosted surface in behind compact-cover text, leaving the artwork visible. */
 .shelf-compact-glass-caption {
   isolation: isolate;
