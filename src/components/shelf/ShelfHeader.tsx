@@ -103,15 +103,15 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     control: 'filter' | 'view';
   }) => {
     const nextViewTitle = viewMode === 'simple'
-      ? 'Switch to Grid View'
+      ? 'Switch to Compact Cover View'
       : viewMode === 'grid'
         ? 'Switch to List View'
         : 'Switch to Simple View';
     const nextViewLabel = viewMode === 'simple'
-      ? '그리드 보기'
+      ? '압축 표지 보기'
       : viewMode === 'grid'
         ? '목록 보기'
-        : '심플 보기';
+        : '표지 보기';
 
     return (
       <>

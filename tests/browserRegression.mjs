@@ -669,11 +669,14 @@ try {
         borderRadius: coverStyle.borderRadius,
       } : null,
       gridProgressAlignment: fallbackProgress && coveredProgress && coveredDate && coveredPercent ? {
-        topDelta: Math.abs(fallbackProgress.top - coveredProgress.top),
+        topDelta: Math.abs(
+          (document.querySelector('[data-shelf-book-id="book-0000"]').getBoundingClientRect().bottom - fallbackProgress.bottom)
+          - (document.querySelector('[data-shelf-book-id="book-0001"]').getBoundingClientRect().bottom - coveredProgress.bottom)
+        ),
         labelBottomDelta: Math.abs(coveredDate.bottom - coveredPercent.bottom),
       } : null,
       gridCoverProgressAlignment: coverRect && coveredProgress ? {
-        bottomDelta: Math.abs(coverRect.bottom - coveredProgress.bottom),
+        insideCover: coveredProgress.bottom <= coverRect.bottom && coveredProgress.top >= coverRect.top,
       } : null,
       gridInfoOrder: coveredFormat && gridTitleRect && coveredTags && coveredProgress
         ? coveredFormat.top <= gridTitleRect.top
@@ -700,20 +703,15 @@ try {
   assert.equal(initialShelf.gridCardBorderRadius, '14px', JSON.stringify(initialShelf));
   assert.equal(initialShelf.gridTitleFontSize, '16px', JSON.stringify(initialShelf));
   assert.deepEqual(initialShelf.gridDeleteIconSize, { width: 14, height: 14 });
-  assert.deepEqual(initialShelf.coverLayout, {
-    width: 136,
-    height: 208,
-    backgroundColor: 'rgba(0, 0, 0, 0)',
-    boxShadow: 'none',
-    borderRadius: '0px',
-  });
+  assert.ok(initialShelf.coverLayout.width > initialShelf.coverLayout.height, JSON.stringify(initialShelf.coverLayout));
+  assert.ok(Math.abs(initialShelf.coverLayout.width / initialShelf.coverLayout.height - 16 / 9) < 0.03);
   assert.ok(initialShelf.gridProgressAlignment);
   assert.ok(initialShelf.gridProgressAlignment.topDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
   assert.ok(initialShelf.gridProgressAlignment.labelBottomDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
   assert.ok(initialShelf.gridCoverProgressAlignment);
-  assert.ok(initialShelf.gridCoverProgressAlignment.bottomDelta <= 1, JSON.stringify(initialShelf.gridCoverProgressAlignment));
+  assert.ok(initialShelf.gridCoverProgressAlignment.insideCover, JSON.stringify(initialShelf.gridCoverProgressAlignment));
   assert.equal(initialShelf.gridInfoOrder, true, JSON.stringify(initialShelf));
-  assert.equal(initialShelf.gridColumnCount, 2, JSON.stringify(initialShelf));
+  assert.equal(initialShelf.gridColumnCount, 3, JSON.stringify(initialShelf));
 
   await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
   await waitFor(
@@ -771,7 +769,7 @@ try {
     listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1],
     JSON.stringify(listCoverLayout),
   );
-  assert.ok(listCoverLayout.formatWidth <= 64.5, JSON.stringify(listCoverLayout));
+  assert.ok(listCoverLayout.formatWidth <= 96.5, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.titleFontSize, initialShelf.gridTitleFontSize, JSON.stringify({
     grid: initialShelf.gridTitleFontSize,
     list: listCoverLayout.titleFontSize,
@@ -783,7 +781,7 @@ try {
     `localStorage.getItem('shelf_viewMode_v2') === 'simple'`,
     'simple shelf view before restoring grid',
   );
-  await evaluate(`document.querySelector('button[title="Switch to Grid View"]')?.click()`);
+  await evaluate(`document.querySelector('button[title="Switch to Compact Cover View"]')?.click()`);
   await waitFor(
     `localStorage.getItem('shelf_viewMode_v2') === 'grid'
       && Boolean(document.querySelector(
@@ -1305,7 +1303,7 @@ try {
   const mobileShelfControls = await evaluate(`(() => {
     const mobileControls = document.querySelector('[data-shelf-mobile-layout-controls="true"]');
     const filterButton = mobileControls?.querySelector('[data-shelf-filter-control="true"]');
-    const viewButton = mobileControls?.querySelector('[data-shelf-view-control="true"]');
+    const searchButton = mobileControls?.querySelector('button[title="Search Books"]');
     const authButton = document.querySelector('header [data-shelf-auth-control="true"]');
     const topDock = document.querySelector('[data-shelf-top-dock="true"]');
     const bottomDock = document.querySelector('[data-shelf-bottom-dock="true"]');
@@ -1330,7 +1328,7 @@ try {
       bottomScrollWidth: bottomDock?.scrollWidth ?? 0,
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
       filterRect: rect(filterButton),
-      viewRect: rect(viewButton),
+      searchRect: rect(searchButton),
       authRect: rect(authButton),
       viewportWidth: innerWidth,
     };
@@ -1338,19 +1336,19 @@ try {
   assert.equal(mobileShelfControls.mobileControlCount, 3, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomUsesMuzioStyle, true, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomSurfaceColor, 'rgba(39, 39, 40, 0.88)', JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.hasTopDock, false, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.hasTopDock, true, JSON.stringify(mobileShelfControls));
   assert.equal(mobileShelfControls.bottomBorderRadius, 34, JSON.stringify(mobileShelfControls));
   assert.notEqual(mobileShelfControls.bottomBoxShadow, 'none', JSON.stringify(mobileShelfControls));
   assert.ok(mobileShelfControls.bottomButtonOpacity >= 0.8, JSON.stringify(mobileShelfControls));
-  assert.equal(mobileShelfControls.bottomLayoutControlCount, 0, JSON.stringify(mobileShelfControls));
+  assert.equal(mobileShelfControls.bottomLayoutControlCount, 1, JSON.stringify(mobileShelfControls));
   assert.ok(
     mobileShelfControls.bottomScrollWidth <= mobileShelfControls.bottomClientWidth,
     JSON.stringify(mobileShelfControls),
   );
   assert.equal(mobileShelfControls.horizontalOverflow, 0, JSON.stringify(mobileShelfControls));
   assert.ok(
-    mobileShelfControls.filterRect?.right <= mobileShelfControls.viewRect?.left
-      && mobileShelfControls.viewRect?.right <= mobileShelfControls.viewportWidth
+    mobileShelfControls.searchRect?.right <= mobileShelfControls.filterRect?.left
+      && mobileShelfControls.searchRect?.right <= mobileShelfControls.viewportWidth
       && mobileShelfControls.authRect?.right <= mobileShelfControls.viewportWidth,
     JSON.stringify(mobileShelfControls),
   );

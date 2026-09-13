@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { Eraser } from 'lucide-react';
+import { Eraser, MoreVertical } from 'lucide-react';
 import { Book, UserProgress } from '../../types';
 import {
   formatPublicBookCatalogMetric,
@@ -318,6 +318,28 @@ export const BookCard: React.FC<BookCardProps> = ({
     onRequestBookInfo(book);
   }, [book, onRequestBookInfo]);
 
+  const renderMoreButton = (onCover = false) => onRequestBookInfo && (
+    <button
+      type="button"
+      data-shelf-book-more="true"
+      aria-label={`${displayBookTitle} 도서 정보`}
+      title="도서 정보"
+      onPointerDown={(event) => { event.stopPropagation(); clearLongPressTimer(); }}
+      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}
+      onClick={(event) => {
+        event.stopPropagation();
+        clearLongPressTimer();
+        longPressTriggeredRef.current = false;
+        onRequestBookInfo(book);
+      }}
+      className={`flex size-9 shrink-0 items-center justify-center rounded-full ${onCover
+        ? 'app-menu-dock absolute right-2 top-2 z-20 text-[color:var(--app-menu-ink,var(--viewer-theme-text))]'
+        : 'hover:bg-current/10'}`}
+    >
+      <MoreVertical size={20} />
+    </button>
+  );
+
   if (viewMode === 'simple') {
     return (
       <div
@@ -360,6 +382,7 @@ export const BookCard: React.FC<BookCardProps> = ({
               surroundingBackgroundColor={themeBackgroundColor}
             />
           )}
+          {renderMoreButton(true)}
         </div>
 
         <div data-shelf-simple-meta="true" className="mt-2 flex h-5 min-w-0 flex-nowrap items-center gap-1 overflow-hidden whitespace-nowrap">
@@ -438,7 +461,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500 sm:grid-cols-[3rem_minmax(0,1fr)_4rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
+        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500 sm:grid-cols-[3rem_minmax(0,1fr)_6rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
       >
         <div
           data-shelf-book-cover-frame="true"
@@ -491,12 +514,17 @@ export const BookCard: React.FC<BookCardProps> = ({
 
         <div
           data-shelf-list-format="true"
-          className="hidden min-w-0 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:block"
+          className="hidden min-w-0 items-center justify-center text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:flex"
         >
-          {getBookFormatLabel(book)}
+          {renderMoreButton()}
+          <span>{simpleFormatLabel}</span>
         </div>
 
         <div data-shelf-list-progress="true" className="min-w-0 self-stretch flex flex-col items-end justify-start pt-0.5">
+          <div className="flex items-center text-[10px] text-slate-500 sm:hidden">
+            {renderMoreButton()}
+            <span>{simpleFormatLabel}</span>
+          </div>
           {combinedSourceCount !== null && (
             <div data-shelf-list-source-slot="true" className="mb-1 w-full min-w-0">
               {renderCatalogSources('list-progress')}
@@ -546,15 +574,15 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`app-panel-radius group relative select-none ${theme.secondary} border ${theme.border} p-4 sm:p-5 cursor-pointer hover:border-accent-500/50 transition-all duration-500 [-webkit-touch-callout:none] hover:-translate-y-2 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500`}
+      className={`app-panel-radius group relative aspect-video select-none border ${theme.border} bg-black text-white cursor-pointer transition-transform duration-200 [-webkit-touch-callout:none] hover:scale-[1.01] overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500`}
     >
       <div
         data-shelf-grid-cover-layout="true"
-        className="relative z-10 grid min-h-48 grid-cols-[7.5rem_minmax(0,1fr)] gap-4 sm:min-h-52 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-5"
+        className="absolute inset-0"
       >
         <div
           data-shelf-book-cover-frame="true"
-          className="relative h-full min-h-48 w-full overflow-hidden transition-transform duration-500 group-hover:scale-[1.025] sm:min-h-52"
+          className="absolute inset-0 overflow-hidden"
         >
           {coverUrl ? (
             <Image
@@ -562,7 +590,7 @@ export const BookCard: React.FC<BookCardProps> = ({
               src={coverUrl}
               alt=""
               fill
-              sizes="(min-width: 640px) 136px, 120px"
+              sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
               unoptimized
               className="object-cover"
             />
@@ -576,9 +604,10 @@ export const BookCard: React.FC<BookCardProps> = ({
           )}
         </div>
 
-        <div data-shelf-grid-cover-content="true" className="flex min-h-48 min-w-0 flex-col sm:min-h-52">
+        {renderMoreButton(true)}
+        <div data-shelf-grid-cover-content="true" className="absolute inset-x-0 bottom-0 flex min-w-0 flex-col bg-gradient-to-t from-black via-black/85 to-transparent px-4 pb-3 pt-12">
           <div data-shelf-grid-meta="true" className="flex min-w-0 items-center justify-between gap-2">
-            <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:text-[11px]">
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/70 sm:text-[11px]">
               {getBookFormatLabel(book)}
             </span>
             {combinedSourceCount !== null && (
@@ -590,25 +619,25 @@ export const BookCard: React.FC<BookCardProps> = ({
 
           <h3
             data-shelf-grid-cover-title="true"
-            className="mt-2 min-w-0 text-sm font-bold leading-snug line-clamp-4 transition-colors group-hover:text-accent-500 sm:text-base"
+            className="mt-2 min-w-0 text-sm font-bold leading-snug line-clamp-2 transition-colors group-hover:text-accent-500 sm:text-base"
           >
             {getDisplayBookTitle(book.name)}
           </h3>
 
-          <div data-shelf-grid-cover-tag-slot="true" className="mt-3 min-h-9">
+          <div data-shelf-grid-cover-tag-slot="true" className="mt-1">
             {hasCatalogTags && (
               <div
                 data-shelf-grid-cover-tags="true"
-                className="max-h-9 w-full overflow-hidden"
+                className="max-h-5 w-full overflow-hidden"
               >
                 {renderCatalogTags()}
               </div>
             )}
           </div>
 
-          <div data-shelf-grid-progress-block="true" className="mt-auto space-y-2 pt-3">
+          <div data-shelf-grid-progress-block="true" className="mt-2 space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <span data-shelf-grid-progress-date="true" className="truncate text-[9px] font-normal uppercase leading-none tracking-tight text-slate-500 sm:text-[10px]">
+              <span data-shelf-grid-progress-date="true" className="truncate text-[9px] font-normal uppercase leading-none tracking-tight text-white/70 sm:text-[10px]">
                 {progress?.lastRead && percent > 0 ? formatDate(progress.lastRead) : 'Ready to Start'}
               </span>
               <div className="flex shrink-0 items-center gap-1.5">
@@ -620,7 +649,7 @@ export const BookCard: React.FC<BookCardProps> = ({
                       onDeleteProgress(book.id);
                     }}
                     onPointerDown={(e) => e.stopPropagation()}
-                    className="flex h-5 w-5 items-center justify-center rounded-full p-0 text-slate-500 transition-colors hover:bg-white/5 hover:text-red-400"
+                    className="flex h-5 w-5 items-center justify-center rounded-full p-0 text-white/70 transition-colors hover:bg-white/5 hover:text-red-400"
                     title="Delete Progress"
                   >
                     <Eraser

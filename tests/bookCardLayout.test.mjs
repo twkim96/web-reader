@@ -534,69 +534,18 @@ test('uses a substantially larger generated-cover title in simple view', () => {
   assert.match(cover.className, /sm:text-\[15px\]/);
 });
 
-test('keeps the list cover compact and fills the left side of grid cards with a large cover', () => {
-  const listFrame = renderCardWithCover('list')
-    .querySelector('[data-shelf-book-cover-frame="true"]');
-  assert.match(listFrame.className, /w-11/);
-  assert.match(listFrame.className, /sm:w-12/);
-  assert.match(listFrame.className, /h-16/);
-  assert.match(listFrame.className, /sm:h-\[4\.25rem\]/);
-  assert.match(listFrame.className, /sm:-my-1/);
-
-  const gridCard = renderCardWithCover('grid');
-  const gridFrame = gridCard.querySelector('[data-shelf-book-cover-frame="true"]');
-  const gridLayout = gridCard.querySelector('[data-shelf-grid-cover-layout="true"]');
-  assert.ok(gridLayout);
-  assert.match(gridLayout.className, /grid-cols-\[7\.5rem_minmax\(0,1fr\)\]/);
-  assert.match(gridLayout.className, /sm:grid-cols-\[8\.5rem_minmax\(0,1fr\)\]/);
-  assert.match(gridLayout.className, /min-h-48/);
-  assert.match(gridLayout.className, /sm:min-h-52/);
-  assert.match(gridFrame.className, /h-full/);
-  assert.match(gridFrame.className, /w-full/);
-  const gridTitle = gridCard.querySelector('[data-shelf-grid-cover-title="true"]');
-  const gridMeta = gridCard.querySelector('[data-shelf-grid-meta="true"]');
-  const gridSourceSlot = gridCard.querySelector('[data-shelf-grid-cover-source-slot="true"]');
-  const gridLocalTag = gridCard.querySelector('[data-shelf-local-tag="true"]');
-  const gridTags = gridCard.querySelector('[data-shelf-grid-cover-tags="true"]');
-  const gridTagSlot = gridCard.querySelector('[data-shelf-grid-cover-tag-slot="true"]');
-  const gridProgress = gridCard.querySelector('[data-shelf-grid-progress-block="true"]');
-  const gridCardRoot = gridCard.querySelector('[data-shelf-book-card="true"]');
-  assert.ok(gridTitle);
-  assert.ok(gridMeta);
-  assert.ok(gridSourceSlot);
-  assert.ok(gridLocalTag);
-  assert.ok(gridTags);
-  assert.ok(gridTagSlot);
-  assert.ok(gridProgress);
-  assert.ok(gridCardRoot);
-  assert.match(gridTitle.className, /line-clamp-4/);
-  assert.match(gridTitle.className, /text-sm/);
-  assert.match(gridTitle.className, /sm:text-base/);
-  assert.doesNotMatch(gridTitle.className, /text-lg/);
-  assert.doesNotMatch(gridTitle.className, /sm:text-xl/);
-  assert.equal(gridMeta.nextElementSibling, gridTitle);
-  assert.equal(gridTitle.nextElementSibling, gridTagSlot);
-  assert.equal(gridTagSlot.nextElementSibling, gridProgress);
-  assert.equal(gridLocalTag.textContent, '로컬');
-  assert.match(gridLocalTag.className, /app-tag-material/);
-  assert.match(gridLocalTag.className, /--app-tag-color:var\(--color-green-500\)/);
-  assert.match(gridTags.className, /max-h-9/);
-  assert.match(gridTags.className, /overflow-hidden/);
-  assert.match(gridTagSlot.className, /mt-3/);
-  assert.doesNotMatch(gridCardRoot.className, /h-full/);
-  assert.match(gridCardRoot.className, /p-4/);
-  assert.match(gridProgress.className, /mt-auto/);
-  assert.match(gridProgress.className, /pt-3/);
-
-  const progressDelete = gridCard.querySelector('[data-shelf-grid-progress-delete="true"]');
-  assert.ok(progressDelete);
-  assert.match(progressDelete.className, /h-5/);
-  assert.match(progressDelete.className, /w-5/);
-  assert.match(progressDelete.className, /p-0/);
-  const progressDeleteIcon = gridCard.querySelector('[data-shelf-grid-progress-delete-icon="true"]');
-  assert.ok(progressDeleteIcon);
-  assert.equal(progressDeleteIcon.getAttribute('width'), '14');
-  assert.equal(progressDeleteIcon.getAttribute('height'), '14');
+test('compact cover keeps metadata inside a full-bleed cover', () => {
+  const document = renderCardWithCover('grid');
+  const root = document.querySelector('[data-shelf-book-card]');
+  const content = document.querySelector('[data-shelf-grid-cover-content]');
+  const cover = document.querySelector('[data-shelf-book-cover-frame]');
+  assert.ok(root.contains(cover));
+  for (const selector of ['[data-shelf-grid-cover-title]', '[data-shelf-grid-meta]', '[data-shelf-grid-progress-block]', '[data-shelf-grid-cover-tag-slot]']) {
+    assert.ok(content.querySelector(selector), selector);
+  }
+  assert.match(root.className, /aspect-video/);
+  assert.match(content.className, /absolute/);
+  assert.match(content.textContent, /42\.5%/);
 });
 
 test('renders the simple shelf card as cover, fixed metadata, title, and compact progress', () => {
@@ -660,7 +609,7 @@ test('defaults to simple view and cycles simple, grid, and list modes', async ()
   assert.match(preferencesSource, /saved === 'simple' \|\| saved === 'grid' \|\| saved === 'list'/);
   assert.match(preferencesSource, /current === 'simple'[\s\S]*?\? 'grid'[\s\S]*?current === 'grid'[\s\S]*?\? 'list'[\s\S]*?: 'simple'/);
   assert.match(headerSource, /Switch to Simple View/);
-  assert.match(headerSource, /심플 보기/);
+  assert.match(headerSource, /표지 보기/);
 });
 
 test('keeps horizontal grid cards readable in one mobile column and two wider columns', async () => {
@@ -668,8 +617,7 @@ test('keeps horizontal grid cards readable in one mobile column and two wider co
     new URL('../src/components/shelf/index.tsx', import.meta.url),
     'utf8',
   );
-  assert.match(shelfSource, /viewMode === 'grid'[\s\S]*?\? 'grid-cols-1 gap-4 sm:grid-cols-2'/);
-  assert.doesNotMatch(shelfSource, /lg:grid-cols-3|xl:grid-cols-4/);
+  assert.match(shelfSource, /viewMode === 'grid'[\s\S]*?\? 'grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'/);
 });
 
 test('uses a cover-led responsive column layout for simple view', async () => {
@@ -693,7 +641,7 @@ test('gives list titles the flexible column and keeps format and progress compac
   assert.ok(format);
   assert.ok(progress);
   assert.equal(document.querySelector('[data-shelf-list-local="true"]'), null);
-  assert.match(card.className, /sm:grid-cols-\[3rem_minmax\(0,1fr\)_4rem_10rem\]/);
+  assert.match(card.className, /sm:grid-cols-\[3rem_minmax\(0,1fr\)_6rem_10rem\]/);
   assert.equal(localTag.textContent, '로컬');
   assert.match(format.textContent, /EPUB/);
   assert.equal(format.nextElementSibling, progress);
@@ -708,7 +656,7 @@ test('places one combined view count above the progress percentage', () => {
   assert.ok(progress);
   assert.ok(slot);
   assert.ok(sources);
-  assert.equal(progress.firstElementChild, slot);
+  assert.ok(progress.contains(slot));
   assert.equal(slot.contains(sources), true);
   assert.match(sources.textContent, /304\.7만 조회/);
   assert.doesNotMatch(sources.textContent, /시리즈|카카오|노벨피아|다운로드/);
@@ -834,7 +782,7 @@ test('fits mobile shelf tags and the remainder into the measured row', () => {
   }), 3);
 });
 
-test('shows every shelf grid tag in a two-row clipped viewport', () => {
+test('shows every shelf grid tag in a compact clipped viewport', () => {
   const catalog = {
     ...props.catalog,
     tags: Array.from({ length: 7 }, (_, index) => ({
@@ -849,10 +797,49 @@ test('shows every shelf grid tag in a two-row clipped viewport', () => {
   const tagViewport = document.querySelector('[data-shelf-grid-cover-tags="true"]');
   assert.ok(tags);
   assert.ok(tagViewport);
-  assert.match(tagViewport.className, /max-h-9/);
+  assert.match(tagViewport.className, /max-h-5/);
   assert.match(tagViewport.className, /overflow-hidden/);
   assert.match(tags.textContent, /^로컬판타지/);
   assert.match(tags.textContent, /태그1/);
   assert.match(tags.textContent, /태그2.*태그3.*태그4.*태그5.*태그6.*태그7/);
   assert.doesNotMatch(tags.textContent, /\+\d/);
+});
+
+test('vertical more buttons open book info without opening the book in every view', async () => {
+  const { act } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
+  const previous = new Map(['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  window.matchMedia = () => ({ matches: true });
+  window.requestAnimationFrame = callback => setTimeout(callback, 0);
+  window.cancelAnimationFrame = clearTimeout;
+  for (const [key, value] of Object.entries({ window, document: window.document, HTMLElement: window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
+  const root = createRoot(window.document.querySelector('#root'));
+  try {
+    for (const viewMode of ['simple', 'grid', 'list']) {
+      let opens = 0;
+      let infos = 0;
+      await act(async () => root.render(React.createElement(BookCard, {
+        ...props, viewMode, onOpen: () => opens++, onRequestBookInfo: () => infos++,
+      })));
+      const buttons = [...window.document.querySelectorAll('[data-shelf-book-more]')];
+      assert.ok(buttons.length > 0);
+      for (const button of buttons) {
+        assert.ok(button.querySelector('svg.lucide-ellipsis-vertical'));
+        await act(async () => button.click());
+      }
+      assert.equal(opens, 0);
+      assert.equal(infos, buttons.length);
+      await act(async () => window.document.querySelector('[data-shelf-book-card]').click());
+      assert.equal(opens, 1, 'normal card click still opens the reader');
+    }
+  } finally {
+    await act(async () => root.unmount());
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
 });
