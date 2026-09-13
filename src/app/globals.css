@@ -568,10 +568,20 @@ body.reader-paged-navigation {
   backdrop-filter: var(--app-menu-dock-filter, blur(24px));
 }
 
-/* A faint shade gives the shelf glass rims a little more separation. */
-html[data-viewer-menu-style='glass'] .shelf-mobile-header-pill,
-[data-shelf-bottom-dock='true'].viewer-cime-glass {
-  background-image: linear-gradient(to bottom, transparent, rgb(0 0 0 / 3%) 50%, rgb(0 0 0 / 6%));
+/* Shade the shelf edges behind the floating glass menus. */
+.shelf-menu-edge-shade {
+  display: none;
+}
+
+html[data-viewer-menu-style='glass'] .shelf-menu-edge-shade {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgb(0 0 0 / 6%), transparent) top / 100% calc(env(safe-area-inset-top) + 8rem) no-repeat,
+    linear-gradient(to top, rgb(0 0 0 / 6%), transparent) bottom / 100% calc(env(safe-area-inset-bottom) + 9rem) no-repeat;
 }
 
 /* Fade the frosted surface in behind compact-cover text, leaving the artwork visible. */

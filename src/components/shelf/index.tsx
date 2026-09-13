@@ -363,6 +363,7 @@ export const Shelf: React.FC<ShelfProps> = ({
       className={`min-h-screen ${theme.bg} ${theme.text} font-sans pb-36 transition-colors duration-300`}
       style={themeStyle}
     >
+      <div className="shelf-menu-edge-shade" aria-hidden="true" />
       <ShelfHeader 
         isOfflineMode={isOfflineMode}
         isGuest={isGuest}
