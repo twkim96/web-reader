@@ -598,14 +598,14 @@ test('renders the simple shelf card as cover, fixed metadata, title, and compact
   assert.doesNotMatch(card.className, /app-panel-radius|\bborder\b|\bbg-/);
 });
 
-test('defaults to compact cover view and cycles simple, grid, and list modes', async () => {
+test('defaults to simple view and cycles simple, grid, and list modes', async () => {
   const [preferencesSource, headerSource] = await Promise.all([
     readFile(new URL('../src/components/shelf/useShelfPreferences.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
   ]);
 
   assert.match(preferencesSource, /const VIEW_MODE_KEY = 'shelf_viewMode_v2'/);
-  assert.match(preferencesSource, /typeof window === 'undefined'\) return 'grid'/);
+  assert.match(preferencesSource, /typeof window === 'undefined'\) return 'simple'/);
   assert.match(preferencesSource, /saved === 'simple' \|\| saved === 'grid' \|\| saved === 'list'/);
   assert.match(preferencesSource, /current === 'simple'[\s\S]*?\? 'grid'[\s\S]*?current === 'grid'[\s\S]*?\? 'list'[\s\S]*?: 'simple'/);
   assert.match(headerSource, /Switch to Simple View/);
