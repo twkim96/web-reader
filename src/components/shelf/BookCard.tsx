@@ -605,7 +605,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         </div>
 
         {renderMoreButton(true)}
-        <div data-shelf-grid-cover-content="true" className="absolute inset-x-0 bottom-0 flex min-w-0 flex-col bg-gradient-to-t from-black via-black/85 to-transparent px-4 pb-3 pt-12">
+        <div data-shelf-grid-cover-content="true" className="absolute inset-x-0 bottom-0 shelf-compact-glass-caption flex min-w-0 flex-col px-4 pb-3 pt-12">
           <div data-shelf-grid-meta="true" className="flex min-w-0 items-center justify-between gap-2">
             <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/70 sm:text-[11px]">
               {getBookFormatLabel(book)}
