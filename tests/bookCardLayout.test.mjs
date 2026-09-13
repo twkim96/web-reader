@@ -237,7 +237,7 @@ test('keeps mobile layout and auth controls in the header while tightening the s
   assert.match(shelfHeaderSource, /\bpb-2\b/);
   assert.match(shelfContent, /\bpt-3\b/);
   assert.doesNotMatch(shelfContent, /\bmd:pt-/);
-  assert.match(shelfSource, /grid-cols-1 gap-4 sm:grid-cols-2/);
+  assert.match(shelfSource, /grid-cols-2 gap-3 sm:grid-cols-3/);
 });
 
 test('keeps the shelf identity control flat and the user label light', async () => {
@@ -543,7 +543,7 @@ test('compact cover keeps metadata inside a full-bleed cover', () => {
   for (const selector of ['[data-shelf-grid-cover-title]', '[data-shelf-grid-meta]', '[data-shelf-grid-progress-block]', '[data-shelf-grid-cover-tag-slot]']) {
     assert.ok(content.querySelector(selector), selector);
   }
-  assert.match(root.className, /aspect-video/);
+  assert.match(root.className, /aspect-\[2\/3\]/);
   assert.match(content.className, /absolute/);
   assert.match(content.textContent, /42\.5%/);
 });
@@ -612,12 +612,12 @@ test('defaults to simple view and cycles simple, grid, and list modes', async ()
   assert.match(headerSource, /표지 보기/);
 });
 
-test('keeps horizontal grid cards readable in one mobile column and two wider columns', async () => {
+test('uses book-cover columns for compact cover view', async () => {
   const shelfSource = await readFile(
     new URL('../src/components/shelf/index.tsx', import.meta.url),
     'utf8',
   );
-  assert.match(shelfSource, /viewMode === 'grid'[\s\S]*?\? 'grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'/);
+  assert.match(shelfSource, /viewMode === 'grid'[\s\S]*?\? 'grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-5'/);
 });
 
 test('uses a cover-led responsive column layout for simple view', async () => {

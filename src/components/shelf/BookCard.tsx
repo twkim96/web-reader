@@ -574,7 +574,7 @@ export const BookCard: React.FC<BookCardProps> = ({
       onPointerUp={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
-      className={`app-panel-radius group relative aspect-video select-none border ${theme.border} bg-black text-white cursor-pointer transition-transform duration-200 [-webkit-touch-callout:none] hover:scale-[1.01] overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500`}
+      className={`app-panel-radius group relative aspect-[2/3] select-none border ${theme.border} bg-black text-white cursor-pointer transition-transform duration-200 [-webkit-touch-callout:none] hover:scale-[1.01] overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500`}
     >
       <div
         data-shelf-grid-cover-layout="true"
@@ -590,7 +590,7 @@ export const BookCard: React.FC<BookCardProps> = ({
               src={coverUrl}
               alt=""
               fill
-              sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+              sizes="(min-width: 1024px) 224px, (min-width: 768px) 25vw, (min-width: 640px) 33vw, 50vw"
               unoptimized
               className="object-cover"
             />

@@ -703,15 +703,15 @@ try {
   assert.equal(initialShelf.gridCardBorderRadius, '14px', JSON.stringify(initialShelf));
   assert.equal(initialShelf.gridTitleFontSize, '16px', JSON.stringify(initialShelf));
   assert.deepEqual(initialShelf.gridDeleteIconSize, { width: 14, height: 14 });
-  assert.ok(initialShelf.coverLayout.width > initialShelf.coverLayout.height, JSON.stringify(initialShelf.coverLayout));
-  assert.ok(Math.abs(initialShelf.coverLayout.width / initialShelf.coverLayout.height - 16 / 9) < 0.03);
+  assert.ok(initialShelf.coverLayout.width < initialShelf.coverLayout.height, JSON.stringify(initialShelf.coverLayout));
+  assert.ok(Math.abs(initialShelf.coverLayout.width / initialShelf.coverLayout.height - 2 / 3) < 0.03);
   assert.ok(initialShelf.gridProgressAlignment);
   assert.ok(initialShelf.gridProgressAlignment.topDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
   assert.ok(initialShelf.gridProgressAlignment.labelBottomDelta <= 1, JSON.stringify(initialShelf.gridProgressAlignment));
   assert.ok(initialShelf.gridCoverProgressAlignment);
   assert.ok(initialShelf.gridCoverProgressAlignment.insideCover, JSON.stringify(initialShelf.gridCoverProgressAlignment));
   assert.equal(initialShelf.gridInfoOrder, true, JSON.stringify(initialShelf));
-  assert.equal(initialShelf.gridColumnCount, 3, JSON.stringify(initialShelf));
+  assert.equal(initialShelf.gridColumnCount, 5, JSON.stringify(initialShelf));
 
   await evaluate(`document.querySelector('button[title="Switch to List View"]')?.click()`);
   await waitFor(
