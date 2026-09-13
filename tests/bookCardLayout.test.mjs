@@ -850,27 +850,35 @@ test('shelf edge shade follows scrolling and initializes at a restored scroll po
   const shadeModule = await import('../src/components/shelf/ShelfMenuEdgeShade.tsx');
   const { ShelfMenuEdgeShade } = shadeModule.default ?? shadeModule;
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
-  const previous = new Map(['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT', 'scrollY'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const previous = new Map(['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT', 'scrollY', 'innerHeight'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries({ window, document: window.document, HTMLElement: window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
   window.scrollY = 0;
+  window.innerHeight = 600;
+  window.document.documentElement.scrollHeight = 1600;
   const root = createRoot(window.document.querySelector('#root'));
   try {
     await act(async () => root.render(React.createElement(ShelfMenuEdgeShade)));
-    const shade = () => window.document.querySelector('.shelf-menu-edge-shade').dataset.scrolled;
-    assert.equal(shade(), 'false');
-    for (const [offset, expected] of [[80, 'true'], [0, 'false'], [-10, 'false']]) {
+    const shade = () => [...window.document.querySelectorAll('.shelf-menu-edge-shade')].map(node => node.dataset.visible);
+    assert.deepEqual(shade(), ['false', 'true']);
+    for (const [offset, expected] of [[80, ['true', 'true']], [1000, ['true', 'false']], [1050, ['true', 'false']], [0, ['false', 'true']], [-10, ['false', 'true']]]) {
       await act(async () => {
         window.scrollY = offset;
         window.dispatchEvent(new window.Event('scroll'));
       });
-      assert.equal(shade(), expected);
+      assert.deepEqual(shade(), expected);
     }
     await act(async () => root.render(null));
     window.scrollY = 120;
     await act(async () => root.render(React.createElement(ShelfMenuEdgeShade)));
-    assert.equal(shade(), 'true');
+    assert.deepEqual(shade(), ['true', 'true']);
+    await act(async () => {
+      window.scrollY = 0;
+      window.document.documentElement.scrollHeight = 400;
+      window.dispatchEvent(new window.Event('resize'));
+    });
+    assert.deepEqual(shade(), ['false', 'false']);
   } finally {
     await act(async () => root.unmount());
     for (const [key, descriptor] of previous) {
