@@ -159,7 +159,7 @@ test('keeps the reader search surface aligned with the shelf search geometry', a
   }
 
   assert.match(globals, /data-viewer-menu-style='standard'\]\s*\{[^}]*--app-menu-filter:\s*blur\(28px\) saturate\(1\.32\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-filter:\s*blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-filter:\s*blur\(14px\) saturate\(1\.12\) contrast\(0\.96\)/);
   assert.match(globals, /data-viewer-menu-style='modern'\]\s*\{[^}]*--app-menu-filter:\s*blur\(24px\)/);
   assert.match(globals, /:is\(\.app-search-surface, \.app-menu-sheet, \.app-menu-material\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-filter\)/);
   assert.doesNotMatch(globals, /@media \(max-width:\s*639px\)[\s\S]*?\.app-search-surface\s*\{[\s\S]*?align-items:\s*flex-end/);
@@ -175,11 +175,12 @@ test('uses a darker menu-style material for the shelf full-results footer', asyn
   assert.match(shelfSearchSource, /data-shelf-search-results-action="true"[\s\S]*?app-search-results-action/);
   assert.doesNotMatch(shelfSearchSource, /app-search-results-footer[^\n]*theme\.secondary/);
   assert.match(globals, /data-viewer-menu-style='standard'\]\s*\{[^}]*--app-menu-footer-surface:[^}]*black 16%/);
-  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-footer-surface:[^}]*rgba\(0, 0, 0, 0\.62\) 18%/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-footer-surface:\s*color-mix\(in srgb, var\(--viewer-theme-text\) 8%, var\(--viewer-theme-bg\)\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-footer-filter:\s*none/);
   assert.match(globals, /data-viewer-menu-style='modern'\]\s*\{[^}]*--app-menu-footer-surface:[^}]*black 14%/);
-  assert.match(globals, /\.app-search-results-footer\s*\{[\s\S]*?background-color:\s*var\(--app-menu-footer-surface\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-filter\)/);
-  assert.match(globals, /data-viewer-menu-style='glass'\] \.app-search-results-footer::before/);
-  assert.match(globals, /\.app-search-results-action\s*\{[\s\S]*?background-color:\s*var\(--app-menu-control-surface\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-filter\)/);
+  assert.match(globals, /\.app-search-results-footer\s*\{[\s\S]*?background-color:\s*var\(--app-menu-footer-surface\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-footer-filter, var\(--app-menu-filter\)\)/);
+  assert.doesNotMatch(globals, /data-viewer-menu-style='glass'\] \.app-search-results-footer::before/);
+  assert.match(globals, /\.app-search-results-action\s*\{[\s\S]*?background-color:\s*var\(--app-menu-control-surface\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-control-filter, var\(--app-menu-filter\)\)/);
 });
 
 test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', async () => {
@@ -191,14 +192,15 @@ test('keeps one persistent bottom shelf dock at 34px on mobile and desktop', asy
   assert.doesNotMatch(shelfHeaderSource, /isBottomDock|md:hidden[^\n]*bottomDock/);
 });
 
-test('keeps the glass dock low-blur while stabilizing its background and icon contrast', async () => {
+test('uses the strongest glass tier for persistent chrome while keeping icon contrast stable', async () => {
   const [globals, shelfHeaderSource] = await Promise.all([
     readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/shelf/ShelfHeader.tsx', import.meta.url), 'utf8'),
   ]);
 
   assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-dock-surface:\s*var\(--viewer-shelf-glass-surface/);
-  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-filter:\s*blur\(1\.5px\) saturate\(90%\) contrast\(82%\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-dock-filter:\s*blur\(10px\) saturate\(1\.18\) contrast\(0\.94\)/);
+  assert.match(globals, /data-viewer-menu-style='glass'\]\s*\{[^}]*--app-menu-reader-filter:\s*var\(--app-menu-dock-filter\)/);
   assert.match(globals, /\.app-menu-dock\s*\{[\s\S]*?background-color:\s*var\(--app-menu-dock-surface[\s\S]*?backdrop-filter:\s*var\(--app-menu-dock-filter/);
   assert.match(globals, /\.viewer-cime-glass \.shelf-glass-contrast-icon svg[\s\S]*?drop-shadow[\s\S]*?--viewer-shelf-glass-ink-edge-opposite/);
   assert.match(shelfHeaderSource, /viewer-cime-glass text-\[color:var\(--viewer-shelf-glass-ink\)\]/);
