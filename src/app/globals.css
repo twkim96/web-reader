@@ -89,14 +89,12 @@ html[data-viewer-menu-style='standard'] {
   --app-menu-control-surface: var(--viewer-reader-glass-surface, var(--viewer-reader-surface));
   --app-menu-control-border: var(--viewer-reader-glass-border, var(--viewer-theme-border));
   --app-menu-control-shadow: 0 5px 14px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  --app-menu-control-filter: var(--app-menu-filter);
   --app-menu-footer-surface: color-mix(
     in srgb,
     var(--viewer-reader-glass-surface, var(--viewer-reader-surface)) 84%,
     black 16%
   );
   --app-menu-footer-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  --app-menu-footer-filter: var(--app-menu-filter);
   --app-menu-dock-surface: var(--viewer-reader-surface);
   --app-menu-dock-border: var(--viewer-theme-border);
   --app-menu-dock-shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
@@ -107,48 +105,38 @@ html[data-viewer-menu-style='standard'] {
   --app-menu-reader-filter: var(--app-menu-filter);
 }
 
-/*
- * Three-level glass hierarchy for the cross-platform glass style:
- * 1. Chrome (dock/reader controls) stays the clearest and most translucent.
- * 2. Panels (modal/search/TTS surfaces) are denser and calmer for long content.
- * 3. Inner controls are tonal surfaces with no nested backdrop blur.
- */
 [data-menu-style-material='glass'],
 html[data-viewer-menu-style='glass'] {
-  /* Level 2: modal/search panel glass. */
-  --app-menu-surface: color-mix(in srgb, var(--viewer-theme-bg) 54%, transparent);
+  --app-menu-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
   --app-menu-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent);
   --app-menu-ink: var(--viewer-shelf-glass-ink, var(--viewer-theme-text));
-  --app-menu-filter: blur(14px) saturate(1.12) contrast(0.96);
+  --app-menu-filter: blur(1.5px) saturate(90%) contrast(82%);
   --app-menu-panel-shadow:
     0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
-    0 3px 10px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
-
-  /* Level 3: tonal controls; avoid glass-on-glass blur and heavy shadows. */
-  --app-menu-control-surface: color-mix(in srgb, var(--viewer-theme-text) 7%, var(--viewer-theme-bg));
-  --app-menu-close-surface: color-mix(in srgb, var(--viewer-theme-text) 9%, var(--viewer-theme-bg));
-  --app-menu-control-border: color-mix(in srgb, var(--viewer-theme-text) 13%, transparent);
+    0 3px 10px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  --app-menu-control-surface: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent);
+  --app-menu-close-surface: color-mix(in srgb, var(--viewer-theme-bg) 34%, transparent);
+  --app-menu-control-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent);
   --app-menu-control-shadow:
-    0 1px 2px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.08)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  --app-menu-control-filter: none;
-  --app-menu-footer-surface: color-mix(in srgb, var(--viewer-theme-text) 8%, var(--viewer-theme-bg));
-  --app-menu-footer-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
-  --app-menu-footer-filter: none;
-
-  /* Level 1: floating app chrome. */
+    0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  --app-menu-footer-surface: color-mix(
+    in srgb,
+    var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) 82%,
+    rgba(0, 0, 0, 0.62) 18%
+  );
+  --app-menu-footer-shadow: 0 -8px 24px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.12)), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   --app-menu-dock-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
-  --app-menu-dock-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 10%, transparent);
-  --app-menu-dock-shadow:
-    0 8px 24px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  --app-menu-dock-filter: blur(10px) saturate(1.18) contrast(0.94);
+  --app-menu-dock-border: transparent;
+  --app-menu-dock-shadow: 0 4px 12px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14));
+  --app-menu-dock-filter: var(--app-menu-filter);
   --app-menu-preview-shadow: var(--app-menu-dock-shadow);
   --app-menu-reader-surface: var(--app-menu-dock-surface);
-  --app-menu-reader-border: var(--app-menu-dock-border);
-  --app-menu-reader-filter: var(--app-menu-dock-filter);
+  --app-menu-reader-border: var(--app-menu-border);
+  --app-menu-reader-filter: var(--app-menu-filter);
 }
 
 [data-menu-style-material='modern'],
@@ -161,14 +149,12 @@ html[data-viewer-menu-style='modern'] {
   --app-menu-control-surface: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface));
   --app-menu-control-border: var(--viewer-shelf-dock-border, var(--viewer-theme-border));
   --app-menu-control-shadow: 0 8px 20px -8px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
-  --app-menu-control-filter: var(--app-menu-filter);
   --app-menu-footer-surface: color-mix(
     in srgb,
     var(--viewer-shelf-dock-surface, var(--viewer-reader-surface)) 86%,
     black 14%
   );
   --app-menu-footer-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
-  --app-menu-footer-filter: var(--app-menu-filter);
   --app-menu-dock-surface: var(--viewer-shelf-dock-surface, var(--viewer-reader-surface));
   --app-menu-dock-border: var(--viewer-shelf-dock-border, var(--viewer-theme-border));
   --app-menu-dock-shadow: 0 25px 50px -12px var(--viewer-shelf-dock-shadow, rgba(0, 0, 0, 0.35));
@@ -222,8 +208,8 @@ html[data-viewer-menu-style] .app-search-results-footer {
   background-color: var(--app-menu-footer-surface) !important;
   color: var(--app-menu-ink) !important;
   box-shadow: var(--app-menu-footer-shadow);
-  -webkit-backdrop-filter: var(--app-menu-footer-filter, var(--app-menu-filter));
-  backdrop-filter: var(--app-menu-footer-filter, var(--app-menu-filter));
+  -webkit-backdrop-filter: var(--app-menu-filter);
+  backdrop-filter: var(--app-menu-filter);
 }
 
 html[data-viewer-menu-style] .app-search-results-action {
@@ -231,8 +217,8 @@ html[data-viewer-menu-style] .app-search-results-action {
   background-color: var(--app-menu-control-surface) !important;
   color: var(--app-menu-ink) !important;
   box-shadow: var(--app-menu-control-shadow);
-  -webkit-backdrop-filter: var(--app-menu-control-filter, var(--app-menu-filter));
-  backdrop-filter: var(--app-menu-control-filter, var(--app-menu-filter));
+  -webkit-backdrop-filter: var(--app-menu-filter);
+  backdrop-filter: var(--app-menu-filter);
 }
 
 /* Shelf dialogs temporarily yield the viewport to their modal surface. */
@@ -299,8 +285,8 @@ html[data-viewer-menu-style] .app-modal-close {
   background-color: var(--app-menu-close-surface, var(--app-menu-control-surface)) !important;
   color: var(--app-menu-ink) !important;
   box-shadow: var(--app-menu-control-shadow);
-  -webkit-backdrop-filter: var(--app-menu-control-filter, var(--app-menu-filter));
-  backdrop-filter: var(--app-menu-control-filter, var(--app-menu-filter));
+  -webkit-backdrop-filter: var(--app-menu-filter);
+  backdrop-filter: var(--app-menu-filter);
 }
 
 @keyframes app-menu-sheet-enter {
@@ -420,16 +406,12 @@ html[data-viewer-menu-style='glass'] .app-menu-sheet-action {
   border-color: var(--app-menu-control-border) !important;
   background-color: var(--app-menu-control-surface) !important;
   box-shadow: var(--app-menu-control-shadow);
-  -webkit-backdrop-filter: var(--app-menu-control-filter);
-  backdrop-filter: var(--app-menu-control-filter);
 }
 
 html[data-viewer-menu-style='glass'] .app-menu-sheet-section {
   border-color: var(--app-menu-control-border) !important;
   background-color: var(--app-menu-control-surface) !important;
   box-shadow: var(--app-menu-control-shadow);
-  -webkit-backdrop-filter: var(--app-menu-control-filter);
-  backdrop-filter: var(--app-menu-control-filter);
 }
 
 /* Confirmation surfaces keep destructive/informational meaning while using
@@ -530,7 +512,10 @@ html[data-viewer-menu-style='glass'] .app-filter-tag-material {
 html[data-viewer-menu-style='glass'] .shelf-mobile-header-pill::before,
 html[data-viewer-menu-style='glass'] .app-menu-sheet::before,
 html[data-viewer-menu-style='glass'] .app-menu-material::before,
-html[data-viewer-menu-style='glass'] .app-search-surface::before {
+html[data-viewer-menu-style='glass'] .app-search-surface::before,
+html[data-viewer-menu-style='glass'] .app-search-results-footer::before,
+html[data-viewer-menu-style='glass'] .app-search-results-action::before,
+html[data-viewer-menu-style='glass'] .app-modal-close::before {
   content: '';
   position: absolute;
   inset: 0;
