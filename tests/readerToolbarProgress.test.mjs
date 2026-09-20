@@ -69,7 +69,7 @@ const dispatchPointer = (window, target, type, clientX, buttons, clientY = 20, t
   target.dispatchEvent(event);
 };
 
-const Harness = ({ menuStyle = 'modern' } = {}) => {
+const Harness = ({ menuStyle = 'modern', showControls = true, onOpenSearch = () => undefined, onBack = () => undefined } = {}) => {
   const slider = useReaderProgressSlider({
     currentCfi: 'epubcfi(/6/2!/4/2)',
     totalProgress: 20,
@@ -92,14 +92,14 @@ const Harness = ({ menuStyle = 'modern' } = {}) => {
       theme: { bg: 'bg-black', text: 'text-white', border: 'border-white' },
       menuStyle,
       bookName: 'Pointer Test.epub',
-      showControls: true,
+      showControls,
       sliderProgress: slider.sliderProgress,
       isSliderPreviewing: slider.isSliderPreviewing,
       sliderPreviewChapter: undefined,
       bookmarkCount: 0,
       annotationCount: 0,
-      onBack: () => undefined,
-      onOpenSearch: () => undefined,
+      onBack,
+      onOpenSearch,
       onOpenSettings: () => undefined,
       onOpenTheme: () => undefined,
       onOpenBookmarks: () => undefined,
@@ -511,4 +511,38 @@ test('press holds progress, tap jumps on release, and long press reanchors the f
     await move('pointerup', 324, 220, 1200);
     assert.equal(document.querySelector('#pending-progress').getAttribute('data-target'), '21');
   } finally { await act(async () => root.unmount()); }
+});
+
+
+test('revealing the reader menu does not activate controls with the opening gesture click', async () => {
+  const window = installDom();
+  const root = createRoot(window.document.querySelector('#root'));
+  let searches = 0;
+  let closes = 0;
+  const props = { onOpenSearch: () => searches++, onBack: () => closes++ };
+  const click = (target, detail = 1) => {
+    const event = new window.Event('click', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'detail', { value: detail });
+    target.dispatchEvent(event);
+  };
+  try {
+    await act(async () => root.render(React.createElement(Harness, { ...props, showControls: false })));
+    await act(async () => root.render(React.createElement(Harness, props)));
+    const search = [...window.document.querySelectorAll('button')].find(node => node.textContent.includes('책 검색'));
+    const close = window.document.querySelector('[data-reader-close-button]');
+    assert.ok(search);
+    await act(async () => { click(search); click(close); });
+    assert.equal(searches, 0);
+    assert.equal(closes, 0);
+    await act(async () => {
+      dispatchPointer(window, search, 'pointerdown', 100, 1);
+      dispatchPointer(window, search, 'pointerup', 100, 0);
+      click(search);
+    });
+    assert.equal(searches, 1, 'a new tap on the visible menu works immediately');
+    await act(async () => click(close, 0));
+    assert.equal(closes, 1, 'keyboard activation remains available');
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

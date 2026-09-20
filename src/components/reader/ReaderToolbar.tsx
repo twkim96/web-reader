@@ -101,6 +101,26 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const surfaceClass = getReaderSurfaceClass(menuStyle);
   const hasReaderRecords = bookmarkCount > 0 || annotationCount > 0;
   const [isLandscape, setIsLandscape] = React.useState(false);
+  // A publication-frame pointerup may reveal the toolbar before its synthetic click.
+  const menuPointerStartedRef = React.useRef(false);
+  React.useLayoutEffect(() => {
+    menuPointerStartedRef.current = false;
+  }, [showControls]);
+  const menuInputGuard = {
+    onPointerDownCapture: () => { menuPointerStartedRef.current = showControls; },
+    onPointerCancelCapture: () => { menuPointerStartedRef.current = false; },
+  };
+  const guardMenuClick = (action: () => void) => (event: React.MouseEvent) => {
+    const startedInMenu = menuPointerStartedRef.current;
+    menuPointerStartedRef.current = false;
+    if (!showControls || (event.detail > 0 && !startedInMenu)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    action();
+  };
+
   const readerTextMaxInlineSize = landscapeTwoPage && isLandscape
     ? READER_TEXT_MAX_INLINE_SIZE * 2
     : READER_TEXT_MAX_INLINE_SIZE;
@@ -301,11 +321,11 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 
   return (
     <>
-      <nav data-reader-menu-style={menuStyle} className={`app-radius-exempt fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
+      <nav {...menuInputGuard} data-reader-menu-style={menuStyle} className={`app-radius-exempt fixed inset-x-0 top-0 z-50 px-3 pt-[calc(env(safe-area-inset-top)+12px)] transition-transform duration-200 ease-out sm:px-4 sm:pt-[calc(env(safe-area-inset-top)+16px)] ${showControls ? 'pointer-events-none translate-y-0' : 'pointer-events-none -translate-y-[calc(100%+2rem)]'}`}>
         <button
           ref={titleRightLimitRef}
           type="button"
-          onClick={onBack}
+          onClick={guardMenuClick(onBack)}
           aria-label="Close reader"
           data-reader-close-button="true"
           data-reader-title-right-limit="true"
@@ -341,6 +361,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
       </nav>
 
       <div
+        {...menuInputGuard}
         data-reader-toolbar-menu="true"
         data-reader-menu-style={menuStyle}
         className={`app-radius-exempt fixed bottom-[calc(env(safe-area-inset-bottom)+3.25rem)] z-50 w-[min(17.1875rem,calc(100vw_-_2rem))] origin-bottom-right font-sans transition-transform duration-200 ease-out md:bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] md:w-[min(18.90625rem,calc(100vw_-_2rem))] ${showControls ? 'pointer-events-auto visible translate-y-0 scale-100' : 'pointer-events-none invisible translate-y-3 scale-[0.98]'}`}
@@ -369,7 +390,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             {!isFixedLayout && (
               <button
                 type="button"
-                onClick={onOpenTts}
+                onClick={guardMenuClick(onOpenTts)}
                 disabled={!ttsSupported}
                 className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 disabled:opacity-35 md:size-[3.025rem] ${ttsActive ? 'text-accent-500' : ''}`}
                 aria-label={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS 미지원'}
@@ -380,7 +401,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             )}
             <button
               type="button"
-              onClick={onOpenStatistics}
+              onClick={guardMenuClick(onOpenStatistics)}
               className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
               aria-label="독서 통계"
               title="독서 통계"
@@ -389,7 +410,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
             <button
               type="button"
-              onClick={onOpenBookInfo}
+              onClick={guardMenuClick(onOpenBookInfo)}
               className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
               aria-label="도서 정보"
               title="도서 정보"
@@ -414,7 +435,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </div>
             <button
               type="button"
-              onClick={onOpenToc}
+              onClick={guardMenuClick(onOpenToc)}
               className="absolute inset-y-0 right-0 z-10 flex w-[2.8875rem] items-center justify-center transition-opacity hover:opacity-80 md:w-[3.17625rem]"
               aria-label="목차"
               title="목차"
@@ -453,7 +474,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           {!isFixedLayout && (
             <button
               type="button"
-              onClick={onOpenSearch}
+              onClick={guardMenuClick(onOpenSearch)}
               className={`relative flex h-[2.8875rem] items-center justify-between rounded-full border ${theme.border} ${surfaceClass} px-[1.125rem] text-[15px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:px-[1.2375rem] md:text-[16.5px]`}
             >
               <span>책 검색</span>
@@ -467,7 +488,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
           >
             <button
               type="button"
-              onClick={onOpenBookmarks}
+              onClick={guardMenuClick(onOpenBookmarks)}
               className={`relative flex h-[2.8875rem] min-w-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border ${theme.border} ${surfaceClass} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px] ${hasReaderRecords ? 'text-accent-500' : ''}`}
               aria-label="책갈피와 주석"
               aria-describedby="reader-record-counts"
@@ -493,7 +514,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
             <button
               type="button"
-              onClick={onOpenTheme}
+              onClick={guardMenuClick(onOpenTheme)}
               className={`relative flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} ${surfaceClass} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
               aria-label="테마"
               title="테마"
@@ -503,7 +524,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             </button>
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={guardMenuClick(onOpenSettings)}
               className={`relative flex h-[2.8875rem] items-center justify-center gap-1 rounded-full border ${theme.border} ${surfaceClass} px-1 text-[12px] font-medium shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:h-[3.17625rem] md:gap-1 md:px-1 md:text-[13.2px]`}
               aria-label="설정"
               title="설정"
