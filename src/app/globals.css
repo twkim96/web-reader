@@ -185,6 +185,16 @@ html[data-viewer-menu-style] :is(.app-search-surface, .app-menu-sheet, .app-menu
   backdrop-filter: var(--app-menu-filter);
 }
 
+/* Frosted dialog material: keep the floating menu bars on their lighter glass. */
+html[data-viewer-menu-style='glass'] :is(.app-search-surface, .app-menu-sheet, .app-menu-material) {
+  --app-menu-surface: color-mix(in srgb, color-mix(in srgb, var(--viewer-theme-bg) 65%, var(--viewer-theme-text)) 40%, transparent);
+  --app-menu-filter: blur(9px) saturate(100%) contrast(90%);
+}
+
+html[data-viewer-menu-style='glass'] :is(.app-search-surface, .app-menu-sheet, .app-menu-material)::before {
+  opacity: 0.65;
+}
+
 /* Search result actions continue the selected surface material, with a
  * slightly darker footer to separate the full-results action from previews. */
 .app-search-results-footer {
