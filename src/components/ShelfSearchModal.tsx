@@ -183,9 +183,9 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                       key={book.id}
                       type="button"
                       onClick={() => { onClose(); onOpen(book); }}
-                      className="group flex w-full items-center gap-4 px-6 py-3 text-left transition-colors hover:bg-accent-500/10"
+                      className="group flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-accent-500/10 sm:gap-4 sm:px-6"
                     >
-                      <div className="relative">
+                      <div className="relative hidden shrink-0 sm:block">
                         <div className="rounded-xl bg-accent-500/10 p-2 text-accent-500"><BookOpen size={20} /></div>
                         {isDownloaded && (
                           <div className="absolute -right-1.5 -top-1.5 rounded-full border-2 border-white bg-green-500 p-0.5 text-white shadow-sm dark:border-slate-900">
@@ -194,10 +194,10 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-4">
-                          <span className="truncate text-base font-bold transition-colors group-hover:text-accent-500">{getDisplayBookTitle(book.name)}</span>
+                        <div className="flex items-center justify-between gap-2 sm:gap-4">
+                          <span className="min-w-0 flex-1 truncate text-base font-bold transition-colors group-hover:text-accent-500">{getDisplayBookTitle(book.name)}</span>
                           {(lastDate || percent !== undefined) && (
-                            <div className="flex shrink-0 items-center gap-2">
+                            <div className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap sm:gap-2">
                               {lastDate && <span className="text-[10px] font-bold opacity-40">{lastDate}</span>}
                               {percent !== undefined && percent > 0 && (
                                 <span className="rounded-md bg-accent-500/10 px-2 py-0.5 text-xs font-black text-accent-500">{percent.toFixed(1)}%</span>
@@ -218,7 +218,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                           </div>
                         )}
                       </div>
-                      <ChevronRight className="shrink-0 text-accent-500 opacity-0 transition-opacity group-hover:opacity-40" size={16} />
+                      <ChevronRight className="hidden shrink-0 text-accent-500 opacity-0 transition-opacity group-hover:opacity-40 sm:block" size={16} />
                     </button>
                   );
                 })}
