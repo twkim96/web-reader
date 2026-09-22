@@ -90,6 +90,7 @@ interface EpubReaderProps {
     signal?: AbortSignal,
   ) => Promise<RemoteProgressAdoptionResult>;
   initialCfi?: string;
+  initialAnchorCfi?: string;
   initialPercent?: number;
   initialTime?: number;
   initialBookmarks?: Bookmark[];
@@ -228,6 +229,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   onSaveBookmarkMutation,
   onAdoptRemoteProgress,
   initialCfi,
+  initialAnchorCfi,
   initialPercent,
   initialTime,
   initialBookmarks,
@@ -507,6 +509,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     book,
     googleToken,
     initialCfi,
+    initialAnchorCfi,
     settings,
     themeColors,
     themeTexture,

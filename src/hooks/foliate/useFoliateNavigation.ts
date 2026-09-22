@@ -20,6 +20,7 @@ export const useFoliateNavigation = ({
     source: Blob | File | string | FoliateBook,
     initialCfi?: string,
     beforeInit?: (view: FoliateViewElement) => void | Promise<void>,
+    initialAnchorCfi?: string,
   ) => {
     if (!viewRef.current) {
       await initView();
@@ -29,7 +30,7 @@ export const useFoliateNavigation = ({
     if (!view) return;
 
     try {
-      await openFoliateBook(view, source, initialCfi, beforeInit);
+      await openFoliateBook(view, source, initialCfi, beforeInit, initialAnchorCfi);
       setToc(buildTocProgress(view));
     } catch (error) {
       console.error('Failed to open epub:', error);

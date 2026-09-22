@@ -9,6 +9,7 @@ export const openFoliateBook = async (
   source: Blob | File | string | FoliateBook,
   initialCfi?: string,
   beforeInit?: BeforeInit,
+  initialAnchorCfi?: string,
 ) => {
   const timingTarget = typeof window !== 'undefined' ? window : null;
   const timingWindow = timingTarget as TimingWindow | null;
@@ -55,11 +56,37 @@ export const openFoliateBook = async (
     });
 
     startedAt = timingNow();
-    await view.init({ lastLocation: initialCfi || null });
+    const resumeTargets = [initialCfi, initialAnchorCfi]
+      .filter((target, index, all): target is string => Boolean(target) && all.indexOf(target) === index);
+    if (resumeTargets.length > 0) {
+      // init silently falls back to the beginning for an unresolved location,
+      // and does not report a refused navigation. Resume through the same
+      // pagination-stabilized path used by explicit saved-position jumps.
+      let restored = false;
+      for (const target of resumeTargets) {
+        const result = view.goToStable
+          ? await view.goToStable(target)
+          : await view.goTo(target);
+        if (result) {
+          restored = true;
+          break;
+        }
+      }
+      if (!restored) {
+        traceReaderOpenPerformance({
+          phase: 'foliate-initial-navigation',
+          durationMs: timingNow() - startedAt,
+          status: 'resume-failed',
+        });
+        throw new Error('저장된 읽기 위치를 복원하지 못했습니다. 진행도는 변경하지 않았습니다. 서재에서 다시 열어 주세요.');
+      }
+    } else {
+      await view.init({ lastLocation: null });
+    }
     traceReaderOpenPerformance({
       phase: 'foliate-initial-navigation',
       durationMs: timingNow() - startedAt,
-      status: initialCfi ? 'resume' : 'start',
+      status: resumeTargets.length > 0 ? 'resume' : 'start',
     });
   } finally {
     timingTarget?.removeEventListener('foliate-reader-open-timing', handleFoliateTiming);

@@ -80,6 +80,7 @@ interface UseReaderBookSourceOptions {
   book: Book;
   googleToken: string;
   initialCfi?: string;
+  initialAnchorCfi?: string;
   settings: ViewerSettings;
   themeColors: ReaderThemeColors;
   themeTexture: ReaderThemeTexture;
@@ -88,6 +89,7 @@ interface UseReaderBookSourceOptions {
     source: Blob | File | string | FoliateBook,
     initialCfi?: string,
     beforeInit?: (view: FoliateViewElement) => void | Promise<void>,
+    initialAnchorCfi?: string,
   ) => Promise<void>;
   setLayout: ReaderLayoutSetter;
   setStyle: ReaderStyleSetter;
@@ -126,6 +128,7 @@ export const useReaderBookSource = ({
   book,
   googleToken,
   initialCfi,
+  initialAnchorCfi,
   settings,
   themeColors,
   themeTexture,
@@ -142,6 +145,7 @@ export const useReaderBookSource = ({
     book,
     googleToken,
     initialCfi,
+    initialAnchorCfi,
     openBook,
     onBack,
     settings,
@@ -154,6 +158,7 @@ export const useReaderBookSource = ({
     book,
     googleToken,
     initialCfi,
+    initialAnchorCfi,
     openBook,
     onBack,
     settings,
@@ -173,6 +178,7 @@ export const useReaderBookSource = ({
       book: targetBook,
       googleToken: targetGoogleToken,
       initialCfi: targetInitialCfi,
+      initialAnchorCfi: targetInitialAnchorCfi,
       openBook: openTargetBook,
       onBack: returnToShelf,
     } = loadInputsRef.current;
@@ -387,6 +393,7 @@ export const useReaderBookSource = ({
                   if (shouldCacheCover) openedCoverView = openedView;
                 }
                 : undefined,
+              targetInitialAnchorCfi,
             );
             if (prepared.format === 'archive') {
               await runWithTimeout(open, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE);

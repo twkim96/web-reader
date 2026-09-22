@@ -783,6 +783,7 @@ export default function Page() {
           onSaveBookmarkMutation={handleSaveBookmarkMutation}
           onAdoptRemoteProgress={handleAdoptRemoteProgress}
           initialCfi={progress[activeBook.id]?.cfi || progress[activeBook.id]?.anchorCfi}
+          initialAnchorCfi={progress[activeBook.id]?.anchorCfi}
           initialPercent={progress[activeBook.id]?.progressPercent}
           initialTime={progress[activeBook.id]?.lastRead}
           initialBookmarks={progress[activeBook.id]?.bookmarks || []}
