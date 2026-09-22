@@ -118,3 +118,18 @@ test('provisional navigation aborts old remote attempts and rejects new attempts
   assert.equal(after.signal.aborted, false);
   assert.equal(hook.isRemoteNavigationAttemptCurrent(after), true);
 }));
+
+test('opening reader chrome permits startup resume but an actual page move permanently fences it', () => harness(async ({ hook }) => {
+  assert.equal(hook.isQuietResumeEligible(), true);
+  hook.markUserInteraction();
+  assert.equal(hook.isQuietResumeEligible(), true);
+  hook.markUserProgressChange();
+  hook.handleRelocateForSave({ cfi: 'after-turn', progressPercent: 15 });
+  await hook.flushCurrentProgress();
+  assert.equal(hook.isQuietResumeEligible(), false);
+}));
+
+test('TTS remains protected from quiet startup navigation', () => harness(async ({ hook }) => {
+  hook.setTtsProgressFenceActive(true);
+  assert.equal(hook.isQuietResumeEligible(), false);
+}));

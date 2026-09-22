@@ -17,6 +17,7 @@ import { ReaderModalFrame } from './reader/ReaderModalFrame';
 import { MenuSheetHeader } from './MenuSheetHeader';
 
 interface BookmarkModalProps {
+  syncRecovery?: { percent: number; busy: boolean; onMove: () => void } | null;
   bookmarks: Bookmark[];
   annotations: Annotation[];
   annotationPalette: AnnotationPaletteItem[];
@@ -44,6 +45,7 @@ type RecordsTab = 'bookmarks' | 'annotations';
 const LOCAL_MANUAL_BOOKMARK_ADD_LIMIT = 5;
 
 export const BookmarkModal: React.FC<BookmarkModalProps> = ({
+  syncRecovery,
   bookmarks,
   annotations,
   annotationPalette,
@@ -196,6 +198,12 @@ export const BookmarkModal: React.FC<BookmarkModalProps> = ({
               <span className="text-xs font-bold uppercase tracking-wider opacity-50">자동 저장 (최근 이동 기록)</span>
             </div>
 
+            {syncRecovery && (
+              <button type="button" disabled={syncRecovery.busy} onClick={syncRecovery.onMove}
+                className="app-menu-sheet-section flex min-h-11 w-full items-center justify-between rounded-xl border border-white/5 p-2.5 text-xs font-bold disabled:opacity-50">
+                <span>동기화 지점으로 이동</span><span className="text-accent-500">{syncRecovery.percent.toFixed(1)}%</span>
+              </button>
+            )}
             {autoBookmarks.length > 0 ? autoBookmarks.map((bookmark) => (
               <button
                 type="button"

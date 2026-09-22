@@ -109,7 +109,6 @@ export const useReaderProgressSave = ({
   } | null>(null);
   const lastSaveTimeRef = useRef(initialTime || 0);
   const skipNextSaveRef = useRef(true);
-  const hasUserInteractedRef = useRef(false);
   const hasUnsavedUserChangeRef = useRef(false);
   const interactionGenerationRef = useRef(0);
   const inFlightCommitCountRef = useRef(0);
@@ -158,7 +157,6 @@ export const useReaderProgressSave = ({
 
   const markUserInteraction = useCallback(() => {
     traceReaderProgressRegression({ event: 'user-interaction' });
-    hasUserInteractedRef.current = true;
   }, []);
 
   const beginRemoteNavigationAttempt = useCallback((): ReaderRemoteNavigationAttempt => {
@@ -621,9 +619,10 @@ export const useReaderProgressSave = ({
     inFlightCommitCount: inFlightCommitCountRef.current,
   }), []);
 
-  const isQuietResumeEligible = useCallback(() => isQuietReaderResumeEligible({
+  const isQuietResumeEligible = useCallback(() => !ttsProgressFenceActiveRef.current && isQuietReaderResumeEligible({
     ...getPersistenceState(),
-    hasUserInteracted: hasUserInteractedRef.current,
+    // Opening chrome or selecting text is not a change of reading position.
+    hasUserInteracted: interactionGenerationRef.current > 0,
   }), [getPersistenceState]);
 
   const isProgressConflictAutoResolveEligible = useCallback(() => (

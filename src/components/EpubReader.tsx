@@ -28,6 +28,7 @@ import { TocModal } from './TocModal';
 import { EpubSearchModal } from './EpubSearchModal';
 import { JumpDialog } from './reader/JumpDialog';
 import { ProgressJumpConfirmDialog } from './reader/ProgressJumpConfirmDialog';
+import { SyncRecoveryNotice } from './reader/SyncRecoveryNotice';
 import { ReaderStatusBar } from './reader/ReaderStatusBar';
 import { ReaderToolbar } from './reader/ReaderToolbar';
 import { SyncConflictDialog } from './reader/SyncConflictDialog';
@@ -668,11 +669,16 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const {
     syncConflict,
+    syncRecovery,
+    syncRecoveryVisible,
+    hideSyncRecovery,
+    consumeSyncRecovery,
     syncConflictFeedback,
     resolvingSyncConflict,
     dismissSyncConflict,
     acceptSyncConflict,
   } = useRemoteProgressPrompt({
+    recoveryScope: JSON.stringify([ownerKey, book.id]),
     isLoaded,
     remoteProgress,
     resolvedRemoteProgressCommand,
@@ -1450,6 +1456,26 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     return saved;
   }, [isProvisionalNavigationActive, navigateWithinPreview, goToStable, commitBookmarks, currentAnchorCfi, currentCfi, goTo, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
 
+  const [syncRecoveryBusy, setSyncRecoveryBusy] = React.useState(false);
+  const syncRecoveryMoveRef = useRef(false);
+  const moveToSyncRecovery = useCallback(async () => {
+    if (!syncRecovery || syncRecoveryMoveRef.current || isProvisionalNavigationActive() || syncConflict) return;
+    syncRecoveryMoveRef.current = true;
+    setSyncRecoveryBusy(true);
+    markUserProgressChange();
+    try {
+      // This is an explicit jump to a saved candidate, not forced adoption of
+      // an old server revision. Normal save/outbox conflict protection applies.
+      if (await performCfiJump(syncRecovery.cfi, syncRecovery.percent)) {
+        consumeSyncRecovery(syncRecovery.identity);
+        chrome.setShowBookmarks(false);
+      }
+    } finally {
+      syncRecoveryMoveRef.current = false;
+      setSyncRecoveryBusy(false);
+    }
+  }, [chrome, consumeSyncRecovery, isProvisionalNavigationActive, markUserProgressChange, performCfiJump, syncConflict, syncRecovery]);
+
   const performJump = useCallback(
     (targetCfi: string) => performCfiJump(targetCfi),
     [performCfiJump],
@@ -1818,6 +1844,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
       {chrome.showBookmarks && (
         <BookmarkModal
+          syncRecovery={syncRecovery ? { percent: syncRecovery.percent, busy: syncRecoveryBusy || Boolean(pendingSliderMove) || Boolean(syncConflict), onMove: () => { void moveToSyncRecovery(); } } : null}
           bookmarks={bookmarks}
           annotations={annotations}
           annotationPalette={palette}
@@ -1933,6 +1960,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         />
       )}
 
+      <SyncRecoveryNotice
+        key={syncRecovery?.identity ?? 'none'}
+        visible={syncRecoveryVisible && Boolean(syncRecovery) && !isReaderPanelOpen && !pendingSliderMove && !chrome.showControls}
+        busy={syncRecoveryBusy}
+        onMove={() => { void moveToSyncRecovery(); }}
+        onDismiss={hideSyncRecovery}
+      />
       {syncConflict && (
         <SyncConflictDialog
           theme={theme}

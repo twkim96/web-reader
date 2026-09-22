@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 
 import { useRemoteProgressPrompt } from '../src/hooks/reader/useRemoteProgressPrompt.ts';
+import { SyncRecoveryNotice } from '../src/components/reader/SyncRecoveryNotice.tsx';
 
 const flushMicrotasks = async () => {
   await Promise.resolve();
@@ -174,6 +175,8 @@ test('user progress input during readiness cancels automatic adoption before can
   globalThis.document = window.document;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+  let quiet = true;
+  let state;
   let releaseReady;
   let readinessCalls = 0;
   let adoptionAttempts = 0;
@@ -196,7 +199,7 @@ test('user progress input during readiness cancels automatic adoption before can
   };
   const root = createRoot(window.document.getElementById('app'));
   const Harness = () => {
-    useRemoteProgressPrompt({
+    state = useRemoteProgressPrompt({
       isLoaded: true,
       remoteProgress,
       currentCfi: 'local-cfi',
@@ -234,7 +237,7 @@ test('user progress input during readiness cancels automatic adoption before can
       finishRemoteNavigationAttempt: (attempt) => {
         if (activeAttempt?.id === attempt.id) activeAttempt = null;
       },
-      isQuietResumeEligible: () => true,
+      isQuietResumeEligible: () => quiet,
       isProgressConflictAutoResolveEligible: () => true,
       adoptRemoteProgressBeforeNavigation: async () => {
         adoptionAttempts += 1;
@@ -254,6 +257,7 @@ test('user progress input during readiness cancels automatic adoption before can
     });
     assert.equal(readinessCalls, 1);
     assert.equal(adoptionAttempts, 0);
+    quiet = false;
     activeAttempt.controller.abort();
     await act(async () => {
       releaseReady(true);
@@ -261,6 +265,9 @@ test('user progress input during readiness cancels automatic adoption before can
     });
     assert.equal(adoptionAttempts, 0);
     assert.equal(navigationAttempts, 0);
+    assert.equal(state.syncRecoveryVisible, true);
+    assert.equal(state.syncRecovery.cfi, 'remote-cfi');
+    assert.equal(state.syncConflict, null);
   } finally {
     await act(async () => root.unmount());
     globalThis.window = previousWindow;
@@ -305,10 +312,10 @@ test('explicit remote prompt stays open when a late local page turn is still syn
   let attemptId = 0;
   let activeAttempt = null;
 
-  const Harness = () => {
+  const Harness = ({ incoming = remoteProgress }) => {
     const state = useRemoteProgressPrompt({
       isLoaded: true,
-      remoteProgress,
+      remoteProgress: incoming,
       currentCfi: 'local-after-turn',
       currentAnchorCfi: 'local-after-turn',
       totalProgress: 22,
@@ -365,6 +372,10 @@ test('explicit remote prompt stays open when a late local page turn is still syn
   const root = createRoot(window.document.getElementById('app'));
   try {
     await act(async () => {
+      root.render(React.createElement(Harness, { incoming: { ...remoteProgress, syncRevision: 1 } }));
+      await flushMicrotasks();
+    });
+    await act(async () => {
       root.render(React.createElement(Harness));
       await flushMicrotasks();
     });
@@ -392,5 +403,99 @@ test('explicit remote prompt stays open when a late local page turn is still syn
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  }
+});
+
+test('late startup position is retained without adoption, survives dismissal and does not repeat on reopen', async () => {
+  const previous = { window: globalThis.window, document: globalThis.document, IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  const { window, document } = parseHTML('<html><body><div id="app"></div></body></html>');
+  Object.assign(globalThis, { window, document, IS_REACT_ACT_ENVIRONMENT: true });
+  const stored = new Map();
+  window.localStorage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
+  const incoming = { operation: 'set', bookId: 'book', cfi: 'remote', anchorCfi: 'remote-anchor', progressPercent: 70, lastRead: 200, syncRevision: 2, acceptedEventId: 'event-2' };
+  let state;
+  let adoptionCalls = 0;
+  const options = {
+    isLoaded: true, recoveryScope: 'owner-a/book', remoteProgress: incoming,
+    currentCfi: 'user-moved', currentAnchorCfi: 'user-moved', totalProgress: 25, localRevision: 1,
+    lastSaveTimeRef: { current: 100 }, isQuietResumeEligible: () => false,
+    isProgressConflictAutoResolveEligible: () => true, hasLocalProgress: true,
+    getBookmarks: () => [],
+    adoptRemoteProgressBeforeNavigation: async () => { adoptionCalls++; throw new Error('unexpected adoption'); },
+    goToStable: async () => assert.fail('must not move without a click'),
+  };
+  function Harness({ scope = 'owner-a/book' }) {
+    state = useRemoteProgressPrompt({ ...options, recoveryScope: scope });
+    return null;
+  }
+  let root = createRoot(document.getElementById('app'));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.equal(state.syncConflict, null);
+    assert.equal(state.syncRecoveryVisible, true);
+    assert.equal(state.syncRecovery.cfi, 'remote-anchor');
+    assert.equal(adoptionCalls, 0);
+    const identity = state.syncRecovery.identity;
+    await act(async () => state.hideSyncRecovery());
+    assert.equal(state.syncRecoveryVisible, false);
+    assert.equal(state.syncRecovery.cfi, 'remote-anchor');
+    await act(async () => root.unmount());
+    root = createRoot(document.getElementById('app'));
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.equal(state.syncRecoveryVisible, false);
+    assert.equal(state.syncRecovery.cfi, 'remote-anchor');
+    assert.equal(adoptionCalls, 0);
+    await act(async () => state.consumeSyncRecovery('obsolete-identity'));
+    assert.ok(state.syncRecovery, 'old completion cannot erase a newer candidate');
+    await act(async () => state.consumeSyncRecovery(identity));
+    assert.equal(state.syncRecovery, null);
+    await act(async () => root.unmount());
+    root = createRoot(document.getElementById('app'));
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.equal(state.syncRecovery, null);
+    assert.equal(state.syncRecoveryVisible, false);
+    await act(async () => root.unmount());
+    root = createRoot(document.getElementById('app'));
+    await act(async () => root.render(React.createElement(Harness, { scope: 'owner-b/book' })));
+    assert.equal(state.syncRecoveryVisible, true, 'another owner must not inherit the first owner dismissal');
+  } finally {
+    await act(async () => root.unmount());
+    Object.assign(globalThis, previous);
+  }
+});
+
+test('recovery notice expires without navigating and moves only on explicit click', async () => {
+  const previous = { window: globalThis.window, document: globalThis.document, IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  const { window, document } = parseHTML('<html><body><div id="app"></div></body></html>');
+  Object.assign(globalThis, { window, document, IS_REACT_ACT_ENVIRONMENT: true });
+  const originalTimeout = window.setTimeout;
+  const originalClearTimeout = window.clearTimeout;
+  const timers = new Map();
+  let id = 0;
+  window.setTimeout = (callback, delay) => { timers.set(++id, { callback, delay }); return id; };
+  window.clearTimeout = key => timers.delete(key);
+  let moves = 0;
+  let dismissals = 0;
+  const root = createRoot(document.getElementById('app'));
+  const props = { visible: true, busy: false, onMove: () => { moves++; }, onDismiss: () => { dismissals++; } };
+  try {
+    await act(async () => root.render(React.createElement(SyncRecoveryNotice, props)));
+    assert.equal(document.querySelector('[aria-modal="true"]'), null);
+    assert.equal(moves, 0);
+    const expiry = [...timers.values()].sort((a, b) => b.delay - a.delay)[0];
+    await act(async () => expiry.callback());
+    assert.equal(dismissals, 1);
+    assert.equal(moves, 0);
+    const move = [...document.querySelectorAll('button')].find(button => button.textContent.includes('동기화 지점으로 이동'));
+    await act(async () => move.dispatchEvent(new window.Event('click', { bubbles: true })));
+    assert.equal(moves, 1);
+    await act(async () => root.render(React.createElement(SyncRecoveryNotice, { ...props, busy: true })));
+    assert.equal(document.querySelector('button').disabled, true);
+    assert.equal(timers.size, 0, 'expiry must stop while navigation is pending');
+  } finally {
+    await act(async () => root.unmount());
+    window.setTimeout = originalTimeout;
+    window.clearTimeout = originalClearTimeout;
+    Object.assign(globalThis, previous);
   }
 });

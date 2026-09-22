@@ -20,6 +20,7 @@ import {
 } from './remoteProgressAdoption';
 import { hashReaderTraceValue, traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
 import type { ReaderRemoteNavigationAttempt } from './useReaderProgressSave';
+import { readSyncRecovery, writeSyncRecovery, type ReaderSyncRecovery } from '../../lib/readerSyncRecovery';
 
 export type SyncConflict = {
   operation: 'set' | 'reset';
@@ -35,6 +36,7 @@ export type SyncConflict = {
 };
 
 interface UseRemoteProgressPromptOptions {
+  recoveryScope?: string;
   isLoaded: boolean;
   remoteProgress?: RemoteProgressUpdate;
   resolvedRemoteProgressCommand?: ResolvedRemoteProgressCommand | null;
@@ -92,6 +94,7 @@ interface UseRemoteProgressPromptOptions {
 }
 
 export const useRemoteProgressPrompt = ({
+  recoveryScope,
   isLoaded,
   remoteProgress,
   resolvedRemoteProgressCommand,
@@ -127,6 +130,30 @@ export const useRemoteProgressPrompt = ({
   completeRemoteReset,
   hasLocalProgress,
 }: UseRemoteProgressPromptOptions) => {
+  const [initialRecoveryRecord] = useState(() => readSyncRecovery(recoveryScope));
+  const recoveryRecordRef = useRef(initialRecoveryRecord);
+  const [syncRecovery, setSyncRecovery] = useState<ReaderSyncRecovery | null>(() => recoveryRecordRef.current?.candidate ?? null);
+  const [syncRecoveryVisible, setSyncRecoveryVisible] = useState(false);
+  const hideSyncRecovery = useCallback(() => setSyncRecoveryVisible(false), []);
+  const consumeSyncRecovery = useCallback((identity: string) => {
+    if (recoveryRecordRef.current?.identity !== identity) return;
+    const record = { identity, candidate: null };
+    recoveryRecordRef.current = record;
+    writeSyncRecovery(recoveryScope, record);
+    setSyncRecovery(null);
+    setSyncRecoveryVisible(false);
+  }, [recoveryScope]);
+  const offerSyncRecovery = useCallback((target: SyncConflict) => {
+    if (target.operation !== 'set') return;
+    const identity = getRemoteProgressIdentity(target);
+    if (recoveryRecordRef.current?.identity === identity) return;
+    const candidate = { identity, cfi: target.anchorCfi || target.cfi, percent: target.percent };
+    const record = { identity, candidate };
+    recoveryRecordRef.current = record;
+    writeSyncRecovery(recoveryScope, record);
+    setSyncRecovery(candidate);
+    setSyncRecoveryVisible(true);
+  }, [recoveryScope]);
   const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
   const [syncConflictFeedback, setSyncConflictFeedback] = useState<string | null>(null);
   const [resolvingSyncConflict, setResolvingSyncConflict] = useState(false);
@@ -521,6 +548,11 @@ export const useRemoteProgressPrompt = ({
 
     if (lastProcessedRemoteIdentity.current === remoteIdentity) return;
     if (jumpingRemoteIdentity.current === remoteIdentity) return;
+    if (recoveryRecordRef.current?.identity === remoteIdentity) {
+      lastProcessedRemoteIdentity.current = remoteIdentity;
+      isInitialSync.current = false;
+      return;
+    }
 
     const retryState = automaticRetryRef.current;
     if (
@@ -578,6 +610,12 @@ export const useRemoteProgressPrompt = ({
       syncRevision: remoteProgress.syncRevision,
       acceptedEventId: remoteProgress.acceptedEventId,
     };
+    if (action === 'offer') {
+      offerSyncRecovery(target);
+      lastProcessedRemoteIdentity.current = remoteIdentity;
+      isInitialSync.current = false;
+      return;
+    }
     if (action === 'jump') {
       jumpingRemoteIdentity.current = remoteIdentity;
       void adoptAndNavigateRemoteProgress(target, 'quiet').then((result) => {
@@ -589,6 +627,15 @@ export const useRemoteProgressPrompt = ({
         });
         if (jumpingRemoteIdentity.current !== remoteIdentity) return;
         jumpingRemoteIdentity.current = null;
+        // Preserve a late startup position when local input interrupts adoption.
+        // Real outbox conflicts still use their separate conflict-resolution path.
+        if (target.operation === 'set' && (result.status === 'blocked-by-local-work'
+          || (result.status === 'cancelled' && !isQuietResumeEligible()))) {
+          offerSyncRecovery(target);
+          lastProcessedRemoteIdentity.current = remoteIdentity;
+          isInitialSync.current = false;
+          return;
+        }
         if (
           result.status === 'navigated'
           || result.status === 'blocked-by-local-work'
@@ -656,6 +703,7 @@ export const useRemoteProgressPrompt = ({
     lastSaveTimeRef,
     localRevision,
     outboxConflictRevision,
+    offerSyncRecovery,
     remoteProgress,
     remoteRetryNonce,
     totalProgress,
@@ -759,6 +807,10 @@ export const useRemoteProgressPrompt = ({
   }, [adoptAndNavigateRemoteProgress, adoptResolvedBookmarks, commitBookmarks, currentAnchorCfi, currentCfi, getBookmarks, jumpToRemoteProgress, onResolvedRemoteProgressConsumed, onResolvedRemoteProgressFinalize, resetToRemoteProgress, resolvingSyncConflict, stageAutoBookmark, syncConflict, totalProgress]);
 
   return {
+    syncRecovery,
+    syncRecoveryVisible,
+    hideSyncRecovery,
+    consumeSyncRecovery,
     syncConflict,
     syncConflictFeedback,
     resolvingSyncConflict,

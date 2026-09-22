@@ -129,7 +129,7 @@ test('does not silently override the user or a pending local save on first sync'
   assert.equal(decide({
     isInitialSync: true,
     isQuietResumeEligible: false,
-  }), 'prompt');
+  }), 'offer');
 });
 
 test('prompts for a meaningful newer remote update after initial sync', () => {

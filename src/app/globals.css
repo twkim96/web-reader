@@ -185,6 +185,11 @@ html[data-viewer-menu-style] :is(.app-search-surface, .app-menu-sheet, .app-menu
   backdrop-filter: var(--app-menu-filter);
 }
 
+@keyframes reader-sync-recovery-dismiss {
+  0%, 96% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* Frosted dialog material: keep the floating menu bars on their lighter glass. */
 html[data-viewer-menu-style='glass'] :is(.app-search-surface, .app-menu-sheet, .app-menu-material) {
   --app-menu-surface: color-mix(in srgb, color-mix(in srgb, var(--viewer-theme-bg) 65%, var(--viewer-theme-text)) 40%, transparent);
