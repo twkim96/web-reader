@@ -1,5 +1,8 @@
 import React, { useDeferredValue, useMemo, useRef, useState } from 'react';
-import { Search, X, BookOpen, ChevronRight, CheckCircle2, Hash } from 'lucide-react';
+import { Search, X, CheckCircle2, Hash } from 'lucide-react';
+import Image from 'next/image';
+import { useShelfBookCovers } from './shelf/useShelfBookCovers';
+import { GeneratedBookCover } from './shelf/GeneratedBookCover';
 import { Book, UserProgress } from '../types';
 import type { PublicBookCatalogSnapshot } from '../lib/publicBookCatalog';
 import {
@@ -24,6 +27,7 @@ interface ShelfSearchModalProps {
   onSelectTag: (tagId: number) => void;
   initialKeyword: string;
   theme: ShelfTheme;
+  themeBackgroundColor?: string;
   books: PreparedShelfBook[];
   filters: ShelfFilters;
   catalog: PublicBookCatalogSnapshot | null;
@@ -40,6 +44,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
   onSelectTag,
   initialKeyword,
   theme,
+  themeBackgroundColor,
   books,
   filters,
   catalog,
@@ -80,6 +85,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
     ));
     return filterAndSortPreparedBooks(candidates, '', sortMode).slice(0, 5);
   }, [books, filters, matchingTagIds, sortMode, tagMode, trimmed]);
+  const coverUrls = useShelfBookCovers(filteredBooks);
 
   const selectTag = (tagId: number) => {
     onSelectTag(tagId);
@@ -185,8 +191,14 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                       onClick={() => { onClose(); onOpen(book); }}
                       className="group flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-accent-500/10 sm:gap-4 sm:px-6"
                     >
-                      <div className="relative hidden shrink-0 sm:block">
-                        <div className="rounded-xl bg-accent-500/10 p-2 text-accent-500"><BookOpen size={20} /></div>
+                      <div className="relative shrink-0">
+                        <div className="relative h-[60px] w-10 overflow-hidden rounded-sm sm:h-[66px] sm:w-11">
+                          {coverUrls.get(book.id) ? (
+                            <Image src={coverUrls.get(book.id)!} alt="" fill sizes="44px" unoptimized className="object-cover" />
+                          ) : (
+                            <GeneratedBookCover identity={book.id} title={getDisplayBookTitle(book.name)} variant="list" surroundingBackgroundColor={themeBackgroundColor} />
+                          )}
+                        </div>
                         {isDownloaded && (
                           <div className="absolute -right-1.5 -top-1.5 rounded-full border-2 border-white bg-green-500 p-0.5 text-white shadow-sm dark:border-slate-900">
                             <CheckCircle2 size={10} strokeWidth={4} />
@@ -194,31 +206,28 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2 sm:gap-4">
-                          <span className="min-w-0 flex-1 truncate text-base font-bold transition-colors group-hover:text-accent-500">{getDisplayBookTitle(book.name)}</span>
+                        <span className="line-clamp-2 break-words text-sm font-normal leading-snug transition-colors group-hover:text-accent-500">{getDisplayBookTitle(book.name)}</span>
+                        <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                          {(prepared?.catalog?.genreLabel || tagPreview.length > 0) && (
+                            <div className="flex min-w-0 flex-1 gap-1 overflow-hidden text-[9px] font-medium">
+                              {prepared?.catalog?.genreLabel && (
+                                <span className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 [--app-tag-color:var(--accent-500)]">{prepared.catalog.genreLabel}</span>
+                              )}
+                              {tagPreview.map((tag) => (
+                                <span key={tag.id} className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5">#{tag.label}</span>
+                              ))}
+                            </div>
+                          )}
                           {(lastDate || percent !== undefined) && (
                             <div className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap sm:gap-2">
                               {lastDate && <span className="text-[10px] font-bold opacity-40">{lastDate}</span>}
                               {percent !== undefined && percent > 0 && (
-                                <span className="rounded-md bg-accent-500/10 px-2 py-0.5 text-xs font-black text-accent-500">{percent.toFixed(1)}%</span>
+                                <span className="rounded-md bg-accent-500/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-500">{percent.toFixed(1)}%</span>
                               )}
                             </div>
                           )}
                         </div>
-                        {(prepared?.catalog?.genreLabel || tagPreview.length > 0) && (
-                          <div className="mt-1 flex min-w-0 gap-1 overflow-hidden text-[9px] font-bold">
-                            {prepared?.catalog?.genreLabel && (
-                              <span className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5 [--app-tag-color:var(--accent-500)]">
-                                {prepared.catalog.genreLabel}
-                              </span>
-                            )}
-                            {tagPreview.map((tag) => (
-                              <span key={tag.id} className="app-tag-radius app-tag-material shrink-0 px-1.5 py-0.5">#{tag.label}</span>
-                            ))}
-                          </div>
-                        )}
                       </div>
-                      <ChevronRight className="hidden shrink-0 text-accent-500 opacity-0 transition-opacity group-hover:opacity-40 sm:block" size={16} />
                     </button>
                   );
                 })}

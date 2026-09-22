@@ -511,6 +511,7 @@ export const Shelf: React.FC<ShelfProps> = ({
 
       {showSearch && (
         <ShelfSearchModal
+          themeBackgroundColor={themeBackgroundColor}
           onClose={() => setShowSearch(false)}
           onSearch={(keyword) => setSearchKeyword(keyword)}
           initialKeyword={searchKeyword}
