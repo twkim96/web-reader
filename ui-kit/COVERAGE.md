@@ -129,3 +129,11 @@
 - [ ] nested confirmation: BookInfo 삭제, Offline Storage 삭제, Statistics 회차 완료/목록 삭제, page logout/disconnect/info variants와 같은 nested alertdialog가 target에 있으면 `.wr-dialog`/`.wr-button--danger`로 별도 확인한다.
 - [ ] global: `wr-theme`, `wr-radius`, `wr-material`, `wr-glass-ring`, `wr-tag`, `wr-filter-chip`, `wr-modal-occlusion`, `wr-modal-backdrop`, `wr-scroll`, `wr-library-annotation`, `wr-statistics`, `wr-notice-stack`의 source pointer를 확인한다.
 - [ ] 포팅 경계: 위 coverage ID를 실제 selector와 혼동하지 않고, target에 없는 Web Reader domain feature를 새로 만들지 않는다. 동등 화면에 적용한 항목만 체크한다.
+
+## 1.8.37 추가 레시피
+
+| 실제 selector | 원본 | 용도 |
+| --- | --- | --- |
+| `.wr-frosted-surface`, glass의 `.wr-dialog`, `.wr-search`, `.wr-menu` | `src/app/globals.css` | 모달 전용 9px blur / 중성 tint / 테두리 opacity 0.65 |
+| `.wr-search-result`, `.wr-search-cover`, `.wr-search-title`, `.wr-search-meta` | `src/components/ShelfSearchModal.tsx` | 작은 표지와 두 줄 제목, 하단 오른쪽 메타 정보 |
+| `.wr-toast` | `src/components/reader/SyncRecoveryNotice.tsx` | 우하단 비차단 액션 안내. 타이머와 복구 후보 보관은 대상 앱의 책임 |

@@ -316,3 +316,8 @@
   --app-menu-reader-border: var(--viewer-theme-border);
   --app-menu-reader-filter: blur(18px) saturate(1.18);
 }
+.wr-kit[data-material="glass"] :is(.wr-dialog, .wr-search, .wr-menu, .wr-toast, .wr-frosted-surface) {
+  --app-menu-surface: color-mix(in srgb, color-mix(in srgb, var(--viewer-theme-bg) 65%, var(--viewer-theme-text)) 40%, transparent);
+  --app-menu-filter: blur(9px) saturate(100%) contrast(90%);
+  --wr-surface-ring-opacity: 0.65;
+}

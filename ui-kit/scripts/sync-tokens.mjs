@@ -37,6 +37,10 @@ for (const material of ['standard', 'glass', 'modern']) {
   const body = globals.slice(globals.indexOf('{', start) + 1, end);
   css += `${material === 'standard' ? '.wr-kit,\n' : ''}.wr-kit[data-material="${material}"] {\n  --app-menu-close-surface: initial;${body}\n}\n`;
 }
+const dialogMaterial = globals.match(/html\[data-viewer-menu-style='glass'\] :is\(\.app-search-surface, \.app-menu-sheet, \.app-menu-material\) \{([^}]+)\}/);
+const dialogRing = globals.match(/html\[data-viewer-menu-style='glass'\] :is\(\.app-search-surface, \.app-menu-sheet, \.app-menu-material\)::before \{\s*opacity:\s*([^;]+);/);
+if (!dialogMaterial || !dialogRing) throw new Error('Missing glass dialog material');
+css += `.wr-kit[data-material="glass"] :is(.wr-dialog, .wr-search, .wr-menu, .wr-toast, .wr-frosted-surface) {${dialogMaterial[1]}  --wr-surface-ring-opacity: ${dialogRing[1]};\n}\n`;
 writeFileSync(new URL('tokens.css', kit), css);
 writeFileSync(new URL('tokens.json', kit), JSON.stringify({
   sourceVersion: JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).version,

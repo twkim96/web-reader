@@ -60,7 +60,7 @@ CSS는 `tokens.css` → `components.css` → 대상 앱의 배치/보정 CSS 순
 - **주요 버튼은 약하게 물들입니다.** 포인트색 배경 12%, 경계 42%, 텍스트 68% 혼합이 원본 CTA 규칙입니다. 삭제는 별도의 붉은 의미색 16% 표면을 사용합니다. 선택된 필터 태그는 32% 표면입니다.
 - **크기에 맞는 곡률을 씁니다.** 컨트롤 3/5/7/8/10/12px, 패널·카드 14px, 검색 20px, 모바일 시트 22px입니다. 모든 요소를 큰 pill 모양으로 만들지 않습니다.
 - **타이포그래피는 Pretendard를 기본으로 합니다.** UI 본문 14px, 보조 11–12px, 모달 제목 16→18px를 레시피 기준으로 삼습니다. 카탈로그의 대형 제목과 여백은 전시용입니다. 독서 본문용 RIDIBatang은 이 UI 키트에 포함하지 않았습니다.
-- **glass는 큰 blur가 아닙니다.** 원본의 1.5px blur, saturate 90%, contrast 82%, 164도 테두리 하이라이트를 유지합니다. standard는 28px blur, modern은 24px blur를 씁니다.
+- **glass는 표면 역할에 따라 다릅니다.** 도크·리더 바는 1.5px blur / saturate 90% / contrast 82%입니다. 모달·검색·팝오버·작은 안내는 9px / 100% / 90%, 배경색 65%와 글자색 35%를 섞은 중성 tint 40%, 테두리 하이라이트 opacity 0.65를 사용합니다. 일반 패널에 모달 재질을 쓰려면 `wr-frosted-surface`를 추가합니다. standard는 28px, modern은 24px blur입니다.
 
 ## 모달을 가져갈 때
 
@@ -97,3 +97,11 @@ node --import tsx ui-kit/scripts/sync-tokens.mjs
 ```
 
 `components.css`의 레시피·기하·상호작용과 `COVERAGE.md`는 자동 갱신되지 않습니다. 원본 `globals.css`, 공통 헤더, 대표 모달을 비교해 함께 갱신하세요. Pretendard를 재배포할 때는 `assets/Pretendard-OFL.txt`를 보존합니다.
+
+## 1.8.37 공통 UI 갱신
+
+- 모달 전용 glass 재질은 동기화 스크립트가 원본에서 직접 추출합니다. 도크의 얇은 glass와 분리됩니다.
+- 검색 결과는 `wr-search-result`, `wr-search-cover`, `wr-search-copy`, `wr-search-title`, `wr-search-meta`를 사용합니다. 40×60px 표지, 14px 보통 굵기 두 줄 제목, 하단 오른쪽 날짜·진행률입니다. 실제 캐시 이미지가 있으면 `img.wr-search-cover`를 사용하고 없으면 자동 생성 표면을 넣으세요. 키트의 표지는 정적 예시이며 캐싱·색상 생성 알고리즘은 대상 앱이 소유합니다. Web Reader는 `useShelfBookCovers`와 `GeneratedBookCover`를 공유합니다.
+- `wr-toast`는 우하단의 작은 비차단 액션 박스입니다. `작은 이동 안내 예시` 버튼으로 확인할 수 있고 8초 후 사라집니다. hover·키보드 포커스 중에는 종료를 멈춥니다. 안내가 사라져도 이동 후보를 남기는 기능은 대상 앱에서 구현하세요. 동기화·충돌 처리는 포함하지 않습니다.
+
+검증: 390px·1280px에서 Chromium/WebKit의 배치·재질 계산값·안내 동작을 확인했습니다. Chromium에서는 모달 배경 blur가 보였지만, 로컬 Playwright WebKit 26.5의 네이티브 `<dialog>`에서는 계산값이 있어도 배경 blur가 표시되지 않았습니다. 네이티브 dialog 샘플과 원본 앱의 포털 모달은 렌더링 구조가 다르므로 대상 Safari 기기에서 재질을 별도로 확인하세요.

@@ -1,6 +1,19 @@
 // Catalog interactions only; replace with the target application's state/actions.
 (() => {
   const root = document.body;
+  const actionToast = document.querySelector('#action-toast');
+  let actionTimer;
+  const dismissAction = () => { clearTimeout(actionTimer); actionToast.hidden = true; };
+  const scheduleDismiss = () => { clearTimeout(actionTimer); actionTimer = setTimeout(dismissAction, 8000); };
+  document.querySelector('#show-action-toast').addEventListener('click', () => {
+    actionToast.hidden = false;
+    scheduleDismiss();
+  });
+  actionToast.addEventListener('pointerenter', () => clearTimeout(actionTimer));
+  actionToast.addEventListener('pointerleave', scheduleDismiss);
+  actionToast.addEventListener('focusin', () => clearTimeout(actionTimer));
+  actionToast.addEventListener('focusout', event => { if (!actionToast.contains(event.relatedTarget)) scheduleDismiss(); });
+  actionToast.querySelectorAll('[data-dismiss-action]').forEach(button => button.addEventListener('click', dismissAction));
   const toast = document.querySelector('#toast');
   let toastTimer;
   const announce = message => {

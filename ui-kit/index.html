@@ -240,9 +240,9 @@
 </div>
 </div>
 <div class="kit-material-preview wr-kit wr-texture" data-material="glass" data-theme="midnight" data-texture="grid">
-<div class="wr-panel">
+<div class="wr-panel wr-frosted-surface">
 <strong>Glass</strong>
-<span class="wr-muted">1.5px blur · 배경이 비치는 유리</span>
+<span class="wr-muted">도크 1.5px · 모달 9px blur</span>
 <div style="margin-top:16px">
 <button class="wr-button wr-button--primary" type="button" data-demo="재질 비교용 버튼입니다.">선택됨</button>
 </div>
@@ -555,9 +555,11 @@
 <span>Web Reader / Design Kit v1</span>
 <a href="tokens.json">토큰 JSON ↗</a>
 <a href="COVERAGE.md">누락 점검표 ↗</a>
-<span>원본 v1.8.36 기반 · 독립 HTML/CSS</span>
+<button type="button" class="wr-button" id="show-action-toast">작은 이동 안내 예시</button>
+<span>원본 v1.8.37 기반 · 독립 HTML/CSS</span>
 </footer>
 </div>
+<div class="wr-toast" id="action-toast" hidden role="group" aria-label="동기화 지점 안내"><button type="button" data-dismiss-action data-demo="동기화 지점으로 이동하는 예시입니다.">동기화 지점으로 이동 ↗</button><button type="button" data-dismiss-action aria-label="안내 닫기">×</button></div>
 <div class="kit-toast wr-notice" id="toast" role="status" aria-live="polite">
 </div>
 <dialog id="settings" class="wr-dialog wr-sheet" aria-labelledby="settings-title">
@@ -830,33 +832,21 @@
 <span class="wr-chip">최근 검색</span>
 <span class="wr-chip wr-chip--accent">기록</span>
 </div>
-<div class="wr-list">
-<button type="button" class="wr-list-button" data-result="작은 기록들" data-close data-demo="작은 기록들 선택 예시입니다.">
-<svg viewBox="0 0 24 24" aria-hidden="true">
-<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
-</svg>
-<span>작은 기록들</span>
-<svg viewBox="0 0 24 24" aria-hidden="true">
-<path d="m9 5 7 7-7 7"/>
-</svg>
+<div>
+<button type="button" class="wr-search-result" data-result="작은 기록들 — 일상에서 발견한 오래 기억하고 싶은 순간들" data-close data-demo="검색 결과 선택 예시입니다.">
+<span class="wr-search-cover wr-search-cover--generated" style="--wr-cover-color:#467377" aria-hidden="true">작은 기록들 — 일상에서 발견한 오래 기억하고 싶은 순간들</span>
+<span class="wr-search-copy"><span class="wr-search-title">작은 기록들 — 일상에서 발견한 오래 기억하고 싶은 순간들</span>
+<span class="wr-search-meta"><span class="wr-search-tags"><span class="wr-chip">에세이</span></span><span class="wr-search-tail">9. 22. · 24.5%</span></span></span>
 </button>
-<button type="button" class="wr-list-button" data-result="오늘의 문장" data-close data-demo="오늘의 문장 선택 예시입니다.">
-<svg viewBox="0 0 24 24" aria-hidden="true">
-<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
-</svg>
-<span>오늘의 문장</span>
-<svg viewBox="0 0 24 24" aria-hidden="true">
-<path d="m9 5 7 7-7 7"/>
-</svg>
+<button type="button" class="wr-search-result" data-result="오늘의 문장 — 한 줄씩 천천히 읽는 이야기" data-close data-demo="검색 결과 선택 예시입니다.">
+<span class="wr-search-cover wr-search-cover--generated" style="--wr-cover-color:#778793" aria-hidden="true">오늘의 문장 — 한 줄씩 천천히 읽는 이야기</span>
+<span class="wr-search-copy"><span class="wr-search-title">오늘의 문장 — 한 줄씩 천천히 읽는 이야기</span>
+<span class="wr-search-meta"><span class="wr-search-tags"><span class="wr-chip">에세이</span></span><span class="wr-search-tail">9. 22. · 52.0%</span></span></span>
 </button>
-<button type="button" class="wr-list-button" data-result="조용한 오후" data-close data-demo="조용한 오후 선택 예시입니다.">
-<svg viewBox="0 0 24 24" aria-hidden="true">
-<path d="M12 5v15M12 5C8 2 4 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-2-1-6-2-10 1Z"/>
-</svg>
-<span>조용한 오후</span>
-<svg viewBox="0 0 24 24" aria-hidden="true">
-<path d="m9 5 7 7-7 7"/>
-</svg>
+<button type="button" class="wr-search-result" data-result="조용한 오후" data-close data-demo="검색 결과 선택 예시입니다.">
+<span class="wr-search-cover wr-search-cover--generated" style="--wr-cover-color:#696843" aria-hidden="true">조용한 오후</span>
+<span class="wr-search-copy"><span class="wr-search-title">조용한 오후</span>
+<span class="wr-search-meta"><span class="wr-search-tags"><span class="wr-chip">에세이</span></span><span class="wr-search-tail">9. 22. · 8.2%</span></span></span>
 </button>
 </div>
 <p class="kit-search-empty wr-muted" hidden>검색 결과가 없어요.</p>
