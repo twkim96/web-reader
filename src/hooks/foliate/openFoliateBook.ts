@@ -97,9 +97,9 @@ export const openFoliateBook = async (
             durationMs: timingNow() - startedAt,
             status: 'resume-target-rejected',
             targetHash: hashReaderTraceValue(target),
+            ...rejectedGeometry,
             actualPage: view.renderer?.page,
             actualPages: view.renderer?.pages,
-            ...rejectedGeometry,
           });
         }
       }
@@ -108,9 +108,9 @@ export const openFoliateBook = async (
           status: restored ? 'recovered' : 'failed',
           attempts,
           targetHash: hashReaderTraceValue(rejectedTarget),
+          ...rejectedGeometry,
           actualPage: view.renderer?.page,
           actualPages: view.renderer?.pages,
-          ...rejectedGeometry,
           viewportWidth: timingTarget?.innerWidth,
           viewportHeight: timingTarget?.innerHeight,
           reason: rejectedGeometry.targetRectCount === 0 ? 'missing-geometry' : 'navigation-rejected',
