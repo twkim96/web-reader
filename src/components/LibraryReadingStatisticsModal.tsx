@@ -36,6 +36,7 @@ import { collectStorageMaintenanceDiagnosticsV1 } from '../lib/storageMaintenanc
 import {
   readReaderBootstrapTrace,
   readReaderOpenPerformanceTrace,
+  readReaderResumeFailures,
 } from '../lib/readerBootstrapTrace';
 import { ACCENT_PALETTE } from '../lib/constants';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -398,6 +399,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       const diagnostics = await collectStorageMaintenanceDiagnosticsV1(ownerKey);
       const readerBootstrapTrace = readReaderBootstrapTrace();
       const readerOpenPerformanceTrace = readReaderOpenPerformanceTrace();
+      const readerResumeFailures = readReaderResumeFailures();
       const date = new Date(diagnostics.collectedAt).toISOString().slice(0, 10);
       downloadReadingStatisticsExport({
         filename: `web-reader-storage-diagnostics-${date}.json`,
@@ -406,6 +408,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
           ...diagnostics,
           ...(readerBootstrapTrace.length > 0 ? { readerBootstrapTrace } : {}),
           ...(readerOpenPerformanceTrace.length > 0 ? { readerOpenPerformanceTrace } : {}),
+          ...(readerResumeFailures.length > 0 ? { readerResumeFailures } : {}),
         }, null, 2)}\n`,
       });
       setFeedback('저장소 진단 JSON을 저장했습니다. 원문과 메모는 포함되지 않습니다.');

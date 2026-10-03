@@ -1,5 +1,5 @@
 import type { FoliateBook, FoliateViewElement } from './types';
-import { traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace.ts';
+import { hashReaderTraceValue, recordReaderResumeFailure, traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace.ts';
 
 type BeforeInit = (view: FoliateViewElement) => void | Promise<void>;
 type TimingWindow = Window & { __foliateReaderOpenTimingCount?: number };
@@ -14,9 +14,17 @@ export const openFoliateBook = async (
   const timingTarget = typeof window !== 'undefined' ? window : null;
   const timingWindow = timingTarget as TimingWindow | null;
   const timingNow = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
+  let rejectedGeometry: { targetRectCount?: number; actualPage?: number; actualPages?: number } = {};
   const handleFoliateTiming = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail;
     if (!detail || typeof detail.phase !== 'string') return;
+    if (detail.phase === 'foliate-section-anchor' && detail.status === 'anchor-rejected') {
+      rejectedGeometry = {
+        targetRectCount: typeof detail.targetRectCount === 'number' ? detail.targetRectCount : undefined,
+        actualPage: typeof detail.actualPage === 'number' ? detail.actualPage : undefined,
+        actualPages: typeof detail.actualPages === 'number' ? detail.actualPages : undefined,
+      };
+    }
     traceReaderOpenPerformance({
       phase: detail.phase,
       durationMs: typeof detail.durationMs === 'number' ? detail.durationMs : undefined,
@@ -27,6 +35,10 @@ export const openFoliateBook = async (
       sectionIndex: typeof detail.sectionIndex === 'number' ? detail.sectionIndex : undefined,
       sectionSize: typeof detail.sectionSize === 'number' ? detail.sectionSize : undefined,
       status: typeof detail.status === 'string' ? detail.status : undefined,
+      targetHash: typeof detail.targetHash === 'string' ? detail.targetHash : undefined,
+      actualPage: typeof detail.actualPage === 'number' ? detail.actualPage : undefined,
+      actualPages: typeof detail.actualPages === 'number' ? detail.actualPages : undefined,
+      targetRectCount: typeof detail.targetRectCount === 'number' ? detail.targetRectCount : undefined,
     });
   };
   timingTarget?.addEventListener('foliate-reader-open-timing', handleFoliateTiming);
@@ -63,14 +75,46 @@ export const openFoliateBook = async (
       // and does not report a refused navigation. Resume through the same
       // pagination-stabilized path used by explicit saved-position jumps.
       let restored = false;
-      for (const target of resumeTargets) {
-        const result = view.goToStable
-          ? await view.goToStable(target)
-          : await view.goTo(target);
-        if (result) {
-          restored = true;
-          break;
+      let attempts = 0;
+      let rejectedTarget: string | undefined;
+      // Only while the opening overlay is present. Stable navigation waits for
+      // pagination each time; retry the saved candidates once, never a timer
+      // that could pull the user back after they have started reading.
+      for (let pass = 0; pass < 2 && !restored; pass += 1) {
+        for (const target of resumeTargets) {
+          if (view.isConnected === false) throw new DOMException('Reader closed', 'AbortError');
+          attempts += 1;
+          const result = view.goToStable
+            ? await view.goToStable(target)
+            : await view.goTo(target);
+          if (result) {
+            restored = true;
+            break;
+          }
+          rejectedTarget = target;
+          traceReaderOpenPerformance({
+            phase: 'foliate-initial-navigation',
+            durationMs: timingNow() - startedAt,
+            status: 'resume-target-rejected',
+            targetHash: hashReaderTraceValue(target),
+            actualPage: view.renderer?.page,
+            actualPages: view.renderer?.pages,
+            ...rejectedGeometry,
+          });
         }
+      }
+      if (rejectedTarget) {
+        recordReaderResumeFailure({
+          status: restored ? 'recovered' : 'failed',
+          attempts,
+          targetHash: hashReaderTraceValue(rejectedTarget),
+          actualPage: view.renderer?.page,
+          actualPages: view.renderer?.pages,
+          ...rejectedGeometry,
+          viewportWidth: timingTarget?.innerWidth,
+          viewportHeight: timingTarget?.innerHeight,
+          reason: rejectedGeometry.targetRectCount === 0 ? 'missing-geometry' : 'navigation-rejected',
+        });
       }
       if (!restored) {
         traceReaderOpenPerformance({

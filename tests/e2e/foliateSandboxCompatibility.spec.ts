@@ -262,6 +262,121 @@ test('paginator tolerates pre-view size and snap probes during initial EPUB open
   expect(result.snap).toBe(false);
 });
 
+for (const variant of ['ltr-pages', 'rtl-pages', 'scroll']) {
+  test(`saved CFI refusal and fallback reach the requested viewport: ${variant}`, async ({ page }) => {
+    await preparePage(page);
+    const result = await page.evaluate(async (variant) => {
+      const viewModule = '/foliate-js/view.js';
+      await import(viewModule);
+      const url = URL.createObjectURL(new Blob([
+        `<!doctype html><html><body>${Array.from({ length: 100 }, (_, i) =>
+          `<p id="p${i}">${'Readable saved location text. '.repeat(25)}</p>`).join('')}</body></html>`,
+      ], { type: 'text/html' }));
+      const book = {
+        metadata: { language: 'en' }, dir: variant === 'rtl-pages' ? 'rtl' : 'ltr',
+        sections: [{ id: 's0', linear: 'yes', size: 80000, load: async () => url, unload: () => {} }],
+        toc: [], splitTOCHref: (href: string) => [href, null],
+        getTOCFragment: (doc: Document, id: string) => doc.getElementById(id),
+      };
+      // These fixture methods are supplied by the dynamically loaded Foliate element.
+      const create = async () => {
+        const view = document.createElement('foliate-view') as HTMLElement & {
+          open: (book: unknown) => Promise<void>;
+          init: (options: { lastLocation: null }) => Promise<void>;
+          goToStable: (cfi: string) => Promise<unknown>;
+          getCFI: (index: number, range: Range) => string;
+          close: () => void;
+          lastLocation?: { fraction?: number };
+          renderer: { setAttribute: (key: string, value: string) => void;
+            getContents: () => { doc: Document }[]; page: number };
+        };
+        view.style.cssText = 'display:block;width:720px;height:760px';
+        document.body.append(view);
+        await view.open(book);
+        view.renderer.setAttribute('flow', variant === 'scroll' ? 'scrolled' : 'paginated');
+        view.renderer.setAttribute('max-column-count', '1');
+        return view;
+      };
+      const seed = await create();
+      await seed.init({ lastLocation: null });
+      const doc = seed.renderer.getContents()[0].doc;
+      const cfiAt = (id: string) => {
+        const range = doc.createRange();
+        range.selectNodeContents(doc.getElementById(id)!);
+        range.collapse(true);
+        return seed.getCFI(0, range);
+      };
+      const primary = cfiAt('p50');
+      const fallback = cfiAt('p51');
+      seed.close(); seed.remove();
+      const view = await create();
+      view.addEventListener('load', ((event: CustomEvent) => {
+        event.detail.doc.getElementById('p50').style.display = 'none';
+      }) as EventListener);
+      const rejected = await view.goToStable(primary);
+      const accepted = Boolean(await view.goToStable(fallback));
+      const fraction = view.lastLocation?.fraction;
+      view.close(); view.remove();
+      const reopened = await create();
+      const reopenAccepted = Boolean(await reopened.goToStable(primary));
+      const reopenFraction = reopened.lastLocation?.fraction;
+      reopened.close(); reopened.remove();
+      URL.revokeObjectURL(url);
+      return { rejected, accepted, fraction, reopenAccepted, reopenFraction };
+    }, variant);
+    expect(result.rejected).toBe(false);
+    expect(result.accepted).toBe(true);
+    expect(result.fraction).toBeGreaterThan(0.35);
+    expect(result.fraction).toBeLessThan(0.65);
+    expect(result.reopenAccepted).toBe(true);
+    expect(result.reopenFraction).toBeGreaterThan(0.35);
+    expect(result.reopenFraction).toBeLessThan(0.65);
+  });
+}
+
+test('paginator refuses a saved range that has no rendered geometry', async ({ page }) => {
+  await preparePage(page);
+  const result = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    const url = URL.createObjectURL(new Blob([
+      `<!doctype html><html><body>
+        <p id="before">${'Visible text. '.repeat(160)}</p>
+        <p id="saved-target">${'Saved position. '.repeat(80)}</p>
+      </body></html>`,
+    ], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:720px;height:760px';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('max-column-count', '1');
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: [{ linear: 'yes', load: async () => url, unload: () => undefined }],
+    });
+    await renderer.goTo({ index: 0, anchor: 0 });
+    const doc = renderer.getContents()[0].doc;
+    const target = doc.querySelector('#saved-target');
+    if (!target?.firstChild) throw new Error('saved target missing');
+    const range = doc.createRange();
+    range.selectNodeContents(target.firstChild);
+    target.setAttribute('style', 'display:none');
+    const rejected = await renderer.goTo({
+      index: 0,
+      anchor: () => range,
+      stable: true,
+    });
+    const probe = { rejected, page: renderer.page, pages: renderer.pages };
+    renderer.destroy();
+    renderer.remove();
+    URL.revokeObjectURL(url);
+    return probe;
+  });
+
+  expect(result.rejected).toBe(false);
+  expect(result.page).toBeGreaterThanOrEqual(1);
+});
+
 test('paginator releases the page-turn lock after a section load failure', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {

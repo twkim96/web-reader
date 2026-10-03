@@ -1223,6 +1223,7 @@ export class Paginator extends HTMLElement {
     }
     async #scrollToAnchor(anchor, reason = 'anchor') {
         this.#anchor = anchor
+        if (!(this.size > 0) || !Number.isFinite(this.size)) return false
         const rects = uncollapse(anchor)?.getClientRects?.()
         // if anchor is an element or a range
         if (rects) {
@@ -1230,20 +1231,32 @@ export class Paginator extends HTMLElement {
             // previous column, there is an extra zero width rect in that column
             const rect = Array.from(rects)
                 .find(r => r.width > 0 && r.height > 0) || rects[0]
-            if (!rect) return
+            // A detached/hidden range cannot establish a page position. Do not
+            // report navigation as successful: callers can retry an anchor CFI
+            // or preserve the current page instead of silently showing page 1.
+            if (!rect) return false
             await this.#scrollToRect(rect, reason)
-            return
+            const offset = this.#getRectMapper()(rect).left
+            if (!Number.isFinite(offset)) return false
+            if (this.scrolled) {
+                const expected = Math.min(Math.max(0, offset - this.#margin),
+                    Math.max(0, this.viewSize - this.size))
+                return Math.abs(this.start - expected) <= 2
+            }
+            const expectedPage = Math.floor(offset / this.size) + (this.#rtl ? -1 : 1)
+            return this.page === Math.abs(expectedPage)
         }
         // if anchor is a fraction
         if (this.scrolled) {
             await this.#scrollTo(anchor * this.viewSize, reason)
-            return
+            return true
         }
         const { pages } = this
-        if (!pages) return
+        if (!pages) return false
         const textPages = pages - 2
         const newPage = Math.round(anchor * (textPages - 1))
         await this.#scrollToPage(newPage + 1, reason)
+        return true
     }
     #getVisibleRange() {
         if (this.scrolled) return getVisibleRange(this.#view.document,
@@ -1419,6 +1432,16 @@ export class Paginator extends HTMLElement {
         }
         if (!this.#navigation.isCurrent(task)) throw createAbortError()
         const anchorStartedAt = collectTiming ? timingNow() : 0
+        const resolveAnchor = () => (typeof anchor === 'function'
+            ? anchor(this.#view.document) : atSectionEnd ? 1 : anchor)
+        const anchorFailure = target => {
+            emitReaderOpenTiming({
+                phase: 'foliate-section-anchor', status: 'anchor-rejected',
+                sectionIndex: index, actualPage: this.page, actualPages: this.pages,
+                targetRectCount: uncollapse(target)?.getClientRects?.().length ?? 0,
+            })
+            return false
+        }
         if (atSectionEnd && !this.scrolled) {
             await this.#scrollToPage(Math.max(1, this.pages - 2), reason)
             // Keep subsequent font/resize expansion pinned to the calculated
@@ -1426,9 +1449,11 @@ export class Paginator extends HTMLElement {
             this.#anchor = 1
             this.#justAnchored = true
         } else {
-            await this.scrollToAnchor((typeof anchor === 'function'
-                ? anchor(this.#view.document) : atSectionEnd ? 1 : anchor) ?? 0,
-            select, reason)
+            const target = resolveAnchor()
+            // A missing CFI range is not permission to fall back to fraction 0.
+            if (typeof anchor === 'function' && target == null) return anchorFailure(target)
+            const anchored = await this.scrollToAnchor(target ?? 0, select, reason)
+            if (anchored === false) return anchorFailure(target)
         }
         if (collectTiming) emitReaderOpenTiming({
             phase: 'foliate-section-anchor',
@@ -1448,6 +1473,13 @@ export class Paginator extends HTMLElement {
                 await waitForFrame(win, task.signal)
                 if (!this.#navigation.isCurrent(task)) throw createAbortError()
                 this.render()
+            }
+            // Recheck the requested anchor after expansion instead of accepting
+            // a successful call whose final viewport stayed at the beginning.
+            if (!atSectionEnd) {
+                const target = resolveAnchor()
+                if (typeof anchor === 'function' && target == null) return anchorFailure(target)
+                if (!await this.scrollToAnchor(target ?? 0, select, reason)) return anchorFailure(target)
             }
         }
         if (hasFocus) this.focusView()
@@ -1470,7 +1502,12 @@ export class Paginator extends HTMLElement {
         this.#pendingNavigationSource = resolved?.navigationSource ?? null
         if (!resolved?.navigationSource) this.#navigationContext = null
         try {
-            await this.#goTo(resolved, task)
+            const displayed = await this.#goTo(resolved, task)
+            if (displayed === false) {
+                this.#navigation.finish(task)
+                if (this.#navigation.isCurrent(task)) this.#pendingNavigationSource = null
+                return false
+            }
             this.#navigation.finish(task)
             if (this.#navigation.isCurrent(task)) this.#pendingNavigationSource = null
             return resolved

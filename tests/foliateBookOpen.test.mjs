@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readReaderResumeFailures } from '../src/lib/readerBootstrapTrace.ts';
+
 import { openFoliateBook } from '../src/hooks/foliate/openFoliateBook.ts';
 
 test('configures the Foliate renderer before opening a new book at the beginning', async () => {
@@ -87,5 +89,61 @@ test('refused resume rejects the open instead of reporting a successful first pa
     openFoliateBook(view, { sections: [] }, 'saved-location', undefined, 'saved-location'),
     /저장된 읽기 위치를 복원하지 못했습니다/,
   );
-  assert.deepEqual(targets, ['saved-location']);
+  assert.deepEqual(targets, ['saved-location', 'saved-location']);
+});
+
+
+test('transient initial navigation failure retries once before revealing the reader', async () => {
+  let attempts = 0;
+  const view = {
+    open: async () => {},
+    init: async () => assert.fail('must not replace saved progress with first page'),
+    goToStable: async () => ++attempts === 2 ? { index: 5 } : false,
+  };
+  await openFoliateBook(view, { sections: [] }, 'saved-location');
+  assert.equal(attempts, 2);
+});
+
+test('closing the reader during a failed attempt prevents further retry', async () => {
+  let attempts = 0;
+  const view = {
+    isConnected: true,
+    open: async () => {},
+    goToStable: async () => { attempts += 1; view.isConnected = false; return false; },
+  };
+  await assert.rejects(openFoliateBook(view, { sections: [] }, 'saved-location'), { name: 'AbortError' });
+  assert.equal(attempts, 1);
+});
+
+
+test('failed and recovered opens persist only a compact diagnostic, successful opens write nothing', async () => {
+  const previousWindow = globalThis.window;
+  const storage = new Map();
+  const target = new EventTarget();
+  globalThis.window = Object.assign(target, {
+    innerWidth: 720, innerHeight: 760,
+    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
+  });
+  try {
+    const makeView = (failures) => {
+      let attempts = 0;
+      return {
+        open: async () => {}, renderer: { page: 0, pages: 30 },
+        goToStable: async () => ++attempts > failures ? { index: 0 } : false,
+      };
+    };
+    await openFoliateBook(makeView(0), { sections: [] }, 'private-cfi');
+    assert.equal(storage.size, 0);
+    await openFoliateBook(makeView(1), { sections: [] }, 'private-cfi');
+    assert.equal(readReaderResumeFailures()[0].status, 'recovered');
+    assert.equal(readReaderResumeFailures()[0].attempts, 2);
+    await assert.rejects(openFoliateBook(makeView(2), { sections: [] }, 'private-cfi'));
+    const records = readReaderResumeFailures();
+    assert.equal(records.at(-1).status, 'failed');
+    assert.equal(records.at(-1).viewportWidth, 720);
+    assert.equal(JSON.stringify([...storage.values()]).includes('private-cfi'), false);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });

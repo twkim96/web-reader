@@ -58,6 +58,8 @@ export type FoliateBook = {
 };
 
 export type FoliateRenderer = {
+  page?: number;
+  pages?: number;
   start: number;
   viewSize: number;
   size: number;
