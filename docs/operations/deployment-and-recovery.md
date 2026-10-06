@@ -32,7 +32,7 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 [firebase.json](../../firebase.json)의 `firestore.rules`·`firestore.indexes.json`을 기준으로 demo emulator 검사(`npm run test:rules`)를 먼저 수행합니다. production 배포 전 대상 프로젝트/DB와 배포된 Rules/index를 확인하고 원문을 보존합니다. Rules에는 클라이언트 owner 접근과 공개 metadata read, 서버 전용 쓰기 경계가 함께 있으므로 과거 v2 후보만 현재 전체 Rules로 취급하지 않습니다.
 
-[2026-07-13 production 기준선](../firestore-rules-production-baseline.md)과 [원문 백업](../backups/firestore.rules.production-2026-07-13.rules)은 당시 v1→v2 배포의 역사적 자료입니다. 현재 production Rules는 이 초기화 작업에서 새로 확인하지 않았습니다. 롤백 시 **해당 배포 전에 확인한** 백업을 복원하고, Firestore/IndexedDB 데이터를 삭제하지 않습니다. 오래된 백업은 후속 주석·통계·메타데이터 schema와 맞지 않을 수 있으므로 현재 client와의 호환성을 먼저 확인합니다.
+[2026-07-13 production 기준선](../updates/firestore-rules-production-baseline-2026-07-13.md)과 [원문 백업](../backups/firestore.rules.production-2026-07-13.rules)은 당시 v1→v2 배포의 역사적 자료입니다. 배포 설정과 Rules 테스트는 루트의 `firestore.rules`를 읽으며 이 이력 Markdown을 입력으로 사용하지 않습니다. 현재 production Rules는 문서 정리에서 새로 확인하지 않았습니다. 롤백 시 **해당 배포 전에 확인한** 백업을 복원하고, Firestore/IndexedDB 데이터를 삭제하지 않습니다. 오래된 백업은 후속 주석·통계·메타데이터 schema와 맞지 않을 수 있으므로 현재 client와의 호환성을 먼저 확인합니다.
 
 ## 반복 장애 조사
 

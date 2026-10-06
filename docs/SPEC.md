@@ -24,7 +24,8 @@
 ## 별도 경로와 과거 증거
 
 - [ui-kit/README.md](../ui-kit/README.md), [ADOPT.md](../ui-kit/ADOPT.md), [COVERAGE.md](../ui-kit/COVERAGE.md)는 복사해서 배포하는 키트 자체의 가이드이므로 같은 폴더에 둡니다.
-- [docs/updates/](updates/README.md)는 릴리스 기록입니다. 과거 미체크 항목 중 현재도 남은 작업은 TODO에서 관리합니다.
-- [PHASE_PLAN.md](../PHASE_PLAN.md)는 완료된 hook 분리 리팩터 기록입니다.
-- [Firestore production Rules 기준선](firestore-rules-production-baseline.md)과 `docs/backups/`는 2026-07-13 당시의 배포·백업 증거이며 현재 production 상태를 보증하지 않습니다.
+- [docs/updates/](updates/README.md)에 릴리스, 완료된 hook 분리 계획과 과거 Rules 배포 근거를 모읍니다. 과거 미체크 항목 중 현재도 남은 작업은 TODO에서 관리합니다. 현재 작업은 과거 계획이 아니라 위 사양·가이드부터 확인합니다.
+- [DESIGN.md](../DESIGN.md)는 기존 비공개 시각 QA가 참조하는 경로와 절 anchor만 유지하는 포인터입니다. 현재 디자인 계약은 [화면 사양](SPEC/interface.md)에 있습니다.
+- `docs/backups/`의 Rules 원문은 과거 배포의 checksum·롤백 근거입니다. 현재 production 상태를 보증하지 않으며 사용 경계는 [Rules 운영 가이드](operations/deployment-and-recovery.md#firestore-rules와-롤백)에 있습니다.
+- [Foliate 패치 안내](../public/foliate-js/PATCHES.md)는 vendored runtime을 갱신할 때 함께 확인하는 구성요소 가이드이므로 원래 위치에 둡니다.
 - Git에서 제외된 `.superloopy/evidence/`의 과거 시각 QA와 로컬 `artifacts/`는 현재 가이드나 완료 판정의 대체물이 아닙니다. 비공개·실행 산출물을 문서 이동 과정에서 추적 대상으로 바꾸지 않습니다.

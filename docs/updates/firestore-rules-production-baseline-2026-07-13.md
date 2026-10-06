@@ -1,6 +1,6 @@
 # Firestore production Rules 기준선
 
-> 2026-07-13의 v1→v2 배포 증거입니다. 현재 production Rules 전체의 상태를 나타내지 않습니다. 후속 주석·통계·메타데이터를 포함하는 현재 배포/복구 절차는 [운영 가이드](operations/deployment-and-recovery.md#firestore-rules와-롤백)를 따릅니다. 당시 원문과 checksum은 아래 그대로 보존합니다.
+> 2026-07-13의 v1→v2 배포 증거입니다. 현재 production Rules 전체의 상태를 나타내지 않습니다. 후속 주석·통계·메타데이터를 포함하는 현재 배포/복구 절차는 [운영 가이드](../operations/deployment-and-recovery.md#firestore-rules와-롤백)를 따릅니다. 당시 원문과 checksum은 아래 그대로 보존합니다. 실제 로그인·다중 기기 수용 확인은 [TODO](../TODO.md#누적-다중-기기실사용-수용-확인)에서 관리합니다.
 
 ## 상태
 
@@ -8,7 +8,7 @@
 - 데이터베이스: `(default)`, `asia-northeast3`
 - 기준선 확인: 2026-07-13 08:24 KST
 - 기존 배포 시각: 2026-02-23 09:39 KST
-- 기존 Rules 백업: `docs/backups/firestore.rules.production-2026-07-13.rules`
+- 기존 Rules 백업: [docs/backups/firestore.rules.production-2026-07-13.rules](../backups/firestore.rules.production-2026-07-13.rules)
 - 기존 Rules SHA-256: `136abebd45ae3538aa668371f69b1d69e53b6d1373d6e6d05930cb8c9b0778b4`
 - 1.7.0 후보 SHA-256: `039bdbd893ceb815b6b491ec57e28808b898dd7253dd4bcb93cd677d61e8e1ab`
 - 1.7.0 Rules 배포: **완료**, Firebase Console 배포 이력 `2026-07-13 08:26 KST`

@@ -1,6 +1,6 @@
 # Refactor Phase Plan
 
-> Phase 1–8이 완료된 과거 리팩터 기록입니다. 당시 저장 정책과 검증 결과를 현재 상태로 재해석하지 않습니다. 현재 사양은 [docs/SPEC.md](docs/SPEC.md), 미완료 작업은 [docs/TODO.md](docs/TODO.md), 현재 작업·릴리스 규칙은 [AGENTS.md](AGENTS.md)를 따릅니다.
+> Phase 1–8이 완료된 과거 리팩터 기록입니다. 당시 저장 정책과 검증 결과를 현재 상태로 재해석하지 않습니다. 현재 사양은 [SPEC](../SPEC.md), 미완료 작업은 [TODO](../TODO.md), 현재 작업·릴리스 규칙은 [AGENTS.md](../../AGENTS.md)를 따릅니다. 아래 후속 개선의 실제 기기 확인은 TODO의 [다중 기기 검증](../TODO.md#누적-다중-기기실사용-수용-확인)과 [도서 삭제 검증](../TODO.md#실제-도서-삭제)에서 관리합니다.
 
 ## Summary
 - 큰 리팩터를 한 번에 하지 않고, 각 phase를 테스트 가능한 1커밋 단위로 나눈다.

@@ -12,11 +12,11 @@
 
 ## 미리보기와 게시
 
-게시기는 기본 dry-run이며 원본 SQLite를 읽기 전용으로 열고 외부 쓰기를 하지 않습니다. 먼저 저장소 루트에서 `python3 scripts/publish-book-metadata.py --database <원본-SQLite-경로>`로 projection을 확인합니다. CLI 옵션과 기본 원본 경로는 `scripts/publish-book-metadata.py`가 기준입니다. 실제 게시에는 `--apply --project <대상-project-id>`와 Admin 권한이 필요합니다. 인증 변수의 설정 방법은 [개발 가이드](../development/setup-and-checks.md)에 있습니다.
+게시기는 기본 dry-run이며 원본 SQLite를 읽기 전용으로 열고 외부 쓰기를 하지 않습니다. 먼저 저장소 루트에서 `python3 scripts/publish-book-metadata.py --database <원본-SQLite-경로>`로 projection을 확인합니다. CLI 옵션과 기본 원본 경로는 [publish-book-metadata.py](../../scripts/publish-book-metadata.py)가 기준입니다. 실제 게시에는 `--apply --project <대상-project-id>`와 Admin 권한이 필요합니다. 인증 변수의 설정 방법은 [개발 가이드](../development/setup-and-checks.md)에 있습니다.
 
 ## Control Server 경로
 
-아래는 기존 로컬 운영 연결입니다. Control Server Action 설정은 이 문서 초기화에서 재확인하지 않았으므로 실행 전 Action의 cwd·명령·대상 프로젝트를 확인합니다.
+로컬 Control Server의 저장된 Action 설정은 cwd `/Users/twkim/Documents/web_reader`에서 게시 스크립트를 직접 호출합니다. 미리보기에는 `--apply`가 없고 실제 게시에는 아래의 `--apply --project web-novel-viewer`가 있습니다. Markdown 경로를 실행 입력으로 사용하지 않으므로 게시 안내는 이 운영 가이드에서만 유지합니다. 저장된 설정 확인은 서비스 실행·게시 성공 증거와 별개이며, 실행 전 Action의 cwd·명령·대상 프로젝트를 다시 확인합니다.
 
 `http://127.0.0.1:9000`의 `Services` 탭에서 `Web Reader` Action Group을 연다.
 
@@ -50,4 +50,4 @@ Control Server의 `file_check` Action Group은 SQLite 원본을 갱신하는 별
 
 ## 검증과 문서
 
-`npm run test:publisher`가 projection 생성 계약을 검사합니다. dry-run·fixture 검사와 실제 Firestore 게시 성공은 구분합니다. 공개 API와 base/delta 소유권은 [연동 계약](../integrations/book-metadata.md), 운영 진입점은 [문서 지도](../SPEC.md)에 있습니다.
+`npm run test:publisher`의 [test_public_book_catalog.py](../../tests/test_public_book_catalog.py)는 [public_book_catalog.py](../../scripts/public_book_catalog.py)와 게시 스크립트를 직접 불러 projection 생성·게시 계약을 검사합니다. dry-run·fixture 검사와 실제 Firestore 게시 성공은 구분합니다. 공개 API와 base/delta 소유권은 [연동 계약](../integrations/book-metadata.md), 운영 진입점은 [문서 지도](../SPEC.md)에 있습니다.

@@ -1,6 +1,6 @@
 # DESIGN.md
 
-현재 앱 디자인 계약은 [docs/SPEC/interface.md](docs/SPEC/interface.md), 복사 가능한 키트 사용법은 [ui-kit/README.md](ui-kit/README.md)가 담당합니다. 이 경로와 기존 절 anchor는 과거 시각 QA 참조를 위해 유지합니다.
+현재 앱 디자인 계약은 [docs/SPEC/interface.md](docs/SPEC/interface.md), 복사 가능한 키트 사용법은 [ui-kit/README.md](ui-kit/README.md)가 담당합니다. Git에서 제외한 `.superloopy/evidence/frontend/`의 2026-07-06 reader zoom과 2026-07-08 fixed-layout 시각 QA가 이 파일 이름을 참조하므로 경로와 기존 절 anchor를 유지합니다. 이 파일에는 별도 디자인 사양을 복제하지 않습니다.
 
 ## Atmosphere
 

@@ -24,7 +24,7 @@ npm run dev
 - [Firebase·Google Drive 연동](docs/integrations/firebase-and-drive.md)
 - [메타데이터 API](docs/integrations/book-metadata.md), [메타데이터 게시](docs/operations/book-metadata-publishing.md)
 - [Web Reader Design Kit](ui-kit/README.md): 다른 프로젝트에 시각 요소를 가져가는 독립 HTML/CSS 키트
-- [버전별 기록](docs/updates/README.md): 과거 계획과 구현·검증 증거
+- [릴리스와 개발 이력](docs/updates/README.md): 버전별 기록, 완료된 리팩터 계획과 과거 Rules 배포 근거
 
 ## 기술과 코드
 

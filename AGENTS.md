@@ -16,13 +16,18 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   TODO entries; read only the linked feature/guide pages needed for the task.
 - Keep changed specifications, operating instructions and TODO entries current in
   the same scoped change. Product contracts belong in `docs/SPEC/`, not here.
-- `docs/updates/` and `PHASE_PLAN.md` preserve historical plans and evidence. Old
-  unchecked items are not an independent current backlog; consult `docs/TODO.md`.
-- `DESIGN.md` and `docs/book-metadata-publishing.md` are compatibility pointers.
-  Preserve their existing anchor targets when updating routing.
-- Keep `ui-kit/` guides alongside the independently copied kit. Historical Rules
-  backups keep their existing paths. Git-ignored `.superloopy/` evidence and local
-  runtime artifacts must not become tracked documentation during migration.
+- `docs/updates/` is the existing home for releases, completed plans and historical
+  evidence. Start at [its index](docs/updates/README.md); old unchecked items are
+  not an independent current backlog. Consult `docs/TODO.md` for remaining work.
+- Keep `DESIGN.md` and its section anchors as a pointer for the existing ignored
+  `.superloopy/evidence/frontend/` visual QA references. Current design contracts
+  have one home in [the interface specification](docs/SPEC/interface.md).
+- Keep `ui-kit/` guides alongside the independently copied kit and
+  `public/foliate-js/PATCHES.md` alongside the vendored runtime. Keep the historical
+  Rules original in `docs/backups/` as checksum/rollback evidence; its deployment
+  record is in `docs/updates/`, not current operating guidance.
+- Git-ignored `.superloopy/` evidence and local runtime artifacts must not become
+  tracked documentation during migration.
 
 ## Project safeguards
 

@@ -5,6 +5,7 @@
 ## 기존 전체 lint 실패
 
 - `tests/remoteProgressPrompt.test.mjs`의 두 test harness가 render 중 외부 `state`를 대입해 `react-hooks/globals` 오류를 냅니다. 초기화 과정에서 해당 파일 ESLint를 다시 실행해 동일한 2건을 확인했습니다. [기존 기록](updates/update_1.8.37.md#시작-위치-복원-검증과-경량-진단)에도 전체 lint 실패로 남아 있습니다.
+- [커밋 `05307e3`의 run 37410255063](https://github.com/twkim96/web-reader/actions/runs/37410255063)에서도 `static-node-build` job이 같은 파일의 202·428행 오류 2건으로 실패했습니다.
 - 다음 작업: 테스트의 관찰 방법을 React 수명에 맞게 정리하고 기존 원격 이동·owner 전환 회귀를 유지합니다. 제품 코드나 assertion을 약화해 우회하지 않습니다.
 - 완료 조건: 해당 파일 lint와 관련 회귀가 통과하고, 이후 필요한 전체 gate의 결과를 기록합니다.
 
@@ -12,6 +13,7 @@
 
 - [문서 초기화 커밋 `0d52154`의 run 37394612095](https://github.com/twkim96/web-reader/actions/runs/37394612095)와 [직전 커밋 `11bc6f9`의 run 37162191819](https://github.com/twkim96/web-reader/actions/runs/37162191819)의 `browser-regression` job은 모두 실패로 종료됐습니다. 두 실행의 로그에서 같은 증상을 확인했으며 문서 이관 이전부터 있던 미해결 실패로 보존합니다.
 - 관측 증상: [tests/browserRegression.mjs:3411](https://github.com/twkim96/web-reader/blob/0d52154b6ff42718eb4e2257487e8df63cb9b67d/tests/browserRegression.mjs#L3411)의 `selectionActions.flowAfterScrollMode` assertion에서 기대값은 `scrolled`, 실제값은 `paginated`입니다. 제품 버그인지 테스트·실행 환경 문제인지는 아직 미확정입니다.
+- [커밋 `05307e3`의 run 37410255063](https://github.com/twkim96/web-reader/actions/runs/37410255063)도 완료·실패 상태이며 `browser-regression` job 로그에서 같은 assertion과 기대값/실제값을 확인했습니다.
 - 다음 작업: CI의 스크롤 모드 전환 순서와 renderer 상태 반영·관찰 시점을 재현하고 [읽기 사양](SPEC/reader-and-progress.md#읽기와-시작-위치)과 대조해 원인을 구분합니다.
 - 완료 조건: 원인과 대응 근거를 기록하고, 의도한 스크롤 모드 전환 계약을 유지한 관련 회귀와 해당 `browser-regression` CI job의 통과 실행 링크를 남깁니다.
 
@@ -20,6 +22,7 @@
 - [1.8.9 Phase B](updates/update_1.8.9.md#phase-b--누적-실기기-검증-이관) → [1.8.10 누적 검증](updates/update_1.8.10.md#2-189에서-이관한-누적-실사용-검증)의 이관 작업입니다. [1.8.36](updates/update_1.8.36.md)은 실제 두 기기·OAuth·Android/iPad PWA 확인을 자동검증과 분리합니다.
 - 다음 작업: 같은 Firebase 계정으로 PC Chrome·Android·iPad Safari 탭/PWA에서 진행률·수동 책갈피·주석·팔레트·통계를 비교합니다. offline 편집·다중 탭·background/강제 종료·재접속·PWA update, 선택→메모→검색/내보내기와 20~30분 TTS의 pause/resume/장 전환을 포함합니다.
 - 날짜 경계·시간대/시계 차이의 통계, 장기 `activeIntervals`의 모달/기간 변경/export 비용, 회독 완료 동시 확인을 확인합니다. 지원하지 않는 PDF/이미지 도서의 텍스트 도구는 해당 없음으로 기록합니다.
+- [hook 분리 이후 위치 정밀도 후속](updates/refactor-phase-plan.md#post-refactor-improvement-1-precision-progress-sync)에 남은 실제 기기 확인도 포함합니다. 최신 빌드에서 `anchorCfi`가 있는 EPUB/TXT 위치의 다른 기기 시작 문장 복원과 `cfi`만 있는 이전 기록의 정상 열기를 확인합니다.
 - 완료 조건: 최소 2~3일 실제 독서에서 데이터 손실·삭제 부활·이유 없는 이동·반복 충돌이 없는지 확인하고, 이관 항목별 통과/보류/제외 및 기기·빌드·제한을 기록합니다. 자동 회귀와 실제 production 동기화 결과를 구분합니다.
 
 ## 실제 로그인·Drive 재연결
@@ -27,6 +30,12 @@
 - [1.8.35](updates/update_1.8.35.md#검증-결과)의 인증 실사용 재확인은 아직 대기입니다. state fallback과 logout disposer 수정은 구현되어 있으나 실제 첫 callback의 성공 근거를 대신하지 않습니다.
 - 다음 작업: 배포 브라우저/PWA/WebView에서 로그아웃 성공·실패, Firebase 재로그인, 첫 Drive 연결과 token 만료 뒤 redirect 재연결을 확인합니다. 앱 origin·Firebase helper·state 소비를 비교하고 비밀값을 기록하지 않습니다.
 - 완료 조건: 기존 오류 화면/상태 불일치가 재현되는지 판정하고, Drive 목록 복구·로컬 서재 보존·Firebase 상태 유지 결과를 기록합니다.
+
+## 실제 도서 삭제
+
+- [hook 분리 이후 도서 삭제 후속](updates/refactor-phase-plan.md#post-refactor-improvement-2-cloud-shelf-book-delete)은 구현 뒤 Vercel/기기 확인 대상으로 남겼습니다. 당시 입력 방식이 아니라 [현재 삭제 메뉴·데이터 계약](SPEC/library-and-files.md#캐시삭제-계약)을 기준으로 확인합니다.
+- 다음 작업: 실제 로컬/클라우드 서재에서 삭제 취소, 기기 사본만 삭제, Drive 도서 전체 삭제와 확인 뒤 Drive token 만료를 확인합니다. Drive 원본·기기 캐시·계정 진행률/주석의 유지·삭제 범위와 실패 시 후속 단계 중단을 구분합니다.
+- 완료 조건: 실제 기기/빌드·선택한 삭제 범위별 결과를 기록하고, 취소·인증 실패에서 기존 데이터를 잃지 않는지 확인합니다. 자동 회귀를 실제 Drive 삭제 성공으로 판정하지 않습니다.
 
 ## 실제 리더 입력·형식·cold-open
 
