@@ -1,5 +1,7 @@
 # Web Reader 1.8.x 전체 개발 계획
 
+> 1.8.x 도입 당시의 계획과 버전별 판단을 보존하는 기록입니다. 현재 사양/개발 규칙의 별도 기준으로 갱신하지 않습니다. 현재 동작은 [SPEC](../SPEC.md), 남은 구현·실기기 확인은 [TODO](../TODO.md), 작업 규칙은 [AGENTS.md](../../AGENTS.md)를 따릅니다. 아래 상태와 예정 항목은 당시 시점의 기록입니다.
+
 작성일: 2026-07-27
 
 기준 버전: `1.7.10`
@@ -10,7 +12,7 @@
 
 ## 1. 문서의 역할
 
-이 문서는 Web Reader 1.8.x 전체 개발 방향, 버전 간 의존성, 호환성 계약, 공통 검증 기준을 정의하는 마스터 계획이다.
+이 문서는 당시 Web Reader 1.8.x 전체 개발 방향, 버전 간 의존성, 호환성 계약, 공통 검증 기준을 정의했던 마스터 계획을 보존한다. 현재 지침은 [SPEC](../SPEC.md)과 관련 가이드, 미완료 판정은 [TODO](../TODO.md)에서만 유지한다.
 
 - 실제 구현을 시작할 때마다 `docs/updates/update_1.8.0.md`, `docs/updates/update_1.8.1.md`와 같은 개별 버전 문서를 새로 만든다.
 - 개별 버전 문서는 해당 릴리스의 실제 기준 커밋, 수용·보류·제외 항목, 구현 phase, 완료 조건, 자동검증과 실기기 증거를 기록하는 실행 문서다.
@@ -952,6 +954,8 @@ docs/updates/update_1.8.2.md
 | 독서 시간 과대 집계 | 1.8.8 | idle/background 포함 | session boundary와 idle cutoff 수정 |
 
 ## 12. 현재 다음 단계
+
+이 절의 “현재”는 당시 계획 시점이다. 아래 계획의 실제 미완료 범위와 재방문 조건은 [TODO](../TODO.md)에 통합했으며 이 절을 병렬 백로그로 갱신하지 않는다.
 
 1. 실제 Android/모바일 Chrome·iPad Safari·설치형 PWA에서 1.8.14 filter 계약과 1.8.15 요청 상태·재실행을 함께 확인한다.
 2. 성인 작품 인증이 필요해지면 `NOVELPIA_EMAIL`과 `NOVELPIA_PASSWORD`를 함께 sensitive env로 추가하고 CAPTCHA·adult-mode를 별도 acceptance한다. public crawler와 현재 release에는 필요 없다.

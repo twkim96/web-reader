@@ -1,5 +1,7 @@
 # Firestore production Rules 기준선
 
+> 2026-07-13의 v1→v2 배포 증거입니다. 현재 production Rules 전체의 상태를 나타내지 않습니다. 후속 주석·통계·메타데이터를 포함하는 현재 배포/복구 절차는 [운영 가이드](operations/deployment-and-recovery.md#firestore-rules와-롤백)를 따릅니다. 당시 원문과 checksum은 아래 그대로 보존합니다.
+
 ## 상태
 
 - production 프로젝트: `web-novel-viewer`
