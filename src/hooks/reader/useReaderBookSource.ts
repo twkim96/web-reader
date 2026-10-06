@@ -29,7 +29,7 @@ import {
   throwIfAborted,
 } from '../../lib/readerLoadLifecycle';
 import { getReaderMaxColumnCount } from '../../lib/readerNavigation';
-import { traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
+import { hashReaderTraceValue, traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
 import {
   supportsCachedBookCover,
   supportsEmbeddedBookCover,
@@ -81,6 +81,7 @@ interface UseReaderBookSourceOptions {
   googleToken: string;
   initialCfi?: string;
   initialAnchorCfi?: string;
+  initialPercent?: number;
   settings: ViewerSettings;
   themeColors: ReaderThemeColors;
   themeTexture: ReaderThemeTexture;
@@ -90,6 +91,7 @@ interface UseReaderBookSourceOptions {
     initialCfi?: string,
     beforeInit?: (view: FoliateViewElement) => void | Promise<void>,
     initialAnchorCfi?: string,
+    initialPercent?: number,
   ) => Promise<void>;
   setLayout: ReaderLayoutSetter;
   setStyle: ReaderStyleSetter;
@@ -129,6 +131,7 @@ export const useReaderBookSource = ({
   googleToken,
   initialCfi,
   initialAnchorCfi,
+  initialPercent,
   settings,
   themeColors,
   themeTexture,
@@ -146,6 +149,7 @@ export const useReaderBookSource = ({
     googleToken,
     initialCfi,
     initialAnchorCfi,
+    initialPercent,
     openBook,
     onBack,
     settings,
@@ -159,6 +163,7 @@ export const useReaderBookSource = ({
     googleToken,
     initialCfi,
     initialAnchorCfi,
+    initialPercent,
     openBook,
     onBack,
     settings,
@@ -179,6 +184,7 @@ export const useReaderBookSource = ({
       googleToken: targetGoogleToken,
       initialCfi: targetInitialCfi,
       initialAnchorCfi: targetInitialAnchorCfi,
+      initialPercent: targetInitialPercent,
       openBook: openTargetBook,
       onBack: returnToShelf,
     } = loadInputsRef.current;
@@ -191,6 +197,10 @@ export const useReaderBookSource = ({
           ? targetBook.size
           : undefined,
         status: targetBook.sourceFormat ?? targetBook.readerFormat,
+        bookHash: hashReaderTraceValue(targetBook.id),
+        targetHash: targetInitialCfi ? hashReaderTraceValue(targetInitialCfi) : undefined,
+        anchorHash: targetInitialAnchorCfi ? hashReaderTraceValue(targetInitialAnchorCfi) : undefined,
+        expectedPercent: Number.isFinite(targetInitialPercent) ? targetInitialPercent : undefined,
       });
       const deferredPersistence: Array<() => void> = [];
       let openedCoverView: FoliateViewElement | null = null;
@@ -394,6 +404,7 @@ export const useReaderBookSource = ({
                 }
                 : undefined,
               targetInitialAnchorCfi,
+              targetInitialPercent,
             );
             if (prepared.format === 'archive') {
               await runWithTimeout(open, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE);

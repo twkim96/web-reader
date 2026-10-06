@@ -511,6 +511,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     googleToken,
     initialCfi,
     initialAnchorCfi,
+    initialPercent,
     settings,
     themeColors,
     themeTexture,

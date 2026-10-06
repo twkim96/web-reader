@@ -461,7 +461,9 @@ export const useReaderProgressSave = ({
   }, [scheduleRelocateSave]);
 
   const saveCurrentProgress = useCallback((options?: SaveProgressOptions) => {
-    if (provisionalRef.current) return false;
+    // force bypasses deduplication, not user intent. Startup/layout relocates
+    // may update the visible baseline but must never become a durable write.
+    if (provisionalRef.current || !hasUnsavedUserChangeRef.current) return false;
     traceReaderProgressRegression({
       event: 'save-current',
       force: Boolean(options?.force),
@@ -631,6 +633,8 @@ export const useReaderProgressSave = ({
 
   const flushCurrentProgress = useCallback(async () => {
     if (provisionalRef.current) return false;
+    if (isReaderProgressPersistenceSettled(getPersistenceState())) return true;
+    if (!hasUnsavedUserChangeRef.current && !pendingRelocateSaveRef.current) return false;
     if (
       ttsProgressFenceActiveRef.current
       && !pendingRelocateSaveRef.current
@@ -653,7 +657,7 @@ export const useReaderProgressSave = ({
       ) return true;
     }
     return false;
-  }, [saveCurrentProgress]);
+  }, [getPersistenceState, saveCurrentProgress]);
 
   useEffect(() => () => {
     clearRelocateSaveTimer();

@@ -54,9 +54,34 @@ test('multiple previews block all save entry points and remote adoption; cancel 
   hook.handleRelocateForSave({ cfi: 'rollback-page', progressPercent: 11 });
   hook.cancelProvisionalNavigation();
   assert.equal(hook.isProvisionalNavigationActive(), false);
-  assert.equal(await hook.saveCurrentProgress({ force: true }), true);
-  assert.equal(saves[0][0], 'original');
-  assert.equal(saves[0][1], 10);
+  assert.equal(await hook.flushCurrentProgress(), true);
+  assert.equal(saves.length, 0);
+}));
+
+test('startup first-page relocates cannot overwrite saved progress through forced or lifecycle saves', () => harness(async ({ hook, saves }) => {
+  hook.handleRelocateForSave({ cfi: 'first-page', progressPercent: 0, reason: 'anchor' });
+  assert.equal(await hook.saveCurrentProgress(), false);
+  assert.equal(await hook.saveCurrentProgress({ force: true }), false);
+  assert.equal(await hook.flushCurrentProgress(), true);
+  assert.equal(await hook.flushCurrentProgress(), true);
+  assert.equal(saves.length, 0);
+  assert.equal(hook.isQuietResumeEligible(), true);
+}));
+
+test('a clean reader flush cannot replace a committed user position with a later layout relocate', () => harness(async ({ hook, saves }) => {
+  hook.markUserProgressChange();
+  hook.handleRelocateForSave({ cfi: 'read-position', progressPercent: 50 });
+  assert.equal(await hook.flushCurrentProgress(), true);
+  hook.handleRelocateForSave({ cfi: 'first-page', progressPercent: 0, reason: 'anchor' });
+  assert.equal(await hook.flushCurrentProgress(), true);
+  assert.deepEqual(saves.map(([cfi, percent]) => [cfi, percent]), [['read-position', 50]]);
+}));
+
+test('an intentional user move to the beginning still persists zero percent', () => harness(async ({ hook, saves }) => {
+  hook.markUserProgressChange({ forceNextRelocateSave: true, expectedPercent: 0 });
+  hook.handleRelocateForSave({ cfi: 'first-page', progressPercent: 0 });
+  assert.equal(await hook.flushCurrentProgress(), true);
+  assert.deepEqual(saves.map(([cfi, percent]) => [cfi, percent]), [['first-page', 0]]);
 }));
 
 test('confirm persists latest observed location with staged bookmarks once and failure retains preview', () => harness(async ({ hook, saves, setResult }) => {

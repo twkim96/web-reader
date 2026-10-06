@@ -20,6 +20,8 @@
 
 통계 화면의 **진단**은 저장소/동기화 요약 JSON을 내보냅니다. 본문과 메모를 넣지 않습니다. 시작 위치 복원 거부가 발생한 열기만 최근 8건, 직렬화 크기 제한 안에서 `readerResumeFailures`로 보관·출력합니다. 결과·시도 횟수·해시화한 목표·페이지/좌표 유무·화면 크기만 기록하고 원본 CFI·도서 ID·제목은 남기지 않습니다. 정상 열기는 이 실패 기록을 쓰지 않습니다.
 
+진단의 `appBuild`는 앱 버전과 빌드 식별자입니다. 열기 성능 버퍼에는 해시화한 도서·목표·앵커, 요청 진행률과 실제 열린 진행률·페이지를 포함합니다. 진행률 불일치로 거부된 복원은 `readerResumeFailures`의 `progress-mismatch` 사유와 요청·최종 실제 진행률로 남깁니다. 정상 열기마다 영구 기록을 추가하지 않습니다.
+
 Bootstrap 추적은 `?readerDebug=1` 또는 `reader_bootstrap_trace_v1` 설정으로 켜는 제한된 메모리 버퍼입니다. 열기 성능 추적(`readerOpenPerformanceTrace`)은 느린 cold-open 재현을 위해 debug 설정 없이 제한된 메모리 버퍼에 유지합니다. phase·시간·개수·크기와 해시화된 목표만 기록하며 본문·제목·원본 CFI는 넣지 않습니다. 실패 기록과 항상 실행되는 전체 로그를 혼동하지 않습니다. 진단에서 오래된 receipt/tombstone/이전 namespace가 보이더라도 삭제 가능하다는 뜻은 아닙니다. 정리 승인 조건은 [운영 가이드](../operations/deployment-and-recovery.md#저장과-복구)에 있습니다.
 
 ## 코드와 검증

@@ -36,6 +36,10 @@ export type ReaderOpenPerformanceEvent = {
   actualPage?: number;
   actualPages?: number;
   targetRectCount?: number;
+  bookHash?: string;
+  anchorHash?: string;
+  expectedPercent?: number;
+  actualPercent?: number;
 };
 
 const TRACE_STORAGE_KEY = 'reader_bootstrap_trace_v1';
@@ -55,7 +59,9 @@ export type ReaderResumeFailureEvent = {
   targetRectCount?: number;
   viewportWidth?: number;
   viewportHeight?: number;
-  reason?: 'missing-geometry' | 'navigation-rejected' | 'target-not-visible';
+  expectedPercent?: number;
+  actualPercent?: number;
+  reason?: 'missing-geometry' | 'navigation-rejected' | 'target-not-visible' | 'progress-mismatch';
 };
 
 export type ReaderResumeFailureInput = Omit<ReaderResumeFailureEvent, 'at'>;
@@ -151,10 +157,17 @@ const sanitizeResumeFailureEvent = (value: unknown): ReaderResumeFailureEvent | 
       sanitized[key] = Math.min(1_000_000, key.startsWith('viewport') ? field : Math.floor(field));
     }
   }
+  for (const key of ['expectedPercent', 'actualPercent'] as const) {
+    const field = event[key];
+    if (typeof field === 'number' && Number.isFinite(field) && field >= 0 && field <= 100) {
+      sanitized[key] = field;
+    }
+  }
   if (
     event.reason === 'missing-geometry'
     || event.reason === 'navigation-rejected'
     || event.reason === 'target-not-visible'
+    || event.reason === 'progress-mismatch'
   ) {
     sanitized.reason = event.reason;
   }

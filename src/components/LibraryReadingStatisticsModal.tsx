@@ -39,6 +39,7 @@ import {
   readReaderResumeFailures,
 } from '../lib/readerBootstrapTrace';
 import { ACCENT_PALETTE } from '../lib/constants';
+import { FOLIATE_RUNTIME_REVISION } from '../lib/foliateRuntimeCache';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
   READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY,
@@ -406,6 +407,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         mimeType: 'application/json;charset=utf-8',
         text: `${JSON.stringify({
           ...diagnostics,
+          appBuild: FOLIATE_RUNTIME_REVISION,
           ...(readerBootstrapTrace.length > 0 ? { readerBootstrapTrace } : {}),
           ...(readerOpenPerformanceTrace.length > 0 ? { readerOpenPerformanceTrace } : {}),
           ...(readerResumeFailures.length > 0 ? { readerResumeFailures } : {}),

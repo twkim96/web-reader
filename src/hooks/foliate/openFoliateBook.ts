@@ -10,11 +10,13 @@ export const openFoliateBook = async (
   initialCfi?: string,
   beforeInit?: BeforeInit,
   initialAnchorCfi?: string,
+  initialPercent?: number,
 ) => {
   const timingTarget = typeof window !== 'undefined' ? window : null;
   const timingWindow = timingTarget as TimingWindow | null;
   const timingNow = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
   let rejectedGeometry: { targetRectCount?: number; actualPage?: number; actualPages?: number } = {};
+  let rejectedProgress: { expectedPercent?: number; actualPercent?: number } = {};
   const handleFoliateTiming = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail;
     if (!detail || typeof detail.phase !== 'string') return;
@@ -87,10 +89,20 @@ export const openFoliateBook = async (
           const result = view.goToStable
             ? await view.goToStable(target)
             : await view.goTo(target);
-          if (result) {
+          const actualFraction = view.lastLocation?.fraction;
+          // A valid range at the beginning can still report navigation success
+          // when the saved CFI and progress disagree. Do not expose that as resume.
+          const progressMismatch = Boolean(result)
+            && Number.isFinite(initialPercent) && Number(initialPercent) >= 5
+            && Number.isFinite(actualFraction) && Number(actualFraction) <= 0.001;
+          if (result && !progressMismatch) {
             restored = true;
             break;
           }
+          if (progressMismatch) rejectedProgress = {
+            expectedPercent: initialPercent,
+            actualPercent: Number(actualFraction) * 100,
+          };
           rejectedTarget = target;
           traceReaderOpenPerformance({
             phase: 'foliate-initial-navigation',
@@ -98,6 +110,7 @@ export const openFoliateBook = async (
             status: 'resume-target-rejected',
             targetHash: hashReaderTraceValue(target),
             ...rejectedGeometry,
+            ...rejectedProgress,
             actualPage: view.renderer?.page,
             actualPages: view.renderer?.pages,
           });
@@ -109,11 +122,15 @@ export const openFoliateBook = async (
           attempts,
           targetHash: hashReaderTraceValue(rejectedTarget),
           ...rejectedGeometry,
+          ...rejectedProgress,
+          actualPercent: Number.isFinite(view.lastLocation?.fraction)
+            ? Number(view.lastLocation?.fraction) * 100 : rejectedProgress.actualPercent,
           actualPage: view.renderer?.page,
           actualPages: view.renderer?.pages,
           viewportWidth: timingTarget?.innerWidth,
           viewportHeight: timingTarget?.innerHeight,
-          reason: rejectedGeometry.targetRectCount === 0 ? 'missing-geometry' : 'navigation-rejected',
+          reason: rejectedProgress.expectedPercent !== undefined ? 'progress-mismatch'
+            : rejectedGeometry.targetRectCount === 0 ? 'missing-geometry' : 'navigation-rejected',
         });
       }
       if (!restored) {
@@ -131,6 +148,13 @@ export const openFoliateBook = async (
       phase: 'foliate-initial-navigation',
       durationMs: timingNow() - startedAt,
       status: resumeTargets.length > 0 ? 'resume' : 'start',
+      targetHash: initialCfi ? hashReaderTraceValue(initialCfi) : undefined,
+      anchorHash: initialAnchorCfi ? hashReaderTraceValue(initialAnchorCfi) : undefined,
+      expectedPercent: Number.isFinite(initialPercent) ? initialPercent : undefined,
+      actualPercent: Number.isFinite(view.lastLocation?.fraction)
+        ? Number(view.lastLocation?.fraction) * 100 : undefined,
+      actualPage: view.renderer?.page,
+      actualPages: view.renderer?.pages,
     });
   } finally {
     timingTarget?.removeEventListener('foliate-reader-open-timing', handleFoliateTiming);

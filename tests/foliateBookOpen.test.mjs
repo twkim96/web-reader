@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readReaderResumeFailures } from '../src/lib/readerBootstrapTrace.ts';
+import { readReaderOpenPerformanceTrace, readReaderResumeFailures } from '../src/lib/readerBootstrapTrace.ts';
 
 import { openFoliateBook } from '../src/hooks/foliate/openFoliateBook.ts';
 
@@ -113,6 +113,81 @@ test('closing the reader during a failed attempt prevents further retry', async 
   };
   await assert.rejects(openFoliateBook(view, { sections: [] }, 'saved-location'), { name: 'AbortError' });
   assert.equal(attempts, 1);
+});
+
+test('truthy first-page resume is rejected when the saved progress was well into the book', async () => {
+  let attempts = 0;
+  const view = {
+    open: async () => {},
+    lastLocation: { fraction: 0 },
+    goToStable: async () => { attempts++; return { index: 0 }; },
+    init: async () => assert.fail('must not reset progress to the beginning'),
+  };
+  await assert.rejects(
+    openFoliateBook(view, { sections: [] }, 'saved-location', undefined, undefined, 50),
+    /저장된 읽기 위치를 복원하지 못했습니다/,
+  );
+  assert.equal(attempts, 2);
+});
+
+test('a saved anchor can recover a truthy but incorrect first-page primary target', async () => {
+  const targets = [];
+  const view = {
+    open: async () => {},
+    goToStable: async target => {
+      targets.push(target);
+      view.lastLocation = { fraction: target === 'saved-anchor' ? 0.5 : 0 };
+      return { index: target === 'saved-anchor' ? 20 : 0 };
+    },
+  };
+  await openFoliateBook(view, { sections: [] }, 'saved-location', undefined, 'saved-anchor', 50);
+  assert.deepEqual(targets, ['saved-location', 'saved-anchor']);
+  view.lastLocation = { fraction: 0 };
+  await openFoliateBook(view, { sections: [] }, 'saved-location', undefined, undefined, 0);
+});
+
+test('open diagnostics compare expected and actual progress without exposing raw targets', async () => {
+  const previousWindow = globalThis.window;
+  const storage = new Map();
+  globalThis.window = Object.assign(new EventTarget(), {
+    innerWidth: 720, innerHeight: 760,
+    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
+  });
+  try {
+    const view = {
+      open: async () => {},
+      lastLocation: { fraction: 0.5 },
+      renderer: { page: 10, pages: 20 },
+      goToStable: async () => ({ index: 5 }),
+    };
+    await openFoliateBook(view, { sections: [] }, 'private-cfi', undefined, 'private-anchor', 50);
+    const trace = readReaderOpenPerformanceTrace();
+    const resume = trace.find(event => event.phase === 'foliate-initial-navigation');
+    assert.equal(resume.expectedPercent, 50);
+    assert.equal(resume.actualPercent, 50);
+    assert.equal(resume.actualPage, 10);
+    assert.equal(typeof resume.targetHash, 'string');
+    assert.equal(typeof resume.anchorHash, 'string');
+    assert.equal(JSON.stringify(trace).includes('private-'), false);
+    view.goToStable = async target => {
+      view.lastLocation.fraction = target === 'private-anchor' ? 0.5 : 0;
+      return { index: 0 };
+    };
+    await openFoliateBook(view, { sections: [] }, 'private-cfi', undefined, 'private-anchor', 50);
+    const recovered = readReaderResumeFailures().at(-1);
+    assert.equal(recovered.reason, 'progress-mismatch');
+    assert.equal(recovered.status, 'recovered');
+    assert.equal(recovered.expectedPercent, 50);
+    assert.equal(recovered.actualPercent, 50);
+    await assert.rejects(openFoliateBook(view, { sections: [] }, 'private-cfi', undefined, undefined, 50));
+    const failed = readReaderResumeFailures().at(-1);
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.actualPercent, 0);
+    assert.equal(JSON.stringify([...storage.values()]).includes('private-'), false);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });
 
 
