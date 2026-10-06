@@ -8,6 +8,13 @@
 - 다음 작업: 테스트의 관찰 방법을 React 수명에 맞게 정리하고 기존 원격 이동·owner 전환 회귀를 유지합니다. 제품 코드나 assertion을 약화해 우회하지 않습니다.
 - 완료 조건: 해당 파일 lint와 관련 회귀가 통과하고, 이후 필요한 전체 gate의 결과를 기록합니다.
 
+## 기존 브라우저 CI 실패
+
+- [문서 초기화 커밋 `0d52154`의 run 37394612095](https://github.com/twkim96/web-reader/actions/runs/37394612095)와 [직전 커밋 `11bc6f9`의 run 37162191819](https://github.com/twkim96/web-reader/actions/runs/37162191819)의 `browser-regression` job은 모두 실패로 종료됐습니다. 두 실행의 로그에서 같은 증상을 확인했으며 문서 이관 이전부터 있던 미해결 실패로 보존합니다.
+- 관측 증상: [tests/browserRegression.mjs:3411](https://github.com/twkim96/web-reader/blob/0d52154b6ff42718eb4e2257487e8df63cb9b67d/tests/browserRegression.mjs#L3411)의 `selectionActions.flowAfterScrollMode` assertion에서 기대값은 `scrolled`, 실제값은 `paginated`입니다. 제품 버그인지 테스트·실행 환경 문제인지는 아직 미확정입니다.
+- 다음 작업: CI의 스크롤 모드 전환 순서와 renderer 상태 반영·관찰 시점을 재현하고 [읽기 사양](SPEC/reader-and-progress.md#읽기와-시작-위치)과 대조해 원인을 구분합니다.
+- 완료 조건: 원인과 대응 근거를 기록하고, 의도한 스크롤 모드 전환 계약을 유지한 관련 회귀와 해당 `browser-regression` CI job의 통과 실행 링크를 남깁니다.
+
 ## 누적 다중 기기·실사용 수용 확인
 
 - [1.8.9 Phase B](updates/update_1.8.9.md#phase-b--누적-실기기-검증-이관) → [1.8.10 누적 검증](updates/update_1.8.10.md#2-189에서-이관한-누적-실사용-검증)의 이관 작업입니다. [1.8.36](updates/update_1.8.36.md)은 실제 두 기기·OAuth·Android/iPad PWA 확인을 자동검증과 분리합니다.
@@ -42,7 +49,8 @@
 
 ## 조건부 보류와 완료 근거 확인
 
-- **Retention/compaction:** [1.8.9 보류 판정](updates/update_1.8.9.md#현재-보류-판정)에 따라 observe-only입니다. 실데이터·90일 offline 복귀, authoritative snapshot/통계 동등성·rollback·구버전 재접속 증거, server watermark와 export/계정 삭제 호환성이 갖춰질 때 migration 여부를 검토합니다. 기준은 [planStorageMaintenanceMigrationV1](../src/lib/storageMaintenanceDiagnostics.ts)이며 자동 삭제는 활성화하지 않습니다.
+- **독서 데이터 Retention/compaction:** [1.8.9 보류 판정](updates/update_1.8.9.md#현재-보류-판정)에 따라 observe-only입니다. 실데이터·90일 offline 복귀, authoritative snapshot/통계 동등성·rollback·구버전 재접속 증거, server watermark와 export/계정 삭제 호환성이 갖춰질 때 migration 여부를 검토합니다. 기준은 [planStorageMaintenanceMigrationV1](../src/lib/storageMaintenanceDiagnostics.ts)이며 자동 삭제는 활성화하지 않습니다.
+- **카탈로그 delta compaction:** [1.8.15 보류·후속 버전](updates/update_1.8.15.md#보류후속-버전)의 별도 후속입니다. 재방문 조건은 요청형 delta가 크기 한도에 가까워질 때이며, 그때 Firestore on-demand 원본에서 base catalog를 재생성하는 별도 compaction release를 계획합니다. 후속 완료·폐기의 명시적 근거는 찾지 못해 조건부 보류로 보존합니다. 독서 데이터 Retention/compaction과 별개이며 즉시 구현할 작업으로 전환하지 않습니다.
 - **NovelPia 인증 대상:** [1.8.15 Phase G](updates/update_1.8.15.md#phase-g--optional-auth-provider)의 코드는 완료되어 public-only 릴리스와 분리되어 있습니다. 실제 필요와 계정 설정이 생기면 CAPTCHA·성인 모드·session 검증과 secret 비노출을 별도 수용 확인합니다. 그 전에는 인증 대상 성공으로 판정하지 않습니다.
 - **도서 정보 외부 리뷰 완료 근거:** [1.8.11의 대기 상태](updates/update_1.8.11.md)와 후속 전체 리뷰 기록을 대조해 이 gate의 완료/이관 근거를 확인합니다. 이번 문서 대조에서 기능에 연결된 명시적인 sign-off는 찾지 못했습니다. 완료 증거가 있으면 이 항목을 제거하고, 없다면 필요한 리뷰 범위를 확인해 남깁니다.
 - **대형 파일 Worker·ready queue:** [1.7.8 보류 가이드](updates/update_1.7.8.md#보류-가이드)에 따라 실제 TXT/대량 이미지의 시간·메모리·취소 지연을 계측한 뒤 추가 Worker 이관을 재검토합니다. 현재 7z Worker나 Apple 모바일 ZIP 대체 경로를 미구현으로 취급하지 않습니다. 수천 건 outbox fixture에서 claim 비용이 문제가 될 때만 별도 ready queue를 검토합니다.
