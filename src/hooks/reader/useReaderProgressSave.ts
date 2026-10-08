@@ -20,6 +20,8 @@ import type { PersistableReaderLocation, ReaderRelocateDetail } from './progress
 import type { RemoteProgressCommandFinalizeResult } from '../useSyncConflictResolution';
 import type { RemoteProgressJumpCompletion } from './remoteProgressJump';
 import { traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
+import { ownerRuntime } from '../../lib/ownerRuntime';
+import type { OwnerKey } from '../../lib/ownerIdentity';
 
 type SaveContext = {
   currentCfi: string;
@@ -63,6 +65,7 @@ export type ReaderRemoteNavigationAttempt = {
 };
 
 interface UseReaderProgressSaveOptions {
+  ownerKey?: OwnerKey;
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
@@ -93,6 +96,7 @@ const traceReaderProgressRegression = (event: Record<string, unknown>) => {
 };
 
 export const useReaderProgressSave = ({
+  ownerKey,
   initialCfi,
   initialPercent,
   initialTime,
@@ -100,6 +104,7 @@ export const useReaderProgressSave = ({
   onSaveProgress,
   onAdoptRemoteProgress,
 }: UseReaderProgressSaveOptions) => {
+  const readerOwnerRef = useRef(ownerRuntime.capture());
   const provisionalRef = useRef<{
     original: PersistableReaderLocation;
     latest: PersistableReaderLocation;
@@ -251,6 +256,12 @@ export const useReaderProgressSave = ({
     nextBookmarks: Bookmark[],
     options?: SaveProgressOptions
   ): Promise<boolean> => {
+    // Unmount cleanup can run after auth has activated a different owner.
+    // Never let that old reader's callback capture the incoming account.
+    if (ownerKey && (
+      readerOwnerRef.current?.ownerKey !== ownerKey
+      || !ownerRuntime.isCurrent(readerOwnerRef.current)
+    )) return false;
     traceReaderProgressRegression({
       event: 'save-attempt',
       cfi,
@@ -301,7 +312,7 @@ export const useReaderProgressSave = ({
       clearPendingSave();
     }
     return true;
-  }, [clearPendingSave, onSaveProgress]);
+  }, [clearPendingSave, onSaveProgress, ownerKey]);
 
   const saveProgressIfChanged = useCallback((
     cfi: string, pct: number, bookmarks: Bookmark[], options?: SaveProgressOptions,

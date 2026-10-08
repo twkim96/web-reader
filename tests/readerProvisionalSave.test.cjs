@@ -5,8 +5,9 @@ const React = require('react');
 const { parseHTML } = require('linkedom');
 const { createRoot } = require('react-dom/client');
 const { useReaderProgressSave } = require('../src/hooks/reader/useReaderProgressSave.ts');
+const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
 
-async function harness(run) {
+async function harness(run, options = {}) {
   const keys = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'];
   const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   const dom = parseHTML('<html><body><div id="app"></div></body></html>');
@@ -18,6 +19,7 @@ async function harness(run) {
   function Fixture() {
     hook = useReaderProgressSave({
       initialCfi: 'original', initialPercent: 10,
+      ...options,
       onSaveProgress: async (...args) => { saves.push(args); return typeof result === 'function' ? result() : result; },
       onAdoptRemoteProgress: async () => { adoptionCalls++; return { status: 'cancelled' }; },
     });
@@ -158,3 +160,24 @@ test('TTS remains protected from quiet startup navigation', () => harness(async 
   hook.setTtsProgressFenceActive(true);
   assert.equal(hook.isQuietResumeEligible(), false);
 }));
+
+test('an outgoing reader cannot flush its pending guest position into the newly active account', async () => {
+  const guestOwner = 'guest:outgoing-reader|library:local';
+  const accountOwner = 'firebase:incoming-reader|library:local';
+  ownerRuntime.activate(guestOwner);
+  try {
+    await harness(async ({ hook, saves }) => {
+      hook.markUserProgressChange();
+      hook.handleRelocateForSave({ cfi: 'guest-read-position', progressPercent: 1 });
+      assert.equal(await hook.flushCurrentProgress(), true);
+      hook.markUserProgressChange();
+      hook.handleRelocateForSave({ cfi: 'guest-position', progressPercent: 2 });
+      ownerRuntime.activate(accountOwner);
+      assert.equal(await hook.saveCurrentProgress({ suppressLastReaderSession: true }), false);
+      assert.equal(await hook.flushCurrentProgress(), false);
+      assert.deepEqual(saves.map(([cfi, percent]) => [cfi, percent]), [['guest-read-position', 1]]);
+      ownerRuntime.activate(guestOwner);
+      assert.equal(await hook.flushCurrentProgress(), false, 'returning to the same owner does not revive its old reader');
+    }, { ownerKey: guestOwner });
+  } finally { ownerRuntime.clear(); }
+});

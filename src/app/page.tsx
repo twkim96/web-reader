@@ -709,7 +709,7 @@ export default function Page() {
     ...themeCssVariables,
   } as React.CSSProperties;
 
-  if (view === 'loading') {
+  if (view === 'loading' || (view === 'reader' && !isLibraryBootstrapReady)) {
     return (
       <div
         data-app-view={view}
@@ -764,8 +764,8 @@ export default function Page() {
         />
       )}
 
-      {/* 4. 리더 (epub 전용) */}
-      {view === 'reader' && activeBook && activeOwnerKey && (
+      {/* Account changes clear progress before hydration. Mount only after it is restored. */}
+      {view === 'reader' && activeBook && activeOwnerKey && isLibraryBootstrapReady && (
         <EpubReader
           key={`${activeOwnerKey}:${activeBook.id}`}
           book={activeBook}

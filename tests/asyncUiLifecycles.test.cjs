@@ -29,6 +29,92 @@ const yes = () => true;
 const no = () => false;
 const asyncYes = async () => true;
 
+test('late cold-start authentication hydrates account progress before mounting its reader', async () => {
+  const { readFileSync } = require('node:fs');
+  const page = readFileSync(require.resolve('../src/app/page.tsx'), 'utf8');
+  const predicate = page.match(/\{(view === 'reader'[^\n]+) && \(\s*<EpubReader/)?.[1];
+  assert.ok(predicate, 'production reader render condition is available');
+  const canRenderReader = new Function('view', 'activeBook', 'activeOwnerKey', 'isLibraryBootstrapReady',
+    `return Boolean(${predicate});`);
+  const paths = ['../src/lib/firebase.ts', 'firebase/auth', '../src/hooks/useAuthBootstrap.ts']
+    .map(path => require.resolve(path));
+  const previous = paths.map(path => require.cache[path]);
+  const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+  let authCallback;
+  require.cache[paths[0]] = { id: paths[0], filename: paths[0], loaded: true, exports: { auth: { currentUser: null } } };
+  require.cache[paths[1]] = { id: paths[1], filename: paths[1], loaded: true, exports: {
+    onAuthStateChanged: (_auth, callback) => { authCallback = callback; return noop; },
+  } };
+  delete require.cache[paths[2]];
+  try {
+    const { useAuthBootstrap } = require('../src/hooks/useAuthBootstrap.ts');
+    await withDom(async root => {
+      const originalSet = window.setTimeout, originalClear = window.clearTimeout;
+      const timers = new Map();
+      const opens = [];
+      const book = { id: 'cold-start-book' };
+      let resolveAccount;
+      const accountHydration = new Promise(resolve => { resolveAccount = resolve; });
+      window.setTimeout = (fn, ms, ...args) => ms === 3_000
+        ? (timers.set(-1, () => fn(...args)), -1)
+        : originalSet(fn, ms, ...args);
+      window.clearTimeout = id => id === -1 ? timers.delete(id) : originalClear(id);
+      function Reader({ ownerKey, initialPercent }) {
+        const startup = React.useRef({ ownerKey, initialPercent });
+        React.useEffect(() => { opens.push(startup.current); }, []);
+        return null;
+      }
+      function Harness() {
+        const [, setUser] = React.useState(null);
+        const [, setIsGuest] = React.useState(false);
+        const [view, setView] = React.useState('loading');
+        const [books, setBooks] = React.useState([]);
+        const [progress, setProgress] = React.useState({});
+        const [activeBook, setActiveBook] = React.useState(null);
+        const isGuestRef = React.useRef(false);
+        const triedAutoOpen = React.useRef(false);
+        const resetLibraryState = React.useCallback(() => { setBooks([]); setProgress({}); }, []);
+        const restoreLocalData = React.useCallback(async () => {
+          const account = ownerRuntime.capture().ownerKey.startsWith('firebase:');
+          if (account) await accountHydration;
+          setBooks([book]);
+          setProgress(account ? { [book.id]: { progressPercent: 60 } } : {});
+          return true;
+        }, []);
+        const { isLibraryBootstrapReady } = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
+          setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: no });
+        React.useEffect(() => {
+          if (triedAutoOpen.current || view !== 'shelf' || !isLibraryBootstrapReady || !books.length) return;
+          triedAutoOpen.current = true;
+          setActiveBook(books[0]); setView('reader');
+        }, [books, isLibraryBootstrapReady, view]);
+        const activeOwnerKey = ownerRuntime.capture()?.ownerKey;
+        return canRenderReader(view, activeBook, activeOwnerKey, isLibraryBootstrapReady)
+          ? React.createElement(Reader, { key: `${activeOwnerKey}:${activeBook.id}`, ownerKey: activeOwnerKey,
+            initialPercent: progress[activeBook.id]?.progressPercent }) : null;
+      }
+      try {
+        ownerRuntime.clear();
+        await React.act(async () => root.render(React.createElement(Harness)));
+        await React.act(async () => { for (const fn of timers.values()) fn(); timers.clear(); });
+        assert.equal(opens.length, 1, 'fallback guest can open the shared device book');
+        assert.equal(opens[0].initialPercent, undefined);
+        await React.act(async () => authCallback({ uid: 'cold-start-account' }));
+        assert.equal(opens.length, 1, 'account reader must wait for its pending hydration');
+        await React.act(async () => resolveAccount());
+        assert.equal(opens.length, 2);
+        assert.ok(opens[1].ownerKey.startsWith('firebase:cold-start-account'));
+        assert.equal(opens[1].initialPercent, 60, 'account reader captures the durable saved position');
+      } finally { window.setTimeout = originalSet; window.clearTimeout = originalClear; }
+    });
+  } finally {
+    ownerRuntime.clear();
+    paths.forEach((path, index) => {
+      if (previous[index]) require.cache[path] = previous[index]; else delete require.cache[path];
+    });
+  }
+});
+
 test('remote prompt is rescheduled when a relocate cancels the pending display timer', async () => {
   const { useRemoteProgressPrompt } = require('../src/hooks/reader/useRemoteProgressPrompt.ts');
   await withDom(async root => {

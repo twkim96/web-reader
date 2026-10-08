@@ -198,6 +198,7 @@ export const useReaderBookSource = ({
           : undefined,
         status: targetBook.sourceFormat ?? targetBook.readerFormat,
         bookHash: hashReaderTraceValue(targetBook.id),
+        ownerHash: hashReaderTraceValue(owner.ownerKey),
         targetHash: targetInitialCfi ? hashReaderTraceValue(targetInitialCfi) : undefined,
         anchorHash: targetInitialAnchorCfi ? hashReaderTraceValue(targetInitialAnchorCfi) : undefined,
         expectedPercent: Number.isFinite(targetInitialPercent) ? targetInitialPercent : undefined,

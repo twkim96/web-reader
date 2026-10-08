@@ -405,6 +405,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     completeRemoteJump,
     completeRemoteReset,
   } = useReaderProgressSave({
+    ownerKey,
     initialCfi,
     initialPercent,
     initialTime,

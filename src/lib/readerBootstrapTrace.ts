@@ -37,6 +37,7 @@ export type ReaderOpenPerformanceEvent = {
   actualPages?: number;
   targetRectCount?: number;
   bookHash?: string;
+  ownerHash?: string;
   anchorHash?: string;
   expectedPercent?: number;
   actualPercent?: number;
