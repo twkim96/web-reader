@@ -1,4 +1,5 @@
 // An imported SW script participates in update detection even if sw.js is unchanged.
+// Source changes also produce a new build ID for same-version app refreshes.
 export const dynamic = 'force-static';
 
 export function GET() {
