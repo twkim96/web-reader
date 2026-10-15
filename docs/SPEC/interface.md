@@ -8,6 +8,8 @@
 
 색 테마(midnight/dark/sepia/light 및 사용자 테마), 메뉴 재질(standard/glass/modern), 배경 질감은 독립 축입니다. 재질은 책장 도크, 리더 상·하단 바, 모달·팝오버·닫기 버튼·액션·푸터에 일관되게 적용합니다. glass의 도크/리더 바와 모달 표면은 다른 레시피입니다. 값은 [globals.css](../../src/app/globals.css), `themeUtils`, `constants`가 기준이며 독립 키트에는 추출 결과를 동기화합니다.
 
+glass는 틴트를 약하게 두고 면 전체에 넓고 부드러운 반사 그라데이션을 더합니다. 반사는 배경 레이어에 두어 글자·아이콘 위를 덮지 않으며, 테두리 하이라이트를 별도로 강화하지 않습니다. 도크·리더 바와 모달의 기존 blur 차이는 유지합니다.
+
 `--viewer-theme-bg/text/border`는 현재 테마, `--viewer-reader-surface`는 리더 바의 표면을 나타냅니다. `--accent-400/500/600`은 `ACCENT_PALETTE`에서 가져오는 앱 포인트색이며 투명 interaction overlay에는 visible color를 추가하지 않습니다.
 
 UI 폰트는 Pretendard, 본문은 선택된 reader font를 사용합니다. 첫 페인트와 hydration에서 테마가 튀지 않게 `layout.tsx`와 `BUILT_IN_THEME_COLORS`를 함께 유지합니다. 긴 도서 제목과 모바일 검색 결과에서 읽을 수 있는 폭·줄바꿈을 확보합니다.

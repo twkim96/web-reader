@@ -107,17 +107,20 @@ html[data-viewer-menu-style='standard'] {
 
 [data-menu-style-material='glass'],
 html[data-viewer-menu-style='glass'] {
-  --app-menu-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
+  --app-menu-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.20));
   --app-menu-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent);
   --app-menu-ink: var(--viewer-shelf-glass-ink, var(--viewer-theme-text));
   --app-menu-filter: blur(1.5px) saturate(90%) contrast(82%);
+  --app-menu-gloss:
+    radial-gradient(ellipse at 18% 0%, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 72%),
+    linear-gradient(155deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 48%, rgba(255, 255, 255, 0.07));
   --app-menu-panel-shadow:
     0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
     0 3px 10px rgba(0, 0, 0, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12);
-  --app-menu-control-surface: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent);
-  --app-menu-close-surface: color-mix(in srgb, var(--viewer-theme-bg) 34%, transparent);
+  --app-menu-control-surface: color-mix(in srgb, var(--viewer-theme-bg) 38%, transparent);
+  --app-menu-close-surface: color-mix(in srgb, var(--viewer-theme-bg) 30%, transparent);
   --app-menu-control-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent);
   --app-menu-control-shadow:
     0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
@@ -125,11 +128,11 @@ html[data-viewer-menu-style='glass'] {
     inset 0 -1px 0 rgba(0, 0, 0, 0.08);
   --app-menu-footer-surface: color-mix(
     in srgb,
-    var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) 82%,
+    var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.20)) 82%,
     rgba(0, 0, 0, 0.62) 18%
   );
   --app-menu-footer-shadow: 0 -8px 24px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.12)), inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  --app-menu-dock-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
+  --app-menu-dock-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.20));
   --app-menu-dock-border: transparent;
   --app-menu-dock-shadow: 0 4px 12px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14));
   --app-menu-dock-filter: var(--app-menu-filter);
@@ -192,7 +195,7 @@ html[data-viewer-menu-style] :is(.app-search-surface, .app-menu-sheet, .app-menu
 
 /* Frosted dialog material: keep the floating menu bars on their lighter glass. */
 html[data-viewer-menu-style='glass'] :is(.app-search-surface, .app-menu-sheet, .app-menu-material) {
-  --app-menu-surface: color-mix(in srgb, color-mix(in srgb, var(--viewer-theme-bg) 65%, var(--viewer-theme-text)) 40%, transparent);
+  --app-menu-surface: color-mix(in srgb, color-mix(in srgb, var(--viewer-theme-bg) 65%, var(--viewer-theme-text)) 36%, transparent);
   --app-menu-filter: blur(9px) saturate(100%) contrast(90%);
 }
 
@@ -521,6 +524,17 @@ html[data-viewer-menu-style='glass'] .app-filter-tag-material {
   filter:
     drop-shadow(0 1px 0 var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58)))
     drop-shadow(0 -1px 0 var(--viewer-shelf-glass-ink-edge-opposite, var(--viewer-shelf-glass-ink-edge, rgba(255, 255, 255, 0.58))));
+}
+
+/* Broad reflections sit behind the content; retain the existing rim strength. */
+.app-menu-style-preview[data-menu-style-material='glass'],
+html[data-viewer-menu-style='glass'] :is(
+  .viewer-cime-glass, .shelf-mobile-header-pill,
+  .app-menu-sheet, .app-menu-material, .app-search-surface,
+  .app-search-results-footer, .app-search-results-action, .app-modal-close,
+  .app-menu-sheet-action, .app-menu-sheet-section
+) {
+  background-image: var(--app-menu-gloss);
 }
 
 .viewer-cime-glass::before,

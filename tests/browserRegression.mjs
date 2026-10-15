@@ -1545,7 +1545,7 @@ try {
   assert.equal(glassShelfDock.storedStyle, 'glass', JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.usesModernClass, false, JSON.stringify(glassShelfDock));
   assert.equal(glassShelfDock.usesCimeGlassClass, true, JSON.stringify(glassShelfDock));
-  assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.24)', JSON.stringify(glassShelfDock));
+  assert.equal(glassShelfDock.backgroundColor, 'rgba(39, 39, 40, 0.2)', JSON.stringify(glassShelfDock));
   assert.equal(
     glassShelfDock.backdropFilter,
     'blur(1.5px) saturate(0.9) contrast(0.82)',
