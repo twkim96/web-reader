@@ -7,7 +7,7 @@ const makeBook = async () => {
   zip.file('META-INF/container.xml', '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
   zip.file('book.opf', '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">auto-read-fixture</dc:identifier><dc:title>자동읽기 테스트</dc:title><dc:language>ko</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/><itemref idref="two"/></spine></package>');
   zip.file('one.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>첫 장</title></head><body><p>첫째 <em>단어</em> 문장입니다. 둘째 문장입니다. 셋째 문장입니다.</p><p hidden="hidden">숨겨진문장</p><p>마지막 단어입니다.</p></body></html>');
-  zip.file('two.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>다음 장</title></head><body><p>다음장의 시작입니다. 계속 읽습니다. 끝입니다.</p></body></html>');
+  zip.file('two.xhtml', `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>다음 장</title></head><body><p>다음장의 시작입니다. ${'계속 읽습니다. '.repeat(50)}끝입니다.</p></body></html>`);
   return zip.generateAsync({ type: 'nodebuffer' });
 };
 
@@ -51,6 +51,12 @@ test('auto reading controls, continuous playback, chapter continuation and retur
   await expect(word).toHaveText('단어');
   await page.getByRole('button', { name: '이전 단어', exact: true }).click();
   await expect(word).toHaveText('첫째');
+  const position = page.getByRole('slider', { name: '자동읽기 위치' });
+  const positionBounds = await position.boundingBox();
+  await position.click({ position: { x: positionBounds!.width / 2, y: positionBounds!.height / 2 } });
+  await expect(state).toHaveAttribute('data-auto-read-index', '4');
+  await expect(position).toHaveAttribute('aria-valuetext', '5/9 단어');
+  await position.press('Home');
   await expect(modal.getByRole('switch')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '자동읽기 재생', exact: true })).toHaveText('');
   await expect(word.locator('.text-accent-500')).toHaveText('첫');

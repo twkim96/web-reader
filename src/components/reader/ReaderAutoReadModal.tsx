@@ -131,6 +131,7 @@ export function ReaderAutoReadModal({ content: initialContent, chapter, theme, f
   }, [index, seek, toggle]);
 
   const buttonClass = `app-menu-sheet-action flex min-h-11 items-center justify-center rounded-xl border ${theme.border} transition-opacity hover:opacity-75 disabled:opacity-30`;
+  const progressPercent = content.words.length > 1 ? index / (content.words.length - 1) * 100 : 100;
   return (
     <ReaderModalFrame theme={theme} onClose={close} placement="center" maxWidth="max-w-md" ariaLabel="자동읽기" className="app-menu-material max-h-[calc(100dvh-2rem)] overflow-y-auto font-sans">
       <div data-reader-auto-read="true" data-auto-read-index={index} data-auto-read-section={content.sectionIndex} data-auto-read-playing={playing}>
@@ -142,7 +143,7 @@ export function ReaderAutoReadModal({ content: initialContent, chapter, theme, f
           trailing={<ScanText size={18} className="text-accent-500" />}
         />
 
-        <div tabIndex={0} data-auto-read-stage="true" aria-label="자동읽기 본문" className="relative flex min-h-24 items-center justify-center overflow-hidden px-4 py-4 outline-none sm:min-h-28" style={{ fontFamily }}>
+        <div tabIndex={0} data-auto-read-stage="true" aria-label="자동읽기 본문" className="relative flex min-h-36 items-center justify-center overflow-hidden px-4 py-4 outline-none sm:min-h-42" style={{ fontFamily }}>
           <div data-auto-read-word="true" className="w-full text-center text-[clamp(2.1rem,8.4vw,2.8rem)] leading-snug [overflow-wrap:anywhere]" aria-label={word}>
             <span className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-baseline">
               <span className="text-right">{focused.before}</span><span className="text-accent-500">{focused.focus}</span><span className="text-left">{focused.after}</span>
@@ -151,9 +152,11 @@ export function ReaderAutoReadModal({ content: initialContent, chapter, theme, f
         </div>
 
         <div className="space-y-3 px-4 pb-4">
-          <div>
-            <input type="range" aria-label="자동읽기 위치" min={0} max={Math.max(0, content.words.length - 1)} value={index} onChange={(event) => seek(Number(event.target.value))} className="w-full accent-accent-500" />
-            <div className="mt-1 flex justify-between gap-2 text-[10px] font-medium opacity-50"><span>{index + 1} / {content.words.length} 단어</span><span>{loading ? '다음 장 불러오는 중…' : ended ? '마지막 장까지 읽었습니다' : '장 끝에서 다음 장으로'}</span></div>
+          <div className={`app-menu-sheet-action relative h-6 overflow-hidden rounded-full border ${theme.border} focus-within:ring-2 focus-within:ring-accent-500/70 md:h-[1.6rem]`}>
+            <div className="pointer-events-none absolute inset-y-0 left-0 bg-current/20" style={{ width: `${progressPercent}%` }} />
+            <div className="pointer-events-none absolute inset-y-1 w-px bg-current/45" style={{ left: `${progressPercent}%` }} />
+            <span className="pointer-events-none absolute inset-0 flex items-center px-3 text-[9px] font-normal tabular-nums opacity-45">{index + 1}/{content.words.length} 단어</span>
+            <input type="range" aria-label="자동읽기 위치" aria-valuetext={`${index + 1}/${content.words.length} 단어`} min={0} max={Math.max(0, content.words.length - 1)} value={index} onChange={(event) => seek(Number(event.target.value))} className="absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0" />
           </div>
           <label className="block text-[11px] font-bold">
             <span className="flex justify-between"><span>속도</span><span className="tabular-nums text-accent-500">{wpm} <span className="text-[10px]">WPM</span></span></span>
