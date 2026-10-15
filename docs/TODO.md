@@ -2,6 +2,11 @@
 
 현재 구현과 릴리스 기록을 대조해 남은 작업만 모았습니다. 코드 릴리스·자동검증 완료와 실제 계정/기기 수용 확인은 별개입니다. 이 목록의 작성은 아래 작업의 실행을 뜻하지 않습니다. 과거 버전 기록과 anchor는 그대로 보존합니다.
 
+## 자동읽기 실기기 확인
+
+- [자동읽기 사양](SPEC/annotations-and-tools.md#자동읽기)의 Android/iPad PWA 수용 확인은 대기입니다. 실제 긴 EPUB/TXT에서 현재 단어 시작, WPM 변경, 장 전환, 닫기 뒤 위치 저장/재열기, 앱 숨김·복귀의 일시정지를 확인합니다.
+- 완료 조건: 실제 기기·빌드와 결과를 남기고, 가로/작은 화면의 중앙 모달·배경 blur·safe-area·긴 단어와 브라우저 back을 확인합니다. Chromium/WebKit 자동검증을 실제 기기 확인으로 대체하지 않습니다.
+
 ## 기존 전체 lint 실패
 
 - `tests/remoteProgressPrompt.test.mjs`의 두 test harness가 render 중 외부 `state`를 대입해 `react-hooks/globals` 오류를 냅니다. 초기화 과정에서 해당 파일 ESLint를 다시 실행해 동일한 2건을 확인했습니다. [기존 기록](updates/update_1.8.37.md#시작-위치-복원-검증과-경량-진단)에도 전체 lint 실패로 남아 있습니다.

@@ -37,6 +37,10 @@ import { HighlightActionMenu } from './reader/HighlightActionMenu';
 import { AnnotationNoteDialog } from './reader/AnnotationNoteDialog';
 import { TranslationDialog } from './reader/TranslationDialog';
 import { ReaderTtsControls } from './reader/ReaderTtsControls';
+import { ReaderAutoReadModal } from './reader/ReaderAutoReadModal';
+import { createAutoReadContent, type AutoReadContent } from '../lib/readerAutoReadContent';
+import { findVisibleReaderTtsAnchor } from '../lib/readerTtsRange';
+import { READER_FONT_FAMILIES } from '../lib/readerTypography';
 import { useEpubReader } from '../hooks/useEpubReader';
 import { useReaderBookSource } from '../hooks/reader/useReaderBookSource';
 import { useReaderBookmarks } from '../hooks/reader/useReaderBookmarks';
@@ -52,7 +56,7 @@ import { useReaderAnnotations } from '../hooks/reader/useReaderAnnotations';
 import { useAnnotationPalette } from '../hooks/useAnnotationPalette';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { useRemoteProgressPrompt } from '../hooks/reader/useRemoteProgressPrompt';
-import type { RelocateDetail, TocItem } from '../hooks/foliate/types';
+import type { FoliateViewElement, RelocateDetail, TocItem } from '../hooks/foliate/types';
 import { DEVICE_CONTENT_OWNER_KEY, type OwnerKey } from '../lib/ownerIdentity';
 import { getAnnotationPaletteItem } from '../lib/annotationPalette';
 import { getSyncSessionId } from '../lib/syncSession';
@@ -362,6 +366,17 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [onBack]);
 
   const chrome = useReaderChrome({ onBack: handleReaderBack });
+  const [autoReadContent, setAutoReadContent] = React.useState<AutoReadContent | null>(null);
+  const autoReadSessionRef = useRef<{
+    content: AutoReadContent;
+    view: FoliateViewElement;
+    cfi: string;
+    anchorCfi?: string;
+  } | null>(null);
+  const autoReadCloseRef = useRef<(() => void) | null>(null);
+  const registerAutoReadClose = useCallback((close: (() => void) | null) => {
+    autoReadCloseRef.current = close;
+  }, []);
   const [showBookInfo, setShowBookInfo] = React.useState(false);
   const [bookInfoDownloaded, setBookInfoDownloaded] = React.useState(
     isOfflineMode || book.source === 'local',
@@ -376,6 +391,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     || chrome.showSearchModal
     || chrome.showJumpInput
     || showBookInfo
+    || autoReadContent !== null
     || editingAnnotationId !== null
     || interactionBlocked;
   const isReaderPanelOpenRef = useRef(false);
@@ -470,6 +486,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [bindReaderDocumentInput, bindSelectionDocument]);
 
   const handleReaderRelocate = useCallback((detail: RelocateDetail) => {
+    const autoReadSession = autoReadSessionRef.current;
+    if (autoReadSession && (detail.cfi !== autoReadSession.cfi || detail.anchorCfi !== autoReadSession.anchorCfi)) {
+      // A newer navigation (including remote adoption) supersedes this snapshot.
+      // Dismiss without returning its old word to the progress-save path.
+      autoReadSessionRef.current = null;
+      setAutoReadContent(null);
+    }
     if (
       !isSelectionRelocateReason(detail.reason)
       && !isReaderTtsNavigationReason(detail.reason, detail.navigationSource)
@@ -585,6 +608,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     registerTransientPanelCloser(
       translation
         ? closeTranslation
+        : autoReadContent
+          ? () => autoReadCloseRef.current?.()
         : showBookInfo
           ? () => setShowBookInfo(false)
         : tts.state.mode
@@ -592,7 +617,43 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           : null,
     );
     return () => registerTransientPanelCloser(null);
-  }, [closeTranslation, registerTransientPanelCloser, showBookInfo, translation, tts.state.mode, tts.stop]);
+  }, [autoReadContent, closeTranslation, registerTransientPanelCloser, showBookInfo, translation, tts.state.mode, tts.stop]);
+
+  const openAutoRead = useCallback(() => {
+    const view = viewRef.current;
+    const contents = view?.renderer?.getContents?.() ?? [];
+    const anchor = view?.lastLocation?.range;
+    const current = contents.find(({ doc }) => doc === anchor?.startContainer.ownerDocument)
+      ?? contents.find(({ doc }) => Boolean(doc));
+    if (!view || !current?.doc || current.index === undefined || !isLoaded || isFixedLayout) return;
+    try {
+      const content = createAutoReadContent(current.doc, current.index,
+        anchor?.startContainer.ownerDocument === current.doc ? anchor : findVisibleReaderTtsAnchor(current.doc) ?? undefined);
+      if (!content.words.length) {
+        showSelectionFeedback('현재 장에 자동으로 읽을 텍스트가 없습니다');
+        return;
+      }
+      tts.stop();
+      clearTextSelection();
+      autoReadSessionRef.current = { content, view, cfi: view.lastLocation?.cfi ?? '', anchorCfi: view.lastLocation?.anchorCfi };
+      setAutoReadContent(content);
+    } catch {
+      showSelectionFeedback('현재 장의 텍스트를 불러오지 못했습니다');
+    }
+  }, [clearTextSelection, isFixedLayout, isLoaded, showSelectionFeedback, tts, viewRef]);
+
+  const loadNextAutoReadChapter = useCallback(async (sectionIndex: number) => {
+    const sections = viewRef.current?.book?.sections ?? [];
+    for (let index = sectionIndex + 1; index < sections.length; index += 1) {
+      const section = sections[index];
+      if (section.linear === 'no') continue;
+      if (!section.createDocument) throw new Error('Chapter text is unavailable');
+      const doc = await section.createDocument();
+      const content = createAutoReadContent(doc, index);
+      if (content.words.length) return content;
+    }
+    return null;
+  }, [viewRef]);
 
   const saveTranslationToAnnotationNote = useCallback(async () => {
     const state = translation;
@@ -1604,11 +1665,14 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       <div
         ref={containerRef}
         data-reader-content="true"
+        inert={autoReadContent ? true : undefined}
+        aria-hidden={autoReadContent ? true : undefined}
         className="w-full h-full"
         style={{
           boxSizing: 'border-box',
           paddingBlock: `${readerEdgePadding}px`,
           position: 'relative',
+          filter: autoReadContent ? 'blur(6px)' : undefined,
         }}
         onClick={isFixedLayout ? undefined : handleInteraction}
       />
@@ -1759,6 +1823,34 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         />
       )}
 
+      {autoReadContent && (
+        <ReaderAutoReadModal
+          content={autoReadContent}
+          chapter={currentChapter}
+          theme={theme}
+          fontFamily={READER_FONT_FAMILIES[settings.fontFamily]}
+          loadNextChapter={loadNextAutoReadChapter}
+          registerClose={registerAutoReadClose}
+          onClose={(position) => {
+            const session = autoReadSessionRef.current;
+            autoReadSessionRef.current = null;
+            setAutoReadContent(null);
+            if (!position || session?.content !== autoReadContent || session.view !== viewRef.current
+              || session.cfi !== session.view.lastLocation?.cfi || session.anchorCfi !== session.view.lastLocation?.anchorCfi) return;
+            try {
+              const range = position.content.getRange(position.index);
+              if (!range) return;
+              const cfi = session.view.getCFI(position.content.sectionIndex, range);
+              void performCfiJump(cfi).then((saved) => {
+                if (!saved) showSelectionFeedback('자동읽기 위치 이동 또는 저장을 완료하지 못했습니다');
+              }).catch(() => showSelectionFeedback('자동읽기 위치 이동 또는 저장을 완료하지 못했습니다'));
+            } catch {
+              showSelectionFeedback('자동읽기 위치를 확인하지 못했습니다');
+            }
+          }}
+        />
+      )}
+
       <ReaderToolbar
         theme={theme}
         menuStyle={settings.shelfDockStyle}
@@ -1782,6 +1874,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onOpenTts={() => {
           tts.speakChapterFromCurrentPosition();
         }}
+        onOpenAutoRead={openAutoRead}
         onOpenStatistics={() => {
           void flushReadingSession().then(onOpenStatistics).catch((error) => {
             console.error('[ReadingStatistics] active session flush failed:', error);

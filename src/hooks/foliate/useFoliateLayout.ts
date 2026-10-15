@@ -3,16 +3,11 @@
 import { MutableRefObject, useCallback } from 'react';
 import { FoliateRenderer, FoliateViewElement, ReaderLayout, ReaderStyle } from './types';
 import { traceReaderBootstrap, traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
+import { READER_FONT_FAMILIES } from '../../lib/readerTypography';
 
 interface UseFoliateLayoutOptions {
   viewRef: MutableRefObject<FoliateViewElement | null>;
 }
-
-const FONT_MAP: Record<string, string> = {
-  sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-  serif: '"Noto Serif KR", "Noto Serif", Georgia, serif',
-  ridi: '"RIDIBatang", "Noto Serif KR", serif',
-};
 
 const RIDI_FONT_URL = '/fonts/RIDIBatang.woff2';
 
@@ -58,7 +53,7 @@ const loadEmbeddedRidiFontFace = () => {
 };
 
 const buildReaderStyle = (styles: ReaderStyle) => {
-  const fontStack = styles.fontFamily ? FONT_MAP[styles.fontFamily] || styles.fontFamily : '';
+  const fontStack = styles.fontFamily ? READER_FONT_FAMILIES[styles.fontFamily] || styles.fontFamily : '';
   const paragraphSpacing = styles.paragraphSpacing ?? 1;
 
   return `

@@ -26,6 +26,7 @@ type ReaderTtsTextRun = {
 
 export type ReaderTtsRangeSource = {
   doc: Document;
+  text: string;
   runs: ReaderTtsTextRun[];
   sourceLength: number;
   segments: ReaderTtsTextSegment[];
@@ -221,6 +222,7 @@ export const createReaderTtsRangeSource = ({
   const { runs, source } = collectTextRuns(doc, scopeRange);
   return {
     doc,
+    text: source,
     runs,
     sourceLength: source.length,
     segments: runs.length === 0 || !source.trim()

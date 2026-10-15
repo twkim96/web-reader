@@ -20,10 +20,21 @@
 
 TTS는 `speechSynthesis` 기반으로 선택 구간과 현재 위치/장의 본문을 읽습니다. 음성·속도·장 끝 중지/다음 장·취침 타이머를 제공합니다. 재생 위치는 실제 발화 시작/진행과 연결하며 도서 교체·수동 이동·메뉴 열기·숨김/복귀·취소에는 기존 재생 수명을 정리합니다. 기기별 음성·문장 경계·백그라운드 지원은 동일하지 않으므로 자동검증만으로 Android/iPad 음성 동작을 완료 판정하지 않습니다.
 
+## 자동읽기
+
+EPUB/TXT 리더의 듣기 아이콘 왼쪽에 자동읽기 버튼을 제공합니다. 현재 읽는 위치부터 공백 기준 한 단어씩 중앙의 컴팩트한 모달에 큰 글자로 표시하고 배경을 흐리게 합니다. PDF·이미지 도서는 대상이 아닙니다. 음성이나 외부 텍스트 전송 없이 도서의 텍스트를 사용하며, 시작할 때 기존 TTS를 중지합니다.
+
+재생·일시정지, 이전/다음 단어, 현재 장 처음으로, 장 안 위치 슬라이더, 60–1000 WPM 속도를 제공합니다. 문장 끝과 쉼표에는 표시 시간을 늘립니다. 시점 고정은 항상 적용하여 가운데 글자를 포인트색으로 강조하고 화면 중앙에 정렬합니다. 복기 기능과 옵션은 제공하지 않으며, 문장 수에 따른 별도 정지 없이 계속 읽습니다. 본문은 리더 설정의 폰트 매핑을 공유하고, 단어는 모달 폭에 맞춰 큰 글자로 표시합니다. 속도는 모달을 열 때 기본값으로 시작합니다. 재생 컨트롤은 접근성 이름을 갖는 아이콘 버튼이며, 하단 사용 설명을 표시하지 않습니다.
+
+장 끝에서는 다음 선형 section의 텍스트를 읽고 빈 section은 건너뜁니다. 마지막 장에서는 정지합니다. 위치를 옮기면 일시정지하며, 본문 영역에 포커스가 있을 때 Space는 재생/일시정지, 좌우 화살표는 단어 이동입니다. 숨김 시에는 자동으로 일시정지하고 복귀 뒤 명시적으로 재생해야 합니다. 닫기·Escape·브라우저 back은 모달을 닫고, 실제 단어 이동이 있었다면 표시하던 단어의 CFI를 기존 본문 이동·저장 경로에 전달합니다. 열었다 닫는 것만으로 새 진행률을 저장하지 않습니다. 재생 중 본문 저장 위치는 닫기 전까지 유지됩니다.
+
+모달이 열린 뒤 원격 위치 채택 등으로 본문 위치가 바뀌면 기존 자동읽기를 취소합니다. 이전 모달의 단어를 새 위치에 다시 저장하지 않습니다.
+
 ## 코드와 검증
 
 - 선택/앵커: `useReaderTextSelection`, `TextSelectionMenu`, [useReaderAnnotations.ts](../../src/hooks/reader/useReaderAnnotations.ts), `annotationOverlay`, `annotationPolicy`
 - 저장/동기화: `localAnnotations`, `useAnnotationSync`, `annotationSyncSchema`, `annotationSyncTransaction`, `annotationBookDeletion`, `localAnnotationPalette`
 - 검색/내보내기: `LibraryAnnotationModal`, `AnnotationModal`, [annotationQuery.ts](../../src/lib/annotationQuery.ts), [annotationExport.ts](../../src/lib/annotationExport.ts), `annotationExportDelivery`
 - 언어/음성: `useReaderLanguageTools`, `browserTranslator`, [useReaderTts.ts](../../src/hooks/reader/useReaderTts.ts), `readerTts`, `readerTtsCursor`
+- 자동읽기: [ReaderAutoReadModal.tsx](../../src/components/reader/ReaderAutoReadModal.tsx), `readerAutoRead`, `readerAutoReadContent`, `EpubReader`; `tests/readerAutoRead.test.mjs`, `tests/e2e/readerAutoRead.spec.ts`
 - 관련 검증: `npm run test:storage`, `npm run test:shelf`, `npm run test:formats`, `npm run test:rules` 중 변경 영역을 선택합니다. 기기별 수용 확인은 [TODO](../TODO.md)에 있습니다.

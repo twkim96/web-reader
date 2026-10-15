@@ -8,6 +8,7 @@ import {
   List,
   Palette,
   Search,
+  ScanText,
   Settings,
   Volume2,
   X,
@@ -50,6 +51,7 @@ interface ReaderToolbarProps {
   onOpenBookmarks: () => void;
   onOpenToc: () => void;
   onOpenTts: () => void;
+  onOpenAutoRead?: () => void;
   onOpenStatistics: () => void;
   onOpenBookInfo: () => void;
   onProgressSliderStart: () => void;
@@ -88,6 +90,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   onOpenBookmarks,
   onOpenToc,
   onOpenTts,
+  onOpenAutoRead,
   onOpenStatistics,
   onOpenBookInfo,
   onProgressSliderStart,
@@ -387,6 +390,17 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
             data-reader-toolbar-utilities="true"
             className="absolute bottom-[calc(100%+0.34375rem)] right-0 flex items-center gap-1.5 md:bottom-[calc(100%+0.378125rem)] md:gap-[0.4125rem]"
           >
+            {!isFixedLayout && onOpenAutoRead && (
+              <button
+                type="button"
+                onClick={guardMenuClick(onOpenAutoRead)}
+                className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem]`}
+                aria-label="현재 위치부터 자동읽기"
+                title="현재 위치부터 자동읽기"
+              >
+                <ScanText className="size-[19px] md:size-[21px]" />
+              </button>
+            )}
             {!isFixedLayout && (
               <button
                 type="button"
