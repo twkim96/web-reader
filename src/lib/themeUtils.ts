@@ -182,7 +182,7 @@ export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperti
     '--viewer-reader-surface': `rgba(${bgRgb}, 0.68)`,
     '--viewer-reader-glass-surface': `rgba(${bgRgb}, 0.38)`,
     '--viewer-reader-glass-border': `rgba(${textRgb}, 0.24)`,
-    '--viewer-shelf-glass-surface': `rgba(${bgRgb}, 0.20)`,
+    '--viewer-shelf-glass-surface': `rgba(${bgRgb}, 0.24)`,
     '--viewer-shelf-glass-ink': lightBackground
       ? 'rgba(20, 21, 23, 0.88)'
       : 'rgba(245, 246, 248, 0.90)',

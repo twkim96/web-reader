@@ -182,11 +182,6 @@ html:has(.wr-kit .wr-dialog[open]) { overflow: hidden; }
   .wr-panel, .wr-dialog, .wr-menu, .wr-dock, .wr-reader-bar, .wr-toast { background-color: var(--viewer-theme-bg); }
 }
 .wr-kit[data-transparency='reduced'] :is(.wr-panel, .wr-dialog, .wr-menu, .wr-dock, .wr-reader-bar, .wr-button, .wr-icon-button, .wr-choice, .wr-toast) { background-color: var(--viewer-theme-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
-
-/* Apply the shared broad reflection after component background shorthands. */
-.wr-kit[data-material='glass'] :is(.wr-panel, .wr-dialog, .wr-menu, .wr-toast, .wr-dock, .wr-reader-bar, .wr-button:not(.wr-button--ghost), .wr-icon-button, .wr-choice, .wr-search .wr-dialog-footer) {
-  background-image: var(--app-menu-gloss);
-}
 @media (prefers-reduced-motion: reduce) {
   .wr-kit *, .wr-kit *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

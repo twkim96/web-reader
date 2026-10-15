@@ -9,7 +9,7 @@
   --viewer-reader-surface: rgba(255, 255, 255, 0.68);
   --viewer-reader-glass-surface: rgba(255, 255, 255, 0.38);
   --viewer-reader-glass-border: rgba(34, 34, 34, 0.24);
-  --viewer-shelf-glass-surface: rgba(255, 255, 255, 0.20);
+  --viewer-shelf-glass-surface: rgba(255, 255, 255, 0.24);
   --viewer-shelf-glass-ink: rgba(20, 21, 23, 0.88);
   --viewer-shelf-glass-ink-edge: rgba(255, 255, 255, 0.18);
   --viewer-shelf-glass-ink-edge-opposite: transparent;
@@ -58,7 +58,7 @@
   --viewer-reader-surface: rgba(39, 39, 40, 0.68);
   --viewer-reader-glass-surface: rgba(39, 39, 40, 0.38);
   --viewer-reader-glass-border: rgba(184, 184, 184, 0.24);
-  --viewer-shelf-glass-surface: rgba(39, 39, 40, 0.20);
+  --viewer-shelf-glass-surface: rgba(39, 39, 40, 0.24);
   --viewer-shelf-glass-ink: rgba(245, 246, 248, 0.90);
   --viewer-shelf-glass-ink-edge: rgba(0, 0, 0, 0.18);
   --viewer-shelf-glass-ink-edge-opposite: transparent;
@@ -107,7 +107,7 @@
   --viewer-reader-surface: rgba(244, 236, 216, 0.68);
   --viewer-reader-glass-surface: rgba(244, 236, 216, 0.38);
   --viewer-reader-glass-border: rgba(91, 70, 54, 0.24);
-  --viewer-shelf-glass-surface: rgba(244, 236, 216, 0.20);
+  --viewer-shelf-glass-surface: rgba(244, 236, 216, 0.24);
   --viewer-shelf-glass-ink: rgba(20, 21, 23, 0.88);
   --viewer-shelf-glass-ink-edge: rgba(255, 255, 255, 0.18);
   --viewer-shelf-glass-ink-edge-opposite: transparent;
@@ -157,7 +157,7 @@
   --viewer-reader-surface: rgba(20, 21, 23, 0.68);
   --viewer-reader-glass-surface: rgba(20, 21, 23, 0.38);
   --viewer-reader-glass-border: rgba(210, 211, 214, 0.24);
-  --viewer-shelf-glass-surface: rgba(20, 21, 23, 0.20);
+  --viewer-shelf-glass-surface: rgba(20, 21, 23, 0.24);
   --viewer-shelf-glass-ink: rgba(245, 246, 248, 0.90);
   --viewer-shelf-glass-ink-edge: rgba(0, 0, 0, 0.18);
   --viewer-shelf-glass-ink-edge-opposite: transparent;
@@ -260,20 +260,17 @@
 }
 .wr-kit[data-material="glass"] {
   --app-menu-close-surface: initial;
-  --app-menu-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.20));
+  --app-menu-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
   --app-menu-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 18%, transparent);
   --app-menu-ink: var(--viewer-shelf-glass-ink, var(--viewer-theme-text));
   --app-menu-filter: blur(1.5px) saturate(90%) contrast(82%);
-  --app-menu-gloss:
-    radial-gradient(ellipse at 18% 0%, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 72%),
-    linear-gradient(155deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0) 48%, rgba(255, 255, 255, 0.035));
   --app-menu-panel-shadow:
     0 18px 44px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.18)),
     0 3px 10px rgba(0, 0, 0, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     inset 0 -1px 0 rgba(0, 0, 0, 0.12);
-  --app-menu-control-surface: color-mix(in srgb, var(--viewer-theme-bg) 38%, transparent);
-  --app-menu-close-surface: color-mix(in srgb, var(--viewer-theme-bg) 30%, transparent);
+  --app-menu-control-surface: color-mix(in srgb, var(--viewer-theme-bg) 42%, transparent);
+  --app-menu-close-surface: color-mix(in srgb, var(--viewer-theme-bg) 34%, transparent);
   --app-menu-control-border: color-mix(in srgb, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)) 16%, transparent);
   --app-menu-control-shadow:
     0 6px 14px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14)),
@@ -281,11 +278,11 @@
     inset 0 -1px 0 rgba(0, 0, 0, 0.08);
   --app-menu-footer-surface: color-mix(
     in srgb,
-    var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.20)) 82%,
+    var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24)) 82%,
     rgba(0, 0, 0, 0.62) 18%
   );
   --app-menu-footer-shadow: 0 -8px 24px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.12)), inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  --app-menu-dock-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.20));
+  --app-menu-dock-surface: var(--viewer-shelf-glass-surface, rgba(20, 21, 23, 0.24));
   --app-menu-dock-border: transparent;
   --app-menu-dock-shadow: 0 4px 12px var(--viewer-shelf-glass-shadow, rgba(20, 21, 23, 0.14));
   --app-menu-dock-filter: var(--app-menu-filter);
@@ -320,7 +317,7 @@
   --app-menu-reader-filter: blur(18px) saturate(1.18);
 }
 .wr-kit[data-material="glass"] :is(.wr-dialog, .wr-search, .wr-menu, .wr-toast, .wr-frosted-surface) {
-  --app-menu-surface: color-mix(in srgb, color-mix(in srgb, var(--viewer-theme-bg) 65%, var(--viewer-theme-text)) 36%, transparent);
+  --app-menu-surface: color-mix(in srgb, color-mix(in srgb, var(--viewer-theme-bg) 65%, var(--viewer-theme-text)) 40%, transparent);
   --app-menu-filter: blur(9px) saturate(100%) contrast(90%);
   --wr-surface-ring-opacity: 0.65;
 }
