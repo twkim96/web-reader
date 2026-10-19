@@ -49,6 +49,7 @@ type DocumentBinding = {
   selectionGesture: boolean;
   suppressSelectionReadUntil: number;
   suppressNextClick: boolean;
+  multiClickSelection: boolean;
 };
 
 const installSelectionStyles = (doc: Document) => {
@@ -192,6 +193,7 @@ export const useReaderTextSelection = ({
       selectionGesture: false,
       suppressSelectionReadUntil: 0,
       suppressNextClick: false,
+      multiClickSelection: false,
     };
 
     const handleSelectionChange = () => {
@@ -221,6 +223,7 @@ export const useReaderTextSelection = ({
       ) return;
       binding.suppressSelectionReadUntil = 0;
       binding.suppressNextClick = false;
+      binding.multiClickSelection = false;
       binding.pointerGesture = {
         pointerId: event.pointerId,
         startX: event.clientX,
@@ -239,6 +242,28 @@ export const useReaderTextSelection = ({
         gesture.maxDistance,
         Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY),
       );
+    };
+    const handleSelectStart = (event: Event) => {
+      const gesture = binding.pointerGesture;
+      if (!gesture || !binding.multiClickSelection || hasNonCollapsedSelection(doc.getSelection())) return;
+      if (isPublicationLinkTarget(event.target)
+        || isPublicationLinkTarget((event.target as Node | null)?.parentElement ?? null)) return;
+      if (!isShortReaderTapGesture({
+        durationMs: event.timeStamp - gesture.startTime,
+        distancePx: gesture.maxDistance,
+      })) return;
+      const point = mapFrameClientPoint(
+        { x: gesture.startX, y: gesture.startY },
+        getDocumentFrameMetrics(doc),
+      );
+      if (isRapidReaderNavigationTap(lastNavigationTapRef.current, point, performance.now())) {
+        // Cancel native multi-click selection before it paints. A deliberate
+        // drag or long press is allowed once it exceeds the short-tap bounds.
+        event.preventDefault();
+      }
+    };
+    const handleMouseDown = (event: MouseEvent) => {
+      binding.multiClickSelection = event.button === 0 && event.detail > 1;
     };
     const resetPointerGesture = (event: PointerEvent) => {
       if (binding.pointerGesture?.pointerId === event.pointerId) {
@@ -277,12 +302,12 @@ export const useReaderTextSelection = ({
       );
       const now = performance.now();
       const activeSelection = hasNonCollapsedSelection(doc.getSelection());
-      const rapidNavigationContinuation = activeSelection
-        && isRapidReaderNavigationTap(lastNavigationTapRef.current, point, now);
       const shortTap = isShortReaderTapGesture({
         durationMs: event.timeStamp - gesture.startTime,
         distancePx: gesture.maxDistance,
       });
+      const rapidNavigationContinuation = activeSelection && shortTap
+        && isRapidReaderNavigationTap(lastNavigationTapRef.current, point, now);
 
       if (!shortTap && !rapidNavigationContinuation) {
         scheduleRead(doc);
@@ -369,6 +394,8 @@ export const useReaderTextSelection = ({
       doc.removeEventListener('selectionchange', handleSelectionChange);
       doc.removeEventListener('pointerdown', handlePointerDown, true);
       doc.removeEventListener('pointermove', handlePointerMove, true);
+      doc.removeEventListener('selectstart', handleSelectStart, true);
+      doc.removeEventListener('mousedown', handleMouseDown, true);
       doc.removeEventListener('pointerup', handlePointerUp, true);
       doc.removeEventListener('pointercancel', resetPointerGesture, true);
       doc.removeEventListener('touchend', handleTouchEnd, true);
@@ -393,6 +420,8 @@ export const useReaderTextSelection = ({
     doc.addEventListener('selectionchange', handleSelectionChange);
     doc.addEventListener('pointerdown', handlePointerDown, true);
     doc.addEventListener('pointermove', handlePointerMove, true);
+    doc.addEventListener('selectstart', handleSelectStart, true);
+    doc.addEventListener('mousedown', handleMouseDown, true);
     doc.addEventListener('pointerup', handlePointerUp, true);
     doc.addEventListener('pointercancel', resetPointerGesture, true);
     doc.addEventListener('touchend', handleTouchEnd, true);
