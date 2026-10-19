@@ -1737,7 +1737,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           }}
           onSpeak={() => tts.speakSelection(selectedText)}
           onHighlight={(colorId) => void createHighlight(selectedText, colorId)}
-          onClose={clearTextSelection}
         />
       )}
 

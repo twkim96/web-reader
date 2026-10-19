@@ -106,4 +106,5 @@ test('rapid page clicks never create a native selection before release, while dr
   expect((await selectedText(page)).length).toBeGreaterThan(0);
   await page.mouse.up();
   await expect(page.locator('[data-reader-selection-menu]')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('selection-menu-compact.png') });
 });

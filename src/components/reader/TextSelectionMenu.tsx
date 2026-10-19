@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useLayoutEffect, useRef } from 'react';
-import { BookOpen, Copy, Languages, Share2, Volume2, X } from 'lucide-react';
+import { BookOpen, Copy, Languages, Share2, Volume2 } from 'lucide-react';
 import type { AnnotationPaletteItem, HighlightColorId, ThemeClasses } from '../../types';
 import type { ReaderTextSelection } from '../../hooks/reader/useReaderTextSelection';
 import { HIGHLIGHT_COLORS } from '../../lib/annotationPolicy';
@@ -19,7 +19,6 @@ interface TextSelectionMenuProps {
   onDictionary: () => void;
   onSpeak: () => void;
   onHighlight: (colorId: HighlightColorId) => void;
-  onClose: () => void;
 }
 
 const VIEWPORT_MARGIN = 12;
@@ -37,7 +36,6 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
   onDictionary,
   onSpeak,
   onHighlight,
-  onClose,
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -82,6 +80,8 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
     };
   }, [feedback, selection]);
 
+  const actionClass = "flex h-11 w-10 items-center justify-center rounded-xl hover:bg-black/5 active:scale-95 dark:hover:bg-white/10";
+
   const stopPropagation = (event: React.SyntheticEvent) => {
     event.stopPropagation();
   };
@@ -97,7 +97,7 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
       onTouchStart={stopPropagation}
       onClick={stopPropagation}
     >
-      <div className="flex items-center justify-center gap-0.5" aria-label="하이라이트 색상">
+      <div className="grid grid-cols-5" aria-label="하이라이트 색상">
         {HIGHLIGHT_COLORS.map((color) => (
           <button
             key={color.id}
@@ -105,68 +105,65 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({
             aria-label={`${getAnnotationPaletteItem(palette, color.id).label} 하이라이트 추가`}
             title={getAnnotationPaletteItem(palette, color.id).meaning || color.label}
             onClick={() => onHighlight(color.id)}
-            className="flex size-11 items-center justify-center rounded-xl hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+            className={actionClass}
           >
             <span
-              className="size-6 rounded-full border border-black/15 dark:border-white/20"
+              className="size-7 rounded-md border border-black/15 dark:border-white/20"
               style={{ backgroundColor: color.color }}
             />
           </button>
         ))}
       </div>
-      <div className="flex min-h-11 max-w-full flex-wrap items-center justify-center gap-1">
+      <div className="grid grid-cols-5">
         <button
           type="button"
+          aria-label="복사"
+          title="복사"
           onClick={onCopy}
-          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+          className={actionClass}
         >
-          <Copy size={15} />
-          복사
+          <Copy size={17} />
         </button>
-        {canShare && (
+        {canShare ? (
           <button
             type="button"
+            aria-label="공유"
+            title="공유"
             onClick={onShare}
-            className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+            className={actionClass}
           >
-            <Share2 size={15} />
-            공유
+            <Share2 size={17} />
           </button>
-        )}
+        ) : <span aria-hidden="true" />}
         <button
           type="button"
           data-reader-selection-translate="true"
+          aria-label="번역"
+          title="번역"
           onClick={onTranslate}
-          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+          className={actionClass}
         >
-          <Languages size={15} />
-          번역
+          <Languages size={17} />
         </button>
         <button
           type="button"
           data-reader-selection-speak="true"
+          aria-label="듣기"
+          title="듣기"
           onClick={onSpeak}
-          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+          className={actionClass}
         >
-          <Volume2 size={15} />
-          듣기
+          <Volume2 size={17} />
         </button>
         <button
           type="button"
           data-reader-selection-dictionary="true"
+          aria-label="사전"
+          title="사전"
           onClick={onDictionary}
-          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-bold hover:bg-black/5 active:scale-95 dark:hover:bg-white/10"
+          className={actionClass}
         >
-          <BookOpen size={15} />
-          사전
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="선택 메뉴 닫기"
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl opacity-60 hover:bg-black/5 hover:opacity-100 active:scale-95 dark:hover:bg-white/10"
-        >
-          <X size={16} />
+          <BookOpen size={17} />
         </button>
       </div>
       {feedback && (
