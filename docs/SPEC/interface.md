@@ -4,7 +4,7 @@
 
 ## 테마·설정·재질
 
-첫 화면 기본값은 midnight·rose·glass이며 읽기는 스크롤·RIDIBatang을 기본으로 합니다. 설정은 `viewer_settings`에 기기별로 저장합니다. 폰트·크기·줄/문단 간격·본문 정렬·여백·탭 영역·가로 두 페이지·마지막 도서 자동 열기·언어/음성 설정을 제공합니다. 정확한 기본값과 정규화는 [useViewerSettings.ts](../../src/hooks/useViewerSettings.ts)가 담당합니다.
+첫 화면 기본값은 midnight·rose·glass이며 읽기는 스크롤·RIDIBatang을 기본으로 합니다. 설정은 `viewer_settings`에 기기별로 저장합니다. 폰트·크기·줄/문단 간격·본문 정렬·여백·탭 영역·[자동 두 페이지](reader-and-progress.md#자동-두-페이지)·마지막 도서 자동 열기·언어/음성 설정을 제공합니다. 정확한 기본값과 정규화는 [useViewerSettings.ts](../../src/hooks/useViewerSettings.ts)가 담당합니다.
 
 색 테마(midnight/dark/sepia/light 및 사용자 테마), 메뉴 재질(standard/glass/modern), 배경 질감은 독립 축입니다. 재질은 책장 도크, 리더 상·하단 바, 모달·팝오버·닫기 버튼·액션·푸터에 일관되게 적용합니다. glass의 도크/리더 바와 모달 표면은 다른 레시피입니다. 값은 [globals.css](../../src/app/globals.css), `themeUtils`, `constants`가 기준이며 독립 키트에는 추출 결과를 동기화합니다.
 

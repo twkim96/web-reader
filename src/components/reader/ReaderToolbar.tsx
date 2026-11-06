@@ -17,6 +17,7 @@ import { getBookTitleFromFileName } from '../../lib/bookFormats';
 import { getReaderProgressPercentFromPointer } from '../../lib/readerNavigation';
 import { getReaderTitleLayout, type ReaderTitleLayout } from '../../lib/readerTitleLayout';
 import type { ShelfDockStyle } from '../../types';
+import { TWO_PAGE_LAYOUT_QUERY } from '../../../public/foliate-js/view-policy.js';
 
 type ReaderTheme = {
   bg: string;
@@ -103,7 +104,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   const title = getBookTitleFromFileName(bookName);
   const surfaceClass = getReaderSurfaceClass(menuStyle);
   const hasReaderRecords = bookmarkCount > 0 || annotationCount > 0;
-  const [isLandscape, setIsLandscape] = React.useState(false);
+  const [hasTwoPageSpace, setHasTwoPageSpace] = React.useState(false);
   // A publication-frame pointerup may reveal the toolbar before its synthetic click.
   const menuPointerStartedRef = React.useRef(false);
   React.useLayoutEffect(() => {
@@ -124,7 +125,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
     action();
   };
 
-  const readerTextMaxInlineSize = landscapeTwoPage && isLandscape
+  const readerTextMaxInlineSize = landscapeTwoPage && hasTwoPageSpace
     ? READER_TEXT_MAX_INLINE_SIZE * 2
     : READER_TEXT_MAX_INLINE_SIZE;
   const readerTextEdgeGapAtMaxWidth = (
@@ -296,7 +297,7 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   React.useLayoutEffect(() => {
     const frameId = window.requestAnimationFrame(updateTitleLayout);
     return () => window.cancelAnimationFrame(frameId);
-  }, [isFixedLayout, isLandscape, landscapeTwoPage, menuStyle, title, updateTitleLayout]);
+  }, [isFixedLayout, hasTwoPageSpace, landscapeTwoPage, menuStyle, title, updateTitleLayout]);
 
   React.useEffect(() => {
     window.addEventListener('resize', updateTitleLayout);
@@ -313,11 +314,11 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   }, [updateTitleLayout]);
 
   React.useLayoutEffect(() => {
-    const landscapeQuery = window.matchMedia('(orientation: landscape)');
-    const updateLandscape = () => setIsLandscape(landscapeQuery.matches);
-    updateLandscape();
-    landscapeQuery.addEventListener('change', updateLandscape);
-    return () => landscapeQuery.removeEventListener('change', updateLandscape);
+    const spreadQuery = window.matchMedia(TWO_PAGE_LAYOUT_QUERY);
+    const updateSpreadSpace = () => setHasTwoPageSpace(spreadQuery.matches);
+    updateSpreadSpace();
+    spreadQuery.addEventListener('change', updateSpreadSpace);
+    return () => spreadQuery.removeEventListener('change', updateSpreadSpace);
   }, []);
 
   const usesRightTitleLayout = titleLayout === 'right';

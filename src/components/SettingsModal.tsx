@@ -284,15 +284,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <span className="min-w-0">
                   <span className="block text-[11px] font-bold leading-snug">
-                    가로 모드 2페이지 보기
+                    자동 2페이지 보기
                   </span>
                   <span className="mt-0.5 block text-[9px] font-bold leading-snug opacity-45">
-                    탭 이동 모드의 가로 화면에서만 왼쪽·오른쪽 두 페이지로 표시합니다
+                    탭 이동 모드에서 가로가 세로 이상이면 두 페이지로 표시합니다
                   </span>
                 </span>
                 <input
                   type="checkbox"
-                  aria-label="가로 모드 2페이지 보기"
+                  aria-label="자동 2페이지 보기"
                   checked={settings.landscapeTwoPage === true}
                   onChange={(event) => onUpdateSettings({
                     landscapeTwoPage: event.target.checked,

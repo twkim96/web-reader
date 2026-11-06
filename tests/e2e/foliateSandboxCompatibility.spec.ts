@@ -175,6 +175,94 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
   expect(result.relocateReasons).toContain('selection-page');
 });
 
+test('two-page layout follows the 1:1 container ratio across fold-sized resizes', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 650 });
+  await preparePage(page);
+  await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    document.body.style.margin = '0';
+    const url = URL.createObjectURL(new Blob([`<!doctype html><html><body>
+      ${Array.from({ length: 100 }, (_, index) => `<p id="paragraph-${index}">Paragraph ${index} ${'Reading content '.repeat(12)}</p>`).join('')}
+    </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:100vw;height:100vh';
+    renderer.setAttribute('flow', 'paginated');
+    renderer.setAttribute('margin', '0px');
+    renderer.setAttribute('gap', '5%');
+    renderer.setAttribute('max-inline-size', '1000px');
+    renderer.setAttribute('max-column-count', '2');
+    renderer.addEventListener('relocate', ((event: CustomEvent) => {
+      renderer.dataset.visibleText = event.detail.range?.toString() ?? '';
+    }) as EventListener);
+    document.body.append(renderer);
+    renderer.open({
+      dir: 'ltr',
+      sections: [{ linear: 'yes', load: async () => url, unload: () => undefined }],
+    });
+    await renderer.goTo({
+      index: 0,
+      anchor: (doc: Document) => {
+        const range = doc.createRange();
+        range.selectNodeContents(doc.getElementById('paragraph-40')!);
+        return range;
+      },
+    });
+  });
+
+  for (const [width, height, columns] of [
+    [900, 650, 2], // Below the old 1,000px cutoff.
+    [900, 900, 2], // Square belongs to two-page mode.
+    [900, 901, 1], // One pixel across the ratio boundary.
+    [420, 900, 1], // Folded portrait.
+    [600, 400, 2], // No minimum-width cutoff.
+    [1280, 889, 2],
+    [1800, 1200, 2],
+    [900, 650, 2],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect.poll(() => page.evaluate(async () => {
+      const policyModule = '/foliate-js/view-policy.js';
+      const { TWO_PAGE_LAYOUT_QUERY } = await import(policyModule);
+      const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
+        heads: unknown[] | null;
+        getContents(): Array<{ doc: Document }>;
+      };
+      const doc = renderer.getContents()[0].doc;
+      const columnWidth = parseFloat(doc.defaultView!.getComputedStyle(doc.documentElement).columnWidth);
+      return {
+        columns: renderer.heads?.length,
+        hasTwoPageSpace: matchMedia(TWO_PAGE_LAYOUT_QUERY).matches,
+        textUsesHalfWidth: columnWidth < renderer.clientWidth / 2,
+        anchorVisible: renderer.dataset.visibleText?.includes('Paragraph 40 '),
+      };
+    }), { message: `${width}×${height}` }).toEqual({
+      columns,
+      hasTwoPageSpace: columns === 2,
+      textUsesHalfWidth: columns === 2,
+      anchorVisible: true,
+    });
+  }
+
+  await page.locator('foliate-paginator').evaluate(renderer => renderer.setAttribute('max-column-count', '1'));
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = document.querySelector('foliate-paginator') as HTMLElement & { heads: unknown[] };
+    return renderer.heads.length;
+  })).toBe(1);
+  await page.locator('foliate-paginator').evaluate(renderer => {
+    renderer.setAttribute('max-column-count', '2');
+    renderer.setAttribute('flow', 'scrolled');
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
+      heads: unknown[] | null;
+      getContents(): Array<{ doc: Document }>;
+    };
+    const doc = renderer.getContents()[0].doc;
+    return { heads: renderer.heads, columnWidth: doc.defaultView!.getComputedStyle(doc.documentElement).columnWidth };
+  })).toEqual({ heads: null, columnWidth: 'auto' });
+});
+
 test('paginator rejects programmatic navigation while a page turn is locked and becomes ready after it settles', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {

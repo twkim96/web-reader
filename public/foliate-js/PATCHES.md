@@ -3,6 +3,14 @@
 The files in this directory are vendored runtime code. Keep these patches and
 their regression tests when updating from upstream.
 
+## 1.8.37 aspect-ratio two-page layout
+
+- `view-policy.js` shares the 1:1 spread boundary between the paginator container and reader toolbar. Horizontal text uses two columns at width ≥ height, including square and narrow screens; vertical text swaps the axes.
+- `paginator.js` uses the ratio-selected column count directly. `max-inline-size` still caps page width but no longer suppresses two pages below 1,000 CSS px. Existing resize anchoring preserves the reading position.
+- Changing `max-column-count` explicitly renders even when the outer container size stays fixed, so toggling the option immediately updates a smaller screen.
+- The opt-in setting and paginated-only behavior are preserved. Chromium/WebKit coverage in `tests/e2e/foliateSandboxCompatibility.spec.ts` exercises resizing across the boundary, sub-1,000px spreads, option-off and scrolled modes.
+- The existing content-derived build ID revises the Foliate runtime and PWA cache for this change.
+
 ## 1.8.33 passive scrolled input
 
 - `paginator.js` rebinds its touch listeners when `flow` changes. Scrolled mode uses a passive `touchmove` listener while paginated swipe mode retains the cancelable listener it needs for custom page movement.

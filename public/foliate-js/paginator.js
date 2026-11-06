@@ -1,5 +1,6 @@
 import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
 import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
+import { TWO_PAGE_LAYOUT_QUERY, VERTICAL_TWO_PAGE_LAYOUT_QUERY } from './view-policy.js'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const READER_OPEN_TIMING_EVENT = 'foliate-reader-open-timing'
@@ -662,7 +663,7 @@ export class Paginator extends HTMLElement {
             --_max-block-size: 1440px;
             --_max-column-count: 2;
             --_max-column-count-portrait: 1;
-            --_max-column-count-spread: var(--_max-column-count);
+            --_max-column-count-spread: var(--_max-column-count-portrait);
             --_half-gap: calc(var(--_gap) / 2);
             --_max-width: calc(var(--_max-inline-size) * var(--_max-column-count-spread));
             --_max-height: var(--_max-block-size);
@@ -682,10 +683,15 @@ export class Paginator extends HTMLElement {
                 --_max-width: var(--_max-block-size);
                 --_max-height: calc(var(--_max-inline-size) * var(--_max-column-count-spread));
             }
-            @container (orientation: portrait) {
+            @container ${TWO_PAGE_LAYOUT_QUERY} {
                 & {
+                    --_max-column-count-spread: var(--_max-column-count);
+                }
+                &.vertical {
                     --_max-column-count-spread: var(--_max-column-count-portrait);
                 }
+            }
+            @container ${VERTICAL_TWO_PAGE_LAYOUT_QUERY} {
                 &.vertical {
                     --_max-column-count-spread: var(--_max-column-count);
                 }
@@ -827,9 +833,9 @@ export class Paginator extends HTMLElement {
             case 'gap':
             case 'margin':
             case 'max-block-size':
-            case 'max-column-count':
                 this.#top.style.setProperty('--_' + name, value)
                 break
+            case 'max-column-count':
             case 'max-inline-size':
                 // needs explicit `render()` as it doesn't necessarily resize
                 this.#top.style.setProperty('--_' + name, value)
@@ -947,7 +953,9 @@ export class Paginator extends HTMLElement {
             return { flow, margin, gap, columnWidth }
         }
 
-        const divisor = Math.min(maxColumnCount, Math.ceil(size / maxInlineSize))
+        // The container ratio selects the spread. max-inline-size caps line
+        // length; it must not prevent two pages on a smaller foldable display.
+        const divisor = maxColumnCount
         const columnWidth = (size / divisor) - gap
         this.setAttribute('dir', rtl ? 'rtl' : 'ltr')
 

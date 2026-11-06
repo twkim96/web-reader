@@ -3458,7 +3458,7 @@ try {
     [...document.querySelectorAll('button')]
       .find((button) => button.textContent?.trim() === '설정')?.click();
     await window.__regressionNextFrame();
-    const checkbox = document.querySelector('input[aria-label="가로 모드 2페이지 보기"]');
+    const checkbox = document.querySelector('[data-reader-settings-landscape-two-page] input');
     const initiallyChecked = checkbox?.checked ?? null;
     checkbox?.click();
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -3529,7 +3529,7 @@ try {
   });
   const restoredSinglePageLayout = await evaluate(`(async () => {
     await window.__regressionNextFrame(2);
-    const checkbox = document.querySelector('input[aria-label="가로 모드 2페이지 보기"]');
+    const checkbox = document.querySelector('[data-reader-settings-landscape-two-page] input');
     checkbox?.click();
     await new Promise((resolve) => setTimeout(resolve, 200));
     const renderer = document.querySelector('foliate-view')?.renderer;
