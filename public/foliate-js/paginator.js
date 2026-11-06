@@ -628,6 +628,7 @@ export class Paginator extends HTMLElement {
     #justAnchored = false
     #locked = false // while true, prevent any further navigation
     #styles
+    #readerBackground
     #styleMap = new WeakMap()
     #mediaQuery = matchMedia('(prefers-color-scheme: dark)')
     #mediaQueryListener
@@ -1648,6 +1649,22 @@ export class Paginator extends HTMLElement {
         }]
         return []
     }
+    #applyReaderBackground(doc) {
+        if (!doc?.body || !this.#readerBackground) return
+        const { color, image = 'none', size = 'auto' } = this.#readerBackground
+        // Paint the page and column gaps on one canvas. Inline priority keeps
+        // publication :root / body rules from painting a second background.
+        doc.documentElement.style.setProperty('background', color, 'important')
+        doc.documentElement.style.setProperty('background-image', image, 'important')
+        doc.documentElement.style.setProperty('background-size', size, 'important')
+        doc.body.style.setProperty('background', 'transparent', 'important')
+    }
+    setBackground(background) {
+        this.#readerBackground = { ...background }
+        const doc = this.#view?.document
+        this.#applyReaderBackground(doc)
+        if (doc) this.#background.style.background = getBackground(doc)
+    }
     #writeStyles(doc, styles) {
         if (!doc || styles == null) return false
         const $$styles = this.#styleMap.get(doc)
@@ -1668,6 +1685,7 @@ export class Paginator extends HTMLElement {
             $style.textContent = styles
             changed = true
         }
+        this.#applyReaderBackground(doc)
         return changed
     }
     setStyles(styles) {

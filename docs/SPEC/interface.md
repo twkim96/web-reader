@@ -8,6 +8,8 @@
 
 색 테마(midnight/dark/sepia/light 및 사용자 테마), 메뉴 재질(standard/glass/modern), 배경 질감은 독립 축입니다. 재질은 책장 도크, 리더 상·하단 바, 모달·팝오버·닫기 버튼·액션·푸터에 일관되게 적용합니다. glass의 도크/리더 바와 모달 표면은 다른 레시피입니다. 값은 [globals.css](../../src/app/globals.css), `themeUtils`, `constants`가 기준이며 독립 키트에는 추출 결과를 동기화합니다.
 
+EPUB/TXT 본문과 페이지 사이·좌우 여백은 하나의 문서 바탕(`html`)에서 선택한 테마 배경색·질감을 칠하고 `body` 배경은 투명하게 둡니다. 리더가 관리하는 배경은 inline `!important`로 적용해 도서의 `:root`·`body` 배경이나 시스템 다크 모드용 도서 CSS가 일부 영역만 덮지 않게 합니다. 새 장과 테마 변경에도 같은 정책을 적용합니다. `useFoliateLayout`이 `paginator.setBackground()`에 테마를 전달하며, 브라우저 강제 다크 모드 설정은 변경하지 않습니다. 실제 삼성 인터넷 PWA 수용 확인은 [TODO](../TODO.md)에 남깁니다.
+
 `--viewer-theme-bg/text/border`는 현재 테마, `--viewer-reader-surface`는 리더 바의 표면을 나타냅니다. `--accent-400/500/600`은 `ACCENT_PALETTE`에서 가져오는 앱 포인트색이며 투명 interaction overlay에는 visible color를 추가하지 않습니다.
 
 UI 폰트는 Pretendard, 본문은 선택된 reader font를 사용합니다. 첫 페인트와 hydration에서 테마가 튀지 않게 `layout.tsx`와 `BUILT_IN_THEME_COLORS`를 함께 유지합니다. 긴 도서 제목과 모바일 검색 결과에서 읽을 수 있는 폭·줄바꿈을 확보합니다.

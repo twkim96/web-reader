@@ -126,6 +126,13 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     if (!renderer) return;
 
     try {
+      if (styles.bgColor) {
+        renderer.setBackground?.({
+          color: styles.bgColor,
+          image: styles.bgImage,
+          size: styles.bgSize,
+        });
+      }
       renderer.setStyles([beforeStyle, buildReaderStyle(styles)]);
       traceReaderBootstrap({ event: 'style-applied' });
     } catch (error) {

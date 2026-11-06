@@ -175,6 +175,109 @@ test('paginator blocks publication scripts and keeps parent-controlled events', 
   expect(result.relocateReasons).toContain('selection-page');
 });
 
+test('reader background covers text and page gaps despite publication backgrounds and system dark mode', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 890 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await preparePage(page);
+  const baseline = await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    document.body.style.cssText = 'margin:0;background:#1f1f1f';
+    const renderer = new Paginator();
+    renderer.style.cssText = 'position:absolute;top:20px;width:1280px;height:840px';
+    for (const [key, value] of Object.entries({
+      flow: 'paginated', margin: '0px', gap: '5%',
+      'max-inline-size': '1000px', 'max-column-count': '2',
+    })) renderer.setAttribute(key, value);
+    // Reproduce the previous app rule losing to the book's :root !important.
+    renderer.setStyles('html, body { background:#1f1f1f !important; margin:0; padding:10px 2px; }');
+    document.body.append(renderer);
+    const urls = [0, 1].map(index => URL.createObjectURL(new Blob([`<!doctype html>
+      <html style="background:#121212 !important"><head><meta charset="utf-8"><style>
+      @media (prefers-color-scheme: dark) {
+        :root { background:#121212 !important; }
+        body#book { background:#080808 !important; }
+      }
+      </style></head><body id="book" style="background-image:linear-gradient(red,blue) !important">
+      ${Array.from({ length: 120 }, (_, paragraph) => `<p>Section ${index} paragraph ${paragraph}. ${'Reading content '.repeat(12)}</p>`).join('')}
+      </body></html>`], { type: 'text/html' })));
+    renderer.open({ dir: 'ltr', sections: urls.map(url => ({
+      linear: 'yes', load: async () => url, unload: () => undefined,
+    })) });
+    await renderer.goTo({ index: 0, anchor: 0 });
+    const doc = renderer.getContents()[0].doc as Document;
+    return {
+      root: doc.defaultView!.getComputedStyle(doc.documentElement).backgroundColor,
+      body: doc.defaultView!.getComputedStyle(doc.body).backgroundColor,
+    };
+  });
+  expect(baseline.root).not.toBe(baseline.body);
+
+  for (const [systemTheme, color, index, flow] of [
+    ['dark', '#1f1f1f', 0, 'paginated'],
+    ['light', '#f4ecd8', 1, 'paginated'],
+    ['dark', '#272728', 1, 'scrolled'],
+    ['dark', '#1f1f1f', 0, 'paginated'],
+  ] as const) {
+    await page.emulateMedia({ colorScheme: systemTheme });
+    await page.evaluate(async ({ color, index, flow }) => {
+      const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
+        setBackground(background: { color: string; image?: string; size?: string }): void;
+        goTo(target: { index: number; anchor: number }): Promise<unknown>;
+        waitForNavigationReady(): Promise<boolean>;
+      };
+      renderer.setBackground({ color });
+      renderer.setAttribute('flow', flow);
+      await renderer.goTo({ index, anchor: 0 });
+      await renderer.waitForNavigationReady();
+    }, { color, index, flow });
+    const rgb = color.slice(1).match(/../g)!.map(hex => parseInt(hex, 16));
+    const state = await page.evaluate(() => {
+      const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
+        getContents(): Array<{ doc: Document }>;
+      };
+      const doc = renderer.getContents()[0].doc;
+      return {
+        root: doc.defaultView!.getComputedStyle(doc.documentElement).backgroundColor,
+        body: doc.defaultView!.getComputedStyle(doc.body).backgroundColor,
+        bodyImage: doc.defaultView!.getComputedStyle(doc.body).backgroundImage,
+      };
+    });
+    expect(state).toEqual({ root: `rgb(${rgb.join(', ')})`, body: 'rgba(0, 0, 0, 0)', bodyImage: 'none' });
+    let screenshot: Buffer;
+    await expect.poll(async () => {
+      screenshot = await page.screenshot({ scale: 'css' });
+      return page.evaluate(async data => {
+        const img = new Image();
+        img.src = data;
+        await img.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(img, 0, 0);
+        // Across left padding, the first page, the gutter, second page and right padding.
+        return [10, 100, 620, 650, 720, 1260].map(x => Array.from(context.getImageData(x, 22, 1, 1).data).slice(0, 3));
+      }, `data:image/png;base64,${screenshot.toString('base64')}`);
+    }, { message: `${systemTheme} / ${color} / ${flow} painted background` })
+      .toEqual(Array.from({ length: 6 }, () => rgb));
+    await testInfo.attach(`background-${systemTheme}-${index}-${flow}`, { body: screenshot!, contentType: 'image/png' });
+  }
+
+  const texture = await page.evaluate(() => {
+    const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
+      setBackground(background: { color: string; image?: string; size?: string }): void;
+      getContents(): Array<{ doc: Document }>;
+    };
+    renderer.setBackground({ color: '#1f1f1f', image: 'radial-gradient(white 1px, transparent 1px)', size: '16px 16px' });
+    const doc = renderer.getContents()[0].doc;
+    const style = doc.defaultView!.getComputedStyle(doc.documentElement);
+    return { image: style.backgroundImage, size: style.backgroundSize };
+  });
+  expect(texture.image).toContain('radial-gradient');
+  expect(texture.size).toBe('16px 16px');
+});
+
 test('two-page layout follows the 1:1 container ratio across fold-sized resizes', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 650 });
   await preparePage(page);

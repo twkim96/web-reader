@@ -3,6 +3,13 @@
 The files in this directory are vendored runtime code. Keep these patches and
 their regression tests when updating from upstream.
 
+## 1.8.37 shared reader background canvas
+
+- `paginator.setBackground()` paints app-managed theme color/image/size on the publication root and makes the body background transparent, so text columns and their gaps use the same canvas. Inline `!important` overrides publication root/body backgrounds, including dark media rules.
+- The background is applied before initial pagination, on every new section, and on theme updates. Generic renderer users without this opt-in keep publication background behavior. `useFoliateLayout` passes the selected reader background; browser force-dark settings are unchanged.
+- Chromium/WebKit coverage in `tests/e2e/foliateSandboxCompatibility.spec.ts` reproduces conflicting publication backgrounds and checks screenshot pixels across both pages and gaps, system light/dark, section and flow changes, and texture support.
+- The content-derived build ID revises the Foliate/PWA cache. Samsung Internet PWA device acceptance remains in `docs/TODO.md`.
+
 ## 1.8.37 aspect-ratio two-page layout
 
 - `view-policy.js` shares the 1:1 spread boundary between the paginator container and reader toolbar. Horizontal text uses two columns at width ≥ height, including square and narrow screens; vertical text swaps the axes.

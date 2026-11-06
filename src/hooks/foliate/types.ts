@@ -69,6 +69,7 @@ export type FoliateRenderer = {
   getAttribute: (name: string) => string | null;
   setAttribute: (name: string, value?: string) => void;
   setStyles: (styles: string[]) => void;
+  setBackground?: (background: { color: string; image?: string; size?: string }) => void;
   waitForNavigationReady?: (timeoutMs?: number) => Promise<boolean>;
   getContents?: () => {
     index?: number;
