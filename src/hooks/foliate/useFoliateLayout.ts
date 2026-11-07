@@ -127,10 +127,10 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
 
     try {
       if (styles.bgColor) {
+        // The reader shell owns the theme color and texture. Let it show through
+        // the publication canvas as well as the paginator's outer margins.
         renderer.setBackground?.({
-          color: styles.bgColor,
-          image: styles.bgImage,
-          size: styles.bgSize,
+          color: 'transparent',
         });
       }
       renderer.setStyles([beforeStyle, buildReaderStyle(styles)]);

@@ -8,7 +8,7 @@
 
 색 테마(midnight/dark/sepia/light 및 사용자 테마), 메뉴 재질(standard/glass/modern), 배경 질감은 독립 축입니다. 재질은 책장 도크, 리더 상·하단 바, 모달·팝오버·닫기 버튼·액션·푸터에 일관되게 적용합니다. glass의 도크/리더 바와 모달 표면은 다른 레시피입니다. 값은 [globals.css](../../src/app/globals.css), `themeUtils`, `constants`가 기준이며 독립 키트에는 추출 결과를 동기화합니다.
 
-EPUB/TXT 본문과 페이지 사이·좌우 여백은 하나의 문서 바탕(`html`)에서 선택한 테마 배경색·질감을 칠하고 `body` 배경은 투명하게 둡니다. 리더가 관리하는 배경은 inline `!important`로 적용해 도서의 `:root`·`body` 배경이나 시스템 다크 모드용 도서 CSS가 일부 영역만 덮지 않게 합니다. 새 장과 테마 변경에도 같은 정책을 적용합니다. `useFoliateLayout`이 `paginator.setBackground()`에 테마를 전달하며, 브라우저 강제 다크 모드 설정은 변경하지 않습니다. 실제 삼성 인터넷 PWA 수용 확인은 [TODO](../TODO.md)에 남깁니다.
+EPUB/TXT의 테마 배경색·질감은 바깥 `EpubReader` 화면에서 한 번 칠합니다. 책 본문 iframe의 `html`·`body`와 paginator 바탕은 투명하게 두어 본문·중앙 간격·좌우/상하 여백까지 같은 배경이 이어집니다. `useFoliateLayout`이 `paginator.setBackground({ color: 'transparent' })`를 사용하며 inline `!important`로 도서의 `:root`·`body` 배경이나 시스템 다크 모드용 도서 CSS가 일부 영역만 덮지 않게 합니다. 새 장과 테마 변경에도 같은 정책을 적용하고 글자색·페이지 배치는 유지합니다. 브라우저 강제 다크 모드 설정은 변경하지 않습니다. 실제 삼성 인터넷 PWA 수용 확인은 [TODO](../TODO.md)에 남깁니다.
 
 `--viewer-theme-bg/text/border`는 현재 테마, `--viewer-reader-surface`는 리더 바의 표면을 나타냅니다. `--accent-400/500/600`은 `ACCENT_PALETTE`에서 가져오는 앱 포인트색이며 투명 interaction overlay에는 visible color를 추가하지 않습니다.
 

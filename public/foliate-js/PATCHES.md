@@ -6,8 +6,9 @@ their regression tests when updating from upstream.
 ## 1.8.37 shared reader background canvas
 
 - `paginator.setBackground()` paints app-managed theme color/image/size on the publication root and makes the body background transparent, so text columns and their gaps use the same canvas. Inline `!important` overrides publication root/body backgrounds, including dark media rules.
-- The background is applied before initial pagination, on every new section, and on theme updates. Generic renderer users without this opt-in keep publication background behavior. `useFoliateLayout` passes the selected reader background; browser force-dark settings are unchanged.
+- The background is applied before initial pagination, on every new section, and on theme updates. Generic renderer users without this opt-in keep publication background behavior. `useFoliateLayout` passes a transparent background so the app shell paints color/texture once across the iframe and outer margins; browser force-dark settings are unchanged.
 - Chromium/WebKit coverage in `tests/e2e/foliateSandboxCompatibility.spec.ts` reproduces conflicting publication backgrounds and checks screenshot pixels across both pages and gaps, system light/dark, section and flow changes, and texture support.
+- `tests/e2e/readerBackground.spec.ts` opens the real app with a sample book and verifies that parent background changes show through the publication and outer margins in system light/dark mode. The app regression includes the iframe boundary that a standalone paginator probe cannot cover. Local macOS WebKit skips this app fixture because storing its sample EPUB Blob fails before reader startup; the standalone transparent-frame case still runs in both engines.
 - The content-derived build ID revises the Foliate/PWA cache. Samsung Internet PWA device acceptance remains in `docs/TODO.md`.
 
 ## 1.8.37 aspect-ratio two-page layout

@@ -213,24 +213,26 @@ test('reader background covers text and page gaps despite publication background
   });
   expect(baseline.root).not.toBe(baseline.body);
 
-  for (const [systemTheme, color, index, flow] of [
-    ['dark', '#1f1f1f', 0, 'paginated'],
-    ['light', '#f4ecd8', 1, 'paginated'],
-    ['dark', '#272728', 1, 'scrolled'],
-    ['dark', '#1f1f1f', 0, 'paginated'],
+  for (const [systemTheme, color, index, flow, transparent] of [
+    ['dark', '#1f1f1f', 0, 'paginated', false],
+    ['light', '#f4ecd8', 1, 'paginated', false],
+    ['dark', '#272728', 1, 'scrolled', false],
+    ['dark', '#1f1f1f', 0, 'paginated', false],
+    ['dark', '#304050', 0, 'paginated', true],
   ] as const) {
     await page.emulateMedia({ colorScheme: systemTheme });
-    await page.evaluate(async ({ color, index, flow }) => {
+    await page.evaluate(async ({ color, index, flow, transparent }) => {
       const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
         setBackground(background: { color: string; image?: string; size?: string }): void;
         goTo(target: { index: number; anchor: number }): Promise<unknown>;
         waitForNavigationReady(): Promise<boolean>;
       };
-      renderer.setBackground({ color });
+      document.body.style.backgroundColor = color;
+      renderer.setBackground({ color: transparent ? 'transparent' : color });
       renderer.setAttribute('flow', flow);
       await renderer.goTo({ index, anchor: 0 });
       await renderer.waitForNavigationReady();
-    }, { color, index, flow });
+    }, { color, index, flow, transparent });
     const rgb = color.slice(1).match(/../g)!.map(hex => parseInt(hex, 16));
     const state = await page.evaluate(() => {
       const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
@@ -243,7 +245,7 @@ test('reader background covers text and page gaps despite publication background
         bodyImage: doc.defaultView!.getComputedStyle(doc.body).backgroundImage,
       };
     });
-    expect(state).toEqual({ root: `rgb(${rgb.join(', ')})`, body: 'rgba(0, 0, 0, 0)', bodyImage: 'none' });
+    expect(state).toEqual({ root: transparent ? 'rgba(0, 0, 0, 0)' : `rgb(${rgb.join(', ')})`, body: 'rgba(0, 0, 0, 0)', bodyImage: 'none' });
     let screenshot: Buffer;
     await expect.poll(async () => {
       screenshot = await page.screenshot({ scale: 'css' });

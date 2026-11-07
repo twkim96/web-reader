@@ -48,6 +48,8 @@ Playwright 준비는 `npx playwright install chromium webkit`을 사용합니다
 
 관련 파일의 작은 검사부터 선택하고, 계획한 aggregate에 이미 들어 있는 검사는 중복 실행하지 않습니다. 실패 후에는 원인을 확인하고 해당 파일/사례부터 재검증합니다. fixture·환경 오류 때문에 무관한 제품 코드를 바꾸거나 assertion을 약화하지 않습니다. 순수 문서 이동에는 제품 전체 테스트 대신 diff·링크·경로·비공개 경계 검사를 사용합니다.
 
+macOS의 현재 Playwright WebKit은 앱의 샘플 EPUB Blob을 IndexedDB에 저장할 때 `UnknownError: Error preparing Blob/File data to be stored in object store`로 리더 진입 전에 실패합니다. `readerBackground.spec.ts`의 실제 앱 경로는 이 환경에서 제외하며, 저장을 거치지 않는 `foliateSandboxCompatibility.spec.ts`의 투명 iframe·배경 픽셀 검사는 Chromium/WebKit 모두에서 실행합니다. 이 제한을 실제 Safari/PWA의 저장 실패나 배경 수용 확인으로 해석하지 않습니다.
+
 ## 완료 증거
 
 자동검증, CI, 배포 상태, 실기기/실제 Firebase 확인은 각각 기록합니다. 빌드 통과나 Playwright WebKit 통과를 iPad/PWA 확인으로 대체하지 않습니다. 실패·생략·권한/환경 차이는 원인과 남은 다음 행동을 명시합니다.
