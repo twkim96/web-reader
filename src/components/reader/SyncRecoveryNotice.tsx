@@ -21,7 +21,7 @@ export function SyncRecoveryNotice({ visible, busy, onMove, onDismiss }: {
       role="group"
       aria-label="동기화 지점"
       data-sync-recovery-notice="true"
-      className="app-menu-sheet fixed z-[90] flex items-center rounded-full border shadow-lg motion-reduce:animate-none"
+      className="app-reader-menu-surface fixed z-[90] flex items-center rounded-full border shadow-lg motion-reduce:animate-none"
       style={{ right: 'max(16px, env(safe-area-inset-right))', bottom: 'calc(24px + env(safe-area-inset-bottom))', animation: busy || paused ? 'none' : 'reader-sync-recovery-dismiss 8s linear forwards' }}
       onPointerEnter={() => setPaused(true)}
       onPointerLeave={() => setPaused(false)}
