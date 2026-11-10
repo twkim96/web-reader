@@ -70,13 +70,14 @@ test('uses metadata covers as a fallback for every supported book format', () =>
 
 test('enforces per-format limits and keeps the 500MB general total', () => {
   const formats = [
-    ['txt', 'book.txt'],
-    ['epub', 'book.epub'],
-    ['pdf', 'book.pdf'],
+    ['txt', 'book.txt', 50],
+    ['epub', 'book.epub', 100],
+    ['pdf', 'book.pdf', 200],
   ];
 
-  for (const [format, name] of formats) {
+  for (const [format, name, limit] of formats) {
     const maxBytes = getBookMaxBytes(format);
+    assert.equal(maxBytes, limit * 1024 * 1024);
     const accepted = updateImportSelection([], [file(name, maxBytes)], {
       allowExtendedFormats: true,
     });
@@ -100,17 +101,21 @@ test('enforces per-format limits and keeps the 500MB general total', () => {
   assert.deepEqual(overTotal.files, selected);
 });
 
-test('accepts exactly one archive up to 300MB', () => {
-  const accepted = updateImportSelection([], [
-    file('images.zip', ARCHIVE_FILE_MAX_BYTES),
-  ], { allowExtendedFormats: true });
-  assert.equal(accepted.error, null);
-  assert.equal(accepted.files.length, 1);
-
-  const oversized = updateImportSelection([], [
-    file('images.7z', ARCHIVE_FILE_MAX_BYTES + 1),
-  ], { allowExtendedFormats: true });
-  assert.match(oversized.error, /300MB/);
+test('applies archive import limits per format at the exact byte boundary', () => {
+  const mib = 1024 * 1024;
+  for (const [extension, limit] of [['zip', 400], ['cbz', 300], ['7z', 300]]) {
+    const accepted = updateImportSelection([], [file(`images.${extension}`, limit * mib)], {
+      allowExtendedFormats: true,
+    });
+    assert.equal(accepted.error, null);
+    assert.equal(accepted.files.length, 1);
+    const oversized = updateImportSelection([], [file(`images.${extension}`, limit * mib + 1)], {
+      allowExtendedFormats: true,
+    });
+    assert.match(oversized.error, new RegExp(`${limit}MB`));
+    assert.deepEqual(oversized.files, []);
+  }
+  assert.equal(ARCHIVE_FILE_MAX_BYTES, 300 * mib);
 });
 
 test('keeps the existing selection when archive exclusivity is violated', () => {
@@ -191,14 +196,14 @@ test('blocks oversized Drive books before download', () => {
       new RegExp(`${BOOK_FILE_LIMITS_MB[format]}MB`),
     );
   }
-  assert.equal(
-    getBookOpenLimitError('images.cbz', 'application/octet-stream', String(ARCHIVE_FILE_MAX_BYTES)),
-    null,
-  );
-  assert.match(
-    getBookOpenLimitError('large.cbz', 'application/octet-stream', String(ARCHIVE_FILE_MAX_BYTES + 1)),
-    /300MB/,
-  );
+  for (const [extension, limit] of [['zip', 400], ['cbz', 300], ['7z', 300]]) {
+    const maxBytes = limit * 1024 * 1024;
+    assert.equal(getBookOpenLimitError(`images.${extension}`, 'application/octet-stream', String(maxBytes)), null);
+    assert.match(
+      getBookOpenLimitError(`images.${extension}`, 'application/octet-stream', String(maxBytes + 1)),
+      new RegExp(`${limit}MB`),
+    );
+  }
 });
 
 test('builds TOC progress when an adapter exposes numeric section IDs', () => {

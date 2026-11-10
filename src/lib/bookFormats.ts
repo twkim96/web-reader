@@ -25,12 +25,13 @@ export const BOOK_FILE_LIMITS_MB: Readonly<Record<SourceBookFormat, number>> = O
   txt: 50,
   epub: 100,
   pdf: 200,
-  zip: 300,
+  zip: 400,
   cbz: 300,
   '7z': 300,
 });
 export const GENERAL_TOTAL_MAX_BYTES = 500 * BYTES_PER_MB;
-export const ARCHIVE_FILE_MAX_BYTES = BOOK_FILE_LIMITS_MB.zip * BYTES_PER_MB;
+// Legacy common archive limit; format-specific checks use getBookMaxBytes.
+export const ARCHIVE_FILE_MAX_BYTES = BOOK_FILE_LIMITS_MB.cbz * BYTES_PER_MB;
 export const DEFAULT_MAX_IMPORT_FILES = 10;
 
 export const EPUB_MIME = 'application/epub+zip';

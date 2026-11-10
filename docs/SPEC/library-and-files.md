@@ -21,7 +21,7 @@ Drive 업로드는 사용자가 선택한 원본을 보존합니다. 로컬 TXT 
 
 TXT 변환은 UTF-8·EUC-KR·UTF-16 계열 인코딩을 처리합니다. 변환/목차 변경은 새로 만드는 EPUB에 적용하며 기존 저장 EPUB을 임의로 다시 변환하지 않습니다.
 
-일반 가져오기에는 파일 수·개별 용량·총용량 제한이 있고 압축 도서는 한 번에 하나만 단독 선택합니다. 정확한 한도와 활성 형식은 [bookFormats.ts](../../src/lib/bookFormats.ts)의 `ACTIVE_SOURCE_FORMATS`, `BOOK_FILE_LIMITS_MB`, `updateImportSelection`이 기준입니다. 암호화된 압축과 손상·지원하지 않는 압축은 오류로 처리합니다. 이미지/압축 해제 한도는 [archiveImageBook.ts](../../src/lib/archiveImageBook.ts)를 기준으로 합니다.
+일반 가져오기에는 파일 수·개별 용량·총용량 제한이 있고 압축 도서는 한 번에 하나만 단독 선택합니다. ZIP은 400MB, CBZ와 7z는 각각 300MB까지 가져오거나 원격에서 열 수 있습니다(1MB = 1,048,576바이트). 정확한 한도와 활성 형식은 [bookFormats.ts](../../src/lib/bookFormats.ts)의 `ACTIVE_SOURCE_FORMATS`, `BOOK_FILE_LIMITS_MB`, `updateImportSelection`이 기준입니다. 암호화된 압축과 손상·지원하지 않는 압축은 오류로 처리합니다. 이미지/압축 해제 한도는 [archiveImageBook.ts](../../src/lib/archiveImageBook.ts)를 기준으로 합니다.
 
 ZIP은 Apple 모바일 WebKit에서 Worker/stream 전송 정지를 피하려고 같은 스레드 대체 경로를 사용합니다. 7z는 Worker와 직렬 추출 큐를 사용하며 취소·타임아웃 시 작업과 자원을 정리합니다. PDF.js의 메인 실행과 Worker에는 `Map/WeakMap.getOrInsertComputed` 호환 처리가 있습니다.
 

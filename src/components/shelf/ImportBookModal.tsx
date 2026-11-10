@@ -175,8 +175,10 @@ export const ImportBookModal: React.FC<ImportBookModalProps> = ({
                 <span className="text-right">{BOOK_FILE_LIMITS_MB.epub}MB</span>
                 <span>PDF</span>
                 <span className="text-right">{BOOK_FILE_LIMITS_MB.pdf}MB</span>
-                <span>ZIP · CBZ · 7Z</span>
+                <span>ZIP</span>
                 <span className="text-right">{BOOK_FILE_LIMITS_MB.zip}MB</span>
+                <span>CBZ · 7Z</span>
+                <span className="text-right">{BOOK_FILE_LIMITS_MB.cbz}MB</span>
               </div>
               <p className="mt-2 text-[10px] font-bold leading-relaxed opacity-55">
                 일반 도서는 한 번에 최대 {maxFiles}개·총 500MB, 압축 도서는 한 번에 1개만 추가할 수 있습니다.
