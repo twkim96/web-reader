@@ -39,8 +39,15 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
   const toggleBox = await toggle.boundingBox();
   const statsBox = await page.getByRole('button', { name: '독서 통계', exact: true }).boundingBox();
   expect(toggleBox!.x).toBeLessThan(statsBox!.x);
+  await toggle.evaluate(element => {
+    element.style.setProperty('--accent-500', '#f02d73');
+    element.style.setProperty('--app-menu-ink', '#c0c1c2');
+  });
+  await expect(toggle).toHaveCSS('color', 'rgb(192, 193, 194)');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveCSS('color', 'rgb(240, 45, 115)');
+  await expect(toggle.locator('svg')).toHaveCSS('color', 'rgb(240, 45, 115)');
   await testInfo.attach('archive-webtoon-minibar', { body: await page.screenshot(), contentType: 'image/png' });
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('viewer_settings')!).archiveWebtoonMode)).toBe(true);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('viewer_settings')!).navMode)).toBe('left-right');

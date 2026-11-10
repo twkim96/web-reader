@@ -409,6 +409,11 @@ html[data-viewer-menu-style] .app-modal-close {
   color: var(--app-menu-ink, var(--viewer-shelf-glass-ink, var(--viewer-theme-text)));
 }
 
+/* Pressed reader toggles retain their accent over the material's base ink. */
+.app-reader-menu-surface[aria-pressed='true'] {
+  color: var(--accent-500, var(--color-sky-500));
+}
+
 html[data-viewer-menu-style='glass'] :is(.app-menu-sheet, .app-menu-material, .app-search-surface) {
   isolation: isolate;
 }

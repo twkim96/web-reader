@@ -9,6 +9,8 @@
 - ZIP/CBZ/7z용 웹툰 모드와 독서 통계 왼쪽 아이콘 토글을 추가했다. 독립 저장 설정, 폭 맞춤 세로 읽기와 이미지 경계를 넘는 연속 이동은 [리더 사양](../SPEC/reader-and-progress.md#압축-이미지-웹툰-모드)에 정리한다. PDF·텍스트에는 토글을 제공하지 않는다.
 - 휠 보간과 터치 관성·수명 정리를 적용했다. 관련 Node 115개, Chromium/WebKit 브라우저 3개, 변경 파일 lint와 TypeScript를 포함한 production build가 통과했다. macOS WebKit의 기존 File Blob 저장 제약으로 실제 앱 가져오기 1개는 생략했으며 두 엔진의 독립 렌더러 검사는 통과했다. 실제 iPad Safari/PWA 수용 확인은 [TODO](../TODO.md#압축-이미지-웹툰-모드-실기기-확인)에 남긴다.
 
+- 후속 색상 수정: 메뉴 재질의 일반 글자색이 웹툰 토글의 포인트색 클래스를 덮는 문제를 재현했다. 눌린 메뉴 표면에 포인트색을 우선 적용하고, 클래스 존재만 보던 검사에 실제 버튼·SVG 계산 색상 검증을 추가했다. 수정 전 실패·수정 후 Chromium 리더 회귀 1개와 변경 테스트 lint·diff 검사가 통과했다.
+
 ## 동기화 지점 안내 배치 수정 — 2026-11-09
 
 - `SyncRecoveryNotice`가 바텀시트 클래스 `app-menu-sheet`를 사용해 glass에서는 `position: relative`, 639px 이하에서는 `width: 100%` 규칙을 받아 안내가 화면 아래로 밀리거나 왼쪽에서 잘릴 수 있었다. 실제 CSS와 컴포넌트 렌더 결과에서 `fixed` 대신 `relative`가 적용되는 것을 재현했다.
