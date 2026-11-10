@@ -1003,16 +1003,19 @@ export default function Page() {
       )}
 
       {serviceWorkerUpdate.updateAvailable && (
-        <div className="fixed bottom-4 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-2xl">
-          <span>새 버전을 사용할 수 있습니다.</span>
+        <div className="fixed bottom-4 left-1/2 z-[100] flex w-[calc(100%_-_2rem)] -translate-x-1/2 items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-2xl sm:w-auto">
+          <span className="min-w-0 flex-1 sm:flex-initial">새 버전을 사용할 수 있습니다.</span>
           <button
             type="button"
-            className="rounded-xl bg-white px-3 py-2 font-bold text-slate-900 disabled:cursor-wait disabled:opacity-60"
+            className="shrink-0 whitespace-nowrap rounded-xl bg-white px-3 py-2 font-bold text-slate-900 disabled:cursor-wait disabled:opacity-60 sm:shrink sm:whitespace-normal"
             onClick={() => void serviceWorkerUpdate.applyUpdate()}
             disabled={serviceWorkerUpdate.isApplying}
             aria-busy={serviceWorkerUpdate.isApplying}
           >
-            {serviceWorkerUpdate.isApplying ? '처리 중…' : '저장 후 적용'}
+            {serviceWorkerUpdate.isApplying ? '처리 중…' : <>
+              <span className="sm:hidden">저장 후<br /> 적용</span>
+              <span className="hidden sm:inline">저장 후 적용</span>
+            </>}
           </button>
         </div>
       )}
