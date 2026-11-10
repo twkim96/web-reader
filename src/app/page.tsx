@@ -1007,10 +1007,12 @@ export default function Page() {
           <span>새 버전을 사용할 수 있습니다.</span>
           <button
             type="button"
-            className="rounded-xl bg-white px-3 py-2 font-bold text-slate-900"
+            className="rounded-xl bg-white px-3 py-2 font-bold text-slate-900 disabled:cursor-wait disabled:opacity-60"
             onClick={() => void serviceWorkerUpdate.applyUpdate()}
+            disabled={serviceWorkerUpdate.isApplying}
+            aria-busy={serviceWorkerUpdate.isApplying}
           >
-            저장 후 적용
+            {serviceWorkerUpdate.isApplying ? '처리 중…' : '저장 후 적용'}
           </button>
         </div>
       )}

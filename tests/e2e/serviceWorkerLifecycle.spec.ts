@@ -109,35 +109,55 @@ test('runtime cache stores only allowlisted public static requests', async ({ pa
   });
 });
 
-test('app service worker waits for explicit user approval before takeover', async ({ page }) => {
-  await page.goto('/manifest.json');
-  await page.evaluate(async () => {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map((registration) => registration.unregister()));
-    const fixture = await navigator.serviceWorker.register('/sw-update-fixture.js', { scope: '/' });
-    const worker = fixture.installing ?? fixture.waiting ?? fixture.active;
-    if (worker && worker.state !== 'activated') {
-      await new Promise<void>((resolve) => {
-        worker.addEventListener('statechange', () => {
-          if (worker.state === 'activated') resolve();
+test.describe('touch update approval', () => {
+  test.use({ hasTouch: true });
+  test('app service worker waits for explicit user approval before takeover', async ({ page }) => {
+    await page.goto('/manifest.json');
+    await page.evaluate(async () => {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+      const fixture = await navigator.serviceWorker.register('/sw-update-fixture.js', { scope: '/' });
+      const worker = fixture.installing ?? fixture.waiting ?? fixture.active;
+      if (worker && worker.state !== 'activated') {
+        await new Promise<void>((resolve) => {
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'activated') resolve();
+          });
         });
-      });
-    }
+      }
+    });
+
+    await page.goto('/');
+    await waitForController(page);
+    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
+      .toContain('/sw-update-fixture.js');
+    await expect(page.getByText('새 버전을 사용할 수 있습니다.')).toBeVisible();
+    expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
+      .toContain('/sw-update-fixture.js');
+
+    // Hold only the activation message so the real button's in-progress state
+    // can be observed before controllerchange reloads the app.
+    await page.evaluate(() => {
+      const post = ServiceWorker.prototype.postMessage;
+      Reflect.set(window, '__updateActivationMessages', 0);
+      ServiceWorker.prototype.postMessage = function (this: ServiceWorker, message: unknown) {
+        if ((message as { type?: string })?.type !== 'SKIP_WAITING') return post.call(this, message);
+        Reflect.set(window, '__updateActivationMessages', Reflect.get(window, '__updateActivationMessages') + 1);
+        Reflect.set(window, '__releaseServiceWorkerUpdate', () => post.call(this, message));
+      };
+    });
+    await page.getByRole('button', { name: '저장 후 적용', exact: true }).tap();
+    const processing = page.getByRole('button', { name: '처리 중…', exact: true });
+    await expect(processing).toBeDisabled();
+    await expect(processing).toHaveAttribute('aria-busy', 'true');
+    await processing.evaluate(button => (button as HTMLButtonElement).click());
+    expect(await page.evaluate(() => Reflect.get(window, '__updateActivationMessages'))).toBe(1);
+    await Promise.all([
+      page.waitForEvent('load'),
+      page.evaluate(() => Reflect.get(window, '__releaseServiceWorkerUpdate')()),
+    ]);
+    await waitForController(page);
+    expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
+      .toContain('/sw.js');
   });
-
-  await page.goto('/');
-  await waitForController(page);
-  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
-    .toContain('/sw-update-fixture.js');
-  await expect(page.getByText('새 버전을 사용할 수 있습니다.')).toBeVisible();
-  expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
-    .toContain('/sw-update-fixture.js');
-
-  await Promise.all([
-    page.waitForEvent('load'),
-    page.getByRole('button', { name: '저장 후 적용' }).click(),
-  ]);
-  await waitForController(page);
-  expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
-    .toContain('/sw.js');
 });

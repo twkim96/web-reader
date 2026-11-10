@@ -245,3 +245,69 @@ test('batched logout and same-account login reloads when only the owner generati
     } finally { ownerRuntime.clear(); }
   });
 });
+
+async function withServiceWorkerUpdateHarness(flushCurrentProgress, run) {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const messages = [];
+  const errors = [];
+  const worker = { postMessage: message => messages.push(message) };
+  const registration = { waiting: worker, installing: null, addEventListener: noop, removeEventListener: noop };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
+    serviceWorker: { controller: {}, register: async () => registration, addEventListener: noop, removeEventListener: noop },
+  } });
+  try {
+    await withDom(async root => {
+      const { useServiceWorkerUpdate } = require('../src/hooks/useServiceWorkerUpdate.ts');
+      const api = { current: null };
+      function Harness() {
+        const state = useServiceWorkerUpdate({ flushCurrentProgress, onPersistenceError: message => errors.push(message) });
+        React.useLayoutEffect(() => { api.current = state; });
+        return null;
+      }
+      await React.act(async () => root.render(React.createElement(Harness)));
+      assert.equal(api.current.updateAvailable, true);
+      await run({ api, messages, errors, worker });
+    });
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor);
+    else delete globalThis.navigator;
+  }
+}
+
+test('service worker update reports applying before saving finishes and ignores duplicate requests', async () => {
+  let finishSave;
+  let flushes = 0;
+  const flush = new Promise(resolve => { finishSave = resolve; });
+  await withServiceWorkerUpdateHarness(() => { flushes += 1; return flush; }, async ({ api, messages, errors }) => {
+    let application;
+    await React.act(async () => { application = api.current.applyUpdate(); });
+    assert.equal(api.current.isApplying, true);
+    assert.equal(flushes, 1);
+    assert.deepEqual(messages, []);
+    assert.equal(await api.current.applyUpdate(), false);
+    assert.equal(flushes, 1);
+    await React.act(async () => { finishSave(true); assert.equal(await application, true); });
+    assert.deepEqual(messages, [{ type: 'SKIP_WAITING' }]);
+    assert.equal(api.current.isApplying, true, 'busy until activation reloads the page');
+    assert.deepEqual(errors, []);
+  });
+});
+
+test('service worker update clears applying after failures and allows an explicit retry', async () => {
+  let allowSave = false;
+  await withServiceWorkerUpdateHarness(async () => allowSave, async ({ api, messages, errors, worker }) => {
+    await React.act(async () => { assert.equal(await api.current.applyUpdate(), false); });
+    assert.equal(api.current.isApplying, false);
+    assert.equal(errors.length, 1);
+    assert.deepEqual(messages, []);
+    allowSave = true;
+    worker.postMessage = () => { throw new Error('worker stopped'); };
+    await React.act(async () => { assert.equal(await api.current.applyUpdate(), false); });
+    assert.equal(api.current.isApplying, false);
+    assert.equal(errors.length, 2);
+    worker.postMessage = message => messages.push(message);
+    await React.act(async () => { assert.equal(await api.current.applyUpdate(), true); });
+    assert.equal(api.current.isApplying, true);
+    assert.deepEqual(messages, [{ type: 'SKIP_WAITING' }]);
+  });
+});

@@ -12,6 +12,7 @@ export const useServiceWorkerUpdate = ({
   onPersistenceError,
 }: UseServiceWorkerUpdateOptions = {}) => {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
+  const [isApplying, setIsApplying] = useState(false);
   const applyingRef = useRef(false);
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export const useServiceWorkerUpdate = ({
   const applyUpdate = useCallback(async () => {
     if (!waitingWorker || applyingRef.current) return false;
     applyingRef.current = true;
+    setIsApplying(true);
     let activating = false;
     try {
       const ready = await prepareServiceWorkerUpdate({
@@ -64,13 +66,19 @@ export const useServiceWorkerUpdate = ({
         onPersistenceError?.('저장 작업 중 오류가 발생해 업데이트 적용을 중단했습니다. 다시 시도해 주세요.');
         return false;
       }
-      activating = true;
       waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+      activating = true;
       return true;
+    } catch {
+      onPersistenceError?.('업데이트를 적용하지 못했습니다. 다시 시도해 주세요.');
+      return false;
     } finally {
-      if (!activating) applyingRef.current = false;
+      if (!activating) {
+        applyingRef.current = false;
+        setIsApplying(false);
+      }
     }
   }, [flushCurrentProgress, onPersistenceError, waitingWorker]);
 
-  return { updateAvailable: Boolean(waitingWorker), applyUpdate };
+  return { updateAvailable: Boolean(waitingWorker), isApplying, applyUpdate };
 };

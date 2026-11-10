@@ -12,7 +12,7 @@
 
 Service Worker는 manifest/정적 자원과 일관된 오프라인 HTML shell을 준비합니다. `pc-reader-` + 버전 + build ID로 shell/runtime cache를 구분하고 새 worker가 활성화되면 같은 앱 prefix의 이전 cache를 정리합니다. IndexedDB 도서와 이 Cache Storage는 별도 저장소입니다.
 
-worker가 대기하면 사용자 적용 동작 전에 현재 진행률 flush와 로컬 commit drain이 성공해야 합니다. 실패하면 업데이트를 멈추고 오류를 알립니다. 성공 후 `SKIP_WAITING`과 controller 교체로 새로고침합니다. 임시 슬라이더 이동 중에는 [리더 저장 계약](../SPEC/reader-and-progress.md)에 따라 업데이트 flush도 성공 처리하지 않습니다.
+worker가 대기하면 사용자 적용 동작 전에 현재 진행률 flush와 로컬 commit drain이 성공해야 합니다. `저장 후 적용`을 한 번 누르면 즉시 `처리 중…`으로 바꾸고 버튼을 비활성화하며, 새 worker가 활성화되어 새로고침할 때까지 유지합니다. 저장 실패나 적용 예외에는 오류를 알리고 버튼을 원래 상태로 돌려 명시적으로 다시 시도할 수 있게 합니다. 성공 후 `SKIP_WAITING`과 controller 교체로 새로고침합니다. 임시 슬라이더 이동 중에는 [리더 저장 계약](../SPEC/reader-and-progress.md)에 따라 업데이트 flush도 성공 처리하지 않습니다.
 
 인증/Firebase helper·`/api/`·외부 origin·Authorization·Range·GET 이외 요청은 SW cache 경로에서 제외합니다. 응답 `private`/`no-store`도 저장하지 않습니다. [sw-policy.js](../../public/sw-policy.js), [sw.js](../../public/sw.js), `useServiceWorkerUpdate`, `serviceWorkerUpdatePolicy`가 기준입니다.
 
