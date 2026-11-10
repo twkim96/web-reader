@@ -5,9 +5,10 @@ their regression tests when updating from upstream.
 
 ## 1.8.37 archive webtoon layout
 
-- `fixed-layout.js` observes the `webtoon` attribute; only the literal string `true` enables width-fit, aspect-preserving single-image vertical scrolling. The app sets it only for image archives and keeps the setting separate from text navigation mode.
-- The renderer exposes `getWebtoonBoundary(direction)` and async `scrollWebtoon(distance, allowTurn)` for app-owned input handling and image-boundary navigation. Preserve these APIs and the previous-image bottom entry when updating the vendored renderer. Wheel interpolation and touch momentum belong to the app input layer, with cleanup on hide, mode change, and unmount.
-- Regression coverage: `tests/readerNavigation.test.mjs`, `tests/e2e/archiveWebtoon.spec.ts` (Chromium/WebKit renderer), and `tests/e2e/archiveWebtoonControls.spec.ts` (real reader toggle, persistence, wheel, and touch momentum). Local macOS WebKit cannot persist the imported File Blob, so that app-level case is skipped; real iPad/PWA acceptance is tracked in `docs/TODO.md`.
+- `fixed-layout.js` observes the `webtoon` attribute and composes `archive-webtoon.js` for archive image books. One sandboxed iframe holds width-fit, aspect-preserving image blocks in a continuous scroll, including across short images; no page turns are used.
+- The renderer maintains an encoded Blob window of ±5 images, expanded for visible short strips up to 64 entries, with at most two concurrent loads and decodes only the viewport plus one neighboring image on each side. Header-unknown dimensions use the browser image's natural dimensions only when displayed.
+- The image at the viewport top defines the current page, except at the book bottom where it is the final page. Emit the existing relocate event with `fraction: 0` and `size: 1` only when the image index changes; prefetch, resize, and mode layout must not invent user moves. Existing page CFI navigation and reopening start at the image top without in-image offsets or save/sync/schema changes. Normal PDF, text, and tap mode remain unchanged.
+- Regression coverage: `tests/archiveImages.test.mjs`, `tests/e2e/archiveWebtoon.spec.ts` (Chromium/WebKit layout, bounded source/decode windows, superseded navigation, and shutdown cleanup), and `tests/e2e/archiveWebtoonControls.spec.ts` (actual reader page CFI persistence/reopen). Real iPad/PWA acceptance is tracked in `docs/TODO.md`.
 
 ## 1.8.37 shared reader background canvas
 

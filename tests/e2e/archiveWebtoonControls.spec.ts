@@ -63,8 +63,8 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
   await expect.poll(async () => (await probe()).top).toBeGreaterThan(0);
   expect((await probe()).index).toBe(0);
   // Continuing the same gesture past the bottom turns, without an idle/restart.
-  await overlay.dispatchEvent('wheel', { deltaY: 5000, deltaMode: 0 });
-  await expect.poll(probe).toMatchObject({ index: 1, top: 0 });
+  await overlay.dispatchEvent('wheel', { deltaY: 2800, deltaMode: 0 });
+  await expect.poll(async () => (await probe()).index).toBe(1);
   const touch = async (type: string, y: number) => overlay.evaluate((element, { type, y }) => {
     const event = new Event(type, { bubbles: true, cancelable: true });
     const point = { clientX: 500, clientY: y };
@@ -86,13 +86,38 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
   await touch('touchend', 400);
   await overlay.dispatchEvent('click');
   await expect(toggle).toBeVisible();
-  // A new reader instance must restore the independent archive mode.
+  const savedPage = () => page.evaluate(async () => {
+    const open = indexedDB.open('web-reader-db');
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    const request = db.transaction('progress-v5', 'readonly').objectStore('progress-v5').getAll();
+    const rows = await new Promise<Array<{ cfi?: string }>>(resolve => { request.onsuccess = () => resolve(request.result); });
+    db.close();
+    return rows;
+  });
+  const expectedCfi = await page.evaluate(() => (document.querySelector('foliate-view') as HTMLElement & { lastLocation: { cfi: string } }).lastLocation.cfi);
+  await expect.poll(async () => (await savedPage()).some(row => row.cfi === expectedCfi)).toBe(true);
+  // A new reader instance restores the same image through the existing page CFI.
+
   await page.reload();
   await expect(card).toBeVisible({ timeout: 30_000 });
   await card.click();
   await expect(overlay).toBeVisible({ timeout: 30_000 });
-  await expect.poll(probe).toMatchObject({ webtoon: 'true' });
-  await overlay.click({ position: { x: 500, y: 350 } });
+  await expect.poll(probe).toMatchObject({ index: 1, webtoon: 'true' });
+  // A fresh reader has no dirty progress. Zoomed panning across an image
+  // boundary must mark the gesture as a user move before relocate is handled.
+  await page.keyboard.press('Control+ArrowUp');
+  await touch('touchstart', 300);
+  await touch('touchmove', 650);
+  await touch('touchend', 650);
+  await expect.poll(async () => (await probe()).index).toBe(0);
+  const panCfi = await page.evaluate(() => (document.querySelector('foliate-view') as HTMLElement & { lastLocation: { cfi: string } }).lastLocation.cfi);
+  await expect.poll(async () => (await savedPage()).some(row => row.cfi === panCfi)).toBe(true);
+  await touch('touchstart', 400);
+  await touch('touchend', 400);
+  await overlay.dispatchEvent('click');
   await toggle.click();
   await expect.poll(probe).toMatchObject({ webtoon: 'false' });
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('viewer_settings')!).navMode)).toBe('left-right');

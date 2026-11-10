@@ -1,3 +1,4 @@
+import { ArchiveWebtoon } from './archive-webtoon.js'
 import { LatestTask, createAbortError, isAbortError } from './latest-task.js'
 import { preparePublicationURL, PUBLICATION_SANDBOX } from './sandbox-policy.js'
 
@@ -38,6 +39,7 @@ export class FixedLayout extends HTMLElement {
     static maxUserScale = 4
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => {
+        if (this.#continuous) { this.#continuous.resize(this.#userScale); return }
         const max = this.scrollHeight - this.clientHeight
         const fraction = max > 0 ? this.scrollTop / max : 0
         this.#render()
@@ -58,6 +60,7 @@ export class FixedLayout extends HTMLElement {
     #userScale = 1
     #lastBaseScale = 1
     #lastScale = 1
+    #continuous
     #webtoonTurning = false
     #webtoonOverscroll = 0
     constructor() {
@@ -81,6 +84,37 @@ export class FixedLayout extends HTMLElement {
     attributeChangedCallback(name, _, value) {
         switch (name) {
             case 'webtoon':
+                if (this.book?.getImagePage) {
+                    const index = this.index
+                    this.#userScale = 1
+                    this.#navigation.cancel()
+                    if (value === 'true' && !this.#continuous) {
+                        this.#cleanupCurrentSpread()
+                        this.#root.replaceChildren()
+                        this.#continuous = new ArchiveWebtoon(this, this.#root, this.book, {
+                            onIndex: (index, reason) => {
+                                this.#index = this.#targetIndex = index
+                                this.#reportLocation(reason)
+                            },
+                            onLoad: (doc, index) => this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } })),
+                            onError: (error, index) => this.dispatchEvent(new CustomEvent('error', { detail: { error, index } })),
+                        })
+                        if (index >= 0) void this.#continuous.goTo(index, 'layout').catch(error => {
+                            if (!isAbortError(error)) this.dispatchEvent(new CustomEvent('error', { detail: { error, index } }))
+                        })
+                    } else if (value !== 'true' && this.#continuous) {
+                        this.#continuous.destroy()
+                        this.#continuous = null
+                        this.#root.replaceChildren()
+                        this.#index = this.#targetIndex = -1
+                        this.#side = null
+                        this.style.display = 'flex'
+                        if (index >= 0) void this.goToSpread(index, 'center', 'layout').catch(error => {
+                            if (!isAbortError(error)) this.dispatchEvent(new CustomEvent('error', { detail: { error, index } }))
+                        })
+                    }
+                    break
+                }
                 this.#webtoonOverscroll = 0
                 this.#userScale = 1
                 this.#render()
@@ -148,6 +182,7 @@ export class FixedLayout extends HTMLElement {
         })
     }
     #render(side = this.#side, { previewZoom = false } = {}) {
+        if (this.#continuous) { this.#continuous.resize(this.#userScale); return }
         if (!side) return
         const left = this.#left ?? {}
         const right = this.#center ?? this.#right ?? {}
@@ -358,6 +393,8 @@ export class FixedLayout extends HTMLElement {
         }
     }
     open(book) {
+        this.#continuous?.destroy()
+        this.#continuous = null
         this.#navigation.cancel()
         this.book = book
         this.#index = -1
@@ -406,7 +443,9 @@ export class FixedLayout extends HTMLElement {
         }, [{}])
     }
     get index() {
+        if (this.#continuous?.index >= 0) return this.#continuous.index
         const spread = this.#spreads[this.#index]
+        if (!spread) return -1
         const section = spread?.center ?? (this.#side === 'left'
             ? spread.left ?? spread.right : spread.right ?? spread.left)
         return this.book.sections.indexOf(section)
@@ -426,6 +465,11 @@ export class FixedLayout extends HTMLElement {
     }
     async goToSpread(index, side, reason) {
         if (index < 0 || index > this.#spreads.length - 1) return
+        if (this.#continuous) {
+            this.#targetIndex = index
+            await this.#continuous.goTo(index, reason)
+            return
+        }
         const task = this.#navigation.begin()
         const viewState = reason === 'page' ? this.#getPageTurnViewState() : null
         this.#targetIndex = index
@@ -490,6 +534,7 @@ export class FixedLayout extends HTMLElement {
         await this.goToSpread(index, side)
     }
     async next() {
+        if (this.#continuous) return this.goToSpread(this.#targetIndex + 1, 'center', 'page')
         const s = this.rtl ? this.#goLeft() : this.#goRight()
         if (!s) return this.goToSpread(
             this.#targetIndex + 1,
@@ -498,6 +543,7 @@ export class FixedLayout extends HTMLElement {
         )
     }
     async prev() {
+        if (this.#continuous) return this.goToSpread(this.#targetIndex - 1, 'center', 'page')
         const s = this.rtl ? this.#goRight() : this.#goLeft()
         if (!s) return this.goToSpread(
             this.#targetIndex - 1,
@@ -509,20 +555,24 @@ export class FixedLayout extends HTMLElement {
         return this.#userScale
     }
     get baseScale() {
+        if (this.#continuous) return 1
         return this.#lastBaseScale
     }
     get effectiveScale() {
+        if (this.#continuous) return 1
         return this.#lastScale
     }
     get webtoon() {
         return this.getAttribute('webtoon') === 'true'
     }
     getWebtoonBoundary(direction) {
+        if (this.#continuous) return this.#continuous.boundary(direction)
         if (!this.webtoon) return false
         return direction < 0 ? this.scrollTop <= 2
             : this.scrollTop >= Math.max(0, this.scrollHeight - this.clientHeight) - 2
     }
     async scrollWebtoon(distance, allowTurn = false) {
+        if (this.#continuous) return this.#continuous.scroll(distance)
         if (!this.webtoon || !Number.isFinite(distance) || !distance || this.#webtoonTurning) return false
         const max = Math.max(0, this.scrollHeight - this.clientHeight)
         const target = this.scrollTop + distance
@@ -555,6 +605,11 @@ export class FixedLayout extends HTMLElement {
         const maxScale = this.constructor.maxUserScale
         const nextUserScale = Math.min(maxScale, Math.max(minScale, Number(value) || 1))
         if (nextUserScale === this.#userScale) return this.#userScale
+        if (this.#continuous) {
+            this.#userScale = nextUserScale
+            this.#continuous.resize(nextUserScale)
+            return this.#userScale
+        }
 
         const rect = this.getBoundingClientRect()
         const focalX = Number.isFinite(focalPoint?.x)
@@ -584,6 +639,11 @@ export class FixedLayout extends HTMLElement {
         return this.#userScale
     }
     panBy(deltaX = 0, deltaY = 0) {
+        if (this.#continuous) {
+            this.scrollLeft += deltaX
+            this.#continuous.scroll(deltaY)
+            return { scrollLeft: this.scrollLeft, scrollTop: this.scrollTop }
+        }
         if (!this.webtoon && this.#userScale <= this.constructor.minUserScale) {
             return { scrollLeft: this.scrollLeft, scrollTop: this.scrollTop }
         }
@@ -599,12 +659,15 @@ export class FixedLayout extends HTMLElement {
         return this.#userScale
     }
     getContents() {
+        if (this.#continuous) return this.#continuous.doc ? [{ doc: this.#continuous.doc, index: this.#continuous.index }] : []
         return this.#getVisibleFrames().map(frame => ({
             doc: frame.iframe.contentDocument,
             index: frame.index,
         }))
     }
     destroy() {
+        this.#continuous?.destroy()
+        this.#continuous = null
         this.#navigation.cancel()
         this.#observer.unobserve(this)
         this.#cleanupCurrentSpread()

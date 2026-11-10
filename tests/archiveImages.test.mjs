@@ -526,3 +526,59 @@ test('independent archive previews preserve the displayed page and reject late c
   await assert.rejects(late, { name: 'AbortError' });
   assert.equal(closes, 1);
 });
+
+
+test('archive image pages expose safe header dimensions without retaining extracted blobs', async () => {
+  const png = pngDimensionsBlob(1200, 2400);
+  const avif = new Blob(['unprobeable avif'], { type: 'image/avif' });
+  const inspection = selectArchiveImageEntries([
+    entry('1.png', { size: png.size, source: png }),
+    entry('2.avif', { size: avif.size, source: avif }),
+  ]);
+  let loads = 0;
+  const book = createArchiveImageBook({
+    entries: inspection.entries,
+    fileName: 'pages.cbz',
+    loadBlob: async (page) => { loads += 1; return page.source; },
+    close: () => {},
+  });
+  try {
+    assert.deepEqual(await book.getImagePage(0), { blob: png, width: 1200, height: 2400 });
+    assert.deepEqual(await book.getImagePage(1), { blob: avif, width: null, height: null });
+    assert.deepEqual(await book.getImagePage(0), { blob: png, width: 1200, height: 2400 });
+    assert.equal(loads, 3);
+    for (const index of [-1, 2, 0.5, NaN, Infinity]) assert.equal(await book.getImagePage(index), null);
+    assert.equal(loads, 3);
+  } finally { book.destroy(); }
+});
+
+test('archive image pages reject unsafe and cancelled or closed requests', async () => {
+  const blob = pngDimensionsBlob(20, 30);
+  const oversized = pngDimensionsBlob(32769, 1);
+  const inspection = selectArchiveImageEntries([
+    entry('1.png', { size: blob.size, source: blob }),
+    entry('2.png', { size: oversized.size, source: oversized }),
+  ]);
+  let resolveLoad;
+  let delay = false;
+  let closes = 0;
+  const book = createArchiveImageBook({
+    entries: inspection.entries,
+    fileName: 'lifecycle.cbz',
+    loadBlob: async (page) => delay ? new Promise(resolve => { resolveLoad = resolve; }) : page.source,
+    close: () => { closes += 1; },
+  });
+  await assert.rejects(book.getImagePage(1), error => error instanceof ArchiveImageError && error.code === 'image-dimensions-too-large');
+  delay = true;
+  const controller = new AbortController();
+  const cancelled = book.getImagePage(0, controller.signal);
+  controller.abort();
+  resolveLoad(blob);
+  await assert.rejects(cancelled, { name: 'AbortError' });
+  const late = book.getImagePage(0);
+  book.destroy();
+  resolveLoad(blob);
+  await assert.rejects(late, { name: 'AbortError' });
+  await assert.rejects(book.getImagePage(0), /source is closed/);
+  assert.equal(closes, 1);
+});

@@ -53,6 +53,7 @@ export type FoliateBook = {
   splitTOCHref?: (href: string) => [string, unknown];
   getTOCFragment?: (doc: Document, fragment?: unknown) => Node;
   getPagePreview?: (index: number, signal?: AbortSignal) => Promise<Blob | null>;
+  getImagePage?: (index: number, signal?: AbortSignal) => Promise<{ blob: Blob; width: number | null; height: number | null } | null>;
   getCover?: () => Promise<Blob | null>;
   destroy?: () => void;
 };

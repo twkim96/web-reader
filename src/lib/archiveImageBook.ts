@@ -434,6 +434,17 @@ export const createArchiveImageBook = <T>({
     }),
     splitTOCHref: (href: string) => [href, null],
     getTOCFragment: (doc: Document) => doc.documentElement,
+    getImagePage: async (index, signal) => {
+      if (destroyed) throw new Error('Archive image source is closed.');
+      if (signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
+      if (!Number.isInteger(index) || index < 0 || index >= entries.length) return null;
+      const entry = entries[index];
+      const blob = await loadArchiveImageBlob(entry, loadBlob, signal);
+      if (destroyed || signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
+      const dimensions = await probeArchiveImageDimensions(blob, entry.mimeType);
+      if (destroyed || signal?.aborted) throw new DOMException('Page load aborted', 'AbortError');
+      return { blob, width: dimensions?.width ?? null, height: dimensions?.height ?? null };
+    },
     getPagePreview: async (index, signal) => {
       if (destroyed) throw new Error('Archive image source is closed.');
       if (signal?.aborted) throw new DOMException('Preview aborted', 'AbortError');
