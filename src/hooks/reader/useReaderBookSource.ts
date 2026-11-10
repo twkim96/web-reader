@@ -383,7 +383,7 @@ export const useReaderBookSource = ({
             const open = openTargetBook(
               prepared.source,
               targetInitialCfi,
-              prepared.format === 'epub' || shouldCacheCover
+              prepared.format === 'epub' || prepared.format === 'archive' || shouldCacheCover
                 ? async (openedView) => {
                   if (prepared.format === 'epub') {
                     const current = loadInputsRef.current;
@@ -400,6 +400,9 @@ export const useReaderBookSource = ({
                     appliedLayoutKeyRef.current = JSON.stringify(initialLayout);
                     await current.setStyle(initialStyle, openedView.renderer);
                     appliedStyleKeyRef.current = JSON.stringify(initialStyle);
+                  }
+                  if (prepared.format === 'archive') {
+                    openedView.renderer?.setAttribute('webtoon', String(loadInputsRef.current.settings.archiveWebtoonMode === true));
                   }
                   if (shouldCacheCover) openedCoverView = openedView;
                 }
@@ -456,6 +459,16 @@ export const useReaderBookSource = ({
       controller.abort();
     };
   }, [containerRef]);
+
+  useEffect(() => {
+    if (!isLoaded || book.readerFormat !== 'archive') return;
+    // The renderer is also configured before init above to avoid a fit-page flash.
+    const view = containerRef.current?.querySelector('foliate-view') as FoliateViewElement | null;
+    const value = String(settings.archiveWebtoonMode === true);
+    if (view?.renderer && view.renderer.getAttribute('webtoon') !== value) {
+      view.renderer.setAttribute('webtoon', value);
+    }
+  }, [book.readerFormat, containerRef, isLoaded, settings.archiveWebtoonMode]);
 
   useEffect(() => {
     if (!isLoaded || book.readerFormat !== 'epub') return;

@@ -273,3 +273,16 @@ test('replaces the built-in Blue theme with exact Midnight colors and theme acti
   assert.equal(variables['--viewer-theme-action-soft'], '#353637');
   assert.equal(variables['--viewer-theme-action-strong'], '#101113');
 });
+
+
+test('defaults and restores only an explicitly enabled archive webtoon mode without changing navigation', async () => {
+  for (const [stored, expected] of [[undefined, false], [true, true], ['true', false], ['false', false]]) {
+    const saved = { navMode: 'page' };
+    if (stored !== undefined) saved.archiveWebtoonMode = stored;
+    await withStorage(JSON.stringify(saved), () => {
+      const settings = getStoredViewerSettings();
+      assert.equal(settings.archiveWebtoonMode, expected);
+      assert.equal(settings.navMode, 'page');
+    }, true);
+  }
+});

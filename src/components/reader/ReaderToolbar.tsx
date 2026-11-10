@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bookmark as BookmarkIcon,
   Info,
+  GalleryVertical,
   List,
   Palette,
   Search,
@@ -45,6 +46,8 @@ interface ReaderToolbarProps {
   ttsActive?: boolean;
   isFixedLayout?: boolean;
   landscapeTwoPage?: boolean;
+  webtoonMode?: boolean;
+  onToggleWebtoonMode?: () => void;
   onBack: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
@@ -84,6 +87,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
   ttsActive = false,
   isFixedLayout = false,
   landscapeTwoPage = false,
+  webtoonMode = false,
+  onToggleWebtoonMode,
   onBack,
   onOpenSearch,
   onOpenSettings,
@@ -412,6 +417,18 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
                 title={ttsSupported ? '현재 위치부터 듣기' : '이 브라우저는 TTS를 지원하지 않습니다'}
               >
                 <Volume2 className="size-[19px] md:size-[21px]" />
+              </button>
+            )}
+            {onToggleWebtoonMode && (
+              <button
+                type="button"
+                onClick={guardMenuClick(onToggleWebtoonMode)}
+                className={`relative flex size-11 items-center justify-center rounded-full border ${theme.border} ${surfaceClass} shadow-[0_12px_30px_rgba(0,0,0,0.2)] transition-opacity hover:opacity-100 md:size-[3.025rem] ${webtoonMode ? 'text-accent-500' : ''}`}
+                aria-label="웹툰 모드"
+                title="웹툰 모드"
+                aria-pressed={webtoonMode}
+              >
+                <GalleryVertical className="size-[19px] md:size-[21px]" />
               </button>
             )}
             <button

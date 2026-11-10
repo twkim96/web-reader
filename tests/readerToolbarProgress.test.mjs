@@ -69,7 +69,7 @@ const dispatchPointer = (window, target, type, clientX, buttons, clientY = 20, t
   target.dispatchEvent(event);
 };
 
-const Harness = ({ menuStyle = 'modern', showControls = true, onOpenSearch = () => undefined, onBack = () => undefined } = {}) => {
+const Harness = ({ menuStyle = 'modern', showControls = true, onOpenSearch = () => undefined, onBack = () => undefined, webtoonMode, onToggleWebtoonMode } = {}) => {
   const slider = useReaderProgressSlider({
     currentCfi: 'epubcfi(/6/2!/4/2)',
     totalProgress: 20,
@@ -93,6 +93,8 @@ const Harness = ({ menuStyle = 'modern', showControls = true, onOpenSearch = () 
       menuStyle,
       bookName: 'Pointer Test.epub',
       showControls,
+      webtoonMode,
+      onToggleWebtoonMode,
       sliderProgress: slider.sliderProgress,
       isSliderPreviewing: slider.isSliderPreviewing,
       sliderPreviewChapter: undefined,
@@ -542,6 +544,31 @@ test('revealing the reader menu does not activate controls with the opening gest
     assert.equal(searches, 1, 'a new tap on the visible menu works immediately');
     await act(async () => click(close, 0));
     assert.equal(closes, 1, 'keyboard activation remains available');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+
+test('webtoon utility is optional, precedes statistics, and reports its pressed state', async () => {
+  const window = installDom();
+  const root = createRoot(window.document.querySelector('#root'));
+  let toggles = 0;
+  const onToggleWebtoonMode = () => toggles++;
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.equal(window.document.querySelector('[aria-label="웹툰 모드"]'), null);
+    await act(async () => root.render(React.createElement(Harness, { onToggleWebtoonMode })));
+    const button = window.document.querySelector('[aria-label="웹툰 모드"]');
+    assert.ok(button);
+    assert.equal(button.getAttribute('title'), '웹툰 모드');
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(button.nextElementSibling.getAttribute('aria-label'), '독서 통계');
+    await act(async () => button.click());
+    assert.equal(toggles, 1);
+    await act(async () => root.render(React.createElement(Harness, { onToggleWebtoonMode, webtoonMode: true })));
+    assert.equal(button.getAttribute('aria-pressed'), 'true');
+    assert.ok(button.classList.contains('text-accent-500'));
   } finally {
     await act(async () => root.unmount());
   }

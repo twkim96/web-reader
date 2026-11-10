@@ -85,6 +85,8 @@ export type FoliateRenderer = {
   commitUserScale?: () => number;
   panBy?: (deltaX: number, deltaY: number) => { scrollLeft: number; scrollTop: number };
   resetUserScale?: () => number;
+  getWebtoonBoundary?: (direction: number) => boolean;
+  scrollWebtoon?: (distance: number, allowTurn?: boolean) => Promise<boolean>;
 };
 
 export type SearchSubitem = {

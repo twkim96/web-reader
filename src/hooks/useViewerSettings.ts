@@ -30,6 +30,7 @@ export const defaultSettings: ViewerSettings = {
   textAlign: 'justify',
   theme: 'midnight',
   navMode: 'scroll',
+  archiveWebtoonMode: false,
   tapTopBottomPercent: 33,
   tapLeftRightPercent: 30,
   landscapeTwoPage: false,
@@ -73,6 +74,7 @@ export const getStoredViewerSettings = () => {
     return {
       ...merged,
       landscapeTwoPage: merged.landscapeTwoPage === true,
+      archiveWebtoonMode: merged.archiveWebtoonMode === true,
       translationProvider: normalizeReaderTranslationProvider(merged.translationProvider),
       translationSourceLanguage: normalizeReaderTranslationSourceLanguage(
         merged.translationSourceLanguage,

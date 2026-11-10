@@ -3,6 +3,12 @@
 The files in this directory are vendored runtime code. Keep these patches and
 their regression tests when updating from upstream.
 
+## 1.8.37 archive webtoon layout
+
+- `fixed-layout.js` observes the `webtoon` attribute; only the literal string `true` enables width-fit, aspect-preserving single-image vertical scrolling. The app sets it only for image archives and keeps the setting separate from text navigation mode.
+- The renderer exposes `getWebtoonBoundary(direction)` and async `scrollWebtoon(distance, allowTurn)` for app-owned input handling and image-boundary navigation. Preserve these APIs and the previous-image bottom entry when updating the vendored renderer. Wheel interpolation and touch momentum belong to the app input layer, with cleanup on hide, mode change, and unmount.
+- Regression coverage: `tests/readerNavigation.test.mjs`, `tests/e2e/archiveWebtoon.spec.ts` (Chromium/WebKit renderer), and `tests/e2e/archiveWebtoonControls.spec.ts` (real reader toggle, persistence, wheel, and touch momentum). Local macOS WebKit cannot persist the imported File Blob, so that app-level case is skipped; real iPad/PWA acceptance is tracked in `docs/TODO.md`.
+
 ## 1.8.37 shared reader background canvas
 
 - `paginator.setBackground()` paints app-managed theme color/image/size on the publication root and makes the body background transparent, so text columns and their gaps use the same canvas. Inline `!important` overrides publication root/body backgrounds, including dark media rules.

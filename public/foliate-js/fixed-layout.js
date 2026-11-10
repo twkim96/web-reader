@@ -33,11 +33,16 @@ const getViewport = (doc, viewport) => {
 }
 
 export class FixedLayout extends HTMLElement {
-    static observedAttributes = ['zoom']
+    static observedAttributes = ['zoom', 'webtoon']
     static minUserScale = 1
     static maxUserScale = 4
     #root = this.attachShadow({ mode: 'closed' })
-    #observer = new ResizeObserver(() => this.#render())
+    #observer = new ResizeObserver(() => {
+        const max = this.scrollHeight - this.clientHeight
+        const fraction = max > 0 ? this.scrollTop / max : 0
+        this.#render()
+        if (this.webtoon) this.scrollTop = fraction * Math.max(0, this.scrollHeight - this.clientHeight)
+    })
     #spreads
     #index = -1
     #targetIndex = -1
@@ -53,6 +58,8 @@ export class FixedLayout extends HTMLElement {
     #userScale = 1
     #lastBaseScale = 1
     #lastScale = 1
+    #webtoonTurning = false
+    #webtoonOverscroll = 0
     constructor() {
         super()
 
@@ -73,6 +80,13 @@ export class FixedLayout extends HTMLElement {
     }
     attributeChangedCallback(name, _, value) {
         switch (name) {
+            case 'webtoon':
+                this.#webtoonOverscroll = 0
+                this.#userScale = 1
+                this.#render()
+                this.scrollLeft = 0
+                this.scrollTop = 0
+                break
             case 'zoom':
                 this.#zoom = value !== 'fit-width' && value !== 'fit-page'
                     ? parseFloat(value) : value
@@ -145,7 +159,9 @@ export class FixedLayout extends HTMLElement {
         const blankWidth = left.width ?? right.width ?? 0
         const blankHeight = left.height ?? right.height ?? 0
 
-        const baseScale = typeof this.#zoom === 'number' && !isNaN(this.#zoom)
+        const baseScale = this.webtoon
+            ? width / (target.width ?? blankWidth)
+            : typeof this.#zoom === 'number' && !isNaN(this.#zoom)
             ? this.#zoom
             : (this.#zoom === 'fit-width'
                 ? (portrait || this.#center
@@ -174,7 +190,7 @@ export class FixedLayout extends HTMLElement {
             ? getFrameHeight(target)
             : Math.max(getFrameHeight(left), getFrameHeight(right))) * scale
         const overflowsX = isUserZoomed && contentWidth > width + 0.5
-        const overflowsY = isUserZoomed && contentHeight > height + 0.5
+        const overflowsY = (isUserZoomed || this.webtoon) && contentHeight > height + 0.5
         Object.assign(this.style, {
             justifyContent: overflowsX ? 'flex-start' : 'center',
             alignItems: overflowsY ? 'flex-start' : 'center',
@@ -253,6 +269,7 @@ export class FixedLayout extends HTMLElement {
         }
     }
     #getPageTurnViewState() {
+        if (this.webtoon) return null
         if (this.#userScale <= this.constructor.minUserScale) return null
         const maxScrollLeft = Math.max(0, this.scrollWidth - this.clientWidth)
         const maxScrollTop = Math.max(0, this.scrollHeight - this.clientHeight)
@@ -263,6 +280,7 @@ export class FixedLayout extends HTMLElement {
         }
     }
     #applyPageTurnViewState(viewState) {
+        this.#webtoonOverscroll = 0
         this.#userScale = viewState?.userScale ?? 1
         this.#render()
         if (!viewState) {
@@ -496,6 +514,42 @@ export class FixedLayout extends HTMLElement {
     get effectiveScale() {
         return this.#lastScale
     }
+    get webtoon() {
+        return this.getAttribute('webtoon') === 'true'
+    }
+    getWebtoonBoundary(direction) {
+        if (!this.webtoon) return false
+        return direction < 0 ? this.scrollTop <= 2
+            : this.scrollTop >= Math.max(0, this.scrollHeight - this.clientHeight) - 2
+    }
+    async scrollWebtoon(distance, allowTurn = false) {
+        if (!this.webtoon || !Number.isFinite(distance) || !distance || this.#webtoonTurning) return false
+        const max = Math.max(0, this.scrollHeight - this.clientHeight)
+        const target = this.scrollTop + distance
+        const clamped = Math.max(0, Math.min(max, target))
+        this.scrollTop = clamped
+        const overflow = target - clamped
+        if (!allowTurn || !overflow) {
+            this.#webtoonOverscroll = 0
+            return false
+        }
+        if (Math.sign(overflow) !== Math.sign(this.#webtoonOverscroll)) this.#webtoonOverscroll = 0
+        this.#webtoonOverscroll += overflow
+        if (Math.abs(this.#webtoonOverscroll) < 48) return false
+        const direction = Math.sign(this.#webtoonOverscroll)
+        this.#webtoonOverscroll = 0
+        const previousIndex = this.index
+        this.#webtoonTurning = true
+        try {
+            if (direction < 0) await this.prev()
+            else await this.next()
+            if (this.index === previousIndex) return false
+            this.scrollTop = direction < 0 ? Math.max(0, this.scrollHeight - this.clientHeight) : 0
+            return true
+        } finally {
+            this.#webtoonTurning = false
+        }
+    }
     setUserScale(value, focalPoint, { preview = false } = {}) {
         const minScale = this.constructor.minUserScale
         const maxScale = this.constructor.maxUserScale
@@ -530,7 +584,7 @@ export class FixedLayout extends HTMLElement {
         return this.#userScale
     }
     panBy(deltaX = 0, deltaY = 0) {
-        if (this.#userScale <= this.constructor.minUserScale) {
+        if (!this.webtoon && this.#userScale <= this.constructor.minUserScale) {
             return { scrollLeft: this.scrollLeft, scrollTop: this.scrollTop }
         }
         this.scrollLeft = Math.max(0, this.scrollLeft + (Number(deltaX) || 0))

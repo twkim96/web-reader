@@ -51,6 +51,7 @@ export interface ViewerSettings {
   textAlign: 'left' | 'justify';
   theme: string;
   navMode: 'scroll' | 'page' | 'left-right' | 'all-dir';
+  archiveWebtoonMode?: boolean;
   tapTopBottomPercent: number;
   tapLeftRightPercent: number;
   landscapeTwoPage: boolean;
