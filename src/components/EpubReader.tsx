@@ -31,7 +31,6 @@ import { ProgressJumpConfirmDialog } from './reader/ProgressJumpConfirmDialog';
 import { SyncRecoveryNotice } from './reader/SyncRecoveryNotice';
 import { ReaderStatusBar } from './reader/ReaderStatusBar';
 import { ReaderToolbar } from './reader/ReaderToolbar';
-import { createArchiveWebtoonInput } from '../lib/archiveWebtoonInput';
 import { SyncConflictDialog } from './reader/SyncConflictDialog';
 import { TextSelectionMenu } from './reader/TextSelectionMenu';
 import { HighlightActionMenu } from './reader/HighlightActionMenu';
@@ -324,7 +323,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     focalPoint?: { x: number; y: number };
   } | null>(null);
   const fixedLayoutZoomFrameRef = useRef<number | null>(null);
-  const fixedLayoutOverlayRef = useRef<HTMLDivElement | null>(null);
   const suppressNextInteractionClickRef = useRef(false);
   const annotationSyncContext = useMemo(() => annotationSyncDeviceId ? ({
     deviceId: annotationSyncDeviceId,
@@ -458,12 +456,15 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   });
 
   const bindReaderDocumentInput = useReaderDocumentInput({
-    scrollMode: effectiveNavMode === 'scroll',
+    scrollMode: effectiveNavMode === 'scroll' || isWebtoonMode,
     controlsVisible: chrome.showControls,
     hasSelectionRef,
     onWheel: (event) => wheelNavigationRef.current(event),
     onKeyDown: (event) => keyboardNavigationRef.current(event),
-    markUserInteraction,
+    markUserInteraction: () => {
+      markUserInteraction();
+      if (isWebtoonMode) markReadingActivityRef.current();
+    },
     markUserProgressChange,
   });
 
@@ -482,11 +483,23 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     return () => onRegisterProgressFlush?.(null);
   }, [flushCurrentProgress, onRegisterProgressFlush]);
 
+  const nativeWebtoonDocumentsRef = useRef(new WeakSet<Document>());
   const handleReaderLoad = useCallback((doc?: Document, index?: number) => {
     if (!doc) return;
     bindSelectionDocument(doc, index);
     bindReaderDocumentInput(doc);
-  }, [bindReaderDocumentInput, bindSelectionDocument]);
+    if (book.readerFormat === 'archive' && doc.documentElement.dataset.archiveWebtoon === 'true' && !nativeWebtoonDocumentsRef.current.has(doc)) {
+      nativeWebtoonDocumentsRef.current.add(doc);
+      doc.addEventListener('click', event => {
+        const frame = doc.defaultView?.frameElement?.getBoundingClientRect();
+        documentTapRef.current({ x: event.clientX + (frame?.left ?? 0), y: event.clientY + (frame?.top ?? 0) });
+      });
+      doc.addEventListener('webtoon-user-input', () => {
+        markReadingActivityRef.current();
+        markUserProgressChange();
+      });
+    }
+  }, [book.readerFormat, bindReaderDocumentInput, bindSelectionDocument, markUserProgressChange]);
 
   const handleReaderRelocate = useCallback((detail: RelocateDetail) => {
     const autoReadSession = autoReadSessionRef.current;
@@ -984,18 +997,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       return false;
     });
   }, [getFixedLayoutRenderer, markReadingActivity, markUserProgressChange]);
-  const webtoonInput = useMemo(() => createArchiveWebtoonInput({
-    scroll: scrollWebtoon,
-  }), [scrollWebtoon]);
   useEffect(() => {
-    webtoonInput.reset();
-    return () => webtoonInput.reset();
-  }, [book.id, isLoaded, isWebtoonMode, webtoonInput, chrome.showControls, isReaderPanelOpen]);
-  useEffect(() => {
-    const pause = () => { if (document.hidden) webtoonInput.reset(); };
-    document.addEventListener('visibilitychange', pause);
-    return () => document.removeEventListener('visibilitychange', pause);
-  }, [webtoonInput]);
+    if (!isWebtoonMode) return;
+    viewRef.current?.renderer?.setAttribute('webtoon-scroll-lock', String(chrome.showControls || isReaderPanelOpen));
+  }, [isWebtoonMode, isLoaded, chrome.showControls, isReaderPanelOpen, viewRef]);
 
   const adjustFixedLayoutZoom = useCallback((
     factor: number,
@@ -1048,13 +1053,11 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 
   const handleFixedLayoutTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     if (!isFixedLayout) return;
-    if (isWebtoonMode) suppressNextInteractionClickRef.current = false;
     const renderer = getFixedLayoutRenderer();
     if (!renderer) return;
 
     const metrics = getTouchMetrics(event.touches);
     if (metrics) {
-      webtoonInput.cancelTouch();
       panGestureRef.current = null;
       event.preventDefault();
       event.stopPropagation();
@@ -1068,10 +1071,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     }
 
     const touchPoint = getSingleTouchPoint(event.touches);
-    if (isWebtoonMode && touchPoint && (renderer.userScale ?? 1) <= 1) {
-      webtoonInput.touchStart(touchPoint.y);
-      return;
-    }
     if (!touchPoint || (renderer.userScale ?? 1) <= 1 || !renderer.panBy) return;
 
     panGestureRef.current = {
@@ -1082,7 +1081,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       lastX: touchPoint.x,
       lastY: touchPoint.y,
     };
-  }, [getFixedLayoutRenderer, isFixedLayout, isWebtoonMode, webtoonInput]);
+  }, [getFixedLayoutRenderer, isFixedLayout]);
 
   const handleFixedLayoutTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const gesture = pinchGestureRef.current;
@@ -1103,14 +1102,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       return;
     }
 
-    if (isWebtoonMode && !panGestureRef.current?.active) {
-      const touch = getSingleTouchPoint(event.touches);
-      if (touch && webtoonInput.touchMove(touch.y)) {
-        suppressNextInteractionClickRef.current = true;
-        event.stopPropagation();
-      }
-      return;
-    }
     const panGesture = panGestureRef.current;
     if (!panGesture?.active) return;
     const touchPoint = getSingleTouchPoint(event.touches);
@@ -1124,19 +1115,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     suppressNextInteractionClickRef.current = true;
     event.preventDefault();
     event.stopPropagation();
-    if (isWebtoonMode) markUserProgressChange();
     renderer.panBy(panGesture.lastX - touchPoint.x, panGesture.lastY - touchPoint.y);
     panGesture.lastX = touchPoint.x;
     panGesture.lastY = touchPoint.y;
-  }, [getFixedLayoutRenderer, scheduleFixedLayoutZoom, isWebtoonMode, webtoonInput, markUserProgressChange]);
+  }, [getFixedLayoutRenderer, scheduleFixedLayoutZoom]);
 
   const handleFixedLayoutTouchEnd = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (isWebtoonMode && !pinchGestureRef.current?.active && !panGestureRef.current?.active) {
-      const touch = event.changedTouches[0];
-      if (event.type === 'touchcancel' || event.touches.length) webtoonInput.cancelTouch();
-      else if (touch && webtoonInput.touchEnd()) suppressNextInteractionClickRef.current = true;
-      return;
-    }
     const gesture = pinchGestureRef.current;
     if (gesture?.active && event.touches.length < 2) {
       if (fixedLayoutZoomFrameRef.current !== null) {
@@ -1176,7 +1160,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       }
       panGestureRef.current = null;
     }
-  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, getFixedLayoutRenderer, markReadingActivity, isWebtoonMode, webtoonInput]);
+  }, [commitFixedLayoutZoom, flushPendingFixedLayoutZoom, getFixedLayoutRenderer, markReadingActivity]);
 
   const finishFixedLayoutMouseZoomGesture = useCallback((
     event?: React.PointerEvent<HTMLDivElement>,
@@ -1292,11 +1276,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     suppressNextInteractionClickRef.current = true;
     event.preventDefault();
     event.stopPropagation();
-    if (isWebtoonMode) markUserProgressChange();
     renderer.panBy(gesture.lastX - event.clientX, gesture.lastY - event.clientY);
     gesture.lastX = event.clientX;
     gesture.lastY = event.clientY;
-  }, [finishFixedLayoutMouseZoomGesture, getFixedLayoutRenderer, scheduleFixedLayoutZoom, isWebtoonMode, markUserProgressChange]);
+  }, [finishFixedLayoutMouseZoomGesture, getFixedLayoutRenderer, scheduleFixedLayoutZoom]);
 
   const handleFixedLayoutPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'mouse') return;
@@ -1376,15 +1359,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [chrome.showControls]);
 
   useEffect(() => {
-    if (!isWebtoonMode || !isLoaded) return;
-    const overlay = fixedLayoutOverlayRef.current;
-    if (!overlay) return;
-    const wheel = (event: WheelEvent) => wheelNavigationRef.current(event);
-    overlay.addEventListener('wheel', wheel, { passive: false });
-    return () => overlay.removeEventListener('wheel', wheel);
-  }, [isWebtoonMode, isLoaded]);
-
-  useEffect(() => {
     const unlockWheelNavigationAfterIdle = () => {
       if (wheelNavigationResetTimerRef.current) {
         clearTimeout(wheelNavigationResetTimerRef.current);
@@ -1397,6 +1371,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     };
 
     const handleWheelNavigation = (event: WheelEvent | React.WheelEvent) => {
+      if (isWebtoonMode) {
+        if (event.ctrlKey || isReaderPanelOpen || chrome.showControls) return;
+        markReadingActivity();
+        markUserProgressChange();
+        return;
+      }
+
       if (event.ctrlKey) {
         if (effectiveNavMode === 'scroll') return;
         event.preventDefault();
@@ -1407,15 +1388,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       if (effectiveNavMode === 'scroll') {
         if (hasSelectionRef.current) clearTextSelection();
         markUserProgressChange();
-        return;
-      }
-
-      if (isWebtoonMode) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (isReaderPanelOpen || chrome.showControls) return;
-        const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1);
-        webtoonInput.wheel(delta);
         return;
       }
 
@@ -1460,7 +1432,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     prev,
     effectiveNavMode,
     isWebtoonMode,
-    webtoonInput,
     chrome.showControls,
     clearTextSelection,
     hasSelectionRef,
@@ -1761,9 +1732,8 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
         onClick={isFixedLayout ? undefined : handleInteraction}
       />
 
-      {isLoaded && isFixedLayout && effectiveNavMode !== 'scroll' && (
+      {isLoaded && isFixedLayout && !isWebtoonMode && effectiveNavMode !== 'scroll' && (
         <div
-          ref={fixedLayoutOverlayRef}
           data-reader-interaction-overlay="true"
           className="fixed inset-0 z-10"
           style={{
@@ -1780,7 +1750,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
           onPointerUp={handleFixedLayoutPointerEnd}
           onPointerCancel={handleFixedLayoutPointerEnd}
           onLostPointerCapture={handleFixedLayoutLostPointerCapture}
-          onWheel={isWebtoonMode ? undefined : (event) => wheelNavigationRef.current(event)}
+          onWheel={(event) => wheelNavigationRef.current(event)}
         />
       )}
 

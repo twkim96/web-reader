@@ -34,7 +34,7 @@ const getViewport = (doc, viewport) => {
 }
 
 export class FixedLayout extends HTMLElement {
-    static observedAttributes = ['zoom', 'webtoon']
+    static observedAttributes = ['zoom', 'webtoon', 'webtoon-scroll-lock']
     static minUserScale = 1
     static maxUserScale = 4
     #root = this.attachShadow({ mode: 'closed' })
@@ -83,6 +83,9 @@ export class FixedLayout extends HTMLElement {
     }
     attributeChangedCallback(name, _, value) {
         switch (name) {
+            case 'webtoon-scroll-lock':
+                this.#continuous?.setLocked(value === 'true')
+                break
             case 'webtoon':
                 if (this.book?.getImagePage) {
                     const index = this.index
@@ -92,6 +95,7 @@ export class FixedLayout extends HTMLElement {
                         this.#cleanupCurrentSpread()
                         this.#root.replaceChildren()
                         this.#continuous = new ArchiveWebtoon(this, this.#root, this.book, {
+                            onScale: (scale, point) => this.setUserScale(scale, point),
                             onIndex: (index, reason) => {
                                 this.#index = this.#targetIndex = index
                                 this.#reportLocation(reason)
@@ -99,6 +103,7 @@ export class FixedLayout extends HTMLElement {
                             onLoad: (doc, index) => this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } })),
                             onError: (error, index) => this.dispatchEvent(new CustomEvent('error', { detail: { error, index } })),
                         })
+                        this.#continuous.setLocked(this.getAttribute('webtoon-scroll-lock') === 'true')
                         if (index >= 0) void this.#continuous.goTo(index, 'layout').catch(error => {
                             if (!isAbortError(error)) this.dispatchEvent(new CustomEvent('error', { detail: { error, index } }))
                         })
@@ -109,6 +114,7 @@ export class FixedLayout extends HTMLElement {
                         this.#index = this.#targetIndex = -1
                         this.#side = null
                         this.style.display = 'flex'
+                        this.style.overflow = 'auto'
                         if (index >= 0) void this.goToSpread(index, 'center', 'layout').catch(error => {
                             if (!isAbortError(error)) this.dispatchEvent(new CustomEvent('error', { detail: { error, index } }))
                         })
@@ -442,6 +448,12 @@ export class FixedLayout extends HTMLElement {
             return arr
         }, [{}])
     }
+    get scrollTop() { return this.#continuous ? this.#continuous.scrollTop : super.scrollTop }
+    set scrollTop(value) { if (this.#continuous) this.#continuous.scrollTop = value; else super.scrollTop = value }
+    get scrollLeft() { return this.#continuous ? this.#continuous.scrollLeft : super.scrollLeft }
+    set scrollLeft(value) { if (this.#continuous) this.#continuous.scrollLeft = value; else super.scrollLeft = value }
+    get scrollHeight() { return this.#continuous ? this.#continuous.scrollHeight : super.scrollHeight }
+    get scrollWidth() { return this.#continuous ? this.#continuous.scrollWidth : super.scrollWidth }
     get index() {
         if (this.#continuous?.index >= 0) return this.#continuous.index
         const spread = this.#spreads[this.#index]

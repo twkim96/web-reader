@@ -67,7 +67,23 @@ test('archive webtoon joins images, tracks only the visible page, and bounds pre
     await renderer.scrollWebtoon(2150, true);
   });
   expect((await probe()).index).toBe(6);
+  await page.evaluate(() => {
+    const renderer = Reflect.get(window, 'probeRenderer');
+    const doc = renderer.getContents()[0].doc;
+    const root = doc.scrollingElement;
+    const descriptor = Object.getOwnPropertyDescriptor(doc.defaultView.Element.prototype, 'scrollTop')!;
+    Reflect.set(window, 'scrollPositionWrites', 0);
+    Object.defineProperty(root, 'scrollTop', {
+      configurable: true,
+      get: () => descriptor.get!.call(root),
+      set: value => {
+        Reflect.set(window, 'scrollPositionWrites', Reflect.get(window, 'scrollPositionWrites') + 1);
+        descriptor.set!.call(root, value);
+      },
+    });
+  });
   await page.evaluate(async () => Reflect.get(window, 'probeRenderer').scrollWebtoon(20, true));
+  expect(await page.evaluate(() => Reflect.get(window, 'scrollPositionWrites'))).toBe(1);
   await expect.poll(async () => (await probe()).index).toBe(7);
   await page.evaluate(async () => Reflect.get(window, 'probeRenderer').scrollWebtoon(40, true));
   await expect.poll(async () => (await probe()).index).toBe(8);
