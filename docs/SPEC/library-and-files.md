@@ -8,6 +8,8 @@
 
 목록·표지·압축 표지 보기를 지원합니다. 저장된 `grid` 설정은 압축 표지 보기로 이어집니다. 카드의 정보 버튼과 길게 누르기는 도서 정보창을 열고, 본문 진입과 분리됩니다. 책장은 로컬 표지 캐시만 읽고 진입/스크롤 중 원본이나 외부 표지를 다시 요청하지 않습니다. 성공한 도서 열기에서 내장 표지 또는 플랫폼 fallback을 캐시하며, 없으면 자동 생성 표면을 사용합니다. 진행도 0.0%와 100%는 읽는 중 우선 정렬에서 제외합니다.
 
+도서 정보창은 표지와 독서 정보를 PNG로 저장하거나 지원되는 브라우저에서 이미지로 복사합니다. 로컬 표지의 `blob:` URL과 캐시된 리소스 주소를 변형하지 않으며, 이미지 생성기는 정보창과 함께 로드해 첫 오프라인 내보내기에서 추가 JavaScript 다운로드가 필요하지 않게 합니다. 복사는 사용자 클릭 중 PNG Promise를 `ClipboardItem`에 전달해 브라우저의 사용자 활성화 조건을 유지합니다. 미지원·권한 거부·생성 실패는 상태 문구로 알립니다.
+
 ## 형식과 가져오기
 
 | 원본 | 읽기와 로컬 보관 |
@@ -38,6 +40,7 @@ ZIP은 Apple 모바일 WebKit에서 Worker/stream 전송 정지를 피하려고 
 ## 코드와 검증
 
 - 책장: [shelf/index.tsx](../../src/components/shelf/index.tsx), `useShelfPreferences`, `useFilteredBooks`, [bookUtils.ts](../../src/components/shelf/bookUtils.ts), `useShelfBookCovers`
+- 도서 정보 이미지: [BookInfoModal.tsx](../../src/components/shelf/BookInfoModal.tsx), [bookInfoImage.spec.ts](../../tests/e2e/bookInfoImage.spec.ts). 로컬 표지를 포함한 PNG와 다운로드·복사 전달을 온라인/오프라인으로 검증하며 OS 클립보드 권한은 실기기에서 확인합니다.
 - 가져오기·읽기 소스: `ImportBookModal`, `FileUploader`, [bookContent.ts](../../src/lib/bookContent.ts)의 `prepareBookSource`, [useReaderBookSource.ts](../../src/hooks/reader/useReaderBookSource.ts)
 - 저장·삭제: [localDBV5.ts](../../src/lib/localDBV5.ts), [bookDeletion.ts](../../src/lib/bookDeletion.ts), `annotationBookDeletion`, `bookFingerprint`
 - 최소 관련 검증: `npm run test:formats`, `npm run test:archives`, `npm run test:drive`, `npm run test:shelf`, `npm run test:shelf-ui` 중 변경 영역을 선택합니다. 실제 도서/기기 확인은 [TODO](../TODO.md)에 있습니다.

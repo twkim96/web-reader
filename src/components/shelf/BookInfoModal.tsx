@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
+import { toBlob } from 'html-to-image';
 import { CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2 } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
@@ -279,9 +280,10 @@ export const BookInfoModal: React.FC<Props> = ({
       if (captureRect.width < 1 || captureRect.height < 1) {
         throw new Error('Reading proof capture has no renderable area');
       }
-      const { toBlob } = await import('html-to-image');
       const blob = await toBlob(captureNode, {
-        cacheBust: true,
+        // Cached covers use blob: URLs; adding a cache-busting query invalidates
+        // them. Keep resource URLs intact for installed/offline PWA caches too.
+        cacheBust: false,
         pixelRatio: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
         backgroundColor: captureBackgroundColor,
       });
