@@ -18,6 +18,20 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   const settings = page.getByRole('button', { name: '설정', exact: true });
   if (!await settings.isVisible()) await page.locator('[data-reader-content]').click({ position: { x: 150, y: 350 } });
   await settings.click();
+  const disclosure = page.getByRole('button', { name: 'Expand size details', exact: true });
+  // Accent tokens may be scoped to the reader rather than the document root.
+  // Both the control and its currentColor SVG must follow that local theme.
+  const reader = page.locator('[data-reader-shell]');
+  const savedStyle = await reader.getAttribute('style');
+  for (const color of ['rgb(225, 29, 72)', 'rgb(212, 175, 55)']) {
+    await reader.evaluate((element, accent) => (element as HTMLElement).style.setProperty('--accent-500', accent), color);
+    await expect(disclosure).toHaveCSS('color', color);
+    await expect(disclosure.locator('svg')).toHaveCSS('stroke', color);
+  }
+  await reader.evaluate((element, style) => {
+    if (style === null) element.removeAttribute('style');
+    else element.setAttribute('style', style);
+  }, savedStyle);
   const row = page.locator('[data-reader-font-options]');
   await expect(row.locator('button')).toHaveText(['리디 바탕', '조선 명조', '조선 굴림', 'SANS']);
   const geometry = await row.evaluate(element => ({

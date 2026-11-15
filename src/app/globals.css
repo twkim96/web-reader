@@ -306,7 +306,7 @@ body:has(
 .app-font-options[data-mouse-dragging='true'] { cursor: grabbing; }
 
 .app-size-disclosure {
-  color: var(--color-accent-500);
+  color: var(--accent-500, var(--color-sky-500));
 }
 .app-menu-sheet-header-actions button {
   display: flex;
@@ -328,7 +328,7 @@ body:has(
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  color: var(--color-accent-500);
+  color: var(--accent-500, var(--color-sky-500));
 }
 .app-menu-header-action:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
 .app-menu-header-action:disabled { opacity: 0.35; }

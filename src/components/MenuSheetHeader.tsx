@@ -47,7 +47,7 @@ export const MenuSheetHeader: React.FC<MenuSheetHeaderProps> = ({
       <X size={16} strokeWidth={2.2} />
     </button>
     <div className="min-w-0 flex-1">
-      <h2 id={titleId} className="truncate text-[15px] font-bold leading-tight tracking-tight sm:text-[17px]">
+      <h2 id={titleId} className="truncate pl-[2px] text-[14px] font-bold leading-tight tracking-tight sm:text-[16px]">
         {title}
       </h2>
     </div>
