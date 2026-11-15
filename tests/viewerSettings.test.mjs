@@ -8,6 +8,7 @@ import {
   getStoredViewerSettings,
 } from '../src/hooks/useViewerSettings.ts';
 import { getMuzioShelfDockVariables } from '../src/lib/shelfDockTheme.ts';
+import { getReaderHorizontalMarginPercent, getReaderVerticalPadding } from '../src/lib/readerSpacing.ts';
 import {
   ACCENT_PALETTE,
   BUILT_IN_THEME_ACCENTS,
@@ -23,6 +24,14 @@ import {
 
 const SETTINGS_KEY = 'viewer_settings';
 const TTS_CONTINUOUS_DEFAULTS_KEY = 'viewer_settings_tts_continuous_defaults_v1';
+
+test('seven margin levels preserve the legacy baseline and use independent horizontal and vertical steps', () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].map(getReaderHorizontalMarginPercent), [2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].map(verticalMarginStep => getReaderVerticalPadding({ padding: 24, fontSize: 20, verticalMarginStep })), [12, 16, 20, 24, 28, 32, 36]);
+  assert.equal(getReaderVerticalPadding({ padding: 30, fontSize: 20 }), 30);
+  assert.equal(getReaderVerticalPadding({ padding: 24, fontSize: 40 }), 40);
+  assert.equal(getReaderVerticalPadding({ padding: 24, fontSize: 40, verticalMarginStep: 3 }), 36);
+});
 
 const withStorage = async (initialValue, callback, continuousDefaultsApplied = false) => {
   const previousWindow = globalThis.window;
@@ -56,6 +65,23 @@ test('uses 20px only as the default font size and preserves an explicit saved si
   await withStorage(JSON.stringify({ fontSize: 18 }), () => {
     assert.equal(getStoredViewerSettings().fontSize, 18);
   });
+});
+
+test('restores missing margin levels as four and bounds malformed saved values', async () => {
+  await withStorage(JSON.stringify({ padding: 31, fontSize: 22, fontFamily: 'ridi' }), () => {
+    const settings = getStoredViewerSettings();
+    assert.equal(settings.horizontalMarginStep, 4);
+    assert.equal(settings.verticalMarginStep, 4);
+    assert.equal(getReaderVerticalPadding(settings), 31);
+    assert.equal(settings.fontFamily, 'ridi');
+  });
+  for (const [value, expected] of [[0, 1], [9, 7], [2.6, 3], ['7', 4], [null, 4]]) {
+    await withStorage(JSON.stringify({ horizontalMarginStep: value, verticalMarginStep: value }), () => {
+      const settings = getStoredViewerSettings();
+      assert.equal(settings.horizontalMarginStep, expected);
+      assert.equal(settings.verticalMarginStep, expected);
+    });
+  }
 });
 
 test('uses Midnight as the new default while preserving an explicit saved theme', async () => {

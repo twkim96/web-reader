@@ -114,10 +114,10 @@ export const getEffectiveNavigationMode = (
 
 export const getNavigationOptions = (isFixedLayout: boolean) => {
   const options = [
-    { value: 'scroll', label: 'Scroll' },
-    { value: 'page', label: 'T/B Tap' },
-    { value: 'left-right', label: 'L/R Tap' },
-    { value: 'all-dir', label: '4-Way' },
+    { value: 'scroll', label: '스크롤' },
+    { value: 'page', label: '상/하' },
+    { value: 'left-right', label: '좌/우' },
+    { value: 'all-dir', label: '4방향' },
   ] as const;
 
   return isFixedLayout

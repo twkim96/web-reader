@@ -2,6 +2,7 @@
 
 import { MutableRefObject, useEffect, useRef, useState } from 'react';
 import { Book, ViewerSettings } from '../../types';
+import { getReaderHorizontalMarginPercent } from '../../lib/readerSpacing';
 import { prepareBookSource, type StoredBookContent } from '../../lib/bookContent';
 import { fetchFullFile, fetchFullFileBlob } from '../../lib/googleDrive';
 import {
@@ -101,12 +102,14 @@ interface UseReaderBookSourceOptions {
 const getReaderLayout = (
   navMode: ViewerSettings['navMode'],
   landscapeTwoPage: boolean,
+  horizontalMarginStep?: number,
 ) => ({
   flow: navMode === 'scroll' ? 'scrolled' as const : 'paginated' as const,
   swipeNavigation: navMode === 'scroll',
   maxColumnCount: getReaderMaxColumnCount(navMode, landscapeTwoPage),
   margin: 0,
   gap: '5%',
+  outsideMargin: `${getReaderHorizontalMarginPercent(horizontalMarginStep)}%`,
   maxInlineSize: '1000px',
 });
 
@@ -390,6 +393,7 @@ export const useReaderBookSource = ({
                     const initialLayout = getReaderLayout(
                       current.settings.navMode,
                       current.settings.landscapeTwoPage === true,
+                      current.settings.horizontalMarginStep,
                     );
                     const initialStyle = getReaderStyle(
                       current.settings,
@@ -484,6 +488,7 @@ export const useReaderBookSource = ({
     const nextLayout = getReaderLayout(
       settings.navMode,
       settings.landscapeTwoPage === true,
+      settings.horizontalMarginStep,
     );
     const nextKey = JSON.stringify(nextLayout);
     if (appliedLayoutKeyRef.current === nextKey) return;
@@ -494,6 +499,7 @@ export const useReaderBookSource = ({
     isLoaded,
     setLayout,
     settings.landscapeTwoPage,
+    settings.horizontalMarginStep,
     settings.navMode,
   ]);
 

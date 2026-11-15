@@ -208,6 +208,7 @@ export type ReaderLayout = {
   swipeNavigation?: boolean;
   margin?: number;
   gap?: string;
+  outsideMargin?: string;
   maxColumnCount?: number;
   maxInlineSize?: string;
   animated?: boolean;

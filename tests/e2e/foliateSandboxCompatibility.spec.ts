@@ -393,11 +393,16 @@ test('adaptive outside margins preserve the center gap and reading position', as
     } });
   });
 
-  for (const [width, height, columns, outside] of [
+  for (const [width, height, columns, outside, ratio] of [
     [320, 800, 1, 16], [400, 800, 1, 20], [800, 900, 1, 34],
     [800, 600, 2, 34], [1200, 800, 2, 48], [400, 800, 1, 20],
+    ...[2, 3, 4, 5, 6, 7, 8].map(ratio => [400, 800, 1, ratio * 4, ratio]),
+    ...[2, 3, 4, 5, 6, 7, 8].map(ratio => [800, 600, 2, ratio * 6.8, ratio]),
   ]) {
     await page.setViewportSize({ width, height });
+    if (ratio !== undefined) {
+      await page.locator('foliate-paginator').evaluate((renderer, value) => renderer.setAttribute('outside-margin', `${value}%`), ratio);
+    }
     await expect.poll(() => page.evaluate(() => {
       const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
         heads: unknown[]; getContents(): Array<{ doc: Document }>;
@@ -445,6 +450,12 @@ test('adaptive margins retain scrolling and capped page widths', async ({ page }
   await expect.poll(geometry).toMatchObject({ outside: expect.closeTo(34, 0), bodyMaxWidth: '1000px' });
   await page.setViewportSize({ width: 1080, height: 1200 });
   await expect.poll(geometry).toMatchObject({ outside: expect.closeTo(43.8, 1), bodyMaxWidth: '1000px' });
+  // Change the real observed attribute without resizing or forcing render().
+  for (const [ratio, outside] of [[2, 17.52], [4, 35.04], [6, 52.56], [8, 70.08]]) {
+    await page.locator('foliate-paginator').evaluate((renderer, value) => renderer.setAttribute('outside-margin', `${value}%`), ratio);
+    await expect.poll(geometry).toMatchObject({ outside: expect.closeTo(outside, 1), bodyMaxWidth: '1000px' });
+  }
+  await page.locator('foliate-paginator').evaluate(renderer => renderer.removeAttribute('outside-margin'));
   await page.setViewportSize({ width: 2400, height: 1000 });
   await page.locator('foliate-paginator').evaluate(renderer => renderer.setAttribute('flow', 'paginated'));
   await expect.poll(geometry).toMatchObject({

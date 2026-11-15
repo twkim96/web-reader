@@ -76,6 +76,12 @@ body {
   background-size: var(--viewer-theme-texture-size, auto);
 }
 
+/* Custom theme textures belong to the shelf/reading canvas, not dialogs.
+ * Material highlights live on pseudo-elements and remain independent. */
+.viewer-theme-texture:is(.app-panel-radius, .app-menu-sheet, .app-menu-material, .app-search-surface) {
+  background-image: none;
+}
+
 /* Shared outer geometry for shelf grid cards and every modal surface. */
 .app-panel-radius {
   border-radius: 14px;

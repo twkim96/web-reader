@@ -166,6 +166,7 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     }
     if (layout.margin !== undefined) setAttributeIfChanged('margin', `${layout.margin}px`);
     if (layout.gap) setAttributeIfChanged('gap', layout.gap);
+    if (layout.outsideMargin) setAttributeIfChanged('outside-margin', layout.outsideMargin);
     if (layout.maxColumnCount) {
       setAttributeIfChanged('max-column-count', String(layout.maxColumnCount));
     }

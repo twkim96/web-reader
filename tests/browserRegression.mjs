@@ -3159,13 +3159,13 @@ try {
       .find((heading) => heading.textContent?.trim() === '리더 설정');
     const settingsFrame = settingsHeading?.parentElement?.parentElement?.parentElement;
     const scrollModeButton = [...(settingsFrame?.querySelectorAll('button') ?? [])]
-      .find((button) => button.textContent?.trim() === 'Scroll');
+      .find((button) => button.textContent?.trim() === '스크롤');
     scrollModeButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 250));
     const visibleTextAfterScrollMode = countVisibleReaderTextRects();
     const flowAfterScrollMode = renderer.getAttribute('flow');
     const tapModeButton = [...(settingsFrame?.querySelectorAll('button') ?? [])]
-      .find((button) => button.textContent?.trim() === 'L/R Tap');
+      .find((button) => button.textContent?.trim() === '좌/우');
     tapModeButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 250));
     const visibleTextAfterTapMode = countVisibleReaderTextRects();
@@ -6014,8 +6014,8 @@ try {
     return Boolean(button);
   })()`);
   await waitFor(
-    `document.body.innerText.includes('TOP/BOTTOM')
-      && document.body.innerText.includes('LEFT/RIGHT')
+    `document.body.innerText.includes('상/하 탭 영역')
+      && document.body.innerText.includes('좌/우 탭 영역')
       && document.body.innerText.includes('마지막으로 읽던 책 자동 열기')`,
     'settings modal base controls',
   );
@@ -6033,15 +6033,15 @@ try {
       return labelNode?.parentElement?.textContent?.replace(/\\s+/g, ' ').trim() ?? '';
     };
     const initial = {
-      topBottom: getRowText('Top/Bottom'),
-      leftRight: getRowText('Left/Right'),
+      topBottom: getRowText('상/하 탭 영역'),
+      leftRight: getRowText('좌/우 탭 영역'),
       bodyPosition: document.body.style.position,
     };
     const topIncrease = document.querySelector(
-      'button[aria-label="Increase top and bottom tap area"]',
+      'button[aria-label="상/하 탭 영역 늘리기"]',
     );
     const leftDecrease = document.querySelector(
-      'button[aria-label="Decrease left and right tap area"]',
+      'button[aria-label="좌/우 탭 영역 줄이기"]',
     );
     topIncrease?.click();
     await window.__regressionNextFrame();
@@ -6050,8 +6050,8 @@ try {
     leftDecrease?.click();
     await window.__regressionNextFrame();
     const updated = {
-      topBottom: getRowText('Top/Bottom'),
-      leftRight: getRowText('Left/Right'),
+      topBottom: getRowText('상/하 탭 영역'),
+      leftRight: getRowText('좌/우 탭 영역'),
     };
     const stored = JSON.parse(localStorage.getItem('viewer_settings') || '{}');
     const renderer = document.querySelector('foliate-view')?.renderer;

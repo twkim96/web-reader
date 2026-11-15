@@ -14,6 +14,7 @@ import {
   getEffectiveNavigationMode,
   getNavigationOptions,
 } from '../lib/readerNavigation';
+import { clampReaderMarginStep } from '../lib/readerSpacing';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
 import { MenuSheetHeader } from './MenuSheetHeader';
 import { useMouseDragScroll } from '../hooks/useMouseDragScroll';
@@ -64,6 +65,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const toggleAdvancedSizing = () => setShowAdvancedSizing((current) => !current);
   const fontDragHandlers = useMouseDragScroll();
   const paragraphSpacing = settings.paragraphSpacing ?? 1;
+  const horizontalMarginStep = clampReaderMarginStep(settings.horizontalMarginStep);
+  const verticalMarginStep = clampReaderMarginStep(settings.verticalMarginStep);
   const topBottomTapPercent = clampTapZonePercent(
     settings.tapTopBottomPercent,
     DEFAULT_TOP_BOTTOM_TAP_PERCENT,
@@ -83,6 +86,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     increaseLabel,
     onDecrease,
     onIncrease,
+    decreaseDisabled,
+    increaseDisabled,
   }: {
     label: string;
     value: React.ReactNode;
@@ -90,6 +95,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     increaseLabel: string;
     onDecrease: () => void;
     onIncrease: () => void;
+    decreaseDisabled?: boolean;
+    increaseDisabled?: boolean;
   }) => (
     <div>
       <div className="flex items-end justify-between gap-4">
@@ -98,8 +105,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className={valueStyle}>{value}</div>
         </div>
         <div className={stepperGroupStyle}>
-          <button aria-label={decreaseLabel} onClick={onDecrease} className={stepperBtnStyle}>-</button>
-          <button aria-label={increaseLabel} onClick={onIncrease} className={stepperBtnStyle}>+</button>
+          <button aria-label={decreaseLabel} onClick={onDecrease} disabled={decreaseDisabled} className={stepperBtnStyle}>-</button>
+          <button aria-label={increaseLabel} onClick={onIncrease} disabled={increaseDisabled} className={stepperBtnStyle}>+</button>
         </div>
       </div>
     </div>
@@ -108,10 +115,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const tapAreaControls = (
     <>
       {renderStepperRow({
-        label: 'Top/Bottom',
+        label: '상/하 탭 영역',
         value: `${topBottomTapPercent}%`,
-        decreaseLabel: 'Decrease top and bottom tap area',
-        increaseLabel: 'Increase top and bottom tap area',
+        decreaseLabel: '상/하 탭 영역 줄이기',
+        increaseLabel: '상/하 탭 영역 늘리기',
         onDecrease: () => onUpdateSettings({
           tapTopBottomPercent: clampTapZonePercent(
             topBottomTapPercent - 1,
@@ -127,10 +134,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       })}
 
       {renderStepperRow({
-        label: 'Left/Right',
+        label: '좌/우 탭 영역',
         value: `${leftRightTapPercent}%`,
-        decreaseLabel: 'Decrease left and right tap area',
-        increaseLabel: 'Increase left and right tap area',
+        decreaseLabel: '좌/우 탭 영역 줄이기',
+        increaseLabel: '좌/우 탭 영역 늘리기',
         onDecrease: () => onUpdateSettings({
           tapLeftRightPercent: clampTapZonePercent(
             leftRightTapPercent - 1,
@@ -150,7 +157,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <button
       type="button"
       aria-expanded={showAdvancedSizing}
-      aria-label={showAdvancedSizing ? 'Collapse size details' : 'Expand size details'}
+      aria-label={showAdvancedSizing ? '글자 크기 상세 접기' : '글자 크기 상세 펼치기'}
       onClick={toggleAdvancedSizing}
       className="app-size-disclosure flex w-full items-center gap-2 py-1 transition-opacity active:opacity-70"
     >
@@ -179,7 +186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       >
         <div className="space-y-5">
           <div data-reader-settings-navigation="true">
-            <label className={labelStyle}>Navigation Mode</label>
+            <label className={labelStyle}>열람방식</label>
             <div className="flex flex-wrap items-center justify-start gap-2 pt-1.5">
               {navOptions.map(opt => (
                 <button
@@ -196,7 +203,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {!isFixedLayout && (
             <div>
-              <label className={labelStyle}>Font Family</label>
+              <label className={labelStyle}>글꼴</label>
               <div {...fontDragHandlers} data-reader-font-options="true" className="app-font-options flex flex-nowrap items-center justify-start gap-2 overflow-x-auto overscroll-x-contain py-1.5">
                 {([
                   ['ridi', '리디 바탕'], ['chosunIlboMyungjo', '조선 명조'],
@@ -223,26 +230,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <button
                   type="button"
                   aria-expanded={showAdvancedSizing}
-                  aria-label="Toggle size details"
+                  aria-label="글자 크기 상세 전환"
                   onClick={toggleAdvancedSizing}
                   className="min-w-0 flex-1 text-left transition-opacity active:opacity-70"
                 >
-                  <span className={labelStyle}>Size</span>
+                  <span className={labelStyle}>글자 크기</span>
                   <span className={`block ${valueStyle}`}>{settings.fontSize}</span>
                 </button>
                 <div className={stepperGroupStyle}>
-                  <button aria-label="Decrease font size" onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} className={stepperBtnStyle}>-</button>
-                  <button aria-label="Increase font size" onClick={() => onUpdateSettings({ fontSize: Math.min(40, settings.fontSize + 1) })} className={stepperBtnStyle}>+</button>
+                  <button aria-label="글자 크기 줄이기" onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })} className={stepperBtnStyle}>-</button>
+                  <button aria-label="글자 크기 늘리기" onClick={() => onUpdateSettings({ fontSize: Math.min(40, settings.fontSize + 1) })} className={stepperBtnStyle}>+</button>
                 </div>
               </div>
 
               {showAdvancedSizing && (
                 <div className="space-y-4">
                   {renderStepperRow({
-                    label: 'Paragraph Gap',
+                    label: '단락 간격',
                     value: paragraphSpacing.toFixed(1),
-                    decreaseLabel: 'Decrease paragraph gap',
-                    increaseLabel: 'Increase paragraph gap',
+                    decreaseLabel: '단락 간격 줄이기',
+                    increaseLabel: '단락 간격 늘리기',
                     onDecrease: () => onUpdateSettings({
                       paragraphSpacing: Math.max(0, parseFloat((paragraphSpacing - 0.1).toFixed(1))),
                     }),
@@ -252,16 +259,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   })}
 
                   {renderStepperRow({
-                    label: 'Line',
+                    label: '줄간격',
                     value: settings.lineHeight.toFixed(1),
-                    decreaseLabel: 'Decrease line height',
-                    increaseLabel: 'Increase line height',
+                    decreaseLabel: '줄간격 줄이기',
+                    increaseLabel: '줄간격 늘리기',
                     onDecrease: () => onUpdateSettings({
                       lineHeight: Math.max(1.0, parseFloat((settings.lineHeight - 0.1).toFixed(1))),
                     }),
                     onIncrease: () => onUpdateSettings({
                       lineHeight: Math.min(3.0, parseFloat((settings.lineHeight + 0.1).toFixed(1))),
                     }),
+                  })}
+
+                  {renderStepperRow({
+                    label: '좌/우 여백',
+                    value: `${horizontalMarginStep}/7`,
+                    decreaseLabel: '좌/우 여백 줄이기',
+                    increaseLabel: '좌/우 여백 늘리기',
+                    decreaseDisabled: horizontalMarginStep <= 1,
+                    increaseDisabled: horizontalMarginStep >= 7,
+                    onDecrease: () => onUpdateSettings({ horizontalMarginStep: clampReaderMarginStep(horizontalMarginStep - 1) }),
+                    onIncrease: () => onUpdateSettings({ horizontalMarginStep: clampReaderMarginStep(horizontalMarginStep + 1) }),
+                  })}
+
+                  {renderStepperRow({
+                    label: '상/하 여백',
+                    value: `${verticalMarginStep}/7`,
+                    decreaseLabel: '상/하 여백 줄이기',
+                    increaseLabel: '상/하 여백 늘리기',
+                    decreaseDisabled: verticalMarginStep <= 1,
+                    increaseDisabled: verticalMarginStep >= 7,
+                    onDecrease: () => onUpdateSettings({ verticalMarginStep: clampReaderMarginStep(verticalMarginStep - 1) }),
+                    onIncrease: () => onUpdateSettings({ verticalMarginStep: clampReaderMarginStep(verticalMarginStep + 1) }),
                   })}
 
                   {tapAreaControls}

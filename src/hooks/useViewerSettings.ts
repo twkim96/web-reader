@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { clampReaderMarginStep } from '../lib/readerSpacing.ts';
 import type { ShelfDockStyle, ViewerSettings } from '../types.ts';
 import {
   normalizeReaderDictionaryProvider,
@@ -27,6 +28,8 @@ export const defaultSettings: ViewerSettings = {
   lineHeight: 1.9,
   paragraphSpacing: 1,
   padding: 24,
+  horizontalMarginStep: 4,
+  verticalMarginStep: 4,
   textAlign: 'justify',
   theme: 'midnight',
   navMode: 'scroll',
@@ -73,6 +76,8 @@ export const getStoredViewerSettings = () => {
     }
     return {
       ...merged,
+      horizontalMarginStep: clampReaderMarginStep(merged.horizontalMarginStep),
+      verticalMarginStep: clampReaderMarginStep(merged.verticalMarginStep),
       landscapeTwoPage: merged.landscapeTwoPage === true,
       archiveWebtoonMode: merged.archiveWebtoonMode === true,
       translationProvider: normalizeReaderTranslationProvider(merged.translationProvider),

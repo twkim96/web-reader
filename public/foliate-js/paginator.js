@@ -609,7 +609,7 @@ class View {
 // NOTE: everything here assumes the so-called "negative scroll type" for RTL
 export class Paginator extends HTMLElement {
     static observedAttributes = [
-        'flow', 'gap', 'margin',
+        'flow', 'gap', 'margin', 'outside-margin',
         'max-inline-size', 'max-block-size', 'max-column-count',
     ]
     #root = this.attachShadow({ mode: 'closed' })
@@ -833,6 +833,11 @@ export class Paginator extends HTMLElement {
     }
     attributeChangedCallback(name, _, value) {
         switch (name) {
+            case 'outside-margin':
+                // Outside padding is independent of the center column gap.
+                // Removing the attribute restores the gap-based default.
+                this.render()
+                break
             case 'flow':
                 this.#bindTouchListeners(this)
                 if (this.#view?.document) this.#bindTouchListeners(this.#view.document)
@@ -930,10 +935,13 @@ export class Paginator extends HTMLElement {
         // before the outside margins were adapted, including the width cap.
         const oldWidth = Math.min(hostWidth * (1 - g), maxInlineSize * maxColumnCount)
         const horizontalGap = g / (1 - g) * oldWidth
-        const outside = g * (Math.min(hostWidth, 400)
+        const outsideValue = parseFloat(this.getAttribute('outside-margin')) / 100
+        const outsideRatio = Number.isFinite(outsideValue)
+            ? Math.min(0.08, Math.max(0.02, outsideValue)) : g
+        const outside = outsideRatio * (Math.min(hostWidth, 400)
             + Math.max(0, hostWidth - 400) * 0.7)
         const outsidePadding = vertical ? 0
-            : flow === 'scrolled' ? Math.min(horizontalGap, outside) : horizontalGap / 2
+            : flow === 'scrolled' ? outside : Math.min(horizontalGap / 2, outside)
         // Publication padding contributes to the visible outside margin.
         // The flexible grid track also retains the existing width cap.
         const track = Math.max(0, outside - outsidePadding)
@@ -959,7 +967,8 @@ export class Paginator extends HTMLElement {
         // The container ratio selects the spread. max-inline-size caps line
         // length; it must not prevent two pages on a smaller foldable display.
         const divisor = maxColumnCount
-        const columnWidth = (size / divisor) - gap
+        const columnWidth = vertical ? (size / divisor) - gap
+            : (size - outsidePadding * 2 - gap * (divisor - 1)) / divisor
         this.setAttribute('dir', rtl ? 'rtl' : 'ltr')
 
         const marginalDivisor = vertical

@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { getReaderVerticalPadding } from '../lib/readerSpacing';
 import {
   Book,
   Bookmark,
@@ -272,7 +273,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const isFixedLayout = book.readerFormat === 'archive' || book.readerFormat === 'pdf';
   const isWebtoonMode = book.readerFormat === 'archive' && settings.archiveWebtoonMode === true;
   const effectiveNavMode = getEffectiveNavigationMode(settings.navMode, isFixedLayout);
-  const readerEdgePadding = isFixedLayout ? 0 : Math.max(settings.padding || 0, settings.fontSize);
+  const readerEdgePadding = isFixedLayout ? 0 : getReaderVerticalPadding(settings);
   const suppressLastReaderSessionOnExitRef = useRef(false);
   const keyboardNavigationRef = useRef<(event: KeyboardEvent) => void>(() => undefined);
   const wheelNavigationRef = useRef<(event: WheelEvent | React.WheelEvent) => void>(() => undefined);

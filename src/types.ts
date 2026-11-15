@@ -48,6 +48,8 @@ export interface ViewerSettings {
   lineHeight: number;
   paragraphSpacing: number;
   padding: number;
+  horizontalMarginStep?: number;
+  verticalMarginStep?: number;
   textAlign: 'left' | 'justify';
   theme: string;
   navMode: 'scroll' | 'page' | 'left-right' | 'all-dir';
