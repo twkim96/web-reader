@@ -207,7 +207,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div {...fontDragHandlers} data-reader-font-options="true" className="app-font-options flex flex-nowrap items-center justify-start gap-2 overflow-x-auto overscroll-x-contain py-1.5">
                 {([
                   ['ridi', '리디 바탕'], ['chosunIlboMyungjo', '조선 명조'],
-                  ['chosunGu', '조선 굴림'], ['sans', 'SANS'],
+                  ['chosunGu', '조선 굴림'], ['nanumSquare', '나눔스퀘어'],
+                  ['gowunBatang', '고운바탕'], ['gowunDodum', '고운돋움'], ['sans', 'SANS'],
                 ] as const).map(([f, label]) => (
                   <button
                     key={f}

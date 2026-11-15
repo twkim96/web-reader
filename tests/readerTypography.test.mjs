@@ -50,6 +50,19 @@ test('loads only the selected bundled font and ignores stale font loads', async 
     assert.match(applied.at(-1)[0], /ChosunGu[\s\S]*data:font\/test/);
     assert.doesNotMatch(applied.at(-1)[0], /RIDIBatang|ChosunilboNM/);
     assert.deepEqual(requests, ['/fonts/RIDIBatang.woff2', '/fonts/Chosunilbo_myungjo.woff', '/fonts/ChosunGu.ttf']);
+    for (const [fontFamily, family, file] of [
+      ['nanumSquare', 'NanumSquare', '/fonts/NanumSquareR.woff'],
+      ['gowunBatang', 'GowunBatang', '/fonts/GowunBatang-Regular.woff'],
+      ['gowunDodum', 'GowunDodum', '/fonts/GowunDodum-Regular.woff'],
+    ]) {
+      const before = requests.length;
+      await setStyle({ fontFamily });
+      assert.deepEqual(requests.slice(before), [file]);
+      assert.ok(applied.at(-1)[0].includes(`font-family: '${family}'`));
+      assert.match(applied.at(-1)[0], /data:font\/test/);
+      await setStyle({ fontFamily });
+      assert.equal(requests.length, before + 1);
+    }
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = originalFetch;

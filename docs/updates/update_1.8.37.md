@@ -4,6 +4,13 @@
 
 상태: 구현 완료 · 로컬 자동검증 통과
 
+## 나눔스퀘어·고운바탕·고운돋움 — 2026-11-16
+
+- 사용자가 지정한 눈누 [나눔스퀘어](https://noonnu.cc/font_page/37)·[고운바탕](https://noonnu.cc/font_page/733)·[고운돋움](https://noonnu.cc/font_page/734)을 이 순서로 SANS 왼쪽에 추가했다. 기존 저장 키·선택은 유지한다.
+- 네이버 공식 Regular WOFF와 눈누가 안내한 고운 계열 Regular WOFF를 변경 없이 포함했다. 각각 239,088·1,808,484·1,438,060바이트이며 합계 약 3.5MB다. [네이버 안내](https://help.naver.com/service/30016/contents/18088?osType=PC&lang=ko)와 제작자 저장소의 [고운바탕](https://github.com/yangheeryu/Gowun-Batang/blob/master/OFL.txt)·[고운돋움](https://github.com/yangheeryu/Gowun-Dodum/blob/master/OFL.txt) OFL 전문·출처를 파일별로 동봉했다.
+- 본문에는 선택한 글꼴만 data URL로 적용하고 자동읽기 부모 문서에서도 같은 글꼴을 사용한다. 기존 한 줄 글꼴 목록·마우스 드래그와 PWA 선택적 사전 캐시를 유지한다. 지원하지 않는 글자는 글꼴별 fallback으로 표시한다.
+- 관련 Node 20개·SW 9개, 변경 파일 lint와 TypeScript를 포함한 production build가 통과했다. Chromium/WebKit에서 새 WOFF의 한글·영문 로딩 2개, Chromium의 실제 리더 선택·자동읽기·설정 유지·서비스워커 캐시를 통한 오프라인 신규 FontFace 로딩 1개가 통과했다. 기존 macOS WebKit의 샘플 EPUB Blob 제약으로 실제 앱 경로 1개는 생략했다. 첫 설치의 worker가 기존 탭을 아직 제어하지 않은 상태에서 오프라인 fetch가 실패하는 테스트 순서를 확인하고, 다음 온라인 탐색으로 controller를 연결한 뒤 캐시를 검증했다. 실제 Android/iPad 확인은 TODO에 유지한다.
+
 ## 작은 좌우 여백의 페이지 조각 노출 — 2026-11-16
 
 - 1/7에서 옆 페이지가 끼어 보이는 현상을 Chromium/WebKit에서 재현했다. 문서 패딩을 중앙 간격의 절반보다 줄이면 CSS 열 이동 폭과 렌더러 페이지 이동 폭이 달라지는 것이 원인이었다. 문서 패딩은 유지하고 페이지 표시 영역을 대칭으로 넓혀 선택한 바깥 여백을 만든다. 1/7을 막는 최소 여백 제한은 추가하지 않았다.

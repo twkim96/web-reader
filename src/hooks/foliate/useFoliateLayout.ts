@@ -13,6 +13,9 @@ const LOCAL_FONTS: Record<string, { family: string; url: string; format: string;
   ridi: { family: 'RIDIBatang', url: '/fonts/RIDIBatang.woff2', format: 'woff2', fallback: ", url('/fonts/RIDIBatang.otf') format('opentype')" },
   chosunIlboMyungjo: { family: 'ChosunilboNM', url: '/fonts/Chosunilbo_myungjo.woff', format: 'woff' },
   chosunGu: { family: 'ChosunGu', url: '/fonts/ChosunGu.ttf', format: 'truetype' },
+  nanumSquare: { family: 'NanumSquare', url: '/fonts/NanumSquareR.woff', format: 'woff' },
+  gowunBatang: { family: 'GowunBatang', url: '/fonts/GowunBatang-Regular.woff', format: 'woff' },
+  gowunDodum: { family: 'GowunDodum', url: '/fonts/GowunDodum-Regular.woff', format: 'woff' },
 };
 
 const buildFontFace = (family: string, source: string, fallback = '') => `

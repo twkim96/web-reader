@@ -4,4 +4,7 @@ export const READER_FONT_FAMILIES: Record<string, string> = {
   ridi: '"RIDIBatang", "Noto Serif KR", serif',
   chosunIlboMyungjo: '"ChosunilboNM", serif',
   chosunGu: '"ChosunGu", sans-serif',
+  nanumSquare: '"NanumSquare", sans-serif',
+  gowunBatang: '"GowunBatang", serif',
+  gowunDodum: '"GowunDodum", sans-serif',
 };
