@@ -1723,3 +1723,62 @@ test('publication sanitizer blocks executable, navigation, storage, and remote U
   expect(result.storageValue).toBeNull();
   expect(externalRequests).toEqual([]);
 });
+
+test('small outside margins show complete columns without adjacent-page fragments', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await preparePage(page);
+  await page.evaluate(async () => {
+    const modulePath = '/foliate-js/paginator.js';
+    const { Paginator } = await import(modulePath);
+    document.body.style.margin = '0';
+    const url = URL.createObjectURL(new Blob([`<!doctype html><html><head><style>
+      html, body { margin:0; padding:0; }
+      p { margin:0; break-after:column; font:20px/1.5 sans-serif; }
+    </style></head><body>${Array.from({ length: 80 }, (_, i) => `<p id="col${i}">Column ${i} ${'reading text '.repeat(10)}</p>`).join('')}</body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:100vw;height:100vh';
+    for (const [name, value] of Object.entries({ flow: 'paginated', margin: '0px', gap: '5%', 'max-inline-size': '1000px', 'max-column-count': '2', 'outside-margin': '2%' })) renderer.setAttribute(name, value);
+    document.body.append(renderer);
+    renderer.open({ dir: 'ltr', sections: [{ linear: 'yes', load: async () => url, unload: () => undefined }] });
+    await renderer.goTo({ index: 0, anchor: (doc: Document) => {
+      const range = doc.createRange();
+      range.selectNodeContents(doc.getElementById('col20')!);
+      return range;
+    } });
+  });
+  const visibleColumns = () => page.evaluate(() => {
+    const renderer = document.querySelector('foliate-paginator') as HTMLElement & { getContents(): Array<{ doc: Document }> };
+    const doc = renderer.getContents()[0].doc;
+    const frameElement = doc.defaultView!.frameElement!;
+    const frame = frameElement.getBoundingClientRect();
+    const clip = frameElement.parentElement!.parentElement!.getBoundingClientRect();
+    return [...doc.querySelectorAll('p')].map(p => {
+      const rect = p.getBoundingClientRect();
+      return { id: p.id, left: rect.left + frame.left, right: rect.right + frame.left };
+    }).filter(rect => Math.min(innerWidth, clip.right, rect.right) - Math.max(0, clip.left, rect.left) > 2);
+  });
+  for (const [width, height, count] of [[1280, 800, 2], [800, 600, 2], [390, 844, 1]]) {
+    await page.setViewportSize({ width, height });
+    for (const ratio of [2, 3, 4, 5, 8, 2]) {
+      await page.locator('foliate-paginator').evaluate((renderer, value) => renderer.setAttribute('outside-margin', `${value}%`), ratio);
+      await expect.poll(async () => {
+        const visible = await visibleColumns();
+        return { count: visible.length, left: visible[0]?.left, right: visible.at(-1)?.right };
+      }, { message: `columns at ${width}px and ${ratio}%` }).toEqual({
+        count,
+        left: expect.closeTo((Math.min(width, 400) + Math.max(0, width - 400) * 0.7) * ratio / 100, -1),
+        right: expect.closeTo(width - (Math.min(width, 400) + Math.max(0, width - 400) * 0.7) * ratio / 100, -1),
+      });
+    }
+    const before = await visibleColumns();
+    await page.locator('foliate-paginator').evaluate(async renderer => {
+      await (renderer as HTMLElement & { next(): Promise<void> }).next();
+    });
+    await expect.poll(async () => (await visibleColumns()).map(column => column.id)).toEqual(
+      before.map(column => `col${Number(column.id.slice(3)) + count}`),
+    );
+    const after = await visibleColumns();
+    expect(after[0].left).toBeCloseTo(before[0].left, -1);
+    expect(after.at(-1)!.right).toBeCloseTo(before.at(-1)!.right, -1);
+  }
+});

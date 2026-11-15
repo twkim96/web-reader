@@ -713,11 +713,13 @@ export class Paginator extends HTMLElement {
             grid-row: 2;
             position: relative;
             overflow: hidden;
+            margin-inline: var(--_outside-overhang, 0px);
         }
         :host([flow="scrolled"]) #container {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             overflow: auto;
+            margin-inline: 0px;
             overscroll-behavior: contain;
         }
         #header {
@@ -941,11 +943,17 @@ export class Paginator extends HTMLElement {
         const outside = outsideRatio * (Math.min(hostWidth, 400)
             + Math.max(0, hostWidth - 400) * 0.7)
         const outsidePadding = vertical ? 0
-            : flow === 'scrolled' ? outside : Math.min(horizontalGap / 2, outside)
+            : flow === 'scrolled' ? outside : horizontalGap / 2
         // Publication padding contributes to the visible outside margin.
         // The flexible grid track also retains the existing width cap.
         const track = Math.max(0, outside - outsidePadding)
         if (!vertical) this.#top.style.setProperty('--_outside-track', `${track}px`)
+        // CSS multicolumn stride equals one spread only when root padding is
+        // half the column gap. Keep that invariant and expand the viewport
+        // symmetrically when a user selects an outside margin below it.
+        const overhang = vertical || flow === 'scrolled'
+            ? 0 : Math.min(0, outside - outsidePadding)
+        this.#top.style.setProperty('--_outside-overhang', `${overhang}px`)
 
         const { width, height } = this.#container.getBoundingClientRect()
         const size = vertical ? height : width
@@ -967,8 +975,7 @@ export class Paginator extends HTMLElement {
         // The container ratio selects the spread. max-inline-size caps line
         // length; it must not prevent two pages on a smaller foldable display.
         const divisor = maxColumnCount
-        const columnWidth = vertical ? (size / divisor) - gap
-            : (size - outsidePadding * 2 - gap * (divisor - 1)) / divisor
+        const columnWidth = (size / divisor) - gap
         this.setAttribute('dir', rtl ? 'rtl' : 'ltr')
 
         const marginalDivisor = vertical
