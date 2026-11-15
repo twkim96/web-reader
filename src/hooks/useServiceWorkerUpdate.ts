@@ -17,6 +17,24 @@ export const useServiceWorkerUpdate = ({
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
+    // Next dev reuses chunk URLs while HMR changes their module graph. An
+    // installed offline shell can combine old chunks with the new graph.
+    if (process.env.NODE_ENV === 'development'
+      && process.env.NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER !== '1') {
+      let active = true;
+      void navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+        const appRegistrations = registrations.filter((registration) => (
+          [registration.active, registration.waiting, registration.installing]
+            .some((worker) => worker && new URL(worker.scriptURL).pathname === '/sw.js')
+        ));
+        await Promise.all(appRegistrations.map((registration) => registration.unregister()));
+        const controller = navigator.serviceWorker.controller;
+        if (active && controller && new URL(controller.scriptURL).pathname === '/sw.js') {
+          window.location.reload();
+        }
+      }).catch((error) => console.warn('[PWA] Development worker cleanup failed:', error));
+      return () => { active = false; };
+    }
     let active = true;
     let registration: ServiceWorkerRegistration | null = null;
 

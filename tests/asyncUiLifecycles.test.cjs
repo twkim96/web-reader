@@ -274,6 +274,42 @@ async function withServiceWorkerUpdateHarness(flushCurrentProgress, run) {
   }
 }
 
+test('development service worker cleanup unregisters only this app and preserves stored data', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const previousMode = process.env.NODE_ENV;
+  const previousOptIn = process.env.NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER;
+  const removed = [];
+  let registered = false;
+  process.env.NODE_ENV = 'development';
+  delete process.env.NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER;
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
+    serviceWorker: {
+      controller: null,
+      register: async () => { registered = true; },
+      getRegistrations: async () => [
+        { active: { scriptURL: 'http://localhost:3100/sw.js' }, unregister: async () => { removed.push('reader'); } },
+        { active: { scriptURL: 'http://localhost:3100/other.js' }, unregister: async () => { removed.push('other'); } },
+      ],
+    },
+  } });
+  try {
+    await withDom(async root => {
+      localStorage.setItem('viewer_settings', 'saved');
+      const { useServiceWorkerUpdate } = require('../src/hooks/useServiceWorkerUpdate.ts');
+      function Harness() { useServiceWorkerUpdate(); return null; }
+      await React.act(async () => root.render(React.createElement(Harness)));
+      assert.deepEqual(removed, ['reader']);
+      assert.equal(registered, false);
+      assert.equal(localStorage.getItem('viewer_settings'), 'saved');
+    });
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor); else delete globalThis.navigator;
+    if (previousMode === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousMode;
+    if (previousOptIn === undefined) delete process.env.NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER;
+    else process.env.NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER = previousOptIn;
+  }
+});
+
 test('service worker update reports applying before saving finishes and ignores duplicate requests', async () => {
   let finishSave;
   let flushes = 0;

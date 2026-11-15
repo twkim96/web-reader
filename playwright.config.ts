@@ -12,6 +12,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
+    env: { NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER: '1' },
     command: 'npm run dev -- --hostname 127.0.0.1 --port 3107',
     url: 'http://127.0.0.1:3107',
     reuseExistingServer: false,

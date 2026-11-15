@@ -27,6 +27,8 @@ npm run dev
 
 개발은 기본 `http://localhost:3000`에서 실행합니다. production 모드는 `npm run build` 후 `npm run start`입니다. 개발 Firestore SDK는 메모리 캐시, production은 여러 탭용 persistent cache를 사용하므로 테스트 환경을 기록합니다.
 
+일반 `next dev`에서는 PWA Service Worker를 등록하지 않습니다. 개발 중 같은 URL의 Next chunk가 바뀌어 이전 오프라인 shell과 섞이는 것을 피하며, 이전 `/sw.js` 등록이 있으면 해제하고 해당 worker가 현재 탭을 제어할 때 한 번 새로고침합니다. IndexedDB·도서·진행률·설정은 지우지 않습니다. 이미 오래된 shell로 초기 실행이 실패했다면 강력 새로고침 후 재확인합니다. 개발 서버에서 PWA 자체를 검증할 때만 `NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER=1`로 명시적으로 켭니다. Playwright 기본 설정은 이 옵션을 사용하며 production PWA 등록·업데이트 정책은 유지합니다.
+
 서버 API에는 Firebase Admin의 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` 또는 Application Default Credentials가 필요합니다. 로컬 ADC 파일 경로는 `GOOGLE_APPLICATION_CREDENTIALS`로 지정할 수 있습니다. 선택적 NovelPia 인증은 `NOVELPIA_EMAIL`과 `NOVELPIA_PASSWORD`를 서버에만 설정합니다. Admin/플랫폼 비밀값에 `NEXT_PUBLIC_` 접두사를 붙이지 않습니다.
 
 ## 검증 선택
