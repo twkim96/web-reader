@@ -4,6 +4,12 @@
 
 상태: 구현 완료 · 로컬 자동검증 통과
 
+## 글꼴 선택 정리·반복 Google Fonts 요청 제거 — 2026-11-16
+
+- 사용자 요청으로 나눔스퀘어는 선택지·폰트 파일·라이선스 파일·등록·사전 캐시에서 제거했다. 사용 중인 선택이 없다는 확인에 따라 별도 이전 처리는 넣지 않았다. SANS는 선택 버튼만 제거하고 기존 sans 저장 키와 대체 글꼴 스택을 유지한다.
+- 개발자 도구에 누적된 `css2?family=Noto+Serif+KR…` 요청은 `useFoliateLayout`이 스타일 적용마다 넣던 무조건적인 Google Fonts `@import`였다. 요청 실패의 네트워크 사유는 사용자 화면만으로 확정하지 않는다. 로컬 글꼴 사용에도 발생하던 외부 import를 제거하고, 기기의 Noto·Georgia·시스템 serif/sans-serif 대체는 유지한다.
+- 외부 import가 남는 회귀를 수정 전 재현했고 수정 후 선택 글꼴만 로딩·지연 결과 무시·legacy sans/serif 적용 검사가 통과했다. 실제 리더의 글꼴·크기 변경 중 Google Fonts 요청이 없는 것도 확인했다. 관련 Node 20개·SW 9개, production Chromium/WebKit 3개(기존 macOS WebKit Blob 제약 1개 생략), 변경 파일 lint와 TypeScript를 포함한 production build가 통과했다.
+
 ## 나눔스퀘어·고운바탕·고운돋움 — 2026-11-16
 
 - 사용자가 지정한 눈누 [나눔스퀘어](https://noonnu.cc/font_page/37)·[고운바탕](https://noonnu.cc/font_page/733)·[고운돋움](https://noonnu.cc/font_page/734)을 이 순서로 SANS 왼쪽에 추가했다. 기존 저장 키·선택은 유지한다.

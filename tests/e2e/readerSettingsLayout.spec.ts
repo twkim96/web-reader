@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('additional bundled fonts decode Korean and Latin text', async ({ page }) => {
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('/');
-  for (const family of ['NanumSquare', 'GowunBatang', 'GowunDodum']) {
+  for (const family of ['GowunBatang', 'GowunDodum']) {
     await expect.poll(() => page.evaluate(async family => {
       const faces = await document.fonts.load(`20px "${family}"`, '가나다라마바사 ABC123');
       return faces.some(face => face.family.includes(family) && face.status === 'loaded');
@@ -13,6 +13,11 @@ test('additional bundled fonts decode Korean and Latin text', async ({ page }) =
 
 test('reader fonts stay on one scrollable row and selected local font reaches the book', async ({ page, browserName }) => {
   test.skip(browserName === 'webkit' && process.platform === 'darwin', 'Local macOS WebKit cannot persist the sample EPUB Blob.');
+  const remoteFontRequests: string[] = [];
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => {
+    remoteFontRequests.push(route.request().url());
+    return route.abort();
+  });
   await page.setViewportSize({ width: 320, height: 844 });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('/');
@@ -44,7 +49,7 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
     else element.setAttribute('style', style);
   }, savedStyle);
   const row = page.locator('[data-reader-font-options]');
-  await expect(row.locator('button')).toHaveText(['리디 바탕', '조선 명조', '조선 굴림', '나눔스퀘어', '고운바탕', '고운돋움', 'SANS']);
+  await expect(row.locator('button')).toHaveText(['리디 바탕', '조선 명조', '조선 굴림', '고운바탕', '고운돋움']);
   const geometry = await row.evaluate(element => ({
     tops: [...element.children].map(button => button.getBoundingClientRect().top),
     scrollable: element.scrollWidth > element.clientWidth,
@@ -61,9 +66,9 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   await page.mouse.up();
   await expect.poll(() => row.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
   await expect(row.getByRole('button', { name: '리디 바탕', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await row.getByRole('button', { name: 'SANS', exact: true }).focus();
-  await row.getByRole('button', { name: 'SANS', exact: true }).press('Enter');
-  await expect(row.getByRole('button', { name: 'SANS', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await row.getByRole('button', { name: '고운돋움', exact: true }).focus();
+  await row.getByRole('button', { name: '고운돋움', exact: true }).press('Enter');
+  await expect(row.getByRole('button', { name: '고운돋움', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await row.getByRole('button', { name: '조선 명조', exact: true }).click();
   await expect(row.getByRole('button', { name: '조선 명조', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => page.evaluate(async () => {
@@ -83,6 +88,7 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   }), { timeout: 30000 }).toBe(true);
   await page.getByRole('button', { name: '글자 크기 상세 펼치기', exact: true }).click();
   await expect(page.getByRole('button', { name: '글자 크기 상세 접기', exact: true })).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('button', { name: '글자 크기 늘리기', exact: true }).click();
   await page.getByRole('button', { name: '리더 설정 닫기', exact: true }).click();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('viewer_settings')!).fontFamily)).toBe('chosunGu');
   const autoRead = page.getByRole('button', { name: '현재 위치부터 자동읽기', exact: true });
@@ -102,7 +108,6 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
     return [...doc.fonts].some(font => font.family.includes(family) && font.status === 'loaded');
   }, family);
   for (const [label, family, key] of [
-    ['나눔스퀘어', 'NanumSquare', 'nanumSquare'],
     ['고운바탕', 'GowunBatang', 'gowunBatang'],
     ['고운돋움', 'GowunDodum', 'gowunDodum'],
   ]) {
@@ -123,7 +128,7 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   }
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
   await expect.poll(() => page.evaluate(async () => (
-    await Promise.all(['/fonts/NanumSquareR.woff', '/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(url => caches.match(url)))
+    await Promise.all(['/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(url => caches.match(url)))
   ).every(Boolean))).toBe(true);
   // A newly installed worker controls the next navigation, not this first tab.
   await page.reload();
@@ -135,14 +140,15 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   // Bypass HTTP cache and load fresh FontFace instances from the worker's
   // cached responses, independent of the document's already loaded fonts.
   expect(await page.evaluate(async () => {
-    return Promise.all(['/fonts/NanumSquareR.woff', '/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(async (url, index) => {
+    return Promise.all(['/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(async (url, index) => {
       const response = await fetch(url, { cache: 'no-store' });
       const font = new FontFace(`OfflineProbe${index}`, await response.arrayBuffer());
       await font.load();
       return response.ok && font.status === 'loaded';
     }));
-  })).toEqual([true, true, true]);
+  })).toEqual([true, true]);
   await page.context().setOffline(false);
+  expect(remoteFontRequests, 'reader style changes must not request external Google font stylesheets').toEqual([]);
 });
 
 test('Korean spacing controls apply and persist seven levels without texturing dialogs', async ({ page, browserName }) => {

@@ -13,7 +13,6 @@ const LOCAL_FONTS: Record<string, { family: string; url: string; format: string;
   ridi: { family: 'RIDIBatang', url: '/fonts/RIDIBatang.woff2', format: 'woff2', fallback: ", url('/fonts/RIDIBatang.otf') format('opentype')" },
   chosunIlboMyungjo: { family: 'ChosunilboNM', url: '/fonts/Chosunilbo_myungjo.woff', format: 'woff' },
   chosunGu: { family: 'ChosunGu', url: '/fonts/ChosunGu.ttf', format: 'truetype' },
-  nanumSquare: { family: 'NanumSquare', url: '/fonts/NanumSquareR.woff', format: 'woff' },
   gowunBatang: { family: 'GowunBatang', url: '/fonts/GowunBatang-Regular.woff', format: 'woff' },
   gowunDodum: { family: 'GowunDodum', url: '/fonts/GowunDodum-Regular.woff', format: 'woff' },
 };
@@ -127,7 +126,6 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
     const fontStartedAt = performance.now();
     const fontFace = await loadSelectedFontFace(styles.fontFamily);
     if (requestId !== styleRequestRef.current) return;
-    const beforeStyle = `@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap');\n${fontFace}`;
     traceReaderOpenPerformance({
       phase: 'reader-font-source-ready',
       durationMs: performance.now() - fontStartedAt,
@@ -145,7 +143,7 @@ export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
           color: 'transparent',
         });
       }
-      renderer.setStyles([beforeStyle, buildReaderStyle(styles)]);
+      renderer.setStyles([fontFace, buildReaderStyle(styles)]);
       traceReaderBootstrap({ event: 'style-applied' });
     } catch (error) {
       console.warn('[EpubReader] Style injection failed:', error);

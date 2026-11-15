@@ -36,14 +36,14 @@ test('loads only the selected bundled font and ignores stale font loads', async 
     assert.match(applied.at(-1)[0], /data:font\/test/);
     const pending = setStyle({ fontFamily: 'chosunIlboMyungjo' });
     await setStyle({ fontFamily: 'sans' });
-    assert.match(applied.at(-1)[0], /@import url\('https:\/\/fonts\.googleapis\.com\/css2\?family=Noto\+Serif\+KR/);
+    assert.doesNotMatch(applied.at(-1)[0], /@import|fonts\.googleapis\.com/);
     assert.doesNotMatch(applied.at(-1)[0], /data:font|ChosunilboNM|RIDIBatang/);
     finishChosun({ ok: true, blob: async () => new Blob(['chosun']) });
     await pending;
     assert.equal(applied.length, 2);
     await setStyle({ fontFamily: 'chosunIlboMyungjo' });
     assert.match(applied.at(-1)[0], /ChosunilboNM[\s\S]*data:font\/test/);
-    assert.match(applied.at(-1)[0], /@import url\('https:\/\/fonts\.googleapis\.com\/css2\?family=Noto\+Serif\+KR/);
+    assert.doesNotMatch(applied.at(-1)[0], /@import|fonts\.googleapis\.com/);
     assert.doesNotMatch(applied.at(-1)[0], /RIDIBatang/);
     assert.deepEqual(requests, ['/fonts/RIDIBatang.woff2', '/fonts/Chosunilbo_myungjo.woff']);
     await setStyle({ fontFamily: 'chosunGu' });
@@ -51,7 +51,6 @@ test('loads only the selected bundled font and ignores stale font loads', async 
     assert.doesNotMatch(applied.at(-1)[0], /RIDIBatang|ChosunilboNM/);
     assert.deepEqual(requests, ['/fonts/RIDIBatang.woff2', '/fonts/Chosunilbo_myungjo.woff', '/fonts/ChosunGu.ttf']);
     for (const [fontFamily, family, file] of [
-      ['nanumSquare', 'NanumSquare', '/fonts/NanumSquareR.woff'],
       ['gowunBatang', 'GowunBatang', '/fonts/GowunBatang-Regular.woff'],
       ['gowunDodum', 'GowunDodum', '/fonts/GowunDodum-Regular.woff'],
     ]) {
@@ -63,6 +62,15 @@ test('loads only the selected bundled font and ignores stale font loads', async 
       await setStyle({ fontFamily });
       assert.equal(requests.length, before + 1);
     }
+    const requestCount = requests.length;
+    await setStyle({ fontFamily: 'serif', fontSize: 22 });
+    assert.equal(applied.at(-1)[0], '');
+    assert.match(applied.at(-1)[1], /Georgia, serif/);
+    await setStyle({ fontFamily: 'sans', fontSize: 23 });
+    assert.equal(applied.at(-1)[0], '');
+    assert.match(applied.at(-1)[1], /Roboto, sans-serif/);
+    assert.equal(requests.length, requestCount);
+    assert.ok(applied.every(styles => !styles.join('').includes('fonts.googleapis.com')));
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = originalFetch;

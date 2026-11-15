@@ -58,7 +58,7 @@ export interface ViewerSettings {
   tapLeftRightPercent: number;
   landscapeTwoPage: boolean;
   autoOpenLastBook: boolean;
-  fontFamily: 'sans' | 'serif' | 'ridi' | 'chosunIlboMyungjo' | 'chosunGu' | 'nanumSquare' | 'gowunBatang' | 'gowunDodum';
+  fontFamily: 'sans' | 'serif' | 'ridi' | 'chosunIlboMyungjo' | 'chosunGu' | 'gowunBatang' | 'gowunDodum';
   accentColor: string;
   translationProvider: ReaderTranslationProvider;
   translationSourceLanguage: ReaderTranslationSourceLanguage;
