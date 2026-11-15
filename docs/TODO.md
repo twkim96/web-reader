@@ -2,6 +2,11 @@
 
 현재 구현과 릴리스 기록을 대조해 남은 작업만 모았습니다. 코드 릴리스·자동검증 완료와 실제 계정/기기 수용 확인은 별개입니다. 이 목록의 작성은 아래 작업의 실행을 뜻하지 않습니다. 과거 버전 기록과 anchor는 그대로 보존합니다.
 
+## 리더 여백·공통 헤더 실기기 확인
+
+- 사용자의 로컬 시안 확인과 배포 요청을 반영했습니다. 실제 Android/iPad에서 70% 증가량의 좌우 여백, 공통 헤더·아이콘 액션, 모바일 헤더 끌어 닫기와 크기 상세 확장 강조를 확인합니다.
+- 조선일보 명조·조선 굴림의 실제 Android/iPad 표시·오프라인 재열기, 가로 폰트 목록의 터치 스크롤, 시트 본문 스크롤과 헤더 드래그·취소·키보드 표시·화면 회전을 기기에서 확인합니다. 실제 기기·브라우저·빌드별 결과가 완료 조건이며 자동 Chromium/WebKit 결과와 구분합니다.
+
 ## 도서 정보 이미지 내보내기 실기기 확인
 
 - 삼성 인터넷에서 설치한 Android PWA의 도서 정보창에서 실제 표지가 있는 책의 PNG 저장과 이미지 복사를 재확인합니다. 온라인·오프라인 모두 저장 파일을 열고, 복사한 이미지를 이미지 붙여넣기를 지원하는 앱에 붙여넣습니다.
@@ -32,6 +37,7 @@
 
 ## 기존 브라우저 CI 실패
 
+- 2026-11-15 로컬 production 회귀는 선택 메뉴 버튼 폭 검사에서 먼저 멈췄습니다. 실제 폭은 40px이고 검사는 44px 이상을 요구합니다. 직전 `7e3371c`에도 `TextSelectionMenu`의 `w-10`과 같은 44px assertion이 함께 있어 이번 헤더 변경 전부터의 불일치입니다. 이 실행으로 뒤쪽 전체 회귀 통과를 주장하지 않습니다. 버튼 크기 계약과 기존 복사·공유 선택자를 함께 대조해야 합니다.
 - [문서 초기화 커밋 `0d52154`의 run 37394612095](https://github.com/twkim96/web-reader/actions/runs/37394612095)와 [직전 커밋 `11bc6f9`의 run 37162191819](https://github.com/twkim96/web-reader/actions/runs/37162191819)의 `browser-regression` job은 모두 실패로 종료됐습니다. 두 실행의 로그에서 같은 증상을 확인했으며 문서 이관 이전부터 있던 미해결 실패로 보존합니다.
 - 관측 증상: [tests/browserRegression.mjs:3411](https://github.com/twkim96/web-reader/blob/0d52154b6ff42718eb4e2257487e8df63cb9b67d/tests/browserRegression.mjs#L3411)의 `selectionActions.flowAfterScrollMode` assertion에서 기대값은 `scrolled`, 실제값은 `paginated`입니다. 제품 버그인지 테스트·실행 환경 문제인지는 아직 미확정입니다.
 - [커밋 `05307e3`의 run 37410255063](https://github.com/twkim96/web-reader/actions/runs/37410255063)도 완료·실패 상태이며 `browser-regression` job 로그에서 같은 assertion과 기대값/실제값을 확인했습니다.

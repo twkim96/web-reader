@@ -161,7 +161,7 @@ export const ShelfFilterModal: React.FC<Props> = ({
         onClick={(event) => event.stopPropagation()}
         className={`app-panel-radius app-menu-sheet flex max-h-[82dvh] w-full max-w-xl flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl outline-none`}
       >
-        <MenuSheetHeader kind="shelf-filter" title="책장 정렬·필터" titleId="shelf-filter-title" subtitle="정렬과 조건을 함께 적용합니다." onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
+        <MenuSheetHeader kind="shelf-filter" title="책장 정렬·필터" titleId="shelf-filter-title" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-3 sm:space-y-5 sm:px-4 sm:py-4">
           <section aria-labelledby="shelf-filter-sort-title">

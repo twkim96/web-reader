@@ -368,6 +368,117 @@ test('two-page layout follows the 1:1 container ratio across fold-sized resizes'
   })).toEqual({ heads: null, columnWidth: 'auto' });
 });
 
+test('adaptive outside margins preserve the center gap and reading position', async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 });
+  await preparePage(page);
+  await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    document.body.style.margin = '0';
+    const url = URL.createObjectURL(new Blob([`<!doctype html><html><body>
+      ${Array.from({ length: 100 }, (_, i) => `<p id="p${i}">Paragraph ${i} ${'reading text '.repeat(25)}</p>`).join('')}
+    </body></html>`], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:100vw;height:100vh';
+    for (const [name, value] of Object.entries({ flow: 'paginated', margin: '0px', gap: '5%', 'max-inline-size': '1000px', 'max-column-count': '2' })) renderer.setAttribute(name, value);
+    renderer.addEventListener('relocate', ((event: CustomEvent) => {
+      renderer.dataset.visibleText = event.detail.range?.toString() ?? '';
+    }) as EventListener);
+    document.body.append(renderer);
+    renderer.open({ dir: 'ltr', sections: [{ linear: 'yes', load: async () => url, unload: () => undefined }] });
+    await renderer.goTo({ index: 0, anchor: (doc: Document) => {
+      const range = doc.createRange();
+      range.selectNodeContents(doc.getElementById('p40')!);
+      return range;
+    } });
+  });
+
+  for (const [width, height, columns, outside] of [
+    [320, 800, 1, 16], [400, 800, 1, 20], [800, 900, 1, 34],
+    [800, 600, 2, 34], [1200, 800, 2, 48], [400, 800, 1, 20],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect.poll(() => page.evaluate(() => {
+      const renderer = document.querySelector('foliate-paginator') as HTMLElement & {
+        heads: unknown[]; getContents(): Array<{ doc: Document }>;
+      };
+      const doc = renderer.getContents()[0].doc;
+      const root = doc.documentElement;
+      const style = doc.defaultView!.getComputedStyle(root);
+      return {
+        columns: renderer.heads.length,
+        outside: (renderer.clientWidth - root.getBoundingClientRect().width) / 2 + parseFloat(style.paddingLeft),
+        gap: parseFloat(style.columnGap),
+        anchorVisible: renderer.dataset.visibleText?.includes('Paragraph 40 '),
+      };
+    })).toEqual({ columns, outside: expect.closeTo(outside, 0), gap: expect.closeTo(width * 0.05, 0), anchorVisible: true });
+  }
+});
+
+test('adaptive margins retain scrolling and capped page widths', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 });
+  await preparePage(page);
+  await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    document.body.style.margin = '0';
+    const url = URL.createObjectURL(new Blob(['<!doctype html><html><body><p>Reading text</p></body></html>'], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:100vw;height:100vh';
+    for (const [name, value] of Object.entries({ flow: 'scrolled', margin: '0px', gap: '5%', 'max-inline-size': '1000px', 'max-column-count': '1' })) renderer.setAttribute(name, value);
+    document.body.append(renderer);
+    renderer.open({ dir: 'ltr', sections: [{ linear: 'yes', load: async () => url, unload: () => undefined }] });
+    await renderer.goTo({ index: 0, anchor: 0 });
+  });
+  const geometry = () => page.evaluate(() => {
+    const renderer = document.querySelector('foliate-paginator') as HTMLElement & { getContents(): Array<{ doc: Document }> };
+    const doc = renderer.getContents()[0].doc;
+    const root = doc.documentElement;
+    const style = doc.defaultView!.getComputedStyle(root);
+    return {
+      width: root.getBoundingClientRect().width,
+      outside: (renderer.clientWidth - root.getBoundingClientRect().width) / 2 + parseFloat(style.paddingLeft),
+      gap: parseFloat(style.columnGap),
+      bodyMaxWidth: doc.defaultView!.getComputedStyle(doc.body).maxWidth,
+    };
+  });
+  await expect.poll(geometry).toMatchObject({ outside: expect.closeTo(34, 0), bodyMaxWidth: '1000px' });
+  await page.setViewportSize({ width: 1080, height: 1200 });
+  await expect.poll(geometry).toMatchObject({ outside: expect.closeTo(43.8, 1), bodyMaxWidth: '1000px' });
+  await page.setViewportSize({ width: 2400, height: 1000 });
+  await page.locator('foliate-paginator').evaluate(renderer => renderer.setAttribute('flow', 'paginated'));
+  await expect.poll(geometry).toMatchObject({
+    width: expect.closeTo(1000, 0),
+    outside: expect.closeTo(700 + 1000 * 0.05 / 0.95 / 2, 0),
+    gap: expect.closeTo(1000 * 0.05 / 0.95, 0),
+  });
+});
+
+test('vertical writing retains the original paginator grid across resize', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 });
+  await preparePage(page);
+  await page.evaluate(async () => {
+    const paginatorModule = '/foliate-js/paginator.js';
+    const { Paginator } = await import(paginatorModule);
+    document.body.style.margin = '0';
+    const url = URL.createObjectURL(new Blob(['<!doctype html><html><body style="writing-mode:vertical-rl">' + 'Vertical reading text '.repeat(200) + '</body></html>'], { type: 'text/html' }));
+    const renderer = new Paginator();
+    renderer.style.cssText = 'display:block;width:100vw;height:100vh';
+    for (const [name, value] of Object.entries({ flow: 'paginated', margin: '0px', gap: '5%', 'max-inline-size': '1000px', 'max-column-count': '2' })) renderer.setAttribute(name, value);
+    document.body.append(renderer);
+    renderer.open({ dir: 'ltr', sections: [{ linear: 'yes', load: async () => url, unload: () => undefined }] });
+    await renderer.goTo({ index: 0, anchor: 0 });
+  });
+  for (const [width, height, expectedWidth] of [[800, 900, 760], [1600, 900, 1440], [400, 800, 380]]) {
+    await page.setViewportSize({ width, height });
+    await expect.poll(() => page.evaluate(() => {
+      const renderer = document.querySelector('foliate-paginator') as HTMLElement & { getContents(): Array<{ doc: Document }> };
+      const doc = renderer.getContents()[0].doc;
+      return { width: doc.documentElement.getBoundingClientRect().width, writingMode: doc.defaultView!.getComputedStyle(doc.body).writingMode };
+    })).toEqual({ width: expect.closeTo(expectedWidth, 0), writingMode: 'vertical-rl' });
+  }
+});
+
 test('paginator rejects programmatic navigation while a page turn is locked and becomes ready after it settles', async ({ page }) => {
   await preparePage(page);
   const result = await page.evaluate(async () => {

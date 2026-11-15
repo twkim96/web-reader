@@ -20,7 +20,7 @@ type Props = {
   registerClose: (close: (() => void) | null) => void;
 };
 
-export function ReaderAutoReadModal({ content: initialContent, chapter, theme, fontFamily, onClose, loadNextChapter, registerClose }: Props) {
+export function ReaderAutoReadModal({ content: initialContent, theme, fontFamily, onClose, loadNextChapter, registerClose }: Props) {
   const [cursor, setCursor] = useState({ content: initialContent, index: initialContent.initialIndex });
   const { content, index } = cursor;
   const [playing, setPlaying] = useState(false);
@@ -139,7 +139,6 @@ export function ReaderAutoReadModal({ content: initialContent, chapter, theme, f
           title="자동읽기"
           onClose={close}
           borderClass={theme.border}
-          subtitle={content.sectionIndex === initialContent.sectionIndex ? chapter || '현재 장' : `${content.sectionIndex + 1}번째 장`}
           trailing={<ScanText size={18} className="text-accent-500" />}
         />
 

@@ -28,7 +28,7 @@ export const TocModal: React.FC<TocModalProps> = ({ toc, theme, onClose, onJump,
 
   return (
     <ReaderModalFrame ariaLabel="목차" menuSheet theme={theme} onClose={onClose} maxWidth="max-w-md" className="flex flex-col max-h-[min(30rem,72vh)] sm:max-h-[32rem]">
-        <MenuSheetHeader kind="toc" title="목차" subtitle="Table of Contents" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
+        <MenuSheetHeader kind="toc" title="목차" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         {/* List */}
         <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">

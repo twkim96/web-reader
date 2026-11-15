@@ -23,6 +23,7 @@ their regression tests when updating from upstream.
 
 - `view-policy.js` shares the 1:1 spread boundary between the paginator container and reader toolbar. Horizontal text uses two columns at width ≥ height, including square and narrow screens; vertical text swaps the axes.
 - `paginator.js` uses the ratio-selected column count directly. `max-inline-size` still caps page width but no longer suppresses two pages below 1,000 CSS px. Existing resize anchoring preserves the reading position.
+- Outside margins adapt from 5% through 400px, then grow at 3.5% of additional width, independently of the existing center gap. The 1,000px page-width cap can add further outside whitespace. Horizontal scrolling uses the adaptive outside width; vertical writing retains its original grid and axis-specific padding.
 - Changing `max-column-count` explicitly renders even when the outer container size stays fixed, so toggling the option immediately updates a smaller screen.
 - The opt-in setting and paginated-only behavior are preserved. Chromium/WebKit coverage in `tests/e2e/foliateSandboxCompatibility.spec.ts` exercises resizing across the boundary, sub-1,000px spreads, option-off and scrolled modes.
 - The existing content-derived build ID revises the Foliate runtime and PWA cache for this change.

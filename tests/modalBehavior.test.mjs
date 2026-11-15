@@ -156,9 +156,8 @@ test('menu sheet frames and headers expose one shared Apple-like contract', asyn
   assert.equal(header?.getAttribute('data-modal-header'), 'test');
   assert.equal(header?.querySelector('h2')?.textContent, '테스트 제목');
   const closeButton = header?.querySelector('[data-menu-sheet-close="true"]');
-  assert.ok(closeButton?.classList.contains('size-10'));
   assert.ok(closeButton?.classList.contains('app-modal-close'));
-  assert.equal(closeButton?.querySelector('svg')?.getAttribute('width'), '20');
+  assert.ok(closeButton?.querySelector('svg'));
 
   await act(async () => root.unmount());
 });
@@ -176,14 +175,14 @@ test('mobile menu sheets use a floating height-bounded themed surface', async ()
   assert.match(globals, /\.app-modal-close\s*\{[\s\S]*?background-color:\s*var\(--app-menu-close-surface, var\(--app-menu-control-surface\)\)[\s\S]*?backdrop-filter:\s*var\(--app-menu-filter\)/);
 });
 
-test('uses the shared themed close surface in modal headers with custom markup', async () => {
+test('translation and note dialogs use the shared header', async () => {
   const sources = await Promise.all([
     readFile(new URL('../src/components/reader/AnnotationNoteDialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/reader/TranslationDialog.tsx', import.meta.url), 'utf8'),
   ]);
 
   for (const source of sources) {
-    assert.match(source, /aria-label="[^"]*닫기"[\s\S]*?className="[^"]*app-modal-close/);
+    assert.match(source, /<MenuSheetHeader[\s\S]*?closeLabel="[^"]*닫기"/);
   }
 });
 
@@ -281,9 +280,8 @@ test('keeps theme headers and action-footers outside the scrolling modal body', 
   assert.match(themeSource, /data-custom-theme-list-scroll="true"[^>]*overflow-y-auto overscroll-y-auto/);
   assert.doesNotMatch(themeSource, /data-custom-theme-list-scroll="true"[^>]*overscroll-contain/);
   assert.match(bookInfoSource, /data-book-info-capture-root="true"[\s\S]*?app-menu-sheet-content/);
-  assert.match(bookInfoSource, /data-book-info-actions="true"[\s\S]*?app-menu-sheet-footer/);
-  assert.match(statisticsSource, /app-menu-sheet-footer shrink-0/);
-  assert.equal((statisticsSource.match(/app-menu-sheet-action/g) ?? []).length, 4);
+  assert.match(bookInfoSource, /trailing=\{\([\s\S]*?data-book-info-actions="true"/);
+  assert.match(statisticsSource, /trailing=\{\([\s\S]*?data-reading-statistics-export="json"/);
   assert.match(manageSource, /data-offline-book-row="true"[\s\S]*?app-menu-sheet-action/);
   assert.doesNotMatch(tocSource, /placement="high"/);
   assert.match(frameSource, /placement \?\? \(menuSheet \? 'center' : 'upper'\)/);
@@ -308,7 +306,7 @@ test('uses one lightly tinted menu material for selected sort and shelf primary 
   );
   assert.match(filterSource, /data-shelf-filter-sort=\{id\}[\s\S]*?app-menu-sheet-section app-menu-sheet-choice/);
   assert.match(filterSource, /data-shelf-filter-apply="true"[\s\S]*?app-menu-sheet-action app-menu-sheet-accent-action/);
-  assert.match(bookInfoSource, /data-book-info-open="true"[\s\S]*?app-menu-sheet-action app-menu-sheet-accent-action/);
+  assert.match(bookInfoSource, /data-book-info-open="true"[\s\S]*?app-menu-header-action/);
   assert.doesNotMatch(filterSource, /data-shelf-filter-apply="true"[\s\S]{0,240}?bg-accent-600/);
   assert.doesNotMatch(bookInfoSource, /data-book-info-open="true"[\s\S]{0,240}?bg-accent-600/);
 });

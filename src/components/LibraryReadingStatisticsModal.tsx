@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Database, Download, FileJson, FileText, Headphones, Monitor, RefreshCw, Share2 } from 'lucide-react';
+import { Database, FileJson, Headphones, Monitor, RefreshCw, Share2 } from 'lucide-react';
 import type { ThemeClasses } from '../types';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import {
@@ -19,7 +19,6 @@ import {
 } from '../lib/readingStatistics';
 import {
   createReadingStatisticsJsonExport,
-  createReadingStatisticsMarkdownExport,
 } from '../lib/readingStatisticsExport';
 import {
   downloadReadingStatisticsExport,
@@ -361,10 +360,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     notifyReadingStatisticsChange(ownerKey);
   }, [ownerKey, pendingBookListDeletion]);
 
-  const exportMarkdown = () => {
-    downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(visibleSessions));
-    setFeedback('Markdown 통계를 저장했습니다.');
-  };
   const exportJson = () => {
     downloadReadingStatisticsExport(createReadingStatisticsJsonExport(visibleSessions));
     setFeedback('JSON 통계를 저장했습니다.');
@@ -373,19 +368,19 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     setSharing(true);
     try {
       const shared = await shareReadingStatisticsExport(
-        createReadingStatisticsMarkdownExport(visibleSessions),
+        createReadingStatisticsJsonExport(visibleSessions),
       );
       if (!shared) {
-        downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(visibleSessions));
-        setFeedback('공유를 지원하지 않아 Markdown 파일로 저장했습니다.');
+        downloadReadingStatisticsExport(createReadingStatisticsJsonExport(visibleSessions));
+        setFeedback('공유를 지원하지 않아 JSON 파일로 저장했습니다.');
       } else {
         setFeedback('통계 파일을 공유했습니다.');
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       if (isReadingStatisticsShareCapabilityError(error)) {
-        downloadReadingStatisticsExport(createReadingStatisticsMarkdownExport(visibleSessions));
-        setFeedback('공유를 지원하지 않아 Markdown 파일로 저장했습니다.');
+        downloadReadingStatisticsExport(createReadingStatisticsJsonExport(visibleSessions));
+        setFeedback('공유를 지원하지 않아 JSON 파일로 저장했습니다.');
       } else {
         console.error('[ReadingStatistics] share failed:', error);
         setFeedback('통계 파일을 공유하지 못했습니다.');
@@ -447,26 +442,38 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
           title="독서 통계"
           kind="statistics"
           titleId="reading-statistics-title"
-          subtitle={<span aria-live="polite">{serverCheckLabel}</span>}
           onClose={onClose}
           borderClass={theme.border}
           secondaryClass={theme.secondary}
           trailing={(
+            <>
+            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} aria-label="독서 통계 JSON 저장" title="독서 통계 JSON 저장" className="app-menu-header-action">
+              <FileJson size={16} />
+            </button>
+            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} aria-label={sharing ? '독서 통계 공유 중' : '독서 통계 공유'} title={sharing ? '독서 통계 공유 중' : '독서 통계 JSON 공유'} aria-busy={sharing} className="app-menu-header-action">
+              <Share2 size={16} />
+            </button>
+            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} aria-label={exportingDiagnostics ? '진단 JSON 생성 중' : '진단 JSON 저장'} title={exportingDiagnostics ? '진단 JSON 생성 중' : '진단 JSON 저장'} aria-busy={exportingDiagnostics} className="app-menu-header-action">
+              <Database size={16} />
+            </button>
             <button
               type="button"
               data-reading-statistics-refresh="true"
               onClick={onRefresh}
               disabled={!canRefresh || refreshing}
               aria-label="독서 통계 새로고침"
-              title="서버에 올라온 독서 기록 다시 확인"
-              className="flex h-11 w-11 items-center justify-center rounded-full text-accent-500 hover:bg-accent-500/10 disabled:opacity-35"
+              title={`서버에 올라온 독서 기록 다시 확인 · ${serverCheckLabel}`}
+              aria-busy={refreshing}
+              className="app-menu-header-action"
             >
-              <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
+              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             </button>
+            </>
           )}
         />
 
         <div data-reading-statistics-body="true" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5 sm:px-4 sm:py-3">
+          {feedback && <p role="status" className="mb-3 text-center text-xs font-bold opacity-70">{feedback}</p>}
           {(syncHealth !== 'healthy' || quarantinedDocumentCount > 0) && (
             <div role="status" className="mb-3 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
               {syncHealth === 'retrying-receive'
@@ -642,23 +649,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
           )}
         </div>
 
-        <footer className={`app-menu-sheet-footer shrink-0 border-t ${theme.border} px-3 py-2 sm:px-4`}>
-          {feedback && <p role="status" className="mb-2 text-center text-xs font-bold opacity-70">{feedback}</p>}
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <button type="button" data-reading-statistics-export="markdown" onClick={exportMarkdown} disabled={visibleSessions.length === 0} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
-              <FileText size={15} /><Download size={13} /> MD
-            </button>
-            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
-              <FileJson size={15} /><Download size={13} /> JSON
-            </button>
-            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
-              <Share2 size={15} /> 공유
-            </button>
-            <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} className={`app-menu-sheet-action flex min-h-11 items-center justify-center gap-1.5 rounded-xl border ${theme.border} text-xs font-bold transition-opacity hover:opacity-80 disabled:opacity-30`}>
-              <Database size={15} /><Download size={13} /> 진단
-            </button>
-          </div>
-        </footer>
       </section>
     </div>
     {pendingRoundCompletion && (

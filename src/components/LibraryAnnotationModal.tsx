@@ -309,7 +309,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         style={themeVariables}
         className={`app-panel-radius app-menu-sheet flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border shadow-2xl sm:max-h-[82dvh] ${theme.bg} ${theme.text} ${theme.border}`}
       >
-        <MenuSheetHeader kind="annotations" title="라이브러리 주석" subtitle={`로컬 ${annotations.length}개 · 삭제 기록 제외 · 위치 오류 항목 포함`} onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
+        <MenuSheetHeader kind="annotations" title="라이브러리 주석" onClose={onClose} borderClass={theme.border} secondaryClass={theme.secondary} />
 
         <div className={`shrink-0 space-y-1.5 border-b px-3 py-2 sm:px-4 ${theme.border}`}>
           <label className={`app-menu-sheet-action flex min-h-11 items-center gap-2 rounded-xl border px-3 ${theme.border}`}>

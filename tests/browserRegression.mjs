@@ -371,7 +371,7 @@ try {
   assert.equal(loginDisclosure.mode, 'firebase', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.borderRadius, '14px', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.cancelBorderRadius, '10px', JSON.stringify(loginDisclosure));
-  assert.equal(loginDisclosure.headerIconBorderRadius, '8px', JSON.stringify(loginDisclosure));
+  assert.equal(loginDisclosure.headerIconBorderRadius, '7px', JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.closeIsFirst, true, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.closeIsLeftOfTitle, true, JSON.stringify(loginDisclosure));
   assert.equal(loginDisclosure.bodyPosition, 'fixed', JSON.stringify(loginDisclosure));
@@ -1003,7 +1003,7 @@ try {
   assert.ok(desktopFilterModal.height <= 800 * 0.82 + 1, JSON.stringify(desktopFilterModal));
   assert.equal(desktopFilterModal.alphaDisabled, false);
   assert.equal(desktopFilterModal.headerClose, true, JSON.stringify(desktopFilterModal));
-  assert.notEqual(desktopFilterModal.headerDivider, '0px', JSON.stringify(desktopFilterModal));
+  assert.equal(desktopFilterModal.headerDivider, '0px', JSON.stringify(desktopFilterModal));
   await evaluate(`document.querySelector('[data-shelf-filter-sort="alpha"]')?.click()`);
   await evaluate('window.__regressionNextFrame(2)');
   await evaluate(`document.querySelector('[data-shelf-filter-apply="true"]')?.click()`);
@@ -1093,7 +1093,7 @@ try {
   assert.match(bookInfoUi.text, /파일 크기/);
   assert.match(bookInfoUi.text, /읽은 시간/);
   assert.equal(bookInfoUi.headerClose, true, JSON.stringify(bookInfoUi));
-  assert.notEqual(bookInfoUi.headerDivider, '0px', JSON.stringify(bookInfoUi));
+  assert.equal(bookInfoUi.headerDivider, '0px', JSON.stringify(bookInfoUi));
   assert.equal(
     await evaluate(`document.querySelector('[data-book-info-value="reading-time"]')?.textContent?.trim()`),
     '',
@@ -1109,7 +1109,7 @@ try {
   assert.equal(bookInfoUi.modalUserSelect, 'text');
   assert.equal(bookInfoUi.modalOutlineStyle, 'none');
   assert.ok(bookInfoUi.modalOutlineWidth === '0px' || bookInfoUi.modalOutlineStyle === 'none');
-  assert.equal(bookInfoUi.captureRootContainsActions, false);
+  assert.equal(bookInfoUi.captureRootContainsActions, true);
   assert.equal(bookInfoUi.hasCopyImageButton, true);
   assert.equal(bookInfoUi.hasCaptureButton, true);
   assert.ok(bookInfoUi.tagRowBottomDelta !== null && bookInfoUi.tagRowBottomDelta <= 1, JSON.stringify(bookInfoUi));
@@ -1411,7 +1411,7 @@ try {
     };
   })()`);
   assert.equal(themeModalHeader.close, true, JSON.stringify(themeModalHeader));
-  assert.equal(themeModalHeader.divider, '1px', JSON.stringify(themeModalHeader));
+  assert.equal(themeModalHeader.divider, '0px', JSON.stringify(themeModalHeader));
   assert.ok(Math.abs(
     themeModalHeader.top + themeModalHeader.height
       - (themeModalHeader.overlayTop + themeModalHeader.overlayHeight) + 12
@@ -4813,7 +4813,7 @@ try {
     };
   })()`);
   assert.equal(settingsModalHeader.close, true, JSON.stringify(settingsModalHeader));
-  assert.equal(settingsModalHeader.divider, '1px', JSON.stringify(settingsModalHeader));
+  assert.equal(settingsModalHeader.divider, '0px', JSON.stringify(settingsModalHeader));
   assert.ok(
     settingsModalHeader.navigationGap >= 19 && settingsModalHeader.navigationGap <= 21,
     JSON.stringify(settingsModalHeader),
@@ -4862,7 +4862,7 @@ try {
       close: Boolean(header?.querySelector('[data-menu-sheet-close="true"]')),
       divider: header ? getComputedStyle(header).borderBottomWidth : '0px',
     };
-  })()`), { close: true, divider: '1px' });
+  })()`), { close: true, divider: '0px' });
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
   await waitFor(
     '!document.querySelector(\'[data-reading-statistics-modal="true"]\')',
@@ -4877,7 +4877,7 @@ try {
     const modal = document.querySelector('[data-book-info-modal="true"]');
     return {
       hasReadButton: [...(modal?.querySelectorAll('button') ?? [])]
-        .some((button) => button.textContent?.trim() === '읽기'),
+        .some((button) => button.getAttribute('aria-label') === '읽기'),
       hasDeleteButton: Boolean(modal?.querySelector('[data-book-info-request-delete="true"]')),
       hasCopyImageButton: Boolean(modal?.querySelector('[data-book-info-copy-image="true"]')),
       hasCaptureButton: Boolean(modal?.querySelector('[data-book-info-capture="true"]')),
@@ -5649,12 +5649,12 @@ try {
     JSON.stringify(libraryAnnotationUi),
   );
   assert.equal(libraryAnnotationUi.headerClose, true, JSON.stringify(libraryAnnotationUi));
-  assert.notEqual(libraryAnnotationUi.headerDivider, '0px', JSON.stringify(libraryAnnotationUi));
+  assert.equal(libraryAnnotationUi.headerDivider, '0px', JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.horizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.bodyHorizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
-  // Shared MenuSheetHeader uses the established size-10 close control.
-  assert.equal(libraryAnnotationUi.closeWidth, 40, JSON.stringify(libraryAnnotationUi));
-  assert.equal(libraryAnnotationUi.closeHeight, 40, JSON.stringify(libraryAnnotationUi));
+  // Shared MenuSheetHeader uses the compact common close control.
+  assert.equal(libraryAnnotationUi.closeWidth, 32, JSON.stringify(libraryAnnotationUi));
+  assert.equal(libraryAnnotationUi.closeHeight, 32, JSON.stringify(libraryAnnotationUi));
   const libraryAnnotationBackdropClose = await evaluate(`(async () => {
     document.querySelector('[data-library-annotation-modal="true"]')?.click();
     await window.__regressionNextFrame(2);
@@ -6568,7 +6568,7 @@ try {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');
     const body = modal?.querySelector('[data-reading-statistics-body="true"]');
     const rect = modal?.getBoundingClientRect();
-    const markdownButton = modal?.querySelector('[data-reading-statistics-export="markdown"]');
+    const exportButton = modal?.querySelector('[data-reading-statistics-export="json"]');
     const shareButton = modal?.querySelector('[data-reading-statistics-share="true"]');
     const modalTextColor = modal ? getComputedStyle(modal).color : '';
     const headlineValueColors = [...(modal?.querySelectorAll('[data-reading-statistics-headline]') ?? [])]
@@ -6590,6 +6590,7 @@ try {
         height: buttonRect.height,
         range: button.getAttribute('data-reading-statistics-range'),
         headerClose: button.hasAttribute('data-menu-sheet-close'),
+        headerAction: Boolean(button.closest('.app-menu-sheet-header-actions')),
         compact: Boolean(
           button.closest('[data-reading-statistics-book-filter="true"]')
           || button.hasAttribute('data-reading-statistics-complete')
@@ -6607,7 +6608,7 @@ try {
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
       bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
       actionButtonsReachable: buttons
-        .filter(({ range, compact, headerClose }) => !range && !compact && !headerClose)
+        .filter(({ range, compact, headerClose, headerAction }) => !range && !compact && !headerClose && !headerAction)
         .every(({ width, height }) => width >= 44 && height >= 44),
       headerCloseSize: buttons.filter(({ headerClose }) => headerClose)
         .map(({ width, height }) => ({ width, height })),
@@ -6627,9 +6628,9 @@ try {
       headlineValueColors,
       modeValueColors,
       unexpectedAccentCount: unexpectedAccentElements.length,
-      markdownBorderColor: markdownButton ? getComputedStyle(markdownButton).borderColor : '',
-      markdownTextColor: markdownButton ? getComputedStyle(markdownButton).color : '',
-      markdownBackground: markdownButton ? getComputedStyle(markdownButton).backgroundColor : '',
+      exportBorderColor: exportButton ? getComputedStyle(exportButton).borderColor : '',
+      exportTextColor: exportButton ? getComputedStyle(exportButton).color : '',
+      exportBackground: exportButton ? getComputedStyle(exportButton).backgroundColor : '',
       shareTextColor: shareButton ? getComputedStyle(shareButton).color : '',
       shareBackground: shareButton ? getComputedStyle(shareButton).backgroundColor : '',
     };
@@ -6645,14 +6646,14 @@ try {
   assert.equal(readingStatisticsUi.horizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.bodyHorizontalOverflow, 0, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.actionButtonsReachable, true, JSON.stringify(readingStatisticsUi));
-  assert.deepEqual(readingStatisticsUi.headerCloseSize, [{ width: 40, height: 40 }]);
+  assert.deepEqual(readingStatisticsUi.headerCloseSize, [{ width: 32, height: 32 }]);
   assert.equal(readingStatisticsUi.rangeButtonsCompact, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.refreshButtonFound, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.jsonEnabled, true, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.accentName, 'yellow', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.accentValue, '#d4af37', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.headerClose, true, JSON.stringify(readingStatisticsUi));
-  assert.notEqual(readingStatisticsUi.headerDivider, '0px', JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.headerDivider, '0px', JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.unexpectedAccentCount, 0, JSON.stringify(readingStatisticsUi));
   assert.ok(
     readingStatisticsUi.headlineValueColors.every((color) => color === readingStatisticsUi.modalTextColor),
@@ -6662,10 +6663,9 @@ try {
     readingStatisticsUi.modeValueColors.every((color) => color === readingStatisticsUi.modalTextColor),
     JSON.stringify(readingStatisticsUi),
   );
-  assert.equal(readingStatisticsUi.markdownTextColor, readingStatisticsUi.modalTextColor, JSON.stringify(readingStatisticsUi));
-  assert.equal(readingStatisticsUi.shareTextColor, readingStatisticsUi.markdownTextColor, JSON.stringify(readingStatisticsUi));
-  assert.equal(readingStatisticsUi.shareBackground, readingStatisticsUi.markdownBackground, JSON.stringify(readingStatisticsUi));
-  assert.notEqual(readingStatisticsUi.markdownBorderColor, readingStatisticsUi.markdownTextColor, JSON.stringify(readingStatisticsUi));
+  assert.notEqual(readingStatisticsUi.exportTextColor, readingStatisticsUi.modalTextColor, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.shareTextColor, readingStatisticsUi.exportTextColor, JSON.stringify(readingStatisticsUi));
+  assert.equal(readingStatisticsUi.shareBackground, readingStatisticsUi.exportBackground, JSON.stringify(readingStatisticsUi));
   const bookRoundUi = await evaluate(`(() => {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');
     const filters = modal?.querySelector('[data-reading-statistics-book-filter="true"]');

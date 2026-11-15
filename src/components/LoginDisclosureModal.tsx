@@ -62,9 +62,9 @@ export const LoginDisclosureModal: React.FC<LoginDisclosureModalProps> = ({
           trailing={(
             <div
               data-login-disclosure-icon="true"
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${theme.secondary}`}
+              className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${theme.secondary}`}
             >
-              <ShieldCheck size={21} aria-hidden="true" />
+              <ShieldCheck size={17} aria-hidden="true" />
             </div>
           )}
         />

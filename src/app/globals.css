@@ -29,6 +29,23 @@
   font-display: swap;
 }
 
+/* The automatic-reading dialog lives outside the EPUB iframe. These faces are
+ * fetched on use, so it follows the same selected font as the publication. */
+@font-face {
+  font-family: 'ChosunilboNM';
+  src: url('/fonts/Chosunilbo_myungjo.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'ChosunGu';
+  src: url('/fonts/ChosunGu.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -279,6 +296,44 @@ body:has(
   background-color: transparent !important;
 }
 
+.app-font-options {
+  scrollbar-width: none;
+  cursor: grab;
+  user-select: none;
+}
+.app-font-options::-webkit-scrollbar { display: none; }
+.app-font-options button { cursor: inherit; }
+.app-font-options[data-mouse-dragging='true'] { cursor: grabbing; }
+
+.app-size-disclosure {
+  color: var(--color-accent-500);
+}
+.app-menu-sheet-header-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.app-menu-sheet-header-actions svg {
+  width: 16px;
+  height: 16px;
+}
+.app-menu-header-action {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--color-accent-500);
+}
+.app-menu-header-action:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.app-menu-header-action:disabled { opacity: 0.35; }
+.app-menu-header-action.text-red-400 { color: var(--color-red-400); }
+
 .app-menu-sheet-action,
 .app-menu-sheet-section {
   background-color: color-mix(in srgb, var(--viewer-theme-text) 7%, transparent) !important;
@@ -323,12 +378,24 @@ html[data-viewer-menu-style] .app-modal-close {
     max-height: 60dvh !important;
     border-radius: 22px !important;
     transform: none !important;
+    translate: 0 var(--sheet-drag-y, 0px);
+    transition: translate 180ms ease-out;
     animation: app-menu-sheet-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) !important;
   }
+
+  .app-menu-sheet .app-menu-sheet-header {
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+  }
+  .app-menu-sheet[data-sheet-dragging='true'] {
+    transition: none;
+  }
+  .app-menu-sheet[data-sheet-dragging='true'] .app-menu-sheet-header { cursor: grabbing; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-menu-sheet { animation: none !important; }
+  .app-menu-sheet { animation: none !important; transition: none !important; }
 
   [data-shelf-bottom-dock='true'] {
     transition: none !important;

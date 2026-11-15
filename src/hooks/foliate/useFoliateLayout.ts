@@ -1,6 +1,6 @@
 'use client';
 
-import { MutableRefObject, useCallback } from 'react';
+import { MutableRefObject, useCallback, useRef } from 'react';
 import { FoliateRenderer, FoliateViewElement, ReaderLayout, ReaderStyle } from './types';
 import { traceReaderBootstrap, traceReaderOpenPerformance } from '../../lib/readerBootstrapTrace';
 import { READER_FONT_FAMILIES } from '../../lib/readerTypography';
@@ -9,23 +9,23 @@ interface UseFoliateLayoutOptions {
   viewRef: MutableRefObject<FoliateViewElement | null>;
 }
 
-const RIDI_FONT_URL = '/fonts/RIDIBatang.woff2';
+const LOCAL_FONTS: Record<string, { family: string; url: string; format: string; fallback?: string }> = {
+  ridi: { family: 'RIDIBatang', url: '/fonts/RIDIBatang.woff2', format: 'woff2', fallback: ", url('/fonts/RIDIBatang.otf') format('opentype')" },
+  chosunIlboMyungjo: { family: 'ChosunilboNM', url: '/fonts/Chosunilbo_myungjo.woff', format: 'woff' },
+  chosunGu: { family: 'ChosunGu', url: '/fonts/ChosunGu.ttf', format: 'truetype' },
+};
 
-const buildBeforeStyle = (ridiFontSource: string) => `
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap');
+const buildFontFace = (family: string, source: string, fallback = '') => `
   @font-face {
-    font-family: 'RIDIBatang';
-    src:
-      ${ridiFontSource},
-      url('/fonts/RIDIBatang.otf') format('opentype');
+    font-family: '${family}';
+    src: ${source}${fallback};
     font-weight: normal;
     font-style: normal;
     font-display: block;
   }
 `;
 
-const URL_RIDI_FONT_FACE = buildBeforeStyle(`url('${RIDI_FONT_URL}') format('woff2')`);
-let ridiFontFacePromise: Promise<string> | null = null;
+const fontFacePromises = new Map<string, Promise<string>>();
 
 const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -34,22 +34,27 @@ const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(blob);
 });
 
-const loadEmbeddedRidiFontFace = () => {
-  if (ridiFontFacePromise) return ridiFontFacePromise;
+const loadSelectedFontFace = (fontKey: string | undefined) => {
+  const key = fontKey ?? 'ridi';
+  const font = LOCAL_FONTS[key];
+  if (!font) return Promise.resolve('');
+  const existing = fontFacePromises.get(key);
+  if (existing) return existing;
 
-  ridiFontFacePromise = fetch(RIDI_FONT_URL, { cache: 'force-cache' })
+  const promise = fetch(font.url, { cache: 'force-cache' })
     .then((response) => {
-      if (!response.ok) throw new Error(`Failed to load ${RIDI_FONT_URL}: ${response.status}`);
+      if (!response.ok) throw new Error(`Failed to load ${font.url}: ${response.status}`);
       return response.blob();
     })
     .then(blobToDataUrl)
-    .then((dataUrl) => buildBeforeStyle(`url('${dataUrl}') format('woff2')`))
+    .then((dataUrl) => buildFontFace(font.family, `url('${dataUrl}') format('${font.format}')`))
     .catch((error) => {
-      console.warn('[EpubReader] Failed to embed RIDIBatang font:', error);
-      return URL_RIDI_FONT_FACE;
+      fontFacePromises.delete(key);
+      console.warn(`[EpubReader] Failed to embed ${font.family} font:`, error);
+      return buildFontFace(font.family, `url('${font.url}') format('${font.format}')`, font.fallback);
     });
-
-  return ridiFontFacePromise;
+  fontFacePromises.set(key, promise);
+  return promise;
 };
 
 const buildReaderStyle = (styles: ReaderStyle) => {
@@ -110,12 +115,16 @@ const buildReaderStyle = (styles: ReaderStyle) => {
 };
 
 export const useFoliateLayout = ({ viewRef }: UseFoliateLayoutOptions) => {
+  const styleRequestRef = useRef(0);
   const setStyle = useCallback(async (
     styles: ReaderStyle,
     targetRenderer?: FoliateRenderer,
   ) => {
+    const requestId = ++styleRequestRef.current;
     const fontStartedAt = performance.now();
-    const beforeStyle = await loadEmbeddedRidiFontFace();
+    const fontFace = await loadSelectedFontFace(styles.fontFamily);
+    if (requestId !== styleRequestRef.current) return;
+    const beforeStyle = `@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap');\n${fontFace}`;
     traceReaderOpenPerformance({
       phase: 'reader-font-source-ready',
       durationMs: performance.now() - fontStartedAt,

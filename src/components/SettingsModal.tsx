@@ -16,6 +16,7 @@ import {
 } from '../lib/readerNavigation';
 import { ReaderModalFrame } from './reader/ReaderModalFrame';
 import { MenuSheetHeader } from './MenuSheetHeader';
+import { useMouseDragScroll } from '../hooks/useMouseDragScroll';
 import { getHighlightColor } from '../lib/annotationPolicy';
 import {
   ANNOTATION_PALETTE_LABEL_MAX_LENGTH,
@@ -56,11 +57,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showAnnotationPalette, setShowAnnotationPalette] = useState(false);
   const [showLanguageTools, setShowLanguageTools] = useState(false);
   const labelStyle = "text-[10px] font-black uppercase tracking-[0.16em] block text-left mb-1 opacity-55";
-  const optionBtnStyle = `app-menu-sheet-action app-menu-sheet-choice h-9 px-4 rounded-xl text-[9px] font-bold uppercase transition-all active:scale-95`;
+  const optionBtnStyle = `app-menu-sheet-action app-menu-sheet-choice h-9 px-4 rounded-xl text-[9px] font-bold transition-all active:scale-95`;
   const stepperBtnStyle = `app-menu-sheet-action w-7 h-7 flex items-center justify-center rounded-md font-bold transition-transform active:scale-95 text-xs shadow-sm leading-none`;
   const stepperGroupStyle = "flex items-center gap-1.5 mr-1.5";
   const valueStyle = "font-black text-lg tabular-nums leading-none w-10 text-left";
   const toggleAdvancedSizing = () => setShowAdvancedSizing((current) => !current);
+  const fontDragHandlers = useMouseDragScroll();
   const paragraphSpacing = settings.paragraphSpacing ?? 1;
   const topBottomTapPercent = clampTapZonePercent(
     settings.tapTopBottomPercent,
@@ -150,13 +152,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       aria-expanded={showAdvancedSizing}
       aria-label={showAdvancedSizing ? 'Collapse size details' : 'Expand size details'}
       onClick={toggleAdvancedSizing}
-      className="flex w-full items-center gap-2 py-1 text-current/45 transition-opacity active:opacity-70"
+      className="app-size-disclosure flex w-full items-center gap-2 py-1 transition-opacity active:opacity-70"
     >
       <span className="h-px flex-1 bg-current/15" />
-      <ChevronDown
-        size={14}
-        className={`shrink-0 transition-transform ${showAdvancedSizing ? 'rotate-180' : 'rotate-0'}`}
-      />
+      <ChevronDown size={14} className={`shrink-0 transition-transform ${showAdvancedSizing ? 'rotate-180' : 'rotate-0'}`} />
       <span className="h-px flex-1 bg-current/15" />
     </button>
   );
@@ -187,7 +186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   key={opt.value}
                   aria-pressed={selectedNavMode === opt.value}
                   onClick={() => onUpdateSettings({ navMode: opt.value })}
-                  className={`${optionBtnStyle} ${selectedNavMode === opt.value ? 'bg-accent-600 text-white shadow-lg' : ''}`}
+                  className={`${optionBtnStyle} uppercase ${selectedNavMode === opt.value ? 'bg-accent-600 text-white shadow-lg' : ''}`}
                 >
                   {opt.label}
                 </button>
@@ -198,15 +197,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {!isFixedLayout && (
             <div>
               <label className={labelStyle}>Font Family</label>
-              <div className="flex flex-wrap items-center justify-start gap-2 pt-1.5">
-                {(['sans', 'serif', 'ridi'] as const).map(f => (
+              <div {...fontDragHandlers} data-reader-font-options="true" className="app-font-options flex flex-nowrap items-center justify-start gap-2 overflow-x-auto overscroll-x-contain py-1.5">
+                {([
+                  ['ridi', '리디 바탕'], ['chosunIlboMyungjo', '조선 명조'],
+                  ['chosunGu', '조선 굴림'], ['sans', 'SANS'],
+                ] as const).map(([f, label]) => (
                   <button
                     key={f}
                     aria-pressed={settings.fontFamily === f}
                     onClick={() => onUpdateSettings({ fontFamily: f })}
-                    className={`${optionBtnStyle} ${settings.fontFamily === f ? 'bg-accent-600 text-white shadow-lg' : ''}`}
+                    className={`${optionBtnStyle} shrink-0 whitespace-nowrap ${settings.fontFamily === f ? 'bg-accent-600 text-white shadow-lg' : ''}`}
                   >
-                    {f === 'ridi' ? 'Ridi Batang' : f}
+                    {label}
                   </button>
                 ))}
               </div>
@@ -285,9 +287,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span className="min-w-0">
                   <span className="block text-[11px] font-bold leading-snug">
                     자동 2페이지 보기
-                  </span>
-                  <span className="mt-0.5 block text-[9px] font-bold leading-snug opacity-45">
-                    탭 이동 모드에서 가로가 세로 이상이면 두 페이지로 표시합니다
                   </span>
                 </span>
                 <input

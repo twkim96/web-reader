@@ -11,6 +11,8 @@ const OPTIONAL_PRECACHE_URLS = [
   '/fonts/PretendardVariable.woff2',
   '/fonts/RIDIBatang.woff2',
   '/fonts/RIDIBatang.otf',
+  '/fonts/Chosunilbo_myungjo.woff',
+  '/fonts/ChosunGu.ttf',
 ];
 const OBSOLETE_PRECACHE_URLS = ['/fonts/SUIT-Variable.woff2'];
 const policy = self.PCReaderSWPolicy;

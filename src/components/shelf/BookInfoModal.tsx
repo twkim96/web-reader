@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { toBlob } from 'html-to-image';
-import { CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2 } from 'lucide-react';
+import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2 } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -242,6 +242,8 @@ export const BookInfoModal: React.FC<Props> = ({
     try {
       await document.fonts?.ready;
       captureNode = source.cloneNode(true) as HTMLElement;
+      // Header controls are UI, not part of the reading proof image.
+      captureNode.querySelector('[data-book-info-actions]')?.remove();
       const sourceStyle = getComputedStyle(source);
       const dialogStyle = dialogRef.current ? getComputedStyle(dialogRef.current) : sourceStyle;
       const captureBackgroundColor = sourceStyle.getPropertyValue('--viewer-theme-bg').trim()
@@ -376,7 +378,59 @@ export const BookInfoModal: React.FC<Props> = ({
           data-book-info-capture-root="true"
           className={`app-menu-sheet-content flex min-h-0 flex-1 flex-col overflow-hidden ${theme.text}`}
         >
-          <MenuSheetHeader kind="book-info" title="도서 정보" titleId="book-info-title" subtitle={`${getBookFormatLabel(book)} · ${sourceLabel}`} onClose={onClose} closeDisabled={isDeleting} borderClass={theme.border} secondaryClass={theme.secondary} />
+          <MenuSheetHeader kind="book-info" title="도서 정보" titleId="book-info-title" onClose={onClose} closeDisabled={isDeleting} borderClass={theme.border} secondaryClass={theme.secondary}
+            trailing={(
+          <div data-book-info-actions="true" className="flex items-center gap-1">
+            {showManagementActions && (
+              <button
+                type="button"
+                data-book-info-open="true"
+                onClick={() => onOpen?.(book)}
+                disabled={isDeleting}
+                aria-label="읽기"
+                title="읽기"
+                className="app-menu-header-action"
+              >
+                <BookOpen size={16} />
+              </button>
+            )}
+            <button
+              type="button"
+              data-book-info-copy-image="true"
+              onClick={() => void copyReadingProof()}
+              disabled={capturing || isDeleting}
+              aria-label={capturing ? '독서 인증 이미지 생성 중' : '독서 인증 이미지 클립보드에 저장'}
+              title="독서 인증 이미지 클립보드에 저장"
+              className="app-menu-header-action"
+            >
+              <Clipboard size={16} className={capturing ? 'animate-pulse' : undefined} />
+            </button>
+            <button
+              type="button"
+              data-book-info-capture="true"
+              onClick={() => void downloadReadingProof()}
+              disabled={capturing || isDeleting}
+              aria-label={capturing ? '독서 인증 이미지 생성 중' : '독서 인증 이미지 다운로드'}
+              title="독서 인증 이미지 다운로드"
+              className="app-menu-header-action"
+            >
+              <ImageDown size={16} className={capturing ? 'animate-pulse' : undefined} />
+            </button>
+            {showManagementActions && (
+              <button
+                type="button"
+                data-book-info-request-delete="true"
+                onClick={() => setConfirmingDelete(true)}
+                aria-label={`${getDisplayBookTitle(book.name)} 삭제`}
+                title="도서 삭제"
+                disabled={isDeleting}
+                className="app-menu-header-action text-red-400"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+            )} />
 
           <div data-book-info-scroll-body="true" className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4">
             <div data-book-info-title-layout="true" className="flex min-w-0 items-start gap-3">
@@ -566,59 +620,13 @@ export const BookInfoModal: React.FC<Props> = ({
           </div>
         </div>
 
-        <footer data-book-info-actions="true" className={`app-menu-sheet-footer shrink-0 border-t ${theme.border} px-3 py-2 sm:px-4`}>
-          {captureFeedback && (
+        {captureFeedback && (
+          <footer data-book-info-feedback="true" className={`app-menu-sheet-footer shrink-0 border-t ${theme.border} px-3 py-2 sm:px-4`}>
             <p data-book-info-capture-status="true" role="status" className="mb-1.5 text-center text-[10px] font-bold text-accent-500">
               {captureFeedback}
             </p>
-          )}
-          <div className={`grid gap-1.5 ${showManagementActions ? 'grid-cols-[1fr_auto_auto_auto]' : 'grid-cols-[auto_auto] justify-end'}`}>
-            {showManagementActions && (
-              <button
-                type="button"
-                data-book-info-open="true"
-                onClick={() => onOpen?.(book)}
-                aria-label="읽기"
-                className={`app-menu-sheet-action app-menu-sheet-accent-action min-h-11 rounded-xl border ${theme.border} px-4 text-xs font-bold`}
-              >
-                읽기
-              </button>
-            )}
-            <button
-              type="button"
-              data-book-info-copy-image="true"
-              onClick={() => void copyReadingProof()}
-              disabled={capturing || isDeleting}
-              aria-label={capturing ? '독서 인증 이미지 생성 중' : '독서 인증 이미지 클립보드에 저장'}
-              title="독서 인증 이미지 클립보드에 저장"
-              className={`flex size-11 items-center justify-center rounded-xl border ${theme.border} text-accent-500 hover:bg-accent-500/10 disabled:opacity-40`}
-            >
-              <Clipboard size={18} className={capturing ? 'animate-pulse' : undefined} />
-            </button>
-            <button
-              type="button"
-              data-book-info-capture="true"
-              onClick={() => void downloadReadingProof()}
-              disabled={capturing || isDeleting}
-              aria-label={capturing ? '독서 인증 이미지 생성 중' : '독서 인증 이미지 다운로드'}
-              title="독서 인증 이미지 다운로드"
-              className={`flex size-11 items-center justify-center rounded-xl border ${theme.border} text-accent-500 hover:bg-accent-500/10 disabled:opacity-40`}
-            >
-              <ImageDown size={18} className={capturing ? 'animate-pulse' : undefined} />
-            </button>
-            {showManagementActions && (
-              <button
-                type="button"
-                data-book-info-request-delete="true"
-                onClick={() => setConfirmingDelete(true)}
-                aria-label={`${getDisplayBookTitle(book.name)} 삭제`}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-red-400 hover:bg-red-500/10"
-              >
-                <Trash2 size={18} />
-              </button>
-            )}
-          </div>
-        </footer>
+          </footer>
+        )}
       </section>
 
       {confirmingDelete && showManagementActions && (

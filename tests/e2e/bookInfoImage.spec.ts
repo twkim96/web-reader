@@ -45,6 +45,23 @@ for (const offline of [false, true]) {
     }, id);
     await card.locator('button[title="도서 정보"]').click();
     const modal = page.locator('[data-book-info-modal]');
+    for (const width of [320, 1024, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const geometry = await modal.locator('[data-menu-sheet-header]').evaluate(header => ({
+        border: getComputedStyle(header).borderBottomWidth,
+        actions: [...header.querySelectorAll('button')].map(button => {
+          const rect = button.getBoundingClientRect();
+          return { left: rect.left, right: rect.right };
+        }),
+      }));
+      expect(geometry.border).toBe('0px');
+      expect(geometry.actions.every(action => action.left >= 0 && action.right <= width)).toBe(true);
+    }
+    await expect(modal.locator('[data-menu-sheet-header] [data-book-info-actions]')).toBeVisible();
+    await expect(modal.locator('[data-book-info-actions] button')).toHaveCount(4);
+    await modal.locator('[data-book-info-request-delete]').click();
+    await expect(page.locator('[data-book-info-delete-confirmation]')).toBeVisible();
+    await page.locator('[data-book-info-delete-confirmation]').getByRole('button', { name: '취소', exact: true }).click();
     await expect(modal.locator('[data-book-info-cover]')).toHaveAttribute('src', /^blob:/);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     if (offline) await context.setOffline(true);

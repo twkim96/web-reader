@@ -1,19 +1,15 @@
 'use client';
 
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { Copy, ExternalLink, Languages, Save, X } from 'lucide-react';
+import { Copy, ExternalLink, Save } from 'lucide-react';
 import type { ThemeClasses } from '../../types';
 import type { ReaderTranslationPanelState } from '../../hooks/reader/useReaderLanguageTools';
 import {
   getTranslationAnnotationSaveUnavailableReason,
   hasSameReaderTranslationLanguage,
-  READER_LANGUAGE_OPTIONS,
 } from '../../lib/readerLanguageTools';
 import { ReaderModalFrame } from './ReaderModalFrame';
-
-const languageLabel = (language: ReaderTranslationPanelState['sourceLanguage']) => (
-  READER_LANGUAGE_OPTIONS.find(({ value }) => value === language)?.label ?? '자동'
-);
+import { MenuSheetHeader } from '../MenuSheetHeader';
 
 export const TranslationDialog = ({
   state,
@@ -120,18 +116,9 @@ export const TranslationDialog = ({
         tabIndex={-1}
         className="flex max-h-[min(90dvh,46rem)] flex-col outline-none"
       >
-        <header className={`flex shrink-0 items-center gap-3 border-b ${theme.border} px-5 py-4`}>
-          <Languages size={19} className="shrink-0 text-accent-500" />
-          <div className="min-w-0 flex-1">
-            <h2 id={titleId} className="text-base font-black">선택 번역</h2>
-            <p className="text-[10px] font-bold opacity-45">
-              {languageLabel(state.sourceLanguage)} → {languageLabel(state.targetLanguage)} · 브라우저 내장
-            </p>
-          </div>
-          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="번역 닫기" className="app-modal-close flex size-11 items-center justify-center rounded-full hover:opacity-80">
-            <X size={19} />
-          </button>
-        </header>
+        <MenuSheetHeader kind="translation" title="선택 번역" titleId={titleId}
+          onClose={onClose} closeLabel="번역 닫기" closeButtonRef={closeButtonRef}
+          borderClass={theme.border} secondaryClass={theme.secondary} />
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <section>

@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { ThemeClasses } from '../types';
 import type { SyncConflictV5 } from '../lib/syncOutboxV5';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { MenuSheetHeader } from './MenuSheetHeader';
 
 type Props = {
   conflict: SyncConflictV5;
@@ -50,7 +51,6 @@ export const SyncConflictResolutionDialog = ({
   onKeepLocal,
   onUseRemote,
   onDefer,
-  bookTitle,
   resolving = false,
   error = null,
 }: Props) => {
@@ -211,8 +211,11 @@ export const SyncConflictResolutionDialog = ({
       tabIndex={-1}
       className={`app-panel-radius max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto border p-5 shadow-2xl sm:p-6 ${theme.bg} ${theme.text} ${theme.border}`}
     >
-      <h2 id="sync-conflict-title" className="text-xl font-black">동기화 충돌</h2>
-      {bookTitle && <p className="mt-1 truncate text-sm font-bold opacity-70">{bookTitle}</p>}
+      <div className="-mx-5 -mt-5 sm:-mx-6 sm:-mt-6">
+        <MenuSheetHeader kind="sync-conflict" title="동기화 충돌" titleId="sync-conflict-title"
+          onClose={onDefer} closeDisabled={resolving}
+          closeLabel="동기화 충돌 나중에 처리" borderClass={theme.border} secondaryClass={theme.secondary} />
+      </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl border border-current/10 px-3 py-2 text-xs">
         <dt className="font-bold opacity-55">대상</dt>
         <dd className="font-bold">{targetLabel}</dd>
