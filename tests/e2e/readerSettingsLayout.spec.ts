@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('additional bundled fonts decode Korean and Latin text', async ({ page }) => {
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('/');
-  for (const family of ['GowunBatang', 'GowunDodum']) {
+  for (const family of ['ChosunGu', 'GowunBatang', 'GowunDodum']) {
     await expect.poll(() => page.evaluate(async family => {
       const faces = await document.fonts.load(`20px "${family}"`, '가나다라마바사 ABC123');
       return faces.some(face => face.family.includes(family) && face.status === 'loaded');
@@ -128,7 +128,7 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   }
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
   await expect.poll(() => page.evaluate(async () => (
-    await Promise.all(['/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(url => caches.match(url)))
+    await Promise.all(['/fonts/ChosunGu.woff', '/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(url => caches.match(url)))
   ).every(Boolean))).toBe(true);
   // A newly installed worker controls the next navigation, not this first tab.
   await page.reload();
@@ -140,13 +140,13 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   // Bypass HTTP cache and load fresh FontFace instances from the worker's
   // cached responses, independent of the document's already loaded fonts.
   expect(await page.evaluate(async () => {
-    return Promise.all(['/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(async (url, index) => {
+    return Promise.all(['/fonts/ChosunGu.woff', '/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(async (url, index) => {
       const response = await fetch(url, { cache: 'no-store' });
       const font = new FontFace(`OfflineProbe${index}`, await response.arrayBuffer());
       await font.load();
       return response.ok && font.status === 'loaded';
     }));
-  })).toEqual([true, true]);
+  })).toEqual([true, true, true]);
   await page.context().setOffline(false);
   expect(remoteFontRequests, 'reader style changes must not request external Google font stylesheets').toEqual([]);
 });

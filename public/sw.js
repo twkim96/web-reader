@@ -12,7 +12,7 @@ const OPTIONAL_PRECACHE_URLS = [
   '/fonts/RIDIBatang.woff2',
   '/fonts/RIDIBatang.otf',
   '/fonts/Chosunilbo_myungjo.woff',
-  '/fonts/ChosunGu.ttf',
+  '/fonts/ChosunGu.woff',
   '/fonts/GowunBatang-Regular.woff',
   '/fonts/GowunDodum-Regular.woff',
 ];

@@ -12,7 +12,7 @@ interface UseFoliateLayoutOptions {
 const LOCAL_FONTS: Record<string, { family: string; url: string; format: string; fallback?: string }> = {
   ridi: { family: 'RIDIBatang', url: '/fonts/RIDIBatang.woff2', format: 'woff2', fallback: ", url('/fonts/RIDIBatang.otf') format('opentype')" },
   chosunIlboMyungjo: { family: 'ChosunilboNM', url: '/fonts/Chosunilbo_myungjo.woff', format: 'woff' },
-  chosunGu: { family: 'ChosunGu', url: '/fonts/ChosunGu.ttf', format: 'truetype' },
+  chosunGu: { family: 'ChosunGu', url: '/fonts/ChosunGu.woff', format: 'woff' },
   gowunBatang: { family: 'GowunBatang', url: '/fonts/GowunBatang-Regular.woff', format: 'woff' },
   gowunDodum: { family: 'GowunDodum', url: '/fonts/GowunDodum-Regular.woff', format: 'woff' },
 };

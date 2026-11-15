@@ -40,7 +40,7 @@
 }
 @font-face {
   font-family: 'ChosunGu';
-  src: url('/fonts/ChosunGu.ttf') format('truetype');
+  src: url('/fonts/ChosunGu.woff') format('woff');
   font-weight: normal;
   font-style: normal;
   font-display: block;

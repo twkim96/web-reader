@@ -49,7 +49,7 @@ test('loads only the selected bundled font and ignores stale font loads', async 
     await setStyle({ fontFamily: 'chosunGu' });
     assert.match(applied.at(-1)[0], /ChosunGu[\s\S]*data:font\/test/);
     assert.doesNotMatch(applied.at(-1)[0], /RIDIBatang|ChosunilboNM/);
-    assert.deepEqual(requests, ['/fonts/RIDIBatang.woff2', '/fonts/Chosunilbo_myungjo.woff', '/fonts/ChosunGu.ttf']);
+    assert.deepEqual(requests, ['/fonts/RIDIBatang.woff2', '/fonts/Chosunilbo_myungjo.woff', '/fonts/ChosunGu.woff']);
     for (const [fontFamily, family, file] of [
       ['gowunBatang', 'GowunBatang', '/fonts/GowunBatang-Regular.woff'],
       ['gowunDodum', 'GowunDodum', '/fonts/GowunDodum-Regular.woff'],
