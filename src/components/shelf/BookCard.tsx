@@ -319,7 +319,7 @@ export const BookCard: React.FC<BookCardProps> = ({
     onRequestBookInfo(book);
   }, [book, onRequestBookInfo]);
 
-  const renderMoreButton = (onCover = false) => onRequestBookInfo && (
+  const renderMoreButton = (onCover = false, compact = false) => onRequestBookInfo && (
     <button
       type="button"
       data-shelf-book-more="true"
@@ -333,11 +333,11 @@ export const BookCard: React.FC<BookCardProps> = ({
         longPressTriggeredRef.current = false;
         onRequestBookInfo(book);
       }}
-      className={`flex size-9 shrink-0 items-center justify-center rounded-full ${onCover
+      className={`flex ${compact ? 'size-8' : 'size-9'} shrink-0 items-center justify-center rounded-full ${onCover
         ? 'app-menu-dock absolute right-2 top-2 z-20 text-[color:var(--app-menu-ink,var(--viewer-theme-text))]'
         : 'hover:bg-current/10'}`}
     >
-      <MoreVertical size={20} />
+      <MoreVertical size={compact ? 18 : 20} />
     </button>
   );
 
@@ -462,7 +462,7 @@ export const BookCard: React.FC<BookCardProps> = ({
         onPointerUp={clearLongPressTimer}
         onPointerLeave={clearLongPressTimer}
         onPointerCancel={clearLongPressTimer}
-        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_6rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500 sm:grid-cols-[3rem_minmax(0,1fr)_6rem_10rem] sm:gap-4 sm:px-3 sm:py-3`}
+        className={`group grid select-none grid-cols-[2.75rem_minmax(0,1fr)_7.25rem] items-center gap-3 border-b ${theme.border} px-1 py-2.5 cursor-pointer transition-colors duration-200 [-webkit-touch-callout:none] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500 sm:grid-cols-[3rem_minmax(0,1fr)_8rem] sm:gap-4 sm:px-3 sm:py-3`}
       >
         <div
           data-shelf-book-cover-frame="true"
@@ -513,47 +513,41 @@ export const BookCard: React.FC<BookCardProps> = ({
         </div>
 
 
-        <div
-          data-shelf-list-format="true"
-          className="hidden min-w-0 items-center justify-center text-[11px] font-bold uppercase tracking-widest text-slate-500 sm:flex"
-        >
-          {renderMoreButton()}
-          <span>{simpleFormatLabel}</span>
-        </div>
-
-        <div data-shelf-list-progress="true" className="min-w-0 self-stretch flex flex-col items-end justify-start pt-0.5">
-          <div className="flex items-center text-[10px] text-slate-500 sm:hidden">
-            {renderMoreButton()}
-            <span>{simpleFormatLabel}</span>
-          </div>
-          {combinedSourceCount !== null && (
-            <div data-shelf-list-source-slot="true" className="mb-1 w-full min-w-0">
+        <div data-shelf-list-progress="true" className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-start gap-x-1 self-start pt-0.5">
+          <div className="min-w-0">
+            <div data-shelf-list-source-slot="true" className="flex min-w-0 items-center justify-end gap-x-0.5 overflow-hidden whitespace-nowrap text-[8px] font-bold leading-tight sm:text-[9px]">
+              <span data-shelf-list-format="true" className="shrink-0 text-slate-500 opacity-50">
+                {simpleFormatLabel.toLowerCase()}{combinedSourceCount !== null ? ',' : ''}
+              </span>
               {renderCatalogSources('list-progress')}
             </div>
-          )}
-          <div className="mb-1 flex items-center justify-end gap-1.5">
-            {percent > 0 && onDeleteProgress && (
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteProgress(book.id);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1.5 transition-colors"
-                title="Delete Progress"
-              >
-                <Eraser size={16} strokeWidth={2.5} />
-              </button>
-            )}
-            <span className="text-xs font-black text-accent-400 sm:text-sm">
-              {percent.toFixed(1)}%
-            </span>
+            <div className="mt-0.5 flex items-center justify-end gap-1.5">
+              {percent > 0 && onDeleteProgress && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteProgress(book.id);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="text-slate-500 hover:text-red-400 hover:bg-white/5 rounded-full p-1.5 transition-colors"
+                  title="Delete Progress"
+                >
+                  <Eraser size={16} strokeWidth={2.5} />
+                </button>
+              )}
+              <span className="text-xs font-black text-accent-400 sm:text-sm">
+                {percent.toFixed(1)}%
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full bg-black/30 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent-500 rounded-full transition-all duration-1000 ease-out"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
           </div>
-          <div className="ml-auto h-1.5 w-full max-w-24 bg-black/30 rounded-full overflow-hidden sm:max-w-32">
-            <div 
-              className="h-full bg-accent-500 rounded-full transition-all duration-1000 ease-out"
-              style={{ width: `${percent}%` }}
-            />
+          <div data-shelf-list-more="true" className="flex justify-end">
+            {renderMoreButton(false, true)}
           </div>
         </div>
       </div>

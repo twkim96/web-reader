@@ -646,8 +646,8 @@ test('uses a cover-led responsive column layout for simple view', async () => {
   assert.match(shelfSource, /viewMode === 'simple'[\s\S]*?grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5/);
 });
 
-test('gives list titles the flexible column and keeps format and progress compact on the right', () => {
-  const document = renderCard('list');
+test('keeps list format and view count together with one information button to the right of the progress', () => {
+  const document = renderCard('list', props.catalog, { onRequestBookInfo: () => undefined });
   const card = document.querySelector('[data-shelf-book-card="true"]');
   const localTag = document.querySelector('[data-shelf-local-tag="true"]');
   const format = document.querySelector('[data-shelf-list-format="true"]');
@@ -658,10 +658,15 @@ test('gives list titles the flexible column and keeps format and progress compac
   assert.ok(format);
   assert.ok(progress);
   assert.equal(document.querySelector('[data-shelf-list-local="true"]'), null);
-  assert.match(card.className, /sm:grid-cols-\[3rem_minmax\(0,1fr\)_6rem_10rem\]/);
+  assert.equal(card.children.length, 3);
   assert.equal(localTag.textContent, '로컬');
-  assert.match(format.textContent, /EPUB/);
-  assert.equal(format.nextElementSibling, progress);
+  assert.equal(format.textContent, 'epub,');
+  assert.ok(progress.contains(format));
+  assert.equal(format.nextElementSibling, document.querySelector('[data-shelf-book-sources="true"]'));
+  const more = document.querySelector('[data-shelf-list-more="true"]');
+  assert.equal(more.parentElement, progress);
+  assert.equal(more.querySelectorAll('[data-shelf-book-more="true"]').length, 1);
+  assert.equal(document.querySelectorAll('[data-shelf-book-more="true"]').length, 1);
 });
 
 test('places one combined view count above the progress percentage', () => {
