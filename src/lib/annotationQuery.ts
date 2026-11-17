@@ -6,6 +6,7 @@ import type {
 } from '../types';
 import { HIGHLIGHT_COLORS } from './annotationPolicy';
 import { getAnnotationPaletteItem } from './annotationPalette';
+import { getBookDisplayTitle } from './bookDisplayTitle';
 
 export type AnnotationSort = 'reading' | 'created-desc' | 'updated-desc';
 
@@ -80,7 +81,11 @@ export const buildLibraryAnnotationIndex = (
     return {
       annotation,
       book,
-      searchableText: [book?.name ?? annotation.bookId, searchableText(annotation, palette)]
+      searchableText: [
+        book?.name ?? annotation.bookId,
+        book ? getBookDisplayTitle(book.name) : '',
+        searchableText(annotation, palette),
+      ]
         .join('\n')
         .normalize('NFKC')
         .toLocaleLowerCase(),

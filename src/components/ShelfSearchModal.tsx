@@ -7,7 +7,6 @@ import { Book, UserProgress } from '../types';
 import type { PublicBookCatalogSnapshot } from '../lib/publicBookCatalog';
 import {
   filterAndSortPreparedBooks,
-  getDisplayBookTitle,
   getProgressTime,
   matchesShelfFilters,
   type PreparedShelfBook,
@@ -16,6 +15,7 @@ import {
   type ShelfTheme,
 } from './shelf/bookUtils';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
 import {
   normalizeShelfTagQuery,
   searchShelfCatalogTags,
@@ -55,6 +55,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
   sortMode,
 }) => {
   useBodyScrollLock();
+  const formatBookTitle = useBookTitleDisplay();
   const [keyword, setKeyword] = useState(initialKeyword);
   const composingRef = useRef(false);
   const deferredKeyword = useDeferredValue(keyword);
@@ -196,7 +197,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                           {coverUrls.get(book.id) ? (
                             <Image src={coverUrls.get(book.id)!} alt="" fill sizes="44px" unoptimized className="object-cover" />
                           ) : (
-                            <GeneratedBookCover identity={book.id} title={getDisplayBookTitle(book.name)} variant="list" surroundingBackgroundColor={themeBackgroundColor} />
+                            <GeneratedBookCover identity={book.id} title={formatBookTitle(book.name)} variant="list" surroundingBackgroundColor={themeBackgroundColor} />
                           )}
                         </div>
                         {isDownloaded && (
@@ -206,7 +207,7 @@ export const ShelfSearchModal: React.FC<ShelfSearchModalProps> = ({
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <span className="line-clamp-2 break-words text-sm font-normal leading-snug transition-colors group-hover:text-accent-500">{getDisplayBookTitle(book.name)}</span>
+                        <span className="line-clamp-2 break-words text-sm font-normal leading-snug transition-colors group-hover:text-accent-500">{formatBookTitle(book.name)}</span>
                         <div className="mt-1.5 flex min-w-0 items-center gap-2">
                           {(prepared?.catalog?.genreLabel || tagPreview.length > 0) && (
                             <div className="flex min-w-0 flex-1 gap-1 overflow-hidden text-[9px] font-medium">

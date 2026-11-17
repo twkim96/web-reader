@@ -7,7 +7,7 @@ import { DEVICE_CONTENT_OWNER_KEY } from '../lib/ownerIdentity';
 import { Trash2, HardDrive, FileText } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Book, ThemeClasses } from '../types';
-import { getBookTitleFromFileName } from '../lib/bookFormats';
+import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
 import { getBookFormatLabel } from './shelf/bookUtils';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { MenuSheetHeader } from './MenuSheetHeader';
@@ -20,6 +20,7 @@ interface ManageModalProps {
 
 export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, theme }) => {
   useBodyScrollLock();
+  const formatBookTitle = useBookTitleDisplay();
 
   const [books, setBooks] = useState<(Book & { size: number })[]>([]);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -81,7 +82,7 @@ export const ManageModal: React.FC<ManageModalProps> = ({ onClose, onUpdate, the
                 <div className="flex items-center gap-4 overflow-hidden">
                   <FileText data-offline-book-icon="true" className="shrink-0 text-current" size={20} />
                   <div className="min-w-0">
-                    <h3 className="font-bold text-sm truncate">{getBookTitleFromFileName(book.name)}</h3>
+                    <h3 className="font-bold text-sm truncate">{formatBookTitle(book.name)}</h3>
                     <p className="text-[10px] opacity-60 font-bold uppercase tracking-wider">
                       {getBookFormatLabel(book)} · {formatSize(book.size)}
                     </p>

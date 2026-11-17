@@ -28,6 +28,14 @@ const annotation = (id, overrides = {}) => ({
   ...overrides,
 });
 
+test('summary-search titles never replace original book names in JSON or Markdown exports', () => {
+  const name = '예시 소설 001-215화 (완결).epub';
+  const index = buildLibraryAnnotationIndex([annotation('original')], [{ id: 'book-1', name }], DEFAULT_ANNOTATION_PALETTE);
+  const json = createAnnotationJsonExport(index, DEFAULT_ANNOTATION_PALETTE);
+  assert.deepEqual(JSON.parse(json.text).books, [{ id: 'book-1', name }]);
+  assert.ok(createAnnotationMarkdownExport(index, DEFAULT_ANNOTATION_PALETTE).text.replace(/\\(.)/g, '$1').includes(name));
+});
+
 test('exports readable Markdown without losing quotes, line breaks, symbols, or emoji', () => {
   const source = annotation('special');
   const index = buildLibraryAnnotationIndex(

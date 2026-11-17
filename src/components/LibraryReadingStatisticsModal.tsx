@@ -30,6 +30,7 @@ import {
   subscribeReadingStatisticsChanges,
 } from '../lib/readingStatisticsWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
 import type { SyncHealth } from '../lib/syncHealth';
 import { collectStorageMaintenanceDiagnosticsV1 } from '../lib/storageMaintenanceDiagnostics';
 import {
@@ -99,6 +100,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   onRefresh,
   onClose,
 }) => {
+  const displayBookTitle = useBookTitleDisplay();
   const [sessions, setSessions] = useState<StoredReadingSessionV11[]>([]);
   const [range, setRange] = useState<ReadingStatisticsRange>('week');
   const [bookListFilter, setBookListFilter] = useState<BookListFilter>('all');
@@ -592,7 +594,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                   >
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h4 className="truncate text-xs font-bold sm:text-sm">{book.bookTitle} · {book.roundNumber}회차</h4>
+                        <h4 className="truncate text-xs font-bold sm:text-sm">{displayBookTitle(book.bookTitle)} · {book.roundNumber}회차</h4>
                         <p className="mt-0.5 truncate text-[10px] opacity-50">시작 {formatReadingDate(book.startedLocalDate)} · {book.endProgressPercent.toFixed(1)}%</p>
                         {completionExpanded && book.completedLocalDate && (
                           <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold opacity-65">
@@ -607,7 +609,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                             type="button"
                             data-reading-statistics-complete="true"
                             aria-expanded={completionExpanded}
-                            aria-label={`${book.bookTitle} ${book.roundNumber}회차 시작일과 종료일`}
+                            aria-label={`${displayBookTitle(book.bookTitle)} ${book.roundNumber}회차 시작일과 종료일`}
                             onClick={() => setExpandedCompletionRows((current) => {
                               const next = new Set(current);
                               if (next.has(rowKey)) next.delete(rowKey);
@@ -623,7 +625,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                             type="button"
                             data-reading-statistics-confirm-complete="true"
                             disabled={completingRoundKey !== null}
-                            aria-label={`${book.bookTitle} ${book.roundNumber}회차 완료 처리`}
+                            aria-label={`${displayBookTitle(book.bookTitle)} ${book.roundNumber}회차 완료 처리`}
                             onClick={() => setPendingRoundCompletion({
                               bookId: book.bookId,
                               bookTitle: book.bookTitle,
@@ -653,7 +655,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     </div>
     {pendingRoundCompletion && (
       <ConfirmDialog
-        message={`“${pendingRoundCompletion.bookTitle}” ${pendingRoundCompletion.roundNumber}회차를 정말 완료할까요?`}
+        message={`“${displayBookTitle(pendingRoundCompletion.bookTitle)}” ${pendingRoundCompletion.roundNumber}회차를 정말 완료할까요?`}
         subMessage="완료 후 이어서 읽은 기록은 새 회차로 집계될 수 있습니다. 실제로 완독한 경우에만 완료해 주세요."
         confirmLabel="완료 처리"
         variant="info"
@@ -668,7 +670,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     )}
     {pendingBookListDeletion && (
       <ConfirmDialog
-        message={`“${pendingBookListDeletion.bookTitle}” ${pendingBookListDeletion.roundNumber}회차를 목록에서 삭제할까요?`}
+        message={`“${displayBookTitle(pendingBookListDeletion.bookTitle)}” ${pendingBookListDeletion.roundNumber}회차를 목록에서 삭제할까요?`}
         subMessage="선택한 회차의 세션만 통계에서 숨깁니다. 같은 책의 다른 회차와 원본 세션은 유지되며, 표시되는 독서 합계에서는 제외됩니다."
         confirmLabel="목록에서 삭제"
         theme={theme}

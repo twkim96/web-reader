@@ -8,12 +8,12 @@ import {
 } from '../../lib/publicBookCatalog';
 import {
   getBookFormatLabel,
-  getDisplayBookTitle,
   getProgressTime,
   type ShelfTheme,
   type ShelfViewMode,
 } from './bookUtils';
 import { GeneratedBookCover } from './GeneratedBookCover';
+import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
 
 interface BookCardProps {
   book: Book;
@@ -93,7 +93,8 @@ export const BookCard: React.FC<BookCardProps> = ({
   };
 
   const percent = progress?.progressPercent || 0;
-  const displayBookTitle = getDisplayBookTitle(book.name);
+  const formatBookTitle = useBookTitleDisplay();
+  const displayBookTitle = formatBookTitle(book.name);
   const simpleFormatLabel = getBookFormatLabel(book).split(' ')[0];
   const rawTags = catalog?.tags.filter((tag) => tag.label !== catalog.genreLabel) ?? [];
   const fixedListTagCount = (isDownloaded ? 1 : 0) + (catalog?.genreLabel ? 1 : 0);
@@ -480,7 +481,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           ) : (
             <GeneratedBookCover
               identity={book.id}
-              title={getDisplayBookTitle(book.name)}
+              title={displayBookTitle}
               variant="list"
               surroundingBackgroundColor={themeBackgroundColor}
             />
@@ -491,7 +492,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           <div data-shelf-title-tag-group="true" className="flex min-h-10 flex-col justify-center">
             <div className="flex min-w-0 items-center gap-2">
               <h3 className="min-w-0 flex-1 truncate text-sm font-bold leading-tight group-hover:text-accent-500 transition-colors sm:text-base">
-                {getDisplayBookTitle(book.name)}
+                {displayBookTitle}
               </h3>
             </div>
             <div
@@ -597,7 +598,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           ) : (
             <GeneratedBookCover
               identity={book.id}
-              title={getDisplayBookTitle(book.name)}
+              title={displayBookTitle}
               variant="grid"
               surroundingBackgroundColor={themeBackgroundColor}
             />
@@ -621,7 +622,7 @@ export const BookCard: React.FC<BookCardProps> = ({
             data-shelf-grid-cover-title="true"
             className="mt-2 min-w-0 text-sm font-bold leading-snug line-clamp-2 transition-colors group-hover:text-accent-500 sm:text-base"
           >
-            {getDisplayBookTitle(book.name)}
+            {displayBookTitle}
           </h3>
 
           <div data-shelf-grid-cover-tag-slot="true" className="mt-1">

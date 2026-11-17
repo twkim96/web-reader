@@ -6,6 +6,7 @@ import { auth, googleProvider } from '../lib/firebase';
 import { signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
+import { BookTitleDisplayProvider } from '../contexts/BookTitleDisplayContext';
 import dynamic from 'next/dynamic';
 
 const EpubReader = dynamic(() => import('../components/EpubReader'), { ssr: false });
@@ -727,6 +728,7 @@ export default function Page() {
   }
 
   return (
+    <BookTitleDisplayProvider summarize={settings.summarizeBookTitles !== false}>
     <div
       data-app-view={view}
       data-library-bootstrap-ready={isLibraryBootstrapReady ? 'true' : 'false'}
@@ -1032,5 +1034,6 @@ export default function Page() {
         </div>
       )}
     </div>
+    </BookTitleDisplayProvider>
   );
 }

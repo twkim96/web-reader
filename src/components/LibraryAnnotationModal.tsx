@@ -41,6 +41,7 @@ import {
 } from '../lib/annotationExportDelivery';
 import { subscribeAnnotationSyncChanges } from '../lib/annotationSyncWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
 import { getBookFormatLabel } from './shelf/bookUtils';
 import { MenuSheetHeader } from './MenuSheetHeader';
 
@@ -90,6 +91,7 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
   onClose,
   onJump,
 }) => {
+  const displayBookTitle = useBookTitleDisplay();
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [palette, setPalette] = useState<AnnotationPaletteItem[]>(() => (
     getStoredAnnotationPalette(ownerKey)
@@ -196,21 +198,24 @@ export const LibraryAnnotationModal: React.FC<Props> = ({
         name: book?.name ?? `알 수 없는 도서 (${annotation.bookId})`,
       });
     }
-    const values = [...byId.values()];
+    const values = [...byId.values()].map((book) => ({
+      ...book,
+      displayTitle: booksById.has(book.id) ? displayBookTitle(book.name) : book.name,
+    }));
     const counts = new Map<string, number>();
-    for (const book of values) counts.set(book.name, (counts.get(book.name) ?? 0) + 1);
+    for (const book of values) counts.set(book.displayTitle, (counts.get(book.displayTitle) ?? 0) + 1);
     return values.map((book) => {
       const full = booksById.get(book.id);
-      if ((counts.get(book.name) ?? 0) <= 1 || !full) return { ...book, label: book.name };
-      const details = [getBookFormatLabel(full), formatBookSize(full.size)].filter(Boolean);
+      if ((counts.get(book.displayTitle) ?? 0) <= 1) return { ...book, label: book.displayTitle };
+      const details = full ? [full.name, getBookFormatLabel(full), formatBookSize(full.size)].filter(Boolean) : [];
       return {
         ...book,
-        label: `${book.name} · ${[...details, `#${book.id.slice(-6)}`].join(' · ')}`,
+        label: `${book.displayTitle} · ${[...details, `#${book.id}`].join(' · ')}`,
       };
     }).sort((left, right) => (
       left.name.localeCompare(right.name, 'ko') || left.id.localeCompare(right.id)
     ));
-  }, [booksById, index]);
+  }, [booksById, displayBookTitle, index]);
   const bookLabels = useMemo(
     () => new Map(annotatedBooks.map((book) => [book.id, book.label])),
     [annotatedBooks],

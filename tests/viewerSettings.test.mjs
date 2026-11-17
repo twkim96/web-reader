@@ -57,6 +57,17 @@ const withStorage = async (initialValue, callback, continuousDefaultsApplied = f
   }
 };
 
+test('summarized titles default on for new and existing users while an explicit opt-out survives reload', async () => {
+  for (const saved of [undefined, JSON.stringify({ fontSize: 18 }), JSON.stringify({ summarizeBookTitles: true })]) {
+    await withStorage(saved, () => assert.equal(getStoredViewerSettings().summarizeBookTitles, true));
+  }
+  await withStorage(JSON.stringify({ summarizeBookTitles: false, fontFamily: 'chosunGu' }), () => {
+    assert.equal(getStoredViewerSettings().summarizeBookTitles, false);
+    assert.equal(getStoredViewerSettings().summarizeBookTitles, false);
+    assert.equal(getStoredViewerSettings().fontFamily, 'chosunGu');
+  });
+});
+
 test('uses 20px only as the default font size and preserves an explicit saved size', async () => {
   await withStorage(undefined, () => {
     assert.equal(getStoredViewerSettings().fontSize, 20);

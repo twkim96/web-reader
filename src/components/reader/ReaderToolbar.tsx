@@ -14,7 +14,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { getBookTitleFromFileName } from '../../lib/bookFormats';
+import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
 import { getReaderProgressPercentFromPointer } from '../../lib/readerNavigation';
 import { getReaderTitleLayout, type ReaderTitleLayout } from '../../lib/readerTitleLayout';
 import type { ShelfDockStyle } from '../../types';
@@ -106,7 +106,8 @@ export const ReaderToolbar: React.FC<ReaderToolbarProps> = ({
 }) => {
   const safeSliderProgress = getSafePercent(sliderProgress || 0);
   const progressLabel = `${safeSliderProgress.toFixed(1)}%`;
-  const title = getBookTitleFromFileName(bookName);
+  const formatBookTitle = useBookTitleDisplay();
+  const title = formatBookTitle(bookName);
   const surfaceClass = getReaderSurfaceClass(menuStyle);
   const hasReaderRecords = bookmarkCount > 0 || annotationCount > 0;
   const [hasTwoPageSpace, setHasTwoPageSpace] = React.useState(false);

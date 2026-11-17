@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { getBookDisplayTitle } from '../src/lib/bookDisplayTitle.ts';
 
 import {
   applyShelfCatalog,
@@ -27,6 +28,28 @@ const book = (id, name, source = 'cloud') => ({
   name,
   source,
   mimeType: 'application/epub+zip',
+});
+
+test('summary display reuses readable cover titles, supports opt-out and never blanks or rewrites the source', () => {
+  const original = '외신은 온기가 필요해요. 1-631 완.epub';
+  assert.equal(getBookDisplayTitle(original), '외신은 온기가 필요해요.');
+  assert.equal(getBookDisplayTitle(original, false), '외신은 온기가 필요해요. 1-631 완');
+  assert.equal(getBookDisplayTitle('[완결].epub'), '[완결]');
+  assert.equal(getBookDisplayTitle('1984.epub'), '1984');
+  assert.equal(getBookDisplayTitle('7부 리그에서 시작한 천재.epub'), '7부 리그에서 시작한 천재');
+  assert.equal(original, '외신은 온기가 필요해요. 1-631 완.epub');
+});
+
+test('shelf finds original filenames and displayed summaries without merging editions or changing sort titles', () => {
+  const books = [book('a', '예시 [작가] 소설 001-215화.txt'), book('b', '예시 [작가] 소설 001-330화.txt')];
+  const before = structuredClone(books);
+  const prepared = applyShelfProgress(prepareShelfBooks(books), {});
+  for (const query of ['예시 소설', '작가', '001-']) {
+    assert.deepEqual(filterAndSortPreparedBooks(prepared, query, 'alpha').map(book => book.id), ['a', 'b']);
+  }
+  assert.deepEqual(filterAndSortPreparedBooks(prepared, '330', 'alpha').map(book => book.id), ['b']);
+  assert.equal(prepared[0].displayTitle, '예시 [작가] 소설 001-215화');
+  assert.deepEqual(books, before);
 });
 
 const timestamp = (time) => ({ toDate: () => new Date(time) });

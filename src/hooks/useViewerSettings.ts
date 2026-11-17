@@ -38,6 +38,7 @@ export const defaultSettings: ViewerSettings = {
   tapLeftRightPercent: 30,
   landscapeTwoPage: false,
   autoOpenLastBook: true,
+  summarizeBookTitles: true,
   fontFamily: 'ridi',
   accentColor: 'rose',
   translationProvider: 'auto',
@@ -79,6 +80,7 @@ export const getStoredViewerSettings = () => {
       horizontalMarginStep: clampReaderMarginStep(merged.horizontalMarginStep),
       verticalMarginStep: clampReaderMarginStep(merged.verticalMarginStep),
       landscapeTwoPage: merged.landscapeTwoPage === true,
+      summarizeBookTitles: merged.summarizeBookTitles !== false,
       archiveWebtoonMode: merged.archiveWebtoonMode === true,
       translationProvider: normalizeReaderTranslationProvider(merged.translationProvider),
       translationSourceLanguage: normalizeReaderTranslationSourceLanguage(

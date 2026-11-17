@@ -8,8 +8,10 @@ import bookCardModule from '../src/components/shelf/BookCard.tsx';
 import emptyStateModule from '../src/components/shelf/EmptyState.tsx';
 import bookUtilsModule from '../src/components/shelf/bookUtils.ts';
 import generatedBookCoverModule from '../src/components/shelf/GeneratedBookCover.tsx';
+import titleDisplayModule from '../src/contexts/BookTitleDisplayContext.tsx';
 
 const { BookCard, getFittingShelfTagCount } = bookCardModule;
+const { BookTitleDisplayProvider } = titleDisplayModule;
 const { EmptyState } = emptyStateModule;
 const { canRequestPublicBookMetadata, getVisibleBookInfoCatalogTags } = bookUtilsModule;
 const {
@@ -95,6 +97,21 @@ const renderCardWithCover = (viewMode, catalog = props.catalog, overrides = {}) 
   }));
   return parseHTML(html).document;
 };
+
+test('every shelf layout follows the summary setting without modifying the book passed to actions', () => {
+  const book = { ...props.book, name: '예시 소설 1-215 완.epub' };
+  for (const viewMode of ['simple', 'grid', 'list']) {
+    for (const summarize of [true, false]) {
+      const html = renderToStaticMarkup(React.createElement(BookTitleDisplayProvider, { summarize },
+        React.createElement(BookCard, { ...props, book, viewMode })));
+      const document = parseHTML(html).document;
+      const title = summarize ? '예시 소설' : '예시 소설 1-215 완';
+      assert.ok(document.querySelector(`[aria-label="${title} 열기"]`));
+      assert.ok([...document.querySelectorAll('*')].some(element => element.textContent === title));
+    }
+  }
+  assert.equal(book.name, '예시 소설 1-215 완.epub');
+});
 
 test('uses one 14px outer radius for grid cards and every modal surface', async () => {
   const [globals, bookCardSource, ...modalSources] = await Promise.all([

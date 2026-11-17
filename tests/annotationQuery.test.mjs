@@ -28,6 +28,17 @@ const makeAnnotation = (id, overrides = {}) => ({
   ...overrides,
 });
 
+test('library search accepts summary and original titles while retaining the original book record', () => {
+  const books = [{ id: 'book-1', name: '예시 [작가] 소설 001-215화.txt' }];
+  const index = buildLibraryAnnotationIndex([makeAnnotation('first')], books, normalizeAnnotationPalette(undefined));
+  for (const query of ['예시 소설', '작가', '001-215']) {
+    const results = queryLibraryAnnotationIndex(index, { query });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].book, books[0]);
+    assert.equal(results[0].book.name, '예시 [작가] 소설 001-215화.txt');
+  }
+});
+
 test('searches quote, note, chapter and configured palette meaning', () => {
   const palette = normalizeAnnotationPalette(undefined).map((item) => (
     item.id === 'blue' ? { ...item, meaning: '설정 자료' } : item

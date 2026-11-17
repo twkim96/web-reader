@@ -5,6 +5,7 @@ import type {
   PublicBookCatalogPlatformId,
 } from '../../lib/publicBookCatalogSchema.ts';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadataSchema.ts';
+import { getBookDisplayTitle } from '../../lib/bookDisplayTitle.ts';
 
 export type ShelfSortMode = 'alpha' | 'recent' | 'popularity';
 export type ShelfViewMode = 'simple' | 'grid' | 'list';
@@ -223,7 +224,9 @@ export const filterAndSortPreparedBooks = (
   return books
     .filter((prepared) => (
       matchesShelfFilters(prepared, filters)
-      && (!normalizedKeyword || prepared.normalizedTitle.includes(normalizedKeyword))
+      && (!normalizedKeyword
+        || prepared.normalizedTitle.includes(normalizedKeyword)
+        || normalizeBookSearchText(getBookDisplayTitle(prepared.book.name)).includes(normalizedKeyword))
     ))
     .sort((a, b) => {
       if (sortMode !== 'popularity') {

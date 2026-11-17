@@ -308,6 +308,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="w-full h-px bg-black/10 dark:bg-white/10" />
 
           <div data-reader-settings-toggle-group="true" className="space-y-3">
+            <label
+              data-reader-settings-summarize-titles="true"
+              className="flex items-center justify-between gap-4 rounded-xl py-1 text-left"
+            >
+              <span className="text-[11px] font-bold leading-snug">제목 요약으로 보기</span>
+              <input
+                type="checkbox"
+                checked={settings.summarizeBookTitles !== false}
+                onChange={(event) => onUpdateSettings({ summarizeBookTitles: event.target.checked })}
+                className="h-4 w-4 shrink-0 accent-accent-600"
+              />
+            </label>
             {!isFixedLayout && (
               <label
                 data-reader-settings-landscape-two-page="true"
