@@ -75,6 +75,8 @@ interface UseReaderProgressSaveOptions {
   initialTime?: number;
   initialBookmarks?: Bookmark[];
   initialRevision?: number;
+  initialAnchorCfi?: string;
+  initialPositionToken?: string;
   ignoredRemoteRevision?: number;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
   onAdoptRemoteProgress: (
@@ -109,11 +111,21 @@ export const useReaderProgressSave = ({
   initialTime,
   initialBookmarks,
   initialRevision,
+  initialAnchorCfi,
+  initialPositionToken,
   ignoredRemoteRevision,
   onSaveProgress,
   onAdoptRemoteProgress,
 }: UseReaderProgressSaveOptions) => {
   const readerOwnerRef = useRef(ownerRuntime.capture());
+  const startupPositionRef = useRef({ token: initialPositionToken, cfi: initialCfi, anchor: initialAnchorCfi });
+  const restoredPositionTokenRef = useRef<string | undefined>(undefined);
+  const confirmRestoredPosition = useCallback((token: string, target: string) => {
+    const startup = startupPositionRef.current;
+    if (startup.token === token && (startup.cfi === target || startup.anchor === target)) {
+      restoredPositionTokenRef.current = token;
+    }
+  }, []);
   const causalRef = useRef({ revision: initialRevision ?? 0, ignoredRevision: ignoredRemoteRevision ?? 0, acceptedEventId: undefined as string | undefined, viewportId: crypto.randomUUID() });
   const provisionalRef = useRef<{
     original: PersistableReaderLocation;
@@ -321,6 +333,7 @@ export const useReaderProgressSave = ({
         causalIgnoredRevision: causalRef.current.ignoredRevision,
         causalAcceptedEventId: causalRef.current.acceptedEventId,
         causalViewportId: causalRef.current.viewportId,
+        ...(restoredPositionTokenRef.current ? { restoredPositionToken: restoredPositionTokenRef.current } : {}),
         ...(options?.suppressLastReaderSession ? { suppressLastReaderSession: true } : {}),
       });
     } finally {
@@ -653,6 +666,7 @@ export const useReaderProgressSave = ({
     if (remoteJumpSnapshotRef.current?.id !== preparationId) return;
     const guard = remoteJumpSnapshotRef.current.remoteGuard;
     if (guard && unconfirmedRemoteViewportRef.current === guard) {
+      restoredPositionTokenRef.current = undefined;
       causalRef.current.revision = guard.progress.syncRevision ?? 0;
       causalRef.current.acceptedEventId = guard.progress.acceptedEventId;
       unconfirmedRemoteViewportRef.current = null;
@@ -788,6 +802,7 @@ export const useReaderProgressSave = ({
       || guard.progress.syncRevision !== canonicalProgress.syncRevision
       || guard.progress.acceptedEventId !== canonicalProgress.acceptedEventId)) return false;
     applyCanonicalRemoteProgress(canonicalProgress);
+    restoredPositionTokenRef.current = undefined;
     causalRef.current.revision = canonicalProgress.syncRevision ?? 0;
     causalRef.current.acceptedEventId = canonicalProgress.acceptedEventId;
     unconfirmedRemoteViewportRef.current = null;
@@ -833,6 +848,7 @@ export const useReaderProgressSave = ({
       || guard.progress.syncRevision !== canonicalProgress.syncRevision
       || guard.progress.acceptedEventId !== canonicalProgress.acceptedEventId)) return false;
     applyCanonicalRemoteProgress(canonicalProgress);
+    restoredPositionTokenRef.current = undefined;
     causalRef.current.revision = canonicalProgress.syncRevision ?? 0;
     causalRef.current.acceptedEventId = canonicalProgress.acceptedEventId;
     unconfirmedRemoteViewportRef.current = null;
@@ -840,6 +856,7 @@ export const useReaderProgressSave = ({
   }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
 
   return {
+    confirmRestoredPosition,
     allowCurrentViewportAfterIgnoringRemote: (revision: number, acceptedEventId?: string) => {
       const guard = unconfirmedRemoteViewportRef.current;
       const attemptId = remoteNavigationAttemptIdRef.current;
@@ -855,6 +872,7 @@ export const useReaderProgressSave = ({
         }
         // Explicitly ignoring the current, newer target also supersedes an older
         // failed adoption. A captured completion still cannot release a new guard.
+        restoredPositionTokenRef.current = undefined;
         causalRef.current.ignoredRevision = Math.max(causalRef.current.ignoredRevision, revision);
         unconfirmedRemoteViewportRef.current = null;
         return true;

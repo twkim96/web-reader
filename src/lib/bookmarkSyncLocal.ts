@@ -215,6 +215,7 @@ export const hydrateRemoteBookmarkHeadsV5 = async (
         bookmarks: [...manual, ...localAuto],
         syncRevision: localProgress?.syncRevision,
         acceptedEventId: localProgress?.acceptedEventId,
+        localPositionToken: localProgress?.localPositionToken,
         ignoredRemoteRevision: localProgress?.ignoredRemoteRevision,
       };
       await progressStore.put({ ...nextProgress, ownerKey });

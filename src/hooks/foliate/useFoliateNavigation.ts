@@ -31,8 +31,9 @@ export const useFoliateNavigation = ({
     if (!view) return;
 
     try {
-      await openFoliateBook(view, source, initialCfi, beforeInit, initialAnchorCfi, initialPercent);
+      const restoredTarget = await openFoliateBook(view, source, initialCfi, beforeInit, initialAnchorCfi, initialPercent);
       setToc(buildTocProgress(view));
+      return restoredTarget;
     } catch (error) {
       console.error('Failed to open epub:', error);
       throw error;

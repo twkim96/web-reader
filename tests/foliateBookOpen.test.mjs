@@ -71,7 +71,8 @@ test('resume uses the saved anchor when the primary location cannot be restored'
       return target === 'saved-anchor' ? { index: 5 } : false;
     },
   };
-  await openFoliateBook(view, { sections: [] }, 'unusable-location', undefined, 'saved-anchor');
+  const restored = await openFoliateBook(view, { sections: [] }, 'unusable-location', undefined, 'saved-anchor');
+  assert.equal(restored, 'saved-anchor');
   assert.deepEqual(targets, ['unusable-location', 'saved-anchor']);
 });
 

@@ -148,6 +148,7 @@ export const useProgressActions = ({
         causalIgnoredRevision: causalOptions?.causalIgnoredRevision ?? progressData.ignoredRemoteRevision,
         causalAcceptedEventId: causalOptions?.causalAcceptedEventId ?? progressData.acceptedEventId,
         causalViewportId: causalOptions?.causalViewportId,
+        restoredPositionToken: causalOptions?.restoredPositionToken,
       } : null,
       bookmarkEvents: bookmarkChanges.map((change) => ({
         bookId,
@@ -673,6 +674,7 @@ export const useProgressActions = ({
           bookmarks: existing?.bookmarks ?? [],
           syncRevision: existing?.syncRevision,
           acceptedEventId: existing?.acceptedEventId,
+          localPositionToken: existing?.localPositionToken,
           ignoredRemoteRevision: Math.max(existing?.ignoredRemoteRevision ?? 0, revision),
         };
         const next = { ...prev, [bookId]: nextProgress };

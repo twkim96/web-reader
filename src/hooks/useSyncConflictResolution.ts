@@ -40,6 +40,7 @@ type UseSyncConflictResolutionOptions = {
   activeBookId?: string;
   canQuietlyResolveProgressConflict?: () => boolean;
   canAutoResolveSettledProgressConflict?: () => boolean;
+  flushReaderProgress: () => Promise<boolean>;
 };
 
 export type ResolvedRemoteProgressCommand = {
@@ -68,6 +69,7 @@ export const useSyncConflictResolution = ({
   activeBookId,
   canQuietlyResolveProgressConflict,
   canAutoResolveSettledProgressConflict,
+  flushReaderProgress,
 }: UseSyncConflictResolutionOptions) => {
   const [conflict, setConflict] = useState<SyncConflictV5 | null>(null);
   const [activeProgressConflictRevision, setActiveProgressConflictRevision] = useState<
@@ -124,16 +126,20 @@ export const useSyncConflictResolution = ({
       !ownerRuntime.isCurrent(owner)
       || target.event?.target.kind !== 'progress'
       || replacement.target.kind !== 'progress'
-      || !target.remoteHead
-      || !('position' in target.remoteHead)
+      || (target.remoteHead && !('position' in target.remoteHead))
     ) return;
 
     const bookId = target.event.target.bookId;
-    const ignoredRevision = target.remoteHead.revision;
+    const ignoredRevision = target.remoteHead?.revision ?? 0;
     const existing = progressRef.current[bookId];
     if (existing) {
+      const position = replacement.payload && 'anchorCfi' in replacement.payload ? replacement.payload : null;
       const nextProgress: UserProgress = {
         ...existing,
+        cfi: position?.cfi ?? '',
+        anchorCfi: position?.anchorCfi ?? position?.cfi ?? '',
+        progressPercent: position?.progressPercent ?? 0,
+        localPositionToken: 'positionToken' in replacement ? replacement.positionToken : undefined,
         ignoredRemoteRevision: Math.max(
           existing.ignoredRemoteRevision ?? 0,
           ignoredRevision,
@@ -252,6 +258,8 @@ export const useSyncConflictResolution = ({
           const replacement = await resolveSyncConflictKeepLocalV5(
             getSyncOwnerKey(owner.ownerKey),
             next.conflictId,
+            Date.now(),
+            { kind: 'position', position: expectedLocalPosition },
           );
           if (!ownerRuntime.isCurrent(owner)) return;
           if (!replacement) {
@@ -391,19 +399,34 @@ export const useSyncConflictResolution = ({
     setResolving(true);
     setResolutionError(null);
     try {
+      if (conflict.event?.target.kind === 'progress' && conflict.event.target.bookId === activeBookId
+        && !await flushReaderProgress()) {
+        if (ownerRuntime.isCurrent(owner)) setResolutionError('이 기기의 읽기 위치를 저장 중입니다. 잠시 후 다시 시도해 주세요.');
+        return false;
+      }
+      if (!ownerRuntime.isCurrent(owner)) return false;
       const replacement = await resolveSyncConflictKeepLocalV5(
         getSyncOwnerKey(owner.ownerKey),
         conflict.conflictId,
+        Date.now(),
+        conflict.event?.target.kind === 'progress'
+          ? conflict.latestLocalPosition && 'anchorCfi' in conflict.latestLocalPosition
+            ? { kind: 'position', position: conflict.latestLocalPosition }
+            : { kind: 'empty' }
+          : undefined,
+        conflict.event?.target.kind === 'progress'
+          ? conflict.remoteHead && 'position' in conflict.remoteHead ? conflict.remoteHead : null
+          : undefined,
       );
       if (!ownerRuntime.isCurrent(owner)) return false;
       if (!replacement) {
         await refresh();
-        setResolutionError('원격 상태가 변경되었습니다. 최신 값을 다시 확인해 주세요.');
+        setResolutionError('읽기 위치가 변경되었습니다. 최신 위치를 다시 확인해 주세요.');
         return false;
       }
       applyLocalProgressWinnerToRuntime(owner, conflict, replacement);
       setConflict(null);
-      await refresh().catch((error) => {
+      void refresh().catch((error) => {
         console.error('[SyncConflict] refresh after keep-local failed:', error);
       });
       return true;
@@ -417,7 +440,7 @@ export const useSyncConflictResolution = ({
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
     }
-  }, [applyLocalProgressWinnerToRuntime, conflict, refresh]);
+  }, [activeBookId, applyLocalProgressWinnerToRuntime, conflict, flushReaderProgress, refresh]);
 
   const useRemote = useCallback(async () => {
     const owner = ownerRuntime.capture();

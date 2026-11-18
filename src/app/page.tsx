@@ -95,6 +95,7 @@ export default function Page() {
   } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [syncReviewOpen, setSyncReviewOpen] = useState(false);
+  const [readerReopen, setReaderReopen] = useState<{ ownerKey: string; bookId: string; version: string }>();
   const [libraryAnnotationsOpen, setLibraryAnnotationsOpen] = useState(false);
   const [readingStatisticsOpen, setReadingStatisticsOpen] = useState(false);
   const [libraryAnnotationJumpCommand, setLibraryAnnotationJumpCommand] = useState<
@@ -118,6 +119,7 @@ export default function Page() {
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
   const [recentlyImportedBookIds, setRecentlyImportedBookIds] = useState<string[]>([]);
   const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const flushReaderProgress = useCallback(async () => readerProgressFlushRef.current?.() ?? true, []);
   const readerQuietResumeEligibilityRef = useRef<(() => boolean) | null>(null);
   const readerProgressConflictAutoResolveEligibilityRef = useRef<(() => boolean) | null>(null);
   useEffect(() => {
@@ -125,13 +127,11 @@ export default function Page() {
     const regressionWindow = window as Window & {
       __flushReaderProgressForRegression?: () => Promise<boolean>;
     };
-    regressionWindow.__flushReaderProgressForRegression = async () => (
-      readerProgressFlushRef.current ? readerProgressFlushRef.current() : true
-    );
+    regressionWindow.__flushReaderProgressForRegression = flushReaderProgress;
     return () => {
       delete regressionWindow.__flushReaderProgressForRegression;
     };
-  }, []);
+  }, [flushReaderProgress]);
   const canQuietlyResolveProgressConflict = useCallback(
     () => readerQuietResumeEligibilityRef.current?.() ?? false,
     [],
@@ -148,9 +148,7 @@ export default function Page() {
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
   const serviceWorkerUpdate = useServiceWorkerUpdate({
-    flushCurrentProgress: useCallback(async () => (
-      readerProgressFlushRef.current ? readerProgressFlushRef.current() : true
-    ), []),
+    flushCurrentProgress: flushReaderProgress,
     onPersistenceError: setProgressPersistenceError,
   });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
@@ -317,6 +315,7 @@ export default function Page() {
     activeBookId: activeBook?.id,
     canQuietlyResolveProgressConflict,
     canAutoResolveSettledProgressConflict,
+    flushReaderProgress,
   });
   const annotationSyncConflictResolution = useAnnotationSyncConflictResolution({
     user,
@@ -366,7 +365,10 @@ export default function Page() {
   ]);
   const showSyncConflictDialog = shouldShowSyncConflictDialog(syncConflictPresentation);
   const showSyncReviewBadge = shouldShowSyncReviewBadge(syncConflictPresentation);
+  const readerVersion = readerReopen?.ownerKey === activeOwnerKey && readerReopen.bookId === activeBook?.id
+    ? readerReopen.version : '';
   const readerInteractionBlocked = showSyncConflictDialog
+    || syncConflictResolution.resolving
     || readingStatisticsOpen
     || pendingAction !== null
     || loginDisclosureMode !== null
@@ -786,7 +788,7 @@ export default function Page() {
       {/* Account changes clear progress before hydration. Mount only after it is restored. */}
       {view === 'reader' && activeBook && activeOwnerKey && isLibraryBootstrapReady && (
         <EpubReader
-          key={`${activeOwnerKey}:${activeBook.id}`}
+          key={`${activeOwnerKey}:${activeBook.id}:${readerVersion}`}
           book={activeBook}
           ownerKey={activeOwnerKey}
           annotationSyncDeviceId={user ? deviceId.current : undefined}
@@ -807,6 +809,7 @@ export default function Page() {
           initialTime={progress[activeBook.id]?.lastRead}
           initialBookmarks={progress[activeBook.id]?.bookmarks || []}
           initialRevision={progress[activeBook.id]?.syncRevision}
+          initialPositionToken={progress[activeBook.id]?.localPositionToken}
           remoteProgress={remoteProgress[activeBook.id]}
           resolvedRemoteProgressCommand={syncConflictResolution.resolvedRemoteProgressCommand
             ?.progress.bookId === activeBook.id
@@ -990,7 +993,7 @@ export default function Page() {
           className="fixed bottom-4 right-4 z-[90] rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-2xl"
           onClick={() => setSyncReviewOpen(true)}
         >
-          동기화 확인 필요
+          {conflictTarget?.kind === 'progress' ? '이어 읽을 위치 선택' : '동기화 확인 필요'}
         </button>
       )}
 
@@ -1005,7 +1008,11 @@ export default function Page() {
             : undefined}
           onKeepLocal={() => {
             void activeSyncConflictResolution.keepLocal().then((resolved) => {
-              if (resolved) setSyncReviewOpen(false);
+              if (!resolved) return;
+              if (view === 'reader' && conflictTarget?.kind === 'progress' && activeOwnerKey && activeBook?.id === conflictTarget.bookId) {
+                setReaderReopen({ ownerKey: activeOwnerKey, bookId: activeBook.id, version: crypto.randomUUID() });
+              }
+              setSyncReviewOpen(false);
             });
           }}
           onUseRemote={() => {

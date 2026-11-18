@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../src/components/ConfirmDialog.tsx';
 import { LoginDisclosureModal } from '../src/components/LoginDisclosureModal.tsx';
 import { ReaderModalFrame } from '../src/components/reader/ReaderModalFrame.tsx';
 import { MenuSheetHeader } from '../src/components/MenuSheetHeader.tsx';
+import { SyncConflictResolutionDialog } from '../src/components/SyncConflictResolutionDialog.tsx';
 
 const theme = {
   bg: 'bg-black',
@@ -50,6 +51,41 @@ const dispatchEscape = (window) => {
   Object.defineProperty(event, 'key', { value: 'Escape' });
   window.dispatchEvent(event);
 };
+
+test('progress conflict offers clear positions and preserves actions and error feedback', async () => {
+  const window = installDom();
+  const root = createRoot(window.document.querySelector('#root'));
+  const calls = [];
+  const conflict = {
+    event: { target: { kind: 'progress' }, deviceId: 'device-1' },
+    latestLocalPosition: { anchorCfi: 'local', progressPercent: 30 },
+    remoteHead: { operation: 'set', position: { progressPercent: 70 }, acceptedDeviceId: 'device-2', occurredAtClient: 20 },
+    createdAt: 30,
+  };
+  const render = (item) => root.render(React.createElement(SyncConflictResolutionDialog, {
+    conflict: item, theme, error: '이동 실패',
+    onKeepLocal: () => calls.push('local'), onUseRemote: () => calls.push('remote'), onDefer: () => calls.push('defer'),
+  }));
+  await act(async () => { render(conflict); });
+  let dialog = window.document.querySelector('[role="dialog"]');
+  assert.match(dialog.textContent, /어디서 이어 읽을까요\?/);
+  assert.match(dialog.textContent, /이 기기.*30\.0%.*다른 기기.*70\.0%/s);
+  assert.doesNotMatch(dialog.textContent, /원격 값 사용|반대쪽 변경|원격 전송만/);
+  assert.equal(dialog.querySelector('[role="alert"]').textContent, '이동 실패');
+  const buttons = [...dialog.querySelectorAll('button')];
+  await act(async () => {
+    dispatchClick(window, buttons.find((button) => button.textContent.includes('이 기기에서 계속 읽기')));
+    dispatchClick(window, buttons.find((button) => button.textContent.includes('다른 기기 위치로 이동')));
+  });
+  assert.deepEqual(calls, ['local', 'remote']);
+  await act(async () => { render({ ...conflict, remoteHead: { ...conflict.remoteHead, acceptedDeviceId: 'device-1' } }); });
+  dialog = window.document.querySelector('[role="dialog"]');
+  assert.match(dialog.textContent, /이 기기의 이전 저장.*70\.0%/s);
+  assert.match(dialog.textContent, /이전 저장 위치로 이동/);
+  await act(async () => { render({ ...conflict, remoteHead: { ...conflict.remoteHead, acceptedDeviceId: '' } }); });
+  assert.match(window.document.querySelector('[role="dialog"]').textContent, /다른 기기.*70\.0%/s);
+  await act(async () => { root.unmount(); });
+});
 
 test('hideCancel confirm dialogs cannot be dismissed through backdrop or Escape', async () => {
   const window = installDom();

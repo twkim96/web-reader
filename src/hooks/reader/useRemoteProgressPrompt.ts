@@ -146,6 +146,7 @@ export const useRemoteProgressPrompt = ({
   const recoveryRecordRef = useRef(initialRecoveryRecord);
   const [syncRecovery, setSyncRecovery] = useState<ReaderSyncRecovery | null>(() => recoveryRecordRef.current?.candidate ?? null);
   const [syncRecoveryVisible, setSyncRecoveryVisible] = useState(false);
+  const [syncRecoveryFeedback, setSyncRecoveryFeedback] = useState<string | null>(null);
   const hideSyncRecovery = useCallback(() => setSyncRecoveryVisible(false), []);
   const consumeSyncRecovery = useCallback((identity: string) => {
     if (recoveryRecordRef.current?.identity !== identity) return;
@@ -164,10 +165,13 @@ export const useRemoteProgressPrompt = ({
     recoveryRecordRef.current = record;
     writeSyncRecovery(recoveryScope, record);
     setSyncRecovery(candidate);
+    setSyncRecoveryFeedback(null);
     setSyncRecoveryVisible(true);
   }, [recoveryScope]);
   const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
   const syncConflictRef = useRef(syncConflict);
+  const latestRemoteProgressRef = useRef(remoteProgress);
+  useEffect(() => { latestRemoteProgressRef.current = remoteProgress; }, [remoteProgress]);
   useEffect(() => { syncConflictRef.current = syncConflict; }, [syncConflict]);
   const [syncConflictFeedback, setSyncConflictFeedback] = useState<string | null>(null);
   const [resolvingSyncConflict, setResolvingSyncConflict] = useState(false);
@@ -410,6 +414,47 @@ export const useRemoteProgressPrompt = ({
     prepareRemoteJump,
     waitForNavigationReady,
   ]);
+
+  const acceptSyncRecovery = useCallback(async () => {
+    if (!syncRecovery || syncConflict || resolvedRemoteProgressCommand || outboxConflictRevision !== undefined) return false;
+    if (!remoteProgress || remoteProgress.operation !== 'set'
+      || !remoteProgress.syncRevision || !remoteProgress.acceptedEventId
+      || getRemoteProgressIdentity(remoteProgress) !== syncRecovery.identity) {
+      setSyncRecoveryFeedback('최신 읽기 위치를 확인 중입니다.');
+      return false;
+    }
+    const bookmarks = stageAutoBookmark(currentAnchorCfi || currentCfi, totalProgress);
+    const target: SyncConflict = {
+      ...remoteProgress,
+      percent: remoteProgress.progressPercent,
+      bookmarks: bookmarks ?? getBookmarks(),
+    };
+    setSyncRecoveryFeedback(null);
+    const result = await adoptAndNavigateRemoteProgress(target);
+    if (result.status === 'navigated') {
+      if (bookmarks) commitBookmarks(result.progress.bookmarks ?? bookmarks);
+      adoptResolvedBookmarks(result.progress.bookmarks ?? target.bookmarks ?? []);
+      consumeSyncRecovery(syncRecovery.identity);
+      return true;
+    }
+    if (result.status === 'adopted-navigation-superseded' || result.status === 'adopted-navigation-failed') {
+      const latest = latestRemoteProgressRef.current;
+      const retryTarget = syncConflictRef.current
+        ?? (latest && newerRemoteTarget(target, latest))
+        ?? target;
+      setSyncConflictFeedback('읽기 위치로 이동하지 못했습니다. 다시 이동하거나 현재 위치를 유지해 주세요.');
+      syncConflictRef.current = retryTarget;
+      setSyncConflict(retryTarget);
+      setSyncRecoveryVisible(false);
+      return false;
+    }
+    if (recoveryRecordRef.current?.identity !== syncRecovery.identity) return false;
+    setSyncRecoveryFeedback(result.status === 'blocked-by-local-work'
+      ? '이 기기의 읽기 위치를 저장 중입니다.' : '읽기 위치를 확인한 뒤 다시 이동해 주세요.');
+    return false;
+  }, [adoptAndNavigateRemoteProgress, adoptResolvedBookmarks, commitBookmarks, consumeSyncRecovery,
+    currentAnchorCfi, currentCfi, getBookmarks, outboxConflictRevision, remoteProgress,
+    resolvedRemoteProgressCommand, stageAutoBookmark, syncConflict, syncRecovery, totalProgress]);
 
   const handledResolution = useRef<string | null>(null);
 
@@ -859,6 +904,8 @@ export const useRemoteProgressPrompt = ({
     syncRecoveryVisible,
     hideSyncRecovery,
     consumeSyncRecovery,
+    acceptSyncRecovery,
+    syncRecoveryFeedback,
     syncConflict,
     syncConflictFeedback,
     resolvingSyncConflict,

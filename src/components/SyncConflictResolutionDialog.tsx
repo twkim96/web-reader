@@ -109,6 +109,11 @@ export const SyncConflictResolutionDialog = ({
       : conflict.event?.target.kind === 'palette'
         ? '형광펜 팔레트'
         : '읽기 위치';
+  const isProgress = conflict.event?.target.kind === 'progress';
+  const localDeviceId = conflict.event?.deviceId;
+  const remoteDeviceId = conflict.remoteHead?.acceptedDeviceId;
+  const sameDevice = Boolean(localDeviceId && localDeviceId === remoteDeviceId);
+  const remoteProgressLabel = sameDevice ? '이 기기의 이전 저장' : '다른 기기';
   const remoteMissing = conflict.remoteHead === null;
   const remoteUnavailable = remoteMissing && (conflict.event?.target.kind === 'progress'
     || conflict.event?.target.kind === 'bookmark');
@@ -131,7 +136,8 @@ export const SyncConflictResolutionDialog = ({
       : conflict.remoteHead && 'position' in conflict.remoteHead
         ? 0
         : null;
-  const remoteActionLabel = remoteUnavailable ? '원격 기록 없음' : existingPolicyTarget
+  const remoteActionLabel = remoteUnavailable ? '원격 기록 없음' : isProgress
+    ? (sameDevice ? '이전 저장 위치로 이동' : '다른 기기 위치로 이동') : existingPolicyTarget
     ? conflict.conflictReason === 'annotation-color-limit'
       ? '원격 색상 유지'
       : '원격 상태로 되돌리기'
@@ -214,7 +220,7 @@ export const SyncConflictResolutionDialog = ({
       className={`app-panel-radius max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto border p-5 shadow-2xl sm:p-6 ${theme.bg} ${theme.text} ${theme.border}`}
     >
       <div className="-mx-5 -mt-5 sm:-mx-6 sm:-mt-6">
-        <MenuSheetHeader kind="sync-conflict" title="동기화 충돌" titleId="sync-conflict-title"
+        <MenuSheetHeader kind="sync-conflict" title={isProgress ? '어디서 이어 읽을까요?' : '동기화 충돌'} titleId="sync-conflict-title"
           onClose={onDefer} closeDisabled={resolving}
           closeLabel="동기화 충돌 나중에 처리" borderClass={theme.border} secondaryClass={theme.secondary} />
       </div>
@@ -225,7 +231,7 @@ export const SyncConflictResolutionDialog = ({
         <dd>{formatConflictTime(conflict.createdAt)}</dd>
         {formatConflictTime(remoteChangedAt) && (
           <>
-            <dt className="font-bold opacity-55">원격 기기 기록</dt>
+            <dt className="font-bold opacity-55">{isProgress ? '상대 위치 저장 시각' : '원격 기기 기록'}</dt>
             <dd>{formatConflictTime(remoteChangedAt)}</dd>
           </>
         )}
@@ -238,14 +244,14 @@ export const SyncConflictResolutionDialog = ({
       </dl>
       {comparison && (
         <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-xl border border-current/10 px-3 py-2 text-xs leading-5">
-          <dt className="font-black text-accent-500">현재 기기</dt>
+          <dt className="font-black text-accent-500">{isProgress ? '이 기기' : '현재 기기'}</dt>
           <dd className="min-w-0 break-words">{comparison.local}</dd>
-          <dt className="font-black opacity-60">원격 상태</dt>
+          <dt className="font-black opacity-60">{isProgress ? remoteProgressLabel : '원격 상태'}</dt>
           <dd className="min-w-0 break-words">{comparison.remote}</dd>
         </dl>
       )}
       <p id="sync-conflict-description" className="mt-3 text-sm leading-6 opacity-80">
-        {conflict.conflictReason === 'annotation-duplicate-range'
+        {isProgress ? '이어 읽을 위치를 선택해 주세요.' : conflict.conflictReason === 'annotation-duplicate-range'
           ? '같은 문장 범위의 하이라이트가 이미 원격에 있습니다.'
           : conflict.conflictReason === 'annotation-color-limit'
             ? '이 색상의 원격 하이라이트가 최대 20개에 도달했습니다.'
@@ -260,17 +266,17 @@ export const SyncConflictResolutionDialog = ({
           : remoteMissing && conflict.event?.target.kind === 'palette'
             ? '원격에 저장된 형광펜 팔레트가 없습니다.'
             : `${targetLabel}가 다른 기기나 앱 세션에서도 변경됐습니다.`}
-        {existingPolicyTarget
+        {!isProgress && (existingPolicyTarget
           ? ' 현재 변경을 취소하고 원격 상태로 되돌릴 수 있습니다.'
           : capacityConflict
             ? ' 서버 제한을 지키려면 이 기기에서 추가한 항목을 삭제해야 합니다.'
             : generationConflict
               ? ' 삭제 전 변경을 버리거나, 현재 동기화 세대에 명시적으로 다시 저장할 수 있습니다.'
-          : ' 어느 값을 유지할지 선택할 때까지 이 항목의 원격 전송만 멈춥니다.'}
+          : ' 어느 값을 유지할지 선택할 때까지 이 항목의 원격 전송만 멈춥니다.')}
       </p>
-      <p className="mt-2 text-xs leading-5 opacity-60">
+      {!isProgress && <p className="mt-2 text-xs leading-5 opacity-60">
         한쪽을 선택하면 이 대상의 반대쪽 변경은 덮어쓰거나 삭제될 수 있습니다. 나중에 결정하면 현재 상태를 그대로 두고 이 대상의 전송만 보류합니다.
-      </p>
+      </p>}
       {error && (
         <p role="alert" className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-bold text-amber-600 dark:text-amber-400">
           {error}
@@ -279,7 +285,7 @@ export const SyncConflictResolutionDialog = ({
       <div className="mt-6 grid gap-3">
         {!requiresRemoteResolution && (
           <button type="button" disabled={resolving} onClick={onKeepLocal} className="rounded-2xl bg-accent-500 px-4 py-3 font-bold text-white disabled:opacity-40">
-            현재 기기 값 유지
+            {isProgress ? '이 기기에서 계속 읽기' : '현재 기기 값 유지'}
           </button>
         )}
         <button type="button" disabled={resolving || remoteUnavailable} onClick={onUseRemote} className={`rounded-2xl border px-4 py-3 font-bold disabled:opacity-40 ${theme.border} ${theme.secondary}`}>

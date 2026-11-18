@@ -31,7 +31,7 @@ test('keeps startup and shelf conflicts non-blocking until review is requested',
   }), true);
 });
 
-test('automatically presents only an active-book reading-position conflict', () => {
+test('keeps active-book reading-position conflicts in the review badge until opened', () => {
   const base = {
     hasConflict: true,
     explicitReview: false,
@@ -42,7 +42,7 @@ test('automatically presents only an active-book reading-position conflict', () 
   assert.equal(shouldShowSyncConflictDialog({
     ...base,
     conflictBookId: 'book-1',
-  }), true);
+  }), false);
   assert.equal(shouldShowSyncConflictDialog({
     ...base,
     conflictBookId: 'book-2',
@@ -69,7 +69,9 @@ test('automatically presents only an active-book reading-position conflict', () 
   assert.equal(shouldShowSyncReviewBadge({
     ...base,
     conflictBookId: 'book-1',
-  }), false);
+  }), true);
+  assert.equal(shouldShowSyncConflictDialog({ ...base, conflictBookId: 'book-1', explicitReview: true }), true);
+  assert.equal(shouldShowSyncReviewBadge({ ...base, conflictBookId: 'book-1', explicitReview: true }), false);
 });
 
 test('selects an active-book progress conflict ahead of older inactive work', () => {

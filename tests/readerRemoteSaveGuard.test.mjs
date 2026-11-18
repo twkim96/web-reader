@@ -67,12 +67,27 @@ test('causal state is mount scoped and a stale ignore cannot release a newer ado
   function Harness(props) { const state = useReaderProgressSave({ ...options, ...props }); React.useEffect(() => { controls = state; }, [state]); return null; }
   const root = createRoot(document.getElementById('app'));
   try {
-    await act(async () => root.render(React.createElement(Harness, { initialRevision: 1, ignoredRemoteRevision: 0 })));
-    await act(async () => { controls.markUserProgressChange(); assert.equal(await controls.saveProgressIfChanged('local-1', 11, []), true); });
-    await act(async () => root.render(React.createElement(Harness, { initialRevision: 9, ignoredRemoteRevision: 9 })));
-    await act(async () => { controls.markUserProgressChange(); assert.equal(await controls.saveProgressIfChanged('local-2', 12, []), true); });
+    await act(async () => root.render(React.createElement(Harness, {
+      initialRevision: 1, ignoredRemoteRevision: 0, initialPositionToken: 'from-mount', initialAnchorCfi: 'saved-anchor',
+    })));
+    await act(async () => {
+      controls.confirmRestoredPosition('from-mount', 'wrong-location');
+      controls.markUserProgressChange();
+      assert.equal(await controls.saveProgressIfChanged('local-1', 11, []), true);
+    });
+    await act(async () => root.render(React.createElement(Harness, {
+      initialRevision: 9, ignoredRemoteRevision: 9, initialPositionToken: 'from-shared-row',
+    })));
+    await act(async () => {
+      controls.confirmRestoredPosition('from-mount', 'saved-anchor');
+      controls.confirmRestoredPosition('from-shared-row', 'local');
+      controls.markUserProgressChange();
+      assert.equal(await controls.saveProgressIfChanged('local-2', 12, []), true);
+    });
     assert.equal(writes[0][3].causalRevision, 1);
+    assert.equal(writes[0][3].restoredPositionToken, undefined);
     assert.equal(writes[1][3].causalRevision, 1);
+    assert.equal(writes[1][3].restoredPositionToken, 'from-mount');
     assert.equal(writes[1][3].causalIgnoredRevision, 0);
     assert.equal(writes[0][3].causalViewportId, writes[1][3].causalViewportId);
     assert.ok(writes[0][3].causalViewportId);
@@ -96,6 +111,7 @@ test('causal state is mount scoped and a stale ignore cannot release a newer ado
     });
     assert.equal(writes.at(-1)[3].causalRevision, 1);
     assert.equal(writes.at(-1)[3].causalIgnoredRevision, 3);
+    assert.equal(writes.at(-1)[3].restoredPositionToken, undefined);
   } finally { await act(async () => root.unmount()); Object.assign(globalThis, { window: old.window, document: old.document, IS_REACT_ACT_ENVIRONMENT: old.act }); }
 });
 

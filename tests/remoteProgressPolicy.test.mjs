@@ -132,8 +132,8 @@ test('does not silently override the user or a pending local save on first sync'
   }), 'offer');
 });
 
-test('prompts for a meaningful newer remote update after initial sync', () => {
-  assert.equal(decide(), 'prompt');
+test('offers a meaningful newer remote update after initial sync', () => {
+  assert.equal(decide(), 'offer');
 });
 
 test('ignores a negligible remote movement after initial sync', () => {
@@ -175,7 +175,7 @@ test('treats a lower but newer remote position as deliberate cross-device readin
     remotePercent: 30,
     remoteTime: 999_999,
     lastSaveTime: 1,
-  }), 'prompt');
+  }), 'offer');
 });
 
 test('treats an authoritative remote reset as a first-class update', () => {

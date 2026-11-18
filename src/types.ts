@@ -121,6 +121,7 @@ export interface UserProgress {
   bookmarks?: Bookmark[]; 
   syncRevision?: number;   // authoritative Firebase head revision when known
   acceptedEventId?: string;
+  localPositionToken?: string; // identifies the unconfirmed write that produced this position
   ignoredRemoteRevision?: number; // latest remote prompt explicitly declined on this device
 }
 
@@ -150,6 +151,7 @@ export interface SaveProgressOptions {
   causalIgnoredRevision?: number;
   causalAcceptedEventId?: string;
   causalViewportId?: string;
+  restoredPositionToken?: string;
 }
 
 export type ViewState = 'loading' | 'shelf' | 'reader';

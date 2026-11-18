@@ -52,6 +52,6 @@ export const decideRemoteProgressAction = ({
   if (isInitialSync) return 'offer';
 
   return hasMeaningfulProgressDelta(remotePercent, currentPercent)
-    ? 'prompt'
+    ? 'offer'
     : 'ignore';
 };

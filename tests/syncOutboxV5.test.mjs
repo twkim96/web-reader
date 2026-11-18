@@ -147,6 +147,88 @@ test('receipt ACK leaves later queued base revisions untouched', async () => {
   assert.deepEqual(after.payload, before.payload);
 });
 
+test('receipt for a migrated tokenless event cannot advance a different local position', async () => {
+  await enqueue(ownerA, { eventId: 'old-a', position: position(40) });
+  const first = await claimNext(10);
+  await enqueue(ownerA, { eventId: 'old-b', sessionId: 'another-reader', position: position(25), occurredAtClient: 12 });
+  await acknowledgeProgressEventV5(ownerA, 'old-a', { ...ackHead('old-a'), position: position(40) }, first.expectedClaim, 13, 1);
+  const [local] = await getAllLocalProgressV5(ownerA);
+  assert.equal(local.cfi, position(25).cfi);
+  assert.equal(local.acceptedEventId, undefined);
+  assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).acknowledgedEventId, 'old-a');
+});
+
+const enqueueRestoredViewport = (eventId, percent, restoredPositionToken) => {
+  const cwdPosition = position(percent);
+  return enqueueProgressMutationBatchV5(ownerA, {
+    progress: { bookId: 'book-1', ...cwdPosition, lastRead: 13, bookmarks: [], syncRevision: 0 },
+    progressEvent: {
+      bookId: 'book-1', operation: 'progress.set', position: cwdPosition, deviceId: 'device-1',
+      sessionId: eventId, causalViewportId: eventId, causalRevision: 0, eventId,
+      occurredAtClient: 13, restoredPositionToken,
+    },
+    bookmarkEvents: [],
+  });
+};
+
+test('reopening the exact unsent position can coalesce a backward turn and invalidates the old proof', async () => {
+  const { decideProgressTransaction } = await import('../src/lib/progressSyncTransaction.ts');
+  const { event: first } = await enqueue(ownerA, {
+    eventId: 'before-close', causalViewportId: 'old-reader', position: position(40),
+  });
+  const [saved] = await getAllLocalProgressV5(ownerA);
+  assert.ok(saved.localPositionToken);
+  await enqueueRestoredViewport('reopened', 25, saved.localPositionToken);
+  const [merged] = await getOutboxEventsV5(ownerA);
+  assert.equal(merged.eventId, first.eventId);
+  assert.equal(merged.causalViewportId, 'reopened');
+  assert.deepEqual(merged.payload, position(25));
+  assert.notEqual(merged.positionToken, saved.localPositionToken);
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].localPositionToken, merged.positionToken);
+
+  // A second screen loaded the old 40% row before the first one changed it.
+  await enqueueRestoredViewport('second-reader', 41, saved.localPositionToken);
+  const firstClaim = await claimNext(15);
+  const head = { ...ackHead(first.eventId), position: position(25) };
+  await acknowledgeProgressEventV5(ownerA, first.eventId, head, firstClaim.expectedClaim, 17, 1);
+  const nextClaim = await claimNext(20);
+  assert.equal(nextClaim.event.eventId, 'second-reader');
+  assert.equal(decideProgressTransaction({
+    event: nextClaim.event, storedHead: head, storedReceipt: undefined, serverTime: {},
+  }).status, 'conflict');
+});
+
+for (const ackFirst of [false, true]) {
+  test(`reopened save follows receipt for the restored position without borrowing a foreign head (ACK first=${ackFirst})`, async () => {
+    const { decideProgressTransaction } = await import('../src/lib/progressSyncTransaction.ts');
+    const { event: first } = await enqueue(ownerA, {
+      eventId: 'before-close', causalViewportId: 'old-reader', position: position(40),
+    });
+    const [saved] = await getAllLocalProgressV5(ownerA);
+    const firstClaim = await claimNext(10);
+    const ownHead = { ...ackHead(first.eventId), position: position(40) };
+    const foreignHead = { ...ackHead('other-device', 2), position: position(75), acceptedDeviceId: 'device-2' };
+    const followUp = () => enqueueRestoredViewport('after-reopen', ackFirst ? 25 : 41, saved.localPositionToken);
+    if (!ackFirst) await followUp();
+    assert.deepEqual(firstClaim.event.payload, position(40));
+    await acknowledgeProgressEventV5(ownerA, first.eventId, foreignHead, firstClaim.expectedClaim, 15, 1);
+    if (ackFirst) await followUp();
+    const [local] = await getAllLocalProgressV5(ownerA);
+    assert.equal(local.progressPercent, ackFirst ? 25 : 41);
+    assert.notEqual(local.acceptedEventId, first.eventId);
+    const next = await claimNext(20);
+    assert.equal(next.event.eventId, 'after-reopen');
+    assert.equal(next.event.baseRevision, 1);
+    assert.equal(next.event.afterPositionToken, undefined);
+    assert.equal(decideProgressTransaction({
+      event: next.event, storedHead: ownHead, storedReceipt: undefined, serverTime: {},
+    }).status, 'apply');
+    assert.equal(decideProgressTransaction({
+      event: next.event, storedHead: foreignHead, storedReceipt: undefined, serverTime: {},
+    }).status, 'conflict');
+  });
+}
+
 test('explicitly ignoring the received remote revision permits continuing from the current viewport', async () => {
   const remote = ackHead('remote-2', 2);
   await storeRemoteProgressHeadV5(ownerA, remote, 10);
@@ -1246,8 +1328,15 @@ test('using a remote bookmark advances its target meta atomically', async () => 
   };
   const { expectedClaim } = await claimNext();
   await recordProgressConflictV5(ownerA, 'bookmark-local', remote, expectedClaim, 12);
+  const { event: progressEvent } = await enqueue(ownerA, {
+    causalViewportId: 'active-reader', position: position(40), causalIgnoredRevision: 2, occurredAtClient: 13,
+  });
   await resolveSyncConflictUseRemoteV5(ownerA, 'bookmark-local', 4);
   assert.equal((await getSyncMetaV5(ownerA, 'bookmark:book-1:mark-1')).knownRevision, 5);
+  const [saved] = await getAllLocalProgressV5(ownerA);
+  assert.equal(saved.localPositionToken, progressEvent.positionToken);
+  assert.equal(saved.ignoredRemoteRevision, 2);
+  assert.equal(saved.cfi, position(40).cfi);
 });
 
 test('does not resolve a bookmark conflict with an older cached remote head', async () => {
@@ -1302,8 +1391,8 @@ test('does not resolve a bookmark conflict with an older cached remote head', as
   assert.equal((await getOutboxEventsV5(ownerA))[0].status, 'conflict');
 });
 
-test('keeping local creates a new event at the current remote revision', async () => {
-  await enqueue(ownerA, { eventId: 'event-1', position: position(30) });
+test('keeping the selected position creates a new event without authorizing a stale reader', async () => {
+  await enqueue(ownerA, { eventId: 'event-1', position: position(30), causalViewportId: 'old-reader', causalRevision: 0 });
   const remote = {
     schemaVersion: 2,
     bookId: 'book-1',
@@ -1318,25 +1407,36 @@ test('keeping local creates a new event at the current remote revision', async (
   };
   const { expectedClaim } = await claimNext();
   await recordProgressConflictV5(ownerA, 'event-1', remote, expectedClaim, 12);
-  const replacement = await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 4);
+  await enqueueRestoredViewport('new-reader', 25);
+  assert.equal(await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 14, {
+    kind: 'position', position: position(30),
+  }), null);
+  const replacement = await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 14, {
+    kind: 'position', position: position(25),
+  });
   assert.equal(replacement.baseRevision, 2);
-  assert.equal(replacement.payload.progressPercent, 30);
+  assert.equal(replacement.payload.progressPercent, 25);
   assert.equal(replacement.status, 'pending');
   assert.notEqual(replacement.eventId, 'event-1');
   const [keptLocal] = await getAllLocalProgressV5(ownerA);
-  assert.equal(keptLocal.progressPercent, 30);
+  assert.equal(keptLocal.progressPercent, 25);
   assert.equal(keptLocal.ignoredRemoteRevision, 2);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
-  assert.equal(await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 5), null);
-  await claimNext(6);
+  const localChoice = await claimNext(15);
+  const chosenHead = { ...ackHead(replacement.eventId, 3), position: position(25) };
+  await acknowledgeProgressEventV5(ownerA, replacement.eventId, chosenHead, localChoice.expectedClaim, 17, 3);
+  await enqueueRestoredViewport('confirmed-reader', 24, keptLocal.localPositionToken);
+  const continuation = await claimNext(20);
+  assert.equal(continuation.event.baseRevision, 3);
   await enqueue(ownerA, {
     eventId: 'event-after-resolution',
-    sessionId: 'session-1',
-    occurredAtClient: 6,
+    causalViewportId: 'old-reader',
+    causalRevision: 0,
+    occurredAtClient: 22,
   });
   const next = (await getOutboxEventsV5(ownerA))
     .find(({ eventId }) => eventId === 'event-after-resolution');
-  assert.equal(next.baseRevision, 3);
+  assert.equal(next.baseRevision, 0);
 });
 
 test('restoring a remotely deleted bookmark assigns a new bookmark id', async () => {

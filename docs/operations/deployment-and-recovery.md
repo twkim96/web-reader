@@ -46,7 +46,7 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 TTL을 쓰는 경우 `eventReceipts` 컬렉션 그룹의 `createdAtServer`에 210일 오프셋을 설정합니다. 기존 문서의 재작성은 필요 없습니다. TTL은 컬렉션 그룹 전체에 적용되므로 모든 경로의 구형 쓰기 차단과 권한 소급 연장 금지를 확인하고, 확인 시각 T부터 210일이 지난 뒤에만 활성화합니다. 활성화 시 이미 만료된 문서도 삭제 대상이 됩니다. [Firestore TTL](https://firebase.google.com/docs/firestore/ttl)
 
-정리 시작 후 legacy 쓰기를 다시 허용하는 Rules로 rollback하지 않습니다. UI 변경을 복귀할 때도 서버 만료 차단과 IndexedDB v15 outbox를 읽을 수 있는 호환 버전을 사용합니다. 기존 14 이하 코드는 DB 버전 오류로 열리지 않을 수 있으므로 DB를 초기화해서 우회하지 않습니다. 중단하려면 정리 서버 플래그부터 끄고 payload·outbox·head·tombstone을 보존해 조사합니다.
+정리 시작 후 legacy 쓰기를 다시 허용하는 Rules로 rollback하지 않습니다. UI를 되돌릴 때도 서버 만료 차단과 IndexedDB v16 outbox를 지원하는 버전을 사용합니다. 업데이트가 구버전 연결 때문에 대기 중이면 열린 앱과 탭을 닫고 최신 앱을 엽니다. DB 버전 오류가 발생하면 로컬 데이터와 대기열을 보존한 채 호환 버전으로 복구합니다. 정리를 중단하려면 서버 정리 플래그부터 끄고 payload·outbox·head·tombstone을 보존해 조사합니다.
 
 ## 반복 장애 조사
 

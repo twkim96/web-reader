@@ -278,7 +278,7 @@ test('user progress input during readiness cancels automatic adoption before can
   }
 });
 
-test('explicit remote prompt stays open when a late local page turn is still syncing', async () => {
+test('late remote offer adopts the exact revision on click and stays available while local work is syncing', async () => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -309,6 +309,9 @@ test('explicit remote prompt stays open when a late local page turn is still syn
     syncRevision: 2,
     acceptedEventId: 'remote-event-2',
   };
+  const adoptedRevisions = [];
+  let navigationGate;
+  let localPending = true;
   let adoptionAttempts = 0;
   let navigationAttempts = 0;
   let attemptId = 0;
@@ -326,6 +329,7 @@ test('explicit remote prompt stays open when a late local page turn is still syn
       waitForNavigationReady: async () => true,
       goToStable: async () => {
         navigationAttempts += 1;
+        if (navigationGate) await navigationGate;
         return true;
       },
       goToFractionStable: async () => true,
@@ -350,8 +354,10 @@ test('explicit remote prompt stays open when a late local page turn is still syn
       },
       isQuietResumeEligible: () => false,
       isProgressConflictAutoResolveEligible: () => false,
-      adoptRemoteProgressBeforeNavigation: async () => {
+      adoptRemoteProgressBeforeNavigation: async (incoming) => {
         adoptionAttempts += 1;
+        adoptedRevisions.push(incoming.syncRevision);
+        if (!localPending) return { status: 'adopted', progress: incoming };
         return {
           status: 'blocked-by-local-work',
           work: { pending: 1, inFlight: 0, blocked: 0, conflicts: 0, paused: 0 },
@@ -365,9 +371,11 @@ test('explicit remote prompt stays open when a late local page turn is still syn
       'div',
       {
         'data-conflict': state.syncConflict ? 'open' : 'closed',
-        'data-feedback': state.syncConflictFeedback ?? '',
+        'data-target-revision': state.syncConflict?.syncRevision ?? '',
+        'data-feedback': state.syncRecoveryFeedback ?? '',
+        'data-offer': state.syncRecoveryVisible ? 'visible' : 'hidden',
       },
-      React.createElement('button', { id: 'accept', onClick: state.acceptSyncConflict }, 'accept'),
+      React.createElement('button', { id: 'accept', onClick: state.acceptSyncRecovery }, 'accept'),
     );
   };
 
@@ -381,25 +389,38 @@ test('explicit remote prompt stays open when a late local page turn is still syn
       root.render(React.createElement(Harness));
       await flushMicrotasks();
     });
-    const promptTimer = [...timers.entries()].find(([, timer]) => timer.delay === 0);
-    assert.ok(promptTimer, 'remote prompt should be scheduled immediately');
-    await act(async () => {
-      timers.delete(promptTimer[0]);
-      promptTimer[1].callback();
-      await flushMicrotasks();
-    });
-    assert.equal(window.document.querySelector('[data-conflict]')?.getAttribute('data-conflict'), 'open');
-
-    await act(async () => {
+    const stateNode = window.document.querySelector('[data-conflict]');
+    assert.equal(stateNode?.getAttribute('data-conflict'), 'closed');
+    assert.equal(stateNode?.getAttribute('data-offer'), 'visible');
+    assert.equal(adoptionAttempts, 0);
+    const clickOffer = () => act(async () => {
       window.document.getElementById('accept')?.dispatchEvent(new window.Event('click', { bubbles: true }));
       await flushMicrotasks();
     });
-
-    const stateNode = window.document.querySelector('[data-conflict]');
+    await clickOffer();
     assert.equal(adoptionAttempts, 1);
     assert.equal(navigationAttempts, 0);
+    assert.equal(stateNode?.getAttribute('data-conflict'), 'closed');
+    assert.equal(stateNode?.getAttribute('data-offer'), 'visible');
+    assert.match(stateNode?.getAttribute('data-feedback') ?? '', /저장 중/);
+    localPending = false;
+    await clickOffer();
+    assert.deepEqual(adoptedRevisions, [2, 2]);
+    assert.equal(navigationAttempts, 1);
+    assert.equal(stateNode?.getAttribute('data-offer'), 'hidden');
+
+    const offered = { ...remoteProgress, syncRevision: 3, acceptedEventId: 'remote-event-3' };
+    const latest = { ...offered, syncRevision: 4, acceptedEventId: 'remote-event-4',
+      cfi: 'local-after-turn', anchorCfi: 'local-after-turn', progressPercent: 22 };
+    let releaseNavigation;
+    navigationGate = new Promise((resolve) => { releaseNavigation = resolve; });
+    await act(async () => root.render(React.createElement(Harness, { incoming: offered })));
+    await clickOffer();
+    assert.deepEqual(adoptedRevisions, [2, 2, 3]);
+    await act(async () => root.render(React.createElement(Harness, { incoming: latest })));
+    await act(async () => { releaseNavigation(); await flushMicrotasks(); });
     assert.equal(stateNode?.getAttribute('data-conflict'), 'open');
-    assert.match(stateNode?.getAttribute('data-feedback') ?? '', /저장·동기화 중/);
+    assert.equal(stateNode?.getAttribute('data-target-revision'), '4');
   } finally {
     await act(async () => root.unmount());
     globalThis.window = previousWindow;
@@ -547,7 +568,7 @@ test('open remote prompt follows newer heads and ignores an obsolete in-flight r
   const state = () => document.getElementById('state');
   try {
     await render(head(1));
-    await render(head(2));
+    await render(head(2, { operation: 'reset', cfi: '', anchorCfi: '', progressPercent: 0 }));
     const timer = [...timers.entries()].find(([, value]) => value.delay === 0);
     assert.ok(timer);
     await act(async () => { timers.delete(timer[0]); timer[1].callback(); });

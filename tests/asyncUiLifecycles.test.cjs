@@ -115,7 +115,7 @@ test('late cold-start authentication hydrates account progress before mounting i
   }
 });
 
-for (const scenario of ['initial offer', 'postinitial modal']) test(`remote ${scenario} preserves its lifecycle across relocation`, async () => {
+for (const scenario of ['initial offer', 'postinitial reset modal']) test(`remote ${scenario} preserves its lifecycle across relocation`, async () => {
   const { useRemoteProgressPrompt } = require('../src/hooks/reader/useRemoteProgressPrompt.ts');
   await withDom(async root => {
     const originalSet = window.setTimeout, originalClear = window.clearTimeout;
@@ -139,12 +139,13 @@ for (const scenario of ['initial offer', 'postinitial modal']) test(`remote ${sc
     };
     function Harness(props) { state = useRemoteProgressPrompt({ ...common, ...props }); return null; }
     try {
-      if (scenario === 'postinitial modal') {
+      if (scenario === 'postinitial reset modal') {
         await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: { ...common.remoteProgress, cfi: 'old-remote', anchorCfi: 'old-remote', lastRead: 100, syncRevision: 1 }, currentCfi: 'local-a', currentAnchorCfi: 'local-a', totalProgress: 20 })));
       }
-      await React.act(async () => root.render(React.createElement(Harness, { currentCfi: 'local-a', currentAnchorCfi: 'local-a', totalProgress: 20 })));
+      const incoming = scenario === 'initial offer' ? common.remoteProgress : { ...common.remoteProgress, operation: 'reset', cfi: '', anchorCfi: '', progressPercent: 0 };
+      await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: incoming, currentCfi: 'local-a', currentAnchorCfi: 'local-a', totalProgress: 20 })));
       const scheduled = timers.size;
-      await React.act(async () => root.render(React.createElement(Harness, { currentCfi: 'local-b', currentAnchorCfi: 'local-b', totalProgress: 21 })));
+      await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: incoming, currentCfi: 'local-b', currentAnchorCfi: 'local-b', totalProgress: 21 })));
       const remaining = timers.size;
       await React.act(async () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } });
       if (scenario === 'initial offer') {
@@ -156,7 +157,7 @@ for (const scenario of ['initial offer', 'postinitial modal']) test(`remote ${sc
       } else {
         assert.equal(scheduled, 1);
         assert.equal(remaining, 1);
-        assert.equal(state.syncConflict.cfi, 'remote');
+        assert.equal(state.syncConflict.operation, 'reset');
       }
     } finally { window.setTimeout = originalSet; window.clearTimeout = originalClear; }
   });

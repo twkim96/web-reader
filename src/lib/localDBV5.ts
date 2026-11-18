@@ -169,6 +169,7 @@ export const loadProgressFromLocalV5 = async (
     bookmarks: stored.bookmarks,
     syncRevision: stored.syncRevision,
     acceptedEventId: stored.acceptedEventId,
+    localPositionToken: stored.localPositionToken,
     ignoredRemoteRevision: stored.ignoredRemoteRevision,
   };
 };

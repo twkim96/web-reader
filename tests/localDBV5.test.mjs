@@ -599,45 +599,47 @@ test('blocked current-schema open is reported and resumes after the old connecti
   assert.equal((await opening).version, schema.LOCAL_DB_VERSION);
 });
 
-test('v14 outbox rename preserves queued records and other active stores atomically', async () => {
-  const previous = await openDB(schema.LOCAL_DB_NAME, 14, {
-    upgrade(db, oldVersion, _newVersion, tx) {
-      schema.upgradeLocalDB(db, tx, oldVersion);
-      tx.objectStore(schema.V5_OUTBOX_STORE).name = schema.LEGACY_V5_OUTBOX_STORE;
-    },
+for (const [version, outboxStore] of [[14, schema.LEGACY_V5_OUTBOX_STORE], [15, schema.V15_OUTBOX_STORE]]) {
+  test(`v${version} outbox rename preserves queued records and other active stores atomically`, async () => {
+    const previous = await openDB(schema.LOCAL_DB_NAME, version, {
+      upgrade(db, oldVersion, _newVersion, tx) {
+        schema.upgradeLocalDB(db, tx, oldVersion);
+        tx.objectStore(schema.V5_OUTBOX_STORE).name = outboxStore;
+      },
+    });
+    const statuses = ['pending', 'in_flight', 'paused', 'conflict', 'superseded', 'blocked'];
+    const records = statuses.map((status, index) => ({
+      ownerKey: ownerA, eventId: `legacy-${index}`, targetKey: 'progress:book',
+      sequence: index + 1, status, attempts: index, nextAttemptAt: 42,
+      payload: { value: index }, claimToken: index === 1 ? 'claim' : null,
+    }));
+    const tx = previous.transaction([outboxStore, schema.V5_PROGRESS_STORE, schema.V5_SYNC_META_STORE], 'readwrite');
+    for (const record of records) await tx.objectStore(outboxStore).put(record);
+    await tx.objectStore(schema.V5_PROGRESS_STORE).put({ ownerKey: ownerA, bookId: 'book', cfi: 'saved' });
+    await tx.objectStore(schema.V5_SYNC_META_STORE).put({ ownerKey: ownerA, targetKey: 'progress:book', nextSequence: 7 });
+    await tx.done;
+    previous.close();
+
+    await assert.rejects(openDB(schema.LOCAL_DB_NAME, schema.LOCAL_DB_VERSION, {
+      upgrade(db, oldVersion, _newVersion, upgradeTx) {
+        void upgradeTx.done.catch(() => undefined);
+        schema.upgradeLocalDB(db, upgradeTx, oldVersion);
+        upgradeTx.abort();
+      },
+    }));
+    const rolledBack = await openDB(schema.LOCAL_DB_NAME, version);
+    assert.equal(rolledBack.objectStoreNames.contains(outboxStore), true);
+    assert.deepEqual(await rolledBack.getAll(outboxStore), records);
+    rolledBack.close();
+
+    const db = await initDB();
+    assert.equal(db.objectStoreNames.contains(outboxStore), false);
+    assert.deepEqual(await db.getAll(schema.V5_OUTBOX_STORE), records);
+    assert.equal((await db.get(schema.V5_PROGRESS_STORE, [ownerA, 'book'])).cfi, 'saved');
+    assert.equal((await db.get(schema.V5_SYNC_META_STORE, [ownerA, 'progress:book'])).nextSequence, 7);
+    assert.deepEqual(Array.from(db.transaction(schema.V5_OUTBOX_STORE).store.indexNames), [
+      'by-owner-status', 'by-owner-status-next-attempt', 'by-owner-target-sequence',
+    ]);
+    await assert.rejects(openDB(schema.LOCAL_DB_NAME, version), { name: 'VersionError' });
   });
-  const statuses = ['pending', 'in_flight', 'paused', 'conflict', 'superseded', 'blocked'];
-  const records = statuses.map((status, index) => ({
-    ownerKey: ownerA, eventId: `legacy-${index}`, targetKey: 'progress:book',
-    sequence: index + 1, status, attempts: index, nextAttemptAt: 42,
-    payload: { value: index }, claimToken: index === 1 ? 'claim' : null,
-  }));
-  const tx = previous.transaction([schema.LEGACY_V5_OUTBOX_STORE, schema.V5_PROGRESS_STORE, schema.V5_SYNC_META_STORE], 'readwrite');
-  for (const record of records) await tx.objectStore(schema.LEGACY_V5_OUTBOX_STORE).put(record);
-  await tx.objectStore(schema.V5_PROGRESS_STORE).put({ ownerKey: ownerA, bookId: 'book', cfi: 'saved' });
-  await tx.objectStore(schema.V5_SYNC_META_STORE).put({ ownerKey: ownerA, targetKey: 'progress:book', nextSequence: 7 });
-  await tx.done;
-  previous.close();
-
-  await assert.rejects(openDB(schema.LOCAL_DB_NAME, 15, {
-    upgrade(db, oldVersion, _newVersion, upgradeTx) {
-      void upgradeTx.done.catch(() => undefined);
-      schema.upgradeLocalDB(db, upgradeTx, oldVersion);
-      upgradeTx.abort();
-    },
-  }));
-  const rolledBack = await openDB(schema.LOCAL_DB_NAME, 14);
-  assert.equal(rolledBack.objectStoreNames.contains(schema.LEGACY_V5_OUTBOX_STORE), true);
-  assert.deepEqual(await rolledBack.getAll(schema.LEGACY_V5_OUTBOX_STORE), records);
-  rolledBack.close();
-
-  const db = await initDB();
-  assert.equal(db.objectStoreNames.contains(schema.LEGACY_V5_OUTBOX_STORE), false);
-  assert.deepEqual(await db.getAll(schema.V5_OUTBOX_STORE), records);
-  assert.equal((await db.get(schema.V5_PROGRESS_STORE, [ownerA, 'book'])).cfi, 'saved');
-  assert.equal((await db.get(schema.V5_SYNC_META_STORE, [ownerA, 'progress:book'])).nextSequence, 7);
-  assert.deepEqual(Array.from(db.transaction(schema.V5_OUTBOX_STORE).store.indexNames), [
-    'by-owner-status', 'by-owner-status-next-attempt', 'by-owner-target-sequence',
-  ]);
-  await assert.rejects(openDB(schema.LOCAL_DB_NAME, 14), { name: 'VersionError' });
-});
+}

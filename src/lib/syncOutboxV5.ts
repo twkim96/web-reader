@@ -60,6 +60,8 @@ export type ProgressOutboxEventV5 = {
   ownerKey: OwnerKey;
   eventId: string;
   causalViewportId?: string;
+  positionToken?: string;
+  afterPositionToken?: string;
   recoveryPending?: boolean;
   target: { kind: 'progress'; bookId: string };
   targetKey: string;
@@ -274,6 +276,8 @@ export type SyncMetaV5 = {
   acknowledgedRevision?: number;
   acknowledgedEventId?: string;
   acknowledgedViewportId?: string;
+  acknowledgedPositionToken?: string;
+  acknowledgedDeviceId?: string;
   updatedAt: number;
 };
 
@@ -551,6 +555,7 @@ export const markRemoteProgressIgnoredV5 = async (
     bookmarks: progress?.bookmarks ?? [],
     syncRevision: progress?.syncRevision,
     acceptedEventId: progress?.acceptedEventId,
+    localPositionToken: progress?.localPositionToken,
     ignoredRemoteRevision: Math.max(progress?.ignoredRemoteRevision ?? 0, revision),
   });
   await tx.done;
@@ -661,6 +666,7 @@ export type EnqueueProgressInput = {
   causalIgnoredRevision?: number;
   causalAcceptedEventId?: string;
   causalViewportId?: string;
+  restoredPositionToken?: string;
 };
 
 export type EnqueueBookmarkInput = {
@@ -1117,8 +1123,13 @@ const toLocalProgress = (
     bookmarks: input.localBookmarks ?? existing?.bookmarks ?? [],
   };
 
-// Only the unsubmitted tail can absorb a newer intent. Crossing a reset,
-// another session, or an attempted event would change server application order.
+const sameProgressViewport = (event: ProgressOutboxEventV5, input: EnqueueProgressInput) => (
+  event.sessionId === input.sessionId
+  && (event.causalViewportId ?? event.sessionId) === (input.causalViewportId ?? input.sessionId)
+);
+
+// A reopened reader may absorb the unsubmitted tail only when it restored
+// exactly that local position. A same-device ID alone does not establish this.
 const getCoalescibleProgressTail = (
   unresolved: ProgressOutboxEventV5[],
   input: EnqueueProgressInput,
@@ -1128,8 +1139,9 @@ const getCoalescibleProgressTail = (
   return input.operation === 'progress.set'
     && tail?.operation === 'progress.set'
     && tail.status === 'pending'
-    && tail.sessionId === input.sessionId
-    && (tail.causalViewportId ?? tail.sessionId) === (input.causalViewportId ?? input.sessionId)
+    && (sameProgressViewport(tail, input)
+      || (input.causalViewportId && input.restoredPositionToken && tail.positionToken === input.restoredPositionToken
+        && tail.deviceId === input.deviceId))
     && Math.max(input.causalRevision ?? 0, input.causalIgnoredRevision ?? 0) <= tail.baseRevision
     && tail.attempts === 0
     && canCoalesceWriteLease(tail.eventId, ownerKey)
@@ -1154,15 +1166,24 @@ const getProgressCausalState = (progress: UserProgress | undefined, input: Enque
   };
 };
 
-const getProgressWriteBaseRevision = (
+const getProgressWritePlan = (
   progress: UserProgress | undefined, unresolved: ProgressOutboxEventV5[], input: EnqueueProgressInput, meta: SyncMetaV5,
 ) => {
-  const viewport = input.causalViewportId ?? input.sessionId;
   const state = getProgressCausalState(progress, input, meta);
   const baseline = Math.max(state.syncRevision, state.ignoredRemoteRevision ?? 0);
   const tail = unresolved.at(-1);
-  return tail && (tail.causalViewportId ?? tail.sessionId) === viewport && tail.sessionId === input.sessionId
-    ? Math.max(baseline, tail.baseRevision + 1) : baseline;
+  if (tail && sameProgressViewport(tail, input)) {
+    if (tail.positionToken && tail.deviceId === input.deviceId && baseline <= tail.baseRevision) {
+      return { baseRevision: baseline, afterPositionToken: tail.positionToken };
+    }
+    return { baseRevision: Math.max(baseline, tail.baseRevision + 1) };
+  }
+  const restored = input.operation === 'progress.set' && input.causalViewportId
+    ? input.restoredPositionToken : undefined;
+  if (restored && !(state.syncRevision > (input.causalRevision ?? 0))) {
+    return { baseRevision: baseline, afterPositionToken: restored };
+  }
+  return { baseRevision: baseline };
 };
 
 export const enqueueProgressEventV5 = async (
@@ -1199,14 +1220,17 @@ export const enqueueProgressEventV5 = async (
   const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, occurredAtClient);
   const unresolved = targetEvents.filter((event) => activeStatuses.has(event.status)).sort(eventSort);
   const coalesced = getCoalescibleProgressTail(unresolved, input, ownerKey);
+  const openConflict = targetConflicts[0];
+  const positionToken = !openConflict && input.operation === 'progress.set' && input.causalViewportId
+    ? crypto.randomUUID() : undefined;
 
   await progressStore.put({
     ...toLocalProgress(input, existingProgress, occurredAtClient),
     ...(input.causalViewportId ? getProgressCausalState(existingProgress, input, meta) : {}),
+    localPositionToken: positionToken,
     ownerKey,
   });
 
-  const openConflict = targetConflicts[0];
   if (openConflict) {
     await conflictStore.put(reopenConflictWithLocalPayload(openConflict, input.position));
     await tx.done;
@@ -1220,6 +1244,9 @@ export const enqueueProgressEventV5 = async (
   if (coalesced) {
     const updated: ProgressOutboxEventV5 = {
       ...coalesced,
+      positionToken,
+      causalViewportId: input.causalViewportId,
+      sessionId: input.sessionId,
       payload: input.position,
       occurredAtClient,
       nextAttemptAt: occurredAtClient,
@@ -1241,8 +1268,9 @@ export const enqueueProgressEventV5 = async (
     deviceId: input.deviceId,
     sessionId: input.sessionId,
     causalViewportId: input.causalViewportId,
+    positionToken,
     sequence: meta.nextSequence,
-    baseRevision: getProgressWriteBaseRevision(existingProgress, unresolved, input, meta),
+    ...getProgressWritePlan(existingProgress, unresolved, input, meta),
     occurredAtClient,
     status: unresolved.some((candidate) => (
       candidate.status === 'blocked' || candidate.status === 'conflict'
@@ -1419,6 +1447,7 @@ export const mergeProgressMutationBatchV5 = (
     bookmarks: [...manual, ...auto],
     syncRevision: positionSource.syncRevision,
     acceptedEventId: positionSource.acceptedEventId,
+    localPositionToken: positionSource.localPositionToken,
     ignoredRemoteRevision: positionSource.ignoredRemoteRevision,
   };
 };
@@ -1484,6 +1513,9 @@ export const enqueueProgressMutationBatchV5 = async (
       .sort(eventSort);
     const coalesced = getCoalescibleProgressTail(unresolved, eventInput, ownerKey);
     const openConflict = targetConflicts[0];
+    const positionToken = !openConflict && eventInput.operation === 'progress.set' && eventInput.causalViewportId
+      ? crypto.randomUUID() : undefined;
+    batchCausalState.localPositionToken = positionToken;
     if (openConflict) {
       await conflictStore.put(reopenConflictWithLocalPayload(
         openConflict,
@@ -1492,6 +1524,9 @@ export const enqueueProgressMutationBatchV5 = async (
     } else if (coalesced) {
       await outboxStore.put({
         ...coalesced,
+        positionToken,
+        causalViewportId: eventInput.causalViewportId,
+        sessionId: eventInput.sessionId,
         payload: eventInput.position,
         occurredAtClient,
         nextAttemptAt: occurredAtClient,
@@ -1508,8 +1543,9 @@ export const enqueueProgressMutationBatchV5 = async (
         deviceId: eventInput.deviceId,
         sessionId: eventInput.sessionId,
         causalViewportId: eventInput.causalViewportId,
+        positionToken,
         sequence: meta.nextSequence,
-        baseRevision: getProgressWriteBaseRevision(input.progress, unresolved, eventInput, meta),
+        ...getProgressWritePlan(input.progress, unresolved, eventInput, meta),
         occurredAtClient,
         status: unresolved.some((candidate) => (
           candidate.status === 'blocked' || candidate.status === 'conflict'
@@ -1724,9 +1760,25 @@ export const acknowledgeProgressEventV5 = async (
     ? await progressStore.get([ownerKey, event.target.bookId]) as
       (UserProgress & { ownerKey: OwnerKey }) | undefined
     : undefined;
-  if (progress?.syncRevision === localRevision
-    && progress.acceptedEventId
-    && progress.acceptedEventId !== localEventId) {
+  let acknowledgedProgress: typeof progress;
+  if (progress && isProgressOutboxEventV5(event)) {
+    if (event.positionToken) {
+      if (progress.localPositionToken === event.positionToken && acceptedRevision !== undefined) {
+        acknowledgedProgress = progress;
+      }
+    } else if (!progress.localPositionToken
+      && (event.payload ? matchesProgressPosition(progress, event.payload) : !progress.cfi)) {
+      const laterEvents = await outbox.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
+        [ownerKey, event.targetKey, event.sequence],
+        [ownerKey, event.targetKey, Number.MAX_SAFE_INTEGER],
+        true,
+      )) as SyncOutboxEventV5[];
+      if (!laterEvents.some((candidate) => activeStatuses.has(candidate.status))) acknowledgedProgress = progress;
+    }
+  }
+  if (acknowledgedProgress?.syncRevision === localRevision
+    && acknowledgedProgress.acceptedEventId
+    && acknowledgedProgress.acceptedEventId !== localEventId) {
     tx.abort();
     await tx.done.catch(() => undefined);
     throw Object.assign(
@@ -1752,12 +1804,15 @@ export const acknowledgeProgressEventV5 = async (
         acknowledgedRevision: localRevision,
         acknowledgedEventId: localEventId,
         acknowledgedViewportId: event.causalViewportId ?? event.sessionId,
+        acknowledgedPositionToken: acceptedRevision !== undefined ? event.positionToken : undefined,
+        acknowledgedDeviceId: acceptedRevision !== undefined ? event.deviceId : undefined,
       } : {}),
       updatedAt: now,
     }),
-    progress && localRevision >= (progress.syncRevision ?? 0)
+    acknowledgedProgress && localRevision >= (acknowledgedProgress.syncRevision ?? 0)
       ? progressStore.put({
-        ...progress,
+        ...acknowledgedProgress,
+        localPositionToken: undefined,
         syncRevision: localRevision,
         acceptedEventId: localEventId,
       })
@@ -1880,6 +1935,7 @@ export const claimNextProgressEventV5 = async (
     V5_SYNC_LEASES_STORE,
     V5_OUTBOX_STORE,
     V5_REMOTE_HEADS_STORE,
+    V5_SYNC_META_STORE,
   ], 'readwrite');
   const lease = await tx.objectStore(V5_SYNC_LEASES_STORE).get(ownerKey) as SyncLeaseV5 | undefined;
   if (
@@ -1908,6 +1964,21 @@ export const claimNextProgressEventV5 = async (
       ),
     ) as SyncOutboxEventV5[];
     if (targetEvents.some((earlier) => activeStatuses.has(earlier.status))) continue;
+    if (isProgressOutboxEventV5(event) && event.afterPositionToken && event.attempts === 0) {
+      const meta = await tx.objectStore(V5_SYNC_META_STORE).get([ownerKey, event.targetKey]) as SyncMetaV5 | undefined;
+      const revision = meta?.acknowledgedRevision;
+      const confirmed = meta?.acknowledgedPositionToken === event.afterPositionToken
+        && meta.acknowledgedDeviceId === event.deviceId && typeof revision === 'number'
+        && Boolean(meta.acknowledgedEventId) && Number.isSafeInteger(revision) && revision >= 1;
+      candidate = {
+        ...event,
+        // An absent proof can only read the current head for manual review.
+        // No valid server head (including a missing head) matches -1.
+        baseRevision: confirmed ? revision : -1,
+        afterPositionToken: undefined,
+      };
+      break;
+    }
     if (
       event.target.kind === 'annotation'
       && event.operation === 'annotation.upsert'
@@ -2589,6 +2660,8 @@ export const resolveSyncConflictUseRemoteV5 = async (
       ],
       syncRevision: existing?.syncRevision,
       acceptedEventId: existing?.acceptedEventId,
+      localPositionToken: existing?.localPositionToken,
+      ignoredRemoteRevision: existing?.ignoredRemoteRevision,
     };
   }
   await Promise.all([
@@ -2625,6 +2698,8 @@ export const resolveSyncConflictKeepLocalV5 = async (
   ownerKey: OwnerKey,
   conflictId: string,
   now = Date.now(),
+  expectedLocal?: ExpectedLocalProgressStateV5,
+  expectedRemote?: ExpectedRemoteProgressHeadV5 | null,
 ) => {
   const db = await initDB();
   const tx = db.transaction([
@@ -2656,6 +2731,13 @@ export const resolveSyncConflictKeepLocalV5 = async (
     await tx.done;
     return null;
   }
+  if (expectedRemote !== undefined && (expectedRemote
+    ? !conflict.remoteHead || !('position' in conflict.remoteHead)
+      || !matchesExpectedRemoteProgressHead(conflict.remoteHead, expectedRemote)
+    : conflict.remoteHead !== null)) {
+    await tx.done;
+    return null;
+  }
   if (conflict.event.target.kind !== 'progress' && conflict.event.target.kind !== 'bookmark') {
     tx.abort();
     await tx.done.catch(() => undefined);
@@ -2682,8 +2764,6 @@ export const resolveSyncConflictKeepLocalV5 = async (
     return null;
   }
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
-  await supersedeConflictEvents(outbox, conflict);
-
   let target = conflict.event.target;
   let targetKey = conflict.event.targetKey;
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
@@ -2691,6 +2771,12 @@ export const resolveSyncConflictKeepLocalV5 = async (
     ownerKey,
     conflict.event.target.bookId,
   ]) as (UserProgress & { ownerKey: OwnerKey }) | undefined;
+  if (target.kind === 'progress' && expectedLocal
+    && !matchesExpectedLocalProgressState(canonicalProgress, expectedLocal)) {
+    await tx.done;
+    return null;
+  }
+  await supersedeConflictEvents(outbox, conflict);
   let payload: ProgressPositionV2 | ManualBookmarkPayloadV2 | null;
   if (target.kind === 'progress') {
     payload = canonicalProgress?.cfi
@@ -2751,6 +2837,9 @@ export const resolveSyncConflictKeepLocalV5 = async (
       targetKey,
       operation: payload === null ? 'progress.reset' : 'progress.set',
       payload: payload as ProgressPositionV2 | null,
+      causalViewportId: crypto.randomUUID(),
+      positionToken: payload ? crypto.randomUUID() : undefined,
+      afterPositionToken: undefined,
       sequence: nextMeta.nextSequence,
       baseRevision,
       occurredAtClient: now,
@@ -2791,13 +2880,13 @@ export const resolveSyncConflictKeepLocalV5 = async (
       updatedAt: now,
     }),
     conflictStore.put({ ...conflict, state: 'resolved_local', resolvedAt: now }),
-    target.kind === 'progress' && canonicalProgress && ignoredProgressRevision !== undefined
+    isProgressOutboxEventV5(replacement) && canonicalProgress
       ? progressStore.put({
         ...canonicalProgress,
-        ignoredRemoteRevision: Math.max(
-          canonicalProgress.ignoredRemoteRevision ?? 0,
-          ignoredProgressRevision,
-        ),
+        localPositionToken: replacement.positionToken,
+        ignoredRemoteRevision: ignoredProgressRevision === undefined
+          ? canonicalProgress.ignoredRemoteRevision
+          : Math.max(canonicalProgress.ignoredRemoteRevision ?? 0, ignoredProgressRevision),
       })
       : Promise.resolve(),
   ]);

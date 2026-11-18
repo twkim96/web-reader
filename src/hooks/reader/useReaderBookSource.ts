@@ -83,6 +83,8 @@ interface UseReaderBookSourceOptions {
   initialCfi?: string;
   initialAnchorCfi?: string;
   initialPercent?: number;
+  initialPositionToken?: string;
+  onRestorePosition?: (token: string, target: string) => void;
   settings: ViewerSettings;
   themeColors: ReaderThemeColors;
   themeTexture: ReaderThemeTexture;
@@ -93,7 +95,7 @@ interface UseReaderBookSourceOptions {
     beforeInit?: (view: FoliateViewElement) => void | Promise<void>,
     initialAnchorCfi?: string,
     initialPercent?: number,
-  ) => Promise<void>;
+  ) => Promise<string | undefined>;
   setLayout: ReaderLayoutSetter;
   setStyle: ReaderStyleSetter;
   onBack: () => void;
@@ -135,6 +137,8 @@ export const useReaderBookSource = ({
   initialCfi,
   initialAnchorCfi,
   initialPercent,
+  initialPositionToken,
+  onRestorePosition,
   settings,
   themeColors,
   themeTexture,
@@ -153,6 +157,8 @@ export const useReaderBookSource = ({
     initialCfi,
     initialAnchorCfi,
     initialPercent,
+    initialPositionToken,
+    onRestorePosition,
     openBook,
     onBack,
     settings,
@@ -167,6 +173,8 @@ export const useReaderBookSource = ({
     initialCfi,
     initialAnchorCfi,
     initialPercent,
+    initialPositionToken,
+    onRestorePosition,
     openBook,
     onBack,
     settings,
@@ -188,6 +196,8 @@ export const useReaderBookSource = ({
       initialCfi: targetInitialCfi,
       initialAnchorCfi: targetInitialAnchorCfi,
       initialPercent: targetInitialPercent,
+      initialPositionToken: targetPositionToken,
+      onRestorePosition: confirmRestoredPosition,
       openBook: openTargetBook,
       onBack: returnToShelf,
     } = loadInputsRef.current;
@@ -208,6 +218,7 @@ export const useReaderBookSource = ({
       });
       const deferredPersistence: Array<() => void> = [];
       let openedCoverView: FoliateViewElement | null = null;
+      let restoredTarget: string | undefined;
       const runDeferredPersistence = () => {
         const tasks = deferredPersistence.splice(0);
         window.setTimeout(() => tasks.forEach((task) => task()), 0);
@@ -414,11 +425,9 @@ export const useReaderBookSource = ({
               targetInitialAnchorCfi,
               targetInitialPercent,
             );
-            if (prepared.format === 'archive') {
-              await runWithTimeout(open, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE);
-              return;
-            }
-            await open;
+            restoredTarget = prepared.format === 'archive'
+              ? await runWithTimeout(open, ARCHIVE_LOAD_TIMEOUT_MS, ARCHIVE_LOAD_TIMEOUT_MESSAGE)
+              : await open;
           },
           commit: () => {
             if (!ownerRuntime.isCurrent(owner)) return;
@@ -444,6 +453,7 @@ export const useReaderBookSource = ({
               durationMs: performance.now() - bookOpenStartedAt,
               status: 'committed',
             });
+            if (restoredTarget && targetPositionToken) confirmRestoredPosition?.(targetPositionToken, restoredTarget);
             setIsLoaded(true);
             runDeferredPersistence();
           },

@@ -11,7 +11,8 @@ test('sync recovery notice stays inside the viewport in every menu material', as
     const { renderToStaticMarkup } = require('react-dom/server');
     const { SyncRecoveryNotice } = require('./src/components/reader/SyncRecoveryNotice.tsx');
     process.stdout.write(renderToStaticMarkup(React.createElement(SyncRecoveryNotice, {
-      visible: true, busy: false, onMove() {}, onDismiss() {},
+      visible: true, busy: false, percent: 42.1, feedback: '이 기기의 읽기 위치를 저장 중입니다.',
+      onMove() {}, onDismiss() {},
     })));
   `], { encoding: 'utf8' });
   await page.route('**/__sync-notice-fixture', route => route.fulfill({
@@ -22,6 +23,7 @@ test('sync recovery notice stays inside the viewport in every menu material', as
   }));
   await page.goto('/__sync-notice-fixture');
   const panel = page.locator('[data-sync-recovery-notice]');
+  await expect(panel.getByRole('button', { name: /저장된 42.1%로 이동/ })).toBeVisible();
   for (const [width, height] of [[1280, 800], [600, 900], [320, 640]]) {
     await page.setViewportSize({ width, height });
     for (const material of ['glass', 'standard', 'modern']) {

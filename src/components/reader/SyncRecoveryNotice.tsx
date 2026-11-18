@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { ArrowUpRight, X } from 'lucide-react';
 
-export function SyncRecoveryNotice({ visible, busy, onMove, onDismiss }: {
+export function SyncRecoveryNotice({ visible, busy, percent, feedback, onMove, onDismiss }: {
   visible: boolean;
   busy: boolean;
+  percent?: number;
+  feedback?: string | null;
   onMove: () => void;
   onDismiss: () => void;
 }) {
@@ -32,7 +34,11 @@ export function SyncRecoveryNotice({ visible, busy, onMove, onDismiss }: {
       onKeyDown={(event) => event.stopPropagation()}
     >
       <button type="button" disabled={busy} onClick={onMove} className="relative z-10 flex min-h-11 items-center gap-1.5 rounded-full pl-4 pr-2 text-xs font-bold disabled:opacity-50">
-        {busy ? '이동 중…' : '동기화 지점으로 이동'}<ArrowUpRight size={15} aria-hidden="true" />
+        <span>
+          {busy ? '이동 중…' : percent === undefined ? '동기화 지점으로 이동' : `저장된 ${percent.toFixed(1)}%로 이동`}
+          {feedback && <span role="status" className="mt-0.5 block text-[11px] opacity-70">{feedback}</span>}
+        </span>
+        <ArrowUpRight size={15} aria-hidden="true" />
       </button>
       <button type="button" disabled={busy} onClick={onDismiss} aria-label="동기화 안내 닫기" className="relative z-10 flex size-11 items-center justify-center rounded-full opacity-60 hover:opacity-100">
         <X size={15} />

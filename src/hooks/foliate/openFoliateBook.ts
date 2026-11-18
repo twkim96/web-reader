@@ -72,6 +72,7 @@ export const openFoliateBook = async (
     startedAt = timingNow();
     const resumeTargets = [initialCfi, initialAnchorCfi]
       .filter((target, index, all): target is string => Boolean(target) && all.indexOf(target) === index);
+    let restoredTarget: string | undefined;
     if (resumeTargets.length > 0) {
       // init silently falls back to the beginning for an unresolved location,
       // and does not report a refused navigation. Resume through the same
@@ -97,6 +98,7 @@ export const openFoliateBook = async (
             && Number.isFinite(actualFraction) && Number(actualFraction) <= 0.001;
           if (result && !progressMismatch) {
             restored = true;
+            restoredTarget = target;
             break;
           }
           if (progressMismatch) rejectedProgress = {
@@ -156,6 +158,7 @@ export const openFoliateBook = async (
       actualPage: view.renderer?.page,
       actualPages: view.renderer?.pages,
     });
+    return restoredTarget;
   } finally {
     timingTarget?.removeEventListener('foliate-reader-open-timing', handleFoliateTiming);
     if (timingWindow) {
