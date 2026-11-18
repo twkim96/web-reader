@@ -146,6 +146,10 @@ export interface SaveProgressOptions {
   force?: boolean;
   anchorCfi?: string;
   suppressLastReaderSession?: boolean;
+  causalRevision?: number;
+  causalIgnoredRevision?: number;
+  causalAcceptedEventId?: string;
+  causalViewportId?: string;
 }
 
 export type ViewState = 'loading' | 'shelf' | 'reader';

@@ -193,6 +193,18 @@ const resetDatabase = async () => {
 test.beforeEach(resetDatabase);
 test.after(resetDatabase);
 
+test('cancelled deletion cannot enqueue forced tombstones after the server fetch', async () => {
+  const cancelOwner = makeOwnerKey(makeFirebaseOwnerKey('cancel-delete'), 'library:local');
+  await removeBookAndAnnotationsV8(cancelOwner, DEVICE_CONTENT_OWNER_KEY, 'book-1', context);
+  const db = await initDB();
+  const result = await reconcileAnnotationBookDeletionIntentsV10('cancel-delete', cancelOwner, context, 900_000, async () => {
+    await db.delete(V10_ANNOTATION_BOOK_DELETIONS_STORE, [cancelOwner, 'book-1']);
+    return [head('late-remote', 3)];
+  });
+  assert.equal(result.queued, 0);
+  assert.equal((await getOutboxEventsV5(cancelOwner)).some(event => event.target.annotationId === 'late-remote'), false);
+});
+
 test('reconciles remote-only and later-created annotations with forced latest-revision tombstones', async () => {
   await removeBookAndAnnotationsV8(
     ownerKey,
@@ -313,4 +325,33 @@ test('continues with later book deletion intents when one book fails', async () 
   assert.ok((await getOutboxEventsV5(isolatedOwner)).some(({ target }) => (
     target.bookId === 'book-b' && target.annotationId === 'remote-b'
   )));
+});
+
+test('different-device intents retain their original authority and cannot generate forced deletes', async () => {
+  const db = await initDB();
+  const previousFlag = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+  process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
+  const now = Date.now();
+  const leasedId = `wl1_12345678-1234-4234-8234-123456789abc_${now}_12345678-1234-4234-8234-123456789def`;
+  try {
+    await db.put(V10_ANNOTATION_BOOK_DELETIONS_STORE, { ownerKey, bookId: 'book-1', createdAt: now,
+      lastCheckedAt: null, writeLeaseEventId: leasedId, writeLeaseDeviceId: 'another-device' });
+    let calls = 0;
+    await reconcileAnnotationBookDeletionIntentsV10('book-delete', ownerKey, context, now + 10_000, async () => { calls++; return [head('remote', 1)]; });
+    let intent = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, 'book-1']);
+    assert.equal(intent.expired, undefined);
+    assert.equal(intent.writeLeaseEventId, leasedId);
+    assert.equal(intent.writeLeaseDeviceId, 'another-device');
+    assert.equal(calls, 0);
+    assert.equal((await getOutboxEventsV5(ownerKey)).length, 0);
+    await reconcileAnnotationBookDeletionIntentsV10('book-delete', ownerKey, context, now + 20_000, async () => { calls++; return [head('remote', 1)]; });
+    intent = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, 'book-1']);
+    assert.equal(intent.expired, undefined);
+    assert.equal(intent.writeLeaseEventId, leasedId);
+    assert.equal(calls, 0);
+    assert.equal((await getOutboxEventsV5(ownerKey)).length, 0);
+  } finally {
+    if (previousFlag === undefined) delete process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+    else process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = previousFlag;
+  }
 });

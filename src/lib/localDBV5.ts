@@ -2,6 +2,7 @@ import { Book, UserProgress } from '../types';
 import type { IDBPTransaction } from 'idb';
 import type { StoredBookContent } from './bookContent';
 import { initDB, LocalStorageCapacityError } from './localDB';
+import { createSyncEventId, finiteWriteLeasesEnabled } from './writeLeaseTransport';
 import {
   V5_ARCHIVE_INSPECTIONS_STORE,
   V5_BOOKS_STORE,
@@ -305,6 +306,7 @@ export const removeBookAndAnnotationsV8 = (
         ownerKey: annotationOwnerKey,
         bookId,
         createdAt: deletionAt,
+        ...(finiteWriteLeasesEnabled() ? { writeLeaseEventId: createSyncEventId(annotationOwnerKey, syncContext.deviceId), writeLeaseDeviceId: syncContext.deviceId } : {}),
         lastCheckedAt: null,
         failureCount: 0,
         lastErrorCode: null,

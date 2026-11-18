@@ -1,3 +1,4 @@
+import { isEventReceiptV2 } from './progressV2Schema';
 import type { OwnerSnapshot } from './ownerRuntime';
 import { ownerRuntime } from './ownerRuntime';
 import type { OwnerKey } from './ownerIdentity';
@@ -51,6 +52,7 @@ const retryableCodes = new Set([
   'resource-exhausted',
   'unavailable',
   'unknown',
+  'sync/write-lease-pending',
 ]);
 
 const errorCode = (error: unknown) => {
@@ -143,12 +145,31 @@ export class ProgressSyncWorker {
         if (!recorded) return 'stale_claim' as const;
         return 'conflict' as const;
       }
+      let acceptedRevision: number | undefined;
+      if (event.target.kind === 'progress') {
+        const receipt = result.receipt;
+        if (!isEventReceiptV2(receipt)
+          || receipt.eventId !== event.eventId
+          || receipt.targetKind !== 'progress'
+          || receipt.targetKey !== event.targetKey
+          || receipt.bookId !== event.target.bookId
+          || receipt.bookmarkId !== null
+          || !('bookId' in result.head)
+          || result.head.bookId !== event.target.bookId
+          || receipt.revision > result.head.revision
+          || (receipt.revision === result.head.revision && result.head.acceptedEventId !== event.eventId)
+          || (result.status === 'apply' && receipt.revision !== result.head.revision)) {
+          throw Object.assign(new Error('진행률 receipt와 head가 요청 event와 일치하지 않습니다.'), { code: 'invalid-argument' });
+        }
+        acceptedRevision = receipt.revision;
+      }
       const acknowledged = await this.acknowledge(
         this.syncOwnerKey,
         event.eventId,
         result.head,
         expectedClaim,
         completedAt,
+        acceptedRevision,
       );
       if (!acknowledged) return 'stale_claim' as const;
       return result.status;

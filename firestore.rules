@@ -398,13 +398,51 @@ service cloud.firestore {
         && data.updatedAtServer == request.time;
     }
 
+    function validWriteLease(appId, uid, scopeId, eventId, deviceId) {
+      let parts = eventId.split('_');
+      let lease = get(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/writeLeases/$(parts[1])).data;
+      return lease.schemaVersion == 1
+        && lease.deviceId == deviceId
+        && lease.issuedAtServer is timestamp
+        && int(parts[2]) == lease.issuedAtServer.toMillis()
+        && request.time >= lease.issuedAtServer
+        && request.time < lease.issuedAtServer + duration.value(180, 'd');
+    }
+
+    function allowedWriteEvent(appId, uid, scopeId, eventId, deviceId) {
+      let policyPath = /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/syncPolicyV1/writeLease;
+      return eventId.matches('wl1_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}_[0-9]{13}_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
+        ? validWriteLease(appId, uid, scopeId, eventId, deviceId)
+        : !eventId.matches('wl1_.*') && !eventId.matches('unleased_.*')
+          && (!exists(policyPath) || get(policyPath).data.requireLeases == false);
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/writeLeases/{leaseId} {
+      allow get: if owns(uid) && isCanonicalScope(scopeId);
+      allow list: if false;
+      allow create: if owns(uid) && isCanonicalScope(scopeId)
+        && leaseId.matches('[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
+        && request.resource.data.keys().hasAll(['schemaVersion', 'deviceId', 'issuedAtServer'])
+        && request.resource.data.keys().hasOnly(['schemaVersion', 'deviceId', 'issuedAtServer'])
+        && request.resource.data.schemaVersion == 1
+        && boundedString(request.resource.data.deviceId, 128, false)
+        && request.resource.data.issuedAtServer == request.time;
+      allow update, delete: if false;
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/syncPolicyV1/writeLease {
+      allow get: if owns(uid) && isCanonicalScope(scopeId);
+      allow list, write: if false;
+    }
+
     function receiptPath(appId, uid, scopeId, bookId, eventId) {
       return /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/eventReceipts/$(eventId);
     }
 
     function matchingReceiptAfter(appId, uid, scopeId, data, targetKind, bookmarkId, targetKey) {
       let receipt = getAfter(receiptPath(appId, uid, scopeId, data.bookId, data.acceptedEventId)).data;
-      return receipt.schemaVersion == 2
+      return allowedWriteEvent(appId, uid, scopeId, data.acceptedEventId, data.acceptedDeviceId)
+        && receipt.schemaVersion == 2
         && receipt.eventId == data.acceptedEventId
         && receipt.targetKind == targetKind
         && receipt.bookId == data.bookId
@@ -529,7 +567,8 @@ service cloud.firestore {
       let receipt = getAfter(annotationReceiptPath(
         appId, uid, scopeId, data.bookId, data.acceptedEventId
       )).data;
-      return receipt.schemaVersion == 1
+      return allowedWriteEvent(appId, uid, scopeId, data.acceptedEventId, data.acceptedDeviceId)
+        && receipt.schemaVersion == 1
         && receipt.eventId == data.acceptedEventId
         && receipt.targetKind == 'annotation'
         && receipt.bookId == data.bookId
@@ -547,7 +586,8 @@ service cloud.firestore {
       let receipt = getAfter(paletteReceiptPath(
         appId, uid, scopeId, data.acceptedEventId
       )).data;
-      return receipt.schemaVersion == 1
+      return allowedWriteEvent(appId, uid, scopeId, data.acceptedEventId, data.acceptedDeviceId)
+        && receipt.schemaVersion == 1
         && receipt.eventId == data.acceptedEventId
         && receipt.targetKind == 'palette'
         && receipt.bookId == null
@@ -613,6 +653,7 @@ service cloud.firestore {
               request.resource.data.targetKind == 'progress'
               && request.resource.data.bookmarkId == null
               && request.resource.data.targetKey == 'progress:' + bookId
+              && allowedWriteEvent(appId, uid, scopeId, eventId, getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)).data.acceptedDeviceId)
               && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)).data.acceptedEventId == eventId
               && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)).data.revision == request.resource.data.revision
             )
@@ -621,6 +662,7 @@ service cloud.firestore {
               request.resource.data.targetKind == 'bookmark'
               && boundedString(request.resource.data.bookmarkId, 128, false)
               && request.resource.data.targetKey == 'bookmark:' + bookId + ':' + request.resource.data.bookmarkId
+              && allowedWriteEvent(appId, uid, scopeId, eventId, getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/bookmarks/$(request.resource.data.bookmarkId)).data.acceptedDeviceId)
               && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/bookmarks/$(request.resource.data.bookmarkId)).data.acceptedEventId == eventId
               && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/readingHistoryV2/$(bookId)/bookmarks/$(request.resource.data.bookmarkId)).data.revision == request.resource.data.revision
             )
@@ -700,6 +742,7 @@ service cloud.firestore {
         && request.resource.data.revision >= 1
         && request.resource.data.revision <= 9007199254740991
         && request.resource.data.createdAtServer == request.time
+        && allowedWriteEvent(appId, uid, scopeId, eventId, getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId)/annotations/$(request.resource.data.annotationId)).data.acceptedDeviceId)
         && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId)/annotations/$(request.resource.data.annotationId)).data.acceptedEventId == eventId
         && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSyncV1/$(bookId)/annotations/$(request.resource.data.annotationId)).data.revision == request.resource.data.revision;
       allow update, delete: if false;
@@ -734,6 +777,7 @@ service cloud.firestore {
           && request.resource.data.revision >= 1
           && request.resource.data.revision <= 9007199254740991
           && request.resource.data.createdAtServer == request.time
+          && allowedWriteEvent(appId, uid, scopeId, eventId, getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSettingsV1/palette).data.acceptedDeviceId)
           && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSettingsV1/palette).data.acceptedEventId == eventId
           && getAfter(/databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/annotationSettingsV1/palette).data.revision == request.resource.data.revision;
         allow update, delete: if false;

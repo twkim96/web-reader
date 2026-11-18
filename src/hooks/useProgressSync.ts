@@ -372,8 +372,8 @@ export const useProgressSync = ({
       if (currentUser?.uid === user.uid) reconcileListeners();
     });
     // Opening another book recreates its bookmark listener. The account-wide
-    // progress listener is longer-lived, so reconcile it when its last server
-    // snapshot is old before ordinary quiet resume is allowed to act on it.
+    // progress listener is longer-lived. Recover initial authoritative gaps or
+    // failures; healthy quiet data is checked by the foreground server read.
     if (activeBookId && reconcileSnapshotListener(
       progressRecoveryRef.current,
       { now: Date.now() },

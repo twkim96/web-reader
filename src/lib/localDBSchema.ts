@@ -1,7 +1,7 @@
 import type { IDBPDatabase, IDBPTransaction } from 'idb';
 
 export const LOCAL_DB_NAME = 'web-reader-db';
-export const LOCAL_DB_VERSION = 14;
+export const LOCAL_DB_VERSION = 15;
 
 export const LEGACY_BOOKS_STORE = 'books';
 export const LEGACY_METADATA_STORE = 'metadata';
@@ -12,7 +12,8 @@ export const V5_BOOKS_STORE = 'books-v5';
 export const V5_METADATA_STORE = 'metadata-v5';
 export const V5_PROGRESS_STORE = 'progress-v5';
 export const V5_ARCHIVE_INSPECTIONS_STORE = 'archive-inspections-v5';
-export const V5_OUTBOX_STORE = 'outbox-v5';
+export const LEGACY_V5_OUTBOX_STORE = 'outbox-v5';
+export const V5_OUTBOX_STORE = 'outbox-v15';
 export const V5_REMOTE_HEADS_STORE = 'remote-heads-v5';
 export const V5_SYNC_META_STORE = 'sync-meta-v5';
 export const V5_SYNC_CONFLICTS_STORE = 'sync-conflicts-v5';
@@ -98,6 +99,10 @@ export const upgradeLocalDB = (
     keyPath: ['ownerKey', 'bookId'],
   }) ?? transaction.objectStore(V5_ARCHIVE_INSPECTIONS_STORE);
   createIndex(inspections, 'by-owner', 'ownerKey');
+
+  if (db.objectStoreNames.contains(LEGACY_V5_OUTBOX_STORE)) {
+    transaction.objectStore(LEGACY_V5_OUTBOX_STORE).name = V5_OUTBOX_STORE;
+  }
 
   const outbox = createStore(db, V5_OUTBOX_STORE, {
     keyPath: ['ownerKey', 'eventId'],

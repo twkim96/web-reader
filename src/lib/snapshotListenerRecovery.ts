@@ -116,9 +116,9 @@ export class SnapshotListenerRecovery<T> {
     const neverReceivedAuthoritative = this.lastAuthoritativeSnapshotAt === 0
       && this.lastAttachedAt > 0
       && now - this.lastAttachedAt >= staleAfterMs;
-    const authoritativeIsStale = this.lastAuthoritativeSnapshotAt > 0
-      && now - this.lastAuthoritativeSnapshotAt >= staleAfterMs;
-    if (!neverReceivedAuthoritative && !authoritativeIsStale) return false;
+    // An unchanged healthy query emits no new snapshot. Quiet data alone is
+    // not evidence of a broken subscription; foreground checks handle freshness.
+    if (!neverReceivedAuthoritative) return false;
     return this.forceRestart();
   }
 

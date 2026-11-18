@@ -2,6 +2,11 @@
 
 현재 구현과 릴리스 기록을 대조해 남은 작업만 모았습니다. 코드 릴리스·자동검증 완료와 실제 계정/기기 수용 확인은 별개입니다. 이 목록의 작성은 아래 작업의 실행을 뜻하지 않습니다. 과거 버전 기록과 anchor는 그대로 보존합니다.
 
+## PRO 리뷰 후속 동기화 정확성
+
+- [통합 리뷰](updates/review_sync_pro_20261118.md) 후속의 화면별 인과 기준·비동등 위치 충돌·늦은 무시/이동 guard·권한 준비/만료 분리·유효 후속 의도 보존을 구현했습니다. 실제 두 기기/다중 탭의 R2 창→R3 수신→이동·무시·실패 재시도, 다른 화면의 ACK 중 과거 화면 저장을 Android/Samsung Internet·iPad PWA에서 확인합니다. 업데이트된 운영 앱에서 새 쓰기 권한으로 동기화가 이어지는지 확인합니다.
+- 실제 앱/계정 전환·숨김/복귀와 두 reader의 결과를 기록해야 수용 완료입니다. 자동 IDB·React·Rules 검사는 실제 기기 확인을 대체하지 않습니다. 최종 Astra 리뷰와 자동검증 근거는 위 보고서의 후속 개발 절에서 관리합니다.
+
 ## 리더 여백·공통 헤더 실기기 확인
 
 - 제목 요약 설정의 기본 켜짐·꺼짐 유지와 서재/리더/주석/통계의 표시, 도서 정보의 원래 제목 유지를 Android/iPad PWA에서 확인합니다. 요약이 같은 여러 도서의 구분과 원본 이름을 통한 검색도 포함합니다. 자동검증과 실제 기기 확인을 구분합니다.
@@ -24,20 +29,21 @@
 - [자동읽기 사양](SPEC/annotations-and-tools.md#자동읽기)의 Android/iPad PWA 수용 확인은 대기입니다. 실제 긴 EPUB/TXT에서 현재 단어 시작, WPM 변경, 장 전환, 닫기 뒤 위치 저장/재열기, 앱 숨김·복귀의 일시정지를 확인합니다.
 - 완료 조건: 실제 기기·빌드와 결과를 남기고, 가로/작은 화면의 중앙 모달·배경 blur·safe-area·긴 단어와 브라우저 back을 확인합니다. Chromium/WebKit 자동검증을 실제 기기 확인으로 대체하지 않습니다.
 
-## 기존 전체 lint 실패
+## 동기화 유효기간과 영수증 정리
 
-- `tests/remoteProgressPrompt.test.mjs`의 두 test harness가 render 중 외부 `state`를 대입해 `react-hooks/globals` 오류를 냅니다. 초기화 과정에서 해당 파일 ESLint를 다시 실행해 동일한 2건을 확인했습니다. [기존 기록](updates/update_1.8.37.md#시작-위치-복원-검증과-경량-진단)에도 전체 lint 실패로 남아 있습니다.
-- [커밋 `05307e3`의 run 37410255063](https://github.com/twkim96/web-reader/actions/runs/37410255063)에서도 `static-node-build` job이 같은 파일의 202·428행 오류 2건으로 실패했습니다.
-- 다음 작업: 테스트의 관찰 방법을 React 수명에 맞게 정리하고 기존 원격 이동·owner 전환 회귀를 유지합니다. 제품 코드나 assertion을 약화해 우회하지 않습니다.
-- 완료 조건: 해당 파일 lint와 관련 회귀가 통과하고, 이후 필요한 전체 gate의 결과를 기록합니다.
+- [쓰기 권한 계약](SPEC/reader-and-progress.md#유한-동기화)에 따라 신규 설치·오래된 IndexedDB 복원·구버전 탭 공존·180일 만료 후 네 종류 데이터 복구를 실제 PWA/두 기기에서 확인합니다. 서버 권한이 없는 상태에서 재시작한 offline 변경은 새 권한으로 자동 제출되지 않는다는 제한을 확인합니다. 같은 실행에서 만든 미제출 placeholder의 첫 온라인 권한 연결과 구분합니다.
+- [PRO 권고](updates/review_sync_pro_20261118.md#정리-방식과-기간-권고--미채택)의 전역 장벽 후 TTL 전환 여부와 운영 유예를 결정합니다. 연령순 배치는 로컬 반영했고 현재 180/210일과 전환 후 210일 대기는 유지합니다. 소급 권한 연장 금지와 전역 legacy 차단을 실제 운영에서 먼저 검증합니다.
+- 구형 앱의 대기 작업 복귀를 확인한 뒤 모든 `eventReceipts` 경로의 서버 legacy 차단을 시행하고 전환 시각 T를 기록합니다. TTL은 T 이후 210일 및 receipt 생성 후 210일이 모두 지난 문서만 대상으로 삼습니다. [운영 가이드](operations/deployment-and-recovery.md#유한-동기화와-영수증-정리)의 적용 범위와 운영 지표를 검증합니다.
+- 완료 조건: 통합된 로컬 검증과 실제 기기 결과, 전환·복귀 절차를 기록합니다. 그 전에는 정리 API와 TTL을 꺼둡니다. 영수증 정리 이후 legacy 허용 Rules로 복귀하지 않습니다.
 
-## 기존 원격 복구 안내 테스트의 계약 불일치
+## 원격 위치 안내 갱신 실기기 확인
 
-- `tests/asyncUiLifecycles.test.cjs`의 `remote prompt is rescheduled when a relocate cancels the pending display timer`는 초기 원격 위치에 대해 충돌 모달 timer 1건을 기대하지만 실제로는 0건입니다. cold-start 패치 전 `83b4d9b`의 원본 테스트를 별도로 실행해 같은 실패를 확인했습니다.
-- 현재 초기 동기화 정책은 사용자가 이미 이동했으면 `offer`로 복구 후보를 제공하므로, 테스트의 기존 충돌 모달 기대와 현재 계약을 대조해야 합니다. 이번 cold-start 수정에서는 제품 정책이나 기존 assertion을 바꾸지 않았습니다.
-- 다음 작업·완료 조건: 초기 복구 후보 안내와 이후 충돌 모달의 표시/재예약을 구분해 사용자 요구를 보존하는 회귀로 정리하고 해당 테스트 파일을 통과시킵니다.
+- 열린 창이 있는 기기 A를 둔 채 B에서 작은 폭 연속 페이지 이동·초기화·계속 이동한 후 A의 이동하기/무시를 확인합니다. UI·IndexedDB 회귀에서 최신 대상 갱신과 늦은 결과 무시, 과거 화면 저장 방어를 통과했으며 실제 두 기기 수용 확인은 남습니다.
+- 이동 중 다시 B에서 변경하거나 A에서 조작하는 경우, 응답 유실 재시도 후 다른 기기 head가 더 최신인 경우를 포함합니다. 완료 조건은 창을 닫고 도서를 다시 열지 않아도 최신 위치를 수락하고, 실패 후 A의 이전 화면 저장이 B의 최신 위치를 조용히 덮어쓰지 않는 것입니다.
 
 ## 기존 브라우저 CI 실패
+
+- 2026-11-18 집중 Chromium/WebKit 검사 52개 중 50개가 통과했고 `paginator page-turn tap skips the trailing sentinel before entering the next section`의 outgoing range 생성 0 기대가 각각 17/26으로 실패했습니다. 독립 fixture·Foliate runtime은 현재 HEAD와 동일하며 이번 동기화 변경 파일을 불러오지 않습니다. 페이지 자체 이동은 성공했습니다. 별도 renderer 성능 계약과 검사 관찰 범위를 대조해야 하며 assertion을 완화하지 않았습니다.
 
 - 2026-11-15 로컬 production 회귀는 선택 메뉴 버튼 폭 검사에서 먼저 멈췄습니다. 실제 폭은 40px이고 검사는 44px 이상을 요구합니다. 직전 `7e3371c`에도 `TextSelectionMenu`의 `w-10`과 같은 44px assertion이 함께 있어 이번 헤더 변경 전부터의 불일치입니다. 이 실행으로 뒤쪽 전체 회귀 통과를 주장하지 않습니다. 버튼 크기 계약과 기존 복사·공유 선택자를 함께 대조해야 합니다.
 - [문서 초기화 커밋 `0d52154`의 run 37394612095](https://github.com/twkim96/web-reader/actions/runs/37394612095)와 [직전 커밋 `11bc6f9`의 run 37162191819](https://github.com/twkim96/web-reader/actions/runs/37162191819)의 `browser-regression` job은 모두 실패로 종료됐습니다. 두 실행의 로그에서 같은 증상을 확인했으며 문서 이관 이전부터 있던 미해결 실패로 보존합니다.
@@ -94,7 +100,7 @@
 
 ## 조건부 보류와 완료 근거 확인
 
-- **독서 데이터 Retention/compaction:** [1.8.9 보류 판정](updates/update_1.8.9.md#현재-보류-판정)에 따라 observe-only입니다. 실데이터·90일 offline 복귀, authoritative snapshot/통계 동등성·rollback·구버전 재접속 증거, server watermark와 export/계정 삭제 호환성이 갖춰질 때 migration 여부를 검토합니다. 기준은 [planStorageMaintenanceMigrationV1](../src/lib/storageMaintenanceDiagnostics.ts)이며 자동 삭제는 활성화하지 않습니다.
+- **독서 통계 등 기타 Retention/compaction:** event receipt는 위 [유한 동기화](#동기화-유효기간과-영수증-정리)로 분리했습니다. 통계·기타 데이터는 [1.8.9 보류 판정](updates/update_1.8.9.md#현재-보류-판정)과 [planStorageMaintenanceMigrationV1](../src/lib/storageMaintenanceDiagnostics.ts)의 observe-only 조건을 유지하며 자동 삭제하지 않습니다.
 - **카탈로그 delta compaction:** [1.8.15 보류·후속 버전](updates/update_1.8.15.md#보류후속-버전)의 별도 후속입니다. 재방문 조건은 요청형 delta가 크기 한도에 가까워질 때이며, 그때 Firestore on-demand 원본에서 base catalog를 재생성하는 별도 compaction release를 계획합니다. 후속 완료·폐기의 명시적 근거는 찾지 못해 조건부 보류로 보존합니다. 독서 데이터 Retention/compaction과 별개이며 즉시 구현할 작업으로 전환하지 않습니다.
 - **NovelPia 인증 대상:** [1.8.15 Phase G](updates/update_1.8.15.md#phase-g--optional-auth-provider)의 코드는 완료되어 public-only 릴리스와 분리되어 있습니다. 실제 필요와 계정 설정이 생기면 CAPTCHA·성인 모드·session 검증과 secret 비노출을 별도 수용 확인합니다. 그 전에는 인증 대상 성공으로 판정하지 않습니다.
 - **도서 정보 외부 리뷰 완료 근거:** [1.8.11의 대기 상태](updates/update_1.8.11.md)와 후속 전체 리뷰 기록을 대조해 이 gate의 완료/이관 근거를 확인합니다. 이번 문서 대조에서 기능에 연결된 명시적인 sign-off는 찾지 못했습니다. 완료 증거가 있으면 이 항목을 제거하고, 없다면 필요한 리뷰 범위를 확인해 남깁니다.

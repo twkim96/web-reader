@@ -4,6 +4,21 @@
 
 상태: 구현 완료 · 로컬 자동검증 통과
 
+## 원격 이동 갱신·유한 동기화 로컬 개발 — 2026-11-18
+
+- 운영 데이터 읽기 전용 집계와 Astra 내부 리뷰 후 이벤트별 불변 서버 쓰기 권한 180일·receipt 보존 210일을 채택했다. 기기 마지막 접속/최근 N개 기준과 영구 archive는 채택하지 않았다. 근거는 [설계 검토](../design/finite-sync-retention.md), 현재 로컬 계약은 [리더 사양](../SPEC/reader-and-progress.md#유한-동기화)에 있다.
+- 열린 클라우드 위치창이 작은 원격 변경 뒤 이전 revision을 유지해 `stale-remote`를 반복하는 회귀를 재현·수정했다. 더 최신 target으로 갱신하고 늦은 이동 결과를 무시한다. 수신 revision과 실제 채택 revision을 분리해 과거 화면 저장을 막으며 ACK 유실 후 중복 응답은 원 receipt revision을 기준으로 한다. 이동 실패 후 자동/종료 저장과 책갈피 편집의 revision 유실도 회귀로 차단했다.
+- lease 고정·legacy 차단 Rules·만료 payload 격리·최신 서버 재수신·책 전체 주석 삭제 복구·제한된 인증 정리 API와 불필요 receipt 인덱스 제외를 로컬에 구현했다. IndexedDB v15 outbox rename은 기존 데이터·index를 유지한다. 두 기능 플래그는 기본 꺼짐이며 운영 Rules/정책/인덱스/TTL·배포·실제 삭제는 변경하지 않았다.
+- 관련 저장·이동·권한·복구·정리 회귀 232개와 TypeScript를 포함한 production build가 통과했다. 전체 ESLint는 기존 warning 4개와 error 0개이며, 과거 `remoteProgressPrompt` harness의 render 중 외부 대입 오류 두 건도 effect 관찰로 수정했다. 기존 다른 UI/브라우저 회귀 실패를 전체 통과로 간주하지 않는다. Rules emulator 40개와 metadata store 3개가 통과했고, 실제 서버 발급 lease→이벤트 ID→transaction→receipt 생성 및 누락된 부모 아래 receipt pagination도 포함했다. 이후 정책 schemaVersion 가드 변경은 관련 단위 9개·정리 emulator 1개를 재검증했다. 실제 PWA/다중 기기와 운영 전환은 [TODO](../TODO.md#동기화-유효기간과-영수증-정리)에 남는다.
+
+## PRO 후속 정확성·Astra 마무리 — 로컬 개발
+
+화면별 인과 기준·동등 위치만 자동 해결·늦은 무시/이동 guard·서버 시각 권한 준비·만료 선행/유효 후속 작업 구분·legacy 삭제 intent 복구와 연령순 정리를 반영했습니다. 상세 결과와 최종 내부 리뷰는 [통합 리뷰 후속](review_sync_pro_20261118.md#후속-로컬-개발과-최종-내부-리뷰)에 기록합니다. 배포·운영 삭제는 하지 않았으며 기능 플래그는 기본 OFF입니다.
+
+## 동기화 쓰기 권한 운영 전환
+
+Firestore의 기본 데이터베이스에 구형 앱과 호환되는 Rules를 먼저 반영하고, Vercel 운영 빌드부터 동기화 쓰기 권한을 기본으로 켭니다. 운영 빌드 설정, 구형 쓰기 차단, TTL 전환 순서는 [운영 가이드](../operations/deployment-and-recovery.md#유한-동기화와-영수증-정리)에 있습니다. 실제 로그인·다중 기기 검증은 [TODO](../TODO.md#동기화-유효기간과-영수증-정리)에 남습니다.
+
 ## 조선 굴림 WOFF 교체 — 2026-11-16
 
 - 로컬 비교 후 조선 굴림의 원본 TTF(4,972,060바이트)를 눈누의 기존 WOFF 배포본(2,219,832바이트)으로 교체했다. 파일을 직접 변환하지 않았으며, WOFF SHA-256은 `b6fdde036f8356d4aa75ed35939791daa0b95bed9fd9428c0f139db45f1efdfb`다. 출처와 고지는 `public/fonts/ChosunGu-LICENSE.txt`에 있다.

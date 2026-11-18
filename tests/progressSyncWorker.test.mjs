@@ -150,7 +150,29 @@ test('receipt replay acknowledges the latest head after another device advances 
   assert.equal(await worker.flushOne(2_000), 'already_applied');
   assert.equal((await getOutboxEventsV5(ownerA)).length, 0);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
+  const { getAllLocalProgressV5 } = await import('../src/lib/localDBV5.ts');
+  const [progress] = await getAllLocalProgressV5(ownerA);
+  assert.equal(progress.syncRevision, 1);
+  assert.equal(progress.acceptedEventId, 'event-1');
 });
+
+for (const [label, result] of [
+  ['missing receipt', { ...applied, status: 'already_applied', receipt: null }],
+  ['foreign receipt', { ...applied, receipt: { ...applied.receipt, eventId: 'foreign' } }],
+  ['receipt ahead of head', { ...applied, receipt: { ...applied.receipt, revision: 2 } }],
+  ['foreign event at the same revision', { ...applied, head: { ...applied.head, acceptedEventId: 'foreign' } }],
+  ['apply with an older receipt', { ...applied, head: { ...applied.head, revision: 2, acceptedEventId: 'foreign' } }],
+]) {
+  test(`worker pauses without acknowledging ${label}`, async () => {
+    await seed();
+    const owner = ownerRuntime.activate(ownerA);
+    const worker = new ProgressSyncWorker(owner, 'tab-a', async () => result, { now: () => clockNow });
+    assert.equal(await worker.flushOne(10), 'paused');
+    const [event] = await getOutboxEventsV5(ownerA);
+    assert.equal(event.status, 'paused');
+    assert.equal(event.eventId, 'event-1');
+  });
+}
 
 test('late response after owner switch cannot acknowledge the old owner', async () => {
   await seed();

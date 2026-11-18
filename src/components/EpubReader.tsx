@@ -414,6 +414,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     prepareRemoteRollback,
     cancelRemoteJump,
     finishRemoteJump,
+    allowCurrentViewportAfterIgnoringRemote,
     beginRemoteNavigationAttempt,
     isRemoteNavigationAttemptCurrent,
     finishRemoteNavigationAttempt,
@@ -424,10 +425,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     completeRemoteReset,
   } = useReaderProgressSave({
     ownerKey,
+    bookId: book.id,
     initialCfi,
     initialPercent,
     initialTime,
     initialBookmarks,
+    initialRevision,
+    ignoredRemoteRevision,
     onSaveProgress,
     onAdoptRemoteProgress,
   });
@@ -767,8 +771,12 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     onResolvedRemoteProgressCancelled,
     outboxConflictRevision: outboxProgressConflictRevision,
     ignoredRemoteRevision,
-    onIgnoreRemoteProgress: (revision) => onIgnoreRemoteProgress?.(book.id, revision)
-      ?? Promise.resolve(false),
+    onIgnoreRemoteProgress: async (revision, isCurrent, target) => {
+      const release = allowCurrentViewportAfterIgnoringRemote(revision, target.acceptedEventId);
+      const ignored = await (onIgnoreRemoteProgress?.(book.id, revision) ?? Promise.resolve(false));
+      if (!ignored || !isCurrent()) return false;
+      return release();
+    },
     currentCfi,
     currentAnchorCfi,
     totalProgress,

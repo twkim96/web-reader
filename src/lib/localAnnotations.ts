@@ -21,6 +21,7 @@ import { trackLocalCommit } from './localCommitTracker';
 import { toAnnotationSyncPayloadV1 } from './annotationSyncSchema';
 import {
   appendAnnotationEventsToTransactionV5,
+  requireRecoveredAnnotationBookV5,
   type AnnotationSyncContextV5,
   type EnqueueAnnotationInputV5,
 } from './syncOutboxV5';
@@ -60,9 +61,11 @@ const appendSyncEvents = async (
   ownerKey: OwnerKey,
   inputs: ReadonlyArray<EnqueueAnnotationInputV5>,
   syncContext?: LocalAnnotationSyncContext,
-) => syncContext
-  ? appendAnnotationEventsToTransactionV5(tx, ownerKey, inputs, syncContext)
-  : [];
+) => {
+  if (syncContext) return appendAnnotationEventsToTransactionV5(tx, ownerKey, inputs, syncContext);
+  for (const input of inputs) await requireRecoveredAnnotationBookV5(tx, ownerKey, input.bookId, '', input.annotationId);
+  return [];
+};
 
 const notifyCommittedMutation = (
   ownerKey: OwnerKey,

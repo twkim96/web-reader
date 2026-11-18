@@ -221,3 +221,84 @@ test('coalesces palette edits and shares the existing lease worker', async () =>
   assert.equal((await getSyncMetaV5(ownerKey, 'annotation-palette')).knownRevision, 1);
   await worker.dispose();
 });
+
+test('retried annotation and palette edits retain submitted payloads under their original IDs', async () => {
+  const { acquireSyncLeaseV5, claimNextProgressEventV5, getExpectedClaimV5, scheduleProgressEventRetryV5 } = await import('../src/lib/syncOutboxV5.ts');
+  const context = syncContext();
+  await saveLocalAnnotationV8(ownerKey, annotation('retry'), context);
+  const originalPalette = { items: DEFAULT_ANNOTATION_PALETTE.map((item) => ({ ...item })) };
+  await enqueueAnnotationPaletteEventV5(ownerKey, { payload: originalPalette, occurredAtClient: 1 }, context);
+  const lease = await acquireSyncLeaseV5(ownerKey, 'tab', Date.now(), 10000);
+  for (let i = 0; i < 2; i++) {
+    const event = await claimNextProgressEventV5(ownerKey, 'tab', lease.epoch, Date.now());
+    assert.ok(event);
+    await scheduleProgressEventRetryV5(ownerKey, event.eventId, 'unavailable', getExpectedClaimV5(event), Date.now(), 0);
+  }
+  await updateLocalAnnotationNoteV8(ownerKey, 'book-1', 'retry', 'new note', context);
+  const newPalette = { items: originalPalette.items.map((item, i) => i === 0 ? { ...item, meaning: 'new meaning' } : item) };
+  await enqueueAnnotationPaletteEventV5(ownerKey, { payload: newPalette }, context);
+  const events = await getOutboxEventsV5(ownerKey);
+  for (const kind of ['annotation', 'palette']) {
+    const pair = events.filter((event) => event.target.kind === kind);
+    assert.equal(pair.length, 2);
+    assert.notEqual(pair[0].eventId, pair[1].eventId);
+    assert.equal(pair[0].attempts, 1);
+    assert.equal(pair[1].attempts, 0);
+    if (kind === 'annotation') {
+      assert.equal(pair[0].payload.note, '');
+      assert.equal(pair[1].payload.note, 'new note');
+    } else {
+      assert.deepEqual(pair[0].payload, originalPalette);
+      assert.deepEqual(pair[1].payload, newPalette);
+    }
+  }
+});
+
+test('expired book deletion blocks a new annotation without deleting its recovery intent', async () => {
+  const previous = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+  process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
+  try {
+    const db = await initDB();
+    const intent = { ownerKey, bookId: 'book-1', createdAt: 1, lastCheckedAt: null,
+      expired: true, recoveryPending: true, writeLeaseEventId: 'unleased_original' };
+    await db.put('annotation-book-deletions-v10', intent);
+    await assert.rejects(saveLocalAnnotationV8(ownerKey, annotation('new-during-recovery'), syncContext()), { code: 'sync/resync-required' });
+    await assert.rejects(saveLocalAnnotationV8(ownerKey, annotation('new-without-sync-context')), { code: 'sync/resync-required' });
+    assert.deepEqual(await db.get('annotation-book-deletions-v10', [ownerKey, 'book-1']), intent);
+    assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), []);
+    assert.deepEqual(await getOutboxEventsV5(ownerKey), []);
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+    else process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = previous;
+  }
+});
+
+for (const kind of ['annotation', 'palette']) {
+  test(`pending ${kind} recovery cannot be bypassed by a new conflict`, async () => {
+    const db = await initDB();
+    const context = syncContext();
+    if (kind === 'annotation') await saveLocalAnnotationV8(ownerKey, annotation('recovery'), context);
+    else await enqueueAnnotationPaletteEventV5(ownerKey, { payload: { items: DEFAULT_ANNOTATION_PALETTE } }, context);
+    const event = (await getOutboxEventsV5(ownerKey))[0];
+    const { V5_OUTBOX_STORE } = await import('../src/lib/localDBSchema.ts');
+    const expired = { ...event, status: 'expired', recoveryPending: true };
+    await db.put(V5_OUTBOX_STORE, expired);
+    const conflict = { ownerKey, conflictId: 'late-conflict', state: 'open', targetKey: event.targetKey,
+      event, remoteHead: null, latestLocalPosition: event.payload, blockedEventIds: [event.eventId], createdAt: 1 };
+    await db.put('sync-conflicts-v5', conflict);
+    const previous = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+    process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
+    try {
+      const mutate = kind === 'annotation'
+        ? updateLocalAnnotationNoteV8(ownerKey, 'book-1', 'recovery', 'must not apply', context)
+        : enqueueAnnotationPaletteEventV5(ownerKey, { payload: { items: DEFAULT_ANNOTATION_PALETTE } }, context);
+      await assert.rejects(mutate, { code: 'sync/resync-required' });
+      assert.deepEqual(await db.get('sync-conflicts-v5', [ownerKey, conflict.conflictId]), conflict);
+      assert.deepEqual(await db.get(V5_OUTBOX_STORE, [ownerKey, event.eventId]), expired);
+      if (kind === 'annotation') assert.equal((await getLocalAnnotationsV8(ownerKey, 'book-1'))[0].note, '');
+    } finally {
+      if (previous === undefined) delete process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+      else process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = previous;
+    }
+  });
+}

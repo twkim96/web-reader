@@ -1,4 +1,7 @@
 import type { Annotation, AnnotationPaletteItem } from '../types';
+import { requireRecoveredAnnotationBookV5 } from './syncOutboxV5';
+import { createSyncEventId, finiteWriteLeasesEnabled, getTrustedWriteLeaseTime } from './writeLeaseTransport';
+import { createLeasedEventId, getEventLeaseStatus, parseLeasedEventId } from './writeLeasePolicy';
 import type { IDBPObjectStore } from 'idb';
 import { initDB } from './localDB';
 import {
@@ -7,6 +10,7 @@ import {
   V5_SYNC_CONFLICTS_STORE,
   V5_SYNC_META_STORE,
   V8_ANNOTATIONS_STORE,
+  V10_ANNOTATION_BOOK_DELETIONS_STORE,
   V9_ANNOTATION_SETTINGS_STORE,
 } from './localDBSchema';
 import type { OwnerKey } from './ownerIdentity';
@@ -289,6 +293,7 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
     V5_REMOTE_HEADS_STORE,
     V8_ANNOTATIONS_STORE,
     V9_ANNOTATION_SETTINGS_STORE,
+    V10_ANNOTATION_BOOK_DELETIONS_STORE,
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   try {
@@ -300,6 +305,17 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
       || (conflict.event.target.kind !== 'annotation'
         && conflict.event.target.kind !== 'palette')
     ) throw new Error('유지할 annotation 로컬 충돌 데이터가 없습니다.');
+    const authorityTime = getTrustedWriteLeaseTime(ownerKey);
+    if (finiteWriteLeasesEnabled() && authorityTime === null) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw Object.assign(new Error('서버 쓰기 권한 확인을 기다리고 있습니다.'), { code: 'sync/write-lease-pending' });
+    }
+    if (finiteWriteLeasesEnabled() && getEventLeaseStatus(conflict.event.eventId, authorityTime!, true) !== 'valid') {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw Object.assign(new Error('이전 작업을 새 권한으로 다시 전송할 수 없습니다.'), { code: 'sync/write-lease-expired' });
+    }
     if (conflict.state !== 'open' && conflict.state !== 'deferred') {
       await tx.done;
       return null;
@@ -325,6 +341,7 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
     let replacement: AnnotationOutboxEventV5 | AnnotationPaletteOutboxEventV5;
     if (conflict.event.target.kind === 'annotation') {
       const event = conflict.event as AnnotationOutboxEventV5;
+      await requireRecoveredAnnotationBookV5(tx, ownerKey, event.target.bookId, event.deviceId);
       const stored = await tx.objectStore(V8_ANNOTATIONS_STORE).get([
         ownerKey,
         event.target.bookId,
@@ -350,7 +367,9 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
       );
       replacement = {
         ...event,
-        eventId: crypto.randomUUID(),
+        eventId: finiteWriteLeasesEnabled() && parseLeasedEventId(event.eventId)
+          ? createLeasedEventId({ ...parseLeasedEventId(event.eventId)!, deviceId: event.deviceId })
+          : createSyncEventId(ownerKey, event.deviceId),
         operation: payload === null ? 'annotation.delete' : 'annotation.upsert',
         payload: payload as AnnotationSyncPayloadV1 | null,
         sequence: nextMeta.nextSequence,
@@ -375,7 +394,9 @@ export const resolveAnnotationSyncConflictKeepLocalV5 = async (
       }
       replacement = {
         ...event,
-        eventId: crypto.randomUUID(),
+        eventId: finiteWriteLeasesEnabled() && parseLeasedEventId(event.eventId)
+          ? createLeasedEventId({ ...parseLeasedEventId(event.eventId)!, deviceId: event.deviceId })
+          : createSyncEventId(ownerKey, event.deviceId),
         operation: 'palette.set',
         payload,
         sequence: nextMeta.nextSequence,

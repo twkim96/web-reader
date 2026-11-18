@@ -1,3 +1,4 @@
+import type { OwnerKey } from './ownerIdentity';
 import type { Annotation, AnnotationPaletteItem } from '../types';
 import {
   ANNOTATION_BOOK_LIMIT,
@@ -84,6 +85,7 @@ export type AnnotationSyncReceiptV1 = {
 };
 
 export type AnnotationSyncMutationV1 = {
+  ownerKey?: OwnerKey;
   eventId: string;
   target: { kind: 'annotation'; bookId: string; annotationId: string };
   targetKey: string;
@@ -98,6 +100,7 @@ export type AnnotationSyncMutationV1 = {
 };
 
 export type AnnotationPaletteSyncMutationV1 = {
+  ownerKey?: OwnerKey;
   eventId: string;
   target: { kind: 'palette' };
   targetKey: string;

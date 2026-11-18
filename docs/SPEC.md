@@ -21,6 +21,10 @@
 - [메타데이터와 표지 API](integrations/book-metadata.md): 인증·입출력·쿼터·실패 처리와 공개 카탈로그
 - [미완료 작업과 확인](TODO.md)
 
+## 설계 검토
+
+- [유한 동기화와 영수증 정리](design/finite-sync-retention.md): 180일 쓰기 권한·210일 보존의 절충, 실데이터 집계와 대안 비교. 운영 앱의 쓰기 권한과 자동 삭제 전환 조건을 다룹니다.
+
 ## 별도 경로와 과거 증거
 
 - [ui-kit/README.md](../ui-kit/README.md), [ADOPT.md](../ui-kit/ADOPT.md), [COVERAGE.md](../ui-kit/COVERAGE.md)는 복사해서 배포하는 키트 자체의 가이드이므로 같은 폴더에 둡니다.

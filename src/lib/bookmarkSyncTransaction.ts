@@ -1,3 +1,4 @@
+import { assertEventWriteLease } from './writeLeaseTransport';
 import { doc, runTransaction, serverTimestamp, type Firestore } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
 import {
@@ -34,6 +35,7 @@ export const decideBookmarkTransaction = ({
   storedReceipt: unknown;
   serverTime: unknown;
 }): BookmarkTransactionDecision => {
+  assertEventWriteLease(event.eventId, event.ownerKey);
   if (storedReceipt !== undefined) {
     if (!isEventReceiptV2(storedReceipt) || !isBookmarkHeadV2(storedHead)) {
       throw new Error('bookmark receipt와 head가 일치하지 않습니다.');

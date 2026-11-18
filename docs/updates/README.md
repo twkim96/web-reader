@@ -16,6 +16,8 @@ Web Reader의 버전 계획, 구현 범위, 리뷰 결과, 자동검증과 실�
 
 ## 버전 외 결정·검증 근거
 
+- [2026-11-18 동기화 전체 PRO 리뷰](review_sync_pro_20261118.md): 미커밋 snapshot·회귀 근거, 남은 인과/충돌/만료 경계와 비용 권고. 제품 수정·활성화 전이며 후속은 TODO에서 관리한다.
+
 - [완료된 hook 분리 리팩터 계획](refactor-phase-plan.md): Phase 1–8의 커밋, 저장 정책 결정과 당시 검증 범위. 후속 개선의 실기기 확인은 TODO에 남긴다.
 - [2026-07-13 Firestore production Rules 기준선](firestore-rules-production-baseline-2026-07-13.md): v1→v2 배포 시각, Rules checksum과 원문 백업 연결. 현재 배포/복구 지침은 [운영 가이드](../operations/deployment-and-recovery.md#firestore-rules와-롤백)를 따른다.
 

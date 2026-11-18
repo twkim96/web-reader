@@ -1,5 +1,6 @@
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import {
   assertFails,
@@ -15,6 +16,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  Timestamp,
   writeBatch,
 } from 'firebase/firestore';
 import { applyProgressEventTransaction } from '../src/lib/progressSyncTransaction.ts';
@@ -23,6 +25,8 @@ import {
   applyAnnotationEventTransaction,
   applyAnnotationPaletteEventTransaction,
 } from '../src/lib/annotationSyncTransaction.ts';
+import { prepareWriteLease, createSyncEventId } from '../src/lib/writeLeaseTransport.ts';
+import { parseLeasedEventId } from '../src/lib/writeLeasePolicy.ts';
 import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
 import { uploadReadingSessionV1 } from '../src/lib/readingStatisticsSync.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
@@ -114,12 +118,12 @@ test('allows on-demand metadata and delta point reads but blocks list and client
 test('keeps the point-read catalog collection exempt from automatic field indexes', async () => {
   const config = JSON.parse(await readFile('firestore.indexes.json', 'utf8'));
   assert.deepEqual(config.indexes, []);
-  assert.deepEqual(config.fieldOverrides.map(({ collectionGroup }) => collectionGroup), [
+  assert.deepEqual(config.fieldOverrides.filter(({ collectionGroup }) => collectionGroup.startsWith('publicBook')).map(({ collectionGroup }) => collectionGroup), [
     'publicBookCatalogIndexV1',
     'publicBookCatalogDeltaV1',
     'publicBookMetadataOnDemandV1',
   ]);
-  for (const override of config.fieldOverrides) {
+  for (const override of config.fieldOverrides.filter(({ collectionGroup }) => collectionGroup.startsWith('publicBook'))) {
     assert.equal(override.fieldPath, '*');
     assert.deepEqual(override.indexes, []);
   }
@@ -1280,4 +1284,170 @@ test('rejects malformed or cross-owner reading statistic sessions', async () => 
     ...validReadingSession('drive-session'),
     uploadedAtServer: serverTimestamp(),
   }));
+});
+
+const leaseUuid = '2af12345-1234-4123-8123-123456789abc';
+const eventUuid = '3af12345-1234-4123-8123-123456789abc';
+const leasePath = (uid = 'alice') => `artifacts/${appId}/users/${uid}/libraries/local/writeLeases/${leaseUuid}`;
+const policyPath = `artifacts/${appId}/users/alice/libraries/local/syncPolicyV1/writeLease`;
+const leasedId = (millis) => `wl1_${leaseUuid}_${millis}_${eventUuid}`;
+const seedLease = async (millis, deviceId = 'device-1', nanos = 0) => environment.withSecurityRulesDisabled(async (context) => {
+  await setDoc(doc(context.firestore(), leasePath()), {
+    schemaVersion: 1, deviceId,
+    issuedAtServer: new Timestamp(Math.floor(millis / 1000), (millis % 1000) * 1e6 + nanos),
+  });
+});
+const seedPolicy = async (requireLeases) => environment.withSecurityRulesDisabled(async (context) => {
+  await setDoc(doc(context.firestore(), policyPath), { schemaVersion: 1, requireLeases, legacyBlockedAtServer: null });
+});
+const leaseWriters = [writeProgressEvent, writeBookmarkEvent, writeAnnotationEvent, writePaletteEvent];
+
+test('lease document is owner get and create only; policy is owner get and admin write only', async () => {
+  const db = database();
+  await assertSucceeds(setDoc(doc(db, leasePath()), { schemaVersion: 1, deviceId: 'device-1', issuedAtServer: serverTimestamp() }));
+  await assertSucceeds(getDoc(doc(db, leasePath())));
+  await assertFails(getDoc(doc(database('bob'), leasePath())));
+  await assertFails(getDocs(collection(db, leasePath().replace(/\/[^/]+$/, ''))));
+  await assertFails(setDoc(doc(db, leasePath()), { schemaVersion: 1, deviceId: 'device-1', issuedAtServer: serverTimestamp() }));
+  await assertFails(deleteDoc(doc(db, leasePath())));
+  await assertFails(setDoc(doc(database('bob'), leasePath()), { schemaVersion: 1, deviceId: 'device-1', issuedAtServer: serverTimestamp() }));
+  await assertFails(setDoc(doc(db, policyPath), { schemaVersion: 1, requireLeases: false, legacyBlockedAtServer: null }));
+  await seedPolicy(false);
+  await assertSucceeds(getDoc(doc(db, policyPath)));
+  await assertFails(getDoc(doc(database('bob'), policyPath)));
+  await assertFails(getDocs(collection(db, policyPath.replace(/\/[^/]+$/, ''))));
+});
+
+test('leased events and opt-in policy apply to all four atomic head and receipt paths', async () => {
+  for (const write of leaseWriters) {
+    await environment.clearFirestore();
+    const issued = Date.now() - 1000;
+    await seedLease(issued, 'device-1', 456789);
+    await seedPolicy(true);
+    await assertSucceeds(write(database(), leasedId(issued)));
+  }
+  for (const write of leaseWriters) {
+    await environment.clearFirestore();
+    await seedPolicy(true);
+    await assertFails(write(database(), 'legacy-event'));
+    await seedPolicy(false);
+    await assertSucceeds(write(database(), 'legacy-event'));
+  }
+});
+
+test('leased event fails closed for forged timestamp, device, malformed id, expiry, and reused lease id', async () => {
+  for (const write of leaseWriters) {
+    await environment.clearFirestore();
+    const issued = Date.now() - 10000;
+    await seedLease(issued);
+    await assertFails(write(database(), leasedId(issued + 1)));
+    await seedLease(issued, 'other-device');
+    await assertFails(write(database(), leasedId(issued)));
+    await assertFails(write(database(), 'wl1_invalid'));
+    await assertFails(write(database(), 'unleased_event'));
+    const expired = Date.now() - 180 * 864e5;
+    await seedLease(expired);
+    await assertFails(write(database(), leasedId(expired)));
+    await seedLease(issued);
+    await environment.withSecurityRulesDisabled(async (context) => deleteDoc(doc(context.firestore(), leasePath())));
+    await seedLease(issued + 1);
+    await assertFails(write(database(), leasedId(issued)));
+  }
+});
+
+test('existing transaction implementations accept explicit leased IDs for all four kinds', async () => {
+  const issued = Date.now() - 1000;
+  await seedLease(issued);
+  await seedPolicy(true);
+  const ids = [0, 1, 2, 3].map((i) => leasedId(issued).replace(eventUuid, `3af12345-1234-4123-8123-123456789ab${i}`));
+  const sdk = { doc, runTransaction, serverTimestamp };
+  const firestore = database();
+  const events = [progressEvent(ids[0], 30), bookmarkEvent(ids[1]), annotationEvent(ids[2]), paletteEvent(ids[3])];
+  for (const event of events) event.deviceId = 'device-1';
+  const functions = [applyProgressEventTransaction, applyBookmarkEventTransaction, applyAnnotationEventTransaction, applyAnnotationPaletteEventTransaction];
+  for (let i = 0; i < functions.length; i++) {
+    const result = await functions[i]({ event: events[i], uid: 'alice', libraryScopeKey: 'library:local', firestore, sdk });
+    assert.equal(result.status, 'apply');
+  }
+});
+
+test('client serverTimestamp lease is usable with its floored millisecond ID', async () => {
+  const db = database();
+  await assertSucceeds(setDoc(doc(db, leasePath()), { schemaVersion: 1, deviceId: 'device-1', issuedAtServer: serverTimestamp() }));
+  const snapshot = await getDoc(doc(db, leasePath()));
+  const issued = Math.floor(snapshot.data().issuedAtServer.toMillis());
+  await assertSucceeds(writeAnnotationEvent(db, leasedId(issued)));
+});
+
+test('receipt maintenance pages missing parents and deletes only their eligible receipts', async () => {
+  const { initializeApp, deleteApp } = await import('firebase-admin/app');
+  const { getFirestore, Timestamp: AdminTimestamp } = await import('firebase-admin/firestore');
+  const { adminMaintenanceDependencies, maintenanceAdmin } = await import('../src/server/syncReceiptMaintenance.ts');
+  const adminApp = initializeApp({ projectId }, 'receipt-maintenance-emulator-test');
+  const adminDb = getFirestore(adminApp);
+  const root = `artifacts/${appId}/users/alice/libraries/local`;
+  const now = Date.now();
+  const old = AdminTimestamp.fromMillis(now - 211 * 864e5);
+  const receipt = (bookId, eventId) => ({
+    schemaVersion: 2, eventId, targetKind: 'progress', bookId, bookmarkId: null,
+    targetKey: `progress:${bookId}`, revision: 1, createdAtServer: old,
+  });
+  try {
+    await adminDb.doc(`${root}/syncPolicyV1/writeLease`).set({ schemaVersion: 1, requireLeases: true, legacyBlockedAtServer: old });
+    await adminDb.doc(`${root}/readingHistoryV2/a-missing/eventReceipts/one`).set(receipt('a-missing', 'one'));
+    await adminDb.doc(`${root}/readingHistoryV2/b-existing`).set({ head: true });
+    await adminDb.doc(`${root}/readingHistoryV2/b-existing/eventReceipts/two`).set(receipt('b-existing', 'two'));
+    await adminDb.doc(`${root}/readingHistoryV2/a-missing/eventReceipts/000-young`).set({ ...receipt('a-missing', '000-young'), createdAtServer: AdminTimestamp.fromMillis(now) });
+    for (let index = 0; index < 51; index++) {
+      const id = `old-${String(index).padStart(2, '0')}`;
+      await adminDb.doc(`${root}/readingHistoryV2/a-missing/eventReceipts/${id}`).set({ ...receipt('a-missing', id),
+        createdAtServer: AdminTimestamp.fromMillis(now - (212 + index % 2) * 864e5) });
+    }
+    assert.equal((await adminDb.doc(`${root}/readingHistoryV2/a-missing`).get()).exists, false);
+    const deps = adminMaintenanceDependencies(adminDb);
+    const first = await deps.listParent(root, 'readingHistoryV2', '');
+    assert.equal(first.id, 'a-missing'); assert.ok(first.nextToken);
+    const second = await deps.listParent(root, 'readingHistoryV2', first.nextToken);
+    assert.equal(second.id, 'b-existing');
+    if (second.nextToken) assert.equal((await deps.listParent(root, 'readingHistoryV2', second.nextToken)).id, null);
+    const result = await maintenanceAdmin('alice', deps, { dryRun: false });
+    assert.equal(result.status, 'complete'); assert.equal(result.scanned, 53); assert.equal(result.deleted, 53);
+    assert.equal((await adminDb.doc(`${root}/readingHistoryV2/a-missing/eventReceipts/000-young`).get()).exists, true);
+    assert.equal((await adminDb.doc(`${root}/readingHistoryV2/a-missing/eventReceipts/one`).get()).exists, false);
+    assert.equal((await adminDb.doc(`${root}/readingHistoryV2/b-existing/eventReceipts/two`).get()).exists, false);
+    assert.deepEqual((await adminDb.doc(`${root}/readingHistoryV2/b-existing`).get()).data(), { head: true });
+  } finally {
+    await deleteApp(adminApp);
+  }
+});
+
+
+test('prepared server lease creates an event accepted by the progress transaction', async () => {
+  const require = createRequire(import.meta.url);
+  const cjsRules = require('@firebase/rules-unit-testing');
+  const cjsFirestore = require('firebase/firestore');
+  const cjsEnvironment = await cjsRules.initializeTestEnvironment({ projectId });
+  const previous = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+  process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
+  try {
+    await seedPolicy(true);
+    const firestore = cjsEnvironment.authenticatedContext('alice').firestore();
+    const owner = 'firebase:alice|library:local';
+    const lease = await prepareWriteLease(firestore, 'alice', owner, 'device-1');
+    const eventId = createSyncEventId(owner, 'device-1');
+    const parsed = parseLeasedEventId(eventId);
+    assert.equal(parsed?.leaseId, lease.leaseId);
+    assert.equal(parsed?.issuedAtMillis, lease.issuedAtMillis);
+    const snapshot = await cjsFirestore.getDoc(cjsFirestore.doc(firestore, `artifacts/${appId}/users/alice/libraries/local/writeLeases/${lease.leaseId}`));
+    assert.equal(Math.floor(snapshot.data().issuedAtServer.toMillis()), lease.issuedAtMillis);
+    const event = progressEvent(eventId, 30);
+    event.deviceId = 'device-1';
+    const result = await applyProgressEventTransaction({ event, uid: 'alice', firestore, sdk: cjsFirestore });
+    assert.equal(result.status, 'apply');
+    assert.equal((await cjsFirestore.getDoc(cjsFirestore.doc(firestore, `${progressPath()}/eventReceipts/${eventId}`))).exists(), true);
+  } finally {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
+    else process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = previous;
+    await cjsEnvironment.cleanup();
+  }
 });

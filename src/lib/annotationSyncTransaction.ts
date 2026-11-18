@@ -1,3 +1,4 @@
+import { assertEventWriteLease } from './writeLeaseTransport';
 import {
   doc,
   runTransaction,
@@ -89,6 +90,7 @@ export const decideAnnotationTransaction = ({
   storedBookDeleteMarker?: unknown;
   serverTime: unknown;
 }): AnnotationTransactionDecision => {
+  assertEventWriteLease(event.eventId, event.ownerKey);
   requireValidMutationIdentity(event);
   const expectedTargetKey = annotationTargetKeyV1(
     event.target.bookId,
@@ -290,6 +292,7 @@ export const decideAnnotationPaletteTransaction = ({
   storedReceipt: unknown;
   serverTime: unknown;
 }): AnnotationPaletteTransactionDecision => {
+  assertEventWriteLease(event.eventId, event.ownerKey);
   requireValidMutationIdentity(event);
   const expectedTargetKey = annotationPaletteTargetKeyV1();
   if (

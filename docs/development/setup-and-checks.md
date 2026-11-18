@@ -33,6 +33,10 @@ npm run dev
 
 서버 API에는 Firebase Admin의 `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` 또는 Application Default Credentials가 필요합니다. 로컬 ADC 파일 경로는 `GOOGLE_APPLICATION_CREDENTIALS`로 지정할 수 있습니다. 선택적 NovelPia 인증은 `NOVELPIA_EMAIL`과 `NOVELPIA_PASSWORD`를 서버에만 설정합니다. Admin/플랫폼 비밀값에 `NEXT_PUBLIC_` 접두사를 붙이지 않습니다.
 
+유한 동기화의 로컬 실험은 `NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES=1`, 정리 API는 별도로 `ENABLE_FINITE_SYNC_CLEANUP=1`입니다. 로컬과 Vercel Preview에서는 쓰기 권한을 기본으로 꺼두고, Vercel Production에서는 기본으로 켭니다. `NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES=0`을 명시하면 다음 빌드에서 끌 수 있습니다. 정리 API는 별도 활성화가 필요합니다. 로컬 실험은 demo 프로젝트 자격으로 진행합니다. 격리된 emulator에서 [전환·복구 조건](../operations/deployment-and-recovery.md#유한-동기화와-영수증-정리)을 검증합니다. `tests/writeLeaseTransport.test.mjs`는 권한 고정→outbox→worker ACK 및 만료→격리→최신 수신을 연결해 검사합니다. 서버 발급·Rules·Admin pagination은 `test:rules`가 담당합니다.
+
+리뷰용으로 동결한 소스·수신 검사 코드가 로컬 `.superloopy/`에 있으면 lint 대상에서 해당 증거 디렉터리만 제외합니다: `npm run lint -- --ignore-pattern '.superloopy/**'`. 보관된 과거 소스를 현재 제품 코드로 고치거나 증거를 삭제하지 않습니다.
+
 ## 검증 선택
 
 | 명령 | 포함 범위·준비 |

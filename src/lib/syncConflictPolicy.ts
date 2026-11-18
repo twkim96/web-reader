@@ -31,8 +31,6 @@ export const isEquivalentProgressPosition = (
 
 export const getAutomaticProgressConflictResolution = ({
   conflict,
-  activeBookId,
-  currentSessionId,
 }: QuietProgressConflictInput): AutomaticProgressConflictResolution | null => {
   const { event, remoteHead } = conflict;
   if (
@@ -57,29 +55,9 @@ export const getAutomaticProgressConflictResolution = ({
     return { winner: 'remote', reason: 'equivalent-position' };
   }
 
-  if (event.payload.progressPercent > remoteHead.position.progressPercent) {
-    return { winner: 'local', reason: 'higher-local-position' };
-  }
-
-  if (remoteHead.position.progressPercent > event.payload.progressPercent) {
-    if (
-      event.sessionId !== currentSessionId
-      && event.target.bookId === activeBookId
-    ) {
-      return { winner: 'remote', reason: 'previous-session' };
-    }
-
-    if (
-      remoteHead.acceptedDeviceId === event.deviceId
-      && remoteHead.occurredAtClient > event.occurredAtClient
-    ) {
-      return { winner: 'remote', reason: 'newer-same-device' };
-    }
-
-    return { winner: 'remote', reason: 'higher-remote-position' };
-  }
-
-  return { winner: 'remote', reason: 'equal-progress-newer-revision' };
+  // A different anchor can be an intentional reread or backward move.
+  // Progress, timestamps, device, and activity cannot establish the winner.
+  return null;
 };
 
 export const getQuietProgressConflictReason = ({

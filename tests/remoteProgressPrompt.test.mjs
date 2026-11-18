@@ -64,13 +64,14 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
 
   const navigate = async () => {
     navigationAttempts += 1;
-    return navigationAttempts >= 2;
+    return true;
   };
+  let readinessAttempts = 0;
   const stableOptions = {
     isLoaded: true,
     remoteProgress,
     lastSaveTimeRef,
-    waitForNavigationReady: async () => true,
+    waitForNavigationReady: async () => ++readinessAttempts >= 2,
     goTo: navigate,
     goToStable: navigate,
     goToFraction: async () => true,
@@ -130,10 +131,10 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
       await flushMicrotasks();
     });
 
-    assert.equal(navigationAttempts, 1);
-    assert.equal(adoptionAttempts, 1);
+    assert.equal(navigationAttempts, 0);
+    assert.equal(adoptionAttempts, 0);
     const retryEntry = [...timers.entries()].find(([, timer]) => timer.delay === 750);
-    assert.ok(retryEntry, 'first navigation failure should schedule the 750ms retry');
+    assert.ok(retryEntry, 'readiness failure should schedule the 750ms retry');
 
     await act(async () => {
       root.render(React.createElement(Harness, {
@@ -144,8 +145,8 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
       await flushMicrotasks();
     });
 
-    assert.equal(navigationAttempts, 1, 'rerender while timer is pending must not consume the remote identity');
-    assert.equal(adoptionAttempts, 1);
+    assert.equal(navigationAttempts, 0, 'rerender while timer is pending must not consume the remote identity');
+    assert.equal(adoptionAttempts, 0);
     assert.ok(timers.has(retryEntry[0]), 'rerender must leave the pending retry timer intact');
 
     await act(async () => {
@@ -154,8 +155,8 @@ test('pending automatic retry survives reader rerenders until its timer wakes th
       await flushMicrotasks();
     });
 
-    assert.equal(adoptionAttempts, 2);
-    assert.equal(navigationAttempts, 2, 'timer wake should execute the second canonical navigation attempt');
+    assert.equal(adoptionAttempts, 1);
+    assert.equal(navigationAttempts, 1, 'timer wake should execute the second canonical navigation attempt');
   } finally {
     await act(async () => {
       root.unmount();
@@ -199,7 +200,7 @@ test('user progress input during readiness cancels automatic adoption before can
   };
   const root = createRoot(window.document.getElementById('app'));
   const Harness = () => {
-    state = useRemoteProgressPrompt({
+    const nextState = useRemoteProgressPrompt({
       isLoaded: true,
       remoteProgress,
       currentCfi: 'local-cfi',
@@ -247,6 +248,7 @@ test('user progress input during readiness cancels automatic adoption before can
       completeRemoteReset: async () => true,
       hasLocalProgress: true,
     });
+    React.useEffect(() => { state = nextState; }, [nextState]);
     return null;
   };
 
@@ -425,7 +427,8 @@ test('late startup position is retained without adoption, survives dismissal and
     goToStable: async () => assert.fail('must not move without a click'),
   };
   function Harness({ scope = 'owner-a/book' }) {
-    state = useRemoteProgressPrompt({ ...options, recoveryScope: scope });
+    const nextState = useRemoteProgressPrompt({ ...options, recoveryScope: scope });
+    React.useEffect(() => { state = nextState; }, [nextState]);
     return null;
   }
   let root = createRoot(document.getElementById('app'));
@@ -498,4 +501,140 @@ test('recovery notice expires without navigating and moves only on explicit clic
     window.clearTimeout = originalClearTimeout;
     Object.assign(globalThis, previous);
   }
+});
+
+test('open remote prompt follows newer heads and ignores an obsolete in-flight result', async () => {
+  const previous = { window: globalThis.window, document: globalThis.document, IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  const { window, document } = parseHTML('<html><body><div id="app"></div></body></html>');
+  Object.assign(globalThis, { window, document, IS_REACT_ACT_ENVIRONMENT: true });
+  const timers = new Map();
+  let timerId = 0;
+  window.setTimeout = (callback, delay = 0) => { timers.set(++timerId, { callback, delay }); return timerId; };
+  window.clearTimeout = id => timers.delete(id);
+  const head = (revision, overrides = {}) => ({ operation: 'set', bookId: 'book', cfi: `remote-${revision}`, anchorCfi: `remote-${revision}`, progressPercent: 70, lastRead: revision * 100, syncRevision: revision, acceptedEventId: `event-${revision}`, ...overrides });
+  let resolveAdoption;
+  let resolveIgnore;
+  const adopted = [];
+  let moves = 0;
+  let ready = true;
+  const completed = [];
+  let activeAttempt;
+  let attemptId = 0;
+  const options = {
+    isLoaded: true, currentCfi: 'local', currentAnchorCfi: 'local', totalProgress: 20, localRevision: 1,
+    lastSaveTimeRef: { current: 0 }, hasLocalProgress: true,
+    waitForNavigationReady: async () => ready, goToStable: async () => { moves++; return true; },
+    goToFractionStable: async () => { moves++; return true; }, getBookmarks: () => [],
+    adoptResolvedBookmarks: value => value, stageAutoBookmark: () => [], commitBookmarks: value => value,
+    prepareRemoteJump: () => 1, prepareRemoteRollback: () => true, cancelRemoteJump: () => {}, finishRemoteJump: () => {},
+    beginRemoteNavigationAttempt: () => { const controller = new AbortController(); activeAttempt = { id: ++attemptId, interactionGeneration: 0, signal: controller.signal }; return activeAttempt; },
+    isRemoteNavigationAttemptCurrent: attempt => activeAttempt?.id === attempt.id,
+    finishRemoteNavigationAttempt: attempt => { if (activeAttempt?.id === attempt.id) activeAttempt = null; },
+    isQuietResumeEligible: () => false, isProgressConflictAutoResolveEligible: () => false,
+    adoptRemoteProgressBeforeNavigation: progress => { adopted.push(progress); return new Promise(resolve => { resolveAdoption = resolve; }); },
+    completeRemoteJump: async target => { completed.push(target); return true; }, completeRemoteReset: async () => true,
+    onIgnoreRemoteProgress: () => new Promise(resolve => { resolveIgnore = resolve; }),
+  };
+  function Harness({ incoming, command, localRevision = 1 }) {
+    const state = useRemoteProgressPrompt({ ...options, localRevision, remoteProgress: incoming, resolvedRemoteProgressCommand: command });
+    return React.createElement('div', { id: 'state', 'data-revision': state.syncConflict?.syncRevision ?? '', 'data-operation': state.syncConflict?.operation ?? '', 'data-command': state.syncConflict?.resolutionCommandId ?? '', 'data-feedback': state.syncConflictFeedback ?? '' },
+      React.createElement('button', { id: 'accept-new-head', onClick: state.acceptSyncConflict }),
+      React.createElement('button', { id: 'dismiss-new-head', onClick: state.dismissSyncConflict }));
+  }
+  const root = createRoot(document.getElementById('app'));
+  const render = async (incoming, command, localRevision) => { await act(async () => { root.render(React.createElement(Harness, { incoming, command, localRevision })); await flushMicrotasks(); }); };
+  const click = async id => { await act(async () => { document.getElementById(id).dispatchEvent(new window.Event('click', { bubbles: true })); await flushMicrotasks(); }); };
+  const state = () => document.getElementById('state');
+  try {
+    await render(head(1));
+    await render(head(2));
+    const timer = [...timers.entries()].find(([, value]) => value.delay === 0);
+    assert.ok(timer);
+    await act(async () => { timers.delete(timer[0]); timer[1].callback(); });
+    assert.equal(state().getAttribute('data-revision'), '2');
+    await render(head(3, { cfi: 'local', anchorCfi: 'local', progressPercent: 20 }));
+    assert.equal(state().getAttribute('data-revision'), '3', 'same-anchor head replaces the open target');
+    await render(head(4, { progressPercent: 21 }), undefined, 10);
+    assert.equal(state().getAttribute('data-revision'), '4', 'small update replaces it even when local revision is higher');
+    assert.equal(adopted.length, 0);
+    assert.equal(moves, 0);
+    await click('accept-new-head');
+    assert.equal(adopted[0].syncRevision, 4);
+    await render(head(5, { operation: 'reset', cfi: '', anchorCfi: '', progressPercent: 0 }));
+    assert.equal(state().getAttribute('data-revision'), '5');
+    assert.equal(state().getAttribute('data-operation'), 'reset');
+    await act(async () => { resolveAdoption({ status: 'stale-remote' }); await flushMicrotasks(); });
+    assert.equal(state().getAttribute('data-revision'), '5');
+    assert.equal(state().getAttribute('data-feedback'), '', 'obsolete result must not overwrite newer target feedback');
+    await click('accept-new-head');
+    assert.equal(adopted[1].syncRevision, 5);
+    assert.equal(adopted[1].operation, 'reset');
+    await act(async () => { resolveAdoption({ status: 'stale-remote' }); await flushMicrotasks(); });
+    assert.match(state().getAttribute('data-feedback'), /클라우드 위치가 갱신/);
+    await render(head(6, { cfi: 'local', anchorCfi: 'local', progressPercent: 20 }));
+    assert.equal(state().getAttribute('data-revision'), '6', 'stale response becomes retryable when props catch up');
+    await click('accept-new-head');
+    assert.equal(adopted[2].syncRevision, 6);
+    await act(async () => { resolveAdoption({ status: 'stale-remote' }); await flushMicrotasks(); });
+    await click('dismiss-new-head');
+    await render(head(7));
+    await act(async () => { resolveIgnore(true); await flushMicrotasks(); });
+    assert.equal(state().getAttribute('data-revision'), '7', 'late dismissal cannot close the newer prompt');
+    await click('dismiss-new-head');
+    await act(async () => { resolveIgnore(true); await flushMicrotasks(); });
+    assert.equal(state().getAttribute('data-revision'), '');
+    await render(head(8, { cfi: 'local', anchorCfi: 'local', progressPercent: 20 }));
+    assert.equal(state().getAttribute('data-revision'), '', 'ignored update does not resurrect dismissed dialog');
+    assert.equal(moves, 0);
+    ready = false;
+    const command = { commandId: 'manual-command', operation: 'jump', progress: head(9), committed: true };
+    await render(head(8), command);
+    assert.equal(state().getAttribute('data-command'), 'manual-command');
+    await render(head(10), command);
+    assert.equal(state().getAttribute('data-revision'), '9', 'remote updates must not replace a resolution command');
+    ready = true;
+    await click('accept-new-head');
+    assert.equal(completed[0].resolutionCommandId, 'manual-command');
+    assert.equal(completed[0].syncRevision, 9);
+    assert.equal(state().getAttribute('data-command'), '');
+  } finally {
+    await act(async () => root.unmount());
+    Object.assign(globalThis, previous);
+  }
+});
+
+test('adopted head with failed renderer remains actionable after local revision catches up', async () => {
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  const { window, document } = parseHTML('<html><body><div id="app"></div></body></html>');
+  Object.assign(globalThis, { window, document, IS_REACT_ACT_ENVIRONMENT: true });
+  const remote = { operation: 'set', bookId: 'book', cfi: 'remote', progressPercent: 80, lastRead: 10, syncRevision: 2, acceptedEventId: 'e2' };
+  let state, moves = 0, ignored = 0, releaseAllowed = false;
+  const common = { isLoaded: true, remoteProgress: remote, currentCfi: 'local', currentAnchorCfi: 'local', totalProgress: 10, lastSaveTimeRef: { current: 0 }, hasLocalProgress: true,
+    waitForNavigationReady: async () => true, goToStable: async () => { moves++; return false; }, goToFractionStable: async () => false,
+    getBookmarks: () => [], adoptResolvedBookmarks: x => x, stageAutoBookmark: () => [], commitBookmarks: x => x,
+    prepareRemoteJump: () => 1, prepareRemoteRollback: () => true, cancelRemoteJump: () => {}, finishRemoteJump: () => {},
+    beginRemoteNavigationAttempt: () => ({ id: 1, interactionGeneration: 0, signal: new AbortController().signal }),
+    isRemoteNavigationAttemptCurrent: () => true, finishRemoteNavigationAttempt: () => {},
+    isQuietResumeEligible: () => true, isProgressConflictAutoResolveEligible: () => true,
+    adoptRemoteProgressBeforeNavigation: async () => ({ status: 'adopted', progress: remote }),
+    completeRemoteJump: async () => true, completeRemoteReset: async () => true,
+    onIgnoreRemoteProgress: async () => { ignored++; return releaseAllowed; },
+  };
+  function Harness({ localRevision }) { const next = useRemoteProgressPrompt({ ...common, localRevision }); React.useEffect(() => { state = next; }, [next]); return null; }
+  const root = createRoot(document.getElementById('app'));
+  try {
+    await act(async () => { root.render(React.createElement(Harness, { localRevision: 1 })); await flushMicrotasks(); });
+    assert.equal(moves, 1);
+    assert.equal(state.syncConflict?.syncRevision, 2);
+    assert.match(state.syncConflictFeedback, /화면 이동에 실패/);
+    await act(async () => { root.render(React.createElement(Harness, { localRevision: 2 })); await flushMicrotasks(); });
+    assert.equal(state.syncConflict?.syncRevision, 2);
+    await act(async () => { await state.dismissSyncConflict(); });
+    assert.equal(ignored, 1);
+    assert.equal(state.syncConflict?.syncRevision, 2, 'failed guard release keeps the visible choice');
+    releaseAllowed = true;
+    await act(async () => { await state.dismissSyncConflict(); });
+    assert.equal(ignored, 2);
+    assert.equal(state.syncConflict, null);
+  } finally { await act(async () => root.unmount()); Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); }
 });

@@ -241,3 +241,18 @@ test('does not rebind timer adapters while disposing a pending retry', () => {
   controller.dispose();
   assert.equal(clearCalls, 1);
 });
+
+
+test('a quiet authoritative listener stays attached during ordinary foreground reconciliation', async () => {
+  let now = 1000;
+  const harness = createHarness({ now: () => now });
+  harness.controller.start();
+  harness.subscriptions[0].onSnapshot({ authoritative: true });
+  await flushTasks();
+  now += 60000;
+  assert.equal(harness.controller.reconcile({ now }), false);
+  assert.equal(harness.subscriptions.length, 1);
+  assert.equal(harness.subscriptions[0].disposed, false);
+  assert.equal(harness.controller.reconcile({ force: true, now }), true);
+  assert.equal(harness.subscriptions.length, 2);
+});

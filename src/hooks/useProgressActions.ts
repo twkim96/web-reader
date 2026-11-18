@@ -120,6 +120,7 @@ export const useProgressActions = ({
     bookmarkChanges: BookmarkSyncChange[],
     syncPosition: boolean,
     bookmarkOccurredAtClient = progressData.lastRead,
+    causalOptions?: SaveProgressOptions,
   ) => {
     if (!ownerRuntime.isCurrent(owner)) return null;
     const progressOwnerKey = getSyncOwnerKey(owner.ownerKey);
@@ -143,6 +144,10 @@ export const useProgressActions = ({
         sessionId: sessionIdRef.current,
         occurredAtClient: progressData.lastRead,
         localBookmarks: progressData.bookmarks,
+        causalRevision: causalOptions?.causalRevision ?? progressData.syncRevision,
+        causalIgnoredRevision: causalOptions?.causalIgnoredRevision ?? progressData.ignoredRemoteRevision,
+        causalAcceptedEventId: causalOptions?.causalAcceptedEventId ?? progressData.acceptedEventId,
+        causalViewportId: causalOptions?.causalViewportId,
       } : null,
       bookmarkEvents: bookmarkChanges.map((change) => ({
         bookId,
@@ -378,10 +383,11 @@ export const useProgressActions = ({
       progressPercent: safePercent,
       lastRead: now,
       bookmarks: finalBookmarks,
-      syncRevision: committedExisting?.syncRevision,
-      acceptedEventId: committedExisting?.acceptedEventId,
-      ignoredRemoteRevision: committedExisting?.ignoredRemoteRevision
-        ?? displayExisting?.ignoredRemoteRevision,
+      syncRevision: options?.causalRevision ?? committedExisting?.syncRevision,
+      acceptedEventId: options?.causalViewportId ? options.causalAcceptedEventId : committedExisting?.acceptedEventId,
+      ignoredRemoteRevision: options?.causalViewportId
+        ? options.causalIgnoredRevision
+        : committedExisting?.ignoredRemoteRevision ?? displayExisting?.ignoredRemoteRevision,
     };
     const bookmarkChanges: BookmarkSyncChange[] = [];
     const syncPosition = Boolean(
@@ -404,6 +410,8 @@ export const useProgressActions = ({
         progressData,
         bookmarkChanges,
         syncPosition,
+        progressData.lastRead,
+        options,
       ));
     } catch (error) {
       reportPersistenceError(error);

@@ -56,7 +56,10 @@ type RemoteJumpPreparationSnapshot = {
   pendingBookmarks: Bookmark[] | null;
   pendingRelocateSave: PendingRelocateSave | null;
   unsavedSince: number | null;
+  remoteGuard: RemoteViewportGuard | null;
 };
+
+type RemoteViewportGuard = { progress: UserProgress; attemptId: number };
 
 export type ReaderRemoteNavigationAttempt = {
   id: number;
@@ -66,10 +69,13 @@ export type ReaderRemoteNavigationAttempt = {
 
 interface UseReaderProgressSaveOptions {
   ownerKey?: OwnerKey;
+  bookId?: string;
   initialCfi?: string;
   initialPercent?: number;
   initialTime?: number;
   initialBookmarks?: Bookmark[];
+  initialRevision?: number;
+  ignoredRemoteRevision?: number;
   onSaveProgress: (cfi: string, pct: number, bookmarks?: Bookmark[], options?: SaveProgressOptions) => Promise<boolean>;
   onAdoptRemoteProgress: (
     progress: RemoteProgressUpdate,
@@ -97,14 +103,18 @@ const traceReaderProgressRegression = (event: Record<string, unknown>) => {
 
 export const useReaderProgressSave = ({
   ownerKey,
+  bookId,
   initialCfi,
   initialPercent,
   initialTime,
   initialBookmarks,
+  initialRevision,
+  ignoredRemoteRevision,
   onSaveProgress,
   onAdoptRemoteProgress,
 }: UseReaderProgressSaveOptions) => {
   const readerOwnerRef = useRef(ownerRuntime.capture());
+  const causalRef = useRef({ revision: initialRevision ?? 0, ignoredRevision: ignoredRemoteRevision ?? 0, acceptedEventId: undefined as string | undefined, viewportId: crypto.randomUUID() });
   const provisionalRef = useRef<{
     original: PersistableReaderLocation;
     latest: PersistableReaderLocation;
@@ -124,6 +134,18 @@ export const useReaderProgressSave = ({
   const relocateSaveTimerRef = useRef<number | null>(null);
   const unsavedSinceRef = useRef<number | null>(null);
   const remoteJumpPreparationRef = useRef(0);
+  const unconfirmedRemoteViewportRef = useRef<RemoteViewportGuard | null>(null);
+  const replacedByLeaseRecoveryRef = useRef(false);
+  useEffect(() => {
+    const blockOldViewport = (event: Event) => {
+      const detail = (event as CustomEvent<{ ownerKey: string; progress: UserProgress }>).detail;
+      if (bookId && detail.progress.bookId === bookId && ownerKey === detail.ownerKey) {
+        replacedByLeaseRecoveryRef.current = true;
+      }
+    };
+    window.addEventListener('web-reader-expired-sync-progress', blockOldViewport);
+    return () => window.removeEventListener('web-reader-expired-sync-progress', blockOldViewport);
+  }, [bookId, ownerKey]);
   const remoteJumpSnapshotRef = useRef<RemoteJumpPreparationSnapshot | null>(null);
   const remoteNavigationAttemptIdRef = useRef(0);
   const remoteNavigationAttemptRef = useRef<{
@@ -256,6 +278,7 @@ export const useReaderProgressSave = ({
     nextBookmarks: Bookmark[],
     options?: SaveProgressOptions
   ): Promise<boolean> => {
+    if (unconfirmedRemoteViewportRef.current || replacedByLeaseRecoveryRef.current) return false;
     // Unmount cleanup can run after auth has activated a different owner.
     // Never let that old reader's callback capture the incoming account.
     if (ownerKey && (
@@ -294,6 +317,10 @@ export const useReaderProgressSave = ({
       committed = await onSaveProgress(cfi, safePercent, nextBookmarks, {
         ...(options?.force ? { force: true } : {}),
         anchorCfi,
+        causalRevision: causalRef.current.revision,
+        causalIgnoredRevision: causalRef.current.ignoredRevision,
+        causalAcceptedEventId: causalRef.current.acceptedEventId,
+        causalViewportId: causalRef.current.viewportId,
         ...(options?.suppressLastReaderSession ? { suppressLastReaderSession: true } : {}),
       });
     } finally {
@@ -514,6 +541,7 @@ export const useReaderProgressSave = ({
         pendingBookmarks: pendingBookmarksRef.current,
         pendingRelocateSave: pendingRelocateSaveRef.current,
         unsavedSince: unsavedSinceRef.current,
+        remoteGuard: unconfirmedRemoteViewportRef.current,
       },
       commit: null,
     };
@@ -578,6 +606,7 @@ export const useReaderProgressSave = ({
       pendingBookmarks: pendingBookmarksRef.current,
       pendingRelocateSave: pendingRelocateSaveRef.current,
       unsavedSince: unsavedSinceRef.current,
+      remoteGuard: unconfirmedRemoteViewportRef.current,
     };
     skipNextSaveRef.current = true;
     clearPendingSave();
@@ -622,6 +651,12 @@ export const useReaderProgressSave = ({
 
   const finishRemoteJump = useCallback((preparationId: number) => {
     if (remoteJumpSnapshotRef.current?.id !== preparationId) return;
+    const guard = remoteJumpSnapshotRef.current.remoteGuard;
+    if (guard && unconfirmedRemoteViewportRef.current === guard) {
+      causalRef.current.revision = guard.progress.syncRevision ?? 0;
+      causalRef.current.acceptedEventId = guard.progress.acceptedEventId;
+      unconfirmedRemoteViewportRef.current = null;
+    }
     remoteJumpSnapshotRef.current = null;
     skipNextSaveRef.current = false;
   }, []);
@@ -705,8 +740,12 @@ export const useReaderProgressSave = ({
     signal?: AbortSignal,
   ): Promise<RemoteProgressAdoptionResult> => {
     if (provisionalRef.current) return { status: 'cancelled' };
+    const attemptId = remoteNavigationAttemptRef.current?.id ?? remoteNavigationAttemptIdRef.current;
     const result = await onAdoptRemoteProgress(remote, signal);
-    if (result.status === 'adopted') applyCanonicalRemoteProgress(result.progress);
+    if (result.status === 'adopted' && (!unconfirmedRemoteViewportRef.current || unconfirmedRemoteViewportRef.current.attemptId <= attemptId)) {
+      unconfirmedRemoteViewportRef.current = { progress: result.progress, attemptId };
+      applyCanonicalRemoteProgress(result.progress);
+    }
     return result;
   }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
 
@@ -743,7 +782,15 @@ export const useReaderProgressSave = ({
       if (adoption.status !== 'adopted') return false;
       canonicalProgress = adoption.progress;
     }
+    const guard = unconfirmedRemoteViewportRef.current;
+    if (guard && (guard !== remoteJumpSnapshotRef.current?.remoteGuard
+      || guard.progress.bookId !== canonicalProgress.bookId
+      || guard.progress.syncRevision !== canonicalProgress.syncRevision
+      || guard.progress.acceptedEventId !== canonicalProgress.acceptedEventId)) return false;
     applyCanonicalRemoteProgress(canonicalProgress);
+    causalRef.current.revision = canonicalProgress.syncRevision ?? 0;
+    causalRef.current.acceptedEventId = canonicalProgress.acceptedEventId;
+    unconfirmedRemoteViewportRef.current = null;
     return true;
   }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
 
@@ -780,11 +827,39 @@ export const useReaderProgressSave = ({
       if (adoption.status !== 'adopted') return false;
       canonicalProgress = adoption.progress;
     }
+    const guard = unconfirmedRemoteViewportRef.current;
+    if (guard && (guard !== remoteJumpSnapshotRef.current?.remoteGuard
+      || guard.progress.bookId !== canonicalProgress.bookId
+      || guard.progress.syncRevision !== canonicalProgress.syncRevision
+      || guard.progress.acceptedEventId !== canonicalProgress.acceptedEventId)) return false;
     applyCanonicalRemoteProgress(canonicalProgress);
+    causalRef.current.revision = canonicalProgress.syncRevision ?? 0;
+    causalRef.current.acceptedEventId = canonicalProgress.acceptedEventId;
+    unconfirmedRemoteViewportRef.current = null;
     return true;
   }, [applyCanonicalRemoteProgress, onAdoptRemoteProgress]);
 
   return {
+    allowCurrentViewportAfterIgnoringRemote: (revision: number, acceptedEventId?: string) => {
+      const guard = unconfirmedRemoteViewportRef.current;
+      const attemptId = remoteNavigationAttemptIdRef.current;
+      return () => {
+        if (unconfirmedRemoteViewportRef.current !== guard
+          || remoteNavigationAttemptIdRef.current !== attemptId
+          || !Number.isSafeInteger(revision) || revision < 1) return false;
+        if (guard) {
+          const guardedRevision = guard.progress.syncRevision;
+          if (guard.progress.bookId !== bookId || !Number.isSafeInteger(guardedRevision)
+            || guardedRevision! > revision
+            || (guardedRevision === revision && guard.progress.acceptedEventId !== acceptedEventId)) return false;
+        }
+        // Explicitly ignoring the current, newer target also supersedes an older
+        // failed adoption. A captured completion still cannot release a new guard.
+        causalRef.current.ignoredRevision = Math.max(causalRef.current.ignoredRevision, revision);
+        unconfirmedRemoteViewportRef.current = null;
+        return true;
+      };
+    },
     beginProvisionalNavigation,
     confirmProvisionalNavigation,
     cancelProvisionalNavigation,

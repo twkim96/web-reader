@@ -110,6 +110,8 @@ export const SyncConflictResolutionDialog = ({
         ? '형광펜 팔레트'
         : '읽기 위치';
   const remoteMissing = conflict.remoteHead === null;
+  const remoteUnavailable = remoteMissing && (conflict.event?.target.kind === 'progress'
+    || conflict.event?.target.kind === 'bookmark');
   const policyConflict = conflict.conflictReason !== undefined;
   const capacityConflict = conflict.conflictReason === 'annotation-color-limit'
     || conflict.conflictReason === 'annotation-book-limit'
@@ -129,7 +131,7 @@ export const SyncConflictResolutionDialog = ({
       : conflict.remoteHead && 'position' in conflict.remoteHead
         ? 0
         : null;
-  const remoteActionLabel = existingPolicyTarget
+  const remoteActionLabel = remoteUnavailable ? '원격 기록 없음' : existingPolicyTarget
     ? conflict.conflictReason === 'annotation-color-limit'
       ? '원격 색상 유지'
       : '원격 상태로 되돌리기'
@@ -280,7 +282,7 @@ export const SyncConflictResolutionDialog = ({
             현재 기기 값 유지
           </button>
         )}
-        <button type="button" disabled={resolving} onClick={onUseRemote} className={`rounded-2xl border px-4 py-3 font-bold disabled:opacity-40 ${theme.border} ${theme.secondary}`}>
+        <button type="button" disabled={resolving || remoteUnavailable} onClick={onUseRemote} className={`rounded-2xl border px-4 py-3 font-bold disabled:opacity-40 ${theme.border} ${theme.secondary}`}>
           {remoteActionLabel}
         </button>
         <button type="button" disabled={resolving} onClick={onDefer} className="rounded-2xl px-4 py-3 text-sm font-bold opacity-60 hover:opacity-100 disabled:opacity-30">

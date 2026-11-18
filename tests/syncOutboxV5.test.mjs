@@ -84,6 +84,79 @@ const claimNext = async (now = 10, tabId = 'tab-a') => {
 test.beforeEach(resetDatabase);
 test.after(resetDatabase);
 
+for (const mode of ['single', 'batch']) {
+  test(`an unadopted remote update cannot silently rebase an old viewport save (${mode})`, async () => {
+    await enqueue(ownerA, { eventId: 'local-first' });
+    const claim = await claimNext(10);
+    const first = ackHead('local-first', 1);
+    await acknowledgeProgressEventV5(ownerA, 'local-first', first, claim.expectedClaim, 12);
+    await storeRemoteProgressHeadV5(ownerA, { ...first, revision: 2, acceptedEventId: 'other-device', position: position(70) }, 13);
+    const write = async (eventId) => {
+      const input = { bookId: 'book-1', operation: 'progress.set', position: position(11), deviceId: 'device-1', sessionId: eventId, eventId, occurredAtClient: 15, causalRevision: 1, causalIgnoredRevision: 0 };
+      if (mode === 'single') return enqueueProgressEventV5(ownerA, input);
+      return enqueueProgressMutationBatchV5(ownerA, {
+        progress: { bookId: 'book-1', cfi: position(11).cfi, progressPercent: 11, lastRead: 15, bookmarks: [], syncRevision: 1 },
+        progressEvent: input, bookmarkEvents: [],
+      });
+    };
+    await write('old-screen-save');
+    const [event] = await getOutboxEventsV5(ownerA);
+    assert.equal(event.baseRevision, 1);
+    const { decideProgressTransaction } = await import('../src/lib/progressSyncTransaction.ts');
+    assert.equal(decideProgressTransaction({ event, storedHead: { ...first, revision: 2, acceptedEventId: 'other-device', position: position(70) }, storedReceipt: undefined, serverTime: {} }).status, 'conflict');
+    assert.equal((await getAllLocalProgressV5(ownerA))[0].syncRevision, 1);
+  });
+}
+
+for (const mode of ['single', 'batch']) {
+  test(`lost ACK with a newer foreign head preserves the applied baseline (${mode})`, async () => {
+    await enqueue(ownerA, { eventId: 'local-first' });
+    const claim = await claimNext(10);
+    const remote = { ...ackHead('other-device', 2), position: position(70) };
+    assert.equal(await acknowledgeProgressEventV5(ownerA, 'local-first', remote, claim.expectedClaim, 12, 1), true);
+    const [acknowledged] = await getAllLocalProgressV5(ownerA);
+    assert.equal(acknowledged.syncRevision, 1);
+    assert.equal(acknowledged.acceptedEventId, 'local-first');
+    assert.equal(acknowledged.cfi, position(10).cfi);
+    assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
+    const { initDB } = await import('../src/lib/localDB.ts');
+    assert.equal((await (await initDB()).get('remote-heads-v5', [ownerA, 'progress:book-1'])).head.acceptedEventId, 'other-device');
+    const input = { bookId: 'book-1', operation: 'progress.set', position: position(11), deviceId: 'device-1', sessionId: 'next', eventId: 'old-screen-save', occurredAtClient: 15, causalRevision: 1, causalIgnoredRevision: 0 };
+    if (mode === 'single') await enqueueProgressEventV5(ownerA, input);
+    else await enqueueProgressMutationBatchV5(ownerA, {
+      progress: { bookId: 'book-1', cfi: position(11).cfi, progressPercent: 11, lastRead: 15, bookmarks: [], syncRevision: 1 },
+      progressEvent: input, bookmarkEvents: [],
+    });
+    const [event] = await getOutboxEventsV5(ownerA);
+    assert.equal(event.baseRevision, 1);
+    const { decideProgressTransaction } = await import('../src/lib/progressSyncTransaction.ts');
+    assert.equal(decideProgressTransaction({ event, storedHead: remote, storedReceipt: undefined, serverTime: {} }).status, 'conflict');
+  });
+}
+
+test('receipt ACK leaves later queued base revisions untouched', async () => {
+  await enqueue(ownerA, { eventId: 'local-first' });
+  const claim = await claimNext(10);
+  await enqueue(ownerA, { eventId: 'queued-next', sessionId: 'session-1', occurredAtClient: 11 });
+  const before = (await getOutboxEventsV5(ownerA)).find((event) => event.eventId === 'queued-next');
+  assert.equal(before.baseRevision, 1);
+  await acknowledgeProgressEventV5(ownerA, 'local-first', ackHead('other-device', 2), claim.expectedClaim, 12, 1);
+  const [after] = await getOutboxEventsV5(ownerA);
+  assert.equal(after.eventId, 'queued-next');
+  assert.equal(after.baseRevision, before.baseRevision);
+  assert.deepEqual(after.payload, before.payload);
+});
+
+test('explicitly ignoring the received remote revision permits continuing from the current viewport', async () => {
+  const remote = ackHead('remote-2', 2);
+  await storeRemoteProgressHeadV5(ownerA, remote, 10);
+  await markRemoteProgressIgnoredV5(ownerA, 'book-1', 2);
+  await enqueue(ownerA, { eventId: 'continue-locally', position: position(20) });
+  const [event] = await getOutboxEventsV5(ownerA);
+  assert.equal(event.baseRevision, 2);
+  assert.equal((await getAllLocalProgressV5(ownerA))[0].ignoredRemoteRevision, 2);
+});
+
 test('coalesces only the last same-session pending progress.set', async () => {
   const first = await enqueue(ownerA, { eventId: 'event-1' });
   const second = await enqueue(ownerA, {
@@ -123,7 +196,7 @@ test('an observed in-flight echo does not double count the next base revision', 
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 0);
   await enqueue(ownerA, {
     eventId: 'event-2',
-    sessionId: 'session-b',
+    sessionId: 'session-a',
     position: position(20),
     occurredAtClient: 13,
   });
@@ -288,7 +361,7 @@ test('refuses quiet remote adoption while the progress target has local outbox i
   assert.equal(saved.progressPercent, 30);
 });
 
-test('builds an expected revision chain for distinct sessions and reset', async () => {
+test('distinct sessions cannot borrow another viewport queued revision chain', async () => {
   await enqueue(ownerA, { eventId: 'event-1' });
   await enqueue(ownerA, {
     eventId: 'event-2',
@@ -304,7 +377,7 @@ test('builds an expected revision chain for distinct sessions and reset', async 
   });
   const events = await getOutboxEventsV5(ownerA);
   assert.deepEqual(events.map(({ sequence }) => sequence), [1, 2, 3]);
-  assert.deepEqual(events.map(({ baseRevision }) => baseRevision), [0, 1, 2]);
+  assert.deepEqual(events.map(({ baseRevision }) => baseRevision), [0, 0, 0]);
 });
 
 test('adopts an authoritative remote reset without creating local sync intent', async () => {
@@ -1255,9 +1328,10 @@ test('keeping local creates a new event at the current remote revision', async (
   assert.equal(keptLocal.ignoredRemoteRevision, 2);
   assert.equal((await getSyncMetaV5(ownerA, 'progress:book-1')).knownRevision, 2);
   assert.equal(await resolveSyncConflictKeepLocalV5(ownerA, 'event-1', 5), null);
+  await claimNext(6);
   await enqueue(ownerA, {
     eventId: 'event-after-resolution',
-    sessionId: 'session-after-resolution',
+    sessionId: 'session-1',
     occurredAtClient: 6,
   });
   const next = (await getOutboxEventsV5(ownerA))
@@ -1448,3 +1522,79 @@ test('ACK first then older and duplicate snapshots retain the acknowledged head'
   assert.equal(cached.head.acceptedEventId, 'ack-2');
   assert.equal((await getAllLocalProgressV5(ownerA))[0].syncRevision, 2);
 });
+
+for (const mode of ['single', 'batch']) {
+  test(`${mode}: retried bookmark keeps its submitted payload when edited`, async () => {
+    const input = {
+      bookId: 'book-1', bookmarkId: 'mark', operation: 'bookmark.upsert',
+      payload: { bookmarkId: 'mark', cfi: 'cfi', name: 'old', color: '#fff', progressPercent: 10, createdAtClient: 1, updatedAtClient: 1 },
+      localBookmarks: [], deviceId: 'device-1', sessionId: 'session-1', eventId: 'old-mark', occurredAtClient: 1,
+    };
+    const write = (event) => mode === 'single' ? enqueueBookmarkEventV5(ownerA, event) : enqueueProgressMutationBatchV5(ownerA, {
+      progress: { bookId: 'book-1', cfi: '', anchorCfi: '', progressPercent: 0, lastRead: 1, bookmarks: [] },
+      bookmarkEvents: [event],
+    });
+    await write(input);
+    const claim = await claimNext(10);
+    await scheduleProgressEventRetryV5(ownerA, 'old-mark', 'unavailable', claim.expectedClaim, 12, 0);
+    await write({ ...input, eventId: 'new-mark', payload: { ...input.payload, name: 'new' }, occurredAtClient: 13 });
+    const events = await getOutboxEventsV5(ownerA);
+    assert.deepEqual(events.map((event) => [event.eventId, event.payload.name, event.attempts]), [
+      ['old-mark', 'old', 1], ['new-mark', 'new', 0],
+    ]);
+  });
+}
+
+test('bookmark mutation preserves the adopted progress revision and explicit ignore for the next page save', async () => {
+  const { initDB } = await import('../src/lib/localDB.ts');
+  const db = await initDB();
+  await db.put('progress-v5', { ownerKey: ownerA, bookId: 'book-1', cfi: 'adopted', anchorCfi: 'adopted',
+    progressPercent: 50, lastRead: 1, bookmarks: [], syncRevision: 7, acceptedEventId: 'adopted-7', ignoredRemoteRevision: 9 });
+  await enqueueBookmarkEventV5(ownerA, { bookId: 'book-1', bookmarkId: 'remove', operation: 'bookmark.delete',
+    payload: null, localBookmarks: [], deviceId: 'device-1', sessionId: 'session-1', eventId: 'bookmark-only', occurredAtClient: 2 });
+  const stored = await db.get('progress-v5', [ownerA, 'book-1']);
+  assert.equal(stored.syncRevision, 7);
+  assert.equal(stored.acceptedEventId, 'adopted-7');
+  assert.equal(stored.ignoredRemoteRevision, 9);
+  const { event } = await enqueue(ownerA, { eventId: 'after-bookmark', occurredAtClient: 3 });
+  assert.equal(event.baseRevision, 9);
+});
+
+for (const pendingOtherViewport of [false, true]) {
+  test(`a reader cannot borrow shared revision or another viewport tail (queued=${pendingOtherViewport})`, async () => {
+    const { initDB } = await import('../src/lib/localDB.ts');
+    const db = await initDB();
+    const shared = { ownerKey: ownerA, bookId: 'book-1', cfi: 'newer-b', anchorCfi: 'newer-b', progressPercent: 80,
+      lastRead: 12, bookmarks: [], syncRevision: 2, acceptedEventId: 'b-2' };
+    await db.put('progress-v5', shared);
+    await db.put('sync-meta-v5', { ownerKey: ownerA, targetKey: 'progress:book-1', knownRevision: 2, nextSequence: 1, updatedAt: 12,
+      acknowledgedRevision: 2, acknowledgedEventId: 'b-2', acknowledgedViewportId: 'viewport-b' });
+    if (pendingOtherViewport) await enqueue(ownerA, { eventId: 'b-pending', sessionId: 'same-tab-session', causalViewportId: 'viewport-b', causalRevision: 2, causalIgnoredRevision: 0, occurredAtClient: 13 });
+    const canonical = await enqueueProgressMutationBatchV5(ownerA, {
+      progress: { ...shared, cfi: 'old-a-next', anchorCfi: 'old-a-next', progressPercent: 21, syncRevision: 1, acceptedEventId: 'a-1' },
+      progressEvent: { bookId: 'book-1', operation: 'progress.set', position: { cfi: 'old-a-next', anchorCfi: 'old-a-next', progressPercent: 21 },
+        deviceId: 'device-1', sessionId: 'same-tab-session', eventId: 'a-pending', causalRevision: 1, causalIgnoredRevision: 0, causalAcceptedEventId: 'a-1', causalViewportId: 'viewport-a' },
+      bookmarkEvents: [],
+    });
+    const event = (await getOutboxEventsV5(ownerA)).find(x => x.eventId === 'a-pending');
+    assert.equal(event.baseRevision, 1);
+    assert.equal(canonical.syncRevision, 1);
+    assert.equal(canonical.acceptedEventId, 'a-1');
+    const { decideProgressTransaction } = await import('../src/lib/progressSyncTransaction.ts');
+    assert.equal(decideProgressTransaction({ event, storedHead: { ...ackHead('b-2', 2), position: { cfi: 'newer-b', anchorCfi: 'newer-b', progressPercent: 80 } }, storedReceipt: undefined, serverTime: {} }).status, 'conflict');
+  });
+}
+
+for (const replayWithNewerForeignHead of [false, true]) {
+  test(`own ACK advances only its originating viewport and uses original receipt (replay=${replayWithNewerForeignHead})`, async () => {
+    await enqueue(ownerA, { eventId: 'viewport-a-1', causalViewportId: 'viewport-a', causalRevision: 0, causalIgnoredRevision: 0 });
+    const claim = await claimNext(10);
+    const head = replayWithNewerForeignHead ? ackHead('foreign-2', 2) : ackHead('viewport-a-1', 1);
+    await acknowledgeProgressEventV5(ownerA, 'viewport-a-1', head, claim.expectedClaim, 12, 1);
+    const { event: own } = await enqueue(ownerA, { eventId: 'viewport-a-2', causalViewportId: 'viewport-a', causalRevision: 0, causalIgnoredRevision: 0 });
+    assert.equal(own.baseRevision, 1);
+    const { event: other } = await enqueue(ownerA, { eventId: 'viewport-b', causalViewportId: 'viewport-b', causalRevision: 0, causalIgnoredRevision: 0 });
+    assert.equal(other.baseRevision, 0);
+    assert.notEqual(own.eventId, other.eventId);
+  });
+}

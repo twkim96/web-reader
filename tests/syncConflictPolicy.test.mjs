@@ -157,124 +157,59 @@ const reason = (target, overrides = {}) => getQuietProgressConflictReason({
   ...overrides,
 });
 
-test('chooses the higher position only after an ordinary revision conflict exists', () => {
-  assert.deepEqual(getAutomaticProgressConflictResolution({
-    conflict: conflict(),
-    activeBookId: 'book-1',
-    currentSessionId: 'current-session',
-  }), { winner: 'remote', reason: 'previous-session' });
-  assert.deepEqual(getAutomaticProgressConflictResolution({
-    conflict: conflict({
-      event: progressEvent({
-        payload: { cfi: 'local-cfi', anchorCfi: null, progressPercent: 80 },
-      }),
-      latestLocalPosition: { cfi: 'local-cfi', anchorCfi: null, progressPercent: 80 },
-    }),
-    activeBookId: 'book-1',
-    currentSessionId: 'current-session',
-  }), { winner: 'local', reason: 'higher-local-position' });
-  assert.equal(reason(conflict()), 'previous-session');
-  assert.equal(reason(conflict(), { activeBookId: 'book-2' }), 'higher-remote-position');
-  assert.equal(
-    reason(conflict(), { currentSessionId: 'previous-session' }),
-    'higher-remote-position',
-  );
+test('keeps non-equivalent positions for review regardless of direction or session', () => {
+  const cases = [
+    { name: 'remote advanced', local: 30, remote: 70 },
+    { name: 'remote reread or backward move', local: 80, remote: 30 },
+    { name: 'old high local percent', local: 90, remote: 20 },
+    { name: 'same percent, different anchor', local: 30, remote: 30 },
+    { name: 'small percent difference', local: 30, remote: 30.02 },
+  ];
+  for (const { name, local, remote } of cases) {
+    const target = conflict({
+      event: progressEvent({ payload: { cfi: 'local-cfi', anchorCfi: null, progressPercent: local } }),
+      latestLocalPosition: { cfi: 'local-cfi', anchorCfi: null, progressPercent: local },
+      remoteHead: remoteHead({ position: { cfi: 'remote-cfi', anchorCfi: null, progressPercent: remote } }),
+    });
+    for (const context of [
+      { activeBookId: 'book-1', currentSessionId: 'current-session' },
+      { activeBookId: 'book-2', currentSessionId: 'current-session' },
+      { activeBookId: undefined, currentSessionId: 'previous-session' },
+    ]) {
+      assert.equal(getAutomaticProgressConflictResolution({ conflict: target, ...context }), null, name);
+      assert.equal(reason(target, context), null, name);
+    }
+  }
+});
+
+test('timestamps and device identity do not choose between different positions', () => {
+  for (const acceptedDeviceId of ['device-1', 'device-2']) {
+    for (const occurredAtClient of [5, 10, 20]) {
+      const target = conflict({ remoteHead: remoteHead({ acceptedDeviceId, occurredAtClient }) });
+      assert.equal(reason(target), null);
+    }
+  }
+});
+
+test('equivalent anchors adopt remote only when the revision conflict is eligible', () => {
+  const equivalentHead = remoteHead({
+    position: { cfi: 'page-cfi-b', anchorCfi: 'local-cfi', progressPercent: 31 },
+    occurredAtClient: 5,
+  });
+  const equivalent = conflict({ remoteHead: equivalentHead });
+  for (const context of [
+    { activeBookId: 'book-1', currentSessionId: 'previous-session' },
+    { activeBookId: 'book-2', currentSessionId: 'current-session' },
+  ]) {
+    assert.deepEqual(getAutomaticProgressConflictResolution({ conflict: equivalent, ...context }),
+      { winner: 'remote', reason: 'equivalent-position' });
+  }
+  assert.equal(reason(conflict({ remoteHead: { ...equivalentHead, revision: 2 } })), null);
+  assert.equal(reason(conflict({ remoteHead: equivalentHead, blockedEventIds: ['later-local-event'] })), null);
   assert.equal(reason(conflict({
-    remoteHead: remoteHead({ revision: 2 }),
-  })), null);
-  assert.equal(reason(conflict({ blockedEventIds: ['later-local-event'] })), null);
-  assert.equal(reason(conflict({
+    remoteHead: equivalentHead,
     latestLocalPosition: { cfi: 'new-local-cfi', anchorCfi: null, progressPercent: 31 },
   })), null);
-});
-
-test('quietly adopts equivalent positions and a strictly newer same-device position', () => {
-  const currentSessionEvent = progressEvent({ sessionId: 'current-session' });
-  assert.equal(reason(conflict({
-    event: currentSessionEvent,
-    remoteHead: remoteHead({
-      position: { cfi: 'local-cfi', anchorCfi: 'local-cfi', progressPercent: 31 },
-      occurredAtClient: 5,
-    }),
-  })), 'equivalent-position');
-  assert.equal(reason(conflict({
-    event: currentSessionEvent,
-    remoteHead: remoteHead({ acceptedDeviceId: 'device-1', occurredAtClient: 11 }),
-  })), 'newer-same-device');
-  assert.equal(reason(conflict({
-    event: currentSessionEvent,
-    remoteHead: remoteHead({ acceptedDeviceId: 'device-1', occurredAtClient: 9 }),
-  })), 'higher-remote-position');
-  assert.equal(reason(conflict({ event: currentSessionEvent })), 'higher-remote-position');
-});
-
-test('does not infer conflict intent from a small percentage delta', () => {
-  const currentSessionEvent = progressEvent({
-    sessionId: 'current-session',
-    payload: { cfi: 'local-cfi', anchorCfi: null, progressPercent: 30 },
-  });
-  assert.equal(reason(conflict({
-    event: currentSessionEvent,
-    remoteHead: remoteHead({
-      position: { cfi: 'nearby-remote-cfi', anchorCfi: null, progressPercent: 30.02 },
-    }),
-  })), 'higher-remote-position');
-  assert.equal(reason(conflict({
-    event: currentSessionEvent,
-    remoteHead: remoteHead({
-      position: { cfi: 'meaningful-remote-cfi', anchorCfi: null, progressPercent: 30.04 },
-    }),
-  })), 'higher-remote-position');
-  assert.equal(reason(conflict({
-    event: {
-      ...currentSessionEvent,
-      payload: { cfi: 'local-cfi', anchorCfi: null, progressPercent: 30.02 },
-    },
-    latestLocalPosition: { cfi: 'local-cfi', anchorCfi: null, progressPercent: 30.02 },
-    remoteHead: remoteHead({
-      position: { cfi: 'nearby-remote-cfi', anchorCfi: null, progressPercent: 30 },
-    }),
-  })), 'higher-local-position');
-});
-
-test('uses progress direction only inside the materialized revision conflict', () => {
-  const makeCurrentConflict = (localPercent, remotePercent) => conflict({
-    event: progressEvent({
-      sessionId: 'current-session',
-      payload: { cfi: 'local-cfi', anchorCfi: null, progressPercent: localPercent },
-    }),
-    latestLocalPosition: { cfi: 'local-cfi', anchorCfi: null, progressPercent: localPercent },
-    remoteHead: remoteHead({
-      position: { cfi: 'remote-cfi', anchorCfi: null, progressPercent: remotePercent },
-    }),
-  });
-  assert.deepEqual(getAutomaticProgressConflictResolution({
-    conflict: makeCurrentConflict(30, 70),
-    activeBookId: 'book-1',
-    currentSessionId: 'current-session',
-  }), { winner: 'remote', reason: 'higher-remote-position' });
-  assert.deepEqual(getAutomaticProgressConflictResolution({
-    conflict: makeCurrentConflict(80, 70),
-    activeBookId: 'book-1',
-    currentSessionId: 'current-session',
-  }), { winner: 'local', reason: 'higher-local-position' });
-});
-
-test('uses the newer remote revision when progress percentages are equal', () => {
-  const currentSessionEvent = progressEvent({
-    sessionId: 'current-session',
-    payload: { cfi: 'local-cfi', anchorCfi: null, progressPercent: 30 },
-  });
-  assert.deepEqual(getAutomaticProgressConflictResolution({
-    conflict: conflict({
-      event: currentSessionEvent,
-      remoteHead: remoteHead({
-        position: { cfi: 'other-anchor', anchorCfi: null, progressPercent: 30 },
-      }),
-    }),
-    activeBookId: 'book-1',
-    currentSessionId: 'current-session',
-  }), { winner: 'remote', reason: 'equal-progress-newer-revision' });
 });
 
 test('compares the stable anchor instead of layout-dependent percentages', () => {

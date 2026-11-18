@@ -115,7 +115,7 @@ test('late cold-start authentication hydrates account progress before mounting i
   }
 });
 
-test('remote prompt is rescheduled when a relocate cancels the pending display timer', async () => {
+for (const scenario of ['initial offer', 'postinitial modal']) test(`remote ${scenario} preserves its lifecycle across relocation`, async () => {
   const { useRemoteProgressPrompt } = require('../src/hooks/reader/useRemoteProgressPrompt.ts');
   await withDom(async root => {
     const originalSet = window.setTimeout, originalClear = window.clearTimeout;
@@ -139,14 +139,25 @@ test('remote prompt is rescheduled when a relocate cancels the pending display t
     };
     function Harness(props) { state = useRemoteProgressPrompt({ ...common, ...props }); return null; }
     try {
+      if (scenario === 'postinitial modal') {
+        await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: { ...common.remoteProgress, cfi: 'old-remote', anchorCfi: 'old-remote', lastRead: 100, syncRevision: 1 }, currentCfi: 'local-a', currentAnchorCfi: 'local-a', totalProgress: 20 })));
+      }
       await React.act(async () => root.render(React.createElement(Harness, { currentCfi: 'local-a', currentAnchorCfi: 'local-a', totalProgress: 20 })));
       const scheduled = timers.size;
       await React.act(async () => root.render(React.createElement(Harness, { currentCfi: 'local-b', currentAnchorCfi: 'local-b', totalProgress: 21 })));
       const remaining = timers.size;
       await React.act(async () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } });
-      assert.equal(scheduled, 1);
-      assert.equal(remaining, 1);
-      assert.equal(state.syncConflict.cfi, 'remote');
+      if (scenario === 'initial offer') {
+        assert.equal(scheduled, 0);
+        assert.equal(remaining, 0);
+        assert.equal(state.syncRecovery.cfi, 'remote');
+        assert.equal(state.syncRecoveryVisible, true);
+        assert.equal(state.syncConflict, null);
+      } else {
+        assert.equal(scheduled, 1);
+        assert.equal(remaining, 1);
+        assert.equal(state.syncConflict.cfi, 'remote');
+      }
     } finally { window.setTimeout = originalSet; window.clearTimeout = originalClear; }
   });
 });

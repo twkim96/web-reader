@@ -1,3 +1,4 @@
+import { assertEventWriteLease } from './writeLeaseTransport';
 import {
   doc,
   runTransaction,
@@ -39,6 +40,7 @@ export const decideProgressTransaction = ({
   storedReceipt: unknown;
   serverTime: unknown;
 }): ProgressTransactionDecision => {
+  assertEventWriteLease(event.eventId, event.ownerKey);
   if (storedReceipt !== undefined) {
     if (!isEventReceiptV2(storedReceipt) || !isProgressHeadV2(storedHead)) {
       throw new Error('event receipt와 progress head가 일치하지 않습니다.');

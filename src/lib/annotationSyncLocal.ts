@@ -6,6 +6,7 @@ import {
   V5_SYNC_CONFLICTS_STORE,
   V5_SYNC_META_STORE,
   V8_ANNOTATIONS_STORE,
+  V10_ANNOTATION_BOOK_DELETIONS_STORE,
 } from './localDBSchema';
 import type { OwnerKey } from './ownerIdentity';
 import {
@@ -538,6 +539,7 @@ export const enqueueMissingLocalAnnotationsV5 = async (
     V5_SYNC_META_STORE,
     V5_SYNC_CONFLICTS_STORE,
     V5_REMOTE_HEADS_STORE,
+    V10_ANNOTATION_BOOK_DELETIONS_STORE,
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   const abortTransaction = () => {

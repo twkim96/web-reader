@@ -36,6 +36,18 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 [2026-07-13 production 기준선](../updates/firestore-rules-production-baseline-2026-07-13.md)과 [원문 백업](../backups/firestore.rules.production-2026-07-13.rules)은 당시 v1→v2 배포의 역사적 자료입니다. 배포 설정과 Rules 테스트는 루트의 `firestore.rules`를 읽으며 이 이력 Markdown을 입력으로 사용하지 않습니다. 현재 production Rules는 문서 정리에서 새로 확인하지 않았습니다. 롤백 시 **해당 배포 전에 확인한** 백업을 복원하고, Firestore/IndexedDB 데이터를 삭제하지 않습니다. 오래된 백업은 후속 주석·통계·메타데이터 schema와 맞지 않을 수 있으므로 현재 client와의 호환성을 먼저 확인합니다.
 
+## 유한 동기화와 영수증 정리
+
+쓰기 권한을 발급하고 검사하는 호환 Rules를 먼저 배포한 뒤, `NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES`를 켠 Vercel 운영 빌드를 배포합니다. 운영 빌드는 기본으로 쓰기 권한을 사용하고 명시적 `0`은 다음 빌드에 반영합니다. 이 단계에서 구형 쓰기는 계정 정책이 없는 한 계속 허용됩니다. 서버의 `ENABLE_FINITE_SYNC_CLEANUP`은 별도 정책 전환과 보존 조건 검증까지 꺼둡니다. [계약](../SPEC/reader-and-progress.md#유한-동기화)과 [남은 수용 확인](../TODO.md#동기화-유효기간과-영수증-정리)을 먼저 확인합니다.
+
+정리 API `POST /api/sync/maintenance`는 활성화 시 폐기 여부를 확인한 Firebase Bearer 토큰의 UID만 사용하고 요청 본문의 UID는 받지 않습니다. UID별 하루 한 번, 최대 500건·부모 100개·40초까지 검사하며 50건 이하 단위의 트랜잭션과 재개 커서를 사용합니다. 누락된 부모 아래 receipt도 검사합니다. receipt 조회는 보존 기간을 넘긴 `createdAtServer` 범위에서 오래된 순이며 timestamp+문서 ID 커서로 같은 시각의 문서도 이어갑니다. 이전 ID 전용 커서는 안전하게 처음부터 재검사합니다. 읽기 집계는 빈 조회의 최소 비용을 포함한 추정치이며 실제 청구액은 아닙니다. 삭제마다 관리자 정책 문서와 실행 권한을 다시 확인하고, 정책이 변경되면 멈춥니다. 도메인의 직접 실행은 기본 dry run이며 API만 명시적으로 삭제 모드를 요청합니다.
+
+자동 삭제에 앞서 네 쓰기 경로의 구형 쓰기가 서버에서 차단되는지 검증해야 합니다. `artifacts/{APP_ID}/users/{uid}/libraries/local/syncPolicyV1/writeLease`의 관리자 정책(`schemaVersion: 1`, `requireLeases: true`, 검증된 `legacyBlockedAtServer`)을 전환 시각 T로 사용합니다. 클라이언트가 써넣은 과거 시각이나 기기 마지막 접속일은 대체 근거가 아닙니다. 모든 receipt는 생성 후 210일과 T 이후 210일을 모두 충족해야 삭제됩니다. 인덱스 제외는 receipt의 미사용 필드에만 적용하고 `createdAtServer` 감사 인덱스는 보존합니다.
+
+TTL을 쓰는 경우 `eventReceipts` 컬렉션 그룹의 `createdAtServer`에 210일 오프셋을 설정합니다. 기존 문서의 재작성은 필요 없습니다. TTL은 컬렉션 그룹 전체에 적용되므로 모든 경로의 구형 쓰기 차단과 권한 소급 연장 금지를 확인하고, 확인 시각 T부터 210일이 지난 뒤에만 활성화합니다. 활성화 시 이미 만료된 문서도 삭제 대상이 됩니다. [Firestore TTL](https://firebase.google.com/docs/firestore/ttl)
+
+정리 시작 후 legacy 쓰기를 다시 허용하는 Rules로 rollback하지 않습니다. UI 변경을 복귀할 때도 서버 만료 차단과 IndexedDB v15 outbox를 읽을 수 있는 호환 버전을 사용합니다. 기존 14 이하 코드는 DB 버전 오류로 열리지 않을 수 있으므로 DB를 초기화해서 우회하지 않습니다. 중단하려면 정리 서버 플래그부터 끄고 payload·outbox·head·tombstone을 보존해 조사합니다.
+
 ## 반복 장애 조사
 
 - 인증/Drive callback: 실제 접속 origin, OAuth redirect URI, 같은 origin Firebase helper와 SW 제외 여부, pending state 소비를 확인합니다. access token/비밀값을 로그에 남기지 않습니다.

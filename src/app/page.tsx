@@ -49,6 +49,7 @@ import {
   DEVICE_CONTENT_OWNER_KEY,
   makeGuestOwnerKey,
   makeOwnerKey,
+  getSyncOwnerKey,
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
@@ -73,6 +74,9 @@ import {
 } from '../lib/syncConflictPresentation';
 import { runLogoutFlow } from '../lib/logoutFlow';
 import { LoginDisclosureModal, type LoginDisclosureMode } from '../components/LoginDisclosureModal';
+import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
+import type { OwnerKey } from '../lib/ownerIdentity';
+import type { UserProgress } from '../types';
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -417,6 +421,19 @@ export default function Page() {
   };
 
   const handleDisconnectDrive = () => setPendingAction('disconnect');
+
+  useEffect(() => {
+    const handleRecovered = (event: Event) => {
+      const { ownerKey, progress: recovered } = (event as CustomEvent<{ ownerKey: OwnerKey; progress: UserProgress }>).detail;
+      if (!activeOwnerKey || getSyncOwnerKey(activeOwnerKey) !== ownerKey) return;
+      rebaseProgressCommitBaseline(activeOwnerKey, recovered.bookId, recovered);
+      progressRef.current = { ...progressRef.current, [recovered.bookId]: recovered };
+      setProgress(previous => ({ ...previous, [recovered.bookId]: recovered }));
+      if (activeBook?.id === recovered.bookId) { setView('shelf'); setActiveBook(null); }
+    };
+    window.addEventListener('web-reader-expired-sync-progress', handleRecovered);
+    return () => window.removeEventListener('web-reader-expired-sync-progress', handleRecovered);
+  }, [activeBook, activeOwnerKey, progressRef, setProgress]);
 
   const handleCloudAuthExpired = useCallback((message?: React.ReactNode) => {
     if (driveCacheKey) invalidateDriveCache(driveCacheKey);

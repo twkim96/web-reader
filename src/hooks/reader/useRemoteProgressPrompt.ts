@@ -35,6 +35,18 @@ export type SyncConflict = {
   resolutionCommandId?: string;
 };
 
+const newerRemoteTarget = (current: SyncConflict, remote: RemoteProgressUpdate): SyncConflict | null => {
+  if (current.resolutionCommandId || current.bookId !== remote.bookId
+    || !Number.isSafeInteger(current.syncRevision) || !Number.isSafeInteger(remote.syncRevision)
+    || remote.syncRevision! <= current.syncRevision!) return null;
+  return {
+    operation: remote.operation, bookId: remote.bookId, cfi: remote.cfi,
+    anchorCfi: remote.anchorCfi || remote.cfi, percent: remote.progressPercent,
+    lastRead: remote.lastRead, syncRevision: remote.syncRevision,
+    acceptedEventId: remote.acceptedEventId,
+  };
+};
+
 interface UseRemoteProgressPromptOptions {
   recoveryScope?: string;
   isLoaded: boolean;
@@ -48,7 +60,7 @@ interface UseRemoteProgressPromptOptions {
   onResolvedRemoteProgressCancelled?: (commandId: string) => void;
   outboxConflictRevision?: number;
   ignoredRemoteRevision?: number;
-  onIgnoreRemoteProgress?: (revision: number) => Promise<boolean>;
+  onIgnoreRemoteProgress?: (revision: number, isCurrent: () => boolean, target: SyncConflict) => Promise<boolean>;
   currentCfi: string;
   currentAnchorCfi: string;
   totalProgress: number;
@@ -155,6 +167,8 @@ export const useRemoteProgressPrompt = ({
     setSyncRecoveryVisible(true);
   }, [recoveryScope]);
   const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
+  const syncConflictRef = useRef(syncConflict);
+  useEffect(() => { syncConflictRef.current = syncConflict; }, [syncConflict]);
   const [syncConflictFeedback, setSyncConflictFeedback] = useState<string | null>(null);
   const [resolvingSyncConflict, setResolvingSyncConflict] = useState(false);
   const [remoteRetryNonce, setRemoteRetryNonce] = useState(0);
@@ -515,6 +529,20 @@ export const useRemoteProgressPrompt = ({
   useEffect(() => {
     if (!isLoaded || !remoteProgress) return;
 
+    const openConflict = syncConflictRef.current;
+    if (resolvedRemoteProgressCommand || openConflict?.resolutionCommandId) return;
+    const refreshed = openConflict && newerRemoteTarget(openConflict, remoteProgress);
+    if (refreshed) {
+      syncConflictRef.current = refreshed;
+      jumpGeneration.current += 1;
+      jumpingRemoteIdentity.current = null;
+      lastProcessedRemoteIdentity.current = getRemoteProgressIdentity(remoteProgress);
+      isInitialSync.current = false;
+      setSyncConflictFeedback(null);
+      setSyncConflict(refreshed);
+      return;
+    }
+
     const remoteTime = remoteProgress.lastRead;
     const remoteOperation = remoteProgress.operation;
     const remoteCfi = remoteProgress.cfi;
@@ -652,6 +680,14 @@ export const useRemoteProgressPrompt = ({
           return;
         }
 
+        if (result.status === 'adopted-navigation-failed') {
+          lastProcessedRemoteIdentity.current = remoteIdentity;
+          isInitialSync.current = false;
+          setSyncConflictFeedback('클라우드 위치는 저장됐지만 화면 이동에 실패했습니다. 다시 이동하거나 현재 위치를 유지해 주세요.');
+          syncConflictRef.current = target;
+          setSyncConflict(target);
+          return;
+        }
         const retryable = result.retryable;
         if (!retryable) {
           lastProcessedRemoteIdentity.current = remoteIdentity;
@@ -706,37 +742,45 @@ export const useRemoteProgressPrompt = ({
     offerSyncRecovery,
     remoteProgress,
     remoteRetryNonce,
+    resolvedRemoteProgressCommand,
     totalProgress,
   ]);
 
   const dismissSyncConflict = useCallback(async () => {
-    if (syncConflict?.resolutionCommandId) {
-      onResolvedRemoteProgressCancelled?.(syncConflict.resolutionCommandId);
-      setSyncConflictFeedback(null);
-      setSyncConflict(null);
-      return;
+    const target = syncConflictRef.current;
+    if (!target) return;
+    const generation = jumpGeneration.current;
+    const isCurrent = () => syncConflictRef.current === target && jumpGeneration.current === generation;
+    if (target.resolutionCommandId) {
+      onResolvedRemoteProgressCancelled?.(target.resolutionCommandId);
+    } else if (target.syncRevision) {
+      const ignored = await onIgnoreRemoteProgress?.(target.syncRevision, isCurrent, target);
+      if (!ignored || !isCurrent()) return;
     }
-    if (syncConflict?.syncRevision) {
-      const ignored = await onIgnoreRemoteProgress?.(syncConflict.syncRevision);
-      if (!ignored) return;
-    }
+    if (!isCurrent()) return;
+    syncConflictRef.current = null;
     setSyncConflictFeedback(null);
     setSyncConflict(null);
-  }, [onIgnoreRemoteProgress, onResolvedRemoteProgressCancelled, syncConflict]);
+  }, [onIgnoreRemoteProgress, onResolvedRemoteProgressCancelled]);
 
   const acceptSyncConflict = useCallback(() => {
     if (!syncConflict || resolvingSyncConflict) return;
+    const latestTarget = remoteProgress && newerRemoteTarget(syncConflict, remoteProgress) || syncConflict;
+    syncConflictRef.current = latestTarget;
+    if (latestTarget !== syncConflict) {
+      setSyncConflict(latestTarget);
+    }
     setResolvingSyncConflict(true);
     const currentAnchor = currentAnchorCfi || currentCfi;
-    const targetAnchor = syncConflict.anchorCfi || syncConflict.cfi;
+    const targetAnchor = latestTarget.anchorCfi || latestTarget.cfi;
     const stagedBookmarks = currentCfi
       && targetAnchor !== currentAnchor
-      && !syncConflict.resolutionCommandId
+      && !latestTarget.resolutionCommandId
       ? stageAutoBookmark(currentAnchor, totalProgress)
-      : syncConflict.bookmarks;
+      : latestTarget.bookmarks;
     const target = stagedBookmarks
-      ? { ...syncConflict, bookmarks: stagedBookmarks }
-      : syncConflict;
+      ? { ...latestTarget, bookmarks: stagedBookmarks }
+      : latestTarget;
     let finalizedProgress: ResolvedRemoteProgressCommand['progress'] | null = null;
     const finalize = syncConflict.resolutionCommandId
       ? async (signal?: AbortSignal) => {
@@ -765,6 +809,10 @@ export const useRemoteProgressPrompt = ({
           revision: target.syncRevision,
           status: result.status,
         });
+        const current = syncConflictRef.current;
+        if (!current || current.resolutionCommandId
+          || current.bookId !== target.bookId
+          || getRemoteProgressIdentity(current) !== getRemoteProgressIdentity(target)) return;
         if (result.status === 'blocked-by-local-work') {
           setSyncConflictFeedback('현재 기기에서 방금 이동한 위치를 저장·동기화 중입니다. 저장이 끝난 뒤 다시 이동해 주세요.');
           return;
@@ -804,7 +852,7 @@ export const useRemoteProgressPrompt = ({
       onResolvedRemoteProgressConsumed?.(syncConflict.resolutionCommandId!);
       setSyncConflict(null);
     }).finally(() => setResolvingSyncConflict(false));
-  }, [adoptAndNavigateRemoteProgress, adoptResolvedBookmarks, commitBookmarks, currentAnchorCfi, currentCfi, getBookmarks, jumpToRemoteProgress, onResolvedRemoteProgressConsumed, onResolvedRemoteProgressFinalize, resetToRemoteProgress, resolvingSyncConflict, stageAutoBookmark, syncConflict, totalProgress]);
+  }, [adoptAndNavigateRemoteProgress, adoptResolvedBookmarks, commitBookmarks, currentAnchorCfi, currentCfi, getBookmarks, jumpToRemoteProgress, onResolvedRemoteProgressConsumed, onResolvedRemoteProgressFinalize, remoteProgress, resetToRemoteProgress, resolvingSyncConflict, stageAutoBookmark, syncConflict, totalProgress]);
 
   return {
     syncRecovery,

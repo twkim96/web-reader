@@ -104,7 +104,13 @@ test('confirm persists latest observed location with staged bookmarks once and f
   assert.equal(await first, true);
   assert.equal(hook.isProvisionalNavigationActive(), false);
   assert.equal(saves.length, 2);
-  assert.deepEqual(saves[1], ['latest', 70, bookmarks, { force: true, anchorCfi: 'latest-anchor' }]);
+  const { causalRevision, causalIgnoredRevision, causalAcceptedEventId, causalViewportId, ...positionOptions } = saves[1][3];
+  assert.deepEqual(saves[1].slice(0, 3), ['latest', 70, bookmarks]);
+  assert.deepEqual(positionOptions, { force: true, anchorCfi: 'latest-anchor' });
+  assert.equal(causalRevision, 0);
+  assert.equal(causalIgnoredRevision, 0);
+  assert.equal(causalAcceptedEventId, undefined);
+  assert.match(causalViewportId, /^[0-9a-f-]{36}$/);
 }));
 
 test('cancel preserves a pending original user relocation', () => harness(async ({ hook, saves }) => {

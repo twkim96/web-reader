@@ -15,6 +15,64 @@
       "collectionGroup": "publicBookMetadataOnDemandV1",
       "fieldPath": "*",
       "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "schemaVersion",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "eventId",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "targetKind",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "bookId",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "bookmarkId",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "annotationId",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "targetKey",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "revision",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventReceipts",
+      "fieldPath": "createdAtServer",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
     }
   ]
 }
