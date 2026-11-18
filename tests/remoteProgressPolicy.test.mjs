@@ -125,15 +125,15 @@ test('silently jumps to a newer remote position on the first sync', () => {
   assert.equal(decide({ isInitialSync: true }), 'jump');
 });
 
-test('does not silently override the user or a pending local save on first sync', () => {
+test('asks before moving if the reader has already started or has a pending save on first sync', () => {
   assert.equal(decide({
     isInitialSync: true,
     isQuietResumeEligible: false,
-  }), 'offer');
+  }), 'prompt');
 });
 
-test('offers a meaningful newer remote update after initial sync', () => {
-  assert.equal(decide(), 'offer');
+test('asks to move to a meaningful newer remote update after initial sync', () => {
+  assert.equal(decide(), 'prompt');
 });
 
 test('ignores a negligible remote movement after initial sync', () => {
@@ -175,7 +175,7 @@ test('treats a lower but newer remote position as deliberate cross-device readin
     remotePercent: 30,
     remoteTime: 999_999,
     lastSaveTime: 1,
-  }), 'offer');
+  }), 'prompt');
 });
 
 test('treats an authoritative remote reset as a first-class update', () => {

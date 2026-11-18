@@ -278,7 +278,7 @@ test('user progress input during readiness cancels automatic adoption before can
   }
 });
 
-test('late remote offer adopts the exact revision on click and stays available while local work is syncing', async () => {
+test('remote move prompt uses the newest position on click and stays open while local work is syncing', async () => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -310,6 +310,7 @@ test('late remote offer adopts the exact revision on click and stays available w
     acceptedEventId: 'remote-event-2',
   };
   const adoptedRevisions = [];
+  const navigationTargets = [];
   let navigationGate;
   let localPending = true;
   let adoptionAttempts = 0;
@@ -327,8 +328,9 @@ test('late remote offer adopts the exact revision on click and stays available w
       localRevision: 1,
       lastSaveTimeRef: { current: 50 },
       waitForNavigationReady: async () => true,
-      goToStable: async () => {
+      goToStable: async (cfi) => {
         navigationAttempts += 1;
+        navigationTargets.push(cfi);
         if (navigationGate) await navigationGate;
         return true;
       },
@@ -372,14 +374,21 @@ test('late remote offer adopts the exact revision on click and stays available w
       {
         'data-conflict': state.syncConflict ? 'open' : 'closed',
         'data-target-revision': state.syncConflict?.syncRevision ?? '',
-        'data-feedback': state.syncRecoveryFeedback ?? '',
+        'data-feedback': state.syncConflictFeedback ?? '',
         'data-offer': state.syncRecoveryVisible ? 'visible' : 'hidden',
       },
-      React.createElement('button', { id: 'accept', onClick: state.acceptSyncRecovery }, 'accept'),
+      React.createElement('button', { id: 'accept', onClick: state.acceptSyncConflict }, 'accept'),
     );
   };
 
   const root = createRoot(window.document.getElementById('app'));
+  const openPrompt = () => act(async () => {
+    for (const [id, timer] of timers) {
+      if (timer.delay !== 0) continue;
+      timers.delete(id);
+      timer.callback();
+    }
+  });
   try {
     await act(async () => {
       root.render(React.createElement(Harness, { incoming: { ...remoteProgress, syncRevision: 1 } }));
@@ -389,38 +398,45 @@ test('late remote offer adopts the exact revision on click and stays available w
       root.render(React.createElement(Harness));
       await flushMicrotasks();
     });
+    await openPrompt();
     const stateNode = window.document.querySelector('[data-conflict]');
-    assert.equal(stateNode?.getAttribute('data-conflict'), 'closed');
-    assert.equal(stateNode?.getAttribute('data-offer'), 'visible');
+    assert.equal(stateNode?.getAttribute('data-conflict'), 'open');
+    assert.equal(stateNode?.getAttribute('data-target-revision'), '2');
+    assert.equal(stateNode?.getAttribute('data-offer'), 'hidden');
     assert.equal(adoptionAttempts, 0);
-    const clickOffer = () => act(async () => {
+    const clickMove = () => act(async () => {
       window.document.getElementById('accept')?.dispatchEvent(new window.Event('click', { bubbles: true }));
       await flushMicrotasks();
     });
-    await clickOffer();
+    await clickMove();
     assert.equal(adoptionAttempts, 1);
     assert.equal(navigationAttempts, 0);
-    assert.equal(stateNode?.getAttribute('data-conflict'), 'closed');
-    assert.equal(stateNode?.getAttribute('data-offer'), 'visible');
-    assert.match(stateNode?.getAttribute('data-feedback') ?? '', /저장 중/);
+    assert.equal(stateNode?.getAttribute('data-conflict'), 'open');
+    assert.match(stateNode?.getAttribute('data-feedback') ?? '', /저장·동기화 중/);
     localPending = false;
-    await clickOffer();
-    assert.deepEqual(adoptedRevisions, [2, 2]);
+    const newer = { ...remoteProgress, cfi: 'newer-cfi', anchorCfi: 'newer-cfi', syncRevision: 3, acceptedEventId: 'remote-event-3' };
+    await act(async () => root.render(React.createElement(Harness, { incoming: newer })));
+    assert.equal(stateNode?.getAttribute('data-target-revision'), '3');
+    assert.equal(navigationAttempts, 0);
+    await clickMove();
+    assert.deepEqual(adoptedRevisions, [2, 3]);
     assert.equal(navigationAttempts, 1);
-    assert.equal(stateNode?.getAttribute('data-offer'), 'hidden');
+    assert.deepEqual(navigationTargets, ['newer-cfi']);
+    assert.equal(stateNode?.getAttribute('data-conflict'), 'closed');
 
-    const offered = { ...remoteProgress, syncRevision: 3, acceptedEventId: 'remote-event-3' };
-    const latest = { ...offered, syncRevision: 4, acceptedEventId: 'remote-event-4',
+    const offered = { ...remoteProgress, syncRevision: 4, acceptedEventId: 'remote-event-4' };
+    const latest = { ...offered, syncRevision: 5, acceptedEventId: 'remote-event-5',
       cfi: 'local-after-turn', anchorCfi: 'local-after-turn', progressPercent: 22 };
     let releaseNavigation;
     navigationGate = new Promise((resolve) => { releaseNavigation = resolve; });
     await act(async () => root.render(React.createElement(Harness, { incoming: offered })));
-    await clickOffer();
-    assert.deepEqual(adoptedRevisions, [2, 2, 3]);
+    await openPrompt();
+    await clickMove();
+    assert.deepEqual(adoptedRevisions, [2, 3, 4]);
     await act(async () => root.render(React.createElement(Harness, { incoming: latest })));
     await act(async () => { releaseNavigation(); await flushMicrotasks(); });
     assert.equal(stateNode?.getAttribute('data-conflict'), 'open');
-    assert.equal(stateNode?.getAttribute('data-target-revision'), '4');
+    assert.equal(stateNode?.getAttribute('data-target-revision'), '5');
   } finally {
     await act(async () => root.unmount());
     globalThis.window = previousWindow;
@@ -429,7 +445,7 @@ test('late remote offer adopts the exact revision on click and stays available w
   }
 });
 
-test('late startup position is retained without adoption, survives dismissal and does not repeat on reopen', async () => {
+test('a startup position blocked by a pending save survives dismissal without reopening its notice', async () => {
   const previous = { window: globalThis.window, document: globalThis.document, IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
   const { window, document } = parseHTML('<html><body><div id="app"></div></body></html>');
   Object.assign(globalThis, { window, document, IS_REACT_ACT_ENVIRONMENT: true });
@@ -441,10 +457,17 @@ test('late startup position is retained without adoption, survives dismissal and
   const options = {
     isLoaded: true, recoveryScope: 'owner-a/book', remoteProgress: incoming,
     currentCfi: 'user-moved', currentAnchorCfi: 'user-moved', totalProgress: 25, localRevision: 1,
-    lastSaveTimeRef: { current: 100 }, isQuietResumeEligible: () => false,
+    lastSaveTimeRef: { current: 100 }, isQuietResumeEligible: () => true,
     isProgressConflictAutoResolveEligible: () => true, hasLocalProgress: true,
     getBookmarks: () => [],
-    adoptRemoteProgressBeforeNavigation: async () => { adoptionCalls++; throw new Error('unexpected adoption'); },
+    waitForNavigationReady: async () => true,
+    beginRemoteNavigationAttempt: () => ({ id: 1, signal: new AbortController().signal }),
+    isRemoteNavigationAttemptCurrent: () => true,
+    finishRemoteNavigationAttempt: () => {},
+    adoptRemoteProgressBeforeNavigation: async () => {
+      adoptionCalls++;
+      return { status: 'blocked-by-local-work', work: { pending: 1 } };
+    },
     goToStable: async () => assert.fail('must not move without a click'),
   };
   function Harness({ scope = 'owner-a/book' }) {
@@ -458,7 +481,7 @@ test('late startup position is retained without adoption, survives dismissal and
     assert.equal(state.syncConflict, null);
     assert.equal(state.syncRecoveryVisible, true);
     assert.equal(state.syncRecovery.cfi, 'remote-anchor');
-    assert.equal(adoptionCalls, 0);
+    assert.equal(adoptionCalls, 1);
     const identity = state.syncRecovery.identity;
     await act(async () => state.hideSyncRecovery());
     assert.equal(state.syncRecoveryVisible, false);
@@ -468,7 +491,7 @@ test('late startup position is retained without adoption, survives dismissal and
     await act(async () => root.render(React.createElement(Harness)));
     assert.equal(state.syncRecoveryVisible, false);
     assert.equal(state.syncRecovery.cfi, 'remote-anchor');
-    assert.equal(adoptionCalls, 0);
+    assert.equal(adoptionCalls, 1);
     await act(async () => state.consumeSyncRecovery('obsolete-identity'));
     assert.ok(state.syncRecovery, 'old completion cannot erase a newer candidate');
     await act(async () => state.consumeSyncRecovery(identity));
@@ -482,6 +505,7 @@ test('late startup position is retained without adoption, survives dismissal and
     root = createRoot(document.getElementById('app'));
     await act(async () => root.render(React.createElement(Harness, { scope: 'owner-b/book' })));
     assert.equal(state.syncRecoveryVisible, true, 'another owner must not inherit the first owner dismissal');
+    assert.equal(adoptionCalls, 2);
   } finally {
     await act(async () => root.unmount());
     Object.assign(globalThis, previous);

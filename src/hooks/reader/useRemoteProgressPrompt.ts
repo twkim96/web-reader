@@ -576,6 +576,7 @@ export const useRemoteProgressPrompt = ({
 
     const openConflict = syncConflictRef.current;
     if (resolvedRemoteProgressCommand || openConflict?.resolutionCommandId) return;
+    if (!openConflict && remoteProgress.operation === 'set' && outboxConflictRevision !== undefined) return;
     const refreshed = openConflict && newerRemoteTarget(openConflict, remoteProgress);
     if (refreshed) {
       syncConflictRef.current = refreshed;
@@ -683,12 +684,6 @@ export const useRemoteProgressPrompt = ({
       syncRevision: remoteProgress.syncRevision,
       acceptedEventId: remoteProgress.acceptedEventId,
     };
-    if (action === 'offer') {
-      offerSyncRecovery(target);
-      lastProcessedRemoteIdentity.current = remoteIdentity;
-      isInitialSync.current = false;
-      return;
-    }
     if (action === 'jump') {
       jumpingRemoteIdentity.current = remoteIdentity;
       void adoptAndNavigateRemoteProgress(target, 'quiet').then((result) => {
@@ -766,6 +761,9 @@ export const useRemoteProgressPrompt = ({
       // relocate before this timer fires must be free to schedule it again.
       lastProcessedRemoteIdentity.current = remoteIdentity;
       isInitialSync.current = false;
+      const previousRecovery = recoveryRecordRef.current?.candidate;
+      if (previousRecovery) consumeSyncRecovery(previousRecovery.identity);
+      syncConflictRef.current = target;
       setSyncConflictFeedback(null);
       setSyncConflict(target);
     }, 0);
@@ -775,6 +773,7 @@ export const useRemoteProgressPrompt = ({
     };
   }, [
     adoptAndNavigateRemoteProgress,
+    consumeSyncRecovery,
     currentAnchorCfi,
     currentCfi,
     hasLocalProgress,

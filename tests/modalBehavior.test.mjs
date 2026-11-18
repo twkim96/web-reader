@@ -8,6 +8,7 @@ import { parseHTML } from 'linkedom';
 import { ConfirmDialog } from '../src/components/ConfirmDialog.tsx';
 import { LoginDisclosureModal } from '../src/components/LoginDisclosureModal.tsx';
 import { ReaderModalFrame } from '../src/components/reader/ReaderModalFrame.tsx';
+import { SyncConflictDialog } from '../src/components/reader/SyncConflictDialog.tsx';
 import { MenuSheetHeader } from '../src/components/MenuSheetHeader.tsx';
 import { SyncConflictResolutionDialog } from '../src/components/SyncConflictResolutionDialog.tsx';
 
@@ -51,6 +52,32 @@ const dispatchEscape = (window) => {
   Object.defineProperty(event, 'key', { value: 'Escape' });
   window.dispatchEvent(event);
 };
+
+test('reader move confirmation shows the saved percentage and offers move or ignore', async () => {
+  const window = installDom();
+  const root = createRoot(window.document.querySelector('#root'));
+  const calls = [];
+  try {
+    await act(async () => root.render(React.createElement(SyncConflictDialog, {
+      theme,
+      syncConflict: { operation: 'set', bookId: 'book', cfi: 'remote', percent: 70, lastRead: 10 },
+      onAccept: () => calls.push('move'),
+      onDismiss: () => calls.push('stay'),
+    })));
+    const dialog = window.document.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /클라우드에 70\.0%의 읽기 위치가 있습니다/);
+    assert.match(dialog.textContent, /해당 위치로 이동하시겠습니까/);
+    const buttons = [...dialog.querySelectorAll('button')];
+    assert.deepEqual(buttons.map((button) => button.textContent.trim()), ['무시', '이동하기']);
+    await act(async () => {
+      dispatchClick(window, buttons[0]);
+      dispatchClick(window, buttons[1]);
+    });
+    assert.deepEqual(calls, ['stay', 'move']);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 
 test('progress conflict offers clear positions and preserves actions and error feedback', async () => {
   const window = installDom();

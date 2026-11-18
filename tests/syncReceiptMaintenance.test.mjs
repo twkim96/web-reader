@@ -60,7 +60,7 @@ function fake() {
   return { store, deps, mutatePolicy(value) { store.set(policyPath, value); version++; }, onTransaction(fn) { onTransaction = fn; } };
 }
 
-test('both 210 day barriers, exact schema and canonical UID/path are required', () => {
+test('both 120 day barriers, exact schema and canonical UID/path are required', () => {
   for (const delta of [-1, 0, 1]) {
     assert.equal(planEligibility('alice', receiptPath, { ...receipt(), createdAtServer: Timestamp.fromMillis(now - age + delta) }, policy(), now), delta <= 0);
     assert.equal(planEligibility('alice', receiptPath, receipt(), { ...policy(), legacyBlockedAtServer: Timestamp.fromMillis(now - age + delta) }, now), delta <= 0);

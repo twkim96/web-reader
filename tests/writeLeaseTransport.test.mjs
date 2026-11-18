@@ -186,7 +186,7 @@ test('first-online placeholders bind once with server time despite skew, while o
     const leased = transport.createSyncEventId(owner, 'device');
     assert.equal(transport.resolvePendingSyncEventId(owner, leased, 'device'), null);
     // Resolving a valid old conflict must not borrow the freshly cached lease.
-    const oldLease = { leaseId: crypto.randomUUID(), deviceId: 'device', issuedAtMillis: issued - 179 * 864e5 };
+    const oldLease = { leaseId: crypto.randomUUID(), deviceId: 'device', issuedAtMillis: issued - policy.WRITE_LEASE_DURATION_MS + 864e5 };
     const originalConflictId = policy.createLeasedEventId(oldLease);
     const conflictEvent = { ...row(originalConflictId, 1, 17), status: 'conflict' };
     await db.put(schema.V5_OUTBOX_STORE, conflictEvent);

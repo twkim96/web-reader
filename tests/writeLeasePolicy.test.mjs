@@ -24,7 +24,8 @@ test('lease and event status reject future and expire at the exact boundary', ()
   const id = createLeasedEventId(lease);
   const issued = lease.issuedAtMillis;
   assert.equal(WRITE_LEASE_REFRESH_MS, 864e5);
-  assert.equal(RECEIPT_RETENTION_MS, 210 * 864e5);
+  assert.equal(WRITE_LEASE_DURATION_MS, 90 * 864e5);
+  assert.equal(RECEIPT_RETENTION_MS, 120 * 864e5);
   for (const [time, status, valid] of [
     [issued - 1, 'unleased', false], [issued, 'valid', true],
     [issued + WRITE_LEASE_DURATION_MS - 1, 'valid', true],

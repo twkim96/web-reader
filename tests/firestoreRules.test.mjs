@@ -1321,7 +1321,7 @@ test('lease document is owner get and create only; policy is owner get and admin
 test('leased events and opt-in policy apply to all four atomic head and receipt paths', async () => {
   for (const write of leaseWriters) {
     await environment.clearFirestore();
-    const issued = Date.now() - 1000;
+    const issued = Date.now() - 90 * 864e5 + 60_000;
     await seedLease(issued, 'device-1', 456789);
     await seedPolicy(true);
     await assertSucceeds(write(database(), leasedId(issued)));
@@ -1345,7 +1345,7 @@ test('leased event fails closed for forged timestamp, device, malformed id, expi
     await assertFails(write(database(), leasedId(issued)));
     await assertFails(write(database(), 'wl1_invalid'));
     await assertFails(write(database(), 'unleased_event'));
-    const expired = Date.now() - 180 * 864e5;
+    const expired = Date.now() - 90 * 864e5;
     await seedLease(expired);
     await assertFails(write(database(), leasedId(expired)));
     await seedLease(issued);
@@ -1387,7 +1387,7 @@ test('receipt maintenance pages missing parents and deletes only their eligible 
   const adminDb = getFirestore(adminApp);
   const root = `artifacts/${appId}/users/alice/libraries/local`;
   const now = Date.now();
-  const old = AdminTimestamp.fromMillis(now - 211 * 864e5);
+  const old = AdminTimestamp.fromMillis(now - 121 * 864e5);
   const receipt = (bookId, eventId) => ({
     schemaVersion: 2, eventId, targetKind: 'progress', bookId, bookmarkId: null,
     targetKey: `progress:${bookId}`, revision: 1, createdAtServer: old,
@@ -1401,7 +1401,7 @@ test('receipt maintenance pages missing parents and deletes only their eligible 
     for (let index = 0; index < 51; index++) {
       const id = `old-${String(index).padStart(2, '0')}`;
       await adminDb.doc(`${root}/readingHistoryV2/a-missing/eventReceipts/${id}`).set({ ...receipt('a-missing', id),
-        createdAtServer: AdminTimestamp.fromMillis(now - (212 + index % 2) * 864e5) });
+        createdAtServer: AdminTimestamp.fromMillis(now - (122 + index % 2) * 864e5) });
     }
     assert.equal((await adminDb.doc(`${root}/readingHistoryV2/a-missing`).get()).exists, false);
     const deps = adminMaintenanceDependencies(adminDb);

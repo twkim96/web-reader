@@ -406,7 +406,7 @@ service cloud.firestore {
         && lease.issuedAtServer is timestamp
         && int(parts[2]) == lease.issuedAtServer.toMillis()
         && request.time >= lease.issuedAtServer
-        && request.time < lease.issuedAtServer + duration.value(180, 'd');
+        && request.time < lease.issuedAtServer + duration.value(90, 'd');
     }
 
     function allowedWriteEvent(appId, uid, scopeId, eventId, deviceId) {
