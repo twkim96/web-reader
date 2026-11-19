@@ -1,6 +1,7 @@
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import {
   assertFails,
@@ -34,6 +35,14 @@ import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 const projectId = 'demo-web-reader';
 const appId = 'private-web-novel-viewer';
 let environment;
+let fixtureIssued;
+const fixtureLeaseId = '1af12345-1234-4123-8123-123456789abc';
+const fixtureEvent = (label) => {
+  if (label.startsWith('wl1_')) return label;
+  const hash = createHash('sha256').update(label).digest('hex');
+  const uuid = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+  return `wl1_${fixtureLeaseId}_${fixtureIssued}_${uuid}`;
+};
 
 before(async () => {
   environment = await initializeTestEnvironment({
@@ -48,6 +57,12 @@ after(async () => {
 
 beforeEach(async () => {
   await environment.clearFirestore();
+  fixtureIssued = Date.now() - 1000;
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), `artifacts/${appId}/users/alice/libraries/local/writeLeases/${fixtureLeaseId}`), {
+      schemaVersion: 1, deviceId: 'device-1', issuedAtServer: Timestamp.fromMillis(fixtureIssued),
+    });
+  });
 });
 
 const database = (uid = 'alice') => environment
@@ -154,7 +169,7 @@ const validReadingSession = (sessionId = 'stats-session-1') => ({
   completed: false,
 });
 
-const validHead = (eventId = 'event-1', revision = 1) => ({
+const validHead = (eventId = fixtureEvent('event-1'), revision = 1) => ({
   schemaVersion: 2,
   bookId: 'book-1',
   revision,
@@ -168,7 +183,7 @@ const validHead = (eventId = 'event-1', revision = 1) => ({
   deletedAtServer: null,
 });
 
-const validReceipt = (eventId = 'event-1', revision = 1) => ({
+const validReceipt = (eventId = fixtureEvent('event-1'), revision = 1) => ({
   schemaVersion: 2,
   eventId,
   targetKind: 'progress',
@@ -179,7 +194,7 @@ const validReceipt = (eventId = 'event-1', revision = 1) => ({
   createdAtServer: serverTimestamp(),
 });
 
-const writeProgressEvent = (db, eventId = 'event-1', revision = 1) => {
+const writeProgressEvent = (db, eventId = fixtureEvent('event-1'), revision = 1) => {
   const batch = writeBatch(db);
   batch.set(doc(db, progressPath()), validHead(eventId, revision));
   batch.set(
@@ -194,7 +209,7 @@ const bookmarkPath = (bookmarkId = 'mark-1') => (
 );
 
 const validBookmarkHead = (
-  eventId = 'bookmark-event-1',
+  eventId = fixtureEvent('bookmark-event-1'),
   revision = 1,
   operation = 'upsert',
 ) => ({
@@ -220,7 +235,7 @@ const validBookmarkHead = (
   deletedAtServer: operation === 'delete' ? serverTimestamp() : null,
 });
 
-const validBookmarkReceipt = (eventId = 'bookmark-event-1', revision = 1) => ({
+const validBookmarkReceipt = (eventId = fixtureEvent('bookmark-event-1'), revision = 1) => ({
   schemaVersion: 2,
   eventId,
   targetKind: 'bookmark',
@@ -233,7 +248,7 @@ const validBookmarkReceipt = (eventId = 'bookmark-event-1', revision = 1) => ({
 
 const writeBookmarkEvent = (
   db,
-  eventId = 'bookmark-event-1',
+  eventId = fixtureEvent('bookmark-event-1'),
   revision = 1,
   operation = 'upsert',
 ) => {
@@ -276,7 +291,7 @@ const validAnnotationPayload = () => ({
 });
 
 const validAnnotationHead = (
-  eventId = 'annotation-event-1',
+  eventId = fixtureEvent('annotation-event-1'),
   revision = 1,
   operation = 'upsert',
 ) => ({
@@ -294,7 +309,7 @@ const validAnnotationHead = (
   deletedAtServer: operation === 'delete' ? serverTimestamp() : null,
 });
 
-const validAnnotationReceipt = (eventId = 'annotation-event-1', revision = 1) => ({
+const validAnnotationReceipt = (eventId = fixtureEvent('annotation-event-1'), revision = 1) => ({
   schemaVersion: 1,
   eventId,
   targetKind: 'annotation',
@@ -306,7 +321,7 @@ const validAnnotationReceipt = (eventId = 'annotation-event-1', revision = 1) =>
 });
 
 const validAnnotationAggregate = (
-  eventId = 'annotation-event-1',
+  eventId = fixtureEvent('annotation-event-1'),
   revision = 1,
   operation = 'upsert',
 ) => {
@@ -337,7 +352,7 @@ const validAnnotationAggregate = (
 
 const writeAnnotationEvent = (
   db,
-  eventId = 'annotation-event-1',
+  eventId = fixtureEvent('annotation-event-1'),
   revision = 1,
   operation = 'upsert',
 ) => {
@@ -360,7 +375,7 @@ const palettePath = () => (
 
 const paletteReceiptPath = (eventId) => `${palettePath()}/eventReceipts/${eventId}`;
 
-const validPaletteHead = (eventId = 'palette-event-1', revision = 1) => ({
+const validPaletteHead = (eventId = fixtureEvent('palette-event-1'), revision = 1) => ({
   schemaVersion: 1,
   revision,
   acceptedEventId: eventId,
@@ -372,7 +387,7 @@ const validPaletteHead = (eventId = 'palette-event-1', revision = 1) => ({
   updatedAtServer: serverTimestamp(),
 });
 
-const validPaletteReceipt = (eventId = 'palette-event-1', revision = 1) => ({
+const validPaletteReceipt = (eventId = fixtureEvent('palette-event-1'), revision = 1) => ({
   schemaVersion: 1,
   eventId,
   targetKind: 'palette',
@@ -383,7 +398,7 @@ const validPaletteReceipt = (eventId = 'palette-event-1', revision = 1) => ({
   createdAtServer: serverTimestamp(),
 });
 
-const writePaletteEvent = (db, eventId = 'palette-event-1', revision = 1) => {
+const writePaletteEvent = (db, eventId = fixtureEvent('palette-event-1'), revision = 1) => {
   const batch = writeBatch(db);
   batch.set(doc(db, palettePath()), validPaletteHead(eventId, revision));
   batch.set(doc(db, paletteReceiptPath(eventId)), validPaletteReceipt(eventId, revision));
@@ -399,7 +414,7 @@ const progressEvent = (eventId, progressPercent, baseRevision = 0, operation = '
   payload: operation === 'progress.reset'
     ? null
     : { cfi: `epubcfi(/6/${progressPercent})`, anchorCfi: null, progressPercent },
-  deviceId: `device-${eventId}`,
+  deviceId: 'device-1',
   sessionId: `session-${eventId}`,
   sequence: 1,
   baseRevision,
@@ -427,7 +442,7 @@ const bookmarkEvent = (eventId, baseRevision = 0, operation = 'bookmark.upsert')
     createdAtClient: 1,
     updatedAtClient: baseRevision + 1,
   },
-  deviceId: `device-${eventId}`,
+  deviceId: 'device-1',
   sessionId: `session-${eventId}`,
   sequence: 1,
   baseRevision,
@@ -450,7 +465,7 @@ const annotationEvent = (
   targetKey: 'annotation:book-1:annotation-1',
   operation,
   payload: operation === 'annotation.delete' ? null : validAnnotationPayload(),
-  deviceId: `device-${eventId}`,
+  deviceId: 'device-1',
   sessionId: `session-${eventId}`,
   baseRevision,
   bookGeneration: 0,
@@ -463,7 +478,7 @@ const paletteEvent = (eventId, baseRevision = 0) => ({
   targetKey: 'annotation-palette',
   operation: 'palette.set',
   payload: { items: DEFAULT_ANNOTATION_PALETTE.map((item) => ({ ...item })) },
-  deviceId: `device-${eventId}`,
+  deviceId: 'device-1',
   sessionId: `session-${eventId}`,
   baseRevision,
   occurredAtClient: baseRevision + 1,
@@ -474,17 +489,17 @@ test('allows own atomic progress head and immutable receipt', async () => {
   await assertSucceeds(writeProgressEvent(db));
   await assertSucceeds(getDoc(doc(db, progressPath())));
   await assertFails(setDoc(
-    doc(db, `${progressPath()}/eventReceipts/event-1`),
-    validReceipt('event-1', 1),
+    doc(db, `${progressPath()}/eventReceipts/${fixtureEvent('event-1')}`),
+    validReceipt(fixtureEvent('event-1'), 1),
   ));
-  await assertFails(deleteDoc(doc(db, `${progressPath()}/eventReceipts/event-1`)));
+  await assertFails(deleteDoc(doc(db, `${progressPath()}/eventReceipts/${fixtureEvent('event-1')}`)));
 });
 
 test('rejects another uid and orphan head or receipt writes', async () => {
   await assertFails(getDoc(doc(database('mallory'), progressPath('alice'))));
   await assertFails(setDoc(doc(database(), progressPath()), validHead()));
   await assertFails(setDoc(
-    doc(database(), `${progressPath()}/eventReceipts/event-1`),
+    doc(database(), `${progressPath()}/eventReceipts/${fixtureEvent('event-1')}`),
     validReceipt(),
   ));
 });
@@ -494,24 +509,24 @@ test('rejects revision jumps, unknown fields and invalid progress range', async 
   await assertSucceeds(writeProgressEvent(db));
 
   const jump = writeBatch(db);
-  jump.set(doc(db, progressPath()), validHead('event-3', 3));
-  jump.set(doc(db, `${progressPath()}/eventReceipts/event-3`), validReceipt('event-3', 3));
+  jump.set(doc(db, progressPath()), validHead(fixtureEvent('event-3'), 3));
+  jump.set(doc(db, `${progressPath()}/eventReceipts/${fixtureEvent('event-3')}`), validReceipt(fixtureEvent('event-3'), 3));
   await assertFails(jump.commit());
 
   const invalid = writeBatch(db);
   invalid.set(doc(db, progressPath()), {
-    ...validHead('event-2', 2),
+    ...validHead(fixtureEvent('event-2'), 2),
     unknown: true,
     position: { cfi: 'x', anchorCfi: null, progressPercent: 101 },
   });
-  invalid.set(doc(db, `${progressPath()}/eventReceipts/event-2`), validReceipt('event-2', 2));
+  invalid.set(doc(db, `${progressPath()}/eventReceipts/${fixtureEvent('event-2')}`), validReceipt(fixtureEvent('event-2'), 2));
   await assertFails(invalid.commit());
 });
 
 test('allows atomic bookmark upsert and revisioned tombstone delete', async () => {
   const db = database();
   await assertSucceeds(writeBookmarkEvent(db));
-  await assertSucceeds(writeBookmarkEvent(db, 'bookmark-event-2', 2, 'delete'));
+  await assertSucceeds(writeBookmarkEvent(db, fixtureEvent('bookmark-event-2'), 2, 'delete'));
   const snapshot = await assertSucceeds(getDoc(doc(db, bookmarkPath())));
   assert.equal(snapshot.data().operation, 'delete');
   assert.equal(snapshot.data().revision, 2);
@@ -524,33 +539,33 @@ test('rejects bookmark identity mismatch, revision jump, and orphan receipt', as
 
   const mismatch = writeBatch(db);
   mismatch.set(doc(db, bookmarkPath()), {
-    ...validBookmarkHead('bookmark-event-2', 2),
+    ...validBookmarkHead(fixtureEvent('bookmark-event-2'), 2),
     bookmarkId: 'other-mark',
   });
   mismatch.set(
-    doc(db, `${progressPath()}/eventReceipts/bookmark-event-2`),
-    validBookmarkReceipt('bookmark-event-2', 2),
+    doc(db, `${progressPath()}/eventReceipts/${fixtureEvent('bookmark-event-2')}`),
+    validBookmarkReceipt(fixtureEvent('bookmark-event-2'), 2),
   );
   await assertFails(mismatch.commit());
 
   const jump = writeBatch(db);
-  jump.set(doc(db, bookmarkPath()), validBookmarkHead('bookmark-event-3', 3));
+  jump.set(doc(db, bookmarkPath()), validBookmarkHead(fixtureEvent('bookmark-event-3'), 3));
   jump.set(
-    doc(db, `${progressPath()}/eventReceipts/bookmark-event-3`),
-    validBookmarkReceipt('bookmark-event-3', 3),
+    doc(db, `${progressPath()}/eventReceipts/${fixtureEvent('bookmark-event-3')}`),
+    validBookmarkReceipt(fixtureEvent('bookmark-event-3'), 3),
   );
   await assertFails(jump.commit());
 
   await assertFails(setDoc(
-    doc(db, `${progressPath()}/eventReceipts/orphan-bookmark-event`),
-    validBookmarkReceipt('orphan-bookmark-event', 2),
+    doc(db, `${progressPath()}/eventReceipts/${fixtureEvent('orphan-bookmark-event')}`),
+    validBookmarkReceipt(fixtureEvent('orphan-bookmark-event'), 2),
   ));
   await assertFails(getDoc(doc(database('mallory'), bookmarkPath())));
 });
 
 test('runs concurrent progress transactions with one winner, receipt replay, reset, and stale conflict', async () => {
-  const firstEvent = progressEvent('concurrent-a', 30);
-  const secondEvent = progressEvent('concurrent-b', 70);
+  const firstEvent = progressEvent(fixtureEvent('concurrent-a'), 30);
+  const secondEvent = progressEvent(fixtureEvent('concurrent-b'), 70);
   const results = await Promise.all([
     applyProgressEventTransaction({
       event: firstEvent,
@@ -580,7 +595,7 @@ test('runs concurrent progress transactions with one winner, receipt replay, res
   assert.equal(replay.head.revision, 1);
 
   const reset = await applyProgressEventTransaction({
-    event: progressEvent('reset-event', 0, 1, 'progress.reset'),
+    event: progressEvent(fixtureEvent('reset-event'), 0, 1, 'progress.reset'),
     uid: 'alice',
     libraryScopeKey: 'library:local',
     firestore: database(),
@@ -591,7 +606,7 @@ test('runs concurrent progress transactions with one winner, receipt replay, res
   assert.equal(reset.head.operation, 'reset');
 
   const stale = await applyProgressEventTransaction({
-    event: progressEvent('stale-set', 90, 1),
+    event: progressEvent(fixtureEvent('stale-set'), 90, 1),
     uid: 'alice',
     libraryScopeKey: 'library:local',
     firestore: database(),
@@ -602,7 +617,7 @@ test('runs concurrent progress transactions with one winner, receipt replay, res
 });
 
 test('runs bookmark transaction receipt replay, tombstone, and stale edit conflict', async () => {
-  const upsertEvent = bookmarkEvent('bookmark-upsert');
+  const upsertEvent = bookmarkEvent(fixtureEvent('bookmark-upsert'));
   const upsert = await applyBookmarkEventTransaction({
     event: upsertEvent,
     uid: 'alice',
@@ -622,7 +637,7 @@ test('runs bookmark transaction receipt replay, tombstone, and stale edit confli
   assert.equal(replay.status, 'already_applied');
 
   const deletion = await applyBookmarkEventTransaction({
-    event: bookmarkEvent('bookmark-delete', 1, 'bookmark.delete'),
+    event: bookmarkEvent(fixtureEvent('bookmark-delete'), 1, 'bookmark.delete'),
     uid: 'alice',
     libraryScopeKey: 'library:local',
     firestore: database(),
@@ -633,7 +648,7 @@ test('runs bookmark transaction receipt replay, tombstone, and stale edit confli
   assert.equal(deletion.head.revision, 2);
 
   const stale = await applyBookmarkEventTransaction({
-    event: bookmarkEvent('bookmark-stale', 1),
+    event: bookmarkEvent(fixtureEvent('bookmark-stale'), 1),
     uid: 'alice',
     libraryScopeKey: 'library:local',
     firestore: database(),
@@ -644,7 +659,7 @@ test('runs bookmark transaction receipt replay, tombstone, and stale edit confli
 });
 
 test('allows atomic annotation revisions, receipt replay, and tombstone delete', async () => {
-  const firstEvent = annotationEvent('annotation-upsert');
+  const firstEvent = annotationEvent(fixtureEvent('annotation-upsert'));
   const first = await applyAnnotationEventTransaction({
     event: firstEvent,
     uid: 'alice',
@@ -661,7 +676,7 @@ test('allows atomic annotation revisions, receipt replay, and tombstone delete',
   assert.equal(replay.status, 'already_applied');
 
   const deletion = await applyAnnotationEventTransaction({
-    event: annotationEvent('annotation-delete', 1, 'annotation.delete'),
+    event: annotationEvent(fixtureEvent('annotation-delete'), 1, 'annotation.delete'),
     uid: 'alice',
     firestore: database(),
     sdk: { doc, runTransaction, serverTimestamp },
@@ -671,8 +686,8 @@ test('allows atomic annotation revisions, receipt replay, and tombstone delete',
   assert.equal(deletion.head.revision, 2);
   await assertFails(deleteDoc(doc(database(), annotationPath())));
   await assertFails(setDoc(
-    doc(database(), annotationReceiptPath('annotation-upsert')),
-    validAnnotationReceipt('annotation-upsert', 1),
+    doc(database(), annotationReceiptPath(fixtureEvent('annotation-upsert'))),
+    validAnnotationReceipt(fixtureEvent('annotation-upsert'), 1),
   ));
 });
 
@@ -680,7 +695,7 @@ test('serializes concurrent different ids and rejects a duplicate remote range',
   const db = database();
   const rangeCfi = 'epubcfi(/6/4!/4/2,/1:0,/1:4)';
   const eventFor = (annotationId) => ({
-    eventId: `event-${annotationId}`,
+    eventId: fixtureEvent(`event-${annotationId}`),
     target: { kind: 'annotation', bookId: 'book-1', annotationId },
     targetKey: `annotation:book-1:${annotationId}`,
     operation: 'annotation.upsert',
@@ -690,7 +705,7 @@ test('serializes concurrent different ids and rejects a duplicate remote range',
       rangeCfi,
       quote: `문장 ${annotationId}`,
     },
-    deviceId: `device-${annotationId}`,
+    deviceId: 'device-1',
     sessionId: `session-${annotationId}`,
     baseRevision: 0,
     bookGeneration: 0,
@@ -716,14 +731,14 @@ test('serializes concurrent different ids and rejects a duplicate remote range',
 test('applies a forced book-deletion tombstone at the latest server revision', async () => {
   const db = database();
   await applyAnnotationEventTransaction({
-    event: annotationEvent('force-delete-upsert'),
+    event: annotationEvent(fixtureEvent('force-delete-upsert')),
     uid: 'alice',
     firestore: db,
     sdk: { doc, runTransaction, serverTimestamp },
   });
   const deletion = await applyAnnotationEventTransaction({
     event: {
-      ...annotationEvent('force-delete-tombstone', 0, 'annotation.delete'),
+      ...annotationEvent(fixtureEvent('force-delete-tombstone'), 0, 'annotation.delete'),
       forceDelete: true,
     },
     uid: 'alice',
@@ -738,7 +753,7 @@ test('applies a forced book-deletion tombstone at the latest server revision', a
 test('book deletion marker blocks stale offline upserts but allows a new highlight', async () => {
   const db = database();
   const markerEvent = {
-    eventId: 'book-delete-marker',
+    eventId: fixtureEvent('book-delete-marker'),
     target: {
       kind: 'annotation',
       bookId: 'book-1',
@@ -747,7 +762,7 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
     targetKey: 'annotation:book-1:book_delete_marker_v1',
     operation: 'annotation.delete',
     payload: null,
-    deviceId: 'deleting-device',
+    deviceId: 'device-1',
     sessionId: 'deleting-session',
     baseRevision: 0,
     forceDelete: true,
@@ -770,7 +785,7 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
       rangeCfi,
       quote: `문장 ${id}`,
     },
-    deviceId: `device-${id}`,
+    deviceId: 'device-1',
     sessionId: `session-${id}`,
     baseRevision: 0,
     bookGeneration,
@@ -779,7 +794,7 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
   const stale = eventFor(
     'stale-offline',
     'epubcfi(/6/4!/4/2,/1:0,/1:4)',
-    'stale-offline-event',
+    fixtureEvent('stale-offline-event'),
     9_999_999,
     0,
   );
@@ -795,7 +810,7 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
   const markerAggregate = (await getDoc(doc(db, annotationAggregatePath()))).data();
   const malicious = writeBatch(db);
   malicious.set(doc(db, annotationPath('malicious-stale')), {
-    ...validAnnotationHead('malicious-stale-event'),
+    ...validAnnotationHead(fixtureEvent('malicious-stale-event')),
     annotationId: 'malicious-stale',
     annotation: {
       ...validAnnotationPayload(),
@@ -806,8 +821,8 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
     occurredAtClient: 9_999_999,
     bookGeneration: 0,
   });
-  malicious.set(doc(db, annotationReceiptPath('malicious-stale-event')), {
-    ...validAnnotationReceipt('malicious-stale-event'),
+  malicious.set(doc(db, annotationReceiptPath(fixtureEvent('malicious-stale-event'))), {
+    ...validAnnotationReceipt(fixtureEvent('malicious-stale-event')),
     annotationId: 'malicious-stale',
     targetKey: 'annotation:book-1:malicious-stale',
   });
@@ -823,7 +838,7 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
       },
     },
     rangeCfis: ['epubcfi(/6/4!/4/2,/1:10,/1:14)'],
-    acceptedEventId: 'malicious-stale-event',
+    acceptedEventId: fixtureEvent('malicious-stale-event'),
     acceptedAnnotationId: 'malicious-stale',
     acceptedOperation: 'upsert',
     updatedAtServer: serverTimestamp(),
@@ -833,7 +848,7 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
   const fresh = eventFor(
     'fresh-highlight',
     'epubcfi(/6/4!/4/2,/1:5,/1:9)',
-    'fresh-highlight-event',
+    fixtureEvent('fresh-highlight-event'),
     1,
     1,
   );
@@ -852,25 +867,25 @@ test('rejects invalid annotation identity, payload fields, revision jumps, and o
 
   const invalid = writeBatch(db);
   invalid.set(doc(db, annotationPath()), {
-    ...validAnnotationHead('annotation-event-2', 2),
+    ...validAnnotationHead(fixtureEvent('annotation-event-2'), 2),
     annotation: { ...validAnnotationPayload(), anchorState: 'unresolved' },
   });
   invalid.set(
-    doc(db, annotationReceiptPath('annotation-event-2')),
-    validAnnotationReceipt('annotation-event-2', 2),
+    doc(db, annotationReceiptPath(fixtureEvent('annotation-event-2'))),
+    validAnnotationReceipt(fixtureEvent('annotation-event-2'), 2),
   );
   await assertFails(invalid.commit());
 
   const jump = writeBatch(db);
-  jump.set(doc(db, annotationPath()), validAnnotationHead('annotation-event-3', 3));
+  jump.set(doc(db, annotationPath()), validAnnotationHead(fixtureEvent('annotation-event-3'), 3));
   jump.set(
-    doc(db, annotationReceiptPath('annotation-event-3')),
-    validAnnotationReceipt('annotation-event-3', 3),
+    doc(db, annotationReceiptPath(fixtureEvent('annotation-event-3'))),
+    validAnnotationReceipt(fixtureEvent('annotation-event-3'), 3),
   );
   await assertFails(jump.commit());
   await assertFails(setDoc(
-    doc(db, annotationReceiptPath('orphan-annotation')),
-    validAnnotationReceipt('orphan-annotation', 2),
+    doc(db, annotationReceiptPath(fixtureEvent('orphan-annotation'))),
+    validAnnotationReceipt(fixtureEvent('orphan-annotation'), 2),
   ));
   await assertFails(getDoc(doc(database('mallory'), annotationPath())));
 });
@@ -886,7 +901,7 @@ test('rejects malformed CFI, whitespace quotes, and unsafe annotation client int
   ];
   for (const [index, payload] of invalidPayloads.entries()) {
     const db = database();
-    const eventId = `invalid-annotation-${index}`;
+    const eventId = fixtureEvent(`invalid-annotation-${index}`);
     const batch = writeBatch(db);
     batch.set(doc(db, annotationPath()), {
       ...validAnnotationHead(eventId),
@@ -909,7 +924,7 @@ test('rejects malformed CFI, whitespace quotes, and unsafe annotation client int
 
 test('allows a valid multiline annotation quote', async () => {
   const db = database();
-  const eventId = 'multiline-annotation';
+  const eventId = fixtureEvent('multiline-annotation');
   const payload = { ...validAnnotationPayload(), quote: 'first line\nsecond line' };
   const batch = writeBatch(db);
   batch.set(doc(db, annotationPath()), {
@@ -935,13 +950,13 @@ test('rejects an aggregate-only revision even when it reuses the old accepted he
   await assertSucceeds(writeAnnotationEvent(db));
   await assertFails(setDoc(
     doc(db, annotationAggregatePath()),
-    validAnnotationAggregate('annotation-event-1', 2),
+    validAnnotationAggregate(fixtureEvent('annotation-event-1'), 2),
   ));
 });
 
 test('rejects an initial aggregate whose color count disagrees with its annotation', async () => {
   const db = database();
-  const eventId = 'wrong-initial-color-count';
+  const eventId = fixtureEvent('wrong-initial-color-count');
   const batch = writeBatch(db);
   batch.set(doc(db, annotationPath()), validAnnotationHead(eventId));
   batch.set(doc(db, annotationAggregatePath()), {
@@ -958,7 +973,7 @@ test('rejects an initial aggregate whose color count disagrees with its annotati
 test('rejects an atomic event that mutates an unrelated aggregate entry', async () => {
   const db = database();
   const eventFor = (annotationId, offset) => ({
-    eventId: `seed-${annotationId}`,
+    eventId: fixtureEvent(`seed-${annotationId}`),
     target: { kind: 'annotation', bookId: 'book-1', annotationId },
     targetKey: `annotation:book-1:${annotationId}`,
     operation: 'annotation.upsert',
@@ -988,7 +1003,7 @@ test('rejects an atomic event that mutates an unrelated aggregate entry', async 
   const aggregate = (await getDoc(doc(db, annotationAggregatePath()))).data();
   const headARef = doc(db, annotationPath('a'));
   const headA = (await getDoc(headARef)).data();
-  const eventId = 'malicious-erase-b';
+  const eventId = fixtureEvent('malicious-erase-b');
   const batch = writeBatch(db);
   batch.set(headARef, {
     ...headA,
@@ -1029,7 +1044,7 @@ test('rejects an aggregate update with an incorrect accepted-color delta', async
   const aggregate = (await getDoc(doc(db, annotationAggregatePath()))).data();
   const headRef = doc(db, annotationPath());
   const head = (await getDoc(headRef)).data();
-  const eventId = 'wrong-color-delta';
+  const eventId = fixtureEvent('wrong-color-delta');
   const batch = writeBatch(db);
   batch.set(headRef, {
     ...head,
@@ -1061,7 +1076,7 @@ test('rejects an aggregate update with an incorrect accepted-color delta', async
 });
 
 test('allows one atomic palette revision chain with replay and stale conflict', async () => {
-  const firstEvent = paletteEvent('palette-upsert');
+  const firstEvent = paletteEvent(fixtureEvent('palette-upsert'));
   const first = await applyAnnotationPaletteEventTransaction({
     event: firstEvent,
     uid: 'alice',
@@ -1077,7 +1092,7 @@ test('allows one atomic palette revision chain with replay and stale conflict', 
   });
   assert.equal(replay.status, 'already_applied');
   const stale = await applyAnnotationPaletteEventTransaction({
-    event: paletteEvent('palette-stale'),
+    event: paletteEvent(fixtureEvent('palette-stale')),
     uid: 'alice',
     firestore: database(),
     sdk: { doc, runTransaction, serverTimestamp },
@@ -1093,25 +1108,25 @@ test('rejects malformed palettes, revision jumps, orphan receipts, and other own
   const invalid = writeBatch(db);
   const reversed = [...DEFAULT_ANNOTATION_PALETTE].reverse();
   invalid.set(doc(db, palettePath()), {
-    ...validPaletteHead('palette-event-2', 2),
+    ...validPaletteHead(fixtureEvent('palette-event-2'), 2),
     palette: { items: reversed },
   });
   invalid.set(
-    doc(db, paletteReceiptPath('palette-event-2')),
-    validPaletteReceipt('palette-event-2', 2),
+    doc(db, paletteReceiptPath(fixtureEvent('palette-event-2'))),
+    validPaletteReceipt(fixtureEvent('palette-event-2'), 2),
   );
   await assertFails(invalid.commit());
 
   const jump = writeBatch(db);
-  jump.set(doc(db, palettePath()), validPaletteHead('palette-event-3', 3));
+  jump.set(doc(db, palettePath()), validPaletteHead(fixtureEvent('palette-event-3'), 3));
   jump.set(
-    doc(db, paletteReceiptPath('palette-event-3')),
-    validPaletteReceipt('palette-event-3', 3),
+    doc(db, paletteReceiptPath(fixtureEvent('palette-event-3'))),
+    validPaletteReceipt(fixtureEvent('palette-event-3'), 3),
   );
   await assertFails(jump.commit());
   await assertFails(setDoc(
-    doc(db, paletteReceiptPath('orphan-palette')),
-    validPaletteReceipt('orphan-palette', 2),
+    doc(db, paletteReceiptPath(fixtureEvent('orphan-palette'))),
+    validPaletteReceipt(fixtureEvent('orphan-palette'), 2),
   ));
   await assertFails(getDoc(doc(database('mallory'), palettePath())));
 });
@@ -1318,21 +1333,38 @@ test('lease document is owner get and create only; policy is owner get and admin
   await assertFails(getDocs(collection(db, policyPath.replace(/\/[^/]+$/, ''))));
 });
 
-test('leased events and opt-in policy apply to all four atomic head and receipt paths', async () => {
+test('globally requires leases for all four atomic paths regardless of policy', async () => {
   for (const write of leaseWriters) {
-    await environment.clearFirestore();
-    const issued = Date.now() - 90 * 864e5 + 60_000;
-    await seedLease(issued, 'device-1', 456789);
-    await seedPolicy(true);
-    await assertSucceeds(write(database(), leasedId(issued)));
+    for (const policy of [null, false, true]) {
+      await environment.clearFirestore();
+      const issued = Date.now() - 90 * 864e5 + 60_000;
+      await seedLease(issued, 'device-1', 456789);
+      if (policy !== null) await seedPolicy(policy);
+      await assertFails(write(database(), 'legacy-event'));
+      await assertFails(write(database(), eventUuid));
+      await assertSucceeds(write(database(), leasedId(issued)));
+    }
   }
-  for (const write of leaseWriters) {
-    await environment.clearFirestore();
-    await seedPolicy(true);
-    await assertFails(write(database(), 'legacy-event'));
-    await seedPolicy(false);
-    await assertSucceeds(write(database(), 'legacy-event'));
-  }
+});
+
+test('an upgraded client reads a legacy position and continues its revision with a leased write', async () => {
+  const legacyReceiptPath = `${progressPath()}/eventReceipts/${eventUuid}`;
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const batch = writeBatch(db);
+    batch.set(doc(db, progressPath()), validHead(eventUuid));
+    batch.set(doc(db, legacyReceiptPath), validReceipt(eventUuid));
+    await batch.commit();
+  });
+  const db = database();
+  const previous = await assertSucceeds(getDoc(doc(db, progressPath())));
+  assert.equal(previous.data().acceptedEventId, eventUuid);
+  assert.equal((await assertSucceeds(getDoc(doc(db, legacyReceiptPath)))).data().eventId, eventUuid);
+  const eventId = fixtureEvent('after-upgrade');
+  await assertSucceeds(writeProgressEvent(db, eventId, 2));
+  const saved = await assertSucceeds(getDoc(doc(db, progressPath())));
+  assert.equal(saved.data().revision, 2);
+  assert.equal(saved.data().acceptedEventId, eventId);
 });
 
 test('leased event fails closed for forged timestamp, device, malformed id, expiry, and reused lease id', async () => {

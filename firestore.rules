@@ -410,11 +410,8 @@ service cloud.firestore {
     }
 
     function allowedWriteEvent(appId, uid, scopeId, eventId, deviceId) {
-      let policyPath = /databases/$(database)/documents/artifacts/$(appId)/users/$(uid)/libraries/$(scopeId)/syncPolicyV1/writeLease;
       return eventId.matches('wl1_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}_[0-9]{13}_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
-        ? validWriteLease(appId, uid, scopeId, eventId, deviceId)
-        : !eventId.matches('wl1_.*') && !eventId.matches('unleased_.*')
-          && (!exists(policyPath) || get(policyPath).data.requireLeases == false);
+        && validWriteLease(appId, uid, scopeId, eventId, deviceId);
     }
 
     match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/writeLeases/{leaseId} {

@@ -38,17 +38,19 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 ## 유한 동기화와 영수증 정리
 
-쓰기 권한을 발급하고 검사하는 호환 Rules를 먼저 배포한 뒤, `NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES`를 켠 Vercel 운영 빌드를 배포합니다. 운영 빌드는 기본으로 쓰기 권한을 사용하고 명시적 `0`은 다음 빌드에 반영합니다. 이 단계에서 구형 쓰기는 계정 정책이 없는 한 계속 허용됩니다. 서버의 `ENABLE_FINITE_SYNC_CLEANUP`은 별도 정책 전환과 보존 조건 검증까지 꺼둡니다. [계약](../SPEC/reader-and-progress.md#유한-동기화)과 [남은 수용 확인](../TODO.md#동기화-유효기간과-영수증-정리)을 먼저 확인합니다.
+운영 Firestore Rules는 모든 계정의 진행률·책갈피·주석·팔레트 쓰기에 서버 발급 권한을 요구합니다. Vercel 운영 빌드는 기본으로 쓰기 권한을 사용합니다. `NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES=0`로 배포하면 이 경로의 새 쓰기가 거절됩니다. [계약](../SPEC/reader-and-progress.md#유한-동기화)과 [남은 수용 확인](../TODO.md#동기화-유효기간과-영수증-정리)을 먼저 확인합니다.
 
 이미 쓰기 권한을 사용하는 운영에서 기간을 바꿀 때는 Firestore Rules와 Vercel 앱의 기간을 같은 릴리스에 맞춥니다. 기간 단축은 기존 권한에도 발급 시각 기준으로 적용되므로 최신 앱에서 만료 작업을 격리하고 서버 상태를 다시 받습니다.
 
 정리 API `POST /api/sync/maintenance`는 활성화 시 폐기 여부를 확인한 Firebase Bearer 토큰의 UID만 사용하고 요청 본문의 UID는 받지 않습니다. UID별 하루 한 번, 최대 500건·부모 100개·40초까지 검사하며 50건 이하 단위의 트랜잭션과 재개 커서를 사용합니다. 누락된 부모 아래 receipt도 검사합니다. receipt 조회는 보존 기간을 넘긴 `createdAtServer` 범위에서 오래된 순이며 timestamp+문서 ID 커서로 같은 시각의 문서도 이어갑니다. 이전 ID 전용 커서는 안전하게 처음부터 재검사합니다. 읽기 집계는 빈 조회의 최소 비용을 포함한 추정치이며 실제 청구액은 아닙니다. 삭제마다 관리자 정책 문서와 실행 권한을 다시 확인하고, 정책이 변경되면 멈춥니다. 도메인의 직접 실행은 기본 dry run이며 API만 명시적으로 삭제 모드를 요청합니다.
 
-자동 삭제에 앞서 네 쓰기 경로의 구형 쓰기가 서버에서 차단되는지 검증해야 합니다. `artifacts/{APP_ID}/users/{uid}/libraries/local/syncPolicyV1/writeLease`의 관리자 정책(`schemaVersion: 1`, `requireLeases: true`, 검증된 `legacyBlockedAtServer`)을 전환 시각 T로 사용합니다. 클라이언트가 써넣은 과거 시각이나 기기 마지막 접속일은 대체 근거가 아닙니다. 모든 receipt는 생성 후 120일과 T 이후 120일을 모두 충족해야 삭제됩니다. 인덱스 제외는 receipt의 미사용 필드에만 적용하고 `createdAtServer` 감사 인덱스는 보존합니다.
+전체 계정의 TTL 전환 시각 T는 운영 Rules가 네 경로의 구형 쓰기를 모두 거절하도록 배포한 시각에 전파 여유를 더해 기록합니다. 계정별 정리 API는 별도로 `artifacts/{APP_ID}/users/{uid}/libraries/local/syncPolicyV1/writeLease`의 관리자 정책(`schemaVersion: 1`, `requireLeases: true`, 검증된 `legacyBlockedAtServer`)을 사용하며 현재 꺼져 있습니다. 모든 receipt는 생성 후 120일과 해당 차단 시각 이후 120일을 모두 충족해야 삭제됩니다. 인덱스 제외는 receipt의 미사용 필드에만 적용하고 `createdAtServer` 감사 인덱스는 보존합니다.
+
+운영 `web-novel-viewer/(default)`에 전체 구형 쓰기 차단 Rules `fc42c724-e63a-4375-9714-32974b13c8fd`를 배포했습니다. Firebase가 기록한 릴리스 시각은 `2026-11-19T10:02:48.004421Z`입니다. 최대 전파 시간 10분을 더하고 분 단위로 올려, 유예 시작은 **2026-11-19 19:13 KST**, 최초 TTL 활성화 가능 시각은 **2027-03-19 19:13 KST**로 기록했습니다. 배포 후 운영 소스 일치와 TTL 정책 부재를 확인했습니다. [Firestore Rules 전파 안내](https://firebase.google.com/docs/firestore/security/get-started#deploying_rules)
 
 TTL을 쓰는 경우 `eventReceipts` 컬렉션 그룹의 `createdAtServer`에 120일 오프셋을 설정합니다. 기존 문서의 재작성은 필요 없습니다. TTL은 컬렉션 그룹 전체에 적용되므로 모든 경로의 구형 쓰기 차단과 권한 소급 연장 금지를 확인하고, 확인 시각 T부터 120일이 지난 뒤에만 활성화합니다. 활성화 시 이미 만료된 문서도 삭제 대상이 됩니다. [Firestore TTL](https://firebase.google.com/docs/firestore/ttl)
 
-정리 시작 후 legacy 쓰기를 다시 허용하는 Rules로 rollback하지 않습니다. UI를 되돌릴 때도 서버 만료 차단과 IndexedDB v16 outbox를 지원하는 버전을 사용합니다. 업데이트가 구버전 연결 때문에 대기 중이면 열린 앱과 탭을 닫고 최신 앱을 엽니다. DB 버전 오류가 발생하면 로컬 데이터와 대기열을 보존한 채 호환 버전으로 복구합니다. 정리를 중단하려면 서버 정리 플래그부터 끄고 payload·outbox·head·tombstone을 보존해 조사합니다.
+정리 시작 후에는 구형 쓰기를 허용하는 Rules로 되돌리거나 쓰기 권한 기간을 소급 연장하지 않습니다. 정리 시작 전에 구형 쓰기를 다시 허용했다면 유예 시각 T는 다음 차단 시각부터 다시 계산합니다. UI를 되돌릴 때도 서버 만료 차단과 IndexedDB v16 outbox를 지원하는 버전을 사용합니다. 업데이트가 구버전 연결 때문에 대기 중이면 열린 앱과 탭을 닫고 최신 앱을 엽니다. DB 버전 오류가 발생하면 로컬 데이터와 대기열을 보존한 채 호환 버전으로 복구합니다. 정리를 중단하려면 서버 정리 플래그부터 끄고 payload·outbox·head·tombstone을 보존해 조사합니다.
 
 ## 반복 장애 조사
 
