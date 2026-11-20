@@ -38,8 +38,15 @@ await new Promise((resolve, reject) => {
 
 let nextId = 1;
 const pending = new Map();
+let requestedVersionedFoliateEntry = false;
 socket.addEventListener('message', ({ data }) => {
   const message = JSON.parse(data);
+  if (message.method === 'Network.requestWillBeSent') {
+    const url = new URL(message.params.request.url);
+    if (url.pathname === '/foliate-js/view.js' && url.searchParams.get('v')?.startsWith('1.8.37-')) {
+      requestedVersionedFoliateEntry = true;
+    }
+  }
   if (!message.id || !pending.has(message.id)) return;
   const request = pending.get(message.id);
   pending.delete(message.id);
@@ -2528,10 +2535,8 @@ try {
     controlsClosed: !document.querySelector('nav')?.classList.contains('translate-y-0'),
     start: document.querySelector('foliate-view')?.renderer?.start,
     previousFoliatePreserved: false,
-    versionedEntry: [...document.scripts].some((script) => (
-      script.src.includes('/foliate-js/view.js?v=1.8.37-')
-    )),
   }))()`);
+  actualTextTapClosed.versionedEntry = requestedVersionedFoliateEntry;
   actualTextTapClosed.previousFoliatePreserved = await evaluate(`(async () => {
     const staleCache = await caches.open('pc-reader-v1.7.10');
     return Boolean(await staleCache.match('/foliate-js/view.js'));
