@@ -90,7 +90,7 @@ export function BookReviewEditor({
   return (
     <section className="mypage-section" aria-labelledby="my-book-review-title">
       <h2 id="my-book-review-title" ref={headingRef} tabIndex={-1}
-        className="scroll-mt-16 text-lg font-semibold focus:outline-none">내 평가</h2>
+        className="scroll-mt-[calc(4rem+env(safe-area-inset-top))] text-lg font-semibold focus:outline-none sm:scroll-mt-16">내 평가</h2>
       {guest ? <p className="mt-2 text-sm opacity-65">로그인 후 평가를 남길 수 있습니다.</p>
         : error ? <p role="alert" className="mt-2 text-sm text-accent-500">{error} <button type="button" onClick={refresh} className="underline">다시 시도</button></p>
         : !ready || loadingHistory ? <p role="status" className="mt-2 text-sm opacity-65">평가를 불러오는 중…</p>

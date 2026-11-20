@@ -2,8 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 test.use({ serviceWorkers: 'block' });
 
-test('My Page brings its back button, menu and shortcuts together on scroll', async ({ page }) => {
-  await page.setViewportSize({ width: 393, height: 700 });
+test.beforeEach(async ({ page }) => {
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.addInitScript(() => {
     localStorage.setItem('isGuest', 'true');
@@ -30,7 +29,10 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
       author: { code: `000000${String(index).padStart(2, '0')}`, nickname: `독자 ${index}` },
     })),
   } }));
+});
 
+test('My Page brings its desktop back button, menu and shortcuts together on scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 700 });
   await page.goto('/#mypage/discover');
   const back = page.getByRole('button', { name: '서재로 돌아가기' });
   const menu = page.getByRole('navigation', { name: '마이페이지 메뉴' });
@@ -58,7 +60,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     };
   });
 
-  for (const width of [320, 393, 1280]) {
+  for (const width of [768, 1280]) {
     await page.setViewportSize({ width, height: 700 });
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect.poll(geometry).toMatchObject({ pinned: false, twoRows: true });
@@ -67,9 +69,9 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await expect(shortcuts.getByRole('button', { name: '내 서재' })).toHaveCSS('color', backColor);
     await expect(shortcuts.getByRole('button', { name: '공개 설정' })).toHaveCSS('color', backColor);
     await assertDivider(firstBook.locator('..'));
-    await expect(menu.getByText('대시보드')).toHaveCSS('position', width < 640 ? 'absolute' : 'static');
-    await expect(catalog.getByText('도서목록')).toHaveCSS('position', width < 640 ? 'absolute' : 'static');
-    const collapseAt = await page.locator('[data-my-page] > header').evaluate((header) => header.getBoundingClientRect().height / 2);
+    await expect(menu.getByText('대시보드')).toHaveCSS('position', 'static');
+    await expect(catalog.getByText('도서목록')).toHaveCSS('position', 'static');
+    const collapseAt = await page.getByRole('banner').evaluate((header) => header.getBoundingClientRect().height / 2);
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate((height) => window.scrollTo(0, height), collapseAt);
@@ -84,20 +86,9 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate(() => window.scrollTo(0, 500));
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-    await expect(catalog.getByText('도서목록')).toHaveCSS('position', width < 640 ? 'absolute' : 'static');
+    await expect(catalog.getByText('도서목록')).toHaveCSS('position', 'static');
     await expect(menu.getByText('대시보드')).toHaveClass('sr-only');
   }
-
-  await page.setViewportSize({ width: 393, height: 700 });
-  await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-  await page.locator('[data-mypage-menu]').evaluate((bar) =>
-    Promise.allSettled(bar.getAnimations({ subtree: true }).map((animation) => animation.finished)));
-  const before = await back.boundingBox();
-  const shortcutsBefore = await shortcuts.boundingBox();
-  await menu.evaluate(element => { element.scrollLeft = element.scrollWidth; });
-  expect(await menu.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
-  expect(await back.boundingBox()).toEqual(before);
-  expect(await shortcuts.boundingBox()).toEqual(shortcutsBefore);
 
   await firstBook.click();
   await expect(page.getByRole('heading', { name: '도서 상세정보' })).toBeVisible();
@@ -111,7 +102,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   const read = menu.getByRole('button', { name: '읽은 책' });
   await read.click();
   await expect(read).toHaveAttribute('aria-current', 'page');
-  await page.setViewportSize({ width: 320, height: 700 });
+  await page.setViewportSize({ width: 768, height: 700 });
   await menu.getByRole('button', { name: /^위시리스트/ }).click();
   const savedBook = page.getByRole('link', { name: '관심 도서 0', exact: true });
   await expect(savedBook).toBeAttached();
@@ -121,7 +112,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await menu.evaluate(element => { element.scrollLeft = element.scrollWidth; });
   await page.evaluate(() => window.scrollTo(0, 500));
   await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-  await expect(menu.getByText('위시리스트', { exact: true })).toHaveCSS('position', 'absolute');
+  await expect(menu.getByText('위시리스트', { exact: true })).toHaveCSS('position', 'static');
   await expect(menu.getByRole('button', { name: '위시리스트', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(menu.getByText('읽은 책', { exact: true })).toHaveClass('sr-only');
   await expect.poll(() => menu.evaluate((nav) => {
@@ -148,11 +139,11 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await expect(reviewHeading).toBeInViewport();
   await assertDivider(page.getByRole('region', { name: '다른 독자의 평가' }).getByRole('listitem').first());
   const storefront = page.getByRole('link', { name: '네이버 시리즈', exact: true }).locator('..');
+  await page.setViewportSize({ width: 393, height: 700 });
   await assertDivider(storefront);
   await page.setViewportSize({ width: 1280, height: 700 });
   await expect(storefront).toHaveCSS('position', 'relative');
   expect(await storefront.evaluate(item => getComputedStyle(item, '::after').display)).toBe('none');
-  await page.setViewportSize({ width: 393, height: 700 });
   await assertOtherDividerLists(page, menu);
   await page.goto('/#mypage/book/menu-test-0');
   const metrics = page.getByRole('region', { name: '내 독서 기록' }).locator('dl');
@@ -174,6 +165,69 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await page.goto('/people/00000001');
   for (const name of ['위시리스트', '별점 및 평가']) {
     await assertDivider(page.getByRole('region', { name }).getByRole('listitem').first());
+  }
+});
+
+test('My Page keeps a five-column mobile footer and pages its menus with arrows', async ({ page }) => {
+  for (const width of [320, 393]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto('/#mypage/discover');
+    // The Next.js development indicator occupies the footer's leftmost tap target.
+    await page.addStyleTag({ content: 'nextjs-portal { display: none; }' });
+    const header = page.locator('[data-mypage-mobile-header]');
+    const title = header.getByRole('heading', { name: '마이페이지' });
+    const desktopMenu = page.getByRole('navigation', { name: '마이페이지 메뉴', includeHidden: true });
+    const footer = page.getByRole('navigation', { name: '마이페이지 하단 메뉴' });
+    const buttons = footer.getByRole('button');
+    const menuOrder = () => buttons.evaluateAll(items => items.map(item => item.getAttribute('aria-label')));
+    const firstGroup = ['대시보드', '도서목록', '둘러보기', '읽은 책', '다음 메뉴'];
+    const secondGroup = ['이전 메뉴', '위시리스트', '내 평가', '통계', '주석'];
+
+    await expect(title).not.toHaveClass('sr-only');
+    await expect(header.getByRole('button')).toHaveCount(3);
+    await expect(desktopMenu).toBeHidden();
+    await expect(page.getByRole('link', { name: '테스트 도서 0', exact: true })).toBeVisible();
+    await expect.poll(menuOrder).toEqual(firstGroup);
+    await expect(buttons).toHaveText(['', '도서목록', '', '', '']);
+    const layout = await footer.evaluate(nav => ({
+      width: nav.clientWidth,
+      scrollWidth: nav.scrollWidth,
+      columns: Array.from(nav.children, child => child.getBoundingClientRect().width),
+    }));
+    expect(layout.width).toBe(width);
+    expect(layout.scrollWidth).toBe(layout.width);
+    expect(layout.columns).toHaveLength(5);
+    for (const column of layout.columns) expect(Math.abs(column - width / 5)).toBeLessThan(1);
+    const footerBox = (await footer.boundingBox())!;
+    expect(footerBox.y + footerBox.height).toBe(700);
+
+    await page.evaluate(() => window.scrollTo(0, 400));
+    await expect(title).toHaveClass('sr-only');
+    await expect(header.getByRole('button')).toHaveCount(3);
+    expect((await header.boundingBox())!.y).toBe(0);
+    expect(await footer.boundingBox()).toEqual(footerBox);
+    await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
+
+    await footer.getByRole('button', { name: '다음 메뉴' }).click();
+    await expect.poll(menuOrder).toEqual(secondGroup);
+    await expect(page).toHaveURL(/#mypage\/discover$/);
+    expect(await page.evaluate(() => window.scrollY)).toBe(400);
+    await footer.getByRole('button', { name: '이전 메뉴' }).click();
+    await expect.poll(menuOrder).toEqual(firstGroup);
+    await footer.getByRole('button', { name: '다음 메뉴' }).click();
+    await footer.getByRole('button', { name: '위시리스트' }).click();
+    await expect(page).toHaveURL(/#mypage\/wishlist$/);
+    await expect(buttons).toHaveText(['', '위시리스트', '', '', '']);
+    await expect(footer.getByRole('button', { name: '위시리스트' })).toHaveAttribute('aria-current', 'page');
+    await expect(title).not.toHaveClass('sr-only');
+    await page.goBack();
+    await expect.poll(menuOrder).toEqual(firstGroup);
+    await expect(footer.getByRole('button', { name: '도서목록' })).toHaveAttribute('aria-current', 'page');
+
+    await page.goto('/#mypage/reviews');
+    await expect.poll(menuOrder).toEqual(secondGroup);
+    await expect(buttons).toHaveText(['', '', '내 평가', '', '']);
+    await expect(page.getByText('내 평가는 로그인 후 이용할 수 있습니다.')).toBeVisible();
   }
 });
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, BookCopy, BookOpen, BookOpenCheck, Check, Compass, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star } from 'lucide-react';
+import { ArrowLeft, BookCopy, BookOpen, BookOpenCheck, Check, ChevronLeft, ChevronRight, Compass, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { groupDiscoveryBooks, loadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
@@ -34,6 +34,9 @@ const tabs = [
   { id: 'annotations', label: '주석', icon: Highlighter },
   { id: 'sharing', label: '공개 설정', icon: Settings2 },
 ] as const;
+const menuTabs = tabs.filter(({ id }) => id !== 'sharing');
+const mobileMenuPageSize = 4;
+const desktopQuery = '(min-width: 640px)';
 const headerActions = [
   { id: 'shelf', label: '내 서재', icon: Library },
   { id: 'sharing', label: '공개 설정', icon: Settings2 },
@@ -75,6 +78,8 @@ export function MyPage(props: Props) {
   const [bookId, setBookId] = useState(readDetailId);
   const [focusReview, setFocusReview] = useState(() => typeof window !== 'undefined' && hasBookReviewTarget(window.location.hash));
   const [compactMenu, setCompactMenu] = useState(false);
+  const [mobileScrolled, setMobileScrolled] = useState(false);
+  const [mobileMenuOverride, setMobileMenuOverride] = useState<0 | 1>();
   const titleRow = useRef<HTMLElement>(null);
   const menu = useRef<HTMLElement>(null);
   const [openedBook, setOpenedBook] = useState<DiscoveryBook | ReadBook>();
@@ -98,12 +103,21 @@ export function MyPage(props: Props) {
   useLayoutEffect(() => {
     const header = titleRow.current;
     if (!header) return;
+    const desktop = window.matchMedia?.(desktopQuery);
     let compact = false;
+    let mobileHeaderScrolled = false;
     const update = () => {
-      const next = titleMiddleY(header) <= 0;
-      if (compact === next) return;
-      compact = next;
-      setCompactMenu(next);
+      const wide = desktop?.matches ?? true;
+      const next = wide && titleMiddleY(header) <= 0;
+      if (compact !== next) {
+        compact = next;
+        setCompactMenu(next);
+      }
+      const scrolled = !wide && window.scrollY > 0;
+      if (mobileHeaderScrolled !== scrolled) {
+        mobileHeaderScrolled = scrolled;
+        setMobileScrolled(scrolled);
+      }
     };
     update();
     window.addEventListener('scroll', update, { passive: true });
@@ -136,6 +150,11 @@ export function MyPage(props: Props) {
     setTab(next);
     setBookId(null);
     setFocusReview(false);
+    setMobileMenuOverride(undefined);
+    if (window.matchMedia?.(desktopQuery).matches === false) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      return;
+    }
     const titleMiddle = titleRow.current ? titleMiddleY(titleRow.current) : undefined;
     if (titleMiddle !== undefined && titleMiddle < 0) {
       window.scrollTo({ top: Math.ceil(window.scrollY + titleMiddle), behavior: 'instant' });
@@ -147,6 +166,7 @@ export function MyPage(props: Props) {
     setOpenedBook(book);
     setBookId(id);
     setFocusReview(reviewTarget);
+    setMobileMenuOverride(undefined);
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
   const openBook = (book: DiscoveryBook | ReadBook, reviewTarget = false) => openBookById(book.id, book, reviewTarget);
@@ -162,6 +182,7 @@ export function MyPage(props: Props) {
       setTab(nextTab);
       setBookId(nextBook);
       setFocusReview(hasBookReviewTarget(window.location.hash));
+      setMobileMenuOverride(undefined);
     };
     window.addEventListener('popstate', update);
     window.addEventListener('hashchange', update);
@@ -247,47 +268,71 @@ export function MyPage(props: Props) {
   const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
   const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
   const headerButton = 'flex size-11 items-center justify-center rounded-full hover:bg-current/10';
+  const title = bookId ? '도서 상세정보' : '마이페이지';
+  const backButton = (
+    <button type="button" onClick={bookId ? closeBook : onBack} aria-label={bookId ? '도서 목록으로 돌아가기' : '서재로 돌아가기'}
+      className={`${headerButton} transition-colors`}><ArrowLeft size={19} /></button>
+  );
+  const shortcuts = (
+    <div role="group" aria-label="마이페이지 바로가기" className="flex">
+      {headerActions.map(({ id, label, icon: Icon }) => (
+        <button key={id} type="button" aria-label={label} title={label} aria-current={tab === id ? 'page' : undefined}
+          onClick={id === 'shelf' ? onBack : () => openTab(id)}
+          className={`${headerButton} transition-colors ${(compactMenu || mobileScrolled) && tab === id ? 'text-accent-500' : ''}`}>
+          <Icon size={19} aria-hidden="true" />
+        </button>
+      ))}
+    </div>
+  );
+  const mobileMenuPage = mobileMenuOverride ?? (
+    menuTabs.findIndex(({ id }) => id === tab) < mobileMenuPageSize ? 0 : 1
+  );
+  const mobileMenuStart = mobileMenuPage * mobileMenuPageSize;
+  const arrowLabel = mobileMenuPage === 0 ? '다음 메뉴' : '이전 메뉴';
+  const mobileArrow = (
+    <button key="page" type="button" aria-label={arrowLabel} title={arrowLabel}
+      onClick={() => setMobileMenuOverride(mobileMenuPage === 0 ? 1 : 0)}
+      className="grid min-h-14 place-items-center opacity-65 hover:text-accent-500 hover:opacity-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
+      {mobileMenuPage === 0 ? <ChevronRight size={21} aria-hidden="true" /> : <ChevronLeft size={21} aria-hidden="true" />}
+    </button>
+  );
+  const mobileItems = menuTabs.slice(mobileMenuStart, mobileMenuStart + mobileMenuPageSize).map(({ id, label, icon: Icon }) => (
+    <button key={id} type="button" onClick={() => openTab(id)} aria-label={label} title={label}
+      aria-current={id === tab ? 'page' : undefined}
+      className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 ${id === tab ? 'text-accent-500' : 'opacity-65 hover:opacity-100'}`}>
+      <Icon size={20} aria-hidden="true" />
+      {id === tab && <span className="max-w-full truncate text-[11px] font-semibold leading-4">{label}</span>}
+    </button>
+  ));
 
   return (
-    <div data-my-page="true" className="min-h-dvh [--mypage-title-height:5rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)] sm:[--mypage-title-height:6rem]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
-      <header ref={titleRow}>
-        <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[4.5rem] pr-28 sm:pl-[5.25rem] sm:pr-32">
-          <h1 className="text-[clamp(1rem,4.6vw,1.25rem)] font-semibold tracking-tight sm:text-2xl">{bookId ? '도서 상세정보' : '마이페이지'}</h1>
+    <div data-my-page="true" className="min-h-dvh [--mypage-title-height:6rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
+      <header ref={titleRow} className="hidden sm:block">
+        <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[5.25rem] pr-32">
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         </div>
       </header>
-      <div className="pointer-events-none sticky top-0 z-30 -mt-[var(--mypage-title-half)] pt-[var(--mypage-title-half)]">
+      <div className="pointer-events-none sticky top-0 z-30 -mt-[var(--mypage-title-half)] hidden pt-[var(--mypage-title-half)] sm:block">
         <div data-mypage-menu={compactMenu ? 'compact' : 'expanded'}
           className={`pointer-events-auto bg-[var(--viewer-theme-bg)] motion-safe:transition-[translate] motion-safe:duration-200 ${compactMenu ? '-translate-y-[var(--mypage-title-half)]' : ''}`}>
           <div className="relative mx-auto max-w-5xl px-5 py-1 sm:px-8">
-            <button type="button" onClick={bookId ? closeBook : onBack} aria-label={bookId ? '도서 목록으로 돌아가기' : '서재로 돌아가기'}
-              className={`absolute left-5 top-1 sm:left-8 ${headerButton} ${headerActionMotion} ${headerActionPosition}`}>
-              <ArrowLeft size={19} />
-            </button>
-            <div role="group" aria-label="마이페이지 바로가기"
-              className={`absolute right-5 top-1 z-10 flex sm:right-8 ${headerActionMotion} ${headerActionPosition}`}>
-              {headerActions.map(({ id, label, icon: Icon }) => (
-                <button key={id} type="button" aria-label={label} title={label} aria-current={tab === id ? 'page' : undefined}
-                  onClick={id === 'shelf' ? onBack : () => openTab(id)}
-                  className={`${headerButton} transition-colors ${compactMenu && tab === id ? 'text-accent-500' : ''}`}>
-                  <Icon size={19} aria-hidden="true" />
-                </button>
-              ))}
-            </div>
+            <div className={`absolute left-8 top-1 ${headerActionMotion} ${headerActionPosition}`}>{backButton}</div>
+            <div className={`absolute right-8 top-1 z-10 ${headerActionMotion} ${headerActionPosition}`}>{shortcuts}</div>
             {compactMenu && (
               <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
             )}
-            <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-[3.25rem] mr-24 gap-1' : 'gap-0.5 sm:gap-1'}`}>
-              {tabs.filter(({ id }) => id !== 'sharing' && (signedIn || id !== 'reviews')).map(({ id, label, icon: Icon }) => {
+            <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex gap-1 overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
+              {menuTabs.filter(({ id }) => signedIn || id !== 'reviews').map(({ id, label, icon: Icon }) => {
                 const selected = tab === id;
                 const iconOnly = compactMenu && !selected;
-                const size = iconOnly ? 'w-9 sm:w-11' : `w-9 text-sm sm:w-auto sm:px-3 ${compactMenu ? 'sm:gap-2 sm:whitespace-nowrap' : 'sm:gap-2.5'}`;
+                const size = iconOnly ? 'w-11' : `px-3 text-sm ${compactMenu ? 'gap-2 whitespace-nowrap' : 'gap-2.5'}`;
                 return (
                   <button key={id} type="button" onClick={() => openTab(id)} title={label}
                     aria-current={selected ? 'page' : undefined}
                     className={`flex min-h-11 shrink-0 items-center justify-center rounded-xl transition-colors ${size} ${selected ? 'bg-[color-mix(in_srgb,var(--accent-500)_10%,transparent)] font-semibold text-accent-500' : 'opacity-60 hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:opacity-100'}`}>
                     <Icon size={compactMenu ? 19 : 17} aria-hidden="true" />
-                    <span className={iconOnly ? 'sr-only' : 'max-sm:sr-only'}>{label}</span>
-                    {!compactMenu && id === 'wishlist' && wishlist.entries.length > 0 && <span className="ml-auto hidden pl-2 text-xs tabular-nums sm:inline">{wishlist.entries.length}</span>}
+                    <span className={iconOnly ? 'sr-only' : undefined}>{label}</span>
+                    {!compactMenu && id === 'wishlist' && wishlist.entries.length > 0 && <span className="ml-auto pl-2 text-xs tabular-nums">{wishlist.entries.length}</span>}
                   </button>
                 );
               })}
@@ -295,7 +340,19 @@ export function MyPage(props: Props) {
           </div>
         </div>
       </div>
-      <div className="mx-auto max-w-5xl px-5 pb-14 pt-6 sm:px-8 sm:pt-8">
+      <header data-mypage-mobile-header className="sticky top-0 z-30 bg-[var(--viewer-theme-bg)] pt-[env(safe-area-inset-top)] sm:hidden">
+        <div className="flex h-14 items-center justify-between gap-2 px-3">
+          {backButton}
+          <h1 className={mobileScrolled ? 'sr-only' : 'min-w-0 flex-1 truncate text-lg font-semibold tracking-tight'}>{title}</h1>
+          {shortcuts}
+        </div>
+      </header>
+      <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-current/10 bg-[var(--viewer-theme-bg)] pb-[env(safe-area-inset-bottom)] sm:hidden">
+        <nav aria-label="마이페이지 하단 메뉴" className="grid grid-cols-5">
+          {mobileMenuPage === 0 ? [...mobileItems, mobileArrow] : [mobileArrow, ...mobileItems]}
+        </nav>
+      </footer>
+      <div className="mx-auto max-w-5xl px-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-6 sm:px-8 sm:pb-14 sm:pt-8">
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
