@@ -1,15 +1,33 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './persistentBookFixtures';
+import type { Page } from '@playwright/test';
 import JSZip from 'jszip';
 
+test.use({ serviceWorkers: 'block' });
+
+const clickWebtoonCenter = (page: Page, browserName: string) => browserName === 'chromium'
+  ? page.mouse.click(500, 350)
+  // Route the tap through the publication document in headless WebKit.
+  : page.evaluate(() => {
+    const view = document.querySelector('foliate-view') as HTMLElement & {
+      renderer: { getContents(): { doc: Document }[] };
+    };
+    const doc = view.renderer.getContents()[0].doc;
+    doc.elementFromPoint(500, 350)?.dispatchEvent(new MouseEvent('click', {
+      bubbles: true, cancelable: true, clientX: 500, clientY: 350,
+    }));
+  });
+
 test('archive minibar toggles webtoon independently and scrolling continues through the image edge', async ({ page, browserName }, testInfo) => {
-  test.skip(browserName === 'webkit' && process.platform === 'darwin', 'Local macOS WebKit cannot persist the imported File Blob. Renderer behavior is covered in both engines by archiveWebtoon.spec.ts.');
   await page.setViewportSize({ width: 1000, height: 700 });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
-  await page.goto('/');
-  const image = await page.evaluate(() => {
+  await page.addInitScript(() => {
+    if (window !== window.top || localStorage.getItem('isGuest') === 'true') return;
     localStorage.setItem('isGuest', 'true');
     localStorage.setItem('neverShowInstallPrompt', 'true');
     localStorage.setItem('viewer_settings', JSON.stringify({ navMode: 'left-right', archiveWebtoonMode: false, autoOpenLastBook: false }));
+  });
+  await page.goto('/');
+  const image = await page.evaluate(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 600;
     canvas.height = 1800;
@@ -18,7 +36,6 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
     context.fillRect(0, 0, 600, 1800);
     return canvas.toDataURL().split(',')[1];
   });
-  await page.reload();
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
   const zip = new JSZip();
   zip.file('1.png', image, { base64: true });
@@ -52,7 +69,7 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
   await testInfo.attach('archive-webtoon-minibar', { body: await page.screenshot(), contentType: 'image/png' });
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('viewer_settings')!).archiveWebtoonMode)).toBe(true);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('viewer_settings')!).navMode)).toBe('left-right');
-  // Close the toolbar and exercise native wheel scrolling inside the iframe.
+  // Close the toolbar before sending scroll input.
   await page.locator('[data-reader-controls-overlay]').click({ position: { x: 500, y: 350 } });
   const probe = () => page.evaluate(() => {
     const view = document.querySelector('foliate-view') as HTMLElement & {
@@ -61,24 +78,34 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
     if (!view?.renderer) return { index: -1, top: -1, bottom: false, webtoon: null };
     return { index: view.renderer.index, top: view.renderer.scrollTop, bottom: view.renderer.getWebtoonBoundary(1), webtoon: view.renderer.getAttribute('webtoon') };
   });
-  await page.mouse.move(500, 350);
-  await page.mouse.wheel(0, 400);
-  await expect.poll(async () => (await probe()).top).toBeGreaterThan(0);
-  expect((await probe()).index).toBe(0);
-  // Continuing the same gesture past the bottom turns, without an idle/restart.
-  await page.mouse.wheel(0, 2800);
-  await expect.poll(async () => (await probe()).index).toBe(1);
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 500, y: 550 }] });
-  for (let index = 1; index <= 4; index++) {
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 500, y: 550 - index * 40 }] });
-    await page.waitForTimeout(16);
+  if (browserName === 'chromium') {
+    await page.mouse.move(500, 350);
+    await page.mouse.wheel(0, 400);
+    await expect.poll(async () => (await probe()).top).toBeGreaterThan(0);
+    expect((await probe()).index).toBe(0);
+    // Continuing the same gesture past the bottom turns, without an idle/restart.
+    await page.mouse.wheel(0, 2800);
+    await expect.poll(async () => (await probe()).index).toBe(1);
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 500, y: 550 }] });
+    for (let index = 1; index <= 4; index++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 500, y: 550 - index * 40 }] });
+      await page.waitForTimeout(16);
+    }
+    const fingerPosition = (await probe()).top;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(async () => (await probe()).top).toBeGreaterThan(fingerPosition);
+  } else {
+    // Playwright WebKit's synthetic wheel did not reach the sandboxed iframe.
+    // Exercise the reader's keyboard scrolling through the same page boundary.
+    await page.keyboard.press('PageDown');
+    await expect.poll(probe).toMatchObject({ index: 0 });
+    await expect.poll(async () => (await probe()).top).toBeGreaterThan(0);
+    for (let press = 0; press < 5; press += 1) await page.keyboard.press('PageDown');
+    await expect.poll(async () => (await probe()).index).toBe(1);
   }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  const fingerPosition = (await probe()).top;
-  await expect.poll(async () => (await probe()).top).toBeGreaterThan(fingerPosition);
-  await page.mouse.click(500, 350);
+  await clickWebtoonCenter(page, browserName);
   await expect(toggle).toBeVisible();
   const savedPage = () => page.evaluate(async () => {
     const open = indexedDB.open('web-reader-db');
@@ -100,17 +127,21 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
   await card.click();
   await expect(overlay).toHaveCount(0);
   await expect.poll(probe).toMatchObject({ index: 1, webtoon: 'true' });
-  // A fresh reader has no dirty progress. Zoomed panning across an image
-  // boundary must mark the gesture as a user move before relocate is handled.
-  await page.keyboard.press('Control+ArrowUp');
-  await page.mouse.move(500, 300);
-  await page.mouse.down();
-  await page.mouse.move(500, 650, { steps: 6 });
-  await page.mouse.up();
+  if (browserName === 'chromium') {
+    // Zoomed panning must mark a user move in a fresh reader before relocate.
+    await page.keyboard.press('Control+ArrowUp');
+    await page.mouse.move(500, 300);
+    await page.mouse.down();
+    await page.mouse.move(500, 650, { steps: 6 });
+    await page.mouse.up();
+  } else {
+    await page.keyboard.press('PageUp');
+    await page.keyboard.press('PageUp');
+  }
   await expect.poll(async () => (await probe()).index).toBe(0);
   const panCfi = await page.evaluate(() => (document.querySelector('foliate-view') as HTMLElement & { lastLocation: { cfi: string } }).lastLocation.cfi);
   await expect.poll(async () => (await savedPage()).some(row => row.cfi === panCfi)).toBe(true);
-  await page.mouse.click(500, 350);
+  await clickWebtoonCenter(page, browserName);
   await expect(toggle).toBeVisible();
   await toggle.click();
   await expect.poll(probe).toMatchObject({ webtoon: 'false' });

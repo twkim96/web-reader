@@ -6,15 +6,21 @@ test('same-version build updates its imported worker script and prepares the new
   // Playwright routing disables Chromium's browser cache and forces request
   // revalidation. This local fixture has no authentication iframe to intercept.
   await page.unrouteAll();
-  const [worker, policy] = await Promise.all([
+  const fontPaths = ['/fonts/ChosunGu.woff', '/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'];
+  const [worker, policy, fonts] = await Promise.all([
     readFile('public/sw.js', 'utf8'), readFile('public/sw-policy.js', 'utf8'),
+    Promise.all(fontPaths.map(async path => [path, await readFile(`public${path}`)] as const)).then(entries => new Map(entries)),
   ]);
   let build = 'first';
   let unavailable = false;
   const server = createServer((request, response) => {
     if (unavailable) { request.socket.destroy(); return; }
     response.setHeader('Cache-Control', 'no-store');
-    if (request.url === '/sw.js' || request.url === '/sw-policy.js' || request.url === '/sw-build.js') {
+    const font = fonts.get(request.url ?? '');
+    if (font) {
+      response.setHeader('Content-Type', 'font/woff');
+      response.end(font);
+    } else if (request.url === '/sw.js' || request.url === '/sw-policy.js' || request.url === '/sw-build.js') {
       response.setHeader('Content-Type', 'application/javascript');
       response.end(request.url === '/sw.js' ? worker : request.url === '/sw-policy.js' ? policy
         : `self.PC_READER_BUILD_ID = "${build}";`);
@@ -81,6 +87,13 @@ test('same-version build updates its imported worker script and prepares the new
     await expect(page).toHaveTitle('second');
     await expect(page.locator('body')).toHaveText('second');
     expect(await catalogGeneration()).toBe('second');
+    const loadedFonts = await page.evaluate(async paths => Promise.all(paths.map(async (path, index) => {
+      const response = await fetch(path, { cache: 'no-store' });
+      const face = new FontFace(`OfflineProbe${index}`, await response.arrayBuffer());
+      await face.load();
+      return response.ok && face.status === 'loaded';
+    })), fontPaths);
+    expect(loadedFonts).toEqual([true, true, true]);
     expect(await page.evaluate(async () => (await caches.match('/api/mypage?view=reviews')) === undefined)).toBe(true);
   } finally {
     unavailable = false;

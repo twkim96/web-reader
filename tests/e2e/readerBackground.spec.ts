@@ -7,6 +7,7 @@ test('reader shell paints through the publication canvas and all outer margins',
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.addInitScript(() => {
+    if (window !== window.top || localStorage.getItem('isGuest') === 'true') return;
     localStorage.setItem('isGuest', 'true');
     localStorage.setItem('neverShowInstallPrompt', 'true');
     localStorage.setItem('viewer_settings', JSON.stringify({

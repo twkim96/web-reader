@@ -31,10 +31,11 @@ export const shouldUseZipWebWorkers = (
   const platform = browserNavigator?.platform ?? '';
   const isAppleMobile = /iPad|iPhone|iPod/.test(userAgent)
     || (platform === 'MacIntel' && (browserNavigator?.maxTouchPoints ?? 0) > 1);
+  const isSafari = /AppleWebKit\//.test(userAgent) && /Version\/[\d.]+.*Safari\//.test(userAgent)
+    && !/Chrome\/|Chromium\//.test(userAgent);
 
-  // iPad browsers all use WebKit. zip.js worker/stream transfers can stall there,
-  // so use zip.js's same-thread fallback for a reliable first-page extraction.
-  return !isAppleMobile;
+  // zip.js worker/stream transfers can stall in mobile WebKit and Safari.
+  return !isAppleMobile && !isSafari;
 };
 
 const loadZipModule = async () => {

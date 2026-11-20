@@ -37,14 +37,19 @@ const pngDimensionsBlob = (width, height) => {
   return new Blob([bytes], { type: 'image/png' });
 };
 
-test('uses the same-thread ZIP decoder on iPad Safari, including desktop-mode iPads', () => {
+test('uses the same-thread ZIP decoder on Safari and Apple mobile browsers', () => {
   assert.equal(shouldUseZipWebWorkers(true, {
     userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)',
     platform: 'iPad',
     maxTouchPoints: 5,
   }), false);
   assert.equal(shouldUseZipWebWorkers(true, {
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15',
+    platform: 'MacIntel',
+    maxTouchPoints: 0,
+  }), false);
+  assert.equal(shouldUseZipWebWorkers(true, {
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
     platform: 'MacIntel',
     maxTouchPoints: 5,
   }), false);

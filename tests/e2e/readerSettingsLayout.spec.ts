@@ -1,5 +1,6 @@
-import { expect, test } from '@playwright/test';
-import { test as persistentTest } from './persistentBookFixtures';
+import { expect, test } from './persistentBookFixtures';
+
+test.use({ serviceWorkers: 'block' });
 
 test('additional bundled fonts decode Korean and Latin text', async ({ page }) => {
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
@@ -12,8 +13,7 @@ test('additional bundled fonts decode Korean and Latin text', async ({ page }) =
   }
 });
 
-test('reader fonts stay on one scrollable row and selected local font reaches the book', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit' && process.platform === 'darwin', 'Local macOS WebKit cannot persist the sample EPUB Blob.');
+test('reader fonts stay on one scrollable row and selected local font reaches the book', async ({ page }) => {
   const remoteFontRequests: string[] = [];
   await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => {
     remoteFontRequests.push(route.request().url());
@@ -127,32 +127,16 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
     }, family)).toBe(true);
     await page.getByRole('button', { name: '자동읽기 닫기', exact: true }).click();
   }
-  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
-  await expect.poll(() => page.evaluate(async () => (
-    await Promise.all(['/fonts/ChosunGu.woff', '/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(url => caches.match(url)))
-  ).every(Boolean))).toBe(true);
-  // A newly installed worker controls the next navigation, not this first tab.
+  // Check the saved selection after reopening. The worker's font cache is
+  // exercised with a fresh document in serviceWorkerLifecycle.spec.ts.
   await page.reload();
-  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
   await page.locator('[data-shelf-book-id]').first().click();
   await expect(page.getByText('Loading...', { exact: true })).toBeHidden({ timeout: 30000 });
   await expect.poll(() => selectedBookFontIsLoaded('GowunDodum'), { timeout: 30000 }).toBe(true);
-  await page.context().setOffline(true);
-  // Bypass HTTP cache and load fresh FontFace instances from the worker's
-  // cached responses, independent of the document's already loaded fonts.
-  expect(await page.evaluate(async () => {
-    return Promise.all(['/fonts/ChosunGu.woff', '/fonts/GowunBatang-Regular.woff', '/fonts/GowunDodum-Regular.woff'].map(async (url, index) => {
-      const response = await fetch(url, { cache: 'no-store' });
-      const font = new FontFace(`OfflineProbe${index}`, await response.arrayBuffer());
-      await font.load();
-      return response.ok && font.status === 'loaded';
-    }));
-  })).toEqual([true, true, true]);
-  await page.context().setOffline(false);
   expect(remoteFontRequests, 'reader style changes must not request external Google font stylesheets').toEqual([]);
 });
 
-persistentTest('Korean spacing controls apply and persist seven levels without texturing dialogs', async ({ page }) => {
+test('Korean spacing controls apply and persist seven levels without texturing dialogs', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('/');
