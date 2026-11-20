@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { auth, googleProvider } from '../lib/firebase';
-import { signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import { BookTitleDisplayProvider } from '../contexts/BookTitleDisplayContext';
@@ -496,8 +496,14 @@ export default function Page() {
     setLoginDisclosureMode(null);
     setAuthErrorMessage(null);
 
-    signInWithRedirect(auth, googleProvider).catch((error) => {
-      console.error('[Auth] Google redirect failed:', error);
+    const usePopup = (process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_WEB_READER_PREVIEW === '1')
+      && window.location.host !== auth.config.authDomain;
+    const login = usePopup
+      ? signInWithPopup(auth, googleProvider)
+      : signInWithRedirect(auth, googleProvider);
+    login.catch((error) => {
+      if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') return;
+      console.error('[Auth] Google sign-in failed:', error);
 
       setAuthErrorMessage(
         'Google 로그인을 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.'

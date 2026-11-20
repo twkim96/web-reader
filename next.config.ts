@@ -25,6 +25,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_BUILD_ID: appBuildId,
     NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES: finiteSyncLeases,
+    NEXT_PUBLIC_WEB_READER_PREVIEW: process.env.VERCEL_ENV === 'preview' ? '1' : '0',
   },
   async headers() {
     return [{ source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-cache' }] }];
