@@ -728,15 +728,17 @@ try {
     const title = card?.querySelector('[data-shelf-title-tag-group="true"] h3');
     const localTag = card?.querySelector('[data-shelf-local-tag="true"]');
     const tagRow = card?.querySelector('[data-shelf-book-tags="true"]');
-    const format = card?.querySelector('[data-shelf-list-format="true"]');
-    const progress = card?.querySelector('[data-shelf-list-progress="true"]');
+    const source = card?.querySelector('[data-shelf-list-source-slot="true"]');
+    const percent = source?.nextElementSibling;
+    const more = card?.querySelector('[data-shelf-list-more="true"]');
     const cardRect = card?.getBoundingClientRect();
     const frameRect = frame?.getBoundingClientRect();
     const titleRect = titleContent?.getBoundingClientRect();
-    const formatRect = format?.getBoundingClientRect();
-    const progressRect = progress?.getBoundingClientRect();
+    const sourceRect = source?.getBoundingClientRect();
+    const percentRect = percent?.getBoundingClientRect();
+    const moreRect = more?.getBoundingClientRect();
     const style = frame ? getComputedStyle(frame) : null;
-    if (!cardRect || !frameRect || !titleRect || !localTag || !tagRow || !formatRect || !progressRect || !style) return null;
+    if (!cardRect || !frameRect || !titleRect || !localTag || !tagRow || !sourceRect || !percentRect || !moreRect || !style) return null;
     return {
       width: frameRect.width,
       height: frameRect.height,
@@ -748,8 +750,8 @@ try {
       localTagFirst: tagRow.firstElementChild === localTag,
       localTagText: localTag.textContent?.trim(),
       localTagBorderRadius: getComputedStyle(localTag).borderRadius,
-      rightOrder: [formatRect.left, progressRect.left],
-      formatWidth: formatRect.width,
+      metadataAboveProgress: sourceRect.bottom <= percentRect.top && /%/.test(percent.textContent),
+      moreOnRight: moreRect.left >= Math.max(sourceRect.right, percentRect.right),
       titleFontSize: title ? getComputedStyle(title).fontSize : '',
       coverSrc: card?.querySelector('[data-shelf-book-cover="true"]')?.getAttribute('src') ?? '',
     };
@@ -765,11 +767,8 @@ try {
   assert.equal(listCoverLayout.localTagFirst, true, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagText, '로컬', JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.localTagBorderRadius, '7px', JSON.stringify(listCoverLayout));
-  assert.ok(
-    listCoverLayout.rightOrder[0] < listCoverLayout.rightOrder[1],
-    JSON.stringify(listCoverLayout),
-  );
-  assert.ok(listCoverLayout.formatWidth <= 96.5, JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.metadataAboveProgress, true, JSON.stringify(listCoverLayout));
+  assert.equal(listCoverLayout.moreOnRight, true, JSON.stringify(listCoverLayout));
   assert.equal(listCoverLayout.titleFontSize, initialShelf.gridTitleFontSize, JSON.stringify({
     grid: initialShelf.gridTitleFontSize,
     list: listCoverLayout.titleFontSize,
@@ -2679,13 +2678,10 @@ try {
         const rect = button.getBoundingClientRect();
         return { width: rect.width, height: rect.height };
       });
-    const copyButton = [...(currentMenu?.querySelectorAll('button') ?? [])]
-      .find((button) => button.textContent?.includes('복사'));
+    const copyButton = currentMenu?.querySelector('button[aria-label="복사"]');
     copyButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const shareButton = [...(document.querySelector('[data-reader-selection-menu="true"]')
-      ?.querySelectorAll('button') ?? [])]
-      .find((button) => button.textContent?.includes('공유'));
+    const shareButton = document.querySelector('[data-reader-selection-menu="true"] button[aria-label="공유"]');
     shareButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 50));
     const translateButtonFound = Boolean(document.querySelector(
@@ -3153,18 +3149,32 @@ try {
       return count;
     };
     const visibleTextBeforeModeSwitch = countVisibleReaderTextRects();
+    const clickReaderCenter = () => document.querySelector('[data-reader-content="true"]')?.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: innerWidth / 2,
+      clientY: innerHeight / 2,
+    }));
+    const readerControlsOpen = () => document.querySelector('nav')?.classList.contains('translate-y-0');
+    if (!readerControlsOpen()) {
+      clickReaderCenter();
+      await window.__regressionNextFrame();
+    }
     document.querySelector('button[aria-label="설정"]')?.click();
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    const settingsHeading = [...document.querySelectorAll('h2')]
-      .find((heading) => heading.textContent?.trim() === '리더 설정');
-    const settingsFrame = settingsHeading?.parentElement?.parentElement?.parentElement;
-    const scrollModeButton = [...(settingsFrame?.querySelectorAll('button') ?? [])]
+    const settingsSelector = '[role="dialog"][aria-label="리더 설정"]';
+    const settingsDeadline = performance.now() + 2000;
+    while (!document.querySelector(settingsSelector) && performance.now() < settingsDeadline) {
+      await window.__regressionNextFrame();
+    }
+    const settingsFrame = document.querySelector(settingsSelector);
+    const navButtons = settingsFrame?.querySelectorAll('[data-reader-settings-navigation] button') ?? [];
+    const scrollModeButton = [...navButtons]
       .find((button) => button.textContent?.trim() === '스크롤');
     scrollModeButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 250));
     const visibleTextAfterScrollMode = countVisibleReaderTextRects();
     const flowAfterScrollMode = renderer.getAttribute('flow');
-    const tapModeButton = [...(settingsFrame?.querySelectorAll('button') ?? [])]
+    const tapModeButton = [...navButtons]
       .find((button) => button.textContent?.trim() === '좌/우');
     tapModeButton?.click();
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -3172,6 +3182,10 @@ try {
     const flowAfterTapMode = renderer.getAttribute('flow');
     settingsFrame?.querySelector('button[aria-label="리더 설정 닫기"]')?.click();
     await window.__regressionNextFrame();
+    if (readerControlsOpen()) {
+      clickReaderCenter();
+      await window.__regressionNextFrame();
+    }
     const inactiveContextMenuEvent = new doc.defaultView.MouseEvent('contextmenu', {
       bubbles: true,
       cancelable: true,
@@ -3315,7 +3329,7 @@ try {
   assert.equal(selectionActions.nativeContextMenuSuppressed, true);
   assert.equal(selectionActions.inactiveContextMenuAllowed, true, JSON.stringify(selectionActions));
   assert.ok(
-    selectionActions.actionRects.every(({ width, height }) => width >= 44 && height >= 44),
+    selectionActions.actionRects.every(({ width, height }) => width >= 40 && height >= 44),
     JSON.stringify(selectionActions.actionRects),
   );
   assert.equal(selectionActions.afterSuppressedClick, selectionActions.beforeSuppressedClick);

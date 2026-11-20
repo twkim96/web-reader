@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { test as persistentTest } from './persistentBookFixtures';
 
 test('additional bundled fonts decode Korean and Latin text', async ({ page }) => {
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
@@ -151,8 +152,7 @@ test('reader fonts stay on one scrollable row and selected local font reaches th
   expect(remoteFontRequests, 'reader style changes must not request external Google font stylesheets').toEqual([]);
 });
 
-test('Korean spacing controls apply and persist seven levels without texturing dialogs', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit' && process.platform === 'darwin', 'Local macOS WebKit cannot persist the sample EPUB Blob.');
+persistentTest('Korean spacing controls apply and persist seven levels without texturing dialogs', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('/');

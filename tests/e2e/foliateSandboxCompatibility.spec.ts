@@ -1197,6 +1197,9 @@ test('paginator page-turn tap skips the trailing sentinel before entering the ne
       })),
     });
     await renderer.goTo({ index: 0, anchor: 1 });
+    // Let the initial layout observer settle before measuring the page turn.
+    // Its render scrolls and scans the current page even without a tap.
+    if (!await renderer.waitForNavigationReady()) throw new Error('Outgoing page did not settle');
     const outgoingDoc = renderer.getContents()[0]?.doc as Document;
     const originalCreateRange = outgoingDoc.createRange.bind(outgoingDoc);
     let outgoingRangeCreations = 0;

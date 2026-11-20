@@ -1,11 +1,10 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './persistentBookFixtures';
 
 // Exercise settings restoration on a normal reload. The dev worker's cached
 // app shell has separate coverage in serviceWorkerLifecycle.spec.ts.
 test.use({ serviceWorkers: 'block' });
 
-test('summary titles toggle live, persist, and leave book details and stored names intact', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit' && process.platform === 'darwin', 'Local macOS WebKit cannot persist the sample EPUB Blob.');
+test('summary titles toggle live, persist, and leave book details and stored names intact', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('/');

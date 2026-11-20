@@ -51,14 +51,12 @@
 
 ## 기존 브라우저 CI 실패
 
-- 2026-11-18 집중 Chromium/WebKit 검사 52개 중 50개가 통과했고 `paginator page-turn tap skips the trailing sentinel before entering the next section`의 outgoing range 생성 0 기대가 각각 17/26으로 실패했습니다. 독립 fixture·Foliate runtime은 현재 HEAD와 동일하며 이번 동기화 변경 파일을 불러오지 않습니다. 페이지 자체 이동은 성공했습니다. 별도 renderer 성능 계약과 검사 관찰 범위를 대조해야 하며 assertion을 완화하지 않았습니다.
+- 페이지 넘김 검사의 outgoing range는 첫 화면의 ResizeObserver가 현재 페이지를 다시 배치하면서 생성했습니다. 검사에서 초기 배치가 안정된 뒤 탭을 측정하도록 수정했고, 두 엔진에서 다음 장으로 바로 이동하며 나가는 장의 range와 relocate를 만들지 않는다는 기존 조건을 통과했습니다.
 
-- 2026-11-15 로컬 production 회귀는 선택 메뉴 버튼 폭 검사에서 먼저 멈췄습니다. 실제 폭은 40px이고 검사는 44px 이상을 요구합니다. 직전 `7e3371c`에도 `TextSelectionMenu`의 `w-10`과 같은 44px assertion이 함께 있어 이번 헤더 변경 전부터의 불일치입니다. 이 실행으로 뒤쪽 전체 회귀 통과를 주장하지 않습니다. 버튼 크기 계약과 기존 복사·공유 선택자를 함께 대조해야 합니다.
-- [문서 초기화 커밋 `0d52154`의 run 37394612095](https://github.com/twkim96/web-reader/actions/runs/37394612095)와 [직전 커밋 `11bc6f9`의 run 37162191819](https://github.com/twkim96/web-reader/actions/runs/37162191819)의 `browser-regression` job은 모두 실패로 종료됐습니다. 두 실행의 로그에서 같은 증상을 확인했으며 문서 이관 이전부터 있던 미해결 실패로 보존합니다.
-- 관측 증상: [tests/browserRegression.mjs:3411](https://github.com/twkim96/web-reader/blob/0d52154b6ff42718eb4e2257487e8df63cb9b67d/tests/browserRegression.mjs#L3411)의 `selectionActions.flowAfterScrollMode` assertion에서 기대값은 `scrolled`, 실제값은 `paginated`입니다. 제품 버그인지 테스트·실행 환경 문제인지는 아직 미확정입니다.
-- [커밋 `05307e3`의 run 37410255063](https://github.com/twkim96/web-reader/actions/runs/37410255063)도 완료·실패 상태이며 `browser-regression` job 로그에서 같은 assertion과 기대값/실제값을 확인했습니다.
-- 다음 작업: CI의 스크롤 모드 전환 순서와 renderer 상태 반영·관찰 시점을 재현하고 [읽기 사양](SPEC/reader-and-progress.md#읽기와-시작-위치)과 대조해 원인을 구분합니다.
-- 완료 조건: 원인과 대응 근거를 기록하고, 의도한 스크롤 모드 전환 계약을 유지한 관련 회귀와 해당 `browser-regression` CI job의 통과 실행 링크를 남깁니다.
+- 브라우저 회귀의 서재 정보 배치와 본문 선택 메뉴는 현재 [인터페이스 사양](SPEC/interface.md)에 맞춰 검사합니다. 기존 스크롤 모드 전환 실패는 닫힌 툴바의 설정 버튼을 눌러 발생했습니다. 툴바를 연 뒤 설정을 바꾸면 스크롤과 탭 모드 전환을 모두 확인할 수 있습니다.
+- Playwright WebKit의 임시 프로필에서는 IndexedDB에 Blob과 File을 쓸 수 없었습니다. 일회용 영속 프로필에서 같은 바이트의 저장·읽기, 샘플 도서의 제목 요약·리더 배경·7단계 여백을 검증했습니다. ZIP 파일 추가, 표지 포함 PNG의 온라인·오프라인 복사, 글꼴의 서비스 워커 오프라인 경로는 프로필을 바꾼 뒤에도 실패해 각각 확인이 필요합니다. [기준 브라우저 CI](https://github.com/twkim96/web-reader/actions/runs/44769773837)
+- 전체 브라우저 회귀는 위 항목들을 통과한 다음, TTS 음성 시작을 지연시킨 상태의 일시정지 검사에서 멈춥니다. 로컬 모의 음성의 pause 호출이 0회였습니다. 이 검사 순서와 재생 상태를 대조하고 Chromium ZIP 웹툰의 관성 스크롤도 확인합니다.
+- 완료 조건은 전체 `browser-regression`과 Chromium/WebKit Playwright CI 통과입니다.
 
 ## 누적 다중 기기·실사용 수용 확인
 

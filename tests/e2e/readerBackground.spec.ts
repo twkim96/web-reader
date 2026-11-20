@@ -1,7 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './persistentBookFixtures';
 
-test('reader shell paints through the publication canvas and all outer margins', async ({ page, browserName }, testInfo) => {
-  test.skip(browserName === 'webkit' && process.platform === 'darwin', 'Local macOS Playwright WebKit fails while storing the sample EPUB Blob, before reader startup. Transparent frame painting is covered by the standalone renderer test.');
+test('reader shell paints through the publication canvas and all outer margins', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 890 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
