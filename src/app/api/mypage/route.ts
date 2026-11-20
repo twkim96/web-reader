@@ -17,6 +17,7 @@ import {
 
 const MAX_BODY_BYTES = 64_000;
 const PROFILE_PAGE_SIZE = 30;
+const REVIEW_SAVE_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const publicSections = ['reviews', 'reading', 'wishlist'] as const;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const fail = (status: number) => json({ error: 'request-failed' }, status);
@@ -239,18 +240,19 @@ export async function POST(request: Request) {
       return json({ item, book: resolved.book, aliases: resolved.equivalentWorkIds });
     }
     if (action === 'review') {
-      const { rating, comment, fileIds, readingSnapshot } = input;
+      const { rating, comment, fileIds, readingSnapshot, saveId } = input;
       if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5
         || typeof comment !== 'string' || comment.length > BOOK_REVIEW_TEXT_LIMIT || /[\r\n]/.test(comment)
         || !Array.isArray(fileIds) || fileIds.length > 32
-        || !fileIds.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 512)) return fail(400);
+        || !fileIds.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 512)
+        || (saveId !== undefined && (importOnly || typeof saveId !== 'string' || !REVIEW_SAVE_ID.test(saveId)))) return fail(400);
       const local = readingSnapshot && typeof readingSnapshot === 'object'
         ? parsePublicBookReview({ ...readingSnapshot, rating, comment }) : null;
       if (readingSnapshot != null && !local) return fail(400);
       // Older clients omitted the field and expect the server snapshot in this response.
       const evidence = readingSnapshot === undefined
         ? await evidenceFor(db, uid, resolved.book.id, fileIds) : local;
-      const review = await updateReview(db, uid, workId, { ...evidence, rating, comment: comment.trim() }, revision, importOnly, accountRevision, resolved.equivalentWorkIds);
+      const review = await updateReview(db, uid, workId, { ...evidence, rating, comment: comment.trim() }, revision, importOnly, accountRevision, resolved.equivalentWorkIds, saveId);
       if (review && readingSnapshot === null && !importOnly) {
         after(async () => {
           const snapshot = await evidenceFor(db, uid, resolved.book.id, fileIds);

@@ -10,7 +10,7 @@ import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWa
 import { buildReadBooks, selectSyncedReadingSessions, type ReadBook } from '../../lib/readBooks';
 import { BOOK_REVIEW_TEXT_LIMIT, readBookReview, removeBookReview, saveBookReview, subscribeBookReviewChanges, type BookReview } from '../../lib/localBookReview';
 import { findReviewWork, indexReviewWorks, type MyPageOwnReviews, type MyPageReview, type MyPageReviewDeletion } from '../../lib/myPageSocial';
-import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
+import { myPageRequest, MyPageRequestError, saveMyPageReview } from '../../lib/myPageSocialClient';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
@@ -35,7 +35,8 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
   };
 }) {
   const [localReview, setReview] = useState<BookReview | null>(null);
-  const review = accountReview ? accountReview.value : localReview;
+  const [savingReview, setSavingReview] = useState<Pick<MyPageReview, 'rating' | 'comment' | 'totalMs' | 'progressPercent'> | null>(null);
+  const review = savingReview ?? (accountReview ? accountReview.value : localReview);
   const [editing, setEditing] = useState(false);
   const [editingTarget, setEditingTarget] = useState<MyPageReview | MyPageReviewDeletion>();
   const editingAccountReview = editingTarget && 'rating' in editingTarget ? editingTarget : undefined;
@@ -85,22 +86,26 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
     const scopeId = scope.current;
     try {
       if (accountReview) {
-        const data = await myPageRequest<{ review: MyPageReview }>({ action: 'review' }, {
-          owner: ownerKey,
-          body: {
-            workId: editingTarget?.workId ?? book.id,
-            revision: editingTarget?.revision ?? null,
-            platformWorkKeys: editingTarget ? undefined : book.platformWorkKeys,
-            rating,
-            comment,
-            fileIds: book.fileIds?.slice(0, 32) ?? [],
-            readingSnapshot: book.fileIds?.length ? {
-              totalMs: Math.round(book.totalMs),
-              progressPercent: book.progressPercent,
-            } : null,
-          },
+        const workId = editingTarget?.workId ?? book.id;
+        const readingSnapshot = book.fileIds?.length ? {
+          totalMs: Math.round(book.totalMs),
+          progressPercent: book.progressPercent,
+        } : null;
+        const fields = { rating, comment: comment.trim() };
+        setSavingReview({
+          ...fields,
+          totalMs: readingSnapshot?.totalMs ?? editingAccountReview?.totalMs ?? null,
+          progressPercent: readingSnapshot?.progressPercent ?? editingAccountReview?.progressPercent ?? null,
         });
-        accountReview.change(data.review, editingTarget?.workId ?? book.id);
+        setEditing(false);
+        setFeedback('');
+        const saved = await saveMyPageReview(ownerKey, {
+          ...fields, workId, revision: editingTarget?.revision ?? null,
+          platformWorkKeys: editingTarget ? undefined : book.platformWorkKeys,
+          fileIds: book.fileIds?.slice(0, 32) ?? [],
+          readingSnapshot,
+        });
+        accountReview.change(saved, workId);
       } else {
         const value = await saveBookReview(ownerKey, book, rating, comment, localStorage);
         if (generation.current === current) setReview(value);
@@ -110,14 +115,17 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
       setFeedback('');
     } catch (error) {
       if (scope.current === scopeId) {
-        if (error instanceof MyPageRequestError && error.status === 409) {
-          setEditing(false);
-          accountReview?.refresh();
-        }
-        setFeedback(cloud ? (error as Error).message : '평가를 저장하지 못했습니다.');
+        accountReview?.refresh();
+        setFeedback(error instanceof MyPageRequestError ? error.message : '평가를 저장하지 못했습니다.');
       }
     }
-    finally { if (scope.current === scopeId) { busy.current = false; setPending(false); } }
+    finally {
+      if (scope.current === scopeId) {
+        busy.current = false;
+        setSavingReview(null);
+        setPending(false);
+      }
+    }
   };
 
   const remove = async () => {
@@ -158,7 +166,7 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
             <p className="mt-1.5 text-xs opacity-65">{formatMetrics(book)}</p>
           </div>
         </BookDetailLink>
-        {!editing && <button type="button" onClick={beginEdit} disabled={accountReview ? !accountReview.ready : undefined} aria-label={`${book.title} 평가 ${review ? '수정' : '남기기'}`} className={`${secondaryAction} disabled:opacity-45`}>
+        {!editing && <button type="button" onClick={beginEdit} disabled={pending || (accountReview && !accountReview.ready)} aria-label={`${book.title} 평가 ${review ? '수정' : '남기기'}`} className={`${secondaryAction} disabled:opacity-45`}>
           {review ? '평가 수정' : '평가 남기기'}
         </button>}
       </div>

@@ -241,7 +241,7 @@ export async function listReviewDeletions(db: Firestore, uid: string) {
 
 async function mutateReview(
   db: Firestore, uid: string, workId: string, fields: ReviewUpdate | null, expectedRevision: number | null,
-  importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [],
+  importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [], saveId?: string,
 ): Promise<{ review: MyPageReview | null; applied: boolean }> {
   const account = importOnly ? null : await ensureAccount(db, uid);
   const ref = reviews(db, uid).doc(workKey(workId));
@@ -249,6 +249,9 @@ async function mutateReview(
     const code = account?.code ?? await verifyImportAccount(db, transaction, uid, importAccountRevision);
     const entry = workEntries(db, workId).doc(code);
     const current = (await transaction.get(ref)).data();
+    if (fields && saveId && current?.lastSaveId === saveId && current.revision === (expectedRevision ?? 0) + 1) {
+      return { review: reviewFrom(current), applied: false };
+    }
     if (expectedRevision === null && !current) {
       const alternatives = [...new Set(equivalentWorkIds)].filter((id) => id !== workId);
       if (alternatives.length) {
@@ -273,7 +276,7 @@ async function mutateReview(
     const { rating, comment, totalMs = previous?.totalMs ?? null, progressPercent = previous?.progressPercent ?? null } = fields;
     const review = { workId, revision, rating, comment, totalMs, progressPercent };
     const publishedAt = FieldValue.serverTimestamp();
-    transaction.set(ref, { ...review, deleted: false, updatedAt: publishedAt });
+    transaction.set(ref, { ...review, deleted: false, updatedAt: publishedAt, ...(saveId ? { lastSaveId: saveId } : {}) });
     transaction.set(entry, { workId, code, ...reviewFields(review), publishedAt });
     return { review, applied: true };
   });

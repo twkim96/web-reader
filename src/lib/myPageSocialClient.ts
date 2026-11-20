@@ -1,4 +1,5 @@
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
+import type { MyPageReview } from './myPageSocial';
 
 export class MyPageRequestError extends Error {
   constructor(readonly status: number) {
@@ -34,4 +35,24 @@ export async function myPageRequest<T>(params: Record<string, string>, options: 
   });
   if (!response.ok) throw new MyPageRequestError(response.status);
   return response.json() as Promise<T>;
+}
+
+export async function saveMyPageReview(owner: OwnerKey, fields: object): Promise<MyPageReview> {
+  const body = { ...fields, saveId: crypto.randomUUID() };
+  const retryDelays = [350, 1_000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { review } = await myPageRequest<{ review: MyPageReview }>({ action: 'review' }, {
+        owner, body, signal: AbortSignal.timeout(8_000),
+      });
+      return review;
+    } catch (error) {
+      const delay = retryDelays[attempt];
+      const transient = error instanceof TypeError
+        || (error instanceof DOMException && error.name === 'TimeoutError')
+        || (error instanceof MyPageRequestError && (error.status === 408 || error.status >= 500));
+      if (delay === undefined || !transient) throw error;
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }

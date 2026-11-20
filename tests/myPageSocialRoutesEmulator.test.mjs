@@ -202,6 +202,29 @@ test('local review reading saves immediately and missing reading fills after the
   assert.equal((await workReviews(workId)).reviews.find(({ author }) => author.code === code).progressPercent, local.progressPercent);
 });
 
+test('retry after a lost review response returns the saved revision without replacing a newer review', async () => {
+  const { idToken } = await emulatorLogin('mypage-review-retry');
+  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const input = {
+    workId, rating: 3, comment: '', revision: null, fileIds: [],
+    readingSnapshot: { totalMs: 45000, progressPercent: 41 },
+    saveId: crypto.randomUUID(),
+  };
+  const first = await ok(post('review', idToken, input));
+  assert.equal(first.review.revision, 1);
+  assert.deepEqual(await ok(post('review', idToken, input)), first);
+
+  const newer = await ok(post('review', idToken, {
+    ...input, saveId: crypto.randomUUID(), revision: first.review.revision, rating: 5,
+  }));
+  assert.equal(newer.review.revision, 2);
+  assert.equal((await post('review', idToken, input)).status, 409);
+  const { reviews: [current] } = await ok(get({ view: 'reviews' }, idToken));
+  assert.equal(current.rating, 5);
+  assert.equal(current.revision, 2);
+  assert.equal('lastSaveId' in current, false);
+});
+
 test('authenticated account writes, code search and every visibility combination share one public contract', async () => {
   const db = getAdminFirestore();
   const { idToken: alice, localId: uid } = await emulatorLogin('mypage-alice');

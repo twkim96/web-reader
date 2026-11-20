@@ -1,14 +1,17 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+import { setTimeout as delay } from 'node:timers/promises';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 import { MyPage } from '../src/components/mypage/MyPage.tsx';
+import { ReadBooks } from '../src/components/mypage/ReadBooks.tsx';
 import { useMyPageNavigation } from '../src/hooks/useMyPageNavigation.ts';
 import { setWishlistSaved } from '../src/lib/localWishlist.ts';
 import { closeLocalDB } from '../src/lib/localDB.ts';
-import { saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
+import { hydrateRemoteReadingSessionsPageV12, saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
 
 const owner = 'guest:mypage-test|library:local';
 const book = { id: 'test-book', title: '테스트 도서', coverUrl: null, platforms: [], genre: '판타지', tags: [], popularity: 10, sourceCount: null };
@@ -54,6 +57,81 @@ const props = {
   onRefresh() {}, onBack() {},
 };
 const click = async (window, element) => act(async () => element.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true })));
+
+test('a rating appears during a pending save and rolls back after the retries fail', async (t) => {
+  const { window, root } = setup('#mypage/read');
+  const uid = 'rating-ui';
+  const ownerKey = `firebase:${uid}|library:local`;
+  const title = '별점 저장 테스트';
+  const hook = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      const { parentURL = '' } = context;
+      if (specifier === './firebase' && parentURL.endsWith('/myPageSocialClient.ts')) {
+        return { url: 'data:text/javascript,' + encodeURIComponent(
+          `export const auth = { currentUser: { uid: ${JSON.stringify(uid)}, getIdToken: async () => 'fixture-token' } };`,
+        ), shortCircuit: true };
+      }
+      if (specifier === '../../lib/readBookMetadata' && parentURL.includes('/mypage/ReadBooks.tsx')) {
+        return { url: 'data:text/javascript,' + encodeURIComponent(
+          `export const loadReadBookMetadata = async (titles, { onProgress }) => {
+            const result = { metadata: new Map(), failed: new Set() };
+            for (const title of titles) {
+              result.metadata.set(title, { titleKey: title, displayTitle: title, platforms: [] });
+              onProgress(result, title);
+            }
+            return result;
+          };`,
+        ), shortCircuit: true };
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  const start = Date.UTC(2026, 10, 20, 5);
+  const committed = { workId: title, rating: 2, comment: '', revision: 1, totalMs: 60_000, progressPercent: 20 };
+  const writes = [];
+  let rejectFirst;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.match(String(url), /^\/api\/mypage\?/);
+    if (options.method === 'GET') return Response.json({ reviews: [committed], deletions: [] });
+    writes.push(JSON.parse(options.body));
+    if (writes.length === 1) return new Promise((_, reject) => { rejectFirst = reject; });
+    return new Response(null, { status: 503 });
+  });
+  const visible = (selector) => window.document.querySelector(selector);
+  try {
+    await hydrateRemoteReadingSessionsPageV12(ownerKey, [{
+      schemaVersion: 1, sessionId: 'review-session', bookId: 'review-book', bookTitle: title, deviceId: 'review-device',
+      startedAtClient: start, endedAtClient: start + 60_000, durationMs: 60_000, startProgressPercent: 0,
+      endProgressPercent: 20, timezoneOffsetMinutes: 0, localDate: '2026-11-20', mode: 'screen', completed: false,
+    }], null, null, true, false);
+    await act(async () => root.render(React.createElement(ReadBooks, { ownerKey, onOpenBook() {}, accountStorage: true })));
+    for (let attempt = 0; attempt < 20 && !visible('[aria-label="별점 2점"]'); attempt++) {
+      await act(async () => delay(20));
+    }
+    assert.ok(visible('[aria-label="별점 2점"]'), window.document.body.textContent);
+    await click(window, visible(`[aria-label="${title} 평가 수정"]`));
+    await click(window, visible('[aria-label="4점"]'));
+    await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.ok(visible('[aria-label="별점 4점"]'));
+    assert.equal(visible('form'), null);
+    assert.equal(writes.length, 1);
+    await act(async () => { rejectFirst(new TypeError('connection lost')); });
+    assert.ok(visible('[aria-label="별점 4점"]'));
+    for (let attempt = 0; attempt < 30 && !visible('[role="alert"]'); attempt++) {
+      await act(async () => delay(75));
+    }
+    assert.equal(writes.length, 3);
+    assert.ok(writes[0].saveId);
+    assert.deepEqual(writes, [writes[0], writes[0], writes[0]]);
+    assert.ok(visible('[aria-label="별점 2점"]'));
+    assert.equal(visible('[aria-label="별점 4점"]'), null);
+    assert.match(visible('[role="alert"]').textContent, /서버와 연결하지 못했습니다/);
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+    hook.deregister();
+  }
+});
 
 test('MyPage renders as a page, removes saved books, and isolates account changes', async () => {
   const { window, storage, root } = setup();
