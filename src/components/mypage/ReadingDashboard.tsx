@@ -31,6 +31,27 @@ type Data = {
   error: boolean;
 };
 
+type ReadingSlice = { session: ReadingSessionV1; durationMs: number; startAt: number };
+const MAX_READING_GAP_MS = 5 * 60_000;
+
+function groupReadingSlices(slices: readonly ReadingSlice[]) {
+  const rows: Array<ReadingSlice & { endAt: number }> = [];
+  for (const slice of [...slices].sort((a, b) => a.startAt - b.startAt)) {
+    const previous = rows.at(-1);
+    const { session, startAt, durationMs } = slice;
+    const endAt = startAt + durationMs;
+    if (previous && previous.session.bookId === session.bookId
+      && previous.session.mode === session.mode && previous.session.timezoneOffsetMinutes === session.timezoneOffsetMinutes
+      && startAt - previous.endAt <= MAX_READING_GAP_MS) {
+      previous.durationMs += durationMs;
+      previous.endAt = Math.max(previous.endAt, endAt);
+    } else {
+      rows.push({ ...slice, endAt });
+    }
+  }
+  return rows.reverse();
+}
+
 const dateKey = (year: number, month: number, day: number) => (
   `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 );
@@ -79,14 +100,11 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
   const currentData = data?.ownerKey === ownerKey ? data : null;
   const statistics = useMemo(() => {
     if (!currentData || currentData.error) return null;
-    const details = new Map<string, Map<string, { session: ReadingSessionV1; totalMs: number; startAt: number }>>();
+    const details = new Map<string, ReadingSlice[]>();
     const summary = buildReadingStatistics(currentData.sessions, getReadingStatisticsRangeBounds('all', currentData.now),
       ({ session, localDate, durationMs, startAt }) => {
-        const day = details.get(localDate) ?? new Map();
-        const row = day.get(session.sessionId) ?? { session, totalMs: 0, startAt };
-        row.totalMs += durationMs;
-        row.startAt = Math.min(row.startAt, startAt);
-        day.set(session.sessionId, row);
+        const day = details.get(localDate) ?? [];
+        day.push({ session, durationMs, startAt });
         details.set(localDate, day);
       });
     return { summary, details };
@@ -104,10 +122,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
     return [sumRange('today'), sumRange('month'), summary.totalMs];
   }, [currentData, summary]);
   const dayTotals = useMemo(() => new Map(summary?.days.map((day) => [day.localDate, day.totalMs]) ?? []), [summary]);
-  const selectedSessions = useMemo(() => {
-    return [...(statistics?.details.get(selectedDay)?.values() ?? [])]
-      .sort((a, b) => b.startAt - a.startAt);
-  }, [statistics, selectedDay]);
+  const selectedSessions = useMemo(() => groupReadingSlices(statistics?.details.get(selectedDay) ?? []), [statistics, selectedDay]);
   const rowLimit = visibleRows.day === selectedDay ? visibleRows.count : 50;
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
@@ -149,7 +164,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
               <button type="button" onClick={() => changeMonth(1)} aria-label="다음 달" className="rounded-full p-2 hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]"><ChevronRight size={17} /></button>
             </div>
           </div>
-          <div className="mt-3 grid grid-cols-7 rounded-md bg-[color-mix(in_srgb,currentColor_5%,transparent)] text-center text-xs">
+          <div className="mt-3 grid grid-cols-7 text-center text-xs">
             {['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day} className="py-2 opacity-65">{day}</span>)}
           </div>
           <div className="mt-1 grid grid-cols-7 gap-y-1">
@@ -183,14 +198,14 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
           ) : (
             <div key={selectedDay} role="region" aria-label="독서 기록 목록" tabIndex={0}
               className="mt-4 max-h-60 overflow-y-auto pr-2 [scrollbar-gutter:stable]">
-              <ul className="space-y-4">
-                {selectedSessions.slice(0, rowLimit).map(({ session, totalMs, startAt }) => (
-                  <li key={session.sessionId} className="flex items-center justify-between gap-4">
+              <ul className="mypage-divided-list">
+                {selectedSessions.slice(0, rowLimit).map(({ session, durationMs, startAt }) => (
+                  <li key={`${session.sessionId}:${startAt}`} className="flex items-center justify-between gap-4 py-1">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{displayBookTitle(session.bookTitle)}</p>
                       <p className="mt-1 text-xs opacity-55">{new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
                     </div>
-                    <span className="shrink-0 text-xs opacity-70">{formatReadingDuration(totalMs)}</span>
+                    <span className="shrink-0 text-xs opacity-70">{formatReadingDuration(durationMs)}</span>
                   </li>
                 ))}
               </ul>

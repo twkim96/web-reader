@@ -227,7 +227,7 @@ export const LibraryAnnotations: React.FC<Props> = ({
     }
   };
 
-  const actionSurface = 'bg-[color-mix(in_srgb,currentColor_5%,transparent)] focus-within:outline-2 focus-within:outline-accent-500';
+  const actionSurface = 'ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500';
 
   return (
     <section data-library-annotation-page="true" aria-label="라이브러리 전체 주석" style={themeVariables} className="flex min-w-0 flex-col">
@@ -337,31 +337,33 @@ export const LibraryAnnotations: React.FC<Props> = ({
         ) : (
           <div className="min-w-0 space-y-2.5">
             <p className="px-1 pb-1 text-[10px] font-bold opacity-45">{results.length}개 중 {visibleResults.length}개 표시</p>
-            {visibleResults.map((entry: LibraryAnnotationIndexEntry) => {
-              const { annotation } = entry;
-              const color = getHighlightColor(annotation.colorId);
-              return (
-                <article
-                  key={`${annotation.bookId}:${annotation.id}`}
-                  data-library-annotation-item={annotation.id}
-                  className="min-w-0 rounded-lg bg-[var(--viewer-mypage-surface)] p-2.5"
-                >
-                  <div className="flex items-start gap-2">
-                    <span className="mt-1 size-3 shrink-0 rounded-full" style={{ backgroundColor: color.color }} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[11px] font-black opacity-55">{bookLabels.get(annotation.bookId) ?? `알 수 없는 도서 · ${annotation.bookId}`}</p>
-                      <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap font-serif text-sm leading-snug">“{annotation.quote}”</p>
-                      {annotation.note && <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-snug opacity-65">{annotation.note}</p>}
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold opacity-40">
-                        {annotation.chapter && <span>{annotation.chapter}</span>}
-                        {annotation.progressPercent !== null && <span>{annotation.progressPercent.toFixed(1)}%</span>}
-                        <span>{dateFormatter.format(annotation.updatedAtClient)}</span>
+            <div className="mypage-divided-list">
+              {visibleResults.map((entry: LibraryAnnotationIndexEntry) => {
+                const { annotation } = entry;
+                const color = getHighlightColor(annotation.colorId);
+                return (
+                  <article
+                    key={`${annotation.bookId}:${annotation.id}`}
+                    data-library-annotation-item={annotation.id}
+                    className="mypage-book-list-item"
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1 size-3 shrink-0 rounded-full" style={{ backgroundColor: color.color }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-black opacity-55">{bookLabels.get(annotation.bookId) ?? `알 수 없는 도서 · ${annotation.bookId}`}</p>
+                        <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap font-serif text-sm leading-snug">“{annotation.quote}”</p>
+                        {annotation.note && <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-snug opacity-65">{annotation.note}</p>}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold opacity-40">
+                          {annotation.chapter && <span>{annotation.chapter}</span>}
+                          {annotation.progressPercent !== null && <span>{annotation.progressPercent.toFixed(1)}%</span>}
+                          <span>{dateFormatter.format(annotation.updatedAtClient)}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </article>
-              );
-            })}
+                  </article>
+                );
+              })}
+            </div>
             {visibleResults.length < results.length && (
               <button
                 type="button"

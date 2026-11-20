@@ -95,7 +95,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll }: {
     <section className="space-y-4" aria-label="내 평가">
       <h2 className="text-xl font-semibold">내 평가</h2>
       {status}
-      {reviews && reviews.length > 0 && <ul className="space-y-2.5">
+      {reviews && reviews.length > 0 && <ul className="mypage-divided-list">
         {reviews.map((review) => (
           <li key={review.workId} className="mypage-book-list-item space-y-2">
             <div className="flex items-center justify-between gap-2">

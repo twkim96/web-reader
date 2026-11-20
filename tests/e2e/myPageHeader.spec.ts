@@ -56,6 +56,13 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect.poll(geometry).toMatchObject({ pinned: false, twoRows: true });
     await expect(menu.getByText('대시보드')).not.toHaveClass('sr-only');
+    const collapseAt = await page.locator('[data-my-page] > header').evaluate((header) => header.getBoundingClientRect().height / 2);
+    await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
+    await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
+    await page.evaluate((height) => window.scrollTo(0, height), collapseAt);
+    await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
+    await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
+    await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate(() => window.scrollTo(0, 500));
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
     await expect(catalog.getByText('도서목록')).not.toHaveClass('sr-only');
@@ -63,6 +70,9 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   }
 
   await page.setViewportSize({ width: 393, height: 700 });
+  await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
+  await page.locator('[data-mypage-menu]').evaluate((bar) =>
+    Promise.allSettled(bar.getAnimations({ subtree: true }).map((animation) => animation.finished)));
   const before = await back.boundingBox();
   const shortcutsBefore = await shortcuts.boundingBox();
   await menu.evaluate(element => { element.scrollLeft = element.scrollWidth; });

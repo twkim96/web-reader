@@ -73,7 +73,7 @@ export function PublicReaderPage({ code }: { code: string }) {
     return (
       <section className="mypage-section space-y-4" aria-label={title}>
         <h2 className="text-lg font-semibold">{title}</h2>
-        {books?.length ? <ul className="space-y-3">
+        {books?.length ? <ul className="mypage-divided-list">
           {books.map((book) => <li key={book.workId}>
             <Link href={`/${bookDetailHref(book.workId)}`} className="group flex min-w-0 items-center gap-3 rounded-lg">
               <BookCover url={book.coverUrl} />

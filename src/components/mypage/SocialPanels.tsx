@@ -10,7 +10,7 @@ import { myPageRequest } from '../../lib/myPageSocialClient';
 import { readWishlist } from '../../lib/localWishlist';
 import { listLocalBookReviews } from '../../lib/localBookReview';
 
-const field = 'min-h-11 min-w-0 rounded-lg bg-[color-mix(in_srgb,currentColor_6%,transparent)] px-3 text-sm';
+const field = 'min-h-11 min-w-0 rounded-lg px-3 ring-1 ring-inset ring-current/15 text-sm';
 const button = 'min-h-11 rounded-full bg-accent-500 px-4 text-sm font-semibold text-white disabled:opacity-45';
 const flags: Array<{ key: keyof MyPageVisibility; label: string }> = [
   { key: 'reviews', label: '별점 및 평가 공개' },
@@ -114,7 +114,7 @@ export function MyPageSharingSettings({ owner, onWishlistImported }: { owner: Ow
           <fieldset disabled={pending} className="space-y-4">
             <label className="grid gap-1.5 text-sm">닉네임<input className={field} value={draft.nickname} onChange={(event) => setDraft({ ...draft, nickname: event.target.value })} maxLength={40} required /></label>
             <p className="text-sm">ID 코드 <strong className="ml-2 tracking-wide">{account.code}</strong></p>
-            <div className="space-y-1">
+            <div className="mypage-divided-list">
               {flags.map(({ key, label }) => <label key={key} className="flex min-h-10 items-center justify-between gap-4 text-sm">
                 {label}<input type="checkbox" checked={draft.visibility[key]} onChange={(event) => setDraft({ ...draft, visibility: { ...draft.visibility, [key]: event.target.checked } })} className="size-4 accent-[var(--accent-500)]" />
               </label>)}

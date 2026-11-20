@@ -53,7 +53,7 @@ test('corrected slices split at midnight and include the end date', () => {
   assert.deepEqual([...endDay.details.get('2026-11-21')], [['corrected', 30_000]]);
 });
 
-test('day rows show and order counted starts in the recorded timezone', async () => {
+test('day rows group nearby reading slices and exclude breaks in the recorded timezone', async () => {
   const previousTimezone = process.env.TZ;
   process.env.TZ = 'America/New_York';
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
@@ -85,15 +85,33 @@ test('day rows show and order counted starts in the recorded timezone', async ()
   try {
     await saveLocalReadingSessionV11(owner, crossing);
     await saveLocalReadingSessionV11(owner, later);
+    const eightAM = midnight + 8 * 60 * 60_000;
+    const near = (id, offset, options = {}) => session(id, eightAM + offset, eightAM + offset + 60_000, {
+      bookId: 'same', bookTitle: '같은 책', timezoneOffsetMinutes: -540,
+      localDate: getReadingSessionLocalDate(eightAM, -540), ...options,
+    });
+    for (const record of [
+      near('eight', 0), near('eight-one', 60_000), near('eight-four', 240_000),
+      near('after-gap', 601_000), near('exactly-five', 961_000),
+      near('listen', 1_021_000, { mode: 'tts' }), near('resume-screen', 1_081_000),
+      near('other-book', 1_141_000, { bookId: 'other', bookTitle: '다른 책' }),
+      near('after-other', 1_201_000),
+    ]) await saveLocalReadingSessionV11(owner, record);
     await act(async () => { root.render(React.createElement(ReadingDashboard, { ownerKey: owner, onOpenStatistics() {}, onOpenAnnotations() {} })); });
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
     await act(async () => window.document.querySelector('button[aria-label="이전 달"]').dispatchEvent(new window.Event('click', { bubbles: true })));
     const day = [...window.document.querySelectorAll('button')].find(button => button.getAttribute('aria-label')?.startsWith(`${month.getMonth() + 1}월 15일,`));
     await act(async () => day.dispatchEvent(new window.Event('click', { bubbles: true })));
     const rows = [...window.document.querySelectorAll('section[aria-label="선택한 날짜의 독서 기록"] li')].map(row => row.textContent);
-    assert.equal(rows.length, 2);
-    assert.match(rows[0], /later.*오전 12:30/);
-    assert.match(rows[1], /crossing.*오전 12:00/);
+    assert.equal(rows.length, 8);
+    assert.match(rows[0], /같은 책.*오전 8:20.*읽기1분$/);
+    assert.match(rows[1], /다른 책.*오전 8:19.*읽기1분$/);
+    assert.match(rows[2], /같은 책.*오전 8:18.*읽기1분$/);
+    assert.match(rows[3], /같은 책.*오전 8:17.*듣기1분$/);
+    assert.match(rows[4], /같은 책.*오전 8:10.*읽기2분$/);
+    assert.match(rows[5], /같은 책.*오전 8:00.*읽기3분$/);
+    assert.match(rows[6], /later.*오전 12:30/);
+    assert.match(rows[7], /crossing.*오전 12:00/);
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

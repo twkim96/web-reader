@@ -69,7 +69,7 @@ function CommunityReviews({ workId }: { workId: string }) {
         : <>
           {result.average !== null && <p className="mt-2 text-sm"><strong className="text-accent-500">{result.average.toFixed(2)} / 5</strong> <span className="opacity-65">공개 평가 {result.ratingCount.toLocaleString()}개</span></p>}
           {result.ratingCount > result.reviews.length && <p className="mt-1 text-xs opacity-60">최근 {result.reviews.length}개의 평가</p>}
-          <ul className="mt-4 space-y-5">
+          <ul className="mypage-divided-list mt-4">
             {result.reviews.map((review, index) => (
               <li key={review.author?.code ?? index} className="min-w-0 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -221,7 +221,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
           </div>
         </div>
         {platforms.size > 0 && (
-          <ul className="mt-5 grid gap-3 sm:grid-cols-3">
+          <ul className="mypage-divided-list mt-5 sm:grid-cols-3 sm:[&>li::after]:hidden">
             {[...platforms].map(([key, { label, url, metrics }]) => (
               <li key={key} className="min-w-0">
                 <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 text-sm font-medium text-accent-500">{label}<ArrowUpRight size={14} /></a>
@@ -247,7 +247,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
           {personal.bookmarks.length > 0 && (
             <div className="mt-4">
               <h3 className="text-xs opacity-65">책갈피</h3>
-              <ul className="mt-2 space-y-2">
+              <ul className="mypage-divided-list mt-2">
                 {personal.bookmarks.map(({ id, name, progressPercent }) => <li key={id} className="flex items-start gap-2 text-sm"><BookmarkIcon size={14} className="mt-0.5 shrink-0 text-accent-500" /><span className="min-w-0 flex-1 break-words">{name || '책갈피'}</span>{progressPercent !== undefined && <span className="shrink-0 text-xs tabular-nums opacity-65">{formatPercent(progressPercent)}</span>}</li>)}
               </ul>
             </div>

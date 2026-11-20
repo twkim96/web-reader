@@ -177,7 +177,6 @@ export const getThemeCssVariables = (settings: ThemeLookupSettings): CSSProperti
     '--viewer-theme-text': textColor,
     '--viewer-theme-border': `rgba(${textRgb}, 0.18)`,
     '--viewer-theme-secondary': secondaryColor,
-    '--viewer-mypage-surface': mixHex(bgColor, textColor, lightBackground ? 0.05 : 0.09),
     '--viewer-theme-action-soft': actionSoftColor,
     '--viewer-theme-action-strong': actionStrongColor,
     '--viewer-reader-surface': `rgba(${bgRgb}, 0.68)`,

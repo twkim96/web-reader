@@ -190,7 +190,7 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
           <fieldset disabled={pending} className="min-w-0">
             <input type="text" aria-label="한줄평 (선택)" placeholder="한줄평 (선택)" value={comment}
               onChange={(event) => setComment(event.target.value)} maxLength={BOOK_REVIEW_TEXT_LIMIT}
-              className="h-10 w-full rounded-lg bg-[color-mix(in_srgb,currentColor_5%,transparent)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-accent-500" />
+              className="h-10 w-full rounded-lg px-3 ring-1 ring-inset ring-current/15 text-sm focus-visible:outline-2 focus-visible:outline-accent-500" />
             <div className="mt-2 flex flex-wrap justify-end gap-2">
               {(accountReview ? editingAccountReview : review) && <button type="button" onClick={remove} className={`mr-auto ${secondaryAction}`}>평가 삭제</button>}
               <button type="button" onClick={() => { setEditing(false); setFeedback(''); }} className={secondaryAction}>취소</button>
@@ -388,7 +388,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
         읽은 책{visibleBooks && visibleBooks.length > 0 && <span className="ml-2 text-xs font-normal opacity-55">{visibleBooks.length.toLocaleString()}권</span>}
       </h2>
       {status}
-      <div className="grid gap-2.5">
+      <div className="mypage-divided-list">
         {visibleBooks?.slice(0, visibleCount).map((book) => <ReadBookRow key={book.id} book={book} ownerKey={ownerKey} onOpenBook={onOpenBook} accountReview={accountStorage ? {
           value: findReviewWork(accountIndex, book),
           deletion: findReviewWork(deletionIndex, book),

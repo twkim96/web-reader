@@ -104,16 +104,33 @@ body {
 
 .mypage-section {
   min-width: 0;
-  padding: clamp(1rem, 2.5vw, 1.5rem);
-  border-radius: 14px;
-  background-color: var(--viewer-mypage-surface);
+  padding-block: 0.5rem;
 }
 
 .mypage-book-list-item {
   min-width: 0;
-  padding: 0.625rem;
-  border-radius: 0.625rem;
-  background-color: var(--viewer-mypage-surface);
+  padding-block: 0.375rem;
+}
+
+.mypage-divided-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.mypage-divided-list > :not(:last-child) {
+  position: relative;
+}
+
+.mypage-divided-list > :not(:last-child)::after {
+  content: '';
+  position: absolute;
+  bottom: -0.375rem;
+  left: 50%;
+  width: 2rem;
+  height: 1px;
+  transform: translate(-50%, 50%);
+  background-color: var(--viewer-theme-border);
+  pointer-events: none;
 }
 
 /* Shared geometry for metadata tags, genres, formats, and status chips. */

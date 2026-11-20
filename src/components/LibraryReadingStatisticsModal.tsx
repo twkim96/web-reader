@@ -110,7 +110,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 }) => {
   const Header = embedded ? StatisticsPageHeader : MenuSheetHeader;
   const sectionClass = embedded ? '' : `app-menu-sheet-section border ${theme.border}`;
-  const embeddedCardClass = 'rounded-lg bg-[var(--viewer-mypage-surface)] px-2.5 py-2 sm:px-3';
   const displayBookTitle = useBookTitleDisplay();
   const [sessions, setSessions] = useState<StoredReadingSessionV11[]>([]);
   const [range, setRange] = useState<ReadingStatisticsRange>('week');
@@ -513,7 +512,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
             <>
               <div className={embedded ? 'grid grid-cols-3 gap-3 sm:gap-6' : 'grid grid-cols-3 gap-1.5'}>
                 {(['today', 'week', 'month'] as const).map((value) => (
-                  <div key={value} data-reading-statistics-headline={value} className={`min-w-0 ${embedded ? embeddedCardClass : `${sectionClass} rounded-xl px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}`}>
+                  <div key={value} data-reading-statistics-headline={value} className={`min-w-0 ${embedded ? '' : `${sectionClass} rounded-xl px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}`}>
                     <div className={embedded ? 'text-xs opacity-60' : 'text-[10px] font-bold opacity-50'}>{rangeLabels.find((item) => item.value === value)?.label}</div>
                     <div className={embedded ? 'mt-1.5 text-base font-semibold tabular-nums sm:text-xl' : 'mt-0.5 truncate text-xs font-black sm:text-base'}>{formatReadingDuration(headlineTotals[value])}</div>
                   </div>
@@ -528,7 +527,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                     data-reading-statistics-range={item.value}
                     onClick={() => setRange(item.value)}
                     aria-pressed={range === item.value}
-                    className={`min-h-8 min-w-[3.75rem] flex-1 rounded-lg px-2 text-[11px] font-bold sm:min-h-9 sm:rounded-xl sm:text-xs ${range === item.value ? (embedded ? 'bg-accent-500/10 text-accent-500' : 'bg-accent-600 text-white') : 'opacity-60 hover:opacity-100'}`}
+                    className={`min-h-8 min-w-[3.75rem] flex-1 rounded-lg px-2 text-[11px] font-bold sm:min-h-9 sm:rounded-xl sm:text-xs ${range === item.value ? (embedded ? 'text-accent-500' : 'bg-accent-600 text-white') : 'opacity-60 hover:opacity-100'}`}
                   >
                     {item.label}
                   </button>
@@ -536,11 +535,11 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
               </div>
 
               <div className={embedded ? 'mt-5 grid grid-cols-2 gap-3 sm:gap-6' : 'mt-2.5 grid grid-cols-2 gap-1.5'}>
-                <div className={embedded ? embeddedCardClass : `${sectionClass} rounded-xl px-2.5 py-2 sm:rounded-2xl`}>
+                <div className={embedded ? '' : `${sectionClass} rounded-xl px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Monitor size={14} /> 화면 독서</div>
                   <div data-reading-statistics-mode-total="screen" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.screenMs)}</div>
                 </div>
-                <div className={embedded ? embeddedCardClass : `${sectionClass} rounded-xl px-2.5 py-2 sm:rounded-2xl`}>
+                <div className={embedded ? '' : `${sectionClass} rounded-xl px-2.5 py-2 sm:rounded-2xl`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Headphones size={14} /> TTS 듣기</div>
                   <div data-reading-statistics-mode-total="tts" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.ttsMs)}</div>
                 </div>
@@ -570,7 +569,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                 </div>
               </div>
 
-              <div className={`mt-2 grid min-w-0 ${embedded ? 'gap-2.5' : 'gap-1.5'}`}>
+              <div className={`mt-2 grid min-w-0 ${embedded ? 'mypage-divided-list' : 'gap-1.5'}`}>
                 {visibleBookRounds.length === 0 ? (
                   <div className={`text-sm opacity-60 ${embedded ? 'py-4' : `${sectionClass} rounded-2xl py-12 text-center`}`}>아직 기록된 독서 시간이 없습니다.</div>
                 ) : visibleBookRounds.map((book) => {
@@ -603,7 +602,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                         sourceSessionIds: book.sourceSessionIds,
                       });
                     }}
-                    className={`min-w-0 touch-manipulation select-none overflow-hidden ${embedded ? embeddedCardClass : `${sectionClass} rounded-xl px-2.5 py-2`}`}
+                    className={`min-w-0 touch-manipulation select-none ${embedded ? 'mypage-book-list-item' : `${sectionClass} overflow-hidden rounded-xl px-2.5 py-2`}`}
                   >
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">
