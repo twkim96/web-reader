@@ -28,24 +28,22 @@ Firestore 게시와 탐색 갱신을 함께 할 때는 승인된 기존 `--apply
 
 ## Control Server 경로
 
-로컬 Control Server의 저장된 Action 설정은 cwd `/Users/twkim/Documents/web_reader`에서 게시 스크립트를 직접 호출합니다. 미리보기에는 `--apply`가 없고 실제 게시에는 아래의 `--apply --project web-novel-viewer`가 있습니다. Markdown 경로를 실행 입력으로 사용하지 않으므로 게시 안내는 이 운영 가이드에서만 유지합니다. 저장된 설정 확인은 서비스 실행·게시 성공 증거와 별개이며, 실행 전 Action의 cwd·명령·대상 프로젝트를 다시 확인합니다.
+`http://127.0.0.1:9000`의 `Services` 탭에서 `Web Reader` Action Group을 엽니다.
 
-`http://127.0.0.1:9000`의 `Services` 탭에서 `Web Reader` Action Group을 연다.
+1. **도서 메타데이터 게시 미리보기**로 문서 수, 충돌 수, generation과 최대 문서 크기를 확인합니다.
+2. **도서 메타데이터 게시 + 프리뷰 배포**를 실행합니다. [프리뷰 게시 스크립트](../../scripts/publish-book-metadata-preview.py)가 Firestore의 `web-novel-viewer` 프로젝트에 게시하고, 같은 SQLite 읽기 스냅샷으로 탐색 인덱스를 생성합니다.
+3. Firestore 게시가 성공하면 임시 작업 공간에서 인덱스 파일만 `preview/mypage`에 커밋·푸시합니다. 파일이 동일하면 새 커밋을 만들지 않습니다. 작업 로그에서 Vercel의 빌드 결과를 확인합니다.
+4. 서재는 새 Firestore manifest를 읽고, 마이페이지 도서목록은 [프리뷰](https://twreader-git-preview-mypage-twkims-projects-b9c7f5a3.vercel.app/#mypage)의 새 인덱스를 읽습니다.
 
-1. `도서 메타데이터 게시 미리보기`로 문서 수, 충돌 수, generation과 최대 문서 크기를 확인한다.
-2. 실제 게시 Action의 환경변수에 아래 둘 중 하나를 설정한다.
-   - `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`: 한 줄 JSON 서비스 계정 값
-   - `GOOGLE_APPLICATION_CREDENTIALS`: 로컬 서비스 계정 JSON의 절대 경로
-3. `도서 메타데이터 Firestore 게시`를 실행한다.
-4. Web Reader를 다시 열거나 새로고침해 새 manifest generation을 읽는다.
+Action은 `/Users/twkim/Documents/web_reader`에서 기존 Python 인터프리터와 Firestore 인증을 사용합니다. `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`에 서비스 계정 JSON을 넣거나 `GOOGLE_APPLICATION_CREDENTIALS`에 로컬 서비스 계정 JSON의 절대 경로를 설정합니다. 실행 계정에는 GitHub 프리뷰 브랜치 푸시 권한과 `gh` 로그인이 필요합니다.
 
-실제 게시 Action은 다음 명령과 같다.
+이미 Firestore를 게시했다면 다음 명령으로 프리뷰 인덱스만 갱신할 수 있습니다.
 
 ```bash
-/opt/anaconda3/bin/python3 -u scripts/publish-book-metadata.py \
-  --apply \
-  --project web-novel-viewer
+/opt/anaconda3/bin/python3 -u scripts/publish-book-metadata-preview.py --preview-only
 ```
+
+Git 푸시 뒤 Vercel 빌드가 실패하면 로그에 표시된 커밋의 빌드를 Vercel에서 다시 실행합니다.
 
 기존 운영 기록에는 256개 상세 bucket이 생성되어 있다. 실제 대상의 기존 문서를 확인한 정기 갱신에서는 `--allow-create`를 사용하지 않는다. 최초 생성이 필요하면 dry-run 결과와 대상 프로젝트를 먼저 확인한다.
 compact catalog는 새 immutable generation을 생성·검증한 뒤 manifest를 마지막에 전환한다.

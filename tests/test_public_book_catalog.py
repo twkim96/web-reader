@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import subprocess
 import sys
 import io
 import json
@@ -26,6 +27,62 @@ if PUBLISHER_SPEC is None or PUBLISHER_SPEC.loader is None:
     raise RuntimeError("publisher module could not be loaded")
 PUBLISHER = importlib.util.module_from_spec(PUBLISHER_SPEC)
 PUBLISHER_SPEC.loader.exec_module(PUBLISHER)
+
+
+PREVIEW_SPEC = importlib.util.spec_from_file_location(
+    "publish_book_metadata_preview",
+    Path(__file__).resolve().parents[1] / "scripts" / "publish-book-metadata-preview.py",
+)
+if PREVIEW_SPEC is None or PREVIEW_SPEC.loader is None:
+    raise RuntimeError("preview publisher module could not be loaded")
+PREVIEW = importlib.util.module_from_spec(PREVIEW_SPEC)
+PREVIEW_SPEC.loader.exec_module(PREVIEW)
+
+
+class DiscoveryPreviewPublishTests(unittest.TestCase):
+    def test_pushes_only_the_index_after_firestore_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            remote = root / "remote.git"
+            repo = root / "repo"
+            PREVIEW.git("init", "--bare", str(remote), cwd=root)
+            PREVIEW.git("init", str(repo), cwd=root)
+            PREVIEW.git("config", "user.name", "Catalog test", cwd=repo)
+            PREVIEW.git("config", "user.email", "catalog@example.test", cwd=repo)
+            PREVIEW.git("remote", "add", "origin", str(remote), cwd=repo)
+            index = repo / PREVIEW.INDEX
+            index.parent.mkdir(parents=True)
+            index.write_text("old")
+            script = repo / "scripts/publish-book-metadata.py"
+            script.parent.mkdir()
+            script.write_text(
+                "from pathlib import Path\n"
+                "import os, sys\n"
+                "assert sys.argv[3:] == ['--apply', '--project', 'web-novel-viewer']\n"
+                "Path(sys.argv[2]).write_text('new')\n"
+                "Path('unstaged.txt').write_text('local only')\n"
+                "sys.exit(int(os.getenv('CATALOG_TEST_FAILURE', '0')))\n"
+            )
+            PREVIEW.git("add", ".", cwd=repo)
+            PREVIEW.git("commit", "-m", "Fixture", cwd=repo)
+            PREVIEW.git("push", "origin", "HEAD:refs/heads/main", f"HEAD:{PREVIEW.BRANCH}", cwd=repo)
+
+            def tip(ref):
+                return PREVIEW.git("rev-parse", ref, cwd=remote, capture=True).stdout.strip()
+
+            original = tip(PREVIEW.BRANCH)
+            with patch.dict("os.environ", {"CATALOG_TEST_FAILURE": "1"}):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    PREVIEW.update_preview(repo, preview_only=False)
+            self.assertEqual(tip(PREVIEW.BRANCH), original)
+
+            commit = PREVIEW.update_preview(repo, preview_only=False)
+            self.assertNotEqual(commit, original)
+            self.assertEqual(tip(PREVIEW.BRANCH), commit)
+            self.assertEqual(tip("refs/heads/main"), original)
+            committed = PREVIEW.git("diff-tree", "--no-commit-id", "--name-only", "-r", commit, cwd=remote, capture=True)
+            self.assertEqual(committed.stdout.splitlines(), [PREVIEW.INDEX])
+            self.assertEqual(PREVIEW.update_preview(repo, preview_only=False), commit)
 
 
 class PublicBookCatalogPublisherTests(unittest.TestCase):
