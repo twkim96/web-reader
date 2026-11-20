@@ -131,7 +131,7 @@ export const loadBookDiscovery = createDiscoveryLoader(async (retry) => {
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
     const response = await fetch(DISCOVERY_INDEX_PATH, {
-      credentials: 'omit',
+      credentials: 'same-origin',
       headers: { Accept: 'application/json' },
       signal: controller.signal,
       cache: retry ? 'reload' : 'default',

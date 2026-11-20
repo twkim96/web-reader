@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDiscoveryLoader, groupDiscoveryBooks, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
+import { createDiscoveryLoader, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
 import { createReadMetadataLoader } from '../src/lib/readBookMetadata.ts';
 import { buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
@@ -44,6 +44,16 @@ test('a discovery asset is lazy, shared across callers, and retryable after a ba
   assert.equal(recovered[0].id, 'stable-title-key');
   assert.equal(await load(), recovered);
   assert.deepEqual(retries, [false, true]);
+});
+
+test('the protected preview can load its same-origin discovery catalog after sign-in', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, '/catalog/discovery.v1.json');
+    return options.credentials === 'same-origin'
+      ? Response.json(index)
+      : new Response('Vercel Authentication', { status: 401 });
+  });
+  assert.equal((await loadBookDiscovery())[0].id, 'stable-title-key');
 });
 
 test('discovery joins transitive catalog aliases and retains distinct links on the same platform', () => {
