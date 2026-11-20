@@ -150,6 +150,8 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
   });
   const start = Date.UTC(2026, 10, 20, 5);
   let committed = { workId: title, rating: 2, comment: '', revision: 1, totalMs: 60_000, progressPercent: 20 };
+  const unread = { ...book, id: 'unread-metadata', title: '읽기 전 작품' };
+  const unreadRating = { workId: unread.id, rating: 3, revision: 1, comment: '', totalMs: null, progressPercent: null };
   const writes = [];
   let rejectFirst;
   const scrollTargets = [];
@@ -159,13 +161,15 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     if (String(url).startsWith('/api/book-reviews?')) return Response.json({ reviews: [], ratingCount: 0, average: null });
     assert.match(String(url), /^\/api\/mypage\?/);
     if (options.method === 'GET') return Response.json(String(url).includes('view=wishlist')
-      ? { entries: [] } : { reviews: [committed], deletions: [] });
+      ? { entries: [{ book: unread, item: { saved: true, addedAt: start, revision: 1, workId: unread.id }, aliases: [] }] }
+      : { reviews: writes.length >= 5 ? [committed, unreadRating] : [committed], deletions: [] });
     writes.push(JSON.parse(options.body));
     if (writes.length === 1) return new Promise((_, reject) => { rejectFirst = reject; });
     if (writes.length === 4) {
       committed = { ...committed, rating: writes[3].rating, revision: 2 };
       return Response.json({ review: committed });
     }
+    if (writes.length === 5) return Response.json({ review: unreadRating });
     return new Response(null, { status: 503 });
   });
   const visible = (selector) => window.document.querySelector(selector);
@@ -179,6 +183,9 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
       session, { ...session, sessionId: 'unrated-session', bookId: 'unrated-book', bookTitle: '처음 평가할 책' },
     ], null, null, true, false);
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
+    assert.deepEqual([...visible('nav').querySelectorAll('button')].map((button) => button.querySelector('span').textContent), [
+      '대시보드', '도서목록', '둘러보기', '읽은 책', '위시리스트', '내 평가', '통계', '주석',
+    ]);
     const unratedLink = 'a[aria-label="처음 평가할 책 내 평가, 미평가"]';
     const ratedLink = `a[aria-label="${title} 내 평가, 별점 2점"]`;
     for (let attempt = 0; attempt < 20 && !visible(ratedLink); attempt++) await act(async () => delay(20));
@@ -214,6 +221,19 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.ok(editor().querySelector('[aria-label="별점 5점"]'));
     await click(window, visible('button[aria-label="도서 목록으로 돌아가기"]'));
     assert.ok(visible(`a[aria-label="${title} 내 평가, 별점 5점"]`));
+    await click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent.startsWith('위시리스트')));
+    await click(window, visible(`a[aria-label="${unread.title}"]`));
+    await act(async () => { await delay(0); });
+    assert.equal(visible('[aria-label="내 독서 기록"]'), null);
+    const unreadStar = editor().querySelector('button[aria-label="3점"]');
+    assert.equal(unreadStar.disabled, false);
+    await click(window, unreadStar);
+    await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(writes[4].workId, unread.id);
+    assert.equal(writes[4].rating, 3);
+    assert.deepEqual(writes[4].fileIds, []);
+    assert.equal(writes[4].readingSnapshot, null);
+    assert.ok(editor().querySelector('[aria-label="별점 3점"]'));
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

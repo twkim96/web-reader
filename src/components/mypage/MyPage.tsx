@@ -25,13 +25,13 @@ import type { SyncHealth } from '../../lib/syncHealth';
 type Tab = 'overview' | 'wishlist' | 'read' | 'discover' | 'statistics' | 'annotations' | 'browse' | 'sharing' | 'reviews';
 const tabs = [
   { id: 'overview', label: '대시보드', icon: LayoutDashboard },
-  { id: 'wishlist', label: '위시리스트', icon: Heart },
-  { id: 'read', label: '읽은 책', icon: BookOpenCheck },
   { id: 'discover', label: '도서목록', icon: BookCopy },
-  { id: 'statistics', label: '독서 통계', icon: ChartNoAxesColumn },
-  { id: 'annotations', label: '주석', icon: Highlighter },
   { id: 'browse', label: '둘러보기', icon: Compass },
+  { id: 'read', label: '읽은 책', icon: BookOpenCheck },
+  { id: 'wishlist', label: '위시리스트', icon: Heart },
   { id: 'reviews', label: '내 평가', icon: Star },
+  { id: 'statistics', label: '통계', icon: ChartNoAxesColumn },
+  { id: 'annotations', label: '주석', icon: Highlighter },
   { id: 'sharing', label: '공개 설정', icon: Settings2 },
 ] as const;
 const headerActions = [
@@ -273,10 +273,9 @@ export function MyPage(props: Props) {
                 </button>
               ))}
             </div>
-            {compactMenu && <>
-              <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute left-16 top-4.5 h-4 w-px bg-current/25 sm:left-[4.75rem]" />
+            {compactMenu && (
               <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
-            </>}
+            )}
             <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex gap-1 overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
               {tabs.filter(({ id }) => id !== 'sharing' && (signedIn || id !== 'reviews')).map(({ id, label, icon: Icon }) => {
                 const selected = tab === id;
@@ -300,7 +299,7 @@ export function MyPage(props: Props) {
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
-          {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 sm:space-y-10">
+          {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
             <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
               onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
               {wishlist.loading ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>

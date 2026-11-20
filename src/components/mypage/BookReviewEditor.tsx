@@ -13,7 +13,7 @@ const secondaryAction = 'min-h-10 rounded-full px-3 text-xs font-medium hover:bg
 
 export function BookReviewEditor({
   ownerKey, workId, platformWorkKeys, fileIds, readingSnapshot, review, deletion, ready,
-  canReview, loadingHistory, error, refresh, change, headingRef,
+  loadingHistory, error, refresh, change, headingRef,
 }: {
   ownerKey: OwnerKey;
   workId: string;
@@ -23,7 +23,6 @@ export function BookReviewEditor({
   review?: MyPageReview;
   deletion?: MyPageReviewDeletion;
   ready: boolean;
-  canReview: boolean;
   loadingHistory: boolean;
   error: string;
   refresh: () => void;
@@ -95,9 +94,8 @@ export function BookReviewEditor({
       {guest ? <p className="mt-2 text-sm opacity-65">로그인 후 평가를 남길 수 있습니다.</p>
         : error ? <p role="alert" className="mt-2 text-sm text-accent-500">{error} <button type="button" onClick={refresh} className="underline">다시 시도</button></p>
         : !ready || loadingHistory ? <p role="status" className="mt-2 text-sm opacity-65">평가를 불러오는 중…</p>
-        : !canReview && !review && !deletion ? <p className="mt-2 text-sm opacity-65">독서 기록이 있는 도서에 평가를 남길 수 있습니다.</p>
         : null}
-      {!guest && (canReview || review || deletion) && <>
+      {!guest && <>
         <div role="group" aria-label={rating ? `별점 ${rating}점` : '별점 미평가'} className="mt-2 flex">
           {[1, 2, 3, 4, 5].map((value) => (
             <button key={value} type="button" aria-label={`${value}점`} aria-pressed={value <= rating}

@@ -39,6 +39,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   const dividers = page.locator('[data-mypage-header-divider]');
   const catalog = menu.getByRole('button', { name: '도서목록' });
   await expect(catalog).toHaveAttribute('aria-current', 'page');
+  await expect(menu.getByRole('button')).toHaveText(['대시보드', '도서목록', '둘러보기', '읽은 책', /^위시리스트/, '통계', '주석']);
   const firstBook = page.getByRole('link', { name: '테스트 도서 0', exact: true });
   await expect(firstBook).toBeVisible();
   const geometry = () => page.locator('[data-mypage-menu]').evaluate((bar) => {
@@ -69,7 +70,12 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate((height) => window.scrollTo(0, height), collapseAt);
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-    await expect(dividers).toHaveCount(2);
+    await expect(dividers).toHaveCount(1);
+    const line = await dividers.boundingBox();
+    const shortcutsBox = await shortcuts.boundingBox();
+    const menuBox = await menu.boundingBox();
+    expect(line!.x).toBeGreaterThanOrEqual(menuBox!.x + menuBox!.width);
+    expect(line!.x + line!.width).toBeLessThanOrEqual(shortcutsBox!.x);
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate(() => window.scrollTo(0, 500));
@@ -128,6 +134,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await search.fill('테스트 도서 72');
   await expect(match).toBeVisible();
   await expect(firstBook).toHaveCount(0);
+  await assertDashboardCovers(page, menu.getByRole('button', { name: '대시보드' }));
   await shortcuts.getByRole('button', { name: '내 서재' }).click();
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
   await page.goto('/#mypage/book/menu-test-0/review');
@@ -142,11 +149,32 @@ async function assertDivider(link: import('@playwright/test').Locator) {
     return [parseFloat(line.left), parseFloat(line.right), parseFloat(line.width), item.clientWidth,
       parseFloat(line.height), line.backgroundColor, getComputedStyle(item).backgroundColor] as const;
   });
-  expect(left).toBeGreaterThan(0);
-  expect(right).toBeGreaterThan(0);
+  expect(left).toBeLessThan(0);
+  expect(right).toBeLessThan(0);
   expect(left).toBeCloseTo(right, 0);
-  expect(width).toBeGreaterThan(row * 0.75);
+  expect(width).toBeGreaterThan(row);
+  expect(width - row).toBeLessThan(12);
   expect(height).toBeGreaterThan(0);
   expect(color).not.toBe('rgba(0, 0, 0, 0)');
   expect(background).toBe('rgba(0, 0, 0, 0)');
+}
+
+async function assertDashboardCovers(page: import('@playwright/test').Page, dashboard: import('@playwright/test').Locator) {
+  await page.route('**/api/mypage?*', route => route.fulfill({ json: { groups: [{
+    reader: { code: '00000001', nickname: '독자' },
+    books: [{ workId: 'sample', title: '비교 도서', coverUrl: null, rating: 5 }],
+  }], next: null } }));
+  await page.getByRole('button', { name: '둘러보기', exact: true }).click();
+  const coverSize = () => page.locator('[data-dashboard-book-row] a > div').first().evaluate(cover => {
+    const { width, height } = cover.getBoundingClientRect();
+    return { width, height };
+  });
+  await expect(page.getByRole('link', { name: '비교 도서' })).toBeVisible();
+  const browse = await coverSize();
+  await dashboard.click();
+  await expect(page.locator('[data-dashboard-book-row] a').first()).toBeVisible();
+  const compact = await coverSize();
+  expect(compact.width / browse.width).toBeCloseTo(0.7, 2);
+  expect(compact.height / browse.height).toBeCloseTo(0.7, 2);
+  expect(compact.width / compact.height).toBeCloseTo(2 / 3, 2);
 }

@@ -277,7 +277,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
         readingSnapshot={readBook?.fileIds?.length ? { totalMs: Math.round(readBook.totalMs), progressPercent: readBook.progressPercent }
           : personal.totalMs > 0 ? { totalMs: Math.round(personal.totalMs), progressPercent: personal.progressPercent } : null}
         review={findReviewWork(reviewIndex, work)} deletion={findReviewWork(deletionIndex, work)}
-        ready={reviews.ready} canReview={personal.hasRead || Boolean(readBook)} loadingHistory={!history && !historyFailed && !readBook}
+        ready={reviews.ready} loadingHistory={!history && !historyFailed && !readBook}
         error={reviews.error} refresh={reviews.refresh} change={reviews.change} headingRef={reviewHeading} />
       <CommunityReviews key={`${lookupId}:${reviews.changeVersion}`} workId={lookupId} />
     </>

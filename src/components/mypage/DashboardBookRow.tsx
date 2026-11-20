@@ -38,7 +38,7 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
           onDragStart={(event) => event.preventDefault()}
           className="mt-3 flex gap-3 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] sm:gap-4 [&::-webkit-scrollbar]:hidden data-[mouse-dragging=true]:cursor-grabbing data-[mouse-dragging=true]:select-none">
           {books.slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map((book) => (
-            <li key={book.id} className="w-[clamp(5.5rem,29vw,7.5rem)] shrink-0">
+            <li key={book.id} className="w-[var(--mypage-cover-width,clamp(5.5rem,29vw,7.5rem))] shrink-0">
               <BookDetailLink bookId={book.id} onOpen={() => onOpenBook(book)} label={book.title}
                 className="group block rounded-lg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
                 <BookCover url={book.coverUrl} large proxy={proxy} />

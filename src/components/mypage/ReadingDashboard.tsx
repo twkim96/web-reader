@@ -197,7 +197,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
             <p className="mt-3 text-sm opacity-60">이날 읽은 기록이 없습니다.</p>
           ) : (
             <div key={selectedDay} role="region" aria-label="독서 기록 목록" tabIndex={0}
-              className="mt-4 max-h-60 overflow-y-auto pr-2 [scrollbar-gutter:stable]">
+              className="-ml-1 mt-4 max-h-60 overflow-y-auto pr-2 pl-1 [scrollbar-gutter:stable]">
               <ul className="mypage-divided-list">
                 {selectedSessions.slice(0, rowLimit).map(({ session, durationMs, startAt }) => (
                   <li key={`${session.sessionId}:${startAt}`} className="flex items-center justify-between gap-4 py-1">
