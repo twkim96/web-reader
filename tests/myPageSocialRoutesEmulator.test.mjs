@@ -75,10 +75,19 @@ test('an on-demand title uses its published edition across account review saves 
   const input = { workId: queryTitle, platformWorkKeys: [key, unknownKey], rating: 3, comment: '', revision: null, fileIds: ['alias-file'] };
   const conflictingKeys = [key, platformWorkKey(other.platforms[0].id, other.platforms[0].url)];
   assert.equal((await post('review', idToken, { ...input, platformWorkKeys: conflictingKeys })).status, 404);
+  assert.equal((await post('review', idToken, { ...input, workId: work.id, platformWorkKeys: [unknownKey] })).status, 404);
   const saved = (await ok(post('review', idToken, input))).review;
   assert.equal(saved.workId, work.id);
   assert.equal(saved.totalMs, 60000);
   assert.equal(saved.progressPercent, 52);
+  const staleKey = platformWorkKey(other.platforms[0].id, other.platforms[0].url);
+  assert.equal((await post('review', idToken, { ...input, workId: other.id, detailWorkId: work.id,
+    revision: null, platformWorkKeys: [staleKey] })).status, 404);
+  assert.equal((await post('review', idToken, { ...input, workId: work.id, detailWorkId: work.id,
+    revision: saved.revision, platformWorkKeys: [key, staleKey] })).status, 404);
+  assert.equal((await post('review', idToken, { ...input, workId: work.id, revision: saved.revision, platformWorkKeys: [staleKey] })).status, 404);
+  assert.equal((await post('review', idToken, { workId: work.id, revision: saved.revision, remove: true, platformWorkKeys: [staleKey] })).status, 404);
+  assert.equal((await post('review', idToken, { workId: work.id, revision: saved.revision, remove: true, platformWorkKeys: [unknownKey] })).status, 404);
 
   const reloaded = (await ok(get({ view: 'reviews' }, secondDevice))).reviews[0];
   assert.equal(reloaded.workId, work.id);
@@ -86,7 +95,7 @@ test('an on-demand title uses its published edition across account review saves 
   assert.ok(!reloaded.aliases.includes(queryTitle));
 
   const { review: updated } = await ok(post('review', secondDevice, {
-    workId: reloaded.workId, revision: reloaded.revision, rating: 5, comment: '수정', fileIds: ['alias-file'],
+    workId: reloaded.workId, revision: reloaded.revision, rating: 5, comment: '수정', fileIds: ['alias-file'], platformWorkKeys: [key, unknownKey],
   }));
   assert.equal(updated.rating, 5);
   assert.equal(updated.workId, work.id);
@@ -95,10 +104,14 @@ test('an on-demand title uses its published edition across account review saves 
   assert.deepEqual(deleted.reviews, []);
   assert.equal(deleted.deletions[0].workId, work.id);
   assert.ok(deleted.deletions[0].platformWorkKeys.includes(key));
+  assert.equal((await post('review', idToken, {
+    ...input, workId: work.id, revision: deleted.deletions[0].revision, platformWorkKeys: [staleKey],
+  })).status, 404);
   const restored = (await ok(post('review', idToken, {
     ...input, workId: work.id, revision: deleted.deletions[0].revision,
   }))).review;
   assert.equal(restored.workId, work.id);
+  await ok(post('review', idToken, { workId: work.id, revision: restored.revision, remove: true, platformWorkKeys: [key, unknownKey] }));
 });
 
 test('an edit preserves verified private and public reading evidence when session lookup fails', async (t) => {
@@ -181,9 +194,12 @@ test('local review reading saves immediately and missing reading fills after the
 
   await ok(post('review', idToken, { workId, revision: initial.revision, remove: true }));
   const { deletions: [removed] } = await ok(get({ view: 'reviews' }, idToken));
-  const { review: pending } = await save({ ...input, revision: removed.revision, readingSnapshot: null });
+  const retryInput = { ...input, revision: removed.revision, readingSnapshot: null, saveId: crypto.randomUUID() };
+  const { review: pending } = await save(retryInput);
   assert.equal(pending.totalMs, null);
   assert.equal(sessionQueries, 0);
+  assert.equal(deferred.length, 1);
+  assert.equal((await save(retryInput)).review.revision, pending.revision);
   assert.equal(deferred.length, 1);
   await deferred.shift()();
   assert.ok(sessionQueries > 0);
@@ -191,6 +207,10 @@ test('local review reading saves immediately and missing reading fills after the
   assert.equal(filled.revision, pending.revision);
   assert.equal(filled.totalMs, 60000);
   assert.equal((await workReviews(workId)).reviews.find(({ author }) => author.code === code).progressPercent, 55);
+  const queriesAfterFill = sessionQueries;
+  assert.equal((await save(retryInput)).review.totalMs, 60000);
+  assert.equal(deferred.length, 0);
+  assert.equal(sessionQueries, queriesAfterFill);
 
   const { review: beforeEdit } = await save({ ...input, revision: filled.revision, readingSnapshot: null });
   const { review: latest } = await save({ ...input, rating: 5, revision: beforeEdit.revision, readingSnapshot: local });

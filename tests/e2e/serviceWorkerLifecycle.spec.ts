@@ -3,6 +3,9 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 
 test('same-version build updates its imported worker script and prepares the new offline shell', async ({ page }) => {
+  // Playwright routing disables Chromium's browser cache and forces request
+  // revalidation. This local fixture has no authentication iframe to intercept.
+  await page.unrouteAll();
   const [worker, policy] = await Promise.all([
     readFile('public/sw.js', 'utf8'), readFile('public/sw-policy.js', 'utf8'),
   ]);
@@ -18,6 +21,13 @@ test('same-version build updates its imported worker script and prepares the new
     } else if (request.url?.startsWith('/_next/static/')) {
       response.setHeader('Content-Type', 'application/javascript');
       response.end(`document.title = "${build}";`);
+    } else if (request.url === '/catalog/discovery.v1.json') {
+      response.setHeader('Cache-Control', 'public, max-age=0');
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ generation: build }));
+    } else if (request.url === '/api/mypage?view=reviews') {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ reviews: [{ workId: 'private-fixture' }] }));
     } else if (request.url === '/') {
       response.setHeader('Content-Type', 'text/html');
       response.end(`<html><head><script src="/_next/static/${build}.js"></script></head><body>${build}</body></html>`);
@@ -28,14 +38,26 @@ test('same-version build updates its imported worker script and prepares the new
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('missing fixture address');
+  const appUrl = `http://127.0.0.1:${address.port}/`;
+  const catalogGeneration = () => page.evaluate(async () => {
+    const result = await fetch('/catalog/discovery.v1.json');
+    return (await result.json()).generation;
+  });
+  const privateReviews = () => page.evaluate(async () => {
+    const result = await fetch('/api/mypage?view=reviews', { headers: { Authorization: 'Bearer fixture' } });
+    return (await result.json()).reviews;
+  });
   try {
-    await page.goto(`http://127.0.0.1:${address.port}/`);
+    await page.goto(appUrl);
     await page.evaluate(async () => {
       await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
       await navigator.serviceWorker.ready;
     });
     await page.reload();
     await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+    expect(await catalogGeneration()).toBe('first');
+    expect(await privateReviews()).toEqual([{ workId: 'private-fixture' }]);
+    expect(await page.evaluate(async () => (await caches.match('/api/mypage?view=reviews')) === undefined)).toBe(true);
     build = 'second';
     await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.update());
     await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.waiting?.state))
@@ -50,11 +72,16 @@ test('same-version build updates its imported worker script and prepares the new
         registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
       });
     });
-    // Fail transport at the server: WebKit's setOffline can bypass SW navigation.
+    expect(await catalogGeneration()).toBe('second');
+    // Reopen the installed app with transport down. A browser reload can mark
+    // its subresource requests for revalidation, unlike a fresh navigation.
+    await page.goto('about:blank');
     unavailable = true;
-    await page.reload();
+    await page.goto(appUrl);
     await expect(page).toHaveTitle('second');
     await expect(page.locator('body')).toHaveText('second');
+    expect(await catalogGeneration()).toBe('second');
+    expect(await page.evaluate(async () => (await caches.match('/api/mypage?view=reviews')) === undefined)).toBe(true);
   } finally {
     unavailable = false;
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

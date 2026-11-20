@@ -50,11 +50,11 @@ function ReadBookRow({ book, detailId, onOpenBook, rating }: {
   );
 }
 
-export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, catalogLoading, reviews, reviewError, onRetryReviews }: {
+export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetryCatalog, reviews, reviewError, onRetryReviews }: {
   ownerKey: OwnerKey;
   onShowAll?: () => void;
   getDetailId: (book: ReadBook) => string | null;
-  catalogLoading: boolean;
+  onRetryCatalog?: () => void;
   onOpenBook: (book: ReadBook, focusReview?: boolean) => void;
   reviews?: MyPageReview[];
   reviewError?: string;
@@ -93,9 +93,13 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, catalo
         const stored = await getLocalReadingSessionsV11(ownerKey);
         if (disposed) return;
         const sessions = selectSyncedReadingSessions(stored, ownerKey, readHiddenReadingStatisticsSessionIds(ownerKey));
-        const latestByName = new Map<string, number>();
+        const fileDates = new Map<string, number>();
         for (const session of sessions) {
-          latestByName.set(session.bookTitle, Math.max(latestByName.get(session.bookTitle) ?? 0, session.endedAtClient));
+          fileDates.set(session.bookId, Math.max(fileDates.get(session.bookId) ?? 0, session.endedAtClient));
+        }
+        const latestByName = new Map<string, number>();
+        for (const { bookId, bookTitle } of sessions) {
+          latestByName.set(bookTitle, Math.max(latestByName.get(bookTitle) ?? 0, fileDates.get(bookId)!));
         }
         const names = [...latestByName.keys()].sort((a, b) => latestByName.get(b)! - latestByName.get(a)!);
         const metadata = retained.current.metadata;
@@ -120,7 +124,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, catalo
             const value = result.metadata.get(title);
             if (value !== undefined) metadata.set(title, value);
             setFailedCount(failedBeforeBatch + result.failed.size);
-            if (!preview && value && renderTimer === undefined) {
+            if (!preview && value !== undefined && renderTimer === undefined) {
               renderTimer = window.setTimeout(() => {
                 renderTimer = undefined;
                 if (!disposed) setBooks(buildReadBooks(sessions, metadata));
@@ -135,7 +139,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, catalo
               const result = await metadataLoader.loadReadBookMetadata(missing.slice(start, start + 8), options);
               if (disposed) break;
               failedBeforeBatch += result.failed.size;
-              if ([...result.metadata.values()].some(Boolean)) {
+              if (result.metadata.size > 0) {
                 resolved = buildReadBooks(sessions, metadata);
                 setBooks(resolved);
               }
@@ -177,17 +181,18 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, catalo
     };
   }, [guest, ownerKey, preview, retry]);
 
-  const visibleBooks = !guest && !catalogLoading && retained.current.owner === ownerKey ? books : null;
+  const visibleBooks = !guest && retained.current.owner === ownerKey ? books : null;
   const status = <>
     {guest && <p className="text-sm opacity-60">로그인 후 동기화된 책이 여기에 표시됩니다.</p>}
     {!guest && (!visibleBooks || loadingMetadata) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
     {error && <p role="alert" className="text-sm">읽은 책을 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => { setError(false); setRetry((value) => value + 1); }}>다시 시도</button></p>}
     {failedCount > 0 && <p role="alert" className="mb-3 text-sm">일부 도서 정보를 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></p>}
+    {onRetryCatalog && <p role="status" className="mb-3 text-sm">상세 링크를 확인하지 못했습니다. <button type="button" className="text-accent-500" onClick={onRetryCatalog}>다시 시도</button></p>}
     {reviewError && <p role="alert" className="mb-3 text-sm">{reviewError} <button type="button" className="text-accent-500" onClick={onRetryReviews}>평가 다시 불러오기</button></p>}
     {!error && !loadingMetadata && failedCount === 0 && visibleBooks?.length === 0 && <p className="text-sm opacity-60">도서 정보가 연결된 독서 기록이 없습니다.</p>}
   </>;
   if (onShowAll) {
-    return <DashboardBookRow title="읽은 도서" books={visibleBooks ?? []} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} proxy>
+    return <DashboardBookRow title="읽은 도서" books={visibleBooks ?? []} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} getBookKey={(book) => book.rowKey ?? book.id} proxy>
       {status}
     </DashboardBookRow>;
   }
@@ -200,7 +205,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, catalo
       {status}
       <div className="mypage-divided-list">
         {visibleBooks?.slice(0, visibleCount).map((book) => (
-          <ReadBookRow key={book.id} book={book} detailId={getDetailId(book)} onOpenBook={onOpenBook} rating={findReviewWork(accountIndex, book)?.rating ?? 0} />
+          <ReadBookRow key={book.rowKey ?? book.id} book={book} detailId={getDetailId(book)} onOpenBook={onOpenBook} rating={findReviewWork(accountIndex, book)?.rating ?? 0} />
         ))}
       </div>
       {Boolean(visibleBooks && visibleBooks.length > visibleCount) && <button type="button" onClick={() => setVisibleCount((count) => count + 20)} className={`mt-4 w-full ${secondaryAction}`}>더 보기</button>}

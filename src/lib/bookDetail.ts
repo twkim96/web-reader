@@ -90,17 +90,21 @@ export function buildPersonalBookReading({
     { titleKey: 'detail', platformWorkKeys },
     ...works.map((metadata) => ({ titleKey: workIds.get(metadata)!, platformWorkKeys: getPlatformWorkKeys(metadata) })),
   ]);
-  const matches = (title: string) => {
+  const fileIds = new Set(knownFileIds);
+  const conflicts = new Set<string>();
+  const resolveFile = (id: string, title: string) => {
     const metadata = metadataByTitle?.get(title);
     if (metadata && platformWorkKeys.length && metadata.platforms.length) {
-      return findTitle('detail') === findTitle(workIds.get(metadata)!);
+      if (findTitle('detail') === findTitle(workIds.get(metadata)!)) fileIds.add(id);
+      else conflicts.add(id);
+    } else if (getPublicBookMetadataAliasCandidates(metadata?.titleKey ?? title).some((alias) => aliases.has(alias))) {
+      fileIds.add(id);
     }
-    return getPublicBookMetadataAliasCandidates(metadata?.titleKey ?? title).some((alias) => aliases.has(alias));
   };
-  const fileIds = new Set(knownFileIds);
   const visible = visibleReadingSessions(sessions, ownerKey, hidden);
-  for (const { id, name } of books) if (matches(name)) fileIds.add(id);
-  for (const { bookId, bookTitle } of visible) if (!fileIds.has(bookId) && matches(bookTitle)) fileIds.add(bookId);
+  for (const { id, name } of books) resolveFile(id, name);
+  for (const { bookId, bookTitle } of visible) resolveFile(bookId, bookTitle);
+  for (const id of conflicts) fileIds.delete(id);
   if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, progressPercent: 0, fileIds: [], hasRead: false };
 
   const bookmarks = new Map<string, Bookmark>();

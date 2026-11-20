@@ -100,12 +100,8 @@ export function MyPage(props: Props) {
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
   const groupedCatalog = useMemo(() => catalog ? groupDiscoveryBooks(catalog) : null, [catalog]);
-  const readBookDetailId = (book: ReadBook) => {
-    if (!groupedCatalog) return book.id;
-    const match = resolveReadBookDiscovery(groupedCatalog, book);
-    if (match.blocked && groupedCatalog.byId.has(book.id)) return null;
-    return match.book?.id ?? book.id;
-  };
+  const readBookDetailId = (book: ReadBook) =>
+    groupedCatalog && book.platformWorkKeys?.length ? resolveReadBookDiscovery(groupedCatalog, book).book?.id ?? null : null;
   const reviews = useMyPageReviews(ownerKey, signedIn && (tab === 'read' || Boolean(bookId)));
   useLayoutEffect(() => {
     const header = titleRow.current;
@@ -209,16 +205,17 @@ export function MyPage(props: Props) {
   const matchingSource = openedBook?.id === bookId ? openedBook?.book : undefined;
   const readSource = matchingSource && !('platforms' in matchingSource) ? matchingSource : undefined;
   const discoverySource = matchingSource && 'platforms' in matchingSource ? matchingSource : undefined;
+  const browse = tab === 'discover' || tab === 'wishlist';
   const searchableTitles = useMemo(() => {
     const titles = new Map<string, string[]>();
-    for (const item of catalog ?? []) {
+    for (const item of (browse ? catalog ?? [] : [])) {
       const id = groupedCatalog?.byId.get(item.id)?.id ?? item.id;
       const values = titles.get(id) ?? [];
       values.push(item.title.normalize('NFC').toLocaleLowerCase());
       titles.set(id, values);
     }
     return titles;
-  }, [catalog, groupedCatalog]);
+  }, [browse, catalog, groupedCatalog]);
   const readMatch = readSource && groupedCatalog ? resolveReadBookDiscovery(groupedCatalog, readSource) : undefined;
   const detailBook = !bookId ? undefined : readSource ? readMatch?.book : groupedCatalog?.byId.get(bookId)
     ?? discoverySource ?? wishlist.entries.find(({ book }) => book.id === bookId)?.book;
@@ -234,8 +231,9 @@ export function MyPage(props: Props) {
     }).catch(() => { if (active) setCatalogError(true); });
     return () => { active = false; };
   }, [catalog, needsCatalog, retry]);
+  const retryCatalog = () => { setCatalogError(false); setRetry((value) => value + 1); };
   const list = useMemo(() => tab === 'wishlist'
-    ? wishlist.entries.map((entry) => entry.book) : groupedCatalog?.books ?? [], [groupedCatalog, tab, wishlist.entries]);
+    ? wishlist.entries.map((entry) => entry.book) : tab === 'discover' ? groupedCatalog?.books ?? [] : [], [groupedCatalog, tab, wishlist.entries]);
   const genres = useMemo(() => [...new Set(list.flatMap((book) => book.genre ? [book.genre] : []))].sort(), [list]);
   const tags = useMemo(() => {
     const counts = new Map<string, number>();
@@ -264,7 +262,6 @@ export function MyPage(props: Props) {
   const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setTag(''); setVisibleCount(60); };
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
   const detail = tabs.find(({ id }) => id === tab)!;
-  const browse = tab === 'discover' || tab === 'wishlist';
   const loading = tab === 'discover' ? !catalog && !catalogError : wishlist.loading;
   const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
   const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
@@ -355,7 +352,7 @@ export function MyPage(props: Props) {
       </footer>
       <div className="mx-auto max-w-5xl px-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-6 sm:px-8 sm:pb-14 sm:pt-8">
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
-          {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} catalogLoading={catalogLoading} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
+          {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
             <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
@@ -366,7 +363,7 @@ export function MyPage(props: Props) {
                   <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
                 </div>}
             </DashboardBookRow>
-            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} catalogLoading={catalogLoading} />
+            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} />
             <MyReviews key={`reviews:${ownerKey}:${reviews.changeVersion}`} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
             <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
           </div>}
@@ -392,7 +389,7 @@ export function MyPage(props: Props) {
             </section>
             <section aria-label="도서 목록">
               {loading ? <div role="status" className="py-10 text-center text-sm opacity-65">{tab === 'discover' ? '도서 정보를 불러오는 중…' : '위시리스트를 불러오는 중…'}</div>
-              : tab === 'discover' && catalogError ? <div role="alert" className="py-8 text-center"><p className="text-sm opacity-70">도서 정보를 불러오지 못했습니다.</p><button type="button" onClick={() => { setCatalogError(false); setRetry((value) => value + 1); }} className="mt-3 min-h-10 px-3 text-sm font-medium text-accent-500">다시 시도</button></div>
+              : tab === 'discover' && catalogError ? <div role="alert" className="py-8 text-center"><p className="text-sm opacity-70">도서 정보를 불러오지 못했습니다.</p><button type="button" onClick={retryCatalog} className="mt-3 min-h-10 px-3 text-sm font-medium text-accent-500">다시 시도</button></div>
               : results.length === 0 ? <div className="py-8 text-center"><BookOpen size={28} className="mx-auto mb-3 opacity-40" /><p className="text-sm opacity-70">{list.length === 0 ? tab === 'wishlist' ? '담아둔 책이 없습니다.' : '공개된 도서 정보가 없습니다.' : '조건에 맞는 책이 없습니다.'}</p>{list.length > 0 && <button type="button" onClick={resetFilters} className="mt-3 text-sm text-accent-500">필터 초기화</button>}</div>
               : <div className="mypage-divided-list">
                 {results.slice(0, visibleCount).map((book) => {

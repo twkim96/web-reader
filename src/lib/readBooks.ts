@@ -4,6 +4,7 @@ import { buildReadingStatistics, type StoredReadingSessionV11 } from './readingS
 
 export type ReadBook = {
   id: string;
+  rowKey?: string;
   fileIds?: string[];
   equivalentTitleKeys?: string[];
   platformWorkKeys?: string[];
@@ -59,33 +60,39 @@ export function buildReadBooks(
   sessions: readonly StoredReadingSessionV11[],
   metadataByTitle: ReadonlyMap<string, PublicBookMetadata | null>,
 ): ReadBook[] {
-  const works = [...metadataByTitle.values()].flatMap((metadata) => metadata ? [{
-    titleKey: metadata.titleKey, platformWorkKeys: getPlatformWorkKeys(metadata),
-  }] : []);
-  const { findTitle, aliases } = groupPublicBookWorks(works);
-  const equivalentKeys = new Map<string, string[]>();
-  for (const key of aliases) {
-    const root = findTitle(key);
-    const keys = equivalentKeys.get(root) ?? [];
-    keys.push(key);
-    equivalentKeys.set(root, keys);
+  // Distinct platform editions can share a title key. Give each edition its
+  // own node before joining the entries connected by a platform link.
+  const works = new Map<PublicBookMetadata, { titleKey: string; platformWorkKeys: string[] }>();
+  for (const metadata of metadataByTitle.values()) {
+    if (!metadata || works.has(metadata)) continue;
+    const platformWorkKeys = getPlatformWorkKeys(metadata).sort();
+    works.set(metadata, { titleKey: JSON.stringify([metadata.titleKey, platformWorkKeys]), platformWorkKeys });
   }
-  const platformKeys = new Map<string, Set<string>>();
-  for (const work of works) {
+  const { findTitle } = groupPublicBookWorks(works.values());
+  const groups = new Map<string, { id: string; metadata: PublicBookMetadata; titles: Set<string>; platforms: Set<string> }>();
+  const rowKeys = new Map<string, string>();
+  for (const [metadata, work] of works) {
     const root = findTitle(work.titleKey);
-    const keys = platformKeys.get(root) ?? new Set<string>();
-    for (const key of work.platformWorkKeys) keys.add(key);
-    platformKeys.set(root, keys);
+    const group = groups.get(root) ?? { id: `catalog:${groups.size}`, metadata, titles: new Set(), platforms: new Set() };
+    rowKeys.set(group.id, root);
+    if (metadata.titleKey < group.metadata.titleKey) group.metadata = metadata;
+    group.titles.add(metadata.titleKey);
+    for (const key of work.platformWorkKeys) group.platforms.add(key);
+    groups.set(root, group);
   }
-  // Try alternate recorded names for the same file when its latest name did not match.
-  const metadataByFile = new Map<string, PublicBookMetadata>();
-  const canonicalMetadata = new Map<string, PublicBookMetadata>();
+
+  // Alternate recorded names identify the file only when they agree on a work.
+  const workByFile = new Map<string, string | null>();
   for (const session of sessions) {
+    if (!metadataByTitle.has(session.bookTitle)) {
+      workByFile.set(session.bookId, null);
+      continue;
+    }
     const metadata = metadataByTitle.get(session.bookTitle);
     if (!metadata) continue;
-    metadataByFile.set(session.bookId, metadata);
-    const titleKey = findTitle(metadata.titleKey);
-    if (!canonicalMetadata.has(titleKey) || titleKey === metadata.titleKey) canonicalMetadata.set(titleKey, metadata);
+    const root = findTitle(works.get(metadata)!.titleKey);
+    const previous = workByFile.get(session.bookId);
+    workByFile.set(session.bookId, previous === undefined || previous === root ? root : null);
   }
 
   const details = new Map<string, { lastReadAt: number; progressPercent: number; fileIds: Set<string> }>();
@@ -96,13 +103,13 @@ export function buildReadBooks(
   const mapped = sessions.flatMap((session) => {
     if (unique.has(session.sessionId)) return [];
     unique.add(session.sessionId);
-    const metadata = metadataByTitle.get(session.bookTitle) ?? metadataByFile.get(session.bookId);
-    if (!metadata) {
+    const root = workByFile.get(session.bookId);
+    if (root == null) {
       const id = unmatchedIds.get(session.bookId) ?? `file:${unmatchedIds.size}`;
       unmatchedIds.set(session.bookId, id);
       return [{ ...session, bookId: id }];
     }
-    const id = `catalog:${findTitle(metadata.titleKey)}`;
+    const { id, metadata } = groups.get(root)!;
     if (session.completionRoundNumber === undefined) {
       const previous = details.get(id);
       const fileIds = previous?.fileIds ?? new Set<string>();
@@ -119,12 +126,14 @@ export function buildReadBooks(
   return buildReadingStatistics(mapped).books.flatMap((book) => {
     const reading = details.get(book.bookId);
     if (!reading) return [];
-    const id = book.bookId.slice('catalog:'.length);
-    const metadata = canonicalMetadata.get(id)!;
+    const rowKey = rowKeys.get(book.bookId)!;
+    const { metadata, titles, platforms } = groups.get(rowKey)!;
+    const id = metadata.titleKey;
     return [{
       id,
-      equivalentTitleKeys: equivalentKeys.get(id),
-      platformWorkKeys: [...(platformKeys.get(id) ?? [])].sort(),
+      rowKey,
+      equivalentTitleKeys: [...titles].filter((key) => key !== id),
+      platformWorkKeys: [...platforms].sort(),
       title: metadata.displayTitle,
       coverUrl: getPublicBookCoverCandidates(metadata)[0]?.coverUrl ?? null,
       totalMs: book.totalMs,

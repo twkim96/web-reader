@@ -5,7 +5,7 @@ import { resolveLegacyReviewWork, resolveSocialWork } from '../../../server/mypa
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
 import {
   currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount,
-  updateAccount, updateReview, updateWishlist,
+  updateAccount, updateReview, updateReviewWithStatus, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
 import { BOOK_REVIEW_TEXT_LIMIT, isBookRating, parsePublicBookReview } from '../../../lib/publicBookReviews';
@@ -251,16 +251,25 @@ export async function POST(request: Request) {
     const importOnly = input.importOnly === true;
     const accountRevision = validRevision(input.accountRevision) ? input.accountRevision : undefined;
     if (importOnly && accountRevision === undefined) return fail(400);
+    const detailWorkId = action === 'review' ? input.detailWorkId : undefined;
+    if (detailWorkId !== undefined && !isBookDetailId(detailWorkId)) return fail(400);
+    const platformWorkKeys = action === 'review' ? input.platformWorkKeys ?? [] : [];
+    if (!Array.isArray(platformWorkKeys)
+      || !platformWorkKeys.every((key) => typeof key === 'string' && key.length > 0 && key.length <= 1200)) return fail(400);
+    if (detailWorkId !== undefined && !platformWorkKeys.length) return fail(400);
     // A saved review remains withdrawable even if its work left the catalog.
     if (action === 'review' && input.remove === true) {
       if (importOnly || !validRevision(revision)) return fail(400);
+      if (platformWorkKeys.length) {
+        const resolved = await resolveSocialWork(db, input.workId, platformWorkKeys);
+        if (!resolved || !resolved.equivalentWorkIds.includes(input.workId)
+          || (detailWorkId !== undefined && !resolved.equivalentWorkIds.includes(detailWorkId))) return fail(404);
+      }
       return json({ review: await updateReview(db, uid, input.workId, null, revision) });
     }
-    const platformWorkKeys = action === 'review' && revision === null ? input.platformWorkKeys ?? [] : [];
-    if (!Array.isArray(platformWorkKeys)
-      || !platformWorkKeys.every((key) => typeof key === 'string' && key.length > 0 && key.length <= 1200)) return fail(400);
     const resolved = await resolveSocialWork(db, input.workId, platformWorkKeys);
-    if (!resolved) return fail(404);
+    if (!resolved || (revision !== null && platformWorkKeys.length && !resolved.equivalentWorkIds.includes(input.workId))
+      || (detailWorkId !== undefined && !resolved.equivalentWorkIds.includes(detailWorkId))) return fail(404);
     const workId = revision !== null && resolved.equivalentWorkIds.includes(input.workId)
       ? input.workId : resolved.book.id;
 
@@ -282,8 +291,8 @@ export async function POST(request: Request) {
       // Older clients omitted the field and expect the server snapshot in this response.
       const evidence = readingSnapshot === undefined
         ? await evidenceFor(db, uid, resolved.book.id, fileIds) : local;
-      const review = await updateReview(db, uid, workId, { ...evidence, rating, comment: comment.trim() }, revision, importOnly, accountRevision, resolved.equivalentWorkIds, saveId);
-      if (review && readingSnapshot === null && !importOnly) {
+      const { review, applied } = await updateReviewWithStatus(db, uid, workId, { ...evidence, rating, comment: comment.trim() }, revision, importOnly, accountRevision, resolved.equivalentWorkIds, saveId);
+      if (applied && review && readingSnapshot === null && !importOnly) {
         after(async () => {
           const snapshot = await evidenceFor(db, uid, resolved.book.id, fileIds);
           if (snapshot?.totalMs == null || snapshot.progressPercent == null) return;

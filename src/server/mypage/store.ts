@@ -277,6 +277,8 @@ export async function updateReview(...args: Parameters<typeof mutateReview>) {
   return (await mutateReview(...args)).review;
 }
 
+export const updateReviewWithStatus = mutateReview;
+
 export async function fillReviewReading(
   db: Firestore, uid: string, saved: Pick<MyPageReview, 'workId' | 'revision'>,
   snapshot: Pick<ReviewFields, 'totalMs' | 'progressPercent'>,

@@ -31,10 +31,25 @@ export function useMyPageReviews(ownerKey: OwnerKey, enabled: boolean) {
         });
     };
     load();
-    window.addEventListener('focus', load);
+    let active = true;
+    let queued = false;
+    const resume = () => {
+      if (document.visibilityState === 'hidden') return;
+      generation.current++;
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (active) load();
+      });
+    };
+    window.addEventListener('focus', resume);
+    document.addEventListener('visibilitychange', resume);
     return () => {
+      active = false;
       controller.abort();
-      window.removeEventListener('focus', load);
+      window.removeEventListener('focus', resume);
+      document.removeEventListener('visibilitychange', resume);
     };
   }, [attempt, enabled, ownerKey]);
 

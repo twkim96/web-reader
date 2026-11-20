@@ -52,6 +52,20 @@ test('legacy review imports require agreeing published platform identities or a 
   assert.equal(await resolveLegacyReviewWork(withCollision, [first.id, 'unpublishedcollision'], []), null);
 });
 
+test('explicit social work links require one published root even when the title matches', async () => {
+  const catalog = await loadSocialCatalog();
+  const first = catalog.values().next().value;
+  const second = [...catalog.values()].find((book) => book.id !== first.id);
+  const firstKey = platformWorkKey(first.platforms[0].id, first.platforms[0].url);
+  const secondKey = platformWorkKey(second.platforms[0].id, second.platforms[0].url);
+  const unknownKey = platformWorkKey('series', 'https://unpublished.example/123');
+  const db = { collection() { throw new Error('Unexpected metadata lookup'); } };
+  assert.equal(await resolveSocialWork(db, first.id, [unknownKey]), null);
+  assert.equal((await resolveSocialWork(db, first.id, [firstKey, unknownKey])).book.id, first.id);
+  assert.equal(await resolveSocialWork(db, first.id, [firstKey, secondKey]), null);
+  assert.equal((await resolveSocialWork(db, first.id, [])).book.id, first.id);
+});
+
 test('published aliases prove reading while private titles and unrelated file hints do not escape', async () => {
   const catalog = await loadSocialCatalog();
   const book = catalog.values().next().value;

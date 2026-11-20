@@ -59,6 +59,7 @@ test('read books use synced account history even without shelf files, merge meta
   const metadata = new Map([
     ['삭제한 파일 1.epub', { titleKey: 'canonical', displayTitle: '정식 제목', platforms }],
     ['다른 파일명.txt', { titleKey: 'requested-alias', displayTitle: '요청 당시 제목', platforms }],
+    ['이름 변경.epub', null],
   ]);
   const records = selectSyncedReadingSessions(history, ownerA, new Set(['hidden']));
   const [book, ...otherBooks] = buildReadBooks(records, metadata);

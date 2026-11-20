@@ -24,10 +24,12 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const mutation = useRef<AbortController | null>(null);
+  const request = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (guest) return;
     const controller = new AbortController();
+    request.current = controller;
     const params: Record<string, string> = { view: 'reviews' };
     if (preview) params.preview = '1';
     void myPageRequest<MyPageOwnReviews>(params, { owner, signal: controller.signal })
@@ -39,8 +41,34 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
       .catch((error: Error) => {
         if (!controller.signal.aborted) setError(error.message);
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (request.current === controller) request.current = null;
+    };
   }, [attempt, changeVersion, guest, owner, preview]);
+
+  useEffect(() => {
+    if (guest) return;
+    let active = true;
+    let queued = false;
+    const resume = () => {
+      if (document.visibilityState === 'hidden') return;
+      request.current?.abort();
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (active) setAttempt((value) => value + 1);
+      });
+    };
+    window.addEventListener('focus', resume);
+    document.addEventListener('visibilitychange', resume);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', resume);
+      document.removeEventListener('visibilitychange', resume);
+    };
+  }, [guest, owner]);
 
   useEffect(() => {
     const activeMutation = mutation;
@@ -58,7 +86,9 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
     try {
       await myPageRequest({ action: 'review' }, { owner, signal: controller.signal, body: { workId, revision, remove: true } });
       if (controller.signal.aborted) return;
+      request.current?.abort();
       setReviews((items) => items?.filter((item) => item.workId !== workId));
+      setAttempt((value) => value + 1);
       setConfirmation(undefined);
       setFeedback('평가를 삭제했습니다.');
     } catch (error) {

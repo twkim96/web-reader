@@ -53,8 +53,8 @@ export function BookReviewEditor({
     setFeedback('');
     try {
       const saved = await saveMyPageReview(ownerKey, {
-        ...fields, workId: targetId, revision: target?.revision ?? null,
-        platformWorkKeys: target ? undefined : platformWorkKeys,
+        ...fields, workId: targetId, detailWorkId: workId, revision: target?.revision ?? null,
+        platformWorkKeys,
         fileIds: fileIds.slice(0, 32), readingSnapshot,
       });
       change(saved, targetId);
@@ -75,7 +75,7 @@ export function BookReviewEditor({
     setPending(true);
     setFeedback('');
     try {
-      await myPageRequest({ action: 'review' }, { owner: ownerKey, body: { workId: target.workId, revision: target.revision, remove: true } });
+      await myPageRequest({ action: 'review' }, { owner: ownerKey, body: { workId: target.workId, detailWorkId: workId, revision: target.revision, platformWorkKeys, remove: true } });
       change(null, target.workId);
       setDraft(undefined);
     } catch (failure) {

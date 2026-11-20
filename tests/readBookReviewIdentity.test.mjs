@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { buildPersonalBookReading } from '../src/lib/bookDetail.ts';
 import { buildReadBooks } from '../src/lib/readBooks.ts';
 import { readBookReview, saveBookReview, removeBookReview } from '../src/lib/localBookReview.ts';
 import { findReviewWork, indexReviewWorks, resolveReviewWork } from '../src/lib/myPageSocial.ts';
@@ -41,6 +42,44 @@ test('disjoint links and ambiguous aliases cannot select a review or deletion ta
     ...readWork, platformWorkKeys: ['platform-one', 'platform-two'],
   }), { entry: undefined, blocked: true });
   assert.deepEqual(resolveReviewWork(indexReviewWorks([first, second]), { id: 'same' }), { entry: undefined, blocked: true });
+});
+
+test('read history keeps disjoint platform editions with the same title key separate', () => {
+  const entries = [
+    ['first', meta('same', [platform('https://example.com/first')])],
+    ['second', meta('same', [platform('https://example.com/second')])],
+  ];
+  const result = books(entries);
+  assert.equal(result.length, 2);
+  assert.equal(new Set(result.map(({ rowKey }) => rowKey)).size, 2);
+  const first = result.find(({ fileIds }) => fileIds.includes('0'));
+  const second = result.find(({ fileIds }) => fileIds.includes('1'));
+  assert.deepEqual(first.fileIds, ['0']);
+  assert.deepEqual(second.fileIds, ['1']);
+  const saved = { workId: 'same', revision: 3, platformWorkKeys: first.platformWorkKeys };
+  assert.equal(findReviewWork(indexReviewWorks([saved]), first), saved);
+  assert.equal(findReviewWork(indexReviewWorks([saved]), second), undefined);
+  assert.deepEqual(buildReadBooks(entries.map(([name]) => ({ ...session(name, 'file'), sessionId: name })), new Map(entries)), []);
+});
+
+test('long links keep their read row and conflicting files cannot contribute detail evidence', () => {
+  const url = 'https://example.com/' + 'long'.repeat(200);
+  const first = meta('same', [platform(url)]);
+  const second = meta('same', [platform('https://example.com/second')]);
+  assert.equal(books([['first', first]])[0].totalMs, 60_000);
+  const metadataByTitle = new Map([['first', first], ['second', second]]);
+  const history = [
+    { ...session('first', 'file'), sessionId: 'first' },
+    { ...session('second', 'file'), sessionId: 'second' },
+  ];
+  const [book] = books([['first', first]]);
+  const detail = buildPersonalBookReading({
+    ownerKey: owner, titleKeys: [book.id], platformWorkKeys: book.platformWorkKeys, knownFileIds: ['file'],
+    metadataByTitle, books: [], progress: {}, sessions: history, hidden: new Set(),
+  });
+  assert.deepEqual(detail.fileIds, []);
+  assert.equal(detail.hasRead, false);
+  assert.deepEqual(buildReadBooks(history, new Map([['first', first]])), []);
 });
 
 test('merged works survive hidden aliases, edits and deletion after restoration', async () => {

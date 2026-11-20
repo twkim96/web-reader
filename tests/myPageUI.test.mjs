@@ -6,11 +6,27 @@ import { setTimeout as delay } from 'node:timers/promises';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
-import { MyPage } from '../src/components/mypage/MyPage.tsx';
 import { useMyPageNavigation } from '../src/hooks/useMyPageNavigation.ts';
 import { setWishlistSaved } from '../src/lib/localWishlist.ts';
 import { closeLocalDB } from '../src/lib/localDB.ts';
 import { hydrateRemoteReadingSessionsPageV12, saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
+
+// The detail imports the loader statically. Install the fixture before loading
+// MyPage so both its static and lazy consumers resolve the same loader.
+const metadataFixtureHook = registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === '../../lib/readBookMetadata' && /\/mypage\/(ReadBooks|BookDetail)\.tsx$/.test(context.parentURL ?? '')) {
+      return {
+        url: new URL('./fixtures/myPageMetadataLoader.cjs', import.meta.url).href,
+        format: 'commonjs',
+        shortCircuit: true,
+      };
+    }
+    return nextResolve(specifier, context);
+  },
+});
+const { MyPage } = await import('../src/components/mypage/MyPage.tsx');
+test.after(() => metadataFixtureHook.deregister());
 
 const owner = 'guest:mypage-test|library:local';
 const book = { id: 'test-book', title: '테스트 도서', coverUrl: null, platforms: [], genre: '판타지', tags: [], popularity: 10, sourceCount: null };
@@ -134,29 +150,37 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
   const title = '별점 저장 테스트';
   const alias = '처음 평가할 책';
   const unresolved = '후속 미게시 판본';
+  const incomplete = '조회가 실패한 파일';
+  const renamed = '예전 파일 이름';
+  let failHistoryMetadata = true;
+  let failOldName = true;
   const firstURL = 'https://books.example/first';
   const secondURL = 'https://books.example/second';
+  const pendingURL = 'https://books.example/not-in-client-index';
+  globalThis.myPageTestMetadata = (titles, { onProgress }) => {
+    const result = { metadata: new Map(), failed: new Set() };
+    for (const name of titles) {
+      if ((name === incomplete && failHistoryMetadata) || (name === renamed && failOldName)) {
+        result.failed.add(name);
+      } else if (name === renamed) {
+        result.metadata.set(name, null);
+      } else {
+        const url = name === title ? firstURL : name === alias || name === incomplete ? secondURL
+          : name === unresolved ? 'https://books.example/unpublished' : null;
+        const platforms = url ? [{ platform: 'series', url, label: '네이버 시리즈', viewCount: null, downloadCount: null, rating: null }] : [];
+        if (name === alias) platforms.push({ ...platforms[0], platform: 'kakao', url: pendingURL });
+        result.metadata.set(name, { titleKey: name === incomplete ? alias : name, displayTitle: name, platforms });
+      }
+      onProgress?.(result, name);
+    }
+    return result;
+  };
   const hook = registerHooks({
     resolve(specifier, context, nextResolve) {
       const { parentURL = '' } = context;
       if (specifier === './firebase' && parentURL.endsWith('/myPageSocialClient.ts')) {
         return { url: 'data:text/javascript,' + encodeURIComponent(
           `export const auth = { currentUser: { uid: ${JSON.stringify(uid)}, getIdToken: async () => 'fixture-token' } };`,
-        ), shortCircuit: true };
-      }
-      if (specifier === '../../lib/readBookMetadata' && /\/mypage\/(ReadBooks|BookDetail)\.tsx$/.test(parentURL)) {
-        return { url: 'data:text/javascript,' + encodeURIComponent(
-          `export const loadReadBookMetadata = async (titles, { onProgress }) => {
-            const result = { metadata: new Map(), failed: new Set() };
-            for (const title of titles) {
-              const url = title === ${JSON.stringify(title)} ? ${JSON.stringify(firstURL)}
-                : title === ${JSON.stringify(alias)} ? ${JSON.stringify(secondURL)}
-                : title === ${JSON.stringify(unresolved)} ? 'https://books.example/unpublished' : null;
-              result.metadata.set(title, { titleKey: title, displayTitle: title, platforms: url ? [{ platform: 'series', url }] : [] });
-              onProgress?.(result, title);
-            }
-            return result;
-          };`,
         ), shortCircuit: true };
       }
       return nextResolve(specifier, context);
@@ -176,9 +200,15 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
   let rejectFirst;
   let finishUnread;
   let unreadSaved = false;
+  let finishCatalogFailure;
+  let firstCatalogFetch = true;
   const scrollTargets = [];
   window.HTMLElement.prototype.scrollIntoView = function () { scrollTargets.push(this.id); };
   t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (String(url).startsWith('/catalog/') && firstCatalogFetch) {
+      firstCatalogFetch = false;
+      return new Promise((resolve) => { finishCatalogFailure = () => resolve(new Response(null, { status: 503 })); });
+    }
     if (String(url).startsWith('/catalog/')) return Response.json({ schemaVersion: 1, generation: 'rating-ui', genres: [savedBook.genre], tags: [], books: [
       ...savedCatalog,
       [title, title, null, [['series', firstURL]], null, [], null, null],
@@ -226,17 +256,36 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
       endProgressPercent: 80, timezoneOffsetMinutes: 0, localDate: '2026-11-20', mode: 'screen', completed: false,
     };
     await hydrateRemoteReadingSessionsPageV12(ownerKey, [
-      session, { ...session, sessionId: 'unrated-session', bookId: 'unrated-book', bookTitle: alias },
-      { ...session, sessionId: 'unpublished-session', bookId: 'unpublished-book', bookTitle: unresolved },
+      session, { ...session, sessionId: 'unrated-session', bookId: 'unrated-book', bookTitle: alias,
+        startedAtClient: start + 60_000, endedAtClient: start + 120_000 },
+      { ...session, sessionId: 'old-name-session', bookId: 'unpublished-book', bookTitle: renamed,
+        startedAtClient: start + 240_000, endedAtClient: start + 300_000 },
+      { ...session, sessionId: 'unpublished-session', bookId: 'unpublished-book', bookTitle: unresolved,
+        startedAtClient: start + 180_000, endedAtClient: start + 240_000 },
+      { ...session, sessionId: 'metadata-pending', bookId: 'metadata-pending-book', bookTitle: incomplete,
+        startedAtClient: start + 120_000, endedAtClient: start + 180_000, endProgressPercent: 90 },
     ], null, null, true, false);
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
     assert.deepEqual([...visible('nav').querySelectorAll('button')].map((button) => button.querySelector('span').textContent), [
       '대시보드', '도서목록', '둘러보기', '읽은 책', '위시리스트', '내 평가', '통계', '주석',
     ]);
+    const readList = () => visible('section[aria-label="읽은 책"] .mypage-divided-list');
+    for (let attempt = 0; attempt < 20 && !readList().children.length; attempt++) await act(async () => delay(20));
+    assert.equal(readList().children.length, 2);
+    assert.equal(readList().querySelector('a'), null);
+    await act(async () => finishCatalogFailure());
+    assert.equal(readList().querySelector('a'), null);
+    const catalogRetry = [...visible('section[aria-label="읽은 책"]').querySelectorAll('p[role="status"] button')].find((button) => button.textContent === '다시 시도');
+    await click(window, catalogRetry);
     const unratedLink = 'a[aria-label="처음 평가할 책 내 평가, 미평가"]';
     const ratedLink = `a[aria-label="${title} 내 평가, 별점 2점"]`;
     for (let attempt = 0; attempt < 20 && !visible(ratedLink); attempt++) await act(async () => delay(20));
-    const readRows = [...visible('section[aria-label="읽은 책"] .mypage-divided-list').children];
+    failOldName = false;
+    const retryTitles = () => [...visible('section[aria-label="읽은 책"]').querySelectorAll('p[role="alert"] button')]
+      .find((button) => button.textContent === '다시 시도');
+    await click(window, retryTitles());
+    for (let attempt = 0; attempt < 20 && readList().children.length !== 3; attempt++) await act(async () => delay(10));
+    const readRows = [...readList().children];
     assert.equal(readRows.length, 3);
     const unresolvedRow = readRows.find((row) => row.querySelector('h3').textContent === unresolved);
     assert.equal(unresolvedRow.querySelector('a'), null);
@@ -253,9 +302,21 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.equal(secondWrites[0].workId, secondWorkId);
     assert.equal(secondWrites[0].revision, null);
+    assert.equal(secondWrites[0].readingSnapshot, null);
+    assert.deepEqual(secondWrites[0].fileIds, []);
+    failHistoryMetadata = false;
+    const retryHistory = () => [...visible('main').querySelectorAll('button')].find((button) => button.textContent === '기록 다시 연결');
+    await click(window, retryHistory());
+    for (let attempt = 0; attempt < 20 && retryHistory(); attempt++) await act(async () => delay(10));
+    if (retryHistory()) throw new Error('metadata retry control still visible');
+    await click(window, editor().querySelector('button[aria-label="3점"]'));
+    await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.deepEqual(secondWrites[1].readingSnapshot, { totalMs: 120_000, progressPercent: 90 });
     await click(window, editor().querySelector('button[aria-label="3점"]'));
     await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '평가 삭제'));
-    assert.deepEqual(secondWrites[1], { workId: secondWorkId, revision: 1, remove: true });
+    const expectedKeys = [JSON.stringify(['series', secondURL]), JSON.stringify(['kakao', pendingURL])];
+    assert.deepEqual(secondWrites[0].platformWorkKeys, expectedKeys);
+    assert.deepEqual(secondWrites[2], { workId: secondWorkId, detailWorkId: secondWorkId, revision: 1, platformWorkKeys: expectedKeys, remove: true });
     assert.equal(committed.rating, 2);
     const hash = window.location.hash;
     await act(async () => root.render(null));
@@ -270,6 +331,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     });
     assert.equal(window.location.hash, '#mypage/read');
     await click(window, visible(ratedLink));
+    await act(async () => delay(10));
     const halfPoint = editor().querySelector('button[aria-label="4.5점"]');
     assert.equal(editor().querySelectorAll('[role="group"] button').length, 10);
     await click(window, halfPoint);
@@ -331,6 +393,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();
+    delete globalThis.myPageTestMetadata;
     hook.deregister();
   }
 });
