@@ -88,14 +88,15 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
     await expect.poll(async () => (await probe()).index).toBe(1);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 500, y: 550 }] });
-    for (let index = 1; index <= 4; index++) {
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 500, y: 550 - index * 40 }] });
-      await page.waitForTimeout(16);
-    }
-    const fingerPosition = (await probe()).top;
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await expect.poll(async () => (await probe()).top).toBeGreaterThan(fingerPosition);
+    const swipeStart = (await probe()).top;
+    const swipeDistance = 160;
+    // Let Chromium time the touch events. Round trips between individual
+    // moves can slow a synthetic swipe enough that Chromium never flings.
+    await cdp.send('Input.synthesizeScrollGesture', {
+      x: 500, y: 550, yDistance: -swipeDistance, speed: 2400,
+      gestureSourceType: 'touch', preventFling: false,
+    });
+    await expect.poll(async () => (await probe()).top - swipeStart).toBeGreaterThan(swipeDistance);
   } else {
     // Playwright WebKit's synthetic wheel did not reach the sandboxed iframe.
     // Exercise the reader's keyboard scrolling through the same page boundary.
