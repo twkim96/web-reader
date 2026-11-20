@@ -4322,6 +4322,14 @@ try {
     document.querySelector('[data-reader-tts-controls="true"] button[aria-label="TTS 중지"]')
       ?.click();
 
+    const toolbarDeadline = performance.now() + 2000;
+    while (!document.querySelector('nav')?.classList.contains('translate-y-0')) {
+      if (performance.now() >= toolbarDeadline) throw new Error('Reader toolbar did not return after stopping TTS');
+      await window.__regressionNextFrame();
+    }
+    // The first TTS run may relocate the view. Reapply the fixture anchor
+    // after the toolbar returns so the next run starts at the same chapter end.
+    view.lastLocation.range = endRange;
     const chapterProbeSpeakBefore = window.__browserSpeechStats.speak;
     button.click();
     const chapterProbeControlsDeadline = performance.now() + 2000;
