@@ -18,6 +18,7 @@ export type MyPageReview = ReviewWork & {
   progressPercent: number | null;
   revision: number;
   title?: string;
+  coverUrl?: string | null;
 };
 export type MyPageReviewDeletion = ReviewWork & { revision: number };
 export type MyPageOwnReviews = { reviews: MyPageReview[]; deletions: MyPageReviewDeletion[] };
@@ -34,6 +35,7 @@ export type PublicMyPage = {
 };
 
 export const MY_PAGE_CODE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+export const MY_PAGE_DASHBOARD_BOOK_LIMIT = 12;
 export const publicReaderHref = (code: string) => `/people/${encodeURIComponent(code)}`;
 export const hasPublicMyPage = (visibility: MyPageVisibility) => visibility.reviews || visibility.reading || visibility.wishlist;
 export const formatMyPageIdentity = ({ nickname, code }: MyPageIdentity) => `${nickname}#${code}`;

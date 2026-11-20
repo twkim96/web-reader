@@ -120,8 +120,8 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      <section aria-label="독서 시간 요약" className="mypage-section">
+    <div className="space-y-6 sm:space-y-8">
+      <section aria-label="독서 시간 요약">
         <h2 className="text-lg font-semibold tracking-tight sm:text-xl">독서 시간</h2>
         <dl className="mt-4 grid grid-cols-3 gap-3 sm:gap-6">
           {['오늘', '이번 달', '전체'].map((label, index) => (
@@ -137,8 +137,8 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
         <p role="status" className="text-sm opacity-70">{currentData?.error ? '독서 기록을 불러오지 못했습니다.' : '독서 기록을 불러오는 중입니다.'}</p>
       )}
 
-      <div className="grid items-start gap-4 sm:gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <section aria-label="독서 달력" className="mypage-section">
+      <div className="grid items-start gap-6 sm:gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <section aria-label="독서 달력">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight sm:text-xl">독서 달력</h2>
@@ -171,7 +171,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
           </div>
         </section>
 
-        <section aria-label="선택한 날짜의 독서 기록" className="mypage-section">
+        <section aria-label="선택한 날짜의 독서 기록">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-base font-semibold sm:text-lg">{Number(selectedDay.slice(5, 7))}월 {Number(selectedDay.slice(8, 10))}일</h2>
             <span className="text-sm font-semibold text-accent-500">{summary ? formatReadingDuration(dayTotals.get(selectedDay) ?? 0) : '—'}</span>

@@ -1,12 +1,21 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Star, Trash2 } from 'lucide-react';
 import type { MyPageOwnReviews, MyPageReview } from '../../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
-import type { OwnerKey } from '../../lib/ownerIdentity';
+import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
+import { BookCover } from './BookCover';
+import { BookDetailLink } from './BookDetailLink';
+import { DashboardBookRow } from './DashboardBookRow';
 
-export function MyReviews({ owner }: { owner: OwnerKey }) {
+export function MyReviews({ owner, onOpenBook, onShowAll }: {
+  owner: OwnerKey;
+  onOpenBook: (id: string) => void;
+  onShowAll?: () => void;
+}) {
+  const guest = isGuestOwner(owner);
+  const preview = Boolean(onShowAll);
   const [reviews, setReviews] = useState<MyPageReview[]>();
   const [confirmation, setConfirmation] = useState<MyPageReview>();
   const [error, setError] = useState('');
@@ -16,8 +25,11 @@ export function MyReviews({ owner }: { owner: OwnerKey }) {
   const mutation = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    if (guest) return;
     const controller = new AbortController();
-    void myPageRequest<MyPageOwnReviews>({ view: 'reviews' }, { owner, signal: controller.signal })
+    const params: Record<string, string> = { view: 'reviews' };
+    if (preview) params.preview = '1';
+    void myPageRequest<MyPageOwnReviews>(params, { owner, signal: controller.signal })
       .then((result) => {
         if (!controller.signal.aborted) setReviews(result.reviews);
       })
@@ -25,7 +37,7 @@ export function MyReviews({ owner }: { owner: OwnerKey }) {
         if (!controller.signal.aborted) setError(error.message);
       });
     return () => controller.abort();
-  }, [attempt, owner]);
+  }, [attempt, guest, owner, preview]);
 
   useEffect(() => {
     const activeMutation = mutation;
@@ -59,22 +71,43 @@ export function MyReviews({ owner }: { owner: OwnerKey }) {
     }
   };
 
-  return (
-    <section className="mypage-section space-y-4" aria-label="내 평가">
-      <h2 className="text-xl font-semibold">내 평가</h2>
+  const status = <>
       {error && <p role="alert" className="text-sm text-accent-500">{error} <button type="button" className="underline" onClick={() => { setError(''); setAttempt((value) => value + 1); }}>다시 불러오기</button></p>}
       {feedback && <p role="status" className="text-sm opacity-75">{feedback}</p>}
-      {!reviews && !error && <p role="status" className="text-sm opacity-65">평가를 불러오는 중…</p>}
+      {guest && <p className="text-sm opacity-65">로그인 후 남긴 평가를 볼 수 있습니다.</p>}
+      {!reviews && !error && !guest && <p role="status" className="text-sm opacity-65">평가를 불러오는 중…</p>}
       {reviews?.length === 0 && <p className="text-sm opacity-65">남긴 평가가 없습니다.</p>}
-      {reviews && reviews.length > 0 && <ul className="space-y-5">
+  </>;
+  if (onShowAll) {
+    const books = (reviews ?? []).map((review) => ({
+      id: review.workId, title: review.title ?? review.workId, coverUrl: review.coverUrl ?? null, rating: review.rating,
+    }));
+    return <DashboardBookRow title="평점을 남긴 도서" books={books} onShowAll={guest ? undefined : onShowAll}
+      onOpenBook={({ id }) => onOpenBook(id)} proxy
+      renderDetail={({ rating }) => <span className="mt-1 flex items-center gap-1 text-xs text-accent-500" aria-label={`별점 ${rating}점`}>
+        <Star size={13} fill="currentColor" aria-hidden="true" /> {rating}/5
+      </span>}>
+      {status}
+    </DashboardBookRow>;
+  }
+
+  return (
+    <section className="space-y-4" aria-label="내 평가">
+      <h2 className="text-xl font-semibold">내 평가</h2>
+      {status}
+      {reviews && reviews.length > 0 && <ul className="space-y-2.5">
         {reviews.map((review) => (
-          <li key={review.workId} className="space-y-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 space-y-1">
-                <h3 className="break-words text-sm font-semibold">{review.title ?? review.workId}</h3>
-                <p className="text-xs font-semibold text-accent-500">별점 {review.rating}/5</p>
-                {review.comment && <p className="break-words text-sm opacity-75">{review.comment}</p>}
-              </div>
+          <li key={review.workId} className="mypage-book-list-item space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <BookDetailLink bookId={review.workId} onOpen={() => onOpenBook(review.workId)}
+                className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg sm:gap-4">
+                <BookCover url={review.coverUrl ?? null} proxy />
+                <div className="min-w-0 space-y-1">
+                  <h3 className="break-words text-sm font-semibold group-hover:text-accent-500">{review.title ?? review.workId}</h3>
+                  <p className="text-xs font-semibold text-accent-500">별점 {review.rating}/5</p>
+                  {review.comment && <p className="break-words text-sm opacity-75">{review.comment}</p>}
+                </div>
+              </BookDetailLink>
               <button type="button" className="grid size-10 shrink-0 place-items-center rounded-full text-accent-500 disabled:opacity-40" aria-label={`${review.title ?? review.workId} 평가 삭제`} onClick={() => setConfirmation(review)} disabled={busy}><Trash2 size={17} aria-hidden="true" /></button>
             </div>
             {confirmation?.workId === review.workId && <div className="flex flex-wrap items-center gap-3 text-sm">

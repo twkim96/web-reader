@@ -11,7 +11,7 @@ import { isBookDetailId } from '../../../lib/bookDetail';
 import { BOOK_REVIEW_TEXT_LIMIT, parsePublicBookReview } from '../../../lib/publicBookReviews';
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
-  MY_PAGE_CODE, parseMyPageNickname, parseMyPageVisibility,
+  MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, parseMyPageNickname, parseMyPageVisibility,
   type MyPageOwnReviews, type MyPageSavedBook, type PublicProfileBook,
 } from '../../../lib/myPageSocial';
 
@@ -28,6 +28,7 @@ const reviewWorkDetails = (work: Awaited<ReturnType<typeof resolveSocialWork>>) 
   aliases: work?.equivalentWorkIds ?? [],
   platformWorkKeys: work?.book.platforms.map(({ id, url }) => platformWorkKey(id, url)) ?? [],
   title: work?.book.title,
+  coverUrl: work?.book.coverUrl,
 });
 
 async function authenticatedUid(request: Request) {
@@ -60,8 +61,11 @@ async function wishlistBookStates(db: Firestore, uid: string): Promise<MyPageSav
   return books;
 }
 
-async function ownReviews(db: Firestore, uid: string): Promise<MyPageOwnReviews> {
-  const [reviews, deletions] = await Promise.all([listReviews(db, uid), listReviewDeletions(db, uid)]);
+async function ownReviews(db: Firestore, uid: string, preview: boolean): Promise<MyPageOwnReviews> {
+  const [reviews, deletions] = await Promise.all([
+    listReviews(db, uid, preview ? MY_PAGE_DASHBOARD_BOOK_LIMIT : undefined),
+    preview ? [] : listReviewDeletions(db, uid),
+  ]);
   const describe = async <T extends { workId: string }>(records: T[]) => {
     const enriched: Array<T & ReturnType<typeof reviewWorkDetails>> = [];
     for (let offset = 0; offset < records.length; offset += 20) {
@@ -130,7 +134,7 @@ export async function GET(request: Request) {
     const db = getAdminFirestore();
     if (view === 'account') return json(await ensureAccount(db, uid));
     if (view === 'wishlist') return json({ entries: await wishlistBookStates(db, uid) });
-    if (view === 'reviews') return json(await ownReviews(db, uid));
+    if (view === 'reviews') return json(await ownReviews(db, uid, params.get('preview') === '1'));
     return fail(400);
   } catch {
     return fail(503);

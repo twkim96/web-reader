@@ -58,6 +58,34 @@ const props = {
 };
 const click = async (window, element) => act(async () => element.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true })));
 
+test('dashboard book sections open the matching detail and full list', async () => {
+  const { window, storage, root } = setup('#mypage/overview');
+  for (const id of ['test-one', 'test-two', 'test-three']) {
+    setWishlistSaved(owner, { ...book, id, title: id }, true, storage);
+  }
+  const main = () => window.document.querySelector('main');
+  try {
+    await act(async () => root.render(React.createElement(MyPage, props)));
+    assert.deepEqual([...main().querySelectorAll('h2')].slice(0, 3).map(({ textContent }) => textContent), [
+      '읽고 싶은 도서', '읽은 도서', '평점을 남긴 도서',
+    ]);
+    const row = main().querySelector('[aria-label="읽고 싶은 도서 가로 목록"]');
+    assert.equal(row.querySelectorAll('li').length, 3);
+    const card = row.querySelector('a[aria-label="test-two"]');
+    await click(window, card);
+    assert.equal(window.location.hash, '#mypage/book/test-two');
+    assert.equal(main().getAttribute('aria-label'), '도서 상세정보');
+    await act(async () => window.history.back());
+    assert.equal(main().querySelector('[aria-label="읽고 싶은 도서 가로 목록"]'), row);
+    await click(window, main().querySelector('[aria-label="읽고 싶은 도서 전체 보기"]'));
+    assert.equal(window.location.hash, '#mypage/wishlist');
+    assert.equal(main().querySelectorAll('article').length, 3);
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+  }
+});
+
 test('a rating appears during a pending save and rolls back after the retries fail', async (t) => {
   const { window, root } = setup('#mypage/read');
   const uid = 'rating-ui';

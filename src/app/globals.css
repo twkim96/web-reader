@@ -109,6 +109,13 @@ body {
   background-color: var(--viewer-mypage-surface);
 }
 
+.mypage-book-list-item {
+  min-width: 0;
+  padding: 0.625rem;
+  border-radius: 0.625rem;
+  background-color: var(--viewer-mypage-surface);
+}
+
 /* Shared geometry for metadata tags, genres, formats, and status chips. */
 .app-tag-radius {
   border-radius: var(--app-radius-md);

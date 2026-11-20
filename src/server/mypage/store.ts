@@ -227,9 +227,13 @@ export async function readReview(db: Firestore, uid: string, workId: string): Pr
   return reviewFrom((await reviews(db, uid).doc(workKey(workId)).get()).data());
 }
 
-export async function listReviews(db: Firestore, uid: string): Promise<MyPageReview[]> {
-  const snapshot = await reviews(db, uid).where('deleted', '==', false).get();
-  return snapshot.docs.map((document) => reviewFrom(document.data())!);
+export async function listReviews(db: Firestore, uid: string, latestLimit?: number): Promise<MyPageReview[]> {
+  const collection = reviews(db, uid);
+  // Review deletions replace the document without updatedAt.
+  const query = latestLimit === undefined ? collection.where('deleted', '==', false)
+    : collection.orderBy('updatedAt', 'desc').limit(latestLimit);
+  const snapshot = await query.get();
+  return snapshot.docs.map((document) => reviewFrom(document.data())).filter((review) => review !== null);
 }
 
 export async function listReviewDeletions(db: Firestore, uid: string) {

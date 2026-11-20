@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { ArrowUpRight, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import { formatReadingDuration } from '../../lib/readingStatistics';
@@ -9,10 +9,11 @@ import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIO
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import { buildReadBooks, selectSyncedReadingSessions, type ReadBook } from '../../lib/readBooks';
 import { BOOK_REVIEW_TEXT_LIMIT, readBookReview, removeBookReview, saveBookReview, subscribeBookReviewChanges, type BookReview } from '../../lib/localBookReview';
-import { findReviewWork, indexReviewWorks, type MyPageOwnReviews, type MyPageReview, type MyPageReviewDeletion } from '../../lib/myPageSocial';
+import { findReviewWork, indexReviewWorks, MY_PAGE_DASHBOARD_BOOK_LIMIT, type MyPageOwnReviews, type MyPageReview, type MyPageReviewDeletion } from '../../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError, saveMyPageReview } from '../../lib/myPageSocialClient';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
+import { DashboardBookRow } from './DashboardBookRow';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 
 type Metrics = Pick<ReadBook, 'totalMs' | 'progressPercent'>;
@@ -157,7 +158,7 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
   };
 
   return (
-    <article className="min-w-0">
+    <article className="mypage-book-list-item">
       <div className="flex items-center">
         <BookDetailLink bookId={book.id} onOpen={() => onOpenBook(book)} label={book.title} className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg pr-3 sm:gap-4 sm:pr-4">
           <BookCover url={book.coverUrl} proxy />
@@ -299,7 +300,8 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
         setError(false);
         setFailedCount(0);
         const hasPreview = (works: ReadBook[], nextTitle: string) => (
-          works.length >= 4 && works[3].lastReadAt >= latestByName.get(nextTitle)!
+          works.length >= MY_PAGE_DASHBOARD_BOOK_LIMIT
+          && works[MY_PAGE_DASHBOARD_BOOK_LIMIT - 1].lastReadAt >= latestByName.get(nextTitle)!
         );
         const needsMetadata = missing.length > 0 && (!preview || !hasPreview(known, missing[0]));
         setLoadingMetadata(needsMetadata);
@@ -370,33 +372,35 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
   }, [guest, ownerKey, preview, retry]);
 
   const visibleBooks = !guest && retained.current.owner === ownerKey ? books : null;
+  const status = <>
+    {guest && <p className="text-sm opacity-60">로그인 후 동기화된 책이 여기에 표시됩니다.</p>}
+    {!guest && (!visibleBooks || loadingMetadata) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
+    {error && <p role="alert" className="text-sm">읽은 책을 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => { setError(false); setRetry((value) => value + 1); }}>다시 시도</button></p>}
+    {failedCount > 0 && <p role="alert" className="mb-3 text-sm">일부 도서 정보를 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></p>}
+    {accountError && <p role="alert" className="mb-3 text-sm">{accountError} <button type="button" className="text-accent-500" onClick={() => setAccountRetry((value) => value + 1)}>평가 다시 불러오기</button></p>}
+    {!error && !loadingMetadata && failedCount === 0 && visibleBooks?.length === 0 && <p className="text-sm opacity-60">도서 정보가 연결된 독서 기록이 없습니다.</p>}
+  </>;
+  if (onShowAll) {
+    return <DashboardBookRow title="읽은 도서" books={visibleBooks ?? []} onShowAll={onShowAll} onOpenBook={onOpenBook} proxy>
+      {status}
+    </DashboardBookRow>;
+  }
 
   return (
-    <section aria-label="읽은 책" className="mypage-section">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-tight sm:text-xl">읽은 책{!preview && visibleBooks && visibleBooks.length > 0 && <span className="ml-2 text-xs font-normal opacity-55">{visibleBooks.length.toLocaleString()}권</span>}</h2>
-        {onShowAll && Boolean(visibleBooks?.length) && <button type="button" onClick={onShowAll} className="flex items-center gap-1 text-xs opacity-65">전체 보기<ArrowUpRight size={14} /></button>}
-      </div>
-      {guest && <p className="text-sm opacity-60">로그인 후 동기화된 책이 여기에 표시됩니다.</p>}
-      {!guest && (!visibleBooks || loadingMetadata) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
-      {error && <p role="alert" className="text-sm">읽은 책을 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => { setError(false); setRetry((value) => value + 1); }}>다시 시도</button></p>}
-      {failedCount > 0 && <p role="alert" className="mb-3 text-sm">일부 도서 정보를 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></p>}
-      {accountError && <p role="alert" className="mb-3 text-sm">{accountError} <button type="button" className="text-accent-500" onClick={() => setAccountRetry((value) => value + 1)}>평가 다시 불러오기</button></p>}
-      {!error && !loadingMetadata && failedCount === 0 && visibleBooks?.length === 0 && <p className="text-sm opacity-60">도서 정보가 연결된 독서 기록이 없습니다.</p>}
-      <div className="grid gap-4 sm:gap-5">
-        {visibleBooks?.slice(0, preview ? 4 : visibleCount).map((book) => onShowAll ? (
-          <BookDetailLink key={book.id} bookId={book.id} onOpen={() => onOpenBook(book)} className="flex min-w-0 items-center gap-3 text-left text-sm font-semibold hover:text-accent-500 sm:gap-4">
-            <BookCover url={book.coverUrl} proxy />
-            <span className="line-clamp-2">{book.title}</span>
-          </BookDetailLink>
-        ) : <ReadBookRow key={book.id} book={book} ownerKey={ownerKey} onOpenBook={onOpenBook} accountReview={accountStorage ? {
+    <section aria-label="읽은 책">
+      <h2 className="mb-4 text-lg font-semibold tracking-tight sm:text-xl">
+        읽은 책{visibleBooks && visibleBooks.length > 0 && <span className="ml-2 text-xs font-normal opacity-55">{visibleBooks.length.toLocaleString()}권</span>}
+      </h2>
+      {status}
+      <div className="grid gap-2.5">
+        {visibleBooks?.slice(0, visibleCount).map((book) => <ReadBookRow key={book.id} book={book} ownerKey={ownerKey} onOpenBook={onOpenBook} accountReview={accountStorage ? {
           value: findReviewWork(accountIndex, book),
           deletion: findReviewWork(deletionIndex, book),
           ready: accountReviews !== null && !refreshingAccountReviews && !accountError, change: changeAccountReview,
           refresh: () => setAccountRetry((value) => value + 1),
         } : undefined} />)}
       </div>
-      {!onShowAll && Boolean(visibleBooks && visibleBooks.length > visibleCount) && <button type="button" onClick={() => setVisibleCount((count) => count + 20)} className={`mt-4 w-full ${secondaryAction}`}>더 보기</button>}
+      {Boolean(visibleBooks && visibleBooks.length > visibleCount) && <button type="button" onClick={() => setVisibleCount((count) => count + 20)} className={`mt-4 w-full ${secondaryAction}`}>더 보기</button>}
     </section>
   );
 }

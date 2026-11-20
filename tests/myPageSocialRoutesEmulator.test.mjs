@@ -204,7 +204,9 @@ test('local review reading saves immediately and missing reading fills after the
 
 test('retry after a lost review response returns the saved revision without replacing a newer review', async () => {
   const { idToken } = await emulatorLogin('mypage-review-retry');
-  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const catalog = await loadSocialCatalog();
+  const work = [...catalog.values()].find(({ coverUrl }) => coverUrl);
+  const workId = work.id;
   const input = {
     workId, rating: 3, comment: '', revision: null, fileIds: [],
     readingSnapshot: { totalMs: 45000, progressPercent: 41 },
@@ -223,6 +225,15 @@ test('retry after a lost review response returns the saved revision without repl
   assert.equal(current.rating, 5);
   assert.equal(current.revision, 2);
   assert.equal('lastSaveId' in current, false);
+
+  const oldWork = [...catalog.values()].find(({ id }) => id !== workId);
+  const legacy = await ok(post('review', idToken, { ...input, workId: oldWork.id, saveId: crypto.randomUUID() }));
+  await ok(post('review', idToken, { workId: oldWork.id, revision: legacy.review.revision, remove: true }));
+  const preview = await ok(get({ view: 'reviews', preview: '1' }, idToken));
+  assert.deepEqual(preview.deletions, []);
+  assert.deepEqual(preview.reviews.map(({ workId, coverUrl, rating }) => ({ workId, coverUrl, rating })), [
+    { workId, coverUrl: work.coverUrl, rating: 5 },
+  ]);
 });
 
 test('authenticated account writes, code search and every visibility combination share one public contract', async () => {

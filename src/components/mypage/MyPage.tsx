@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, BookOpen, BookOpenCheck, Check, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, BookOpenCheck, Check, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star, Users } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { groupDiscoveryBooks, loadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
@@ -13,6 +13,7 @@ import { ReadBooks } from './ReadBooks';
 import { BookCover } from './BookCover';
 import { BookDetail } from './BookDetail';
 import { BookDetailLink } from './BookDetailLink';
+import { DashboardBookRow } from './DashboardBookRow';
 import { MyPageSharingSettings, PeopleSearch } from './SocialPanels';
 import { MyReviews } from './MyReviews';
 import { LibraryAnnotations } from '../LibraryAnnotations';
@@ -86,13 +87,14 @@ export function MyPage(props: Props) {
     setTab(next);
     setBookId(null);
   };
-  const openBook = (book: DiscoveryBook | ReadBook) => {
+  const openBookById = (id: string, book?: DiscoveryBook | ReadBook) => {
     if (tab === 'read') readListScroll.current = window.scrollY;
-    window.history.pushState({ ...window.history.state, myPageBookFrom: tab }, '', bookDetailHref(book.id));
+    window.history.pushState({ ...window.history.state, myPageBookFrom: tab }, '', bookDetailHref(id));
     setOpenedBook(book);
-    setBookId(book.id);
+    setBookId(id);
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
+  const openBook = (book: DiscoveryBook | ReadBook) => openBookById(book.id, book);
   const closeBook = () => {
     if (window.history.state?.myPageBookFrom) window.history.back();
     else navigate('discover');
@@ -204,31 +206,32 @@ export function MyPage(props: Props) {
         </nav>
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} accountStorage={signedIn} /></div>}
+          {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 sm:space-y-10">
+            <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
+              onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
+              {wishlist.loading ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>
+                : !wishlist.error && wishlist.entries.length === 0 && <div className="flex flex-wrap items-center gap-x-4">
+                  <p className="text-sm opacity-60">담아둔 책이 없습니다.</p>
+                  <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
+                </div>}
+            </DashboardBookRow>
+            <ReadBooks key={ownerKey} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} />
+            <MyReviews key={ownerKey} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
+            <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
+          </div>}
           {bookId ? (
             <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={!catalog && !catalogError && !detailBook} saved={detailSaved} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
           {tab === 'people' && <PeopleSearch />}
-          {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} />
+          {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />
             : <p className="mypage-section text-sm">내 평가는 로그인 후 이용할 수 있습니다.</p>)}
           {tab === 'sharing' && (signedIn
             ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />
             : <p className="mypage-section text-sm">공개 설정은 로그인 후 이용할 수 있습니다.</p>)}
-          {tab === 'overview' && <>
-            <section aria-label="읽고 싶은 책" className="mypage-section">
-              <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold tracking-tight sm:text-xl">읽고 싶은 책</h2><button type="button" onClick={() => openTab('wishlist')} className="flex items-center gap-1 text-xs opacity-60">전체 보기<ArrowUpRight size={14} /></button></div>
-              {wishlist.entries.length > 0 ? (
-                <div className="mt-4 grid grid-cols-3 gap-x-4 gap-y-5 sm:grid-cols-5 sm:gap-x-6">
-                  {wishlist.entries.slice(0, 5).map(({ book }) => <BookDetailLink key={book.id} bookId={book.id} onOpen={() => openBook(book)} className="w-full max-w-32 text-left hover:text-accent-500"><BookCover url={book.coverUrl} large /><span className="mt-2 line-clamp-2 block text-xs leading-5">{book.title}</span></BookDetailLink>)}
-                </div>
-              ) : <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2"><p className="text-sm opacity-60">담아둔 책이 없습니다.</p><button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-sm font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button></div>}
-            </section>
-            <ReadBooks key={ownerKey} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} />
-            <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
-          </>}
           {browse && <>
             <div className="flex items-end justify-between gap-3"><div><h2 className="text-xl font-semibold">{detail.label}</h2><p className="mt-1.5 text-xs opacity-45">{tab === 'wishlist' ? `담아둔 책 ${wishlist.entries.length.toLocaleString()}권` : groupedCatalog ? `공개 메타데이터 ${groupedCatalog.books.length.toLocaleString()}권` : '공개 메타데이터에서 읽고 싶은 책을 찾아보세요.'}</p></div>{tab === 'wishlist' && <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white"><Plus size={15} />추가</button>}</div>
-            <section aria-label="도서 검색 및 필터" className="mypage-section space-y-2.5">
+            <section aria-label="도서 검색 및 필터" className="space-y-2.5">
               <label className="flex items-center gap-2.5 rounded-lg bg-[color-mix(in_srgb,currentColor_5%,transparent)] px-3 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input aria-label="도서 제목 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 검색" className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <select aria-label="도서 플랫폼 필터" value={source} onChange={(event) => { setSource(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 플랫폼</option><option value="series">네이버 시리즈</option><option value="kakao">카카오페이지</option><option value="novelpia">노벨피아</option></select>
@@ -237,14 +240,14 @@ export function MyPage(props: Props) {
                 <select aria-label="도서 정렬" value={sort} onChange={(event) => setSort(event.target.value)} className={inputClass}><option value="popular">인기순</option><option value="views">조회·다운로드순</option><option value="title">가나다순</option>{tab === 'wishlist' && <option value="saved">담은 순</option>}</select>
               </div>
             </section>
-            <section aria-label="도서 목록" className="mypage-section">
+            <section aria-label="도서 목록">
               {loading ? <div role="status" className="py-10 text-center text-sm opacity-65">{tab === 'discover' ? '도서 정보를 불러오는 중…' : '위시리스트를 불러오는 중…'}</div>
               : tab === 'discover' && catalogError ? <div role="alert" className="py-8 text-center"><p className="text-sm opacity-70">도서 정보를 불러오지 못했습니다.</p><button type="button" onClick={() => { setCatalogError(false); setRetry((value) => value + 1); }} className="mt-3 min-h-10 px-3 text-sm font-medium text-accent-500">다시 시도</button></div>
               : results.length === 0 ? <div className="py-8 text-center"><BookOpen size={28} className="mx-auto mb-3 opacity-40" /><p className="text-sm opacity-70">{list.length === 0 ? tab === 'wishlist' ? '담아둔 책이 없습니다.' : '공개된 도서 정보가 없습니다.' : '조건에 맞는 책이 없습니다.'}</p>{list.length > 0 && <button type="button" onClick={resetFilters} className="mt-3 text-sm text-accent-500">필터 초기화</button>}</div>
-              : <div className="grid gap-4 sm:gap-5">
+              : <div className="grid gap-2.5">
                 {results.slice(0, visibleCount).map((book) => {
                   const saved = wishlist.savedIds.has(book.id);
-                  return <article key={book.id} className="flex min-w-0 items-center">
+                  return <article key={book.id} className="mypage-book-list-item flex items-center">
                     <BookDetailLink bookId={book.id} onOpen={() => openBook(book)} label={book.title} className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg pr-3 sm:gap-4 sm:pr-4">
                       <BookCover url={book.coverUrl} />
                       <div className="min-w-0 flex-1">
