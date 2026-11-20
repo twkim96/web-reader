@@ -33,6 +33,11 @@ const tabs = [
   { id: 'reviews', label: '내 평가', icon: Star },
   { id: 'sharing', label: '공개 설정', icon: Settings2 },
 ] as const;
+const headerActions = [
+  { id: 'discover', label: '도서 탐색', icon: Search },
+  { id: 'shelf', label: '내 서재', icon: Library },
+  { id: 'sharing', label: '공개 설정', icon: Settings2 },
+] as const;
 const readTab = (): Tab => {
   if (typeof window === 'undefined') return 'overview';
   const candidate = readBookDetailId(window.location.hash)
@@ -64,6 +69,8 @@ export function MyPage(props: Props) {
   const { ownerKey, books, progress, bookmarkProgress, theme, themeVariables, onBack } = props;
   const [tab, setTab] = useState<Tab>(readTab);
   const [bookId, setBookId] = useState(readDetailId);
+  const [compactMenu, setCompactMenu] = useState(false);
+  const titleEnd = useRef<HTMLDivElement>(null);
   const [openedBook, setOpenedBook] = useState<DiscoveryBook | ReadBook>();
   const readListScroll = useRef<number | null>(null);
   const restoreReadListScroll = useRef(false);
@@ -81,12 +88,25 @@ export function MyPage(props: Props) {
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
+  useEffect(() => {
+    const marker = titleEnd.current;
+    if (!marker || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setCompactMenu(entry.boundingClientRect.top < 0);
+    }, { threshold: 1 });
+    observer.observe(marker);
+    return () => observer.disconnect();
+  }, []);
   const navigate = (next: Tab) => {
     if (next === tab && !bookId) return;
     readListScroll.current = null;
     window.history.pushState(null, '', `#mypage/${next}`);
     setTab(next);
     setBookId(null);
+    const titleBottom = titleEnd.current?.getBoundingClientRect().bottom;
+    if (titleBottom !== undefined && titleBottom < 0) {
+      window.scrollTo({ top: Math.ceil(window.scrollY + titleBottom), behavior: 'instant' });
+    }
   };
   const openBookById = (id: string, book?: DiscoveryBook | ReadBook) => {
     if (tab === 'read') readListScroll.current = window.scrollY;
@@ -189,22 +209,49 @@ export function MyPage(props: Props) {
   const detail = tabs.find(({ id }) => id === tab)!;
   const browse = tab === 'discover' || tab === 'wishlist';
   const loading = tab === 'discover' ? !catalog && !catalogError : wishlist.loading;
+  const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
+  const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
 
   return (
-    <div data-my-page="true" className="min-h-dvh" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
-      <header className="mx-auto flex max-w-7xl items-center gap-3 px-5 py-6 sm:px-8 sm:py-9">
-        <button type="button" onClick={bookId ? closeBook : onBack} aria-label={bookId ? '도서 목록으로 돌아가기' : '서재로 돌아가기'} className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-[color-mix(in_srgb,currentColor_6%,transparent)]"><ArrowLeft size={19} /></button>
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{bookId ? '도서 상세정보' : '마이페이지'}</h1>
-        <button type="button" onClick={onBack} aria-label="내 서재" className="ml-auto flex items-center gap-2 text-sm opacity-60 hover:opacity-100"><Library size={17} /><span className="hidden sm:inline">내 서재</span></button>
+    <div data-my-page="true" className="min-h-dvh [--mypage-title-height:5rem] sm:[--mypage-title-height:6rem]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
+      <header className="relative">
+        <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[4.5rem] pr-36 sm:pl-[5.25rem] sm:pr-40">
+          <h1 className="text-[clamp(1rem,4.6vw,1.25rem)] font-semibold tracking-tight sm:text-2xl">{bookId ? '도서 상세정보' : '마이페이지'}</h1>
+        </div>
+        <div ref={titleEnd} aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-px" />
       </header>
-      <div className="mx-auto grid max-w-7xl gap-8 px-5 pb-14 sm:px-8 lg:grid-cols-[172px_minmax(0,1fr)] lg:gap-12">
-        <nav aria-label="마이페이지 메뉴" className="flex gap-1 overflow-x-auto pb-1 [scrollbar-width:none] lg:sticky lg:top-6 lg:h-fit lg:flex-col [&::-webkit-scrollbar]:hidden">
-          {tabs.filter(({ id }) => signedIn || (id !== 'sharing' && id !== 'reviews')).map(({ id, label, icon: Icon }) => (
-            <button key={id} type="button" onClick={() => openTab(id)} aria-current={tab === id ? 'page' : undefined} className={`flex min-h-11 shrink-0 items-center gap-2.5 rounded-xl px-3 text-sm transition-colors lg:w-full ${tab === id ? 'bg-[color-mix(in_srgb,var(--accent-500)_10%,transparent)] font-semibold text-accent-500' : 'opacity-60 hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:opacity-100'}`}>
-              <Icon size={17} />{label}{id === 'wishlist' && wishlist.entries.length > 0 && <span className="ml-auto pl-2 text-xs tabular-nums">{wishlist.entries.length}</span>}
-            </button>
-          ))}
-        </nav>
+      <div data-mypage-menu={compactMenu ? 'compact' : 'expanded'}
+        className="sticky top-0 z-30 bg-[var(--viewer-theme-bg)]">
+        <div className="relative mx-auto max-w-5xl px-5 py-1 sm:px-8">
+          <button type="button" onClick={bookId ? closeBook : onBack} aria-label={bookId ? '도서 목록으로 돌아가기' : '서재로 돌아가기'}
+            className={`absolute left-5 top-1 flex size-11 items-center justify-center rounded-full hover:bg-[color-mix(in_srgb,currentColor_6%,transparent)] sm:left-8 ${headerActionMotion} ${headerActionPosition}`}>
+            <ArrowLeft size={19} />
+          </button>
+          <div className={`absolute right-5 top-1 z-10 sm:right-8 ${headerActionMotion} ${headerActionPosition}`}>
+            <div role="group" aria-label="마이페이지 바로가기" className="shelf-mobile-header-pill flex h-11 items-center gap-0.5 px-1">
+              {headerActions.map(({ id, label, icon: Icon }) => (
+                <button key={id} type="button" aria-label={label} title={label} aria-current={tab === id ? 'page' : undefined}
+                  onClick={id === 'shelf' ? onBack : () => openTab(id)}
+                  className={`flex size-9 items-center justify-center rounded-full transition-colors hover:bg-current/10 hover:opacity-100 ${tab === id ? 'text-accent-500' : 'opacity-70'}`}>
+                  <Icon size={19} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </div>
+          <nav aria-label="마이페이지 메뉴" className={`flex gap-1 overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-12 mr-32' : ''}`}>
+            {tabs.filter(({ id }) => id !== 'discover' && id !== 'sharing' && (signedIn || id !== 'reviews')).map(({ id, label, icon: Icon }) => (
+              <button key={id} type="button" onClick={() => openTab(id)} title={compactMenu ? label : undefined}
+                aria-current={tab === id ? 'page' : undefined}
+                className={`flex min-h-11 shrink-0 items-center justify-center rounded-xl text-sm transition-colors ${compactMenu ? 'w-11' : 'gap-2.5 px-3'} ${tab === id ? 'bg-[color-mix(in_srgb,var(--accent-500)_10%,transparent)] font-semibold text-accent-500' : 'opacity-60 hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:opacity-100'}`}>
+                <Icon size={compactMenu ? 19 : 17} aria-hidden="true" />
+                <span className={compactMenu ? 'sr-only' : undefined}>{label}</span>
+                {!compactMenu && id === 'wishlist' && wishlist.entries.length > 0 && <span className="ml-auto pl-2 text-xs tabular-nums">{wishlist.entries.length}</span>}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+      <div className="mx-auto max-w-5xl px-5 pb-14 pt-6 sm:px-8 sm:pt-8">
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} accountStorage={signedIn} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
@@ -217,8 +264,8 @@ export function MyPage(props: Props) {
                   <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
                 </div>}
             </DashboardBookRow>
-            <ReadBooks key={ownerKey} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} />
-            <MyReviews key={ownerKey} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
+            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} />
+            <MyReviews key={`reviews:${ownerKey}`} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
             <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
           </div>}
           {bookId ? (
