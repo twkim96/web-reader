@@ -160,9 +160,15 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     if (String(url).startsWith('/catalog/')) return new Response(null, { status: 503 });
     if (String(url).startsWith('/api/book-reviews?')) return Response.json({ reviews: [], ratingCount: 0, average: null });
     assert.match(String(url), /^\/api\/mypage\?/);
-    if (options.method === 'GET') return Response.json(String(url).includes('view=wishlist')
-      ? { entries: [{ book: unread, item: { saved: true, addedAt: start, revision: 1, workId: unread.id }, aliases: [] }] }
-      : { reviews: writes.length >= 5 ? [committed, unreadRating] : [committed], deletions: [] });
+    if (options.method === 'GET') {
+      if (String(url).includes('view=wishlist')) return Response.json({
+        entries: [{ book: unread, item: { saved: true, addedAt: start, revision: 1, workId: unread.id }, aliases: [] }],
+      });
+      if (String(url).includes('view=account')) return Response.json({
+        code: '00000001', nickname: '독자', revision: 1, visibility: { reviews: true, wishlist: false },
+      });
+      return Response.json({ reviews: writes.length >= 5 ? [committed, unreadRating] : [committed], deletions: [] });
+    }
     writes.push(JSON.parse(options.body));
     if (writes.length === 1) return new Promise((_, reject) => { rejectFirst = reject; });
     if (writes.length === 4) {
@@ -189,6 +195,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     const unratedLink = 'a[aria-label="처음 평가할 책 내 평가, 미평가"]';
     const ratedLink = `a[aria-label="${title} 내 평가, 별점 2점"]`;
     for (let attempt = 0; attempt < 20 && !visible(ratedLink); attempt++) await act(async () => delay(20));
+    assert.equal(visible('section[aria-label="읽은 책"] .mypage-divided-list').children.length, 2);
     assert.equal(visible(unratedLink).querySelectorAll('svg[fill="none"]').length, 5);
     await click(window, visible(unratedLink));
     assert.match(window.location.hash, /\/review$/);
@@ -234,6 +241,10 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.deepEqual(writes[4].fileIds, []);
     assert.equal(writes[4].readingSnapshot, null);
     assert.ok(editor().querySelector('[aria-label="별점 3점"]'));
+    await click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent === '내 평가'));
+    assert.equal(visible('section[aria-label="내 평가"] .mypage-divided-list').children.length, 2);
+    await click(window, visible('button[aria-label="공개 설정"]'));
+    assert.equal(visible('section[aria-label="프로필 및 공개 설정"] .mypage-divided-list').children.length, 2);
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();
@@ -322,7 +333,7 @@ test('a saved title opens a themed detail page with optional private records and
       endProgressPercent: 18, timezoneOffsetMinutes: 0, localDate: '2026-11-20', mode: 'screen', completed: false,
     });
     const progress = { [localBook.id]: { bookId: localBook.id, cfi: 'remote', lastRead: start + 60_000, progressPercent: 20, syncRevision: 2 } };
-    const bookmarkProgress = { [localBook.id]: { bookId: localBook.id, cfi: 'cfi', lastRead: start, progressPercent: 18, syncRevision: 1, bookmarks: [bookmark] } };
+    const bookmarkProgress = { [localBook.id]: { bookId: localBook.id, cfi: 'cfi', lastRead: start, progressPercent: 18, syncRevision: 1, bookmarks: [bookmark, { ...bookmark, id: 'second', name: '두 번째 책갈피' }] } };
     await act(async () => root.render(React.createElement(MyPage, { ...props, books: [localBook], progress, bookmarkProgress })));
     const link = main().querySelector('article > a');
     assert.equal(link.getAttribute('href'), '#mypage/book/' + encodeURIComponent(saved.id));
@@ -343,6 +354,7 @@ test('a saved title opens a themed detail page with optional private records and
     assert.match(personal.textContent, /읽은 시간1분/);
     assert.match(personal.textContent, /진행도18%/);
     assert.match(personal.textContent, /로컬 책갈피/);
+    assert.equal(personal.querySelector('.mypage-divided-list').children.length, 2);
     const reviews = main().querySelector('[aria-label="다른 독자의 평가"]');
     assert.equal(reviews.querySelectorAll('li').length, 2);
     assert.match(reviews.querySelector('li').textContent, /행복한사자#7K4M2Q8R.*4\/5.*2분 읽음.*40%/);

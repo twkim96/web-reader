@@ -1,4 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+
+test.use({ serviceWorkers: 'block' });
 
 test('My Page brings its back button, menu and shortcuts together on scroll', async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 700 });
@@ -17,7 +19,8 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
     schemaVersion: 1, generation: 'header-test', genres: [], tags: [],
     books: Array.from({ length: 75 }, (_, index) => [
-      `menu-test-${index}`, `테스트 도서 ${index}`, null, [['series', `https://example.test/book/${index}`]], null, [], 100 - index, null,
+      `menu-test-${index}`, `테스트 도서 ${index}`, null,
+      [['series', `https://example.test/book/${index}`], ['kakao', `https://example.test/kakao/${index}`]], null, [], 100 - index, null,
     ]),
   } }));
   await page.route('**/api/book-reviews?*', route => route.fulfill({ json: {
@@ -63,7 +66,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     const backColor = await back.evaluate(button => getComputedStyle(button).color);
     await expect(shortcuts.getByRole('button', { name: '내 서재' })).toHaveCSS('color', backColor);
     await expect(shortcuts.getByRole('button', { name: '공개 설정' })).toHaveCSS('color', backColor);
-    await assertDivider(firstBook);
+    await assertDivider(firstBook.locator('..'));
     await expect(menu.getByText('대시보드')).not.toHaveClass('sr-only');
     const collapseAt = await page.locator('[data-my-page] > header').evaluate((header) => header.getBoundingClientRect().height / 2);
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
@@ -111,7 +114,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await menu.getByRole('button', { name: /^위시리스트/ }).click();
   const savedBook = page.getByRole('link', { name: '관심 도서 0', exact: true });
   await expect(savedBook).toBeAttached();
-  await assertDivider(savedBook);
+  await assertDivider(savedBook.locator('..'));
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect.poll(geometry).toMatchObject({ pinned: false, twoRows: true });
   await menu.evaluate(element => { element.scrollLeft = element.scrollWidth; });
@@ -141,25 +144,102 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   const reviewHeading = page.getByRole('heading', { name: '내 평가', exact: true });
   await expect(reviewHeading).toBeFocused();
   await expect(reviewHeading).toBeInViewport();
+  await assertDivider(page.getByRole('region', { name: '다른 독자의 평가' }).getByRole('listitem').first());
+  const storefront = page.getByRole('link', { name: '네이버 시리즈', exact: true }).locator('..');
+  await assertDivider(storefront);
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await expect(storefront).toHaveCSS('position', 'relative');
+  expect(await storefront.evaluate(item => getComputedStyle(item, '::after').display)).toBe('none');
+  await page.setViewportSize({ width: 393, height: 700 });
+  await assertOtherDividerLists(page, menu);
+  const publicBooks = [0, 1].map(index => ({ workId: `public-${index}`, title: `공개 도서 ${index}`, coverUrl: null }));
+  await page.route('**/api/mypage?view=profile&code=*', route => route.fulfill({ json: {
+    identity: { code: '00000001', nickname: '독자' }, visibility: { wishlist: true, reviews: true },
+    wishlist: publicBooks, reviews: publicBooks.map(item => ({ ...item, rating: 5, comment: '' })),
+  } }));
+  await page.goto('/people/00000001');
+  for (const name of ['위시리스트', '별점 및 평가']) {
+    await assertDivider(page.getByRole('region', { name }).getByRole('listitem').first());
+  }
 });
 
-async function assertDivider(link: import('@playwright/test').Locator) {
-  const [left, right, width, row, height, color, background] = await link.locator('..').evaluate((item) => {
+async function assertDivider(row: Locator) {
+  const geometry = await row.evaluate(item => {
     const line = getComputedStyle(item, '::after');
-    return [parseFloat(line.left), parseFloat(line.right), parseFloat(line.width), item.clientWidth,
-      parseFloat(line.height), line.backgroundColor, getComputedStyle(item).backgroundColor] as const;
+    const box = item.getBoundingClientRect();
+    const left = parseFloat(line.left);
+    const width = parseFloat(line.width);
+    const scroll = item.closest<HTMLElement>('[aria-label="독서 기록 목록"]');
+    const scrollLeft = scroll?.getBoundingClientRect().left ?? 0;
+    const scrollRight = scroll ? scrollLeft + scroll.clientWidth : innerWidth;
+    const canvas = document.createElement('canvas').getContext('2d')!;
+    canvas.fillStyle = line.backgroundColor;
+    canvas.fillRect(0, 0, 1, 1);
+    return {
+      left, right: parseFloat(line.right), width, rowWidth: box.width, height: parseFloat(line.height),
+      alpha: canvas.getImageData(0, 0, 1, 1).data[3], background: getComputedStyle(item).backgroundColor,
+      clipped: box.left + left < scrollLeft || box.left + left + width > scrollRight,
+      lastLine: getComputedStyle(item.parentElement!.lastElementChild!, '::after').content,
+    };
   });
-  expect(left).toBeLessThan(0);
-  expect(right).toBeLessThan(0);
-  expect(left).toBeCloseTo(right, 0);
-  expect(width).toBeGreaterThan(row);
-  expect(width - row).toBeLessThan(12);
-  expect(height).toBeGreaterThan(0);
-  expect(color).not.toBe('rgba(0, 0, 0, 0)');
-  expect(background).toBe('rgba(0, 0, 0, 0)');
+  expect(geometry.left).toBeLessThan(0);
+  expect(geometry.right).toBeLessThan(0);
+  expect(geometry.left).toBeCloseTo(geometry.right, 0);
+  expect(geometry.width).toBeGreaterThan(geometry.rowWidth);
+  expect(geometry.width - geometry.rowWidth).toBeLessThan(12);
+  expect(geometry.height).toBeGreaterThan(0);
+  expect(geometry.alpha).toBeGreaterThan(0);
+  expect(geometry.alpha).toBeLessThan(64);
+  expect(geometry.background).toBe('rgba(0, 0, 0, 0)');
+  expect(geometry.clipped).toBe(false);
+  expect(geometry.lastLine).toBe('none');
 }
 
-async function assertDashboardCovers(page: import('@playwright/test').Page, dashboard: import('@playwright/test').Locator) {
+async function assertOtherDividerLists(page: Page, menu: Locator) {
+  await page.evaluate(async () => {
+    const request = indexedDB.open('web-reader-db');
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const stats = 'reading-sessions-v11';
+    const notes = 'annotations-v8';
+    const tx = db.transaction([stats, notes], 'readwrite');
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    const localDate = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+    for (let i = 0; i < 3; i++) {
+      const startedAtClient = date.getTime() + i * 90_000;
+      const bookId = `divider-${i}`;
+      const ownerKey = 'guest:header-test|library:local';
+      tx.objectStore(stats).put({
+        ownerKey, sessionId: bookId, bookId, bookTitle: bookId, schemaVersion: 1, deviceId: 'fixture',
+        mode: 'screen', startedAtClient, endedAtClient: startedAtClient + 60_000, durationMs: 60_000,
+        startProgressPercent: 0, endProgressPercent: 5, timezoneOffsetMinutes: date.getTimezoneOffset(), localDate,
+        completed: false, syncState: 'synced', retryCount: 0, nextAttemptAt: 0, lastErrorCode: null,
+      });
+      tx.objectStore(notes).put({
+        ownerKey, id: bookId, bookId, type: 'highlight', sectionIndex: 0, rangeCfi: 'epubcfi(/6/2!/4/2,/1:1,/1:2)',
+        quote: bookId, prefix: '', suffix: '', colorId: 'yellow', note: '', progressPercent: 50, chapter: '',
+        createdAtClient: startedAtClient, updatedAtClient: startedAtClient, anchorState: 'active',
+      });
+    }
+    await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+    db.close();
+  });
+  for (const [tab, selector] of [
+    ['대시보드', '[aria-label="독서 기록 목록"] li'],
+    ['통계', '[data-reading-statistics-book]'],
+    ['주석', '[data-library-annotation-item]'],
+  ]) {
+    await menu.getByRole('button', { name: tab, exact: true }).click();
+    const rows = page.locator(selector);
+    await expect(rows).toHaveCount(3);
+    await assertDivider(rows.first());
+  }
+}
+
+async function assertDashboardCovers(page: Page, dashboard: Locator) {
   await page.route('**/api/mypage?*', route => route.fulfill({ json: { groups: [{
     reader: { code: '00000001', nickname: '독자' },
     books: [{ workId: 'sample', title: '비교 도서', coverUrl: null, rating: 5 }],

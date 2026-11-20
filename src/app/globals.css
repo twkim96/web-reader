@@ -125,10 +125,11 @@ body {
   content: '';
   position: absolute;
   bottom: -0.375rem;
-  inset-inline: -0.1875rem;
+  inset-inline-start: -3px;
+  inline-size: calc(100% + 6px);
   height: 1px;
   transform: translateY(50%);
-  background-color: color-mix(in srgb, currentColor 28%, transparent);
+  background-color: color-mix(in srgb, var(--viewer-theme-text, currentColor) 15%, transparent);
   pointer-events: none;
 }
 
