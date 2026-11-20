@@ -5,16 +5,20 @@ import { Firestore, getFirestore, initializeFirestore, memoryLocalCache, persist
 export { APP_ID } from './appIdentity';
 
 const isDev = process.env.NODE_ENV === 'development';
-const isTailnetDevOrigin = isDev && typeof window !== 'undefined'
-  && window.location.hostname === process.env.NEXT_PUBLIC_WEB_READER_TAILSCALE_DEV_HOST;
+const location = typeof window === 'undefined' ? undefined : window.location;
+const isTailnetDevOrigin = isDev && location
+  && location.hostname === process.env.NEXT_PUBLIC_WEB_READER_TAILSCALE_DEV_HOST;
+const previewAuthHost = process.env.NEXT_PUBLIC_WEB_READER_PREVIEW_AUTH_HOST;
+const isRegisteredPreviewOrigin = previewAuthHost && location?.host === previewAuthHost;
 const useHostedAuth = process.env.NEXT_PUBLIC_WEB_READER_PREVIEW === '1' || isTailnetDevOrigin;
 const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+const defaultAuthDomain = useHostedAuth && projectId
+  ? `${projectId}.firebaseapp.com`
+  : process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: useHostedAuth && projectId
-    ? `${projectId}.firebaseapp.com`
-    : process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  authDomain: isRegisteredPreviewOrigin ? previewAuthHost : defaultAuthDomain,
   projectId,
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 test('restores only the current-tab Drive session and reloads its library', async () => {
   const [tokenHook, networkHook, authHook] = await Promise.all([
@@ -52,6 +54,43 @@ test('keeps the guest shelf active while Firebase redirects so login cancellatio
   assert.doesNotMatch(loginHandler, /localStorage\.removeItem\(['"]isGuest['"]\)/);
   assert.doesNotMatch(loginHandler, /ownerRuntime\.clear\(\)/);
   assert.doesNotMatch(loginHandler, /resetLibraryState\(\)/);
+});
+
+test('Firebase uses the registered branch host only on the matching preview origin', () => {
+  const registered = 'twreader-git-preview-mypage-twkims-projects-b9c7f5a3.vercel.app';
+  const preview = 'another-deployment.vercel.app';
+  const production = 'twreader.vercel.app';
+  const tailnet = 'dev.team.ts.net';
+  const hostedAuth = 'demo-web-reader.firebaseapp.com';
+  const readAuthDomain = (vercelEnv, branch, host, nodeEnv = 'production') => execFileSync(process.execPath, [
+    '--import', 'tsx', '--input-type=module', '--eval', `
+      const config = (await import('./next.config.ts')).default;
+      Object.assign(process.env, (config.default ?? config).env);
+      globalThis.window = { location: new URL('https://' + process.env.TEST_AUTH_HOST) };
+      const firebase = await import('./src/lib/firebase.ts');
+      console.log((firebase.auth ?? firebase.default.auth).config.authDomain);
+    `,
+  ], {
+    cwd: fileURLToPath(new URL('../', import.meta.url)),
+    env: {
+      ...process.env,
+      NODE_ENV: nodeEnv,
+      VERCEL_ENV: vercelEnv,
+      VERCEL_BRANCH_URL: branch,
+      WEB_READER_TAILSCALE_DEV_HOST: tailnet,
+      NEXT_PUBLIC_FIREBASE_API_KEY: 'test-api-key',
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'demo-web-reader',
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: production,
+      TEST_AUTH_HOST: host,
+    },
+    encoding: 'utf8',
+  }).trim();
+
+  assert.equal(readAuthDomain('preview', registered, registered), registered);
+  assert.equal(readAuthDomain('preview', registered, preview), hostedAuth);
+  assert.equal(readAuthDomain('preview', preview, preview), hostedAuth);
+  assert.equal(readAuthDomain('production', registered, production), production);
+  assert.equal(readAuthDomain('development', '', tailnet + ':8443', 'development'), hostedAuth);
 });
 
 test('shows privacy disclosure before both Firebase login and Drive OAuth', async () => {

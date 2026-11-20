@@ -8,7 +8,7 @@ Firebase Google 로그인은 앱의 사용자 UID를 정합니다. 진행률·�
 
 ## Firebase 로그인 설정
 
-클라이언트는 `signInWithRedirect`와 `useAuthBootstrap`을 사용합니다. 개발 서버와 Vercel Preview에서 페이지 호스트와 Firebase 인증 호스트가 다르면 팝업 로그인을 사용합니다. Vercel Preview와 `WEB_READER_TAILSCALE_DEV_HOST`로 접속한 개발 서버의 팝업은 Firebase Hosting 인증 주소를 사용합니다. 팝업을 여는 앱의 호스트는 Firebase 승인 도메인에 등록해야 합니다. 공개 설정 변수는 [개발 가이드](../development/setup-and-checks.md)에 있습니다.
+클라이언트는 `signInWithRedirect`와 `useAuthBootstrap`을 사용합니다. 운영 주소와 OAuth 콜백을 등록한 고정 Vercel 프리뷰 브랜치 주소에서는 앱과 같은 호스트의 Firebase 인증 경로로 이동합니다. [next.config.ts](../../next.config.ts)는 `VERCEL_BRANCH_URL`이 등록된 프리뷰 주소와 일치할 때만 이 설정을 빌드에 반영합니다. 개별 배포 URL과 `WEB_READER_TAILSCALE_DEV_HOST`로 접속한 개발 서버는 Firebase Hosting 인증 주소로 팝업을 엽니다. 앱의 접속 호스트는 Firebase 승인 도메인에 등록해야 합니다. 공개 설정 변수는 [개발 가이드](../development/setup-and-checks.md)에 있습니다.
 
 - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`에 실제 앱 접속 host를 사용합니다. Firebase Console의 Authorized domains에 그 host를 등록합니다.
 - Google Cloud 웹 OAuth 클라이언트에 `https://<앱-host>/__/auth/handler`를 redirect URI로 등록합니다.
