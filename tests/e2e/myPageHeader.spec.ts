@@ -6,10 +6,17 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await page.addInitScript(() => {
     localStorage.setItem('isGuest', 'true');
     localStorage.setItem('neverShowInstallPrompt', 'true');
+    localStorage.setItem('web_reader_guest_install_id', 'header-test');
+    const owner = encodeURIComponent('guest:header-test|library:local');
+    for (let index = 0; index < 20; index++) {
+      const id = `saved-${index}`;
+      const book = { id, title: `관심 도서 ${index}`, coverUrl: null, platforms: [], genre: null, tags: [], popularity: null, sourceCount: null };
+      localStorage.setItem(`reader_wishlist_v1:${owner}:${id}`, JSON.stringify({ book, addedAt: index }));
+    }
   });
   await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
     schemaVersion: 1, generation: 'header-test', genres: [], tags: [],
-    books: Array.from({ length: 50 }, (_, index) => [
+    books: Array.from({ length: 75 }, (_, index) => [
       `menu-test-${index}`, `테스트 도서 ${index}`, null, [['series', `https://example.test/book/${index}`]], null, [], 100 - index, null,
     ]),
   } }));
@@ -26,7 +33,8 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   const menu = page.getByRole('navigation', { name: '마이페이지 메뉴' });
   const shortcuts = page.getByRole('group', { name: '마이페이지 바로가기' });
   await expect(shortcuts.getByRole('button')).toHaveCount(3);
-  await expect(menu.getByRole('button', { name: '도서 탐색' })).toHaveCount(0);
+  const catalog = menu.getByRole('button', { name: '도서목록' });
+  await expect(catalog).toHaveAttribute('aria-current', 'page');
   const firstBook = page.getByRole('link', { name: '테스트 도서 0', exact: true });
   await expect(firstBook).toBeVisible();
 
@@ -50,6 +58,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await expect(menu.getByText('대시보드')).not.toHaveClass('sr-only');
     await page.evaluate(() => window.scrollTo(0, 500));
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
+    await expect(catalog.getByText('도서목록')).not.toHaveClass('sr-only');
     await expect(menu.getByText('대시보드')).toHaveClass('sr-only');
   }
 
@@ -73,10 +82,32 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   const read = menu.getByRole('button', { name: '읽은 책' });
   await read.click();
   await expect(read).toHaveAttribute('aria-current', 'page');
+  await page.setViewportSize({ width: 320, height: 700 });
+  await menu.getByRole('button', { name: /^위시리스트/ }).click();
+  await expect(page.getByRole('link', { name: '관심 도서 0', exact: true })).toBeAttached();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(geometry).toMatchObject({ pinned: false, twoRows: true });
+  await menu.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+  await page.evaluate(() => window.scrollTo(0, 500));
+  await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
+  await expect(menu.getByText('위시리스트', { exact: true })).not.toHaveClass('sr-only');
+  await expect(menu.getByText('읽은 책', { exact: true })).toHaveClass('sr-only');
+  await expect.poll(() => menu.evaluate((nav) => {
+    const selected = nav.querySelector('[aria-current="page"]')!.getBoundingClientRect();
+    const bounds = nav.getBoundingClientRect();
+    return selected.left >= bounds.left - 1 && selected.right <= bounds.right + 1;
+  })).toBe(true);
   await shortcuts.getByRole('button', { name: '공개 설정' }).click();
   await expect(page).toHaveURL(/#mypage\/sharing$/);
-  await shortcuts.getByRole('button', { name: '도서 탐색' }).click();
+  await shortcuts.getByRole('button', { name: '메타데이터 검색' }).click();
+  const search = page.getByRole('textbox', { name: '도서 제목 검색' });
+  await expect(search).toBeFocused();
   await expect(firstBook).toBeVisible();
+  const match = page.getByRole('link', { name: '테스트 도서 72', exact: true });
+  await expect(match).toHaveCount(0);
+  await search.fill('테스트 도서 72');
+  await expect(match).toBeVisible();
+  await expect(firstBook).toHaveCount(0);
   await shortcuts.getByRole('button', { name: '내 서재' }).click();
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
 });

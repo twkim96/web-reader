@@ -309,7 +309,7 @@ test('a saved title opens a themed detail page with optional private records and
     assert.match(main().textContent, /테스트 도서/);
     const freshOwner = 'guest:detail-other|library:local';
     await act(async () => root.render(React.createElement(MyPage, { ...props, key: freshOwner, ownerKey: freshOwner })));
-    await click(window, window.document.querySelector('button[aria-label="도서 탐색"]'));
+    await click(window, [...window.document.querySelectorAll('nav button')].find((button) => button.textContent === '도서목록'));
     assert.equal(main().querySelectorAll('article').length, 1);
     await click(window, main().querySelector('article h3'));
     assert.equal(main().querySelector('[aria-label="내 독서 기록"]'), null);
