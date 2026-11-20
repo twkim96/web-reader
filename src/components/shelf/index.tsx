@@ -58,7 +58,7 @@ interface ShelfProps {
   isCloudTokenValid?: () => boolean;
   onCloudAuthExpired?: () => void;
   themeStyle?: React.CSSProperties;
-  onShowAnnotations: () => void;
+  onShowMyPage: () => void;
   onShowStatistics: () => void;
 }
 
@@ -86,7 +86,7 @@ export const Shelf: React.FC<ShelfProps> = ({
   isCloudTokenValid,
   onCloudAuthExpired,
   themeStyle,
-  onShowAnnotations,
+  onShowMyPage,
   onShowStatistics,
 }) => {
   const [showManage, setShowManage] = useState(false);
@@ -385,7 +385,7 @@ export const Shelf: React.FC<ShelfProps> = ({
         setShowThemeModal={setShowThemeModal}
         setShowManage={setShowManage}
         setShowImportConfirm={handleShowImportConfirm}
-        onShowAnnotations={onShowAnnotations}
+        onShowMyPage={onShowMyPage}
         onShowStatistics={onShowStatistics}
       />
 

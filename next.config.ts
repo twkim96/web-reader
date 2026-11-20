@@ -10,8 +10,17 @@ const appBuildId: string = computeAppBuildId(process.cwd(), {
 
 const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'web-novel-viewer';
 const firebaseAuthHost = `${firebaseProjectId}.firebaseapp.com`;
+const tailnetDevHost = process.env.WEB_READER_TAILSCALE_DEV_HOST?.trim().toLowerCase();
+const allowedDevOrigins = tailnetDevHost && /^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/.test(tailnetDevHost)
+  ? [tailnetDevHost]
+  : undefined;
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins,
+  outputFileTracingIncludes: {
+    '/api/mypage': ['./public/catalog/discovery.v1.json'],
+    '/api/book-reviews': ['./public/catalog/discovery.v1.json'],
+  },
   generateBuildId: async () => appBuildId,
   env: {
     NEXT_PUBLIC_APP_BUILD_ID: appBuildId,

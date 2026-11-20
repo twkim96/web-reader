@@ -1,4 +1,4 @@
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, type DocumentData, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import {
   getPublicBookMetadataAliasCandidates,
@@ -36,13 +36,18 @@ const getPublicBookMetadataAliasIds = async (fileName: string) => {
   )));
 };
 
-export const loadPublicBookMetadata = async (fileName: string) => {
+export type PublicBookMetadataDocumentReader = (reference: DocumentReference<DocumentData>) => Promise<DocumentSnapshot<DocumentData>>;
+
+export const loadPublicBookMetadata = async (
+  fileName: string,
+  readDocument: PublicBookMetadataDocumentReader = getDoc,
+) => {
   const aliasIds = await getPublicBookMetadataAliasIds(fileName);
   if (aliasIds.length === 0) return null;
   const bucketIds = [...new Set(aliasIds.map((aliasId) => aliasId.slice(0, 2)))];
   const snapshots = await Promise.all(bucketIds.map(async (bucketId) => [
     bucketId,
-    await getDoc(doc(db, PUBLIC_BOOK_METADATA_COLLECTION, bucketId)),
+    await readDocument(doc(db, PUBLIC_BOOK_METADATA_COLLECTION, bucketId)),
   ] as const));
   const buckets = new Map(snapshots);
   for (const aliasId of aliasIds) {
@@ -61,7 +66,7 @@ export const loadPublicBookMetadata = async (fileName: string) => {
     }
   }
   const aliasId = aliasIds[0];
-  const onDemand = await getDoc(doc(db, PUBLIC_BOOK_METADATA_ON_DEMAND_COLLECTION, aliasId));
+  const onDemand = await readDocument(doc(db, PUBLIC_BOOK_METADATA_ON_DEMAND_COLLECTION, aliasId));
   return onDemand.exists() ? parseOnDemandPublicBookMetadata(onDemand.data()) : null;
 };
 

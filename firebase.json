@@ -8,6 +8,10 @@
       "host": "127.0.0.1",
       "port": 8089
     },
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9096
+    },
     "ui": {
       "enabled": false
     },

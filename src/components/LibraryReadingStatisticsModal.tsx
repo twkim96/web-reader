@@ -49,6 +49,7 @@ import {
 import { MenuSheetHeader } from './MenuSheetHeader';
 
 type Props = {
+  embedded?: boolean;
   open: boolean;
   visible: boolean;
   ownerKey: OwnerKey;
@@ -65,6 +66,12 @@ type Props = {
 };
 
 type BookListFilter = 'all' | 'current' | 'completed';
+const StatisticsPageHeader = ({ title, titleId, trailing }: React.ComponentProps<typeof MenuSheetHeader>) => (
+  <header className="flex flex-wrap items-center justify-between gap-3">
+    <h2 id={titleId} className="text-xl font-semibold tracking-tight">{title}</h2>
+    <div className="app-menu-sheet-header-actions flex items-center gap-1">{trailing}</div>
+  </header>
+);
 type PendingBookListDeletion = {
   bookId: string;
   bookTitle: string;
@@ -86,6 +93,7 @@ const rangeLabels: Array<{ value: ReadingStatisticsRange; label: string }> = [
 ];
 
 export const LibraryReadingStatisticsModal: React.FC<Props> = ({
+  embedded = false,
   open,
   visible,
   ownerKey,
@@ -100,6 +108,8 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   onRefresh,
   onClose,
 }) => {
+  const Header = embedded ? StatisticsPageHeader : MenuSheetHeader;
+  const sectionClass = embedded ? '' : `app-menu-sheet-section border ${theme.border}`;
   const displayBookTitle = useBookTitleDisplay();
   const [sessions, setSessions] = useState<StoredReadingSessionV11[]>([]);
   const [range, setRange] = useState<ReadingStatisticsRange>('week');
@@ -120,7 +130,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const reloadTimerRef = useRef<number | null>(null);
   const bookListLongPressTimerRef = useRef<number | null>(null);
   const bookListLongPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
-  useBodyScrollLock(open && visible);
+  useBodyScrollLock(open && visible && !embedded);
   const accent = ACCENT_PALETTE[accentColor] || ACCENT_PALETTE.rose;
   const accentStyle = {
     '--accent-400': accent[400],
@@ -184,7 +194,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         : '이 기기의 로컬 기록';
 
   useEffect(() => {
-    if (!open || !visible) return;
+    if (!open || !visible || embedded) return;
     const dialog = dialogRef.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const selector = 'button:not([disabled]),[href],[tabindex]:not([tabindex="-1"])';
@@ -220,7 +230,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       window.removeEventListener('keydown', handleKeyDown);
       previous?.focus();
     };
-  }, [onClose, open, pendingBookListDeletion, pendingRoundCompletion, visible]);
+  }, [embedded, onClose, open, pendingBookListDeletion, pendingRoundCompletion, visible]);
 
   const visibleSessions = useMemo(() => sessions.filter(({ sessionId }) => (
     !hiddenSessionIds.has(sessionId)
@@ -423,24 +433,26 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   return (
     <>
     <div
-      data-menu-sheet-backdrop="true"
-      className={`app-menu-sheet-backdrop fixed inset-0 z-[105] ${visible ? 'flex' : 'hidden'} items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5`}
-      onClick={onClose}
+      data-menu-sheet-backdrop={embedded ? undefined : 'true'}
+      className={embedded ? 'min-w-0' : `app-menu-sheet-backdrop fixed inset-0 z-[105] ${visible ? 'flex' : 'hidden'} items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5`}
+      onClick={embedded ? undefined : onClose}
     >
       <section
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : true}
         aria-labelledby="reading-statistics-title"
         tabIndex={-1}
-        data-reading-statistics-modal="true"
-        data-menu-sheet="true"
+        data-reading-statistics-modal={embedded ? undefined : 'true'}
+        data-menu-sheet={embedded ? undefined : 'true'}
         data-reading-statistics-accent={accentColor}
         style={{ ...themeVariables, ...accentStyle }}
         onClick={(event) => event.stopPropagation()}
-        className={`app-panel-radius app-menu-sheet flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh]`}
+        className={embedded
+          ? 'flex min-w-0 flex-col'
+          : `app-panel-radius app-menu-sheet flex max-h-[78dvh] w-[min(90vw,36rem)] min-w-0 flex-col overflow-hidden border ${theme.border} ${theme.bg} ${theme.text} shadow-2xl sm:max-h-[82dvh]`}
       >
-        <MenuSheetHeader
+        <Header
           title="독서 통계"
           kind="statistics"
           titleId="reading-statistics-title"
@@ -474,7 +486,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
           )}
         />
 
-        <div data-reading-statistics-body="true" className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5 sm:px-4 sm:py-3">
+        <div data-reading-statistics-body="true" className={embedded ? 'mt-5 min-w-0' : 'min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5 sm:px-4 sm:py-3'}>
           {feedback && <p role="status" className="mb-3 text-center text-xs font-bold opacity-70">{feedback}</p>}
           {(syncHealth !== 'healthy' || quarantinedDocumentCount > 0) && (
             <div role="status" className="mb-3 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
@@ -498,16 +510,16 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
             <p role="status" className="py-16 text-center text-sm opacity-50">통계를 불러오는 중...</p>
           ) : (
             <>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className={embedded ? 'grid grid-cols-3 gap-3 sm:gap-6' : 'grid grid-cols-3 gap-1.5'}>
                 {(['today', 'week', 'month'] as const).map((value) => (
-                  <div key={value} data-reading-statistics-headline={value} className={`app-menu-sheet-section min-w-0 rounded-xl border ${theme.border} px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}>
-                    <div className="text-[10px] font-bold opacity-50">{rangeLabels.find((item) => item.value === value)?.label}</div>
-                    <div className="mt-0.5 truncate text-xs font-black sm:text-base">{formatReadingDuration(headlineTotals[value])}</div>
+                  <div key={value} data-reading-statistics-headline={value} className={`min-w-0 ${embedded ? '' : `${sectionClass} rounded-xl px-2 py-1.5 sm:rounded-2xl sm:px-2.5 sm:py-2`}`}>
+                    <div className={embedded ? 'text-xs opacity-60' : 'text-[10px] font-bold opacity-50'}>{rangeLabels.find((item) => item.value === value)?.label}</div>
+                    <div className={embedded ? 'mt-1.5 text-base font-semibold tabular-nums sm:text-xl' : 'mt-0.5 truncate text-xs font-black sm:text-base'}>{formatReadingDuration(headlineTotals[value])}</div>
                   </div>
                 ))}
               </div>
 
-              <div className={`app-menu-sheet-section mt-2.5 flex gap-0.5 overflow-x-auto rounded-xl border ${theme.border} p-0.5 sm:rounded-2xl`}>
+              <div className={`flex overflow-x-auto ${embedded ? 'mt-6 w-fit max-w-full gap-1' : `${sectionClass} mt-2.5 gap-0.5 rounded-xl p-0.5 sm:rounded-2xl`}`}>
                 {rangeLabels.map((item) => (
                   <button
                     key={item.value}
@@ -515,27 +527,27 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                     data-reading-statistics-range={item.value}
                     onClick={() => setRange(item.value)}
                     aria-pressed={range === item.value}
-                    className={`min-h-8 min-w-[3.75rem] flex-1 rounded-lg px-2 text-[11px] font-bold sm:min-h-9 sm:rounded-xl sm:text-xs ${range === item.value ? 'bg-accent-600 text-white' : 'opacity-60 hover:opacity-100'}`}
+                    className={`min-h-8 min-w-[3.75rem] flex-1 rounded-lg px-2 text-[11px] font-bold sm:min-h-9 sm:rounded-xl sm:text-xs ${range === item.value ? (embedded ? 'bg-accent-500/10 text-accent-500' : 'bg-accent-600 text-white') : 'opacity-60 hover:opacity-100'}`}
                   >
                     {item.label}
                   </button>
                 ))}
               </div>
 
-              <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                <div className={`app-menu-sheet-section rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
+              <div className={embedded ? 'mt-5 grid grid-cols-2 gap-3 sm:gap-6' : 'mt-2.5 grid grid-cols-2 gap-1.5'}>
+                <div className={`${embedded ? '' : `${sectionClass} rounded-xl px-2.5 py-2 sm:rounded-2xl`}`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Monitor size={14} /> 화면 독서</div>
                   <div data-reading-statistics-mode-total="screen" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.screenMs)}</div>
                 </div>
-                <div className={`app-menu-sheet-section rounded-xl border ${theme.border} px-2.5 py-2 sm:rounded-2xl`}>
+                <div className={`${embedded ? '' : `${sectionClass} rounded-xl px-2.5 py-2 sm:rounded-2xl`}`}>
                   <div className="flex items-center gap-1.5 text-[11px] font-bold opacity-60"><Headphones size={14} /> TTS 듣기</div>
                   <div data-reading-statistics-mode-total="tts" className="mt-0.5 text-sm font-black">{formatReadingDuration(summary.ttsMs)}</div>
                 </div>
               </div>
 
-              <div className="mt-3 flex items-end justify-between gap-2">
+              <div className={`flex items-end justify-between gap-2 ${embedded ? 'mt-8' : 'mt-3'}`}>
                 <div>
-                  <h3 className="text-xs font-black sm:text-sm">도서별 기록</h3>
+                  <h3 className={embedded ? 'text-base font-semibold' : 'text-xs font-black sm:text-sm'}>도서별 기록</h3>
                   <p data-reading-statistics-book-summary="true" className="text-[10px] opacity-50">
                     {bookStatusSummary.currentCount}권 읽는 중 · 완료 {bookStatusSummary.completedCount}권
                   </p>
@@ -557,9 +569,9 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                 </div>
               </div>
 
-              <div className="mt-2 min-w-0 grid gap-1.5">
+              <div className={`mt-2 grid min-w-0 ${embedded ? 'gap-4' : 'gap-1.5'}`}>
                 {visibleBookRounds.length === 0 ? (
-                  <div className={`app-menu-sheet-section rounded-2xl border ${theme.border} py-12 text-center text-sm opacity-45`}>아직 기록된 독서 시간이 없습니다.</div>
+                  <div className={`text-sm opacity-60 ${embedded ? 'py-4' : `${sectionClass} rounded-2xl py-12 text-center`}`}>아직 기록된 독서 시간이 없습니다.</div>
                 ) : visibleBookRounds.map((book) => {
                   const rowKey = `${book.bookId}:${book.roundNumber}`;
                   const completionExpanded = expandedCompletionRows.has(rowKey);
@@ -590,7 +602,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                         sourceSessionIds: book.sourceSessionIds,
                       });
                     }}
-                    className={`app-menu-sheet-section min-w-0 touch-manipulation select-none overflow-hidden rounded-xl border ${theme.border} px-2.5 py-2`}
+                    className={`min-w-0 touch-manipulation select-none overflow-hidden ${embedded ? 'py-1' : `${sectionClass} rounded-xl px-2.5 py-2`}`}
                   >
                     <div className="flex min-w-0 items-start justify-between gap-2">
                       <div className="min-w-0">

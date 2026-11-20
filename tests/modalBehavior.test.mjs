@@ -314,17 +314,19 @@ test('keeps provisional navigation controls available while ordinary panels hide
   assert.doesNotMatch(chromeSource, /const openJumpInput = useCallback\(\(\) => \{[\s\S]*?setShowControls\(false\)/);
 });
 
-test('pins library annotation and statistics modals to the active theme variables', async () => {
-  const [pageSource, annotationSource, statisticsSource] = await Promise.all([
+test('passes active theme variables to library annotations and reading statistics', async () => {
+  const [pageSource, myPageSource, annotationSource, statisticsSource] = await Promise.all([
     readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/LibraryAnnotationModal.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/mypage/MyPage.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/LibraryAnnotations.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/LibraryReadingStatisticsModal.tsx', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(pageSource, /<LibraryAnnotationModal[\s\S]*?themeVariables=\{themeCssVariables\}/);
+  assert.match(pageSource, /<MyPage[\s\S]*?themeVariables=\{themeCssVariables\}/);
+  assert.match(myPageSource, /<LibraryAnnotations[\s\S]*?themeVariables=\{themeVariables\}/);
   assert.match(pageSource, /<LibraryReadingStatisticsModal[\s\S]*?themeVariables=\{themeCssVariables\}/);
-  assert.match(annotationSource, /data-library-annotation-modal="true"[\s\S]*?style=\{themeVariables\}/);
-  assert.match(statisticsSource, /data-reading-statistics-modal="true"[\s\S]*?style=\{\{ \.\.\.themeVariables, \.\.\.accentStyle \}\}/);
+  assert.match(annotationSource, /data-library-annotation-page="true"[\s\S]*?style=\{themeVariables\}/);
+  assert.match(statisticsSource, /data-reading-statistics-modal=\{embedded \? undefined : 'true'\}[\s\S]*?style=\{\{ \.\.\.themeVariables, \.\.\.accentStyle \}\}/);
 });
 
 test('keeps theme headers and action-footers outside the scrolling modal body', async () => {

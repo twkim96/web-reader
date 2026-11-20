@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import io
+import json
+import tempfile
 import unittest
 import importlib.util
+from contextlib import redirect_stdout
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +16,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from public_book_catalog import build_catalog_documents  # noqa: E402
+from public_book_discovery import build_discovery, discovery_bytes  # noqa: E402
 
 PUBLISHER_SPEC = importlib.util.spec_from_file_location(
     "publish_book_metadata",
@@ -62,8 +68,11 @@ class PublicBookCatalogPublisherTests(unittest.TestCase):
             {
                 "documentId": "0" * 64,
                 "titleKey": "가",
+                "displayTitle": "첫 번째",
                 "platforms": [{
                     "platform": "series",
+                    "url": "https://series.example/1",
+                    "coverUrl": "https://series.example/cover",
                     "downloadCount": 100,
                     "viewCount": None,
                 }],
@@ -71,14 +80,18 @@ class PublicBookCatalogPublisherTests(unittest.TestCase):
             {
                 "documentId": "f" * 64,
                 "titleKey": "나",
+                "displayTitle": "두 번째",
                 "platforms": [
                     {
                         "platform": "series",
+                        "url": "https://series.example/2",
                         "downloadCount": 300,
                         "viewCount": None,
                     },
                     {
                         "platform": "kakao",
+                        "url": "https://kakao.example/2",
+                        "coverUrl": "https://kakao.example/cover",
                         "downloadCount": None,
                         "viewCount": 1_000,
                     },
@@ -133,6 +146,69 @@ class PublicBookCatalogPublisherTests(unittest.TestCase):
         self.assertEqual(first_manifest["generation"], second_manifest["generation"])
         self.assertEqual(first_documents, second_documents)
         self.assertNotEqual(first_manifest["publishedAt"], second_manifest["publishedAt"])
+
+    def test_discovery_joins_deduplicates_and_hashes_projected_fields(self) -> None:
+        self.aliases.append({**self.aliases[0], "documentId": "a" * 64})
+        documents, manifest, _ = self.build("first")
+        first = build_discovery(self.aliases, documents, manifest)
+        self.assertEqual(set(first), {"schemaVersion", "generation", "genres", "tags", "books"})
+        self.assertEqual(first["genres"], ["판타지", "현판"])
+        self.assertEqual(first["tags"], ["성장", "하렘", "회귀"])
+        self.assertEqual(first["books"][0], ["가", "첫 번째", "https://series.example/cover",
+                         [["series", "https://series.example/1"]], 0, [1, 0], 2500, 100])
+        self.assertEqual(first["books"][1], ["나", "두 번째", "https://kakao.example/cover",
+                         [["series", "https://series.example/2"], ["kakao", "https://kakao.example/2"]],
+                         1, [0, 2], 6250, 1000])
+        self.assertNotIn("documentId", discovery_bytes(first).decode())
+        self.assertNotIn("a" * 64, discovery_bytes(first).decode())
+        later_docs, later_manifest, _ = self.build("later")
+        self.assertEqual(discovery_bytes(first), discovery_bytes(build_discovery(self.aliases, later_docs, later_manifest)))
+        for field, value in (("displayTitle", "다른 제목"),):
+            self.aliases[1][field] = value
+            changed = build_discovery(self.aliases, documents, manifest)
+            self.assertNotEqual(first["generation"], changed["generation"])
+            self.aliases[1][field] = "두 번째"
+        for field, value in (("url", "https://series.example/new"), ("coverUrl", "https://series.example/new-cover")):
+            platform = self.aliases[1]["platforms"][0]
+            old = platform.get(field)
+            platform[field] = value
+            self.assertNotEqual(first["generation"], build_discovery(self.aliases, documents, manifest)["generation"])
+            if old is None:
+                del platform[field]
+            else:
+                platform[field] = old
+
+    def test_discovery_rejects_invalid_urls_and_incomplete_cli_modes(self) -> None:
+        documents, manifest, _ = self.build("first")
+        self.aliases[0]["platforms"][0]["url"] = "https://user:secret@example.com/"
+        with self.assertRaises(ValueError):
+            build_discovery(self.aliases, documents, manifest)
+        for option in ("--skip-catalog", "--limit=1"):
+            with self.subTest(option=option), patch.object(sys, "argv", ["publisher", "--discovery-output", "out", option]):
+                with self.assertRaises(ValueError):
+                    PUBLISHER.main()
+
+    def test_cli_writes_discovery_and_reports_counts(self) -> None:
+        self.connection.commit()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "index.json"
+            output.write_text("old", encoding="utf-8")
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["publisher", "--discovery-output", str(output)]), \
+                 patch.object(PUBLISHER, "open_readonly", return_value=self.connection), \
+                 patch.object(PUBLISHER, "require_schema"), \
+                 patch.object(PUBLISHER, "build_documents", return_value=(self.aliases, 0)), \
+                 patch.object(PUBLISHER, "bucket_documents", return_value=[]), \
+                 patch.object(PUBLISHER, "load_genre_resolver", return_value=self.resolve_genre), \
+                 redirect_stdout(stdout):
+                self.assertEqual(PUBLISHER.main(), 0)
+            data = output.read_bytes()
+            result = json.loads(data)
+            summary = json.loads(stdout.getvalue())["discoveryOutput"]
+            self.assertEqual(summary["books"], 2)
+            self.assertEqual(summary["bytes"], len(data))
+            self.assertEqual(summary["generation"], result["generation"])
+            self.assertEqual(list(Path(directory).iterdir()), [output])
 
     def test_decodes_firestore_readback_with_omitted_empty_containers(self) -> None:
         document = {

@@ -14,7 +14,7 @@
 
 로그인 계정의 주석·팔레트는 IndexedDB에 먼저 저장하고 outbox/revision/receipt transaction으로 동기화합니다. 도서별 aggregate는 수량·중복 범위·삭제 generation을 검증합니다. 충돌·권한/용량 실패를 일반 성공으로 처리하지 않습니다. 삭제 marker와 tombstone을 제거하면 예전 원격 데이터가 되살아날 수 있으므로 [복구 가이드](../operations/deployment-and-recovery.md)를 따릅니다.
 
-도서 안과 라이브러리 전체에서 인용문·메모·장·팔레트 의미를 검색하고 색·메모 여부·정렬로 찾을 수 있습니다. 라이브러리 검색 결과 이동은 기존 도서 열기/위치 복원 경로를 사용합니다. 내보내기는 Markdown과 버전이 있는 JSON(`web-reader-annotations`)을 지원합니다. JSON export가 IndexedDB/도서 파일을 포함하는 전체 백업이라는 뜻은 아닙니다.
+도서 안과 마이페이지 주석 목록에서 인용문·메모·장·팔레트 의미를 검색하고 색·메모 여부·정렬로 찾을 수 있습니다. 마이페이지의 주석 목록에는 도서명을 출처로 표시하고 리더를 여는 링크를 두지 않습니다. 내보내기는 Markdown과 버전이 있는 JSON(`web-reader-annotations`)을 지원합니다. JSON export가 IndexedDB/도서 파일을 포함하는 전체 백업이라는 뜻은 아닙니다.
 
 ## 번역·사전·TTS
 
@@ -36,7 +36,7 @@ EPUB/TXT 리더의 듣기 아이콘 왼쪽에 자동읽기 버튼을 제공합�
 
 - 선택/앵커: `useReaderTextSelection`, `TextSelectionMenu`, [useReaderAnnotations.ts](../../src/hooks/reader/useReaderAnnotations.ts), `annotationOverlay`, `annotationPolicy`
 - 저장/동기화: `localAnnotations`, `useAnnotationSync`, `annotationSyncSchema`, `annotationSyncTransaction`, `annotationBookDeletion`, `localAnnotationPalette`
-- 검색/내보내기: `LibraryAnnotationModal`, `AnnotationModal`, [annotationQuery.ts](../../src/lib/annotationQuery.ts), [annotationExport.ts](../../src/lib/annotationExport.ts), `annotationExportDelivery`
+- 검색/내보내기: `LibraryAnnotations`, `AnnotationModal`, [annotationQuery.ts](../../src/lib/annotationQuery.ts), [annotationExport.ts](../../src/lib/annotationExport.ts), `annotationExportDelivery`
 - 언어/음성: `useReaderLanguageTools`, `browserTranslator`, [useReaderTts.ts](../../src/hooks/reader/useReaderTts.ts), `readerTts`, `readerTtsCursor`
 - 자동읽기: [ReaderAutoReadModal.tsx](../../src/components/reader/ReaderAutoReadModal.tsx), `readerAutoRead`, `readerAutoReadContent`, `EpubReader`; `tests/readerAutoRead.test.mjs`, `tests/e2e/readerAutoRead.spec.ts`
 - 관련 검증: `npm run test:storage`, `npm run test:shelf`, `npm run test:formats`, `npm run test:rules` 중 변경 영역을 선택합니다. 기기별 수용 확인은 [TODO](../TODO.md)에 있습니다.

@@ -27,6 +27,8 @@ npm run dev
 
 개발은 기본 `http://localhost:3000`에서 실행합니다. production 모드는 `npm run build` 후 `npm run start`입니다. 개발 Firestore SDK는 메모리 캐시, production은 여러 탭용 persistent cache를 사용하므로 테스트 환경을 기록합니다.
 
+Tailscale Serve로 루프백 개발 서버를 HTTPS 프록시할 때는 `.env.development.local`에 `WEB_READER_TAILSCALE_DEV_HOST=<기기>.<tailnet>.ts.net`을 설정한 뒤 개발 서버를 다시 실행합니다. 호스트 이름만 입력합니다. Next.js 개발 자산은 지정된 주소에서 불러올 수 있으며 브라우저 저장소는 해당 HTTPS 주소에 속합니다.
+
 일반 `next dev`에서는 PWA Service Worker를 등록하지 않습니다. 개발 중 같은 URL의 Next chunk가 바뀌어 이전 오프라인 shell과 섞이는 것을 피하며, 이전 `/sw.js` 등록이 있으면 해제하고 해당 worker가 현재 탭을 제어할 때 한 번 새로고침합니다. IndexedDB·도서·진행률·설정은 지우지 않습니다. 이미 오래된 shell로 초기 실행이 실패했다면 강력 새로고침 후 재확인합니다. 개발 서버에서 PWA 자체를 검증할 때만 `NEXT_PUBLIC_ENABLE_DEV_SERVICE_WORKER=1`로 명시적으로 켭니다. Playwright 기본 설정은 이 옵션을 사용하며 production PWA 등록·업데이트 정책은 유지합니다.
 
 소스 변경과 다른 오래된 CSS가 개발 빌드에 남으면 `.next/dev/static/chunks/`의 실제 CSS부터 대조합니다. 2026-11-16에는 별도 production build 이후 `next dev`가 이전 CSS를 재사용했고, 개발 서버 종료 후 생성물 `.next/dev`만 지우고 다시 실행해 새 CSS 적용을 확인했습니다. 브라우저의 IndexedDB·도서·진행률을 초기화할 필요는 없습니다.

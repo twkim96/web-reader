@@ -33,6 +33,7 @@ import { useProgressActions } from '../hooks/useProgressActions';
 import { useProgressSync } from '../hooks/useProgressSync';
 import { useProgressSyncWorker } from '../hooks/useProgressSyncWorker';
 import { useViewerSettings } from '../hooks/useViewerSettings';
+import { useMyPageNavigation } from '../hooks/useMyPageNavigation';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { AppInstallPrompt } from '../components/AppInstallPrompt';
 import { SyncConflictResolutionDialog } from '../components/SyncConflictResolutionDialog';
@@ -63,11 +64,10 @@ import {
 import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
-import { LibraryAnnotationModal } from '../components/LibraryAnnotationModal';
+const MyPage = dynamic(() => import('../components/mypage/MyPage').then((module) => module.MyPage), { ssr: false });
 import { LibraryReadingStatisticsModal } from '../components/LibraryReadingStatisticsModal';
 import { useReadingStatisticsSync } from '../hooks/useReadingStatisticsSync';
 import { shouldCancelRemoteProgressCommand } from '../hooks/reader/remoteProgressCommand';
-import type { LibraryAnnotationJumpCommand } from '../lib/libraryAnnotationNavigation';
 import {
   shouldShowSyncConflictDialog,
   shouldShowSyncReviewBadge,
@@ -96,11 +96,7 @@ export default function Page() {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [syncReviewOpen, setSyncReviewOpen] = useState(false);
   const [readerReopen, setReaderReopen] = useState<{ ownerKey: string; bookId: string; version: string }>();
-  const [libraryAnnotationsOpen, setLibraryAnnotationsOpen] = useState(false);
   const [readingStatisticsOpen, setReadingStatisticsOpen] = useState(false);
-  const [libraryAnnotationJumpCommand, setLibraryAnnotationJumpCommand] = useState<
-    LibraryAnnotationJumpCommand | null
-  >(null);
   const deviceId = useDeviceId();
   const hasTriedAutoOpenLastBookRef = useRef(false);
 
@@ -666,12 +662,16 @@ export default function Page() {
     if (activeBook) {
       clearLastReaderSession(undefined, activeBook.id);
     }
-    setLibraryAnnotationJumpCommand(null);
     setView('shelf');
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   }, [activeBook, cancelStagedRemoteProgressCommand, stagedRemoteProgressCommand]);
 
+  const { openMyPage, closeMyPage } = useMyPageNavigation({
+    view, setView, isLibraryBootstrapReady, autoOpenHandledRef: hasTriedAutoOpenLastBookRef,
+  });
+
   useEffect(() => {
+    if (window.location.hash.startsWith('#mypage')) return;
     if (hasTriedAutoOpenLastBookRef.current) {
       return;
     }
@@ -780,7 +780,7 @@ export default function Page() {
           onBookImported={handleBookImported}
           isCloudTokenValid={hasValidToken}
           onCloudAuthExpired={handleCloudAuthExpired}
-          onShowAnnotations={() => setLibraryAnnotationsOpen(true)}
+          onShowMyPage={openMyPage}
           onShowStatistics={() => setReadingStatisticsOpen(true)}
         />
       )}
@@ -827,15 +827,6 @@ export default function Page() {
           outboxProgressConflictRevision={outboxProgressConflictRevision}
           ignoredRemoteRevision={progress[activeBook.id]?.ignoredRemoteRevision}
           onIgnoreRemoteProgress={handleIgnoreRemoteProgress}
-          libraryAnnotationJumpCommand={libraryAnnotationJumpCommand
-            ?.annotation.bookId === activeBook.id
-            ? libraryAnnotationJumpCommand
-            : null}
-          onLibraryAnnotationJumpConsumed={(commandId) => {
-            setLibraryAnnotationJumpCommand((current) => (
-              current?.commandId === commandId ? null : current
-            ));
-          }}
           onRegisterProgressFlush={(flush) => {
             readerProgressFlushRef.current = flush;
           }}
@@ -849,23 +840,23 @@ export default function Page() {
         />
       )}
 
-      {libraryAnnotationsOpen && activeOwnerKey && (
-        <LibraryAnnotationModal
+      {view === 'mypage' && activeOwnerKey && (
+        <MyPage
           key={activeOwnerKey}
-          open={libraryAnnotationsOpen}
-          visible={view === 'shelf'}
           ownerKey={activeOwnerKey}
           books={books}
+          progress={shelfProgress}
+          bookmarkProgress={progress}
           theme={theme}
           themeVariables={themeCssVariables}
-          onClose={() => setLibraryAnnotationsOpen(false)}
-          onJump={(annotation, book) => {
-            if (!handleOpenBook(book)) return;
-            setLibraryAnnotationJumpCommand({
-              commandId: crypto.randomUUID(),
-              annotation,
-            });
-          }}
+          accentColor={effectiveAccentColor}
+          syncHealth={readingStatisticsSync.health}
+          quarantinedDocumentCount={readingStatisticsSync.quarantinedCount}
+          canRefresh={readingStatisticsSync.canRefresh}
+          refreshing={readingStatisticsSync.refreshing}
+          lastServerCheckedAt={readingStatisticsSync.lastServerCheckedAt}
+          onRefresh={readingStatisticsSync.refresh}
+          onBack={closeMyPage}
         />
       )}
 

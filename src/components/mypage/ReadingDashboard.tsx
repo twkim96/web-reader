@@ -1,0 +1,212 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
+import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
+import type { OwnerKey } from '../../lib/ownerIdentity';
+import {
+  buildReadingStatistics,
+  formatReadingDuration,
+  getReadingStatisticsRangeBounds,
+  type ReadingSessionV1,
+  type StoredReadingSessionV11,
+} from '../../lib/readingStatistics';
+import {
+  READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY,
+  readHiddenReadingStatisticsSessionIds,
+} from '../../lib/readingStatisticsSessionVisibility';
+import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
+
+type Props = {
+  ownerKey: OwnerKey;
+  onOpenStatistics: () => void;
+  onOpenAnnotations: () => void;
+};
+
+type Data = {
+  ownerKey: OwnerKey;
+  sessions: StoredReadingSessionV11[];
+  now: number;
+  error: boolean;
+};
+
+const dateKey = (year: number, month: number, day: number) => (
+  `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+);
+
+export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations }: Props) {
+  const displayBookTitle = useBookTitleDisplay();
+  const [data, setData] = useState<Data | null>(null);
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [selectedDay, setSelectedDay] = useState(() => {
+    const now = new Date();
+    return dateKey(now.getFullYear(), now.getMonth(), now.getDate());
+  });
+  const [visibleRows, setVisibleRows] = useState({ day: '', count: 50 });
+
+  useEffect(() => {
+    let disposed = false;
+    let request = 0;
+    const load = async () => {
+      const current = ++request;
+      try {
+        const sessions = await getLocalReadingSessionsV11(ownerKey);
+        const hidden = readHiddenReadingStatisticsSessionIds(ownerKey);
+        if (!disposed && current === request) {
+          setData({ ownerKey, sessions: sessions.filter(({ sessionId }) => !hidden.has(sessionId)), now: Date.now(), error: false });
+        }
+      } catch {
+        if (!disposed && current === request) setData({ ownerKey, sessions: [], now: Date.now(), error: true });
+      }
+    };
+    const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => void load());
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY || event.key === null) void load();
+    };
+    window.addEventListener('storage', onStorage);
+    void load();
+    return () => {
+      disposed = true;
+      unsubscribe();
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [ownerKey]);
+
+  const currentData = data?.ownerKey === ownerKey ? data : null;
+  const statistics = useMemo(() => {
+    if (!currentData || currentData.error) return null;
+    const details = new Map<string, Map<string, { session: ReadingSessionV1; totalMs: number; startAt: number }>>();
+    const summary = buildReadingStatistics(currentData.sessions, getReadingStatisticsRangeBounds('all', currentData.now),
+      ({ session, localDate, durationMs, startAt }) => {
+        const day = details.get(localDate) ?? new Map();
+        const row = day.get(session.sessionId) ?? { session, totalMs: 0, startAt };
+        row.totalMs += durationMs;
+        row.startAt = Math.min(row.startAt, startAt);
+        day.set(session.sessionId, row);
+        details.set(localDate, day);
+      });
+    return { summary, details };
+  }, [currentData]);
+  const summary = statistics?.summary ?? null;
+  const totals = useMemo(() => {
+    if (!summary || !currentData) return null;
+    const sumRange = (range: 'today' | 'month') => {
+      const bounds = getReadingStatisticsRangeBounds(range, currentData.now);
+      return summary.days.reduce((sum, day) => sum + (
+        (!bounds.startLocalDate || day.localDate >= bounds.startLocalDate)
+        && (!bounds.endLocalDate || day.localDate <= bounds.endLocalDate) ? day.totalMs : 0
+      ), 0);
+    };
+    return [sumRange('today'), sumRange('month'), summary.totalMs];
+  }, [currentData, summary]);
+  const dayTotals = useMemo(() => new Map(summary?.days.map((day) => [day.localDate, day.totalMs]) ?? []), [summary]);
+  const selectedSessions = useMemo(() => {
+    return [...(statistics?.details.get(selectedDay)?.values() ?? [])]
+      .sort((a, b) => b.startAt - a.startAt);
+  }, [statistics, selectedDay]);
+  const rowLimit = visibleRows.day === selectedDay ? visibleRows.count : 50;
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstWeekday = new Date(year, monthIndex, 1).getDay();
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const changeMonth = (offset: number) => {
+    const next = new Date(year, monthIndex + offset, 1);
+    setMonth(next);
+    setSelectedDay(dateKey(next.getFullYear(), next.getMonth(), 1));
+  };
+
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      <section aria-label="독서 시간 요약" className="mypage-section">
+        <h2 className="text-lg font-semibold tracking-tight sm:text-xl">독서 시간</h2>
+        <dl className="mt-4 grid grid-cols-3 gap-3 sm:gap-6">
+          {['오늘', '이번 달', '전체'].map((label, index) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-xs opacity-60 sm:text-sm">{label}</dt>
+              <dd className="mt-1.5 text-base font-semibold tracking-tight tabular-nums sm:text-xl">{totals ? formatReadingDuration(totals[index]) : '—'}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {(!currentData || currentData.error) && (
+        <p role="status" className="text-sm opacity-70">{currentData?.error ? '독서 기록을 불러오지 못했습니다.' : '독서 기록을 불러오는 중입니다.'}</p>
+      )}
+
+      <div className="grid items-start gap-4 sm:gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <section aria-label="독서 달력" className="mypage-section">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight sm:text-xl">독서 달력</h2>
+            </div>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => changeMonth(-1)} aria-label="이전 달" className="rounded-full p-2 hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]"><ChevronLeft size={17} /></button>
+              <span className="min-w-[6.5rem] text-center text-sm font-semibold tabular-nums">{year}년 {monthIndex + 1}월</span>
+              <button type="button" onClick={() => changeMonth(1)} aria-label="다음 달" className="rounded-full p-2 hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]"><ChevronRight size={17} /></button>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-7 rounded-md bg-[color-mix(in_srgb,currentColor_5%,transparent)] text-center text-xs">
+            {['일', '월', '화', '수', '목', '금', '토'].map((day) => <span key={day} className="py-2 opacity-65">{day}</span>)}
+          </div>
+          <div className="mt-1 grid grid-cols-7 gap-y-1">
+            {Array.from({ length: firstWeekday }, (_, i) => <span key={`empty-${i}`} />)}
+            {Array.from({ length: daysInMonth }, (_, i) => {
+              const day = i + 1;
+              const key = dateKey(year, monthIndex, day);
+              const duration = dayTotals.get(key) ?? 0;
+              const selected = key === selectedDay;
+              return (
+                <button key={key} type="button" onClick={() => setSelectedDay(key)} aria-pressed={selected}
+                  aria-label={`${monthIndex + 1}월 ${day}일, ${summary ? formatReadingDuration(duration) : '기록 확인 중'}`}
+                  className={`mx-auto flex h-12 w-full max-w-12 flex-col items-center justify-center rounded-xl text-sm transition-colors ${selected ? 'bg-[color-mix(in_srgb,var(--accent-500)_14%,transparent)] text-accent-500' : 'hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]'}`}>
+                  <span className={selected ? 'font-semibold' : ''}>{day}</span>
+                  <span className="mt-0.5 h-3 whitespace-nowrap text-[9px] leading-3 text-accent-500">{duration > 0 ? formatReadingDuration(duration) : ''}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section aria-label="선택한 날짜의 독서 기록" className="mypage-section">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-base font-semibold sm:text-lg">{Number(selectedDay.slice(5, 7))}월 {Number(selectedDay.slice(8, 10))}일</h2>
+            <span className="text-sm font-semibold text-accent-500">{summary ? formatReadingDuration(dayTotals.get(selectedDay) ?? 0) : '—'}</span>
+          </div>
+          {!currentData || currentData.error ? (
+            <p className="mt-3 text-sm opacity-60">{currentData?.error ? '기록을 표시할 수 없습니다.' : '기록을 불러오는 중입니다.'}</p>
+          ) : selectedSessions.length === 0 ? (
+            <p className="mt-3 text-sm opacity-60">이날 읽은 기록이 없습니다.</p>
+          ) : (
+            <>
+            <ul className="mt-4 space-y-4">
+              {selectedSessions.slice(0, rowLimit).map(({ session, totalMs, startAt }) => (
+                <li key={session.sessionId} className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{displayBookTitle(session.bookTitle)}</p>
+                    <p className="mt-1 text-xs opacity-55">{new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
+                  </div>
+                  <span className="shrink-0 text-xs opacity-70">{formatReadingDuration(totalMs)}</span>
+                </li>
+              ))}
+            </ul>
+            {selectedSessions.length > rowLimit && (
+              <button type="button" className="mt-4 text-sm text-accent-500" onClick={() => setVisibleRows({ day: selectedDay, count: rowLimit + 50 })}>더 보기</button>
+            )}
+            </>
+          )}
+        </section>
+      </div>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        {[{ label: '독서 통계', action: onOpenStatistics }, { label: '내 주석', action: onOpenAnnotations }].map(({ label, action }) => (
+          <button key={label} type="button" onClick={action} className="flex min-h-10 items-center gap-2 text-left text-sm font-medium transition-colors hover:text-accent-500">
+            {label}<ArrowUpRight size={16} className="text-accent-500" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

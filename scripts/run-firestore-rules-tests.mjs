@@ -25,10 +25,10 @@ const firebaseBinary = resolve(
 const result = spawnSync(firebaseBinary, [
   'emulators:exec',
   '--only',
-  'firestore',
+  'firestore,auth',
   '--project',
   'demo-web-reader',
-  'node --import tsx --test tests/firestoreRules.test.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookMetadataStoreEmulator.test.mjs',
+  'node --import tsx --test --test-concurrency=1 tests/firestoreRules.test.mjs tests/myPageSocialStoreEmulator.test.mjs tests/myPageSocialRoutesEmulator.test.mjs tests/socialReadingServer.test.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/bookMetadataStoreEmulator.test.mjs',
 ], { env, stdio: 'inherit' });
 
 rmSync(resolve('firestore-debug.log'), { force: true });

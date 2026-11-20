@@ -102,6 +102,13 @@ body {
   border-radius: 14px;
 }
 
+.mypage-section {
+  min-width: 0;
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+  border-radius: 14px;
+  background-color: var(--viewer-mypage-surface);
+}
+
 /* Shared geometry for metadata tags, genres, formats, and status chips. */
 .app-tag-radius {
   border-radius: var(--app-radius-md);

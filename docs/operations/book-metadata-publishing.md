@@ -14,6 +14,18 @@
 
 게시기는 기본 dry-run이며 원본 SQLite를 읽기 전용으로 열고 외부 쓰기를 하지 않습니다. 먼저 저장소 루트에서 `python3 scripts/publish-book-metadata.py --database <원본-SQLite-경로>`로 projection을 확인합니다. CLI 옵션과 기본 원본 경로는 [publish-book-metadata.py](../../scripts/publish-book-metadata.py)가 기준입니다. 실제 게시에는 `--apply --project <대상-project-id>`와 Admin 권한이 필요합니다. 인증 변수의 설정 방법은 [개발 가이드](../development/setup-and-checks.md)에 있습니다.
 
+## 도서 탐색 인덱스
+
+로컬에서 공개 탐색 인덱스를 생성합니다.
+
+```bash
+python3 scripts/publish-book-metadata.py --discovery-output public/catalog/discovery.v1.json
+```
+
+게시기는 같은 SQLite 읽기 스냅샷에서 공개 작품 키·제목·표지 URL·플랫폼 링크·장르·태그·정렬 수치를 뽑습니다. 로컬 파일명 별칭과 독서 기록은 출력 범위 밖입니다. `schemaVersion`은 파일 형식, `generation`은 공개 인덱스 내용의 해시입니다. 출력 내용이 같으면 생성 시각이 달라도 같은 파일이 나옵니다. 요약에 표시되는 generation, 작품 수와 크기를 확인합니다.
+
+Firestore 게시와 탐색 갱신을 함께 할 때는 승인된 기존 `--apply` 명령에 `--discovery-output public/catalog/discovery.v1.json`을 추가해 한 번 실행합니다. Firestore 게시 성공과 생성 파일을 확인한 뒤, 인덱스 파일을 포함한 앱을 Vercel에 배포합니다. 탐색 인덱스는 새로 배포된 앱 버전이 제공하며, PWA는 해당 버전에서 처음 받아온 뒤 정적 캐시에 보관할 수 있습니다. Firebase 상세 문서와 책장용 compact catalog는 기존 경로를 사용합니다.
+
 ## Control Server 경로
 
 로컬 Control Server의 저장된 Action 설정은 cwd `/Users/twkim/Documents/web_reader`에서 게시 스크립트를 직접 호출합니다. 미리보기에는 `--apply`가 없고 실제 게시에는 아래의 `--apply --project web-novel-viewer`가 있습니다. Markdown 경로를 실행 입력으로 사용하지 않으므로 게시 안내는 이 운영 가이드에서만 유지합니다. 저장된 설정 확인은 서비스 실행·게시 성공 증거와 별개이며, 실행 전 Action의 cwd·명령·대상 프로젝트를 다시 확인합니다.

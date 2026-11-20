@@ -24,7 +24,6 @@ const modalSurfaceSources = [
   '../src/components/reader/ReaderModalFrame.tsx',
   '../src/components/ConfirmDialog.tsx',
   '../src/components/EpubSearchModal.tsx',
-  '../src/components/LibraryAnnotationModal.tsx',
   '../src/components/LibraryReadingStatisticsModal.tsx',
   '../src/components/LoginDisclosureModal.tsx',
   '../src/components/ManageModal.tsx',

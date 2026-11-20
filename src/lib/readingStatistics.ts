@@ -629,6 +629,7 @@ export const buildReadingStatistics = (
     startLocalDate?: string;
     endLocalDate?: string;
   } = {},
+  onCountedSlice?: (slice: { session: ReadingSessionV1; localDate: string; durationMs: number; startAt: number }) => void,
 ): ReadingStatisticsSummary => {
   const startAt = bounds.startAt ?? Number.NEGATIVE_INFINITY;
   const endAt = bounds.endAt ?? Number.POSITIVE_INFINITY;
@@ -745,6 +746,8 @@ export const buildReadingStatistics = (
   for (const slice of slices) {
     const durationMs = slice.endAt - slice.startAt;
     const { session } = slice;
+    const sliceLocalDate = getReadingSessionLocalDate(slice.startAt, session.timezoneOffsetMinutes);
+    onCountedSlice?.({ session, localDate: sliceLocalDate, durationMs, startAt: slice.startAt });
     countedSessionIds.add(session.sessionId);
     totalMs += durationMs;
     if (session.mode === 'tts') ttsMs += durationMs;
@@ -757,10 +760,6 @@ export const buildReadingStatistics = (
     else existingBook.screenMs += durationMs;
     books.set(session.bookId, existingBook);
 
-    const sliceLocalDate = getReadingSessionLocalDate(
-      slice.startAt,
-      session.timezoneOffsetMinutes,
-    );
     const existingDay = days.get(sliceLocalDate) ?? {
       localDate: sliceLocalDate,
       totalMs: 0,

@@ -5606,11 +5606,17 @@ try {
         });
       },
     });
-    document.querySelector('button[aria-label="라이브러리 전체 주석"]')?.click();
+    document.querySelector('button[aria-label="마이페이지"]')?.click();
   })()`);
   await waitFor(
-    'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
-    'library annotation modal',
+    'Boolean(document.querySelector("[data-my-page]"))',
+    'MyPage from shelf',
+  );
+  await evaluate(`Array.from(document.querySelectorAll('[data-my-page] nav button'))
+    .find((button) => button.textContent.trim() === '주석')?.click()`);
+  await waitFor(
+    'Boolean(document.querySelector("[data-library-annotation-page]"))',
+    'standalone library annotations',
   );
   await command('Emulation.setDeviceMetricsOverride', {
     width: 320,
@@ -5620,64 +5626,19 @@ try {
   });
   await evaluate('window.__regressionNextFrame(2)');
   const libraryAnnotationUi = await evaluate(`(() => {
-    const modal = document.querySelector('[data-library-annotation-modal="true"]');
-    const body = modal?.querySelector('[data-library-annotation-body="true"]');
-    const closeButton = modal?.querySelector('button[aria-label="라이브러리 주석 닫기"]');
-    const rect = modal?.getBoundingClientRect();
-    const closeRect = closeButton?.getBoundingClientRect();
+    const page = document.querySelector('[data-library-annotation-page]');
+    const body = page.querySelector('[data-library-annotation-body]');
     return {
-      modalWidth: rect?.width ?? 0,
-      modalHeight: rect?.height ?? 0,
-      viewportWidth: innerWidth,
-      viewportHeight: innerHeight,
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
-      bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
-      closeWidth: closeRect?.width ?? 0,
-      closeHeight: closeRect?.height ?? 0,
-      headerClose: Boolean(modal?.querySelector('[data-menu-sheet-close="true"]')),
-      headerDivider: modal?.querySelector('[data-modal-header="annotations"]')
-        ? getComputedStyle(modal.querySelector('[data-modal-header="annotations"]')).borderBottomWidth
-        : '0px',
+      bodyHorizontalOverflow: Math.max(0, body.scrollWidth - body.clientWidth),
+      dialog: Boolean(page.closest('[role="dialog"]')),
+      jump: Boolean(page.querySelector('[data-library-annotation-item] :is(button,a)')),
     };
   })()`);
-  assert.ok(
-    libraryAnnotationUi.modalWidth <= libraryAnnotationUi.viewportWidth * 0.92,
-    JSON.stringify(libraryAnnotationUi),
-  );
-  assert.ok(
-    libraryAnnotationUi.modalHeight <= libraryAnnotationUi.viewportHeight * 0.89,
-    JSON.stringify(libraryAnnotationUi),
-  );
-  assert.equal(libraryAnnotationUi.headerClose, true, JSON.stringify(libraryAnnotationUi));
-  assert.equal(libraryAnnotationUi.headerDivider, '0px', JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.horizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
   assert.equal(libraryAnnotationUi.bodyHorizontalOverflow, 0, JSON.stringify(libraryAnnotationUi));
-  // Shared MenuSheetHeader uses the compact common close control.
-  assert.equal(libraryAnnotationUi.closeWidth, 32, JSON.stringify(libraryAnnotationUi));
-  assert.equal(libraryAnnotationUi.closeHeight, 32, JSON.stringify(libraryAnnotationUi));
-  const libraryAnnotationBackdropClose = await evaluate(`(async () => {
-    document.querySelector('[data-library-annotation-modal="true"]')?.click();
-    await window.__regressionNextFrame(2);
-    const stayedOpenAfterInnerClick = Boolean(
-      document.querySelector('[data-library-annotation-modal="true"]'),
-    );
-    document.querySelector('[data-library-annotation-backdrop="true"]')?.click();
-    return { stayedOpenAfterInnerClick };
-  })()`);
-  assert.equal(
-    libraryAnnotationBackdropClose.stayedOpenAfterInnerClick,
-    true,
-    JSON.stringify(libraryAnnotationBackdropClose),
-  );
-  await waitFor(
-    '!document.querySelector(\'[data-library-annotation-modal="true"]\')',
-    'library annotation backdrop close',
-  );
-  await evaluate(`document.querySelector('button[aria-label="라이브러리 전체 주석"]')?.click()`);
-  await waitFor(
-    'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
-    'library annotation modal reopen after backdrop close',
-  );
+  assert.equal(libraryAnnotationUi.dialog, false, JSON.stringify(libraryAnnotationUi));
+  assert.equal(libraryAnnotationUi.jump, false, JSON.stringify(libraryAnnotationUi));
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
     height: 800,
@@ -5778,7 +5739,7 @@ try {
   );
   const libraryAnnotationFallback = await evaluate(`(() => ({
     filename: window.__libraryAnnotationExport.downloads[2].download,
-    feedback: document.querySelector('[data-library-annotation-modal="true"] [role="status"]')
+    feedback: document.querySelector('[data-library-annotation-page] [role="status"]')
       ?.textContent ?? '',
   }))()`);
   assert.equal(libraryAnnotationFallback.filename, 'library-annotations.md');
@@ -5791,37 +5752,13 @@ try {
     delete navigator.canShare;
     delete navigator.share;
   })()`);
-  await evaluate(`document.querySelector('[data-library-annotation-item] button')?.click()`);
-  await waitFor(
-    'Boolean(document.querySelector("foliate-view"))',
-    'reader from library annotation result',
-  );
-  await waitFor(
-    `(() => {
-      const view = document.querySelector('foliate-view');
-      return Boolean(view?.renderer?.getContents?.().some(({ overlayer }) => (
-        overlayer?.element?.querySelector('[data-reader-highlight="true"]')
-      )));
-    })()`,
-    'library annotation jump target overlay',
-    60_000,
-  );
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
-  await waitFor(
-    'Boolean(document.querySelector(\'[data-library-annotation-modal="true"]\'))',
-    'library annotation modal restored after reader',
-  );
-  await waitFor(
-    'document.querySelectorAll(\'[data-library-annotation-item]\').length === 1',
-    'library annotation result restored after reader',
-  );
-  const libraryAnnotationRestore = await evaluate(`(() => ({
-    query: document.querySelector('[data-library-annotation-search="true"]')?.value,
-    resultCount: document.querySelectorAll('[data-library-annotation-item]').length,
-  }))()`);
-  assert.equal(libraryAnnotationRestore.query, 'probe paragraph');
-  assert.equal(libraryAnnotationRestore.resultCount, 1);
-  await evaluate(`document.querySelector('button[aria-label="라이브러리 주석 닫기"]')?.click()`);
+  await evaluate(`document.querySelector('[data-library-annotation-item]')?.click()`);
+  await evaluate('window.__regressionNextFrame(2)');
+  assert.equal(await evaluate('location.hash'), '#mypage/annotations');
+  assert.equal(await evaluate('Boolean(document.querySelector("foliate-view"))'), false);
+  assert.equal(await evaluate(`document.querySelector('[data-library-annotation-search="true"]').value`), 'probe paragraph');
+  await evaluate(`document.querySelector('button[aria-label="서재로 돌아가기"]')?.click()`);
+  await waitFor('!document.querySelector("[data-my-page]")', 'return to shelf from MyPage');
   await evaluate(`caches.delete('pc-reader-v1.7.10')`);
 
   await evaluate(`(() => {

@@ -154,4 +154,4 @@ export interface SaveProgressOptions {
   restoredPositionToken?: string;
 }
 
-export type ViewState = 'loading' | 'shelf' | 'reader';
+export type ViewState = 'loading' | 'shelf' | 'reader' | 'mypage';

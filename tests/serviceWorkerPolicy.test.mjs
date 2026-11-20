@@ -33,9 +33,9 @@ test('bypasses private, authenticated, ranged, non-GET, and cross-origin request
 test('allowlists only app shell static resources for runtime caching', () => {
   for (const path of [
     '/manifest.json', '/icon-192.png', '/_next/static/chunk.js',
-    '/foliate-js/view.js', '/fonts/reader.woff2', '/7z/7zz.wasm', '/zip/zip.js',
+    '/foliate-js/view.js', '/fonts/reader.woff2', '/7z/7zz.wasm', '/zip/zip.js', '/catalog/discovery.v1.json',
   ]) assert.equal(policy.isStaticAssetPath(path), true, path);
-  for (const path of ['/api/public', '/books/list.json', '/account', '/arbitrary']) {
+  for (const path of ['/api/public', '/books/list.json', '/catalog/private.json', '/account', '/arbitrary']) {
     assert.equal(policy.isStaticAssetPath(path), false, path);
   }
 });

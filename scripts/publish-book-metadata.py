@@ -13,12 +13,14 @@ import json
 import os
 import sqlite3
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import quote
 
 from public_book_catalog import build_catalog_documents, load_genre_resolver
+from public_book_discovery import build_discovery, discovery_bytes
 
 
 PLATFORM_LABELS = {
@@ -65,6 +67,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="기존 상세 projection만 생성·게시",
     )
+    parser.add_argument("--discovery-output", type=Path, help="공개 discovery JSON 출력 경로")
     parser.add_argument("--limit", type=int, default=0, help="검증용 문서 수 제한")
     parser.add_argument("--apply", action="store_true", help="Firestore에 실제 게시")
     parser.add_argument(
@@ -505,11 +508,19 @@ def main() -> int:
     args = parse_args()
     if args.limit < 0:
         raise ValueError("--limit must be zero or positive")
+    if args.discovery_output and (args.skip_catalog or args.limit):
+        raise ValueError("--discovery-output requires a complete catalog without --limit")
+    if args.discovery_output and args.discovery_output.resolve() in {
+        path.resolve() for path in (args.database, args.output, args.catalog_output) if path
+    }:
+        raise ValueError("--discovery-output must differ from database and other outputs")
     published_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     catalog_documents: list[dict[str, Any]] = []
     catalog_manifest: dict[str, Any] | None = None
     catalog_summary: dict[str, Any] | None = None
+    discovery: dict[str, Any] | None = None
     with open_readonly(args.database) as connection:
+        connection.execute("BEGIN")
         require_schema(connection, include_catalog=not args.skip_catalog)
         aliases, collision_count = build_documents(
             connection,
@@ -530,6 +541,8 @@ def main() -> int:
                 excluded_alias_collisions=collision_count,
                 resolve_genre=load_genre_resolver(args.database),
             )
+            if args.discovery_output:
+                discovery = build_discovery(aliases, catalog_documents, catalog_manifest)
     if args.limit:
         documents = documents[: args.limit]
     summary = {
@@ -561,6 +574,23 @@ def main() -> int:
                 handle.write(json.dumps(document, ensure_ascii=False, separators=(",", ":")))
                 handle.write("\n")
         summary["catalogOutput"] = str(args.catalog_output)
+    if args.discovery_output and discovery is not None:
+        data = discovery_bytes(discovery)
+        args.discovery_output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=args.discovery_output.parent, delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(data)
+            os.replace(temporary, args.discovery_output)
+        finally:
+            if temporary is not None and temporary.exists():
+                temporary.unlink()
+        summary["discoveryOutput"] = {
+            "path": str(args.discovery_output), "generation": discovery["generation"],
+            "books": len(discovery["books"]), "genres": len(discovery["genres"]),
+            "tags": len(discovery["tags"]), "bytes": len(data),
+        }
     if args.apply:
         if not args.project:
             raise RuntimeError("--project is required for --apply")

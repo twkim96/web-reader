@@ -25,9 +25,9 @@ const putInCache = async (request, response) => {
   await cache.put(request, response.clone());
 };
 
-const cacheFirst = (event) => {
+const cacheFirst = (event, reload = false) => {
   const response = caches.open(CACHE_NAME).then(async (cache) => {
-    const cached = await cache.match(event.request);
+    const cached = reload ? undefined : await cache.match(event.request);
     if (cached) return cached;
     const networkResponse = await fetch(event.request);
     await putInCache(event.request, networkResponse);
@@ -91,6 +91,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (policy.isStaticAssetPath(url.pathname)) {
-    event.respondWith(cacheFirst(event));
+    const refreshDiscovery = url.pathname === '/catalog/discovery.v1.json' && event.request.cache === 'reload';
+    event.respondWith(cacheFirst(event, refreshDiscovery));
   }
 });

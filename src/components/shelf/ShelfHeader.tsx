@@ -13,7 +13,6 @@ import {
   Palette,
   FilePlus,
   CloudLightning,
-  Highlighter,
   BarChart3,
   X
 } from 'lucide-react';
@@ -40,7 +39,7 @@ interface ShelfHeaderProps {
   setShowThemeModal: (show: boolean) => void;
   setShowManage: (show: boolean) => void;
   setShowImportConfirm: (show: boolean) => void;
-  onShowAnnotations: () => void;
+  onShowMyPage: () => void;
   onShowStatistics: () => void;
   onCancelSync: () => void;
 }
@@ -64,7 +63,7 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
   setShowThemeModal,
   setShowManage,
   setShowImportConfirm,
-  onShowAnnotations,
+  onShowMyPage,
   onShowStatistics,
   onCancelSync
 }) => {
@@ -167,12 +166,12 @@ export const ShelfHeader: React.FC<ShelfHeaderProps> = ({
     return (
       <>
         <button
-          onClick={() => runAction(onShowAnnotations)}
+          onClick={() => runAction(onShowMyPage)}
           className={buttonClass}
-          title="라이브러리 전체 주석"
-          aria-label="라이브러리 전체 주석"
+          title="마이페이지"
+          aria-label="마이페이지"
         >
-          <Highlighter size={iconSize} />
+          <UserIcon size={iconSize} />
         </button>
 
         <button

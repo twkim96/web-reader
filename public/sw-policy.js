@@ -9,6 +9,7 @@
     '/icon-192.png',
     '/icon-512.png',
     '/logo.png',
+    '/catalog/discovery.v1.json',
   ]);
   const STATIC_PREFIXES = [
     '/_next/static/',
