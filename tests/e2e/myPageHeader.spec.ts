@@ -37,6 +37,11 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await expect(catalog).toHaveAttribute('aria-current', 'page');
   const firstBook = page.getByRole('link', { name: '테스트 도서 0', exact: true });
   await expect(firstBook).toBeVisible();
+  const ruleInsets = await firstBook.locator('..').evaluate((row) => {
+    const line = getComputedStyle(row, '::after');
+    return [parseFloat(line.left), parseFloat(line.right), parseFloat(line.width), row.clientWidth];
+  });
+  assertDivider(ruleInsets);
 
   const geometry = () => page.locator('[data-mypage-menu]').evaluate((bar) => {
     const { top } = bar.getBoundingClientRect();
@@ -120,4 +125,14 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await expect(firstBook).toHaveCount(0);
   await shortcuts.getByRole('button', { name: '내 서재' }).click();
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
+  await page.goto('/#mypage/book/menu-test-0/review');
+  const reviewHeading = page.getByRole('heading', { name: '내 평가', exact: true });
+  await expect(reviewHeading).toBeFocused();
+  await expect(reviewHeading).toBeInViewport();
 });
+
+function assertDivider([left, right, width, row]: number[]) {
+  expect(left).toBeGreaterThan(0);
+  expect(right).toBeGreaterThan(0);
+  expect(width).toBeGreaterThan(row * 0.75);
+}

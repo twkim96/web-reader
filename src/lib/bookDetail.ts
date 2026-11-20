@@ -4,13 +4,17 @@ import { getPublicBookMetadataAliasCandidates, type PublicBookMetadata } from '.
 import { getPlatformWorkKeys, groupPublicBookWorks } from './readBooks';
 import { buildReadingStatistics, type StoredReadingSessionV11 } from './readingStatistics';
 
-export const bookDetailHref = (bookId: string) => `#mypage/book/${encodeURIComponent(bookId)}`;
+const reviewSuffix = '/review';
+export const bookDetailHref = (bookId: string, focusReview = false) =>
+  `#mypage/book/${encodeURIComponent(bookId)}${focusReview ? reviewSuffix : ''}`;
+
+export const hasBookReviewTarget = (hash: string) => hash.endsWith(reviewSuffix) && readBookDetailId(hash) !== null;
 
 export function readBookDetailId(hash: string) {
   const prefix = '#mypage/book/';
   if (!hash.startsWith(prefix)) return null;
   try {
-    const id = decodeURIComponent(hash.slice(prefix.length));
+    const id = decodeURIComponent(hash.slice(prefix.length, hash.endsWith(reviewSuffix) ? -reviewSuffix.length : undefined));
     return isBookDetailId(id) ? id : null;
   } catch {
     return null;
@@ -21,7 +25,7 @@ export const isBookDetailId = (id: unknown): id is string =>
   typeof id === 'string' && id.length <= 500 && id.trim().length > 0 && !/[\u0000-\u001f\u007f]/u.test(id);
 
 type Range = [number, number];
-export type PersonalBookReading = { bookmarks: Bookmark[]; totalMs: number; ranges: Range[]; hasRead: boolean };
+export type PersonalBookReading = { bookmarks: Bookmark[]; totalMs: number; progressPercent: number; fileIds: string[]; hasRead: boolean };
 
 const visibleReadingSessions = (sessions: readonly StoredReadingSessionV11[], ownerKey: OwnerKey, hidden: ReadonlySet<string>) => (
   sessions.filter((session) => session.ownerKey === ownerKey
@@ -75,7 +79,7 @@ export function buildPersonalBookReading({
   const visible = visibleReadingSessions(sessions, ownerKey, hidden);
   for (const { id, name } of books) if (matches(name)) fileIds.add(id);
   for (const { bookId, bookTitle } of visible) if (!fileIds.has(bookId) && matches(bookTitle)) fileIds.add(bookId);
-  if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, ranges: [], hasRead: false };
+  if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, progressPercent: 0, fileIds: [], hasRead: false };
 
   const bookmarks = new Map<string, Bookmark>();
   let hasRead = false;
@@ -113,5 +117,7 @@ export function buildPersonalBookReading({
     if (previous && interval[0] <= previous[1]) previous[1] = Math.max(previous[1], interval[1]);
     else ranges.push(interval);
   }
-  return { bookmarks: [...bookmarks.values()].sort((a, b) => b.createdAt - a.createdAt), totalMs, ranges, hasRead };
+  const progressPercent = ranges.reduce((highest, [start, end]) =>
+    end + 1e-9 >= start + 2 ? Math.max(highest, end) : highest, 0);
+  return { bookmarks: [...bookmarks.values()].sort((a, b) => b.createdAt - a.createdAt), totalMs, progressPercent, fileIds: [...fileIds], hasRead };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bookmark as BookmarkIcon, Check, Heart, Star } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import { buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
@@ -10,13 +10,15 @@ import type { OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 import { getPublicBookCoverCandidates } from '../../lib/publicBookMetadataSchema';
 import { parsePublicBookReview, PUBLIC_BOOK_REVIEW_LIMIT } from '../../lib/publicBookReviews';
-import { formatMyPageIdentity, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type PublicWorkReviews } from '../../lib/myPageSocial';
+import { findReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type PublicWorkReviews } from '../../lib/myPageSocial';
+import type { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/readBooks';
 import { formatReadingDuration, type StoredReadingSessionV11 } from '../../lib/readingStatistics';
 import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY } from '../../lib/readingStatisticsSessionVisibility';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import { BookCover } from './BookCover';
+import { BookReviewEditor } from './BookReviewEditor';
 
 const percent = new Intl.NumberFormat('ko', { maximumFractionDigits: 2 });
 const formatPercent = (number: number) => `${percent.format(number)}%`;
@@ -90,7 +92,7 @@ function CommunityReviews({ workId }: { workId: string }) {
 
 const emptyHistory = { sessions: [], hidden: new Set<string>() };
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, saved }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, saved, reviews, focusReview }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
@@ -100,6 +102,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   bookmarkProgress: Record<string, UserProgress>;
   catalogLoading: boolean;
   saved: boolean;
+  reviews: ReturnType<typeof useMyPageReviews>;
+  focusReview: boolean;
 }) {
   const lookupId = discovery?.id ?? bookId;
   const [metadata, setMetadata] = useState<PublicBookMetadata | null>(null);
@@ -112,6 +116,9 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   } | null>(null);
   const [historyFailed, setHistoryFailed] = useState(false);
   const [historyMetadata, setHistoryMetadata] = useState<ReadonlyMap<string, PublicBookMetadata | null>>();
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const reviewIndex = useMemo(() => indexReviewWorks(reviews.data?.reviews ?? []), [reviews.data]);
+  const deletionIndex = useMemo(() => indexReviewWorks(reviews.data?.deletions ?? []), [reviews.data]);
   const readingInput = useMemo(() => ({
     ownerKey, books, progress, bookmarkProgress, ...(history ?? emptyHistory),
   }), [ownerKey, books, progress, bookmarkProgress, history]);
@@ -170,18 +177,29 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     };
   }, [ownerKey]);
 
-  const personal = useMemo(() => buildPersonalBookReading({
-    ...readingInput,
-    titleKeys: [bookId, lookupId, ...(readBook?.equivalentTitleKeys ?? []), ...(metadata ? [metadata.titleKey] : [])],
-    platformWorkKeys: [
+  const work = useMemo(() => ({
+    id: lookupId,
+    equivalentTitleKeys: [bookId, ...(readBook?.equivalentTitleKeys ?? []), ...(metadata ? [metadata.titleKey] : [])],
+    platformWorkKeys: [...new Set([
       ...(discovery?.platforms.map(({ id, url }) => platformWorkKey(id, url)) ?? []),
       ...(readBook?.platformWorkKeys ?? []),
       ...(metadata ? getPlatformWorkKeys(metadata) : []),
-    ],
+    ])],
+  }), [bookId, discovery, lookupId, metadata, readBook]);
+  const personal = useMemo(() => buildPersonalBookReading({
+    ...readingInput,
+    titleKeys: [work.id, ...work.equivalentTitleKeys],
+    platformWorkKeys: work.platformWorkKeys,
     metadataByTitle: historyMetadata,
     knownFileIds: readBook?.fileIds ?? [],
-  }), [bookId, discovery, historyMetadata, lookupId, metadata, readingInput, readBook]);
+  }), [work, historyMetadata, readingInput, readBook]);
   const title = discovery?.title ?? metadata?.displayTitle ?? readBook?.title;
+  useEffect(() => {
+    const heading = reviewHeading.current;
+    if (!focusReview || !title || !heading) return;
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+  }, [focusReview, title]);
   const cover = discovery?.coverUrl ?? getPublicBookCoverCandidates(metadata)[0]?.coverUrl ?? readBook?.coverUrl ?? null;
   const platforms = new Map((discovery?.platforms ?? []).map(({ id, label, url }) => [
     platformWorkKey(id, url), { label, url, metrics: null as PublicBookMetadata['platforms'][number] | null },
@@ -190,7 +208,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     const { platform, label, url } = metrics;
     platforms.set(platformWorkKey(platform, url), { label, url, metrics });
   }
-  const hasPersonal = personal.bookmarks.length > 0 || personal.totalMs > 0 || personal.ranges.length > 0;
+  const hasPersonal = personal.bookmarks.length > 0 || personal.hasRead;
 
   if (!title && (catalogLoading || loading)) return <p role="status" className="mypage-section text-sm opacity-70">도서 정보를 불러오는 중…</p>;
   if (!title) return (
@@ -238,10 +256,10 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       {hasPersonal && (
         <section className="mypage-section" aria-label="내 독서 기록">
           <h2 className="text-lg font-semibold tracking-tight">내 독서 기록</h2>
-          {(personal.totalMs > 0 || personal.ranges.length > 0) && (
-            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-8">
-              {personal.totalMs > 0 && <div><dt className="text-xs opacity-65">읽은 시간</dt><dd className="mt-1 font-medium">{formatReadingDuration(personal.totalMs)}</dd></div>}
-              {personal.ranges.length > 0 && <div><dt className="text-xs opacity-65">읽은 범위</dt><dd className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-medium tabular-nums">{personal.ranges.map(([from, to]) => <span key={from}>{formatPercent(from)}–{formatPercent(to)}</span>)}</dd></div>}
+          {personal.hasRead && (
+            <dl className="mt-3 flex items-start justify-between gap-3 text-sm">
+              <div><dt className="text-xs opacity-65">읽은 시간</dt><dd className="mt-1 font-medium">{formatReadingDuration(personal.totalMs)}</dd></div>
+              <div className="text-right"><dt className="text-xs opacity-65">진행도</dt><dd className="mt-1 font-medium tabular-nums">{formatPercent(personal.progressPercent)}</dd></div>
             </dl>
           )}
           {personal.bookmarks.length > 0 && (
@@ -255,7 +273,13 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
         </section>
       )}
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
-      <CommunityReviews key={lookupId} workId={lookupId} />
+      <BookReviewEditor ownerKey={ownerKey} workId={work.id} platformWorkKeys={work.platformWorkKeys} fileIds={personal.fileIds}
+        readingSnapshot={readBook?.fileIds?.length ? { totalMs: Math.round(readBook.totalMs), progressPercent: readBook.progressPercent }
+          : personal.totalMs > 0 ? { totalMs: Math.round(personal.totalMs), progressPercent: personal.progressPercent } : null}
+        review={findReviewWork(reviewIndex, work)} deletion={findReviewWork(deletionIndex, work)}
+        ready={reviews.ready} canReview={personal.hasRead || Boolean(readBook)} loadingHistory={!history && !historyFailed && !readBook}
+        error={reviews.error} refresh={reviews.refresh} change={reviews.change} headingRef={reviewHeading} />
+      <CommunityReviews key={`${lookupId}:${reviews.changeVersion}`} workId={lookupId} />
     </>
   );
 }

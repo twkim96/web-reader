@@ -1,8 +1,9 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { bookDetailHref } from '../../lib/bookDetail';
 
-export function BookDetailLink({ bookId, onOpen, children, className, label }: {
+export function BookDetailLink({ bookId, focusReview, onOpen, children, className, label }: {
   bookId: string;
+  focusReview?: boolean;
   onOpen: () => void;
   children: ReactNode;
   className?: string;
@@ -13,5 +14,5 @@ export function BookDetailLink({ bookId, onOpen, children, className, label }: {
     event.preventDefault();
     onOpen();
   };
-  return <a href={bookDetailHref(bookId)} onClick={handleClick} aria-label={label} className={className}>{children}</a>;
+  return <a href={bookDetailHref(bookId, focusReview)} onClick={handleClick} aria-label={label} className={className}>{children}</a>;
 }

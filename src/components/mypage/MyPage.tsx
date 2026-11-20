@@ -6,9 +6,10 @@ import { ArrowLeft, BookCopy, BookOpen, BookOpenCheck, Check, Compass, Heart, Hi
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { groupDiscoveryBooks, loadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
-import { bookDetailHref, readBookDetailId } from '../../lib/bookDetail';
+import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
 import { platformWorkKey, type ReadBook } from '../../lib/readBooks';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
+import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { ReadingDashboard } from './ReadingDashboard';
 import { ReadBooks } from './ReadBooks';
 import { BookCover } from './BookCover';
@@ -74,6 +75,7 @@ export function MyPage(props: Props) {
   const { ownerKey, books, progress, bookmarkProgress, theme, themeVariables, onBack } = props;
   const [tab, setTab] = useState<Tab>(readTab);
   const [bookId, setBookId] = useState(readDetailId);
+  const [focusReview, setFocusReview] = useState(() => typeof window !== 'undefined' && hasBookReviewTarget(window.location.hash));
   const [compactMenu, setCompactMenu] = useState(false);
   const titleRow = useRef<HTMLElement>(null);
   const menu = useRef<HTMLElement>(null);
@@ -95,6 +97,7 @@ export function MyPage(props: Props) {
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
+  const reviews = useMyPageReviews(ownerKey, signedIn && (tab === 'read' || Boolean(bookId)));
   useLayoutEffect(() => {
     const header = titleRow.current;
     if (!header) return;
@@ -135,19 +138,21 @@ export function MyPage(props: Props) {
     window.history.pushState(null, '', `#mypage/${next}`);
     setTab(next);
     setBookId(null);
+    setFocusReview(false);
     const titleMiddle = titleRow.current ? titleMiddleY(titleRow.current) : undefined;
     if (titleMiddle !== undefined && titleMiddle < 0) {
       window.scrollTo({ top: Math.ceil(window.scrollY + titleMiddle), behavior: 'instant' });
     }
   };
-  const openBookById = (id: string, book?: DiscoveryBook | ReadBook) => {
+  const openBookById = (id: string, book?: DiscoveryBook | ReadBook, reviewTarget = false) => {
     if (tab === 'read') readListScroll.current = window.scrollY;
-    window.history.pushState({ ...window.history.state, myPageBookFrom: tab }, '', bookDetailHref(id));
+    window.history.pushState({ ...window.history.state, myPageBookFrom: tab }, '', bookDetailHref(id, reviewTarget));
     setOpenedBook(book);
     setBookId(id);
+    setFocusReview(reviewTarget);
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
-  const openBook = (book: DiscoveryBook | ReadBook) => openBookById(book.id, book);
+  const openBook = (book: DiscoveryBook | ReadBook, reviewTarget = false) => openBookById(book.id, book, reviewTarget);
   const closeBook = () => {
     if (window.history.state?.myPageBookFrom) window.history.back();
     else navigate('discover');
@@ -159,6 +164,7 @@ export function MyPage(props: Props) {
       restoreReadListScroll.current = nextTab === 'read' && nextBook === null;
       setTab(nextTab);
       setBookId(nextBook);
+      setFocusReview(hasBookReviewTarget(window.location.hash));
     };
     window.addEventListener('popstate', update);
     window.addEventListener('hashchange', update);
@@ -297,7 +303,7 @@ export function MyPage(props: Props) {
       </div>
       <div className="mx-auto max-w-5xl px-5 pb-14 pt-6 sm:px-8 sm:pt-8">
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
-          {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} accountStorage={signedIn} /></div>}
+          {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 sm:space-y-10">
             <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
@@ -309,11 +315,11 @@ export function MyPage(props: Props) {
                 </div>}
             </DashboardBookRow>
             <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} />
-            <MyReviews key={`reviews:${ownerKey}`} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
+            <MyReviews key={`reviews:${ownerKey}:${reviews.changeVersion}`} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
             <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
           </div>}
           {bookId ? (
-            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={!catalog && !catalogError && !detailBook} saved={detailSaved} />
+            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={!catalog && !catalogError && !detailBook} saved={detailSaved} reviews={reviews} focusReview={focusReview} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
           {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />

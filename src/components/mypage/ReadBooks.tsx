@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Star } from 'lucide-react';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
@@ -8,9 +8,7 @@ import { formatReadingDuration } from '../../lib/readingStatistics';
 import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY } from '../../lib/readingStatisticsSessionVisibility';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import { buildReadBooks, selectSyncedReadingSessions, type ReadBook } from '../../lib/readBooks';
-import { BOOK_REVIEW_TEXT_LIMIT, readBookReview, removeBookReview, saveBookReview, subscribeBookReviewChanges, type BookReview } from '../../lib/localBookReview';
-import { findReviewWork, indexReviewWorks, MY_PAGE_DASHBOARD_BOOK_LIMIT, type MyPageOwnReviews, type MyPageReview, type MyPageReviewDeletion } from '../../lib/myPageSocial';
-import { myPageRequest, MyPageRequestError, saveMyPageReview } from '../../lib/myPageSocialClient';
+import { findReviewWork, indexReviewWorks, MY_PAGE_DASHBOARD_BOOK_LIMIT, type MyPageReview } from '../../lib/myPageSocial';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
@@ -23,144 +21,11 @@ const formatMetrics = ({ totalMs, progressPercent }: Metrics) => (
 
 const secondaryAction = 'min-h-10 shrink-0 rounded-full px-3 text-xs font-medium hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:text-accent-500';
 
-function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
+function ReadBookRow({ book, onOpenBook, rating }: {
   book: ReadBook;
-  ownerKey: OwnerKey;
-  onOpenBook: (book: ReadBook) => void;
-  accountReview?: {
-    value: MyPageReview | undefined;
-    deletion: MyPageReviewDeletion | undefined;
-    ready: boolean;
-    change: (review: MyPageReview | null, workId: string) => void;
-    refresh: () => void;
-  };
+  onOpenBook: (book: ReadBook, focusReview?: boolean) => void;
+  rating: number;
 }) {
-  const [localReview, setReview] = useState<BookReview | null>(null);
-  const [savingReview, setSavingReview] = useState<Pick<MyPageReview, 'rating' | 'comment' | 'totalMs' | 'progressPercent'> | null>(null);
-  const review = savingReview ?? (accountReview ? accountReview.value : localReview);
-  const [editing, setEditing] = useState(false);
-  const [editingTarget, setEditingTarget] = useState<MyPageReview | MyPageReviewDeletion>();
-  const editingAccountReview = editingTarget && 'rating' in editingTarget ? editingTarget : undefined;
-  const [rating, setRating] = useState(0);
-  const [comment, setComment] = useState('');
-  const [feedback, setFeedback] = useState('');
-  const [pending, setPending] = useState(false);
-  const generation = useRef(0);
-  const busy = useRef(false);
-  const scope = useRef(0);
-  const cloud = Boolean(accountReview);
-
-  useEffect(() => {
-    if (cloud) return;
-    let active = true;
-    const scopeRef = scope;
-    const generationRef = generation;
-    const scopeId = ++scope.current;
-    busy.current = false;
-    setPending(false);
-    const refresh = () => {
-      const current = ++generation.current;
-      readBookReview(ownerKey, book, localStorage).then((value) => {
-        if (active && current === generation.current) setReview(value);
-      }).catch(() => { if (active && current === generation.current) setFeedback('저장한 평가를 불러오지 못했습니다.'); });
-    };
-    refresh();
-    const unsubscribe = subscribeBookReviewChanges(ownerKey, refresh);
-    window.addEventListener('focus', refresh);
-    return () => { active = false; if (scopeRef.current === scopeId) scopeRef.current++; generationRef.current++; unsubscribe(); window.removeEventListener('focus', refresh); };
-  }, [book, cloud, ownerKey]);
-
-  const selectRating = (value: number) => {
-    setRating(value);
-    if (editing) return;
-    setEditingTarget(accountReview?.value ?? accountReview?.deletion);
-    setComment(review?.comment ?? '');
-    setFeedback('');
-    setEditing(true);
-  };
-
-  const save = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (busy.current) return;
-    busy.current = true;
-    setPending(true);
-    const current = ++generation.current;
-    const scopeId = scope.current;
-    try {
-      if (accountReview) {
-        const workId = editingTarget?.workId ?? book.id;
-        const readingSnapshot = book.fileIds?.length ? {
-          totalMs: Math.round(book.totalMs),
-          progressPercent: book.progressPercent,
-        } : null;
-        const fields = { rating, comment: comment.trim() };
-        setSavingReview({
-          ...fields,
-          totalMs: readingSnapshot?.totalMs ?? editingAccountReview?.totalMs ?? null,
-          progressPercent: readingSnapshot?.progressPercent ?? editingAccountReview?.progressPercent ?? null,
-        });
-        setEditing(false);
-        setFeedback('');
-        const saved = await saveMyPageReview(ownerKey, {
-          ...fields, workId, revision: editingTarget?.revision ?? null,
-          platformWorkKeys: editingTarget ? undefined : book.platformWorkKeys,
-          fileIds: book.fileIds?.slice(0, 32) ?? [],
-          readingSnapshot,
-        });
-        accountReview.change(saved, workId);
-      } else {
-        const value = await saveBookReview(ownerKey, book, rating, comment, localStorage);
-        if (generation.current === current) setReview(value);
-      }
-      if (scope.current !== scopeId) return;
-      setEditing(false);
-      setFeedback('');
-    } catch (error) {
-      if (scope.current === scopeId) {
-        accountReview?.refresh();
-        setFeedback(error instanceof MyPageRequestError ? error.message : '평가를 저장하지 못했습니다.');
-      }
-    }
-    finally {
-      if (scope.current === scopeId) {
-        busy.current = false;
-        setSavingReview(null);
-        setPending(false);
-      }
-    }
-  };
-
-  const remove = async () => {
-    if (busy.current) return;
-    busy.current = true;
-    setPending(true);
-    const current = ++generation.current;
-    const scopeId = scope.current;
-    try {
-      if (accountReview && editingAccountReview) {
-        const { workId, revision } = editingAccountReview;
-        await myPageRequest({ action: 'review' }, { owner: ownerKey, body: { workId, revision, remove: true } });
-        accountReview.change(null, workId);
-      } else if (!cloud) await removeBookReview(ownerKey, book, localStorage);
-      if (scope.current !== scopeId) return;
-      if (generation.current === current) setReview(null);
-      setEditing(false);
-      setFeedback('');
-    } catch (error) {
-      if (scope.current === scopeId) {
-        if (error instanceof MyPageRequestError && error.status === 409) {
-          setEditing(false);
-          accountReview?.refresh();
-        }
-        setFeedback(cloud ? (error as Error).message : '평가를 지우지 못했습니다.');
-      }
-    }
-    finally { if (scope.current === scopeId) { busy.current = false; setPending(false); } }
-  };
-
-  const displayedRating = editing ? rating : review?.rating ?? 0;
-  const ratingDisabled = pending || (accountReview && !accountReview.ready);
-
   return (
     <article className="mypage-book-list-item">
       <div className="relative flex items-start gap-3 sm:gap-4">
@@ -171,44 +36,27 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
             <h3 className="truncate text-sm font-semibold leading-5 group-hover:text-accent-500">{book.title}</h3>
             <p className="mt-0.5 truncate text-xs leading-4 opacity-65">{formatMetrics(book)}</p>
           </BookDetailLink>
-          <div role="group" aria-label={displayedRating ? `별점 ${displayedRating}점` : '별점 미평가'} className="relative z-10 mt-0.5 flex w-fit max-w-full">
+          <BookDetailLink bookId={book.id} focusReview onOpen={() => onOpenBook(book, true)}
+            label={`${book.title} 내 평가, ${rating ? `별점 ${rating}점` : '미평가'}`}
+            className="relative z-10 flex h-8 w-fit items-center gap-0.5 rounded-sm hover:text-accent-500 focus-visible:outline-2">
             {[1, 2, 3, 4, 5].map((value) => (
-              <button key={value} type="button" onClick={() => selectRating(value)} aria-pressed={value <= displayedRating}
-                disabled={ratingDisabled} aria-label={`${value}점`}
-                className={`flex size-7 min-w-0 items-center justify-center rounded-full hover:bg-current/10 disabled:opacity-35 ${value <= displayedRating ? 'text-accent-500' : 'opacity-55'}`}>
-                <Star size={15} fill={value <= displayedRating ? 'currentColor' : 'none'} aria-hidden="true" />
-              </button>
+              <Star key={value} size={15} fill={value <= rating ? 'currentColor' : 'none'} aria-hidden="true"
+                className={value <= rating ? 'text-accent-500' : 'opacity-55'} />
             ))}
-          </div>
+          </BookDetailLink>
         </div>
       </div>
-      {review?.comment && !editing && (
-        <p className="ml-[3.75rem] mt-2 break-words text-sm sm:ml-16">{review.comment}</p>
-      )}
-      {editing && (
-        <form onSubmit={save} className="ml-[3.75rem] mt-2 sm:ml-16">
-          <fieldset disabled={pending} className="min-w-0">
-            <input type="text" aria-label="한줄평 (선택)" placeholder="한줄평 (선택)" value={comment}
-              onChange={(event) => setComment(event.target.value)} maxLength={BOOK_REVIEW_TEXT_LIMIT}
-              className="h-10 w-full rounded-lg px-3 ring-1 ring-inset ring-current/15 text-sm focus-visible:outline-2 focus-visible:outline-accent-500" />
-            <div className="mt-2 flex flex-wrap justify-end gap-2">
-              {(accountReview ? editingAccountReview : review) && <button type="button" onClick={remove} className={`mr-auto ${secondaryAction}`}>평가 삭제</button>}
-              <button type="button" onClick={() => { setEditing(false); setFeedback(''); }} className={secondaryAction}>취소</button>
-              <button type="submit" disabled={rating === 0} className="min-h-10 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white disabled:opacity-40">저장</button>
-            </div>
-          </fieldset>
-        </form>
-      )}
-      {feedback && <p role="alert" className="mt-2 text-xs text-accent-500">{feedback}</p>}
     </article>
   );
 }
 
-export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = false }: {
+export function ReadBooks({ ownerKey, onShowAll, onOpenBook, reviews, reviewError, onRetryReviews }: {
   ownerKey: OwnerKey;
   onShowAll?: () => void;
-  onOpenBook: (book: ReadBook) => void;
-  accountStorage?: boolean;
+  onOpenBook: (book: ReadBook, focusReview?: boolean) => void;
+  reviews?: MyPageReview[];
+  reviewError?: string;
+  onRetryReviews?: () => void;
 }) {
   const guest = isGuestOwner(ownerKey);
   const preview = Boolean(onShowAll);
@@ -218,47 +66,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
   const [retry, setRetry] = useState(0);
   const [visibleCount, setVisibleCount] = useState(20);
   const [failedCount, setFailedCount] = useState(0);
-  const [accountReviews, setAccountReviews] = useState<MyPageOwnReviews | null>(null);
-  const [refreshingAccountReviews, setRefreshingAccountReviews] = useState(false);
-  const [accountError, setAccountError] = useState('');
-  const [accountRetry, setAccountRetry] = useState(0);
-  const accountRequest = useRef(0);
-  const accountIndex = useMemo(() => indexReviewWorks(accountReviews?.reviews ?? []), [accountReviews]);
-  const deletionIndex = useMemo(() => indexReviewWorks(accountReviews?.deletions ?? []), [accountReviews]);
-  useEffect(() => {
-    if (!accountStorage || guest || preview) return;
-    const controller = new AbortController();
-    const refresh = () => {
-      const generation = ++accountRequest.current;
-      setRefreshingAccountReviews(true);
-      void myPageRequest<MyPageOwnReviews>({ view: 'reviews' }, { owner: ownerKey, signal: controller.signal })
-        .then((data) => {
-          if (!controller.signal.aborted && generation === accountRequest.current) {
-            setAccountReviews(data); setAccountError('');
-          }
-        })
-        .catch((error: Error) => {
-          if (!controller.signal.aborted && generation === accountRequest.current) setAccountError(error.message);
-        })
-        .finally(() => {
-          if (!controller.signal.aborted && generation === accountRequest.current) setRefreshingAccountReviews(false);
-        });
-    };
-    refresh();
-    window.addEventListener('focus', refresh);
-    return () => { controller.abort(); window.removeEventListener('focus', refresh); };
-  }, [accountStorage, accountRetry, guest, ownerKey, preview]);
-  const changeAccountReview = (review: MyPageReview | null, oldId: string) => {
-    accountRequest.current++;
-    setAccountReviews((current) => {
-      const others = (current?.reviews ?? []).filter((item) => item.workId !== oldId && item.workId !== review?.workId);
-      return {
-        reviews: review ? [{ ...review, aliases: [...new Set([oldId, ...(review.aliases ?? [])])] }, ...others] : others,
-        deletions: current?.deletions ?? [],
-      };
-    });
-    setAccountRetry((value) => value + 1);
-  };
+  const accountIndex = useMemo(() => indexReviewWorks(reviews ?? []), [reviews]);
   const retained = useRef<{ owner: OwnerKey; metadata: Map<string, PublicBookMetadata | null> }>({ owner: ownerKey, metadata: new Map() });
 
   useEffect(() => {
@@ -373,7 +181,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
     {!guest && (!visibleBooks || loadingMetadata) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
     {error && <p role="alert" className="text-sm">읽은 책을 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => { setError(false); setRetry((value) => value + 1); }}>다시 시도</button></p>}
     {failedCount > 0 && <p role="alert" className="mb-3 text-sm">일부 도서 정보를 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></p>}
-    {accountError && <p role="alert" className="mb-3 text-sm">{accountError} <button type="button" className="text-accent-500" onClick={() => setAccountRetry((value) => value + 1)}>평가 다시 불러오기</button></p>}
+    {reviewError && <p role="alert" className="mb-3 text-sm">{reviewError} <button type="button" className="text-accent-500" onClick={onRetryReviews}>평가 다시 불러오기</button></p>}
     {!error && !loadingMetadata && failedCount === 0 && visibleBooks?.length === 0 && <p className="text-sm opacity-60">도서 정보가 연결된 독서 기록이 없습니다.</p>}
   </>;
   if (onShowAll) {
@@ -389,12 +197,9 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
       </h2>
       {status}
       <div className="mypage-divided-list">
-        {visibleBooks?.slice(0, visibleCount).map((book) => <ReadBookRow key={book.id} book={book} ownerKey={ownerKey} onOpenBook={onOpenBook} accountReview={accountStorage ? {
-          value: findReviewWork(accountIndex, book),
-          deletion: findReviewWork(deletionIndex, book),
-          ready: accountReviews !== null && !refreshingAccountReviews && !accountError, change: changeAccountReview,
-          refresh: () => setAccountRetry((value) => value + 1),
-        } : undefined} />)}
+        {visibleBooks?.slice(0, visibleCount).map((book) => (
+          <ReadBookRow key={book.id} book={book} onOpenBook={onOpenBook} rating={findReviewWork(accountIndex, book)?.rating ?? 0} />
+        ))}
       </div>
       {Boolean(visibleBooks && visibleBooks.length > visibleCount) && <button type="button" onClick={() => setVisibleCount((count) => count + 20)} className={`mt-4 w-full ${secondaryAction}`}>더 보기</button>}
     </section>

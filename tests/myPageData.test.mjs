@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readWishlist, setWishlistSaved } from '../src/lib/localWishlist.ts';
 import { buildReadBooks, selectSyncedReadingSessions } from '../src/lib/readBooks.ts';
 import { readBookReview, removeBookReview, saveBookReview } from '../src/lib/localBookReview.ts';
-import { buildPersonalBookReading } from '../src/lib/bookDetail.ts';
+import { bookDetailHref, buildPersonalBookReading, hasBookReviewTarget, readBookDetailId } from '../src/lib/bookDetail.ts';
 import { parsePublicBookReview } from '../src/lib/publicBookReviews.ts';
 
 const ownerA = 'firebase:alice|library:local';
@@ -72,7 +72,7 @@ test('read books use synced account history even without shelf files, merge meta
   assert.deepEqual(selectSyncedReadingSessions(history, 'guest:test|library:local', new Set()), []);
 });
 
-test('work details merge adjacent reading ranges, retain gaps, and omit foreign and hidden sessions', () => {
+test('work detail progress uses the highest qualifying merged range', () => {
   const start = Date.UTC(2026, 10, 20, 5);
   const session = (id, from, to, minute, overrides = {}) => syncedSession(id, '작품 1권.epub',
     start + minute * 60_000, start + (minute + 1) * 60_000, to, { startProgressPercent: from, ...overrides });
@@ -80,14 +80,24 @@ test('work details merge adjacent reading ranges, retain gaps, and omit foreign 
     ownerKey: ownerA, titleKeys: ['작품'], knownFileIds: ['alias-file'], books: [], progress: {},
     hidden: new Set(['hidden']),
     sessions: [
-      session('first', 10, 20, 0),
-      session('second', 20, 30, 1, { bookId: 'alias-file', bookTitle: '다른 파일명' }),
-      session('backward', 64, 60, 2),
-      session('hidden', 30, 60, 3),
-      session('other-account', 30, 60, 4, { ownerKey: ownerB }),
+      session('first', 10, 11, 0),
+      session('second', 11, 12, 1, { bookId: 'alias-file', bookTitle: '다른 파일명' }),
+      session('backward', 64, 63, 2),
+      session('hidden', 63, 69, 3),
+      session('other-account', 63, 75, 4, { ownerKey: ownerB }),
     ],
   });
-  assert.deepEqual(reading, { bookmarks: [], ranges: [[10, 30], [60, 64]], totalMs: 180_000, hasRead: true });
+  assert.equal(reading.progressPercent, 12);
+  assert.equal(reading.totalMs, 180_000);
+  assert.ok(reading.hasRead);
+});
+
+test('review links preserve the book identity and normal detail destination', () => {
+  const id = '작품/review';
+  assert.equal(readBookDetailId(bookDetailHref(id)), id);
+  assert.equal(readBookDetailId(bookDetailHref(id, true)), id);
+  assert.ok(hasBookReviewTarget(bookDetailHref(id, true)));
+  assert.ok(!hasBookReviewTarget(bookDetailHref(id)));
 });
 
 test('a public review exposes only the rating, optional comment and reading evidence', () => {

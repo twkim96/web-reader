@@ -158,6 +158,6 @@ test('a direct detail lookup resolves transitive published aliases and keeps loc
   };
   const { metadata } = await lookup(getWorkReadingTitles(reading));
   const direct = buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: [] });
-  assert.deepEqual(direct, { totalMs: 120_000, ranges: [[4, 9]], bookmarks: [bookmark], hasRead: true });
+  assert.deepEqual(direct, { totalMs: 120_000, progressPercent: 9, fileIds: ['private-id', 'bridge-id'], bookmarks: [bookmark], hasRead: true });
   assert.deepEqual(direct, buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: ['private-id', 'bridge-id'] }));
 });

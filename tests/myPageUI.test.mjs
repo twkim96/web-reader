@@ -7,7 +7,6 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 import { MyPage } from '../src/components/mypage/MyPage.tsx';
-import { ReadBooks } from '../src/components/mypage/ReadBooks.tsx';
 import { useMyPageNavigation } from '../src/hooks/useMyPageNavigation.ts';
 import { setWishlistSaved } from '../src/lib/localWishlist.ts';
 import { closeLocalDB } from '../src/lib/localDB.ts';
@@ -121,7 +120,7 @@ test('browse replaces user search with public book rows grouped by reader', asyn
   }
 });
 
-test('a rating appears during a pending save and rolls back after the retries fail', async (t) => {
+test('stars navigate to the detail editor and a failed rating rolls back after retries', async (t) => {
   const { window, root } = setup('#mypage/read');
   const uid = 'rating-ui';
   const ownerKey = `firebase:${uid}|library:local`;
@@ -134,13 +133,13 @@ test('a rating appears during a pending save and rolls back after the retries fa
           `export const auth = { currentUser: { uid: ${JSON.stringify(uid)}, getIdToken: async () => 'fixture-token' } };`,
         ), shortCircuit: true };
       }
-      if (specifier === '../../lib/readBookMetadata' && parentURL.includes('/mypage/ReadBooks.tsx')) {
+      if (specifier === '../../lib/readBookMetadata' && /\/mypage\/(ReadBooks|BookDetail)\.tsx$/.test(parentURL)) {
         return { url: 'data:text/javascript,' + encodeURIComponent(
           `export const loadReadBookMetadata = async (titles, { onProgress }) => {
             const result = { metadata: new Map(), failed: new Set() };
             for (const title of titles) {
               result.metadata.set(title, { titleKey: title, displayTitle: title, platforms: [] });
-              onProgress(result, title);
+              onProgress?.(result, title);
             }
             return result;
           };`,
@@ -150,14 +149,23 @@ test('a rating appears during a pending save and rolls back after the retries fa
     },
   });
   const start = Date.UTC(2026, 10, 20, 5);
-  const committed = { workId: title, rating: 2, comment: '', revision: 1, totalMs: 60_000, progressPercent: 20 };
+  let committed = { workId: title, rating: 2, comment: '', revision: 1, totalMs: 60_000, progressPercent: 20 };
   const writes = [];
   let rejectFirst;
+  const scrollTargets = [];
+  window.HTMLElement.prototype.scrollIntoView = function () { scrollTargets.push(this.id); };
   t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (String(url).startsWith('/catalog/')) return new Response(null, { status: 503 });
+    if (String(url).startsWith('/api/book-reviews?')) return Response.json({ reviews: [], ratingCount: 0, average: null });
     assert.match(String(url), /^\/api\/mypage\?/);
-    if (options.method === 'GET') return Response.json({ reviews: [committed], deletions: [] });
+    if (options.method === 'GET') return Response.json(String(url).includes('view=wishlist')
+      ? { entries: [] } : { reviews: [committed], deletions: [] });
     writes.push(JSON.parse(options.body));
     if (writes.length === 1) return new Promise((_, reject) => { rejectFirst = reject; });
+    if (writes.length === 4) {
+      committed = { ...committed, rating: writes[3].rating, revision: 2 };
+      return Response.json({ review: committed });
+    }
     return new Response(null, { status: 503 });
   });
   const visible = (selector) => window.document.querySelector(selector);
@@ -170,22 +178,22 @@ test('a rating appears during a pending save and rolls back after the retries fa
     await hydrateRemoteReadingSessionsPageV12(ownerKey, [
       session, { ...session, sessionId: 'unrated-session', bookId: 'unrated-book', bookTitle: '처음 평가할 책' },
     ], null, null, true, false);
-    await act(async () => root.render(React.createElement(ReadBooks, { ownerKey, onOpenBook() {}, accountStorage: true })));
-    for (let attempt = 0; attempt < 20 && !visible('[aria-label="별점 2점"]'); attempt++) {
-      await act(async () => delay(20));
-    }
-    const unrated = visible('[aria-label="별점 미평가"]');
-    assert.equal(unrated.querySelectorAll('button[aria-pressed="false"]').length, 5);
-    const firstRating = unrated.querySelector('button[aria-label="3점"]');
-    await click(window, firstRating);
-    assert.equal(unrated.getAttribute('aria-label'), '별점 3점');
-    assert.equal(unrated.querySelector('button[aria-label="3점"]'), firstRating);
+    await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
+    const unratedLink = 'a[aria-label="처음 평가할 책 내 평가, 미평가"]';
+    const ratedLink = `a[aria-label="${title} 내 평가, 별점 2점"]`;
+    for (let attempt = 0; attempt < 20 && !visible(ratedLink); attempt++) await act(async () => delay(20));
+    assert.equal(visible(unratedLink).querySelectorAll('svg[fill="none"]').length, 5);
+    await click(window, visible(unratedLink));
+    assert.match(window.location.hash, /\/review$/);
+    assert.ok(scrollTargets.includes('my-book-review-title'));
+    const editor = () => visible('[aria-labelledby="my-book-review-title"]');
+    assert.ok(editor().querySelector('[aria-label="별점 미평가"]'));
+    assert.equal(editor().querySelector('form'), null);
     assert.equal(writes.length, 0);
-    await click(window, [...visible('form').querySelectorAll('button')].find((button) => button.textContent === '취소'));
-    assert.equal(unrated.querySelectorAll('button[aria-pressed="false"]').length, 5);
-    const saved = visible('[aria-label="별점 2점"]');
-    assert.ok(saved, window.document.body.textContent);
-    await click(window, saved.querySelector('[aria-label="4점"]'));
+    await click(window, visible('button[aria-label="도서 목록으로 돌아가기"]'));
+    assert.equal(window.location.hash, '#mypage/read');
+    await click(window, visible(ratedLink));
+    await click(window, editor().querySelector('[aria-label="4점"]'));
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.ok(visible('[aria-label="별점 4점"]'));
     assert.equal(visible('form'), null);
@@ -201,6 +209,11 @@ test('a rating appears during a pending save and rolls back after the retries fa
     assert.ok(visible('[aria-label="별점 2점"]'));
     assert.equal(visible('[aria-label="별점 4점"]'), null);
     assert.match(visible('[role="alert"]').textContent, /서버와 연결하지 못했습니다/);
+    await click(window, editor().querySelector('[aria-label="5점"]'));
+    await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.ok(editor().querySelector('[aria-label="별점 5점"]'));
+    await click(window, visible('button[aria-label="도서 목록으로 돌아가기"]'));
+    assert.ok(visible(`a[aria-label="${title} 내 평가, 별점 5점"]`));
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();
@@ -308,7 +321,7 @@ test('a saved title opens a themed detail page with optional private records and
       ['읽은 기록 있음', '위시리스트에 담김']);
     const personal = main().querySelector('[aria-label="내 독서 기록"]');
     assert.match(personal.textContent, /읽은 시간1분/);
-    assert.match(personal.textContent, /12%–18%/);
+    assert.match(personal.textContent, /진행도18%/);
     assert.match(personal.textContent, /로컬 책갈피/);
     const reviews = main().querySelector('[aria-label="다른 독자의 평가"]');
     assert.equal(reviews.querySelectorAll('li').length, 2);
