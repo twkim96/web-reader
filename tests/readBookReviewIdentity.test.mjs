@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildReadBooks } from '../src/lib/readBooks.ts';
 import { readBookReview, saveBookReview, removeBookReview } from '../src/lib/localBookReview.ts';
-import { findReviewWork, indexReviewWorks } from '../src/lib/myPageSocial.ts';
+import { findReviewWork, indexReviewWorks, resolveReviewWork } from '../src/lib/myPageSocial.ts';
 
 const reset = async () => { await new Promise((resolve, reject) => { const req = indexedDB.deleteDatabase('twreader-local-book-reviews'); req.onsuccess = resolve; req.onerror = () => reject(req.error); }); };
 const owner = 'firebase:alice|library:local';
@@ -28,7 +28,19 @@ test('a published account review or deletion reopens on a read book with a diffe
 
   const deletion = { ...canonical, revision: 3 };
   assert.equal(findReviewWork(indexReviewWorks([deletion]), onDemand), deletion);
-  assert.equal(findReviewWork(indexReviewWorks([collidingTitle]), onDemand), collidingTitle);
+  assert.equal(findReviewWork(indexReviewWorks([collidingTitle]), onDemand), undefined);
+});
+
+test('disjoint links and ambiguous aliases cannot select a review or deletion target', () => {
+  const first = { workId: 'same', revision: 1, platformWorkKeys: ['platform-one'] };
+  const second = { workId: 'canonical-two', aliases: ['same'], revision: 4, platformWorkKeys: ['platform-two'] };
+  const readWork = { id: 'same', platformWorkKeys: ['platform-two'] };
+  assert.deepEqual(resolveReviewWork(indexReviewWorks([first]), readWork), { entry: undefined, blocked: true });
+  assert.deepEqual(resolveReviewWork(indexReviewWorks([first, second]), readWork), { entry: second, blocked: false });
+  assert.deepEqual(resolveReviewWork(indexReviewWorks([first, second]), {
+    ...readWork, platformWorkKeys: ['platform-one', 'platform-two'],
+  }), { entry: undefined, blocked: true });
+  assert.deepEqual(resolveReviewWork(indexReviewWorks([first, second]), { id: 'same' }), { entry: undefined, blocked: true });
 });
 
 test('merged works survive hidden aliases, edits and deletion after restoration', async () => {

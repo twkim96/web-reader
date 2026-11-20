@@ -113,6 +113,25 @@ export function groupDiscoveryBooks(rows: readonly DiscoveryBook[]) {
   return { books, byId, equivalents, platforms };
 }
 
+export function resolveReadBookDiscovery(
+  catalog: ReturnType<typeof groupDiscoveryBooks>,
+  book: { id: string; equivalentTitleKeys?: string[]; platformWorkKeys?: string[] },
+) {
+  const links = book.platformWorkKeys ?? [];
+  const platformIds = new Set(links.flatMap((key) => {
+    const id = catalog.platforms.get(key);
+    return id === undefined ? [] : [id];
+  }));
+  if (platformIds.size === 1) return { book: catalog.byId.get([...platformIds][0]), blocked: false };
+  if (links.length) return { blocked: true };
+  const titles = new Set([book.id, ...(book.equivalentTitleKeys ?? [])].flatMap((id) => {
+    const entry = catalog.byId.get(id);
+    return entry ? [entry] : [];
+  }));
+  if (titles.size > 1) return { blocked: true };
+  return { book: [...titles][0], blocked: false };
+}
+
 export function createDiscoveryLoader(fetchIndex: (retry: boolean) => Promise<unknown>) {
   let pending: Promise<DiscoveryBook[]> | undefined;
   let retry = false;

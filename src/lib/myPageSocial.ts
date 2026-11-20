@@ -44,22 +44,39 @@ export const hasPublicMyPage = (visibility: MyPageVisibility) => visibility.revi
 export const formatMyPageIdentity = ({ nickname, code }: MyPageIdentity) => `${nickname}#${code}`;
 
 export function indexReviewWorks<T extends ReviewWork>(entries: readonly T[]) {
-  const byTitle = new Map<string, T>();
-  const byPlatform = new Map<string, T>();
+  const byTitle = new Map<string, Set<T>>();
+  const byPlatform = new Map<string, Set<T>>();
+  const add = (index: Map<string, Set<T>>, key: string, entry: T) => {
+    const matches = index.get(key);
+    if (matches) matches.add(entry);
+    else index.set(key, new Set([entry]));
+  };
   for (const entry of entries) {
-    for (const id of [entry.workId, ...(entry.aliases ?? [])]) if (!byTitle.has(id)) byTitle.set(id, entry);
-    for (const key of entry.platformWorkKeys ?? []) if (!byPlatform.has(key)) byPlatform.set(key, entry);
+    for (const id of [entry.workId, ...(entry.aliases ?? [])]) add(byTitle, id, entry);
+    for (const key of entry.platformWorkKeys ?? []) add(byPlatform, key, entry);
   }
   return { byTitle, byPlatform };
+}
+
+export function resolveReviewWork<T extends ReviewWork>(
+  index: ReturnType<typeof indexReviewWorks<T>>,
+  book: Pick<ReadBook, 'id' | 'equivalentTitleKeys' | 'platformWorkKeys'>,
+) {
+  const keys = book.platformWorkKeys ?? [];
+  const platformMatches = new Set(keys.flatMap((key) => [...(index.byPlatform.get(key) ?? [])]));
+  const exact = index.byTitle.get(book.id);
+  const matches = keys.length ? platformMatches : new Set(
+    [book.id, ...(book.equivalentTitleKeys ?? [])].flatMap((id) => [...(index.byTitle.get(id) ?? [])]),
+  );
+  const blocked = matches.size > 1 || (!matches.size && [...(exact ?? [])].some((entry) => entry.workId === book.id));
+  return { entry: matches.size === 1 ? [...matches][0] : undefined, blocked };
 }
 
 export function findReviewWork<T extends ReviewWork>(
   index: ReturnType<typeof indexReviewWorks<T>>,
   book: Pick<ReadBook, 'id' | 'equivalentTitleKeys' | 'platformWorkKeys'>,
 ) {
-  const platformMatch = book.platformWorkKeys?.map((key) => index.byPlatform.get(key)).find(Boolean);
-  return platformMatch ?? index.byTitle.get(book.id)
-    ?? book.equivalentTitleKeys?.map((id) => index.byTitle.get(id)).find(Boolean);
+  return resolveReviewWork(index, book).entry;
 }
 
 export function parseMyPageNickname(value: unknown) {

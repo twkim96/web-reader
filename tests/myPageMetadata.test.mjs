@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDiscoveryLoader, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
 import { createReadMetadataLoader } from '../src/lib/readBookMetadata.ts';
-import { buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
+import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
 import { listLocalBookReviews, removeBookReview, saveBookReview } from '../src/lib/localBookReview.ts';
 
@@ -160,4 +160,23 @@ test('a direct detail lookup resolves transitive published aliases and keeps loc
   const direct = buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: [] });
   assert.deepEqual(direct, { totalMs: 120_000, progressPercent: 9, fileIds: ['private-id', 'bridge-id'], bookmarks: [bookmark], hasRead: true });
   assert.deepEqual(direct, buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: ['private-id', 'bridge-id'] }));
+});
+
+test('review evidence uses the highest synced progress even below the detail display threshold', () => {
+  const ownerKey = 'firebase:review-progress|library:local';
+  const start = Date.UTC(2026, 10, 20, 5);
+  const session = {
+    schemaVersion: 1, ownerKey, sessionId: '1', bookId: 'edition', bookTitle: 'title', deviceId: 'device',
+    startedAtClient: start, endedAtClient: start + 60_000, durationMs: 60_000, localDate: '2026-11-20',
+    timezoneOffsetMinutes: 0, mode: 'screen', completed: false, startProgressPercent: 79, endProgressPercent: 80,
+    syncState: 'synced',
+  };
+  const sessions = [session, { ...session, sessionId: '2', syncState: 'pending', endProgressPercent: 99 }];
+  const hidden = new Set();
+  const direct = buildPersonalBookReading({
+    ownerKey, books: [], hidden, sessions: [session], progress: {}, knownFileIds: [], titleKeys: ['title'],
+  });
+  assert.equal(direct.progressPercent, 0);
+  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, direct.fileIds), { totalMs: 60_000, progressPercent: 80 });
+  assert.equal(buildLocalReviewReading(sessions, ownerKey, new Set([session.sessionId]), direct.fileIds), null);
 });

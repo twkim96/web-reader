@@ -14,6 +14,13 @@ import { hydrateRemoteReadingSessionsPageV12, saveLocalReadingSessionV11 } from 
 
 const owner = 'guest:mypage-test|library:local';
 const book = { id: 'test-book', title: '테스트 도서', coverUrl: null, platforms: [], genre: '판타지', tags: [], popularity: 10, sourceCount: null };
+const series = { id: 'series', label: '네이버 시리즈', url: 'https://series.naver.com/novel/detail.series?productNo=1' };
+const kakao = { id: 'kakao', url: 'https://page.kakao.com/content/12' };
+const savedBook = { ...book, id: '테스트도서', platforms: [series] };
+const savedCatalog = [
+  [savedBook.id, savedBook.title, null, [[series.id, series.url]], 0, [], 10, null],
+  [savedBook.id + '별칭', '다른 표시 제목', null, [[series.id, series.url], [kakao.id, kakao.url]], 0, [], 10, null],
+];
 const setup = (hash = '#mypage/wishlist') => {
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
   const values = new Map();
@@ -125,6 +132,10 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
   const uid = 'rating-ui';
   const ownerKey = `firebase:${uid}|library:local`;
   const title = '별점 저장 테스트';
+  const alias = '처음 평가할 책';
+  const unresolved = '후속 미게시 판본';
+  const firstURL = 'https://books.example/first';
+  const secondURL = 'https://books.example/second';
   const hook = registerHooks({
     resolve(specifier, context, nextResolve) {
       const { parentURL = '' } = context;
@@ -138,7 +149,10 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
           `export const loadReadBookMetadata = async (titles, { onProgress }) => {
             const result = { metadata: new Map(), failed: new Set() };
             for (const title of titles) {
-              result.metadata.set(title, { titleKey: title, displayTitle: title, platforms: [] });
+              const url = title === ${JSON.stringify(title)} ? ${JSON.stringify(firstURL)}
+                : title === ${JSON.stringify(alias)} ? ${JSON.stringify(secondURL)}
+                : title === ${JSON.stringify(unresolved)} ? 'https://books.example/unpublished' : null;
+              result.metadata.set(title, { titleKey: title, displayTitle: title, platforms: url ? [{ platform: 'series', url }] : [] });
               onProgress?.(result, title);
             }
             return result;
@@ -149,15 +163,30 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     },
   });
   const start = Date.UTC(2026, 10, 20, 5);
-  let committed = { workId: title, rating: 2, comment: '', revision: 1, totalMs: 60_000, progressPercent: 20 };
+  let committed = { workId: title, aliases: [alias], platformWorkKeys: [JSON.stringify(['series', firstURL])],
+    rating: 2, comment: '', revision: 1, totalMs: 60_000, progressPercent: 80 };
   const unread = { ...book, id: 'unread-metadata', title: '읽기 전 작품' };
   const unreadRating = { workId: unread.id, rating: 3, revision: 1, comment: '', totalMs: null, progressPercent: null };
+  const secondWorkId = 'published-second';
+  const secondReview = { ...committed, workId: secondWorkId, aliases: [], rating: 3,
+    platformWorkKeys: [JSON.stringify(['series', secondURL])] };
+  const secondWrites = [];
+  let secondSaved = false;
   const writes = [];
   let rejectFirst;
+  let finishUnread;
+  let unreadSaved = false;
   const scrollTargets = [];
   window.HTMLElement.prototype.scrollIntoView = function () { scrollTargets.push(this.id); };
   t.mock.method(globalThis, 'fetch', async (url, options) => {
-    if (String(url).startsWith('/catalog/')) return new Response(null, { status: 503 });
+    if (String(url).startsWith('/catalog/')) return Response.json({ schemaVersion: 1, generation: 'rating-ui', genres: [savedBook.genre], tags: [], books: [
+      ...savedCatalog,
+      [title, title, null, [['series', firstURL]], null, [], null, null],
+      [alias, alias, null, [['series', firstURL]], null, [], null, null],
+      [unresolved, unresolved, null, [['series', firstURL]], null, [], null, null],
+      [secondWorkId, alias, null, [['series', secondURL]], null, [], null, null],
+      [unread.id, unread.title, null, [['series', 'https://books.example/unread']], null, [], null, null],
+    ] });
     if (String(url).startsWith('/api/book-reviews?')) return Response.json({ reviews: [], ratingCount: 0, average: null });
     assert.match(String(url), /^\/api\/mypage\?/);
     if (options.method === 'GET') {
@@ -167,26 +196,38 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
       if (String(url).includes('view=account')) return Response.json({
         code: '00000001', nickname: '독자', revision: 1, visibility: { reviews: true, wishlist: false },
       });
-      return Response.json({ reviews: writes.length >= 5 ? [committed, unreadRating] : [committed], deletions: [] });
+      return Response.json({
+        reviews: [committed, ...(secondSaved ? [secondReview] : []), ...(unreadSaved ? [unreadRating] : [])],
+        deletions: [],
+      });
     }
-    writes.push(JSON.parse(options.body));
+    const body = JSON.parse(options.body);
+    if (body.workId === secondWorkId) {
+      secondWrites.push(body);
+      secondSaved = !body.remove;
+      return Response.json({ review: secondSaved ? secondReview : null });
+    }
+    writes.push(body);
     if (writes.length === 1) return new Promise((_, reject) => { rejectFirst = reject; });
     if (writes.length === 4) {
       committed = { ...committed, rating: writes[3].rating, revision: 2 };
       return Response.json({ review: committed });
     }
-    if (writes.length === 5) return Response.json({ review: unreadRating });
+    if (writes.length === 5) return new Promise((resolve) => {
+      finishUnread = () => { unreadSaved = true; resolve(Response.json({ review: unreadRating })); };
+    });
     return new Response(null, { status: 503 });
   });
   const visible = (selector) => window.document.querySelector(selector);
   try {
     const session = {
       schemaVersion: 1, sessionId: 'review-session', bookId: 'review-book', bookTitle: title, deviceId: 'review-device',
-      startedAtClient: start, endedAtClient: start + 60_000, durationMs: 60_000, startProgressPercent: 0,
-      endProgressPercent: 20, timezoneOffsetMinutes: 0, localDate: '2026-11-20', mode: 'screen', completed: false,
+      startedAtClient: start, endedAtClient: start + 60_000, durationMs: 60_000, startProgressPercent: 79,
+      endProgressPercent: 80, timezoneOffsetMinutes: 0, localDate: '2026-11-20', mode: 'screen', completed: false,
     };
     await hydrateRemoteReadingSessionsPageV12(ownerKey, [
-      session, { ...session, sessionId: 'unrated-session', bookId: 'unrated-book', bookTitle: '처음 평가할 책' },
+      session, { ...session, sessionId: 'unrated-session', bookId: 'unrated-book', bookTitle: alias },
+      { ...session, sessionId: 'unpublished-session', bookId: 'unpublished-book', bookTitle: unresolved },
     ], null, null, true, false);
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
     assert.deepEqual([...visible('nav').querySelectorAll('button')].map((button) => button.querySelector('span').textContent), [
@@ -195,16 +236,38 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     const unratedLink = 'a[aria-label="처음 평가할 책 내 평가, 미평가"]';
     const ratedLink = `a[aria-label="${title} 내 평가, 별점 2점"]`;
     for (let attempt = 0; attempt < 20 && !visible(ratedLink); attempt++) await act(async () => delay(20));
-    assert.equal(visible('section[aria-label="읽은 책"] .mypage-divided-list').children.length, 2);
+    const readRows = [...visible('section[aria-label="읽은 책"] .mypage-divided-list').children];
+    assert.equal(readRows.length, 3);
+    const unresolvedRow = readRows.find((row) => row.querySelector('h3').textContent === unresolved);
+    assert.equal(unresolvedRow.querySelector('a'), null);
     assert.equal(visible(unratedLink).querySelectorAll('svg[fill="none"]').length, 5);
+    assert.equal(visible(unratedLink).getAttribute('href'), '#mypage/book/published-second/review');
     await click(window, visible(unratedLink));
-    assert.match(window.location.hash, /\/review$/);
+    assert.equal(window.location.hash, '#mypage/book/published-second/review');
     assert.ok(scrollTargets.includes('my-book-review-title'));
     const editor = () => visible('[aria-labelledby="my-book-review-title"]');
     assert.ok(editor().querySelector('[aria-label="별점 미평가"]'));
     assert.equal(editor().querySelector('form'), null);
+    await click(window, editor().querySelector('button[aria-label="3점"]'));
+    assert.equal([...editor().querySelectorAll('button')].some((button) => button.textContent === '평가 삭제'), false);
+    await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(secondWrites[0].workId, secondWorkId);
+    assert.equal(secondWrites[0].revision, null);
+    await click(window, editor().querySelector('button[aria-label="3점"]'));
+    await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '평가 삭제'));
+    assert.deepEqual(secondWrites[1], { workId: secondWorkId, revision: 1, remove: true });
+    assert.equal(committed.rating, 2);
+    const hash = window.location.hash;
+    await act(async () => root.render(null));
+    window.location.hash = hash;
+    await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
+    assert.ok(visible('[aria-label="도서 기본정보"]').textContent.includes(alias));
+    assert.ok(editor().querySelector('[aria-label="별점 미평가"]'));
     assert.equal(writes.length, 0);
-    await click(window, visible('button[aria-label="도서 목록으로 돌아가기"]'));
+    await act(async () => {
+      window.location.hash = '#mypage/read';
+      window.dispatchEvent(new window.Event('hashchange'));
+    });
     assert.equal(window.location.hash, '#mypage/read');
     await click(window, visible(ratedLink));
     const halfPoint = editor().querySelector('button[aria-label="4.5점"]');
@@ -215,6 +278,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.ok(visible('[aria-label="별점 4.5점"]'));
     assert.equal(visible('form'), null);
     assert.equal(writes.length, 1);
+    assert.equal(writes[0].readingSnapshot.progressPercent, 80);
     await act(async () => { rejectFirst(new TypeError('connection lost')); });
     assert.ok(visible('[aria-label="별점 4.5점"]'));
     for (let attempt = 0; attempt < 30 && !visible('[role="alert"]'); attempt++) {
@@ -226,10 +290,20 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.ok(visible('[aria-label="별점 2점"]'));
     assert.equal(visible('[aria-label="별점 4.5점"]'), null);
     assert.match(visible('[role="alert"]').textContent, /서버와 연결하지 못했습니다/);
+    const openMenu = (label) => click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent === label));
+    await openMenu('도서목록');
+    await click(window, visible(`a[aria-label="${title}"]`));
+    for (let attempt = 0; attempt < 20 && editor().querySelector('button[aria-label="4.5점"]').disabled; attempt++) {
+      await act(async () => delay(10));
+    }
     await click(window, editor().querySelector('button[aria-label="4.5점"]'));
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.ok(editor().querySelector('[aria-label="별점 4.5점"]'));
-    await click(window, visible('button[aria-label="도서 목록으로 돌아가기"]'));
+    assert.deepEqual(writes[3].readingSnapshot, writes[0].readingSnapshot);
+    await openMenu('읽은 책');
+    for (let attempt = 0; attempt < 20 && !visible(`a[aria-label="${title} 내 평가, 별점 4.5점"]`); attempt++) {
+      await act(async () => delay(10));
+    }
     const updatedLink = visible(`a[aria-label="${title} 내 평가, 별점 4.5점"]`);
     assert.ok(updatedLink);
     assert.equal(updatedLink.querySelectorAll('svg[fill="currentColor"]').length, 5);
@@ -248,7 +322,10 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.equal(writes[4].readingSnapshot, null);
     assert.ok(editor().querySelector('[aria-label="별점 3점"]'));
     await click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent === '내 평가'));
-    assert.equal(visible('section[aria-label="내 평가"] .mypage-divided-list').children.length, 2);
+    const allReviews = () => visible('section[aria-label="내 평가"] .mypage-divided-list');
+    assert.equal(allReviews().children.length, 1);
+    await act(async () => finishUnread());
+    assert.equal(allReviews().children.length, 2);
     await click(window, visible('button[aria-label="공개 설정"]'));
     assert.equal(visible('section[aria-label="프로필 및 공개 설정"] .mypage-divided-list').children.length, 2);
   } finally {
@@ -303,9 +380,8 @@ test('a MyPage deep link waits for startup and does not intercept reader panel B
 
 test('a saved title opens a themed detail page with optional private records and anonymous ratings', async () => {
   const { window, storage, root } = setup();
-  const platform = { id: 'series', label: '네이버 시리즈', url: 'https://series.naver.com/novel/detail.series?productNo=1' };
-  const otherPlatform = { id: 'kakao', url: 'https://page.kakao.com/content/12' };
-  const saved = { ...book, id: '테스트도서', platforms: [platform] };
+  const platform = series;
+  const saved = savedBook;
   setWishlistSaved(owner, saved, true, storage);
   const originalFetch = globalThis.fetch;
   let reviewRequest;
@@ -313,10 +389,7 @@ test('a saved title opens a themed detail page with optional private records and
     if (String(url).startsWith('/catalog/discovery.v1.json')) {
       return Response.json({
         schemaVersion: 1, generation: 'detail-test', genres: [saved.genre], tags: [],
-        books: [
-          [saved.id, saved.title, null, [[platform.id, platform.url]], 0, [], 10, null],
-          [saved.id + '별칭', '다른 표시 제목', null, [[platform.id, platform.url], [otherPlatform.id, otherPlatform.url]], 0, [], 10, null],
-        ],
+        books: savedCatalog,
       });
     }
     if (String(url).startsWith('/api/book-reviews?')) {
@@ -373,8 +446,9 @@ test('a saved title opens a themed detail page with optional private records and
     const freshOwner = 'guest:detail-other|library:local';
     await act(async () => root.render(React.createElement(MyPage, { ...props, key: freshOwner, ownerKey: freshOwner })));
     await click(window, [...window.document.querySelectorAll('nav button')].find((button) => button.textContent === '도서목록'));
-    assert.equal(main().querySelectorAll('article').length, 1);
-    await click(window, main().querySelector('article h3'));
+    const selected = main().querySelectorAll(`article a[href="#mypage/book/${encodeURIComponent(saved.id)}"]`);
+    assert.equal(selected.length, 1);
+    await click(window, selected[0]);
     assert.equal(main().querySelector('[aria-label="내 독서 기록"]'), null);
     assert.equal(main().querySelector('[aria-label="읽은 기록 있음"]'), null);
     assert.ok(main().querySelector('[aria-label="위시리스트에 담기지 않음"]'));

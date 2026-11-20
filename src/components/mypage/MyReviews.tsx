@@ -9,10 +9,11 @@ import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
 
-export function MyReviews({ owner, onOpenBook, onShowAll }: {
+export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
   owner: OwnerKey;
   onOpenBook: (id: string) => void;
   onShowAll?: () => void;
+  changeVersion?: number;
 }) {
   const guest = isGuestOwner(owner);
   const preview = Boolean(onShowAll);
@@ -31,13 +32,15 @@ export function MyReviews({ owner, onOpenBook, onShowAll }: {
     if (preview) params.preview = '1';
     void myPageRequest<MyPageOwnReviews>(params, { owner, signal: controller.signal })
       .then((result) => {
-        if (!controller.signal.aborted) setReviews(result.reviews);
+        if (controller.signal.aborted) return;
+        setReviews(result.reviews);
+        setError('');
       })
       .catch((error: Error) => {
         if (!controller.signal.aborted) setError(error.message);
       });
     return () => controller.abort();
-  }, [attempt, guest, owner, preview]);
+  }, [attempt, changeVersion, guest, owner, preview]);
 
   useEffect(() => {
     const activeMutation = mutation;

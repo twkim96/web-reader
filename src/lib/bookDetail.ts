@@ -1,7 +1,7 @@
 import type { Book, Bookmark, UserProgress } from '../types';
 import type { OwnerKey } from './ownerIdentity';
 import { getPublicBookMetadataAliasCandidates, type PublicBookMetadata } from './publicBookMetadataSchema';
-import { getPlatformWorkKeys, groupPublicBookWorks } from './readBooks';
+import { getPlatformWorkKeys, groupPublicBookWorks, selectSyncedReadingSessions } from './readBooks';
 import { buildReadingStatistics, type StoredReadingSessionV11 } from './readingStatistics';
 
 const reviewSuffix = '/review';
@@ -31,6 +31,26 @@ const visibleReadingSessions = (sessions: readonly StoredReadingSessionV11[], ow
   sessions.filter((session) => session.ownerKey === ownerKey
     && !hidden.has(session.sessionId) && session.completionRoundNumber === undefined)
 );
+
+export function buildLocalReviewReading(
+  sessions: readonly StoredReadingSessionV11[], ownerKey: OwnerKey, hidden: ReadonlySet<string>, fileIds: readonly string[],
+) {
+  const ids = new Set(fileIds);
+  const timeline = selectSyncedReadingSessions(sessions, ownerKey, hidden);
+  let progressPercent = 0;
+  let hasReading = false;
+  for (const session of timeline) {
+    if (!ids.has(session.bookId) || session.completionRoundNumber !== undefined) continue;
+    hasReading = true;
+    progressPercent = Math.max(progressPercent, session.startProgressPercent, session.endProgressPercent);
+  }
+  if (!hasReading) return null;
+  let totalMs = 0;
+  buildReadingStatistics(timeline, {}, ({ session, durationMs }) => {
+    if (ids.has(session.bookId)) totalMs += durationMs;
+  });
+  return { totalMs: Math.round(totalMs), progressPercent };
+}
 
 export function getWorkReadingTitles({
   ownerKey, books, progress, bookmarkProgress, sessions, hidden,
@@ -64,16 +84,18 @@ export function buildPersonalBookReading({
   hidden: ReadonlySet<string>;
 }): PersonalBookReading {
   const aliases = new Set(titleKeys.flatMap(getPublicBookMetadataAliasCandidates));
-  const works = [...(metadataByTitle?.values() ?? [])].flatMap((metadata) => metadata ? [{
-    titleKey: metadata.titleKey, platformWorkKeys: getPlatformWorkKeys(metadata),
-  }] : []);
-  for (const titleKey of titleKeys) works.push({ titleKey, platformWorkKeys: [...platformWorkKeys] });
-  const { findTitle } = groupPublicBookWorks(works);
-  const roots = new Set(titleKeys.map(findTitle));
+  const works = [...(metadataByTitle?.values() ?? [])].filter((metadata) => metadata !== null);
+  const workIds = new Map(works.map((metadata, index) => [metadata, String(index)]));
+  const { findTitle } = groupPublicBookWorks([
+    { titleKey: 'detail', platformWorkKeys },
+    ...works.map((metadata) => ({ titleKey: workIds.get(metadata)!, platformWorkKeys: getPlatformWorkKeys(metadata) })),
+  ]);
   const matches = (title: string) => {
     const metadata = metadataByTitle?.get(title);
-    if (metadata) return roots.has(findTitle(metadata.titleKey));
-    return getPublicBookMetadataAliasCandidates(title).some((alias) => aliases.has(alias));
+    if (metadata && platformWorkKeys.length && metadata.platforms.length) {
+      return findTitle('detail') === findTitle(workIds.get(metadata)!);
+    }
+    return getPublicBookMetadataAliasCandidates(metadata?.titleKey ?? title).some((alias) => aliases.has(alias));
   };
   const fileIds = new Set(knownFileIds);
   const visible = visibleReadingSessions(sessions, ownerKey, hidden);

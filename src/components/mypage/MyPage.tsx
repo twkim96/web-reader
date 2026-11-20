@@ -4,9 +4,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, BookCopy, BookOpen, BookOpenCheck, Check, ChevronLeft, ChevronRight, Compass, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
-import { groupDiscoveryBooks, loadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { groupDiscoveryBooks, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
-import { platformWorkKey, type ReadBook } from '../../lib/readBooks';
+import type { ReadBook } from '../../lib/readBooks';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { ReadingDashboard } from './ReadingDashboard';
@@ -82,7 +82,7 @@ export function MyPage(props: Props) {
   const [mobileMenuOverride, setMobileMenuOverride] = useState<0 | 1>();
   const titleRow = useRef<HTMLElement>(null);
   const menu = useRef<HTMLElement>(null);
-  const [openedBook, setOpenedBook] = useState<DiscoveryBook | ReadBook>();
+  const [openedBook, setOpenedBook] = useState<{ id: string; book: DiscoveryBook | ReadBook }>();
   const readListScroll = useRef<number | null>(null);
   const restoreReadListScroll = useRef(false);
   const [catalog, setCatalog] = useState<DiscoveryBook[] | null>(null);
@@ -99,6 +99,13 @@ export function MyPage(props: Props) {
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
+  const groupedCatalog = useMemo(() => catalog ? groupDiscoveryBooks(catalog) : null, [catalog]);
+  const readBookDetailId = (book: ReadBook) => {
+    if (!groupedCatalog) return book.id;
+    const match = resolveReadBookDiscovery(groupedCatalog, book);
+    if (match.blocked && groupedCatalog.byId.has(book.id)) return null;
+    return match.book?.id ?? book.id;
+  };
   const reviews = useMyPageReviews(ownerKey, signedIn && (tab === 'read' || Boolean(bookId)));
   useLayoutEffect(() => {
     const header = titleRow.current;
@@ -163,13 +170,16 @@ export function MyPage(props: Props) {
   const openBookById = (id: string, book?: DiscoveryBook | ReadBook, reviewTarget = false) => {
     if (tab === 'read') readListScroll.current = window.scrollY;
     window.history.pushState({ ...window.history.state, myPageBookFrom: tab }, '', bookDetailHref(id, reviewTarget));
-    setOpenedBook(book);
+    setOpenedBook(book ? { id, book } : undefined);
     setBookId(id);
     setFocusReview(reviewTarget);
     setMobileMenuOverride(undefined);
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
-  const openBook = (book: DiscoveryBook | ReadBook, reviewTarget = false) => openBookById(book.id, book, reviewTarget);
+  const openBook = (book: DiscoveryBook | ReadBook, reviewTarget = false) => {
+    const id = 'platforms' in book ? book.id : readBookDetailId(book);
+    if (id !== null) openBookById(id, book, reviewTarget);
+  };
   const closeBook = () => {
     if (window.history.state?.myPageBookFrom) window.history.back();
     else navigate('discover');
@@ -196,10 +206,9 @@ export function MyPage(props: Props) {
     restoreReadListScroll.current = false;
     if (readListScroll.current !== null) window.scrollTo({ top: readListScroll.current, behavior: 'instant' });
   }, [bookId, tab]);
-  const matchingSource = openedBook?.id === bookId ? openedBook : undefined;
+  const matchingSource = openedBook?.id === bookId ? openedBook?.book : undefined;
   const readSource = matchingSource && !('platforms' in matchingSource) ? matchingSource : undefined;
   const discoverySource = matchingSource && 'platforms' in matchingSource ? matchingSource : undefined;
-  const groupedCatalog = useMemo(() => catalog ? groupDiscoveryBooks(catalog) : null, [catalog]);
   const searchableTitles = useMemo(() => {
     const titles = new Map<string, string[]>();
     for (const item of catalog ?? []) {
@@ -210,21 +219,13 @@ export function MyPage(props: Props) {
     }
     return titles;
   }, [catalog, groupedCatalog]);
-  const detailBook = useMemo(() => {
-    if (!bookId) return undefined;
-    return groupedCatalog?.byId.get(bookId)
-      ?? discoverySource
-      ?? wishlist.entries.find(({ book }) => book.id === bookId)?.book
-      ?? groupedCatalog?.books.find((book) => readSource?.equivalentTitleKeys?.includes(book.id)
-        || book.platforms.some(({ id, url }) => readSource?.platformWorkKeys?.includes(platformWorkKey(id, url))));
-  }, [bookId, groupedCatalog, discoverySource, readSource, wishlist.entries]);
-  const detailSaved = bookId !== null && (
-    wishlist.savedIds.has(bookId)
-    || (detailBook !== undefined && wishlist.savedIds.has(detailBook.id))
-    || (readSource !== undefined && wishlist.entries.some(({ book }) => readSource.equivalentTitleKeys?.includes(book.id)
-      || book.platforms.some(({ id, url }) => readSource.platformWorkKeys?.includes(JSON.stringify([id, url])))))
-  );
-  const needsCatalog = Boolean(bookId) || tab === 'discover';
+  const readMatch = readSource && groupedCatalog ? resolveReadBookDiscovery(groupedCatalog, readSource) : undefined;
+  const detailBook = !bookId ? undefined : readSource ? readMatch?.book : groupedCatalog?.byId.get(bookId)
+    ?? discoverySource ?? wishlist.entries.find(({ book }) => book.id === bookId)?.book;
+  const detailSaved = bookId !== null && !readMatch?.blocked
+    && (wishlist.savedIds.has(bookId) || (detailBook !== undefined && wishlist.savedIds.has(detailBook.id)));
+  const catalogLoading = !catalog && !catalogError;
+  const needsCatalog = Boolean(bookId) || tab === 'discover' || (signedIn && (tab === 'read' || tab === 'overview'));
   useEffect(() => {
     if (!needsCatalog || catalog) return;
     let active = true;
@@ -354,7 +355,7 @@ export function MyPage(props: Props) {
       </footer>
       <div className="mx-auto max-w-5xl px-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-6 sm:px-8 sm:pb-14 sm:pt-8">
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
-          {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
+          {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} catalogLoading={catalogLoading} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
             <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
@@ -365,15 +366,15 @@ export function MyPage(props: Props) {
                   <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
                 </div>}
             </DashboardBookRow>
-            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} />
+            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} catalogLoading={catalogLoading} />
             <MyReviews key={`reviews:${ownerKey}:${reviews.changeVersion}`} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
             <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
           </div>}
           {bookId ? (
-            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={!catalog && !catalogError && !detailBook} saved={detailSaved} reviews={reviews} focusReview={focusReview} />
+            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} reviews={reviews} focusReview={focusReview} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
-          {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />
+          {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} changeVersion={reviews.changeVersion} />
             : <p className="mypage-section text-sm">내 평가는 로그인 후 이용할 수 있습니다.</p>)}
           {tab === 'sharing' && (signedIn
             ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />

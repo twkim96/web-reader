@@ -21,8 +21,9 @@ const formatMetrics = ({ totalMs, progressPercent }: Metrics) => (
 
 const secondaryAction = 'min-h-10 shrink-0 rounded-full px-3 text-xs font-medium hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:text-accent-500';
 
-function ReadBookRow({ book, onOpenBook, rating }: {
+function ReadBookRow({ book, detailId, onOpenBook, rating }: {
   book: ReadBook;
+  detailId: string | null;
   onOpenBook: (book: ReadBook, focusReview?: boolean) => void;
   rating: number;
 }) {
@@ -31,12 +32,12 @@ function ReadBookRow({ book, onOpenBook, rating }: {
       <div className="relative flex items-start gap-3 sm:gap-4">
         <BookCover url={book.coverUrl} proxy />
         <div className="min-w-0 flex-1">
-          <BookDetailLink bookId={book.id} onOpen={() => onOpenBook(book)} label={book.title}
+          <BookDetailLink bookId={detailId} onOpen={() => onOpenBook(book)} label={book.title}
             className="group block rounded-lg after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:outline-accent-500">
             <h3 className="truncate text-sm font-semibold leading-5 group-hover:text-accent-500">{book.title}</h3>
             <p className="mt-0.5 truncate text-xs leading-4 opacity-65">{formatMetrics(book)}</p>
           </BookDetailLink>
-          <BookDetailLink bookId={book.id} focusReview onOpen={() => onOpenBook(book, true)}
+          <BookDetailLink bookId={detailId} focusReview onOpen={() => onOpenBook(book, true)}
             label={`${book.title} 내 평가, ${rating ? `별점 ${rating}점` : '미평가'}`}
             className="relative z-10 flex h-8 w-fit items-center gap-0.5 rounded-sm hover:text-accent-500 focus-visible:outline-2">
             {[1, 2, 3, 4, 5].map((value) => (
@@ -49,9 +50,11 @@ function ReadBookRow({ book, onOpenBook, rating }: {
   );
 }
 
-export function ReadBooks({ ownerKey, onShowAll, onOpenBook, reviews, reviewError, onRetryReviews }: {
+export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, catalogLoading, reviews, reviewError, onRetryReviews }: {
   ownerKey: OwnerKey;
   onShowAll?: () => void;
+  getDetailId: (book: ReadBook) => string | null;
+  catalogLoading: boolean;
   onOpenBook: (book: ReadBook, focusReview?: boolean) => void;
   reviews?: MyPageReview[];
   reviewError?: string;
@@ -174,7 +177,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, reviews, reviewErro
     };
   }, [guest, ownerKey, preview, retry]);
 
-  const visibleBooks = !guest && retained.current.owner === ownerKey ? books : null;
+  const visibleBooks = !guest && !catalogLoading && retained.current.owner === ownerKey ? books : null;
   const status = <>
     {guest && <p className="text-sm opacity-60">로그인 후 동기화된 책이 여기에 표시됩니다.</p>}
     {!guest && (!visibleBooks || loadingMetadata) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
@@ -184,7 +187,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, reviews, reviewErro
     {!error && !loadingMetadata && failedCount === 0 && visibleBooks?.length === 0 && <p className="text-sm opacity-60">도서 정보가 연결된 독서 기록이 없습니다.</p>}
   </>;
   if (onShowAll) {
-    return <DashboardBookRow title="읽은 도서" books={visibleBooks ?? []} onShowAll={onShowAll} onOpenBook={onOpenBook} proxy>
+    return <DashboardBookRow title="읽은 도서" books={visibleBooks ?? []} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} proxy>
       {status}
     </DashboardBookRow>;
   }
@@ -197,7 +200,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, reviews, reviewErro
       {status}
       <div className="mypage-divided-list">
         {visibleBooks?.slice(0, visibleCount).map((book) => (
-          <ReadBookRow key={book.id} book={book} onOpenBook={onOpenBook} rating={findReviewWork(accountIndex, book)?.rating ?? 0} />
+          <ReadBookRow key={book.id} book={book} detailId={getDetailId(book)} onOpenBook={onOpenBook} rating={findReviewWork(accountIndex, book)?.rating ?? 0} />
         ))}
       </div>
       {Boolean(visibleBooks && visibleBooks.length > visibleCount) && <button type="button" onClick={() => setVisibleCount((count) => count + 20)} className={`mt-4 w-full ${secondaryAction}`}>더 보기</button>}

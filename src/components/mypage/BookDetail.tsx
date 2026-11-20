@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bookmark as BookmarkIcon, Check, Heart, Star } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
-import { buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
+import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
 import type { DiscoveryBook } from '../../lib/bookDiscovery';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 import { getPublicBookCoverCandidates } from '../../lib/publicBookMetadataSchema';
 import { parsePublicBookReview, PUBLIC_BOOK_REVIEW_LIMIT } from '../../lib/publicBookReviews';
-import { findReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type PublicWorkReviews } from '../../lib/myPageSocial';
+import { resolveReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type PublicWorkReviews } from '../../lib/myPageSocial';
 import type { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/readBooks';
@@ -92,7 +92,7 @@ function CommunityReviews({ workId }: { workId: string }) {
 
 const emptyHistory = { sessions: [], hidden: new Set<string>() };
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, saved, reviews, focusReview }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, reviews, focusReview }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
@@ -101,12 +101,13 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   progress: Record<string, UserProgress>;
   bookmarkProgress: Record<string, UserProgress>;
   catalogLoading: boolean;
+  identityBlocked: boolean;
   saved: boolean;
   reviews: ReturnType<typeof useMyPageReviews>;
   focusReview: boolean;
 }) {
   const lookupId = discovery?.id ?? bookId;
-  const [metadata, setMetadata] = useState<PublicBookMetadata | null>(null);
+  const [lookup, setLookup] = useState<{ id: string; value: PublicBookMetadata | null }>();
   const [loading, setLoading] = useState(true);
   const [metadataFailed, setMetadataFailed] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -115,7 +116,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     hidden: ReadonlySet<string>;
   } | null>(null);
   const [historyFailed, setHistoryFailed] = useState(false);
-  const [historyMetadata, setHistoryMetadata] = useState<ReadonlyMap<string, PublicBookMetadata | null>>();
+  const [historyLookup, setHistoryLookup] = useState<{ titles: string; metadata: ReadonlyMap<string, PublicBookMetadata | null> }>();
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   const reviewIndex = useMemo(() => indexReviewWorks(reviews.data?.reviews ?? []), [reviews.data]);
   const deletionIndex = useMemo(() => indexReviewWorks(reviews.data?.deletions ?? []), [reviews.data]);
@@ -124,12 +125,20 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   }), [ownerKey, books, progress, bookmarkProgress, history]);
   const historyTitles = useMemo(() => JSON.stringify(getWorkReadingTitles(readingInput).sort()), [readingInput]);
 
+  const historyMetadata = historyLookup?.titles === historyTitles ? historyLookup.metadata : undefined;
+  const platformKeys = useMemo(() => discovery
+    ? discovery.platforms.map(({ id, url }) => platformWorkKey(id, url)) : readBook?.platformWorkKeys ?? [], [discovery, readBook]);
+  const candidate = lookup?.id === lookupId ? lookup.value : null;
+  const metadata = candidate && (platformKeys.length && candidate.platforms.length
+    ? getPlatformWorkKeys(candidate).some((key) => platformKeys.includes(key))
+    : candidate.titleKey === lookupId || readBook?.equivalentTitleKeys?.includes(candidate.titleKey)) ? candidate : null;
+
   useEffect(() => {
     const titles: string[] = JSON.parse(historyTitles);
     if (!titles.length) return;
     const controller = new AbortController();
     void loadReadBookMetadata(titles, { signal: controller.signal }).then(({ metadata }) => {
-      if (!controller.signal.aborted) setHistoryMetadata(metadata);
+      if (!controller.signal.aborted) setHistoryLookup({ titles: historyTitles, metadata });
     });
     return () => controller.abort();
   }, [historyTitles]);
@@ -138,17 +147,12 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     const controller = new AbortController();
     void loadReadBookMetadata([lookupId], { signal: controller.signal }).then(({ metadata: result, failed }) => {
       if (controller.signal.aborted) return;
-      const entry = result.get(lookupId);
-      const sameWork = entry && (entry.titleKey === lookupId
-        || readBook?.equivalentTitleKeys?.includes(entry.titleKey)
-        || entry.platforms.some((platform) => discovery?.platforms.some(({ id, url }) => id === platform.platform && url === platform.url)
-          || readBook?.platformWorkKeys?.includes(JSON.stringify([platform.platform, platform.url]))));
-      setMetadata(sameWork ? entry : null);
+      setLookup({ id: lookupId, value: result.get(lookupId) ?? null });
       setMetadataFailed(failed.has(lookupId));
       setLoading(false);
     });
     return () => controller.abort();
-  }, [discovery, lookupId, readBook, retry]);
+  }, [lookupId, retry]);
 
   useEffect(() => {
     let revision = 0;
@@ -179,20 +183,23 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
 
   const work = useMemo(() => ({
     id: lookupId,
-    equivalentTitleKeys: [bookId, ...(readBook?.equivalentTitleKeys ?? []), ...(metadata ? [metadata.titleKey] : [])],
-    platformWorkKeys: [...new Set([
-      ...(discovery?.platforms.map(({ id, url }) => platformWorkKey(id, url)) ?? []),
-      ...(readBook?.platformWorkKeys ?? []),
-      ...(metadata ? getPlatformWorkKeys(metadata) : []),
-    ])],
-  }), [bookId, discovery, lookupId, metadata, readBook]);
+    equivalentTitleKeys: discovery ? [] : [bookId, ...(readBook?.equivalentTitleKeys ?? []), ...(metadata ? [metadata.titleKey] : [])],
+    platformWorkKeys: discovery ? platformKeys : [...new Set([...platformKeys, ...(metadata ? getPlatformWorkKeys(metadata) : [])])],
+  }), [bookId, discovery, lookupId, metadata, platformKeys, readBook]);
+  const review = resolveReviewWork(reviewIndex, work);
+  const deletion = resolveReviewWork(deletionIndex, work);
+  const reviewBlocked = identityBlocked || review.blocked || (!review.entry && deletion.blocked);
   const personal = useMemo(() => buildPersonalBookReading({
     ...readingInput,
-    titleKeys: [work.id, ...work.equivalentTitleKeys],
+    titleKeys: [work.id, bookId, ...work.equivalentTitleKeys],
     platformWorkKeys: work.platformWorkKeys,
     metadataByTitle: historyMetadata,
     knownFileIds: readBook?.fileIds ?? [],
-  }), [work, historyMetadata, readingInput, readBook]);
+  }), [work, bookId, historyMetadata, readingInput, readBook]);
+  const readingSnapshot = useMemo(() => {
+    if (!history || (historyTitles !== '[]' && !historyMetadata)) return null;
+    return buildLocalReviewReading(history.sessions, ownerKey, history.hidden, personal.fileIds);
+  }, [history, historyMetadata, historyTitles, ownerKey, personal.fileIds]);
   const title = discovery?.title ?? metadata?.displayTitle ?? readBook?.title;
   useEffect(() => {
     const heading = reviewHeading.current;
@@ -273,11 +280,9 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
         </section>
       )}
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
-      <BookReviewEditor ownerKey={ownerKey} workId={work.id} platformWorkKeys={work.platformWorkKeys} fileIds={personal.fileIds}
-        readingSnapshot={readBook?.fileIds?.length ? { totalMs: Math.round(readBook.totalMs), progressPercent: readBook.progressPercent }
-          : personal.totalMs > 0 ? { totalMs: Math.round(personal.totalMs), progressPercent: personal.progressPercent } : null}
-        review={findReviewWork(reviewIndex, work)} deletion={findReviewWork(deletionIndex, work)}
-        ready={reviews.ready} loadingHistory={!history && !historyFailed && !readBook}
+      <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={work.platformWorkKeys} fileIds={personal.fileIds}
+        readingSnapshot={readingSnapshot} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
+        ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
         error={reviews.error} refresh={reviews.refresh} change={reviews.change} headingRef={reviewHeading} />
       <CommunityReviews key={`${lookupId}:${reviews.changeVersion}`} workId={lookupId} />
     </>
