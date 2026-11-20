@@ -162,18 +162,30 @@ test('a rating appears during a pending save and rolls back after the retries fa
   });
   const visible = (selector) => window.document.querySelector(selector);
   try {
-    await hydrateRemoteReadingSessionsPageV12(ownerKey, [{
+    const session = {
       schemaVersion: 1, sessionId: 'review-session', bookId: 'review-book', bookTitle: title, deviceId: 'review-device',
       startedAtClient: start, endedAtClient: start + 60_000, durationMs: 60_000, startProgressPercent: 0,
       endProgressPercent: 20, timezoneOffsetMinutes: 0, localDate: '2026-11-20', mode: 'screen', completed: false,
-    }], null, null, true, false);
+    };
+    await hydrateRemoteReadingSessionsPageV12(ownerKey, [
+      session, { ...session, sessionId: 'unrated-session', bookId: 'unrated-book', bookTitle: '처음 평가할 책' },
+    ], null, null, true, false);
     await act(async () => root.render(React.createElement(ReadBooks, { ownerKey, onOpenBook() {}, accountStorage: true })));
     for (let attempt = 0; attempt < 20 && !visible('[aria-label="별점 2점"]'); attempt++) {
       await act(async () => delay(20));
     }
-    assert.ok(visible('[aria-label="별점 2점"]'), window.document.body.textContent);
-    await click(window, visible(`[aria-label="${title} 평가 수정"]`));
-    await click(window, visible('[aria-label="4점"]'));
+    const unrated = visible('[aria-label="별점 미평가"]');
+    assert.equal(unrated.querySelectorAll('button[aria-pressed="false"]').length, 5);
+    const firstRating = unrated.querySelector('button[aria-label="3점"]');
+    await click(window, firstRating);
+    assert.equal(unrated.getAttribute('aria-label'), '별점 3점');
+    assert.equal(unrated.querySelector('button[aria-label="3점"]'), firstRating);
+    assert.equal(writes.length, 0);
+    await click(window, [...visible('form').querySelectorAll('button')].find((button) => button.textContent === '취소'));
+    assert.equal(unrated.querySelectorAll('button[aria-pressed="false"]').length, 5);
+    const saved = visible('[aria-label="별점 2점"]');
+    assert.ok(saved, window.document.body.textContent);
+    await click(window, saved.querySelector('[aria-label="4점"]'));
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.ok(visible('[aria-label="별점 4점"]'));
     assert.equal(visible('form'), null);

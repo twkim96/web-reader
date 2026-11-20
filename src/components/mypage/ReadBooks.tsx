@@ -70,9 +70,10 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
     return () => { active = false; if (scopeRef.current === scopeId) scopeRef.current++; generationRef.current++; unsubscribe(); window.removeEventListener('focus', refresh); };
   }, [book, cloud, ownerKey]);
 
-  const beginEdit = () => {
+  const selectRating = (value: number) => {
+    setRating(value);
+    if (editing) return;
     setEditingTarget(accountReview?.value ?? accountReview?.deletion);
-    setRating(review?.rating ?? 0);
     setComment(review?.comment ?? '');
     setFeedback('');
     setEditing(true);
@@ -157,50 +158,45 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
     finally { if (scope.current === scopeId) { busy.current = false; setPending(false); } }
   };
 
+  const displayedRating = editing ? rating : review?.rating ?? 0;
+  const ratingDisabled = pending || (accountReview && !accountReview.ready);
+
   return (
     <article className="mypage-book-list-item">
-      <div className="flex items-center">
-        <BookDetailLink bookId={book.id} onOpen={() => onOpenBook(book)} label={book.title} className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg pr-3 sm:gap-4 sm:pr-4">
-          <BookCover url={book.coverUrl} proxy />
-          <div className="min-w-0 flex-1">
-            <h3 className="line-clamp-2 text-sm font-semibold group-hover:text-accent-500">{book.title}</h3>
-            <p className="mt-1.5 text-xs opacity-65">{formatMetrics(book)}</p>
-          </div>
-        </BookDetailLink>
-        {!editing && <button type="button" onClick={beginEdit} disabled={pending || (accountReview && !accountReview.ready)} aria-label={`${book.title} 평가 ${review ? '수정' : '남기기'}`} className={`${secondaryAction} disabled:opacity-45`}>
-          {review ? '평가 수정' : '평가 남기기'}
-        </button>}
-      </div>
-      {review && !editing && (
-        <div className="mt-2.5 pl-[60px] sm:pl-16">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <span className="inline-flex items-center gap-1 font-semibold text-accent-500">
-              <Star size={14} fill="currentColor" aria-hidden="true" />
-              <span aria-label={`별점 ${review.rating}점`}>{review.rating}/5</span>
-            </span>
-            {review.totalMs !== null && review.progressPercent !== null && <span className="opacity-70">{formatMetrics({ totalMs: review.totalMs, progressPercent: review.progressPercent })}</span>}
-          </div>
-          {review.comment && <p className="mt-1.5 break-words text-sm">{review.comment}</p>}
-        </div>
-      )}
-      {editing && (
-        <form onSubmit={save} className="mt-3 space-y-3 sm:ml-16">
-          <fieldset disabled={pending}><div role="group" aria-label="별점" className="flex flex-wrap gap-1">
+      <div className="relative flex items-start gap-3 sm:gap-4">
+        <BookCover url={book.coverUrl} proxy />
+        <div className="min-w-0 flex-1">
+          <BookDetailLink bookId={book.id} onOpen={() => onOpenBook(book)} label={book.title}
+            className="group block rounded-lg after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:outline-accent-500">
+            <h3 className="truncate text-sm font-semibold leading-5 group-hover:text-accent-500">{book.title}</h3>
+            <p className="mt-0.5 truncate text-xs leading-4 opacity-65">{formatMetrics(book)}</p>
+          </BookDetailLink>
+          <div role="group" aria-label={displayedRating ? `별점 ${displayedRating}점` : '별점 미평가'} className="relative z-10 mt-0.5 flex w-fit max-w-full">
             {[1, 2, 3, 4, 5].map((value) => (
-              <button key={value} type="button" onClick={() => setRating(value)} aria-pressed={rating === value}
-                aria-label={`${value}점`} className={`flex size-9 items-center justify-center rounded-full ${value <= rating ? 'text-accent-500' : 'opacity-55'}`}>
-                <Star size={19} fill={value <= rating ? 'currentColor' : 'none'} aria-hidden="true" />
+              <button key={value} type="button" onClick={() => selectRating(value)} aria-pressed={value <= displayedRating}
+                disabled={ratingDisabled} aria-label={`${value}점`}
+                className={`flex size-7 min-w-0 items-center justify-center rounded-full hover:bg-current/10 disabled:opacity-35 ${value <= displayedRating ? 'text-accent-500' : 'opacity-55'}`}>
+                <Star size={15} fill={value <= displayedRating ? 'currentColor' : 'none'} aria-hidden="true" />
               </button>
             ))}
           </div>
-          <input type="text" aria-label="한줄평 (선택)" placeholder="한줄평 (선택)" value={comment}
-            onChange={(event) => setComment(event.target.value)} maxLength={BOOK_REVIEW_TEXT_LIMIT}
-            className="h-10 w-full rounded-lg bg-[color-mix(in_srgb,currentColor_5%,transparent)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-accent-500" />
-          <div className="flex flex-wrap justify-end gap-2">
-            {(accountReview ? editingAccountReview : review) && <button type="button" onClick={remove} className={`mr-auto ${secondaryAction}`}>평가 삭제</button>}
-            <button type="button" onClick={() => { setEditing(false); setFeedback(''); }} className={secondaryAction}>취소</button>
-            <button type="submit" disabled={rating === 0} className="min-h-10 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white disabled:opacity-40">저장</button>
-          </div></fieldset>
+        </div>
+      </div>
+      {review?.comment && !editing && (
+        <p className="ml-[3.75rem] mt-2 break-words text-sm sm:ml-16">{review.comment}</p>
+      )}
+      {editing && (
+        <form onSubmit={save} className="ml-[3.75rem] mt-2 sm:ml-16">
+          <fieldset disabled={pending} className="min-w-0">
+            <input type="text" aria-label="한줄평 (선택)" placeholder="한줄평 (선택)" value={comment}
+              onChange={(event) => setComment(event.target.value)} maxLength={BOOK_REVIEW_TEXT_LIMIT}
+              className="h-10 w-full rounded-lg bg-[color-mix(in_srgb,currentColor_5%,transparent)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-accent-500" />
+            <div className="mt-2 flex flex-wrap justify-end gap-2">
+              {(accountReview ? editingAccountReview : review) && <button type="button" onClick={remove} className={`mr-auto ${secondaryAction}`}>평가 삭제</button>}
+              <button type="button" onClick={() => { setEditing(false); setFeedback(''); }} className={secondaryAction}>취소</button>
+              <button type="submit" disabled={rating === 0} className="min-h-10 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white disabled:opacity-40">저장</button>
+            </div>
+          </fieldset>
         </form>
       )}
       {feedback && <p role="alert" className="mt-2 text-xs text-accent-500">{feedback}</p>}
