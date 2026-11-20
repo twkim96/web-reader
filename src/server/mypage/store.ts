@@ -1,16 +1,16 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
-import { FieldValue, GrpcStatus, Timestamp, type DocumentData, type Firestore, type Transaction } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, GrpcStatus, Timestamp, type DocumentData, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity.ts';
 import { BOOK_REVIEW_TEXT_LIMIT } from '../../lib/publicBookReviews.ts';
 import {
-  hasPublicMyPage, MY_PAGE_CODE, type MyPageAccount, type MyPageIdentity, type MyPageReview,
+  hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageReview,
   type MyPageVisibility, type MyPageWishlistItem, type PublicWorkReview, type PublicWorkReviews,
 } from '../../lib/myPageSocial.ts';
 
 const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const DEFAULT_NICKNAMES = ['행복한사자', '느긋한고양이', '다정한수달', '호기심많은여우', '책읽는토끼'];
-const PRIVATE_VISIBILITY: MyPageVisibility = { reviews: false, reading: false, wishlist: false };
-const PEOPLE_LIMIT = 20;
+const DEFAULT_VISIBILITY: MyPageVisibility = { reviews: true, wishlist: false };
+const BROWSE_READER_PAGE_SIZE = 6;
 const REVIEW_LIMIT = 20;
 const REVIEW_PAGE_SIZE = 100;
 
@@ -34,7 +34,6 @@ const reviews = (db: Firestore, uid: string) => library(db, uid).collection('myP
 const workKey = (workId: string) => createHash('sha256').update(workId).digest('hex');
 const workEntries = (db: Firestore, workId: string) => db.collection('publicBookReviewsV1')
   .doc(workKey(workId)).collection('entries');
-const searchKey = (value: string) => value.toLowerCase().normalize('NFC');
 
 function publicCode(value: string): string | null {
   const code = value.trim().split('#').at(-1)!.toUpperCase();
@@ -47,7 +46,7 @@ function makeCode() {
 
 function accountFrom(code: string, data: DocumentData): MyPageAccount {
   const { nickname, revision, visibility } = data;
-  return { code, nickname, revision, visibility };
+  return { code, nickname, revision, visibility: parseMyPageVisibility(visibility) ?? { reviews: false, wishlist: false } };
 }
 
 function identityFrom({ code, nickname }: MyPageAccount): MyPageIdentity {
@@ -61,10 +60,7 @@ function ownedAccount(code: string, data: DocumentData | undefined, uid: string)
 
 function profileFields(uid: string, account: MyPageAccount) {
   const { nickname, visibility, revision } = account;
-  return {
-    uid, nickname, visibility, revision,
-    ...(hasPublicMyPage(visibility) ? { searchKey: searchKey(nickname) } : {}),
-  };
+  return { uid, nickname, visibility, revision };
 }
 
 export async function ensureAccount(db: Firestore, uid: string): Promise<MyPageAccount> {
@@ -75,7 +71,7 @@ export async function ensureAccount(db: Firestore, uid: string): Promise<MyPageA
 
     const code = makeCode();
     const nickname = DEFAULT_NICKNAMES[randomInt(DEFAULT_NICKNAMES.length)];
-    const account = { code, nickname, visibility: { ...PRIVATE_VISIBILITY }, revision: 1 };
+    const account = { code, nickname, visibility: { ...DEFAULT_VISIBILITY }, revision: 1 };
     const batch = db.batch();
     batch.create(profiles(db).doc(code), profileFields(uid, account));
     batch.create(owner, { code });
@@ -118,34 +114,24 @@ export async function lookupPublicAccount(
   return publicAccount(normalized, (await profiles(db).doc(normalized).get()).data());
 }
 
-// Firestore orders strings by UTF-8 bytes, so advance the last Unicode scalar.
-function prefixEnd(prefix: string): string | undefined {
-  const characters = Array.from(prefix);
-  while (characters.length > 0) {
-    const last = characters.pop()!.codePointAt(0)!;
-    if (last < 0x10ffff) return characters.join('') + String.fromCodePoint(last === 0xd7ff ? 0xe000 : last + 1);
-  }
+export async function listBrowseReaders(db: Firestore, section: MyPageBrowseSection, cursor: string | null, viewerUid: string | null) {
+  const query = profiles(db).where(`visibility.${section}`, '==', true).orderBy(FieldPath.documentId());
+  const snapshot = await (cursor ? query.startAfter(cursor) : query).limit(BROWSE_READER_PAGE_SIZE + 1).get();
+  const page = snapshot.docs.slice(0, BROWSE_READER_PAGE_SIZE);
+  const readers = page.flatMap((document) => {
+    const reader = publicAccount(document.id, document.data());
+    return reader && reader.uid !== viewerUid && reader.account.visibility[section] ? [reader] : [];
+  });
+  return { readers, next: snapshot.size > page.length ? page.at(-1)!.id : null };
 }
 
-export async function searchPeople(db: Firestore, query: string): Promise<MyPageIdentity[]> {
-  const prefix = searchKey(query.trim());
-  if (!prefix) return [];
-  const code = publicCode(prefix);
-  const end = prefixEnd(prefix);
-  const start = profiles(db).orderBy('searchKey').startAt(prefix);
-  const matches = await (end ? start.endBefore(end) : start).limit(PEOPLE_LIMIT).get();
-  const exact = code ? await db.runTransaction(async (transaction) => (
-    publicAccount(code, (await transaction.get(profiles(db).doc(code))).data())
-  ), { readOnly: true, readTime: matches.readTime }) : null;
-
-  const people = exact ? [identityFrom(exact.account)] : [];
-  for (const document of matches.docs) {
-    if (document.id === exact?.account.code) continue;
-    const match = publicAccount(document.id, document.data());
-    if (match) people.push(identityFrom(match.account));
-    if (people.length === PEOPLE_LIMIT) break;
-  }
-  return people;
+export async function currentBrowseReaders(db: Firestore, codes: readonly string[], section: MyPageBrowseSection) {
+  if (codes.length === 0) return new Map<string, number>();
+  const snapshots = await db.getAll(...codes.map((code) => profiles(db).doc(code)));
+  return new Map(snapshots.flatMap((snapshot) => {
+    const reader = publicAccount(snapshot.id, snapshot.data());
+    return reader?.account.visibility[section] ? [[snapshot.id, reader.account.revision] as const] : [];
+  }));
 }
 
 function wishlistItem(data: DocumentData): MyPageWishlistItem {
@@ -153,9 +139,10 @@ function wishlistItem(data: DocumentData): MyPageWishlistItem {
   return { workId, addedAt, revision, saved };
 }
 
-export async function listWishlist(db: Firestore, uid: string, includeRemoved = false): Promise<MyPageWishlistItem[]> {
+export async function listWishlist(db: Firestore, uid: string, includeRemoved = false, limit?: number): Promise<MyPageWishlistItem[]> {
   const collection = wishlist(db, uid);
-  const snapshot = await (includeRemoved ? collection : collection.where('saved', '==', true)).get();
+  const query = includeRemoved ? collection : collection.where('saved', '==', true);
+  const snapshot = await (limit === undefined ? query : query.limit(limit)).get();
   return snapshot.docs.map((document) => wishlistItem(document.data()))
     .sort((a, b) => b.addedAt - a.addedAt || a.workId.localeCompare(b.workId));
 }

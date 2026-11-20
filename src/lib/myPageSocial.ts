@@ -1,7 +1,8 @@
 import type { DiscoveryBook } from './bookDiscovery';
 import type { ReadBook } from './readBooks';
 
-export type MyPageVisibility = { reviews: boolean; reading: boolean; wishlist: boolean };
+export type MyPageVisibility = { reviews: boolean; wishlist: boolean };
+export type MyPageBrowseSection = keyof MyPageVisibility;
 export type MyPageIdentity = { code: string; nickname: string };
 export type MyPageAccount = MyPageIdentity & { visibility: MyPageVisibility; revision: number };
 export type MyPageWishlistItem = { workId: string; addedAt: number; revision: number; saved: boolean };
@@ -25,10 +26,12 @@ export type MyPageOwnReviews = { reviews: MyPageReview[]; deletions: MyPageRevie
 export type PublicWorkReview = Pick<MyPageReview, 'rating' | 'comment' | 'totalMs' | 'progressPercent'> & { author: MyPageIdentity };
 export type PublicWorkReviews = { reviews: PublicWorkReview[]; average: number | null; ratingCount: number };
 export type PublicProfileBook = { workId: string; title: string; coverUrl: string | null };
+export type PublicBrowseBook = PublicProfileBook & { rating?: number; comment?: string };
+export type PublicBrowseGroup = { reader: MyPageIdentity; books: PublicBrowseBook[] };
+export type PublicBrowsePage = { groups: PublicBrowseGroup[]; next: string | null };
 export type PublicMyPage = {
   identity: MyPageIdentity;
   visibility: MyPageVisibility;
-  reading?: Array<PublicProfileBook & { status: 'reading' | 'read' }>;
   wishlist?: PublicProfileBook[];
   reviews?: Array<PublicProfileBook & { rating: number; comment: string }>;
   next?: Partial<Record<keyof MyPageVisibility, number | null>>;
@@ -37,7 +40,7 @@ export type PublicMyPage = {
 export const MY_PAGE_CODE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
 export const MY_PAGE_DASHBOARD_BOOK_LIMIT = 12;
 export const publicReaderHref = (code: string) => `/people/${encodeURIComponent(code)}`;
-export const hasPublicMyPage = (visibility: MyPageVisibility) => visibility.reviews || visibility.reading || visibility.wishlist;
+export const hasPublicMyPage = (visibility: MyPageVisibility) => visibility.reviews || visibility.wishlist;
 export const formatMyPageIdentity = ({ nickname, code }: MyPageIdentity) => `${nickname}#${code}`;
 
 export function indexReviewWorks<T extends ReviewWork>(entries: readonly T[]) {
@@ -67,7 +70,6 @@ export function parseMyPageNickname(value: unknown) {
 
 export function parseMyPageVisibility(value: unknown): MyPageVisibility | null {
   if (!value || typeof value !== 'object') return null;
-  const { reviews, reading, wishlist } = value as Partial<MyPageVisibility>;
-  return typeof reviews === 'boolean' && typeof reading === 'boolean' && typeof wishlist === 'boolean'
-    ? { reviews, reading, wishlist } : null;
+  const { reviews, wishlist } = value as Partial<MyPageVisibility>;
+  return typeof reviews === 'boolean' && typeof wishlist === 'boolean' ? { reviews, wishlist } : null;
 }

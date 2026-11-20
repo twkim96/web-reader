@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { loadSocialCatalog, resolveLegacyReviewWork, resolveSocialWork } from '../src/server/mypage/catalog.ts';
-import { getSocialReadingEvidence, readSocialReading } from '../src/server/mypage/reading.ts';
+import { getSocialReadingEvidence } from '../src/server/mypage/reading.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
 
 const hash = (s) => createHash('sha256').update(s).digest('hex');
@@ -73,8 +73,6 @@ test('published aliases prove reading while private titles and unrelated file hi
   };
   const db = { collection(path) { return path.endsWith('readingStatsV1') ? stats : { doc(id) { const data = path === 'publicBookMetadataV1' && buckets.has(id) ? { schemaVersion: 1, entries: buckets.get(id) } : undefined; return { get: async () => ({ exists: Boolean(data), data: () => data }) }; } }; } };
   assert.equal((await resolveSocialWork(db, 'secretfilename.txt')).book.id, book.id);
-  const rows = await readSocialReading(db, 'user');
-  assert.deepEqual(rows, [{ workId: book.id, title: book.title, coverUrl: book.coverUrl, status: 'reading' }]);
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['private-file']), { totalMs: 2000, progressPercent: 10 });
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['other-file']), { totalMs: null, progressPercent: null });
 });

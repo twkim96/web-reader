@@ -86,6 +86,41 @@ test('dashboard book sections open the matching detail and full list', async () 
   }
 });
 
+test('browse replaces user search with public book rows grouped by reader', async (t) => {
+  const { window, root } = setup('#mypage/people');
+  globalThis.self = window;
+  const works = { workId: book.id, title: book.title, coverUrl: null };
+  const first = { code: 'A1234567', nickname: '활기찬사자' };
+  const second = { code: 'B1234567', nickname: '조용한토끼' };
+  t.mock.method(globalThis, 'fetch', async (request) => {
+    const url = new URL(String(request), 'http://localhost');
+    if (url.searchParams.get('view') !== 'browse') return Response.json([]);
+    const groups = url.searchParams.get('section') === 'wishlist'
+      ? [{ reader: second, books: [works] }]
+      : [{ reader: first, books: [{ ...works, rating: 4, comment: '다시 읽고 싶어요' }] },
+        { reader: second, books: [{ ...works, rating: 3 }] }];
+    return Response.json({ groups, next: null });
+  });
+  const main = () => window.document.querySelector('main');
+  const rows = () => [...main().querySelectorAll('section[aria-label]')];
+  try {
+    await act(async () => root.render(React.createElement(MyPage, props)));
+    assert.equal(window.document.querySelector('nav').textContent.includes('사람 검색'), false);
+    assert.deepEqual(rows().map((row) => row.getAttribute('aria-label')), [
+      '활기찬사자님이 평점을 남긴 도서', '조용한토끼님이 평점을 남긴 도서',
+    ]);
+    assert.equal(rows()[0].querySelector('a').getAttribute('href'), '/people/A1234567');
+    assert.ok(rows().every((row) => row.querySelector('[data-dashboard-book-row] a').getAttribute('href') === '#mypage/book/test-book'));
+    assert.ok(rows()[0].textContent.includes('다시 읽고 싶어요'));
+    await click(window, main().querySelector('[aria-label="둘러볼 도서"] button:nth-of-type(2)'));
+    assert.deepEqual(rows().map((row) => row.getAttribute('aria-label')), ['조용한토끼님이 담은 도서']);
+  } finally {
+    await act(async () => root.unmount());
+    delete globalThis.self;
+    await closeLocalDB();
+  }
+});
+
 test('a rating appears during a pending save and rolls back after the retries fail', async (t) => {
   const { window, root } = setup('#mypage/read');
   const uid = 'rating-ui';

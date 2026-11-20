@@ -1,9 +1,9 @@
 import { FieldPath, type Firestore, type QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity';
-import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, isConfirmedReadingCompletion, type ReadingSessionV1 } from '../../lib/readingStatistics';
+import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, type ReadingSessionV1 } from '../../lib/readingStatistics';
 import { resolveSocialWork } from './catalog';
 
-type Work = { workId: string; title: string; coverUrl: string | null; status: 'reading' | 'read'; fileIds: Set<string>; progress: number; lastReadAt: number };
+type Work = { fileIds: Set<string>; progress: number };
 type Summary = { works: Map<string, Work>; totals: Map<string, number>; marker: string | null; builtAt: number };
 const caches = new WeakMap<Firestore, Map<string, { expires: number; promise: Promise<Summary> }>>();
 
@@ -57,7 +57,6 @@ async function buildSummary(db: Firestore, uid: string, previous?: Promise<Summa
     while (next < titles.length) { const title = titles[next++]; resolved.set(title, await resolveSocialWork(db, title)); }
   }));
   const works = new Map<string, Work>();
-  const books = new Map([...resolved.values()].flatMap((result) => result ? [[result.book.id, result.book] as const] : []));
   const fileWorks = new Map<string, Set<string>>();
   for (const session of sessions) {
     const result = resolved.get(session.bookTitle);
@@ -72,16 +71,12 @@ async function buildSummary(db: Firestore, uid: string, previous?: Promise<Summa
     const ids = fileWorks.get(session.bookId);
     const id = result?.book.id ?? (ids?.size === 1 ? [...ids][0] : undefined);
     if (!id || (ids && (ids.size !== 1 || !ids.has(id)))) continue;
-    const book = result?.book ?? books.get(id);
-    if (!book) continue;
     sessionWork.set(session.sessionId, id);
-    const work = works.get(id) ?? { workId: id, title: book.title, coverUrl: book.coverUrl, status: 'reading' as const, fileIds: new Set<string>(), progress: 0, lastReadAt: 0 };
+    const work = works.get(id) ?? { fileIds: new Set<string>(), progress: 0 };
     if (session.completionRoundNumber === undefined) {
       work.fileIds.add(session.bookId);
       work.progress = Math.max(work.progress, session.startProgressPercent, session.endProgressPercent);
-      work.lastReadAt = Math.max(work.lastReadAt, session.endedAtClient);
     }
-    if (isConfirmedReadingCompletion(session)) work.status = 'read';
     works.set(id, work);
   }
   buildReadingStatistics(sessions, {}, ({ session, durationMs }) => {
@@ -89,13 +84,6 @@ async function buildSummary(db: Firestore, uid: string, previous?: Promise<Summa
     if (id) totals.set(id, (totals.get(id) ?? 0) + durationMs);
   });
   return { works, totals, marker, builtAt: Date.now() };
-}
-
-export async function readSocialReading(db: Firestore, uid: string): Promise<Array<{ workId: string; title: string; coverUrl: string | null; status: 'reading' | 'read' }>> {
-  const { works } = await summary(db, uid);
-  return [...works.values()].filter((work) => work.fileIds.size > 0)
-    .sort((a, b) => b.lastReadAt - a.lastReadAt || a.workId.localeCompare(b.workId))
-    .map(({ workId, title, coverUrl, status }) => ({ workId, title, coverUrl, status }));
 }
 
 export async function getSocialReadingEvidence(db: Firestore, uid: string, canonicalWorkId: string, fileIds: readonly string[]): Promise<{ totalMs: number | null; progressPercent: number | null }> {

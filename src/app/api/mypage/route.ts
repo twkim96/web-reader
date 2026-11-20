@@ -2,9 +2,9 @@ import { after } from 'next/server';
 import type { Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import { resolveLegacyReviewWork, resolveSocialWork } from '../../../server/mypage/catalog';
-import { getSocialReadingEvidence, readSocialReading } from '../../../server/mypage/reading';
+import { getSocialReadingEvidence } from '../../../server/mypage/reading';
 import {
-  ensureAccount, fillReviewReading, importReview, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount, searchPeople,
+  currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount,
   updateAccount, updateReview, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
@@ -12,13 +12,13 @@ import { BOOK_REVIEW_TEXT_LIMIT, parsePublicBookReview } from '../../../lib/publ
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
   MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, parseMyPageNickname, parseMyPageVisibility,
-  type MyPageOwnReviews, type MyPageSavedBook, type PublicProfileBook,
+  type MyPageOwnReviews, type MyPageSavedBook, type PublicBrowseGroup, type PublicBrowsePage, type PublicProfileBook,
 } from '../../../lib/myPageSocial';
 
 const MAX_BODY_BYTES = 64_000;
 const PROFILE_PAGE_SIZE = 30;
 const REVIEW_SAVE_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-const publicSections = ['reviews', 'reading', 'wishlist'] as const;
+const publicSections = ['reviews', 'wishlist'] as const;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const fail = (status: number) => json({ error: 'request-failed' }, status);
 const evidenceFor = (db: Firestore, uid: string, workId: string, fileIds: readonly string[]) => (
@@ -100,9 +100,8 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   if (!initial) return fail(404);
   const { uid, account: { visibility, nickname, revision } } = initial;
   const window = <T,>(records: T[]) => ({ next: records.length > offset + PROFILE_PAGE_SIZE ? offset + PROFILE_PAGE_SIZE : null, entries: records.slice(offset, offset + PROFILE_PAGE_SIZE) });
-  const [wishlistPage, readingPage, reviewsPage] = await Promise.all([
+  const [wishlistPage, reviewsPage] = await Promise.all([
     visibility.wishlist && (!section || section === 'wishlist') ? listWishlist(db, uid).then((items) => window(items.filter(({ saved }) => saved))) : null,
-    visibility.reading && (!section || section === 'reading') ? readSocialReading(db, uid).then(window) : null,
     visibility.reviews && (!section || section === 'reviews') ? listReviews(db, uid).then(window) : null,
   ]);
   const [wishlist, reviews] = await Promise.all([
@@ -114,20 +113,47 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   if (current.account.revision !== revision) return fail(409);
 
   return json({
-    identity: { code, nickname }, visibility, wishlist, reading: readingPage?.entries, reviews,
-    next: { wishlist: wishlistPage?.next, reading: readingPage?.next, reviews: reviewsPage?.next },
+    identity: { code, nickname }, visibility, wishlist, reviews,
+    next: { wishlist: wishlistPage?.next, reviews: reviewsPage?.next },
   });
+}
+
+async function publicBrowse(request: Request, params: URLSearchParams) {
+  const section = params.get('section') ?? 'reviews';
+  const cursor = params.get('cursor');
+  if ((section !== 'reviews' && section !== 'wishlist') || (cursor !== null && !MY_PAGE_CODE.test(cursor))) return fail(400);
+  const signedIn = request.headers.has('authorization');
+  const viewerUid = signedIn ? await authenticatedUid(request) : null;
+  if (signedIn && !viewerUid) return fail(401);
+
+  const db = getAdminFirestore();
+  const { readers, next } = await listBrowseReaders(db, section, cursor, viewerUid);
+  const enriched = await Promise.all(readers.map(async ({ uid, account }) => {
+    const books = section === 'wishlist'
+      ? (await publicBooks(db, await listWishlist(db, uid, false, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book }) => book)
+      : (await publicBooks(db, await listReviews(db, uid, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book, record }) => (
+        { ...book, rating: record.rating, comment: record.comment }
+      ));
+    const unique = new Map<string, PublicBrowseGroup['books'][number]>();
+    for (const book of books) if (!unique.has(book.workId)) unique.set(book.workId, book);
+    return {
+      revision: account.revision,
+      group: { reader: { code: account.code, nickname: account.nickname }, books: [...unique.values()] },
+    };
+  }));
+  const populated = enriched.filter(({ group }) => group.books.length > 0);
+  // Recheck the selected setting after loading books and metadata.
+  const revisions = await currentBrowseReaders(db, populated.map(({ group }) => group.reader.code), section);
+  const groups = populated.filter(({ group, revision }) => revisions.get(group.reader.code) === revision).map(({ group }) => group);
+  return json({ groups, next } satisfies PublicBrowsePage);
 }
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const view = params.get('view');
   try {
-    if (view === 'people') {
-      const query = params.get('q')?.normalize('NFC').trim();
-      if (!query || query.length > 32) return fail(400);
-      return json({ people: await searchPeople(getAdminFirestore(), query) });
-    }
+    if (view === 'people') return fail(404);
+    if (view === 'browse') return await publicBrowse(request, params);
     if (view === 'profile') return await publicProfile(getAdminFirestore(), params);
     const uid = await authenticatedUid(request);
     if (!uid) return fail(401);

@@ -12,7 +12,6 @@ import {
   listWishlist,
   lookupPublicAccount,
   readReview,
-  searchPeople,
   updateAccount,
   updateReview,
   updateWishlist,
@@ -32,7 +31,7 @@ after(async () => {
   if (app) await deleteApp(app);
 });
 
-const visibility = { reviews: false, wishlist: false, reading: false };
+const visibility = { reviews: false, wishlist: false };
 const review = (rating, comment = '') => ({ rating, comment, totalMs: null, progressPercent: null });
 const entries = (workId) => db.collection('publicBookReviewsV1')
   .doc(createHash('sha256').update(workId).digest('hex')).collection('entries');
@@ -40,7 +39,7 @@ const changeAccount = (uid, account, flags, nickname = account.nickname) => upda
   nickname, visibility: { ...visibility, ...flags }, revision: account.revision,
 });
 
-test('code collision retries, rename retains identity, and only opted-in accounts are discoverable', async (t) => {
+test('code collision retries, rename retains identity, and public profile follows current visibility', async (t) => {
   const uid = randomUUID();
   const otherUid = randomUUID();
   const [initial, concurrent] = await Promise.all([ensureAccount(db, uid), ensureAccount(db, uid)]);
@@ -65,29 +64,18 @@ test('code collision retries, rename retains identity, and only opted-in account
   assert.equal(allocations, 2);
   assert.notEqual(other.code, initial.code);
   assert.equal((await ensureAccount(db, uid)).code, initial.code);
-  assert.deepEqual(initial.visibility, visibility);
-  assert.deepEqual(await searchPeople(db, initial.code.toLowerCase()), []);
-  assert.equal(await lookupPublicAccount(db, initial.code), null);
+  assert.deepEqual(initial.visibility, { reviews: true, wishlist: false });
+  assert.deepEqual(await lookupPublicAccount(db, initial.code), { uid, account: initial });
 
   const suffix = randomUUID().slice(0, 8);
   const nickname = `Café${suffix}😀`;
-  const shown = await changeAccount(uid, initial, { reading: true }, nickname);
-  const otherShown = await changeAccount(otherUid, other, { wishlist: true }, nickname);
-  const identity = { code: initial.code, nickname };
+  const shown = await changeAccount(uid, initial, { wishlist: true }, nickname);
   assert.deepEqual(await lookupPublicAccount(db, `#${initial.code.toLowerCase()}`), { uid, account: shown });
-  assert.deepEqual(await searchPeople(db, `#${initial.code.toLowerCase()}`), [identity]);
-  const people = await searchPeople(db, `CAFE\u0301${suffix}`);
-  assert.deepEqual(people.map(({ code }) => code).sort(), [shown.code, otherShown.code].sort());
-  assert.ok(people.every(({ nickname: name }) => name === nickname));
-  assert.ok(people.every((person) => Object.keys(person).sort().join(',') === 'code,nickname'));
-
   await assert.rejects(changeAccount(uid, initial, { reviews: true }), ConflictError);
   const renamed = await changeAccount(uid, shown, { reviews: true }, `Renamed${suffix}`);
   assert.equal(renamed.code, initial.code);
-  assert.deepEqual(await searchPeople(db, initial.code), [{ code: initial.code, nickname: renamed.nickname }]);
-  assert.deepEqual(await searchPeople(db, nickname), [{ code: otherShown.code, nickname }]);
+  assert.deepEqual(await lookupPublicAccount(db, initial.code), { uid, account: renamed });
   await changeAccount(uid, renamed, {});
-  assert.deepEqual(await searchPeople(db, renamed.nickname), []);
   assert.equal(await lookupPublicAccount(db, initial.code), null);
 });
 

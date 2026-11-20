@@ -53,7 +53,6 @@ export function PublicReaderPage({ code }: { code: string }) {
         const append = <T,>(before: T[] | undefined, after: T[] | undefined) => [...(before ?? []), ...(after ?? [])];
         return {
           identity: result.identity, visibility: result.visibility,
-          reading: result.visibility.reading ? append(old.reading, result.reading) : undefined,
           wishlist: result.visibility.wishlist ? append(old.wishlist, result.wishlist) : undefined,
           reviews: result.visibility.reviews ? append(old.reviews, result.reviews) : undefined,
           next: { ...old.next, [section]: result.next?.[section] ?? null },
@@ -92,12 +91,11 @@ export function PublicReaderPage({ code }: { code: string }) {
   return (
     <div className="min-h-dvh" style={{ ...theme, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
       <main className="mx-auto max-w-3xl space-y-5 px-5 py-7 sm:px-8">
-        <Link href="/people" className="flex w-fit items-center gap-2 text-sm opacity-75 hover:opacity-100"><ArrowLeft size={17} />사람 검색</Link>
+        <Link href="/#mypage/browse" className="flex w-fit items-center gap-2 text-sm opacity-75 hover:opacity-100"><ArrowLeft size={17} />둘러보기</Link>
         {error ? <p role="alert" className="mypage-section text-sm">{error} <button type="button" className="text-accent-500 underline" onClick={() => void reload()}>다시 시도</button></p>
         : !profile ? <p role="status" className="mypage-section text-sm">공개 마이페이지를 불러오는 중…</p>
         : <>
           <h1 className="break-words text-2xl font-semibold">{formatMyPageIdentity(profile.identity)}</h1>
-          {section('reading', '읽은 책', profile.reading, ({ status }) => <span className="text-xs opacity-70">{status === 'reading' ? '읽는 중' : '읽음'}</span>)}
           {section('wishlist', '위시리스트', profile.wishlist)}
           {section('reviews', '별점 및 평가', profile.reviews, ({ rating, comment }) => (
             <div className="mt-1 space-y-1">

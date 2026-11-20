@@ -181,22 +181,23 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
           ) : selectedSessions.length === 0 ? (
             <p className="mt-3 text-sm opacity-60">이날 읽은 기록이 없습니다.</p>
           ) : (
-            <>
-            <ul className="mt-4 space-y-4">
-              {selectedSessions.slice(0, rowLimit).map(({ session, totalMs, startAt }) => (
-                <li key={session.sessionId} className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{displayBookTitle(session.bookTitle)}</p>
-                    <p className="mt-1 text-xs opacity-55">{new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
-                  </div>
-                  <span className="shrink-0 text-xs opacity-70">{formatReadingDuration(totalMs)}</span>
-                </li>
-              ))}
-            </ul>
-            {selectedSessions.length > rowLimit && (
-              <button type="button" className="mt-4 text-sm text-accent-500" onClick={() => setVisibleRows({ day: selectedDay, count: rowLimit + 50 })}>더 보기</button>
-            )}
-            </>
+            <div key={selectedDay} role="region" aria-label="독서 기록 목록" tabIndex={0}
+              className="mt-4 max-h-60 overflow-y-auto pr-2 [scrollbar-gutter:stable]">
+              <ul className="space-y-4">
+                {selectedSessions.slice(0, rowLimit).map(({ session, totalMs, startAt }) => (
+                  <li key={session.sessionId} className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{displayBookTitle(session.bookTitle)}</p>
+                      <p className="mt-1 text-xs opacity-55">{new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
+                    </div>
+                    <span className="shrink-0 text-xs opacity-70">{formatReadingDuration(totalMs)}</span>
+                  </li>
+                ))}
+              </ul>
+              {selectedSessions.length > rowLimit && (
+                <button type="button" className="mt-4 text-sm text-accent-500" onClick={() => setVisibleRows({ day: selectedDay, count: rowLimit + 50 })}>더 보기</button>
+              )}
+            </div>
           )}
         </section>
       </div>

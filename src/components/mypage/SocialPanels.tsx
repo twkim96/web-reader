@@ -3,8 +3,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import {
-  formatMyPageIdentity, hasPublicMyPage, publicReaderHref,
-  type MyPageAccount, type MyPageIdentity, type MyPageVisibility,
+  hasPublicMyPage, publicReaderHref,
+  type MyPageAccount, type MyPageVisibility,
 } from '../../lib/myPageSocial';
 import { myPageRequest } from '../../lib/myPageSocialClient';
 import { readWishlist } from '../../lib/localWishlist';
@@ -14,45 +14,8 @@ const field = 'min-h-11 min-w-0 rounded-lg bg-[color-mix(in_srgb,currentColor_6%
 const button = 'min-h-11 rounded-full bg-accent-500 px-4 text-sm font-semibold text-white disabled:opacity-45';
 const flags: Array<{ key: keyof MyPageVisibility; label: string }> = [
   { key: 'reviews', label: '별점 및 평가 공개' },
-  { key: 'reading', label: '읽은 책 공개' },
   { key: 'wishlist', label: '위시리스트 공개' },
 ];
-
-export function PeopleSearch() {
-  const [query, setQuery] = useState('');
-  const [submitted, setSubmitted] = useState<{ text: string }>();
-  const [state, setState] = useState<{ people: MyPageIdentity[]; error: string | null }>();
-  useEffect(() => {
-    if (!submitted) return;
-    const controller = new AbortController();
-    void myPageRequest<{ people: MyPageIdentity[] }>({ view: 'people', q: submitted.text }, { signal: controller.signal })
-      .then(({ people }) => { if (!controller.signal.aborted) setState({ people, error: null }); })
-      .catch((error: Error) => { if (!controller.signal.aborted) setState({ people: [], error: error.message }); });
-    return () => controller.abort();
-  }, [submitted]);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!query.trim()) return;
-    setState(undefined);
-    setSubmitted({ text: query.trim() });
-  };
-  return (
-    <section className="mypage-section" aria-label="사람 검색">
-      <h2 className="text-xl font-semibold">사람 검색</h2>
-      <form onSubmit={submit} className="mt-4 flex gap-2">
-        <input className={`${field} flex-1`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="닉네임 또는 ID 코드" aria-label="닉네임 또는 ID 코드" maxLength={32} />
-        <button type="submit" className={button} disabled={!query.trim()}>검색</button>
-      </form>
-      {submitted && !state && <p role="status" className="mt-4 text-sm opacity-70">검색 중…</p>}
-      {state?.error && <p role="alert" className="mt-4 text-sm text-accent-500">{state.error}</p>}
-      {state && !state.error && (state.people.length
-        ? <ul className="mt-4 space-y-1">{state.people.map((person) => (
-            <li key={person.code}><a href={publicReaderHref(person.code)} className="block rounded-lg px-2 py-2.5 text-sm hover:text-accent-500">{formatMyPageIdentity(person)}</a></li>
-          ))}</ul>
-        : <p className="mt-4 text-sm opacity-70">공개된 프로필을 찾지 못했습니다.</p>)}
-    </section>
-  );
-}
 
 export function MyPageSharingSettings({ owner, onWishlistImported }: { owner: OwnerKey; onWishlistImported: () => void }) {
   const [account, setAccount] = useState<MyPageAccount>();
@@ -156,8 +119,7 @@ export function MyPageSharingSettings({ owner, onWishlistImported }: { owner: Ow
                 {label}<input type="checkbox" checked={draft.visibility[key]} onChange={(event) => setDraft({ ...draft, visibility: { ...draft.visibility, [key]: event.target.checked } })} className="size-4 accent-[var(--accent-500)]" />
               </label>)}
             </div>
-            <p className="text-xs opacity-70">평가를 공개하면 작품 상세에 닉네임, 별점, 한줄평과 확인된 독서 시간·진행률이 표시됩니다. 공개를 끄면 내 별점이 작품 평균과 평가 개수에서 빠집니다.</p>
-            {draft.visibility.reading && <p className="text-xs opacity-70">읽은 책 공개에는 계정에 동기화된 책이 포함됩니다. 이 기기에서만 숨긴 독서 기록도 포함될 수 있습니다.</p>}
+            <p className="text-xs opacity-70">평가를 공개하면 작품 상세에 닉네임, 별점, 한줄평과 함께 저장된 독서 시간·진행률이 표시됩니다. 공개를 끄면 내 별점이 작품 평균과 평가 개수에서 빠집니다.</p>
             <div className="flex flex-wrap items-center gap-4">
               <button type="submit" className={button}>{pending ? '처리 중…' : '설정 저장'}</button>
               {hasPublicMyPage(account.visibility) && <a href={publicReaderHref(account.code)} className="text-sm text-accent-500">내 공개 마이페이지</a>}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, BookOpen, BookOpenCheck, Check, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, BookOpenCheck, Check, Compass, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { groupDiscoveryBooks, loadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
@@ -14,13 +14,14 @@ import { BookCover } from './BookCover';
 import { BookDetail } from './BookDetail';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
-import { MyPageSharingSettings, PeopleSearch } from './SocialPanels';
+import { MyPageSharingSettings } from './SocialPanels';
+import { PublicBrowse } from './PublicBrowse';
 import { MyReviews } from './MyReviews';
 import { LibraryAnnotations } from '../LibraryAnnotations';
 import { LibraryReadingStatisticsModal } from '../LibraryReadingStatisticsModal';
 import type { SyncHealth } from '../../lib/syncHealth';
 
-type Tab = 'overview' | 'wishlist' | 'read' | 'discover' | 'statistics' | 'annotations' | 'people' | 'sharing' | 'reviews';
+type Tab = 'overview' | 'wishlist' | 'read' | 'discover' | 'statistics' | 'annotations' | 'browse' | 'sharing' | 'reviews';
 const tabs = [
   { id: 'overview', label: '대시보드', icon: LayoutDashboard },
   { id: 'wishlist', label: '위시리스트', icon: Heart },
@@ -28,7 +29,7 @@ const tabs = [
   { id: 'discover', label: '도서 탐색', icon: Search },
   { id: 'statistics', label: '독서 통계', icon: ChartNoAxesColumn },
   { id: 'annotations', label: '주석', icon: Highlighter },
-  { id: 'people', label: '사람 검색', icon: Users },
+  { id: 'browse', label: '둘러보기', icon: Compass },
   { id: 'reviews', label: '내 평가', icon: Star },
   { id: 'sharing', label: '공개 설정', icon: Settings2 },
 ] as const;
@@ -37,7 +38,7 @@ const readTab = (): Tab => {
   const candidate = readBookDetailId(window.location.hash)
     ? window.history.state?.myPageBookFrom ?? 'discover'
     : window.location.hash.split('/')[1];
-  return tabs.find(({ id }) => id === candidate)?.id ?? 'overview';
+  return candidate === 'people' ? 'browse' : tabs.find(({ id }) => id === candidate)?.id ?? 'overview';
 };
 const readDetailId = () => typeof window === 'undefined' ? null : readBookDetailId(window.location.hash);
 const inputClass = 'min-h-11 min-w-0 rounded-lg bg-[color-mix(in_srgb,currentColor_5%,transparent)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-accent-500';
@@ -206,6 +207,7 @@ export function MyPage(props: Props) {
         </nav>
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} accountStorage={signedIn} /></div>}
+          {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 sm:space-y-10">
             <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
               onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
@@ -223,7 +225,6 @@ export function MyPage(props: Props) {
             <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={!catalog && !catalogError && !detailBook} saved={detailSaved} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
-          {tab === 'people' && <PeopleSearch />}
           {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />
             : <p className="mypage-section text-sm">내 평가는 로그인 후 이용할 수 있습니다.</p>)}
           {tab === 'sharing' && (signedIn

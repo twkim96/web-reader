@@ -236,7 +236,7 @@ test('retry after a lost review response returns the saved revision without repl
   ]);
 });
 
-test('authenticated account writes, code search and every visibility combination share one public contract', async () => {
+test('authenticated account writes and both public visibility flags share one public contract', async () => {
   const db = getAdminFirestore();
   const { idToken: alice, localId: uid } = await emulatorLogin('mypage-alice');
   const { idToken: secondDevice } = await emulatorLogin('mypage-alice', 'signInWithPassword');
@@ -246,8 +246,15 @@ test('authenticated account writes, code search and every visibility combination
   assert.equal((await get({ view: 'account' })).status, 401);
   let account = await ok(get({ view: 'account' }, alice));
   assert.match(account.code, /^[0-9A-Z]{8}$/);
+  assert.deepEqual(account.visibility, { reviews: true, wishlist: false });
+  assert.equal((await get({ view: 'profile', code: account.code })).status, 200);
+  assert.equal((await get({ view: 'people', q: account.code })).status, 404);
+  account = await ok(post('account', alice, {
+    nickname: account.nickname, visibility: { reviews: false, wishlist: false }, revision: account.revision,
+  }));
+  await db.collection('publicReaderProfilesV1').doc(account.code).update({ 'visibility.reading': true });
   assert.equal((await get({ view: 'profile', code: account.code })).status, 404);
-  assert.deepEqual((await ok(get({ view: 'people', q: account.code }))).people, []);
+  assert.equal((await get({ view: 'profile', code: account.code, section: 'reading' })).status, 400);
   await ok(post('wishlist', alice, { workId: aliasId, saved: true, revision: null }));
   const saved = (await ok(get({ view: 'wishlist' }, secondDevice))).entries[0];
   assert.equal(saved.book.id, work.id);
@@ -268,29 +275,26 @@ test('authenticated account writes, code search and every visibility combination
   assert.deepEqual(await workReviews(work.id), { reviews: [], average: null, ratingCount: 0 });
 
   const code = account.code;
-  for (let flags = 0; flags < 8; flags++) {
-    const visibility = { reviews: Boolean(flags & 1), reading: Boolean(flags & 2), wishlist: Boolean(flags & 4) };
+  for (let flags = 0; flags < 4; flags++) {
+    const visibility = { reviews: Boolean(flags & 1), wishlist: Boolean(flags & 2) };
     account = await ok(post('account', alice, { code: '11111111', nickname: '행복한도서인', visibility, revision: account.revision }));
     assert.equal(account.code, code);
     if (flags === 0) assert.equal((await get({ view: 'profile', code })).status, 404);
     else {
       const profile = await ok(get({ view: 'profile', code }));
       assert.equal('reviews' in profile, visibility.reviews);
-      assert.equal('reading' in profile, visibility.reading);
+      assert.ok(!('reading' in profile));
       assert.equal('wishlist' in profile, visibility.wishlist);
       assert.ok(!JSON.stringify(profile).includes('nonpublic-file'));
       assert.ok(!JSON.stringify(profile).includes(uid));
-      if (visibility.reading) assert.equal(profile.reading[0].workId, work.id);
     }
     const publicReviews = await workReviews(aliasId);
     assert.equal(publicReviews.ratingCount, visibility.reviews ? 1 : 0);
     assert.equal(publicReviews.average, visibility.reviews ? 4 : null);
     if (visibility.reviews) assert.deepEqual(publicReviews.reviews[0].author, { code, nickname: '행복한도서인' });
   }
-  const people = await ok(get({ view: 'people', q: '행복한도서인#' + code }));
-  assert.equal(people.people[0].code, code);
   const revoked = await ok(post('account', alice, {
-    nickname: '행복한도서인', visibility: { reviews: false, reading: false, wishlist: false }, revision: account.revision,
+    nickname: '행복한도서인', visibility: { reviews: false, wishlist: false }, revision: account.revision,
   }));
   assert.equal((await get({ view: 'profile', code })).status, 404);
   assert.deepEqual(await workReviews(aliasId), { reviews: [], average: null, ratingCount: 0 });
@@ -345,4 +349,55 @@ test('authenticated account writes, code search and every visibility combination
     await assertFails(setDoc(doc(firestore, 'publicReaderProfilesV1', code), { nickname: 'tampered' }));
     await assertFails(getDoc(doc(firestore, 'artifacts', APP_ID, 'users', uid, 'libraries', 'local', 'myPageSharingV1', 'settings')));
   } finally { await client.cleanup(); }
+});
+
+test('browse groups the same book by reader and honors both privacy switches and the viewer', async () => {
+  const [first, second] = await Promise.all([emulatorLogin('browse-first'), emulatorLogin('browse-second')]);
+  const work = [...(await loadSocialCatalog()).values()][0];
+  const accounts = await Promise.all([first, second].map(({ idToken }) => ok(get({ view: 'account' }, idToken))));
+  await Promise.all([first, second].map(({ idToken }, index) => ok(post('review', idToken, {
+    workId: work.id, rating: index + 3, comment: index === 0 ? '첫 독자의 평가' : '', revision: null, fileIds: [],
+  }))));
+  await ok(post('wishlist', first.idToken, { workId: work.id, saved: true, revision: null }));
+
+  const groupsFor = async (section, token) => {
+    const groups = new Map();
+    const visited = new Set();
+    let cursor = null;
+    do {
+      const data = await ok(get({ view: 'browse', section, ...(cursor ? { cursor } : {}) }, token));
+      for (const group of data.groups) {
+        assert.ok(!groups.has(group.reader.code));
+        groups.set(group.reader.code, group);
+      }
+      cursor = data.next;
+      assert.ok(!visited.has(cursor));
+      visited.add(cursor);
+    } while (cursor);
+    return groups;
+  };
+  const [alice, bob] = accounts;
+  const reviews = await groupsFor('reviews');
+  assert.equal(reviews.get(alice.code).books[0].workId, work.id);
+  assert.equal(reviews.get(bob.code).books[0].workId, work.id);
+  assert.deepEqual(reviews.get(alice.code), {
+    reader: { code: alice.code, nickname: alice.nickname },
+    books: [{ workId: work.id, title: work.title, coverUrl: work.coverUrl, rating: 3, comment: '첫 독자의 평가' }],
+  });
+  const otherReviews = await groupsFor('reviews', first.idToken);
+  assert.ok(!otherReviews.has(alice.code));
+  assert.ok(otherReviews.has(bob.code));
+  assert.ok(!(await groupsFor('wishlist')).has(alice.code));
+
+  const changed = await ok(post('account', first.idToken, {
+    nickname: alice.nickname, visibility: { reviews: false, wishlist: true }, revision: alice.revision,
+  }));
+  assert.ok(!(await groupsFor('reviews')).has(alice.code));
+  assert.deepEqual((await groupsFor('wishlist')).get(alice.code).books, [
+    { workId: work.id, title: work.title, coverUrl: work.coverUrl },
+  ]);
+  await ok(post('account', first.idToken, {
+    nickname: alice.nickname, visibility: { reviews: false, wishlist: false }, revision: changed.revision,
+  }));
+  assert.ok(!(await groupsFor('wishlist')).has(alice.code));
 });
