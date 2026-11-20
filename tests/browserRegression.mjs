@@ -3723,6 +3723,11 @@ try {
       ?.click();
     view.addTransientOverlay = nativeAddTransientOverlay;
 
+    const toolbarDeadline = performance.now() + 2000;
+    while (!document.querySelector('nav')?.classList.contains('translate-y-0')) {
+      if (performance.now() >= toolbarDeadline) throw new Error('Reader toolbar did not return after stopping TTS');
+      await window.__regressionNextFrame();
+    }
     window.__setBrowserSpeechStartDelayed?.(true);
     const activeTtsIdsBeforeDelayed = Object.keys(localStorage)
       .filter((key) => key.startsWith('reading_stats_draft_v1:'))

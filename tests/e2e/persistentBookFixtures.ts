@@ -6,9 +6,9 @@ import { join } from 'node:path';
 export { expect } from '@playwright/test';
 
 export const test = base.extend({
-  context: async ({ browserName, context, playwright, headless, launchOptions }, use) => {
+  context: async ({ browserName, context, playwright, headless, launchOptions }, runTestWithContext) => {
     if (browserName !== 'webkit') {
-      await use(context);
+      await runTestWithContext(context);
       return;
     }
 
@@ -18,7 +18,7 @@ export const test = base.extend({
     try {
       const persistent = await playwright.webkit.launchPersistentContext(profile, { ...launchOptions, headless });
       try {
-        await use(persistent);
+        await runTestWithContext(persistent);
       } finally {
         await persistent.close();
       }
