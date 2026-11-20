@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { toBlob } from 'html-to-image';
+import { toCanvas } from 'html-to-image';
 import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, FileType2, ImageDown, RefreshCw, Trash2 } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
@@ -244,6 +244,14 @@ export const BookInfoModal: React.FC<Props> = ({
       captureNode = source.cloneNode(true) as HTMLElement;
       // Header controls are UI, not part of the reading proof image.
       captureNode.querySelector('[data-book-info-actions]')?.remove();
+      const cover = source.querySelector<HTMLImageElement>('[data-book-info-cover]');
+      const coverFrame = captureNode.querySelector<HTMLElement>('[data-book-info-cover-frame]');
+      if (cover && coverFrame) {
+        await cover.decode();
+        // WebKit can drop an image from a foreignObject snapshot even when the
+        // live image decoded. Draw the cached cover directly after rasterizing.
+        coverFrame.querySelector('[data-book-info-cover]')?.remove();
+      }
       const sourceStyle = getComputedStyle(source);
       const dialogStyle = dialogRef.current ? getComputedStyle(dialogRef.current) : sourceStyle;
       const captureBackgroundColor = sourceStyle.getPropertyValue('--viewer-theme-bg').trim()
@@ -282,13 +290,25 @@ export const BookInfoModal: React.FC<Props> = ({
       if (captureRect.width < 1 || captureRect.height < 1) {
         throw new Error('Reading proof capture has no renderable area');
       }
-      const blob = await toBlob(captureNode, {
-        // Cached covers use blob: URLs; adding a cache-busting query invalidates
-        // them. Keep resource URLs intact for installed/offline PWA caches too.
+      const canvas = await toCanvas(captureNode, {
         cacheBust: false,
         pixelRatio: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
         backgroundColor: captureBackgroundColor,
       });
+      if (cover && coverFrame) {
+        const frame = coverFrame.getBoundingClientRect();
+        const context = canvas.getContext('2d')!;
+        const scaleX = canvas.width / captureNode.offsetWidth;
+        const scaleY = canvas.height / captureNode.offsetHeight;
+        const cropScale = Math.max(frame.width / cover.naturalWidth, frame.height / cover.naturalHeight);
+        const cropWidth = frame.width / cropScale;
+        const cropHeight = frame.height / cropScale;
+        context.drawImage(cover,
+          (cover.naturalWidth - cropWidth) / 2, (cover.naturalHeight - cropHeight) / 2, cropWidth, cropHeight,
+          (frame.left - captureRect.left) * scaleX, (frame.top - captureRect.top) * scaleY,
+          frame.width * scaleX, frame.height * scaleY);
+      }
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (!blob || blob.size === 0) throw new Error('Reading proof PNG is empty');
       return blob;
     } finally {
