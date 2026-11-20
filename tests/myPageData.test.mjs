@@ -101,17 +101,20 @@ test('review links preserve the book identity and normal detail destination', ()
 });
 
 test('a public review exposes only the rating, optional comment and reading evidence', () => {
-  const ratingOnly = { rating: 4, comment: '', totalMs: 60_000, progressPercent: 19 };
+  const ratingOnly = { rating: 4.5, comment: '', totalMs: 60_000, progressPercent: 19 };
   assert.deepEqual(parsePublicBookReview({ ...ratingOnly, uid: 'private', bookTitle: 'private.epub', deviceId: 'private' }), ratingOnly);
   assert.equal(parsePublicBookReview({ ...ratingOnly, progressPercent: 101 }), null);
+  for (const rating of [0, 0.25, 4.2, 5.5, '4.5']) {
+    assert.equal(parsePublicBookReview({ ...ratingOnly, rating }), null);
+  }
 });
 
 test('stars alone save with evidence and reviews can be edited or removed by the same account', async () => {
   await new Promise((resolve, reject) => { const request = indexedDB.deleteDatabase('twreader-local-book-reviews'); request.onsuccess = resolve; request.onerror = () => reject(request.error); });
   const storage = new MockStorage();
   const readBook = { ...book, totalMs: 300_000, progressPercent: 31.4, lastReadAt: 1 };
-  await saveBookReview(ownerA, readBook, 4, '  ', storage);
-  assert.deepEqual(await readBookReview(ownerA, readBook, storage), { rating: 4, comment: '', totalMs: 300_000, progressPercent: 31.4 });
+  await saveBookReview(ownerA, readBook, 0.5, '  ', storage);
+  assert.deepEqual(await readBookReview(ownerA, readBook, storage), { rating: 0.5, comment: '', totalMs: 300_000, progressPercent: 31.4 });
   assert.equal(await readBookReview(ownerB, readBook, storage), null);
   await assert.rejects(saveBookReview(ownerA, readBook, 0, 'no rating', storage));
   await saveBookReview(ownerA, readBook, 5, '좋았어요', storage);

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Star } from 'lucide-react';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import { formatReadingDuration } from '../../lib/readingStatistics';
@@ -12,6 +11,7 @@ import { findReviewWork, indexReviewWorks, MY_PAGE_DASHBOARD_BOOK_LIMIT, type My
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
+import { ReviewStar } from './ReviewStar';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 
 type Metrics = Pick<ReadBook, 'totalMs' | 'progressPercent'>;
@@ -40,8 +40,7 @@ function ReadBookRow({ book, onOpenBook, rating }: {
             label={`${book.title} 내 평가, ${rating ? `별점 ${rating}점` : '미평가'}`}
             className="relative z-10 flex h-8 w-fit items-center gap-0.5 rounded-sm hover:text-accent-500 focus-visible:outline-2">
             {[1, 2, 3, 4, 5].map((value) => (
-              <Star key={value} size={15} fill={value <= rating ? 'currentColor' : 'none'} aria-hidden="true"
-                className={value <= rating ? 'text-accent-500' : 'opacity-55'} />
+              <ReviewStar key={value} position={value} rating={rating} size={15} />
             ))}
           </BookDetailLink>
         </div>

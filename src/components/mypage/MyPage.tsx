@@ -276,18 +276,18 @@ export function MyPage(props: Props) {
             {compactMenu && (
               <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
             )}
-            <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex gap-1 overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
+            <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-[3.25rem] mr-24 gap-1' : 'gap-0.5 sm:gap-1'}`}>
               {tabs.filter(({ id }) => id !== 'sharing' && (signedIn || id !== 'reviews')).map(({ id, label, icon: Icon }) => {
                 const selected = tab === id;
                 const iconOnly = compactMenu && !selected;
-                const size = iconOnly ? 'w-11' : compactMenu ? 'gap-1.5 whitespace-nowrap px-2 text-xs sm:gap-2 sm:px-3 sm:text-sm' : 'gap-2.5 px-3 text-sm';
+                const size = iconOnly ? 'w-9 sm:w-11' : `w-9 text-sm sm:w-auto sm:px-3 ${compactMenu ? 'sm:gap-2 sm:whitespace-nowrap' : 'sm:gap-2.5'}`;
                 return (
-                  <button key={id} type="button" onClick={() => openTab(id)} title={iconOnly ? label : undefined}
+                  <button key={id} type="button" onClick={() => openTab(id)} title={label}
                     aria-current={selected ? 'page' : undefined}
                     className={`flex min-h-11 shrink-0 items-center justify-center rounded-xl transition-colors ${size} ${selected ? 'bg-[color-mix(in_srgb,var(--accent-500)_10%,transparent)] font-semibold text-accent-500' : 'opacity-60 hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:opacity-100'}`}>
                     <Icon size={compactMenu ? 19 : 17} aria-hidden="true" />
-                    <span className={iconOnly ? 'sr-only' : undefined}>{label}</span>
-                    {!compactMenu && id === 'wishlist' && wishlist.entries.length > 0 && <span className="ml-auto pl-2 text-xs tabular-nums">{wishlist.entries.length}</span>}
+                    <span className={iconOnly ? 'sr-only' : 'max-sm:sr-only'}>{label}</span>
+                    {!compactMenu && id === 'wishlist' && wishlist.entries.length > 0 && <span className="ml-auto hidden pl-2 text-xs tabular-nums sm:inline">{wishlist.entries.length}</span>}
                   </button>
                 );
               })}

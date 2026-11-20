@@ -257,7 +257,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
         <section className="mypage-section" aria-label="내 독서 기록">
           <h2 className="text-lg font-semibold tracking-tight">내 독서 기록</h2>
           {personal.hasRead && (
-            <dl className="mt-3 flex items-start justify-between gap-3 text-sm">
+            <dl className="mt-3 flex items-start gap-8 text-sm sm:gap-10">
               <div><dt className="text-xs opacity-65">읽은 시간</dt><dd className="mt-1 font-medium">{formatReadingDuration(personal.totalMs)}</dd></div>
               <div className="text-right"><dt className="text-xs opacity-65">진행도</dt><dd className="mt-1 font-medium tabular-nums">{formatPercent(personal.progressPercent)}</dd></div>
             </dl>

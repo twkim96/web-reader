@@ -2,7 +2,7 @@ import { type OwnerKey } from './ownerIdentity';
 import { trackLocalCommit } from './localCommitTracker';
 import type { ReadBook } from './readBooks';
 
-import { BOOK_REVIEW_TEXT_LIMIT } from './publicBookReviews';
+import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from './publicBookReviews';
 export { BOOK_REVIEW_TEXT_LIMIT } from './publicBookReviews';
 export type BookReview = Pick<ReadBook, 'totalMs' | 'progressPercent'> & { rating: number; comment: string };
 type ReviewStorage = Pick<Storage, 'getItem'>;
@@ -17,7 +17,7 @@ const reviewKey = (owner: OwnerKey, bookId: string) => {
 };
 
 const isReview = (value: BookReview | null): value is BookReview => Boolean(value
-  && Number.isInteger(value.rating) && value.rating >= 1 && value.rating <= 5
+  && isBookRating(value.rating)
   && typeof value.comment === 'string' && value.comment.length <= BOOK_REVIEW_TEXT_LIMIT && !/[\r\n]/.test(value.comment)
   && Number.isFinite(value.totalMs) && value.totalMs >= 0
   && Number.isFinite(value.progressPercent) && value.progressPercent >= 0 && value.progressPercent <= 100);

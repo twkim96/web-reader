@@ -266,12 +266,13 @@ test('authenticated account writes and both public visibility flags share one pu
     mode: 'screen', startedAtClient: 1000, endedAtClient: 61000, durationMs: 60000, startProgressPercent: 2, endProgressPercent: 52,
     timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false,
   });
-  const { review } = await ok(post('review', alice, {
-    workId: aliasId, rating: 4, comment: '', revision: null, fileIds: ['nonpublic-file'], totalMs: 123,
-  }));
+  const input = { workId: aliasId, rating: 4.5, comment: '', revision: null, fileIds: ['nonpublic-file'] };
+  assert.equal((await post('review', alice, { ...input, rating: 4.25 })).status, 400);
+  const { review } = await ok(post('review', alice, input));
+  assert.equal(review.rating, 4.5);
   assert.equal(review.totalMs, 60_000);
   assert.equal(review.progressPercent, 52);
-  assert.equal((await ok(get({ view: 'reviews' }, secondDevice))).reviews[0].rating, 4);
+  assert.equal((await ok(get({ view: 'reviews' }, secondDevice))).reviews[0].rating, 4.5);
   assert.deepEqual(await workReviews(work.id), { reviews: [], average: null, ratingCount: 0 });
 
   const code = account.code;
@@ -283,6 +284,7 @@ test('authenticated account writes and both public visibility flags share one pu
     else {
       const profile = await ok(get({ view: 'profile', code }));
       assert.equal('reviews' in profile, visibility.reviews);
+      if (visibility.reviews) assert.equal(profile.reviews[0].rating, 4.5);
       assert.ok(!('reading' in profile));
       assert.equal('wishlist' in profile, visibility.wishlist);
       assert.ok(!JSON.stringify(profile).includes('nonpublic-file'));
@@ -290,7 +292,7 @@ test('authenticated account writes and both public visibility flags share one pu
     }
     const publicReviews = await workReviews(aliasId);
     assert.equal(publicReviews.ratingCount, visibility.reviews ? 1 : 0);
-    assert.equal(publicReviews.average, visibility.reviews ? 4 : null);
+    assert.equal(publicReviews.average, visibility.reviews ? 4.5 : null);
     if (visibility.reviews) assert.deepEqual(publicReviews.reviews[0].author, { code, nickname: '행복한도서인' });
   }
   const revoked = await ok(post('account', alice, {
@@ -298,7 +300,7 @@ test('authenticated account writes and both public visibility flags share one pu
   }));
   assert.equal((await get({ view: 'profile', code })).status, 404);
   assert.deepEqual(await workReviews(aliasId), { reviews: [], average: null, ratingCount: 0 });
-  assert.equal((await ok(get({ view: 'reviews' }, alice))).reviews[0].rating, 4);
+  assert.equal((await ok(get({ view: 'reviews' }, alice))).reviews[0].rating, 4.5);
   assert.equal((await post('import-wishlist', alice, { accountRevision: account.revision, workIds: [work.id] })).status, 409);
   await ok(post('wishlist', alice, { workId: work.id, saved: false, revision: saved.item.revision }));
   await ok(post('import-wishlist', alice, { accountRevision: revoked.revision, workIds: [work.id] }));
@@ -331,7 +333,7 @@ test('authenticated account writes and both public visibility flags share one pu
   const platformKey = ({ platforms: [entry] }) => JSON.stringify([entry.id, entry.url]);
   const bobAccount = await ok(get({ view: 'account' }, bob));
   const legacyReviews = [
-    { workIds: [work.id], platformWorkKeys: [platformKey(work)], rating: 4, comment: '첫 번째 작품' },
+    { workIds: [work.id], platformWorkKeys: [platformKey(work)], rating: 3.5, comment: '첫 번째 작품' },
     { workIds: [work.id], platformWorkKeys: [platformKey(otherWork)], rating: 2, comment: '두 번째 작품' },
     { workIds: [work.id], platformWorkKeys: [platformKey(work), platformKey(otherWork)], rating: 1, comment: '모호한 작품' },
   ];
@@ -340,6 +342,7 @@ test('authenticated account writes and both public visibility flags share one pu
   assert.deepEqual(imported, { current: 2, unavailable: 1, kept: 0 });
   const importedReviews = new Map((await ok(get({ view: 'reviews' }, bob))).reviews.map(({ workId, comment }) => [workId, comment]));
   assert.deepEqual(importedReviews, new Map([[work.id, '첫 번째 작품'], [otherWork.id, '두 번째 작품']]));
+  assert.equal((await workReviews(work.id)).average, 4.25);
   assert.deepEqual(await ok(post('import-reviews', bob, importBody)), { current: 0, unavailable: 1, kept: 2 });
 
   const client = await initializeTestEnvironment({ projectId: 'demo-web-reader' });

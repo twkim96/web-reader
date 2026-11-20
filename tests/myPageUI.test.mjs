@@ -207,13 +207,16 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     await click(window, visible('button[aria-label="도서 목록으로 돌아가기"]'));
     assert.equal(window.location.hash, '#mypage/read');
     await click(window, visible(ratedLink));
-    await click(window, editor().querySelector('[aria-label="4점"]'));
+    const halfPoint = editor().querySelector('button[aria-label="4.5점"]');
+    assert.equal(editor().querySelectorAll('[role="group"] button').length, 10);
+    await click(window, halfPoint);
+    assert.equal(halfPoint.getAttribute('aria-pressed'), 'true');
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
-    assert.ok(visible('[aria-label="별점 4점"]'));
+    assert.ok(visible('[aria-label="별점 4.5점"]'));
     assert.equal(visible('form'), null);
     assert.equal(writes.length, 1);
     await act(async () => { rejectFirst(new TypeError('connection lost')); });
-    assert.ok(visible('[aria-label="별점 4점"]'));
+    assert.ok(visible('[aria-label="별점 4.5점"]'));
     for (let attempt = 0; attempt < 30 && !visible('[role="alert"]'); attempt++) {
       await act(async () => delay(75));
     }
@@ -221,13 +224,16 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.ok(writes[0].saveId);
     assert.deepEqual(writes, [writes[0], writes[0], writes[0]]);
     assert.ok(visible('[aria-label="별점 2점"]'));
-    assert.equal(visible('[aria-label="별점 4점"]'), null);
+    assert.equal(visible('[aria-label="별점 4.5점"]'), null);
     assert.match(visible('[role="alert"]').textContent, /서버와 연결하지 못했습니다/);
-    await click(window, editor().querySelector('[aria-label="5점"]'));
+    await click(window, editor().querySelector('button[aria-label="4.5점"]'));
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
-    assert.ok(editor().querySelector('[aria-label="별점 5점"]'));
+    assert.ok(editor().querySelector('[aria-label="별점 4.5점"]'));
     await click(window, visible('button[aria-label="도서 목록으로 돌아가기"]'));
-    assert.ok(visible(`a[aria-label="${title} 내 평가, 별점 5점"]`));
+    const updatedLink = visible(`a[aria-label="${title} 내 평가, 별점 4.5점"]`);
+    assert.ok(updatedLink);
+    assert.equal(updatedLink.querySelectorAll('svg[fill="currentColor"]').length, 5);
+    assert.equal(updatedLink.querySelectorAll('svg[fill="none"]').length, 1);
     await click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent.startsWith('위시리스트')));
     await click(window, visible(`a[aria-label="${unread.title}"]`));
     await act(async () => { await delay(0); });

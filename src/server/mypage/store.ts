@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { FieldPath, FieldValue, GrpcStatus, Timestamp, type DocumentData, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity.ts';
-import { BOOK_REVIEW_TEXT_LIMIT } from '../../lib/publicBookReviews.ts';
+import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from '../../lib/publicBookReviews.ts';
 import {
   hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageReview,
   type MyPageVisibility, type MyPageWishlistItem, type PublicWorkReview, type PublicWorkReviews,
@@ -204,7 +204,7 @@ function reviewFrom(data: DocumentData | undefined): MyPageReview | null {
 }
 
 const validReviewFields = ({ rating, comment, totalMs, progressPercent }: ReviewFields) => (
-  Number.isInteger(rating) && rating >= 1 && rating <= 5
+  isBookRating(rating)
   && typeof comment === 'string' && comment.length <= BOOK_REVIEW_TEXT_LIMIT && !/[\r\n]/.test(comment)
   && (totalMs === null || (Number.isSafeInteger(totalMs) && totalMs >= 0))
   && (progressPercent === null || (Number.isFinite(progressPercent) && progressPercent >= 0 && progressPercent <= 100))

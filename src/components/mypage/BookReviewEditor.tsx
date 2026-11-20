@@ -1,11 +1,11 @@
 'use client';
 
 import { useRef, useState, type FormEvent, type Ref } from 'react';
-import { Star } from 'lucide-react';
 import { BOOK_REVIEW_TEXT_LIMIT } from '../../lib/publicBookReviews';
 import type { MyPageReview, MyPageReviewDeletion } from '../../lib/myPageSocial';
 import { myPageRequest, saveMyPageReview } from '../../lib/myPageSocialClient';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
+import { ReviewStar } from './ReviewStar';
 
 type Rating = Pick<MyPageReview, 'rating' | 'comment'>;
 type Draft = Rating & { target?: MyPageReview | MyPageReviewDeletion };
@@ -97,15 +97,20 @@ export function BookReviewEditor({
         : null}
       {!guest && <>
         <div role="group" aria-label={rating ? `별점 ${rating}점` : '별점 미평가'} className="mt-2 flex">
-          {[1, 2, 3, 4, 5].map((value) => (
-            <button key={value} type="button" aria-label={`${value}점`} aria-pressed={value <= rating}
-              disabled={!ready || pending || loadingHistory} onClick={() => {
-                setDraft({ rating: value, comment: draft?.comment ?? review?.comment ?? '', target: draft ? draft.target : review ?? deletion });
-                setFeedback('');
-              }}
-              className={`flex size-9 items-center justify-center rounded-full hover:bg-current/10 disabled:opacity-35 ${value <= rating ? 'text-accent-500' : 'opacity-55'}`}>
-              <Star size={19} fill={value <= rating ? 'currentColor' : 'none'} aria-hidden="true" />
-            </button>
+          {[1, 2, 3, 4, 5].map((position) => (
+            <div key={position} className={`relative grid size-9 place-items-center ${!ready || pending || loadingHistory ? 'opacity-50' : ''}`}>
+              <ReviewStar position={position} rating={rating} size={21} />
+              <div className="absolute inset-0 flex">
+                {[position - 0.5, position].map((value) => (
+                  <button key={value} type="button" aria-label={`${value}점`} aria-pressed={value === rating}
+                    title={`${value}점`} disabled={!ready || pending || loadingHistory} onClick={() => {
+                      setDraft({ rating: value, comment: draft?.comment ?? review?.comment ?? '', target: draft ? draft.target : review ?? deletion });
+                      setFeedback('');
+                    }}
+                    className="w-1/2 rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500" />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
         {draft ? (

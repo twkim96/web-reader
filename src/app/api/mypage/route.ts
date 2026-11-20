@@ -8,7 +8,7 @@ import {
   updateAccount, updateReview, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
-import { BOOK_REVIEW_TEXT_LIMIT, parsePublicBookReview } from '../../../lib/publicBookReviews';
+import { BOOK_REVIEW_TEXT_LIMIT, isBookRating, parsePublicBookReview } from '../../../lib/publicBookReviews';
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
   MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, parseMyPageNickname, parseMyPageVisibility,
@@ -169,7 +169,7 @@ export async function GET(request: Request) {
 
 const validRevision = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 const isReviewInput = (rating: unknown, comment: unknown) => (
-  typeof rating === 'number' && Number.isInteger(rating) && rating >= 1 && rating <= 5
+  isBookRating(rating)
   && typeof comment === 'string' && comment.length <= BOOK_REVIEW_TEXT_LIMIT && !/[\r\n]/.test(comment)
 );
 
@@ -271,7 +271,7 @@ export async function POST(request: Request) {
     }
     if (action === 'review') {
       const { rating, comment, fileIds, readingSnapshot, saveId } = input;
-      if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5
+      if (!isBookRating(rating)
         || typeof comment !== 'string' || comment.length > BOOK_REVIEW_TEXT_LIMIT || /[\r\n]/.test(comment)
         || !Array.isArray(fileIds) || fileIds.length > 32
         || !fileIds.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 512)

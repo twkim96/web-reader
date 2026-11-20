@@ -67,7 +67,8 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await expect(shortcuts.getByRole('button', { name: '내 서재' })).toHaveCSS('color', backColor);
     await expect(shortcuts.getByRole('button', { name: '공개 설정' })).toHaveCSS('color', backColor);
     await assertDivider(firstBook.locator('..'));
-    await expect(menu.getByText('대시보드')).not.toHaveClass('sr-only');
+    await expect(menu.getByText('대시보드')).toHaveCSS('position', width < 640 ? 'absolute' : 'static');
+    await expect(catalog.getByText('도서목록')).toHaveCSS('position', width < 640 ? 'absolute' : 'static');
     const collapseAt = await page.locator('[data-my-page] > header').evaluate((header) => header.getBoundingClientRect().height / 2);
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
@@ -83,7 +84,7 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate(() => window.scrollTo(0, 500));
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-    await expect(catalog.getByText('도서목록')).not.toHaveClass('sr-only');
+    await expect(catalog.getByText('도서목록')).toHaveCSS('position', width < 640 ? 'absolute' : 'static');
     await expect(menu.getByText('대시보드')).toHaveClass('sr-only');
   }
 
@@ -120,7 +121,8 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await menu.evaluate(element => { element.scrollLeft = element.scrollWidth; });
   await page.evaluate(() => window.scrollTo(0, 500));
   await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-  await expect(menu.getByText('위시리스트', { exact: true })).not.toHaveClass('sr-only');
+  await expect(menu.getByText('위시리스트', { exact: true })).toHaveCSS('position', 'absolute');
+  await expect(menu.getByRole('button', { name: '위시리스트', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(menu.getByText('읽은 책', { exact: true })).toHaveClass('sr-only');
   await expect.poll(() => menu.evaluate((nav) => {
     const selected = nav.querySelector('[aria-current="page"]')!.getBoundingClientRect();
@@ -152,6 +154,18 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   expect(await storefront.evaluate(item => getComputedStyle(item, '::after').display)).toBe('none');
   await page.setViewportSize({ width: 393, height: 700 });
   await assertOtherDividerLists(page, menu);
+  await page.goto('/#mypage/book/menu-test-0');
+  const metrics = page.getByRole('region', { name: '내 독서 기록' }).locator('dl');
+  for (const width of [393, 1280]) {
+    await page.setViewportSize({ width, height: 700 });
+    await expect(metrics.getByText('읽은 시간')).toBeVisible();
+    const layout = await metrics.evaluate(list => {
+      const [duration, progress] = [...list.children].map(item => item.getBoundingClientRect());
+      return { sameRow: duration.top === progress.top, gap: progress.left - duration.right };
+    });
+    expect(layout.sameRow).toBe(true);
+    expect(layout.gap).toBeLessThan(64);
+  }
   const publicBooks = [0, 1].map(index => ({ workId: `public-${index}`, title: `공개 도서 ${index}`, coverUrl: null }));
   await page.route('**/api/mypage?view=profile&code=*', route => route.fulfill({ json: {
     identity: { code: '00000001', nickname: '독자' }, visibility: { wishlist: true, reviews: true },
@@ -213,7 +227,7 @@ async function assertOtherDividerLists(page: Page, menu: Locator) {
       const bookId = `divider-${i}`;
       const ownerKey = 'guest:header-test|library:local';
       tx.objectStore(stats).put({
-        ownerKey, sessionId: bookId, bookId, bookTitle: bookId, schemaVersion: 1, deviceId: 'fixture',
+        ownerKey, sessionId: bookId, bookId, bookTitle: i === 0 ? 'menu-test-0' : bookId, schemaVersion: 1, deviceId: 'fixture',
         mode: 'screen', startedAtClient, endedAtClient: startedAtClient + 60_000, durationMs: 60_000,
         startProgressPercent: 0, endProgressPercent: 5, timezoneOffsetMinutes: date.getTimezoneOffset(), localDate,
         completed: false, syncState: 'synced', retryCount: 0, nextAttemptAt: 0, lastErrorCode: null,
