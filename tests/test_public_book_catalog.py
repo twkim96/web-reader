@@ -40,9 +40,9 @@ PREVIEW_SPEC.loader.exec_module(PREVIEW)
 
 
 class DiscoveryPreviewPublishTests(unittest.TestCase):
-    def test_pushes_only_the_index_after_firestore_success(self):
+    def test_retries_the_published_index_after_push_rejection(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             remote = root / "remote.git"
             repo = root / "repo"
             PREVIEW.git("init", "--bare", str(remote), cwd=root)
@@ -53,36 +53,89 @@ class DiscoveryPreviewPublishTests(unittest.TestCase):
             index = repo / PREVIEW.INDEX
             index.parent.mkdir(parents=True)
             index.write_text("old")
-            script = repo / "scripts/publish-book-metadata.py"
-            script.parent.mkdir()
-            script.write_text(
-                "from pathlib import Path\n"
-                "import os, sys\n"
-                "assert sys.argv[3:] == ['--apply', '--project', 'web-novel-viewer']\n"
-                "Path(sys.argv[2]).write_text('new')\n"
-                "Path('unstaged.txt').write_text('local only')\n"
-                "sys.exit(int(os.getenv('CATALOG_TEST_FAILURE', '0')))\n"
-            )
+            publisher = repo / "scripts/publish-book-metadata.py"
+            publisher.parent.mkdir()
+            publisher.write_text("raise AssertionError('remote publisher must not run')\n")
             PREVIEW.git("add", ".", cwd=repo)
             PREVIEW.git("commit", "-m", "Fixture", cwd=repo)
             PREVIEW.git("push", "origin", "HEAD:refs/heads/main", f"HEAD:{PREVIEW.BRANCH}", cwd=repo)
+
+            gh = root / "gh"
+            gh.write_text(
+                "#!/bin/sh\n"
+                'test -z "${FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON-}${GOOGLE_APPLICATION_CREDENTIALS-}"\n'
+            )
+            gh.chmod(0o700)
+            hook = remote / "hooks/pre-receive"
+            hook.write_text(
+                "#!/bin/sh\n"
+                'test -z "${FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON-}${GOOGLE_APPLICATION_CREDENTIALS-}" && '
+                'test "${CATALOG_TEST_REJECT_PUSH-}" != yes\n'
+            )
+            hook.chmod(0o700)
+
+            publisher.write_text(
+                "from pathlib import Path\n"
+                "import os, sys\n"
+                "assert sys.argv[3:] == ['--apply', '--project', 'web-novel-viewer']\n"
+                "assert os.environ['GOOGLE_APPLICATION_CREDENTIALS'] == 'fixture-credentials'\n"
+                "Path(sys.argv[2]).write_bytes(Path('source.txt').read_bytes())\n"
+                "raise SystemExit(1 if Path('reject-publish').exists() else 0)\n"
+            )
+            source = repo / "source.txt"
+            source.write_text("published")
+            reject_publish = repo / "reject-publish"
+            reject_publish.touch()
+            pending = repo / ".git/book-metadata-preview-pending.json"
 
             def tip(ref):
                 return PREVIEW.git("rev-parse", ref, cwd=remote, capture=True).stdout.strip()
 
             original = tip(PREVIEW.BRANCH)
-            with patch.dict("os.environ", {"CATALOG_TEST_FAILURE": "1"}):
+            with patch.object(PREVIEW, "ROOT", repo), patch.object(PREVIEW.shutil, "which", return_value=str(gh)), \
+                 patch.object(PREVIEW, "wait_for_preview") as verify, \
+                 patch.dict("os.environ", {"GOOGLE_APPLICATION_CREDENTIALS": "fixture-credentials",
+                                           "FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON": "fixture",
+                                           "CATALOG_TEST_REJECT_PUSH": "yes"}):
                 with self.assertRaises(subprocess.CalledProcessError):
-                    PREVIEW.update_preview(repo, preview_only=False)
-            self.assertEqual(tip(PREVIEW.BRANCH), original)
+                    PREVIEW.run(preview_only=False)
+                self.assertFalse(pending.exists())
+                self.assertEqual(tip(PREVIEW.BRANCH), original)
+                reject_publish.unlink()
+                with self.assertRaises(subprocess.CalledProcessError):
+                    PREVIEW.run(preview_only=False)
+                self.assertEqual(pending.read_text(), "published")
+                self.assertEqual(tip(PREVIEW.BRANCH), original)
+                verify.assert_not_called()
+                source.write_text("changed after Firestore publish")
+                verify.side_effect = [RuntimeError("build failed"), None]
+                with patch.dict("os.environ", {"CATALOG_TEST_REJECT_PUSH": "no"}):
+                    with self.assertRaisesRegex(RuntimeError, "build failed"):
+                        PREVIEW.run(preview_only=False)
+                    self.assertEqual(pending.read_text(), "published")
+                    commit = tip(PREVIEW.BRANCH)
+                    PREVIEW.run(preview_only=False)
+                self.assertEqual(tip(PREVIEW.BRANCH), commit)
+                self.assertEqual(verify.call_count, 2)
+                verify.assert_called_with(str(gh), commit)
 
-            commit = PREVIEW.update_preview(repo, preview_only=False)
-            self.assertNotEqual(commit, original)
-            self.assertEqual(tip(PREVIEW.BRANCH), commit)
+            self.assertFalse(pending.exists())
             self.assertEqual(tip("refs/heads/main"), original)
+            published = PREVIEW.git("show", f"{commit}:{PREVIEW.INDEX}", cwd=remote, capture=True)
+            self.assertEqual(published.stdout, "published")
             committed = PREVIEW.git("diff-tree", "--no-commit-id", "--name-only", "-r", commit, cwd=remote, capture=True)
             self.assertEqual(committed.stdout.splitlines(), [PREVIEW.INDEX])
-            self.assertEqual(PREVIEW.update_preview(repo, preview_only=False), commit)
+            self.assertEqual(index.read_text(), "old")
+
+    def test_retries_status_errors_and_rejects_a_stale_preview_commit(self):
+        failed_status = subprocess.CalledProcessError(1, ["gh", "api"])
+        successful_status = SimpleNamespace(stdout="success\n")
+        with patch.object(PREVIEW.subprocess, "run", side_effect=[failed_status, successful_status]) as status, \
+             patch.object(PREVIEW, "git", return_value=SimpleNamespace(stdout="newer\trefs/heads/preview/mypage\n")), \
+             patch.object(PREVIEW.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "프리뷰 브랜치가 변경"):
+                PREVIEW.wait_for_preview("gh", "published")
+            self.assertEqual(status.call_count, 2)
 
 
 class PublicBookCatalogPublisherTests(unittest.TestCase):

@@ -32,18 +32,18 @@ Firestore 게시와 탐색 갱신을 함께 할 때는 승인된 기존 `--apply
 
 1. **도서 메타데이터 게시 미리보기**로 문서 수, 충돌 수, generation과 최대 문서 크기를 확인합니다.
 2. **도서 메타데이터 게시 + 프리뷰 배포**를 실행합니다. [프리뷰 게시 스크립트](../../scripts/publish-book-metadata-preview.py)가 Firestore의 `web-novel-viewer` 프로젝트에 게시하고, 같은 SQLite 읽기 스냅샷으로 탐색 인덱스를 생성합니다.
-3. Firestore 게시가 성공하면 임시 작업 공간에서 인덱스 파일만 `preview/mypage`에 커밋·푸시합니다. 파일이 동일하면 새 커밋을 만들지 않습니다. 작업 로그에서 Vercel의 빌드 결과를 확인합니다.
+3. Firestore 게시가 성공하면 인덱스를 로컬에 보관하고, 별도 작업 공간에서 인덱스 파일만 `preview/mypage`에 커밋·푸시합니다. 파일이 동일하면 새 커밋을 만들지 않습니다. Vercel 빌드가 성공하고 대상 커밋이 여전히 프리뷰 브랜치의 최신이면 완료를 기록합니다.
 4. 서재는 새 Firestore manifest를 읽고, 마이페이지 도서목록은 [프리뷰](https://twreader-git-preview-mypage-twkims-projects-b9c7f5a3.vercel.app/#mypage)의 새 인덱스를 읽습니다.
 
-Action은 `/Users/twkim/Documents/web_reader`에서 기존 Python 인터프리터와 Firestore 인증을 사용합니다. `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`에 서비스 계정 JSON을 넣거나 `GOOGLE_APPLICATION_CREDENTIALS`에 로컬 서비스 계정 JSON의 절대 경로를 설정합니다. 실행 계정에는 GitHub 프리뷰 브랜치 푸시 권한과 `gh` 로그인이 필요합니다.
+Action은 로컬 `/Users/twkim/Documents/web_reader`의 게시 스크립트를 실행합니다. Firestore 인증 환경변수는 실제 게시 프로세스에 전달하며 Git·GitHub CLI에서는 제외합니다. `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`에 서비스 계정 JSON을 넣거나 `GOOGLE_APPLICATION_CREDENTIALS`에 로컬 서비스 계정 JSON의 절대 경로를 설정합니다. 실행 계정에는 GitHub 프리뷰 브랜치 푸시 권한과 `gh` 로그인이 필요합니다.
 
-이미 Firestore를 게시했다면 다음 명령으로 프리뷰 인덱스만 갱신할 수 있습니다.
+Firestore 게시 뒤 프리뷰 푸시나 배포 확인이 실패하면 같은 버튼으로 저장된 인덱스에서 재개합니다. 이때 SQLite 재조회와 Firestore 재게시는 생략합니다. 보관 파일이 없고 Firestore 게시를 별도로 마쳤다면 다음 명령으로 현재 SQLite에서 프리뷰 인덱스를 갱신할 수 있습니다. 두 단계 사이에 원본이 바뀌었다면 통합 게시를 실행합니다.
 
 ```bash
 /opt/anaconda3/bin/python3 -u scripts/publish-book-metadata-preview.py --preview-only
 ```
 
-Git 푸시 뒤 Vercel 빌드가 실패하면 로그에 표시된 커밋의 빌드를 Vercel에서 다시 실행합니다.
+Vercel 빌드가 실패하면 로그에 표시된 커밋을 Vercel에서 재배포한 뒤 버튼을 다시 눌러 완료를 확인합니다. 상태 조회의 일시 오류는 기존 확인 시간 안에서 재시도합니다.
 
 기존 운영 기록에는 256개 상세 bucket이 생성되어 있다. 실제 대상의 기존 문서를 확인한 정기 갱신에서는 `--allow-create`를 사용하지 않는다. 최초 생성이 필요하면 dry-run 결과와 대상 프로젝트를 먼저 확인한다.
 compact catalog는 새 immutable generation을 생성·검증한 뒤 manifest를 마지막에 전환한다.
