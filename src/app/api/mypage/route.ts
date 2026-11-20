@@ -1,13 +1,14 @@
+import { after } from 'next/server';
 import type { Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import { resolveLegacyReviewWork, resolveSocialWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence, readSocialReading } from '../../../server/mypage/reading';
 import {
-  ensureAccount, importReview, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount, searchPeople,
+  ensureAccount, fillReviewReading, importReview, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount, searchPeople,
   updateAccount, updateReview, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
-import { BOOK_REVIEW_TEXT_LIMIT } from '../../../lib/publicBookReviews';
+import { BOOK_REVIEW_TEXT_LIMIT, parsePublicBookReview } from '../../../lib/publicBookReviews';
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
   MY_PAGE_CODE, parseMyPageNickname, parseMyPageVisibility,
@@ -238,13 +239,25 @@ export async function POST(request: Request) {
       return json({ item, book: resolved.book, aliases: resolved.equivalentWorkIds });
     }
     if (action === 'review') {
-      const { rating, comment, fileIds } = input;
+      const { rating, comment, fileIds, readingSnapshot } = input;
       if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5
         || typeof comment !== 'string' || comment.length > BOOK_REVIEW_TEXT_LIMIT || /[\r\n]/.test(comment)
         || !Array.isArray(fileIds) || fileIds.length > 32
         || !fileIds.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 512)) return fail(400);
-      const evidence = await evidenceFor(db, uid, resolved.book.id, fileIds);
-      const review = await updateReview(db, uid, workId, { rating, comment: comment.trim(), ...evidence }, revision, importOnly, accountRevision, resolved.equivalentWorkIds);
+      const local = readingSnapshot && typeof readingSnapshot === 'object'
+        ? parsePublicBookReview({ ...readingSnapshot, rating, comment }) : null;
+      if (readingSnapshot != null && !local) return fail(400);
+      // Older clients omitted the field and expect the server snapshot in this response.
+      const evidence = readingSnapshot === undefined
+        ? await evidenceFor(db, uid, resolved.book.id, fileIds) : local;
+      const review = await updateReview(db, uid, workId, { ...evidence, rating, comment: comment.trim() }, revision, importOnly, accountRevision, resolved.equivalentWorkIds);
+      if (review && readingSnapshot === null && !importOnly) {
+        after(async () => {
+          const snapshot = await evidenceFor(db, uid, resolved.book.id, fileIds);
+          if (snapshot?.totalMs == null || snapshot.progressPercent == null) return;
+          await fillReviewReading(db, uid, review, snapshot);
+        });
+      }
       return json({ review: review && { ...review, ...reviewWorkDetails(resolved) } });
     }
     return fail(400);

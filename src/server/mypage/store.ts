@@ -283,6 +283,21 @@ export async function updateReview(...args: Parameters<typeof mutateReview>) {
   return (await mutateReview(...args)).review;
 }
 
+export async function fillReviewReading(
+  db: Firestore, uid: string, saved: Pick<MyPageReview, 'workId' | 'revision'>,
+  snapshot: Pick<ReviewFields, 'totalMs' | 'progressPercent'>,
+) {
+  const code = (await ownerRef(db, uid).get()).get('code') as string | undefined;
+  if (!code) return;
+  const ref = reviews(db, uid).doc(workKey(saved.workId));
+  await db.runTransaction(async (transaction) => {
+    const current = reviewFrom((await transaction.get(ref)).data());
+    if (current?.revision !== saved.revision) return;
+    transaction.update(ref, snapshot);
+    transaction.update(workEntries(db, saved.workId).doc(code), snapshot);
+  });
+}
+
 export async function importReview(
   db: Firestore, uid: string, workId: string, fields: ReviewUpdate, accountRevision: number,
   equivalentWorkIds: readonly string[],

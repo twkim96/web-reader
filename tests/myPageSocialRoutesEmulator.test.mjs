@@ -1,5 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { registerHooks } from 'node:module';
 import { deleteApp, getApps } from 'firebase-admin/app';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
@@ -7,12 +8,15 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 assert.ok(process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_AUTH_EMULATOR_HOST, 'Auth and Firestore emulators required');
 process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = 'demo-web-reader';
+globalThis.AsyncLocalStorage ??= AsyncLocalStorage;
 registerHooks({
   resolve(specifier, context, nextResolve) {
     return nextResolve(specifier === 'server-only' ? 'next/dist/compiled/server-only/empty.js' : specifier, context);
   },
 });
 const unwrap = (module) => module.default ?? module;
+const { workAsyncStorage } = unwrap(await import('next/dist/server/app-render/work-async-storage.external.js'));
+const { workUnitAsyncStorage } = unwrap(await import('next/dist/server/app-render/work-unit-async-storage.external.js'));
 const { GET, POST } = unwrap(await import('../src/app/api/mypage/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
 const { getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
@@ -140,6 +144,62 @@ test('an edit preserves verified private and public reading evidence when sessio
     assert.equal(review.totalMs, 60000);
     assert.equal(review.progressPercent, 55);
   }
+});
+
+test('local review reading saves immediately and missing reading fills after the response without overwriting newer edits', async (t) => {
+  const db = getAdminFirestore();
+  const { idToken, localId: uid } = await emulatorLogin('mypage-local-first');
+  const { code, nickname, visibility, revision } = await ok(get({ view: 'account' }, idToken));
+  await ok(post('account', idToken, { nickname, visibility: { ...visibility, reviews: true }, revision }));
+  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const collection = 'artifacts/' + APP_ID + '/users/' + uid + '/libraries/local/readingStatsV1';
+  await db.doc(collection + '/fallback-session').set({
+    schemaVersion: 1, sessionId: 'fallback-session', bookId: 'fallback-file', bookTitle: workId, deviceId: 'fixture-device',
+    mode: 'screen', startedAtClient: 1000, endedAtClient: 61000, durationMs: 60000, startProgressPercent: 0, endProgressPercent: 55,
+    timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false,
+  });
+  let sessionQueries = 0;
+  const originalCollection = db.collection.bind(db);
+  t.mock.method(db, 'collection', (path) => {
+    if (path === collection) sessionQueries++;
+    return originalCollection(path);
+  });
+  // Direct route calls in the emulator have no HTTP response lifecycle.
+  const deferred = [];
+  const afterContext = { after: (task) => deferred.push(task) };
+  const save = (fields) => workAsyncStorage.run({ afterContext }, () =>
+    workUnitAsyncStorage.run({ type: 'request' }, () => ok(post('review', idToken, fields))));
+  const input = { workId, rating: 4, comment: '', revision: null, fileIds: ['fallback-file'] };
+  const local = { totalMs: 45000, progressPercent: 41 };
+  assert.equal((await post('review', idToken, { ...input, readingSnapshot: { ...local, progressPercent: 101 } })).status, 400);
+  const { review: initial } = await save({ ...input, readingSnapshot: local });
+  assert.equal(initial.totalMs, local.totalMs);
+  assert.equal(initial.progressPercent, local.progressPercent);
+  assert.equal(sessionQueries, 0);
+  assert.equal(deferred.length, 0);
+  assert.equal((await workReviews(workId)).reviews.find(({ author }) => author.code === code).totalMs, local.totalMs);
+
+  await ok(post('review', idToken, { workId, revision: initial.revision, remove: true }));
+  const { deletions: [removed] } = await ok(get({ view: 'reviews' }, idToken));
+  const { review: pending } = await save({ ...input, revision: removed.revision, readingSnapshot: null });
+  assert.equal(pending.totalMs, null);
+  assert.equal(sessionQueries, 0);
+  assert.equal(deferred.length, 1);
+  await deferred.shift()();
+  assert.ok(sessionQueries > 0);
+  const { reviews: [filled] } = await ok(get({ view: 'reviews' }, idToken));
+  assert.equal(filled.revision, pending.revision);
+  assert.equal(filled.totalMs, 60000);
+  assert.equal((await workReviews(workId)).reviews.find(({ author }) => author.code === code).progressPercent, 55);
+
+  const { review: beforeEdit } = await save({ ...input, revision: filled.revision, readingSnapshot: null });
+  const { review: latest } = await save({ ...input, rating: 5, revision: beforeEdit.revision, readingSnapshot: local });
+  await deferred.shift()();
+  const { reviews: [reloaded] } = await ok(get({ view: 'reviews' }, idToken));
+  assert.equal(reloaded.revision, latest.revision);
+  assert.equal(reloaded.rating, 5);
+  assert.equal(reloaded.totalMs, local.totalMs);
+  assert.equal((await workReviews(workId)).reviews.find(({ author }) => author.code === code).progressPercent, local.progressPercent);
 });
 
 test('authenticated account writes, code search and every visibility combination share one public contract', async () => {

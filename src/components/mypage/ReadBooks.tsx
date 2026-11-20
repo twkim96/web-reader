@@ -94,6 +94,10 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
             rating,
             comment,
             fileIds: book.fileIds?.slice(0, 32) ?? [],
+            readingSnapshot: book.fileIds?.length ? {
+              totalMs: Math.round(book.totalMs),
+              progressPercent: book.progressPercent,
+            } : null,
           },
         });
         accountReview.change(data.review, editingTarget?.workId ?? book.id);
