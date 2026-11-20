@@ -32,17 +32,15 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   const back = page.getByRole('button', { name: '서재로 돌아가기' });
   const menu = page.getByRole('navigation', { name: '마이페이지 메뉴' });
   const shortcuts = page.getByRole('group', { name: '마이페이지 바로가기' });
-  await expect(shortcuts.getByRole('button')).toHaveCount(3);
+  await expect(shortcuts.getByRole('button')).toHaveCount(2);
+  await expect(shortcuts.getByRole('button', { name: '내 서재' })).toBeVisible();
+  await expect(shortcuts.getByRole('button', { name: '공개 설정' })).toBeVisible();
+  await expect(shortcuts).toHaveCSS('backdrop-filter', 'none');
+  const dividers = page.locator('[data-mypage-header-divider]');
   const catalog = menu.getByRole('button', { name: '도서목록' });
   await expect(catalog).toHaveAttribute('aria-current', 'page');
   const firstBook = page.getByRole('link', { name: '테스트 도서 0', exact: true });
   await expect(firstBook).toBeVisible();
-  const ruleInsets = await firstBook.locator('..').evaluate((row) => {
-    const line = getComputedStyle(row, '::after');
-    return [parseFloat(line.left), parseFloat(line.right), parseFloat(line.width), row.clientWidth];
-  });
-  assertDivider(ruleInsets);
-
   const geometry = () => page.locator('[data-mypage-menu]').evaluate((bar) => {
     const { top } = bar.getBoundingClientRect();
     const button = bar.querySelector('button')!.getBoundingClientRect();
@@ -60,12 +58,18 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
     await page.setViewportSize({ width, height: 700 });
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect.poll(geometry).toMatchObject({ pinned: false, twoRows: true });
+    await expect(dividers).toHaveCount(0);
+    const backColor = await back.evaluate(button => getComputedStyle(button).color);
+    await expect(shortcuts.getByRole('button', { name: '내 서재' })).toHaveCSS('color', backColor);
+    await expect(shortcuts.getByRole('button', { name: '공개 설정' })).toHaveCSS('color', backColor);
+    await assertDivider(firstBook);
     await expect(menu.getByText('대시보드')).not.toHaveClass('sr-only');
     const collapseAt = await page.locator('[data-my-page] > header').evaluate((header) => header.getBoundingClientRect().height / 2);
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate((height) => window.scrollTo(0, height), collapseAt);
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
+    await expect(dividers).toHaveCount(2);
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate(() => window.scrollTo(0, 500));
@@ -99,7 +103,9 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await expect(read).toHaveAttribute('aria-current', 'page');
   await page.setViewportSize({ width: 320, height: 700 });
   await menu.getByRole('button', { name: /^위시리스트/ }).click();
-  await expect(page.getByRole('link', { name: '관심 도서 0', exact: true })).toBeAttached();
+  const savedBook = page.getByRole('link', { name: '관심 도서 0', exact: true });
+  await expect(savedBook).toBeAttached();
+  await assertDivider(savedBook);
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect.poll(geometry).toMatchObject({ pinned: false, twoRows: true });
   await menu.evaluate(element => { element.scrollLeft = element.scrollWidth; });
@@ -114,9 +120,8 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   })).toBe(true);
   await shortcuts.getByRole('button', { name: '공개 설정' }).click();
   await expect(page).toHaveURL(/#mypage\/sharing$/);
-  await shortcuts.getByRole('button', { name: '메타데이터 검색' }).click();
+  await catalog.click();
   const search = page.getByRole('textbox', { name: '도서 제목 검색' });
-  await expect(search).toBeFocused();
   await expect(firstBook).toBeVisible();
   const match = page.getByRole('link', { name: '테스트 도서 72', exact: true });
   await expect(match).toHaveCount(0);
@@ -131,8 +136,17 @@ test('My Page brings its back button, menu and shortcuts together on scroll', as
   await expect(reviewHeading).toBeInViewport();
 });
 
-function assertDivider([left, right, width, row]: number[]) {
+async function assertDivider(link: import('@playwright/test').Locator) {
+  const [left, right, width, row, height, color, background] = await link.locator('..').evaluate((item) => {
+    const line = getComputedStyle(item, '::after');
+    return [parseFloat(line.left), parseFloat(line.right), parseFloat(line.width), item.clientWidth,
+      parseFloat(line.height), line.backgroundColor, getComputedStyle(item).backgroundColor] as const;
+  });
   expect(left).toBeGreaterThan(0);
   expect(right).toBeGreaterThan(0);
+  expect(left).toBeCloseTo(right, 0);
   expect(width).toBeGreaterThan(row * 0.75);
+  expect(height).toBeGreaterThan(0);
+  expect(color).not.toBe('rgba(0, 0, 0, 0)');
+  expect(background).toBe('rgba(0, 0, 0, 0)');
 }

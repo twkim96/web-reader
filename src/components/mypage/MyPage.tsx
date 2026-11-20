@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
 import { ArrowLeft, BookCopy, BookOpen, BookOpenCheck, Check, Compass, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
@@ -36,7 +35,6 @@ const tabs = [
   { id: 'sharing', label: '공개 설정', icon: Settings2 },
 ] as const;
 const headerActions = [
-  { id: 'search', label: '메타데이터 검색', icon: Search },
   { id: 'shelf', label: '내 서재', icon: Library },
   { id: 'sharing', label: '공개 설정', icon: Settings2 },
 ] as const;
@@ -79,7 +77,6 @@ export function MyPage(props: Props) {
   const [compactMenu, setCompactMenu] = useState(false);
   const titleRow = useRef<HTMLElement>(null);
   const menu = useRef<HTMLElement>(null);
-  const catalogSearch = useRef<HTMLInputElement>(null);
   const [openedBook, setOpenedBook] = useState<DiscoveryBook | ReadBook>();
   const readListScroll = useRef<number | null>(null);
   const restoreReadListScroll = useRef(false);
@@ -244,22 +241,17 @@ export function MyPage(props: Props) {
   }, [genre, query, sorted, source, tag]);
   const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setTag(''); setVisibleCount(60); };
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
-  const openCatalogSearch = () => {
-    // Keep focus in the click event so mobile browsers can open the keyboard.
-    if (tab !== 'discover' || bookId) flushSync(() => openTab('discover'));
-    catalogSearch.current?.focus({ preventScroll: true });
-    catalogSearch.current?.scrollIntoView({ block: 'nearest' });
-  };
   const detail = tabs.find(({ id }) => id === tab)!;
   const browse = tab === 'discover' || tab === 'wishlist';
   const loading = tab === 'discover' ? !catalog && !catalogError : wishlist.loading;
   const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
   const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
+  const headerButton = 'flex size-11 items-center justify-center rounded-full hover:bg-current/10';
 
   return (
     <div data-my-page="true" className="min-h-dvh [--mypage-title-height:5rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)] sm:[--mypage-title-height:6rem]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
       <header ref={titleRow}>
-        <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[4.5rem] pr-36 sm:pl-[5.25rem] sm:pr-40">
+        <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[4.5rem] pr-28 sm:pl-[5.25rem] sm:pr-32">
           <h1 className="text-[clamp(1rem,4.6vw,1.25rem)] font-semibold tracking-tight sm:text-2xl">{bookId ? '도서 상세정보' : '마이페이지'}</h1>
         </div>
       </header>
@@ -268,21 +260,24 @@ export function MyPage(props: Props) {
           className={`pointer-events-auto bg-[var(--viewer-theme-bg)] motion-safe:transition-[translate] motion-safe:duration-200 ${compactMenu ? '-translate-y-[var(--mypage-title-half)]' : ''}`}>
           <div className="relative mx-auto max-w-5xl px-5 py-1 sm:px-8">
             <button type="button" onClick={bookId ? closeBook : onBack} aria-label={bookId ? '도서 목록으로 돌아가기' : '서재로 돌아가기'}
-              className={`absolute left-5 top-1 flex size-11 items-center justify-center rounded-full hover:bg-[color-mix(in_srgb,currentColor_6%,transparent)] sm:left-8 ${headerActionMotion} ${headerActionPosition}`}>
+              className={`absolute left-5 top-1 sm:left-8 ${headerButton} ${headerActionMotion} ${headerActionPosition}`}>
               <ArrowLeft size={19} />
             </button>
-            <div className={`absolute right-5 top-1 z-10 sm:right-8 ${headerActionMotion} ${headerActionPosition}`}>
-              <div role="group" aria-label="마이페이지 바로가기" className="shelf-mobile-header-pill flex h-11 items-center gap-0.5 px-1">
-                {headerActions.map(({ id, label, icon: Icon }) => (
-                  <button key={id} type="button" aria-label={label} title={label} aria-current={tab === id ? 'page' : undefined}
-                    onClick={id === 'search' ? openCatalogSearch : id === 'shelf' ? onBack : () => openTab(id)}
-                    className={`flex size-9 items-center justify-center rounded-full transition-colors hover:bg-current/10 hover:opacity-100 ${tab === id ? 'text-accent-500' : 'opacity-70'}`}>
-                    <Icon size={19} aria-hidden="true" />
-                  </button>
-                ))}
-              </div>
+            <div role="group" aria-label="마이페이지 바로가기"
+              className={`absolute right-5 top-1 z-10 flex sm:right-8 ${headerActionMotion} ${headerActionPosition}`}>
+              {headerActions.map(({ id, label, icon: Icon }) => (
+                <button key={id} type="button" aria-label={label} title={label} aria-current={tab === id ? 'page' : undefined}
+                  onClick={id === 'shelf' ? onBack : () => openTab(id)}
+                  className={`${headerButton} transition-colors ${compactMenu && tab === id ? 'text-accent-500' : ''}`}>
+                  <Icon size={19} aria-hidden="true" />
+                </button>
+              ))}
             </div>
-            <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex gap-1 overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-12 mr-32' : ''}`}>
+            {compactMenu && <>
+              <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute left-16 top-4.5 h-4 w-px bg-current/25 sm:left-[4.75rem]" />
+              <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
+            </>}
+            <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex gap-1 overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
               {tabs.filter(({ id }) => id !== 'sharing' && (signedIn || id !== 'reviews')).map(({ id, label, icon: Icon }) => {
                 const selected = tab === id;
                 const iconOnly = compactMenu && !selected;
@@ -330,7 +325,7 @@ export function MyPage(props: Props) {
           {browse && <>
             <div className="flex items-end justify-between gap-3"><div><h2 className="text-xl font-semibold">{detail.label}</h2><p className="mt-1.5 text-xs opacity-45">{tab === 'wishlist' ? `담아둔 책 ${wishlist.entries.length.toLocaleString()}권` : groupedCatalog ? `공개 메타데이터 ${groupedCatalog.books.length.toLocaleString()}권` : '공개 메타데이터에서 읽고 싶은 책을 찾아보세요.'}</p></div>{tab === 'wishlist' && <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white"><Plus size={15} />추가</button>}</div>
             <section aria-label="도서 검색 및 필터" className="space-y-2.5">
-              <label className="flex items-center gap-2.5 rounded-lg px-3 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input ref={tab === 'discover' ? catalogSearch : undefined} aria-label="도서 제목 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 검색" className="min-h-10 min-w-0 flex-1 scroll-mt-16 bg-transparent text-sm outline-none" /></label>
+              <label className="flex items-center gap-2.5 rounded-lg px-3 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input aria-label="도서 제목 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 검색" className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <select aria-label="도서 플랫폼 필터" value={source} onChange={(event) => { setSource(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 플랫폼</option><option value="series">네이버 시리즈</option><option value="kakao">카카오페이지</option><option value="novelpia">노벨피아</option></select>
                 <select aria-label="도서 장르 필터" value={genre} onChange={(event) => { setGenre(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 장르</option>{genres.map((name) => <option key={name}>{name}</option>)}</select>
