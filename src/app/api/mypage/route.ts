@@ -8,6 +8,7 @@ import {
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
 import { BOOK_REVIEW_TEXT_LIMIT } from '../../../lib/publicBookReviews';
+import { platformWorkKey } from '../../../lib/readBooks';
 import {
   MY_PAGE_CODE, parseMyPageNickname, parseMyPageVisibility,
   type MyPageOwnReviews, type MyPageSavedBook, type PublicProfileBook,
@@ -18,10 +19,14 @@ const PROFILE_PAGE_SIZE = 30;
 const publicSections = ['reviews', 'reading', 'wishlist'] as const;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const fail = (status: number) => json({ error: 'request-failed' }, status);
-const emptyEvidence = { totalMs: null, progressPercent: null };
 const evidenceFor = (db: Firestore, uid: string, workId: string, fileIds: readonly string[]) => (
-  getSocialReadingEvidence(db, uid, workId, fileIds).catch(() => emptyEvidence)
+  getSocialReadingEvidence(db, uid, workId, fileIds).catch(() => undefined)
 );
+const reviewWorkDetails = (work: Awaited<ReturnType<typeof resolveSocialWork>>) => ({
+  aliases: work?.equivalentWorkIds ?? [],
+  platformWorkKeys: work?.book.platforms.map(({ id, url }) => platformWorkKey(id, url)) ?? [],
+  title: work?.book.title,
+});
 
 async function authenticatedUid(request: Request) {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+([^\s]+)$/i)?.[1];
@@ -56,11 +61,11 @@ async function wishlistBookStates(db: Firestore, uid: string): Promise<MyPageSav
 async function ownReviews(db: Firestore, uid: string): Promise<MyPageOwnReviews> {
   const [reviews, deletions] = await Promise.all([listReviews(db, uid), listReviewDeletions(db, uid)]);
   const describe = async <T extends { workId: string }>(records: T[]) => {
-    const enriched: Array<T & { aliases: string[]; title?: string }> = [];
+    const enriched: Array<T & ReturnType<typeof reviewWorkDetails>> = [];
     for (let offset = 0; offset < records.length; offset += 20) {
       enriched.push(...await Promise.all(records.slice(offset, offset + 20).map(async (record) => {
         const work = await resolveSocialWork(db, record.workId).catch(() => null);
-        return { ...record, aliases: work?.equivalentWorkIds ?? [], title: work?.book.title };
+        return { ...record, ...reviewWorkDetails(work) };
       })));
     }
     return enriched;
@@ -219,7 +224,10 @@ export async function POST(request: Request) {
       if (importOnly || !validRevision(revision)) return fail(400);
       return json({ review: await updateReview(db, uid, input.workId, null, revision) });
     }
-    const resolved = await resolveSocialWork(db, input.workId);
+    const platformWorkKeys = action === 'review' && revision === null ? input.platformWorkKeys ?? [] : [];
+    if (!Array.isArray(platformWorkKeys)
+      || !platformWorkKeys.every((key) => typeof key === 'string' && key.length > 0 && key.length <= 1200)) return fail(400);
+    const resolved = await resolveSocialWork(db, input.workId, platformWorkKeys);
     if (!resolved) return fail(404);
     const workId = revision !== null && resolved.equivalentWorkIds.includes(input.workId)
       ? input.workId : resolved.book.id;
@@ -236,7 +244,8 @@ export async function POST(request: Request) {
         || !Array.isArray(fileIds) || fileIds.length > 32
         || !fileIds.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 512)) return fail(400);
       const evidence = await evidenceFor(db, uid, resolved.book.id, fileIds);
-      return json({ review: await updateReview(db, uid, workId, { rating, comment: comment.trim(), ...evidence }, revision, importOnly, accountRevision, resolved.equivalentWorkIds) });
+      const review = await updateReview(db, uid, workId, { rating, comment: comment.trim(), ...evidence }, revision, importOnly, accountRevision, resolved.equivalentWorkIds);
+      return json({ review: review && { ...review, ...reviewWorkDetails(resolved) } });
     }
     return fail(400);
   } catch (error) {

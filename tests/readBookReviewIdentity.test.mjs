@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildReadBooks } from '../src/lib/readBooks.ts';
 import { readBookReview, saveBookReview, removeBookReview } from '../src/lib/localBookReview.ts';
+import { findReviewWork, indexReviewWorks } from '../src/lib/myPageSocial.ts';
 
 const reset = async () => { await new Promise((resolve, reject) => { const req = indexedDB.deleteDatabase('twreader-local-book-reviews'); req.onsuccess = resolve; req.onerror = () => reject(req.error); }); };
 const owner = 'firebase:alice|library:local';
@@ -17,6 +18,18 @@ const meta = (titleKey, platforms) => ({ titleKey, displayTitle: titleKey, platf
 const a = meta('a', [platform('https://example.com/a'), platform('https://example.com/shared', 'kakao')]);
 const b = meta('b', [platform('https://example.com/shared', 'kakao'), platform('https://example.com/b')]);
 const books = (entries) => buildReadBooks(entries.map(([name], i) => session(name, String(i))), new Map(entries));
+
+test('a published account review or deletion reopens on a read book with a different title key', () => {
+  const [onDemand] = books([['원본 파일', meta('요청 제목', [platform('https://example.com/a')])]]);
+  const canonical = { workId: '게시 작품', revision: 2, platformWorkKeys: onDemand.platformWorkKeys };
+  const collidingTitle = { workId: onDemand.id, revision: 1 };
+  const review = { ...canonical, rating: 4 };
+  assert.equal(findReviewWork(indexReviewWorks([collidingTitle, review]), onDemand), review);
+
+  const deletion = { ...canonical, revision: 3 };
+  assert.equal(findReviewWork(indexReviewWorks([deletion]), onDemand), deletion);
+  assert.equal(findReviewWork(indexReviewWorks([collidingTitle]), onDemand), collidingTitle);
+});
 
 test('merged works survive hidden aliases, edits and deletion after restoration', async () => {
   await reset();

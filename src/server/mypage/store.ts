@@ -15,6 +15,7 @@ const REVIEW_LIMIT = 20;
 const REVIEW_PAGE_SIZE = 100;
 
 type ReviewFields = Pick<MyPageReview, 'rating' | 'comment' | 'totalMs' | 'progressPercent'>;
+type ReviewUpdate = Pick<ReviewFields, 'rating' | 'comment'> & Partial<Pick<ReviewFields, 'totalMs' | 'progressPercent'>>;
 
 export class ConflictError extends Error {
   readonly status = 409;
@@ -239,7 +240,7 @@ export async function listReviewDeletions(db: Firestore, uid: string) {
 }
 
 async function mutateReview(
-  db: Firestore, uid: string, workId: string, fields: ReviewFields | null, expectedRevision: number | null,
+  db: Firestore, uid: string, workId: string, fields: ReviewUpdate | null, expectedRevision: number | null,
   importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [],
 ): Promise<{ review: MyPageReview | null; applied: boolean }> {
   const account = importOnly ? null : await ensureAccount(db, uid);
@@ -268,10 +269,12 @@ async function mutateReview(
       transaction.delete(entry);
       return { review: null, applied: true };
     }
-    const review = { workId, revision, ...reviewFields(fields) };
+    const previous = reviewFrom(current);
+    const { rating, comment, totalMs = previous?.totalMs ?? null, progressPercent = previous?.progressPercent ?? null } = fields;
+    const review = { workId, revision, rating, comment, totalMs, progressPercent };
     const publishedAt = FieldValue.serverTimestamp();
     transaction.set(ref, { ...review, deleted: false, updatedAt: publishedAt });
-    transaction.set(entry, { workId, code, ...reviewFields(fields), publishedAt });
+    transaction.set(entry, { workId, code, ...reviewFields(review), publishedAt });
     return { review, applied: true };
   });
 }
@@ -281,7 +284,7 @@ export async function updateReview(...args: Parameters<typeof mutateReview>) {
 }
 
 export async function importReview(
-  db: Firestore, uid: string, workId: string, fields: ReviewFields, accountRevision: number,
+  db: Firestore, uid: string, workId: string, fields: ReviewUpdate, accountRevision: number,
   equivalentWorkIds: readonly string[],
 ) {
   return (await mutateReview(db, uid, workId, fields, null, true, accountRevision, equivalentWorkIds)).applied;

@@ -9,7 +9,7 @@ import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIO
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import { buildReadBooks, selectSyncedReadingSessions, type ReadBook } from '../../lib/readBooks';
 import { BOOK_REVIEW_TEXT_LIMIT, readBookReview, removeBookReview, saveBookReview, subscribeBookReviewChanges, type BookReview } from '../../lib/localBookReview';
-import type { MyPageOwnReviews, MyPageReview, MyPageReviewDeletion } from '../../lib/myPageSocial';
+import { findReviewWork, indexReviewWorks, type MyPageOwnReviews, type MyPageReview, type MyPageReviewDeletion } from '../../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
@@ -87,7 +87,14 @@ function ReadBookRow({ book, ownerKey, onOpenBook, accountReview }: {
       if (accountReview) {
         const data = await myPageRequest<{ review: MyPageReview }>({ action: 'review' }, {
           owner: ownerKey,
-          body: { workId: editingTarget?.workId ?? book.id, revision: editingTarget?.revision ?? null, rating, comment, fileIds: book.fileIds?.slice(0, 32) ?? [] },
+          body: {
+            workId: editingTarget?.workId ?? book.id,
+            revision: editingTarget?.revision ?? null,
+            platformWorkKeys: editingTarget ? undefined : book.platformWorkKeys,
+            rating,
+            comment,
+            fileIds: book.fileIds?.slice(0, 32) ?? [],
+          },
         });
         accountReview.change(data.review, editingTarget?.workId ?? book.id);
       } else {
@@ -207,20 +214,8 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
   const [accountError, setAccountError] = useState('');
   const [accountRetry, setAccountRetry] = useState(0);
   const accountRequest = useRef(0);
-  const accountIndex = useMemo(() => {
-    const index = new Map<string, MyPageReview>();
-    for (const review of accountReviews?.reviews ?? []) {
-      for (const id of [review.workId, ...(review.aliases ?? [])]) if (!index.has(id)) index.set(id, review);
-    }
-    return index;
-  }, [accountReviews]);
-  const deletionIndex = useMemo(() => {
-    const index = new Map<string, MyPageReviewDeletion>();
-    for (const deletion of accountReviews?.deletions ?? []) {
-      for (const id of [deletion.workId, ...(deletion.aliases ?? [])]) if (!index.has(id)) index.set(id, deletion);
-    }
-    return index;
-  }, [accountReviews]);
+  const accountIndex = useMemo(() => indexReviewWorks(accountReviews?.reviews ?? []), [accountReviews]);
+  const deletionIndex = useMemo(() => indexReviewWorks(accountReviews?.deletions ?? []), [accountReviews]);
   useEffect(() => {
     if (!accountStorage || guest || preview) return;
     const controller = new AbortController();
@@ -383,8 +378,8 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, accountStorage = fa
             <span className="line-clamp-2">{book.title}</span>
           </BookDetailLink>
         ) : <ReadBookRow key={book.id} book={book} ownerKey={ownerKey} onOpenBook={onOpenBook} accountReview={accountStorage ? {
-          value: accountIndex.get(book.id) ?? book.equivalentTitleKeys?.map((id) => accountIndex.get(id)).find(Boolean),
-          deletion: deletionIndex.get(book.id) ?? book.equivalentTitleKeys?.map((id) => deletionIndex.get(id)).find(Boolean),
+          value: findReviewWork(accountIndex, book),
+          deletion: findReviewWork(deletionIndex, book),
           ready: accountReviews !== null && !refreshingAccountReviews && !accountError, change: changeAccountReview,
           refresh: () => setAccountRetry((value) => value + 1),
         } : undefined} />)}

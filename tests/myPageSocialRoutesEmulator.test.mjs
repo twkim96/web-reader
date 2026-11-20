@@ -17,6 +17,8 @@ const { GET, POST } = unwrap(await import('../src/app/api/mypage/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
 const { getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
 const { loadSocialCatalog } = unwrap(await import('../src/server/mypage/catalog.ts'));
+const { parseBookMetadataRefreshRequest } = unwrap(await import('../src/server/bookMetadata/requestSchema.ts'));
+const { platformWorkKey } = unwrap(await import('../src/lib/readBooks.ts'));
 const { APP_ID } = unwrap(await import('../src/lib/appIdentity.ts'));
 
 const base = 'http://localhost/api/mypage';
@@ -43,6 +45,102 @@ async function ok(response) {
 }
 const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/api/book-reviews?' + new URLSearchParams({ workId }))));
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
+
+test('an on-demand title uses its published edition across account review saves and reloads', async () => {
+  const db = getAdminFirestore();
+  const { idToken, localId: uid } = await emulatorLogin('mypage-on-demand');
+  const { idToken: secondDevice } = await emulatorLogin('mypage-on-demand', 'signInWithPassword');
+  const catalog = await loadSocialCatalog();
+  const work = [...catalog.values()].find(({ platforms }) => platforms.length > 0);
+  const other = [...catalog.values()].find(({ id, platforms }) => id !== work.id && platforms.length > 0);
+  const [{ id: platform, url }] = work.platforms;
+  const key = platformWorkKey(platform, url);
+  const unknownKey = platformWorkKey(platform, 'https://example.test/unpublished-edition');
+  const { fileName, aliasId, queryTitle } = parseBookMetadataRefreshRequest({ fileName: '테스트 요청 별칭 작품 001-050.txt' });
+  assert.notEqual(queryTitle, fileName);
+  assert.notEqual(queryTitle, work.id);
+  assert.ok(!catalog.has(queryTitle));
+  await db.collection('publicBookMetadataOnDemandV1').doc(aliasId).set({
+    schemaVersion: 1, status: 'ready', aliasId, queryTitle, platforms: [{ platform, url }],
+  });
+  await db.doc('artifacts/' + APP_ID + '/users/' + uid + '/libraries/local/readingStatsV1/on-demand-session').set({
+    schemaVersion: 1, sessionId: 'on-demand-session', bookId: 'alias-file', bookTitle: fileName, deviceId: 'alias-device',
+    mode: 'screen', startedAtClient: 1000, endedAtClient: 61000, durationMs: 60000, startProgressPercent: 2, endProgressPercent: 52,
+    timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false,
+  });
+  const input = { workId: queryTitle, platformWorkKeys: [key, unknownKey], rating: 3, comment: '', revision: null, fileIds: ['alias-file'] };
+  const conflictingKeys = [key, platformWorkKey(other.platforms[0].id, other.platforms[0].url)];
+  assert.equal((await post('review', idToken, { ...input, platformWorkKeys: conflictingKeys })).status, 404);
+  const saved = (await ok(post('review', idToken, input))).review;
+  assert.equal(saved.workId, work.id);
+  assert.equal(saved.totalMs, 60000);
+  assert.equal(saved.progressPercent, 52);
+
+  const reloaded = (await ok(get({ view: 'reviews' }, secondDevice))).reviews[0];
+  assert.equal(reloaded.workId, work.id);
+  assert.ok(reloaded.platformWorkKeys.includes(key));
+  assert.ok(!reloaded.aliases.includes(queryTitle));
+
+  const { review: updated } = await ok(post('review', secondDevice, {
+    workId: reloaded.workId, revision: reloaded.revision, rating: 5, comment: '수정', fileIds: ['alias-file'],
+  }));
+  assert.equal(updated.rating, 5);
+  assert.equal(updated.workId, work.id);
+  await ok(post('review', secondDevice, { workId: updated.workId, revision: updated.revision, remove: true }));
+  const deleted = await ok(get({ view: 'reviews' }, idToken));
+  assert.deepEqual(deleted.reviews, []);
+  assert.equal(deleted.deletions[0].workId, work.id);
+  assert.ok(deleted.deletions[0].platformWorkKeys.includes(key));
+  const restored = (await ok(post('review', idToken, {
+    ...input, workId: work.id, revision: deleted.deletions[0].revision,
+  }))).review;
+  assert.equal(restored.workId, work.id);
+});
+
+test('an edit preserves verified private and public reading evidence when session lookup fails', async (t) => {
+  const db = getAdminFirestore();
+  const { idToken, localId: uid } = await emulatorLogin('mypage-evidence-failure');
+  const { code, nickname, visibility, revision } = await ok(get({ view: 'account' }, idToken));
+  await ok(post('account', idToken, { nickname, visibility: { ...visibility, reviews: true }, revision }));
+  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const collection = 'artifacts/' + APP_ID + '/users/' + uid + '/libraries/local/readingStatsV1';
+  await db.doc(collection + '/evidence-session').set({
+    schemaVersion: 1, sessionId: 'evidence-session', bookId: 'evidence-file', bookTitle: workId, deviceId: 'evidence-device',
+    mode: 'screen', startedAtClient: 1000, endedAtClient: 61000, durationMs: 60000, startProgressPercent: 0, endProgressPercent: 55,
+    timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false,
+  });
+  const input = { workId, rating: 3, comment: '', revision: null, fileIds: ['evidence-file'] };
+  const saved = (await ok(post('review', idToken, input))).review;
+  assert.equal(saved.totalMs, 60000);
+  assert.equal(saved.progressPercent, 55);
+  let blocked = false;
+  const originalCollection = db.collection.bind(db);
+  const collectionMock = t.mock.method(db, 'collection', (path) => {
+    if (path === collection) { blocked = true; throw new Error('Temporary session read failure'); }
+    return originalCollection(path);
+  });
+  const now = Date.now();
+  const clock = t.mock.method(Date, 'now', () => now + 31_000);
+  try {
+    const edited = (await ok(post('review', idToken, {
+      ...input, rating: 5, comment: '기존 독서기록을 보존', revision: saved.revision,
+    }))).review;
+    assert.equal(blocked, true);
+    assert.equal(edited.rating, 5);
+    assert.equal(edited.totalMs, 60000);
+    assert.equal(edited.progressPercent, 55);
+  } finally {
+    clock.mock.restore();
+    collectionMock.mock.restore();
+  }
+  const own = (await ok(get({ view: 'reviews' }, idToken))).reviews[0];
+  const visible = (await workReviews(workId)).reviews.find(({ author }) => author.code === code);
+  for (const review of [own, visible]) {
+    assert.equal(review.rating, 5);
+    assert.equal(review.totalMs, 60000);
+    assert.equal(review.progressPercent, 55);
+  }
+});
 
 test('authenticated account writes, code search and every visibility combination share one public contract', async () => {
   const db = getAdminFirestore();

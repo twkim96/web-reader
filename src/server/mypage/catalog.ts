@@ -81,8 +81,18 @@ async function titleRoots(db: Firestore, catalog: Index, requestedId: string, ch
   return roots;
 }
 
-export async function resolveSocialWork(db: Firestore, requestedId: string): Promise<ResolvedWork | null> {
+export async function resolveSocialWork(
+  db: Firestore,
+  requestedId: string,
+  platformWorkKeys: readonly string[] = [],
+): Promise<ResolvedWork | null> {
   const catalog = await index();
+  // Only the server's published index can turn a platform link into a work.
+  // An on-demand result can include links that have not been published yet.
+  const platformRoots = new Set(platformWorkKeys.map((key) => catalog.platforms.get(key)).filter(Boolean));
+  if (platformRoots.size > 1) return null;
+  const [platformRoot] = platformRoots;
+  if (platformRoot) return catalogWork(catalog, platformRoot);
   const roots = await titleRoots(db, catalog, requestedId);
   return roots.size === 1 ? catalogWork(catalog, [...roots][0]) : null;
 }
