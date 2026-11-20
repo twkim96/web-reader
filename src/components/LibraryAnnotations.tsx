@@ -335,7 +335,7 @@ export const LibraryAnnotations: React.FC<Props> = ({
         ) : results.length === 0 ? (
           <p className="py-12 text-center text-sm font-bold opacity-40">조건에 맞는 주석이 없습니다.</p>
         ) : (
-          <div className="min-w-0 space-y-5">
+          <div className="min-w-0 space-y-2.5">
             <p className="px-1 pb-1 text-[10px] font-bold opacity-45">{results.length}개 중 {visibleResults.length}개 표시</p>
             {visibleResults.map((entry: LibraryAnnotationIndexEntry) => {
               const { annotation } = entry;
@@ -344,7 +344,7 @@ export const LibraryAnnotations: React.FC<Props> = ({
                 <article
                   key={`${annotation.bookId}:${annotation.id}`}
                   data-library-annotation-item={annotation.id}
-                  className="min-w-0"
+                  className="min-w-0 rounded-lg bg-[var(--viewer-mypage-surface)] p-2.5"
                 >
                   <div className="flex items-start gap-2">
                     <span className="mt-1 size-3 shrink-0 rounded-full" style={{ backgroundColor: color.color }} />

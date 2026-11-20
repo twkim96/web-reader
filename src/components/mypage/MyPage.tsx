@@ -341,8 +341,8 @@ export function MyPage(props: Props) {
               {results.length > visibleCount && <button type="button" onClick={() => setVisibleCount((count) => count + 60)} className="mt-3 min-h-11 w-full text-sm font-medium text-accent-500">더 보기 ({(results.length - visibleCount).toLocaleString()}권)</button>}
             </section>
           </>}
-          {tab === 'annotations' && <div className="mypage-section space-y-4"><h2 className="text-xl font-semibold">내 주석</h2><LibraryAnnotations ownerKey={ownerKey} books={books} themeVariables={themeVariables} /></div>}
-          {tab === 'statistics' && <div className="mypage-section"><LibraryReadingStatisticsModal embedded open visible ownerKey={ownerKey} theme={theme} themeVariables={themeVariables} accentColor={props.accentColor} syncHealth={props.syncHealth} quarantinedDocumentCount={props.quarantinedDocumentCount} canRefresh={props.canRefresh} refreshing={props.refreshing} lastServerCheckedAt={props.lastServerCheckedAt} onRefresh={props.onRefresh} onClose={() => navigate('overview')} /></div>}
+          {tab === 'annotations' && <div className="space-y-4"><h2 className="text-xl font-semibold">내 주석</h2><LibraryAnnotations ownerKey={ownerKey} books={books} themeVariables={themeVariables} /></div>}
+          {tab === 'statistics' && <LibraryReadingStatisticsModal embedded open visible ownerKey={ownerKey} theme={theme} themeVariables={themeVariables} accentColor={props.accentColor} syncHealth={props.syncHealth} quarantinedDocumentCount={props.quarantinedDocumentCount} canRefresh={props.canRefresh} refreshing={props.refreshing} lastServerCheckedAt={props.lastServerCheckedAt} onRefresh={props.onRefresh} onClose={() => navigate('overview')} />}
           </>}
         </main>
       </div>
