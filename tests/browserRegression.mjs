@@ -101,7 +101,7 @@ const waitFor = async (expression, label, timeoutMs = 30_000) => {
       lastReaderSession: localStorage.getItem('last_reader_session'),
       lastReaderAutoOpen: document.documentElement.dataset.lastReaderAutoOpen,
       viewerSettings: localStorage.getItem('viewer_settings'),
-      regressionErrors: window.__regressionErrors ?? [],
+      regressionErrors: [...new Set(window.__regressionErrors ?? [])].slice(-20),
       proofDiagnostics: window.__bookInfoProofDiagnostics ?? [],
       clipboardItemSupported: typeof ClipboardItem !== 'undefined',
       proofStatus: document.querySelector('[data-book-info-capture-status]')?.textContent,
@@ -119,6 +119,29 @@ const waitFor = async (expression, label, timeoutMs = 30_000) => {
     `Timed out waiting for ${label}${lastError ? `: ${lastError.message}` : ''}`
     + `\nDiagnostics: ${JSON.stringify(diagnostics)}\n${body}`,
   );
+};
+
+const clickReaderToolbar = async (label) => {
+  const toolbarOpen = `document.querySelector('nav[data-reader-menu-style]')?.classList.contains('translate-y-0')`;
+  if (!await evaluate(toolbarOpen)) {
+    await evaluate(`(() => {
+      const target = document.querySelector('[data-reader-interaction-overlay]')
+        ?? document.querySelector('[data-reader-content]');
+      target?.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        clientX: innerWidth / 2,
+        clientY: innerHeight / 2,
+      }));
+    })()`);
+    await waitFor(toolbarOpen, 'reader toolbar before ' + label, 3000);
+  }
+  const selector = `button[aria-label="${label}"]`;
+  assert.equal(await evaluate(`(() => {
+    const button = document.querySelector(${JSON.stringify(selector)});
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`), true, 'enabled reader toolbar button ' + label);
 };
 
 const setInputValue = (selector, value) => evaluate(`(() => {
@@ -523,7 +546,7 @@ try {
   assert.equal(sampleReader.scrollable, true, JSON.stringify(sampleReader));
   assert.equal(sampleReader.controlsBeforeOuterBlankTap, false, JSON.stringify(sampleReader));
   assert.equal(sampleReader.controlsAfterOuterBlankTap, true, JSON.stringify(sampleReader));
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await clickReaderToolbar('Close reader');
   await waitFor(
     `Boolean(document.querySelector('[data-shelf-book-id="sample-aesop-tortoise-hare-ko-v1"]'))`,
     'returned from expanded sample book',
@@ -4346,6 +4369,7 @@ try {
     }
     const chapterControls = document.querySelector('[data-reader-tts-controls="true"]');
     const lastChapterIndex = Number(chapterControls?.dataset.readerTtsIndex ?? -1);
+    const hasNextLinearChapter = view.book.sections.slice(content.index + 1).some(section => section.linear !== 'no');
     const endActionSelect = [...(chapterControls?.querySelectorAll('label') ?? [])]
       .find((label) => label.textContent?.includes('장 끝 동작'))?.querySelector('select');
     if (endActionSelect) {
@@ -4365,6 +4389,8 @@ try {
     }
     const lastSkipCancelDelta = window.__browserSpeechStats.cancel - cancelBeforeLastSkip;
     const lastSkipSpeechContinued = window.speechSynthesis.speaking === true;
+    const lastChapterFinished = Boolean(document.querySelector('[data-reader-tts-controls="true"]')
+      ?.textContent?.includes('현재 장 완료'));
     if (endActionSelect) {
       const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
       setter.call(endActionSelect, 'stop');
@@ -4439,6 +4465,8 @@ try {
       endText,
       endTotal,
       lastChapterIndex,
+      hasNextLinearChapter,
+      lastChapterFinished,
       lastSkipCancelDelta,
       lastSkipSpeechContinued,
       semanticMenuFound,
@@ -4456,11 +4484,9 @@ try {
     JSON.stringify(ttsRangeSemantics),
   );
   assert.ok(ttsRangeSemantics.lastSkipCancelDelta >= 1, JSON.stringify(ttsRangeSemantics));
-  assert.equal(
-    ttsRangeSemantics.lastSkipSpeechContinued,
-    true,
-    JSON.stringify(ttsRangeSemantics),
-  );
+  assert.equal(ttsRangeSemantics.hasNextLinearChapter, false, JSON.stringify(ttsRangeSemantics));
+  assert.equal(ttsRangeSemantics.lastChapterFinished, true, JSON.stringify(ttsRangeSemantics));
+  assert.equal(ttsRangeSemantics.lastSkipSpeechContinued, false, JSON.stringify(ttsRangeSemantics));
   const semanticSpeech = ttsRangeSemantics.semanticTexts.join('\n');
   assert.match(semanticSpeech, /Hello world/, JSON.stringify(ttsRangeSemantics));
   assert.match(semanticSpeech, /漢字\./);
@@ -4692,6 +4718,7 @@ try {
     '설정',
   ]);
   assert.deepEqual(narrowSelectionMenu.toolbarProbe.utilityOrder, [
+    '현재 위치부터 자동읽기',
     '현재 위치부터 듣기',
     '독서 통계',
     '도서 정보',
@@ -5054,7 +5081,6 @@ try {
   const annotationEntry = await evaluate(`(() => {
     const separateAnnotationButton = document.querySelector('button[aria-label="하이라이트와 메모"]');
     const recordsButton = document.querySelector('button[aria-label="책갈피와 주석"]');
-    recordsButton?.click();
     return {
       separateAnnotationButton: Boolean(separateAnnotationButton),
       recordsButtonTitle: recordsButton?.getAttribute('title') ?? '',
@@ -5066,6 +5092,7 @@ try {
   assert.match(annotationEntry.recordsButtonTitle, /주석 1개/);
   assert.equal(annotationEntry.annotationIndicator, true, JSON.stringify(annotationEntry));
   assert.match(annotationEntry.recordCounts, /책갈피 \d+개, 주석 1개/);
+  await clickReaderToolbar('책갈피와 주석');
   await waitFor(
     `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
     'combined records modal after reader reopen',
@@ -5266,7 +5293,7 @@ try {
     `!document.querySelector('[data-reader-annotation-modal="true"]')`,
     'combined records modal close before reopen',
   );
-  await evaluate(`document.querySelector('button[aria-label="책갈피와 주석"]')?.click()`);
+  await clickReaderToolbar('책갈피와 주석');
   await waitFor(
     `Boolean(document.querySelector('[data-reader-bookmark-panel="true"]'))`,
     'combined records modal reopen',
@@ -5277,7 +5304,7 @@ try {
     'annotation manager reopen',
   );
   await evaluate(`document.querySelector('button[aria-label="책갈피·주석 닫기"]')?.click()`);
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await clickReaderToolbar('Close reader');
   await waitFor(
     `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after highlight reopen',
@@ -5357,7 +5384,7 @@ try {
   assert.equal(highlightResolution.colorId, 'green');
   assert.equal(highlightResolution.quote, selectionActions.selectedText);
   assert.equal(highlightResolution.anchorState, 'active');
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await clickReaderToolbar('Close reader');
   await waitFor(
     `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after annotation section reconciliation',
@@ -5460,7 +5487,7 @@ try {
   assert.equal(invalidCfiResolution.overlayVisible, true, JSON.stringify(invalidCfiResolution));
   assert.equal(invalidCfiResolution.invalidAnchorState, 'unresolved');
   assert.equal(invalidCfiResolution.normalAnchorState, 'active');
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await clickReaderToolbar('Close reader');
   await waitFor(
     `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after invalid CFI check',
@@ -5594,7 +5621,7 @@ try {
   assert.equal(highlightRepair.colorId, 'green');
   assert.equal(highlightRepair.anchorState, 'active');
   assert.equal(highlightRepair.quote, selectionActions.selectedText);
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await clickReaderToolbar('Close reader');
   await waitFor(
     `document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"`,
     'shelf after unresolved highlight check',
@@ -5870,7 +5897,7 @@ try {
     autoOpenSession.storedSession,
     await evaluate(`localStorage.getItem('__browserRegressionSolidBookId')`),
   );
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  await clickReaderToolbar('Close reader');
   await waitFor(
     'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"',
     'shelf after auto-open close',
@@ -5984,7 +6011,7 @@ try {
     'settings modal base controls',
   );
   const tapSettings = await evaluate(`(async () => {
-    const autoOpenCheckbox = document.querySelector('input[type="checkbox"]');
+    const autoOpenCheckbox = document.querySelector('[data-reader-settings-auto-open] input[type="checkbox"]');
     const autoOpenInitially = autoOpenCheckbox?.checked;
     autoOpenCheckbox?.click();
     await window.__regressionNextFrame();
@@ -6393,7 +6420,8 @@ try {
   assert.equal(solidSevenZipResult.activeBlobUrls, 0, solidSevenZipDebug);
   assert.deepEqual(solidSevenZipResult.errors, [], solidSevenZipDebug);
 
-  await evaluate(`document.querySelector('button[aria-label="Close reader"]')?.click()`);
+  // The decoder probe has already closed the publication view.
+  await evaluate('history.back()');
   await waitFor(
     'document.querySelector("[data-shelf-library-label]")?.textContent?.trim() === "Guest Library"',
     'shelf after themed reader close',
@@ -6752,7 +6780,7 @@ try {
       completedRounds: rows
         .filter((row) => row.querySelector('[data-reading-statistics-complete="true"]'))
         .map((row) => row.getAttribute('data-reading-statistics-round')),
-      feedback: modal?.querySelector('footer [role="status"]')?.textContent?.trim() ?? '',
+      feedback: modal?.querySelector('[data-reading-statistics-body] > p[role="status"]')?.textContent?.trim() ?? '',
     };
   })()`);
   assert.equal(confirmedRoundUi.summary, '0권 읽는 중 · 완료 1권');
@@ -6817,7 +6845,7 @@ try {
       .map((element) => element.textContent?.trim()),
     summary: document.querySelector('[data-reading-statistics-book-summary="true"]')
       ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-    feedback: document.querySelector('[data-reading-statistics-modal="true"] footer [role="status"]')
+    feedback: document.querySelector('[data-reading-statistics-body] > p[role="status"]')
       ?.textContent?.trim() ?? '',
     remainingRounds: [...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})]
       .map((row) => row.getAttribute('data-reading-statistics-round')),

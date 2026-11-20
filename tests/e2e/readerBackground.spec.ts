@@ -1,11 +1,12 @@
 import { expect, test } from './persistentBookFixtures';
 
+test.use({ serviceWorkers: 'block' });
+
 test('reader shell paints through the publication canvas and all outer margins', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 890 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
-  await page.goto('/');
-  await page.evaluate(() => {
+  await page.addInitScript(() => {
     localStorage.setItem('isGuest', 'true');
     localStorage.setItem('neverShowInstallPrompt', 'true');
     localStorage.setItem('viewer_settings', JSON.stringify({
@@ -13,7 +14,7 @@ test('reader shell paints through the publication canvas and all outer margins',
       fontFamily: 'sans', autoOpenLastBook: false,
     }));
   });
-  await page.reload();
+  await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
   // Open a real reader through the existing guest sample-book flow.
   await page.getByRole('button', { name: '샘플 도서를 추가', exact: true }).click();

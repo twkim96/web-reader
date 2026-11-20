@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import JSZip from 'jszip';
 
 const makeBook = async () => {
@@ -11,7 +11,7 @@ const makeBook = async () => {
   return zip.generateAsync({ type: 'nodebuffer' });
 };
 
-test('auto reading controls, continuous playback, chapter continuation and return to the current word', async ({ page }, testInfo) => {
+const openTwoChapterBook = async (page: Page) => {
   await page.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('/');
   await page.evaluate(() => {
@@ -28,8 +28,12 @@ test('auto reading controls, continuous playback, chapter continuation and retur
   await expect(card).toBeVisible({ timeout: 30000 });
   await card.click();
   await expect(page.locator('[data-reader-shell]')).toBeVisible({ timeout: 30000 });
-  const open = page.getByRole('button', { name: '현재 위치부터 자동읽기', exact: true });
   await expect(page.getByText('Loading...', { exact: true })).toBeHidden({ timeout: 30000 });
+};
+
+test('auto reading controls, continuous playback, chapter continuation and return to the current word', async ({ page }, testInfo) => {
+  await openTwoChapterBook(page);
+  const open = page.getByRole('button', { name: '현재 위치부터 자동읽기', exact: true });
   const originalCfi = await page.evaluate(() => {
     const view = document.querySelector('foliate-view') as HTMLElement & { lastLocation: { cfi: string; anchorCfi?: string } };
     return view.lastLocation.anchorCfi || view.lastLocation.cfi;
@@ -120,4 +124,50 @@ test('auto reading controls, continuous playback, chapter continuation and retur
   await open.click();
   await expect(word).toHaveAttribute('aria-label', '첫째');
   await page.keyboard.press('Escape');
+});
+
+test('skipping the last TTS sentence starts the following chapter', async ({ page }) => {
+  await page.addInitScript(() => {
+    class TestUtterance {
+      onstart?: () => void;
+      constructor(public text: string) {}
+    }
+    const speech = Object.assign(new EventTarget(), {
+      speaking: false,
+      pending: false,
+      paused: false,
+      getVoices: () => [],
+      speak(utterance: TestUtterance) {
+        speech.speaking = true;
+        queueMicrotask(() => utterance.onstart?.());
+      },
+      cancel() { speech.speaking = false; },
+    });
+    Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: speech });
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: TestUtterance });
+  });
+  await openTwoChapterBook(page);
+  const start = page.getByRole('button', { name: '현재 위치부터 듣기', exact: true });
+  if (!await start.isVisible()) await page.locator('[data-reader-content]').click({ position: { x: 640, y: 400 } });
+  await start.click();
+
+  const controls = page.locator('[data-reader-tts-controls="true"]');
+  await expect(controls).toContainText('현재 장 연속 읽는 중');
+  const options = controls.getByText('음성·언어·속도', { exact: true });
+  await options.click();
+  await controls.getByLabel('장 끝 동작').selectOption('next');
+  await options.click();
+  const next = controls.getByRole('button', { name: '다음 문장', exact: true });
+  const sentences = Number(await controls.getAttribute('data-reader-tts-total'));
+  expect(sentences).toBeGreaterThan(1);
+  for (let i = 1; i < sentences; i++) {
+    await next.click();
+    await expect(controls).toHaveAttribute('data-reader-tts-index', String(i));
+  }
+  await expect(controls).toContainText('마지막 단어입니다.');
+  await next.click();
+  await expect(controls).toContainText('다음장의 시작입니다.');
+  await expect(controls).toHaveAttribute('data-reader-tts-index', '0');
+  await expect(controls).toContainText('현재 장 연속 읽는 중');
+  expect(await page.evaluate(() => speechSynthesis.speaking)).toBe(true);
 });
