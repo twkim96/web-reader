@@ -129,8 +129,9 @@ export const saveBookMetadataToLocalV5 = async (
 };
 
 export const getOfflineBookIdsV5 = async (ownerKey: OwnerKey) => {
-  const books = await getAllOfflineBooksV5(ownerKey);
-  return new Set(books.map(({ id }) => id));
+  const db = await initDB();
+  const keys = await db.getAllKeysFromIndex(V5_METADATA_STORE, 'by-owner', ownerKey) as [OwnerKey, string][];
+  return new Set(keys.map(([, id]) => id));
 };
 
 export const getAllOfflineBooksV5 = async (ownerKey: OwnerKey) => {

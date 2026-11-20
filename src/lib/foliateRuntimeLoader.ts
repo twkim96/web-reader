@@ -13,30 +13,29 @@ const registerFoliateView = createRetryablePreparation(async () => {
     const script = document.createElement('script');
     script.type = 'module';
     script.src = FOLIATE_ENTRY_URL;
-    let check = 0;
-    let timeout = 0;
     const cleanup = () => {
-      window.clearInterval(check);
       window.clearTimeout(timeout);
+      script.onload = null;
+      script.onerror = null;
+      script.remove();
     };
-    script.onload = () => undefined;
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('foliate-view 등록 시간이 초과되었습니다.'));
+    }, 10_000);
+
+    script.onload = () => {
+      void customElements.whenDefined('foliate-view').then(() => {
+        cleanup();
+        resolve();
+      });
+    };
     script.onerror = (event) => {
       cleanup();
       console.error('[Foliate] view.js load error:', event);
       reject(event);
     };
     document.head.appendChild(script);
-
-    check = window.setInterval(() => {
-      if (!customElements.get('foliate-view')) return;
-      cleanup();
-      resolve();
-    }, 100);
-
-    timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error('foliate-view 등록 시간이 초과되었습니다.'));
-    }, 10_000);
   });
 });
 

@@ -7419,7 +7419,6 @@ try {
       '/logo.png',
       '/fonts/PretendardVariable.woff2',
       '/fonts/RIDIBatang.woff2',
-      '/fonts/RIDIBatang.otf',
     ];
     const registrations = await navigator.serviceWorker.getRegistrations();
     await Promise.all(registrations.map((registration) => registration.unregister()));

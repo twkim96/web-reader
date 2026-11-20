@@ -13,6 +13,7 @@ const {
   deleteOwnerLocalDataV5,
   getAllLocalProgressV5,
   getAllOfflineBooksV5,
+  getOfflineBookIdsV5,
   loadBookFromLocalV5,
   removeBookAndAnnotationsV8,
   removeBookFromLocalV5,
@@ -55,6 +56,16 @@ const makeBook = (id, name = id) => ({
   name,
   mimeType: 'application/epub+zip',
   source: 'local',
+});
+
+test('lists cached book IDs for the requested content owner', async () => {
+  await deleteDatabase();
+  await saveBookToLocalV5(DEVICE_CONTENT_OWNER_KEY, makeBook('device-copy'), new Blob(['device']));
+  await saveBookToLocalV5(ownerA, makeBook('account-copy'), new Blob(['account']));
+
+  assert.deepEqual(await getOfflineBookIdsV5(DEVICE_CONTENT_OWNER_KEY), new Set(['device-copy']));
+  assert.deepEqual(await getOfflineBookIdsV5(ownerA), new Set(['account-copy']));
+  assert.deepEqual(await getOfflineBookIdsV5(ownerB), new Set());
 });
 
 const makeAnnotation = (ownerBookId, id, colorId = 'yellow') => ({

@@ -10,7 +10,6 @@ const OPTIONAL_PRECACHE_URLS = [
   '/logo.png',
   '/fonts/PretendardVariable.woff2',
   '/fonts/RIDIBatang.woff2',
-  '/fonts/RIDIBatang.otf',
   '/fonts/Chosunilbo_myungjo.woff',
   '/fonts/ChosunGu.woff',
   '/fonts/GowunBatang-Regular.woff',
