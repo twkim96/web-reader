@@ -2,7 +2,7 @@ import type { BookReview } from './localBookReview';
 
 export const PUBLIC_BOOK_REVIEW_LIMIT = 20;
 export const BOOK_REVIEW_TEXT_LIMIT = 120;
-export const REVIEW_READING_SNAPSHOT_VERSION = 1;
+export const REVIEW_READING_SNAPSHOT_VERSION = 2;
 
 export const isBookRating = (rating: unknown): rating is number =>
   typeof rating === 'number' && rating >= 0.5 && rating <= 5 && Number.isInteger(rating * 2);

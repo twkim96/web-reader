@@ -17,7 +17,7 @@ const REVIEW_PAGE_SIZE = 100;
 
 type ReviewFields = Pick<MyPageReview, 'rating' | 'comment' | 'totalMs' | 'progressPercent'>;
 type ReviewReading = Pick<ReviewFields, 'totalMs' | 'progressPercent'>;
-type ReviewUpdate = Pick<ReviewFields, 'rating' | 'comment'> & Partial<ReviewReading>;
+type ReviewUpdate = Pick<ReviewFields, 'rating' | 'comment'> & Partial<ReviewReading> & { readingHistoryPartial?: boolean };
 const hasReviewReading = (review: ReviewReading | null) => review?.totalMs != null || review?.progressPercent != null;
 
 export class ConflictError extends Error {
@@ -176,13 +176,13 @@ async function verifyImportAccount(
 }
 
 export async function updateWishlist(
-  db: Firestore, uid: string, canonicalWorkId: string, saved: boolean, expectedRevision: number | null,
+  db: Firestore, uid: string, workId: string, saved: boolean, expectedRevision: number | null,
   importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [],
   expectedSiblings?: readonly MyPageWishlistRevision[],
 ): Promise<MyPageWishlistItem & { siblingRevisions?: MyPageWishlistRevision[] }> {
   const collection = wishlist(db, uid);
-  const ref = collection.doc(workKey(canonicalWorkId));
-  const alternatives = [...new Set(equivalentWorkIds)].filter((id) => id !== canonicalWorkId);
+  const ref = collection.doc(workKey(workId));
+  const alternatives = [...new Set(equivalentWorkIds)].filter((id) => id !== workId);
   return db.runTransaction(async (transaction) => {
     if (importOnly) await verifyImportAccount(db, transaction, uid, importAccountRevision);
     const data = (await transaction.get(ref)).data();
@@ -209,7 +209,7 @@ export async function updateWishlist(
     if (!importOnly && expectedRevision !== (current?.revision ?? null)) throw new ConflictError();
 
     const item = {
-      workId: canonicalWorkId,
+      workId,
       addedAt: current?.saved ? current.addedAt : Date.now(),
       revision: (current?.revision ?? 0) + 1,
       saved,
@@ -319,11 +319,15 @@ async function mutateReview(
       return { review: null, applied: true };
     }
     const previous = reviewFrom(current);
-    // A server fallback can fill missing evidence but may have a different
-    // view of the device's history. Only a fresh local snapshot replaces it.
     const retained = hasReviewReading(previous) ? previous : fallbackReading;
     const { rating, comment, totalMs = retained?.totalMs ?? null, progressPercent = retained?.progressPercent ?? null } = fields;
-    const review = { workId, revision, rating, comment, totalMs, progressPercent };
+    // Deferred server evidence can arrive without advancing the edit revision.
+    const losesEvidence = fields.readingHistoryPartial && retained
+      && ((retained.totalMs != null && (totalMs == null || totalMs < retained.totalMs))
+        || (retained.progressPercent != null && (progressPercent == null || progressPercent < retained.progressPercent)));
+    const reading = losesEvidence ? { totalMs: retained.totalMs, progressPercent: retained.progressPercent }
+      : { totalMs, progressPercent };
+    const review = { workId, revision, rating, comment, ...reading };
     const publishedAt = FieldValue.serverTimestamp();
     transaction.set(ref, { ...review, deleted: false, updatedAt: publishedAt, ...(saveId ? { lastSaveId: saveId } : {}) });
     transaction.set(entry, { workId, code, ...reviewFields(review), publishedAt });

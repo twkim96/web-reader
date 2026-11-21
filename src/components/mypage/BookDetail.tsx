@@ -310,7 +310,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       {Boolean(historyResult?.failed.size) && <p role="status" className="text-sm opacity-65">일부 독서 기록을 연결하지 못했습니다. <button type="button" className="text-accent-500" onClick={() => retryHistoryMetadata((value) => value + 1)}>기록 다시 연결</button></p>}
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
       <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={losesEvidence ? [] : reviewFileIds ?? []}
-        readingSnapshot={readingSnapshot} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
+        readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
         ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
         error={reviews.error} refresh={reviews.refresh} change={reviews.change} headingRef={reviewHeading} />
       <CommunityReviews key={`${lookupId}:${reviews.changeVersion}`} workId={lookupId} />

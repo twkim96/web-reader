@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
-import { resolveLegacyReviewWork, resolveSocialWork } from '../../../server/mypage/catalog';
+import { resolveLegacyReviewWork, resolveSocialWork, resolveWishlistWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
 import { reportMyPageApiTiming } from '../../../server/mypage/performance';
 import { legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
@@ -53,7 +53,7 @@ async function wishlistBookStates(db: Firestore, uid: string, timing?: ListTimin
   const books = new Map<string, MyPageSavedBook & { siblingRevisions: MyPageWishlistRevision[] }>();
   for (let start = 0; start < entries.length; start += 20) {
     const batch = await Promise.all(entries.slice(start, start + 20).map(async (item) => {
-      const resolved = await resolveSocialWork(db, item.workId);
+      const resolved = await resolveWishlistWork(db, item.workId);
       if (!resolved) return null;
       return { item, book: resolved.book, aliases: resolved.equivalentWorkIds };
     }));
@@ -90,9 +90,11 @@ async function ownReviews(db: Firestore, uid: string, preview: boolean, timing?:
   return { reviews: active, deletions: removed };
 }
 
-async function publicBooks<T extends { workId: string }>(db: Firestore, records: T[]) {
+async function publicBooks<T extends { workId: string }>(
+  db: Firestore, records: T[], resolveWork = resolveSocialWork,
+) {
   return (await Promise.all(records.map(async (record) => {
-    const match = await resolveSocialWork(db, record.workId);
+    const match = await resolveWork(db, record.workId);
     if (!match) return null;
     const { id: workId, title, coverUrl } = match.book;
     return { record, book: { workId, title, coverUrl } satisfies PublicProfileBook };
@@ -100,11 +102,11 @@ async function publicBooks<T extends { workId: string }>(db: Firestore, records:
 }
 
 async function uniquePublicProfileBooks<T extends { workId: string; time: string }>(
-  db: Firestore, records: T[],
+  db: Firestore, records: T[], resolveWork = resolveSocialWork,
 ) {
   const unique = new Map<string, { record: T; book: PublicProfileBook }>();
   for (let start = 0; start < records.length; start += 20) {
-    for (const entry of await publicBooks(db, records.slice(start, start + 20))) {
+    for (const entry of await publicBooks(db, records.slice(start, start + 20), resolveWork)) {
       const id = entry.book.workId;
       const previous = unique.get(id);
       // Keep the newest record regardless of the incoming order. At equal times, prefer the canonical record.
@@ -146,13 +148,13 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
       const records = await listWishlist(db, uid);
       wishlistCandidates = records.length;
       const page = legacyProfilePage(records, offset);
-      return { ...page, entries: await publicBooks(db, page.entries) };
+      return { ...page, entries: await publicBooks(db, page.entries, resolveWishlistWork) };
     }
     const records = (await listPublicProfileWishlist(db, uid)).map(({ workId, addedAt }) => ({
       workId, time: Number.isFinite(addedAt) ? Timestamp.fromMillis(addedAt).valueOf() : epoch.valueOf(),
     }));
     wishlistCandidates = records.length;
-    const entries = await uniquePublicProfileBooks(db, records);
+    const entries = await uniquePublicProfileBooks(db, records, resolveWishlistWork);
     return profileCursorPage(db, entries, ({ record, book }) => [0, record.time, book.workId],
       { code, section: 'wishlist', sort: 'recent', revision }, cursor?.key);
   };
@@ -209,7 +211,7 @@ async function publicBrowse(request: Request, params: URLSearchParams) {
     next = page.next;
     const enriched = await Promise.all(page.readers.map(async ({ uid, account }) => {
       const books = section === 'wishlist'
-        ? (await publicBooks(db, await listWishlist(db, uid, false, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book }) => book)
+        ? (await publicBooks(db, await listWishlist(db, uid, false, MY_PAGE_DASHBOARD_BOOK_LIMIT), resolveWishlistWork)).map(({ book }) => book)
         : (await publicBooks(db, await listReviews(db, uid, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book, record }) => (
           { ...book, rating: record.rating, comment: record.comment }
         ));
@@ -319,9 +321,9 @@ export async function POST(request: Request) {
         const ids = input.workIds;
         if (!Array.isArray(ids) || ids.length > 20 || !ids.every(isBookDetailId)) return fail(400);
         for (const id of new Set(ids)) {
-          const work = await resolveSocialWork(db, id);
+          const work = await resolveWishlistWork(db, id);
           if (!work) { unavailable++; continue; }
-          await updateWishlist(db, uid, work.book.id, true, null, true, input.accountRevision, work.equivalentWorkIds);
+          await updateWishlist(db, uid, work.book.id, true, null, true, input.accountRevision, [...work.equivalentWorkIds, id]);
           current++;
         }
       } else {
@@ -369,11 +371,11 @@ export async function POST(request: Request) {
       }
       return json({ review: await updateReview(db, uid, input.workId, null, revision) });
     }
-    const resolved = await resolveSocialWork(db, input.workId, platformWorkKeys);
+    const resolved = action === 'wishlist'
+      ? await resolveWishlistWork(db, input.workId)
+      : await resolveSocialWork(db, input.workId, platformWorkKeys);
     if (!resolved || (revision !== null && platformWorkKeys.length && !resolved.equivalentWorkIds.includes(input.workId))
       || (detailWorkId !== undefined && !resolved.equivalentWorkIds.includes(detailWorkId))) return fail(404);
-    const workId = revision !== null && resolved.equivalentWorkIds.includes(input.workId)
-      ? input.workId : resolved.book.id;
 
     if (action === 'wishlist' && typeof input.saved === 'boolean') {
       if (importOnly && !input.saved) return fail(400);
@@ -381,13 +383,24 @@ export async function POST(request: Request) {
       if (expected !== undefined && (importOnly || !Array.isArray(expected)
         || !expected.every((entry) => entry && isBookDetailId(entry.workId) && validRevision(entry.revision))
         || new Set(expected.map(({ workId }) => workId)).size !== expected.length)) return fail(400);
+      const expectedSiblings = expected as MyPageWishlistRevision[] | undefined;
+      const equivalentIds = new Set([...resolved.equivalentWorkIds, input.workId]);
+      const historicalIds = expectedSiblings?.map(({ workId }) => workId).filter((id) => !equivalentIds.has(id)) ?? [];
+      // Every supplied historical key must independently resolve to this work.
+      for (let start = 0; start < historicalIds.length; start += 20) {
+        const matches = await Promise.all(historicalIds.slice(start, start + 20).map((id) => resolveWishlistWork(db, id)));
+        if (matches.some((match) => match?.book.id !== resolved.book.id)) return fail(409);
+      }
+      const targetId = revision === null ? resolved.book.id : input.workId;
       const { siblingRevisions, ...item } = await updateWishlist(
-        db, uid, workId, input.saved, revision, importOnly, accountRevision, resolved.equivalentWorkIds,
-        expected as MyPageWishlistRevision[] | undefined,
+        db, uid, targetId, input.saved, revision, importOnly, accountRevision,
+        [...equivalentIds, ...historicalIds], expectedSiblings,
       );
       return json({ item, book: resolved.book, aliases: resolved.equivalentWorkIds, siblingRevisions });
     }
     if (action === 'review') {
+      const workId = revision !== null && resolved.equivalentWorkIds.includes(input.workId)
+        ? input.workId : resolved.book.id;
       const { rating, comment, fileIds, readingSnapshot, readingSnapshotVersion, saveId } = input;
       if (!isBookRating(rating)
         || typeof comment !== 'string' || comment.length > BOOK_REVIEW_TEXT_LIMIT || /[\r\n]/.test(comment)
@@ -397,14 +410,19 @@ export async function POST(request: Request) {
       const local = readingSnapshot && typeof readingSnapshot === 'object'
         ? parsePublicBookReview({ ...readingSnapshot, rating, comment }) : null;
       if (readingSnapshot != null && !local) return fail(400);
-      // Older clients could send an incomplete snapshot based on the entry
-      // screen. Accept their rating, and use server evidence for a blank review.
-      const verified = readingSnapshotVersion === REVIEW_READING_SNAPSHOT_VERSION ? local : null;
+      // v1 validated file identity but did not report whether all history was linked.
+      // Unversioned snapshots could include evidence based on the entry screen alone.
+      const hasCoverage = readingSnapshotVersion === REVIEW_READING_SNAPSHOT_VERSION;
+      if (hasCoverage && typeof input.readingHistoryPartial !== 'boolean') return fail(400);
+      const verified = hasCoverage || readingSnapshotVersion === 1 ? local : null;
       // Clients that omitted the snapshot expect server evidence in this response.
       const fallback = readingSnapshot === undefined
         ? await evidenceFor(db, uid, resolved.book.id, fileIds) : undefined;
       const { review, applied } = await updateReviewWithStatus(
-        db, uid, workId, { ...verified, rating, comment: comment.trim() }, revision, importOnly, accountRevision,
+        db, uid, workId, {
+          ...verified, rating, comment: comment.trim(),
+          readingHistoryPartial: Boolean(verified && (!hasCoverage || input.readingHistoryPartial)),
+        }, revision, importOnly, accountRevision,
         resolved.equivalentWorkIds, saveId, fallback,
       );
       if (applied && review && review.totalMs == null && review.progressPercent == null && !verified && readingSnapshot !== undefined && !importOnly) {

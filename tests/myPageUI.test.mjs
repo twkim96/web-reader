@@ -346,7 +346,8 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     await click(window, editor().querySelector('button[aria-label="3점"]'));
     await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.deepEqual(secondWrites[1].readingSnapshot, { totalMs: 120_000, progressPercent: 90 });
-    assert.equal(secondWrites[1].readingSnapshotVersion, 1);
+    assert.equal(secondWrites[1].readingSnapshotVersion, 2);
+    assert.equal(secondWrites[1].readingHistoryPartial, true);
     await click(window, editor().querySelector('button[aria-label="3점"]'));
     await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '평가 삭제'));
     const expectedKeys = [JSON.stringify(['series', secondURL]), JSON.stringify(['kakao', pendingURL])];

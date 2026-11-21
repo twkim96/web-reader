@@ -12,7 +12,7 @@ type Draft = Rating & { target?: MyPageReview | MyPageReviewDeletion };
 const secondaryAction = 'min-h-10 rounded-full px-3 text-xs font-medium hover:bg-current/5 hover:text-accent-500';
 
 export function BookReviewEditor({
-  ownerKey, workId, platformWorkKeys, fileIds, readingSnapshot, review, deletion, blocked, ready,
+  ownerKey, workId, platformWorkKeys, fileIds, readingSnapshot, readingHistoryPartial, review, deletion, blocked, ready,
   loadingHistory, error, refresh, change, headingRef,
 }: {
   ownerKey: OwnerKey;
@@ -20,6 +20,7 @@ export function BookReviewEditor({
   platformWorkKeys: readonly string[];
   fileIds: readonly string[];
   readingSnapshot: { totalMs: number; progressPercent: number } | null;
+  readingHistoryPartial: boolean;
   review?: MyPageReview;
   deletion?: MyPageReviewDeletion;
   blocked: boolean;
@@ -58,7 +59,7 @@ export function BookReviewEditor({
         ...fields, workId: targetId, detailWorkId: workId, revision: target?.revision ?? null,
         platformWorkKeys,
         fileIds: fileIds.slice(0, 32), readingSnapshot,
-        ...(readingSnapshot ? { readingSnapshotVersion: REVIEW_READING_SNAPSHOT_VERSION } : {}),
+        ...(readingSnapshot ? { readingSnapshotVersion: REVIEW_READING_SNAPSHOT_VERSION, readingHistoryPartial } : {}),
       });
       change(saved, targetId);
     } catch (failure) {

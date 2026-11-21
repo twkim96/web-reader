@@ -119,6 +119,12 @@ export async function resolveSocialWork(
   return roots.size === 1 ? catalogWork(catalog, [...roots][0]) : null;
 }
 
+export async function resolveWishlistWork(db: Firestore, requestedId: string): Promise<ResolvedWork | null> {
+  const catalog = await index();
+  const roots = await titleRoots(db, catalog, requestedId, true);
+  return roots.size === 1 ? catalogWork(catalog, [...roots][0]) : null;
+}
+
 export async function resolveSocialReadingTitle(db: Firestore, title: string) {
   let uncertain = false;
   const roots = await titleRoots(db, await index(), title, false, () => { uncertain = true; });

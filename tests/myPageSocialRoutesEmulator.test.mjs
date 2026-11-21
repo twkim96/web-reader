@@ -422,6 +422,62 @@ test('local review reading saves immediately and missing reading fills after the
   }
 });
 
+test('a stale partial local snapshot preserves deferred evidence at the same review revision', async () => {
+  const { idToken, localId: uid } = await emulatorLogin('mypage-same-revision-evidence');
+  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const { code } = await ok(get({ view: 'account' }, idToken));
+  const db = getAdminFirestore();
+  await db.doc(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1/deferred-session`).set({
+    schemaVersion: 1, sessionId: 'deferred-session', bookId: 'deferred-file', bookTitle: workId, deviceId: 'fixture-device',
+    mode: 'screen', startedAtClient: 1000, endedAtClient: 181000, durationMs: 180_000, startProgressPercent: 0, endProgressPercent: 80,
+    timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false,
+  });
+  const deferred = [];
+  const save = (fields) => workAsyncStorage.run({ afterContext: { after: (task) => deferred.push(task) } }, () =>
+    workUnitAsyncStorage.run({ type: 'request' }, () => ok(post('review', idToken, fields))));
+  const input = { workId, rating: 4, comment: '', fileIds: ['deferred-file'] };
+  const { review: blank } = await save({ ...input, revision: null, readingSnapshot: null });
+  assert.equal(blank.totalMs, null);
+  assert.equal(blank.progressPercent, null);
+  assert.equal(deferred.length, 1);
+
+  const full = { totalMs: 180_000, progressPercent: 80 };
+  await deferred.shift()();
+  const { reviews: [filled] } = await ok(get({ view: 'reviews' }, idToken));
+  assert.equal(filled.revision, blank.revision);
+  assert.equal(filled.totalMs, full.totalMs);
+  assert.equal(filled.progressPercent, full.progressPercent);
+
+  const smaller = { totalMs: 60_000, progressPercent: 20 };
+  const { review: partial } = await save({
+    ...input, revision: blank.revision, comment: '부분 기록', readingSnapshot: smaller,
+    readingSnapshotVersion: 2, readingHistoryPartial: true,
+  });
+  const { review: olderClient } = await save({
+    ...input, revision: partial.revision, comment: '이전 앱', readingSnapshot: smaller, readingSnapshotVersion: 1,
+  });
+  const { reviews: [privateReview] } = await ok(get({ view: 'reviews' }, idToken));
+  const publicReview = (await workReviews(workId)).reviews.find(({ author }) => author.code === code);
+  assert.equal(partial.revision, blank.revision + 1);
+  assert.equal(partial.comment, '부분 기록');
+  for (const review of [partial, olderClient, privateReview, publicReview]) {
+    assert.equal(review.totalMs, full.totalMs);
+    assert.equal(review.progressPercent, full.progressPercent);
+  }
+
+  const { review: fresh } = await save({
+    ...input, revision: olderClient.revision, comment: '전체 기록', readingSnapshot: smaller,
+    readingSnapshotVersion: 2, readingHistoryPartial: false,
+  });
+  const updatedPublic = (await workReviews(workId)).reviews.find(({ author }) => author.code === code);
+  for (const review of [fresh, updatedPublic]) {
+    assert.equal(review.comment, '전체 기록');
+    assert.equal(review.totalMs, smaller.totalMs);
+    assert.equal(review.progressPercent, smaller.progressPercent);
+  }
+  assert.equal(deferred.length, 0);
+});
+
 test('retry after a lost review response returns the saved revision without replacing a newer review', async () => {
   const { idToken } = await emulatorLogin('mypage-review-retry');
   const catalog = await loadSocialCatalog();
@@ -767,4 +823,68 @@ test('removing a merged wishlist work compares all saved revisions before changi
     assert.ok(feed.groups.every(({ reader }) => reader.code !== account.code));
     cursor = feed.next;
   } while (cursor);
+});
+
+test('wishlist writes compare exact historical revisions after confirming the published work', async () => {
+  const { idToken, localId: uid } = await emulatorLogin('wishlist-historical-revisions');
+  const db = getAdminFirestore();
+  const catalog = await loadSocialCatalog();
+  const work = [...catalog.values()].find(({ platforms }) => platforms.length > 0);
+  const other = [...catalog.values()].find(({ id }) => id !== work.id);
+  const historical = '게시 인덱스에서 빠진 이전 위시리스트 작품 키';
+  assert.equal(catalog.has(historical), false);
+  const [candidate] = getPublicBookMetadataAliasCandidates(historical);
+  const hash = (id) => createHash('sha256').update(id).digest('hex');
+  const metadataId = hash(candidate);
+  await db.collection('publicBookMetadataV1').doc(metadataId.slice(0, 2)).set({
+    schemaVersion: 1, entries: { [metadataId]: {
+      schemaVersion: 1, titleKey: work.id, displayTitle: work.title,
+      normalizerVersion: '1.3.3', publishedAt: new Date().toISOString(), platforms: [],
+    } },
+  }, { merge: true });
+
+  const account = await ok(get({ view: 'account' }, idToken));
+  const shared = await ok(post('account', idToken, {
+    nickname: account.nickname, visibility: { ...account.visibility, wishlist: true }, revision: account.revision,
+  }));
+  const list = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/myPageWishlistV1`);
+  const ref = (id) => list.doc(hash(id));
+  const seed = (workId, revision, addedAt) => ref(workId).set({ workId, revision, addedAt, saved: true });
+  await ref(historical).set({ workId: historical, revision: 3, addedAt: 2000, saved: false });
+  await ok(post('import-wishlist', idToken, { workIds: [historical], accountRevision: shared.revision }));
+  assert.equal((await ref(work.id).get()).exists, false);
+  assert.equal((await ref(historical).get()).get('saved'), false);
+  await Promise.all([seed(work.id, 2, 3000), seed(historical, 4, 2000), seed(other.id, 1, 1000)]);
+
+  const readWork = async () => (await ok(get({ view: 'wishlist' }, idToken))).entries.find(({ book }) => book.id === work.id);
+  const remove = (entry, siblings = entry.siblingRevisions) => post('wishlist', idToken, {
+    workId: entry.item.workId, revision: entry.item.revision, saved: false, siblingRevisions: siblings,
+  });
+  const first = await readWork();
+  assert.equal(first.item.workId, work.id);
+  assert.deepEqual(first.siblingRevisions, [{ workId: work.id, revision: 2 }, { workId: historical, revision: 4 }]);
+  const publicProfile = async () => ok(get({ view: 'profile', code: account.code, section: 'wishlist', pagination: 'cursor' }));
+  assert.ok((await publicProfile()).wishlist.some(({ workId }) => workId === work.id));
+  assert.ok(!(await publicProfile()).wishlist.some(({ workId }) => workId === historical));
+
+  assert.equal((await remove(first, [...first.siblingRevisions, { workId: other.id, revision: 1 }])).status, 409);
+  await seed(historical, 5, 2000);
+  assert.equal((await remove(first)).status, 409);
+  assert.equal((await ref(work.id).get()).get('revision'), 2);
+  assert.equal((await ref(historical).get()).get('saved'), true);
+  assert.equal((await ref(other.id).get()).get('saved'), true);
+
+  const latest = await readWork();
+  const removed = await ok(remove(latest));
+  assert.deepEqual(removed.siblingRevisions, [{ workId: work.id, revision: 3 }, { workId: historical, revision: 6 }]);
+  assert.equal((await ref(historical).get()).get('saved'), false);
+  assert.deepEqual((await publicProfile()).wishlist.map(({ workId }) => workId), [other.id]);
+
+  await seed(historical, 7, 4000);
+  const historicalFirst = await readWork();
+  assert.equal(historicalFirst.item.workId, historical);
+  const removedHistorical = await ok(remove(historicalFirst));
+  assert.equal(removedHistorical.item.workId, historical);
+  assert.deepEqual(removedHistorical.siblingRevisions, [{ workId: historical, revision: 8 }, { workId: work.id, revision: 3 }]);
+  assert.equal((await ref(historical).get()).get('saved'), false);
 });
