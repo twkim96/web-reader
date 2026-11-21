@@ -7,6 +7,7 @@ import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { groupDiscoveryBooks, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
 import type { ReadBook } from '../../lib/readBooks';
+import type { MyPageBrowseSection } from '../../lib/myPageSocial';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { ReadingDashboard } from './ReadingDashboard';
@@ -25,7 +26,7 @@ import type { SyncHealth } from '../../lib/syncHealth';
 const tabLabels = {
   overview: '대시보드',
   discover: '도서목록',
-  browse: '둘러보기',
+  browse: '피드',
   read: '읽은 책',
   wishlist: '위시리스트',
   reviews: '내 평가',
@@ -42,6 +43,10 @@ const primaryMenu = [
   { label: '보관', icon: Archive, tabs: ['read', 'wishlist', 'reviews'] },
   { label: '기록', icon: ChartNoAxesColumn, tabs: ['statistics', 'annotations'] },
 ] satisfies readonly { label: string; icon: typeof House; tabs: readonly [Tab, ...Tab[]] }[];
+const feedTabs = [
+  { id: 'reviews', label: '평점을 남긴 도서' },
+  { id: 'wishlist', label: '위시리스트' },
+] as const;
 const desktopQuery = '(min-width: 640px)';
 const headerActions = [
   { id: 'shelf', label: '내 서재', icon: Library },
@@ -82,6 +87,7 @@ type Props = {
 export function MyPage(props: Props) {
   const { ownerKey, books, progress, bookmarkProgress, theme, themeVariables, onBack } = props;
   const [tab, setTab] = useState<Tab>(readTab);
+  const [feedSection, setFeedSection] = useState<MyPageBrowseSection>('reviews');
   const [bookId, setBookId] = useState(readDetailId);
   const [focusReview, setFocusReview] = useState(() => typeof window !== 'undefined' && hasBookReviewTarget(window.location.hash));
   const [compactMenu, setCompactMenu] = useState(false);
@@ -140,6 +146,7 @@ export function MyPage(props: Props) {
     readListScroll.current = null;
     window.history.pushState(null, '', `#mypage/${next}`);
     setTab(next);
+    if (next !== 'browse') setFeedSection('reviews');
     setBookId(null);
     setFocusReview(false);
     if (window.matchMedia?.(desktopQuery).matches === false) {
@@ -173,6 +180,7 @@ export function MyPage(props: Props) {
       const nextBook = readDetailId();
       restoreReadListScroll.current = nextTab === 'read' && nextBook === null;
       setTab(nextTab);
+      if (nextTab !== 'browse') setFeedSection('reviews');
       setBookId(nextBook);
       setFocusReview(hasBookReviewTarget(window.location.hash));
     };
@@ -249,6 +257,12 @@ export function MyPage(props: Props) {
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
   const detailLabel = tabLabels[tab];
   const activeGroup = primaryMenu.find(({ tabs }) => tabs.some((id) => id === tab));
+  const sectionTabs = tab === 'browse'
+    ? feedTabs.map(({ id, label }) => ({ id, label, selected: feedSection === id, select: () => setFeedSection(id) }))
+    : activeGroup && activeGroup.tabs.length > 1
+      ? activeGroup.tabs.map((id) => ({ id, label: tabLabels[id], selected: tab === id, select: () => openTab(id) }))
+      : [];
+  const showSectionTabs = !bookId && sectionTabs.length > 0;
   const loading = tab === 'discover' ? !catalog && !catalogError : wishlist.loading;
   const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
   const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
@@ -316,20 +330,20 @@ export function MyPage(props: Props) {
           {mainItems}
         </nav>
       </footer>
-      <div className="mx-auto max-w-5xl px-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-6 sm:px-8 sm:pb-14 sm:pt-8">
-        {!bookId && activeGroup && activeGroup.tabs.length > 1 && (
-          <nav aria-label={`${activeGroup.label} 메뉴`} className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 mb-6 flex flex-wrap gap-x-5 bg-[var(--viewer-theme-bg)] sm:top-[3.25rem] sm:mb-8 sm:gap-x-7">
-            {activeGroup.tabs.map((id) => (
-              <button key={id} type="button" onClick={() => openTab(id)} aria-current={tab === id ? 'page' : undefined}
-                className={`min-h-11 whitespace-nowrap border-b-2 px-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-accent-500 ${tab === id ? 'border-accent-500 font-semibold text-accent-500' : 'border-transparent opacity-65 hover:opacity-100'}`}>
-                {tabLabels[id]}
+      <div className={`mx-auto max-w-5xl px-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:px-8 sm:pb-14 ${showSectionTabs ? 'pt-[1.05rem] sm:pt-[1.4rem]' : 'pt-6 sm:pt-8'}`}>
+        {showSectionTabs && (
+          <nav aria-label={`${activeGroup?.label} 메뉴`} className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 mb-6 flex flex-wrap gap-x-5 bg-[var(--viewer-theme-bg)] sm:top-[3.25rem] sm:mb-8 sm:gap-x-7">
+            {sectionTabs.map(({ id, label, selected, select }) => (
+              <button key={id} type="button" onClick={select} aria-current={selected ? (tab === 'browse' ? 'true' : 'page') : undefined}
+                className={`min-h-11 whitespace-nowrap border-b-2 px-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-accent-500 ${selected ? 'border-accent-500 font-semibold text-accent-500' : 'border-transparent opacity-65 hover:opacity-100'}`}>
+                {label}
               </button>
             ))}
           </nav>
         )}
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detailLabel}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
-          {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
+          {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={`${ownerKey}:${feedSection}`} section={feedSection} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
             <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
               onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>

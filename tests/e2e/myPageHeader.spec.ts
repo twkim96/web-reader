@@ -245,6 +245,15 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
     await expect(page).toHaveURL(/#mypage\/annotations$/);
     await expect(records).toHaveAttribute('aria-current', 'page');
 
+    await footer.getByRole('button', { name: '피드' }).click();
+    await expect(page).toHaveURL(/#mypage\/browse$/);
+    const feedTabs = page.getByRole('navigation', { name: '피드 메뉴', exact: true });
+    await expect(feedTabs.getByRole('button')).toHaveText(['평점을 남긴 도서', '위시리스트']);
+    await expect(page.getByRole('heading', { name: '둘러보기', exact: true })).toHaveCount(0);
+    const feedWishlist = feedTabs.getByRole('button', { name: '위시리스트' });
+    await feedWishlist.click();
+    await expect(feedWishlist).toHaveAttribute('aria-current', 'true');
+
     await page.goto('/#mypage/reviews');
     await expect(collection).toHaveAttribute('aria-current', 'page');
     await expect(collectionTabs.getByRole('button', { name: '내 평가' })).toHaveAttribute('aria-current', 'page');
@@ -336,6 +345,7 @@ async function assertDashboardCovers(page: Page, dashboard: Locator) {
     books: [{ workId: 'sample', title: '비교 도서', coverUrl: null, rating: 5 }],
   }], next: null } }));
   await page.getByRole('button', { name: '피드', exact: true }).click();
+  await expect(page.getByRole('navigation', { name: '피드 메뉴' })).toBeVisible();
   const coverSize = () => page.locator('[data-dashboard-book-row] a > div').first().evaluate(cover => {
     const { width, height } = cover.getBoundingClientRect();
     return { width, height };

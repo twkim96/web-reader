@@ -134,7 +134,11 @@ test('browse replaces user search with public book rows grouped by reader', asyn
     assert.equal(rows()[0].querySelector('a').getAttribute('href'), '/people/A1234567');
     assert.ok(rows().every((row) => row.querySelector('[data-dashboard-book-row] a').getAttribute('href') === '#mypage/book/test-book'));
     assert.ok(rows()[0].textContent.includes('다시 읽고 싶어요'));
-    await click(window, main().querySelector('[aria-label="둘러볼 도서"] button:nth-of-type(2)'));
+    assert.equal(main().querySelector('h2')?.textContent, '활기찬사자님이 평점을 남긴 도서');
+    const feedTabs = window.document.querySelector('nav[aria-label="피드 메뉴"]');
+    assert.equal(feedTabs.querySelector('[aria-current="true"]').textContent, '평점을 남긴 도서');
+    await click(window, feedTabs.querySelector('button:nth-of-type(2)'));
+    assert.equal(feedTabs.querySelector('[aria-current="true"]').textContent, '위시리스트');
     assert.deepEqual(rows().map((row) => row.getAttribute('aria-label')), ['조용한토끼님이 담은 도서']);
   } finally {
     await act(async () => root.unmount());

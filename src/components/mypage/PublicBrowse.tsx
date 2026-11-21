@@ -7,12 +7,7 @@ import { myPageRequest } from '../../lib/myPageSocialClient';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { DashboardBookRow } from './DashboardBookRow';
 
-const sections = [
-  { id: 'reviews', label: '평점을 남긴 도서' },
-  { id: 'wishlist', label: '위시리스트' },
-] as const;
-
-function BrowseReaders({ section, owner, onOpenBook }: {
+export function PublicBrowse({ section, owner, onOpenBook }: {
   section: MyPageBrowseSection;
   owner: OwnerKey;
   onOpenBook: (id: string) => void;
@@ -73,21 +68,4 @@ function BrowseReaders({ section, owner, onOpenBook }: {
     {!loading && !error && result?.next && <button type="button" onClick={() => load(result.next)}
       className="min-h-11 px-2 text-sm font-medium text-accent-500">더 보기</button>}
   </div>;
-}
-
-export function PublicBrowse({ owner, onOpenBook }: { owner: OwnerKey; onOpenBook: (id: string) => void }) {
-  const [section, setSection] = useState<MyPageBrowseSection>('reviews');
-  return (
-    <div className="space-y-5 sm:space-y-7">
-      <h2 className="text-xl font-semibold">둘러보기</h2>
-      <div role="group" aria-label="둘러볼 도서" className="flex flex-wrap gap-2">
-        {sections.map(({ id, label }) => (
-          <button key={id} type="button" onClick={() => setSection(id)} aria-pressed={section === id}
-            className={`min-h-10 rounded-full px-3 text-sm font-medium ${section === id
-              ? 'bg-accent-500/10 text-accent-500' : 'opacity-65 hover:opacity-100'}`}>{label}</button>
-        ))}
-      </div>
-      <BrowseReaders key={section} section={section} owner={owner} onOpenBook={onOpenBook} />
-    </div>
-  );
 }
