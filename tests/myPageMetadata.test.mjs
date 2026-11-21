@@ -1,12 +1,29 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createDiscoveryLoader, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
-import { createReadMetadataLoader } from '../src/lib/readBookMetadata.ts';
 import { cacheReadBookMetadata, readCachedReadBookMetadata } from '../src/lib/readBookMetadataCache.ts';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
 import { listLocalBookReviews, removeBookReview, saveBookReview } from '../src/lib/localBookReview.ts';
+
+const hooks = registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (context.parentURL?.endsWith('/readBookMetadata.ts')
+      && ['firebase/firestore', './publicBookMetadata'].includes(specifier)) {
+      return {
+        url: new URL('./fixtures/readBookMetadataDocuments.cjs', import.meta.url).href,
+        format: 'commonjs',
+        shortCircuit: true,
+      };
+    }
+    return nextResolve(specifier, context);
+  },
+});
+const { createReadMetadataLoader, loadReadBookMetadata } = await import('../src/lib/readBookMetadata.ts');
+test.after(() => hooks.deregister());
 
 const index = {
   schemaVersion: 1,
@@ -144,6 +161,70 @@ test('persisted metadata isolates accounts, expires misses, and keeps a newer ma
   assert.deepEqual(await read(), new Map([[title, metadata]]));
   t.mock.timers.tick(55 * 60 * 1000);
   assert.deepEqual(await read(), new Map());
+});
+
+test('an older bucket reused after a title waits in the queue cannot overwrite a newer saved match', async (t) => {
+  const started = Date.UTC(2026, 10, 21, 1);
+  t.mock.timers.enable({ apis: ['Date'], now: started });
+  const owner = 'firebase:bucket-cache-race|library:local';
+  const record = (titleKey) => ({
+    schemaVersion: 1, titleKey, displayTitle: titleKey, normalizerVersion: '1.3.3',
+    publishedAt: new Date(started).toISOString(), platforms: [],
+  });
+  const older = record('old-work');
+  const current = record('new-work');
+  const snapshot = (metadata, fromCache = false) => ({
+    exists: () => true, metadata: { fromCache }, data: () => metadata,
+  });
+  let bucketReads = 0;
+  let waiting = 0;
+  let resume;
+  const gate = new Promise((resolve) => { resume = resolve; });
+  globalThis.readBookTestDocument = async ({ path }) => {
+    if (path === 'shared-bucket') {
+      bucketReads++;
+      return snapshot(older);
+    }
+    if (path === 'offline') return snapshot(record('offline-work'), true);
+    if (path === 'error') throw new Error('offline with no snapshot');
+    waiting++;
+    await gate;
+    return snapshot(record(path));
+  };
+  globalThis.readBookTestTitle = async (title, read) => {
+    const path = ['warm-bucket', 'queued-title'].includes(title) ? 'shared-bucket' : title;
+    return (await read({ path })).data();
+  };
+  try {
+    await loadReadBookMetadata(['warm-bucket']);
+    t.mock.timers.tick(1000);
+    const titles = ['first', 'second', 'third', 'fourth', 'queued-title', 'offline', 'error'];
+    const pending = loadReadBookMetadata(titles, { cacheOwnerKey: owner });
+    for (let attempt = 0; attempt < 30 && waiting < 4; attempt++) await delay(2);
+    assert.equal(waiting, 4, 'the target title is queued behind four active reads');
+    await cacheReadBookMetadata(owner, new Map([['queued-title', { metadata: current, observedAt: Date.now() }]]));
+    t.mock.timers.tick(1000);
+    resume();
+    const result = await pending;
+    assert.deepEqual(result.metadata.get('queued-title'), older);
+    assert.equal(bucketReads, 1);
+    assert.ok(result.failed.has('error'));
+
+    let persisted;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      persisted = await readCachedReadBookMetadata(owner, titles);
+      if (persisted.has('fourth')) break;
+      await delay(2);
+    }
+    assert.ok(persisted.has('fourth'), 'the delayed batch committed to the device cache');
+    assert.deepEqual(persisted.get('queued-title'), current);
+    assert.equal(persisted.has('offline'), false);
+    assert.equal(persisted.has('error'), false);
+  } finally {
+    resume();
+    delete globalThis.readBookTestTitle;
+    delete globalThis.readBookTestDocument;
+  }
 });
 
 test('cleanup cancels unstarted titles and suppresses late updates', async () => {

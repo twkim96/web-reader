@@ -132,7 +132,7 @@ test('allows on-demand metadata and delta point reads but blocks list and client
 
 test('keeps the point-read catalog collection exempt from automatic field indexes', async () => {
   const config = JSON.parse(await readFile('firestore.indexes.json', 'utf8'));
-  assert.deepEqual(config.indexes, []);
+  assert.deepEqual(config.indexes.filter(({ collectionGroup }) => collectionGroup.startsWith('publicBook')), []);
   assert.deepEqual(config.fieldOverrides.filter(({ collectionGroup }) => collectionGroup.startsWith('publicBook')).map(({ collectionGroup }) => collectionGroup), [
     'publicBookCatalogIndexV1',
     'publicBookCatalogDeltaV1',
@@ -142,6 +142,17 @@ test('keeps the point-read catalog collection exempt from automatic field indexe
     assert.equal(override.fieldPath, '*');
     assert.deepEqual(override.indexes, []);
   }
+});
+
+test('defines the collection index used by the bounded public wishlist feed', async () => {
+  const config = JSON.parse(await readFile('firestore.indexes.json', 'utf8'));
+  assert.ok(config.indexes.some(({ collectionGroup, queryScope, fields }) =>
+    collectionGroup === 'myPageWishlistV1' && queryScope === 'COLLECTION'
+    && JSON.stringify(fields) === JSON.stringify([
+      { fieldPath: 'saved', order: 'ASCENDING' },
+      { fieldPath: 'addedAt', order: 'DESCENDING' },
+      { fieldPath: 'workId', order: 'ASCENDING' },
+    ])));
 });
 
 const progressPath = (uid = 'alice') => (

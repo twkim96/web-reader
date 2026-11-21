@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { registerHooks } from 'node:module';
 import { deleteApp, getApps } from 'firebase-admin/app';
-import { Timestamp } from 'firebase-admin/firestore';
+import { GrpcStatus, Timestamp } from 'firebase-admin/firestore';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
@@ -428,6 +428,60 @@ test('authenticated account writes and both public visibility flags share one pu
     await assertFails(setDoc(doc(firestore, 'publicReaderProfilesV1', code), { nickname: 'tampered' }));
     await assertFails(getDoc(doc(firestore, 'artifacts', APP_ID, 'users', uid, 'libraries', 'local', 'myPageSharingV1', 'settings')));
   } finally { await client.cleanup(); }
+});
+
+test('public wishlist feed limits after selecting the newest saves and keeps removed books out', async (t) => {
+  const { idToken, localId: uid } = await emulatorLogin('browse-latest-wishlist');
+  const account = await ok(get({ view: 'account' }, idToken));
+  await ok(post('account', idToken, {
+    nickname: '최근에 담는 독자', visibility: { reviews: false, wishlist: true }, revision: account.revision,
+  }));
+  const works = [...new Set((await loadSocialCatalog()).values())].slice(0, 15);
+  assert.equal(works.length, 15);
+  const db = getAdminFirestore();
+  const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/myPageWishlistV1`);
+  const batch = db.batch();
+  works.forEach(({ id }, index) => batch.set(collection.doc(`save-${String(index).padStart(2, '0')}`), {
+    workId: id, saved: index !== 14, revision: 1, addedAt: index < 3 ? 1000 : 1000 + index,
+  }));
+  await batch.commit();
+
+  let cursor;
+  let group;
+  do {
+    const page = await ok(get({ view: 'browse', section: 'wishlist', ...(cursor ? { cursor } : {}) }));
+    group = page.groups.find(({ reader }) => reader.code === account.code);
+    cursor = page.next;
+  } while (!group && cursor);
+  assert.ok(group);
+  const ids = group.books.map(({ workId }) => workId);
+  const stableOldest = works.slice(0, 3).map(({ id }) => id).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))[0];
+  assert.deepEqual(ids, [...works.slice(3, 14).reverse().map(({ id }) => id), stableOldest]);
+  assert.ok(!ids.includes(works[14].id));
+
+  const own = await ok(get({ view: 'wishlist' }, idToken));
+  assert.equal(own.entries.find(({ item }) => item.workId === works[14].id)?.item.saved, false);
+
+  const indexedQuery = collection.where('saved', '==', true).orderBy('addedAt', 'desc').orderBy('workId', 'asc').limit(12);
+  const queryPrototype = Object.getPrototypeOf(indexedQuery);
+  const original = queryPrototype.get;
+  let rejected = 0;
+  t.mock.method(queryPrototype, 'get', function (...args) {
+    if (this.isEqual(indexedQuery)) {
+      rejected++;
+      return Promise.reject(Object.assign(new Error('The query requires an index'), { code: GrpcStatus.FAILED_PRECONDITION }));
+    }
+    return original.apply(this, args);
+  });
+  cursor = undefined;
+  group = undefined;
+  do {
+    const page = await ok(get({ view: 'browse', section: 'wishlist', ...(cursor ? { cursor } : {}) }));
+    group = page.groups.find(({ reader }) => reader.code === account.code);
+    cursor = page.next;
+  } while (!group && cursor);
+  assert.equal(rejected, 1);
+  assert.deepEqual(group?.books.map(({ workId }) => workId), ids);
 });
 
 test('browse groups the same book by reader and honors both privacy switches and the viewer', async () => {

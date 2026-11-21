@@ -9,8 +9,12 @@ const MAX_TITLES = 256;
 const MAX_CONCURRENT_TITLES = 4;
 
 type CacheEntry<T> = { value: T; expiresAt: number };
-const documents = new Map<string, CacheEntry<Awaited<ReturnType<PublicBookMetadataDocumentReader>>>>();
-const documentReads = new Map<string, ReturnType<PublicBookMetadataDocumentReader>>();
+type DocumentLookup = {
+  snapshot: Awaited<ReturnType<PublicBookMetadataDocumentReader>>;
+  confirmedAt: number | null;
+};
+const documents = new Map<string, CacheEntry<DocumentLookup>>();
+const documentReads = new Map<string, Promise<DocumentLookup>>();
 type TitleLookup = { metadata: PublicBookMetadata | null; confirmedAt: number | null };
 const titles = new Map<string, CacheEntry<TitleLookup>>();
 const titleReads = new Map<string, Promise<TitleLookup>>();
@@ -29,16 +33,18 @@ function putCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, 
   while (cache.size > limit) cache.delete(cache.keys().next().value!);
 }
 
-const readDocument: PublicBookMetadataDocumentReader = (reference) => {
+const readDocument = (reference: Parameters<PublicBookMetadataDocumentReader>[0]): Promise<DocumentLookup> => {
   const key = reference.path;
   const cached = getCached(documents, key);
   if (cached) return Promise.resolve(cached.value);
   const pending = documentReads.get(key);
   if (pending) return pending;
+  const startedAt = Date.now();
   const read = getDoc(reference).then((snapshot) => {
     if (!snapshot.exists() && snapshot.metadata.fromCache) throw new Error('Public metadata unavailable offline');
-    putCached(documents, key, snapshot, MAX_DOCUMENTS);
-    return snapshot;
+    const result = { snapshot, confirmedAt: snapshot.metadata.fromCache ? null : startedAt };
+    putCached(documents, key, result, MAX_DOCUMENTS);
+    return result;
   }).finally(() => documentReads.delete(key));
   documentReads.set(key, read);
   return read;
@@ -53,13 +59,16 @@ function loadTitle(title: string): Promise<TitleLookup> {
   if (pending) return pending;
   const startedAt = Date.now();
   const read = import('./publicBookMetadata').then(async ({ loadPublicBookMetadata }) => {
-    let confirmed = true;
+    // An alias can depend on several documents. Reusing any of them must
+    // preserve its original observation time, including shared in-flight reads.
+    let confirmedAt: number | null = startedAt;
     const metadata = await loadPublicBookMetadata(title, async (reference) => {
-      const snapshot = await readDocument(reference);
-      if (snapshot.metadata.fromCache) confirmed = false;
-      return snapshot;
+      const document = await readDocument(reference);
+      confirmedAt = confirmedAt === null || document.confirmedAt === null
+        ? null : Math.min(confirmedAt, document.confirmedAt);
+      return document.snapshot;
     });
-    const result = { metadata, confirmedAt: confirmed ? startedAt : null };
+    const result = { metadata, confirmedAt };
     putCached(titles, title, result, MAX_TITLES);
     return result;
   }).finally(() => titleReads.delete(title));

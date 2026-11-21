@@ -16,16 +16,18 @@ export function PublicReaderPage({ code }: { code: string }) {
   const [profile, setProfile] = useState<PublicMyPage | null>(null);
   const [theme, setTheme] = useState<React.CSSProperties>();
   const [error, setError] = useState('');
-  const [pending, setPending] = useState<keyof MyPageVisibility>();
+  const [pending, setPending] = useState<keyof MyPageVisibility | 'refresh' | 'sort'>();
   const [reviewSort, setReviewSort] = useState<ReviewListSort>('recent');
   const [loadedReviewSort, setLoadedReviewSort] = useState<ReviewListSort>('recent');
   const selectedReviewSort = useRef<ReviewListSort>('recent');
   const generation = useRef(0);
+  const fullReload = useRef<number | null>(null);
   const reload = useCallback(async () => {
     const current = ++generation.current;
+    fullReload.current = current;
     const sort = selectedReviewSort.current;
     setError('');
-    setPending(undefined);
+    setPending('refresh');
     try {
       const result = await myPageRequest<PublicMyPage>({ view: 'profile', code, reviewSort: sort });
       if (current === generation.current) {
@@ -34,6 +36,9 @@ export function PublicReaderPage({ code }: { code: string }) {
       }
     } catch (error) {
       if (current === generation.current) { setProfile(null); setError((error as Error).message); }
+    } finally {
+      if (fullReload.current === current) fullReload.current = null;
+      if (current === generation.current) setPending(undefined);
     }
   }, [code]);
   useEffect(() => {
@@ -46,7 +51,7 @@ export function PublicReaderPage({ code }: { code: string }) {
     const refresh = () => void reload();
     window.addEventListener('focus', refresh);
     const requests = generation;
-    return () => { requests.current++; window.removeEventListener('focus', refresh); };
+    return () => { requests.current++; fullReload.current = null; window.removeEventListener('focus', refresh); };
   }, [reload]);
 
   const sorting = reviewSort !== loadedReviewSort;
@@ -54,8 +59,12 @@ export function PublicReaderPage({ code }: { code: string }) {
     if (sort === selectedReviewSort.current) return;
     selectedReviewSort.current = sort;
     setReviewSort(sort);
-    setPending(undefined);
+    if (fullReload.current !== null) {
+      void reload();
+      return;
+    }
     const current = ++generation.current;
+    setPending('sort');
     try {
       const result = await myPageRequest<PublicMyPage>({ view: 'profile', code, section: 'reviews', reviewSort: sort });
       if (current !== generation.current) return;
@@ -67,10 +76,12 @@ export function PublicReaderPage({ code }: { code: string }) {
       setLoadedReviewSort(sort);
     } catch {
       if (current === generation.current) void reload();
+    } finally {
+      if (current === generation.current) setPending(undefined);
     }
   };
   const more = async (section: keyof MyPageVisibility, offset: number) => {
-    if (pending || sorting) return;
+    if (pending || sorting || fullReload.current !== null) return;
     setPending(section);
     const current = ++generation.current;
     try {

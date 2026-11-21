@@ -144,9 +144,21 @@ function wishlistItem(data: DocumentData): MyPageWishlistItem {
 export async function listWishlist(db: Firestore, uid: string, includeRemoved = false, limit?: number): Promise<MyPageWishlistItem[]> {
   const collection = wishlist(db, uid);
   const query = includeRemoved ? collection : collection.where('saved', '==', true);
-  const snapshot = await (limit === undefined ? query : query.limit(limit)).get();
-  return snapshot.docs.map((document) => wishlistItem(document.data()))
-    .sort((a, b) => b.addedAt - a.addedAt || a.workId.localeCompare(b.workId));
+  if (limit !== undefined) {
+    try {
+      const snapshot = await query.orderBy('addedAt', 'desc').orderBy('workId', 'asc').limit(limit).get();
+      return snapshot.docs.map((document) => wishlistItem(document.data()));
+    } catch (error) {
+      // Preview and older environments may use the feed while the index builds.
+      const failure = error as { code?: number; message?: string };
+      if (failure.code !== GrpcStatus.FAILED_PRECONDITION || !/index/i.test(failure.message ?? '')) throw error;
+    }
+  }
+  const snapshot = await query.get();
+  const items = snapshot.docs.map((document) => wishlistItem(document.data()))
+    .sort((a, b) => b.addedAt - a.addedAt || (limit === undefined
+      ? a.workId.localeCompare(b.workId) : Buffer.compare(Buffer.from(a.workId), Buffer.from(b.workId))));
+  return limit === undefined ? items : items.slice(0, limit);
 }
 
 async function verifyImportAccount(

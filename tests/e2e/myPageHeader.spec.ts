@@ -208,6 +208,65 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await expect(page.getByRole('region', { name: '위시리스트' }).getByRole('listitem')).toHaveCount(2);
 });
 
+for (const responseOrder of ['refresh-first', 'sort-first'] as const) {
+  test(`public profile focus refresh survives sort and pagination (${responseOrder})`, async ({ page }) => {
+    let releaseRefresh!: () => void;
+    let releaseSort!: () => void;
+    const refreshGate = new Promise<void>(resolve => { releaseRefresh = resolve; });
+    const sortGate = new Promise<void>(resolve => { releaseSort = resolve; });
+    let refreshing = false;
+    let fullRequests = 0;
+    let sectionRequests = 0;
+    const book = (workId: string, title: string) => ({ workId, title, coverUrl: null });
+    await page.route('**/api/mypage?view=profile&code=*', async route => {
+      const params = new URL(route.request().url()).searchParams;
+      if (refreshing && params.has('section')) sectionRequests++;
+      if (refreshing && !params.has('section')) fullRequests++;
+      const initial = !refreshing;
+      const sorted = params.get('reviewSort') === 'rating-desc';
+      if (!initial) await (sorted ? sortGate : refreshGate);
+      await route.fulfill({ json: {
+        identity: { code: '00000001', nickname: '독자' }, visibility: { wishlist: true, reviews: true },
+        wishlist: [book(initial ? 'removed' : 'kept', initial ? '삭제된 위시' : '새 위시')],
+        reviews: [{ ...book(sorted ? 'sorted' : 'recent', sorted ? '정렬된 평가' : '최근 평가'), rating: 4, comment: '' }],
+        next: { wishlist: 30, reviews: null },
+      } });
+    });
+    await page.goto('/people/00000001');
+    const wishlist = page.getByRole('region', { name: '위시리스트' });
+    const reviews = page.getByRole('region', { name: '별점 및 평가' });
+    await expect(wishlist.getByRole('heading', { name: '삭제된 위시', exact: true })).toBeVisible();
+    refreshing = true;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(() => fullRequests).toBe(1);
+    await expect(wishlist.getByRole('button', { name: '더 보기' })).toBeDisabled();
+    await reviews.getByRole('combobox', { name: '공개 평가 정렬' }).selectOption('rating-desc');
+    await expect.poll(() => fullRequests).toBe(2);
+    expect(sectionRequests).toBe(0);
+
+    const firstSorted = responseOrder === 'sort-first';
+    const firstResponse = page.waitForResponse(response => {
+      const params = new URL(response.url()).searchParams;
+      return params.get('view') === 'profile' && (params.get('reviewSort') === 'rating-desc') === firstSorted;
+    });
+    if (firstSorted) releaseSort(); else releaseRefresh();
+    await firstResponse;
+    if (firstSorted) {
+      await expect(reviews.getByRole('heading', { name: '정렬된 평가', exact: true })).toBeVisible();
+      await expect(wishlist.getByRole('heading', { name: '새 위시', exact: true })).toBeVisible();
+    }
+    const secondResponse = page.waitForResponse(response => {
+      const params = new URL(response.url()).searchParams;
+      return params.get('view') === 'profile' && (params.get('reviewSort') === 'rating-desc') !== firstSorted;
+    });
+    if (firstSorted) releaseRefresh(); else releaseSort();
+    await secondResponse;
+    await expect(reviews.getByRole('heading', { name: '정렬된 평가', exact: true })).toBeVisible();
+    await expect(wishlist.getByRole('heading', { name: '새 위시', exact: true })).toBeVisible();
+    await expect(wishlist.getByRole('heading', { name: '삭제된 위시', exact: true })).toHaveCount(0);
+  });
+}
+
 test('My Page keeps all five mobile labels visible and opens its grouped tabs', async ({ page }) => {
   for (const width of [320, 393]) {
     await page.setViewportSize({ width, height: 700 });
