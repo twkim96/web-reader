@@ -181,14 +181,14 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await page.route('**/api/mypage?view=profile&code=*', route => {
     const params = new URL(route.request().url()).searchParams;
     const highest = params.get('reviewSort') === 'rating-desc';
-    const more = params.get('offset') === '30';
+    const more = params.get('cursor') === 'next-review-page';
     const reviews = publicBooks.map((item, index) => ({ ...item, rating: index + 3, comment: '' }));
     return route.fulfill({ json: {
       identity: { code: '00000001', nickname: '독자' }, visibility: { wishlist: true, reviews: true },
       wishlist: params.has('section') ? undefined : publicBooks,
-      reviews: more ? [{ ...reviews[0], workId: 'public-more', title: '추가 공개 도서', rating: highest ? 1 : 5 }]
+      reviews: more ? [reviews[0], { ...reviews[0], workId: 'public-more', title: '추가 공개 도서', rating: highest ? 1 : 5 }]
         : highest ? [...reviews].reverse() : reviews,
-      next: { reviews: more ? null : 30 },
+      next: { reviews: more ? null : 'next-review-page' },
     } });
   });
   await page.goto('/people/00000001');
@@ -200,7 +200,8 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await expect(publicReviews.getByRole('heading', { level: 3 })).toHaveText(['공개 도서 1', '공개 도서 0']);
   const nextReviews = page.waitForRequest(request => {
     const params = new URL(request.url()).searchParams;
-    return params.get('view') === 'profile' && params.get('offset') === '30' && params.get('reviewSort') === 'rating-desc';
+    return params.get('view') === 'profile' && params.get('pagination') === 'cursor'
+      && params.get('cursor') === 'next-review-page' && params.get('reviewSort') === 'rating-desc';
   });
   await publicReviews.getByRole('button', { name: '더 보기' }).click();
   await nextReviews;

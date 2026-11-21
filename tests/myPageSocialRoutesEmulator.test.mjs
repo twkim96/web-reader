@@ -80,6 +80,116 @@ test('public profile sorts all visible reviews before selecting a page', async (
   assert.equal((await get({ ...params, reviewSort: 'unsupported' })).status, 400);
 });
 
+test('public profile cursors survive removal of earlier rows and the boundary itself', async () => {
+  const { idToken, localId: uid } = await emulatorLogin('profile-cursor-removal');
+  const account = await ok(get({ view: 'account' }, idToken));
+  const settings = await ok(post('account', idToken, {
+    nickname: account.nickname, revision: account.revision, visibility: { reviews: true, wishlist: true },
+  }));
+  const works = [...new Set((await loadSocialCatalog()).values())].slice(0, 33);
+  const db = getAdminFirestore();
+  const library = db.doc(`artifacts/${APP_ID}/users/${uid}/libraries/local`);
+  const collections = {
+    reviews: library.collection('myPageReviewsV1'),
+    wishlist: library.collection('myPageWishlistV1'),
+  };
+  const review = (workId, time) => ({
+    workId, revision: 1, rating: 2.5, comment: '', totalMs: null, progressPercent: null,
+    deleted: false, updatedAt: Timestamp.fromMillis(time),
+  });
+  const wishlist = (workId, time) => ({ workId, saved: true, revision: 1, addedAt: time });
+  const entriesFor = { reviews: review, wishlist };
+  const batch = db.batch();
+  const ids = new Map();
+  works.slice(0, 32).forEach(({ id }, index) => {
+    ids.set(id, `row-${index}`);
+    for (const section of ['reviews', 'wishlist']) {
+      batch.set(collections[section].doc(ids.get(id)), entriesFor[section](id, 1000));
+    }
+  });
+  await batch.commit();
+
+  const base = { view: 'profile', code: account.code, pagination: 'cursor', reviewSort: 'rating-desc' };
+  const first = await ok(get(base));
+  const client = await initializeTestEnvironment({ projectId: 'demo-web-reader' });
+  try {
+    for (const context of [client.unauthenticatedContext(), client.authenticatedContext(uid)]) {
+      const ref = doc(context.firestore(), 'serverSecretsV1', 'myPageProfileCursor');
+      await assertFails(getDoc(ref));
+      await assertFails(setDoc(ref, { key: 'new-key' }));
+    }
+  } finally {
+    await client.cleanup();
+  }
+  const expected = works.slice(0, 32).map(({ id }) => id)
+    .sort((a, b) => a.localeCompare(b) || Number(a > b) - Number(a < b));
+  const changes = db.batch();
+  for (const section of ['reviews', 'wishlist']) {
+    assert.deepEqual(first[section].map(({ workId }) => workId), expected.slice(0, 30));
+    assert.equal(typeof first.next[section], 'string');
+    assert.throws(() => JSON.parse(Buffer.from(first.next[section], 'base64url').toString('utf8')));
+    const collection = collections[section];
+    for (const row of [first[section][0], first[section].at(-1)]) {
+      changes.update(collection.doc(ids.get(row.workId)), section === 'reviews' ? { deleted: true } : { saved: false });
+    }
+    changes.set(collection.doc('newer-row'), entriesFor[section](works[32].id, 2000));
+  }
+  await changes.commit();
+
+  for (const section of ['reviews', 'wishlist']) {
+    const params = { ...base, section, cursor: first.next[section] };
+    const rest = await ok(get({ ...params, reviewSort: section === 'wishlist' ? 'recent' : 'rating-desc' }));
+    assert.deepEqual(rest[section].map(({ workId }) => workId), expected.slice(30));
+    assert.equal(rest.next[section], null);
+    assert.equal((await get({ ...params, cursor: 'invalid' })).status, 400);
+    const tampered = (params.cursor[0] === 'A' ? 'B' : 'A') + params.cursor.slice(1);
+    assert.equal((await get({ ...params, cursor: tampered })).status, 400);
+    assert.equal((await get({ ...params, offset: '30' })).status, 400);
+    assert.equal((await get({ ...params, section: section === 'reviews' ? 'wishlist' : 'reviews' })).status, 400);
+    assert.equal((await get({ ...params, code: account.code === '00000000' ? '00000001' : '00000000' })).status, 400);
+  }
+  assert.equal((await get({ ...base, section: 'reviews', cursor: first.next.reviews, reviewSort: 'rating-asc' })).status, 400);
+
+  await ok(post('account', idToken, {
+    nickname: account.nickname, revision: settings.revision, visibility: { reviews: false, wishlist: true },
+  }));
+  assert.equal((await get({ ...base, section: 'reviews', cursor: first.next.reviews })).status, 409);
+  assert.equal((await ok(get(base))).reviews, undefined);
+});
+
+test('public profile chooses one newest evaluation per canonical work before paging', async () => {
+  const { idToken, localId: uid } = await emulatorLogin('profile-canonical-alias');
+  const account = await ok(get({ view: 'account' }, idToken));
+  const catalog = await loadSocialCatalog();
+  const [alias, work] = [...catalog].find(([id, book]) => id !== book.id);
+  const otherWorks = [...new Set(catalog.values())].filter(({ id }) => id !== work.id).slice(0, 30);
+  assert.equal(otherWorks.length, 30);
+  const db = getAdminFirestore();
+  const reviews = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/myPageReviewsV1`);
+  const add = (workId, rating, comment, updatedAt) => ({
+    workId, revision: 1, rating, comment, totalMs: null, progressPercent: null,
+    deleted: false, updatedAt,
+  });
+  const batch = db.batch();
+  otherWorks.forEach(({ id }, index) => batch.set(reviews.doc(`other-${index}`), add(id, 3, '', Timestamp.fromMillis(1000))));
+  batch.set(reviews.doc('canonical'), add(work.id, 5, '이전 평가', new Timestamp(2, 321000000)));
+  batch.set(reviews.doc('alias'), add(alias, 1.5, '최신 평가', new Timestamp(2, 321999000)));
+  await batch.commit();
+
+  const params = { view: 'profile', code: account.code, section: 'reviews', pagination: 'cursor' };
+  const recent = await ok(get(params));
+  assert.equal(recent.reviews[0].workId, work.id);
+  assert.equal(recent.reviews.filter(({ workId }) => workId === work.id).length, 1);
+  assert.equal(recent.reviews[0].comment, '최신 평가');
+  const ranked = await ok(get({ ...params, reviewSort: 'rating-desc' }));
+  assert.deepEqual(new Set(ranked.reviews.map(({ workId }) => workId)), new Set(otherWorks.map(({ id }) => id)));
+  const last = await ok(get({ ...params, reviewSort: 'rating-desc', cursor: ranked.next.reviews }));
+  assert.deepEqual(last.reviews.map(({ workId, rating, comment }) => ({ workId, rating, comment })), [
+    { workId: work.id, rating: 1.5, comment: '최신 평가' },
+  ]);
+  assert.equal(last.next.reviews, null);
+});
+
 test('an on-demand title uses its published edition across account review saves and reloads', async () => {
   const db = getAdminFirestore();
   const { idToken, localId: uid } = await emulatorLogin('mypage-on-demand');

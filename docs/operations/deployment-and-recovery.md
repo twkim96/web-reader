@@ -36,6 +36,8 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 둘러보기의 위시리스트 최신순에는 `myPageWishlistV1`의 저장 여부·저장 시각·작품 키 복합 인덱스가 필요합니다. 운영 반영 시 [인덱스 정의](../../firestore.indexes.json)를 배포하고 인덱스가 준비되면 공개 위시리스트 피드를 확인합니다. 빌드 중에는 저장 항목을 읽어 서버에서 정렬하는 대체 경로가 동작합니다.
 
+공개 마이페이지의 다음 페이지 토큰은 Admin SDK로만 접근하는 `serverSecretsV1/myPageProfileCursor`의 키로 암호화합니다. 첫 토큰 발급 시 서버가 키를 생성하며 여러 서버 인스턴스가 공유합니다. Firebase 클라이언트는 이 경로에 접근할 수 없습니다.
+
 [2026-07-13 production 기준선](../updates/firestore-rules-production-baseline-2026-07-13.md)과 [원문 백업](../backups/firestore.rules.production-2026-07-13.rules)은 당시 v1→v2 배포의 역사적 자료입니다. 배포 설정과 Rules 테스트는 루트의 `firestore.rules`를 읽으며 이 이력 Markdown을 입력으로 사용하지 않습니다. 현재 production Rules는 문서 정리에서 새로 확인하지 않았습니다. 롤백 시 **해당 배포 전에 확인한** 백업을 복원하고, Firestore/IndexedDB 데이터를 삭제하지 않습니다. 오래된 백업은 후속 주석·통계·메타데이터 schema와 맞지 않을 수 있으므로 현재 client와의 호환성을 먼저 확인합니다.
 
 ## 유한 동기화와 영수증 정리

@@ -5,12 +5,18 @@ import Link from 'next/link';
 import { ArrowLeft, Star } from 'lucide-react';
 import { getStoredViewerSettings } from '../../hooks/useViewerSettings';
 import { bookDetailHref } from '../../lib/bookDetail';
-import { formatMyPageIdentity, REVIEW_LIST_SORTS, type ReviewListSort, type MyPageVisibility, type PublicMyPage, type PublicProfileBook } from '../../lib/myPageSocial';
+import { formatMyPageIdentity, REVIEW_LIST_SORTS, type ReviewListSort, type MyPageVisibility, type PublicMyPage, type PublicProfileBook, type PublicProfileNext } from '../../lib/myPageSocial';
 import { myPageRequest } from '../../lib/myPageSocialClient';
 import { getThemeAccentColor, getThemeCssVariables } from '../../lib/themeUtils';
 import { ACCENT_PALETTE } from '../../lib/constants';
 import { BookCover } from './BookCover';
 import { ListSort } from './ListSort';
+
+function appendBooks<T extends PublicProfileBook>(before?: T[], after?: T[]) {
+  const books = new Map(before?.map((book) => [book.workId, book]));
+  for (const book of after ?? []) if (!books.has(book.workId)) books.set(book.workId, book);
+  return [...books.values()];
+}
 
 export function PublicReaderPage({ code }: { code: string }) {
   const [profile, setProfile] = useState<PublicMyPage | null>(null);
@@ -29,7 +35,7 @@ export function PublicReaderPage({ code }: { code: string }) {
     setError('');
     setPending('refresh');
     try {
-      const result = await myPageRequest<PublicMyPage>({ view: 'profile', code, reviewSort: sort });
+      const result = await myPageRequest<PublicMyPage>({ view: 'profile', code, reviewSort: sort, pagination: 'cursor' });
       if (current === generation.current) {
         setProfile(result);
         setLoadedReviewSort(sort);
@@ -66,7 +72,9 @@ export function PublicReaderPage({ code }: { code: string }) {
     const current = ++generation.current;
     setPending('sort');
     try {
-      const result = await myPageRequest<PublicMyPage>({ view: 'profile', code, section: 'reviews', reviewSort: sort });
+      const result = await myPageRequest<PublicMyPage>({
+        view: 'profile', code, section: 'reviews', reviewSort: sort, pagination: 'cursor',
+      });
       if (current !== generation.current) return;
       setProfile((old) => ({
         ...result,
@@ -80,20 +88,21 @@ export function PublicReaderPage({ code }: { code: string }) {
       if (current === generation.current) setPending(undefined);
     }
   };
-  const more = async (section: keyof MyPageVisibility, offset: number) => {
+  const more = async (section: keyof MyPageVisibility, next: PublicProfileNext) => {
     if (pending || sorting || fullReload.current !== null) return;
     setPending(section);
     const current = ++generation.current;
     try {
-      const result = await myPageRequest<PublicMyPage>({ view: 'profile', code, section, offset: String(offset), reviewSort });
+      const pagination: Record<string, string> = typeof next === 'string'
+        ? { pagination: 'cursor', cursor: next } : { offset: String(next) };
+      const result = await myPageRequest<PublicMyPage>({ view: 'profile', code, section, reviewSort, ...pagination });
       if (current !== generation.current) return;
       setProfile((old) => {
         if (!old) return result;
-        const append = <T,>(before: T[] | undefined, after: T[] | undefined) => [...(before ?? []), ...(after ?? [])];
         return {
           identity: result.identity, visibility: result.visibility,
-          wishlist: result.visibility.wishlist ? append(old.wishlist, result.wishlist) : undefined,
-          reviews: result.visibility.reviews ? append(old.reviews, result.reviews) : undefined,
+          wishlist: result.visibility.wishlist ? appendBooks(old.wishlist, result.wishlist) : undefined,
+          reviews: result.visibility.reviews ? appendBooks(old.reviews, result.reviews) : undefined,
           next: { ...old.next, [section]: result.next?.[section] ?? null },
         };
       });
@@ -108,7 +117,7 @@ export function PublicReaderPage({ code }: { code: string }) {
     key: keyof MyPageVisibility, title: string, books: T[] | undefined, detail?: (book: T) => ReactNode,
   ) => {
     if (!profile?.visibility[key]) return null;
-    const offset = profile.next?.[key];
+    const next = profile.next?.[key];
     return (
       <section className="mypage-section space-y-4" aria-label={title}>
         <div className="flex items-center justify-between gap-3">
@@ -126,7 +135,7 @@ export function PublicReaderPage({ code }: { code: string }) {
             </Link>
           </li>)}
         </ul> : <p className="text-sm opacity-65">표시할 책이 없습니다.</p>}
-        {typeof offset === 'number' && !(key === 'reviews' && sorting) && <button type="button" onClick={() => void more(key, offset)} disabled={Boolean(pending) || sorting} className="min-h-10 text-sm text-accent-500 disabled:opacity-50">더 보기</button>}
+        {next != null && !(key === 'reviews' && sorting) && <button type="button" onClick={() => void more(key, next)} disabled={Boolean(pending) || sorting} className="min-h-10 text-sm text-accent-500 disabled:opacity-50">더 보기</button>}
       </section>
     );
   };

@@ -228,18 +228,24 @@ export async function readReview(db: Firestore, uid: string, workId: string): Pr
   return reviewFrom((await reviews(db, uid).doc(workKey(workId)).get()).data());
 }
 
+export async function listDatedReviews(db: Firestore, uid: string) {
+  const snapshot = await reviews(db, uid).where('deleted', '==', false).get();
+  return snapshot.docs.flatMap((document) => {
+    const data = document.data();
+    const review = reviewFrom(data);
+    return review ? [{ review, updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : null }] : [];
+  });
+}
+
 export async function listReviews(db: Firestore, uid: string, latestLimit?: number): Promise<MyPageReview[]> {
-  const collection = reviews(db, uid);
-  // Review deletions replace the document without updatedAt.
-  const query = latestLimit === undefined ? collection.where('deleted', '==', false)
-    : collection.orderBy('updatedAt', 'desc').limit(latestLimit);
-  const snapshot = await query.get();
-  const records = snapshot.docs.map((document) => document.data());
   if (latestLimit === undefined) {
-    const updatedAt = (record: DocumentData) => record.updatedAt instanceof Timestamp ? record.updatedAt.toMillis() : 0;
-    records.sort((a, b) => updatedAt(b) - updatedAt(a));
+    return (await listDatedReviews(db, uid))
+      .sort((a, b) => (b.updatedAt?.toMillis() ?? 0) - (a.updatedAt?.toMillis() ?? 0))
+      .map(({ review }) => review);
   }
-  return records.map(reviewFrom).filter((review) => review !== null);
+  // Review deletions replace the document without updatedAt.
+  const snapshot = await reviews(db, uid).orderBy('updatedAt', 'desc').limit(latestLimit).get();
+  return snapshot.docs.map((document) => reviewFrom(document.data())).filter((review) => review !== null);
 }
 
 export async function listReviewDeletions(db: Firestore, uid: string) {

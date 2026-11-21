@@ -1,10 +1,11 @@
 import { after } from 'next/server';
-import type { Firestore } from 'firebase-admin/firestore';
+import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import { resolveLegacyReviewWork, resolveSocialWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
+import { compareNewestFirst, legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
 import {
-  currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount,
+  currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listDatedReviews, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount,
   updateAccount, updateReview, updateReviewWithStatus, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
@@ -12,13 +13,13 @@ import { BOOK_REVIEW_TEXT_LIMIT, REVIEW_READING_SNAPSHOT_VERSION, isBookRating, 
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
   MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, REVIEW_LIST_SORTS, parseMyPageNickname, parseMyPageVisibility, sortReviewList,
-  type MyPageOwnReviews, type MyPageSavedBook, type PublicBrowseGroup, type PublicBrowsePage, type PublicProfileBook,
+  type MyPageOwnReviews, type MyPageSavedBook, type PublicBrowseGroup, type PublicBrowsePage, type PublicMyPage, type PublicProfileBook,
 } from '../../../lib/myPageSocial';
 
 const MAX_BODY_BYTES = 64_000;
-const PROFILE_PAGE_SIZE = 30;
 const REVIEW_SAVE_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const publicSections = ['reviews', 'wishlist'] as const;
+const epoch = Timestamp.fromMillis(0);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const fail = (status: number) => json({ error: 'request-failed' }, status);
 const evidenceFor = (db: Firestore, uid: string, workId: string, fileIds: readonly string[]) => (
@@ -89,34 +90,81 @@ async function publicBooks<T extends { workId: string }>(db: Firestore, records:
   }))).flatMap((result) => result ? [result] : []);
 }
 
+async function uniquePublicProfileBooks<T extends { workId: string }>(
+  db: Firestore, records: T[], timeFor: (record: T) => string | number,
+) {
+  // Input is newest first. Prefer the canonical record when timestamps tie.
+  const unique = new Map<string, { record: T; book: PublicProfileBook }>();
+  for (let start = 0; start < records.length; start += 20) {
+    for (const entry of await publicBooks(db, records.slice(start, start + 20))) {
+      const id = entry.book.workId;
+      const previous = unique.get(id);
+      if (!previous || (entry.record.workId === id && timeFor(entry.record) === timeFor(previous.record))) {
+        unique.set(id, entry);
+      }
+    }
+  }
+  return [...unique.values()];
+}
+
 async function publicProfile(db: Firestore, params: URLSearchParams) {
   const code = params.get('code')?.toUpperCase() ?? '';
   const section = params.get('section');
   const offset = Number(params.get('offset') ?? 0);
+  const useCursor = params.get('pagination') === 'cursor';
+  const cursorValue = params.get('cursor');
   const reviewSort = REVIEW_LIST_SORTS.find(([id]) => id === (params.get('reviewSort') ?? 'recent'))?.[0];
   if (!reviewSort || !MY_PAGE_CODE.test(code) || !Number.isSafeInteger(offset) || offset < 0
+    || (useCursor && params.has('offset'))
+    || (cursorValue !== null && (!useCursor || section === null))
     || (section !== null && !publicSections.some((candidate) => candidate === section))) return fail(400);
+
+  const cursor = cursorValue === null ? null : await parseProfileCursor(db, cursorValue);
+  if (cursorValue !== null && (!cursor || cursor.code !== code || cursor.section !== section
+    || cursor.sort !== (section === 'wishlist' ? 'recent' : reviewSort))) return fail(400);
 
   const initial = await lookupPublicAccount(db, code);
   if (!initial) return fail(404);
   const { uid, account: { visibility, nickname, revision } } = initial;
-  const window = <T,>(records: readonly T[]) => ({ next: records.length > offset + PROFILE_PAGE_SIZE ? offset + PROFILE_PAGE_SIZE : null, entries: records.slice(offset, offset + PROFILE_PAGE_SIZE) });
+  if (cursor && cursor.revision !== revision) return fail(409);
+  const ratingDirection = reviewSort === 'rating-desc' ? -1 : reviewSort === 'rating-asc' ? 1 : 0;
+  const wishlistWindow = async () => {
+    const items = await listWishlist(db, uid);
+    if (!useCursor) {
+      const page = legacyProfilePage(items, offset);
+      return { ...page, entries: await publicBooks(db, page.entries) };
+    }
+    const entries = await uniquePublicProfileBooks(db, items, (item) => item.addedAt);
+    return profileCursorPage(db, entries, ({ record, book }) => [0, Timestamp.fromMillis(record.addedAt).valueOf(), book.workId],
+      { code, section: 'wishlist', sort: 'recent', revision }, cursor?.key);
+  };
+  const reviewWindow = async () => {
+    if (!useCursor) {
+      const page = legacyProfilePage(sortReviewList(await listReviews(db, uid), reviewSort), offset);
+      return { ...page, entries: await publicBooks(db, page.entries) };
+    }
+    // Timestamp.valueOf() produces a sortable string without the precision loss of toMillis().
+    const records = (await listDatedReviews(db, uid)).map(({ review, updatedAt }) => ({
+      ...review, time: (updatedAt ?? epoch).valueOf(),
+    })).sort((a, b) => compareNewestFirst(a.time, b.time));
+    const entries = await uniquePublicProfileBooks(db, records, (record) => record.time);
+    return profileCursorPage(db, entries, ({ record, book }) => [ratingDirection * record.rating, record.time, book.workId],
+      { code, section: 'reviews', sort: reviewSort, revision }, cursor?.key);
+  };
   const [wishlistPage, reviewsPage] = await Promise.all([
-    visibility.wishlist && (!section || section === 'wishlist') ? listWishlist(db, uid).then((items) => window(items.filter(({ saved }) => saved))) : null,
-    visibility.reviews && (!section || section === 'reviews') ? listReviews(db, uid).then((reviews) => window(sortReviewList(reviews, reviewSort))) : null,
-  ]);
-  const [wishlist, reviews] = await Promise.all([
-    wishlistPage ? publicBooks(db, wishlistPage.entries).then((matches) => matches.map(({ book }) => book)) : undefined,
-    reviewsPage ? publicBooks(db, reviewsPage.entries).then((matches) => matches.map(({ record, book }) => ({ ...book, rating: record.rating, comment: record.comment }))) : undefined,
+    visibility.wishlist && (!section || section === 'wishlist') ? wishlistWindow() : null,
+    visibility.reviews && (!section || section === 'reviews') ? reviewWindow() : null,
   ]);
   const current = await lookupPublicAccount(db, code);
   if (!current) return fail(404);
   if (current.account.revision !== revision) return fail(409);
 
   return json({
-    identity: { code, nickname }, visibility, wishlist, reviews,
+    identity: { code, nickname }, visibility,
+    wishlist: wishlistPage?.entries.map(({ book }) => book),
+    reviews: reviewsPage?.entries.map(({ record, book }) => ({ ...book, rating: record.rating, comment: record.comment })),
     next: { wishlist: wishlistPage?.next, reviews: reviewsPage?.next },
-  });
+  } satisfies PublicMyPage);
 }
 
 async function publicBrowse(request: Request, params: URLSearchParams) {

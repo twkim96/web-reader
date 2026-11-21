@@ -29,12 +29,13 @@ export type PublicProfileBook = { workId: string; title: string; coverUrl: strin
 export type PublicBrowseBook = PublicProfileBook & { rating?: number; comment?: string };
 export type PublicBrowseGroup = { reader: MyPageIdentity; books: PublicBrowseBook[] };
 export type PublicBrowsePage = { groups: PublicBrowseGroup[]; next: string | null };
+export type PublicProfileNext = string | number;
 export type PublicMyPage = {
   identity: MyPageIdentity;
   visibility: MyPageVisibility;
   wishlist?: PublicProfileBook[];
   reviews?: Array<PublicProfileBook & { rating: number; comment: string }>;
-  next?: Partial<Record<keyof MyPageVisibility, number | null>>;
+  next?: Partial<Record<keyof MyPageVisibility, PublicProfileNext | null>>;
 };
 
 export const MY_PAGE_CODE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
