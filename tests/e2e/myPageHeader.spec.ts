@@ -447,13 +447,14 @@ async function assertOtherDividerLists(page: Page, menu: Locator) {
     const date = new Date();
     date.setHours(0, 0, 0, 0);
     const localDate = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+    const durationMs = 120_000;
     for (let i = 0; i < 3; i++) {
-      const startedAtClient = date.getTime() + i * 90_000;
+      const startedAtClient = date.getTime() + i * durationMs;
       const bookId = `divider-${i}`;
       const ownerKey = 'guest:header-test|library:local';
       tx.objectStore(stats).put({
         ownerKey, sessionId: bookId, bookId, bookTitle: i === 0 ? 'menu-test-0' : bookId, schemaVersion: 1, deviceId: 'fixture',
-        mode: 'screen', startedAtClient, endedAtClient: startedAtClient + 60_000, durationMs: 60_000,
+        mode: 'screen', startedAtClient, endedAtClient: startedAtClient + durationMs, durationMs,
         startProgressPercent: 0, endProgressPercent: 5, timezoneOffsetMinutes: date.getTimezoneOffset(), localDate,
         completed: false, syncState: 'synced', retryCount: 0, nextAttemptAt: 0, lastErrorCode: null,
       });
