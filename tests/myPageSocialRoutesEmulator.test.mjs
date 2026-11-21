@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { registerHooks } from 'node:module';
 import { deleteApp, getApps } from 'firebase-admin/app';
+import { Timestamp } from 'firebase-admin/firestore';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
@@ -49,6 +50,35 @@ async function ok(response) {
 }
 const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/api/book-reviews?' + new URLSearchParams({ workId }))));
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
+
+test('public profile sorts all visible reviews before selecting a page', async () => {
+  const { idToken, localId: uid } = await emulatorLogin('mypage-public-review-sort');
+  const account = await ok(get({ view: 'account' }, idToken));
+  const works = [...new Set((await loadSocialCatalog()).values())].slice(0, 31);
+  assert.equal(works.length, 31);
+  const db = getAdminFirestore();
+  const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/myPageReviewsV1`);
+  const batch = db.batch();
+  works.forEach(({ id }, index) => batch.set(collection.doc(`sort-${index}`), {
+    workId: id, revision: 1, rating: index === 0 ? 5 : 2, comment: '', totalMs: null, progressPercent: null,
+    deleted: false, updatedAt: Timestamp.fromMillis((index + 1) * 1000),
+  }));
+  await batch.commit();
+
+  const params = { view: 'profile', code: account.code, section: 'reviews' };
+  const recent = await ok(get(params));
+  assert.equal(recent.reviews[0].workId, works[30].id);
+  assert.equal(recent.reviews.length, 30);
+  assert.equal(recent.next.reviews, 30);
+  assert.ok(!recent.reviews.some(({ workId }) => workId === works[0].id));
+
+  const highest = await ok(get({ ...params, reviewSort: 'rating-desc' }));
+  assert.equal(highest.reviews[0].workId, works[0].id);
+  const rest = await ok(get({ ...params, reviewSort: 'rating-desc', offset: String(highest.next.reviews) }));
+  assert.equal(rest.next.reviews, null);
+  assert.equal(new Set([...highest.reviews, ...rest.reviews].map(({ workId }) => workId)).size, 31);
+  assert.equal((await get({ ...params, reviewSort: 'unsupported' })).status, 400);
+});
 
 test('an on-demand title uses its published edition across account review saves and reloads', async () => {
   const db = getAdminFirestore();

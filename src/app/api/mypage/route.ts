@@ -11,7 +11,7 @@ import { isBookDetailId } from '../../../lib/bookDetail';
 import { BOOK_REVIEW_TEXT_LIMIT, REVIEW_READING_SNAPSHOT_VERSION, isBookRating, parsePublicBookReview } from '../../../lib/publicBookReviews';
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
-  MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, parseMyPageNickname, parseMyPageVisibility,
+  MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, REVIEW_LIST_SORTS, parseMyPageNickname, parseMyPageVisibility, sortReviewList,
   type MyPageOwnReviews, type MyPageSavedBook, type PublicBrowseGroup, type PublicBrowsePage, type PublicProfileBook,
 } from '../../../lib/myPageSocial';
 
@@ -93,16 +93,17 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   const code = params.get('code')?.toUpperCase() ?? '';
   const section = params.get('section');
   const offset = Number(params.get('offset') ?? 0);
-  if (!MY_PAGE_CODE.test(code) || !Number.isSafeInteger(offset) || offset < 0
+  const reviewSort = REVIEW_LIST_SORTS.find(([id]) => id === (params.get('reviewSort') ?? 'recent'))?.[0];
+  if (!reviewSort || !MY_PAGE_CODE.test(code) || !Number.isSafeInteger(offset) || offset < 0
     || (section !== null && !publicSections.some((candidate) => candidate === section))) return fail(400);
 
   const initial = await lookupPublicAccount(db, code);
   if (!initial) return fail(404);
   const { uid, account: { visibility, nickname, revision } } = initial;
-  const window = <T,>(records: T[]) => ({ next: records.length > offset + PROFILE_PAGE_SIZE ? offset + PROFILE_PAGE_SIZE : null, entries: records.slice(offset, offset + PROFILE_PAGE_SIZE) });
+  const window = <T,>(records: readonly T[]) => ({ next: records.length > offset + PROFILE_PAGE_SIZE ? offset + PROFILE_PAGE_SIZE : null, entries: records.slice(offset, offset + PROFILE_PAGE_SIZE) });
   const [wishlistPage, reviewsPage] = await Promise.all([
     visibility.wishlist && (!section || section === 'wishlist') ? listWishlist(db, uid).then((items) => window(items.filter(({ saved }) => saved))) : null,
-    visibility.reviews && (!section || section === 'reviews') ? listReviews(db, uid).then(window) : null,
+    visibility.reviews && (!section || section === 'reviews') ? listReviews(db, uid).then((reviews) => window(sortReviewList(reviews, reviewSort))) : null,
   ]);
   const [wishlist, reviews] = await Promise.all([
     wishlistPage ? publicBooks(db, wishlistPage.entries).then((matches) => matches.map(({ book }) => book)) : undefined,

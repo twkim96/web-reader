@@ -11,8 +11,22 @@ import { findReviewWork, indexReviewWorks, MY_PAGE_DASHBOARD_BOOK_LIMIT, type My
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
+import { ListSort } from './ListSort';
 import { ReviewStar } from './ReviewStar';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
+
+const readSorts = [
+  ['recent', '최근 읽은 순'],
+  ['time', '읽은 시간순'],
+  ['progress', '진행률순'],
+  ['title', '가나다순'],
+] as const;
+type ReadSort = typeof readSorts[number][0];
+const readOrder: Record<Exclude<ReadSort, 'recent'>, (a: ReadBook, b: ReadBook) => number> = {
+  time: (a, b) => b.totalMs - a.totalMs,
+  progress: (a, b) => b.progressPercent - a.progressPercent,
+  title: (a, b) => a.title.localeCompare(b.title, 'ko'),
+};
 
 type Metrics = Pick<ReadBook, 'totalMs' | 'progressPercent'>;
 const formatMetrics = ({ totalMs, progressPercent }: Metrics) => (
@@ -66,6 +80,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   const [error, setError] = useState(false);
   const [loadingMetadata, setLoadingMetadata] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [sort, setSort] = useState<ReadSort>('recent');
   const [visibleCount, setVisibleCount] = useState(20);
   const [failedCount, setFailedCount] = useState(0);
   const accountIndex = useMemo(() => indexReviewWorks(reviews ?? []), [reviews]);
@@ -182,6 +197,8 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   }, [guest, ownerKey, preview, retry]);
 
   const visibleBooks = !guest && retained.current.owner === ownerKey ? books : null;
+  const orderedBooks = useMemo(() => !visibleBooks || sort === 'recent'
+    ? visibleBooks : [...visibleBooks].sort(readOrder[sort]), [sort, visibleBooks]);
   const status = <>
     {guest && <p className="text-sm opacity-60">로그인 후 동기화된 책이 여기에 표시됩니다.</p>}
     {!guest && (!visibleBooks || loadingMetadata) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
@@ -199,12 +216,15 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
 
   return (
     <section aria-label="읽은 책">
-      <h2 className="mb-4 text-lg font-semibold tracking-tight sm:text-xl">
-        읽은 책{visibleBooks && visibleBooks.length > 0 && <span className="ml-2 text-xs font-normal opacity-55">{visibleBooks.length.toLocaleString()}권</span>}
-      </h2>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
+          읽은 책{visibleBooks && visibleBooks.length > 0 && <span className="ml-2 text-xs font-normal opacity-55">{visibleBooks.length.toLocaleString()}권</span>}
+        </h2>
+        <ListSort label="읽은 책 정렬" value={sort} options={readSorts} onChange={setSort} />
+      </div>
       {status}
       <div className="mypage-divided-list">
-        {visibleBooks?.slice(0, visibleCount).map((book) => (
+        {orderedBooks?.slice(0, visibleCount).map((book) => (
           <ReadBookRow key={book.rowKey ?? book.id} book={book} detailId={getDetailId(book)} onOpenBook={onOpenBook} rating={findReviewWork(accountIndex, book)?.rating ?? 0} />
         ))}
       </div>

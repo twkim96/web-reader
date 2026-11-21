@@ -79,6 +79,10 @@ const props = {
   onRefresh() {}, onBack() {},
 };
 const click = async (window, element) => act(async () => element.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true })));
+const select = (window, element, value) => act(async () => {
+  element.querySelector(`option[value="${value}"]`).selected = true;
+  element.dispatchEvent(new window.Event('change', { bubbles: true }));
+});
 
 test('dashboard book sections open the matching detail and full list', async () => {
   const { window, storage, root } = setup('#mypage/overview');
@@ -292,6 +296,12 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     for (let attempt = 0; attempt < 20 && readList().children.length !== 3; attempt++) await act(async () => delay(10));
     const readRows = [...readList().children];
     assert.equal(readRows.length, 3);
+    const readTitles = (rows) => [...rows].map((row) => row.querySelector('h3').textContent);
+    const readSort = visible('select[aria-label="읽은 책 정렬"]');
+    await select(window, readSort, 'title');
+    assert.deepEqual(readTitles(readList().children), readTitles(readRows).sort((a, b) => a.localeCompare(b, 'ko')));
+    await select(window, readSort, 'recent');
+    assert.deepEqual(readTitles(readList().children), readTitles(readRows));
     const unresolvedRow = readRows.find((row) => row.querySelector('h3').textContent === unresolved);
     assert.equal(unresolvedRow.querySelector('a'), null);
     assert.equal(unresolvedRow.querySelector('[data-generated-book-cover-title]').textContent, unresolved);
@@ -399,6 +409,9 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.equal(allReviews().children.length, 1);
     await act(async () => finishUnread());
     assert.equal(allReviews().children.length, 2);
+    const reviewSort = visible('select[aria-label="내 평가 정렬"]');
+    await select(window, reviewSort, 'rating-asc');
+    assert.deepEqual([...allReviews().querySelectorAll('h3')].map(({ textContent }) => textContent), [unread.id, title]);
     await click(window, visible('button[aria-label="공개 설정"]'));
     assert.equal(visible('section[aria-label="프로필 및 공개 설정"] .mypage-divided-list').children.length, 2);
 

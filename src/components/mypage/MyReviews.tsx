@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Star, Trash2 } from 'lucide-react';
-import type { MyPageOwnReviews, MyPageReview } from '../../lib/myPageSocial';
+import { REVIEW_LIST_SORTS, sortReviewList, type MyPageOwnReviews, type MyPageReview, type ReviewListSort } from '../../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
+import { ListSort } from './ListSort';
 
 export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
   owner: OwnerKey;
@@ -18,6 +19,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
   const guest = isGuestOwner(owner);
   const preview = Boolean(onShowAll);
   const [reviews, setReviews] = useState<MyPageReview[]>();
+  const [sort, setSort] = useState<ReviewListSort>('recent');
   const [confirmation, setConfirmation] = useState<MyPageReview>();
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -127,10 +129,13 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
 
   return (
     <section className="space-y-4" aria-label="내 평가">
-      <h2 className="text-xl font-semibold">내 평가</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold">내 평가</h2>
+        <ListSort label="내 평가 정렬" value={sort} options={REVIEW_LIST_SORTS} onChange={setSort} />
+      </div>
       {status}
       {reviews && reviews.length > 0 && <ul className="mypage-divided-list">
-        {reviews.map((review) => (
+        {sortReviewList(reviews, sort).map((review) => (
           <li key={review.workId} className="mypage-book-list-item space-y-2">
             <div className="flex items-center justify-between gap-2">
               <BookDetailLink bookId={review.workId} onOpen={() => onOpenBook(review.workId)}

@@ -222,7 +222,12 @@ export async function listReviews(db: Firestore, uid: string, latestLimit?: numb
   const query = latestLimit === undefined ? collection.where('deleted', '==', false)
     : collection.orderBy('updatedAt', 'desc').limit(latestLimit);
   const snapshot = await query.get();
-  return snapshot.docs.map((document) => reviewFrom(document.data())).filter((review) => review !== null);
+  const records = snapshot.docs.map((document) => document.data());
+  if (latestLimit === undefined) {
+    const updatedAt = (record: DocumentData) => record.updatedAt instanceof Timestamp ? record.updatedAt.toMillis() : 0;
+    records.sort((a, b) => updatedAt(b) - updatedAt(a));
+  }
+  return records.map(reviewFrom).filter((review) => review !== null);
 }
 
 export async function listReviewDeletions(db: Firestore, uid: string) {

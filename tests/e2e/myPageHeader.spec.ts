@@ -64,15 +64,13 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
     const button = bar.querySelector('button')!.getBoundingClientRect();
     const menu = bar.querySelector('nav')!.getBoundingClientRect();
     const shortcuts = bar.querySelector('[role="group"]')!.getBoundingClientRect();
-    const title = bar.querySelector('h1')?.getBoundingClientRect();
     const lastMenuButton = bar.querySelector('nav button:last-child')!.getBoundingClientRect();
     return {
       pinned: Math.abs(top) < 1,
       twoRows: button.bottom <= menu.top && shortcuts.bottom <= menu.top,
-      inline: Boolean(title && button.right <= title.left && title.right <= menu.left
-        && title.top >= menu.top && title.bottom <= menu.bottom && lastMenuButton.right <= menu.right + 1
+      inline: button.right <= menu.left && lastMenuButton.right <= menu.right + 1
         && menu.right <= shortcuts.left && Math.abs(button.top - menu.top) < 1
-        && Math.abs(shortcuts.top - menu.top) < 1),
+        && Math.abs(shortcuts.top - menu.top) < 1,
     };
   });
 
@@ -88,14 +86,13 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
     await expect(menu.getByText('홈')).toHaveCSS('position', 'static');
     await expect(catalog.getByText('도서')).toHaveCSS('position', 'static');
     const title = page.getByRole('heading', { name: '마이페이지', exact: true });
-    const expandedTitleSize = await title.evaluate(heading => parseFloat(getComputedStyle(heading).fontSize));
+    await expect(title).toBeInViewport();
     const collapseAt = await page.getByRole('banner').evaluate((header) => Math.ceil(header.getBoundingClientRect().height / 2));
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate((height) => window.scrollTo(0, height), collapseAt);
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-    await expect(title).toBeInViewport();
-    expect(await title.evaluate(heading => parseFloat(getComputedStyle(heading).fontSize))).toBeLessThan(expandedTitleSize);
+    await expect(page.locator('[data-mypage-menu]').getByRole('heading')).toHaveCount(0);
     await expect(dividers).toHaveCount(1);
     const line = await dividers.boundingBox();
     const shortcutsBox = await shortcuts.boundingBox();
@@ -124,7 +121,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await page.setViewportSize({ width: 640, height: 700 });
   await page.evaluate(() => window.scrollTo(0, 500));
   await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
-  await expect(page.getByRole('heading', { name: '도서 상세정보', exact: true })).toBeInViewport();
+  await expect(page.locator('[data-mypage-menu]').getByRole('heading')).toHaveCount(0);
   await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
   await expect(page).toHaveURL(/#mypage\/discover$/);
   await page.evaluate(() => window.scrollTo(0, 500));
@@ -136,7 +133,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await expect(collection).toHaveAttribute('aria-current', 'page');
   await expect(collectionTabs.getByRole('button')).toHaveText(['읽은 책', '위시리스트', '내 평가']);
   await collectionTabs.getByRole('button', { name: '위시리스트' }).click();
-  const savedBook = page.getByRole('link', { name: '관심 도서 0', exact: true });
+  const savedBook = page.getByRole('link', { name: '관심 도서 19', exact: true });
   await expect(savedBook).toBeAttached();
   await assertDivider(savedBook.locator('..'));
   await page.evaluate(() => window.scrollTo(0, 500));
@@ -181,14 +178,34 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
     expect(layout.gap).toBeLessThan(64);
   }
   const publicBooks = [0, 1].map(index => ({ workId: `public-${index}`, title: `공개 도서 ${index}`, coverUrl: null }));
-  await page.route('**/api/mypage?view=profile&code=*', route => route.fulfill({ json: {
-    identity: { code: '00000001', nickname: '독자' }, visibility: { wishlist: true, reviews: true },
-    wishlist: publicBooks, reviews: publicBooks.map(item => ({ ...item, rating: 5, comment: '' })),
-  } }));
+  await page.route('**/api/mypage?view=profile&code=*', route => {
+    const params = new URL(route.request().url()).searchParams;
+    const highest = params.get('reviewSort') === 'rating-desc';
+    const more = params.get('offset') === '30';
+    const reviews = publicBooks.map((item, index) => ({ ...item, rating: index + 3, comment: '' }));
+    return route.fulfill({ json: {
+      identity: { code: '00000001', nickname: '독자' }, visibility: { wishlist: true, reviews: true },
+      wishlist: params.has('section') ? undefined : publicBooks,
+      reviews: more ? [{ ...reviews[0], workId: 'public-more', title: '추가 공개 도서', rating: highest ? 1 : 5 }]
+        : highest ? [...reviews].reverse() : reviews,
+      next: { reviews: more ? null : 30 },
+    } });
+  });
   await page.goto('/people/00000001');
   for (const name of ['위시리스트', '별점 및 평가']) {
     await assertDivider(page.getByRole('region', { name }).getByRole('listitem').first());
   }
+  const publicReviews = page.getByRole('region', { name: '별점 및 평가' });
+  await publicReviews.getByRole('combobox', { name: '공개 평가 정렬' }).selectOption('rating-desc');
+  await expect(publicReviews.getByRole('heading', { level: 3 })).toHaveText(['공개 도서 1', '공개 도서 0']);
+  const nextReviews = page.waitForRequest(request => {
+    const params = new URL(request.url()).searchParams;
+    return params.get('view') === 'profile' && params.get('offset') === '30' && params.get('reviewSort') === 'rating-desc';
+  });
+  await publicReviews.getByRole('button', { name: '더 보기' }).click();
+  await nextReviews;
+  await expect(publicReviews.getByRole('heading', { level: 3 })).toHaveText(['공개 도서 1', '공개 도서 0', '추가 공개 도서']);
+  await expect(page.getByRole('region', { name: '위시리스트' }).getByRole('listitem')).toHaveCount(2);
 });
 
 test('My Page keeps all five mobile labels visible and opens its grouped tabs', async ({ page }) => {
@@ -237,6 +254,14 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
     await expect(page).toHaveURL(/#mypage\/wishlist$/);
     await expect(collection).toHaveAttribute('aria-current', 'page');
     await expect(saved).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('region', { name: '도서 검색 및 필터' })).toHaveCount(0);
+    const wishlistSort = page.getByRole('combobox', { name: '위시리스트 정렬' });
+    const firstWishlistRow = page.getByRole('region', { name: '도서 목록', exact: true }).getByRole('link').first();
+    await expect(wishlistSort).toHaveValue('saved');
+    await expect(firstWishlistRow).toHaveAccessibleName('관심 도서 19');
+    await wishlistSort.selectOption('title');
+    await expect(firstWishlistRow).toHaveAccessibleName('관심 도서 0');
+    await wishlistSort.selectOption('saved');
     await expect(title).toBeInViewport();
     await page.evaluate(() => window.scrollTo(0, 400));
     await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);

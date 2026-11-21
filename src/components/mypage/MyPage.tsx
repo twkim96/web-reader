@@ -19,6 +19,7 @@ import { DashboardBookRow } from './DashboardBookRow';
 import { MyPageSharingSettings } from './SocialPanels';
 import { PublicBrowse } from './PublicBrowse';
 import { MyReviews } from './MyReviews';
+import { ListSort } from './ListSort';
 import { LibraryAnnotations } from '../LibraryAnnotations';
 import { LibraryReadingStatisticsModal } from '../LibraryReadingStatisticsModal';
 import type { SyncHealth } from '../../lib/syncHealth';
@@ -47,6 +48,19 @@ const feedTabs = [
   { id: 'reviews', label: '평점을 남긴 도서' },
   { id: 'wishlist', label: '위시리스트' },
 ] as const;
+const catalogSorts = [
+  ['popular', '인기순'],
+  ['views', '조회·다운로드순'],
+  ['title', '가나다순'],
+] as const;
+const wishlistSorts = [['saved', '최근 담은 순'], ...catalogSorts] as const;
+type CatalogSort = typeof catalogSorts[number][0];
+type WishlistSort = typeof wishlistSorts[number][0];
+const bookOrder: Record<CatalogSort, (a: DiscoveryBook, b: DiscoveryBook) => number> = {
+  title: (a, b) => a.title.localeCompare(b.title, 'ko'),
+  popular: (a, b) => (b.popularity ?? -1) - (a.popularity ?? -1) || a.title.localeCompare(b.title, 'ko'),
+  views: (a, b) => (b.sourceCount ?? -1) - (a.sourceCount ?? -1) || a.title.localeCompare(b.title, 'ko'),
+};
 const desktopQuery = '(min-width: 640px)';
 const headerActions = [
   { id: 'shelf', label: '내 서재', icon: Library },
@@ -102,10 +116,8 @@ export function MyPage(props: Props) {
   const [source, setSource] = useState('');
   const [genre, setGenre] = useState('');
   const [tag, setTag] = useState('');
-  const [wishlistSort, setWishlistSort] = useState('popular');
-  const [discoverySort, setDiscoverySort] = useState('popular');
-  const sort = tab === 'wishlist' ? wishlistSort : discoverySort;
-  const setSort = tab === 'wishlist' ? setWishlistSort : setDiscoverySort;
+  const [wishlistSort, setWishlistSort] = useState<WishlistSort>('saved');
+  const [discoverySort, setDiscoverySort] = useState<CatalogSort>('popular');
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
@@ -192,17 +204,18 @@ export function MyPage(props: Props) {
   const matchingSource = openedBook?.id === bookId ? openedBook?.book : undefined;
   const readSource = matchingSource && !('platforms' in matchingSource) ? matchingSource : undefined;
   const discoverySource = matchingSource && 'platforms' in matchingSource ? matchingSource : undefined;
-  const browse = tab === 'discover' || tab === 'wishlist';
+  const discovering = tab === 'discover';
+  const browse = discovering || tab === 'wishlist';
   const searchableTitles = useMemo(() => {
     const titles = new Map<string, string[]>();
-    for (const item of (browse ? catalog ?? [] : [])) {
+    for (const item of (discovering ? catalog ?? [] : [])) {
       const id = groupedCatalog?.byId.get(item.id)?.id ?? item.id;
       const values = titles.get(id) ?? [];
       values.push(item.title.normalize('NFC').toLocaleLowerCase());
       titles.set(id, values);
     }
     return titles;
-  }, [browse, catalog, groupedCatalog]);
+  }, [discovering, catalog, groupedCatalog]);
   const readMatch = readSource && groupedCatalog ? resolveReadBookDiscovery(groupedCatalog, readSource) : undefined;
   const detailBook = !bookId ? undefined : readSource ? readMatch?.book : groupedCatalog?.byId.get(bookId)
     ?? discoverySource ?? wishlist.entries.find(({ book }) => book.id === bookId)?.book;
@@ -219,33 +232,30 @@ export function MyPage(props: Props) {
     return () => { active = false; };
   }, [catalog, needsCatalog, retry]);
   const retryCatalog = () => { setCatalogError(false); setRetry((value) => value + 1); };
-  const list = useMemo(() => tab === 'wishlist'
-    ? wishlist.entries.map((entry) => entry.book) : tab === 'discover' ? groupedCatalog?.books ?? [] : [], [groupedCatalog, tab, wishlist.entries]);
-  const genres = useMemo(() => [...new Set(list.flatMap((book) => book.genre ? [book.genre] : []))].sort(), [list]);
+  const discoveryBooks = discovering ? groupedCatalog?.books : undefined;
+  const genres = useMemo(() => [...new Set((discoveryBooks ?? []).flatMap((book) => book.genre ? [book.genre] : []))].sort(), [discoveryBooks]);
   const tags = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const book of list) for (const name of book.tags) counts.set(name, (counts.get(name) ?? 0) + 1);
+    for (const book of discoveryBooks ?? []) for (const name of book.tags) counts.set(name, (counts.get(name) ?? 0) + 1);
     return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120).map(([name]) => name);
-  }, [list]);
-  const sorted = useMemo(() => {
-    const byTitle = (a: DiscoveryBook, b: DiscoveryBook) => a.title.localeCompare(b.title, 'ko');
-    const ordered = [...list];
-    if (sort === 'title') ordered.sort(byTitle);
-    if (sort === 'popular') ordered.sort((a, b) => (b.popularity ?? -1) - (a.popularity ?? -1) || byTitle(a, b));
-    if (sort === 'views') ordered.sort((a, b) => (b.sourceCount ?? -1) - (a.sourceCount ?? -1) || byTitle(a, b));
-    return ordered.map((book) => ({
-      book, titles: searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()],
-    }));
-  }, [list, searchableTitles, sort]);
-  const results = useMemo(() => {
+  }, [discoveryBooks]);
+  const sortedDiscovery = useMemo(() => [...(discoveryBooks ?? [])].sort(bookOrder[discoverySort]), [discoveryBooks, discoverySort]);
+  const discoveryResults = useMemo(() => {
     const normalized = query.trim().normalize('NFC').toLocaleLowerCase();
-    return sorted.filter(({ book, titles }) => (
-      (!normalized || titles.some((title) => title.includes(normalized)))
+    return sortedDiscovery.filter((book) => (
+      (!normalized || (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
+        .some((title) => title.includes(normalized)))
       && (!source || book.platforms.some((platform) => platform.id === source))
       && (!genre || book.genre === genre)
       && (!tag || book.tags.includes(tag))
-    )).map(({ book }) => book);
-  }, [genre, query, sorted, source, tag]);
+    ));
+  }, [genre, query, searchableTitles, sortedDiscovery, source, tag]);
+  const wishlistResults = useMemo(() => {
+    if (tab !== 'wishlist') return [];
+    if (wishlistSort === 'saved') return [...wishlist.entries].sort((a, b) => b.addedAt - a.addedAt).map(({ book }) => book);
+    return wishlist.entries.map(({ book }) => book).sort(bookOrder[wishlistSort]);
+  }, [tab, wishlist.entries, wishlistSort]);
+  const results = discovering ? discoveryResults : wishlistResults;
   const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setTag(''); setVisibleCount(60); };
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
   const detailLabel = tabLabels[tab];
@@ -282,7 +292,7 @@ export function MyPage(props: Props) {
     return (
       <button key={firstTab} type="button" aria-current={selected ? 'page' : undefined}
         onClick={() => openTab(selected ? tab : firstTab)}
-        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 sm:min-h-11 sm:flex-row sm:rounded-xl ${compactMenu ? 'sm:gap-1 sm:px-2 sm:text-[13px] md:gap-1.5 md:px-2.5 md:text-sm' : 'sm:gap-1.5 sm:px-2.5 sm:text-sm'} ${selected ? 'font-semibold text-accent-500 sm:bg-accent-500/10' : 'font-medium opacity-65 hover:bg-current/5 hover:opacity-100'}`}>
+        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 sm:min-h-11 sm:flex-row sm:gap-1.5 sm:rounded-xl sm:px-2.5 sm:text-sm ${selected ? 'font-semibold text-accent-500 sm:bg-accent-500/10' : 'font-medium opacity-65 hover:bg-current/5 hover:opacity-100'}`}>
         <Icon size={19} aria-hidden="true" className="shrink-0" />
         <span>{label}</span>
       </button>
@@ -293,7 +303,7 @@ export function MyPage(props: Props) {
     <div data-my-page="true" className="min-h-dvh [--mypage-title-height:4.8rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
       <header ref={titleRow} className="hidden sm:block">
         <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[5.25rem] pr-32">
-          {!compactMenu && <h1 className="text-[1.4375rem] leading-8 font-semibold tracking-tight">{title}</h1>}
+          <h1 className="text-[1.4375rem] leading-8 font-semibold tracking-tight">{title}</h1>
         </div>
       </header>
       <div className="pointer-events-none sticky top-0 z-30 -mt-[var(--mypage-title-half)] hidden pt-[var(--mypage-title-half)] sm:block">
@@ -305,12 +315,9 @@ export function MyPage(props: Props) {
             {compactMenu && (
               <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
             )}
-            <div className={`flex min-w-0 items-center gap-2 motion-safe:transition-[margin] motion-safe:duration-200 ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
-              {compactMenu && <h1 className="shrink-0 whitespace-nowrap text-sm font-semibold tracking-tight">{title}</h1>}
-              <nav aria-label="마이페이지 메뉴" className="flex min-w-0 flex-1 gap-1">
-                {mainItems}
-              </nav>
-            </div>
+            <nav aria-label="마이페이지 메뉴" className={`flex gap-1 motion-safe:transition-[margin] motion-safe:duration-200 ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
+              {mainItems}
+            </nav>
           </div>
         </div>
       </div>
@@ -363,20 +370,30 @@ export function MyPage(props: Props) {
             ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />
             : <p className="mypage-section text-sm">공개 설정은 로그인 후 이용할 수 있습니다.</p>)}
           {browse && <>
-            <div className="flex items-end justify-between gap-3"><div><h2 className="text-xl font-semibold">{detailLabel}</h2><p className="mt-1.5 text-xs opacity-45">{tab === 'wishlist' ? `담아둔 책 ${wishlist.entries.length.toLocaleString()}권` : groupedCatalog ? `공개 메타데이터 ${groupedCatalog.books.length.toLocaleString()}권` : '공개 메타데이터에서 읽고 싶은 책을 찾아보세요.'}</p></div>{tab === 'wishlist' && <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white"><Plus size={15} />추가</button>}</div>
-            <section aria-label="도서 검색 및 필터" className="space-y-2.5">
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold">{detailLabel}</h2>
+                {discovering
+                  ? <ListSort label="도서 정렬" value={discoverySort} options={catalogSorts} onChange={(sort) => { setDiscoverySort(sort); setVisibleCount(60); }} />
+                  : <ListSort label="위시리스트 정렬" value={wishlistSort} options={wishlistSorts} onChange={(sort) => { setWishlistSort(sort); setVisibleCount(60); }} />}
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs opacity-45">{tab === 'wishlist' ? `담아둔 책 ${wishlist.entries.length.toLocaleString()}권` : groupedCatalog ? `공개 메타데이터 ${groupedCatalog.books.length.toLocaleString()}권` : '공개 메타데이터에서 읽고 싶은 책을 찾아보세요.'}</p>
+                {tab === 'wishlist' && <button type="button" onClick={() => openTab('discover')} className="flex min-h-9 shrink-0 items-center gap-1 px-1 text-xs font-semibold text-accent-500"><Plus size={15} aria-hidden="true" />추가</button>}
+              </div>
+            </div>
+            {discovering && <section aria-label="도서 검색 및 필터" className="space-y-2.5">
               <label className="flex items-center gap-2.5 rounded-lg px-3 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input aria-label="도서 제목 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 검색" className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <select aria-label="도서 플랫폼 필터" value={source} onChange={(event) => { setSource(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 플랫폼</option><option value="series">네이버 시리즈</option><option value="kakao">카카오페이지</option><option value="novelpia">노벨피아</option></select>
                 <select aria-label="도서 장르 필터" value={genre} onChange={(event) => { setGenre(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 장르</option>{genres.map((name) => <option key={name}>{name}</option>)}</select>
                 <select aria-label="도서 태그 필터" value={tag} onChange={(event) => { setTag(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 태그</option>{tags.map((name) => <option key={name}>{name}</option>)}</select>
-                <select aria-label="도서 정렬" value={sort} onChange={(event) => setSort(event.target.value)} className={inputClass}><option value="popular">인기순</option><option value="views">조회·다운로드순</option><option value="title">가나다순</option>{tab === 'wishlist' && <option value="saved">담은 순</option>}</select>
               </div>
-            </section>
+            </section>}
             <section aria-label="도서 목록">
               {loading ? <div role="status" className="py-10 text-center text-sm opacity-65">{tab === 'discover' ? '도서 정보를 불러오는 중…' : '위시리스트를 불러오는 중…'}</div>
               : tab === 'discover' && catalogError ? <div role="alert" className="py-8 text-center"><p className="text-sm opacity-70">도서 정보를 불러오지 못했습니다.</p><button type="button" onClick={retryCatalog} className="mt-3 min-h-10 px-3 text-sm font-medium text-accent-500">다시 시도</button></div>
-              : results.length === 0 ? <div className="py-8 text-center"><BookOpen size={28} className="mx-auto mb-3 opacity-40" /><p className="text-sm opacity-70">{list.length === 0 ? tab === 'wishlist' ? '담아둔 책이 없습니다.' : '공개된 도서 정보가 없습니다.' : '조건에 맞는 책이 없습니다.'}</p>{list.length > 0 && <button type="button" onClick={resetFilters} className="mt-3 text-sm text-accent-500">필터 초기화</button>}</div>
+              : results.length === 0 ? <div className="py-8 text-center"><BookOpen size={28} className="mx-auto mb-3 opacity-40" /><p className="text-sm opacity-70">{tab === 'wishlist' ? '담아둔 책이 없습니다.' : discoveryBooks?.length ? '조건에 맞는 책이 없습니다.' : '공개된 도서 정보가 없습니다.'}</p>{Boolean(discoveryBooks?.length) && <button type="button" onClick={resetFilters} className="mt-3 text-sm text-accent-500">필터 초기화</button>}</div>
               : <div className="mypage-divided-list">
                 {results.slice(0, visibleCount).map((book) => {
                   const saved = wishlist.savedIds.has(book.id);

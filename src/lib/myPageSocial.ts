@@ -39,6 +39,18 @@ export type PublicMyPage = {
 
 export const MY_PAGE_CODE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
 export const MY_PAGE_DASHBOARD_BOOK_LIMIT = 12;
+export const REVIEW_LIST_SORTS = [
+  ['recent', '최근 평가순'],
+  ['rating-desc', '별점 높은 순'],
+  ['rating-asc', '별점 낮은 순'],
+] as const;
+export type ReviewListSort = typeof REVIEW_LIST_SORTS[number][0];
+
+export function sortReviewList<T extends { rating: number }>(reviews: readonly T[], sort: ReviewListSort) {
+  if (sort === 'recent') return reviews;
+  const direction = sort === 'rating-desc' ? -1 : 1;
+  return [...reviews].sort((a, b) => direction * (a.rating - b.rating));
+}
 export const publicReaderHref = (code: string) => `/people/${encodeURIComponent(code)}`;
 export const hasPublicMyPage = (visibility: MyPageVisibility) => visibility.reviews || visibility.wishlist;
 export const formatMyPageIdentity = ({ nickname, code }: MyPageIdentity) => `${nickname}#${code}`;
