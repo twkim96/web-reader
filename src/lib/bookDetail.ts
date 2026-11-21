@@ -25,7 +25,14 @@ export const isBookDetailId = (id: unknown): id is string =>
   typeof id === 'string' && id.length <= 500 && id.trim().length > 0 && !/[\u0000-\u001f\u007f]/u.test(id);
 
 type Range = [number, number];
-export type PersonalBookReading = { bookmarks: Bookmark[]; totalMs: number; progressPercent: number; fileIds: string[]; hasRead: boolean };
+export type PersonalBookReading = {
+  bookmarks: Bookmark[];
+  totalMs: number;
+  progressPercent: number;
+  fileIds: string[];
+  reviewFileIds: string[] | null;
+  hasRead: boolean;
+};
 
 const visibleReadingSessions = (sessions: readonly StoredReadingSessionV11[], ownerKey: OwnerKey, hidden: ReadonlySet<string>) => (
   sessions.filter((session) => session.ownerKey === ownerKey
@@ -90,22 +97,30 @@ export function buildPersonalBookReading({
     { titleKey: 'detail', platformWorkKeys },
     ...works.map((metadata) => ({ titleKey: workIds.get(metadata)!, platformWorkKeys: getPlatformWorkKeys(metadata) })),
   ]);
-  const fileIds = new Set(knownFileIds);
+  const matchedFiles = new Set<string>();
+  const identifiedFiles = new Set<string>();
   const conflicts = new Set<string>();
   const resolveFile = (id: string, title: string) => {
     const metadata = metadataByTitle?.get(title);
+    if (metadata) identifiedFiles.add(id);
     if (metadata && platformWorkKeys.length && metadata.platforms.length) {
-      if (findTitle('detail') === findTitle(workIds.get(metadata)!)) fileIds.add(id);
+      if (findTitle('detail') === findTitle(workIds.get(metadata)!)) matchedFiles.add(id);
       else conflicts.add(id);
     } else if (getPublicBookMetadataAliasCandidates(metadata?.titleKey ?? title).some((alias) => aliases.has(alias))) {
-      fileIds.add(id);
+      matchedFiles.add(id);
+      identifiedFiles.add(id);
     }
   };
   const visible = visibleReadingSessions(sessions, ownerKey, hidden);
   for (const { id, name } of books) resolveFile(id, name);
   for (const { bookId, bookTitle } of visible) resolveFile(bookId, bookTitle);
-  for (const id of conflicts) fileIds.delete(id);
-  if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, progressPercent: 0, fileIds: [], hasRead: false };
+  // The read list's remembered file IDs support private display only. A
+  // matched name for the same file can identify a session under an old name.
+  const incompleteHistory = visible.some(({ bookId, syncState }) => syncState === 'synced'
+    && (!identifiedFiles.has(bookId) || (matchedFiles.has(bookId) && conflicts.has(bookId))));
+  const reviewFileIds = incompleteHistory ? null : [...matchedFiles].filter((id) => !conflicts.has(id));
+  const fileIds = new Set([...knownFileIds, ...matchedFiles].filter((id) => !conflicts.has(id)));
+  if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, progressPercent: 0, fileIds: [], reviewFileIds, hasRead: false };
 
   const bookmarks = new Map<string, Bookmark>();
   let hasRead = false;
@@ -145,5 +160,5 @@ export function buildPersonalBookReading({
   }
   const progressPercent = ranges.reduce((highest, [start, end]) =>
     end + 1e-9 >= start + 2 ? Math.max(highest, end) : highest, 0);
-  return { bookmarks: [...bookmarks.values()].sort((a, b) => b.createdAt - a.createdAt), totalMs, progressPercent, fileIds: [...fileIds], hasRead };
+  return { bookmarks: [...bookmarks.values()].sort((a, b) => b.createdAt - a.createdAt), totalMs, progressPercent, fileIds: [...fileIds], reviewFileIds, hasRead };
 }

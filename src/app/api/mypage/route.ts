@@ -8,7 +8,7 @@ import {
   updateAccount, updateReview, updateReviewWithStatus, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
-import { BOOK_REVIEW_TEXT_LIMIT, isBookRating, parsePublicBookReview } from '../../../lib/publicBookReviews';
+import { BOOK_REVIEW_TEXT_LIMIT, REVIEW_READING_SNAPSHOT_VERSION, isBookRating, parsePublicBookReview } from '../../../lib/publicBookReviews';
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
   MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, parseMyPageNickname, parseMyPageVisibility,
@@ -279,7 +279,7 @@ export async function POST(request: Request) {
       return json({ item, book: resolved.book, aliases: resolved.equivalentWorkIds });
     }
     if (action === 'review') {
-      const { rating, comment, fileIds, readingSnapshot, saveId } = input;
+      const { rating, comment, fileIds, readingSnapshot, readingSnapshotVersion, saveId } = input;
       if (!isBookRating(rating)
         || typeof comment !== 'string' || comment.length > BOOK_REVIEW_TEXT_LIMIT || /[\r\n]/.test(comment)
         || !Array.isArray(fileIds) || fileIds.length > 32
@@ -288,11 +288,17 @@ export async function POST(request: Request) {
       const local = readingSnapshot && typeof readingSnapshot === 'object'
         ? parsePublicBookReview({ ...readingSnapshot, rating, comment }) : null;
       if (readingSnapshot != null && !local) return fail(400);
-      // Older clients omitted the field and expect the server snapshot in this response.
-      const evidence = readingSnapshot === undefined
-        ? await evidenceFor(db, uid, resolved.book.id, fileIds) : local;
-      const { review, applied } = await updateReviewWithStatus(db, uid, workId, { ...evidence, rating, comment: comment.trim() }, revision, importOnly, accountRevision, resolved.equivalentWorkIds, saveId);
-      if (applied && review && readingSnapshot === null && !importOnly) {
+      // Older clients could send an incomplete snapshot based on the entry
+      // screen. Accept their rating, and use server evidence for a blank review.
+      const verified = readingSnapshotVersion === REVIEW_READING_SNAPSHOT_VERSION ? local : null;
+      // Clients that omitted the snapshot expect server evidence in this response.
+      const fallback = readingSnapshot === undefined
+        ? await evidenceFor(db, uid, resolved.book.id, fileIds) : undefined;
+      const { review, applied } = await updateReviewWithStatus(
+        db, uid, workId, { ...verified, rating, comment: comment.trim() }, revision, importOnly, accountRevision,
+        resolved.equivalentWorkIds, saveId, fallback,
+      );
+      if (applied && review && review.totalMs == null && review.progressPercent == null && !verified && readingSnapshot !== undefined && !importOnly) {
         after(async () => {
           const snapshot = await evidenceFor(db, uid, resolved.book.id, fileIds);
           if (snapshot?.totalMs == null || snapshot.progressPercent == null) return;

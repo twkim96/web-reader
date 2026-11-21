@@ -153,6 +153,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
   const incomplete = '조회가 실패한 파일';
   const renamed = '예전 파일 이름';
   let failHistoryMetadata = true;
+  let loseEditionMetadata = false;
   let failOldName = true;
   const firstURL = 'https://books.example/first';
   const secondURL = 'https://books.example/second';
@@ -162,7 +163,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     for (const name of titles) {
       if ((name === incomplete && failHistoryMetadata) || (name === renamed && failOldName)) {
         result.failed.add(name);
-      } else if (name === renamed) {
+      } else if (name === renamed || (name === incomplete && loseEditionMetadata)) {
         result.metadata.set(name, null);
       } else {
         const url = name === title ? firstURL : name === alias || name === incomplete ? secondURL
@@ -312,6 +313,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     await click(window, editor().querySelector('button[aria-label="3점"]'));
     await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.deepEqual(secondWrites[1].readingSnapshot, { totalMs: 120_000, progressPercent: 90 });
+    assert.equal(secondWrites[1].readingSnapshotVersion, 1);
     await click(window, editor().querySelector('button[aria-label="3점"]'));
     await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '평가 삭제'));
     const expectedKeys = [JSON.stringify(['series', secondURL]), JSON.stringify(['kakao', pendingURL])];
@@ -390,6 +392,41 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.equal(allReviews().children.length, 2);
     await click(window, visible('button[aria-label="공개 설정"]'));
     assert.equal(visible('section[aria-label="프로필 및 공개 설정"] .mypage-divided-list').children.length, 2);
+
+    // The visible read list retains the old metadata. The detail requests it
+    // again and receives null for a separate edition of the same work.
+    await openMenu('읽은 책');
+    const editionLink = () => visible('a[href="#mypage/book/published-second/review"]');
+    const editionRow = () => editionLink()?.closest('article');
+    for (let n = 0; n < 20 && !editionRow()?.textContent.includes('2분 읽음'); n++) {
+      await act(async () => delay(10));
+    }
+    assert.match(editionRow()?.textContent ?? '', /2분 읽음/);
+    loseEditionMetadata = true;
+    await click(window, editionLink());
+    const saveRatingWithPersonalTime = async (time) => {
+      const record = () => visible('[aria-label="내 독서 기록"]');
+      const star = () => editor()?.querySelector('button[aria-label="3점"]');
+      for (let n = 0; n < 20 && (!record()?.textContent.includes(time) || !star() || star().disabled); n++) {
+        await act(async () => delay(10));
+      }
+      assert.match(record()?.textContent ?? '', new RegExp(time));
+      await click(window, star());
+      await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    };
+    await saveRatingWithPersonalTime('2분');
+    const directHash = window.location.hash;
+    await act(async () => root.render(null));
+    window.location.hash = directHash;
+    await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
+    await saveRatingWithPersonalTime('1분');
+    assert.equal(secondWrites.length, 5);
+    for (const request of secondWrites.slice(3)) {
+      assert.equal(request.rating, 3);
+      assert.equal(request.readingSnapshot, null);
+      assert.deepEqual(request.fileIds, []);
+      assert.equal(request.readingSnapshotVersion, undefined);
+    }
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

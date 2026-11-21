@@ -203,9 +203,10 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     knownFileIds: readBook?.fileIds ?? [],
   }), [work, bookId, historyMetadata, readingInput, readBook]);
   const completeHistory = history && !historyFailed && (historyTitles === '[]' || historyResult?.failed.size === 0);
-  const readingSnapshot = useMemo(() => completeHistory
-    ? buildLocalReviewReading(history.sessions, ownerKey, history.hidden, personal.fileIds)
-    : null, [completeHistory, history, ownerKey, personal.fileIds]);
+  const reviewFileIds = completeHistory ? personal.reviewFileIds : null;
+  const readingSnapshot = useMemo(() => history && reviewFileIds
+    ? buildLocalReviewReading(history.sessions, ownerKey, history.hidden, reviewFileIds)
+    : null, [history, ownerKey, reviewFileIds]);
   const reviewPlatformKeys = [...new Set([...work.platformWorkKeys, ...(readBook?.platformWorkKeys ?? [])])];
   const title = discovery?.title ?? metadata?.displayTitle ?? readBook?.title;
   useEffect(() => {
@@ -288,7 +289,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       )}
       {Boolean(historyResult?.failed.size) && <p role="status" className="text-sm opacity-65">일부 독서 기록을 연결하지 못했습니다. <button type="button" className="text-accent-500" onClick={() => retryHistoryMetadata((value) => value + 1)}>기록 다시 연결</button></p>}
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
-      <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={completeHistory ? personal.fileIds : []}
+      <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={reviewFileIds ?? []}
         readingSnapshot={readingSnapshot} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
         ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
         error={reviews.error} refresh={reviews.refresh} change={reviews.change} headingRef={reviewHeading} />

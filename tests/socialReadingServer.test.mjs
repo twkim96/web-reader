@@ -79,14 +79,30 @@ test('published aliases prove reading while private titles and unrelated file hi
   const buckets = new Map();
   for (const id of [aliasId, canonicalId]) buckets.set(id.slice(0, 2), { ...buckets.get(id.slice(0, 2)), [id]: metadata });
   const session = { schemaVersion: 1, sessionId: 's1', bookId: 'private-file', bookTitle: 'secretfilename.txt', deviceId: 'd1', mode: 'screen', startedAtClient: 1000, endedAtClient: 3000, durationMs: 2000, startProgressPercent: 1, endProgressPercent: 10, timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false };
+  const sessions = [session];
   const empty = () => ({ docs: [] });
   const stats = {
     orderBy(field) {
-      return { limit: () => ({ get: async () => field === 'uploadedAtServer' ? empty() : { docs: [{ id: 's1', data: () => session }] } }) };
+      return { limit: () => ({ get: async () => field === 'uploadedAtServer' ? empty() : { docs: sessions.map((record) => ({ id: record.sessionId, data: () => record })) } }) };
     },
   };
   const db = { collection(path) { return path.endsWith('readingStatsV1') ? stats : { doc(id) { const data = path === 'publicBookMetadataV1' && buckets.has(id) ? { schemaVersion: 1, entries: buckets.get(id) } : undefined; return { get: async () => ({ exists: Boolean(data), data: () => data }) }; } }; } };
   assert.equal((await resolveSocialWork(db, 'secretfilename.txt')).book.id, book.id);
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['private-file']), { totalMs: 2000, progressPercent: 10 });
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['other-file']), { totalMs: null, progressPercent: null });
+
+  const oldName = { ...session, sessionId: 's2', bookTitle: 'unmatched-book-name.txt', startedAtClient: 4000, endedAtClient: 6000 };
+  sessions.push(oldName);
+  assert.deepEqual(await getSocialReadingEvidence(db, 'renamed', book.id, ['private-file']), { totalMs: 4000, progressPercent: 10 });
+  sessions[1] = { ...oldName, bookId: 'unidentified-file' };
+  assert.deepEqual(await getSocialReadingEvidence(db, 'incomplete', book.id, ['private-file']), { totalMs: null, progressPercent: null });
+
+  const [other, unrelated] = [...new Set(catalog.values())].filter((work) => work.id !== book.id);
+  sessions[1] = { ...oldName, bookTitle: book.id, bookId: 'conflicted-file' };
+  sessions.push(
+    { ...oldName, sessionId: 's3', bookTitle: other.id, bookId: 'conflicted-file', startedAtClient: 7000, endedAtClient: 9000 },
+    { ...oldName, sessionId: 's4', bookTitle: unrelated.id, bookId: 'unrelated-file', startedAtClient: 10000, endedAtClient: 12000 },
+  );
+  assert.deepEqual(await getSocialReadingEvidence(db, 'conflicted', book.id, ['private-file']), { totalMs: null, progressPercent: null });
+  assert.deepEqual(await getSocialReadingEvidence(db, 'conflicted', unrelated.id, ['unrelated-file']), { totalMs: 2000, progressPercent: 10 });
 });

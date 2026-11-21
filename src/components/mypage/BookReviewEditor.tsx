@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, type FormEvent, type Ref } from 'react';
-import { BOOK_REVIEW_TEXT_LIMIT } from '../../lib/publicBookReviews';
+import { BOOK_REVIEW_TEXT_LIMIT, REVIEW_READING_SNAPSHOT_VERSION } from '../../lib/publicBookReviews';
 import type { MyPageReview, MyPageReviewDeletion } from '../../lib/myPageSocial';
 import { myPageRequest, saveMyPageReview } from '../../lib/myPageSocialClient';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
@@ -56,6 +56,7 @@ export function BookReviewEditor({
         ...fields, workId: targetId, detailWorkId: workId, revision: target?.revision ?? null,
         platformWorkKeys,
         fileIds: fileIds.slice(0, 32), readingSnapshot,
+        ...(readingSnapshot ? { readingSnapshotVersion: REVIEW_READING_SNAPSHOT_VERSION } : {}),
       });
       change(saved, targetId);
     } catch (failure) {

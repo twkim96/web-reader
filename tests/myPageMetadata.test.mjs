@@ -158,8 +158,65 @@ test('a direct detail lookup resolves transitive published aliases and keeps loc
   };
   const { metadata } = await lookup(getWorkReadingTitles(reading));
   const direct = buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: [] });
-  assert.deepEqual(direct, { totalMs: 120_000, progressPercent: 9, fileIds: ['private-id', 'bridge-id'], bookmarks: [bookmark], hasRead: true });
+  assert.deepEqual(direct, {
+    totalMs: 120_000, progressPercent: 9, fileIds: ['private-id', 'bridge-id'],
+    reviewFileIds: ['private-id', 'bridge-id'], bookmarks: [bookmark], hasRead: true,
+  });
   assert.deepEqual(direct, buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: ['private-id', 'bridge-id'] }));
+});
+
+test('a file that loses its metadata cannot give list and direct detail different review evidence', async () => {
+  const ownerKey = 'firebase:missing-metadata|library:local';
+  const start = Date.UTC(2026, 10, 20, 5);
+  const platform = { platform: 'series', url: 'https://books.example/book' };
+  const metadata = { titleKey: 'published', platforms: [platform] };
+  const makeSession = (bookId, bookTitle, offset, durationMs, endProgressPercent) => ({
+    schemaVersion: 1, ownerKey, sessionId: bookId, bookId, bookTitle, deviceId: 'device',
+    startedAtClient: start + offset, endedAtClient: start + offset + durationMs, durationMs,
+    localDate: '2026-11-20', timezoneOffsetMinutes: 0, mode: 'screen', completed: false,
+    startProgressPercent: 0, endProgressPercent, syncState: 'synced',
+  });
+  const primary = makeSession('primary', '첫 번째 파일.epub', 0, 60_000, 20);
+  const edition = makeSession('edition', '다른 판본.txt', 120_000, 120_000, 80);
+  const sessions = [primary, edition];
+  const hidden = new Set();
+  const input = {
+    ownerKey, sessions, hidden, books: [], progress: {}, titleKeys: ['published'],
+    platformWorkKeys: [platformWorkKey(platform.platform, platform.url)],
+  };
+  const load = createReadMetadataLoader(async (title) => title === primary.bookTitle ? metadata : null);
+  const missing = await load(sessions.map(({ bookTitle }) => bookTitle));
+  assert.equal(missing.failed.size, 0);
+  const fromList = buildPersonalBookReading({ ...input, metadataByTitle: missing.metadata, knownFileIds: ['primary', 'edition'] });
+  const direct = buildPersonalBookReading({ ...input, metadataByTitle: missing.metadata, knownFileIds: [] });
+  assert.equal(fromList.totalMs, 180_000);
+  assert.equal(direct.totalMs, 60_000);
+  assert.equal(fromList.reviewFileIds, null);
+  assert.equal(direct.reviewFileIds, null);
+
+  const resolved = new Map(missing.metadata).set(edition.bookTitle, metadata);
+  const recovered = buildPersonalBookReading({ ...input, metadataByTitle: resolved, knownFileIds: [] });
+  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, recovered.reviewFileIds), {
+    totalMs: 180_000, progressPercent: 80,
+  });
+
+  // A missing old name poses no problem when both records are for the
+  // same file and its other name still identifies the work.
+  const otherName = makeSession(edition.bookId, '다른 작품으로 연결된 이름.txt', 300_000, 60_000, 10);
+  const conflict = new Map(resolved).set(otherName.bookTitle, {
+    titleKey: 'another-work', platforms: [{ ...platform, url: 'https://books.example/other' }],
+  });
+  const ambiguous = buildPersonalBookReading({
+    ...input, sessions: [...sessions, otherName], metadataByTitle: conflict, knownFileIds: ['primary', 'edition'],
+  });
+  assert.deepEqual(ambiguous.fileIds, ['primary']);
+  assert.equal(ambiguous.reviewFileIds, null);
+
+  const sameFile = [primary, { ...edition, bookId: primary.bookId }];
+  const renamed = buildPersonalBookReading({ ...input, sessions: sameFile, metadataByTitle: missing.metadata, knownFileIds: [] });
+  assert.deepEqual(buildLocalReviewReading(sameFile, ownerKey, hidden, renamed.reviewFileIds), {
+    totalMs: 180_000, progressPercent: 80,
+  });
 });
 
 test('review evidence uses the highest synced progress even below the detail display threshold', () => {
@@ -177,6 +234,6 @@ test('review evidence uses the highest synced progress even below the detail dis
     ownerKey, books: [], hidden, sessions: [session], progress: {}, knownFileIds: [], titleKeys: ['title'],
   });
   assert.equal(direct.progressPercent, 0);
-  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, direct.fileIds), { totalMs: 60_000, progressPercent: 80 });
+  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, direct.reviewFileIds), { totalMs: 60_000, progressPercent: 80 });
   assert.equal(buildLocalReviewReading(sessions, ownerKey, new Set([session.sessionId]), direct.fileIds), null);
 });

@@ -15,7 +15,9 @@ const REVIEW_LIMIT = 20;
 const REVIEW_PAGE_SIZE = 100;
 
 type ReviewFields = Pick<MyPageReview, 'rating' | 'comment' | 'totalMs' | 'progressPercent'>;
-type ReviewUpdate = Pick<ReviewFields, 'rating' | 'comment'> & Partial<Pick<ReviewFields, 'totalMs' | 'progressPercent'>>;
+type ReviewReading = Pick<ReviewFields, 'totalMs' | 'progressPercent'>;
+type ReviewUpdate = Pick<ReviewFields, 'rating' | 'comment'> & Partial<ReviewReading>;
+const hasReviewReading = (review: ReviewReading | null) => review?.totalMs != null || review?.progressPercent != null;
 
 export class ConflictError extends Error {
   readonly status = 409;
@@ -233,6 +235,7 @@ export async function listReviewDeletions(db: Firestore, uid: string) {
 async function mutateReview(
   db: Firestore, uid: string, workId: string, fields: ReviewUpdate | null, expectedRevision: number | null,
   importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [], saveId?: string,
+  fallbackReading?: ReviewReading,
 ): Promise<{ review: MyPageReview | null; applied: boolean }> {
   const account = importOnly ? null : await ensureAccount(db, uid);
   const ref = reviews(db, uid).doc(workKey(workId));
@@ -264,7 +267,10 @@ async function mutateReview(
       return { review: null, applied: true };
     }
     const previous = reviewFrom(current);
-    const { rating, comment, totalMs = previous?.totalMs ?? null, progressPercent = previous?.progressPercent ?? null } = fields;
+    // A server fallback can fill missing evidence but may have a different
+    // view of the device's history. Only a fresh local snapshot replaces it.
+    const retained = hasReviewReading(previous) ? previous : fallbackReading;
+    const { rating, comment, totalMs = retained?.totalMs ?? null, progressPercent = retained?.progressPercent ?? null } = fields;
     const review = { workId, revision, rating, comment, totalMs, progressPercent };
     const publishedAt = FieldValue.serverTimestamp();
     transaction.set(ref, { ...review, deleted: false, updatedAt: publishedAt, ...(saveId ? { lastSaveId: saveId } : {}) });
@@ -281,14 +287,14 @@ export const updateReviewWithStatus = mutateReview;
 
 export async function fillReviewReading(
   db: Firestore, uid: string, saved: Pick<MyPageReview, 'workId' | 'revision'>,
-  snapshot: Pick<ReviewFields, 'totalMs' | 'progressPercent'>,
+  snapshot: ReviewReading,
 ) {
   const code = (await ownerRef(db, uid).get()).get('code') as string | undefined;
   if (!code) return;
   const ref = reviews(db, uid).doc(workKey(saved.workId));
   await db.runTransaction(async (transaction) => {
     const current = reviewFrom((await transaction.get(ref)).data());
-    if (current?.revision !== saved.revision) return;
+    if (current?.revision !== saved.revision || hasReviewReading(current)) return;
     transaction.update(ref, snapshot);
     transaction.update(workEntries(db, saved.workId).doc(code), snapshot);
   });

@@ -185,7 +185,7 @@ test('local review reading saves immediately and missing reading fills after the
   const input = { workId, rating: 4, comment: '', revision: null, fileIds: ['fallback-file'] };
   const local = { totalMs: 45000, progressPercent: 41 };
   assert.equal((await post('review', idToken, { ...input, readingSnapshot: { ...local, progressPercent: 101 } })).status, 400);
-  const { review: initial } = await save({ ...input, readingSnapshot: local });
+  const { review: initial } = await save({ ...input, readingSnapshot: local, readingSnapshotVersion: 1 });
   assert.equal(initial.totalMs, local.totalMs);
   assert.equal(initial.progressPercent, local.progressPercent);
   assert.equal(sessionQueries, 0);
@@ -212,14 +212,40 @@ test('local review reading saves immediately and missing reading fills after the
   assert.equal(deferred.length, 0);
   assert.equal(sessionQueries, queriesAfterFill);
 
-  const { review: beforeEdit } = await save({ ...input, revision: filled.revision, readingSnapshot: null });
-  const { review: latest } = await save({ ...input, rating: 5, revision: beforeEdit.revision, readingSnapshot: local });
+  await ok(post('review', idToken, { workId, revision: filled.revision, remove: true }));
+  const { deletions: [removedAgain] } = await ok(get({ view: 'reviews' }, idToken));
+  const { review: beforeEdit } = await save({ ...input, revision: removedAgain.revision, readingSnapshot: null });
+  const fullReading = { totalMs: 180_000, progressPercent: 80 };
+  const { review: latest } = await save({
+    ...input, rating: 5, revision: beforeEdit.revision, readingSnapshot: fullReading, readingSnapshotVersion: 1,
+  });
   await deferred.shift()();
+  assert.equal((await workReviews(workId)).reviews.find(({ author }) => author.code === code).progressPercent, 80);
+
+  const { review: incompleteEdit } = await save({
+    ...input, rating: 4.5, comment: '새 한줄평', revision: latest.revision, readingSnapshot: null,
+  });
+  assert.equal(incompleteEdit.totalMs, 180_000);
+  assert.equal(incompleteEdit.progressPercent, 80);
+  assert.equal(deferred.length, 0);
+
+  // An older client can still request the synchronous fallback. Its smaller
+  // verified server total must not replace the evidence already on the review.
+  const { review: legacy } = await save({ ...input, rating: 3, revision: incompleteEdit.revision });
+  const { review: staleClient } = await save({
+    ...input, rating: 4, comment: '이전 PWA에서 수정', revision: legacy.revision,
+    readingSnapshot: { totalMs: 60_000, progressPercent: 20 },
+  });
+  assert.equal(deferred.length, 0);
   const { reviews: [reloaded] } = await ok(get({ view: 'reviews' }, idToken));
-  assert.equal(reloaded.revision, latest.revision);
-  assert.equal(reloaded.rating, 5);
-  assert.equal(reloaded.totalMs, local.totalMs);
-  assert.equal((await workReviews(workId)).reviews.find(({ author }) => author.code === code).progressPercent, local.progressPercent);
+  const published = (await workReviews(workId)).reviews.find(({ author }) => author.code === code);
+  assert.equal(reloaded.revision, staleClient.revision);
+  for (const review of [reloaded, published]) {
+    assert.equal(review.rating, 4);
+    assert.equal(review.comment, '이전 PWA에서 수정');
+    assert.equal(review.totalMs, 180_000);
+    assert.equal(review.progressPercent, 80);
+  }
 });
 
 test('retry after a lost review response returns the saved revision without replacing a newer review', async () => {
@@ -229,7 +255,7 @@ test('retry after a lost review response returns the saved revision without repl
   const workId = work.id;
   const input = {
     workId, rating: 3, comment: '', revision: null, fileIds: [],
-    readingSnapshot: { totalMs: 45000, progressPercent: 41 },
+    readingSnapshot: { totalMs: 45000, progressPercent: 41 }, readingSnapshotVersion: 1,
     saveId: crypto.randomUUID(),
   };
   const first = await ok(post('review', idToken, input));
