@@ -33,7 +33,7 @@ const toStoredSession = (
   lastErrorCode: null,
 });
 
-const assertStoredSession = (value: unknown): StoredReadingSessionV11 => {
+const readStoredSession = (value: unknown): StoredReadingSessionV11 | null => {
   if (
     typeof value !== 'object'
     || value === null
@@ -50,8 +50,14 @@ const assertStoredSession = (value: unknown): StoredReadingSessionV11 => {
     || !('lastErrorCode' in value)
     || (value.lastErrorCode !== null && typeof value.lastErrorCode !== 'string')
     || !isReadingSessionV1(value)
-  ) throw new Error('로컬 독서 통계 session이 손상되었습니다.');
+  ) return null;
   return value as StoredReadingSessionV11;
+};
+
+const assertStoredSession = (value: unknown): StoredReadingSessionV11 => {
+  const session = readStoredSession(value);
+  if (!session) throw new Error('로컬 독서 통계 session이 손상되었습니다.');
+  return session;
 };
 
 export type ReadingStatisticsRemoteCursorV12 = {
@@ -71,6 +77,7 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
   fullHydrationCompleted: boolean;
   hydratedRemoteCount: number;
   lastFullAuditAt: number;
+  lastVerifiedAuditAt: number;
   fullAuditInProgress: boolean;
   quarantinedDocuments: QuarantinedReadingStatisticsDocumentV12[];
   hydrationRunCount: number;
@@ -83,7 +90,8 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
   lastHydrationCompletedAt: number;
 };
 
-const FULL_HYDRATION_AUDIT_INTERVAL_MS = 7 * 24 * 60 * 60_000;
+const HYDRATION_AUDIT_INTERVAL_MS = 7 * 24 * 60 * 60_000;
+const FULL_HYDRATION_AUDIT_INTERVAL_MS = 4 * HYDRATION_AUDIT_INTERVAL_MS;
 const MAX_QUARANTINED_DOCUMENTS = 100;
 // Firestore document IDs may be much longer than our 128-character session
 // IDs. A malformed remote document must still remain usable as an exact query
@@ -175,6 +183,11 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
       && Number(value.lastFullAuditAt) >= 0
       ? Number(value.lastFullAuditAt)
       : 0,
+    lastVerifiedAuditAt: 'lastVerifiedAuditAt' in value
+      && Number.isSafeInteger(value.lastVerifiedAuditAt)
+      && Number(value.lastVerifiedAuditAt) >= 0
+      ? Number(value.lastVerifiedAuditAt)
+      : 0,
     fullAuditInProgress: 'fullAuditInProgress' in value
       && value.fullAuditInProgress === true,
     quarantinedDocuments: 'quarantinedDocuments' in value
@@ -238,6 +251,7 @@ const createEmptySyncMeta = (ownerKey: OwnerKey): ReadingStatisticsSyncMetaV12 =
   fullHydrationCompleted: false,
   hydratedRemoteCount: 0,
   lastFullAuditAt: 0,
+  lastVerifiedAuditAt: 0,
   fullAuditInProgress: true,
   quarantinedDocuments: [],
   hydrationRunCount: 0,
@@ -250,13 +264,12 @@ const createEmptySyncMeta = (ownerKey: OwnerKey): ReadingStatisticsSyncMetaV12 =
   lastHydrationCompletedAt: 0,
 });
 
-const hasCurrentStatisticsLease = async (
-  store: { get: (key: OwnerKey) => Promise<unknown> },
-  ownerKey: OwnerKey,
+const isCurrentStatisticsLease = (
+  value: unknown,
   claim: ReadingStatisticsSyncLeaseClaimV13,
   now: number,
 ) => {
-  const lease = await store.get(ownerKey) as ReadingStatisticsSyncLeaseV13 | undefined;
+  const lease = value as ReadingStatisticsSyncLeaseV13 | undefined;
   return Boolean(
     lease
     && lease.holderTabId === claim.holderTabId
@@ -264,6 +277,13 @@ const hasCurrentStatisticsLease = async (
     && lease.expiresAt > now,
   );
 };
+
+const hasCurrentStatisticsLease = async (
+  store: { get: (key: OwnerKey) => Promise<unknown> },
+  ownerKey: OwnerKey,
+  claim: ReadingStatisticsSyncLeaseClaimV13,
+  now: number,
+) => isCurrentStatisticsLease(await store.get(ownerKey), claim, now);
 
 const putReadingSession = async (
   ownerKey: OwnerKey,
@@ -366,7 +386,8 @@ export const getReadingStatisticsHydrationStateV12 = async (
   if (localCount < meta.hydratedRemoteCount) return null;
   if (
     !meta.fullAuditInProgress
-    && now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
+    && (now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
+      || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) >= HYDRATION_AUDIT_INTERVAL_MS)
   ) return null;
   return {
     cursor: meta.documentId === '__empty__' ? null : {
@@ -378,6 +399,73 @@ export const getReadingStatisticsHydrationStateV12 = async (
     quarantinedDocuments: meta.quarantinedDocuments,
     lastFullAuditAt: meta.lastFullAuditAt,
   };
+};
+
+type ReadingStatisticsAuditCandidateV12 = {
+  cursor: ReadingStatisticsRemoteCursorV12;
+  remoteCount: number;
+  lastFullAuditAt: number;
+  lastVerifiedAuditAt: number;
+};
+
+const getAuditCandidate = async (
+  sessions: { index: (name: string) => { count: (range: IDBKeyRange) => Promise<number> }; get: (key: [OwnerKey, string]) => Promise<unknown> },
+  ownerKey: OwnerKey,
+  value: unknown,
+  now: number,
+): Promise<ReadingStatisticsAuditCandidateV12 | null> => {
+  if (!value || isGuestOwner(ownerKey)) return null;
+  const meta = assertSyncMeta(value);
+  if (meta.ownerKey !== ownerKey || !meta.fullHydrationCompleted || meta.fullAuditInProgress
+    || meta.documentId === '__empty__' || meta.hydratedRemoteCount === 0 || meta.quarantinedDocuments.length > 0
+    || meta.lastFullAuditAt === 0 || now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
+    || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) < HYDRATION_AUDIT_INTERVAL_MS) return null;
+  const [syncedCount, latest] = await Promise.all([
+    sessions.index('by-owner-sync-next-attempt').count(IDBKeyRange.bound(
+      [ownerKey, 'synced', 0], [ownerKey, 'synced', Number.MAX_SAFE_INTEGER],
+    )),
+    sessions.get([ownerKey, meta.documentId]),
+  ]);
+  if (syncedCount !== meta.hydratedRemoteCount || readStoredSession(latest)?.syncState !== 'synced') return null;
+  const { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId } = meta;
+  return {
+    cursor: { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId },
+    remoteCount: syncedCount,
+    lastFullAuditAt: meta.lastFullAuditAt,
+    lastVerifiedAuditAt: meta.lastVerifiedAuditAt,
+  };
+};
+
+export const getReadingStatisticsAuditCandidateV12 = async (ownerKey: OwnerKey, now = Date.now()) => {
+  const db = await initDB();
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
+  const value = await tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(ownerKey);
+  const candidate = await getAuditCandidate(tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, value, now);
+  await tx.done;
+  return candidate;
+};
+
+export const recordReadingStatisticsVerifiedAuditV12 = async (
+  ownerKey: OwnerKey,
+  candidate: ReadingStatisticsAuditCandidateV12,
+  leaseClaim: ReadingStatisticsSyncLeaseClaimV13,
+  clock = Date.now,
+) => {
+  const db = await initDB();
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
+  const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const value = await metaStore.get(ownerKey);
+  const current = await getAuditCandidate(tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, value, clock());
+  const lease = await tx.objectStore(V13_READING_STATISTICS_LEASES_STORE).get(ownerKey);
+  const now = clock();
+  const canRecord = current && current.remoteCount === candidate.remoteCount
+    && current.lastFullAuditAt === candidate.lastFullAuditAt && current.lastVerifiedAuditAt === candidate.lastVerifiedAuditAt
+    && sameCursor(current.cursor, candidate.cursor)
+    && now - current.lastFullAuditAt < FULL_HYDRATION_AUDIT_INTERVAL_MS
+    && isCurrentStatisticsLease(lease, leaseClaim, now);
+  if (canRecord) await metaStore.put({ ...assertSyncMeta(value), lastVerifiedAuditAt: now });
+  await tx.done;
+  return Boolean(canRecord);
 };
 
 export const getReadingStatisticsHydrationMetricsV12 = async (ownerKey: OwnerKey) => {
@@ -468,8 +556,8 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         await sessionsStore.add(toStoredSession(ownerKey, session, 'synced'));
         continue;
       }
-      const existing = assertStoredSession(existingValue);
-      if (!sameReadingSessionPayload(existing, session)) {
+      const existing = readStoredSession(existingValue);
+      if (!existing || !sameReadingSessionPayload(existing, session)) {
         // Cloud sessions are immutable after creation. If an older client left
         // a different local payload under the same ID, converge on the
         // already-committed remote record instead of blocking the whole page.
@@ -507,6 +595,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         lastFullAuditAt: isFullAudit && fullHydrationCompleted
           ? now
           : current?.lastFullAuditAt ?? 0,
+        lastVerifiedAuditAt: current?.lastVerifiedAuditAt ?? 0,
         fullAuditInProgress: isFullAudit && !fullHydrationCompleted,
         quarantinedDocuments: nextQuarantinedDocuments,
         hydrationRunCount: current?.hydrationRunCount ?? 0,
@@ -531,6 +620,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         fullHydrationCompleted: true,
         hydratedRemoteCount: 0,
         lastFullAuditAt: now,
+        lastVerifiedAuditAt: 0,
         fullAuditInProgress: false,
         quarantinedDocuments: nextQuarantinedDocuments,
         hydrationRunCount: current?.hydrationRunCount ?? 0,

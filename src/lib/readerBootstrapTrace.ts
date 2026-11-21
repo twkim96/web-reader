@@ -25,6 +25,7 @@ export type ReaderBootstrapTraceEvent = {
   completedQueries?: number;
   returnedDocuments?: number;
   emptyQueries?: number;
+  auditProbe?: 'matched' | 'mismatch' | 'failed';
 };
 
 export type ReaderOpenPerformanceEvent = {

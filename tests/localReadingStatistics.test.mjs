@@ -12,12 +12,14 @@ import {
 import {
   deferReadingSessionSyncV11,
   confirmLocalReadingRoundV11,
+  getReadingStatisticsAuditCandidateV12,
   getReadingStatisticsHydrationStateV12,
   getLocalReadingSessionsV11,
   getPendingReadingSessionsV11,
   hydrateRemoteReadingSessionsPageV12,
   markReadingSessionSyncedV11,
   reconcileUploadedReadingSessionConflictV11,
+  recordReadingStatisticsVerifiedAuditV12,
   saveLocalReadingSessionV11,
 } from '../src/lib/localReadingStatistics.ts';
 import {
@@ -447,6 +449,73 @@ test('restarts from the beginning for a periodic full audit and preserves an int
     200_000,
   );
   assert.equal(await getReadingStatisticsHydrationStateV12(owner, 200_000 + 7 * 24 * 60 * 60_000), null);
+});
+
+test('weekly audits preserve the exact cursor and never postpone the four-week full scan', async () => {
+  const fullAt = 200_000;
+  const week = 7 * 24 * 60 * 60_000;
+  const record = makeSession('audit-verified');
+  const exact = cursor(60, record.sessionId, 931);
+  await hydrateRemoteReadingSessionsPageV12(owner, [record], null, exact, true, true, [], fullAt);
+  const firstCheck = fullAt + week;
+  assert.equal(await getReadingStatisticsHydrationStateV12(owner, firstCheck), null);
+  const candidate = await getReadingStatisticsAuditCandidateV12(owner, firstCheck);
+  assert.deepEqual(candidate.cursor, exact);
+  assert.equal(candidate.remoteCount, 1);
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'verified-audit', firstCheck);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, lease, () => firstCheck), true);
+  assert.deepEqual((await getReadingStatisticsHydrationStateV12(owner, firstCheck)).cursor, exact);
+  assert.equal((await getReadingStatisticsHydrationStateV12(owner, firstCheck)).lastFullAuditAt, fullAt);
+
+  const lateCheck = fullAt + 4 * week - 1_000;
+  const lateCandidate = await getReadingStatisticsAuditCandidateV12(owner, lateCheck);
+  const lateLease = await acquireReadingStatisticsSyncLeaseV13(owner, 'verified-audit', lateCheck);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, lateCandidate, lateLease, () => lateCheck), true);
+  assert.equal(await getReadingStatisticsHydrationStateV12(owner, fullAt + 4 * week), null);
+  assert.equal(await getReadingStatisticsAuditCandidateV12(owner, fullAt + 4 * week), null);
+});
+
+test('a pending replacement and a lease takeover cannot certify a weekly audit', async () => {
+  const fullAt = 200_000;
+  const checkAt = fullAt + 7 * 24 * 60 * 60_000;
+  const first = makeSession('audit-lost');
+  const latest = makeSession('audit-latest');
+  const exact = cursor(60, latest.sessionId, 931);
+  await hydrateRemoteReadingSessionsPageV12(owner, [first, latest], null, exact, true, true, [], fullAt);
+  const candidate = await getReadingStatisticsAuditCandidateV12(owner, checkAt);
+  assert.ok(candidate);
+
+  const oldLease = await acquireReadingStatisticsSyncLeaseV13(owner, 'old', checkAt, 10);
+  const times = [checkAt, checkAt + 11];
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, oldLease, () => times.shift()), false);
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'new', checkAt + 11);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, oldLease, () => checkAt + 11), false);
+
+  await (await initDB()).delete(V11_READING_SESSIONS_STORE, [owner, first.sessionId]);
+  await saveLocalReadingSessionV11(owner, makeSession('unconfirmed-replacement'));
+  assert.equal((await getLocalReadingSessionsV11(owner)).length, 2);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, lease, () => checkAt + 12), false);
+  assert.equal(await getReadingStatisticsAuditCandidateV12(owner, checkAt + 12), null);
+  assert.equal(await getReadingStatisticsHydrationStateV12(owner, checkAt + 12), null);
+
+  await hydrateRemoteReadingSessionsPageV12(owner, [first, latest], null, exact, true, true, [], checkAt + 12, lease);
+  assert.ok((await getLocalReadingSessionsV11(owner)).some((entry) => entry.sessionId === first.sessionId));
+});
+
+test('a malformed local copy cannot block recovery or make a full scan reread the same page', async () => {
+  const fullAt = 200_000;
+  const checkAt = fullAt + 7 * 24 * 60 * 60_000;
+  const session = makeSession('audit-damaged');
+  const exact = cursor(61, session.sessionId, 932);
+  await hydrateRemoteReadingSessionsPageV12(owner, [session], null, exact, true, true, [], fullAt);
+  const db = await initDB();
+  const damaged = await db.get(V11_READING_SESSIONS_STORE, [owner, session.sessionId]);
+  await db.put(V11_READING_SESSIONS_STORE, { ...damaged, durationMs: -1 });
+  assert.equal(await getReadingStatisticsAuditCandidateV12(owner, checkAt), null);
+
+  await hydrateRemoteReadingSessionsPageV12(owner, [session], null, exact, true, true, [], checkAt);
+  assert.equal((await getLocalReadingSessionsV11(owner))[0].durationMs, session.durationMs);
+  assert.deepEqual((await getReadingStatisticsHydrationStateV12(owner, checkAt + 60_000)).cursor, exact);
 });
 
 test('fences hydration and upload acknowledgement inside the current lease transaction', async () => {

@@ -5,12 +5,14 @@ import { onIdTokenChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import {
   deferReadingSessionSyncV11,
+  getReadingStatisticsAuditCandidateV12,
   getReadingStatisticsHydrationStateV12,
   getPendingReadingSessionsV11,
   hydrateRemoteReadingSessionsPageV12,
   markReadingSessionSyncedV11,
   reconcileUploadedReadingSessionConflictV11,
   recordReadingStatisticsHydrationMetricsV12,
+  recordReadingStatisticsVerifiedAuditV12,
 } from '../lib/localReadingStatistics';
 import { getSyncOwnerKey, splitOwnerKey, type OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
@@ -20,6 +22,7 @@ import {
   readReadingStatisticsClockSampleSingleFlight,
   type ReadingStatisticsClockSample,
   uploadReadingSessionV1,
+  verifyRemoteReadingStatisticsAuditV1,
 } from '../lib/readingStatisticsSync';
 import {
   notifyReadingStatisticsChange,
@@ -255,12 +258,34 @@ export const useReadingStatisticsSync = (
             let returnedDocuments = 0;
             let emptyQueries = 0;
             let queryMode: 'cursor' | 'no-cursor' | 'unavailable' = 'unavailable';
+            let auditProbe: 'matched' | 'mismatch' | 'failed' | undefined;
             let hydrationStatus: 'completed' | 'lost-leadership' | 'failed' = 'failed';
+            const instrumentation = {
+              onReadAttempt: () => { remoteReadAttemptCount += 1; },
+              onReadSuccess: (documents: number) => {
+                remoteReadCount += 1;
+                returnedDocuments += documents;
+                if (documents === 0) emptyQueries += 1;
+              },
+            };
             try {
               const hydration = await getReadingStatisticsHydrationStateV12(syncOwnerKey);
-              queryMode = hydration?.cursor ? 'cursor' : 'no-cursor';
+              let initialCursor = hydration?.cursor ?? null;
+              if (!hydration) {
+                const candidate = await getReadingStatisticsAuditCandidateV12(syncOwnerKey);
+                if (candidate && await hasClaimLeadership()) {
+                  const verified = await verifyRemoteReadingStatisticsAuditV1(db, user.uid, candidate, instrumentation).catch(() => null);
+                  auditProbe = verified === null ? 'failed' : 'mismatch';
+                  if (verified
+                    && await recordReadingStatisticsVerifiedAuditV12(syncOwnerKey, candidate, leaseClaim)) {
+                    initialCursor = candidate.cursor;
+                    auditProbe = 'matched';
+                  }
+                }
+              }
+              queryMode = initialCursor ? 'cursor' : 'no-cursor';
               const hydrationRun = await runReadingStatisticsHydrationAsLeader({
-                initialCursor: hydration?.cursor ?? null,
+                initialCursor,
                 isLeader: hasClaimLeadership,
                 fetchPage: async (cursor) => {
                   const page = await getRemoteReadingSessionsPageV1(
@@ -269,16 +294,7 @@ export const useReadingStatisticsSync = (
                     cursor,
                     undefined,
                     undefined,
-                    {
-                      onReadAttempt: () => {
-                        remoteReadAttemptCount += 1;
-                      },
-                      onReadSuccess: (documents) => {
-                        remoteReadCount += 1;
-                        returnedDocuments += documents;
-                        if (documents === 0) emptyQueries += 1;
-                      },
-                    },
+                    instrumentation,
                   );
                   return page;
                 },
@@ -346,6 +362,7 @@ export const useReadingStatisticsSync = (
                 completedQueries: remoteReadCount,
                 returnedDocuments,
                 emptyQueries,
+                auditProbe,
               });
               await recordReadingStatisticsHydrationMetricsV12(syncOwnerKey, {
                 pageCount: hydrationPageCount,

@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   documentId,
+  getCountFromServer,
   getDocFromServer,
   getDocsFromServer,
   limit,
@@ -77,6 +78,33 @@ const readServerTimestampCursor = (value: unknown) => {
 export const getFirebaseReadingStatisticsPath = (appId: string, uid: string) => (
   `artifacts/${appId}/users/${uid}/libraries/local/readingStatsV1`
 );
+
+export const verifyRemoteReadingStatisticsAuditV1 = async (
+  firestore: Firestore,
+  uid: string,
+  expected: { remoteCount: number; cursor: ReadingStatisticsRemoteCursorV12 },
+  instrumentation: { onReadAttempt?: () => void; onReadSuccess?: (returnedDocuments: number) => void } = {},
+  sdk: Pick<typeof import('firebase/firestore'), 'collection' | 'documentId' | 'getCountFromServer' | 'getDocsFromServer' | 'limit' | 'orderBy' | 'query'> = {
+    collection, documentId, getCountFromServer, getDocsFromServer, limit, orderBy, query,
+  },
+) => {
+  const reference = sdk.collection(firestore, getFirebaseReadingStatisticsPath(APP_ID, uid));
+  const count = await sdk.getCountFromServer(reference);
+  if (count.data().count !== expected.remoteCount) return false;
+  instrumentation.onReadAttempt?.();
+  const snapshot = await sdk.getDocsFromServer(sdk.query(
+    reference,
+    sdk.orderBy('uploadedAtServer', 'desc'),
+    sdk.orderBy(sdk.documentId(), 'desc'),
+    sdk.limit(1),
+  ));
+  instrumentation.onReadSuccess?.(snapshot.size);
+  const latest = snapshot.docs[0];
+  const timestamp = readServerTimestampCursor(latest?.data().uploadedAtServer);
+  return latest?.id === expected.cursor.documentId
+    && timestamp?.uploadedAtServerSeconds === expected.cursor.uploadedAtServerSeconds
+    && timestamp.uploadedAtServerNanoseconds === expected.cursor.uploadedAtServerNanoseconds;
+};
 
 export const uploadReadingSessionV1 = async (
   firestore: Firestore,

@@ -471,6 +471,7 @@ import {
   getRemoteReadingSessionsPageV1,
   readReadingStatisticsClockSampleV1,
   readReadingStatisticsClockSampleSingleFlight,
+  verifyRemoteReadingStatisticsAuditV1,
 } from '../src/lib/readingStatisticsSync.ts';
 import {
   detachReadingActivityTargets,
@@ -1173,6 +1174,41 @@ test('reports a successful first read when the malformed-cursor follow-up read f
   }), /second-read-failed/);
   assert.equal(attempts, 2);
   assert.equal(successes, 1);
+});
+
+test('weekly audit checks the whole collection count and compares the exact newest cursor', async () => {
+  const reference = {};
+  let total = 9_429;
+  let latest = { id: 'latest', timestamp: { seconds: 60, nanoseconds: 931 } };
+  let queries = 0;
+  const sdk = {
+    collection: () => reference,
+    documentId: () => '__name__',
+    orderBy: (...args) => args,
+    limit: (value) => value,
+    query: (...args) => args,
+    getCountFromServer: async (target) => {
+      assert.equal(target, reference);
+      return { data: () => ({ count: total }) };
+    },
+    getDocsFromServer: async (target) => {
+      queries++;
+      assert.deepEqual(target, [reference, ['uploadedAtServer', 'desc'], ['__name__', 'desc'], 1]);
+      return { size: 1, docs: [{ id: latest.id, data: () => ({ uploadedAtServer: latest.timestamp }) }] };
+    },
+  };
+  const expected = { remoteCount: total, cursor: { uploadedAtServerSeconds: 60, uploadedAtServerNanoseconds: 931, documentId: 'latest' } };
+  const reports = [];
+  const verify = () => verifyRemoteReadingStatisticsAuditV1({}, 'alice', expected, { onReadSuccess: (documents) => reports.push(documents) }, sdk);
+  assert.equal(await verify(), true);
+  assert.deepEqual(reports, [1]);
+  latest.timestamp.nanoseconds++;
+  assert.equal(await verify(), false);
+  latest = { id: 'new-at-the-same-time', timestamp: { seconds: 60, nanoseconds: 931 } };
+  assert.equal(await verify(), false);
+  total++;
+  assert.equal(await verify(), false);
+  assert.equal(queries, 3, 'a changed count skips the marker lookup');
 });
 
 test('accepts only a low-uncertainty server clock sample', async () => {

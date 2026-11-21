@@ -12,8 +12,14 @@ import {
   deleteDoc,
   doc,
   collection,
+  documentId,
+  getCountFromServer,
   getDoc,
   getDocs,
+  getDocsFromServer,
+  limit,
+  orderBy,
+  query,
   runTransaction,
   serverTimestamp,
   setDoc,
@@ -29,7 +35,7 @@ import {
 import { prepareWriteLease, createSyncEventId } from '../src/lib/writeLeaseTransport.ts';
 import { parseLeasedEventId } from '../src/lib/writeLeasePolicy.ts';
 import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
-import { uploadReadingSessionV1 } from '../src/lib/readingStatisticsSync.ts';
+import { uploadReadingSessionV1, verifyRemoteReadingStatisticsAuditV1 } from '../src/lib/readingStatisticsSync.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 
 const projectId = 'demo-web-reader';
@@ -1340,6 +1346,25 @@ test('rejects malformed or cross-owner reading statistic sessions', async () => 
     ...validReadingSession('drive-session'),
     uploadedAtServer: serverTimestamp(),
   }));
+});
+
+test('weekly statistics audit can count owner records and uses the exact latest document tie-breaker', async () => {
+  const stamp = new Timestamp(60, 931_000);
+  const sdk = { collection, documentId, getCountFromServer, getDocsFromServer, limit, orderBy, query };
+  await environment.withSecurityRulesDisabled(async (context) => {
+    for (const id of ['earlier-id', 'latest-id']) {
+      await setDoc(doc(context.firestore(), readingStatisticsPath(id)), {
+        ...validReadingSession(id), uploadedAtServer: stamp,
+      });
+    }
+  });
+  const cursor = { uploadedAtServerSeconds: stamp.seconds, uploadedAtServerNanoseconds: stamp.nanoseconds, documentId: 'latest-id' };
+  const expected = { remoteCount: 2, cursor };
+  assert.equal(await assertSucceeds(verifyRemoteReadingStatisticsAuditV1(database(), 'alice', expected, {}, sdk)), true);
+  assert.equal(await assertSucceeds(verifyRemoteReadingStatisticsAuditV1(database(), 'alice', {
+    ...expected, cursor: { ...cursor, documentId: 'earlier-id' },
+  }, {}, sdk)), false);
+  await assertFails(verifyRemoteReadingStatisticsAuditV1(database('mallory'), 'alice', expected, {}, sdk));
 });
 
 const leaseUuid = '2af12345-1234-4123-8123-123456789abc';
