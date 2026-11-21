@@ -198,10 +198,7 @@ export const useProgressSyncWorker = (
     const unsubscribeToken = onIdTokenChanged(auth, (currentUser) => {
       if (currentUser?.uid === user.uid) void resumePausedAndRequest();
     });
-    const unsubscribeWork = subscribeProgressSyncWork(syncOwnerKey, () => {
-      if (finiteWriteLeasesEnabled()) void resumePausedAndRequest();
-      else pump.request();
-    });
+    const unsubscribeWork = subscribeProgressSyncWork(syncOwnerKey, () => pump.request());
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
     void resumePausedAndRequest();

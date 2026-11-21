@@ -440,7 +440,7 @@ export const useReaderProgressSave = ({
 
     if (options?.useMaxInterval !== false && now - unsavedSinceRef.current >= RELOCATE_SAVE_MAX_INTERVAL_MS) {
       clearRelocateSaveTimer();
-      void saveProgressIfChanged(pending.cfi, pending.percent, pending.bookmarks);
+      void savePendingRelocate();
       return;
     }
 
@@ -449,7 +449,7 @@ export const useReaderProgressSave = ({
       relocateSaveTimerRef.current = null;
       void savePendingRelocate();
     }, options?.delayMs ?? RELOCATE_SAVE_IDLE_MS);
-  }, [clearRelocateSaveTimer, savePendingRelocate, saveProgressIfChanged]);
+  }, [clearRelocateSaveTimer, savePendingRelocate]);
 
   const handleRelocateForSave = useCallback((detail: ReaderRelocateDetail) => {
     traceReaderBootstrap({

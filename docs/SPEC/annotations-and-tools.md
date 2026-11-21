@@ -14,6 +14,8 @@
 
 로그인 계정의 주석·팔레트는 IndexedDB에 먼저 저장하고 outbox/revision/receipt transaction으로 동기화합니다. 도서별 aggregate는 수량·중복 범위·삭제 generation을 검증합니다. 충돌·권한/용량 실패를 일반 성공으로 처리하지 않습니다. 삭제 marker와 tombstone을 제거하면 예전 원격 데이터가 되살아날 수 있으므로 [복구 가이드](../operations/deployment-and-recovery.md)를 따릅니다.
 
+원격 주석을 반영할 때 마지막으로 저장한 원격 개정 번호를 같은 IndexedDB 트랜잭션에서 확인합니다. 뒤늦게 도착한 이전 생성·수정·삭제는 로컬 주석에 반영하지 않습니다.
+
 도서 안과 마이페이지 주석 목록에서 인용문·메모·장·팔레트 의미를 검색하고 색·메모 여부·정렬로 찾을 수 있습니다. 마이페이지의 주석 목록에는 도서명을 출처로 표시하고 리더를 여는 링크를 두지 않습니다. 내보내기는 Markdown과 버전이 있는 JSON(`web-reader-annotations`)을 지원합니다. JSON export가 IndexedDB/도서 파일을 포함하는 전체 백업이라는 뜻은 아닙니다.
 
 ## 번역·사전·TTS

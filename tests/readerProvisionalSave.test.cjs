@@ -162,6 +162,26 @@ test('opening reader chrome permits startup resume but an actual page move perma
   assert.equal(hook.isQuietResumeEligible(), false);
 }));
 
+test('maximum-interval relocation saves retain the page anchor during continuous reading', (t) => {
+  let now = 100;
+  t.mock.method(Date, 'now', () => now);
+  return harness(async ({ hook, saves }) => {
+    for (let page = 0; page <= 6; page++) {
+      hook.markUserProgressChange();
+      hook.handleRelocateForSave({
+        cfi: `range-${page}`,
+        anchorCfi: `anchor-${page}`,
+        progressPercent: 20 + page,
+      });
+      if (saves.length) break;
+      now += 900;
+    }
+    assert.equal(saves.length, 1, 'continuous input must still commit before the idle timer');
+    assert.equal(saves[0][0], 'range-6');
+    assert.equal(saves[0][3].anchorCfi, 'anchor-6');
+  });
+});
+
 test('TTS remains protected from quiet startup navigation', () => harness(async ({ hook }) => {
   hook.setTtsProgressFenceActive(true);
   assert.equal(hook.isQuietResumeEligible(), false);

@@ -29,6 +29,73 @@ const yes = () => true;
 const no = () => false;
 const asyncYes = async () => true;
 
+test('a new save wakes the worker without retrying a different book paused on permission-denied', { timeout: 5_000 }, async (t) => {
+  const firebasePath = require.resolve('../src/lib/firebase.ts');
+  const authPath = require.resolve('firebase/auth');
+  const workerPath = require.resolve('../src/hooks/useProgressSyncWorker.ts');
+  const outbox = require('../src/lib/syncOutboxV5.ts');
+  const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+  const { ProgressSyncPumpController } = require('../src/lib/progressSyncPump.ts');
+  const leaseTransportPath = require.resolve('../src/lib/writeLeaseTransport.ts');
+  const leases = require(leaseTransportPath);
+  const paths = [firebasePath, authPath, leaseTransportPath, workerPath];
+  const previous = paths.map(path => require.cache[path]);
+  let requested;
+  const expectWake = () => new Promise(resolve => { requested = resolve; });
+  t.mock.method(ProgressSyncPumpController.prototype, 'request', () => requested?.());
+  const setExports = (path, exports) => {
+    require.cache[path] = { id: path, filename: path, loaded: true, exports };
+  };
+  setExports(firebasePath, { auth: {}, db: {} });
+  setExports(authPath, { onIdTokenChanged: () => noop });
+  setExports(leaseTransportPath, {
+    ...leases, finiteWriteLeasesEnabled: yes,
+    prepareWriteLease: asyncYes, requestReceiptMaintenance: asyncYes,
+  });
+  delete require.cache[workerPath];
+  const owner = 'firebase:wake-regression|library:local';
+  const user = { uid: 'wake-regression' };
+  try {
+    const { useProgressSyncWorker } = require(workerPath);
+    const save = (bookId) => outbox.enqueueProgressEventV5(owner, {
+      bookId, operation: 'progress.set', position: { cfi: 'new', anchorCfi: null, progressPercent: 25 },
+      deviceId: 'wake-device', sessionId: 'wake-session', eventId: bookId,
+    });
+    await withDom(async (root) => {
+      await save('paused-book');
+      const now = Date.now();
+      const lease = await outbox.acquireSyncLeaseV5(owner, 'fixture', now, 5000);
+      const event = await outbox.claimNextProgressEventV5(owner, 'fixture', lease.epoch, now + 1);
+      await outbox.pauseProgressEventV5(owner, event.eventId, 'permission-denied', outbox.getExpectedClaimV5(event));
+
+      ownerRuntime.activate(owner);
+      function Harness() {
+        useProgressSyncWorker(user, owner, 'wake-device');
+        return null;
+      }
+      let wake = expectWake();
+      await React.act(async () => root.render(React.createElement(Harness)));
+      await wake;
+      // Startup may retry a paused write. Simulate the same permission failure.
+      const retry = await outbox.claimNextProgressEventV5(owner, 'fixture', lease.epoch, Date.now() + 1);
+      assert.equal(retry.eventId, 'paused-book');
+      await outbox.pauseProgressEventV5(owner, retry.eventId, 'permission-denied', outbox.getExpectedClaimV5(retry));
+      wake = expectWake();
+      await save('new-book');
+      await wake;
+      const events = await outbox.getOutboxEventsV5(owner);
+      assert.equal(events.find(event => event.eventId === 'paused-book').status, 'paused');
+      assert.equal(events.find(event => event.eventId === 'new-book').status, 'pending');
+    });
+  } finally {
+    ownerRuntime.clear();
+    paths.forEach((path, i) => {
+      if (previous[i]) require.cache[path] = previous[i];
+      else delete require.cache[path];
+    });
+  }
+});
+
 test('late cold-start authentication hydrates account progress before mounting its reader', async () => {
   const { readFileSync } = require('node:fs');
   const page = readFileSync(require.resolve('../src/app/page.tsx'), 'utf8');

@@ -19,7 +19,8 @@ import {
   makeGuestOwnerKey,
   makeOwnerKey,
 } from '../src/lib/ownerIdentity.ts';
-import { getOutboxEventsV5 } from '../src/lib/syncOutboxV5.ts';
+import { decideProgressTransaction } from '../src/lib/progressSyncTransaction.ts';
+import { getOutboxEventsV5, storeRemoteProgressHeadV5 } from '../src/lib/syncOutboxV5.ts';
 import { setSyncSessionIdForTests } from '../src/lib/syncSession.ts';
 
 const require = createRequire(import.meta.url);
@@ -416,4 +417,120 @@ for (const scenario of ['owner-switch', 'newer-write', 'deferred-updater']) {
       Object.assign(globalThis, previous);
     }
   });
+}
+
+for (const action of ['deleteProgress', 'deleteBookProgress']) {
+  const scenarios = [
+    { name: 'adopted R7', headRevision: 7, baseRevision: 7, status: 'apply' },
+    { name: 'unadopted R8', headRevision: 8, baseRevision: 7, status: 'conflict' },
+    { name: 'explicitly ignored R8', headRevision: 8, baseRevision: 8, status: 'apply' },
+  ];
+  for (const { name, headRevision, baseRevision, status } of scenarios) {
+    test(`${action} uses the shelf reset baseline with ${name}`, async () => {
+      const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT'];
+      const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
+      const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
+      Object.assign(globalThis, {
+        window, document: window.document, CustomEvent: window.CustomEvent,
+        BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true,
+      });
+      const uid = `shelf-reset-${action}-${name}`;
+      const ownerKey = makeOwnerKey(makeFirebaseOwnerKey(uid), 'library:local');
+      ownerRuntime.activate(ownerKey);
+      const owner = ownerRuntime.capture();
+      const initial = progress([bookmark('manual-1', 10)]);
+      const adoptedHead = {
+        schemaVersion: 2,
+        bookId: initial.bookId,
+        revision: 7,
+        acceptedEventId: 'event-7',
+        operation: 'set',
+        position: { cfi: initial.cfi, anchorCfi: initial.anchorCfi, progressPercent: 20 },
+        acceptedDeviceId: 'device-local',
+        occurredAtClient: 10,
+        updatedAtServer: {},
+        deletedAtServer: null,
+      };
+      const storedHead = headRevision === 7 ? adoptedHead : {
+        ...adoptedHead,
+        revision: 8,
+        acceptedEventId: 'event-8',
+        acceptedDeviceId: 'device-other',
+        position: { cfi: 'remote-cfi', anchorCfi: 'remote-cfi', progressPercent: 40 },
+      };
+      const user = { uid };
+      let actions;
+      function Harness() {
+        const [, setProgress] = useState({ [initial.bookId]: initial });
+        const progressRef = useRef({ [initial.bookId]: initial });
+        const deviceId = useRef('device-local');
+        const currentActions = useProgressActions({
+          activeBook: null, user, deviceId, progressRef, setProgress,
+        });
+        useEffect(() => { actions = currentActions; }, [currentActions]);
+        return null;
+      }
+      const root = createRoot(window.document.getElementById('app'));
+      try {
+        await saveProgressToLocalV5(ownerKey, initial);
+        await storeRemoteProgressHeadV5(ownerKey, adoptedHead);
+        await act(async () => root.render(React.createElement(Harness)));
+        await act(async () => {
+          const result = await actions.adoptRemoteProgress({
+            ...initial,
+            operation: 'set',
+            syncRevision: 7,
+            acceptedEventId: adoptedHead.acceptedEventId,
+          });
+          assert.equal(result.status, 'adopted');
+        });
+        await storeRemoteProgressHeadV5(ownerKey, storedHead);
+        if (baseRevision === 8) {
+          await act(async () => assert.equal(await actions.ignoreRemoteProgress(initial.bookId, 8), true));
+        }
+        await act(async () => assert.equal(await actions[action](initial.bookId, owner), true));
+
+        const events = await getOutboxEventsV5(ownerKey);
+        const positionEvents = events.filter(({ target }) => target.kind === 'progress');
+        assert.equal(positionEvents.length, 1);
+        const [reset] = positionEvents;
+        assert.equal(reset.operation, 'progress.reset');
+        assert.equal(reset.baseRevision, baseRevision);
+        assert.deepEqual(
+          events.filter(({ target }) => target.kind === 'bookmark')
+            .map(({ operation, target }) => [operation, target.bookmarkId]),
+          [['bookmark.delete', 'manual-1']],
+        );
+
+        const result = decideProgressTransaction({
+          event: reset,
+          storedHead,
+          storedReceipt: undefined,
+          serverTime: {},
+        });
+        assert.equal(result.status, status);
+        if (status === 'apply') {
+          assert.equal(result.head.revision, headRevision + 1);
+          assert.equal(result.head.operation, 'reset');
+          assert.equal(result.head.position, null);
+        } else {
+          assert.equal(result.remoteHead, storedHead);
+        }
+
+        const local = await loadProgressFromLocalV5(ownerKey, initial.bookId);
+        if (action === 'deleteProgress') {
+          assert.equal(local.cfi, '');
+          assert.deepEqual(local.bookmarks, []);
+          assert.equal(local.syncRevision, 7);
+          assert.equal(local.acceptedEventId, adoptedHead.acceptedEventId);
+          assert.equal(local.ignoredRemoteRevision, baseRevision === 8 ? 8 : undefined);
+        } else {
+          assert.equal(local, undefined);
+        }
+      } finally {
+        await act(async () => root.unmount());
+        Object.assign(globalThis, previous);
+      }
+    });
+  }
 }

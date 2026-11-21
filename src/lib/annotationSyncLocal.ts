@@ -394,17 +394,12 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
       [item.id, withoutOwner(item)]
     )));
     const writes: Array<{ type: 'put'; annotation: Annotation } | { type: 'delete'; id: string }> = [];
-    const remoteWrites: Array<{
-      head: AnnotationHeadV1;
-      targetKey: string;
-      meta?: SyncMetaV5;
-      hasLocalWork: boolean;
-    }> = [];
     let skipped = 0;
 
     for (const head of heads) {
       const targetKey = annotationTargetKeyV1(bookId, head.annotationId);
-      const [targetEvents, openConflicts, deferredConflicts, meta] = await Promise.all([
+      const [cached, targetEvents, openConflicts, deferredConflicts, meta] = await Promise.all([
+        remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
         outboxStore.index('by-owner-target-sequence').getAll(IDBKeyRange.bound(
           [ownerKey, targetKey, 0],
           [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
@@ -421,12 +416,36 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
         ]) as Promise<SyncConflictV5[]>,
         metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
       ]);
+      if (cached && cached.revision > head.revision) {
+        skipped += 1;
+        continue;
+      }
+      if (cached?.revision === head.revision && cached.head.acceptedEventId !== head.acceptedEventId) {
+        throw Object.assign(
+          new Error(`같은 annotation revision에 서로 다른 acceptedEventId가 있습니다: ${targetKey}`),
+          { code: 'invalid-argument' },
+        );
+      }
       const hasLocalWork = targetEvents.some((event) => activeStatuses.has(event.status))
         || openConflicts.length > 0
         || deferredConflicts.length > 0;
-      remoteWrites.push({ head, targetKey, meta, hasLocalWork });
-      const hasLocalWorkForCanonical = hasLocalWork;
-      if (hasLocalWorkForCanonical) {
+      await Promise.all([
+        !cached || head.revision > cached.revision ? remoteStore.put({
+          ownerKey,
+          targetKey,
+          revision: head.revision,
+          head,
+          updatedAt: now,
+        } satisfies RemoteHeadCacheV5) : undefined,
+        !hasLocalWork ? metaStore.put({
+          ownerKey,
+          targetKey,
+          knownRevision: Math.max(meta?.knownRevision ?? 0, head.revision),
+          nextSequence: meta?.nextSequence ?? 1,
+          updatedAt: now,
+        } satisfies SyncMetaV5) : undefined,
+      ]);
+      if (hasLocalWork) {
         skipped += 1;
         continue;
       }
@@ -464,44 +483,6 @@ export const hydrateRemoteAnnotationHeadsV5 = async (
         await annotationStore.delete([ownerKey, bookId, write.id]);
       } else {
         await annotationStore.put({ ...write.annotation, ownerKey });
-      }
-    }
-    for (const { head, targetKey, meta, hasLocalWork } of remoteWrites) {
-      const existingRemote = await remoteStore.get([
-        ownerKey,
-        targetKey,
-      ]) as RemoteHeadCacheV5 | undefined;
-      if (
-        existingRemote
-        && existingRemote.revision === head.revision
-        && existingRemote.head.acceptedEventId !== head.acceptedEventId
-      ) {
-        throw Object.assign(
-          new Error(`같은 annotation revision에 서로 다른 acceptedEventId가 있습니다: ${targetKey}`),
-          { code: 'invalid-argument' },
-        );
-      }
-      if (!existingRemote || head.revision > existingRemote.revision) {
-        await remoteStore.put({
-          ownerKey,
-          targetKey,
-          revision: head.revision,
-          head,
-          updatedAt: now,
-        } satisfies RemoteHeadCacheV5);
-      }
-      if (!hasLocalWork) {
-        await metaStore.put({
-          ownerKey,
-          targetKey,
-          knownRevision: Math.max(
-            meta?.knownRevision ?? 0,
-            existingRemote?.revision ?? 0,
-            head.revision,
-          ),
-          nextSequence: meta?.nextSequence ?? 1,
-          updatedAt: now,
-        } satisfies SyncMetaV5);
       }
     }
     if (!isCurrent() || signal?.aborted) {

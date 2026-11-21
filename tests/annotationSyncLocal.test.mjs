@@ -128,6 +128,40 @@ test('hydrates remote upserts and tombstones while recording authoritative revis
   assert.equal((await getCachedRemoteAnnotationHeadsV5(ownerKey, 'book-1'))[0].operation, 'delete');
 });
 
+test('delayed remote upsert cannot resurrect an annotation after its tombstone', async () => {
+  const item = annotation('delayed-upsert');
+  const upsert = head(item);
+  const tombstone = head(item, {
+    revision: 2,
+    acceptedEventId: 'remote-delete',
+    operation: 'delete',
+    annotation: null,
+    deletedAtServer: {},
+  });
+
+  await hydrateRemoteAnnotationHeadsV5(ownerKey, 'book-1', [upsert], context.sessionId);
+  await hydrateRemoteAnnotationHeadsV5(ownerKey, 'book-1', [tombstone], context.sessionId);
+  await hydrateRemoteAnnotationHeadsV5(ownerKey, 'book-1', [upsert], context.sessionId);
+
+  assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), []);
+  assert.deepEqual(await getCachedRemoteAnnotationHeadsV5(ownerKey, 'book-1'), [tombstone]);
+});
+
+test('delayed remote delete cannot erase a newer annotation during hydration', async () => {
+  const item = annotation('delayed-delete', { note: '원격 최신 메모' });
+  const tombstone = head(item, {
+    operation: 'delete',
+    annotation: null,
+    deletedAtServer: {},
+  });
+  const upsert = head(item, { revision: 2, acceptedEventId: 'remote-update' });
+
+  await hydrateRemoteAnnotationHeadsV5(ownerKey, 'book-1', [upsert, tombstone], context.sessionId);
+
+  assert.deepEqual(await getLocalAnnotationsV8(ownerKey, 'book-1'), [item]);
+  assert.deepEqual(await getCachedRemoteAnnotationHeadsV5(ownerKey, 'book-1'), [upsert]);
+});
+
 test('does not overwrite a target with pending local work', async () => {
   const local = annotation('shared', { note: '로컬' });
   await saveLocalAnnotationV8(ownerKey, local, context);
