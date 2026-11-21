@@ -299,7 +299,7 @@ const getReadingSessionSourceIdentity = (session: ReadingSessionV1) => JSON.stri
 
 const getOrderedReadingSessions = (
   records: readonly ReadingSessionV1[],
-  samplesByDevice: ReadonlyMap<string, ReadingSessionV1[]>,
+  samplesByDevice: ReadonlyMap<string, ClockSample[]>,
 ) => [...records].sort((left, right) => {
   const leftCorrection = getClockCorrection(left, samplesByDevice) ?? 0;
   const rightCorrection = getClockCorrection(right, samplesByDevice) ?? 0;
@@ -397,13 +397,7 @@ export const createReadingRoundCompletionSession = ({
   const valid = sessions.filter(isReadingSessionV1);
   const records = valid.filter((session) => session.bookId === bookId);
   if (records.length === 0) return { status: 'round-changed' };
-  const samplesByDevice = new Map<string, ReadingSessionV1[]>();
-  for (const session of valid) {
-    if (session.clockOffsetMs === undefined || session.clockMeasuredAtClient === undefined) continue;
-    const samples = samplesByDevice.get(session.deviceId) ?? [];
-    samples.push(session);
-    samplesByDevice.set(session.deviceId, samples);
-  }
+  const samplesByDevice = buildClockSampleIndex(valid);
   const rounds = buildReadingBookRoundGroups(getOrderedReadingSessions(records, samplesByDevice));
   const latestRound = rounds.at(-1);
   if (!latestRound || latestRound.roundNumber !== expectedRoundNumber) return { status: 'round-changed' };
@@ -489,23 +483,50 @@ type PreparedSession = {
 
 const CLOCK_SAMPLE_MAX_AGE_MS = 24 * 60 * 60_000;
 
+type ClockSample = { measuredAt: number; offset: number; order: number };
+
+const buildClockSampleIndex = (sessions: readonly ReadingSessionV1[]) => {
+  const samplesByDevice = new Map<string, ClockSample[]>();
+  sessions.forEach(({ deviceId, clockMeasuredAtClient, clockOffsetMs }, order) => {
+    if (clockMeasuredAtClient === undefined || clockOffsetMs === undefined) return;
+    const samples = samplesByDevice.get(deviceId) ?? [];
+    samples.push({ measuredAt: clockMeasuredAtClient, offset: clockOffsetMs, order });
+    samplesByDevice.set(deviceId, samples);
+  });
+  for (const [deviceId, samples] of samplesByDevice) {
+    samples.sort((left, right) => left.measuredAt - right.measuredAt || left.order - right.order);
+    samplesByDevice.set(deviceId, samples.filter((sample, index) =>
+      sample.measuredAt !== samples[index - 1]?.measuredAt));
+  }
+  return samplesByDevice;
+};
+
 const getClockCorrection = (
   session: ReadingSessionV1,
-  samplesByDevice: ReadonlyMap<string, ReadingSessionV1[]>,
+  samplesByDevice: ReadonlyMap<string, ClockSample[]>,
 ) => {
-  const candidates = samplesByDevice.get(session.deviceId) ?? [];
-  let selected: ReadingSessionV1 | undefined;
-  let distance = Number.POSITIVE_INFINITY;
-  for (const candidate of candidates) {
-    const measuredAt = candidate.clockMeasuredAtClient;
-    if (measuredAt === undefined) continue;
-    const nextDistance = Math.abs(measuredAt - session.startedAtClient);
-    if (nextDistance <= CLOCK_SAMPLE_MAX_AGE_MS && nextDistance < distance) {
-      selected = candidate;
-      distance = nextDistance;
-    }
+  const samples = samplesByDevice.get(session.deviceId);
+  if (!samples?.length) return undefined;
+
+  const start = session.startedAtClient;
+  let lower = 0;
+  let upper = samples.length;
+  while (lower < upper) {
+    const middle = lower + Math.floor((upper - lower) / 2);
+    if (samples[middle].measuredAt < start) lower = middle + 1;
+    else upper = middle;
   }
-  return selected?.clockOffsetMs;
+
+  // Only the samples on either side can be closest. An equal distance
+  // keeps the first sample from the original input, as before.
+  const earlier = samples[lower - 1];
+  const later = samples[lower];
+  const earlierDistance = earlier ? start - earlier.measuredAt : Infinity;
+  const laterDistance = later ? later.measuredAt - start : Infinity;
+  const useEarlier = earlier && (!later || earlierDistance < laterDistance
+    || (earlierDistance === laterDistance && earlier.order < later.order));
+  const distance = useEarlier ? earlierDistance : laterDistance;
+  return distance <= CLOCK_SAMPLE_MAX_AGE_MS ? (useEarlier ? earlier : later).offset : undefined;
 };
 
 const compareWinner = (left: PreparedSession, right: PreparedSession) => {
@@ -636,13 +657,7 @@ export const buildReadingStatistics = (
   const candidates = sessions.filter(isReadingSessionV1).filter((session) => (
     session.endedAtClient > startAt && session.startedAtClient < endAt
   ));
-  const samplesByDevice = new Map<string, ReadingSessionV1[]>();
-  for (const session of candidates) {
-    if (session.clockOffsetMs === undefined || session.clockMeasuredAtClient === undefined) continue;
-    const samples = samplesByDevice.get(session.deviceId) ?? [];
-    samples.push(session);
-    samplesByDevice.set(session.deviceId, samples);
-  }
+  const samplesByDevice = buildClockSampleIndex(candidates);
   const prepared = candidates.flatMap((session): PreparedSession[] => {
     const correction = getClockCorrection(session, samplesByDevice);
     const clockTrusted = correction !== undefined;
@@ -802,13 +817,7 @@ export const buildReadingBookRounds = (
   hiddenSessionIds: ReadonlySet<string> = new Set(),
 ): ReadingBookRoundStatistics[] => {
   const valid = sessions.filter(isReadingSessionV1);
-  const samplesByDevice = new Map<string, ReadingSessionV1[]>();
-  for (const session of valid) {
-    if (session.clockOffsetMs === undefined || session.clockMeasuredAtClient === undefined) continue;
-    const samples = samplesByDevice.get(session.deviceId) ?? [];
-    samples.push(session);
-    samplesByDevice.set(session.deviceId, samples);
-  }
+  const samplesByDevice = buildClockSampleIndex(valid);
   const byBook = new Map<string, ReadingSessionV1[]>();
   for (const session of valid) {
     const records = byBook.get(session.bookId) ?? [];

@@ -611,6 +611,34 @@ test('normalizes trusted device clocks and isolates uncalibrated clock domains',
   assert.equal(uncertain.uncertainClockSessionCount, 2);
 });
 
+test('clock correction uses the first sample on a tie and ignores samples older than a day', () => {
+  const start = Date.UTC(2026, 10, 20, 12);
+  const day = 24 * 60 * 60_000;
+  const target = session({
+    sessionId: 'target', startedAtClient: start, endedAtClient: start + 40_000, clockOffsetMs: null,
+  });
+  const sample = (sessionId, measuredAt, offset) => ({
+    ...session({
+      sessionId, startedAtClient: start - 300_000, endedAtClient: start - 290_000, clockOffsetMs: offset,
+    }),
+    clockMeasuredAtClient: measuredAt,
+  });
+  const after = sample('after', start + 30_000, 11_000);
+  const before = sample('before', start - 30_000, -5_000);
+  const sameTime = sample('same-time', start + 30_000, 23_000);
+  const measure = (samples) => {
+    let correctedStart;
+    const summary = buildReadingStatistics([...samples, target], {}, ({ session: source, startAt }) => {
+      if (source.sessionId === target.sessionId) correctedStart = startAt;
+    });
+    return { correctedStart, uncertain: summary.uncertainClockSessionCount };
+  };
+  assert.deepEqual(measure([after, before, sameTime]), { correctedStart: start + 11_000, uncertain: 0 });
+  assert.deepEqual(measure([before, after, sameTime]), { correctedStart: start - 5_000, uncertain: 0 });
+  assert.deepEqual(measure([sample('edge', start - day, 17_000)]), { correctedStart: start + 17_000, uncertain: 0 });
+  assert.equal(measure([sample('expired', start - day - 1, 17_000)]).correctedStart, start);
+});
+
 test('aggregates a large session history without quadratic overlap scans', () => {
   const records = Array.from({ length: 20_000 }, (_, index) => session({
     sessionId: `bulk-${String(index).padStart(5, '0')}`,

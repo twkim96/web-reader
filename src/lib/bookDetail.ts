@@ -100,16 +100,24 @@ export function buildPersonalBookReading({
   const matchedFiles = new Set<string>();
   const identifiedFiles = new Set<string>();
   const conflicts = new Set<string>();
+  const detailRoot = findTitle('detail');
+  const matchesByTitle = new Map<string, 'matching' | 'conflicting' | 'identified' | 'unknown'>();
   const resolveFile = (id: string, title: string) => {
-    const metadata = metadataByTitle?.get(title);
-    if (metadata) identifiedFiles.add(id);
-    if (metadata && platformWorkKeys.length && metadata.platforms.length) {
-      if (findTitle('detail') === findTitle(workIds.get(metadata)!)) matchedFiles.add(id);
-      else conflicts.add(id);
-    } else if (getPublicBookMetadataAliasCandidates(metadata?.titleKey ?? title).some((alias) => aliases.has(alias))) {
-      matchedFiles.add(id);
-      identifiedFiles.add(id);
+    let match = matchesByTitle.get(title);
+    if (!match) {
+      const metadata = metadataByTitle?.get(title);
+      if (metadata && platformWorkKeys.length && metadata.platforms.length) {
+        match = detailRoot === findTitle(workIds.get(metadata)!) ? 'matching' : 'conflicting';
+      } else if (getPublicBookMetadataAliasCandidates(metadata?.titleKey ?? title).some((alias) => aliases.has(alias))) {
+        match = 'matching';
+      } else {
+        match = metadata ? 'identified' : 'unknown';
+      }
+      matchesByTitle.set(title, match);
     }
+    if (match !== 'unknown') identifiedFiles.add(id);
+    if (match === 'matching') matchedFiles.add(id);
+    if (match === 'conflicting') conflicts.add(id);
   };
   const visible = visibleReadingSessions(sessions, ownerKey, hidden);
   for (const { id, name } of books) resolveFile(id, name);
