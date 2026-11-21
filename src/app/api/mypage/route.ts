@@ -3,9 +3,10 @@ import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import { resolveLegacyReviewWork, resolveSocialWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
-import { compareNewestFirst, legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
+import { legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
 import {
-  currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listDatedReviews, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount,
+  currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listPublicProfileReviews, listPublicProfileWishlist,
+  listReviewDeletions, listReviews, listWishlist, lookupPublicAccount,
   updateAccount, updateReview, updateReviewWithStatus, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
@@ -90,16 +91,17 @@ async function publicBooks<T extends { workId: string }>(db: Firestore, records:
   }))).flatMap((result) => result ? [result] : []);
 }
 
-async function uniquePublicProfileBooks<T extends { workId: string }>(
-  db: Firestore, records: T[], timeFor: (record: T) => string | number,
+async function uniquePublicProfileBooks<T extends { workId: string; time: string }>(
+  db: Firestore, records: T[],
 ) {
-  // Input is newest first. Prefer the canonical record when timestamps tie.
   const unique = new Map<string, { record: T; book: PublicProfileBook }>();
   for (let start = 0; start < records.length; start += 20) {
     for (const entry of await publicBooks(db, records.slice(start, start + 20))) {
       const id = entry.book.workId;
       const previous = unique.get(id);
-      if (!previous || (entry.record.workId === id && timeFor(entry.record) === timeFor(previous.record))) {
+      // Keep the newest record regardless of the incoming order. At equal times, prefer the canonical record.
+      if (!previous || entry.record.time > previous.record.time
+        || (entry.record.time === previous.record.time && entry.record.workId === id)) {
         unique.set(id, entry);
       }
     }
@@ -129,13 +131,15 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   if (cursor && cursor.revision !== revision) return fail(409);
   const ratingDirection = reviewSort === 'rating-desc' ? -1 : reviewSort === 'rating-asc' ? 1 : 0;
   const wishlistWindow = async () => {
-    const items = await listWishlist(db, uid);
     if (!useCursor) {
-      const page = legacyProfilePage(items, offset);
+      const page = legacyProfilePage(await listWishlist(db, uid), offset);
       return { ...page, entries: await publicBooks(db, page.entries) };
     }
-    const entries = await uniquePublicProfileBooks(db, items, (item) => item.addedAt);
-    return profileCursorPage(db, entries, ({ record, book }) => [0, Timestamp.fromMillis(record.addedAt).valueOf(), book.workId],
+    const records = (await listPublicProfileWishlist(db, uid)).map(({ workId, addedAt }) => ({
+      workId, time: Number.isFinite(addedAt) ? Timestamp.fromMillis(addedAt).valueOf() : epoch.valueOf(),
+    }));
+    const entries = await uniquePublicProfileBooks(db, records);
+    return profileCursorPage(db, entries, ({ record, book }) => [0, record.time, book.workId],
       { code, section: 'wishlist', sort: 'recent', revision }, cursor?.key);
   };
   const reviewWindow = async () => {
@@ -144,10 +148,10 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
       return { ...page, entries: await publicBooks(db, page.entries) };
     }
     // Timestamp.valueOf() produces a sortable string without the precision loss of toMillis().
-    const records = (await listDatedReviews(db, uid)).map(({ review, updatedAt }) => ({
+    const records = (await listPublicProfileReviews(db, uid)).map(({ updatedAt, ...review }) => ({
       ...review, time: (updatedAt ?? epoch).valueOf(),
-    })).sort((a, b) => compareNewestFirst(a.time, b.time));
-    const entries = await uniquePublicProfileBooks(db, records, (record) => record.time);
+    }));
+    const entries = await uniquePublicProfileBooks(db, records);
     return profileCursorPage(db, entries, ({ record, book }) => [ratingDirection * record.rating, record.time, book.workId],
       { code, section: 'reviews', sort: reviewSort, revision }, cursor?.key);
   };

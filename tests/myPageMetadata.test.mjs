@@ -166,6 +166,31 @@ test('persisted metadata isolates accounts, expires misses, and keeps a newer ma
   assert.deepEqual(await read(), new Map());
 });
 
+test('a large read history only fetches cache records with matching unexpired keys', async (t) => {
+  const now = Date.UTC(2026, 10, 21, 1);
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const owner = 'firebase:large-reads-cache|library:local';
+  const other = 'firebase:other-large-reads-cache|library:local';
+  const metadata = {
+    schemaVersion: 1, titleKey: 'large-history-hit', displayTitle: '캐시된 도서',
+    normalizerVersion: '1.3.3', publishedAt: new Date(now).toISOString(), platforms: [],
+  };
+  await cacheReadBookMetadata(owner, new Map([
+    ['found', { metadata, observedAt: now }],
+    ['miss', { metadata: null, observedAt: now }],
+    ['expired', { metadata: null, observedAt: now - 4 * 60 * 1000 }],
+  ]));
+  await cacheReadBookMetadata(other, new Map([['elsewhere', { metadata, observedAt: now }]]));
+  t.mock.timers.tick(60 * 1000);
+
+  const get = t.mock.method(IDBObjectStore.prototype, 'get');
+  const scan = t.mock.method(IDBIndex.prototype, 'getAllKeys');
+  const titles = ['found', 'miss', 'expired', 'elsewhere', ...Array.from({ length: 600 }, (_, i) => `never-cached-${i}`)];
+  assert.deepEqual(await readCachedReadBookMetadata(owner, titles), new Map([['found', metadata], ['miss', null]]));
+  assert.equal(scan.mock.callCount(), 1);
+  assert.equal(get.mock.callCount(), 2);
+});
+
 test('an older bucket reused after a title waits in the queue cannot overwrite a newer saved match', async (t) => {
   const started = Date.UTC(2026, 10, 21, 1);
   t.mock.timers.enable({ apis: ['Date'], now: started });

@@ -1,6 +1,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
 import { registerHooks } from 'node:module';
 import { deleteApp, getApps } from 'firebase-admin/app';
 import { GrpcStatus, Timestamp } from 'firebase-admin/firestore';
@@ -21,9 +22,10 @@ const { workUnitAsyncStorage } = unwrap(await import('next/dist/server/app-rende
 const { GET, POST } = unwrap(await import('../src/app/api/mypage/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
 const { getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
-const { loadSocialCatalog } = unwrap(await import('../src/server/mypage/catalog.ts'));
+const { loadSocialCatalog, resolveSocialWork } = unwrap(await import('../src/server/mypage/catalog.ts'));
 const { parseBookMetadataRefreshRequest } = unwrap(await import('../src/server/bookMetadata/requestSchema.ts'));
 const { platformWorkKey } = unwrap(await import('../src/lib/readBooks.ts'));
+const { getPublicBookMetadataAliasCandidates } = unwrap(await import('../src/lib/publicBookMetadataSchema.ts'));
 const { APP_ID } = unwrap(await import('../src/lib/appIdentity.ts'));
 
 const base = 'http://localhost/api/mypage';
@@ -188,6 +190,38 @@ test('public profile chooses one newest evaluation per canonical work before pag
     { workId: work.id, rating: 1.5, comment: '최신 평가' },
   ]);
   assert.equal(last.next.reviews, null);
+});
+
+test('concurrent catalog aliases share a cold bucket read and can retry a failed read', async (t) => {
+  const db = getAdminFirestore();
+  const catalog = await loadSocialCatalog();
+  const work = catalog.values().next().value;
+  const title = '병렬버킷재시도테스트'.normalize('NFC');
+  const [candidate] = getPublicBookMetadataAliasCandidates(title);
+  const hash = createHash('sha256').update(candidate).digest('hex');
+  assert.ok(!catalog.has(title));
+  const ref = db.collection('publicBookMetadataV1').doc(hash.slice(0, 2));
+  await ref.set({
+    schemaVersion: 1, entries: { [hash]: {
+      schemaVersion: 1, titleKey: work.id, displayTitle: work.title,
+      normalizerVersion: '1.3.3', publishedAt: new Date().toISOString(), platforms: [],
+    } },
+  }, { merge: true });
+
+  const prototype = Object.getPrototypeOf(ref);
+  const original = prototype.get;
+  let reads = 0;
+  t.mock.method(prototype, 'get', function (...args) {
+    if (this.isEqual(ref) && ++reads === 1) return Promise.reject(new Error('fixture bucket read failure'));
+    return original.apply(this, args);
+  });
+  const lookups = () => Array.from({ length: 12 }, () => resolveSocialWork(db, title));
+  const first = await Promise.allSettled(lookups());
+  assert.ok(first.every(({ status }) => status === 'rejected'));
+  assert.equal(reads, 1);
+  const recovered = await Promise.all(lookups());
+  assert.deepEqual(recovered.map(({ book }) => book.id), Array(12).fill(work.id));
+  assert.equal(reads, 2);
 });
 
 test('an on-demand title uses its published edition across account review saves and reloads', async () => {

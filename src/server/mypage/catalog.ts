@@ -29,17 +29,27 @@ const catalogWork = (catalog: Index, id: string): ResolvedWork | null => {
 };
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-const bucketCaches = new WeakMap<Firestore, Map<string, { expires: number; value: Record<string, unknown> | null }>>();
+const bucketCaches = new WeakMap<Firestore, Map<string, { expires: number; value: Promise<Record<string, unknown> | null> }>>();
 async function bucket(db: Firestore, id: string) {
   let cache = bucketCaches.get(db);
   if (!cache) { cache = new Map(); bucketCaches.set(db, cache); }
   const cached = cache.get(id);
   if (cached && cached.expires > Date.now()) return cached.value;
-  const snapshot = await db.collection('publicBookMetadataV1').doc(id).get();
-  const data = snapshot.exists ? snapshot.data() : undefined;
-  const value = data?.schemaVersion === 1 && data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries) ? data.entries as Record<string, unknown> : null;
-  cache.set(id, { expires: Date.now() + 60_000, value });
-  return value;
+  const value = db.collection('publicBookMetadataV1').doc(id).get().then((snapshot) => {
+    const data = snapshot.data();
+    return data?.schemaVersion === 1 && data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries)
+      ? data.entries as Record<string, unknown> : null;
+  });
+  const entry = { expires: Infinity, value };
+  cache.set(id, entry);
+  try {
+    const entries = await value;
+    entry.expires = Date.now() + 60_000;
+    return entries;
+  } catch (error) {
+    cache.delete(id);
+    throw error;
+  }
 }
 
 async function titleRoots(db: Firestore, catalog: Index, requestedId: string, checkAllAliases = false) {

@@ -84,12 +84,8 @@ async function issueProfileCursor(db: Firestore, scope: Omit<ProfileCursor, 'key
   return Buffer.concat([nonce, cipher.getAuthTag(), encrypted]).toString('base64url');
 }
 
-export function compareNewestFirst(a: string, b: string) {
-  return Number(a < b) - Number(a > b);
-}
-
 function compareKeys(a: SortKey, b: SortKey) {
-  return a[0] - b[0] || compareNewestFirst(a[1], b[1]) || a[2].localeCompare(b[2])
+  return a[0] - b[0] || Number(a[1] < b[1]) - Number(a[1] > b[1]) || a[2].localeCompare(b[2])
     || Number(a[2] > b[2]) - Number(a[2] < b[2]);
 }
 

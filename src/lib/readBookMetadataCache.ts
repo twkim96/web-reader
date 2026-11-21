@@ -55,7 +55,13 @@ export async function readCachedReadBookMetadata(ownerKey: OwnerKey, titles: rea
       const transaction = db.transaction(STORE);
       void transaction.done.catch(() => undefined);
       const store = transaction.store;
-      const entries = await Promise.all(keys.map(async ({ title, key }) => ({ title, record: await store.get(key) })));
+      let candidates = keys;
+      if (keys.length > MAX_ENTRIES) {
+        // For long reading histories, one bounded key scan avoids an IndexedDB request per cache miss.
+        const liveKeys = new Set(await store.index('by-expiry').getAllKeys(IDBKeyRange.lowerBound(now, true)));
+        candidates = keys.filter(({ key }) => liveKeys.has(key));
+      }
+      const entries = await Promise.all(candidates.map(async ({ title, key }) => ({ title, record: await store.get(key) })));
       for (const { title, record } of entries) {
         if (!record || !(record.expiresAt > now)) continue;
         const metadata = parsePublicBookMetadata(record.metadata);

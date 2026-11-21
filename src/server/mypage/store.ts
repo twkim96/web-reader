@@ -161,6 +161,11 @@ export async function listWishlist(db: Firestore, uid: string, includeRemoved = 
   return limit === undefined ? items : items.slice(0, limit);
 }
 
+export async function listPublicProfileWishlist(db: Firestore, uid: string) {
+  const snapshot = await wishlist(db, uid).where('saved', '==', true).select('workId', 'addedAt').get();
+  return snapshot.docs.map((document) => document.data() as Pick<MyPageWishlistItem, 'workId' | 'addedAt'>);
+}
+
 async function verifyImportAccount(
   db: Firestore, transaction: Transaction, uid: string, expectedRevision: number | undefined,
 ): Promise<string> {
@@ -228,12 +233,21 @@ export async function readReview(db: Firestore, uid: string, workId: string): Pr
   return reviewFrom((await reviews(db, uid).doc(workKey(workId)).get()).data());
 }
 
-export async function listDatedReviews(db: Firestore, uid: string) {
+async function listDatedReviews(db: Firestore, uid: string) {
   const snapshot = await reviews(db, uid).where('deleted', '==', false).get();
   return snapshot.docs.flatMap((document) => {
     const data = document.data();
     const review = reviewFrom(data);
     return review ? [{ review, updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : null }] : [];
+  });
+}
+
+export async function listPublicProfileReviews(db: Firestore, uid: string) {
+  const snapshot = await reviews(db, uid).where('deleted', '==', false).select('workId', 'rating', 'comment', 'updatedAt').get();
+  return snapshot.docs.map((document) => {
+    const { workId, rating, comment, updatedAt } = document.data();
+    return { workId, rating, comment, updatedAt: updatedAt instanceof Timestamp ? updatedAt : null } as
+      Pick<MyPageReview, 'workId' | 'rating' | 'comment'> & { updatedAt: Timestamp | null };
   });
 }
 
