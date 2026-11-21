@@ -52,7 +52,9 @@ async function bucket(db: Firestore, id: string) {
   }
 }
 
-async function titleRoots(db: Firestore, catalog: Index, requestedId: string, checkAllAliases = false) {
+async function titleRoots(
+  db: Firestore, catalog: Index, requestedId: string, checkAllAliases = false, markUncertain?: () => void,
+) {
   const roots = new Set<string>();
   if (typeof requestedId !== 'string' || !requestedId.trim() || requestedId.length > 1000) return roots;
   const published = catalog.byId.get(requestedId);
@@ -80,7 +82,16 @@ async function titleRoots(db: Firestore, catalog: Index, requestedId: string, ch
   for (const id of checkAllAliases ? ids : ids.slice(0, 1)) {
     const snapshot = await db.collection('publicBookMetadataOnDemandV1').doc(id).get();
     const data = snapshot.exists ? snapshot.data() : undefined;
-    if (data?.schemaVersion !== 1 || data.status !== 'ready' || data.aliasId !== id || !Array.isArray(data.platforms)) continue;
+    if (!data) continue;
+    if (data.schemaVersion !== 1 || data.aliasId !== id) {
+      markUncertain?.();
+      continue;
+    }
+    if (data.status === 'not-found') continue;
+    if (data.status !== 'ready' || !Array.isArray(data.platforms)) {
+      markUncertain?.();
+      continue;
+    }
     for (const item of data.platforms) {
       if (!item || typeof item !== 'object' || typeof item.platform !== 'string' || typeof item.url !== 'string') continue;
       const root = catalog.platforms.get(platformWorkKey(item.platform, item.url));
@@ -106,6 +117,12 @@ export async function resolveSocialWork(
   if (platformRoot) return catalogWork(catalog, platformRoot);
   const roots = await titleRoots(db, catalog, requestedId);
   return roots.size === 1 ? catalogWork(catalog, [...roots][0]) : null;
+}
+
+export async function resolveSocialReadingTitle(db: Firestore, title: string) {
+  let uncertain = false;
+  const roots = await titleRoots(db, await index(), title, false, () => { uncertain = true; });
+  return { roots, uncertain };
 }
 
 export async function resolveLegacyReviewWork(

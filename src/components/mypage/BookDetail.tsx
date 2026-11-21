@@ -13,6 +13,7 @@ import { parsePublicBookReview, PUBLIC_BOOK_REVIEW_LIMIT } from '../../lib/publi
 import { resolveReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type PublicWorkReviews } from '../../lib/myPageSocial';
 import type { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
+import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
 import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/readBooks';
 import { formatReadingDuration, type StoredReadingSessionV11 } from '../../lib/readingStatistics';
 import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY } from '../../lib/readingStatisticsSessionVisibility';
@@ -120,6 +121,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     titles: string;
     metadata: ReadonlyMap<string, PublicBookMetadata | null>;
     failed: ReadonlySet<string>;
+    uncertainTitles?: ReadonlySet<string>;
   }>();
   const [historyRetry, retryHistoryMetadata] = useState(0);
   const reviewHeading = useRef<HTMLHeadingElement>(null);
@@ -139,15 +141,25 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     ? getPlatformWorkKeys(candidate).some((key) => platformKeys.includes(key))
     : candidate.titleKey === lookupId || readBook?.equivalentTitleKeys?.includes(candidate.titleKey)) ? candidate : null;
 
+  const historyReady = history !== null || historyFailed;
   useEffect(() => {
     const titles: string[] = JSON.parse(historyTitles);
-    if (!titles.length) return;
+    if (!historyReady || !titles.length) return;
     const controller = new AbortController();
-    void loadReadBookMetadata(titles, { signal: controller.signal }).then(({ metadata, failed }) => {
-      if (!controller.signal.aborted) setHistoryLookup({ titles: historyTitles, metadata, failed });
-    });
+    const load = async () => {
+      const cached = await readCachedReadBookMetadata(ownerKey, titles);
+      if (controller.signal.aborted) return;
+      const missing = titles.filter((title) => !cached.has(title));
+      const { metadata, failed, uncertainTitles } = missing.length
+        ? await loadReadBookMetadata(missing, { signal: controller.signal, cacheOwnerKey: ownerKey })
+        : { metadata: new Map<string, PublicBookMetadata | null>(), failed: new Set<string>(), uncertainTitles: undefined };
+      if (controller.signal.aborted) return;
+      for (const [title, match] of cached) metadata.set(title, match.metadata);
+      setHistoryLookup({ titles: historyTitles, metadata, failed, uncertainTitles });
+    };
+    void load();
     return () => controller.abort();
-  }, [historyTitles, historyRetry]);
+  }, [historyReady, historyTitles, historyRetry, ownerKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -200,13 +212,21 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     titleKeys: [work.id, bookId, ...work.equivalentTitleKeys],
     platformWorkKeys: work.platformWorkKeys,
     metadataByTitle: historyMetadata,
+    uncertainTitles: historyResult?.uncertainTitles,
     knownFileIds: readBook?.fileIds ?? [],
-  }), [work, bookId, historyMetadata, readingInput, readBook]);
+  }), [work, bookId, historyMetadata, historyResult, readingInput, readBook]);
   const completeHistory = history && !historyFailed && (historyTitles === '[]' || historyResult?.failed.size === 0);
   const reviewFileIds = completeHistory ? personal.reviewFileIds : null;
-  const readingSnapshot = useMemo(() => history && reviewFileIds
+  const confirmedReading = useMemo(() => history && reviewFileIds
     ? buildLocalReviewReading(history.sessions, ownerKey, history.hidden, reviewFileIds)
     : null, [history, ownerKey, reviewFileIds]);
+  // A missing edition cannot make a comment edit overwrite a previously
+  // confirmed reading total with the lower bound visible on this device.
+  const previous = review.entry;
+  const losesEvidence = personal.reviewHistoryPartial && confirmedReading && previous
+    && (confirmedReading.totalMs < (previous.totalMs ?? 0)
+      || confirmedReading.progressPercent < (previous.progressPercent ?? 0));
+  const readingSnapshot = losesEvidence ? null : confirmedReading;
   const reviewPlatformKeys = [...new Set([...work.platformWorkKeys, ...(readBook?.platformWorkKeys ?? [])])];
   const title = discovery?.title ?? metadata?.displayTitle ?? readBook?.title;
   useEffect(() => {
@@ -289,7 +309,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       )}
       {Boolean(historyResult?.failed.size) && <p role="status" className="text-sm opacity-65">일부 독서 기록을 연결하지 못했습니다. <button type="button" className="text-accent-500" onClick={() => retryHistoryMetadata((value) => value + 1)}>기록 다시 연결</button></p>}
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
-      <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={reviewFileIds ?? []}
+      <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={losesEvidence ? [] : reviewFileIds ?? []}
         readingSnapshot={readingSnapshot} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
         ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
         error={reviews.error} refresh={reviews.refresh} change={reviews.change} headingRef={reviewHeading} />

@@ -1,13 +1,12 @@
 import { FieldPath, type Firestore, type QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity';
 import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, type ReadingSessionV1 } from '../../lib/readingStatistics';
-import { resolveSocialWork } from './catalog';
+import { resolveSocialReadingTitle, resolveSocialWork } from './catalog';
 
 type Work = { fileIds: Set<string>; progress: number };
 type Summary = {
   works: Map<string, Work>;
   totals: Map<string, number>;
-  hasUnidentifiedFiles: boolean;
   conflictedWorks: Set<string>;
   marker: string | null;
   builtAt: number;
@@ -58,33 +57,37 @@ async function buildSummary(db: Firestore, uid: string, previous?: Promise<Summa
     cursor = snapshot.docs[snapshot.docs.length - 1];
   }
   const titles = [...new Set(sessions.map((s) => s.bookTitle))];
-  const resolved = new Map<string, Awaited<ReturnType<typeof resolveSocialWork>>>();
+  const resolved = new Map<string, Awaited<ReturnType<typeof resolveSocialReadingTitle>>>();
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(8, titles.length) }, async () => {
-    while (next < titles.length) { const title = titles[next++]; resolved.set(title, await resolveSocialWork(db, title)); }
+    while (next < titles.length) {
+      const title = titles[next++];
+      resolved.set(title, await resolveSocialReadingTitle(db, title));
+    }
   }));
   const works = new Map<string, Work>();
   const fileWorks = new Map<string, Set<string>>();
+  const uncertainFiles = new Set<string>();
   for (const session of sessions) {
     const result = resolved.get(session.bookTitle);
     if (!result) continue;
+    if (result.uncertain) uncertainFiles.add(session.bookId);
+    if (result.roots.size === 0) continue;
     const ids = fileWorks.get(session.bookId) ?? new Set<string>();
-    ids.add(result.book.id); fileWorks.set(session.bookId, ids);
+    for (const id of result.roots) ids.add(id);
+    fileWorks.set(session.bookId, ids);
   }
   const conflictedWorks = new Set<string>();
-  for (const ids of fileWorks.values()) {
-    if (ids.size > 1) for (const id of ids) conflictedWorks.add(id);
+  for (const [file, ids] of fileWorks) {
+    if (ids.size > 1 || uncertainFiles.has(file)) for (const id of ids) conflictedWorks.add(id);
   }
   const totals = new Map<string, number>();
   const sessionWork = new Map<string, string>();
-  let hasUnidentifiedFiles = false;
   for (const session of sessions) {
-    const result = resolved.get(session.bookTitle);
     const ids = fileWorks.get(session.bookId);
-    const id = result?.book.id ?? (ids?.size === 1 ? [...ids][0] : undefined);
-    // A title can miss even though another record identifies the same file.
-    if (!ids && session.completionRoundNumber === undefined) hasUnidentifiedFiles = true;
-    if (!id || (ids && (ids.size !== 1 || !ids.has(id)))) continue;
+    if (ids?.size !== 1 || uncertainFiles.has(session.bookId)) continue;
+    // An old name can miss while another session still identifies the file.
+    const [id] = ids;
     sessionWork.set(session.sessionId, id);
     const work = works.get(id) ?? { fileIds: new Set<string>(), progress: 0 };
     if (session.completionRoundNumber === undefined) {
@@ -97,14 +100,14 @@ async function buildSummary(db: Firestore, uid: string, previous?: Promise<Summa
     const id = sessionWork.get(session.sessionId);
     if (id) totals.set(id, (totals.get(id) ?? 0) + durationMs);
   });
-  return { works, totals, hasUnidentifiedFiles, conflictedWorks, marker, builtAt: Date.now() };
+  return { works, totals, conflictedWorks, marker, builtAt: Date.now() };
 }
 
 export async function getSocialReadingEvidence(db: Firestore, uid: string, canonicalWorkId: string, fileIds: readonly string[]): Promise<{ totalMs: number | null; progressPercent: number | null }> {
   const resolved = await resolveSocialWork(db, canonicalWorkId);
   if (!resolved || resolved.book.id !== canonicalWorkId) return { totalMs: null, progressPercent: null };
   const data = await summary(db, uid);
-  if (data.hasUnidentifiedFiles || data.conflictedWorks.has(canonicalWorkId)) return { totalMs: null, progressPercent: null };
+  if (data.conflictedWorks.has(canonicalWorkId)) return { totalMs: null, progressPercent: null };
   const work = data.works.get(canonicalWorkId);
   // File ids are hints only; a supplied id must actually belong to this work.
   if (!work || !work.fileIds.size || (fileIds.length > 0 && !fileIds.some((id) => work.fileIds.has(id)))) return { totalMs: null, progressPercent: null };

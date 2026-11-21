@@ -310,7 +310,7 @@ test('a direct detail lookup resolves transitive published aliases and keeps loc
   const direct = buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: [] });
   assert.deepEqual(direct, {
     totalMs: 120_000, progressPercent: 9, fileIds: ['private-id', 'bridge-id'],
-    reviewFileIds: ['private-id', 'bridge-id'], bookmarks: [bookmark], hasRead: true,
+    reviewFileIds: ['private-id', 'bridge-id'], reviewHistoryPartial: false, bookmarks: [bookmark], hasRead: true,
   });
   assert.deepEqual(direct, buildPersonalBookReading({ ...reading, metadataByTitle: metadata, knownFileIds: ['private-id', 'bridge-id'] }));
 });
@@ -341,8 +341,13 @@ test('a file that loses its metadata cannot give list and direct detail differen
   const direct = buildPersonalBookReading({ ...input, metadataByTitle: missing.metadata, knownFileIds: [] });
   assert.equal(fromList.totalMs, 180_000);
   assert.equal(direct.totalMs, 60_000);
-  assert.equal(fromList.reviewFileIds, null);
-  assert.equal(direct.reviewFileIds, null);
+  assert.deepEqual(fromList.reviewFileIds, ['primary']);
+  assert.deepEqual(direct.reviewFileIds, ['primary']);
+  assert.equal(fromList.reviewHistoryPartial, true);
+  assert.equal(direct.reviewHistoryPartial, true);
+  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, direct.reviewFileIds), {
+    totalMs: 60_000, progressPercent: 20,
+  });
 
   const resolved = new Map(missing.metadata).set(edition.bookTitle, metadata);
   const recovered = buildPersonalBookReading({ ...input, metadataByTitle: resolved, knownFileIds: [] });
@@ -361,12 +366,23 @@ test('a file that loses its metadata cannot give list and direct detail differen
   });
   assert.deepEqual(ambiguous.fileIds, ['primary']);
   assert.equal(ambiguous.reviewFileIds, null);
+  const platformlessConflict = buildPersonalBookReading({
+    ...input, sessions: [...sessions, otherName],
+    metadataByTitle: new Map(conflict).set(otherName.bookTitle, { titleKey: 'another-work', platforms: [] }),
+    knownFileIds: [],
+  });
+  assert.equal(platformlessConflict.reviewFileIds, null);
 
   const sameFile = [primary, { ...edition, bookId: primary.bookId }];
   const renamed = buildPersonalBookReading({ ...input, sessions: sameFile, metadataByTitle: missing.metadata, knownFileIds: [] });
   assert.deepEqual(buildLocalReviewReading(sameFile, ownerKey, hidden, renamed.reviewFileIds), {
     totalMs: 180_000, progressPercent: 80,
   });
+  const uncertain = buildPersonalBookReading({
+    ...input, sessions: sameFile, metadataByTitle: missing.metadata, knownFileIds: [],
+    uncertainTitles: new Set([edition.bookTitle]),
+  });
+  assert.equal(uncertain.reviewFileIds, null);
 });
 
 test('review evidence uses the highest synced progress even below the detail display threshold', () => {

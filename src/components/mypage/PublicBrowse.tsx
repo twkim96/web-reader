@@ -64,7 +64,9 @@ export function PublicBrowse({ section, owner, onOpenBook }: {
     ))}
     {loading && <p role="status" className="text-sm opacity-60">도서를 불러오는 중…</p>}
     {error && <p role="alert" className="text-sm text-accent-500">{error} <button type="button" className="underline" onClick={() => load(request.cursor)}>다시 불러오기</button></p>}
-    {!loading && !error && !result?.next && result?.groups.length === 0 && <p className="text-sm opacity-60">공개된 도서가 없습니다.</p>}
+    {!loading && !error && result?.groups.length === 0 && <p className="text-sm opacity-60">
+      {result.next ? '아직 표시할 도서를 찾지 못했습니다.' : '공개된 도서가 없습니다.'}
+    </p>}
     {!loading && !error && result?.next && <button type="button" onClick={() => load(result.next)}
       className="min-h-11 px-2 text-sm font-medium text-accent-500">더 보기</button>}
   </div>;

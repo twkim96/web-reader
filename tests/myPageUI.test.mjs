@@ -164,6 +164,8 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
   const unresolved = '후속 미게시 판본';
   const incomplete = '조회가 실패한 파일';
   const renamed = '예전 파일 이름';
+  const privatePdf = '개인 메모.pdf';
+  let historyReads = 0;
   let failHistoryMetadata = true;
   let loseEditionMetadata = false;
   let failOldName = true;
@@ -171,11 +173,12 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
   const secondURL = 'https://books.example/second';
   const pendingURL = 'https://books.example/not-in-client-index';
   globalThis.myPageTestMetadata = (titles, { onProgress }) => {
+    if (!onProgress && titles.length > 1) historyReads++;
     const result = { metadata: new Map(), failed: new Set() };
     for (const name of titles) {
       if ((name === incomplete && failHistoryMetadata) || (name === renamed && failOldName)) {
         result.failed.add(name);
-      } else if (name === renamed || (name === incomplete && loseEditionMetadata)) {
+      } else if (name === renamed || name === privatePdf || (name === incomplete && loseEditionMetadata)) {
         result.metadata.set(name, null);
       } else {
         const url = name === title ? firstURL : name === alias || name === incomplete ? secondURL
@@ -207,7 +210,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
   const unread = { ...book, id: 'unread-metadata', title: '읽기 전 작품' };
   const unreadRating = { workId: unread.id, rating: 3, revision: 1, comment: '', totalMs: null, progressPercent: null };
   const secondWorkId = 'published-second';
-  const secondReview = { ...committed, workId: secondWorkId, aliases: [], rating: 3,
+  const secondReview = { ...committed, workId: secondWorkId, aliases: [], rating: 3, totalMs: 120_000, progressPercent: 90,
     platformWorkKeys: [JSON.stringify(['series', secondURL])] };
   const secondWrites = [];
   let secondSaved = false;
@@ -283,6 +286,8 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
         startedAtClient: start + 180_000, endedAtClient: start + 240_000 },
       { ...session, sessionId: 'metadata-pending', bookId: 'metadata-pending-book', bookTitle: incomplete,
         startedAtClient: start + 120_000, endedAtClient: start + 180_000, endProgressPercent: 90 },
+      { ...session, sessionId: 'private-pdf', bookId: 'private-pdf', bookTitle: privatePdf,
+        startedAtClient: start + 300_000, endedAtClient: start + 360_000 },
     ], null, null, true, false);
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
     assert.deepEqual([...visible('nav').querySelectorAll('button')].map((button) => button.querySelector('span').textContent), [
@@ -331,8 +336,10 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(secondWrites[0].revision, null);
     assert.equal(secondWrites[0].readingSnapshot, null);
     assert.deepEqual(secondWrites[0].fileIds, []);
-    failHistoryMetadata = false;
     const retryHistory = () => [...visible('main').querySelectorAll('button')].find((button) => button.textContent === '기록 다시 연결');
+    for (let attempt = 0; attempt < 20 && !retryHistory(); attempt++) await act(async () => delay(10));
+    assert.ok(retryHistory());
+    failHistoryMetadata = false;
     await click(window, retryHistory());
     for (let attempt = 0; attempt < 20 && retryHistory(); attempt++) await act(async () => delay(10));
     if (retryHistory()) throw new Error('metadata retry control still visible');
@@ -386,8 +393,10 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(editor().querySelector('input[aria-label="한줄평 (선택)"]').value, draftComment);
     const openMenu = (label) => click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent === label));
     await openMenu('도서');
+    const beforeDirectHistory = historyReads;
     await click(window, visible(`a[aria-label="${title}"]`));
-    for (let attempt = 0; attempt < 20 && editor().querySelector('button[aria-label="4.5점"]').disabled; attempt++) {
+    for (let attempt = 0; attempt < 20
+      && (historyReads === beforeDirectHistory || editor().querySelector('button[aria-label="4.5점"]').disabled); attempt++) {
       await act(async () => delay(10));
     }
     await click(window, editor().querySelector('button[aria-label="4.5점"]'));
@@ -447,8 +456,9 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     await select(window, visible('select[aria-label="읽은 책 정렬"]'), 'progress');
     await openCollectionTab('내 평가');
 
-    // The visible read list retains the old metadata. The detail requests it
-    // again and receives null for a separate edition of the same work.
+    // Restore the earlier server rating before either entry path sees the
+    // missing edition. A lower partial snapshot must preserve its evidence.
+    secondSaved = true;
     await openCollectionTab('읽은 책');
     assert.equal(visible('select[aria-label="읽은 책 정렬"]').querySelector('option:checked').value, 'progress');
     const editionLink = () => visible('a[href="#mypage/book/published-second/review"]');
@@ -458,23 +468,26 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     }
     assert.match(editionRow()?.textContent ?? '', /2분 읽음/);
     loseEditionMetadata = true;
+    const beforeListHistory = historyReads;
     await click(window, editionLink());
-    const saveRatingWithPersonalTime = async (time) => {
+    const saveRatingWithPersonalTime = async (time, beforeHistory) => {
       const record = () => visible('[aria-label="내 독서 기록"]');
       const star = () => editor()?.querySelector('button[aria-label="3점"]');
-      for (let n = 0; n < 20 && (!record()?.textContent.includes(time) || !star() || star().disabled); n++) {
+      for (let n = 0; n < 20
+        && (historyReads === beforeHistory || !record()?.textContent.includes(time) || !star() || star().disabled); n++) {
         await act(async () => delay(10));
       }
       assert.match(record()?.textContent ?? '', new RegExp(time));
       await click(window, star());
       await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     };
-    await saveRatingWithPersonalTime('2분');
+    await saveRatingWithPersonalTime('2분', beforeListHistory);
     const directHash = window.location.hash;
     await act(async () => root.render(null));
     window.location.hash = directHash;
+    const beforeRemountHistory = historyReads;
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
-    await saveRatingWithPersonalTime('1분');
+    await saveRatingWithPersonalTime('1분', beforeRemountHistory);
     assert.equal(secondWrites.length, 5);
     for (const request of secondWrites.slice(3)) {
       assert.equal(request.rating, 3);
@@ -921,6 +934,16 @@ test('a saved title opens a themed detail page with optional private records and
   const main = () => window.document.querySelector('main');
   const localBook = { id: 'private-file-id', name: '테스트 도서.epub', mimeType: 'application/epub+zip' };
   const start = Date.UTC(2026, 10, 20, 5);
+  const historyRequests = [];
+  globalThis.myPageTestMetadata = (titles) => {
+    historyRequests.push(...titles);
+    return { metadata: new Map(titles.map((title) => [title, null])), failed: new Set() };
+  };
+  const cachedMetadata = {
+    schemaVersion: 1, titleKey: saved.id, displayTitle: saved.title,
+    normalizerVersion: '1.3.3', publishedAt: new Date(start).toISOString(), platforms: [],
+  };
+  await cacheReadBookMetadata(owner, new Map([[localBook.name, { metadata: cachedMetadata, observedAt: Date.now() }]]));
   const bookmark = { id: 'bookmark', name: '로컬 책갈피', type: 'manual', progressPercent: 14, cfi: 'cfi', color: '', createdAt: start };
   try {
     await saveLocalReadingSessionV11(owner, {
@@ -941,6 +964,8 @@ test('a saved title opens a themed detail page with optional private records and
     assert.equal(window.location.hash, link.getAttribute('href'));
     assert.equal(main().getAttribute('aria-label'), '도서 상세정보');
     assert.equal(reviewRequest, saved.id);
+    assert.ok(historyRequests.includes(saved.id));
+    assert.ok(!historyRequests.includes(localBook.name));
     const basic = main().querySelector('[aria-label="도서 기본정보"]');
     assert.equal(basic.querySelector('a[href^="https://series.naver.com"]').textContent, platform.label);
     assert.equal(basic.querySelector('a[href^="https://page.kakao.com"]').textContent, '카카오페이지');
@@ -972,6 +997,135 @@ test('a saved title opens a themed detail page with optional private records and
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = originalFetch;
+    delete globalThis.myPageTestMetadata;
     await closeLocalDB();
+  }
+});
+
+test('dashboard review writes trigger one fresh read and discard the pre-write response', async (t) => {
+  const require = createRequire(import.meta.url);
+  const { dashboardReviewCache } = require('../src/lib/myPageDashboardCache.ts');
+  const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+  const { MyReviews } = require('../src/components/mypage/MyReviews.tsx');
+  const { window, root } = setup('#mypage/overview');
+  const uid = 'dashboard-write-race';
+  const ownerKey = `firebase:${uid}|library:local`;
+  const authFixture = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
+        return { url: 'data:text/javascript,' + encodeURIComponent(
+          `export const auth = { currentUser: { uid: ${JSON.stringify(uid)}, getIdToken: async () => 'fixture-token' } };`,
+        ), shortCircuit: true };
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  const reads = [];
+  t.mock.method(globalThis, 'fetch', async (resource) => {
+    assert.match(String(resource), /view=reviews&preview=1/);
+    return new Promise((resolve) => reads.push(resolve));
+  });
+  const response = (rating) => Response.json({
+    reviews: [{ workId: 'review-identity', title: '평가한 책', rating }], deletions: [],
+  });
+  const title = () => window.document.querySelector('[aria-label="평점을 남긴 도서 가로 목록"]')?.textContent ?? '';
+  ownerRuntime.activate(ownerKey);
+  try {
+    const finishFirst = dashboardReviewCache.beginWrite(ownerKey);
+    await act(async () => root.render(React.createElement(MyReviews, { owner: ownerKey, onOpenBook() {}, onShowAll() {} })));
+    assert.equal(reads.length, 0);
+    await act(async () => finishFirst());
+    for (let attempt = 0; attempt < 20 && reads.length < 1; attempt++) await act(async () => delay(10));
+    assert.equal(reads.length, 1);
+
+    let finishSecond;
+    await act(async () => { finishSecond = dashboardReviewCache.beginWrite(ownerKey); });
+    await act(async () => finishSecond());
+    for (let attempt = 0; attempt < 20 && reads.length < 2; attempt++) await act(async () => delay(10));
+    assert.equal(reads.length, 2);
+    await act(async () => reads[0](response(2)));
+    assert.doesNotMatch(title(), /2\/5/);
+    await act(async () => reads[1](response(5)));
+    assert.match(title(), /5\/5/);
+    assert.equal(reads.length, 2);
+  } finally {
+    await act(async () => root.unmount());
+    for (const finish of reads) finish(response(1));
+    ownerRuntime.clear();
+    authFixture.deregister();
+  }
+});
+
+test('account wishlist reloads after a revision conflict and on visible return', async (t) => {
+  const { useAccountWishlist } = await import('../src/hooks/useAccountWishlist.ts');
+  const { window, root } = setup('#mypage/wishlist');
+  const uid = 'wishlist-revision-conflict';
+  const ownerKey = `firebase:${uid}|library:local`;
+  const authFixture = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
+        return { url: 'data:text/javascript,' + encodeURIComponent(
+          `export const auth = { currentUser: { uid: ${JSON.stringify(uid)}, getIdToken: async () => 'fixture-token' } };`,
+        ), shortCircuit: true };
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  let revision = 1;
+  let saved = true;
+  let reads = 0;
+  const posts = [];
+  const entry = () => ({
+    item: { workId: book.id, saved, revision, addedAt: 10 },
+    book, aliases: [], siblingRevisions: [{ workId: book.id, revision }],
+  });
+  t.mock.method(globalThis, 'fetch', async (resource, options) => {
+    const params = new URL(resource, 'https://test.example').searchParams;
+    if (params.get('view') === 'wishlist') {
+      reads++;
+      return Response.json({ entries: [entry()] });
+    }
+    assert.equal(params.get('action'), 'wishlist');
+    const body = JSON.parse(options.body);
+    posts.push(body);
+    if (posts.length === 1) {
+      revision++;
+      return new Response(null, { status: 409 });
+    }
+    assert.deepEqual(body.siblingRevisions, entry().siblingRevisions);
+    revision++;
+    saved = body.saved;
+    return Response.json(entry());
+  });
+  const Fixture = () => {
+    const state = useAccountWishlist(ownerKey, true);
+    const active = state.savedIds.has(book.id);
+    return React.createElement('button', {
+      disabled: state.loading || state.saving,
+      onClick: () => void state.setSaved(book, !active),
+    }, active ? '담김' : '비어 있음');
+  };
+  const button = () => window.document.querySelector('button');
+  const waitFor = async (condition) => {
+    for (let count = 0; count < 20 && !condition(); count++) await act(async () => delay(10));
+    assert.ok(condition());
+  };
+  try {
+    await act(async () => root.render(React.createElement(Fixture)));
+    await waitFor(() => button().textContent === '담김');
+    await click(window, button());
+    await waitFor(() => reads === 2 && !button().disabled);
+    await click(window, button());
+    await waitFor(() => button().textContent === '비어 있음');
+    assert.deepEqual(posts.map(({ revision }) => revision), [1, 2]);
+
+    revision++;
+    saved = true;
+    await act(async () => window.document.dispatchEvent(new window.Event('visibilitychange')));
+    await waitFor(() => button().textContent === '담김');
+    assert.equal(reads, 3);
+  } finally {
+    await act(async () => root.unmount());
+    authFixture.deregister();
   }
 });

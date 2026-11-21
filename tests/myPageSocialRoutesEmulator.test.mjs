@@ -686,3 +686,85 @@ test('browse groups the same book by reader and honors both privacy switches and
   }));
   assert.ok(!(await groupsFor('wishlist')).has(alice.code));
 });
+
+test('browse skips empty account pages within a bounded scan and returns a usable cursor', async () => {
+  const db = getAdminFirestore();
+  const work = [...(await loadSocialCatalog()).values()][0];
+  const visibility = { reviews: true, wishlist: false };
+  const prefix = '000NE';
+  const accountCode = (number) => prefix + String(number).padStart(3, '0');
+  const batch = db.batch();
+  for (let index = 1; index <= 25; index++) {
+    batch.create(db.collection('publicReaderProfilesV1').doc(accountCode(index)), {
+      uid: `sparse-feed-${index}`, revision: 1, visibility, nickname: '테스트 독자',
+    });
+  }
+  const reviews = db.collection(`artifacts/${APP_ID}/users/sparse-feed-25/libraries/local/myPageReviewsV1`);
+  batch.create(reviews.doc('fixture'), {
+    workId: work.id, rating: 4, comment: '', revision: 1, deleted: false,
+    totalMs: null, progressPercent: null, updatedAt: Timestamp.fromMillis(1000),
+  });
+  await batch.commit();
+  try {
+    const params = { view: 'browse', section: 'reviews' };
+    const empty = await ok(get({ ...params, cursor: accountCode(0) }));
+    assert.deepEqual(empty, { groups: [], next: accountCode(24) });
+    const next = await ok(get({ ...params, cursor: empty.next }));
+    assert.equal(next.groups[0].reader.code, accountCode(25));
+    assert.equal(next.groups[0].books[0].workId, work.id);
+
+    const skipped = await ok(get({ ...params, cursor: accountCode(18) }));
+    assert.equal(skipped.groups[0].reader.code, accountCode(25));
+  } finally {
+    const cleanup = db.batch();
+    for (let index = 1; index <= 25; index++) {
+      cleanup.delete(db.collection('publicReaderProfilesV1').doc(accountCode(index)));
+    }
+    cleanup.delete(reviews.doc('fixture'));
+    await cleanup.commit();
+  }
+});
+
+test('removing a merged wishlist work compares all saved revisions before changing any alias', async () => {
+  const { idToken, localId: uid } = await emulatorLogin('wishlist-merged-revisions');
+  const catalog = await loadSocialCatalog();
+  const [alias, work] = [...catalog].find(([id, book]) => id !== book.id);
+  const account = await ok(get({ view: 'account' }, idToken));
+  await ok(post('account', idToken, {
+    nickname: account.nickname, visibility: { reviews: true, wishlist: true }, revision: account.revision,
+  }));
+  const db = getAdminFirestore();
+  const list = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/myPageWishlistV1`);
+  const ref = (id) => list.doc(createHash('sha256').update(id).digest('hex'));
+  const seed = (workId, revision, addedAt) => ref(workId).set({ workId, revision, addedAt, saved: true });
+
+  await Promise.all([seed(work.id, 1, 1000), seed(alias, 1, 500)]);
+  const first = (await ok(get({ view: 'wishlist' }, idToken))).entries[0];
+  assert.equal(first.item.workId, work.id);
+  assert.deepEqual(first.siblingRevisions, [{ workId: work.id, revision: 1 }, { workId: alias, revision: 1 }]);
+
+  await ok(post('wishlist', idToken, { workId: alias, revision: 1, saved: false }));
+  await ok(post('wishlist', idToken, { workId: alias, revision: 2, saved: true }));
+  const remove = (entry) => post('wishlist', idToken, {
+    workId: entry.item.workId, revision: entry.item.revision, saved: false, siblingRevisions: entry.siblingRevisions,
+  });
+  assert.equal((await remove(first)).status, 409);
+  assert.equal((await ref(work.id).get()).get('saved'), true);
+  assert.equal((await ref(alias).get()).get('revision'), 3);
+  assert.equal((await ref(alias).get()).get('saved'), true);
+
+  const latest = (await ok(get({ view: 'wishlist' }, idToken))).entries[0];
+  const deleted = await ok(remove(latest));
+  assert.equal(deleted.item.saved, false);
+  assert.deepEqual(new Map(deleted.siblingRevisions.map(({ workId, revision }) => [workId, revision])),
+    new Map([[work.id, 2], [alias, 4]]));
+  assert.ok((await ok(get({ view: 'wishlist' }, idToken))).entries.every(({ item }) => !item.saved));
+  const profile = await ok(get({ view: 'profile', code: account.code, section: 'wishlist', pagination: 'cursor' }));
+  assert.deepEqual(profile.wishlist, []);
+  let cursor = null;
+  do {
+    const feed = await ok(get({ view: 'browse', section: 'wishlist', ...(cursor ? { cursor } : {}) }));
+    assert.ok(feed.groups.every(({ reader }) => reader.code !== account.code));
+    cursor = feed.next;
+  } while (cursor);
+});

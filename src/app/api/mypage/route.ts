@@ -15,7 +15,7 @@ import { BOOK_REVIEW_TEXT_LIMIT, REVIEW_READING_SNAPSHOT_VERSION, isBookRating, 
 import { platformWorkKey } from '../../../lib/readBooks';
 import {
   MY_PAGE_CODE, MY_PAGE_DASHBOARD_BOOK_LIMIT, REVIEW_LIST_SORTS, parseMyPageNickname, parseMyPageVisibility, sortReviewList,
-  type MyPageOwnReviews, type MyPageSavedBook, type PublicBrowseGroup, type PublicBrowsePage, type PublicMyPage, type PublicProfileBook,
+  type MyPageOwnReviews, type MyPageSavedBook, type MyPageWishlistRevision, type PublicBrowseGroup, type PublicBrowsePage, type PublicMyPage, type PublicProfileBook,
 } from '../../../lib/myPageSocial';
 
 const MAX_BODY_BYTES = 64_000;
@@ -50,8 +50,7 @@ async function wishlistBookStates(db: Firestore, uid: string, timing?: ListTimin
   timing?.('query', { records: entries.length, saved: entries.filter(({ saved }) => saved).length });
   // Prefer an active entry if previously distinct keys now identify one work.
   entries.sort((a, b) => Number(b.saved) - Number(a.saved));
-  const books: MyPageSavedBook[] = [];
-  const seen = new Set<string>();
+  const books = new Map<string, MyPageSavedBook & { siblingRevisions: MyPageWishlistRevision[] }>();
   for (let start = 0; start < entries.length; start += 20) {
     const batch = await Promise.all(entries.slice(start, start + 20).map(async (item) => {
       const resolved = await resolveSocialWork(db, item.workId);
@@ -59,13 +58,15 @@ async function wishlistBookStates(db: Firestore, uid: string, timing?: ListTimin
       return { item, book: resolved.book, aliases: resolved.equivalentWorkIds };
     }));
     for (const entry of batch) {
-      if (!entry || seen.has(entry.book.id)) continue;
-      seen.add(entry.book.id);
-      books.push(entry);
+      if (!entry) continue;
+      const { workId, revision } = entry.item;
+      const existing = books.get(entry.book.id);
+      if (existing) existing.siblingRevisions.push({ workId, revision });
+      else books.set(entry.book.id, { ...entry, siblingRevisions: [{ workId, revision }] });
     }
   }
   timing?.('resolve');
-  return books;
+  return [...books.values()];
 }
 
 async function ownReviews(db: Firestore, uid: string, preview: boolean, timing?: ListTiming): Promise<MyPageOwnReviews> {
@@ -201,25 +202,31 @@ async function publicBrowse(request: Request, params: URLSearchParams) {
   if (signedIn && !viewerUid) return fail(401);
 
   const db = getAdminFirestore();
-  const { readers, next } = await listBrowseReaders(db, section, cursor, viewerUid);
-  const enriched = await Promise.all(readers.map(async ({ uid, account }) => {
-    const books = section === 'wishlist'
-      ? (await publicBooks(db, await listWishlist(db, uid, false, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book }) => book)
-      : (await publicBooks(db, await listReviews(db, uid, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book, record }) => (
-        { ...book, rating: record.rating, comment: record.comment }
-      ));
-    const unique = new Map<string, PublicBrowseGroup['books'][number]>();
-    for (const book of books) if (!unique.has(book.workId)) unique.set(book.workId, book);
-    return {
-      revision: account.revision,
-      group: { reader: { code: account.code, nickname: account.nickname }, books: [...unique.values()] },
-    };
-  }));
-  const populated = enriched.filter(({ group }) => group.books.length > 0);
-  // Recheck the selected setting after loading books and metadata.
-  const revisions = await currentBrowseReaders(db, populated.map(({ group }) => group.reader.code), section);
-  const groups = populated.filter(({ group, revision }) => revisions.get(group.reader.code) === revision).map(({ group }) => group);
-  return json({ groups, next } satisfies PublicBrowsePage);
+  // Look beyond a fully empty page without letting a sparse feed scan the entire profiles collection.
+  let next = cursor;
+  for (let scanned = 0; scanned < 4; scanned++) {
+    const page = await listBrowseReaders(db, section, next, viewerUid);
+    next = page.next;
+    const enriched = await Promise.all(page.readers.map(async ({ uid, account }) => {
+      const books = section === 'wishlist'
+        ? (await publicBooks(db, await listWishlist(db, uid, false, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book }) => book)
+        : (await publicBooks(db, await listReviews(db, uid, MY_PAGE_DASHBOARD_BOOK_LIMIT))).map(({ book, record }) => (
+          { ...book, rating: record.rating, comment: record.comment }
+        ));
+      const unique = new Map<string, PublicBrowseGroup['books'][number]>();
+      for (const book of books) if (!unique.has(book.workId)) unique.set(book.workId, book);
+      return {
+        revision: account.revision,
+        group: { reader: { code: account.code, nickname: account.nickname }, books: [...unique.values()] },
+      };
+    }));
+    const populated = enriched.filter(({ group }) => group.books.length > 0);
+    // Recheck the selected setting after loading books and metadata.
+    const revisions = await currentBrowseReaders(db, populated.map(({ group }) => group.reader.code), section);
+    const groups = populated.filter(({ group, revision }) => revisions.get(group.reader.code) === revision).map(({ group }) => group);
+    if (groups.length || next === null) return json({ groups, next } satisfies PublicBrowsePage);
+  }
+  return json({ groups: [], next } satisfies PublicBrowsePage);
 }
 
 export async function GET(request: Request) {
@@ -370,8 +377,15 @@ export async function POST(request: Request) {
 
     if (action === 'wishlist' && typeof input.saved === 'boolean') {
       if (importOnly && !input.saved) return fail(400);
-      const item = await updateWishlist(db, uid, workId, input.saved, revision, importOnly, accountRevision, resolved.equivalentWorkIds);
-      return json({ item, book: resolved.book, aliases: resolved.equivalentWorkIds });
+      const expected: unknown = input.siblingRevisions;
+      if (expected !== undefined && (importOnly || !Array.isArray(expected)
+        || !expected.every((entry) => entry && isBookDetailId(entry.workId) && validRevision(entry.revision))
+        || new Set(expected.map(({ workId }) => workId)).size !== expected.length)) return fail(400);
+      const { siblingRevisions, ...item } = await updateWishlist(
+        db, uid, workId, input.saved, revision, importOnly, accountRevision, resolved.equivalentWorkIds,
+        expected as MyPageWishlistRevision[] | undefined,
+      );
+      return json({ item, book: resolved.book, aliases: resolved.equivalentWorkIds, siblingRevisions });
     }
     if (action === 'review') {
       const { rating, comment, fileIds, readingSnapshot, readingSnapshotVersion, saveId } = input;

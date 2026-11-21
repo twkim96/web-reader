@@ -86,7 +86,17 @@ test('published aliases prove reading while private titles and unrelated file hi
       return { limit: () => ({ get: async () => field === 'uploadedAtServer' ? empty() : { docs: sessions.map((record) => ({ id: record.sessionId, data: () => record })) } }) };
     },
   };
-  const db = { collection(path) { return path.endsWith('readingStatsV1') ? stats : { doc(id) { const data = path === 'publicBookMetadataV1' && buckets.has(id) ? { schemaVersion: 1, entries: buckets.get(id) } : undefined; return { get: async () => ({ exists: Boolean(data), data: () => data }) }; } }; } };
+  const ambiguousId = hash('ambiguousoldname');
+  const db = { collection(path) {
+    if (path.endsWith('readingStatsV1')) return stats;
+    return { doc(id) {
+      const data = path === 'publicBookMetadataV1' && buckets.has(id)
+        ? { schemaVersion: 1, entries: buckets.get(id) }
+        : path === 'publicBookMetadataOnDemandV1' && id === ambiguousId
+          ? { schemaVersion: 1, aliasId: ambiguousId, status: 'ambiguous' } : undefined;
+      return { get: async () => ({ exists: Boolean(data), data: () => data }) };
+    } };
+  } };
   assert.equal((await resolveSocialWork(db, 'secretfilename.txt')).book.id, book.id);
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['private-file']), { totalMs: 2000, progressPercent: 10 });
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['other-file']), { totalMs: null, progressPercent: null });
@@ -95,7 +105,16 @@ test('published aliases prove reading while private titles and unrelated file hi
   sessions.push(oldName);
   assert.deepEqual(await getSocialReadingEvidence(db, 'renamed', book.id, ['private-file']), { totalMs: 4000, progressPercent: 10 });
   sessions[1] = { ...oldName, bookId: 'unidentified-file' };
-  assert.deepEqual(await getSocialReadingEvidence(db, 'incomplete', book.id, ['private-file']), { totalMs: null, progressPercent: null });
+  assert.deepEqual(await getSocialReadingEvidence(db, 'incomplete', book.id, ['private-file']), { totalMs: 2000, progressPercent: 10 });
+
+  sessions[1] = { ...oldName, bookTitle: 'ambiguousoldname.txt' };
+  assert.deepEqual(await getSocialReadingEvidence(db, 'ambiguous-same-file', book.id, ['private-file']), {
+    totalMs: null, progressPercent: null,
+  });
+  sessions[1] = { ...sessions[1], bookId: 'different-ambiguous-file' };
+  assert.deepEqual(await getSocialReadingEvidence(db, 'ambiguous-other-file', book.id, ['private-file']), {
+    totalMs: 2000, progressPercent: 10,
+  });
 
   const [other, unrelated] = [...new Set(catalog.values())].filter((work) => work.id !== book.id);
   sessions[1] = { ...oldName, bookTitle: book.id, bookId: 'conflicted-file' };

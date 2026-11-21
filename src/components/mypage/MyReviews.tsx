@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Star, Trash2 } from 'lucide-react';
 import { REVIEW_LIST_SORTS, sortReviewList, type MyPageOwnReviews, type MyPageReview } from '../../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
@@ -13,15 +13,23 @@ import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
 import { ListSort } from './ListSort';
 
-export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
+export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion, paused = false }: {
   owner: OwnerKey;
   onOpenBook: (id: string) => void;
   onShowAll?: () => void;
   changeVersion?: number;
+  paused?: boolean;
 }) {
   const guest = isGuestOwner(owner);
   const preview = Boolean(onShowAll);
   const cachedReviews = useMyPageDashboardCards(dashboardReviewCache, owner, preview && !guest);
+  // Odd versions are a write in progress. Even versions advance when the last
+  // write settles, including a failed save or an import without a UI callback.
+  const writeVersion = useSyncExternalStore(
+    dashboardReviewCache.subscribe,
+    () => preview && !guest ? dashboardReviewCache.writeVersion(owner) : 0,
+    () => 0,
+  );
   const [reviews, setReviews] = useState<MyPageReview[]>();
   const [sort, setSort] = useMyPageSort(owner, 'reviews', REVIEW_LIST_SORTS, 'recent');
   const [confirmation, setConfirmation] = useState<MyPageReview>();
@@ -33,7 +41,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
   const request = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (guest) return;
+    if (guest || paused || writeVersion % 2 !== 0) return;
     const controller = new AbortController();
     request.current = controller;
     const params: Record<string, string> = { view: 'reviews' };
@@ -59,10 +67,10 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
       controller.abort();
       if (request.current === controller) request.current = null;
     };
-  }, [attempt, changeVersion, guest, owner, preview]);
+  }, [attempt, changeVersion, guest, owner, paused, preview, writeVersion]);
 
   useEffect(() => {
-    if (guest) return;
+    if (guest || paused) return;
     let active = true;
     let queued = false;
     const resume = () => {
@@ -82,7 +90,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
       window.removeEventListener('focus', resume);
       document.removeEventListener('visibilitychange', resume);
     };
-  }, [guest, owner]);
+  }, [guest, owner, paused]);
 
   useEffect(() => {
     const activeMutation = mutation;

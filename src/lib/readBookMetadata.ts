@@ -15,7 +15,7 @@ type DocumentLookup = {
 };
 const documents = new Map<string, CacheEntry<DocumentLookup>>();
 const documentReads = new Map<string, Promise<DocumentLookup>>();
-type TitleLookup = { metadata: PublicBookMetadata | null; confirmedAt: number | null };
+type TitleLookup = { metadata: PublicBookMetadata | null; confirmedAt: number | null; uncertain: boolean };
 const titles = new Map<string, CacheEntry<TitleLookup>>();
 const titleReads = new Map<string, Promise<TitleLookup>>();
 function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): CacheEntry<T> | undefined {
@@ -62,13 +62,14 @@ function loadTitle(title: string): Promise<TitleLookup> {
     // An alias can depend on several documents. Reusing any of them must
     // preserve its original observation time, including shared in-flight reads.
     let confirmedAt: number | null = startedAt;
+    let uncertain = false;
     const metadata = await loadPublicBookMetadata(title, async (reference) => {
       const document = await readDocument(reference);
       confirmedAt = confirmedAt === null || document.confirmedAt === null
         ? null : Math.min(confirmedAt, document.confirmedAt);
       return document.snapshot;
-    });
-    const result = { metadata, confirmedAt };
+    }, () => { uncertain = true; });
+    const result = { metadata, confirmedAt, uncertain };
     putCached(titles, title, result, MAX_TITLES, (confirmedAt ?? startedAt) + CACHE_TTL_MS);
     return result;
   }).finally(() => titleReads.delete(title));
@@ -108,11 +109,11 @@ export async function loadReadBookMetadata(
   } = {},
 ) {
   const confirmed = new Map<string, ConfirmedReadBookMetadata>();
+  const uncertainTitles = new Set<string>();
   const load = createReadMetadataLoader(async (title) => {
-    const { metadata, confirmedAt } = await loadTitle(title);
-    if (confirmedAt !== null) {
-      confirmed.set(title, { metadata, observedAt: confirmedAt });
-    }
+    const { metadata, confirmedAt, uncertain } = await loadTitle(title);
+    if (uncertain) uncertainTitles.add(title);
+    else if (confirmedAt !== null) confirmed.set(title, { metadata, observedAt: confirmedAt });
     return metadata;
   });
   const result = await load(bookTitles, {
@@ -125,5 +126,5 @@ export async function loadReadBookMetadata(
   if (options.cacheOwnerKey && !options.signal?.aborted) {
     void cacheReadBookMetadata(options.cacheOwnerKey, confirmed);
   }
-  return result;
+  return { ...result, uncertainTitles };
 }

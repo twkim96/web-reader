@@ -8,6 +8,7 @@ const previewLifetimeMs = 60_000;
 type Preview<T> = {
   revision: number;
   writes: number;
+  writeVersion: number;
   expiresAt: number;
   cards?: T;
 };
@@ -21,7 +22,7 @@ function createPreviewStore<T>() {
     if (!session || session.ownerKey !== owner) return;
     let entry = entries.get(session);
     if (!entry) {
-      entry = { revision: 0, writes: 0, expiresAt: 0 };
+      entry = { revision: 0, writes: 0, writeVersion: 0, expiresAt: 0 };
       entries.set(session, entry);
     }
     return { session, entry };
@@ -36,6 +37,10 @@ function createPreviewStore<T>() {
       const session = ownerRuntime.capture();
       const entry = session?.ownerKey === owner ? entries.get(session) : undefined;
       return entry && entry.expiresAt > Date.now() ? entry.cards : undefined;
+    },
+    writeVersion(owner: OwnerKey) {
+      const session = ownerRuntime.capture();
+      return (session?.ownerKey === owner ? entries.get(session)?.writeVersion : undefined) ?? 0;
     },
     beginRead(owner: OwnerKey) {
       const state = scope(owner);
@@ -55,11 +60,15 @@ function createPreviewStore<T>() {
       const state = scope(owner);
       if (!state) return;
       const { entry } = state;
-      entry.writes++;
+      if (entry.writes++ === 0) entry.writeVersion++;
       entry.revision++;
       entry.cards = undefined;
       publish();
-      return () => { entry.writes--; };
+      return () => {
+        if (--entry.writes !== 0) return;
+        entry.writeVersion++;
+        if (ownerRuntime.isCurrent(state.session)) publish();
+      };
     },
   };
 }

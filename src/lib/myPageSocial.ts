@@ -6,7 +6,13 @@ export type MyPageBrowseSection = keyof MyPageVisibility;
 export type MyPageIdentity = { code: string; nickname: string };
 export type MyPageAccount = MyPageIdentity & { visibility: MyPageVisibility; revision: number };
 export type MyPageWishlistItem = { workId: string; addedAt: number; revision: number; saved: boolean };
-export type MyPageSavedBook = { item: MyPageWishlistItem; book: DiscoveryBook; aliases: string[] };
+export type MyPageWishlistRevision = Pick<MyPageWishlistItem, 'workId' | 'revision'>;
+export type MyPageSavedBook = {
+  item: MyPageWishlistItem;
+  book: DiscoveryBook;
+  aliases: string[];
+  siblingRevisions?: MyPageWishlistRevision[];
+};
 type ReviewWork = {
   workId: string;
   aliases?: string[];

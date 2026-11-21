@@ -5,7 +5,7 @@ import { reportMyPageApiTiming } from './performance.ts';
 import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from '../../lib/publicBookReviews.ts';
 import {
   hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageReview,
-  type MyPageVisibility, type MyPageWishlistItem, type PublicWorkReview, type PublicWorkReviews,
+  type MyPageVisibility, type MyPageWishlistItem, type MyPageWishlistRevision, type PublicWorkReview, type PublicWorkReviews,
 } from '../../lib/myPageSocial.ts';
 
 const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -178,22 +178,32 @@ async function verifyImportAccount(
 export async function updateWishlist(
   db: Firestore, uid: string, canonicalWorkId: string, saved: boolean, expectedRevision: number | null,
   importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [],
-): Promise<MyPageWishlistItem> {
-  const ref = wishlist(db, uid).doc(workKey(canonicalWorkId));
+  expectedSiblings?: readonly MyPageWishlistRevision[],
+): Promise<MyPageWishlistItem & { siblingRevisions?: MyPageWishlistRevision[] }> {
+  const collection = wishlist(db, uid);
+  const ref = collection.doc(workKey(canonicalWorkId));
+  const alternatives = [...new Set(equivalentWorkIds)].filter((id) => id !== canonicalWorkId);
   return db.runTransaction(async (transaction) => {
     if (importOnly) await verifyImportAccount(db, transaction, uid, importAccountRevision);
     const data = (await transaction.get(ref)).data();
     const current = data ? wishlistItem(data) : null;
-    if (expectedRevision === null && !current) {
-      const alternatives = [...new Set(equivalentWorkIds)].filter((id) => id !== canonicalWorkId);
-      if (alternatives.length) {
-        const siblings = await transaction.getAll(...alternatives.map((id) => wishlist(db, uid).doc(workKey(id))));
-        const previous = siblings.find((doc) => doc.exists)?.data();
-        if (previous) {
-          if (importOnly) return wishlistItem(previous);
-          throw new ConflictError();
-        }
+    const siblings = alternatives.length && (expectedSiblings || (expectedRevision === null && !current))
+      ? (await transaction.getAll(...alternatives.map((id) => collection.doc(workKey(id)))))
+        .flatMap((doc) => {
+          const data = doc.data();
+          return data ? [{ ref: doc.ref, item: wishlistItem(data) }] : [];
+        })
+      : [];
+    if (expectedSiblings) {
+      const expected = new Map(expectedSiblings.map(({ workId, revision }) => [workId, revision]));
+      const seen = current ? [current, ...siblings.map(({ item }) => item)] : siblings.map(({ item }) => item);
+      if (expected.size !== seen.length || seen.some(({ workId, revision }) => expected.get(workId) !== revision)) {
+        throw new ConflictError();
       }
+    }
+    if (expectedRevision === null && !current && siblings.length) {
+      if (importOnly) return siblings[0].item;
+      throw new ConflictError();
     }
     if (importOnly && current) return current;
     if (!importOnly && expectedRevision !== (current?.revision ?? null)) throw new ConflictError();
@@ -205,7 +215,15 @@ export async function updateWishlist(
       saved,
     };
     transaction.set(ref, item);
-    return item;
+    if (!expectedSiblings) return item;
+    const siblingRevisions = [{ workId: item.workId, revision: item.revision }];
+    for (const sibling of siblings) {
+      const change = !saved && sibling.item.saved;
+      const revision = sibling.item.revision + Number(change);
+      if (change) transaction.set(sibling.ref, { ...sibling.item, revision, saved: false });
+      siblingRevisions.push({ workId: sibling.item.workId, revision });
+    }
+    return { ...item, siblingRevisions };
   });
 }
 
@@ -353,6 +371,10 @@ export async function workPublicReviews(
   const started = performance.now();
   const workIds = [...new Set([canonicalWorkId, ...equivalentWorkIds])];
   const firstPage = await workEntries(db, canonicalWorkId).orderBy('publishedAt', 'desc').limit(REVIEW_PAGE_SIZE).get();
+  if (workIds.length === 1 && firstPage.empty) {
+    reportMyPageApiTiming('book-reviews', started, { reviewRows: 0, authorReads: 0, reviewQueries: 1, returned: 0 });
+    return { reviews: [], average: null, ratingCount: 0 };
+  }
 
   const { result, scans } = await db.runTransaction(async (transaction) => {
     const scans = { reviewRows: 0, authorReads: 0, reviewQueries: 0 };

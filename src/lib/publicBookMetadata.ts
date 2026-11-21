@@ -41,6 +41,7 @@ export type PublicBookMetadataDocumentReader = (reference: DocumentReference<Doc
 export const loadPublicBookMetadata = async (
   fileName: string,
   readDocument: PublicBookMetadataDocumentReader = getDoc,
+  markUncertain?: () => void,
 ) => {
   const aliasIds = await getPublicBookMetadataAliasIds(fileName);
   if (aliasIds.length === 0) return null;
@@ -67,7 +68,11 @@ export const loadPublicBookMetadata = async (
   }
   const aliasId = aliasIds[0];
   const onDemand = await readDocument(doc(db, PUBLIC_BOOK_METADATA_ON_DEMAND_COLLECTION, aliasId));
-  return onDemand.exists() ? parseOnDemandPublicBookMetadata(onDemand.data()) : null;
+  if (!onDemand.exists()) return null;
+  const data = onDemand.data();
+  const metadata = parseOnDemandPublicBookMetadata(data);
+  if (!metadata && data.status !== 'not-found') markUncertain?.();
+  return metadata;
 };
 
 export const parseOnDemandPublicBookMetadata = (value: unknown) => {

@@ -411,7 +411,7 @@ export function MyPage(props: Props) {
                 </div>}
             </DashboardBookRow>
             <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} />
-            <MyReviews key={`reviews:${ownerKey}:${reviews.changeVersion}`} owner={ownerKey} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
+            <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
             <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
           </div>}
           {bookId ? (

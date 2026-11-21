@@ -39,10 +39,25 @@ export function useAccountWishlist(ownerKey: OwnerKey, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    const onFocus = () => { if (!pending.current) void refresh(); };
+    let active = true;
+    let queued = false;
+    const resume = () => {
+      if (document.visibilityState === 'hidden' || queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        if (active) void refresh();
+      });
+    };
     const requests = request;
-    window.addEventListener('focus', onFocus);
-    return () => { requests.current++; window.removeEventListener('focus', onFocus); };
+    window.addEventListener('focus', resume);
+    document.addEventListener('visibilitychange', resume);
+    return () => {
+      active = false;
+      requests.current++;
+      window.removeEventListener('focus', resume);
+      document.removeEventListener('visibilitychange', resume);
+    };
   }, [enabled, refresh]);
   const index = useMemo(() => {
     const byAlias = new Map<string, MyPageSavedBook>();
@@ -58,10 +73,15 @@ export function useAccountWishlist(ownerKey: OwnerKey, enabled: boolean) {
     pending.current = true;
     setSaving(true);
     const generation = ++request.current;
+    const entry = index.get(book.id);
+    let conflict = false;
     try {
       const result = await myPageRequest<MyPageSavedBook>({ action: 'wishlist' }, {
         owner: ownerKey,
-        body: { workId: index.get(book.id)?.item.workId ?? book.id, saved, revision: index.get(book.id)?.item.revision ?? null },
+        body: {
+          workId: entry?.item.workId ?? book.id, saved, revision: entry?.item.revision ?? null,
+          siblingRevisions: entry ? entry.siblingRevisions : [],
+        },
       });
       if (generation !== request.current) return;
       setEntries((current) => {
@@ -70,10 +90,16 @@ export function useAccountWishlist(ownerKey: OwnerKey, enabled: boolean) {
       });
       setError(null);
     } catch (error) {
-      if (generation === request.current) setError((error as Error).message);
+      if (generation === request.current) {
+        conflict = error instanceof MyPageRequestError && error.status === 409;
+        setError((error as Error).message);
+      }
     } finally {
       pending.current = false;
-      if (generation === request.current) setSaving(false);
+      if (generation === request.current) {
+        setSaving(false);
+        if (conflict) void refresh();
+      }
     }
   };
   return enabled ? {

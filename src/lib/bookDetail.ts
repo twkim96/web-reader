@@ -31,6 +31,7 @@ export type PersonalBookReading = {
   progressPercent: number;
   fileIds: string[];
   reviewFileIds: string[] | null;
+  reviewHistoryPartial: boolean;
   hasRead: boolean;
 };
 
@@ -77,12 +78,13 @@ export function getWorkReadingTitles({
 }
 
 export function buildPersonalBookReading({
-  ownerKey, titleKeys, platformWorkKeys = [], metadataByTitle, knownFileIds, books, progress, bookmarkProgress = progress, sessions, hidden,
+  ownerKey, titleKeys, platformWorkKeys = [], metadataByTitle, uncertainTitles, knownFileIds, books, progress, bookmarkProgress = progress, sessions, hidden,
 }: {
   ownerKey: OwnerKey;
   titleKeys: readonly string[];
   platformWorkKeys?: readonly string[];
   metadataByTitle?: ReadonlyMap<string, PublicBookMetadata | null>;
+  uncertainTitles?: ReadonlySet<string>;
   knownFileIds: readonly string[];
   books: readonly Book[];
   progress: Readonly<Record<string, UserProgress>>;
@@ -100,9 +102,14 @@ export function buildPersonalBookReading({
   const matchedFiles = new Set<string>();
   const identifiedFiles = new Set<string>();
   const conflicts = new Set<string>();
+  const uncertainFiles = new Set<string>();
   const detailRoot = findTitle('detail');
-  const matchesByTitle = new Map<string, 'matching' | 'conflicting' | 'identified' | 'unknown'>();
+  const matchesByTitle = new Map<string, 'matching' | 'conflicting' | 'unknown'>();
   const resolveFile = (id: string, title: string) => {
+    if (uncertainTitles?.has(title)) {
+      uncertainFiles.add(id);
+      return;
+    }
     let match = matchesByTitle.get(title);
     if (!match) {
       const metadata = metadataByTitle?.get(title);
@@ -111,7 +118,7 @@ export function buildPersonalBookReading({
       } else if (getPublicBookMetadataAliasCandidates(metadata?.titleKey ?? title).some((alias) => aliases.has(alias))) {
         match = 'matching';
       } else {
-        match = metadata ? 'identified' : 'unknown';
+        match = metadata ? 'conflicting' : 'unknown';
       }
       matchesByTitle.set(title, match);
     }
@@ -124,11 +131,13 @@ export function buildPersonalBookReading({
   for (const { bookId, bookTitle } of visible) resolveFile(bookId, bookTitle);
   // The read list's remembered file IDs support private display only. A
   // matched name for the same file can identify a session under an old name.
-  const incompleteHistory = visible.some(({ bookId, syncState }) => syncState === 'synced'
-    && (!identifiedFiles.has(bookId) || (matchedFiles.has(bookId) && conflicts.has(bookId))));
-  const reviewFileIds = incompleteHistory ? null : [...matchedFiles].filter((id) => !conflicts.has(id));
+  const synced = visible.filter(({ syncState }) => syncState === 'synced');
+  const reviewHistoryPartial = synced.some(({ bookId }) => !identifiedFiles.has(bookId) || uncertainFiles.has(bookId));
+  const targetConflict = synced.some(({ bookId }) =>
+    matchedFiles.has(bookId) && (conflicts.has(bookId) || uncertainFiles.has(bookId)));
+  const reviewFileIds = targetConflict ? null : [...matchedFiles].filter((id) => !conflicts.has(id) && !uncertainFiles.has(id));
   const fileIds = new Set([...knownFileIds, ...matchedFiles].filter((id) => !conflicts.has(id)));
-  if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, progressPercent: 0, fileIds: [], reviewFileIds, hasRead: false };
+  if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, progressPercent: 0, fileIds: [], reviewFileIds, reviewHistoryPartial, hasRead: false };
 
   const bookmarks = new Map<string, Bookmark>();
   let hasRead = false;
@@ -168,5 +177,5 @@ export function buildPersonalBookReading({
   }
   const progressPercent = ranges.reduce((highest, [start, end]) =>
     end + 1e-9 >= start + 2 ? Math.max(highest, end) : highest, 0);
-  return { bookmarks: [...bookmarks.values()].sort((a, b) => b.createdAt - a.createdAt), totalMs, progressPercent, fileIds: [...fileIds], reviewFileIds, hasRead };
+  return { bookmarks: [...bookmarks.values()].sort((a, b) => b.createdAt - a.createdAt), totalMs, progressPercent, fileIds: [...fileIds], reviewFileIds, reviewHistoryPartial, hasRead };
 }
