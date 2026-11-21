@@ -69,6 +69,7 @@ export const useProgressActions = ({
   const convergenceTimersRef = useRef(new Map<string, number>());
   const convergenceActiveRef = useRef(false);
   const sessionIdRef = useRef(getSyncSessionId());
+  const writtenPositionTokensRef = useRef(new Map<string, { owner: OwnerSnapshot; token: string }>());
 
   useEffect(() => {
     convergenceActiveRef.current = true;
@@ -120,7 +121,7 @@ export const useProgressActions = ({
     bookmarkChanges: BookmarkSyncChange[],
     syncPosition: boolean,
     bookmarkOccurredAtClient = progressData.lastRead,
-    causalOptions?: SaveProgressOptions,
+    causalOptions?: SaveProgressOptions & { resetAfterPositionToken?: string },
   ) => {
     if (!ownerRuntime.isCurrent(owner)) return null;
     const progressOwnerKey = getSyncOwnerKey(owner.ownerKey);
@@ -149,6 +150,7 @@ export const useProgressActions = ({
         causalAcceptedEventId: causalOptions?.causalAcceptedEventId ?? progressData.acceptedEventId,
         causalViewportId: causalOptions?.causalViewportId,
         restoredPositionToken: causalOptions?.restoredPositionToken,
+        resetAfterPositionToken: causalOptions?.resetAfterPositionToken,
       } : null,
       bookmarkEvents: bookmarkChanges.map((change) => ({
         bookId,
@@ -422,6 +424,9 @@ export const useProgressActions = ({
 
     rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
     if (!ownerRuntime.isCurrent(owner)) return true;
+    if (syncPosition && canonical.localPositionToken) {
+      writtenPositionTokensRef.current.set(bookId, { owner, token: canonical.localPositionToken });
+    }
     await reconcileDurableProgressCommit(owner, bookId, progressData, canonical, generation);
     return true;
   }, [activeBook, beginLocalWrite, getCommittedProgress, persistProgress, progressRef, queueProgressWrite, reconcileDurableProgressCommit, reportPersistenceError, setProgress]);
@@ -526,9 +531,12 @@ export const useProgressActions = ({
         progressRef.current[bookId]?.ignoredRemoteRevision ?? 0,
       ) || undefined,
     };
+    const committedToken = committed?.localPositionToken;
+    const written = writtenPositionTokensRef.current.get(bookId);
     return {
       resetData,
       bookmarkChanges: diffManualBookmarks(committed?.bookmarks, [], resetData.lastRead),
+      resetAfterPositionToken: written?.owner === owner && written.token === committedToken ? committedToken : undefined,
     };
   }, [getCommittedProgress, progressRef]);
 
@@ -536,7 +544,7 @@ export const useProgressActions = ({
     const owner = ownerRuntime.capture();
     if (!owner) return;
     const generation = beginLocalWrite(bookId);
-    const { resetData } = captureProgressReset(owner, bookId);
+    const { resetData, resetAfterPositionToken } = captureProgressReset(owner, bookId);
 
     try {
       const canonical = await queueProgressWrite(bookId, async () => {
@@ -544,7 +552,8 @@ export const useProgressActions = ({
           ? resetData.bookmarks
           : (await loadProgressFromLocalV5(getSyncOwnerKey(owner.ownerKey), bookId))?.bookmarks
             ?.filter(bookmark => bookmark.type === 'manual') ?? [];
-        return persistProgress(owner, bookId, { ...resetData, bookmarks }, [], true);
+        return persistProgress(owner, bookId, { ...resetData, bookmarks }, [], true,
+          resetData.lastRead, { resetAfterPositionToken });
       });
       if (!canonical) return false;
       rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
@@ -569,7 +578,7 @@ export const useProgressActions = ({
     owner: OwnerSnapshot,
   ) => {
     if (!ownerRuntime.isCurrent(owner)) return false;
-    const { resetData, bookmarkChanges } = captureProgressReset(owner, bookId);
+    const { resetData, bookmarkChanges, resetAfterPositionToken } = captureProgressReset(owner, bookId);
     try {
       const committed = await queueProgressWrite(bookId, async () => {
         if (!ownerRuntime.isCurrent(owner)) return false;
@@ -584,6 +593,8 @@ export const useProgressActions = ({
           resetData,
           bookmarkChanges,
           true,
+          resetData.lastRead,
+          { resetAfterPositionToken },
         );
         if (!resetCommitted) return false;
         await removeProgressFromLocalV5(progressOwnerKey, bookId);

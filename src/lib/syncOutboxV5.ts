@@ -683,6 +683,7 @@ export type EnqueueProgressInput = {
   causalAcceptedEventId?: string;
   causalViewportId?: string;
   restoredPositionToken?: string;
+  resetAfterPositionToken?: string;
 };
 
 export type EnqueueBookmarkInput = {
@@ -1220,7 +1221,11 @@ const getProgressCausalState = (progress: UserProgress | undefined, input: Enque
   const viewport = input.causalViewportId ?? input.sessionId;
   const revision = input.causalRevision ?? (input.causalViewportId ? 0 : progress?.syncRevision ?? 0);
   const ignored = input.causalIgnoredRevision ?? (input.causalViewportId ? 0 : progress?.ignoredRemoteRevision ?? 0);
-  const ownAck = meta.acknowledgedViewportId === viewport ? meta.acknowledgedRevision ?? 0 : 0;
+  // The shelf has its own baseline. A reset can inherit only the exact position
+  // that the tab queued before leaving the reader.
+  const ackMatchesReset = input.operation === 'progress.reset' && input.resetAfterPositionToken !== undefined
+    && meta.acknowledgedPositionToken === input.resetAfterPositionToken && meta.acknowledgedDeviceId === input.deviceId;
+  const ownAck = meta.acknowledgedViewportId === viewport || ackMatchesReset ? meta.acknowledgedRevision ?? 0 : 0;
   return {
     syncRevision: Math.max(revision, ownAck),
     ignoredRemoteRevision: ignored || undefined,
@@ -1243,6 +1248,11 @@ const getProgressWritePlan = (
   }
   const restored = input.operation === 'progress.set' && input.causalViewportId
     ? input.restoredPositionToken : undefined;
+  if (input.operation === 'progress.reset' && input.resetAfterPositionToken !== undefined
+    && tail?.positionToken === input.resetAfterPositionToken && tail.deviceId === input.deviceId
+    && tail.sessionId === input.sessionId && baseline <= tail.baseRevision) {
+    return { baseRevision: baseline, afterPositionToken: input.resetAfterPositionToken };
+  }
   if (restored && !(state.syncRevision > (input.causalRevision ?? 0))) {
     return { baseRevision: baseline, afterPositionToken: restored };
   }

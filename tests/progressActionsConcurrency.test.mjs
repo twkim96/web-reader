@@ -20,13 +20,16 @@ import {
   makeOwnerKey,
 } from '../src/lib/ownerIdentity.ts';
 import { decideProgressTransaction } from '../src/lib/progressSyncTransaction.ts';
-import { getOutboxEventsV5, storeRemoteProgressHeadV5 } from '../src/lib/syncOutboxV5.ts';
+import { ProgressSyncWorker } from '../src/lib/progressSyncWorker.ts';
+import { decideBookmarkTransaction } from '../src/lib/bookmarkSyncTransaction.ts';
+import { enqueueProgressEventV5, getOutboxEventsV5, storeRemoteProgressHeadV5 } from '../src/lib/syncOutboxV5.ts';
 import { setSyncSessionIdForTests } from '../src/lib/syncSession.ts';
 
 const require = createRequire(import.meta.url);
 // Source .ts files are CommonJS under the current package boundary. Requiring
 // the singleton matches the instance captured inside useProgressActions.
 const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+const sessionId = 'session-progress-actions';
 
 const resetDatabase = async () => {
   await closeLocalDB();
@@ -60,7 +63,7 @@ const progress = (bookmarks, overrides = {}) => ({
 test.beforeEach(async () => {
   await resetDatabase();
   ownerRuntime.clear();
-  setSyncSessionIdForTests('session-progress-actions');
+  setSyncSessionIdForTests(sessionId);
 });
 
 test.after(async () => {
@@ -429,9 +432,14 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
   const scenarios = [
     { name: 'adopted R7', headRevision: 7, baseRevision: 7, status: 'apply' },
     { name: 'unadopted R8', headRevision: 8, baseRevision: 7, status: 'conflict' },
-    { name: 'explicitly ignored R8', headRevision: 8, baseRevision: 8, status: 'apply' },
+    { name: 'explicitly ignored R8', headRevision: 8, baseRevision: 8, status: 'apply', ignore: true },
+    { name: 'same-tab position ACK', baseRevision: 8, status: 'apply', ack: 'own' },
+    { name: 'same-tab position awaiting ACK', baseRevision: 8, status: 'apply', ack: 'pending' },
+    { name: 'same-tab receipt replay with newer unadopted head', baseRevision: 8, status: 'conflict', ack: 'replay' },
+    { name: 'other device position ACK', baseRevision: 7, status: 'conflict', ack: 'other-device' },
+    { name: 'independent same-tab viewport ACK', baseRevision: 7, status: 'conflict', ack: 'other-viewport' },
   ];
-  for (const { name, headRevision, baseRevision, status } of scenarios) {
+  for (const { name, headRevision, baseRevision, status, ignore, ack } of scenarios) {
     test(`${action} uses the shelf reset baseline with ${name}`, async () => {
       const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT'];
       const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
@@ -457,7 +465,7 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
         updatedAtServer: {},
         deletedAtServer: null,
       };
-      const storedHead = headRevision === 7 ? adoptedHead : {
+      const remoteHead = {
         ...adoptedHead,
         revision: 8,
         acceptedEventId: 'event-8',
@@ -466,21 +474,25 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
       };
       const user = { uid };
       let actions;
-      function Harness() {
+      let displayRef;
+      function Harness({ reading }) {
         const [, setProgress] = useState({ [initial.bookId]: initial });
         const progressRef = useRef({ [initial.bookId]: initial });
         const deviceId = useRef('device-local');
         const currentActions = useProgressActions({
-          activeBook: null, user, deviceId, progressRef, setProgress,
+          activeBook: reading ? { id: initial.bookId } : null, user, deviceId, progressRef, setProgress,
         });
-        useEffect(() => { actions = currentActions; }, [currentActions]);
+        useEffect(() => {
+          actions = currentActions;
+          displayRef = progressRef;
+        }, [currentActions]);
         return null;
       }
       const root = createRoot(window.document.getElementById('app'));
       try {
         await saveProgressToLocalV5(ownerKey, initial);
         await storeRemoteProgressHeadV5(ownerKey, adoptedHead);
-        await act(async () => root.render(React.createElement(Harness)));
+        await act(async () => root.render(React.createElement(Harness, { reading: Boolean(ack) })));
         await act(async () => {
           const result = await actions.adoptRemoteProgress({
             ...initial,
@@ -490,8 +502,73 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
           });
           assert.equal(result.status, 'adopted');
         });
-        await storeRemoteProgressHeadV5(ownerKey, storedHead);
-        if (baseRevision === 8) {
+        let storedHead = headRevision === 7 ? adoptedHead : remoteHead;
+        let baselineEventId = adoptedHead.acceptedEventId;
+        let baselineRevision = adoptedHead.revision;
+        if (ack) {
+          await act(async () => assert.equal(await actions.saveProgress('next-cfi', 35, undefined, {
+            anchorCfi: 'next-cfi',
+            causalRevision: 7,
+            causalAcceptedEventId: adoptedHead.acceptedEventId,
+            causalViewportId: 'reading-viewport',
+          }), true));
+          storedHead = adoptedHead;
+          const worker = new ProgressSyncWorker(owner, 'sync-leader', async (event) => {
+            if (event.target.kind === 'bookmark') return decideBookmarkTransaction({ event, serverTime: {} });
+            const request = { event, storedHead, storedReceipt: undefined, serverTime: {} };
+            const applied = decideProgressTransaction(request);
+            assert.equal(applied.status, 'apply');
+            storedHead = ack === 'replay' ? { ...remoteHead, revision: 9 } : applied.head;
+            return ack === 'replay'
+              ? decideProgressTransaction({ ...request, storedHead, storedReceipt: applied.receipt })
+              : applied;
+          });
+          let acknowledgedRevision = 8;
+          try {
+            if (ack === 'pending') {
+              await act(async () => root.render(React.createElement(Harness, { reading: false })));
+              await act(async () => assert.equal(await actions[action](initial.bookId, owner), true));
+              assert.equal(await worker.flushOne(), 'apply');
+              for (let attempt = 0; attempt <= initial.bookmarks.length && storedHead.operation !== 'reset'; attempt += 1) {
+                assert.equal(await worker.flushOne(), 'apply');
+              }
+              assert.equal(storedHead.revision, 9);
+              assert.equal(storedHead.operation, 'reset');
+              return;
+            }
+            assert.equal(await worker.flushOne(), ack === 'replay' ? 'already_applied' : 'apply');
+            const ownProgress = await loadProgressFromLocalV5(ownerKey, initial.bookId);
+            assert.equal(ownProgress.syncRevision, 8);
+            if (ack === 'other-device' || ack === 'other-viewport') {
+              await enqueueProgressEventV5(ownerKey, {
+                bookId: initial.bookId,
+                operation: 'progress.set',
+                position: { cfi: 'independent-cfi', anchorCfi: 'independent-cfi', progressPercent: 45 },
+                deviceId: ack === 'other-device' ? 'device-other' : 'device-local',
+                sessionId: ack === 'other-device' ? 'other-session' : sessionId,
+                causalViewportId: 'independent-viewport',
+                causalRevision: 8,
+                causalAcceptedEventId: ownProgress.acceptedEventId,
+              });
+              assert.equal(await worker.flushOne(), 'apply');
+              acknowledgedRevision = 9;
+            } else {
+              baselineEventId = ownProgress.acceptedEventId;
+              baselineRevision = 8;
+            }
+          } finally {
+            await worker.dispose();
+          }
+          const persisted = await loadProgressFromLocalV5(ownerKey, initial.bookId);
+          assert.equal(persisted.syncRevision, acknowledgedRevision);
+          assert.equal(persisted.localPositionToken, undefined);
+          assert.equal(displayRef.current[initial.bookId].syncRevision, 7);
+          assert.ok(displayRef.current[initial.bookId].localPositionToken);
+          await act(async () => root.render(React.createElement(Harness, { reading: false })));
+        } else {
+          await storeRemoteProgressHeadV5(ownerKey, storedHead);
+        }
+        if (ignore) {
           await act(async () => assert.equal(await actions.ignoreRemoteProgress(initial.bookId, 8), true));
         }
         await act(async () => assert.equal(await actions[action](initial.bookId, owner), true));
@@ -516,7 +593,7 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
         });
         assert.equal(result.status, status);
         if (status === 'apply') {
-          assert.equal(result.head.revision, headRevision + 1);
+          assert.equal(result.head.revision, storedHead.revision + 1);
           assert.equal(result.head.operation, 'reset');
           assert.equal(result.head.position, null);
         } else {
@@ -527,9 +604,9 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
         if (action === 'deleteProgress') {
           assert.equal(local.cfi, '');
           assert.deepEqual(local.bookmarks, initial.bookmarks);
-          assert.equal(local.syncRevision, 7);
-          assert.equal(local.acceptedEventId, adoptedHead.acceptedEventId);
-          assert.equal(local.ignoredRemoteRevision, baseRevision === 8 ? 8 : undefined);
+          assert.equal(local.syncRevision, baselineRevision);
+          assert.equal(local.acceptedEventId, baselineEventId);
+          assert.equal(local.ignoredRemoteRevision, ignore ? 8 : undefined);
         } else {
           assert.equal(local, undefined);
         }
