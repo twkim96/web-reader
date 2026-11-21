@@ -12,6 +12,12 @@ const MISS_TTL_MS = 5 * 60 * 1000;
 export type ConfirmedReadBookMetadata = { metadata: PublicBookMetadata | null; observedAt: number };
 
 type StoredMatch = ConfirmedReadBookMetadata & { expiresAt: number };
+export type ReadBookMetadataMatch = Pick<StoredMatch, 'metadata' | 'expiresAt'>;
+
+export function readBookMetadataExpiry({ metadata, observedAt }: ConfirmedReadBookMetadata) {
+  return observedAt + (metadata ? MATCH_TTL_MS : MISS_TTL_MS);
+}
+
 interface MetadataCache extends DBSchema {
   [STORE]: {
     key: string;
@@ -38,7 +44,7 @@ async function keysForTitles(ownerKey: OwnerKey, titles: Iterable<string>) {
 }
 
 export async function readCachedReadBookMetadata(ownerKey: OwnerKey, titles: readonly string[]) {
-  const matches = new Map<string, PublicBookMetadata | null>();
+  const matches = new Map<string, ReadBookMetadataMatch>();
   if (titles.length === 0) return matches;
 
   try {
@@ -52,11 +58,9 @@ export async function readCachedReadBookMetadata(ownerKey: OwnerKey, titles: rea
       const entries = await Promise.all(keys.map(async ({ title, key }) => ({ title, record: await store.get(key) })));
       for (const { title, record } of entries) {
         if (!record || !(record.expiresAt > now)) continue;
-        if (record.metadata === null) matches.set(title, null);
-        else {
-          const metadata = parsePublicBookMetadata(record.metadata);
-          if (metadata) matches.set(title, metadata);
-        }
+        const metadata = parsePublicBookMetadata(record.metadata);
+        if (record.metadata !== null && !metadata) continue;
+        matches.set(title, { metadata, expiresAt: record.expiresAt });
       }
     } finally {
       db.close();
@@ -84,8 +88,7 @@ export async function cacheReadBookMetadata(
         const match = matches.get(title)!;
         const previous = await store.get(key);
         if (previous && previous.observedAt > match.observedAt) return;
-        const ttl = match.metadata ? MATCH_TTL_MS : MISS_TTL_MS;
-        await store.put({ ...match, expiresAt: match.observedAt + ttl }, key);
+        await store.put({ ...match, expiresAt: readBookMetadataExpiry(match) }, key);
       }));
       const expiry = store.index('by-expiry');
       const now = Date.now();

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createDiscoveryLoader, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
-import { cacheReadBookMetadata, readCachedReadBookMetadata } from '../src/lib/readBookMetadataCache.ts';
+import { cacheReadBookMetadata, readCachedReadBookMetadata as readCachedMatches } from '../src/lib/readBookMetadataCache.ts';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
 import { listLocalBookReviews, removeBookReview, saveBookReview } from '../src/lib/localBookReview.ts';
@@ -23,6 +23,9 @@ const hooks = registerHooks({
   },
 });
 const { createReadMetadataLoader, loadReadBookMetadata } = await import('../src/lib/readBookMetadata.ts');
+const readCachedReadBookMetadata = async (owner, titles) => (
+  new Map([...(await readCachedMatches(owner, titles))].map(([title, match]) => [title, match.metadata]))
+);
 test.after(() => hooks.deregister());
 
 const index = {

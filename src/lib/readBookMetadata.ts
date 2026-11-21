@@ -1,7 +1,7 @@
 import { getDoc } from 'firebase/firestore';
 import type { OwnerKey } from './ownerIdentity';
 import type { PublicBookMetadata, PublicBookMetadataDocumentReader } from './publicBookMetadata';
-import { cacheReadBookMetadata, type ConfirmedReadBookMetadata } from './readBookMetadataCache';
+import { cacheReadBookMetadata, readBookMetadataExpiry, type ConfirmedReadBookMetadata } from './readBookMetadataCache';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_DOCUMENTS = 128;
@@ -27,9 +27,9 @@ function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): CacheEntr
   return entry;
 }
 
-function putCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, limit: number) {
+function putCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, limit: number, expiresAt: number) {
   cache.delete(key);
-  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+  cache.set(key, { value, expiresAt });
   while (cache.size > limit) cache.delete(cache.keys().next().value!);
 }
 
@@ -43,7 +43,7 @@ const readDocument = (reference: Parameters<PublicBookMetadataDocumentReader>[0]
   const read = getDoc(reference).then((snapshot) => {
     if (!snapshot.exists() && snapshot.metadata.fromCache) throw new Error('Public metadata unavailable offline');
     const result = { snapshot, confirmedAt: snapshot.metadata.fromCache ? null : startedAt };
-    putCached(documents, key, result, MAX_DOCUMENTS);
+    putCached(documents, key, result, MAX_DOCUMENTS, startedAt + CACHE_TTL_MS);
     return result;
   }).finally(() => documentReads.delete(key));
   documentReads.set(key, read);
@@ -69,7 +69,7 @@ function loadTitle(title: string): Promise<TitleLookup> {
       return document.snapshot;
     });
     const result = { metadata, confirmedAt };
-    putCached(titles, title, result, MAX_TITLES);
+    putCached(titles, title, result, MAX_TITLES, (confirmedAt ?? startedAt) + CACHE_TTL_MS);
     return result;
   }).finally(() => titleReads.delete(title));
   titleReads.set(title, read);
@@ -102,17 +102,26 @@ export function createReadMetadataLoader(readTitle: (title: string) => Promise<P
 
 export async function loadReadBookMetadata(
   bookTitles: readonly string[],
-  options: ReadMetadataOptions & { cacheOwnerKey?: OwnerKey } = {},
+  options: Omit<ReadMetadataOptions, 'onProgress'> & {
+    onProgress?: (result: ReadMetadataResult, title: string, expiresAt?: number) => void;
+    cacheOwnerKey?: OwnerKey;
+  } = {},
 ) {
   const confirmed = new Map<string, ConfirmedReadBookMetadata>();
   const load = createReadMetadataLoader(async (title) => {
     const { metadata, confirmedAt } = await loadTitle(title);
-    if (options.cacheOwnerKey && confirmedAt !== null) {
+    if (confirmedAt !== null) {
       confirmed.set(title, { metadata, observedAt: confirmedAt });
     }
     return metadata;
   });
-  const result = await load(bookTitles, options);
+  const result = await load(bookTitles, {
+    signal: options.signal,
+    onProgress: options.onProgress && ((progress, title) => {
+      const match = confirmed.get(title);
+      options.onProgress?.(progress, title, match ? readBookMetadataExpiry(match) : undefined);
+    }),
+  });
   if (options.cacheOwnerKey && !options.signal?.aborted) {
     void cacheReadBookMetadata(options.cacheOwnerKey, confirmed);
   }

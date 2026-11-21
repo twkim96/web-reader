@@ -14,7 +14,7 @@ import { DashboardBookRow } from './DashboardBookRow';
 import { ListSort } from './ListSort';
 import { ReviewStar } from './ReviewStar';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
-import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
+import { readCachedReadBookMetadata, type ReadBookMetadataMatch } from '../../lib/readBookMetadataCache';
 
 const readSorts = [
   ['recent', '최근 읽은 순'],
@@ -85,13 +85,13 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   const [visibleCount, setVisibleCount] = useState(20);
   const [failedCount, setFailedCount] = useState(0);
   const accountIndex = useMemo(() => indexReviewWorks(reviews ?? []), [reviews]);
-  const retained = useRef<{ owner: OwnerKey; metadata: Map<string, PublicBookMetadata | null> }>({ owner: ownerKey, metadata: new Map() });
+  const retained = useRef<{ owner: OwnerKey; matches: Map<string, ReadBookMetadataMatch> }>({ owner: ownerKey, matches: new Map() });
 
   useEffect(() => {
     if (guest) return;
     const controller = new AbortController();
     if (retained.current.owner !== ownerKey) {
-      retained.current = { owner: ownerKey, metadata: new Map() };
+      retained.current = { owner: ownerKey, matches: new Map() };
       setBooks(null);
       setFailedCount(0);
       setError(false);
@@ -118,12 +118,16 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
           latestByName.set(bookTitle, Math.max(latestByName.get(bookTitle) ?? 0, fileDates.get(bookId)!));
         }
         const names = [...latestByName.keys()].sort((a, b) => latestByName.get(b)! - latestByName.get(a)!);
-        const metadata = retained.current.metadata;
-        for (const name of metadata.keys()) if (!latestByName.has(name)) metadata.delete(name);
-        const unresolved = names.filter((name) => !metadata.has(name));
+        const matches = retained.current.matches;
+        const now = Date.now();
+        for (const [name, match] of matches) {
+          if (!latestByName.has(name) || match.expiresAt <= now) matches.delete(name);
+        }
+        const unresolved = names.filter((name) => !matches.has(name));
         const cached = await readCachedReadBookMetadata(ownerKey, unresolved);
         if (disposed) return;
-        for (const [name, match] of cached) metadata.set(name, match);
+        for (const [name, match] of cached) matches.set(name, match);
+        const metadata = new Map([...matches].map(([name, match]) => [name, match.metadata]));
         const missing = unresolved.filter((name) => !cached.has(name));
         const known = buildReadBooks(sessions, metadata);
         setBooks(known);
@@ -131,7 +135,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
         setFailedCount(0);
         const hasPreview = (works: ReadBook[], nextTitle: string) => (
           works.length >= MY_PAGE_DASHBOARD_BOOK_LIMIT
-          && works[MY_PAGE_DASHBOARD_BOOK_LIMIT - 1].lastReadAt >= latestByName.get(nextTitle)!
+          && works[MY_PAGE_DASHBOARD_BOOK_LIMIT - 1].lastReadAt > latestByName.get(nextTitle)!
         );
         const needsMetadata = missing.length > 0 && (!preview || !hasPreview(known, missing[0]));
         setLoadingMetadata(needsMetadata);
@@ -139,10 +143,13 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
           const metadataLoader = await import('../../lib/readBookMetadata');
           if (disposed) return;
           let failedBeforeBatch = 0;
-          const update = (result: { metadata: Map<string, PublicBookMetadata | null>; failed: Set<string> }, title: string) => {
+          const update = (result: { metadata: Map<string, PublicBookMetadata | null>; failed: Set<string> }, title: string, expiresAt?: number) => {
             if (disposed) return;
             const value = result.metadata.get(title);
-            if (value !== undefined) metadata.set(title, value);
+            if (value !== undefined) {
+              metadata.set(title, value);
+              if (expiresAt !== undefined) matches.set(title, { metadata: value, expiresAt });
+            }
             setFailedCount(failedBeforeBatch + result.failed.size);
             if (!preview && value !== undefined && renderTimer === undefined) {
               renderTimer = window.setTimeout(() => {
