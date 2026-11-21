@@ -97,8 +97,8 @@ test('day rows group nearby reading slices and exclude breaks in the recorded ti
       near('listen', 1_021_000, { mode: 'tts' }), near('resume-screen', 1_081_000),
       near('other-book', 1_141_000, { bookId: 'other', bookTitle: '다른 책' }),
       near('after-other', 1_201_000),
-      near('merged-short-a', 1_800_000, { endedAtClient: eightAM + 1_830_000, durationMs: 30_000 }),
-      near('merged-short-b', 1_860_000, { endedAtClient: eightAM + 1_890_000, durationMs: 30_000 }),
+      near('merged-short-a', 1_800_000),
+      near('merged-short-b', 1_920_000),
       near('hidden-short-a', 2_400_000, { bookId: 'short-a', bookTitle: '짧은 기록 A', endedAtClient: eightAM + 2_430_000, durationMs: 30_000 }),
       near('hidden-short-b', 2_430_000, { bookId: 'short-b', bookTitle: '짧은 기록 B', endedAtClient: eightAM + 2_460_000, durationMs: 30_000 }),
     ]) await saveLocalReadingSessionV11(owner, record);
@@ -108,17 +108,14 @@ test('day rows group nearby reading slices and exclude breaks in the recorded ti
     const day = [...window.document.querySelectorAll('button')].find(button => button.getAttribute('aria-label')?.startsWith(`${month.getMonth() + 1}월 15일,`));
     await act(async () => day.dispatchEvent(new window.Event('click', { bubbles: true })));
     const rows = [...window.document.querySelectorAll('section[aria-label="선택한 날짜의 독서 기록"] li')].map(row => row.textContent);
-    assert.equal(rows.length, 8);
-    assert.match(rows[0], /같은 책.*오전 8:30.*읽기1분$/);
-    assert.match(rows[1], /같은 책.*오전 8:20.*읽기1분$/);
-    assert.match(rows[2], /다른 책.*오전 8:19.*읽기1분$/);
-    assert.match(rows[3], /같은 책.*오전 8:18.*읽기1분$/);
-    assert.match(rows[4], /같은 책.*오전 8:17.*듣기1분$/);
-    assert.match(rows[5], /같은 책.*오전 8:10.*읽기2분$/);
-    assert.match(rows[6], /같은 책.*오전 8:00.*읽기3분$/);
-    assert.match(rows[7], /later.*오전 12:30/);
-    assert.match(day.getAttribute('aria-label'), /11분$/);
-    assert.match(window.document.querySelector('section[aria-label="선택한 날짜의 독서 기록"]').textContent, /15일11분/);
+    assert.equal(rows.length, 3);
+    assert.match(rows[0], /같은 책.*오전 8:30.*읽기2분$/);
+    assert.match(rows[1], /같은 책.*오전 8:10.*읽기2분$/);
+    assert.match(rows[2], /같은 책.*오전 8:00.*읽기3분$/);
+    assert.match(day.getAttribute('aria-label'), /7분$/);
+    assert.match(window.document.querySelector('section[aria-label="선택한 날짜의 독서 기록"]').textContent, /15일7분/);
+    const totals = [...window.document.querySelectorAll('[aria-label="독서 시간 요약"] dd')].map(node => node.textContent);
+    assert.deepEqual(totals, ['0분', '0분', '7분']);
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();
@@ -137,7 +134,7 @@ test('dashboard updates day and month totals at midnight and on resume without r
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const ownerKey = 'guest:calendar-rollover|library:local';
   const end = beforeMidnight.getTime() - 1;
-  const start = end - 60_000;
+  const start = end - 120_000;
   await saveLocalReadingSessionV11(ownerKey, session('prior-day', start, end, {
     timezoneOffsetMinutes: beforeMidnight.getTimezoneOffset(),
     localDate: getReadingSessionLocalDate(start, beforeMidnight.getTimezoneOffset()),
@@ -147,15 +144,15 @@ test('dashboard updates day and month totals at midnight and on resume without r
   const totals = () => [...window.document.querySelectorAll('[aria-label="독서 시간 요약"] dd')].map((node) => node.textContent);
   try {
     await act(async () => root.render(React.createElement(ReadingDashboard, { ownerKey, onOpenStatistics() {}, onOpenAnnotations() {} })));
-    for (let i = 0; i < 20 && totals()[0] !== '1분'; i++) await act(async () => settle());
-    assert.deepEqual(totals(), ['1분', '1분', '1분']);
+    for (let i = 0; i < 20 && totals()[0] !== '2분'; i++) await act(async () => settle());
+    assert.deepEqual(totals(), ['2분', '2분', '2분']);
     await act(async () => t.mock.timers.tick(1000));
-    assert.deepEqual(totals(), ['0분', '0분', '1분']);
+    assert.deepEqual(totals(), ['0분', '0분', '2분']);
     assert.match(window.document.querySelector('[aria-pressed="true"]').getAttribute('aria-label'), /^11월 30일/);
 
     t.mock.timers.setTime(beforeMidnight.getTime());
     await act(async () => window.dispatchEvent(new window.Event('focus')));
-    assert.deepEqual(totals(), ['1분', '1분', '1분']);
+    assert.deepEqual(totals(), ['2분', '2분', '2분']);
     assert.equal(reads.mock.callCount(), 1);
   } finally {
     await act(async () => root.unmount());

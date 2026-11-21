@@ -6527,8 +6527,8 @@ try {
             deviceId: 'round-fixture',
             mode: 'screen',
             startedAtClient,
-            endedAtClient: startedAtClient + 60_000,
-            durationMs: 60_000,
+            endedAtClient: startedAtClient + 120_000,
+            durationMs: 120_000,
             startProgressPercent: startProgress,
             endProgressPercent: endProgress,
             timezoneOffsetMinutes,
@@ -6549,8 +6549,8 @@ try {
           });
         };
         put('round-fixture-first-start', 0, 0, 50, false);
-        put('round-fixture-first-finish', 61_000, 50, 100, true, base + 121_000);
-        put('round-fixture-second-start', 122_000, 0, 25, false);
+        put('round-fixture-first-finish', 121_000, 50, 100, true, base + 241_000);
+        put('round-fixture-second-start', 242_000, 0, 25, false);
       };
       transaction.oncomplete = () => { db.close(); resolve(true); };
       transaction.onerror = () => reject(transaction.error);
@@ -6864,8 +6864,8 @@ try {
   }))()`);
   assert.notDeepEqual(bookListDeletionUi.headlines, totalsBeforeBookListDeletion.headlines);
   assert.notDeepEqual(bookListDeletionUi.modes, totalsBeforeBookListDeletion.modes);
-  assert.deepEqual(bookListDeletionUi.headlines, ['오늘1분', '이번 주1분', '이번 달1분']);
-  assert.deepEqual(bookListDeletionUi.modes, ['1분', '0분']);
+  assert.deepEqual(bookListDeletionUi.headlines, ['오늘2분', '이번 주2분', '이번 달2분']);
+  assert.deepEqual(bookListDeletionUi.modes, ['2분', '0분']);
   assert.equal(bookListDeletionUi.summary, '0권 읽는 중 · 완료 1권');
   assert.deepEqual(bookListDeletionUi.remainingRounds, ['2']);
   assert.match(bookListDeletionUi.feedback, /1회차.*표시 합계에서 제외/);

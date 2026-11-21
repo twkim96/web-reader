@@ -6,6 +6,7 @@ export const READING_SESSION_SCHEMA_VERSION = 1 as const;
 export const READING_SESSION_MAX_DURATION_MS = 5 * 60_000;
 export const READING_SESSION_COMMIT_INTERVAL_MS = 60_000;
 export const READING_SESSION_IDLE_TIMEOUT_MS = 90_000;
+export const MIN_READING_STATISTICS_BLOCK_MS = 120_000;
 export const READING_SESSION_MIN_DURATION_MS = 1_000;
 export const READING_SESSION_MAX_ACTIVE_INTERVALS = 512;
 export const READING_ROUND_COMPLETION_PERCENT = 99;
@@ -473,6 +474,62 @@ type CountedSlice = {
   endAt: number;
 };
 
+type DatedReadingSlice = CountedSlice & { localDate: string };
+
+export type ReadingActivityBlock = {
+  session: ReadingSessionV1;
+  localDate: string;
+  startAt: number;
+  durationMs: number;
+};
+
+const MAX_READING_BLOCK_GAP_MS = 5 * 60_000;
+
+const keepQualifyingReadingBlocks = (
+  slices: readonly DatedReadingSlice[],
+  minimumMs: number,
+  onBlock?: (block: ReadingActivityBlock) => void,
+): DatedReadingSlice[] => {
+  const days = new Map<string, DatedReadingSlice[]>();
+  for (const slice of slices) {
+    const day = days.get(slice.localDate);
+    if (day) day.push(slice);
+    else days.set(slice.localDate, [slice]);
+  }
+
+  const qualified: DatedReadingSlice[] = [];
+  for (const day of days.values()) {
+    day.sort((a, b) => a.startAt - b.startAt);
+    let first = 0;
+    let durationMs = 0;
+    let endAt = day[0].startAt;
+    const finishBlock = (next: number) => {
+      if (durationMs < minimumMs) return;
+      const { session, localDate, startAt } = day[first];
+      onBlock?.({ session, localDate, startAt, durationMs });
+      for (let index = first; index < next; index++) qualified.push(day[index]);
+    };
+
+    for (let index = 0; index < day.length; index++) {
+      const slice = day[index];
+      const { session } = day[first];
+      if (slice.session.bookId !== session.bookId
+        || slice.session.mode !== session.mode
+        || slice.session.timezoneOffsetMinutes !== session.timezoneOffsetMinutes
+        || slice.startAt - endAt > MAX_READING_BLOCK_GAP_MS) {
+        finishBlock(index);
+        first = index;
+        durationMs = 0;
+        endAt = slice.startAt;
+      }
+      durationMs += slice.endAt - slice.startAt;
+      endAt = Math.max(endAt, slice.endAt);
+    }
+    finishBlock(day.length);
+  }
+  return qualified;
+};
+
 type PreparedSession = {
   session: ReadingSessionV1;
   startAt: number;
@@ -622,7 +679,7 @@ const splitSliceAtLocalMidnights = (slice: CountedSlice): CountedSlice[] => {
   return parts;
 };
 
-const isLocalDateWithinBounds = (
+export const isLocalDateWithinBounds = (
   localDate: string,
   bounds: { startLocalDate?: string; endLocalDate?: string },
 ) => (
@@ -650,7 +707,8 @@ export const buildReadingStatistics = (
     startLocalDate?: string;
     endLocalDate?: string;
   } = {},
-  onCountedSlice?: (slice: { session: ReadingSessionV1; localDate: string; durationMs: number; startAt: number }) => void,
+  onCountedSlice?: (slice: ReadingActivityBlock) => void,
+  activity?: { minimumMs: number; onBlock?: (block: ReadingActivityBlock) => void },
 ): ReadingStatisticsSummary => {
   const startAt = bounds.startAt ?? Number.NEGATIVE_INFINITY;
   const endAt = bounds.endAt ?? Number.POSITIVE_INFINITY;
@@ -694,13 +752,14 @@ export const buildReadingStatistics = (
       session.completionRoundNumber === undefined
     ))))
     .flatMap(splitSliceAtLocalMidnights)
-    .filter((slice) => {
-      const localDate = getReadingSessionLocalDate(
+    .map((slice): DatedReadingSlice => ({
+      ...slice,
+      localDate: getReadingSessionLocalDate(
         slice.startAt,
         slice.session.timezoneOffsetMinutes,
-      );
-      return isLocalDateWithinBounds(localDate, bounds);
-    });
+      ),
+    }))
+    .filter(({ localDate }) => isLocalDateWithinBounds(localDate, bounds));
   const validPrepared = prepared.filter((item) => preparedTouchesLocalDateBounds(item, bounds));
   const valid = [...new Map(validPrepared.map(({ session }) => (
     [session.sessionId, session]
@@ -758,10 +817,13 @@ export const buildReadingStatistics = (
     bookTimelines.set(session.bookId, timeline);
   }
 
-  for (const slice of slices) {
+  const countedSlices = activity
+    ? keepQualifyingReadingBlocks(slices, activity.minimumMs, activity.onBlock)
+    : slices;
+  for (const slice of countedSlices) {
     const durationMs = slice.endAt - slice.startAt;
     const { session } = slice;
-    const sliceLocalDate = getReadingSessionLocalDate(slice.startAt, session.timezoneOffsetMinutes);
+    const sliceLocalDate = slice.localDate;
     onCountedSlice?.({ session, localDate: sliceLocalDate, durationMs, startAt: slice.startAt });
     countedSessionIds.add(session.sessionId);
     totalMs += durationMs;
@@ -787,7 +849,7 @@ export const buildReadingStatistics = (
     days.set(sliceLocalDate, existingDay);
   }
 
-  const bookRows = [...books.values()].map((book) => ({
+  const bookRows = [...books.values()].filter((book) => !activity || book.totalMs > 0).map((book) => ({
     ...book,
     readDates: [...book.readDates].sort(),
   })).sort((left, right) => right.totalMs - left.totalMs || (
@@ -815,6 +877,7 @@ export const buildReadingBookRounds = (
   sessions: readonly ReadingSessionV1[],
   bounds: Parameters<typeof buildReadingStatistics>[1] = {},
   hiddenSessionIds: ReadonlySet<string> = new Set(),
+  countedMsBySession?: ReadonlyMap<string, number>,
 ): ReadingBookRoundStatistics[] => {
   const valid = sessions.filter(isReadingSessionV1);
   const samplesByDevice = buildClockSampleIndex(valid);
@@ -834,12 +897,30 @@ export const buildReadingBookRounds = (
       const visibleSessions = round.sessions.filter(({ sessionId }) => (
         !hiddenSessionIds.has(sessionId)
       ));
+      // Attribute the globally deduplicated slices to their original rounds.
+      // Requalifying each round would skip intervening reads of other books.
+      let countedTime: Pick<ReadingBookStatistics, 'screenMs' | 'ttsMs' | 'totalMs'> | undefined;
+      if (countedMsBySession) {
+        let screenMs = 0;
+        let ttsMs = 0;
+        for (const { sessionId, mode } of visibleSessions) {
+          const durationMs = countedMsBySession.get(sessionId) ?? 0;
+          if (mode === 'tts') ttsMs += durationMs;
+          else screenMs += durationMs;
+        }
+        if (screenMs + ttsMs === 0) return;
+        countedTime = { screenMs, ttsMs, totalMs: screenMs + ttsMs };
+      }
       const summary = buildReadingStatistics(visibleSessions, bounds);
-      const book = summary.books.find(({ bookId }) => bookId === visibleSessions[0]?.bookId);
+      // A clock sample from another round can move counted slices across a day
+      // boundary. Keep the round if the full timeline counted time in the range.
+      const book = summary.books[0] ?? (countedTime
+        ? buildReadingStatistics(visibleSessions).books[0]
+        : undefined);
       // buildReadingStatistics preserves book metadata even when every slice is
       // outside the selected range. A range-scoped list should contain only
       // rounds with actual counted reading time in that range.
-      if (!book || book.totalMs <= 0) return;
+      if (!book || (countedTime ?? book).totalMs <= 0) return;
       const first = visibleSessions[0];
       const completion = visibleSessions
         .filter(isConfirmedReadingCompletion)
@@ -852,6 +933,7 @@ export const buildReadingBookRounds = (
         : 0;
       rows.push({
         ...book,
+        ...countedTime,
         completed: round.completed,
         roundNumber: round.roundNumber,
         startedLocalDate: getReadingSessionLocalDate(

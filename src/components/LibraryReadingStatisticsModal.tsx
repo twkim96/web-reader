@@ -13,6 +13,8 @@ import {
   buildReadingBookRounds,
   formatReadingDuration,
   getReadingStatisticsRangeBounds,
+  isLocalDateWithinBounds,
+  MIN_READING_STATISTICS_BLOCK_MS,
   sortReadingBookRoundsByRecent,
   type ReadingStatisticsRange,
   type StoredReadingSessionV11,
@@ -235,29 +237,48 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const visibleSessions = useMemo(() => sessions.filter(({ sessionId }) => (
     !hiddenSessionIds.has(sessionId)
   )), [hiddenSessionIds, sessions]);
-  const allSummary = useMemo(() => buildReadingStatistics(visibleSessions), [visibleSessions]);
-  const summary = useMemo(() => range === 'all'
-    ? allSummary
-    : buildReadingStatistics(
-      visibleSessions,
-      getReadingStatisticsRangeBounds(range, aggregationNow),
-    ), [aggregationNow, allSummary, range, visibleSessions]);
+  const { allSummary, sessionTimeByDay } = useMemo(() => {
+    const sessionTimeByDay = new Map<string, Map<string, number>>();
+    const allSummary = buildReadingStatistics(visibleSessions, {}, ({ session, localDate, durationMs }) => {
+      let day = sessionTimeByDay.get(localDate);
+      if (!day) {
+        day = new Map();
+        sessionTimeByDay.set(localDate, day);
+      }
+      day.set(session.sessionId, (day.get(session.sessionId) ?? 0) + durationMs);
+    }, { minimumMs: MIN_READING_STATISTICS_BLOCK_MS });
+    return { allSummary, sessionTimeByDay };
+  }, [visibleSessions]);
+  const rangeBounds = useMemo(() => getReadingStatisticsRangeBounds(range, aggregationNow), [range, aggregationNow]);
+  const summary = useMemo(() => {
+    const totals = { screenMs: 0, ttsMs: 0 };
+    for (const day of allSummary.days) {
+      if (!isLocalDateWithinBounds(day.localDate, rangeBounds)) continue;
+      totals.screenMs += day.screenMs;
+      totals.ttsMs += day.ttsMs;
+    }
+    return totals;
+  }, [allSummary.days, rangeBounds]);
   const headlineTotals = useMemo(() => Object.fromEntries(
     (['today', 'week', 'month'] as const).map((value) => {
       const bounds = getReadingStatisticsRangeBounds(value, aggregationNow);
       return [value, allSummary.days.reduce((total, day) => (
-        (!bounds.startLocalDate || day.localDate >= bounds.startLocalDate)
-        && (!bounds.endLocalDate || day.localDate <= bounds.endLocalDate)
+        isLocalDateWithinBounds(day.localDate, bounds)
           ? total + day.totalMs
           : total
       ), 0)];
     }),
   ) as Record<'today' | 'week' | 'month', number>, [aggregationNow, allSummary.days]);
-  const bookRounds = useMemo(() => buildReadingBookRounds(
-    sessions,
-    getReadingStatisticsRangeBounds(range, aggregationNow),
-    hiddenSessionIds,
-  ), [aggregationNow, hiddenSessionIds, range, sessions]);
+  const bookRounds = useMemo(() => {
+    const countedMsBySession = new Map<string, number>();
+    for (const [localDate, day] of sessionTimeByDay) {
+      if (!isLocalDateWithinBounds(localDate, rangeBounds)) continue;
+      for (const [sessionId, durationMs] of day) {
+        countedMsBySession.set(sessionId, (countedMsBySession.get(sessionId) ?? 0) + durationMs);
+      }
+    }
+    return buildReadingBookRounds(sessions, rangeBounds, hiddenSessionIds, countedMsBySession);
+  }, [hiddenSessionIds, rangeBounds, sessions, sessionTimeByDay]);
   const listedBookRounds = useMemo(
     () => sortReadingBookRoundsByRecent(bookRounds),
     [bookRounds],

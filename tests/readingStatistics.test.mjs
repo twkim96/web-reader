@@ -13,6 +13,7 @@ import {
   getNextReadingInteractionFocus,
   getReadingTrackingMode,
   isReadingSessionV1,
+  MIN_READING_STATISTICS_BLOCK_MS,
   READING_SESSION_COMMIT_INTERVAL_MS,
   READING_SESSION_MAX_DURATION_MS,
   shouldResetReadingActivityForTtsTransition,
@@ -746,26 +747,42 @@ test('uses chronological progress snapshots instead of min and max percentages',
   assert.equal(summary.books[0].endProgressPercent, 30);
 });
 
-test('exports recoverable JSON and overlap-safe Markdown totals', () => {
+test('statistics require two active minutes per block while exports retain original sessions', () => {
   const sessions = [
-    session({ sessionId: 'json-a', startedAtClient: 1_000, endedAtClient: 61_000 }),
+    session({ sessionId: 'idle', bookId: 'idle', startedAtClient: 1_000, endedAtClient: 91_000 }),
+    session({ sessionId: 'just-short', bookId: 'short', startedAtClient: 91_000, endedAtClient: 210_999 }),
+    session({ sessionId: 'screen-one', startedAtClient: 301_000, endedAtClient: 391_000 }),
     session({
-      sessionId: 'json-b', mode: 'tts', startedAtClient: 31_000, endedAtClient: 61_000,
+      sessionId: 'screen-two', startedAtClient: 541_000, endedAtClient: 601_000,
+    }),
+    session({
+      sessionId: 'tts', bookId: 'other', mode: 'tts', startedAtClient: 301_000, endedAtClient: 331_000,
     }),
   ];
+  const countedMsBySession = new Map();
+  const displayed = buildReadingStatistics(sessions, {}, ({ session, durationMs }) => {
+    countedMsBySession.set(session.sessionId, durationMs);
+  }, { minimumMs: MIN_READING_STATISTICS_BLOCK_MS });
+  assert.equal(displayed.totalMs, 120_000);
+  assert.deepEqual([...countedMsBySession], [['screen-one', 60_000], ['screen-two', 60_000]]);
+  assert.deepEqual(buildReadingBookRounds(sessions, {}, new Set(), countedMsBySession)
+    .map(({ bookId, totalMs }) => [bookId, totalMs]), [['book-1', 120_000]]);
+  assert.equal(buildReadingStatistics(sessions).totalMs, 359_999);
+
   const json = createReadingStatisticsJsonExport(sessions, 1_700_000_000_000);
   const parsed = JSON.parse(json.text);
   assert.equal(parsed.schemaVersion, 1);
-  assert.equal(parsed.sessions.length, 2);
-  assert.equal(parsed.summary.totalMs, 60_000);
-  assert.equal(parsed.summary.screenMs, 30_000);
-  assert.equal(parsed.summary.ttsMs, 30_000);
+  assert.equal(parsed.sessions.length, sessions.length);
+  assert.equal(parsed.summary.totalMs, displayed.totalMs);
+  assert.deepEqual(parsed.summary.books.map(({ bookId }) => bookId), ['book-1']);
+  assert.equal(parsed.summary.screenMs, 120_000);
+  assert.equal(parsed.summary.ttsMs, 0);
   assert.equal(parsed.sessions.every(isReadingSessionV1), true);
 
   const markdown = createReadingStatisticsMarkdownExport(sessions, 1_700_000_000_000);
-  assert.match(markdown.text, /총 독서 시간: 1분/);
-  assert.match(markdown.text, /화면 독서: 1분 미만/);
-  assert.match(markdown.text, /TTS 듣기: 1분 미만/);
+  assert.match(markdown.text, /총 독서 시간: 2분/);
+  assert.match(markdown.text, /화면 독서: 2분/);
+  assert.match(markdown.text, /TTS 듣기: 0분/);
 });
 
 test('tracks only visible active reading and actual playing TTS', () => {

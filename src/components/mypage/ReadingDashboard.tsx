@@ -10,7 +10,9 @@ import {
   buildReadingStatistics,
   formatReadingDuration,
   getReadingStatisticsRangeBounds,
-  type ReadingSessionV1,
+  isLocalDateWithinBounds,
+  MIN_READING_STATISTICS_BLOCK_MS,
+  type ReadingActivityBlock,
   type StoredReadingSessionV11,
 } from '../../lib/readingStatistics';
 import {
@@ -31,28 +33,7 @@ type Data = {
   error: boolean;
 };
 
-type ReadingSlice = { session: ReadingSessionV1; durationMs: number; startAt: number };
-const MAX_READING_GAP_MS = 5 * 60_000;
-const MIN_CALENDAR_ROW_MS = 60_000;
 const readingTimeFormat = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
-
-function groupReadingSlices(slices: readonly ReadingSlice[]) {
-  const rows: Array<ReadingSlice & { endAt: number }> = [];
-  for (const slice of [...slices].sort((a, b) => a.startAt - b.startAt)) {
-    const previous = rows.at(-1);
-    const { session, startAt, durationMs } = slice;
-    const endAt = startAt + durationMs;
-    if (previous && previous.session.bookId === session.bookId
-      && previous.session.mode === session.mode && previous.session.timezoneOffsetMinutes === session.timezoneOffsetMinutes
-      && startAt - previous.endAt <= MAX_READING_GAP_MS) {
-      previous.durationMs += durationMs;
-      previous.endAt = Math.max(previous.endAt, endAt);
-    } else {
-      rows.push({ ...slice, endAt });
-    }
-  }
-  return rows.filter(({ durationMs }) => durationMs >= MIN_CALENDAR_ROW_MS).reverse();
-}
 
 const dateKey = (year: number, month: number, day: number) => (
   `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -103,14 +84,18 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
   const currentData = data?.ownerKey === ownerKey ? data : null;
   const statistics = useMemo(() => {
     if (!currentData || currentData.error) return null;
-    const details = new Map<string, ReadingSlice[]>();
-    const summary = buildReadingStatistics(currentData.sessions, {},
-      ({ session, localDate, durationMs, startAt }) => {
-        const day = details.get(localDate) ?? [];
-        day.push({ session, durationMs, startAt });
-        details.set(localDate, day);
-      });
-    return { summary, details };
+    const details = new Map<string, ReadingActivityBlock[]>();
+    const summary = buildReadingStatistics(currentData.sessions, {}, undefined, {
+      minimumMs: MIN_READING_STATISTICS_BLOCK_MS,
+      onBlock: (block) => {
+        const day = details.get(block.localDate);
+        if (day) day.push(block);
+        else details.set(block.localDate, [block]);
+      },
+    });
+    for (const rows of details.values()) rows.reverse();
+    const dayTotals = new Map(summary.days.map(({ localDate, totalMs }) => [localDate, totalMs]));
+    return { summary, details, dayTotals };
   }, [currentData]);
   const summary = statistics?.summary ?? null;
   const totals = useMemo(() => {
@@ -118,8 +103,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
     const sumRange = (range: 'today' | 'month') => {
       const bounds = getReadingStatisticsRangeBounds(range, today);
       return summary.days.reduce((sum, day) => sum + (
-        (!bounds.startLocalDate || day.localDate >= bounds.startLocalDate)
-        && (!bounds.endLocalDate || day.localDate <= bounds.endLocalDate) ? day.totalMs : 0
+        isLocalDateWithinBounds(day.localDate, bounds) ? day.totalMs : 0
       ), 0);
     };
     return [sumRange('today'), sumRange('month'), summary.totalMs];
@@ -129,20 +113,8 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
   const monthIndex = month.getMonth();
   const firstWeekday = new Date(year, monthIndex, 1).getDay();
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
-  const calendarDays = useMemo(() => {
-    const days = new Map<string, { rows: ReadingSlice[]; totalMs: number }>();
-    if (!statistics) return days;
-    for (let day = 1; day <= daysInMonth; day++) {
-      const key = dateKey(year, monthIndex, day);
-      const slices = statistics.details.get(key);
-      if (!slices) continue;
-      const rows = groupReadingSlices(slices);
-      days.set(key, { rows, totalMs: rows.reduce((sum, row) => sum + row.durationMs, 0) });
-    }
-    return days;
-  }, [daysInMonth, monthIndex, statistics, year]);
-  const selected = calendarDays.get(selectedDay);
-  const selectedSessions = selected?.rows ?? [];
+  const selectedTotalMs = statistics?.dayTotals.get(selectedDay) ?? 0;
+  const selectedSessions = statistics?.details.get(selectedDay) ?? [];
   const changeMonth = (offset: number) => {
     const next = new Date(year, monthIndex + offset, 1);
     setMonth(next);
@@ -187,7 +159,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
             {Array.from({ length: daysInMonth }, (_, i) => {
               const day = i + 1;
               const key = dateKey(year, monthIndex, day);
-              const duration = calendarDays.get(key)?.totalMs ?? 0;
+              const duration = statistics?.dayTotals.get(key) ?? 0;
               const selected = key === selectedDay;
               return (
                 <button key={key} type="button" onClick={() => setSelectedDay(key)} aria-pressed={selected}
@@ -204,7 +176,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
         <section aria-label="선택한 날짜의 독서 기록">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-base font-semibold sm:text-lg">{Number(selectedDay.slice(5, 7))}월 {Number(selectedDay.slice(8, 10))}일</h2>
-            {selected && selected.totalMs > 0 && <span className="text-sm font-semibold text-accent-500">{formatReadingDuration(selected.totalMs)}</span>}
+            {selectedTotalMs > 0 && <span className="text-sm font-semibold text-accent-500">{formatReadingDuration(selectedTotalMs)}</span>}
           </div>
           {!currentData || currentData.error ? (
             <p className="mt-3 text-sm opacity-60">{currentData?.error ? '기록을 표시할 수 없습니다.' : '기록을 불러오는 중입니다.'}</p>

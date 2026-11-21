@@ -39,6 +39,8 @@ test('statistics header has icon actions and exports and shares only JSON', asyn
   const header = modal.locator('[data-menu-sheet-header]');
   await expect(header.locator('.app-menu-sheet-header-actions button')).toHaveCount(4);
   await expect(header.locator('[data-reading-statistics-export="json"]')).toBeEnabled();
+  await expect(modal.locator('[data-reading-statistics-mode-total="screen"]')).toHaveText('0분');
+  await expect(modal.locator('[data-reading-statistics-book="true"]')).toHaveCount(0);
   await expect(modal.locator('[data-reading-statistics-export="markdown"]')).toHaveCount(0);
   await expect(header).toHaveText('독서 통계');
   await expect(header).toHaveCSS('border-bottom-width', '0px');
@@ -55,6 +57,7 @@ test('statistics header has icon actions and exports and shares only JSON', asyn
   const payload = JSON.parse(await readFile((await download.path())!, 'utf8'));
   expect(payload.schemaVersion).toBe(1);
   expect(payload.sessions.map((session: { sessionId: string }) => session.sessionId)).toEqual(['header-actions-test']);
+  expect(payload.summary.totalMs).toBe(0);
   await header.getByRole('button', { name: '독서 통계 공유', exact: true }).click();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, '__sharedStatistics')?.name)).toMatch(/\.json$/);
   expect(await page.evaluate(() => JSON.parse(Reflect.get(window, '__sharedStatistics').text).sessions.length)).toBe(1);

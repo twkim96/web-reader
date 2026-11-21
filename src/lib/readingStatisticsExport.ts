@@ -1,6 +1,7 @@
 import {
   buildReadingStatistics,
   formatReadingDuration,
+  MIN_READING_STATISTICS_BLOCK_MS,
   toReadingSessionPayload,
   type ReadingSessionV1,
 } from './readingStatistics';
@@ -23,6 +24,8 @@ const escapeMarkdownCell = (value: string) => (
   value.replaceAll('\\', '\\\\').replaceAll('|', '\\|').replaceAll('\n', ' ')
 );
 
+const activityFilter = { minimumMs: MIN_READING_STATISTICS_BLOCK_MS };
+
 export const createReadingStatisticsJsonExport = (
   sessions: readonly ReadingSessionV1[],
   generatedAt = Date.now(),
@@ -37,7 +40,7 @@ export const createReadingStatisticsJsonExport = (
       schemaVersion: 1,
       generatedAt,
       sessions: payloads,
-      summary: buildReadingStatistics(payloads),
+      summary: buildReadingStatistics(payloads, {}, undefined, activityFilter),
     }, null, 2)}\n`,
   };
 };
@@ -46,7 +49,7 @@ export const createReadingStatisticsMarkdownExport = (
   sessions: readonly ReadingSessionV1[],
   generatedAt = Date.now(),
 ): ReadingStatisticsExportFile => {
-  const summary = buildReadingStatistics(sessions);
+  const summary = buildReadingStatistics(sessions, {}, undefined, activityFilter);
   const lines = [
     '# Web Reader 독서 통계',
     '',
