@@ -15,10 +15,16 @@ test.beforeEach(async ({ page }) => {
       localStorage.setItem(`reader_wishlist_v1:${owner}:${id}`, JSON.stringify({ book, addedAt: index }));
     }
   });
+  await page.route('https://covers.example.test/mypage-cover.png', route => route.fulfill({
+    path: 'public/icon-192.png', contentType: 'image/png',
+  }));
+  await page.route('https://covers.example.test/missing-cover.png', route => route.fulfill({ status: 404 }));
   await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
     schemaVersion: 1, generation: 'header-test', genres: [], tags: [],
     books: Array.from({ length: 75 }, (_, index) => [
-      `menu-test-${index}`, `테스트 도서 ${index}`, null,
+      `menu-test-${index}`, `테스트 도서 ${index}`,
+      index === 1 ? 'https://covers.example.test/mypage-cover.png'
+        : index === 2 ? 'https://covers.example.test/missing-cover.png' : null,
       [['series', `https://example.test/book/${index}`], ['kakao', `https://example.test/kakao/${index}`]], null, [], 100 - index, null,
     ]),
   } }));
@@ -47,6 +53,12 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await expect(menu.getByRole('button')).toHaveText(['홈', '도서', '피드', '보관', '기록']);
   const firstBook = page.getByRole('link', { name: '테스트 도서 0', exact: true });
   await expect(firstBook).toBeVisible();
+  await expect(firstBook.locator('[data-generated-book-cover-title]')).toHaveText('테스트 도서 0');
+  const actualCover = page.getByRole('link', { name: '테스트 도서 1', exact: true });
+  await expect.poll(() => actualCover.locator('img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  await expect(actualCover.locator('[data-generated-book-cover]')).toHaveCount(0);
+  const missingCover = page.getByRole('link', { name: '테스트 도서 2', exact: true });
+  await expect(missingCover.locator('[data-generated-book-cover-title]')).toHaveText('테스트 도서 2');
   const geometry = () => page.locator('[data-mypage-menu]').evaluate((bar) => {
     const { top } = bar.getBoundingClientRect();
     const button = bar.querySelector('button')!.getBoundingClientRect();
@@ -71,7 +83,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
     await assertDivider(firstBook.locator('..'));
     await expect(menu.getByText('홈')).toHaveCSS('position', 'static');
     await expect(catalog.getByText('도서')).toHaveCSS('position', 'static');
-    const collapseAt = await page.getByRole('banner').evaluate((header) => header.getBoundingClientRect().height / 2);
+    const collapseAt = await page.getByRole('banner').evaluate((header) => Math.ceil(header.getBoundingClientRect().height / 2));
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate((height) => window.scrollTo(0, height), collapseAt);
@@ -99,6 +111,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
 
   await firstBook.click();
   await expect(page.getByRole('heading', { name: '도서 상세정보' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '도서 기본정보' }).locator('[data-generated-book-cover-title]')).toHaveText('테스트 도서 0');
   await expect(page.getByText('테스트 평가 19')).toBeAttached();
   await page.evaluate(() => window.scrollTo(0, 500));
   await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });

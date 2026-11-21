@@ -290,6 +290,8 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.equal(readRows.length, 3);
     const unresolvedRow = readRows.find((row) => row.querySelector('h3').textContent === unresolved);
     assert.equal(unresolvedRow.querySelector('a'), null);
+    assert.equal(unresolvedRow.querySelector('[data-generated-book-cover-title]').textContent, unresolved);
+    assert.equal(visible(unratedLink).closest('article').querySelector('[data-generated-book-cover-title]').textContent, alias);
     assert.equal(visible(unratedLink).querySelectorAll('svg[fill="none"]').length, 5);
     assert.equal(visible(unratedLink).getAttribute('href'), '#mypage/book/published-second/review');
     await click(window, visible(unratedLink));

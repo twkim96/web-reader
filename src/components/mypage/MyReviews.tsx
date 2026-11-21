@@ -113,7 +113,8 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
   </>;
   if (onShowAll) {
     const books = (reviews ?? []).map((review) => ({
-      id: review.workId, title: review.title ?? review.workId, coverUrl: review.coverUrl ?? null, rating: review.rating,
+      id: review.workId, title: review.title ?? review.workId, coverTitle: review.title ?? null,
+      coverUrl: review.coverUrl ?? null, rating: review.rating,
     }));
     return <DashboardBookRow title="평점을 남긴 도서" books={books} onShowAll={guest ? undefined : onShowAll}
       onOpenBook={({ id }) => onOpenBook(id)} proxy
@@ -134,7 +135,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
             <div className="flex items-center justify-between gap-2">
               <BookDetailLink bookId={review.workId} onOpen={() => onOpenBook(review.workId)}
                 className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg sm:gap-4">
-                <BookCover url={review.coverUrl ?? null} proxy />
+                <BookCover url={review.coverUrl ?? null} identity={review.workId} title={review.title} proxy />
                 <div className="min-w-0 space-y-1">
                   <h3 className="break-words text-sm font-semibold group-hover:text-accent-500">{review.title ?? review.workId}</h3>
                   <p className="text-xs font-semibold text-accent-500">별점 {review.rating}/5</p>

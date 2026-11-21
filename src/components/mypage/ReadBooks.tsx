@@ -30,7 +30,7 @@ function ReadBookRow({ book, detailId, onOpenBook, rating }: {
   return (
     <article className="mypage-book-list-item">
       <div className="relative flex items-start gap-3 sm:gap-4">
-        <BookCover url={book.coverUrl} proxy />
+        <BookCover url={book.coverUrl} identity={detailId ?? book.rowKey ?? book.id} title={book.title} proxy />
         <div className="min-w-0 flex-1">
           <BookDetailLink bookId={detailId} onOpen={() => onOpenBook(book)} label={book.title}
             className="group block rounded-lg after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:outline-accent-500">

@@ -11,7 +11,7 @@ import { BookDetailLink } from './BookDetailLink';
 const showAllClass = '-mr-2 flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-xs opacity-65 hover:text-accent-500 hover:opacity-100';
 const showAllContent = <>전체 보기 <ChevronRight size={16} aria-hidden="true" /></>;
 
-export function DashboardBookRow<T extends { id: string; title: string; coverUrl: string | null }>({
+export function DashboardBookRow<T extends { id: string; title: string; coverUrl: string | null; coverTitle?: string | null }>({
   title, books, onOpenBook, getDetailId, getBookKey, onShowAll, showAllHref, renderDetail, proxy, children,
 }: {
   title: string;
@@ -39,16 +39,21 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
         <ul data-dashboard-book-row tabIndex={0} aria-label={`${title} 가로 목록`} {...drag}
           onDragStart={(event) => event.preventDefault()}
           className="mt-3 flex gap-3 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] sm:gap-4 [&::-webkit-scrollbar]:hidden data-[mouse-dragging=true]:cursor-grabbing data-[mouse-dragging=true]:select-none">
-          {books.slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map((book) => (
-            <li key={getBookKey?.(book) ?? book.id} className="w-[var(--mypage-cover-width,clamp(5.5rem,29vw,7.5rem))] shrink-0">
-              <BookDetailLink bookId={getDetailId ? getDetailId(book) : book.id} onOpen={() => onOpenBook(book)} label={book.title}
-                className="group block rounded-lg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
-                <BookCover url={book.coverUrl} large proxy={proxy} />
-                <span className="mt-2 line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:text-accent-500">{book.title}</span>
-                {renderDetail?.(book)}
-              </BookDetailLink>
-            </li>
-          ))}
+          {books.slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map((book) => {
+            const detailId = getDetailId ? getDetailId(book) : book.id;
+            const key = getBookKey?.(book) ?? book.id;
+            return (
+              <li key={key} className="w-[var(--mypage-cover-width,clamp(5.5rem,29vw,7.5rem))] shrink-0">
+                <BookDetailLink bookId={detailId} onOpen={() => onOpenBook(book)} label={book.title}
+                  className="group block rounded-lg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
+                  <BookCover url={book.coverUrl} identity={detailId ?? key}
+                    title={book.coverTitle === undefined ? book.title : book.coverTitle} large proxy={proxy} />
+                  <span className="mt-2 line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:text-accent-500">{book.title}</span>
+                  {renderDetail?.(book)}
+                </BookDetailLink>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

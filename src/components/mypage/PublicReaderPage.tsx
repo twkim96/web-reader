@@ -76,7 +76,7 @@ export function PublicReaderPage({ code }: { code: string }) {
         {books?.length ? <ul className="mypage-divided-list">
           {books.map((book) => <li key={book.workId}>
             <Link href={`/${bookDetailHref(book.workId)}`} className="group flex min-w-0 items-center gap-3 rounded-lg">
-              <BookCover url={book.coverUrl} />
+              <BookCover url={book.coverUrl} identity={book.workId} title={book.title} />
               <div className="min-w-0">
                 <h3 className="break-words text-sm font-semibold group-hover:text-accent-500">{book.title}</h3>
                 {detail?.(book)}

@@ -283,10 +283,10 @@ export function MyPage(props: Props) {
   });
 
   return (
-    <div data-my-page="true" className="min-h-dvh [--mypage-title-height:6rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
+    <div data-my-page="true" className="min-h-dvh [--mypage-title-height:4.8rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
       <header ref={titleRow} className="hidden sm:block">
         <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[5.25rem] pr-32">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-[1.4375rem] leading-8 font-semibold tracking-tight">{title}</h1>
         </div>
       </header>
       <div className="pointer-events-none sticky top-0 z-30 -mt-[var(--mypage-title-half)] hidden pt-[var(--mypage-title-half)] sm:block">
@@ -372,7 +372,7 @@ export function MyPage(props: Props) {
                   const saved = wishlist.savedIds.has(book.id);
                   return <article key={book.id} className="mypage-book-list-item flex items-center">
                     <BookDetailLink bookId={book.id} onOpen={() => openBook(book)} label={book.title} className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg pr-3 sm:gap-4 sm:pr-4">
-                      <BookCover url={book.coverUrl} />
+                      <BookCover url={book.coverUrl} identity={book.id} title={book.title} />
                       <div className="min-w-0 flex-1">
                         <h3 className="line-clamp-2 text-sm font-semibold leading-6 group-hover:text-accent-500">{book.title}</h3>
                         <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 opacity-50">{book.genre && <span>{book.genre}</span>}{[...new Set(book.platforms.map(({ label }) => label))].map((label) => <span key={label}>{label}</span>)}{book.sourceCount !== null && <span>{new Intl.NumberFormat('ko', { notation: 'compact', maximumFractionDigits: 1 }).format(book.sourceCount)} 조회·다운로드</span>}</div>
