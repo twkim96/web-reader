@@ -277,7 +277,11 @@ test('uses its own replayed marker receipt and finishes when only newer work rem
   assert.equal(events.find(event => event.target.annotationId === 'concurrent').operation, 'annotation.upsert');
   assert.equal(events.some(event => event.target.annotationId === 'same-id'), false);
 
-  await reconcileAnnotationBookDeletionIntentsV10('book-delete', ownerKey, context, 22_000,
+  const waiting = await reconcileAnnotationBookDeletionIntentsV10('book-delete', ownerKey, context, 22_000,
+    async () => { throw new Error('unexpected fetch while the cleanup is ready to send'); });
+  assert.equal(waiting.failed, 0);
+  assert.ok(await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, 'book-1']));
+  await reconcileAnnotationBookDeletionIntentsV10('book-delete', ownerKey, context, 46_000,
     async () => [safeHead, { ...head('concurrent', 3), bookGeneration: 3 }]);
   assert.equal(await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, 'book-1']), undefined);
 });
@@ -549,6 +553,9 @@ test('retires a skipped cleanup without recording a conflict or an acknowledgeme
   const [queued] = await getOutboxEventsV5(skippedOwner);
   const worker = new ProgressSyncWorker(ownerRuntime.activate(skippedOwner), 'cleanup-tab', async (event) => {
     assert.equal(event.eventId, queued.eventId);
+    const waiting = await reconcileAnnotationBookDeletionIntentsV10('skipped-cleanup', skippedOwner, context, 16_000,
+      async () => { throw new Error('unexpected fetch while a cleanup is in flight'); });
+    assert.equal(waiting.failed, 0);
     return { status: 'superseded' };
   }, {
     acknowledge: async () => assert.fail('a skipped cleanup has no receipt'),
@@ -560,6 +567,13 @@ test('retires a skipped cleanup without recording a conflict or an acknowledgeme
   assert.equal(skipped.eventId, queued.eventId);
   assert.equal(skipped.status, 'superseded');
   assert.equal(skipped.claimToken, null);
+  let checked = false;
+  await reconcileAnnotationBookDeletionIntentsV10('skipped-cleanup', skippedOwner, context, 22_000, async () => {
+    checked = true;
+    return [];
+  });
+  assert.ok(checked, 'the next reconciliation verifies completion once the cleanup is retired');
+  assert.equal(await (await initDB()).get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [skippedOwner, 'book-1']), undefined);
 });
 
 test('preserves legacy deletion evidence without sending or extending it', async () => {

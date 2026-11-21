@@ -7,6 +7,7 @@ import {
 } from './localDBSchema';
 import {
   appendAnnotationEventsToTransactionV5,
+  isAnnotationOutboxEventV5,
   type AnnotationSyncContextV5,
   type SyncOutboxEventV5,
 } from './syncOutboxV5';
@@ -18,6 +19,7 @@ import { annotationTargetKeyV1, isAnnotationHeadV1, type AnnotationHeadV1 } from
 import { runWithTimeout } from './readerLoadLifecycle';
 
 const RECONCILE_INTERVAL_MS = 5_000;
+const CLEANUP_RECHECK_INTERVAL_MS = 30_000;
 const MAX_RECONCILE_BACKOFF_MS = 5 * 60_000;
 const lastReconcileByOwner = new Map<OwnerKey, number>();
 
@@ -193,6 +195,20 @@ export const reconcileAnnotationBookDeletionIntentsV10 = async (
     if (!Number.isSafeInteger(boundary) || boundary < 1) continue;
     if ((intent.nextRetryAt ?? 0) > now) continue;
     try {
+      const sinceLastCheck = intent.lastCheckedAt === null ? Infinity : now - intent.lastCheckedAt;
+      if (sinceLastCheck >= 0 && sinceLastCheck < CLEANUP_RECHECK_INTERVAL_MS) {
+        const [ready, inFlight] = await Promise.all([
+          db.getAllFromIndex(V5_OUTBOX_STORE, 'by-owner-status-next-attempt', IDBKeyRange.bound(
+            [ownerKey, 'pending', 0], [ownerKey, 'pending', now],
+          )) as Promise<SyncOutboxEventV5[]>,
+          db.getAllFromIndex(V5_OUTBOX_STORE, 'by-owner-status', [ownerKey, 'in_flight']) as Promise<SyncOutboxEventV5[]>,
+        ]);
+        // Give queued deletes time to drain, with a bounded recheck if another
+        // target still needs discovery or a worker stops making progress.
+        const isCurrentCleanup = (event: SyncOutboxEventV5) => isAnnotationOutboxEventV5(event)
+          && event.target.bookId === intent.bookId && event.deleteBeforeBookGeneration === boundary;
+        if (ready.some(isCurrentCleanup) || inFlight.some(isCurrentCleanup)) continue;
+      }
       const heads = await fetchAuthoritativeHeads(uid, intent.bookId);
       const historicalHeads = heads.filter((head) => (head.bookGeneration ?? 0) < boundary);
       if (historicalHeads.length === 0) {
