@@ -5672,6 +5672,12 @@ try {
     'MyPage from shelf',
   );
   await evaluate(`Array.from(document.querySelectorAll('[data-my-page] nav button'))
+    .find((button) => button.textContent.trim() === '기록' && button.getClientRects().length > 0)?.click()`);
+  await waitFor(
+    `Boolean(document.querySelector('[data-my-page] nav[aria-label="기록 메뉴"]'))`,
+    'MyPage reading records menu',
+  );
+  await evaluate(`Array.from(document.querySelectorAll('[data-my-page] nav[aria-label="기록 메뉴"] button'))
     .find((button) => button.textContent.trim() === '주석')?.click()`);
   await waitFor(
     'Boolean(document.querySelector("[data-library-annotation-page]"))',
