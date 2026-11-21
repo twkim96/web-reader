@@ -39,8 +39,8 @@ export type AnnotationBookDeletionIntentV10 = {
 };
 
 export type ObservedAnnotationBookDeletionV5 =
-  | { markerRevision: number; awaitingMarker?: never }
-  | { markerRevision?: never; awaitingMarker: true };
+  | { markerRevision: number; nextMarkerSequence: number; awaitingMarker?: never }
+  | { markerRevision?: never; nextMarkerSequence?: never; awaitingMarker: true };
 
 export const isPendingAnnotationBookDeletionMarkerV5 = (event: SyncOutboxEventV5 | undefined) => (
   event?.target.kind === 'annotation' && event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
@@ -54,11 +54,13 @@ export const captureAnnotationBookDeletionV5 = async (
   readRemoteMarker?: () => Promise<AnnotationHeadV1 | null>,
 ): Promise<ObservedAnnotationBookDeletionV5> => {
   const db = await initDB();
-  const tx = db.transaction([V5_REMOTE_HEADS_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE, V5_OUTBOX_STORE]);
+  const tx = db.transaction([V5_REMOTE_HEADS_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE, V5_OUTBOX_STORE, V5_SYNC_META_STORE]);
   const markerId = ANNOTATION_BOOK_DELETE_MARKER_ID;
-  const [cached, intent] = await Promise.all([
-    tx.objectStore(V5_REMOTE_HEADS_STORE).get([ownerKey, annotationTargetKeyV1(bookId, markerId)]),
+  const markerKey = [ownerKey, annotationTargetKeyV1(bookId, markerId)];
+  const [cached, intent, markerMeta] = await Promise.all([
+    tx.objectStore(V5_REMOTE_HEADS_STORE).get(markerKey),
     tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).get([ownerKey, bookId]) as Promise<AnnotationBookDeletionIntentV10 | undefined>,
+    tx.objectStore(V5_SYNC_META_STORE).get(markerKey),
   ]);
   const pendingMarker = intent?.markerEventId && !intent.expired && !intent.markerSuperseded && intent.markerRevision === undefined
     ? await tx.objectStore(V5_OUTBOX_STORE).get([ownerKey, intent.markerEventId]) as SyncOutboxEventV5 | undefined
@@ -69,21 +71,24 @@ export const captureAnnotationBookDeletionV5 = async (
   if (isPendingAnnotationBookDeletionMarkerV5(pendingMarker)) {
     return { awaitingMarker: true };
   }
+  // This counter survives acknowledgement, intent cleanup, and lease binding.
+  // A slow lookup must not move a confirmation past a marker queued by another tab.
+  const nextMarkerSequence = markerMeta?.nextSequence ?? 1;
   const head = cached?.head;
   if (isAnnotationHeadV1(head) && head.bookId === bookId && head.annotationId === markerId
-    && head.operation === 'delete') return { markerRevision: head.revision };
-  if (!readRemoteMarker) return { markerRevision: 0 };
+    && head.operation === 'delete') return { markerRevision: head.revision, nextMarkerSequence };
+  if (!readRemoteMarker) return { markerRevision: 0, nextMarkerSequence };
 
   try {
     const marker = await runWithTimeout(readRemoteMarker(), 4_000, '원격 주석 삭제 마커 조회 시간 초과');
     if (marker?.bookId === bookId && marker.annotationId === markerId && marker.operation === 'delete') {
-      return { markerRevision: marker.revision };
+      return { markerRevision: marker.revision, nextMarkerSequence };
     }
   } catch (error) {
     console.warn('[AnnotationSync] Could not confirm a deletion marker before book removal:', error);
   }
   // With no observed marker, the server will only accept a first-generation deletion.
-  return { markerRevision: 0 };
+  return { markerRevision: 0, nextMarkerSequence };
 };
 
 export const annotationBookDeletionNeedsRecovery = (

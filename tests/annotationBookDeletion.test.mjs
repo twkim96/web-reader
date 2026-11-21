@@ -23,7 +23,7 @@ const {
 } = await import('../src/lib/syncOutboxV5.ts');
 const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
 const { ProgressSyncWorker } = await import('../src/lib/progressSyncWorker.ts');
-const { saveLocalAnnotationV8 } = await import('../src/lib/localAnnotations.ts');
+const { getLocalAnnotationsV8, saveLocalAnnotationV8 } = await import('../src/lib/localAnnotations.ts');
 const { toAnnotationSyncPayloadV1 } = await import('../src/lib/annotationSyncSchema.ts');
 const { decideAnnotationTransaction } = await import('../src/lib/annotationSyncTransaction.ts');
 const { ANNOTATION_BOOK_DELETE_MARKER_ID } = await import('../src/lib/annotationPolicy.ts');
@@ -343,6 +343,66 @@ for (const state of ['queued', 'submitted']) {
       { ...head('created-after-first-marker', 1, bookId), bookGeneration: 1 },
     ]);
     assert.equal(cleanup.queued, 0);
+  });
+}
+
+for (const phase of ['old-read', 'new-read', 'cleanup-finished']) {
+  test(`overlapping shelf deletions retain the first cleanup with ${phase}`, async () => {
+    const uid = `overlapping-deletion-${phase}`;
+    const owner = makeOwnerKey(makeFirebaseOwnerKey(uid), 'library:local');
+    const bookId = 'book-1';
+    const intentKey = [owner, bookId];
+    const db = await initDB();
+    const first = await captureAnnotationBookDeletionV5(owner, bookId, async () => null);
+    let startRead;
+    let finishRead;
+    const readStarted = new Promise(resolve => { startRead = resolve; });
+    const remoteRead = new Promise(resolve => { finishRead = resolve; });
+    const second = captureAnnotationBookDeletionV5(owner, bookId, () => {
+      startRead();
+      return remoteRead;
+    });
+    await readStarted;
+
+    let remote;
+    const worker = new ProgressSyncWorker(ownerRuntime.activate(owner), 'shared-leader', async (event) => {
+      const result = decideAnnotationTransaction({
+        event, storedHead: remote?.head, storedAggregate: remote?.aggregate,
+        storedBookDeleteMarker: remote?.head, serverTime: {},
+      });
+      if (result.status === 'apply') remote = result;
+      return result;
+    });
+    try {
+      await removeBookAndAnnotationsV8(owner, DEVICE_CONTENT_OWNER_KEY, bookId, context, first);
+      assert.equal(await worker.flushOne(), 'apply');
+      const cleanupFinished = phase === 'cleanup-finished';
+      const newer = { ...head('after-first-marker', 1, bookId), bookGeneration: 1 };
+      if (cleanupFinished) {
+        await reconcileAnnotationBookDeletionIntentsV10(uid, owner, context, 10_000, async () => [newer]);
+        assert.equal(await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey), undefined);
+      }
+      await saveLocalAnnotationV8(owner, annotation('new-local-highlight', bookId), context);
+      const intentBefore = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey);
+      const outboxBefore = await getOutboxEventsV5(owner);
+
+      finishRead(phase === 'old-read' ? null : remote.head);
+      await removeBookAndAnnotationsV8(owner, DEVICE_CONTENT_OWNER_KEY, bookId, context, await second);
+      assert.deepEqual(await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey), intentBefore);
+      assert.deepEqual(await getOutboxEventsV5(owner), outboxBefore);
+      assert.deepEqual((await getLocalAnnotationsV8(owner, bookId)).map(({ id }) => id), ['new-local-highlight']);
+      const result = await reconcileAnnotationBookDeletionIntentsV10(uid, owner, context, 20_000, async () => {
+        assert.equal(cleanupFinished, false, 'a completed cleanup must not run again');
+        return [head('before-first-marker', 1, bookId), newer];
+      });
+      assert.equal(result.queued, cleanupFinished ? 0 : 1);
+      assert.deepEqual((await getOutboxEventsV5(owner))
+        .filter(event => event.operation === 'annotation.delete')
+        .map(event => [event.target.annotationId, event.deleteBeforeBookGeneration]),
+      cleanupFinished ? [] : [['before-first-marker', 1]]);
+    } finally {
+      await worker.dispose();
+    }
   });
 }
 

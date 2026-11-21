@@ -25,6 +25,7 @@ import type { OwnerKey } from './ownerIdentity';
 import { hasEnoughStorageForWrite } from './storageCapacity';
 import { trackLocalCommit } from './localCommitTracker';
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
+import { annotationTargetKeyV1 } from './annotationSyncSchema';
 import {
   appendAnnotationEventsToTransactionV5,
   supersedeAnnotationBookWorkForDeletionV5,
@@ -257,12 +258,20 @@ export const removeBookAndAnnotationsV8 = (
     let awaitingExistingMarker = observedDeletion?.awaitingMarker === true;
     if (syncContext && !awaitingExistingMarker) {
       const intents = tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
-      const intent = await intents.get([annotationOwnerKey, bookId]) as AnnotationBookDeletionIntentV10 | undefined;
+      const [intent, markerMeta] = await Promise.all([
+        intents.get([annotationOwnerKey, bookId]) as Promise<AnnotationBookDeletionIntentV10 | undefined>,
+        tx.objectStore(V5_SYNC_META_STORE).get([
+          annotationOwnerKey, annotationTargetKeyV1(bookId, ANNOTATION_BOOK_DELETE_MARKER_ID),
+        ]),
+      ]);
       const previousMarker = intent?.markerEventId && !intent.expired && !intent.markerSuperseded
         ? await tx.objectStore(V5_OUTBOX_STORE).get([annotationOwnerKey, intent.markerEventId]) as SyncOutboxEventV5 | undefined
         : undefined;
-      awaitingExistingMarker = intent?.markerRevision === undefined && isPendingAnnotationBookDeletionMarkerV5(previousMarker);
-      // A repeated request keeps the first intent until its marker settles.
+      const markerQueuedAfterConfirmation = observedDeletion?.nextMarkerSequence !== undefined
+        && (markerMeta?.nextSequence ?? 1) > observedDeletion.nextMarkerSequence;
+      awaitingExistingMarker = markerQueuedAfterConfirmation
+        || (intent?.markerRevision === undefined && isPendingAnnotationBookDeletionMarkerV5(previousMarker));
+      // Keep the first request even if it has already acknowledged and finished cleanup.
       if (!awaitingExistingMarker) {
         await supersedeAnnotationBookWorkForDeletionV5(tx, annotationOwnerKey, bookId, deletionAt);
         const [marker] = await appendAnnotationEventsToTransactionV5(tx, annotationOwnerKey, [{
