@@ -34,7 +34,6 @@ type Data = {
 };
 
 const readingTimeFormat = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
-const readingProgressFormat = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 });
 
 const dateKey = (year: number, month: number, day: number) => (
   `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -194,8 +193,8 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
                       <p className="mt-1 text-xs opacity-55">{readingTimeFormat.format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
                     </div>
                     <span className="shrink-0 text-xs opacity-70">
-                      {formatReadingDuration(durationMs)}
-                      {progressSpanPercent !== null && ` · 진행 폭 ${readingProgressFormat.format(progressSpanPercent)}%p`}
+                      {progressSpanPercent !== null && `${progressSpanPercent.toFixed(2)}%p | `}
+                      {Math.floor(durationMs / 60_000)}분
                     </span>
                   </li>
                 ))}

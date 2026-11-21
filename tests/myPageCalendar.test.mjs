@@ -111,9 +111,9 @@ test('day rows group nearby reading slices and exclude breaks in the recorded ti
     await act(async () => day.dispatchEvent(new window.Event('click', { bubbles: true })));
     const rows = [...window.document.querySelectorAll('section[aria-label="선택한 날짜의 독서 기록"] li')].map(row => row.textContent);
     assert.equal(rows.length, 3);
-    assert.match(rows[0], /같은 책.*오전 8:30.*읽기2분 · 진행 폭 1%p$/);
-    assert.match(rows[1], /같은 책.*오전 8:10.*읽기2분 · 진행 폭 1%p$/);
-    assert.match(rows[2], /같은 책.*오전 8:00.*읽기3분 · 진행 폭 2\.8%p$/);
+    assert.match(rows[0], /같은 책.*오전 8:30.*읽기1\.00%p \| 2분$/);
+    assert.match(rows[1], /같은 책.*오전 8:10.*읽기1\.00%p \| 2분$/);
+    assert.match(rows[2], /같은 책.*오전 8:00.*읽기2\.80%p \| 3분$/);
     assert.match(day.getAttribute('aria-label'), /7분$/);
     assert.match(window.document.querySelector('section[aria-label="선택한 날짜의 독서 기록"]').textContent, /15일7분/);
     const totals = [...window.document.querySelectorAll('[aria-label="독서 시간 요약"] dd')].map(node => node.textContent);
