@@ -30,6 +30,7 @@ import {
   subscribeReadingStatisticsChanges,
 } from '../lib/readingStatisticsWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useLocalReadingDate } from '../hooks/useLocalReadingDate';
 import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
 import type { SyncHealth } from '../lib/syncHealth';
 import { collectStorageMaintenanceDiagnosticsV1 } from '../lib/storageMaintenanceDiagnostics';
@@ -125,7 +126,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const [pendingRoundCompletion, setPendingRoundCompletion] = useState<PendingRoundCompletion | null>(null);
   const [hiddenSessionIds, setHiddenSessionIds] = useState<Set<string>>(() => new Set());
   const [pendingBookListDeletion, setPendingBookListDeletion] = useState<PendingBookListDeletion | null>(null);
-  const [aggregationNow, setAggregationNow] = useState(() => Date.now());
+  const aggregationNow = useLocalReadingDate(open && visible);
   const dialogRef = useRef<HTMLElement>(null);
   const reloadTimerRef = useRef<number | null>(null);
   const bookListLongPressTimerRef = useRef<number | null>(null);
@@ -143,7 +144,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     try {
       setSessions(await getLocalReadingSessionsV11(ownerKey));
       setHiddenSessionIds(readHiddenReadingStatisticsSessionIds(ownerKey));
-      setAggregationNow(Date.now());
     } catch (error) {
       console.error('[ReadingStatistics] load failed:', error);
       setFeedback('독서 통계를 불러오지 못했습니다.');
@@ -235,10 +235,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const visibleSessions = useMemo(() => sessions.filter(({ sessionId }) => (
     !hiddenSessionIds.has(sessionId)
   )), [hiddenSessionIds, sessions]);
-  const allSummary = useMemo(() => buildReadingStatistics(
-    visibleSessions,
-    getReadingStatisticsRangeBounds('all', aggregationNow),
-  ), [aggregationNow, visibleSessions]);
+  const allSummary = useMemo(() => buildReadingStatistics(visibleSessions), [visibleSessions]);
   const summary = useMemo(() => range === 'all'
     ? allSummary
     : buildReadingStatistics(

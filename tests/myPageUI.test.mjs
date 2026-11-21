@@ -153,7 +153,7 @@ test('browse replaces user search with public book rows grouped by reader', asyn
   }
 });
 
-test('stars navigate to the detail editor and a failed rating rolls back after retries', async (t) => {
+test('stars navigate to the detail editor, preserving the draft across failed saves and conflicts', async (t) => {
   const { window, root } = setup('#mypage/read');
   const uid = 'rating-ui';
   const ownerKey = `firebase:${uid}|library:local`;
@@ -198,8 +198,9 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     },
   });
   const start = Date.UTC(2026, 10, 20, 5);
+  const draftComment = '기기에 남길 한줄평';
   let committed = { workId: title, aliases: [alias], platformWorkKeys: [JSON.stringify(['series', firstURL])],
-    rating: 2, comment: '', revision: 1, totalMs: 60_000, progressPercent: 80 };
+    rating: 2, comment: draftComment, revision: 1, totalMs: 60_000, progressPercent: 80 };
   const unread = { ...book, id: 'unread-metadata', title: '읽기 전 작품' };
   const unreadRating = { workId: unread.id, rating: 3, revision: 1, comment: '', totalMs: null, progressPercent: null };
   const secondWorkId = 'published-second';
@@ -251,10 +252,14 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     writes.push(body);
     if (writes.length === 1) return new Promise((_, reject) => { rejectFirst = reject; });
     if (writes.length === 4) {
-      committed = { ...committed, rating: writes[3].rating, revision: 2 };
+      committed = { ...committed, rating: 3, comment: '다른 기기에서 저장한 한줄평', revision: 2 };
+      return new Response(null, { status: 409 });
+    }
+    if (writes.length === 5) {
+      committed = { ...committed, rating: body.rating, comment: body.comment, revision: 3 };
       return Response.json({ review: committed });
     }
-    if (writes.length === 5) return new Promise((resolve) => {
+    if (writes.length === 6) return new Promise((resolve) => {
       finishUnread = () => { unreadSaved = true; resolve(Response.json({ review: unreadRating })); };
     });
     return new Response(null, { status: 503 });
@@ -362,6 +367,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.ok(visible('[aria-label="별점 4.5점"]'));
     assert.equal(visible('form'), null);
     assert.equal(writes.length, 1);
+    assert.equal(writes[0].comment, draftComment);
     assert.equal(writes[0].readingSnapshot.progressPercent, 80);
     await act(async () => { rejectFirst(new TypeError('connection lost')); });
     assert.ok(visible('[aria-label="별점 4.5점"]'));
@@ -374,6 +380,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.ok(visible('[aria-label="별점 2점"]'));
     assert.equal(visible('[aria-label="별점 4.5점"]'), null);
     assert.match(visible('[role="alert"]').textContent, /서버와 연결하지 못했습니다/);
+    assert.equal(editor().querySelector('input[aria-label="한줄평 (선택)"]').value, draftComment);
     const openMenu = (label) => click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent === label));
     await openMenu('도서');
     await click(window, visible(`a[aria-label="${title}"]`));
@@ -382,8 +389,19 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     }
     await click(window, editor().querySelector('button[aria-label="4.5점"]'));
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
-    assert.ok(editor().querySelector('[aria-label="별점 4.5점"]'));
+    const rebase = () => [...editor().querySelectorAll('button')].find(button => button.textContent === '최신 평가에 초안 적용');
+    for (let attempt = 0; attempt < 20 && !rebase(); attempt++) await act(async () => delay(10));
+    assert.ok(editor().querySelector('[aria-label="별점 3점"]'));
+    assert.match(editor().textContent, /현재 저장된 평가 · 3점 · 다른 기기에서 저장한 한줄평/);
+    assert.equal(editor().querySelector('input[aria-label="한줄평 (선택)"]').value, draftComment);
+    assert.equal(editor().querySelector('button[type="submit"]').disabled, true);
+    assert.equal(writes.length, 4);
     assert.deepEqual(writes[3].readingSnapshot, writes[0].readingSnapshot);
+    await click(window, rebase());
+    await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(writes[4].revision, 2);
+    assert.equal(writes[4].comment, draftComment);
+    assert.ok(editor().querySelector('[aria-label="별점 4.5점"]'));
     await openMenu('보관');
     for (let attempt = 0; attempt < 20 && !visible(`a[aria-label="${title} 내 평가, 별점 4.5점"]`); attempt++) {
       await act(async () => delay(10));
@@ -402,10 +420,10 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.equal(unreadStar.disabled, false);
     await click(window, unreadStar);
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
-    assert.equal(writes[4].workId, unread.id);
-    assert.equal(writes[4].rating, 3);
-    assert.deepEqual(writes[4].fileIds, []);
-    assert.equal(writes[4].readingSnapshot, null);
+    assert.equal(writes[5].workId, unread.id);
+    assert.equal(writes[5].rating, 3);
+    assert.deepEqual(writes[5].fileIds, []);
+    assert.equal(writes[5].readingSnapshot, null);
     assert.ok(editor().querySelector('[aria-label="별점 3점"]'));
     await openMenu('보관');
     await openCollectionTab('내 평가');

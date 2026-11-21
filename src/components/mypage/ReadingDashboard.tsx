@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
+import { useLocalReadingDate } from '../../hooks/useLocalReadingDate';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import {
@@ -27,12 +28,13 @@ type Props = {
 type Data = {
   ownerKey: OwnerKey;
   sessions: StoredReadingSessionV11[];
-  now: number;
   error: boolean;
 };
 
 type ReadingSlice = { session: ReadingSessionV1; durationMs: number; startAt: number };
 const MAX_READING_GAP_MS = 5 * 60_000;
+const MIN_CALENDAR_ROW_MS = 60_000;
+const readingTimeFormat = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
 
 function groupReadingSlices(slices: readonly ReadingSlice[]) {
   const rows: Array<ReadingSlice & { endAt: number }> = [];
@@ -49,7 +51,7 @@ function groupReadingSlices(slices: readonly ReadingSlice[]) {
       rows.push({ ...slice, endAt });
     }
   }
-  return rows.reverse();
+  return rows.filter(({ durationMs }) => durationMs >= MIN_CALENDAR_ROW_MS).reverse();
 }
 
 const dateKey = (year: number, month: number, day: number) => (
@@ -58,6 +60,7 @@ const dateKey = (year: number, month: number, day: number) => (
 
 export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations }: Props) {
   const displayBookTitle = useBookTitleDisplay();
+  const today = useLocalReadingDate();
   const [data, setData] = useState<Data | null>(null);
   const [month, setMonth] = useState(() => {
     const now = new Date();
@@ -78,10 +81,10 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         const hidden = readHiddenReadingStatisticsSessionIds(ownerKey);
         if (!disposed && current === request) {
-          setData({ ownerKey, sessions: sessions.filter(({ sessionId }) => !hidden.has(sessionId)), now: Date.now(), error: false });
+          setData({ ownerKey, sessions: sessions.filter(({ sessionId }) => !hidden.has(sessionId)), error: false });
         }
       } catch {
-        if (!disposed && current === request) setData({ ownerKey, sessions: [], now: Date.now(), error: true });
+        if (!disposed && current === request) setData({ ownerKey, sessions: [], error: true });
       }
     };
     const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => void load());
@@ -101,7 +104,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
   const statistics = useMemo(() => {
     if (!currentData || currentData.error) return null;
     const details = new Map<string, ReadingSlice[]>();
-    const summary = buildReadingStatistics(currentData.sessions, getReadingStatisticsRangeBounds('all', currentData.now),
+    const summary = buildReadingStatistics(currentData.sessions, {},
       ({ session, localDate, durationMs, startAt }) => {
         const day = details.get(localDate) ?? [];
         day.push({ session, durationMs, startAt });
@@ -111,23 +114,35 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
   }, [currentData]);
   const summary = statistics?.summary ?? null;
   const totals = useMemo(() => {
-    if (!summary || !currentData) return null;
+    if (!summary) return null;
     const sumRange = (range: 'today' | 'month') => {
-      const bounds = getReadingStatisticsRangeBounds(range, currentData.now);
+      const bounds = getReadingStatisticsRangeBounds(range, today);
       return summary.days.reduce((sum, day) => sum + (
         (!bounds.startLocalDate || day.localDate >= bounds.startLocalDate)
         && (!bounds.endLocalDate || day.localDate <= bounds.endLocalDate) ? day.totalMs : 0
       ), 0);
     };
     return [sumRange('today'), sumRange('month'), summary.totalMs];
-  }, [currentData, summary]);
-  const dayTotals = useMemo(() => new Map(summary?.days.map((day) => [day.localDate, day.totalMs]) ?? []), [summary]);
-  const selectedSessions = useMemo(() => groupReadingSlices(statistics?.details.get(selectedDay) ?? []), [statistics, selectedDay]);
+  }, [summary, today]);
   const rowLimit = visibleRows.day === selectedDay ? visibleRows.count : 50;
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
   const firstWeekday = new Date(year, monthIndex, 1).getDay();
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const calendarDays = useMemo(() => {
+    const days = new Map<string, { rows: ReadingSlice[]; totalMs: number }>();
+    if (!statistics) return days;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const key = dateKey(year, monthIndex, day);
+      const slices = statistics.details.get(key);
+      if (!slices) continue;
+      const rows = groupReadingSlices(slices);
+      days.set(key, { rows, totalMs: rows.reduce((sum, row) => sum + row.durationMs, 0) });
+    }
+    return days;
+  }, [daysInMonth, monthIndex, statistics, year]);
+  const selected = calendarDays.get(selectedDay);
+  const selectedSessions = selected?.rows ?? [];
   const changeMonth = (offset: number) => {
     const next = new Date(year, monthIndex + offset, 1);
     setMonth(next);
@@ -172,11 +187,11 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
             {Array.from({ length: daysInMonth }, (_, i) => {
               const day = i + 1;
               const key = dateKey(year, monthIndex, day);
-              const duration = dayTotals.get(key) ?? 0;
+              const duration = calendarDays.get(key)?.totalMs ?? 0;
               const selected = key === selectedDay;
               return (
                 <button key={key} type="button" onClick={() => setSelectedDay(key)} aria-pressed={selected}
-                  aria-label={`${monthIndex + 1}월 ${day}일, ${summary ? formatReadingDuration(duration) : '기록 확인 중'}`}
+                  aria-label={`${monthIndex + 1}월 ${day}일${!summary ? ', 기록 확인 중' : duration > 0 ? `, ${formatReadingDuration(duration)}` : ''}`}
                   className={`mx-auto flex h-12 w-full max-w-12 flex-col items-center justify-center rounded-xl text-sm transition-colors ${selected ? 'bg-[color-mix(in_srgb,var(--accent-500)_14%,transparent)] text-accent-500' : 'hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]'}`}>
                   <span className={selected ? 'font-semibold' : ''}>{day}</span>
                   <span className="mt-0.5 h-3 whitespace-nowrap text-[9px] leading-3 text-accent-500">{duration > 0 ? formatReadingDuration(duration) : ''}</span>
@@ -189,7 +204,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
         <section aria-label="선택한 날짜의 독서 기록">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-base font-semibold sm:text-lg">{Number(selectedDay.slice(5, 7))}월 {Number(selectedDay.slice(8, 10))}일</h2>
-            <span className="text-sm font-semibold text-accent-500">{summary ? formatReadingDuration(dayTotals.get(selectedDay) ?? 0) : '—'}</span>
+            {selected && selected.totalMs > 0 && <span className="text-sm font-semibold text-accent-500">{formatReadingDuration(selected.totalMs)}</span>}
           </div>
           {!currentData || currentData.error ? (
             <p className="mt-3 text-sm opacity-60">{currentData?.error ? '기록을 표시할 수 없습니다.' : '기록을 불러오는 중입니다.'}</p>
@@ -203,7 +218,7 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
                   <li key={`${session.sessionId}:${startAt}`} className="flex items-center justify-between gap-4 py-1">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{displayBookTitle(session.bookTitle)}</p>
-                      <p className="mt-1 text-xs opacity-55">{new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
+                      <p className="mt-1 text-xs opacity-55">{readingTimeFormat.format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
                     </div>
                     <span className="shrink-0 text-xs opacity-70">{formatReadingDuration(durationMs)}</span>
                   </li>

@@ -35,6 +35,7 @@ export function BookReviewEditor({
   const [saving, setSaving] = useState<Rating>();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [saveFailed, setSaveFailed] = useState(false);
   const busy = useRef(false);
   const currentTarget = review ?? deletion;
   const canEdit = ready && !blocked && !loadingHistory;
@@ -51,6 +52,7 @@ export function BookReviewEditor({
     setSaving(fields);
     setDraft(undefined);
     setFeedback('');
+    setSaveFailed(false);
     try {
       const saved = await saveMyPageReview(ownerKey, {
         ...fields, workId: targetId, detailWorkId: workId, revision: target?.revision ?? null,
@@ -60,6 +62,8 @@ export function BookReviewEditor({
       });
       change(saved, targetId);
     } catch (failure) {
+      setDraft(draft);
+      setSaveFailed(true);
       refresh();
       setFeedback(failure instanceof Error ? failure.message : '평가를 저장하지 못했습니다.');
     } finally {
@@ -81,7 +85,6 @@ export function BookReviewEditor({
       setDraft(undefined);
     } catch (failure) {
       refresh();
-      setDraft(undefined);
       setFeedback(failure instanceof Error ? failure.message : '평가를 지우지 못했습니다.');
     } finally {
       busy.current = false;
@@ -89,7 +92,7 @@ export function BookReviewEditor({
     }
   };
 
-  const displayed = draft ?? saving ?? review;
+  const displayed = saving ?? (saveFailed ? review : draft ?? review);
   const rating = displayed?.rating ?? 0;
 
   return (
@@ -110,7 +113,8 @@ export function BookReviewEditor({
                 {[position - 0.5, position].map((value) => (
                   <button key={value} type="button" aria-label={`${value}점`} aria-pressed={value === rating}
                     title={`${value}점`} disabled={!canEdit || pending} onClick={() => {
-                      setDraft({ rating: value, comment: (draftMatches ? draft?.comment : undefined) ?? review?.comment ?? '', target: currentTarget });
+                      setDraft({ rating: value, comment: draft?.comment ?? review?.comment ?? '', target: draft ? draft.target : currentTarget });
+                      setSaveFailed(false);
                       setFeedback('');
                     }}
                     className="w-1/2 rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500" />
@@ -121,12 +125,27 @@ export function BookReviewEditor({
         </div>
         {draft ? (
           <form onSubmit={save} className="mt-2 max-w-lg space-y-2">
+            {saveFailed && <p className="text-xs opacity-70">저장을 확인하지 못한 초안 · {draft.rating}점</p>}
+            {canEdit && !draftMatches && <div className="space-y-1 text-xs">
+              <p className="break-words opacity-70">{review
+                ? `현재 저장된 평가 · ${review.rating}점${review.comment ? ` · ${review.comment}` : ''}`
+                : '현재 저장된 평가가 없습니다.'}</p>
+              <button type="button" className={secondaryAction} onClick={() => {
+                setDraft({ ...draft, target: currentTarget });
+                setSaveFailed(false);
+                setFeedback('');
+              }}>최신 평가에 초안 적용</button>
+            </div>}
             <input type="text" aria-label="한줄평 (선택)" placeholder="한줄평 (선택)" value={draft.comment}
               onChange={(event) => setDraft({ ...draft, comment: event.target.value })} maxLength={BOOK_REVIEW_TEXT_LIMIT}
               disabled={pending} className="h-10 w-full rounded-lg px-3 text-sm ring-1 ring-inset ring-current/15 focus-visible:outline-2 focus-visible:outline-accent-500" />
             <div className="flex flex-wrap justify-end gap-2">
               {draft.target && 'rating' in draft.target && <button type="button" onClick={remove} disabled={pending || !canEdit || !draftMatches} className={`mr-auto ${secondaryAction}`}>평가 삭제</button>}
-              <button type="button" disabled={pending} className={secondaryAction} onClick={() => setDraft(undefined)}>취소</button>
+              <button type="button" disabled={pending} className={secondaryAction} onClick={() => {
+                setDraft(undefined);
+                setSaveFailed(false);
+                setFeedback('');
+              }}>취소</button>
               <button type="submit" disabled={pending || !canEdit || !draftMatches} className="min-h-10 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white disabled:opacity-40">저장</button>
             </div>
           </form>
