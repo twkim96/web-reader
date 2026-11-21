@@ -499,7 +499,7 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
         assert.deepEqual(
           events.filter(({ target }) => target.kind === 'bookmark')
             .map(({ operation, target }) => [operation, target.bookmarkId]),
-          [['bookmark.delete', 'manual-1']],
+          action === 'deleteProgress' ? [] : [['bookmark.delete', 'manual-1']],
         );
 
         const result = decideProgressTransaction({
@@ -520,7 +520,7 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
         const local = await loadProgressFromLocalV5(ownerKey, initial.bookId);
         if (action === 'deleteProgress') {
           assert.equal(local.cfi, '');
-          assert.deepEqual(local.bookmarks, []);
+          assert.deepEqual(local.bookmarks, initial.bookmarks);
           assert.equal(local.syncRevision, 7);
           assert.equal(local.acceptedEventId, adoptedHead.acceptedEventId);
           assert.equal(local.ignoredRemoteRevision, baseRevision === 8 ? 8 : undefined);

@@ -140,6 +140,13 @@ test('ignores a negligible remote movement after initial sync', () => {
   assert.equal(decide({ remotePercent: 10.02 }), 'ignore');
 });
 
+test('authoritative movement to a different anchor prompts even when the percentages look the same', () => {
+  const onePage = { remoteRevision: 8, localRevision: 7, remotePercent: 10.02 };
+  assert.equal(decide(onePage), 'prompt');
+  assert.equal(decide({ ...onePage, currentAnchorCfi: 'remote-cfi' }), 'ignore');
+  assert.equal(decide({ ...onePage, remoteRevision: 7 }), 'ignore');
+});
+
 test('ignores equal positions and non-newer remote updates', () => {
   assert.equal(decide({ currentAnchorCfi: 'remote-cfi' }), 'ignore');
   assert.equal(decide({ remoteTime: 100 }), 'ignore');

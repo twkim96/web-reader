@@ -596,9 +596,22 @@ export const recordRemoteMissingV5 = async (
 ) => {
   const targetKey = progressTargetKeyV2(bookId);
   const db = await initDB();
+  const tx = db.transaction([V5_SYNC_CONFLICTS_STORE, V5_REMOTE_HEADS_STORE, V5_SYNC_META_STORE], 'readwrite');
+  const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
+  const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+  const conflictId = `remote-missing:${bookId}`;
+  const [cached, meta, previous] = await Promise.all([
+    remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
+    tx.objectStore(V5_SYNC_META_STORE).get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
+    conflictStore.get([ownerKey, conflictId]) as Promise<SyncConflictV5 | undefined>,
+  ]);
+  if (!cached && (previous || (meta?.knownRevision ?? 0) === 0)) {
+    await tx.done;
+    return previous;
+  }
   const conflict: SyncConflictV5 = {
     ownerKey,
-    conflictId: `remote-missing:${bookId}`,
+    conflictId,
     targetKey,
     state: 'remote_missing',
     event: null,
@@ -607,10 +620,9 @@ export const recordRemoteMissingV5 = async (
     blockedEventIds: [],
     createdAt: now,
   };
-  const tx = db.transaction([V5_SYNC_CONFLICTS_STORE, V5_REMOTE_HEADS_STORE], 'readwrite');
   await Promise.all([
-    tx.objectStore(V5_SYNC_CONFLICTS_STORE).put(conflict),
-    tx.objectStore(V5_REMOTE_HEADS_STORE).delete([ownerKey, targetKey]),
+    conflictStore.put(conflict),
+    remoteStore.delete([ownerKey, targetKey]),
   ]);
   await tx.done;
   notifyProgressSyncWork(ownerKey);

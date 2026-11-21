@@ -536,16 +536,16 @@ export const useProgressActions = ({
     const owner = ownerRuntime.capture();
     if (!owner) return;
     const generation = beginLocalWrite(bookId);
-    const { resetData, bookmarkChanges } = captureProgressReset(owner, bookId);
+    const { resetData } = captureProgressReset(owner, bookId);
 
     try {
-      const canonical = await queueProgressWrite(bookId, () => persistProgress(
-        owner,
-        bookId,
-        resetData,
-        bookmarkChanges,
-        true,
-      ));
+      const canonical = await queueProgressWrite(bookId, async () => {
+        const bookmarks = user
+          ? resetData.bookmarks
+          : (await loadProgressFromLocalV5(getSyncOwnerKey(owner.ownerKey), bookId))?.bookmarks
+            ?.filter(bookmark => bookmark.type === 'manual') ?? [];
+        return persistProgress(owner, bookId, { ...resetData, bookmarks }, [], true);
+      });
       if (!canonical) return false;
       rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
       const canApply = () => convergenceActiveRef.current
@@ -562,7 +562,7 @@ export const useProgressActions = ({
       reportPersistenceError(error);
       return false;
     }
-  }, [beginLocalWrite, captureProgressReset, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
+  }, [beginLocalWrite, captureProgressReset, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress, user]);
 
   const deleteBookProgress = useCallback(async (
     bookId: string,

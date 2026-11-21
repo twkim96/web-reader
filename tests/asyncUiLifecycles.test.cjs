@@ -41,6 +41,7 @@ test('a new save wakes the worker without retrying a different book paused on pe
   const paths = [firebasePath, authPath, leaseTransportPath, workerPath];
   const previous = paths.map(path => require.cache[path]);
   let requested;
+  let leasePreparations = 0;
   const expectWake = () => new Promise(resolve => { requested = resolve; });
   t.mock.method(ProgressSyncPumpController.prototype, 'request', () => requested?.());
   const setExports = (path, exports) => {
@@ -50,7 +51,7 @@ test('a new save wakes the worker without retrying a different book paused on pe
   setExports(authPath, { onIdTokenChanged: () => noop });
   setExports(leaseTransportPath, {
     ...leases, finiteWriteLeasesEnabled: yes,
-    prepareWriteLease: asyncYes, requestReceiptMaintenance: asyncYes,
+    prepareWriteLease: async () => { leasePreparations++; }, requestReceiptMaintenance: asyncYes,
   });
   delete require.cache[workerPath];
   const owner = 'firebase:wake-regression|library:local';
@@ -74,8 +75,19 @@ test('a new save wakes the worker without retrying a different book paused on pe
         return null;
       }
       let wake = expectWake();
-      await React.act(async () => root.render(React.createElement(Harness)));
+      const network = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+      try {
+        Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+        await React.act(async () => root.render(React.createElement(Harness)));
+        assert.equal(leasePreparations, 0, 'offline startup must not write a lease');
+        Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+        window.dispatchEvent(new window.Event('online'));
+      } finally {
+        if (network) Object.defineProperty(navigator, 'onLine', network);
+        else delete navigator.onLine;
+      }
       await wake;
+      assert.equal(leasePreparations, 1);
       // Startup may retry a paused write. Simulate the same permission failure.
       const retry = await outbox.claimNextProgressEventV5(owner, 'fixture', lease.epoch, Date.now() + 1);
       assert.equal(retry.eventId, 'paused-book');
@@ -244,7 +256,7 @@ test('late cold-start authentication hydrates account progress before mounting i
   }
 });
 
-for (const scenario of ['initial set', 'postinitial set', 'postinitial reset', 'restore pending offer']) test(`remote ${scenario} prompt survives relocation before opening`, async () => {
+for (const scenario of ['initial set', 'postinitial set', 'postinitial small move', 'postinitial reset', 'restore pending offer']) test(`remote ${scenario} prompt survives relocation before opening`, async () => {
   const { useRemoteProgressPrompt } = require('../src/hooks/reader/useRemoteProgressPrompt.ts');
   await withDom(async root => {
     const originalSet = window.setTimeout, originalClear = window.clearTimeout;
@@ -274,7 +286,7 @@ for (const scenario of ['initial set', 'postinitial set', 'postinitial reset', '
         const { getRemoteProgressIdentity } = require('../src/hooks/reader/remoteProgressAdoption.ts');
         const { writeSyncRecovery } = require('../src/lib/readerSyncRecovery.ts');
         const identity = getRemoteProgressIdentity(remote);
-        assert.equal(writeSyncRecovery(scope, { identity, candidate: { identity, cfi: 'remote', percent: 80 } }), true);
+        assert.equal(writeSyncRecovery(scope, { identity, candidate: { identity, cfi: 'remote', percent: 80 }, noticePending: true }), true);
         const render = extra => React.act(async () => root.render(React.createElement(Harness, {
           recoveryScope: scope, localRevision: 1, currentCfi: 'local', currentAnchorCfi: 'local', totalProgress: 10,
           ...extra,
@@ -294,10 +306,12 @@ for (const scenario of ['initial set', 'postinitial set', 'postinitial reset', '
       }
       const incoming = scenario === 'postinitial reset'
         ? { ...common.remoteProgress, operation: 'reset', cfi: '', anchorCfi: '', progressPercent: 0 }
-        : common.remoteProgress;
+        : scenario === 'postinitial small move'
+          ? { ...common.remoteProgress, progressPercent: 20.01 }
+          : common.remoteProgress;
       await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: incoming, currentCfi: 'local-a', currentAnchorCfi: 'local-a', totalProgress: 20 })));
       const scheduled = timers.size;
-      await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: incoming, currentCfi: 'local-b', currentAnchorCfi: 'local-b', totalProgress: 21 })));
+      await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: incoming, currentCfi: 'local-b', currentAnchorCfi: 'local-b', totalProgress: scenario === 'postinitial small move' ? 20.02 : 21 })));
       const remaining = timers.size;
       await React.act(async () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } });
       assert.equal(scheduled, 1);

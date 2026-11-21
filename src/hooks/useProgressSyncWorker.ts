@@ -172,7 +172,7 @@ export const useProgressSyncWorker = (
       isVisible: () => document.visibilityState !== 'hidden',
     });
     const resumePausedAndRequest = async () => {
-      if (disposed || !ownerRuntime.isCurrent(owner)) return;
+      if (disposed || !ownerRuntime.isCurrent(owner) || navigator.onLine === false) return;
       try {
         if (finiteWriteLeasesEnabled()) {
           await prepareWriteLease(db, user.uid, syncOwnerKey, deviceId);

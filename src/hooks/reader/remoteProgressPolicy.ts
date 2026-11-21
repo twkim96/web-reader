@@ -49,7 +49,7 @@ export const decideRemoteProgressAction = ({
   ) return 'ignore';
 
   if (isInitialSync && isQuietResumeEligible) return 'jump';
-  if (isInitialSync) return 'prompt';
+  if (isInitialSync || hasComparableRevisions) return 'prompt';
 
   return hasMeaningfulProgressDelta(remotePercent, currentPercent)
     ? 'prompt'

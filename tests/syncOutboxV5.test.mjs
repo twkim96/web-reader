@@ -21,6 +21,7 @@ const {
   getRetryDelayMs,
   getSyncMetaV5,
   recoverExpiredInFlightEventsV5,
+  recordRemoteMissingV5,
   releaseSyncLeaseV5,
   recordProgressConflictV5,
   deferSyncConflictV5,
@@ -83,6 +84,16 @@ const claimNext = async (now = 10, tabId = 'tab-a') => {
 
 test.beforeEach(resetDatabase);
 test.after(resetDatabase);
+
+test('a missing server head is recorded once for a previously synced book only', async () => {
+  assert.equal(await recordRemoteMissingV5(ownerA, 'local-only', 10), undefined);
+  await storeRemoteProgressHeadV5(ownerA, ackHead('accepted', 1), 20);
+  const missing = await recordRemoteMissingV5(ownerA, 'book-1', 30);
+  assert.equal(missing.state, 'remote_missing');
+  assert.equal(missing.createdAt, 30);
+  const repeated = await recordRemoteMissingV5(ownerA, 'book-1', 40);
+  assert.deepEqual(repeated, missing);
+});
 
 for (const mode of ['single', 'batch']) {
   test(`an unadopted remote update cannot silently rebase an old viewport save (${mode})`, async () => {

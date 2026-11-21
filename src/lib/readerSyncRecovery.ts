@@ -4,7 +4,7 @@ export type ReaderSyncRecovery = {
   percent: number;
 };
 
-type RecoveryRecord = { identity: string; candidate: ReaderSyncRecovery | null };
+type RecoveryRecord = { identity: string; candidate: ReaderSyncRecovery | null; noticePending?: boolean };
 const KEY = 'reader_sync_recovery_v1';
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
 

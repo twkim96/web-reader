@@ -145,9 +145,16 @@ export const useRemoteProgressPrompt = ({
   const [initialRecoveryRecord] = useState(() => readSyncRecovery(recoveryScope));
   const recoveryRecordRef = useRef(initialRecoveryRecord);
   const [syncRecovery, setSyncRecovery] = useState<ReaderSyncRecovery | null>(() => recoveryRecordRef.current?.candidate ?? null);
-  const [syncRecoveryVisible, setSyncRecoveryVisible] = useState(() => Boolean(initialRecoveryRecord?.candidate));
+  const [syncRecoveryVisible, setSyncRecoveryVisible] = useState(() => initialRecoveryRecord?.noticePending === true);
   const [syncRecoveryFeedback, setSyncRecoveryFeedback] = useState<string | null>(null);
-  const hideSyncRecovery = useCallback(() => setSyncRecoveryVisible(false), []);
+  const hideSyncRecovery = useCallback(() => {
+    setSyncRecoveryVisible(false);
+    const current = recoveryRecordRef.current;
+    if (!current?.noticePending) return;
+    const record = { ...current, noticePending: false };
+    recoveryRecordRef.current = record;
+    writeSyncRecovery(recoveryScope, record);
+  }, [recoveryScope]);
   const consumeSyncRecovery = useCallback((identity: string) => {
     if (recoveryRecordRef.current?.identity !== identity) return;
     const record = { identity, candidate: null };
@@ -161,7 +168,7 @@ export const useRemoteProgressPrompt = ({
     const identity = getRemoteProgressIdentity(target);
     if (recoveryRecordRef.current?.identity === identity) return;
     const candidate = { identity, cfi: target.anchorCfi || target.cfi, percent: target.percent };
-    const record = { identity, candidate };
+    const record = { identity, candidate, noticePending: true };
     recoveryRecordRef.current = record;
     writeSyncRecovery(recoveryScope, record);
     setSyncRecovery(candidate);
