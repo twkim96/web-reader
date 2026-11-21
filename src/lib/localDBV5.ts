@@ -2,7 +2,6 @@ import { Book, UserProgress } from '../types';
 import type { IDBPTransaction } from 'idb';
 import type { StoredBookContent } from './bookContent';
 import { initDB, LocalStorageCapacityError } from './localDB';
-import { createSyncEventId, finiteWriteLeasesEnabled } from './writeLeaseTransport';
 import {
   V5_ARCHIVE_INSPECTIONS_STORE,
   V5_BOOKS_STORE,
@@ -26,11 +25,10 @@ import { hasEnoughStorageForWrite } from './storageCapacity';
 import { trackLocalCommit } from './localCommitTracker';
 import {
   ANNOTATION_BOOK_DELETE_MARKER_ID,
-  isAnnotation,
 } from './annotationPolicy';
-import { isAnnotationHeadV1 } from './annotationSyncSchema';
 import {
   appendAnnotationEventsToTransactionV5,
+  supersedeAnnotationBookWorkForDeletionV5,
   type AnnotationSyncContextV5,
 } from './syncOutboxV5';
 import { notifyProgressSyncWork } from './progressSyncWake';
@@ -234,7 +232,6 @@ export const removeBookAndAnnotationsV8 = (
   contentOwnerKey: OwnerKey,
   bookId: string,
   syncContext?: AnnotationSyncContextV5,
-  authoritativeAnnotationIds: ReadonlyArray<string> = [],
 ) => trackLocalCommit((async () => {
   const db = await initDB();
   const tx = db.transaction([
@@ -254,31 +251,32 @@ export const removeBookAndAnnotationsV8 = (
   try {
     const deletionAt = Date.now();
     const annotationStore = tx.objectStore(V8_ANNOTATIONS_STORE);
-    const [annotationKeys, annotationRecords] = await Promise.all([
-      annotationStore.index('by-owner-book').getAllKeys([
-        annotationOwnerKey,
-        bookId,
-      ]),
-      annotationStore.index('by-owner-book').getAll([
-        annotationOwnerKey,
-        bookId,
-      ]),
+    const annotationKeys = await annotationStore.index('by-owner-book').getAllKeys([
+      annotationOwnerKey,
+      bookId,
     ]);
-    const validAnnotations = annotationRecords.filter(isAnnotation);
-    const cachedHeads = await tx.objectStore(V5_REMOTE_HEADS_STORE)
-      .index('by-owner')
-      .getAll(annotationOwnerKey) as Array<{ head?: unknown }>;
-    const cachedAnnotationHeads = new Map(cachedHeads.flatMap(({ head }) => (
-      isAnnotationHeadV1(head) && head.bookId === bookId
-        ? [[head.annotationId, head] as const]
-        : []
-    )));
-    const annotationIds = new Set([
-      ...(syncContext ? [ANNOTATION_BOOK_DELETE_MARKER_ID] : []),
-      ...validAnnotations.map(({ id }) => id),
-      ...authoritativeAnnotationIds,
-      ...cachedAnnotationHeads.keys(),
-    ].filter(Boolean));
+    let tombstonesQueued = 0;
+    if (syncContext) {
+      await supersedeAnnotationBookWorkForDeletionV5(tx, annotationOwnerKey, bookId, deletionAt);
+      const [marker] = await appendAnnotationEventsToTransactionV5(tx, annotationOwnerKey, [{
+        bookId,
+        annotationId: ANNOTATION_BOOK_DELETE_MARKER_ID,
+        operation: 'annotation.delete',
+        payload: null,
+        occurredAtClient: deletionAt,
+      }], syncContext);
+      if (!marker) throw new Error('도서 주석 삭제 marker를 저장하지 못했습니다.');
+      await tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).put({
+        ownerKey: annotationOwnerKey,
+        bookId,
+        createdAt: deletionAt,
+        markerEventId: marker.eventId,
+        writeLeaseEventId: marker.eventId,
+        writeLeaseDeviceId: marker.deviceId,
+        lastCheckedAt: null,
+      } satisfies AnnotationBookDeletionIntentV10);
+      tombstonesQueued = 1;
+    }
     await Promise.all([
       ...annotationKeys.map((key) => annotationStore.delete(key)),
       tx.objectStore(V5_BOOKS_STORE).delete([contentOwnerKey, bookId]),
@@ -287,43 +285,15 @@ export const removeBookAndAnnotationsV8 = (
       tx.objectStore(V5_ARCHIVE_INSPECTIONS_STORE).delete([contentOwnerKey, bookId]),
       tx.objectStore(V14_BOOK_COVERS_STORE).delete([contentOwnerKey, bookId]),
     ]);
-    const events = syncContext
-      ? await appendAnnotationEventsToTransactionV5(
-        tx,
-        annotationOwnerKey,
-        [...annotationIds].map((annotationId, index) => ({
-          bookId,
-          annotationId,
-          operation: 'annotation.delete' as const,
-          payload: null,
-          baseRevision: cachedAnnotationHeads.get(annotationId)?.revision,
-          forceDelete: true,
-          occurredAtClient: deletionAt + index,
-        })),
-        syncContext,
-      )
-      : [];
-    if (syncContext) {
-      await tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).put({
-        ownerKey: annotationOwnerKey,
-        bookId,
-        createdAt: deletionAt,
-        ...(finiteWriteLeasesEnabled() ? { writeLeaseEventId: createSyncEventId(annotationOwnerKey, syncContext.deviceId), writeLeaseDeviceId: syncContext.deviceId } : {}),
-        lastCheckedAt: null,
-        failureCount: 0,
-        lastErrorCode: null,
-        nextRetryAt: 0,
-      } satisfies AnnotationBookDeletionIntentV10);
-    }
     await tx.done;
     notifyBookCoverCacheChanged(bookId);
-    if (events.length > 0 || syncContext) notifyProgressSyncWork(annotationOwnerKey);
-    if (annotationIds.size > 0) {
+    if (tombstonesQueued) notifyProgressSyncWork(annotationOwnerKey);
+    if (annotationKeys.length || tombstonesQueued) {
       broadcastAnnotationSyncChange({ ownerKey: annotationOwnerKey, bookId });
     }
     return {
       annotationsDeleted: annotationKeys.length,
-      tombstonesQueued: events.length,
+      tombstonesQueued,
     };
   } catch (error) {
     try {

@@ -262,12 +262,6 @@ export const saveLocalAnnotationV8 = (
   }
 
   const events = await appendSyncEvents(tx, ownerKey, [toUpsertInput(annotation)], syncContext);
-  if (!existing) {
-    await tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).delete([
-      ownerKey,
-      annotation.bookId,
-    ]);
-  }
   await store.put({ ...annotation, ownerKey });
   await tx.done;
   notifyCommittedMutation(ownerKey, annotation.bookId, events.length);

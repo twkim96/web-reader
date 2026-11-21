@@ -123,11 +123,16 @@ test('first-online placeholders bind once with server time despite skew, while o
     await db.put(schema.V5_OUTBOX_STORE, row(reloaded, 0, 3));
     for (const [bookId, writeLeaseEventId] of [['fresh-book', freshIntent], ['attempted-book', attemptedIntent], ['claimed-book', claimedIntent]]) {
       await db.put(schema.V10_ANNOTATION_BOOK_DELETIONS_STORE, { ownerKey: owner, bookId, createdAt: issued,
-        lastCheckedAt: null, writeLeaseEventId, writeLeaseDeviceId: 'device' });
+        lastCheckedAt: null, markerEventId: writeLeaseEventId, writeLeaseEventId, writeLeaseDeviceId: 'device' });
     }
-    await db.put(schema.V5_OUTBOX_STORE, { ...row(transport.createSyncEventId(owner, 'device'), 1, 4), target: { kind: 'annotation', bookId: 'attempted-book', annotationId: 'note' }, targetKey: 'annotation:attempted-book:note' });
-    await db.put(schema.V5_OUTBOX_STORE, { ...row(transport.createSyncEventId(owner, 'device'), 0, 5), target: { kind: 'annotation', bookId: 'claimed-book', annotationId: 'note' }, targetKey: 'annotation:claimed-book:note', claimToken: 'claim' });
-    for (const [bookId, fields] of [['legacy-book', {}], ['restored-book', { writeLeaseEventId: 'unleased_restored', writeLeaseDeviceId: 'device' }]]) {
+    const markerRow = (eventId, bookId, attempts, claimToken = null) => ({ ...row(eventId, attempts, 1),
+      target: { kind: 'annotation', bookId, annotationId: 'book_delete_marker_v1' },
+      targetKey: 'annotation:' + bookId + ':book_delete_marker_v1', operation: 'annotation.delete', payload: null, claimToken });
+    await db.put(schema.V5_OUTBOX_STORE, markerRow(freshIntent, 'fresh-book', 0));
+    await db.put(schema.V5_OUTBOX_STORE, markerRow(attemptedIntent, 'attempted-book', 1));
+    await db.put(schema.V5_OUTBOX_STORE, markerRow(claimedIntent, 'claimed-book', 0, 'claim'));
+    for (const [bookId, fields] of [['legacy-book', {}], ['restored-book', {
+      markerEventId: 'unleased_restored', writeLeaseEventId: 'unleased_restored', writeLeaseDeviceId: 'device' }]]) {
       await db.put(schema.V10_ANNOTATION_BOOK_DELETIONS_STORE, { ownerKey: owner, bookId, createdAt: issued, lastCheckedAt: null, ...fields });
     }
     let deletionFetches = 0;
@@ -140,12 +145,16 @@ test('first-online placeholders bind once with server time despite skew, while o
     assert.equal(transport.resolvePendingSyncEventId(owner, before, 'device'), null);
     release(); await prep;
     assert.equal(transport.getTrustedWriteLeaseTime(owner), issued);
-    assert.equal(await outbox.bindPendingSyncAuthorityV5(owner), 1);
+    assert.equal(await outbox.bindPendingSyncAuthorityV5(owner), 2);
     assert.equal(await db.get(schema.V5_OUTBOX_STORE, [owner, before]), undefined);
     assert.equal((await db.get(schema.V5_OUTBOX_STORE, [owner, attempted])).attempts, 1);
     assert.equal((await db.get(schema.V5_OUTBOX_STORE, [owner, reloaded])).eventId, reloaded);
     const readIntent = bookId => db.get(schema.V10_ANNOTATION_BOOK_DELETIONS_STORE, [owner, bookId]);
-    assert.ok(policy.parseLeasedEventId((await readIntent('fresh-book')).writeLeaseEventId));
+    const boundMarker = await readIntent('fresh-book');
+    assert.ok(policy.parseLeasedEventId(boundMarker.writeLeaseEventId));
+    assert.equal(boundMarker.markerEventId, boundMarker.writeLeaseEventId);
+    assert.equal(await db.get(schema.V5_OUTBOX_STORE, [owner, freshIntent]), undefined);
+    assert.equal((await db.get(schema.V5_OUTBOX_STORE, [owner, boundMarker.markerEventId])).target.bookId, 'fresh-book');
     assert.equal((await readIntent('attempted-book')).writeLeaseEventId, attemptedIntent);
     assert.equal((await readIntent('claimed-book')).writeLeaseEventId, claimedIntent);
     // A fresh server lease must not hide restored intents behind the reconcile timer.
@@ -185,6 +194,33 @@ test('first-online placeholders bind once with server time despite skew, while o
     assert.equal(transport.resolvePendingSyncEventId(owner, 'unleased_reloaded', 'device'), null);
     const leased = transport.createSyncEventId(owner, 'device');
     assert.equal(transport.resolvePendingSyncEventId(owner, leased, 'device'), null);
+    const syncNow = issued + 12_000;
+    const tabLease = await outbox.acquireSyncLeaseV5(owner, 'marker-tab', syncNow, 1000);
+    await db.put(schema.V5_OUTBOX_STORE, { ...await db.get(schema.V5_OUTBOX_STORE, [owner, boundMarker.markerEventId]),
+      nextAttemptAt: syncNow });
+    const claimedMarker = await outbox.claimNextProgressEventV5(owner, 'marker-tab', tabLease.epoch, syncNow);
+    assert.equal(claimedMarker.eventId, boundMarker.markerEventId);
+    assert.equal(await outbox.acknowledgeProgressEventV5(owner, claimedMarker.eventId, {
+      schemaVersion: 1, bookId: 'fresh-book', annotationId: 'book_delete_marker_v1',
+      revision: 2, acceptedEventId: 'newer-marker', operation: 'delete', annotation: null,
+      acceptedDeviceId: 'device', acceptedSessionId: 's', bookGeneration: 2,
+      occurredAtClient: issued, updatedAtServer: {}, deletedAtServer: {},
+    }, outbox.getExpectedClaimV5(claimedMarker), syncNow, 1), true);
+    let checkedBooks = [];
+    const cleanup = await deletion.reconcileAnnotationBookDeletionIntentsV10('online', owner,
+      { deviceId: 'device', sessionId: 's' }, syncNow, async (_, bookId) => {
+        checkedBooks.push(bookId);
+        return [{ bookId, annotationId: 'old-note', revision: 3, operation: 'upsert' }];
+      });
+    assert.deepEqual(checkedBooks, ['fresh-book']);
+    assert.equal(cleanup.queued, 1);
+    const cleanupEvent = (await outbox.getOutboxEventsV5(owner, 'annotation:fresh-book:old-note'))[0];
+    assert.equal(cleanupEvent.deleteBeforeBookGeneration, 1);
+    const markerAuthority = policy.parseLeasedEventId(claimedMarker.eventId);
+    const cleanupAuthority = policy.parseLeasedEventId(cleanupEvent.eventId);
+    assert.notEqual(cleanupEvent.eventId, claimedMarker.eventId);
+    assert.equal(cleanupAuthority.leaseId, markerAuthority.leaseId);
+    assert.equal(cleanupAuthority.issuedAtMillis, markerAuthority.issuedAtMillis);
     // Resolving a valid old conflict must not borrow the freshly cached lease.
     const oldLease = { leaseId: crypto.randomUUID(), deviceId: 'device', issuedAtMillis: issued - policy.WRITE_LEASE_DURATION_MS + 864e5 };
     const originalConflictId = policy.createLeasedEventId(oldLease);
@@ -206,6 +242,7 @@ test('first-online placeholders bind once with server time despite skew, while o
     transport.assertEventWriteLease(leased, owner);
     mono += policy.WRITE_LEASE_DURATION_MS;
     assert.throws(() => transport.assertEventWriteLease(leased, owner), { code: 'sync/write-lease-expired' });
+    assert.throws(() => transport.assertEventWriteLease(cleanupEvent.eventId, owner), { code: 'sync/write-lease-expired' });
     const transaction = (await import('./src/lib/progressSyncTransaction.ts')).default;
     assert.throws(() => transaction.decideProgressTransaction({ event: { eventId: leased, ownerKey: owner }, storedReceipt: {}, storedHead: {}, serverTime: {} }), { code: 'sync/write-lease-expired' });
     assert.throws(() => transport.assertEventWriteLease('unleased_reloaded', owner), { code: 'sync/write-lease-pending' });

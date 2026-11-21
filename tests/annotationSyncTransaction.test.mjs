@@ -152,7 +152,7 @@ test('uses a revisioned tombstone and rejects identity mismatches', () => {
   }), /target key/);
 });
 
-test('force-deletes a book annotation at the latest remote revision', () => {
+test('rejects a legacy force delete without an accepted receipt', () => {
   const first = decideAnnotationTransaction({
     event: annotationEvent('event-1'),
     storedHead: undefined,
@@ -160,19 +160,93 @@ test('force-deletes a book annotation at the latest remote revision', () => {
     storedAggregate: undefined,
     serverTime: 'server-1',
   });
-  const deletion = decideAnnotationTransaction({
-    event: {
-      ...annotationEvent('book-delete', 0, 'annotation.delete'),
-      forceDelete: true,
-    },
+  assert.throws(() => decideAnnotationTransaction({
+    event: { ...annotationEvent('legacy-delete', 0, 'annotation.delete'), forceDelete: true },
     storedHead: first.head,
     storedReceipt: undefined,
     storedAggregate: first.aggregate,
     serverTime: 'server-2',
+  }), { code: 'sync/annotation-delete-unproven' });
+});
+
+const deleteMarkerEvent = (eventId) => ({
+  ...annotationEvent(eventId, 0, 'annotation.delete'),
+  target: { kind: 'annotation', bookId: 'book-1', annotationId: 'book_delete_marker_v1' },
+  targetKey: annotationTargetKeyV1('book-1', 'book_delete_marker_v1'),
+});
+
+test('rechecks the generation at the write and preserves a same-ID edit even after a newer marker', () => {
+  const original = decideAnnotationTransaction({
+    event: annotationEvent('original'),
+    serverTime: 'server-1',
   });
-  assert.equal(deletion.status, 'apply');
-  assert.equal(deletion.head.revision, 2);
-  assert.equal(deletion.head.operation, 'delete');
+  const marker = decideAnnotationTransaction({
+    event: deleteMarkerEvent('marker'),
+    storedAggregate: original.aggregate,
+    serverTime: 'server-2',
+  });
+  const edited = decideAnnotationTransaction({
+    event: { ...annotationEvent('same-id-edit', 1), bookGeneration: 1 },
+    storedHead: original.head,
+    storedAggregate: marker.aggregate,
+    storedBookDeleteMarker: marker.head,
+    serverTime: 'server-3',
+  });
+  assert.equal(edited.status, 'apply');
+  const laterMarker = decideAnnotationTransaction({
+    event: { ...deleteMarkerEvent('later-marker'), baseRevision: marker.head.revision },
+    storedHead: marker.head,
+    storedAggregate: edited.aggregate,
+    storedBookDeleteMarker: marker.head,
+    serverTime: 'server-4',
+  });
+  assert.equal(laterMarker.head.revision, 2);
+  const cleanup = {
+    ...annotationEvent('cleanup', original.head.revision, 'annotation.delete'),
+    deleteBeforeBookGeneration: marker.receipt.revision,
+  };
+  assert.deepEqual(decideAnnotationTransaction({
+    event: cleanup,
+    storedHead: edited.head,
+    storedAggregate: laterMarker.aggregate,
+    storedBookDeleteMarker: laterMarker.head,
+    serverTime: 'server-5',
+  }), { status: 'superseded' });
+
+  const { bookGeneration: _generation, ...legacyHead } = original.head;
+  const historical = decideAnnotationTransaction({
+    event: cleanup,
+    storedHead: { ...legacyHead, revision: 2 },
+    storedAggregate: marker.aggregate,
+    storedBookDeleteMarker: laterMarker.head,
+    serverTime: 'server-6',
+  });
+  assert.equal(historical.status, 'apply');
+  assert.equal(historical.head.operation, 'delete');
+  assert.equal(historical.head.revision, 3);
+  assert.equal(historical.aggregate.totalCount, 0);
+});
+
+test('creates a first marker but skips both unknown and stale marker revisions', () => {
+  const first = decideAnnotationTransaction({ event: deleteMarkerEvent('first'), serverTime: 'first' });
+  assert.equal(first.status, 'apply');
+  const second = decideAnnotationTransaction({
+    event: { ...deleteMarkerEvent('second'), baseRevision: first.head.revision },
+    storedHead: first.head,
+    storedBookDeleteMarker: first.head,
+    storedAggregate: first.aggregate,
+    serverTime: 'second',
+  });
+  assert.equal(second.status, 'apply');
+  for (const baseRevision of [0, first.head.revision]) {
+    assert.deepEqual(decideAnnotationTransaction({
+      event: { ...deleteMarkerEvent('stale'), baseRevision },
+      storedHead: second.head,
+      storedBookDeleteMarker: second.head,
+      storedAggregate: second.aggregate,
+      serverTime: 'stale',
+    }), { status: 'superseded', remoteMarker: second.head });
+  }
 });
 
 test('uses marker revision instead of client clocks as the book generation', () => {
@@ -191,7 +265,6 @@ test('uses marker revision instead of client clocks as the book generation', () 
     baseRevision: 0,
     bookGeneration: 0,
     occurredAtClient: 10,
-    forceDelete: true,
   };
   const marker = decideAnnotationTransaction({
     event: markerEvent,

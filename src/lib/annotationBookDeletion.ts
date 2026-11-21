@@ -7,16 +7,9 @@ import {
 } from './localDBSchema';
 import {
   appendAnnotationEventsToTransactionV5,
-  hasActiveSyncTargetWorkV5,
-  type RemoteHeadCacheV5,
   type AnnotationSyncContextV5,
   type SyncOutboxEventV5,
 } from './syncOutboxV5';
-import {
-  annotationTargetKeyV1,
-  isAnnotationHeadV1,
-} from './annotationSyncSchema';
-import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 import { finiteWriteLeasesEnabled, getTrustedWriteLeaseTime, isPendingSyncEventId } from './writeLeaseTransport';
 import { notifyProgressSyncWork } from './progressSyncWake';
 import { createLeasedEventId, getEventLeaseStatus, parseLeasedEventId } from './writeLeasePolicy';
@@ -33,6 +26,9 @@ export type AnnotationBookDeletionIntentV10 = {
   failureCount?: number;
   lastErrorCode?: string | null;
   nextRetryAt?: number;
+  markerEventId?: string;
+  markerRevision?: number;
+  markerSuperseded?: boolean;
   writeLeaseEventId?: string;
   writeLeaseDeviceId?: string;
   expired?: boolean;
@@ -42,18 +38,19 @@ export type AnnotationBookDeletionIntentV10 = {
 export const annotationBookDeletionNeedsRecovery = (
   intent: AnnotationBookDeletionIntentV10,
   serverTrustedNow: number | null,
-  bookEvents: ReadonlyArray<Pick<SyncOutboxEventV5, 'ownerKey' | 'target' | 'attempts' | 'claimToken' | 'claimedByTabId' | 'claimedLeaseEpoch'>> = [],
+  bookEvents: ReadonlyArray<Pick<SyncOutboxEventV5, 'ownerKey' | 'eventId' | 'attempts' | 'claimToken' | 'claimedByTabId' | 'claimedLeaseEpoch'>> = [],
 ): boolean => {
+  if (intent.markerSuperseded) return false;
   if (intent.expired) return intent.recoveryPending !== false;
   if (serverTrustedNow === null) return false;
-  if (!intent.writeLeaseEventId || !intent.writeLeaseDeviceId) return true;
+  if (!intent.markerEventId || intent.writeLeaseEventId !== intent.markerEventId || !intent.writeLeaseDeviceId) return true;
   if (parseLeasedEventId(intent.writeLeaseEventId)) {
     return getEventLeaseStatus(intent.writeLeaseEventId, serverTrustedNow, true) === 'expired';
   }
   // Only a never-submitted intent created by this runtime may wait for binding.
   return !isPendingSyncEventId(intent.ownerKey, intent.writeLeaseEventId, intent.writeLeaseDeviceId)
     || bookEvents.some((event) => event.ownerKey === intent.ownerKey
-      && 'bookId' in event.target && event.target.bookId === intent.bookId
+      && event.eventId === intent.markerEventId
       && (event.attempts > 0 || event.claimToken !== null || event.claimedByTabId !== null || event.claimedLeaseEpoch !== null));
 };
 
@@ -113,72 +110,64 @@ export const reconcileAnnotationBookDeletionIntentsV10 = async (
   const fetchAuthoritativeHeads = fetchHeads ?? (await import('./annotationSyncRemote'))
     .getAuthoritativeRemoteAnnotationHeadsV1;
   for (const intent of intents) {
-    if (intent.expired) continue;
-    if (finiteWriteLeasesEnabled()) {
-      const trustedNow = getTrustedWriteLeaseTime(ownerKey);
-      if (annotationBookDeletionNeedsRecovery(intent, trustedNow, bookEvents)) {
-        await updateIntent(intent, { expired: true, recoveryPending: true, lastErrorCode: 'sync/write-lease-expired' });
-        continue;
+    if (intent.expired || intent.markerSuperseded) continue;
+    const finiteLeases = finiteWriteLeasesEnabled();
+    const trustedNow = getTrustedWriteLeaseTime(ownerKey);
+    if (!intent.markerEventId) {
+      if (!finiteLeases || trustedNow !== null) {
+        await updateIntent(intent, { expired: true, recoveryPending: true, lastErrorCode: 'sync/annotation-delete-unproven' });
       }
-      if (!intent.writeLeaseEventId || intent.writeLeaseDeviceId !== context.deviceId || trustedNow === null) continue;
-      const leaseStatus = getEventLeaseStatus(intent.writeLeaseEventId, trustedNow, true);
-      if (leaseStatus === 'expired') await updateIntent(intent, { expired: true, recoveryPending: true, lastErrorCode: 'sync/write-lease-expired' });
-      if (leaseStatus !== 'valid') continue;
+      continue;
     }
+    if (finiteLeases && annotationBookDeletionNeedsRecovery(intent, trustedNow, bookEvents)) {
+      await updateIntent(intent, { expired: true, recoveryPending: true, lastErrorCode: 'sync/write-lease-expired' });
+      continue;
+    }
+    const lease = parseLeasedEventId(intent.markerEventId);
+    if (finiteLeases && (!lease || intent.writeLeaseDeviceId !== context.deviceId
+      || trustedNow === null || getEventLeaseStatus(intent.markerEventId, trustedNow, true) !== 'valid')) continue;
+    const boundary = intent.markerRevision;
+    if (boundary === undefined) {
+      // An older tab can acknowledge the marker without persisting its receipt revision.
+      const markerEvent = await db.get(V5_OUTBOX_STORE, [ownerKey, intent.markerEventId]) as SyncOutboxEventV5 | undefined;
+      if (!markerEvent || markerEvent.status === 'superseded') {
+        await updateIntent(intent, { markerSuperseded: true, lastErrorCode: 'sync/annotation-delete-unproven' });
+      }
+      continue;
+    }
+    if (!Number.isSafeInteger(boundary) || boundary < 1) continue;
     if ((intent.nextRetryAt ?? 0) > now) continue;
     try {
       const heads = await fetchAuthoritativeHeads(uid, intent.bookId);
-      const inputs = [];
-      for (const head of heads) {
-        const targetKey = annotationTargetKeyV1(intent.bookId, head.annotationId);
-        if (await hasActiveSyncTargetWorkV5(ownerKey, targetKey)) continue;
-        inputs.push({
-          ...(finiteWriteLeasesEnabled() && intent.writeLeaseEventId
-            ? { eventId: createLeasedEventId({ ...parseLeasedEventId(intent.writeLeaseEventId)!, deviceId: context.deviceId }) }
-            : {}),
-          bookId: intent.bookId,
-          annotationId: head.annotationId,
-          operation: 'annotation.delete' as const,
-          payload: null,
-          baseRevision: head.revision,
-          forceDelete: true,
-          occurredAtClient: now + inputs.length,
-        });
-      }
-      if (inputs.length > 0) {
-        const tx = db.transaction([V10_ANNOTATION_BOOK_DELETIONS_STORE, V5_OUTBOX_STORE, V5_SYNC_META_STORE,
-          V5_SYNC_CONFLICTS_STORE, V5_REMOTE_HEADS_STORE], 'readwrite');
-        void tx.done.catch(() => undefined);
-        const current = await tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).get([ownerKey, intent.bookId]);
-        if (JSON.stringify(current) !== JSON.stringify(intent)) { await tx.done; continue; }
-        const trustedNow = getTrustedWriteLeaseTime(ownerKey);
-        if (finiteWriteLeasesEnabled() && (!intent.writeLeaseEventId || intent.writeLeaseDeviceId !== context.deviceId
-          || trustedNow === null || getEventLeaseStatus(intent.writeLeaseEventId, trustedNow, true) !== 'valid')) {
-          await tx.done; continue;
-        }
-        const created = await appendAnnotationEventsToTransactionV5(tx, ownerKey, inputs, context);
-        await tx.done;
-        queued += created.length;
-        if (created.length) notifyProgressSyncWork(ownerKey);
-      }
-      const markerTargetKey = annotationTargetKeyV1(
-        intent.bookId,
-        ANNOTATION_BOOK_DELETE_MARKER_ID,
-      );
-      const markerCache = await db.get(
-        V5_REMOTE_HEADS_STORE,
-        [ownerKey, markerTargetKey],
-      ) as RemoteHeadCacheV5 | undefined;
-      const markerHead = markerCache?.head;
-      const markerCommitted = isAnnotationHeadV1(markerHead)
-        && markerHead.bookId === intent.bookId
-        && markerHead.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
-        && markerHead.operation === 'delete';
-      const markerStillActive = await hasActiveSyncTargetWorkV5(ownerKey, markerTargetKey);
-      if (heads.length === 0 && markerCommitted && !markerStillActive) {
+      const historicalHeads = heads.filter((head) => (head.bookGeneration ?? 0) < boundary);
+      if (historicalHeads.length === 0) {
         await updateIntent(intent, null);
         continue;
       }
+      const tx = db.transaction([V10_ANNOTATION_BOOK_DELETIONS_STORE, V5_OUTBOX_STORE, V5_SYNC_META_STORE,
+        V5_SYNC_CONFLICTS_STORE, V5_REMOTE_HEADS_STORE], 'readwrite');
+      void tx.done.catch(() => undefined);
+      const current = await tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).get([ownerKey, intent.bookId]);
+      const currentTrustedNow = getTrustedWriteLeaseTime(ownerKey);
+      if (JSON.stringify(current) !== JSON.stringify(intent)
+        || (finiteLeases && (currentTrustedNow === null
+          || getEventLeaseStatus(intent.markerEventId, currentTrustedNow, true) !== 'valid'))) {
+        await tx.done;
+        continue;
+      }
+      const created = await appendAnnotationEventsToTransactionV5(tx, ownerKey, historicalHeads.map((head) => ({
+        ...(finiteLeases && lease ? { eventId: createLeasedEventId({ ...lease, deviceId: context.deviceId }) } : {}),
+        bookId: intent.bookId,
+        annotationId: head.annotationId,
+        operation: 'annotation.delete' as const,
+        payload: null,
+        baseRevision: head.revision,
+        deleteBeforeBookGeneration: boundary,
+        occurredAtClient: now,
+      })), context);
+      await tx.done;
+      queued += created.length;
+      if (created.length) notifyProgressSyncWork(ownerKey);
       await updateIntent(intent, {
         lastCheckedAt: now,
         failureCount: 0,

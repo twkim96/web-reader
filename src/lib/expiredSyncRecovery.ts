@@ -402,14 +402,15 @@ const recoverAnnotationBookDeletion = async (
   const frozenIntent = { ...intent, expired: true, recoveryPending: true };
   const events = statusEvents.flat().filter((event) => active.has(event.status) && event.target.kind === 'annotation' && event.target.bookId === target.bookId);
   const unresolved = oldConflicts.flat().filter((conflict) => conflict.targetKey.startsWith(prefix));
-  const expiredEvents = events.filter((event) => requiresRecovery(event, trustedNow));
+  const isUnprovenDelete = (event: RecoveryEvent) => 'forceDelete' in event && event.forceDelete === true;
+  const expiredEvents = events.filter((event) => isUnprovenDelete(event) || requiresRecovery(event, trustedNow));
   const expiredIds = new Set(expiredEvents.map((event) => event.eventId));
   if (options.isCurrent && !options.isCurrent()) { await freeze.done; return { status: 'blocked' }; }
   const now = Date.now();
   await Promise.all([
     intents.put(frozenIntent),
     ...expiredEvents.map((event) => outbox.put({ ...event, status: 'expired', recoveryPending: true,
-      lastErrorCode: 'sync/write-lease-expired', nextAttemptAt: null, claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null })),
+      lastErrorCode: isUnprovenDelete(event) ? 'sync/annotation-delete-unproven' : 'sync/write-lease-expired', nextAttemptAt: null, claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null })),
     ...events.filter((event) => !expiredIds.has(event.eventId)).map((event) => outbox.put({ ...event,
       status: 'blocked', nextAttemptAt: null, claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null })),
     ...unresolved.filter((conflict) => conflict.event && expiredIds.has(conflict.event.eventId)

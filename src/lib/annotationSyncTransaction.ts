@@ -30,7 +30,10 @@ import {
   type AnnotationSyncReceiptV1,
 } from './annotationSyncSchema';
 
+type AnnotationTransactionMutation = AnnotationSyncMutationV1 & { deleteBeforeBookGeneration?: number };
+
 export type AnnotationTransactionDecision =
+  | { status: 'superseded'; remoteMarker?: AnnotationHeadV1 | null }
   | { status: 'apply'; head: AnnotationHeadV1; receipt: AnnotationSyncReceiptV1; aggregate: AnnotationBookAggregateV1 }
   | { status: 'already_applied'; head: AnnotationHeadV1; receipt: AnnotationSyncReceiptV1; aggregate: AnnotationBookAggregateV1 }
   | {
@@ -83,7 +86,7 @@ export const decideAnnotationTransaction = ({
   storedBookDeleteMarker,
   serverTime,
 }: {
-  event: AnnotationSyncMutationV1;
+  event: AnnotationTransactionMutation;
   storedHead: unknown;
   storedReceipt: unknown;
   storedAggregate: unknown;
@@ -139,11 +142,23 @@ export const decideAnnotationTransaction = ({
     : isAnnotationHeadV1(storedHead)
       ? storedHead
       : (() => { throw new Error('원격 annotation head schema가 올바르지 않습니다.'); })();
+  if (remoteHead && (remoteHead.bookId !== event.target.bookId || remoteHead.annotationId !== event.target.annotationId)) {
+    throw new Error('원격 annotation head가 요청 target과 일치하지 않습니다.');
+  }
   const remoteRevision = remoteHead?.revision ?? 0;
-  if (
-    remoteRevision !== event.baseRevision
-    && !(deleting && event.forceDelete === true)
-  ) return { status: 'conflict', remoteHead };
+  const isMarker = event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID;
+  const boundary = event.deleteBeforeBookGeneration;
+  if (event.forceDelete || (isMarker && !deleting)) {
+    throw Object.assign(new Error('annotation 전체 삭제의 marker receipt를 확인할 수 없습니다.'), {
+      code: 'sync/annotation-delete-unproven',
+    });
+  }
+  if (boundary === undefined && remoteRevision !== event.baseRevision) {
+    if (isMarker && (!remoteHead || remoteHead.operation === 'delete')) {
+      return { status: 'superseded', remoteMarker: remoteHead };
+    }
+    return { status: 'conflict', remoteHead };
+  }
   const aggregate = storedAggregate === undefined
     ? null
     : isAnnotationBookAggregateV1(storedAggregate)
@@ -161,6 +176,14 @@ export const decideAnnotationTransaction = ({
       ? storedBookDeleteMarker
       : (() => { throw new Error('원격 annotation 삭제 marker가 올바르지 않습니다.'); })();
   const remoteBookGeneration = markerHead?.revision ?? 0;
+  if (boundary !== undefined) {
+    if (!deleting || isMarker || !Number.isSafeInteger(boundary) || boundary < 1 || boundary > remoteBookGeneration) {
+      throw Object.assign(new Error('annotation 전체 삭제 경계가 올바르지 않습니다.'), { code: 'invalid-argument' });
+    }
+    if (remoteHead?.operation !== 'upsert' || (remoteHead.bookGeneration ?? 0) >= boundary) {
+      return { status: 'superseded' };
+    }
+  }
   const eventBookGeneration = event.bookGeneration ?? 0;
   if (!deleting && eventBookGeneration !== remoteBookGeneration) {
     return {
@@ -356,7 +379,7 @@ export const applyAnnotationEventTransaction = async ({
   firestore,
   sdk = defaultFirestoreSDK,
 }: {
-  event: AnnotationSyncMutationV1;
+  event: AnnotationTransactionMutation;
   uid: string;
   firestore: Firestore;
   sdk?: AnnotationFirestoreSDK;

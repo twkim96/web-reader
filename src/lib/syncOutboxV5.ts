@@ -115,7 +115,8 @@ export type AnnotationOutboxEventV5 = {
   sessionId: string;
   sequence: number;
   baseRevision: number;
-  forceDelete?: boolean;
+  forceDelete?: boolean; // Legacy persisted work.
+  deleteBeforeBookGeneration?: number;
   bookGeneration?: number;
   awaitingBookGeneration?: boolean;
   occurredAtClient: number;
@@ -181,7 +182,7 @@ export const requireRecoveredAnnotationBookV5 = async (
     )) as SyncOutboxEventV5[];
     requireRecoveredTarget(events, tx);
   }
-  if (intent && ((intent.expired && intent.recoveryPending !== false)
+  if (intent && !intent.markerSuperseded && ((intent.expired && intent.recoveryPending !== false)
     || (!intent.expired && (!intent.writeLeaseEventId || intent.writeLeaseDeviceId !== deviceId
       || (getTrustedWriteLeaseTime(ownerKey) !== null && getEventLeaseStatus(intent.writeLeaseEventId, getTrustedWriteLeaseTime(ownerKey)!, true) === 'expired'))))) {
     tx.abort();
@@ -701,7 +702,7 @@ export type EnqueueAnnotationInputV5 = {
   occurredAtClient?: number;
   eventId?: string;
   baseRevision?: number;
-  forceDelete?: boolean;
+  deleteBeforeBookGeneration?: number;
   bookGeneration?: number;
 };
 
@@ -778,8 +779,12 @@ const validateAnnotationEnqueueInput = (input: EnqueueAnnotationInputV5) => {
         || input.payload.id !== input.annotationId
       : input.payload !== null
   ) throw new Error('annotation event payload가 올바르지 않습니다.');
-  if (input.forceDelete && input.operation !== 'annotation.delete') {
-    throw new Error('annotation 강제 삭제는 delete event에서만 사용할 수 있습니다.');
+  if (input.deleteBeforeBookGeneration !== undefined
+    && (input.operation !== 'annotation.delete'
+      || input.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+      || !Number.isSafeInteger(input.deleteBeforeBookGeneration) || input.deleteBeforeBookGeneration < 1
+      || input.baseRevision === undefined)) {
+    throw new Error('annotation 전체 삭제 경계가 올바르지 않습니다.');
   }
   if (
     input.baseRevision !== undefined
@@ -796,6 +801,40 @@ type AnnotationOutboxTransactionV5 = IDBPTransaction<
   string[],
   'readwrite'
 >;
+
+export const supersedeAnnotationBookWorkForDeletionV5 = async (
+  tx: AnnotationOutboxTransactionV5,
+  ownerKey: OwnerKey,
+  bookId: string,
+  now: number,
+) => {
+  const outbox = tx.objectStore(V5_OUTBOX_STORE);
+  const conflicts = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+  const [bookEvents, ...openConflicts] = await Promise.all([
+    Promise.all([...activeStatuses].map((status) => (
+      outbox.index('by-owner-status').getAll([ownerKey, status]) as Promise<SyncOutboxEventV5[]>
+    ))),
+    ...['open', 'deferred'].map((state) => conflicts.index('by-owner-state-created-at').getAll(IDBKeyRange.bound(
+      [ownerKey, state, 0],
+      [ownerKey, state, Number.MAX_SAFE_INTEGER],
+    )) as Promise<SyncConflictV5[]>),
+  ]);
+  await Promise.all([
+    ...bookEvents.flat().filter((event) => isAnnotationOutboxEventV5(event) && event.target.bookId === bookId
+      // An already-submitted marker must settle before a second marker can advance the generation.
+      && (event.target.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID || event.forceDelete
+        || (event.attempts === 0 && !event.claimToken && !event.claimedByTabId))).map((event) => outbox.put({
+      ...event, status: 'superseded', claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null,
+    })),
+    ...openConflicts.flat().filter(({ event, remoteHead }) => (
+      (event && isAnnotationOutboxEventV5(event) && event.target.bookId === bookId
+        && event.target.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID)
+      || (!event && isAnnotationHeadV1(remoteHead) && remoteHead.bookId === bookId
+        && remoteHead.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID)
+    ))
+      .map((conflict) => conflicts.put({ ...conflict, state: 'resolved_local', resolvedAt: now })),
+  ]);
+};
 
 export const appendAnnotationEventsToTransactionV5 = async (
   tx: AnnotationOutboxTransactionV5,
@@ -814,13 +853,16 @@ export const appendAnnotationEventsToTransactionV5 = async (
   const created: AnnotationOutboxEventV5[] = [];
   const bookGenerations = new Map<string, number>();
   for (const input of inputs) {
-    await requireRecoveredAnnotationBookV5(tx, ownerKey, input.bookId, context.deviceId, input.annotationId);
+    const boundary = input.deleteBeforeBookGeneration;
+    await requireRecoveredAnnotationBookV5(tx, ownerKey, input.bookId, context.deviceId,
+      boundary === undefined ? input.annotationId : undefined);
     const now = input.occurredAtClient ?? Date.now();
     const targetKey = annotationTargetKeyV1(input.bookId, input.annotationId);
+    const isMarker = input.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID;
     let awaitingBookGeneration = false;
     if (
       input.operation === 'annotation.upsert'
-      && input.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID
+      && !isMarker
     ) {
       const markerTargetKey = annotationTargetKeyV1(
         input.bookId,
@@ -832,16 +874,7 @@ export const appendAnnotationEventsToTransactionV5 = async (
           [ownerKey, markerTargetKey, Number.MAX_SAFE_INTEGER],
         ),
       ) as SyncOutboxEventV5[];
-      for (const markerEvent of markerEvents) {
-        if (
-          markerEvent.status === 'pending'
-          && markerEvent.claimedByTabId === null
-        ) {
-          await outboxStore.put({ ...markerEvent, status: 'superseded' });
-        } else if (activeStatuses.has(markerEvent.status)) {
-          awaitingBookGeneration = true;
-        }
-      }
+      awaitingBookGeneration = markerEvents.some((event) => activeStatuses.has(event.status));
     }
     let bookGeneration = input.bookGeneration;
     if (bookGeneration === undefined) {
@@ -875,31 +908,37 @@ export const appendAnnotationEventsToTransactionV5 = async (
       )) as Promise<SyncOutboxEventV5[]>,
       getTargetOpenAndDeferredConflicts(conflictStore, ownerKey, targetKey),
     ]);
-    requireRecoveredTarget(targetEvents, tx);
+    const unresolved: SyncOutboxEventV5[] = [];
+    for (const event of targetEvents) {
+      if (!activeStatuses.has(event.status)) continue;
+      // An unsent cleanup must give way to a user's edit on the same target.
+      if (boundary === undefined && isAnnotationOutboxEventV5(event) && event.deleteBeforeBookGeneration !== undefined
+        && event.status === 'pending' && event.attempts === 0 && !event.claimToken && !event.claimedByTabId) {
+        await outboxStore.put({ ...event, status: 'superseded', nextAttemptAt: null });
+      } else {
+        unresolved.push(event);
+      }
+    }
     const openConflict = targetConflicts[0];
-    if (openConflict && !input.forceDelete) {
+    if (boundary !== undefined) {
+      // Leave the user's active edit alone, including an edit waiting for the marker.
+      if (unresolved.length || targetConflicts.length
+        || targetEvents.some((event) => event.status === 'expired' && event.recoveryPending !== false)) continue;
+      const cached = await remoteHeadStore.get([ownerKey, targetKey]) as RemoteHeadCacheV5 | undefined;
+      if (cached && (cached.revision > input.baseRevision!
+        || (isAnnotationHeadV1(cached.head) && (cached.head.bookGeneration ?? 0) >= boundary))) continue;
+    }
+    requireRecoveredTarget(targetEvents, tx);
+    if (openConflict) {
       await conflictStore.put(reopenConflictWithLocalPayload(openConflict, input.payload));
       continue;
     }
     const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, now);
-    let unresolved = targetEvents.filter((event) => activeStatuses.has(event.status));
-    if (input.forceDelete) {
-      for (const event of unresolved) {
-        await outboxStore.put({
-          ...event,
-          status: 'superseded',
-          claimedByTabId: null,
-          claimedLeaseEpoch: null,
-          claimToken: null,
-        });
-      }
-      for (const conflict of targetConflicts) {
-        await conflictStore.put({ ...conflict, state: 'resolved_local', resolvedAt: now });
-      }
-      unresolved = [];
-    }
     const coalesced = unresolved.slice(-1).find((event): event is AnnotationOutboxEventV5 => (
-      event.target.kind === 'annotation'
+      !isMarker
+      && isAnnotationOutboxEventV5(event)
+      && event.deleteBeforeBookGeneration === undefined
+      && !event.forceDelete
       && event.status === 'pending'
       && event.attempts === 0
       && canCoalesceWriteLease(event.eventId, ownerKey)
@@ -913,7 +952,6 @@ export const appendAnnotationEventsToTransactionV5 = async (
         payload: input.payload,
         occurredAtClient: now,
         baseRevision: input.baseRevision ?? coalesced.baseRevision,
-        forceDelete: input.forceDelete ?? coalesced.forceDelete,
         bookGeneration,
         awaitingBookGeneration,
         nextAttemptAt: now,
@@ -937,9 +975,13 @@ export const appendAnnotationEventsToTransactionV5 = async (
       deviceId: context.deviceId,
       sessionId: context.sessionId,
       sequence: meta.nextSequence,
-      baseRevision: meta.knownRevision + unresolved.length,
+      // A cleanup can finish without writing a revision. Its predicted revision is not a causal base.
+      baseRevision: meta.knownRevision + unresolved.filter((event) => (
+        !isAnnotationOutboxEventV5(event) || event.deleteBeforeBookGeneration === undefined
+      )).length,
+      ...(isMarker ? { baseRevision: bookGeneration } : {}),
       ...(input.baseRevision !== undefined ? { baseRevision: input.baseRevision } : {}),
-      ...(input.forceDelete ? { forceDelete: true } : {}),
+      ...(boundary !== undefined ? { deleteBeforeBookGeneration: boundary } : {}),
       bookGeneration,
       ...(awaitingBookGeneration ? { awaitingBookGeneration: true } : {}),
       occurredAtClient: now,
@@ -1660,12 +1702,18 @@ export const bindPendingSyncAuthorityV5 = async (ownerKey: OwnerKey, isCurrent: 
   const db = await initDB();
   const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE], 'readwrite');
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
+  const intents = tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
   const events = await outbox.index('by-owner-status').getAll([ownerKey, 'pending']) as SyncOutboxEventV5[];
   let count = 0;
   for (const event of events) {
     if (!isCurrent()) break;
     if (event.ownerKey !== ownerKey || event.attempts !== 0 || event.claimToken || event.claimedByTabId
-      || !event.eventId.startsWith('unleased_')) continue;
+      || event.claimedLeaseEpoch !== null || !event.eventId.startsWith('unleased_')) continue;
+    if (isAnnotationOutboxEventV5(event) && event.forceDelete) continue;
+    const intent = event.target.kind === 'annotation' && event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+      ? await intents.get([ownerKey, event.target.bookId]) as AnnotationBookDeletionIntentV10 | undefined
+      : undefined;
+    if (intent?.markerEventId === event.eventId && intent.expired) continue;
     const conflicts = await getTargetOpenAndDeferredConflicts(tx.objectStore(V5_SYNC_CONFLICTS_STORE), ownerKey, event.targetKey);
     if (conflicts.length) continue;
     const id = resolvePendingSyncEventId(ownerKey, event.eventId, event.deviceId);
@@ -1673,19 +1721,10 @@ export const bindPendingSyncAuthorityV5 = async (ownerKey: OwnerKey, isCurrent: 
     if (await outbox.get([ownerKey, id])) continue;
     await outbox.add({ ...event, eventId: id });
     await outbox.delete([ownerKey, event.eventId]);
+    if (intent?.markerEventId === event.eventId && intent.writeLeaseEventId === event.eventId) {
+      await intents.put({ ...intent, markerEventId: id, writeLeaseEventId: id });
+    }
     count++;
-  }
-  const intents = tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
-  const bookEvents = await outbox.getAll() as SyncOutboxEventV5[];
-  for (const intent of await intents.index('by-owner').getAll(ownerKey) as AnnotationBookDeletionIntentV10[]) {
-    if (!isCurrent()) break;
-    if (intent.expired || !intent.writeLeaseEventId || !intent.writeLeaseDeviceId) continue;
-    // An intent must not gain authority after any associated deletion was submitted.
-    if (bookEvents.some(event => event.ownerKey === ownerKey
-      && 'bookId' in event.target && event.target.bookId === intent.bookId
-      && (event.attempts > 0 || event.claimToken || event.claimedByTabId))) continue;
-    const id = resolvePendingSyncEventId(ownerKey, intent.writeLeaseEventId, intent.writeLeaseDeviceId);
-    if (id) await intents.put({ ...intent, writeLeaseEventId: id });
   }
   if (!isCurrent()) { tx.abort(); await tx.done.catch(() => undefined); return 0; }
   await tx.done;
@@ -1707,6 +1746,77 @@ export const getSyncMetaV5 = async (ownerKey: OwnerKey, targetKey: string) => {
   return db.get(V5_SYNC_META_STORE, [ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>;
 };
 
+export const supersedeAnnotationDeletionV5 = async (
+  ownerKey: OwnerKey,
+  eventId: string,
+  expectedClaim: ExpectedClaimV5,
+  remoteMarker?: AnnotationHeadV1 | null,
+  now = Date.now(),
+) => {
+  const db = await initDB();
+  const tx = db.transaction([
+    V5_OUTBOX_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE, V5_REMOTE_HEADS_STORE, V5_SYNC_META_STORE,
+  ], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const outbox = tx.objectStore(V5_OUTBOX_STORE);
+  const event = await outbox.get([ownerKey, eventId]) as SyncOutboxEventV5 | undefined;
+  if (!event || !isAnnotationOutboxEventV5(event) || event.operation !== 'annotation.delete'
+    || !ownsExpectedClaim(event, expectedClaim)) {
+    await tx.done;
+    return false;
+  }
+  const isMarker = event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID;
+  if (isMarker && remoteMarker !== undefined) {
+    if (remoteMarker && (!isAnnotationHeadV1(remoteMarker)
+      || remoteMarker.annotationId !== event.target.annotationId || remoteMarker.bookId !== event.target.bookId
+      || remoteMarker.operation !== 'delete')) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw Object.assign(new Error('원격 annotation 삭제 marker가 올바르지 않습니다.'), { code: 'invalid-argument' });
+    }
+    const intents = tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
+    const remoteStore = tx.objectStore(V5_REMOTE_HEADS_STORE);
+    const metaStore = tx.objectStore(V5_SYNC_META_STORE);
+    const intentKey = [ownerKey, event.target.bookId];
+    const targetKey = [ownerKey, event.targetKey];
+    const [intent, cached, meta] = await Promise.all([
+      intents.get(intentKey) as Promise<AnnotationBookDeletionIntentV10 | undefined>,
+      remoteStore.get(targetKey) as Promise<RemoteHeadCacheV5 | undefined>,
+      metaStore.get(targetKey) as Promise<SyncMetaV5 | undefined>,
+    ]);
+    if (cached && remoteMarker && cached.revision === remoteMarker.revision
+      && cached.head.acceptedEventId !== remoteMarker.acceptedEventId) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw Object.assign(new Error('같은 marker revision의 acceptedEventId가 다릅니다.'), { code: 'invalid-argument' });
+    }
+    if (intent?.markerEventId === eventId && !intent.expired) {
+      await intents.put({ ...intent, markerSuperseded: true, lastErrorCode: 'sync/annotation-marker-base-mismatch' });
+    }
+    if (remoteMarker && (!cached || cached.revision < remoteMarker.revision)) {
+      await remoteStore.put({
+        ownerKey, targetKey: event.targetKey, revision: remoteMarker.revision, head: remoteMarker, updatedAt: now,
+      } satisfies RemoteHeadCacheV5);
+      await metaStore.put({
+        ...(meta ?? defaultSyncMeta(ownerKey, event.targetKey, now)),
+        knownRevision: Math.max(meta?.knownRevision ?? 0, remoteMarker.revision),
+        updatedAt: now,
+      } satisfies SyncMetaV5);
+    }
+  } else if (isMarker || event.deleteBeforeBookGeneration === undefined || remoteMarker !== undefined) {
+    await tx.done;
+    return false;
+  }
+  await outbox.put({
+    ...event, status: 'superseded', nextAttemptAt: null,
+    lastErrorCode: isMarker ? 'sync/annotation-marker-base-mismatch' : null,
+    claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null,
+  });
+  await tx.done;
+  notifyProgressSyncWork(ownerKey);
+  return true;
+};
+
 export const acknowledgeProgressEventV5 = async (
   ownerKey: OwnerKey,
   eventId: string,
@@ -1721,6 +1831,7 @@ export const acknowledgeProgressEventV5 = async (
     V5_PROGRESS_STORE,
     V5_REMOTE_HEADS_STORE,
     V5_SYNC_META_STORE,
+    V10_ANNOTATION_BOOK_DELETIONS_STORE,
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
@@ -1729,7 +1840,16 @@ export const acknowledgeProgressEventV5 = async (
     await tx.done;
     return false;
   }
-  if (acceptedRevision !== undefined && event.target.kind === 'progress'
+  const markerBookId = event.target.kind === 'annotation'
+    && event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID ? event.target.bookId : null;
+  if (markerBookId !== null && (event.operation !== 'annotation.delete'
+    || !isAnnotationHeadV1(head) || head.operation !== 'delete' || head.bookId !== markerBookId
+    || head.annotationId !== ANNOTATION_BOOK_DELETE_MARKER_ID || acceptedRevision === undefined)) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    throw Object.assign(new Error('annotation 삭제 marker ACK가 올바르지 않습니다.'), { code: 'invalid-argument' });
+  }
+  if (acceptedRevision !== undefined && (event.target.kind === 'progress' || markerBookId !== null)
     && (!Number.isSafeInteger(acceptedRevision) || acceptedRevision < 1
       || acceptedRevision > head.revision
       || (acceptedRevision === head.revision && head.acceptedEventId !== eventId))) {
@@ -1785,6 +1905,18 @@ export const acknowledgeProgressEventV5 = async (
       new Error(`로컬 sync revision의 acceptedEventId가 일치하지 않습니다: ${event.targetKey}`),
       { code: 'invalid-argument' },
     );
+  }
+  if (markerBookId !== null && acceptedRevision !== undefined) {
+    const intents = tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
+    const intent = await intents.get([ownerKey, markerBookId]) as AnnotationBookDeletionIntentV10 | undefined;
+    if (intent?.markerEventId === eventId && !intent.expired) {
+      if (intent.markerRevision !== undefined && intent.markerRevision !== acceptedRevision) {
+        tx.abort();
+        await tx.done.catch(() => undefined);
+        throw Object.assign(new Error('annotation 삭제 marker receipt가 바뀌었습니다.'), { code: 'invalid-argument' });
+      }
+      await intents.put({ ...intent, markerRevision: acceptedRevision });
+    }
   }
   await Promise.all([
     outbox.delete([ownerKey, eventId]),
@@ -1957,6 +2089,13 @@ export const claimNextProgressEventV5 = async (
   events.sort(eventSort);
   let candidate: SyncOutboxEventV5 | undefined;
   for (const event of events) {
+    if (isAnnotationOutboxEventV5(event) && event.forceDelete) {
+      await outbox.put({
+        ...event, status: 'superseded', nextAttemptAt: null,
+        lastErrorCode: 'sync/annotation-delete-unproven',
+      });
+      continue;
+    }
     const targetEvents = await outbox.index('by-owner-target-sequence').getAll(
       IDBKeyRange.bound(
         [ownerKey, event.targetKey, 0],

@@ -739,26 +739,57 @@ test('serializes concurrent different ids and rejects a duplicate remote range',
   assert.equal(aggregate.data().totalCount, 1);
 });
 
-test('applies a forced book-deletion tombstone at the latest server revision', async () => {
+test('applies a fenced book-deletion tombstone while protecting a concurrent same-ID edit', async () => {
   const db = database();
-  await applyAnnotationEventTransaction({
-    event: annotationEvent(fixtureEvent('force-delete-upsert')),
+  const write = (event) => applyAnnotationEventTransaction({
+    event,
     uid: 'alice',
     firestore: db,
     sdk: { doc, runTransaction, serverTimestamp },
   });
-  const deletion = await applyAnnotationEventTransaction({
-    event: {
-      ...annotationEvent(fixtureEvent('force-delete-tombstone'), 0, 'annotation.delete'),
-      forceDelete: true,
-    },
-    uid: 'alice',
-    firestore: db,
-    sdk: { doc, runTransaction, serverTimestamp },
+  const original = await write(annotationEvent(fixtureEvent('fenced-delete-upsert')));
+  const historical = annotationEvent(fixtureEvent('fenced-historical-upsert'));
+  historical.target.annotationId = 'historical';
+  historical.targetKey = 'annotation:book-1:historical';
+  historical.payload = { ...historical.payload, id: 'historical', rangeCfi: 'epubcfi(/6/4!/4/2,/1:4,/1:8)' };
+  await write(historical);
+  const marker = await write({
+    ...annotationEvent(fixtureEvent('fenced-delete-marker'), 0, 'annotation.delete'),
+    target: { kind: 'annotation', bookId: 'book-1', annotationId: 'book_delete_marker_v1' },
+    targetKey: 'annotation:book-1:book_delete_marker_v1',
+  });
+  const edited = await write({
+    ...annotationEvent(fixtureEvent('fenced-delete-edit'), original.head.revision), bookGeneration: marker.receipt.revision,
+  });
+  assert.equal(edited.status, 'apply');
+
+  const unknownMarker = await write({
+    ...annotationEvent(fixtureEvent('unknown-marker-base'), 0, 'annotation.delete'),
+    target: { kind: 'annotation', bookId: 'book-1', annotationId: 'book_delete_marker_v1' },
+    targetKey: 'annotation:book-1:book_delete_marker_v1',
+  });
+  assert.equal(unknownMarker.status, 'superseded');
+  assert.equal(unknownMarker.remoteMarker.revision, marker.receipt.revision);
+  assert.equal(unknownMarker.remoteMarker.acceptedEventId, marker.receipt.eventId);
+
+  const boundary = marker.receipt.revision;
+  const skipped = await write({
+    ...annotationEvent(fixtureEvent('fenced-delete-skip'), original.head.revision, 'annotation.delete'),
+    deleteBeforeBookGeneration: boundary,
+  });
+  assert.equal(skipped.status, 'superseded');
+  assert.equal((await getDoc(doc(db, annotationPath()))).data().acceptedEventId, edited.receipt.eventId);
+
+  const deletion = await write({
+    ...annotationEvent(fixtureEvent('fenced-delete-tombstone'), 1, 'annotation.delete'),
+    target: historical.target,
+    targetKey: historical.targetKey,
+    deleteBeforeBookGeneration: boundary,
   });
   assert.equal(deletion.status, 'apply');
   assert.equal(deletion.head.revision, 2);
   assert.equal(deletion.head.operation, 'delete');
+  assert.equal((await getDoc(doc(db, annotationAggregatePath()))).data().totalCount, 1);
 });
 
 test('book deletion marker blocks stale offline upserts but allows a new highlight', async () => {
@@ -776,7 +807,6 @@ test('book deletion marker blocks stale offline upserts but allows a new highlig
     deviceId: 'device-1',
     sessionId: 'deleting-session',
     baseRevision: 0,
-    forceDelete: true,
     occurredAtClient: 10,
   };
   await applyAnnotationEventTransaction({

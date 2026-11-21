@@ -497,7 +497,7 @@ test('atomically removes one device book and only the current owner annotations'
   assert.equal((await getLocalAnnotationsV8(ownerB, 'same-id')).length, 1);
 });
 
-test('atomically queues annotation tombstones with authenticated book deletion', async () => {
+test('atomically queues only the marker with authenticated book deletion', async () => {
   let eventSequence = 0;
   await saveBookToLocalV5(
     DEVICE_CONTENT_OWNER_KEY,
@@ -518,16 +518,17 @@ test('atomically queues annotation tombstones with authenticated book deletion',
   assert.equal(await loadBookFromLocalV5(DEVICE_CONTENT_OWNER_KEY, 'same-id'), undefined);
   assert.deepEqual(await getLocalAnnotationsV8(ownerA, 'same-id'), []);
   const events = await getOutboxEventsV5(ownerA);
-  assert.equal(events.length, 2);
-  const annotationDelete = events.find(({ target }) => target.annotationId === 'owner-a');
-  assert.equal(annotationDelete.operation, 'annotation.delete');
-  assert.equal(annotationDelete.forceDelete, true);
-  assert.ok(events.some(({ target }) => target.annotationId === 'book_delete_marker_v1'));
+  assert.equal(events.length, 1);
+  const [marker] = events;
+  assert.equal(marker.target.annotationId, 'book_delete_marker_v1');
+  assert.equal(marker.operation, 'annotation.delete');
   const db = await initDB();
-  assert.ok(await db.get(schema.V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerA, 'same-id']));
+  const intent = await db.get(schema.V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerA, 'same-id']);
+  assert.equal(intent.markerEventId, marker.eventId);
+  assert.equal(intent.markerRevision, undefined);
 });
 
-test('queues authoritative remote-only annotation tombstones during book deletion', async () => {
+test('defers remote-only tombstones until the marker is acknowledged', async () => {
   let eventSequence = 0;
   await saveBookToLocalV5(
     DEVICE_CONTENT_OWNER_KEY,
@@ -543,14 +544,10 @@ test('queues authoritative remote-only annotation tombstones during book deletio
       sessionId: 'session-a',
       createEventId: () => `remote-only-delete-${eventSequence += 1}`,
     },
-    ['remote-only'],
   );
-  assert.deepEqual(result, { annotationsDeleted: 0, tombstonesQueued: 2 });
+  assert.deepEqual(result, { annotationsDeleted: 0, tombstonesQueued: 1 });
   const events = await getOutboxEventsV5(ownerA);
-  assert.equal(events.length, 2);
-  const remoteDelete = events.find(({ target }) => target.annotationId === 'remote-only');
-  assert.equal(remoteDelete.operation, 'annotation.delete');
-  assert.equal(remoteDelete.forceDelete, true);
+  assert.deepEqual(events.map(event => event.target.annotationId), ['book_delete_marker_v1']);
 });
 
 test('aborts the combined book deletion when one store operation fails', async () => {

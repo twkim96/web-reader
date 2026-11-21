@@ -1,3 +1,5 @@
+import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
+import { isAnnotationHeadV1, isAnnotationSyncReceiptV1, type AnnotationHeadV1 } from './annotationSyncSchema';
 import { isEventReceiptV2 } from './progressV2Schema';
 import type { OwnerSnapshot } from './ownerRuntime';
 import { ownerRuntime } from './ownerRuntime';
@@ -13,6 +15,7 @@ import {
   recoverExpiredInFlightEventsV5,
   releaseSyncLeaseV5,
   scheduleProgressEventRetryV5,
+  supersedeAnnotationDeletionV5,
   type SyncHeadV2,
   type SyncConflictV5,
   type SyncOutboxEventV5,
@@ -20,6 +23,7 @@ import {
 } from './syncOutboxV5';
 
 export type SyncTransactionDecision =
+  | { status: 'superseded'; remoteMarker?: AnnotationHeadV1 | null }
   | { status: 'apply' | 'already_applied'; head: SyncHeadV2; receipt: unknown }
   | {
     status: 'conflict';
@@ -42,6 +46,7 @@ type WorkerDependencies = {
   recover?: typeof recoverExpiredInFlightEventsV5;
   releaseLease?: typeof releaseSyncLeaseV5;
   scheduleRetry?: typeof scheduleProgressEventRetryV5;
+  supersede?: typeof supersedeAnnotationDeletionV5;
   now?: () => number;
 };
 
@@ -78,6 +83,7 @@ export class ProgressSyncWorker {
   private readonly recover;
   private readonly releaseLease;
   private readonly scheduleRetry;
+  private readonly supersede;
   private readonly now;
   private lease: SyncLeaseV5 | null = null;
   private recoveredLeaseEpoch: number | null = null;
@@ -99,6 +105,7 @@ export class ProgressSyncWorker {
     this.recover = dependencies.recover ?? recoverExpiredInFlightEventsV5;
     this.releaseLease = dependencies.releaseLease ?? releaseSyncLeaseV5;
     this.scheduleRetry = dependencies.scheduleRetry ?? scheduleProgressEventRetryV5;
+    this.supersede = dependencies.supersede ?? supersedeAnnotationDeletionV5;
     this.now = dependencies.now ?? Date.now;
   }
 
@@ -132,6 +139,10 @@ export class ProgressSyncWorker {
       );
       if (!leaseStillCurrent) return 'stale_lease' as const;
 
+      if (result.status === 'superseded') {
+        const superseded = await this.supersede(this.syncOwnerKey, event.eventId, expectedClaim, result.remoteMarker, completedAt);
+        return superseded ? 'superseded' as const : 'stale_claim' as const;
+      }
       if (result.status === 'conflict') {
         const recorded = await this.recordConflict(
           this.syncOwnerKey,
@@ -160,6 +171,23 @@ export class ProgressSyncWorker {
           || (receipt.revision === result.head.revision && result.head.acceptedEventId !== event.eventId)
           || (result.status === 'apply' && receipt.revision !== result.head.revision)) {
           throw Object.assign(new Error('진행률 receipt와 head가 요청 event와 일치하지 않습니다.'), { code: 'invalid-argument' });
+        }
+        acceptedRevision = receipt.revision;
+      }
+      if (event.target.kind === 'annotation' && event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID) {
+        const { receipt, head } = result;
+        if (!isAnnotationSyncReceiptV1(receipt)
+          || receipt.eventId !== event.eventId
+          || receipt.targetKind !== 'annotation'
+          || receipt.targetKey !== event.targetKey
+          || receipt.bookId !== event.target.bookId
+          || receipt.annotationId !== event.target.annotationId
+          || !isAnnotationHeadV1(head) || head.operation !== 'delete'
+          || head.bookId !== event.target.bookId || head.annotationId !== event.target.annotationId
+          || receipt.revision > head.revision
+          || (receipt.revision === head.revision && head.acceptedEventId !== event.eventId)
+          || (result.status === 'apply' && receipt.revision !== head.revision)) {
+          throw Object.assign(new Error('annotation 삭제 marker receipt가 요청 event와 일치하지 않습니다.'), { code: 'invalid-argument' });
         }
         acceptedRevision = receipt.revision;
       }

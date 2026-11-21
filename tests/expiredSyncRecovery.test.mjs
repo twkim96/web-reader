@@ -293,7 +293,7 @@ test('legacy and reloaded deletion intents hydrate canonical annotations and unb
   process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
   try {
     const db = await initDB();
-    for (const [index, fields] of [{}, { writeLeaseEventId: 'unleased_restored', writeLeaseDeviceId: 'device' }].entries()) {
+    for (const [index, fields] of [{}, { markerEventId: 'unleased_restored', writeLeaseEventId: 'unleased_restored', writeLeaseDeviceId: 'device' }].entries()) {
       const bookId = `restored-${index}`;
       const intent = { ownerKey: owner, bookId, createdAt: fixtureServerNow - 1000, lastCheckedAt: null, ...fields };
       await db.put(intentStore, intent);
@@ -324,7 +324,7 @@ test('legacy and reloaded deletion intents hydrate canonical annotations and unb
         { deviceId: 'device', sessionId: 'session', createEventId: () =>
           `wl1_12345678-1234-4234-8234-123456789abc_${fixtureServerNow}_${crypto.randomUUID()}` });
       assert.equal(saved.status, 'saved');
-      assert.equal(await db.get(intentStore, [owner, bookId]), undefined);
+      assert.deepEqual(await db.get(intentStore, [owner, bookId]), recovered);
       assert.equal((await db.getAll(V5_OUTBOX_STORE)).filter(item => item.forceDelete).length, 0);
     }
   } finally {
@@ -338,8 +338,9 @@ test('live pending deletion intent waits for binding without canonical fetch or 
   process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
   try {
     const db = await initDB();
+    const markerEventId = createSyncEventId(owner, 'device');
     const intent = { ownerKey: owner, bookId: 'live-pending', createdAt: fixtureServerNow, lastCheckedAt: null,
-      writeLeaseEventId: createSyncEventId(owner, 'device'), writeLeaseDeviceId: 'device' };
+      markerEventId, writeLeaseEventId: markerEventId, writeLeaseDeviceId: 'device' };
     await db.put(intentStore, intent);
     assert.deepEqual(await listExpiredSyncRecoveryTargets(owner, fixtureServerNow), []);
     let calls = 0;
