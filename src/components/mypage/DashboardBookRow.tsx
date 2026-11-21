@@ -5,14 +5,14 @@ import { ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useMouseDragScroll } from '../../hooks/useMouseDragScroll';
 import { MY_PAGE_DASHBOARD_BOOK_LIMIT } from '../../lib/myPageSocial';
-import { BookCover } from './BookCover';
+import { BookCover, type BookCoverLoading } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 
 const showAllClass = '-mr-2 flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-xs opacity-65 hover:text-accent-500 hover:opacity-100';
 const showAllContent = <>전체 보기 <ChevronRight size={16} aria-hidden="true" /></>;
 
 export function DashboardBookRow<T extends { id: string; title: string; coverUrl: string | null; coverTitle?: string | null }>({
-  title, books, onOpenBook, getDetailId, getBookKey, onShowAll, showAllHref, renderDetail, proxy, children,
+  title, books, onOpenBook, getDetailId, getBookKey, onShowAll, showAllHref, renderDetail, coverLoading, children,
 }: {
   title: string;
   books: readonly T[];
@@ -22,7 +22,7 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
   onShowAll?: () => void;
   showAllHref?: string;
   renderDetail?: (book: T) => ReactNode;
-  proxy?: boolean;
+  coverLoading?: BookCoverLoading;
   children?: ReactNode;
 }) {
   const drag = useMouseDragScroll();
@@ -47,7 +47,7 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
                 <BookDetailLink bookId={detailId} onOpen={() => onOpenBook(book)} label={book.title}
                   className="group block rounded-lg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
                   <BookCover url={book.coverUrl} identity={detailId ?? key}
-                    title={book.coverTitle === undefined ? book.title : book.coverTitle} large proxy={proxy} />
+                    title={book.coverTitle === undefined ? book.title : book.coverTitle} large coverLoading={coverLoading} />
                   <span className="mt-2 line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:text-accent-500">{book.title}</span>
                   {renderDetail?.(book)}
                 </BookDetailLink>

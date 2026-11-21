@@ -28,6 +28,8 @@ const metadataFixtureHook = registerHooks({
   },
 });
 const { MyPage } = await import('../src/components/mypage/MyPage.tsx');
+const { ReadBooks } = await import('../src/components/mypage/ReadBooks.tsx');
+const { BookCover } = await import('../src/components/mypage/BookCover.tsx');
 test.after(() => metadataFixtureHook.deregister());
 
 const owner = 'guest:mypage-test|library:local';
@@ -520,6 +522,122 @@ test('a reopened read list shows confirmed matches while the new title is still 
     await act(async () => root.unmount());
     await closeLocalDB();
     delete globalThis.myPageTestMetadata;
+  }
+});
+
+test('read book rows load eligible covers directly and fall back to the proxy once', async (t) => {
+  const { window, root } = setup('#mypage/read');
+  const ownerKey = 'firebase:read-cover-test|library:local';
+  const start = Date.UTC(2026, 10, 21, 1);
+  const covers = {
+    direct: ['series', 'https://comicthumb-phinf.pstatic.net/cover.png?type=w160'],
+    hotlink: ['kakao', 'https://dn-img-page.kakao.com/blocked.png'],
+    offline: ['series', 'https://comicthumb-phinf.pstatic.net/unavailable.png'],
+    novelpia: ['novelpia', 'https://novelpia.com/imagebox/cover/redirect.file'],
+  };
+  const records = [];
+  const metadata = new Map();
+  for (const [title, [platform, coverUrl]] of Object.entries(covers)) {
+    const startedAtClient = start + records.length * 60_000;
+    records.push({
+      schemaVersion: 1, sessionId: title, bookId: title, bookTitle: title, deviceId: 'fixture-device',
+      startedAtClient, endedAtClient: startedAtClient + 60_000, durationMs: 60_000,
+      startProgressPercent: 1, endProgressPercent: 10, timezoneOffsetMinutes: 0, localDate: '2026-11-21',
+      mode: 'screen', completed: false,
+    });
+    metadata.set(title, { observedAt: Date.now(), metadata: {
+      schemaVersion: 1, titleKey: title, displayTitle: title, normalizerVersion: '1.3.3',
+      publishedAt: new Date(start).toISOString(),
+      platforms: [{
+        platform, label: platform, title, url: `https://example.test/${title}`, coverUrl, lastSuccessAt: new Date(start).toISOString(),
+        downloadCount: null, interestCount: null, viewCount: null, recommendCount: null, rating: null, ratingCount: null,
+      }],
+    } });
+  }
+  await hydrateRemoteReadingSessionsPageV12(ownerKey, records, null, null, true, false);
+  await cacheReadBookMetadata(ownerKey, metadata);
+  const proxyCalls = [];
+  t.mock.method(globalThis, 'fetch', async (path, options) => {
+    assert.equal(path, '/api/book-cover/source');
+    assert.equal(options.method, 'POST');
+    const { url } = JSON.parse(options.body);
+    proxyCalls.push(url);
+    if (url === covers.offline[1]) return new Response(null, { status: 502 });
+    return new Response(new Blob(['cover'], { type: 'image/png' }));
+  });
+  const originalObserver = globalThis.IntersectionObserver;
+  const observed = new Set();
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { this.callback = callback; }
+    observe() { observed.add(this); }
+    disconnect() { observed.delete(this); }
+  };
+  const readProps = { ownerKey, getDetailId: () => null, onOpenBook() {} };
+  const row = title => [...window.document.querySelectorAll('article')].find(item => item.querySelector('h3')?.textContent === title);
+  const image = title => row(title).querySelector('img');
+  const revealCovers = () => act(async () => {
+    for (const observer of [...observed]) observer.callback([{ isIntersecting: true }]);
+  });
+  try {
+    await act(async () => root.render(React.createElement(ReadBooks, readProps)));
+    for (let attempt = 0; attempt < 40 && !row('direct'); attempt++) await act(async () => delay(10));
+    assert.ok(row('direct'));
+    assert.equal(image('direct'), null);
+    assert.deepEqual(proxyCalls, []);
+    await revealCovers();
+    assert.equal(image('direct').getAttribute('src'), covers.direct[1]);
+    assert.equal(image('direct').getAttribute('referrerPolicy'), 'no-referrer');
+    assert.equal(image('hotlink').getAttribute('src'), covers.hotlink[1]);
+    assert.match(image('novelpia').getAttribute('src'), /^blob:/);
+    assert.deepEqual(proxyCalls, [covers.novelpia[1]]);
+    const fail = title => act(async () => image(title).dispatchEvent(new window.Event('error')));
+    await fail('hotlink');
+    assert.match(image('hotlink').getAttribute('src'), /^blob:/);
+    await fail('offline');
+    assert.equal(row('offline').querySelector('[data-generated-book-cover-title]').textContent, 'offline');
+    await fail('hotlink');
+    assert.equal(row('hotlink').querySelector('[data-generated-book-cover-title]').textContent, 'hotlink');
+    assert.deepEqual(proxyCalls, [covers.novelpia[1], covers.hotlink[1], covers.offline[1]]);
+
+    await act(async () => root.render(React.createElement(ReadBooks, { ...readProps, onShowAll() {} })));
+    await revealCovers();
+    const strip = window.document.querySelector('[aria-label="읽은 도서 가로 목록"]');
+    assert.ok([...strip.querySelectorAll('img')].some(img => img.getAttribute('src') === covers.direct[1]));
+    assert.ok(!proxyCalls.includes(covers.direct[1]));
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+    if (originalObserver === undefined) delete globalThis.IntersectionObserver;
+    else globalThis.IntersectionObserver = originalObserver;
+  }
+});
+
+test('a previous cover request cannot replace a newer URL for the same book', async (t) => {
+  const { window, root } = setup();
+  const originalUrl = 'https://comicthumb-phinf.pstatic.net/cover.png?type=w160';
+  const updatedUrl = 'https://comicthumb-phinf.pstatic.net/cover.png?type=w200';
+  let finish;
+  let signal;
+  t.mock.method(globalThis, 'fetch', (_url, options) => {
+    signal = options.signal;
+    return new Promise(resolve => { finish = resolve; });
+  });
+  const render = url => act(async () => root.render(React.createElement(BookCover, {
+    url, identity: 'same-book', title: '표지', coverLoading: 'direct-with-proxy-fallback',
+  })));
+  try {
+    await render(originalUrl);
+    await act(async () => delay(5));
+    const image = () => window.document.querySelector('img');
+    await act(async () => image().dispatchEvent(new window.Event('error')));
+    assert.equal(signal.aborted, false);
+    await render(updatedUrl);
+    assert.equal(signal.aborted, true);
+    await act(async () => finish(new Response(new Blob(['old cover'], { type: 'image/png' }))));
+    await act(async () => delay(5));
+    assert.equal(image().getAttribute('src'), updatedUrl);
+  } finally {
+    await act(async () => root.unmount());
   }
 });
 
