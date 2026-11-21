@@ -268,7 +268,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     ], null, null, true, false);
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
     assert.deepEqual([...visible('nav').querySelectorAll('button')].map((button) => button.querySelector('span').textContent), [
-      '대시보드', '도서목록', '둘러보기', '읽은 책', '위시리스트', '내 평가', '통계', '주석',
+      '홈', '도서', '피드', '보관', '기록',
     ]);
     const readList = () => visible('section[aria-label="읽은 책"] .mypage-divided-list');
     for (let attempt = 0; attempt < 20 && !readList().children.length; attempt++) await act(async () => delay(20));
@@ -355,7 +355,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.equal(visible('[aria-label="별점 4.5점"]'), null);
     assert.match(visible('[role="alert"]').textContent, /서버와 연결하지 못했습니다/);
     const openMenu = (label) => click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent === label));
-    await openMenu('도서목록');
+    await openMenu('도서');
     await click(window, visible(`a[aria-label="${title}"]`));
     for (let attempt = 0; attempt < 20 && editor().querySelector('button[aria-label="4.5점"]').disabled; attempt++) {
       await act(async () => delay(10));
@@ -364,7 +364,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.ok(editor().querySelector('[aria-label="별점 4.5점"]'));
     assert.deepEqual(writes[3].readingSnapshot, writes[0].readingSnapshot);
-    await openMenu('읽은 책');
+    await openMenu('보관');
     for (let attempt = 0; attempt < 20 && !visible(`a[aria-label="${title} 내 평가, 별점 4.5점"]`); attempt++) {
       await act(async () => delay(10));
     }
@@ -372,7 +372,9 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.ok(updatedLink);
     assert.equal(updatedLink.querySelectorAll('svg[fill="currentColor"]').length, 5);
     assert.equal(updatedLink.querySelectorAll('svg[fill="none"]').length, 1);
-    await click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent.startsWith('위시리스트')));
+    const openCollectionTab = (label) => click(window, [...visible('nav[aria-label="보관 메뉴"]').querySelectorAll('button')]
+      .find((button) => button.textContent === label));
+    await openCollectionTab('위시리스트');
     await click(window, visible(`a[aria-label="${unread.title}"]`));
     await act(async () => { await delay(0); });
     assert.equal(visible('[aria-label="내 독서 기록"]'), null);
@@ -385,7 +387,8 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     assert.deepEqual(writes[4].fileIds, []);
     assert.equal(writes[4].readingSnapshot, null);
     assert.ok(editor().querySelector('[aria-label="별점 3점"]'));
-    await click(window, [...visible('nav').querySelectorAll('button')].find((button) => button.textContent === '내 평가'));
+    await openMenu('보관');
+    await openCollectionTab('내 평가');
     const allReviews = () => visible('section[aria-label="내 평가"] .mypage-divided-list');
     assert.equal(allReviews().children.length, 1);
     await act(async () => finishUnread());
@@ -395,7 +398,7 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
 
     // The visible read list retains the old metadata. The detail requests it
     // again and receives null for a separate edition of the same work.
-    await openMenu('읽은 책');
+    await openMenu('보관');
     const editionLink = () => visible('a[href="#mypage/book/published-second/review"]');
     const editionRow = () => editionLink()?.closest('article');
     for (let n = 0; n < 20 && !editionRow()?.textContent.includes('2분 읽음'); n++) {
@@ -448,7 +451,7 @@ test('MyPage renders as a page, removes saved books, and isolates account change
     await click(window, window.document.querySelector('button[aria-label="테스트 도서 위시리스트 제거"]'));
     assert.equal(window.location.hash, '#mypage/wishlist');
     assert.match(window.document.querySelector('main').textContent, /담아둔 책 0권/);
-    const dashboard = [...window.document.querySelectorAll('nav button')].find(button => button.textContent === '대시보드');
+    const dashboard = [...window.document.querySelectorAll('nav button')].find(button => button.textContent === '홈');
     await click(window, dashboard);
     assert.equal(window.location.hash, '#mypage/overview');
     await act(async () => window.history.back());
@@ -545,7 +548,7 @@ test('a saved title opens a themed detail page with optional private records and
     assert.match(main().textContent, /테스트 도서/);
     const freshOwner = 'guest:detail-other|library:local';
     await act(async () => root.render(React.createElement(MyPage, { ...props, key: freshOwner, ownerKey: freshOwner })));
-    await click(window, [...window.document.querySelectorAll('nav button')].find((button) => button.textContent === '도서목록'));
+    await click(window, [...window.document.querySelectorAll('nav button')].find((button) => button.textContent === '도서'));
     const selected = main().querySelectorAll(`article a[href="#mypage/book/${encodeURIComponent(saved.id)}"]`);
     assert.equal(selected.length, 1);
     await click(window, selected[0]);

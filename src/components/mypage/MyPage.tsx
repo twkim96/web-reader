@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, BookCopy, BookOpen, BookOpenCheck, Check, ChevronLeft, ChevronRight, Compass, Heart, Highlighter, LayoutDashboard, Library, Plus, Search, ChartNoAxesColumn, Settings2, Star } from 'lucide-react';
+import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, House, Library, Plus, Search, Settings2 } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { groupDiscoveryBooks, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
@@ -22,20 +22,26 @@ import { LibraryAnnotations } from '../LibraryAnnotations';
 import { LibraryReadingStatisticsModal } from '../LibraryReadingStatisticsModal';
 import type { SyncHealth } from '../../lib/syncHealth';
 
-type Tab = 'overview' | 'wishlist' | 'read' | 'discover' | 'statistics' | 'annotations' | 'browse' | 'sharing' | 'reviews';
-const tabs = [
-  { id: 'overview', label: '대시보드', icon: LayoutDashboard },
-  { id: 'discover', label: '도서목록', icon: BookCopy },
-  { id: 'browse', label: '둘러보기', icon: Compass },
-  { id: 'read', label: '읽은 책', icon: BookOpenCheck },
-  { id: 'wishlist', label: '위시리스트', icon: Heart },
-  { id: 'reviews', label: '내 평가', icon: Star },
-  { id: 'statistics', label: '통계', icon: ChartNoAxesColumn },
-  { id: 'annotations', label: '주석', icon: Highlighter },
-  { id: 'sharing', label: '공개 설정', icon: Settings2 },
-] as const;
-const menuTabs = tabs.filter(({ id }) => id !== 'sharing');
-const mobileMenuPageSize = 4;
+const tabLabels = {
+  overview: '대시보드',
+  discover: '도서목록',
+  browse: '둘러보기',
+  read: '읽은 책',
+  wishlist: '위시리스트',
+  reviews: '내 평가',
+  statistics: '통계',
+  annotations: '주석',
+  sharing: '공개 설정',
+} as const;
+
+type Tab = keyof typeof tabLabels;
+const primaryMenu = [
+  { label: '홈', icon: House, tabs: ['overview'] },
+  { label: '도서', icon: BookCopy, tabs: ['discover'] },
+  { label: '피드', icon: Compass, tabs: ['browse'] },
+  { label: '보관', icon: Archive, tabs: ['read', 'wishlist', 'reviews'] },
+  { label: '기록', icon: ChartNoAxesColumn, tabs: ['statistics', 'annotations'] },
+] satisfies readonly { label: string; icon: typeof House; tabs: readonly [Tab, ...Tab[]] }[];
 const desktopQuery = '(min-width: 640px)';
 const headerActions = [
   { id: 'shelf', label: '내 서재', icon: Library },
@@ -46,7 +52,8 @@ const readTab = (): Tab => {
   const candidate = readBookDetailId(window.location.hash)
     ? window.history.state?.myPageBookFrom ?? 'discover'
     : window.location.hash.split('/')[1];
-  return candidate === 'people' ? 'browse' : tabs.find(({ id }) => id === candidate)?.id ?? 'overview';
+  if (candidate === 'people') return 'browse';
+  return typeof candidate === 'string' && Object.hasOwn(tabLabels, candidate) ? candidate as Tab : 'overview';
 };
 const readDetailId = () => typeof window === 'undefined' ? null : readBookDetailId(window.location.hash);
 const inputClass = 'min-h-11 min-w-0 rounded-lg px-3 ring-1 ring-inset ring-current/15 text-sm focus-visible:outline-2 focus-visible:outline-accent-500';
@@ -79,9 +86,7 @@ export function MyPage(props: Props) {
   const [focusReview, setFocusReview] = useState(() => typeof window !== 'undefined' && hasBookReviewTarget(window.location.hash));
   const [compactMenu, setCompactMenu] = useState(false);
   const [mobileScrolled, setMobileScrolled] = useState(false);
-  const [mobileMenuOverride, setMobileMenuOverride] = useState<0 | 1>();
   const titleRow = useRef<HTMLElement>(null);
-  const menu = useRef<HTMLElement>(null);
   const [openedBook, setOpenedBook] = useState<{ id: string; book: DiscoveryBook | ReadBook }>();
   const readListScroll = useRef<number | null>(null);
   const restoreReadListScroll = useRef(false);
@@ -130,22 +135,6 @@ export function MyPage(props: Props) {
       window.removeEventListener('resize', update);
     };
   }, []);
-  useEffect(() => {
-    const nav = menu.current;
-    const selected = nav?.querySelector('[aria-current="page"]');
-    if (!compactMenu || !nav || !selected) return;
-    const keepSelectedVisible = () => {
-      const { left, right } = nav.getBoundingClientRect();
-      const selectedBounds = selected.getBoundingClientRect();
-      if (selectedBounds.left < left) nav.scrollLeft += selectedBounds.left - left;
-      else if (selectedBounds.right > right) nav.scrollLeft += selectedBounds.right - right;
-    };
-    keepSelectedVisible();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(keepSelectedVisible);
-    observer.observe(nav);
-    return () => observer.disconnect();
-  }, [compactMenu, tab]);
   const navigate = (next: Tab) => {
     if (next === tab && !bookId) return;
     readListScroll.current = null;
@@ -153,7 +142,6 @@ export function MyPage(props: Props) {
     setTab(next);
     setBookId(null);
     setFocusReview(false);
-    setMobileMenuOverride(undefined);
     if (window.matchMedia?.(desktopQuery).matches === false) {
       window.scrollTo({ top: 0, behavior: 'instant' });
       return;
@@ -169,7 +157,6 @@ export function MyPage(props: Props) {
     setOpenedBook(book ? { id, book } : undefined);
     setBookId(id);
     setFocusReview(reviewTarget);
-    setMobileMenuOverride(undefined);
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
   const openBook = (book: DiscoveryBook | ReadBook, reviewTarget = false) => {
@@ -188,7 +175,6 @@ export function MyPage(props: Props) {
       setTab(nextTab);
       setBookId(nextBook);
       setFocusReview(hasBookReviewTarget(window.location.hash));
-      setMobileMenuOverride(undefined);
     };
     window.addEventListener('popstate', update);
     window.addEventListener('hashchange', update);
@@ -261,7 +247,8 @@ export function MyPage(props: Props) {
   }, [genre, query, sorted, source, tag]);
   const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setTag(''); setVisibleCount(60); };
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
-  const detail = tabs.find(({ id }) => id === tab)!;
+  const detailLabel = tabLabels[tab];
+  const activeGroup = primaryMenu.find(({ tabs }) => tabs.some((id) => id === tab));
   const loading = tab === 'discover' ? !catalog && !catalogError : wishlist.loading;
   const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
   const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
@@ -282,26 +269,18 @@ export function MyPage(props: Props) {
       ))}
     </div>
   );
-  const mobileMenuPage = mobileMenuOverride ?? (
-    menuTabs.findIndex(({ id }) => id === tab) < mobileMenuPageSize ? 0 : 1
-  );
-  const mobileMenuStart = mobileMenuPage * mobileMenuPageSize;
-  const arrowLabel = mobileMenuPage === 0 ? '다음 메뉴' : '이전 메뉴';
-  const mobileArrow = (
-    <button key="page" type="button" aria-label={arrowLabel} title={arrowLabel}
-      onClick={() => setMobileMenuOverride(mobileMenuPage === 0 ? 1 : 0)}
-      className="grid min-h-14 place-items-center opacity-65 hover:text-accent-500 hover:opacity-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
-      {mobileMenuPage === 0 ? <ChevronRight size={21} aria-hidden="true" /> : <ChevronLeft size={21} aria-hidden="true" />}
-    </button>
-  );
-  const mobileItems = menuTabs.slice(mobileMenuStart, mobileMenuStart + mobileMenuPageSize).map(({ id, label, icon: Icon }) => (
-    <button key={id} type="button" onClick={() => openTab(id)} aria-label={label} title={label}
-      aria-current={id === tab ? 'page' : undefined}
-      className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 ${id === tab ? 'text-accent-500' : 'opacity-65 hover:opacity-100'}`}>
-      <Icon size={20} aria-hidden="true" />
-      {id === tab && <span className="max-w-full truncate text-[11px] font-semibold leading-4">{label}</span>}
-    </button>
-  ));
+  const mainItems = primaryMenu.map((group) => {
+    const selected = group === activeGroup;
+    const { icon: Icon, label, tabs: [firstTab] } = group;
+    return (
+      <button key={firstTab} type="button" aria-current={selected ? 'page' : undefined}
+        onClick={() => openTab(selected ? tab : firstTab)}
+        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 sm:min-h-11 sm:flex-row sm:gap-1.5 sm:rounded-xl sm:px-2.5 sm:text-sm ${selected ? 'font-semibold text-accent-500 sm:bg-accent-500/10' : 'font-medium opacity-65 hover:bg-current/5 hover:opacity-100'}`}>
+        <Icon size={19} aria-hidden="true" className="shrink-0" />
+        <span>{label}</span>
+      </button>
+    );
+  });
 
   return (
     <div data-my-page="true" className="min-h-dvh [--mypage-title-height:6rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
@@ -319,21 +298,8 @@ export function MyPage(props: Props) {
             {compactMenu && (
               <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
             )}
-            <nav ref={menu} aria-label="마이페이지 메뉴" className={`flex gap-1 overflow-x-auto [scrollbar-width:none] motion-safe:transition-[margin] motion-safe:duration-200 [&::-webkit-scrollbar]:hidden ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
-              {menuTabs.filter(({ id }) => signedIn || id !== 'reviews').map(({ id, label, icon: Icon }) => {
-                const selected = tab === id;
-                const iconOnly = compactMenu && !selected;
-                const size = iconOnly ? 'w-11' : `px-3 text-sm ${compactMenu ? 'gap-2 whitespace-nowrap' : 'gap-2.5'}`;
-                return (
-                  <button key={id} type="button" onClick={() => openTab(id)} title={label}
-                    aria-current={selected ? 'page' : undefined}
-                    className={`flex min-h-11 shrink-0 items-center justify-center rounded-xl transition-colors ${size} ${selected ? 'bg-[color-mix(in_srgb,var(--accent-500)_10%,transparent)] font-semibold text-accent-500' : 'opacity-60 hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:opacity-100'}`}>
-                    <Icon size={compactMenu ? 19 : 17} aria-hidden="true" />
-                    <span className={iconOnly ? 'sr-only' : undefined}>{label}</span>
-                    {!compactMenu && id === 'wishlist' && wishlist.entries.length > 0 && <span className="ml-auto pl-2 text-xs tabular-nums">{wishlist.entries.length}</span>}
-                  </button>
-                );
-              })}
+            <nav aria-label="마이페이지 메뉴" className={`flex gap-1 motion-safe:transition-[margin] motion-safe:duration-200 ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
+              {mainItems}
             </nav>
           </div>
         </div>
@@ -347,11 +313,21 @@ export function MyPage(props: Props) {
       </header>
       <footer className="fixed inset-x-0 bottom-0 z-40 border-t border-current/10 bg-[var(--viewer-theme-bg)] pb-[env(safe-area-inset-bottom)] sm:hidden">
         <nav aria-label="마이페이지 하단 메뉴" className="grid grid-cols-5">
-          {mobileMenuPage === 0 ? [...mobileItems, mobileArrow] : [mobileArrow, ...mobileItems]}
+          {mainItems}
         </nav>
       </footer>
       <div className="mx-auto max-w-5xl px-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] pt-6 sm:px-8 sm:pb-14 sm:pt-8">
-        <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detail.label}>
+        {!bookId && activeGroup && activeGroup.tabs.length > 1 && (
+          <nav aria-label={`${activeGroup.label} 메뉴`} className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 mb-6 flex flex-wrap gap-x-5 bg-[var(--viewer-theme-bg)] sm:top-[3.25rem] sm:mb-8 sm:gap-x-7">
+            {activeGroup.tabs.map((id) => (
+              <button key={id} type="button" onClick={() => openTab(id)} aria-current={tab === id ? 'page' : undefined}
+                className={`min-h-11 whitespace-nowrap border-b-2 px-1 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-accent-500 ${tab === id ? 'border-accent-500 font-semibold text-accent-500' : 'border-transparent opacity-65 hover:opacity-100'}`}>
+                {tabLabels[id]}
+              </button>
+            ))}
+          </nav>
+        )}
+        <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detailLabel}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={ownerKey} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
@@ -377,7 +353,7 @@ export function MyPage(props: Props) {
             ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />
             : <p className="mypage-section text-sm">공개 설정은 로그인 후 이용할 수 있습니다.</p>)}
           {browse && <>
-            <div className="flex items-end justify-between gap-3"><div><h2 className="text-xl font-semibold">{detail.label}</h2><p className="mt-1.5 text-xs opacity-45">{tab === 'wishlist' ? `담아둔 책 ${wishlist.entries.length.toLocaleString()}권` : groupedCatalog ? `공개 메타데이터 ${groupedCatalog.books.length.toLocaleString()}권` : '공개 메타데이터에서 읽고 싶은 책을 찾아보세요.'}</p></div>{tab === 'wishlist' && <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white"><Plus size={15} />추가</button>}</div>
+            <div className="flex items-end justify-between gap-3"><div><h2 className="text-xl font-semibold">{detailLabel}</h2><p className="mt-1.5 text-xs opacity-45">{tab === 'wishlist' ? `담아둔 책 ${wishlist.entries.length.toLocaleString()}권` : groupedCatalog ? `공개 메타데이터 ${groupedCatalog.books.length.toLocaleString()}권` : '공개 메타데이터에서 읽고 싶은 책을 찾아보세요.'}</p></div>{tab === 'wishlist' && <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white"><Plus size={15} />추가</button>}</div>
             <section aria-label="도서 검색 및 필터" className="space-y-2.5">
               <label className="flex items-center gap-2.5 rounded-lg px-3 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input aria-label="도서 제목 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 검색" className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
