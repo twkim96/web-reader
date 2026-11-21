@@ -432,14 +432,16 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
   const scenarios = [
     { name: 'adopted R7', headRevision: 7, baseRevision: 7, status: 'apply' },
     { name: 'unadopted R8', headRevision: 8, baseRevision: 7, status: 'conflict' },
+    { name: 'R8 adopted while already queued', headRevision: 8, baseRevision: 7, status: 'conflict', adoptWhileQueued: true },
     { name: 'explicitly ignored R8', headRevision: 8, baseRevision: 8, status: 'apply', ignore: true },
     { name: 'same-tab position ACK', baseRevision: 8, status: 'apply', ack: 'own' },
     { name: 'same-tab position awaiting ACK', baseRevision: 8, status: 'apply', ack: 'pending' },
+    { name: 'same-tab position still committing', baseRevision: 8, status: 'apply', ack: 'overlap' },
     { name: 'same-tab receipt replay with newer unadopted head', baseRevision: 8, status: 'conflict', ack: 'replay' },
     { name: 'other device position ACK', baseRevision: 7, status: 'conflict', ack: 'other-device' },
     { name: 'independent same-tab viewport ACK', baseRevision: 7, status: 'conflict', ack: 'other-viewport' },
   ];
-  for (const { name, headRevision, baseRevision, status, ignore, ack } of scenarios) {
+  for (const { name, headRevision, baseRevision, status, ignore, ack, adoptWhileQueued } of scenarios) {
     test(`${action} uses the shelf reset baseline with ${name}`, async () => {
       const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT'];
       const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
@@ -506,18 +508,19 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
         let baselineEventId = adoptedHead.acceptedEventId;
         let baselineRevision = adoptedHead.revision;
         if (ack) {
-          await act(async () => assert.equal(await actions.saveProgress('next-cfi', 35, undefined, {
+          const save = () => actions.saveProgress('next-cfi', 35, undefined, {
             anchorCfi: 'next-cfi',
             causalRevision: 7,
             causalAcceptedEventId: adoptedHead.acceptedEventId,
             causalViewportId: 'reading-viewport',
-          }), true));
+          });
+          if (ack !== 'overlap') await act(async () => assert.equal(await save(), true));
           storedHead = adoptedHead;
           const worker = new ProgressSyncWorker(owner, 'sync-leader', async (event) => {
             if (event.target.kind === 'bookmark') return decideBookmarkTransaction({ event, serverTime: {} });
             const request = { event, storedHead, storedReceipt: undefined, serverTime: {} };
             const applied = decideProgressTransaction(request);
-            assert.equal(applied.status, 'apply');
+            if (applied.status !== 'apply') return applied;
             storedHead = ack === 'replay' ? { ...remoteHead, revision: 9 } : applied.head;
             return ack === 'replay'
               ? decideProgressTransaction({ ...request, storedHead, storedReceipt: applied.receipt })
@@ -525,9 +528,17 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
           });
           let acknowledgedRevision = 8;
           try {
-            if (ack === 'pending') {
-              await act(async () => root.render(React.createElement(Harness, { reading: false })));
-              await act(async () => assert.equal(await actions[action](initial.bookId, owner), true));
+            if (ack === 'pending' || ack === 'overlap') {
+              if (ack === 'overlap') {
+                await act(async () => {
+                  const saving = save();
+                  const resetting = actions[action](initial.bookId, owner);
+                  assert.deepEqual(await Promise.all([saving, resetting]), [true, true]);
+                });
+              } else {
+                await act(async () => root.render(React.createElement(Harness, { reading: false })));
+                await act(async () => assert.equal(await actions[action](initial.bookId, owner), true));
+              }
               assert.equal(await worker.flushOne(), 'apply');
               for (let attempt = 0; attempt <= initial.bookmarks.length && storedHead.operation !== 'reset'; attempt += 1) {
                 assert.equal(await worker.flushOne(), 'apply');
@@ -571,7 +582,20 @@ for (const action of ['deleteProgress', 'deleteBookProgress']) {
         if (ignore) {
           await act(async () => assert.equal(await actions.ignoreRemoteProgress(initial.bookId, 8), true));
         }
-        await act(async () => assert.equal(await actions[action](initial.bookId, owner), true));
+        await act(async () => {
+          const adoption = adoptWhileQueued
+            ? actions.adoptRemoteProgress({
+              ...initial,
+              ...remoteHead.position,
+              operation: 'set',
+              syncRevision: remoteHead.revision,
+              acceptedEventId: remoteHead.acceptedEventId,
+            })
+            : undefined;
+          const resetting = actions[action](initial.bookId, owner);
+          if (adoption) assert.equal((await adoption).status, 'adopted');
+          assert.equal(await resetting, true);
+        });
 
         const events = await getOutboxEventsV5(ownerKey);
         const positionEvents = events.filter(({ target }) => target.kind === 'progress');
