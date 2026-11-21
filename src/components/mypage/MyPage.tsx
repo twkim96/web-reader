@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, House, Library, Plus, Search, Settings2 } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
-import { groupDiscoveryBooks, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
 import type { ReadBook } from '../../lib/readBooks';
 import type { MyPageBrowseSection } from '../../lib/myPageSocial';
@@ -61,6 +61,47 @@ const bookOrder: Record<CatalogSort, (a: DiscoveryBook, b: DiscoveryBook) => num
   popular: (a, b) => (b.popularity ?? -1) - (a.popularity ?? -1) || a.title.localeCompare(b.title, 'ko'),
   views: (a, b) => (b.sourceCount ?? -1) - (a.sourceCount ?? -1) || a.title.localeCompare(b.title, 'ko'),
 };
+const sourceCountFormat = new Intl.NumberFormat('ko', { notation: 'compact', maximumFractionDigits: 1 });
+type DiscoveryList = {
+  searchableTitles: ReadonlyMap<string, readonly string[]>;
+  genres: readonly string[];
+  tags: readonly string[];
+  books: readonly DiscoveryBook[];
+};
+const discoveryListCache = new WeakMap<readonly DiscoveryBook[], Map<CatalogSort, DiscoveryList>>();
+
+function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): DiscoveryList {
+  let sorts = discoveryListCache.get(rows);
+  if (!sorts) {
+    sorts = new Map();
+    discoveryListCache.set(rows, sorts);
+  }
+  const cached = sorts.get(sort);
+  if (cached) return cached;
+
+  const grouped = getGroupedBookDiscovery(rows);
+  const base = sorts.values().next().value ?? (() => {
+    const searchableTitles = new Map<string, string[]>();
+    for (const item of rows) {
+      const id = grouped.byId.get(item.id)?.id ?? item.id;
+      const titles = searchableTitles.get(id) ?? [];
+      titles.push(item.title.normalize('NFC').toLocaleLowerCase());
+      searchableTitles.set(id, titles);
+    }
+    const genres = new Set<string>();
+    const counts = new Map<string, number>();
+    for (const book of grouped.books) {
+      if (book.genre) genres.add(book.genre);
+      for (const name of book.tags) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    const tags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120).map(([name]) => name);
+    return { searchableTitles, genres: [...genres].sort(), tags };
+  })();
+  const list = { ...base, books: [...grouped.books].sort(bookOrder[sort]) };
+  sorts.set(sort, list);
+  return list;
+}
+
 const desktopQuery = '(min-width: 640px)';
 const headerActions = [
   { id: 'shelf', label: '내 서재', icon: Library },
@@ -121,7 +162,7 @@ export function MyPage(props: Props) {
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
-  const groupedCatalog = useMemo(() => catalog ? groupDiscoveryBooks(catalog) : null, [catalog]);
+  const groupedCatalog = catalog ? getGroupedBookDiscovery(catalog) : null;
   const readBookDetailId = (book: ReadBook) =>
     groupedCatalog && book.platformWorkKeys?.length ? resolveReadBookDiscovery(groupedCatalog, book).book?.id ?? null : null;
   const reviews = useMyPageReviews(ownerKey, signedIn && (tab === 'read' || Boolean(bookId)));
@@ -206,16 +247,6 @@ export function MyPage(props: Props) {
   const discoverySource = matchingSource && 'platforms' in matchingSource ? matchingSource : undefined;
   const discovering = tab === 'discover';
   const browse = discovering || tab === 'wishlist';
-  const searchableTitles = useMemo(() => {
-    const titles = new Map<string, string[]>();
-    for (const item of (discovering ? catalog ?? [] : [])) {
-      const id = groupedCatalog?.byId.get(item.id)?.id ?? item.id;
-      const values = titles.get(id) ?? [];
-      values.push(item.title.normalize('NFC').toLocaleLowerCase());
-      titles.set(id, values);
-    }
-    return titles;
-  }, [discovering, catalog, groupedCatalog]);
   const readMatch = readSource && groupedCatalog ? resolveReadBookDiscovery(groupedCatalog, readSource) : undefined;
   const detailBook = !bookId ? undefined : readSource ? readMatch?.book : groupedCatalog?.byId.get(bookId)
     ?? discoverySource ?? wishlist.entries.find(({ book }) => book.id === bookId)?.book;
@@ -232,24 +263,22 @@ export function MyPage(props: Props) {
     return () => { active = false; };
   }, [catalog, needsCatalog, retry]);
   const retryCatalog = () => { setCatalogError(false); setRetry((value) => value + 1); };
-  const discoveryBooks = discovering ? groupedCatalog?.books : undefined;
-  const genres = useMemo(() => [...new Set((discoveryBooks ?? []).flatMap((book) => book.genre ? [book.genre] : []))].sort(), [discoveryBooks]);
-  const tags = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const book of discoveryBooks ?? []) for (const name of book.tags) counts.set(name, (counts.get(name) ?? 0) + 1);
-    return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120).map(([name]) => name);
-  }, [discoveryBooks]);
-  const sortedDiscovery = useMemo(() => [...(discoveryBooks ?? [])].sort(bookOrder[discoverySort]), [discoveryBooks, discoverySort]);
+  const discoveryList = discovering && !bookId && catalog ? getDiscoveryList(catalog, discoverySort) : null;
+  const discoveryBooks = discoveryList?.books;
+  const genres = discoveryList?.genres ?? [];
+  const tags = discoveryList?.tags ?? [];
   const discoveryResults = useMemo(() => {
+    if (!discovering || bookId || !catalog) return [];
+    const { books, searchableTitles } = getDiscoveryList(catalog, discoverySort);
     const normalized = query.trim().normalize('NFC').toLocaleLowerCase();
-    return sortedDiscovery.filter((book) => (
+    return books.filter((book) => (
       (!normalized || (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
         .some((title) => title.includes(normalized)))
       && (!source || book.platforms.some((platform) => platform.id === source))
       && (!genre || book.genre === genre)
       && (!tag || book.tags.includes(tag))
     ));
-  }, [genre, query, searchableTitles, sortedDiscovery, source, tag]);
+  }, [discovering, bookId, catalog, discoverySort, genre, query, source, tag]);
   const wishlistResults = useMemo(() => {
     if (tab !== 'wishlist') return [];
     if (wishlistSort === 'saved') return [...wishlist.entries].sort((a, b) => b.addedAt - a.addedAt).map(({ book }) => book);
@@ -402,7 +431,7 @@ export function MyPage(props: Props) {
                       <BookCover url={book.coverUrl} identity={book.id} title={book.title} />
                       <div className="min-w-0 flex-1">
                         <h3 className="line-clamp-2 text-sm font-semibold leading-6 group-hover:text-accent-500">{book.title}</h3>
-                        <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 opacity-50">{book.genre && <span>{book.genre}</span>}{[...new Set(book.platforms.map(({ label }) => label))].map((label) => <span key={label}>{label}</span>)}{book.sourceCount !== null && <span>{new Intl.NumberFormat('ko', { notation: 'compact', maximumFractionDigits: 1 }).format(book.sourceCount)} 조회·다운로드</span>}</div>
+                        <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 opacity-50">{book.genre && <span>{book.genre}</span>}{[...new Set(book.platforms.map(({ label }) => label))].map((label) => <span key={label}>{label}</span>)}{book.sourceCount !== null && <span>{sourceCountFormat.format(book.sourceCount)} 조회·다운로드</span>}</div>
                         {book.tags.length > 0 && <p className="mt-1 truncate text-[11px] opacity-40">{book.tags.slice(0, 5).map((name) => `#${name}`).join(' ')}</p>}
                       </div>
                     </BookDetailLink>

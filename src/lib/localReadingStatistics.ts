@@ -650,12 +650,31 @@ export const recordReadingStatisticsHydrationMetricsV12 = async (
   return true;
 };
 
+const queuedSessionReads = new Map<OwnerKey, { result: Promise<StoredReadingSessionV11[]>; shared: boolean }>();
+
 export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
-  const db = await initDB();
-  const values = await db.getAllFromIndex(V11_READING_SESSIONS_STORE, 'by-owner', ownerKey);
-  return values.map(assertStoredSession).sort((left, right) => (
-    left.startedAtClient - right.startedAtClient || left.sessionId.localeCompare(right.sessionId)
-  ));
+  let read = queuedSessionReads.get(ownerKey);
+  if (read) {
+    read.shared = true;
+  } else {
+    const result = (async () => {
+      const db = await initDB().finally(() => {
+        // A caller arriving after transaction submission opens a new snapshot.
+        queuedSessionReads.delete(ownerKey);
+      });
+      const values = await db.getAllFromIndex(V11_READING_SESSIONS_STORE, 'by-owner', ownerKey);
+      return values.map(assertStoredSession).sort((left, right) => (
+        left.startedAtClient - right.startedAtClient || left.sessionId.localeCompare(right.sessionId)
+      ));
+    })();
+    read = { result, shared: false };
+    queuedSessionReads.set(ownerKey, read);
+  }
+  const sessions = await read.result;
+  if (!read.shared) return sessions;
+  return sessions.map((session) => session.activeIntervals
+    ? { ...session, activeIntervals: session.activeIntervals.map((interval) => ({ ...interval })) }
+    : { ...session });
 };
 
 export const getPendingReadingSessionsV11 = async (

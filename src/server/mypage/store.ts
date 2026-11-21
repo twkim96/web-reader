@@ -51,10 +51,6 @@ function accountFrom(code: string, data: DocumentData): MyPageAccount {
   return { code, nickname, revision, visibility: parseMyPageVisibility(visibility) ?? { reviews: false, wishlist: false } };
 }
 
-function identityFrom({ code, nickname }: MyPageAccount): MyPageIdentity {
-  return { code, nickname };
-}
-
 function ownedAccount(code: string, data: DocumentData | undefined, uid: string): MyPageAccount {
   if (!data || data.uid !== uid) throw new Error('MyPage account profile is missing or mismatched');
   return accountFrom(code, data);
@@ -358,6 +354,7 @@ export async function workPublicReviews(
 
   return db.runTransaction(async (transaction) => {
     const byAuthor = workIds.length > 1 ? new Map<string, DatedReview>() : null;
+    const publicAuthors = new Map<string, MyPageIdentity | null>();
     const latest: PublicWorkReview[] = [];
     let ratingCount = 0;
     let ratingSum = 0;
@@ -378,11 +375,17 @@ export async function workPublicReviews(
             && storedWorkId === workId && publishedAt instanceof Timestamp && validReviewFields(reviewFields(document.data()));
         });
         if (entries.length > 0) {
-          const authors = await transaction.getAll(...entries.map((entry) => profiles(db).doc(entry.id)));
-          const publicAuthors = new Map(authors.flatMap((author) => {
-            const account = publicAccount(author.id, author.data())?.account;
-            return account?.visibility.reviews ? [[author.id, identityFrom(account)] as const] : [];
-          }));
+          const unknown = entries.filter(({ id }) => !publicAuthors.has(id));
+          if (unknown.length) {
+            const authors = await transaction.getAll(...unknown.map(({ id }) => profiles(db).doc(id)),
+              { fieldMask: ['nickname', 'visibility'] });
+            for (const author of authors) {
+              const nickname = author.get('nickname');
+              const visibility = parseMyPageVisibility(author.get('visibility'));
+              publicAuthors.set(author.id, visibility?.reviews && typeof nickname === 'string'
+                ? { code: author.id, nickname } : null);
+            }
+          }
           for (const entry of entries) {
             const author = publicAuthors.get(entry.id);
             if (!author) continue;
@@ -396,6 +399,7 @@ export async function workPublicReviews(
             const previous = byAuthor.get(author.code);
             if (!previous || newestFirst(dated, previous) < 0) byAuthor.set(author.code, dated);
           }
+          if (!byAuthor) publicAuthors.clear();
         }
         if (page.size < REVIEW_PAGE_SIZE) break;
         page = await transaction.get(query.startAfter(page.docs[page.docs.length - 1]));

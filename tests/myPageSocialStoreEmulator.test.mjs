@@ -146,6 +146,13 @@ test('public reviews scan beyond the display limit and pin visibility and aliase
   batch.create(entries(workId).doc('anonymous-legacy'), {
     ...review(1), publishedAt: Timestamp.fromMillis(baseTime + 1),
   });
+  const malformedCode = `${codePrefix}777`;
+  batch.create(db.collection('publicReaderProfilesV1').doc(malformedCode), {
+    uid: randomUUID(), nickname: 'Malformed visibility', revision: 1, visibility: { reviews: true },
+  });
+  batch.create(entries(alias).doc(malformedCode), {
+    code: malformedCode, workId: alias, ...review(5), publishedAt: Timestamp.fromMillis(baseTime),
+  });
   await batch.commit();
   await updateReview(db, uid, workId, review(4), null);
   await updateReview(db, uid, alias, review(1), null);
@@ -157,12 +164,20 @@ test('public reviews scan beyond the display limit and pin visibility and aliase
 
   const originalRunTransaction = db.runTransaction.bind(db);
   let toggled = false;
+  let profileReads = 0;
   const mock = t.mock.method(db, 'runTransaction', async (callback, options) => {
     if (options?.readTime && !toggled) {
       toggled = true;
       await changeAccount(uid, shown, { wishlist: true });
     }
-    return originalRunTransaction(callback, options);
+    return originalRunTransaction(async (transaction) => {
+      const getAll = transaction.getAll.bind(transaction);
+      transaction.getAll = (...args) => {
+        profileReads += args.filter((ref) => ref.id === shown.code).length;
+        return getAll(...args);
+      };
+      return callback(transaction);
+    }, options);
   });
   let pinned;
   try {
@@ -171,6 +186,7 @@ test('public reviews scan beyond the display limit and pin visibility and aliase
     mock.mock.restore();
   }
   assert.ok(toggled);
+  assert.equal(profileReads, 1, 'both alias entries share the same author read at the pinned visibility snapshot');
   assert.deepEqual(pinned.reviews[0], {
     author: { code: shown.code, nickname: shown.nickname }, ...review(1),
   });

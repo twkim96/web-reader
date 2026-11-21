@@ -37,6 +37,45 @@ test.beforeEach(async ({ page }) => {
   } }));
 });
 
+test('a deep-linked book prepares catalog search only when the list opens', async ({ page }) => {
+  await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
+    schemaVersion: 1, generation: 'catalog-preparation-test', genres: ['판타지'], tags: ['모험'],
+    books: [
+      ['canonical', '대표 도서', null, [['series', 'https://example.test/1']], 0, [0], 100, 12_000],
+      ['other-title', '탐색용 별칭 제목', null, [['series', 'https://example.test/1']], 0, [0], 90, null],
+    ],
+  } }));
+  await page.addInitScript(() => {
+    const lower = String.prototype.toLocaleLowerCase;
+    String.prototype.toLocaleLowerCase = function (...args) {
+      if (String(this) === '탐색용 별칭 제목') {
+        performance.mark('alias-search-prepared');
+      }
+      return lower.apply(this, args);
+    };
+  });
+  const preparations = () => page.evaluate(() => performance.getEntriesByName('alias-search-prepared').length);
+  await page.goto('/#mypage/book/other-title');
+  await expect(page.getByRole('region', { name: '도서 기본정보' }).getByRole('heading', { name: '대표 도서' })).toBeVisible();
+  expect(await preparations()).toBe(0);
+  const openList = async () => {
+    const search = page.getByRole('textbox', { name: '도서 제목 검색' });
+    await expect(search).toBeVisible();
+    await search.fill('별칭 제목');
+    const book = page.getByRole('link', { name: '대표 도서', exact: true });
+    await expect(book).toBeVisible();
+    await expect(book).toContainText('1.2만 조회·다운로드');
+  };
+  await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
+  await openList();
+  expect(await preparations()).toBe(1);
+  await page.getByRole('button', { name: '내 서재', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
+  await page.evaluate(() => { window.location.hash = '#mypage/discover'; });
+  await openList();
+  expect(await preparations()).toBe(1);
+});
+
 test('My Page brings its desktop back button, menu and shortcuts together on scroll', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 700 });
   await page.goto('/#mypage/discover');

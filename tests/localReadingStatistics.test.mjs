@@ -94,6 +94,27 @@ test('uses a distinct durable draft journal key for every closed session', () =>
   assert.match(first, /session-1$/);
 });
 
+test('simultaneous statistics readers share one owner query and later reads see committed writes', async (t) => {
+  const record = { ...makeSession(), mode: 'tts', activeIntervals: [{ startedAtClient: 1_000, endedAtClient: 61_000 }] };
+  await saveLocalReadingSessionV11(owner, record);
+  await saveLocalReadingSessionV11(guest, makeSession('guest-only'));
+  const reads = t.mock.method(IDBIndex.prototype, 'getAll');
+  const [dashboard, readBooks, guestRows] = await Promise.all([
+    getLocalReadingSessionsV11(owner), getLocalReadingSessionsV11(owner), getLocalReadingSessionsV11(guest),
+  ]);
+  const readsFor = (key) => reads.mock.calls.filter(({ arguments: [query] }) => query === key).length;
+  assert.equal(readsFor(owner), 1);
+  assert.equal(readsFor(guest), 1);
+  assert.deepEqual(guestRows.map(({ sessionId }) => sessionId), ['guest-only']);
+  assert.deepEqual(dashboard, readBooks);
+  dashboard[0].activeIntervals[0].startedAtClient++;
+  assert.equal(readBooks[0].activeIntervals[0].startedAtClient, 1_000);
+
+  await saveLocalReadingSessionV11(owner, makeSession('next-session'));
+  assert.deepEqual((await getLocalReadingSessionsV11(owner)).map(({ sessionId }) => sessionId), ['next-session', 'session-1']);
+  assert.equal(readsFor(owner), 2);
+});
+
 test('stores Firebase sessions pending, replays idempotently, and hydrates them synced', async () => {
   const record = makeSession();
   await saveLocalReadingSessionV11(owner, record);

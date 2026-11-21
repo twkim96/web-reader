@@ -113,6 +113,16 @@ export function groupDiscoveryBooks(rows: readonly DiscoveryBook[]) {
   return { books, byId, equivalents, platforms };
 }
 
+const groupedDiscoveryCache = new WeakMap<readonly DiscoveryBook[], ReturnType<typeof groupDiscoveryBooks>>();
+
+export function getGroupedBookDiscovery(rows: readonly DiscoveryBook[]) {
+  const cached = groupedDiscoveryCache.get(rows);
+  if (cached) return cached;
+  const grouped = groupDiscoveryBooks(rows);
+  groupedDiscoveryCache.set(rows, grouped);
+  return grouped;
+}
+
 export function resolveReadBookDiscovery(
   catalog: ReturnType<typeof groupDiscoveryBooks>,
   book: { id: string; equivalentTitleKeys?: string[]; platformWorkKeys?: string[] },

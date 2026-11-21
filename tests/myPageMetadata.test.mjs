@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createDiscoveryLoader, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
+import { createDiscoveryLoader, getGroupedBookDiscovery, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
 import { cacheReadBookMetadata, readCachedReadBookMetadata as readCachedMatches } from '../src/lib/readBookMetadataCache.ts';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
@@ -98,6 +98,18 @@ test('discovery joins transitive catalog aliases and retains distinct links on t
     'https://books.example/1', 'https://books.example/2', 'https://books.example/3',
   ]);
   assert.equal(root.platforms.length, 1);
+});
+
+test('reentering discovery with the same loaded catalog reuses its canonical index', async () => {
+  const load = createDiscoveryLoader(async () => index);
+  const first = getGroupedBookDiscovery(await load());
+  assert.equal(getGroupedBookDiscovery(await load()), first);
+  assert.equal(first.byId.get('stable-title-key').title, '마법의 책');
+  const next = getGroupedBookDiscovery(parseDiscoveryIndex({
+    ...index, books: [[index.books[0][0], '새 제목', ...index.books[0].slice(2)]],
+  }));
+  assert.notEqual(next, first);
+  assert.equal(next.byId.get('stable-title-key').title, '새 제목');
 });
 
 test('legacy review export retains recorded platform keys, title-only reviews and local originals', async () => {
