@@ -79,6 +79,27 @@ test('code collision retries, rename retains identity, and public profile follow
   assert.equal(await lookupPublicAccount(db, initial.code), null);
 });
 
+test('saving unchanged account settings keeps the profile revision and update time', async () => {
+  const uid = randomUUID();
+  const account = await ensureAccount(db, uid);
+  const profile = db.collection('publicReaderProfilesV1').doc(account.code);
+  const stored = await profile.get();
+
+  assert.deepEqual(await updateAccount(db, uid, account), account);
+  assert.ok((await profile.get()).updateTime.isEqual(stored.updateTime));
+
+  const updated = await changeAccount(uid, account, { wishlist: true });
+  assert.equal(updated.revision, account.revision + 1);
+  await assert.rejects(updateAccount(db, uid, { ...updated, revision: account.revision }), ConflictError);
+
+  // Malformed legacy visibility is interpreted as private, but an explicit
+  // save should still repair the stored fields for subsequent queries.
+  await profile.update({ visibility: null });
+  const repaired = await updateAccount(db, uid, { ...updated, visibility });
+  assert.equal(repaired.revision, updated.revision + 1);
+  assert.deepEqual((await profile.get()).get('visibility'), visibility);
+});
+
 test('item revisions isolate works and preserve tombstones during import', async () => {
   const uid = randomUUID();
   const account = await ensureAccount(db, uid);

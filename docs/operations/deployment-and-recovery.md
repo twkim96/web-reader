@@ -54,7 +54,7 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 운영 `web-novel-viewer/(default)`에 전체 구형 쓰기 차단 Rules `fc42c724-e63a-4375-9714-32974b13c8fd`를 배포했습니다. Firebase가 기록한 릴리스 시각은 `2026-11-19T10:02:48.004421Z`입니다. 최대 전파 시간 10분을 더하고 분 단위로 올려, 유예 시작은 **2026-11-19 19:13 KST**, 최초 TTL 활성화 가능 시각은 **2027-03-19 19:13 KST**로 기록했습니다. 배포 후 운영 소스 일치와 TTL 정책 부재를 확인했습니다. [Firestore Rules 전파 안내](https://firebase.google.com/docs/firestore/security/get-started#deploying_rules)
 
-TTL을 쓰는 경우 `eventReceipts` 컬렉션 그룹의 `createdAtServer`에 120일 오프셋을 설정합니다. 기존 문서의 재작성은 필요 없습니다. TTL은 컬렉션 그룹 전체에 적용되므로 모든 경로의 구형 쓰기 차단과 권한 소급 연장 금지를 확인하고, 확인 시각 T부터 120일이 지난 뒤에만 활성화합니다. 활성화 시 이미 만료된 문서도 삭제 대상이 됩니다. [Firestore TTL](https://firebase.google.com/docs/firestore/ttl)
+Firestore TTL은 컬렉션 그룹에서 지정한 필드의 절대 만료 시각을 사용합니다. `eventReceipts`에 적용하려면 `expireAt` 같은 타임스탬프 필드를 두고 생성 시각과 차단 시각 T 각각에서 120일이 지나는 조건을 충족해야 합니다. 기존 영수증에는 만료 시각 채우기 또는 안전하게 한도를 둔 별도 정리가 필요합니다. TTL 삭제에는 결제 활성화가 필요하고 무료 할당량이 적용되지 않습니다. 적용 전에 모든 경로의 구형 쓰기 차단, 권한 소급 연장 금지, 유예 완료와 기존 문서 정리 비용을 확인합니다. [Firestore TTL](https://firebase.google.com/docs/firestore/ttl) · [Firestore 요금](https://firebase.google.com/docs/firestore/pricing#free-quota)
 
 정리 시작 후에는 구형 쓰기를 허용하는 Rules로 되돌리거나 쓰기 권한 기간을 소급 연장하지 않습니다. 정리 시작 전에 구형 쓰기를 다시 허용했다면 유예 시각 T는 다음 차단 시각부터 다시 계산합니다. UI를 되돌릴 때도 서버 만료 차단과 IndexedDB v16 outbox를 지원하는 버전을 사용합니다. 업데이트가 구버전 연결 때문에 대기 중이면 열린 앱과 탭을 닫고 최신 앱을 엽니다. DB 버전 오류가 발생하면 로컬 데이터와 대기열을 보존한 채 호환 버전으로 복구합니다. 정리를 중단하려면 서버 정리 플래그부터 끄고 payload·outbox·head·tombstone을 보존해 조사합니다.
 

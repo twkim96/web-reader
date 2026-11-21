@@ -3,7 +3,7 @@ import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import { resolveLegacyReviewWork, resolveSocialWork, resolveWishlistWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
-import { reportMyPageApiTiming } from '../../../server/mypage/performance';
+import { reportMyPageApiTiming, type ReadingEvidenceRoute } from '../../../server/mypage/performance';
 import { legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
 import {
   currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listPublicProfileReviews, listPublicProfileWishlist,
@@ -24,8 +24,8 @@ const publicSections = ['reviews', 'wishlist'] as const;
 const epoch = Timestamp.fromMillis(0);
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const fail = (status: number) => json({ error: 'request-failed' }, status);
-const evidenceFor = (db: Firestore, uid: string, workId: string, fileIds: readonly string[]) => (
-  getSocialReadingEvidence(db, uid, workId, fileIds).catch(() => undefined)
+const evidenceFor = (db: Firestore, uid: string, workId: string, fileIds: readonly string[], route: ReadingEvidenceRoute) => (
+  getSocialReadingEvidence(db, uid, workId, fileIds, route).catch(() => undefined)
 );
 const reviewWorkDetails = (work: Awaited<ReturnType<typeof resolveSocialWork>>) => ({
   aliases: work?.equivalentWorkIds ?? [],
@@ -342,7 +342,7 @@ export async function POST(request: Request) {
             ? null : await resolveLegacyReviewWork(db, workIds, platformWorkKeys);
           if (!work) { unavailable++; continue; }
           const workId = work.book.id;
-          const evidence = await evidenceFor(db, uid, workId, []);
+          const evidence = await evidenceFor(db, uid, workId, [], 'reading-evidence-import');
           const imported = await importReview(db, uid, workId, { rating, comment: comment.trim(), ...evidence }, input.accountRevision, work.equivalentWorkIds);
           if (imported) current++;
           else kept++;
@@ -417,7 +417,7 @@ export async function POST(request: Request) {
       const verified = hasCoverage || readingSnapshotVersion === 1 ? local : null;
       // Clients that omitted the snapshot expect server evidence in this response.
       const fallback = readingSnapshot === undefined
-        ? await evidenceFor(db, uid, resolved.book.id, fileIds) : undefined;
+        ? await evidenceFor(db, uid, resolved.book.id, fileIds, 'reading-evidence-legacy') : undefined;
       const { review, applied } = await updateReviewWithStatus(
         db, uid, workId, {
           ...verified, rating, comment: comment.trim(),
@@ -427,7 +427,7 @@ export async function POST(request: Request) {
       );
       if (applied && review && review.totalMs == null && review.progressPercent == null && !verified && readingSnapshot !== undefined && !importOnly) {
         after(async () => {
-          const snapshot = await evidenceFor(db, uid, resolved.book.id, fileIds);
+          const snapshot = await evidenceFor(db, uid, resolved.book.id, fileIds, 'reading-evidence-deferred');
           if (snapshot?.totalMs == null || snapshot.progressPercent == null) return;
           await fillReviewReading(db, uid, review, snapshot);
         });

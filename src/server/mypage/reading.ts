@@ -2,6 +2,7 @@ import { FieldPath, type Firestore, type QueryDocumentSnapshot } from 'firebase-
 import { APP_ID } from '../../lib/appIdentity';
 import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, type ReadingSessionV1 } from '../../lib/readingStatistics';
 import { resolveSocialReadingTitle, resolveSocialWork } from './catalog';
+import { reportMyPageApiTiming, type ReadingEvidenceRoute } from './performance';
 
 type Work = { fileIds: Set<string>; progress: number };
 type Summary = {
@@ -9,6 +10,7 @@ type Summary = {
   totals: Map<string, number>;
   conflictedWorks: Set<string>;
   marker: string | null;
+  empty: boolean;
   builtAt: number;
 };
 const caches = new WeakMap<Firestore, Map<string, { expires: number; promise: Promise<Summary> }>>();
@@ -18,13 +20,17 @@ const RECHECK_MS = 30_000;
 const FULL_REFRESH_MS = 5 * 60_000;
 
 // After a short reuse window, check the latest upload before rescanning history.
-async function summary(db: Firestore, uid: string): Promise<Summary> {
+async function summary(db: Firestore, uid: string, route?: ReadingEvidenceRoute): Promise<Summary> {
   if (!uid || uid.includes('/')) throw new Error('Invalid account');
   let cache = caches.get(db);
   if (!cache) { cache = new Map(); caches.set(db, cache); }
   const found = cache.get(uid);
   if (found && found.expires > Date.now()) return found.promise;
-  const promise = buildSummary(db, uid, found?.promise);
+  const start = performance.now();
+  const counts = { markerDocuments: 0, scanQueries: 0, scanDocuments: 0, emptyScanQueries: 0 };
+  const promise = buildSummary(db, uid, counts, found?.promise).finally(() => {
+    if (route) reportMyPageApiTiming(route, start, counts);
+  });
   cache.delete(uid);
   cache.set(uid, { expires: Date.now() + RECHECK_MS, promise });
   while (cache.size > 64) cache.delete(cache.keys().next().value!);
@@ -32,19 +38,31 @@ async function summary(db: Firestore, uid: string): Promise<Summary> {
   return promise;
 }
 
-async function buildSummary(db: Firestore, uid: string, previous?: Promise<Summary>): Promise<Summary> {
+async function buildSummary(
+  db: Firestore,
+  uid: string,
+  counts: { markerDocuments: number; scanQueries: number; scanDocuments: number; emptyScanQueries: number },
+  previous?: Promise<Summary>,
+): Promise<Summary> {
   const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
   const latest = (await collection.orderBy('uploadedAtServer', 'desc').limit(1).get()).docs[0];
+  counts.markerDocuments = Number(Boolean(latest));
   const stamp = latest?.get('uploadedAtServer');
   const marker = stamp ? JSON.stringify([stamp.seconds, stamp.nanoseconds, latest.id]) : null;
   const retained = await previous?.catch(() => null);
-  if (marker && retained?.marker === marker && Date.now() - retained.builtAt < FULL_REFRESH_MS) return retained;
+  // orderBy excludes legacy documents without uploadedAtServer. Reuse a null
+  // marker only if a prior scan confirmed the collection itself was empty.
+  if (retained && retained.marker === marker && (marker !== null || retained.empty)
+    && Date.now() - retained.builtAt < FULL_REFRESH_MS) return retained;
 
   const ordered = collection.orderBy(FieldPath.documentId()).limit(PAGE_SIZE);
   const sessions: ReadingSessionV1[] = [];
   let cursor: QueryDocumentSnapshot | undefined;
   for (;;) {
+    counts.scanQueries++;
     const snapshot = await (cursor ? ordered.startAfter(cursor) : ordered).get();
+    counts.scanDocuments += snapshot.docs.length;
+    counts.emptyScanQueries += Number(snapshot.docs.length === 0);
     for (const doc of snapshot.docs) {
       const value = doc.data();
       if (typeof value.startedAtClient !== 'number' || typeof value.timezoneOffsetMinutes !== 'number') continue;
@@ -100,13 +118,15 @@ async function buildSummary(db: Firestore, uid: string, previous?: Promise<Summa
     const id = sessionWork.get(session.sessionId);
     if (id) totals.set(id, (totals.get(id) ?? 0) + durationMs);
   });
-  return { works, totals, conflictedWorks, marker, builtAt: Date.now() };
+  return { works, totals, conflictedWorks, marker, empty: counts.scanDocuments === 0, builtAt: Date.now() };
 }
 
-export async function getSocialReadingEvidence(db: Firestore, uid: string, canonicalWorkId: string, fileIds: readonly string[]): Promise<{ totalMs: number | null; progressPercent: number | null }> {
+export async function getSocialReadingEvidence(
+  db: Firestore, uid: string, canonicalWorkId: string, fileIds: readonly string[], route?: ReadingEvidenceRoute,
+): Promise<{ totalMs: number | null; progressPercent: number | null }> {
   const resolved = await resolveSocialWork(db, canonicalWorkId);
   if (!resolved || resolved.book.id !== canonicalWorkId) return { totalMs: null, progressPercent: null };
-  const data = await summary(db, uid);
+  const data = await summary(db, uid, route);
   if (data.conflictedWorks.has(canonicalWorkId)) return { totalMs: null, progressPercent: null };
   const work = data.works.get(canonicalWorkId);
   // File ids are hints only; a supplied id must actually belong to this work.

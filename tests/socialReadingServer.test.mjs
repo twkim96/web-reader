@@ -66,6 +66,44 @@ test('explicit social work links require one published root even when the title 
   assert.equal((await resolveSocialWork(db, first.id, [])).book.id, first.id);
 });
 
+test('reuses a verified empty history and rescans after the first server-timestamped upload', async (t) => {
+  const book = (await loadSocialCatalog()).values().next().value;
+  const session = {
+    schemaVersion: 1, sessionId: 'session', bookId: 'file', bookTitle: book.id, deviceId: 'device',
+    mode: 'screen', startedAtClient: 1000, endedAtClient: 3000, durationMs: 2000,
+    startProgressPercent: 1, endProgressPercent: 10, timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false,
+  };
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const rows = [];
+  let fullScans = 0;
+  const db = { collection: () => ({
+    orderBy: (field) => ({ limit: () => ({ get: async () => {
+      if (field === 'uploadedAtServer') return { docs: rows.filter((row) => row.get('uploadedAtServer')) };
+      fullScans++;
+      return { docs: rows };
+    } }) }),
+  }) };
+  const evidence = (uid) => getSocialReadingEvidence(db, uid, book.id, ['file']);
+  const expectEvidence = { totalMs: 2000, progressPercent: 10 };
+
+  await evidence('new-account');
+  now += 31_000;
+  await evidence('new-account');
+  assert.equal(fullScans, 1);
+
+  rows.push({ id: session.sessionId, get: () => ({ seconds: 1, nanoseconds: 0 }), data: () => session });
+  now += 31_000;
+  assert.deepEqual(await evidence('new-account'), expectEvidence);
+  assert.equal(fullScans, 2);
+
+  rows[0] = { ...rows[0], get: () => undefined };
+  assert.deepEqual(await evidence('legacy-account'), expectEvidence);
+  now += 31_000;
+  assert.deepEqual(await evidence('legacy-account'), expectEvidence);
+  assert.equal(fullScans, 4);
+});
+
 test('published aliases prove reading while private titles and unrelated file hints do not escape', async () => {
   const catalog = await loadSocialCatalog();
   const book = catalog.values().next().value;

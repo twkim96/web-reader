@@ -1103,7 +1103,7 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
   };
   let reads = 0;
   let readAttempts = 0;
-  let successfulReads = 0;
+  const documentsPerQuery = [];
   const startAfterArguments = [];
   const sdk = {
     collection: () => ({}),
@@ -1124,11 +1124,11 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
   };
   const page = await getRemoteReadingSessionsPageV1({}, 'alice', null, 1, sdk, {
     onReadAttempt: () => { readAttempts += 1; },
-    onReadSuccess: () => { successfulReads += 1; },
+    onReadSuccess: (documents) => { documentsPerQuery.push(documents); },
   });
   assert.equal(reads, 2);
   assert.equal(readAttempts, 2);
-  assert.equal(successfulReads, 2);
+  assert.deepEqual(documentsPerQuery, [1, 1]);
   assert.equal(page.remoteReadAttemptCount, 2);
   assert.equal(page.remoteReadCount, 2);
   assert.equal(startAfterArguments[0][0], malformedDocument);

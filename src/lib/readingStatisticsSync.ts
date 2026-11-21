@@ -181,7 +181,7 @@ export const getRemoteReadingSessionsPageV1 = async (
   },
   instrumentation: {
     onReadAttempt?: () => void;
-    onReadSuccess?: () => void;
+    onReadSuccess?: (returnedDocuments: number) => void;
   } = {},
 ) => {
   const reference = sdk.collection(
@@ -195,7 +195,7 @@ export const getRemoteReadingSessionsPageV1 = async (
     instrumentation.onReadAttempt?.();
     const result = await sdk.getDocsFromServer(remoteQuery);
     remoteReadCount += 1;
-    instrumentation.onReadSuccess?.();
+    instrumentation.onReadSuccess?.(result.size);
     return result;
   };
   let snapshot = await readSnapshot(sdk.query(

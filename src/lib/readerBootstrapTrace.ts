@@ -4,6 +4,7 @@ export type ReaderBootstrapTraceEvent = {
     | 'listener-attached'
     | 'authoritative-snapshot'
     | 'listener-reconciled'
+    | 'reading-statistics-hydration'
     | 'remote-decision'
     | 'remote-navigation-result'
     | 'font-ready'
@@ -19,6 +20,11 @@ export type ReaderBootstrapTraceEvent = {
   pages?: number;
   viewportWidth?: number;
   viewportHeight?: number;
+  queryMode?: 'cursor' | 'no-cursor' | 'unavailable';
+  queryAttempts?: number;
+  completedQueries?: number;
+  returnedDocuments?: number;
+  emptyQueries?: number;
 };
 
 export type ReaderOpenPerformanceEvent = {

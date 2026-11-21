@@ -39,6 +39,7 @@ import {
   ReadingStatisticsSyncLeaseRuntime,
 } from '../lib/readingStatisticsSyncLease';
 import { runReadingStatisticsHydrationAsLeader } from '../lib/readingStatisticsSyncCoordinator';
+import { traceReaderBootstrap } from '../lib/readerBootstrapTrace';
 
 const getErrorCode = (error: unknown) => {
   if (typeof error === 'object' && error !== null && 'code' in error) {
@@ -251,9 +252,13 @@ export const useReadingStatisticsSync = (
             let hydrationPageCount = 0;
             let remoteReadAttemptCount = 0;
             let remoteReadCount = 0;
+            let returnedDocuments = 0;
+            let emptyQueries = 0;
+            let queryMode: 'cursor' | 'no-cursor' | 'unavailable' = 'unavailable';
             let hydrationStatus: 'completed' | 'lost-leadership' | 'failed' = 'failed';
             try {
               const hydration = await getReadingStatisticsHydrationStateV12(syncOwnerKey);
+              queryMode = hydration?.cursor ? 'cursor' : 'no-cursor';
               const hydrationRun = await runReadingStatisticsHydrationAsLeader({
                 initialCursor: hydration?.cursor ?? null,
                 isLeader: hasClaimLeadership,
@@ -268,8 +273,10 @@ export const useReadingStatisticsSync = (
                       onReadAttempt: () => {
                         remoteReadAttemptCount += 1;
                       },
-                      onReadSuccess: () => {
+                      onReadSuccess: (documents) => {
                         remoteReadCount += 1;
+                        returnedDocuments += documents;
+                        if (documents === 0) emptyQueries += 1;
                       },
                     },
                   );
@@ -331,6 +338,15 @@ export const useReadingStatisticsSync = (
               setReceiveHealth(getHealthForError(error));
               if (getHealthForError(error) === 'retrying-receive') scheduleRetry();
             } finally {
+              traceReaderBootstrap({
+                event: 'reading-statistics-hydration',
+                status: hydrationStatus,
+                queryMode,
+                queryAttempts: remoteReadAttemptCount,
+                completedQueries: remoteReadCount,
+                returnedDocuments,
+                emptyQueries,
+              });
               await recordReadingStatisticsHydrationMetricsV12(syncOwnerKey, {
                 pageCount: hydrationPageCount,
                 remoteReadAttemptCount,

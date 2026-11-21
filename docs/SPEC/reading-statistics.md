@@ -28,6 +28,8 @@
 
 Bootstrap 추적은 `?readerDebug=1` 또는 `reader_bootstrap_trace_v1` 설정으로 켜는 제한된 메모리 버퍼입니다. 열기 성능 추적(`readerOpenPerformanceTrace`)은 느린 cold-open 재현을 위해 debug 설정 없이 제한된 메모리 버퍼에 유지합니다. phase·시간·개수·크기와 해시화된 목표만 기록하며 본문·제목·원본 CFI는 넣지 않습니다. 실패 기록과 항상 실행되는 전체 로그를 혼동하지 않습니다. 진단에서 오래된 receipt/tombstone/이전 namespace가 보이더라도 삭제 가능하다는 뜻은 아닙니다. 정리 승인 조건은 [운영 가이드](../operations/deployment-and-recovery.md#저장과-복구)에 있습니다.
 
+`readerBootstrapTrace`의 `reading-statistics-hydration`은 원격 수신 한 번에 대해 시작 커서 유무, 쿼리 시도·완료·빈 응답 횟수와 반환 문서 수를 기록합니다. 저장소 요약의 `remoteReadCount`는 완료한 쿼리 횟수입니다. 시작 커서가 없을 때는 신규 저장소, 전체 재검사, 비어 있던 기록의 첫 조회 등 조건을 재현 시나리오로 구분합니다.
+
 ## 코드와 검증
 
 - 수집/복구: [useReadingSessionTracker.ts](../../src/hooks/reader/useReadingSessionTracker.ts), `readingStatisticsDraft`, `readingStatisticsSessionVisibility`, `localReadingStatistics`

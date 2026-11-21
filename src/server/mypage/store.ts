@@ -88,11 +88,16 @@ export async function ensureAccount(db: Firestore, uid: string): Promise<MyPageA
 export async function updateAccount(
   db: Firestore, uid: string, update: Pick<MyPageAccount, 'nickname' | 'visibility' | 'revision'>,
 ): Promise<MyPageAccount> {
-  const { code } = await ensureAccount(db, uid);
+  const linked = (await ownerRef(db, uid).get()).get('code') as string | undefined;
+  const code = linked || (await ensureAccount(db, uid)).code;
   const profile = profiles(db).doc(code);
   return db.runTransaction(async (transaction) => {
-    const current = ownedAccount(code, (await transaction.get(profile)).data(), uid);
+    const data = (await transaction.get(profile)).data();
+    const current = ownedAccount(code, data, uid);
     if (current.revision !== update.revision) throw new ConflictError();
+    const visibility = parseMyPageVisibility(data?.visibility);
+    if (current.nickname === update.nickname && visibility?.reviews === update.visibility.reviews
+      && visibility.wishlist === update.visibility.wishlist) return current;
     const account = { code, nickname: update.nickname, visibility: update.visibility, revision: current.revision + 1 };
     transaction.set(profile, profileFields(uid, account));
     return account;
