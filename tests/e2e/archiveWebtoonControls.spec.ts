@@ -73,10 +73,10 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
   await page.locator('[data-reader-controls-overlay]').click({ position: { x: 500, y: 350 } });
   const probe = () => page.evaluate(() => {
     const view = document.querySelector('foliate-view') as HTMLElement & {
-      renderer: HTMLElement & { index: number; getWebtoonBoundary(direction: number): boolean };
+      renderer: HTMLElement & { index: number; userScale: number; getWebtoonBoundary(direction: number): boolean };
     };
     if (!view?.renderer) return { index: -1, top: -1, bottom: false, webtoon: null };
-    return { index: view.renderer.index, top: view.renderer.scrollTop, bottom: view.renderer.getWebtoonBoundary(1), webtoon: view.renderer.getAttribute('webtoon') };
+    return { index: view.renderer.index, top: view.renderer.scrollTop, bottom: view.renderer.getWebtoonBoundary(1), webtoon: view.renderer.getAttribute('webtoon'), scale: view.renderer.userScale };
   });
   if (browserName === 'chromium') {
     await page.mouse.move(500, 350);
@@ -165,9 +165,12 @@ test('archive minibar toggles webtoon independently and scrolling continues thro
   await card.click();
   await expect(overlay).toHaveCount(0);
   await expect.poll(probe).toMatchObject({ index: 1, webtoon: 'true' });
+  // The renderer reports its target index before the image opens and the reader installs its shortcuts.
+  await expect(page.getByRole('status').filter({ hasText: '압축 파일 확인 중...' })).toBeHidden();
   if (browserName === 'chromium') {
     // Zoomed panning must mark a user move in a fresh reader before relocate.
     await page.keyboard.press('Control+ArrowUp');
+    await expect.poll(async () => (await probe()).scale).toBeGreaterThan(1);
     await page.mouse.move(500, 300);
     await page.mouse.down();
     await page.mouse.move(500, 650, { steps: 6 });
