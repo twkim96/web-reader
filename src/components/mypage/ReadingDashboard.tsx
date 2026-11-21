@@ -34,6 +34,7 @@ type Data = {
 };
 
 const readingTimeFormat = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+const readingProgressFormat = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 2 });
 
 const dateKey = (year: number, month: number, day: number) => (
   `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -186,13 +187,16 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
             <div key={selectedDay} role="region" aria-label="독서 기록 목록" tabIndex={0}
               className="-ml-1 mt-4 max-h-60 overflow-y-auto pr-2 pl-1 [scrollbar-gutter:stable]">
               <ul className="mypage-divided-list">
-                {selectedSessions.slice(0, rowLimit).map(({ session, durationMs, startAt }) => (
+                {selectedSessions.slice(0, rowLimit).map(({ session, durationMs, startAt, progressSpanPercent }) => (
                   <li key={`${session.sessionId}:${startAt}`} className="flex items-center justify-between gap-4 py-1">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{displayBookTitle(session.bookTitle)}</p>
                       <p className="mt-1 text-xs opacity-55">{readingTimeFormat.format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
                     </div>
-                    <span className="shrink-0 text-xs opacity-70">{formatReadingDuration(durationMs)}</span>
+                    <span className="shrink-0 text-xs opacity-70">
+                      {formatReadingDuration(durationMs)}
+                      {progressSpanPercent !== null && ` · 진행 폭 ${readingProgressFormat.format(progressSpanPercent)}%p`}
+                    </span>
                   </li>
                 ))}
               </ul>

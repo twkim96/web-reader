@@ -476,19 +476,49 @@ type CountedSlice = {
 
 type DatedReadingSlice = CountedSlice & { localDate: string };
 
-export type ReadingActivityBlock = {
+type ReadingActivitySlice = {
   session: ReadingSessionV1;
   localDate: string;
   startAt: number;
   durationMs: number;
 };
 
+export type ReadingActivityBlock = ReadingActivitySlice & { progressSpanPercent: number | null };
+
 const MAX_READING_BLOCK_GAP_MS = 5 * 60_000;
+
+const getReadingBlockProgressSpan = (
+  slices: readonly DatedReadingSlice[],
+  first: number,
+  next: number,
+  offsets: ReadonlyMap<ReadingSessionV1, number>,
+): number | null => {
+  let observations = 0;
+  let min = Infinity;
+  let max = -Infinity;
+  const record = (progress: number) => {
+    observations++;
+    min = Math.min(min, progress);
+    max = Math.max(max, progress);
+  };
+  for (let index = first; index < next; index++) {
+    const { session, startAt, endAt } = slices[index];
+    const offset = offsets.get(session) ?? 0;
+    // A slice may contain only part of the session after overlap or midnight.
+    // Attribute each saved position to the slice that contains its timestamp.
+    if (startAt === session.startedAtClient + offset) record(session.startProgressPercent);
+    if (endAt === session.endedAtClient + offset) record(session.endProgressPercent);
+  }
+  return observations >= 2 ? max - min : null;
+};
 
 const keepQualifyingReadingBlocks = (
   slices: readonly DatedReadingSlice[],
   minimumMs: number,
-  onBlock?: (block: ReadingActivityBlock) => void,
+  progress?: {
+    offsets: ReadonlyMap<ReadingSessionV1, number>;
+    onBlock: (block: ReadingActivityBlock) => void;
+  },
 ): DatedReadingSlice[] => {
   const days = new Map<string, DatedReadingSlice[]>();
   for (const slice of slices) {
@@ -506,7 +536,13 @@ const keepQualifyingReadingBlocks = (
     const finishBlock = (next: number) => {
       if (durationMs < minimumMs) return;
       const { session, localDate, startAt } = day[first];
-      onBlock?.({ session, localDate, startAt, durationMs });
+      progress?.onBlock({
+        session,
+        localDate,
+        startAt,
+        durationMs,
+        progressSpanPercent: getReadingBlockProgressSpan(day, first, next, progress.offsets),
+      });
       for (let index = first; index < next; index++) qualified.push(day[index]);
     };
 
@@ -707,7 +743,7 @@ export const buildReadingStatistics = (
     startLocalDate?: string;
     endLocalDate?: string;
   } = {},
-  onCountedSlice?: (slice: ReadingActivityBlock) => void,
+  onCountedSlice?: (slice: ReadingActivitySlice) => void,
   activity?: { minimumMs: number; onBlock?: (block: ReadingActivityBlock) => void },
 ): ReadingStatisticsSummary => {
   const startAt = bounds.startAt ?? Number.NEGATIVE_INFINITY;
@@ -716,8 +752,10 @@ export const buildReadingStatistics = (
     session.endedAtClient > startAt && session.startedAtClient < endAt
   ));
   const samplesByDevice = buildClockSampleIndex(candidates);
+  const progress = activity?.onBlock ? { offsets: new Map<ReadingSessionV1, number>(), onBlock: activity.onBlock } : undefined;
   const prepared = candidates.flatMap((session): PreparedSession[] => {
     const correction = getClockCorrection(session, samplesByDevice);
+    progress?.offsets.set(session, correction ?? 0);
     const clockTrusted = correction !== undefined;
     const intervals = session.activeIntervals ?? [{
       startedAtClient: session.startedAtClient,
@@ -818,7 +856,7 @@ export const buildReadingStatistics = (
   }
 
   const countedSlices = activity
-    ? keepQualifyingReadingBlocks(slices, activity.minimumMs, activity.onBlock)
+    ? keepQualifyingReadingBlocks(slices, activity.minimumMs, progress)
     : slices;
   for (const slice of countedSlices) {
     const durationMs = slice.endAt - slice.startAt;

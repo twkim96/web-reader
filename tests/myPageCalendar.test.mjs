@@ -92,7 +92,9 @@ test('day rows group nearby reading slices and exclude breaks in the recorded ti
       localDate: getReadingSessionLocalDate(eightAM, -540), ...options,
     });
     for (const record of [
-      near('eight', 0), near('eight-one', 60_000), near('eight-four', 240_000),
+      near('eight', 0, { startProgressPercent: 18.2, endProgressPercent: 20 }),
+      near('eight-one', 60_000, { startProgressPercent: 20, endProgressPercent: 21 }),
+      near('eight-four', 240_000, { startProgressPercent: 21, endProgressPercent: 18.2 }),
       near('after-gap', 601_000), near('exactly-five', 961_000),
       near('listen', 1_021_000, { mode: 'tts' }), near('resume-screen', 1_081_000),
       near('other-book', 1_141_000, { bookId: 'other', bookTitle: '다른 책' }),
@@ -109,9 +111,9 @@ test('day rows group nearby reading slices and exclude breaks in the recorded ti
     await act(async () => day.dispatchEvent(new window.Event('click', { bubbles: true })));
     const rows = [...window.document.querySelectorAll('section[aria-label="선택한 날짜의 독서 기록"] li')].map(row => row.textContent);
     assert.equal(rows.length, 3);
-    assert.match(rows[0], /같은 책.*오전 8:30.*읽기2분$/);
-    assert.match(rows[1], /같은 책.*오전 8:10.*읽기2분$/);
-    assert.match(rows[2], /같은 책.*오전 8:00.*읽기3분$/);
+    assert.match(rows[0], /같은 책.*오전 8:30.*읽기2분 · 진행 폭 1%p$/);
+    assert.match(rows[1], /같은 책.*오전 8:10.*읽기2분 · 진행 폭 1%p$/);
+    assert.match(rows[2], /같은 책.*오전 8:00.*읽기3분 · 진행 폭 2\.8%p$/);
     assert.match(day.getAttribute('aria-label'), /7분$/);
     assert.match(window.document.querySelector('section[aria-label="선택한 날짜의 독서 기록"]').textContent, /15일7분/);
     const totals = [...window.document.querySelectorAll('[aria-label="독서 시간 요약"] dd')].map(node => node.textContent);

@@ -785,6 +785,29 @@ test('statistics require two active minutes per block while exports retain origi
   assert.match(markdown.text, /TTS 듣기: 0분/);
 });
 
+test('a checkpoint that crosses corrected midnight does not assign its full progress to either day', () => {
+  const startedAtClient = Date.UTC(2026, 10, 20, 23, 57);
+  const record = session({
+    sessionId: 'midnight-progress',
+    startedAtClient,
+    endedAtClient: startedAtClient + 240_000,
+    clockOffsetMs: 60_000,
+    startProgressPercent: 18,
+    endProgressPercent: 20,
+  });
+  const blocks = [];
+  buildReadingStatistics([record], {}, undefined, {
+    minimumMs: MIN_READING_STATISTICS_BLOCK_MS,
+    onBlock: (block) => blocks.push(block),
+  });
+  assert.deepEqual(blocks.map(({ localDate, progressSpanPercent, durationMs }) => (
+    [localDate, progressSpanPercent, durationMs]
+  )), [
+    ['2026-11-20', null, 120_000],
+    ['2026-11-21', null, 120_000],
+  ]);
+});
+
 test('tracks only visible active reading and actual playing TTS', () => {
   const base = {
     isLoaded: true,
