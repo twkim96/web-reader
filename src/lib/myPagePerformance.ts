@@ -1,7 +1,11 @@
 type DiscoveryPhase = 'json' | 'validation' | 'grouping' | 'search' | 'sort' | 'filter' | 'first-rows';
 
+export function isMyPagePerformanceEnabled() {
+  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mypagePerf') === '1';
+}
+
 export function startDiscoveryTiming() {
-  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mypagePerf') === '1') {
+  if (isMyPagePerformanceEnabled()) {
     return performance.now();
   }
 }

@@ -449,7 +449,15 @@ test('retry after a lost review response returns the saved revision without repl
   const oldWork = [...catalog.values()].find(({ id }) => id !== workId);
   const legacy = await ok(post('review', idToken, { ...input, workId: oldWork.id, saveId: crypto.randomUUID() }));
   await ok(post('review', idToken, { workId: oldWork.id, revision: legacy.review.revision, remove: true }));
-  const preview = await ok(get({ view: 'reviews', preview: '1' }, idToken));
+  const previewParams = { view: 'reviews', preview: '1' };
+  assert.equal((await get(previewParams, idToken)).headers.get('server-timing'), null);
+  const unauthorized = await get({ ...previewParams, timing: '1' });
+  assert.equal(unauthorized.status, 401);
+  assert.equal(unauthorized.headers.get('server-timing'), null);
+  const measured = await get({ ...previewParams, timing: '1' }, idToken);
+  const timings = measured.headers.get('server-timing');
+  assert.match(timings, /^auth;dur=[\d.]+, query;dur=[\d.]+, rows;desc="records=1", resolve;dur=[\d.]+, total;dur=[\d.]+$/);
+  const preview = await ok(measured);
   assert.deepEqual(preview.deletions, []);
   assert.deepEqual(preview.reviews.map(({ workId, coverUrl, rating }) => ({ workId, coverUrl, rating })), [
     { workId, coverUrl: work.coverUrl, rating: 5 },

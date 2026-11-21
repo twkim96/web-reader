@@ -43,8 +43,11 @@ async function authenticatedUid(request: Request) {
   } catch { return null; }
 }
 
-async function wishlistBookStates(db: Firestore, uid: string): Promise<MyPageSavedBook[]> {
+type ListTiming = (phase: 'auth' | 'query' | 'resolve', counts?: { records: number; saved?: number }) => void;
+
+async function wishlistBookStates(db: Firestore, uid: string, timing?: ListTiming): Promise<MyPageSavedBook[]> {
   const entries = await listWishlist(db, uid, true);
+  timing?.('query', { records: entries.length, saved: entries.filter(({ saved }) => saved).length });
   // Prefer an active entry if previously distinct keys now identify one work.
   entries.sort((a, b) => Number(b.saved) - Number(a.saved));
   const books: MyPageSavedBook[] = [];
@@ -61,14 +64,16 @@ async function wishlistBookStates(db: Firestore, uid: string): Promise<MyPageSav
       books.push(entry);
     }
   }
+  timing?.('resolve');
   return books;
 }
 
-async function ownReviews(db: Firestore, uid: string, preview: boolean): Promise<MyPageOwnReviews> {
+async function ownReviews(db: Firestore, uid: string, preview: boolean, timing?: ListTiming): Promise<MyPageOwnReviews> {
   const [reviews, deletions] = await Promise.all([
     listReviews(db, uid, preview ? MY_PAGE_DASHBOARD_BOOK_LIMIT : undefined),
     preview ? [] : listReviewDeletions(db, uid),
   ]);
+  timing?.('query', { records: reviews.length + deletions.length });
   const describe = async <T extends { workId: string }>(records: T[]) => {
     const enriched: Array<T & ReturnType<typeof reviewWorkDetails>> = [];
     for (let offset = 0; offset < records.length; offset += 20) {
@@ -80,6 +85,7 @@ async function ownReviews(db: Firestore, uid: string, preview: boolean): Promise
     return enriched;
   };
   const [active, removed] = await Promise.all([describe(reviews), describe(deletions)]);
+  timing?.('resolve');
   return { reviews: active, deletions: removed };
 }
 
@@ -219,16 +225,37 @@ async function publicBrowse(request: Request, params: URLSearchParams) {
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const view = params.get('view');
+  const timings = params.get('timing') === '1' && (view === 'wishlist' || view === 'reviews') ? [] as string[] : undefined;
+  const started = timings ? performance.now() : 0;
+  let previous = started;
+  const timing: ListTiming | undefined = timings && ((phase, counts) => {
+    const now = performance.now();
+    timings.push(`${phase};dur=${(now - previous).toFixed(1)}`);
+    if (counts) {
+      const label = counts.saved === undefined ? `records=${counts.records}` : `records=${counts.records} saved=${counts.saved}`;
+      timings.push(`rows;desc="${label}"`);
+    }
+    previous = now;
+  });
+  const respond = (data: unknown) => {
+    const response = json(data);
+    if (timings) {
+      timings.push(`total;dur=${(performance.now() - started).toFixed(1)}`);
+      response.headers.set('Server-Timing', timings.join(', '));
+    }
+    return response;
+  };
   try {
     if (view === 'people') return fail(404);
     if (view === 'browse') return await publicBrowse(request, params);
     if (view === 'profile') return await publicProfile(getAdminFirestore(), params);
     const uid = await authenticatedUid(request);
     if (!uid) return fail(401);
+    timing?.('auth');
     const db = getAdminFirestore();
     if (view === 'account') return json(await ensureAccount(db, uid));
-    if (view === 'wishlist') return json({ entries: await wishlistBookStates(db, uid) });
-    if (view === 'reviews') return json(await ownReviews(db, uid, params.get('preview') === '1'));
+    if (view === 'wishlist') return respond({ entries: await wishlistBookStates(db, uid, timing) });
+    if (view === 'reviews') return respond(await ownReviews(db, uid, params.get('preview') === '1', timing));
     return fail(400);
   } catch {
     return fail(503);

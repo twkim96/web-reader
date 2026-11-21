@@ -29,6 +29,7 @@ async function until(predicate) {
 
 function setup() {
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
+  window.location = new URL('https://reader.example/');
   Object.assign(globalThis, { window, document: window.document, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node, Event: window.Event, IS_REACT_ACT_ENVIRONMENT: true });
   Object.defineProperty(window.document, 'visibilityState', { value: 'visible', writable: true, configurable: true });
   return { window, root: createRoot(window.document.getElementById('root')) };

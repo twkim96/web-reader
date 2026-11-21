@@ -1,6 +1,7 @@
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import type { MyPageReview } from './myPageSocial';
 import { dashboardReviewCache, dashboardWishlistCache } from './myPageDashboardCache';
+import { isMyPagePerformanceEnabled } from './myPagePerformance';
 
 export class MyPageRequestError extends Error {
   constructor(readonly status: number) {
@@ -43,7 +44,12 @@ async function requestMyPage<T>(
     if (auth.currentUser?.uid !== user.uid) throw new MyPageRequestError(401);
   }
   if (options.body) headers.set('Content-Type', 'application/json');
-  const response = await fetch(`/api/mypage?${new URLSearchParams(params)}`, {
+  const query = new URLSearchParams(params);
+  if (!options.body && options.owner && (params.view === 'wishlist' || params.view === 'reviews')
+    && isMyPagePerformanceEnabled()) {
+    query.set('timing', '1');
+  }
+  const response = await fetch(`/api/mypage?${query}`, {
     method: options.body ? 'POST' : 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
