@@ -91,7 +91,6 @@ export function MyPage(props: Props) {
   const [bookId, setBookId] = useState(readDetailId);
   const [focusReview, setFocusReview] = useState(() => typeof window !== 'undefined' && hasBookReviewTarget(window.location.hash));
   const [compactMenu, setCompactMenu] = useState(false);
-  const [mobileScrolled, setMobileScrolled] = useState(false);
   const titleRow = useRef<HTMLElement>(null);
   const [openedBook, setOpenedBook] = useState<{ id: string; book: DiscoveryBook | ReadBook }>();
   const readListScroll = useRef<number | null>(null);
@@ -119,18 +118,12 @@ export function MyPage(props: Props) {
     if (!header) return;
     const desktop = window.matchMedia?.(desktopQuery);
     let compact = false;
-    let mobileHeaderScrolled = false;
     const update = () => {
       const wide = desktop?.matches ?? true;
       const next = wide && titleMiddleY(header) <= 0;
       if (compact !== next) {
         compact = next;
         setCompactMenu(next);
-      }
-      const scrolled = !wide && window.scrollY > 0;
-      if (mobileHeaderScrolled !== scrolled) {
-        mobileHeaderScrolled = scrolled;
-        setMobileScrolled(scrolled);
       }
     };
     update();
@@ -277,7 +270,7 @@ export function MyPage(props: Props) {
       {headerActions.map(({ id, label, icon: Icon }) => (
         <button key={id} type="button" aria-label={label} title={label} aria-current={tab === id ? 'page' : undefined}
           onClick={id === 'shelf' ? onBack : () => openTab(id)}
-          className={`${headerButton} transition-colors ${(compactMenu || mobileScrolled) && tab === id ? 'text-accent-500' : ''}`}>
+          className={`${headerButton} transition-colors ${tab === id ? (compactMenu ? 'text-accent-500' : 'text-accent-500 sm:text-current') : ''}`}>
           <Icon size={19} aria-hidden="true" />
         </button>
       ))}
@@ -289,7 +282,7 @@ export function MyPage(props: Props) {
     return (
       <button key={firstTab} type="button" aria-current={selected ? 'page' : undefined}
         onClick={() => openTab(selected ? tab : firstTab)}
-        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 sm:min-h-11 sm:flex-row sm:gap-1.5 sm:rounded-xl sm:px-2.5 sm:text-sm ${selected ? 'font-semibold text-accent-500 sm:bg-accent-500/10' : 'font-medium opacity-65 hover:bg-current/5 hover:opacity-100'}`}>
+        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 sm:min-h-11 sm:flex-row sm:rounded-xl ${compactMenu ? 'sm:gap-1 sm:px-2 sm:text-[13px] md:gap-1.5 md:px-2.5 md:text-sm' : 'sm:gap-1.5 sm:px-2.5 sm:text-sm'} ${selected ? 'font-semibold text-accent-500 sm:bg-accent-500/10' : 'font-medium opacity-65 hover:bg-current/5 hover:opacity-100'}`}>
         <Icon size={19} aria-hidden="true" className="shrink-0" />
         <span>{label}</span>
       </button>
@@ -300,7 +293,7 @@ export function MyPage(props: Props) {
     <div data-my-page="true" className="min-h-dvh [--mypage-title-height:4.8rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
       <header ref={titleRow} className="hidden sm:block">
         <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[5.25rem] pr-32">
-          <h1 className="text-[1.4375rem] leading-8 font-semibold tracking-tight">{title}</h1>
+          {!compactMenu && <h1 className="text-[1.4375rem] leading-8 font-semibold tracking-tight">{title}</h1>}
         </div>
       </header>
       <div className="pointer-events-none sticky top-0 z-30 -mt-[var(--mypage-title-half)] hidden pt-[var(--mypage-title-half)] sm:block">
@@ -312,16 +305,19 @@ export function MyPage(props: Props) {
             {compactMenu && (
               <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
             )}
-            <nav aria-label="마이페이지 메뉴" className={`flex gap-1 motion-safe:transition-[margin] motion-safe:duration-200 ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
-              {mainItems}
-            </nav>
+            <div className={`flex min-w-0 items-center gap-2 motion-safe:transition-[margin] motion-safe:duration-200 ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
+              {compactMenu && <h1 className="shrink-0 whitespace-nowrap text-sm font-semibold tracking-tight">{title}</h1>}
+              <nav aria-label="마이페이지 메뉴" className="flex min-w-0 flex-1 gap-1">
+                {mainItems}
+              </nav>
+            </div>
           </div>
         </div>
       </div>
       <header data-mypage-mobile-header className="sticky top-0 z-30 bg-[var(--viewer-theme-bg)] pt-[env(safe-area-inset-top)] sm:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-3">
           {backButton}
-          <h1 className={mobileScrolled ? 'sr-only' : 'min-w-0 flex-1 truncate text-lg font-semibold tracking-tight'}>{title}</h1>
+          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{title}</h1>
           {shortcuts}
         </div>
       </header>

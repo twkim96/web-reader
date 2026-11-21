@@ -64,11 +64,15 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
     const button = bar.querySelector('button')!.getBoundingClientRect();
     const menu = bar.querySelector('nav')!.getBoundingClientRect();
     const shortcuts = bar.querySelector('[role="group"]')!.getBoundingClientRect();
+    const title = bar.querySelector('h1')?.getBoundingClientRect();
+    const lastMenuButton = bar.querySelector('nav button:last-child')!.getBoundingClientRect();
     return {
       pinned: Math.abs(top) < 1,
       twoRows: button.bottom <= menu.top && shortcuts.bottom <= menu.top,
-      inline: button.right <= menu.left && menu.right <= shortcuts.left
-        && Math.abs(button.top - menu.top) < 1 && Math.abs(shortcuts.top - menu.top) < 1,
+      inline: Boolean(title && button.right <= title.left && title.right <= menu.left
+        && title.top >= menu.top && title.bottom <= menu.bottom && lastMenuButton.right <= menu.right + 1
+        && menu.right <= shortcuts.left && Math.abs(button.top - menu.top) < 1
+        && Math.abs(shortcuts.top - menu.top) < 1),
     };
   });
 
@@ -83,11 +87,15 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
     await assertDivider(firstBook.locator('..'));
     await expect(menu.getByText('홈')).toHaveCSS('position', 'static');
     await expect(catalog.getByText('도서')).toHaveCSS('position', 'static');
+    const title = page.getByRole('heading', { name: '마이페이지', exact: true });
+    const expandedTitleSize = await title.evaluate(heading => parseFloat(getComputedStyle(heading).fontSize));
     const collapseAt = await page.getByRole('banner').evaluate((header) => Math.ceil(header.getBoundingClientRect().height / 2));
     await page.evaluate((height) => window.scrollTo(0, height - 1), collapseAt);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');
     await page.evaluate((height) => window.scrollTo(0, height), collapseAt);
     await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
+    await expect(title).toBeInViewport();
+    expect(await title.evaluate(heading => parseFloat(getComputedStyle(heading).fontSize))).toBeLessThan(expandedTitleSize);
     await expect(dividers).toHaveCount(1);
     const line = await dividers.boundingBox();
     const shortcutsBox = await shortcuts.boundingBox();
@@ -113,8 +121,10 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await expect(page.getByRole('heading', { name: '도서 상세정보' })).toBeVisible();
   await expect(page.getByRole('region', { name: '도서 기본정보' }).locator('[data-generated-book-cover-title]')).toHaveText('테스트 도서 0');
   await expect(page.getByText('테스트 평가 19')).toBeAttached();
+  await page.setViewportSize({ width: 640, height: 700 });
   await page.evaluate(() => window.scrollTo(0, 500));
   await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
+  await expect(page.getByRole('heading', { name: '도서 상세정보', exact: true })).toBeInViewport();
   await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
   await expect(page).toHaveURL(/#mypage\/discover$/);
   await page.evaluate(() => window.scrollTo(0, 500));
@@ -192,7 +202,7 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
     const desktopMenu = page.getByRole('navigation', { name: '마이페이지 메뉴', includeHidden: true });
     const footer = page.getByRole('navigation', { name: '마이페이지 하단 메뉴' });
     const buttons = footer.getByRole('button');
-    await expect(title).not.toHaveClass('sr-only');
+    await expect(title).toBeInViewport();
     await expect(header.getByRole('button')).toHaveCount(3);
     await expect(desktopMenu).toBeHidden();
     await expect(page.getByRole('link', { name: '테스트 도서 0', exact: true })).toBeVisible();
@@ -210,7 +220,8 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
     expect(footerBox.y + footerBox.height).toBe(700);
 
     await page.evaluate(() => window.scrollTo(0, 400));
-    await expect(title).toHaveClass('sr-only');
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    await expect(title).toBeInViewport();
     await expect(header.getByRole('button')).toHaveCount(3);
     expect((await header.boundingBox())!.y).toBe(0);
     expect(await footer.boundingBox()).toEqual(footerBox);
@@ -226,9 +237,10 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
     await expect(page).toHaveURL(/#mypage\/wishlist$/);
     await expect(collection).toHaveAttribute('aria-current', 'page');
     await expect(saved).toHaveAttribute('aria-current', 'page');
-    await expect(title).not.toHaveClass('sr-only');
+    await expect(title).toBeInViewport();
     await page.evaluate(() => window.scrollTo(0, 400));
-    await expect(title).toHaveClass('sr-only');
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    await expect(title).toBeInViewport();
     const subMenuBox = (await collectionTabs.boundingBox())!;
     expect(subMenuBox.y).toBeCloseTo((await header.boundingBox())!.height, 0);
     await page.goBack();
