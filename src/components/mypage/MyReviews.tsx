@@ -119,7 +119,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
       coverUrl: review.coverUrl ?? null, rating: review.rating,
     }));
     return <DashboardBookRow title="평점을 남긴 도서" books={books} onShowAll={guest ? undefined : onShowAll}
-      onOpenBook={({ id }) => onOpenBook(id)} coverLoading="proxy"
+      onOpenBook={({ id }) => onOpenBook(id)} coverLoading="direct-with-proxy-fallback"
       renderDetail={({ rating }) => <span className="mt-1 flex items-center gap-1 text-xs text-accent-500" aria-label={`별점 ${rating}점`}>
         <Star size={13} fill="currentColor" aria-hidden="true" /> {rating}/5
       </span>}>
@@ -140,7 +140,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
             <div className="flex items-center justify-between gap-2">
               <BookDetailLink bookId={review.workId} onOpen={() => onOpenBook(review.workId)}
                 className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg sm:gap-4">
-                <BookCover url={review.coverUrl ?? null} identity={review.workId} title={review.title} coverLoading="proxy" />
+                <BookCover url={review.coverUrl ?? null} identity={review.workId} title={review.title} coverLoading="direct-with-proxy-fallback" />
                 <div className="min-w-0 space-y-1">
                   <h3 className="break-words text-sm font-semibold group-hover:text-accent-500">{review.title ?? review.workId}</h3>
                   <p className="text-xs font-semibold text-accent-500">별점 {review.rating}/5</p>

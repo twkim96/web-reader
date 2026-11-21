@@ -201,8 +201,9 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
   });
   const start = Date.UTC(2026, 10, 20, 5);
   const draftComment = '기기에 남길 한줄평';
+  const reviewCover = 'https://comicthumb-phinf.pstatic.net/rated-book.png?type=w160';
   let committed = { workId: title, aliases: [alias], platformWorkKeys: [JSON.stringify(['series', firstURL])],
-    rating: 2, comment: draftComment, revision: 1, totalMs: 60_000, progressPercent: 80 };
+    rating: 2, comment: draftComment, revision: 1, totalMs: 60_000, progressPercent: 80, coverUrl: reviewCover };
   const unread = { ...book, id: 'unread-metadata', title: '읽기 전 작품' };
   const unreadRating = { workId: unread.id, rating: 3, revision: 1, comment: '', totalMs: null, progressPercent: null };
   const secondWorkId = 'published-second';
@@ -436,6 +437,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     const reviewSort = visible('select[aria-label="내 평가 정렬"]');
     await select(window, reviewSort, 'rating-asc');
     assert.deepEqual([...allReviews().querySelectorAll('h3')].map(({ textContent }) => textContent), [unread.id, title]);
+    assert.equal(allReviews().querySelector('img')?.getAttribute('src'), reviewCover);
     await click(window, visible('button[aria-label="공개 설정"]'));
     assert.equal(visible('section[aria-label="프로필 및 공개 설정"] .mypage-divided-list').children.length, 2);
 
@@ -473,6 +475,10 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
       assert.deepEqual(request.fileIds, []);
       assert.equal(request.readingSnapshotVersion, undefined);
     }
+    await openMenu('홈');
+    const previewCover = () => visible('[aria-label="평점을 남긴 도서 가로 목록"] img');
+    for (let attempt = 0; attempt < 20 && !previewCover(); attempt++) await act(async () => delay(10));
+    assert.equal(previewCover()?.getAttribute('src'), reviewCover);
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

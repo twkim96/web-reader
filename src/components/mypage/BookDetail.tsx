@@ -237,7 +237,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     <>
       <section className="mypage-section" aria-label="도서 기본정보">
         <div className="flex items-start gap-4 sm:gap-6">
-          <div className="w-20 shrink-0 sm:w-28"><BookCover url={cover} identity={lookupId} title={title} large coverLoading="proxy" /></div>
+          <div className="w-20 shrink-0 sm:w-28"><BookCover url={cover} identity={lookupId} title={title} large coverLoading="direct-with-proxy-fallback" /></div>
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex min-h-5 items-center justify-between gap-2">
               <div className="min-w-0 break-words text-xs font-semibold text-accent-500">{discovery?.genre}</div>

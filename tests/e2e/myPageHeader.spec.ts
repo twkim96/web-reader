@@ -37,6 +37,44 @@ test.beforeEach(async ({ page }) => {
   } }));
 });
 
+test('book detail loads the catalog thumbnail directly and retries a denied original once', async ({ page }) => {
+  const direct = 'https://comicthumb-phinf.pstatic.net/detail-cover.png?type=w160';
+  const denied = 'https://dn-img-page.kakao.com/detail-denied.png';
+  const image = { path: 'public/icon-192.png', contentType: 'image/png' };
+  await page.route(direct, async route => {
+    expect((await route.request().allHeaders()).referer).toBeUndefined();
+    await route.fulfill(image);
+  });
+  await page.route(denied, route => route.fulfill({ status: 403 }));
+  await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
+    schemaVersion: 1, generation: 'detail-cover', genres: [], tags: [],
+    books: [
+      ['detail-direct', '원본 표지 도서', direct, [['series', 'https://example.test/direct']], null, [], 10, null],
+      ['detail-denied', '차단된 표지 도서', denied, [['kakao', 'https://example.test/denied']], null, [], 1, null],
+    ],
+  } }));
+  const proxyCalls: string[] = [];
+  await page.route('**/api/book-cover/source', route => {
+    proxyCalls.push(route.request().postDataJSON().url);
+    return route.fulfill(image);
+  });
+
+  await page.goto('/#mypage/discover');
+  const catalogCover = page.getByRole('link', { name: '원본 표지 도서', exact: true });
+  await expect(catalogCover.locator('img')).toHaveAttribute('src', direct);
+  await catalogCover.click();
+  const detailCover = page.getByRole('region', { name: '도서 기본정보' }).locator('img');
+  await expect(detailCover).toHaveAttribute('src', direct);
+  await expect.poll(() => detailCover.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  expect(proxyCalls).toEqual([]);
+
+  await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
+  await page.getByRole('link', { name: '차단된 표지 도서', exact: true }).click();
+  await expect(detailCover).toHaveAttribute('src', /^blob:/);
+  await expect.poll(() => detailCover.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  expect(proxyCalls).toEqual([denied]);
+});
+
 test('a deep-linked book prepares catalog search only when the list opens', async ({ page }) => {
   await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
     schemaVersion: 1, generation: 'catalog-preparation-test', genres: ['판타지'], tags: ['모험'],

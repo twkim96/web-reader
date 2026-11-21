@@ -5,7 +5,7 @@ import { BookOpen } from 'lucide-react';
 import { fetchCoverSource } from '../../lib/bookCoverSource';
 import { GeneratedBookCover } from '../shelf/GeneratedBookCover';
 
-export type BookCoverLoading = 'direct' | 'proxy' | 'direct-with-proxy-fallback';
+export type BookCoverLoading = 'direct' | 'direct-with-proxy-fallback';
 
 type Props = {
   url: string | null;
