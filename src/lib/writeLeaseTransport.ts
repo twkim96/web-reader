@@ -1,8 +1,12 @@
+import {
+  createPendingSyncWriterEventId, isUntrackedPendingSyncWriterEventId, ownsPendingSyncWriterEventId,
+  preparePendingSyncWriter, readRecoverablePendingSyncEventIds,
+} from './pendingSyncWriter';
 import { doc, getDocFromServer, serverTimestamp, setDoc, type Firestore } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
 import { splitOwnerKey, type OwnerKey } from './ownerIdentity';
 import {
-  createLeasedEventId, getEventLeaseStatus, isWriteLeaseValid,
+  createLeasedEventId, getEventLeaseStatus, isWriteLeaseValid, parseLeasedEventId,
   WRITE_LEASE_REFRESH_MS, type WriteLease,
 } from './writeLeasePolicy';
 
@@ -34,24 +38,59 @@ const readCachedLease = (owner: OwnerKey): WriteLease | undefined => {
   return undefined;
 };
 
-export const createSyncEventId = (ownerKey: OwnerKey, deviceId?: string) => {
-  if (!finiteWriteLeasesEnabled() || !ownerKey.startsWith('firebase:')) return crypto.randomUUID();
+const getUsableCachedLease = (ownerKey: OwnerKey, deviceId?: string) => {
   const lease = readCachedLease(ownerKey);
   const trustedNow = getTrustedWriteLeaseTime(ownerKey);
-  if (lease && (!deviceId || lease.deviceId === deviceId)
-    && (trustedNow === null || isWriteLeaseValid(lease, trustedNow))) return createLeasedEventId(lease);
-  const id = `unleased_${crypto.randomUUID()}`;
+  return lease && (!deviceId || lease.deviceId === deviceId)
+    && (trustedNow === null || isWriteLeaseValid(lease, trustedNow)) ? lease : undefined;
+};
+
+export const prepareSyncEventWriter = (ownerKey: OwnerKey, deviceId?: string) => (
+  finiteWriteLeasesEnabled() && ownerKey.startsWith('firebase:') && !getUsableCachedLease(ownerKey, deviceId)
+    ? preparePendingSyncWriter()
+    : undefined
+);
+
+export const canCoalesceCachedSyncLease = (ownerKey: OwnerKey, eventId: string, deviceId: string) => {
+  const lease = readCachedLease(ownerKey);
+  if (!lease || lease.deviceId !== deviceId) return false;
+  const previous = parseLeasedEventId(eventId);
+  return previous?.leaseId === lease.leaseId && previous.issuedAtMillis === lease.issuedAtMillis;
+};
+
+export const createSyncEventId = (ownerKey: OwnerKey, deviceId?: string) => {
+  if (!finiteWriteLeasesEnabled() || !ownerKey.startsWith('firebase:')) return crypto.randomUUID();
+  const lease = getUsableCachedLease(ownerKey, deviceId);
+  if (lease) return createLeasedEventId(lease);
+  const id = createPendingSyncWriterEventId();
   if (deviceId) placeholders.set(id, { owner: ownerKey, device: deviceId });
   return id;
 };
-export const isPendingSyncEventId = (ownerKey: OwnerKey, eventId: string, deviceId: string): boolean => {
+const getOwnedPendingSyncEvent = (ownerKey: OwnerKey, eventId: string, deviceId: string) => {
   const entry = placeholders.get(eventId);
-  return Boolean(entry && entry.owner === ownerKey && entry.device === deviceId);
+  if (!entry || entry.owner !== ownerKey || entry.device !== deviceId) return;
+  if (isUntrackedPendingSyncWriterEventId(eventId) || ownsPendingSyncWriterEventId(eventId)) return entry;
 };
 
+export const ownsPendingSyncEventId = (ownerKey: OwnerKey, eventId: string, deviceId: string) => (
+  getOwnedPendingSyncEvent(ownerKey, eventId, deviceId) !== undefined
+);
+
+export const isPendingSyncEventId = (ownerKey: OwnerKey, eventId: string, deviceId: string): boolean => {
+  const entry = getOwnedPendingSyncEvent(ownerKey, eventId, deviceId);
+  return Boolean(entry && !entry.resolved);
+};
+
+export const readRecoverableSyncEventIds = (ownerKey: OwnerKey, ids: readonly string[]) => (
+  readRecoverablePendingSyncEventIds(ids.filter((id) => (
+    !parseLeasedEventId(id)
+    && !(isUntrackedPendingSyncWriterEventId(id) && placeholders.get(id)?.owner === ownerKey)
+  )))
+);
+
 export const resolvePendingWriteLeaseEventId = (ownerKey: OwnerKey, eventId: string, deviceId: string): string | null => {
-  const entry = placeholders.get(eventId);
-  if (!entry || entry.owner !== ownerKey || entry.device !== deviceId) return null;
+  const entry = getOwnedPendingSyncEvent(ownerKey, eventId, deviceId);
+  if (!entry) return null;
   if (entry.resolved) return entry.resolved;
   const lease = leases.get(ownerKey);
   const now = getTrustedWriteLeaseTime(ownerKey);

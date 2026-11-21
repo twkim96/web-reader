@@ -227,6 +227,12 @@ test('guest stale position save preserves manual bookmarks committed after the r
     assert.deepEqual(stored.bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
     assert.deepEqual(renderedProgress['book-1'].bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
     assert.deepEqual(await getOutboxEventsV5(ownerKey), []);
+
+    await act(async () => assert.equal(await controls.actions.deleteProgress('book-1'), true));
+    const reset = await loadProgressFromLocalV5(ownerKey, 'book-1');
+    assert.equal(reset.progressPercent, 0);
+    assert.deepEqual(reset.bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
+    assert.deepEqual(await getOutboxEventsV5(ownerKey), []);
   } finally {
     await act(async () => {
       root.unmount();

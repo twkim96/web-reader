@@ -1,3 +1,4 @@
+import { prepareSyncEventWriter } from './writeLeaseTransport';
 import type { Annotation, HighlightColorId } from '../types';
 import { initDB } from './localDB';
 import {
@@ -519,6 +520,7 @@ export const enqueueMissingLocalAnnotationsV5 = async (
   signal?: AbortSignal,
 ) => {
   if (!isCurrent()) return [];
+  await prepareSyncEventWriter(ownerKey, context.deviceId);
   const db = await initDB();
   const tx = db.transaction([
     V8_ANNOTATIONS_STORE,

@@ -1,3 +1,4 @@
+import { prepareSyncEventWriter } from './writeLeaseTransport';
 import { Book, UserProgress } from '../types';
 import type { IDBPTransaction } from 'idb';
 import type { StoredBookContent } from './bookContent';
@@ -233,6 +234,7 @@ export const removeBookAndAnnotationsV8 = (
   bookId: string,
   syncContext?: AnnotationSyncContextV5,
 ) => trackLocalCommit((async () => {
+  if (syncContext) await prepareSyncEventWriter(annotationOwnerKey, syncContext.deviceId);
   const db = await initDB();
   const tx = db.transaction([
     V5_BOOKS_STORE,

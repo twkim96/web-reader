@@ -1,4 +1,7 @@
-import { createSyncEventId, finiteWriteLeasesEnabled, getTrustedWriteLeaseTime, resolvePendingSyncEventId } from './writeLeaseTransport';
+import {
+  canCoalesceCachedSyncLease, createSyncEventId, finiteWriteLeasesEnabled, getTrustedWriteLeaseTime,
+  isPendingSyncEventId, ownsPendingSyncEventId, prepareSyncEventWriter, resolvePendingSyncEventId,
+} from './writeLeaseTransport';
 import { createLeasedEventId, getEventLeaseStatus, parseLeasedEventId } from './writeLeasePolicy';
 import type { IDBPDatabase, IDBPObjectStore, IDBPTransaction } from 'idb';
 import type {
@@ -1026,6 +1029,7 @@ export const enqueueAnnotationEventsV5 = async (
   inputs: ReadonlyArray<EnqueueAnnotationInputV5>,
   context: AnnotationSyncContextV5,
 ) => {
+  await prepareSyncEventWriter(ownerKey, context.deviceId);
   const db = await initDB();
   const tx = db.transaction([
     V5_OUTBOX_STORE,
@@ -1051,6 +1055,7 @@ export const enqueueAnnotationPaletteEventV5 = async (
   input: EnqueueAnnotationPaletteInputV5,
   context: AnnotationSyncContextV5,
 ) => {
+  await prepareSyncEventWriter(ownerKey, context.deviceId);
   const db = await initDB();
   const tx = db.transaction([
     V5_OUTBOX_STORE,
@@ -1190,18 +1195,22 @@ const getCoalescibleProgressTail = (
   ownerKey: OwnerKey,
 ) => {
   const tail = unresolved.at(-1);
-  return input.operation === 'progress.set'
-    && tail?.operation === 'progress.set'
-    && tail.status === 'pending'
-    && (sameProgressViewport(tail, input)
-      || (input.causalViewportId && input.restoredPositionToken && tail.positionToken === input.restoredPositionToken
-        && tail.deviceId === input.deviceId))
-    && Math.max(input.causalRevision ?? 0, input.causalIgnoredRevision ?? 0) <= tail.baseRevision
-    && tail.attempts === 0
-    && canCoalesceWriteLease(tail.eventId, ownerKey)
-    && tail.claimedByTabId === null
-    ? tail
-    : undefined;
+  if (input.operation !== 'progress.set' || tail?.operation !== 'progress.set'
+    || tail.status !== 'pending' || tail.deviceId !== input.deviceId || tail.attempts !== 0
+    || tail.claimedByTabId !== null || tail.claimedLeaseEpoch !== null || tail.claimToken !== null
+    || Math.max(input.causalRevision ?? 0, input.causalIgnoredRevision ?? 0) > tail.baseRevision) return;
+
+  if (finiteWriteLeasesEnabled() && getTrustedWriteLeaseTime(ownerKey) === null) {
+    const sameViewport = input.causalViewportId !== undefined && input.causalViewportId === tail.causalViewportId
+      && input.sessionId === tail.sessionId;
+    return sameViewport && (isPendingSyncEventId(ownerKey, tail.eventId, tail.deviceId)
+      || canCoalesceCachedSyncLease(ownerKey, tail.eventId, tail.deviceId)) ? tail : undefined;
+  }
+
+  const restoredTail = input.causalViewportId && input.restoredPositionToken
+    && tail.positionToken === input.restoredPositionToken;
+  return (sameProgressViewport(tail, input) || restoredTail) && canCoalesceWriteLease(tail.eventId, ownerKey)
+    ? tail : undefined;
 };
 
 // Receiving a head updates the remote cache, not the revision the viewport
@@ -1247,6 +1256,7 @@ export const enqueueProgressEventV5 = async (
   validateEnqueueInput(input);
   const occurredAtClient = input.occurredAtClient ?? Date.now();
   const targetKey = progressTargetKeyV2(input.bookId);
+  await prepareSyncEventWriter(ownerKey, input.deviceId);
   const db = await initDB();
   const tx = db.transaction([
     V5_PROGRESS_STORE,
@@ -1357,6 +1367,7 @@ export const enqueueBookmarkEventV5 = async (
 
   const now = input.occurredAtClient ?? Date.now();
   const targetKey = bookmarkTargetKeyV2(input.bookId, input.bookmarkId);
+  await prepareSyncEventWriter(ownerKey, input.deviceId);
   const db = await initDB();
   const tx = db.transaction([
     V5_PROGRESS_STORE,
@@ -1531,6 +1542,10 @@ export const enqueueProgressMutationBatchV5 = async (
     throw new Error('bookmark batch의 bookId가 일치하지 않습니다.');
   }
 
+  await Promise.all([...new Set([
+    ...(input.progressEvent ? [input.progressEvent.deviceId] : []),
+    ...input.bookmarkEvents.map((event) => event.deviceId),
+  ])].map((deviceId) => prepareSyncEventWriter(ownerKey, deviceId)));
   const db = await initDB();
   const tx = db.transaction([
     V5_PROGRESS_STORE,
@@ -1715,24 +1730,34 @@ export const bindPendingSyncAuthorityV5 = async (ownerKey: OwnerKey, isCurrent: 
   const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE], 'readwrite');
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
   const intents = tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
-  const events = await outbox.index('by-owner-status').getAll([ownerKey, 'pending']) as SyncOutboxEventV5[];
+  const conflictStore = tx.objectStore(V5_SYNC_CONFLICTS_STORE);
+  const events = (await Promise.all(['pending', 'blocked'].map((status) => (
+    outbox.index('by-owner-status').getAll([ownerKey, status]) as Promise<SyncOutboxEventV5[]>
+  )))).flat();
   let count = 0;
   for (const event of events) {
     if (!isCurrent()) break;
     if (event.ownerKey !== ownerKey || event.attempts !== 0 || event.claimToken || event.claimedByTabId
-      || event.claimedLeaseEpoch !== null || !event.eventId.startsWith('unleased_')) continue;
+      || event.claimedLeaseEpoch !== null || !ownsPendingSyncEventId(ownerKey, event.eventId, event.deviceId)) continue;
     if (isAnnotationOutboxEventV5(event) && event.forceDelete) continue;
     const intent = event.target.kind === 'annotation' && event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
       ? await intents.get([ownerKey, event.target.bookId]) as AnnotationBookDeletionIntentV10 | undefined
       : undefined;
     if (intent?.markerEventId === event.eventId && intent.expired) continue;
-    const conflicts = await getTargetOpenAndDeferredConflicts(tx.objectStore(V5_SYNC_CONFLICTS_STORE), ownerKey, event.targetKey);
-    if (conflicts.length) continue;
+    const conflicts = await getTargetOpenAndDeferredConflicts(conflictStore, ownerKey, event.targetKey);
+    if (conflicts.some((conflict) => conflict.event?.eventId === event.eventId)) continue;
+    if (conflicts.length && event.status !== 'blocked') continue;
     const id = resolvePendingSyncEventId(ownerKey, event.eventId, event.deviceId);
     if (!id || id === event.eventId) continue;
     if (await outbox.get([ownerKey, id])) continue;
     await outbox.add({ ...event, eventId: id });
     await outbox.delete([ownerKey, event.eventId]);
+    for (const conflict of conflicts) {
+      if (!conflict.blockedEventIds.includes(event.eventId)) continue;
+      await conflictStore.put({ ...conflict,
+        blockedEventIds: conflict.blockedEventIds.map((blockedId) => blockedId === event.eventId ? id : blockedId),
+      });
+    }
     if (intent?.markerEventId === event.eventId && intent.writeLeaseEventId === event.eventId) {
       await intents.put({ ...intent, markerEventId: id, writeLeaseEventId: id });
     }
@@ -1740,6 +1765,7 @@ export const bindPendingSyncAuthorityV5 = async (ownerKey: OwnerKey, isCurrent: 
   }
   if (!isCurrent()) { tx.abort(); await tx.done.catch(() => undefined); return 0; }
   await tx.done;
+  if (count) notifyProgressSyncWork(ownerKey);
   return count;
 };
 
@@ -2101,6 +2127,7 @@ export const claimNextProgressEventV5 = async (
   events.sort(eventSort);
   let candidate: SyncOutboxEventV5 | undefined;
   for (const event of events) {
+    if (event.eventId.startsWith('unleased_') || (finiteWriteLeasesEnabled() && !parseLeasedEventId(event.eventId))) continue;
     if (isAnnotationOutboxEventV5(event) && event.forceDelete) {
       await outbox.put({
         ...event, status: 'superseded', nextAttemptAt: null,
@@ -2111,10 +2138,11 @@ export const claimNextProgressEventV5 = async (
     const targetEvents = await outbox.index('by-owner-target-sequence').getAll(
       IDBKeyRange.bound(
         [ownerKey, event.targetKey, 0],
-        [ownerKey, event.targetKey, event.sequence - 1],
+        [ownerKey, event.targetKey, Number.MAX_SAFE_INTEGER],
       ),
     ) as SyncOutboxEventV5[];
-    if (targetEvents.some((earlier) => activeStatuses.has(earlier.status))) continue;
+    if (targetEvents.some((other) => (other.sequence < event.sequence && activeStatuses.has(other.status))
+      || (other.status === 'expired' && other.recoveryPending !== false))) continue;
     if (isProgressOutboxEventV5(event) && event.afterPositionToken && event.attempts === 0) {
       const meta = await tx.objectStore(V5_SYNC_META_STORE).get([ownerKey, event.targetKey]) as SyncMetaV5 | undefined;
       const revision = meta?.acknowledgedRevision;
@@ -2145,7 +2173,8 @@ export const claimNextProgressEventV5 = async (
           [ownerKey, markerTargetKey, Number.MAX_SAFE_INTEGER],
         ),
       ) as SyncOutboxEventV5[];
-      if (markerEvents.some((markerEvent) => activeStatuses.has(markerEvent.status))) continue;
+      if (markerEvents.some((markerEvent) => activeStatuses.has(markerEvent.status)
+        || (markerEvent.status === 'expired' && markerEvent.recoveryPending !== false))) continue;
       const markerCache = await tx.objectStore(V5_REMOTE_HEADS_STORE).get([
         ownerKey,
         markerTargetKey,
@@ -2366,6 +2395,7 @@ const resumableAuthCodes = new Set([
 export const resumePausedAuthEventsV5 = async (
   ownerKey: OwnerKey,
   now = Date.now(),
+  retryPermissionDenied = true,
 ) => {
   const db = await initDB();
   const tx = db.transaction(V5_OUTBOX_STORE, 'readwrite');
@@ -2376,7 +2406,8 @@ export const resumePausedAuthEventsV5 = async (
   ]) as SyncOutboxEventV5[];
   let resumed = 0;
   for (const event of events) {
-    if (!event.lastErrorCode || !resumableAuthCodes.has(event.lastErrorCode)) continue;
+    if (!event.lastErrorCode || !resumableAuthCodes.has(event.lastErrorCode)
+      || (!retryPermissionDenied && event.lastErrorCode === 'permission-denied')) continue;
     resumed += 1;
     await store.put({
       ...event,

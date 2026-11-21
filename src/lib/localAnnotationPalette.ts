@@ -1,3 +1,4 @@
+import { prepareSyncEventWriter } from './writeLeaseTransport';
 import type { AnnotationPaletteItem } from '../types';
 import type { OwnerKey } from './ownerIdentity';
 import { initDB } from './localDB';
@@ -65,6 +66,7 @@ export const saveLocalAnnotationPaletteV9 = async (
   now = Date.now(),
 ) => {
   const palette = normalizeAnnotationPalette(value);
+  if (syncContext) await prepareSyncEventWriter(ownerKey, syncContext.deviceId);
   const db = await initDB();
   const stores = syncContext
     ? [

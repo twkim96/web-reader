@@ -1,3 +1,4 @@
+import { prepareSyncEventWriter } from './writeLeaseTransport';
 import type { Annotation, AnnotationAnchorState } from '../types';
 import type { OwnerKey } from './ownerIdentity';
 import {
@@ -55,6 +56,11 @@ const toDeleteInput = (annotation: Annotation): EnqueueAnnotationInputV5 => ({
   payload: null,
   occurredAtClient: Math.max(Date.now(), annotation.updatedAtClient + 1),
 });
+
+const openAnnotationMutationDB = async (ownerKey: OwnerKey, syncContext?: LocalAnnotationSyncContext) => {
+  if (syncContext) await prepareSyncEventWriter(ownerKey, syncContext.deviceId);
+  return initDB();
+};
 
 const appendSyncEvents = async (
   tx: Parameters<typeof appendAnnotationEventsToTransactionV5>[0],
@@ -224,7 +230,7 @@ export const saveLocalAnnotationV8 = (
 ): Promise<SaveLocalAnnotationResult> => trackLocalCommit((async () => {
   if (!isAnnotation(annotation)) throw new TypeError('Invalid local annotation');
 
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -275,7 +281,7 @@ const updateLocalAnnotationFieldsFromResolverV8 = (
   resolveFields: AnnotationFieldsUpdaterV8,
   syncContext?: LocalAnnotationSyncContext,
 ): Promise<UpdateLocalAnnotationFieldsFromCurrentResult> => trackLocalCommit((async () => {
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -377,7 +383,7 @@ export const restoreLocalAnnotationFieldsV8 = (
 ): Promise<RestoreLocalAnnotationFieldsResult> => trackLocalCommit((async () => {
   const uniquePatches = new Map(patches.filter(({ id }) => Boolean(id)).map((patch) => [patch.id, patch]));
   if (uniquePatches.size === 0) return { status: 'saved', annotations: [] };
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -430,7 +436,7 @@ export const restoreLocalAnnotationsV8 = (
   if ([...unique.values()].some((annotation) => (
     annotation.bookId !== bookId || !isAnnotation(annotation)
   ))) throw new TypeError('Invalid local annotations to restore');
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -472,7 +478,7 @@ export const deleteLocalAnnotationV8 = (
   annotationId: string,
   syncContext?: LocalAnnotationSyncContext,
 ) => trackLocalCommit((async () => {
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -500,7 +506,7 @@ export const deleteLocalAnnotationsV8 = (
 ) => trackLocalCommit((async () => {
   const ids = [...new Set(annotationIds.filter(Boolean))];
   if (ids.length === 0) return [];
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -533,7 +539,7 @@ export const deleteLocalAnnotationsIfUnchangedV8 = (
 ): Promise<DeleteLocalAnnotationsIfUnchangedResult> => trackLocalCommit((async () => {
   const unique = new Map(expectedAnnotations.map((annotation) => [annotation.id, annotation]));
   if (unique.size === 0) return { status: 'deleted', annotations: [] };
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -575,7 +581,7 @@ export const updateLocalAnnotationNoteV8 = (
   if (typeof note !== 'string' || note.length > ANNOTATION_NOTE_MAX_LENGTH) {
     throw new TypeError('Invalid annotation note');
   }
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -616,7 +622,7 @@ export const updateLocalAnnotationColorsV8 = (
   if (!isHighlightColorId(colorId)) throw new TypeError('Invalid highlight color');
   const ids = [...new Set(annotationIds.filter(Boolean))];
   if (ids.length === 0) return { status: 'saved', before: [], annotations: [] };
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);
@@ -665,7 +671,7 @@ export const deleteLocalAnnotationsForBookV8 = (
   bookId: string,
   syncContext?: LocalAnnotationSyncContext,
 ) => trackLocalCommit((async () => {
-  const db = await initDB();
+  const db = await openAnnotationMutationDB(ownerKey, syncContext);
   const tx = db.transaction(mutationStoreNames, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V8_ANNOTATIONS_STORE);

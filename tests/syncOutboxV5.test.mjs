@@ -335,7 +335,10 @@ test('reports paused sync and resumes recoverable auth or rules deployment failu
     count: 3,
     errorCodes: ['unauthenticated', 'auth/id-token-expired', 'permission-denied'],
   });
-  assert.equal(await resumePausedAuthEventsV5(ownerA, 20), 3);
+  assert.equal(await resumePausedAuthEventsV5(ownerA, 20, false), 2);
+  const afterTokenRefresh = await getOutboxEventsV5(ownerA);
+  assert.equal(afterTokenRefresh.find(({ eventId }) => eventId === 'permission-event').status, 'paused');
+  assert.equal(await resumePausedAuthEventsV5(ownerA, 21), 1);
   const events = await getOutboxEventsV5(ownerA);
   assert.equal(events.find(({ eventId }) => eventId === 'auth-event').status, 'pending');
   assert.equal(events.find(({ eventId }) => eventId === 'permission-event').status, 'pending');

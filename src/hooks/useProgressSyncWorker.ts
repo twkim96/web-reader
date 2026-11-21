@@ -171,7 +171,7 @@ export const useProgressSyncWorker = (
       isOnline: () => navigator.onLine,
       isVisible: () => document.visibilityState !== 'hidden',
     });
-    const resumePausedAndRequest = async () => {
+    const resumePausedAndRequest = async (retryPermissionDenied = false) => {
       if (disposed || !ownerRuntime.isCurrent(owner) || navigator.onLine === false) return;
       try {
         if (finiteWriteLeasesEnabled()) {
@@ -181,7 +181,7 @@ export const useProgressSyncWorker = (
           void requestReceiptMaintenance(user.uid, () => user.getIdToken()).catch(() => undefined);
           await recoverPending(true);
         }
-        await resumePausedAuthEventsV5(syncOwnerKey);
+        await resumePausedAuthEventsV5(syncOwnerKey, Date.now(), retryPermissionDenied);
       } catch (error) {
         console.error('[ProgressSyncWorker] paused event resume failed:', error);
       } finally {
@@ -189,7 +189,7 @@ export const useProgressSyncWorker = (
       }
     };
     const handleOnline = () => {
-      void resumePausedAndRequest();
+      void resumePausedAndRequest(true);
     };
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') void resumePausedAndRequest();
@@ -200,7 +200,7 @@ export const useProgressSyncWorker = (
     const unsubscribeWork = subscribeProgressSyncWork(syncOwnerKey, () => pump.request());
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
-    void resumePausedAndRequest();
+    void resumePausedAndRequest(true);
 
     const unregister = ownerRuntime.registerDisposer(() => {
       disposed = true;

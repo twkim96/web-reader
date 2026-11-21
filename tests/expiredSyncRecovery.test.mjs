@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { closeLocalDB, initDB } from '../src/lib/localDB.ts';
 import { LOCAL_DB_NAME, V5_OUTBOX_STORE } from '../src/lib/localDBSchema.ts';
 import { makeFirebaseOwnerKey, makeOwnerKey } from '../src/lib/ownerIdentity.ts';
-const { createSyncEventId } = await import('../src/lib/writeLeaseTransport.ts');
 import { saveLocalAnnotationV8 } from '../src/lib/localAnnotations.ts';
 import { reconcileAnnotationBookDeletionIntentsV10 } from '../src/lib/annotationBookDeletion.ts';
 import { acquireSyncLeaseV5, claimNextProgressEventV5, enqueueProgressEventV5 } from '../src/lib/syncOutboxV5.ts';
@@ -333,23 +332,50 @@ test('legacy and reloaded deletion intents hydrate canonical annotations and unb
   }
 });
 
-test('live pending deletion intent waits for binding without canonical fetch or quarantine', async () => {
+test('live pending deletion waits and preserves its marker and intent after the writer closes', async () => {
   const previousFlag = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
   process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
+  const writerId = crypto.randomUUID();
+  const lockName = `web-reader:unleased-sync-writer:${writerId}`;
+  let writerLive = true;
+  const previousLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+  Object.defineProperty(navigator, 'locks', { configurable: true,
+    value: { query: async () => ({ held: writerLive ? [{ name: lockName }] : [] }) } });
   try {
     const db = await initDB();
-    const markerEventId = createSyncEventId(owner, 'device');
+    const markerEventId = `unleased_v1_${writerId}_${crypto.randomUUID()}`;
     const intent = { ownerKey: owner, bookId: 'live-pending', createdAt: fixtureServerNow, lastCheckedAt: null,
       markerEventId, writeLeaseEventId: markerEventId, writeLeaseDeviceId: 'device' };
+    const target = { ...markerTarget, bookId: intent.bookId };
+    const markerEvent = { ...event(markerEventId, 1, 'pending'), target, targetKey: 'annotation:live-pending:book_delete_marker_v1',
+      operation: 'annotation.delete', payload: null, attempts: 0, claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null };
     await db.put(intentStore, intent);
+    await db.put(V5_OUTBOX_STORE, markerEvent);
     assert.deepEqual(await listExpiredSyncRecoveryTargets(owner, fixtureServerNow), []);
     let calls = 0;
-    assert.deepEqual(await recoverTarget('test', owner, { ...markerTarget, bookId: intent.bookId }, {
+    assert.deepEqual(await recoverTarget('test', owner, target, {
       serverTrustedNow: fixtureServerNow, fetchAnnotationBook: async () => { calls++; return { heads: [], marker: null }; },
     }), { status: 'blocked' });
     assert.equal(calls, 0);
     assert.deepEqual(await db.get(intentStore, [owner, intent.bookId]), intent);
+    assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, markerEventId]), markerEvent);
+
+    writerLive = false;
+    assert.deepEqual(await listExpiredSyncRecoveryTargets(owner, fixtureServerNow), [target]);
+    assert.deepEqual(await recoverTarget('test', owner, target, {
+      serverTrustedNow: fixtureServerNow,
+      fetchAnnotationBook: async () => { calls++; return { heads: [], marker: null }; },
+    }), { status: 'resynced' });
+    assert.equal(calls, 1);
+    assert.deepEqual(await db.get(intentStore, [owner, intent.bookId]), {
+      ...intent, expired: true, recoveryPending: false,
+    });
+    assert.deepEqual(await db.getAll(V5_OUTBOX_STORE), [{
+      ...markerEvent, status: 'expired', recoveryPending: false, lastErrorCode: 'sync/write-lease-expired', nextAttemptAt: null,
+    }]);
   } finally {
+    if (previousLocks) Object.defineProperty(navigator, 'locks', previousLocks);
+    else delete navigator.locks;
     if (previousFlag === undefined) delete process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES;
     else process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = previousFlag;
   }
