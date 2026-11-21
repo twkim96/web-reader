@@ -68,6 +68,8 @@ export function buildReadBooks(
     const platformWorkKeys = getPlatformWorkKeys(metadata).sort();
     works.set(metadata, { titleKey: JSON.stringify([metadata.titleKey, platformWorkKeys]), platformWorkKeys });
   }
+  if (!works.size) return [];
+
   const { findTitle } = groupPublicBookWorks(works.values());
   const groups = new Map<string, { id: string; metadata: PublicBookMetadata; titles: Set<string>; platforms: Set<string> }>();
   const rowKeys = new Map<string, string>();

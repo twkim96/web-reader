@@ -1,5 +1,7 @@
 import { getDoc } from 'firebase/firestore';
+import type { OwnerKey } from './ownerIdentity';
 import type { PublicBookMetadata, PublicBookMetadataDocumentReader } from './publicBookMetadata';
+import { cacheReadBookMetadata, type ConfirmedReadBookMetadata } from './readBookMetadataCache';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_DOCUMENTS = 128;
@@ -9,8 +11,9 @@ const MAX_CONCURRENT_TITLES = 4;
 type CacheEntry<T> = { value: T; expiresAt: number };
 const documents = new Map<string, CacheEntry<Awaited<ReturnType<PublicBookMetadataDocumentReader>>>>();
 const documentReads = new Map<string, ReturnType<PublicBookMetadataDocumentReader>>();
-const titles = new Map<string, CacheEntry<PublicBookMetadata | null>>();
-const titleReads = new Map<string, Promise<PublicBookMetadata | null>>();
+type TitleLookup = { metadata: PublicBookMetadata | null; confirmedAt: number | null };
+const titles = new Map<string, CacheEntry<TitleLookup>>();
+const titleReads = new Map<string, Promise<TitleLookup>>();
 function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): CacheEntry<T> | undefined {
   const entry = cache.get(key);
   if (!entry) return undefined;
@@ -43,14 +46,22 @@ const readDocument: PublicBookMetadataDocumentReader = (reference) => {
 
 // Work is shared per title. Callers only schedule a bounded number of titles,
 // so cancelling an effect prevents its remaining titles from ever being queued.
-function loadTitle(title: string): Promise<PublicBookMetadata | null> {
+function loadTitle(title: string): Promise<TitleLookup> {
   const cached = getCached(titles, title);
   if (cached) return Promise.resolve(cached.value);
   const pending = titleReads.get(title);
   if (pending) return pending;
-  const read = import('./publicBookMetadata').then(({ loadPublicBookMetadata }) => loadPublicBookMetadata(title, readDocument)).then((metadata) => {
-    putCached(titles, title, metadata, MAX_TITLES);
-    return metadata;
+  const startedAt = Date.now();
+  const read = import('./publicBookMetadata').then(async ({ loadPublicBookMetadata }) => {
+    let confirmed = true;
+    const metadata = await loadPublicBookMetadata(title, async (reference) => {
+      const snapshot = await readDocument(reference);
+      if (snapshot.metadata.fromCache) confirmed = false;
+      return snapshot;
+    });
+    const result = { metadata, confirmedAt: confirmed ? startedAt : null };
+    putCached(titles, title, result, MAX_TITLES);
+    return result;
   }).finally(() => titleReads.delete(title));
   titleReads.set(title, read);
   return read;
@@ -58,11 +69,13 @@ function loadTitle(title: string): Promise<PublicBookMetadata | null> {
 
 export type ReadMetadataResult = { metadata: Map<string, PublicBookMetadata | null>; failed: Set<string> };
 
+type ReadMetadataOptions = {
+  signal?: AbortSignal;
+  onProgress?: (result: ReadMetadataResult, title: string) => void;
+};
+
 export function createReadMetadataLoader(readTitle: (title: string) => Promise<PublicBookMetadata | null>) {
-  return async (bookTitles: readonly string[], options: {
-    signal?: AbortSignal;
-    onProgress?: (result: ReadMetadataResult, title: string) => void;
-  } = {}): Promise<ReadMetadataResult> => {
+  return async (bookTitles: readonly string[], options: ReadMetadataOptions = {}): Promise<ReadMetadataResult> => {
     const unique = [...new Set(bookTitles)];
     const result: ReadMetadataResult = { metadata: new Map(), failed: new Set() };
     let next = 0;
@@ -78,4 +91,21 @@ export function createReadMetadataLoader(readTitle: (title: string) => Promise<P
   };
 }
 
-export const loadReadBookMetadata = createReadMetadataLoader(loadTitle);
+export async function loadReadBookMetadata(
+  bookTitles: readonly string[],
+  options: ReadMetadataOptions & { cacheOwnerKey?: OwnerKey } = {},
+) {
+  const confirmed = new Map<string, ConfirmedReadBookMetadata>();
+  const load = createReadMetadataLoader(async (title) => {
+    const { metadata, confirmedAt } = await loadTitle(title);
+    if (options.cacheOwnerKey && confirmedAt !== null) {
+      confirmed.set(title, { metadata, observedAt: confirmedAt });
+    }
+    return metadata;
+  });
+  const result = await load(bookTitles, options);
+  if (options.cacheOwnerKey && !options.signal?.aborted) {
+    void cacheReadBookMetadata(options.cacheOwnerKey, confirmed);
+  }
+  return result;
+}

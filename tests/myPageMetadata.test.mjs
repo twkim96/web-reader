@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDiscoveryLoader, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
 import { createReadMetadataLoader } from '../src/lib/readBookMetadata.ts';
+import { cacheReadBookMetadata, readCachedReadBookMetadata } from '../src/lib/readBookMetadataCache.ts';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
 import { listLocalBookReviews, removeBookReview, saveBookReview } from '../src/lib/localBookReview.ts';
@@ -115,6 +116,34 @@ test('metadata publishes successful titles despite failures and retries only fai
   const retry = await load([...result.failed]);
   assert.equal(retry.metadata.get('bad').titleKey, 'bad');
   assert.deepEqual(calls.sort(), ['bad', 'bad', 'good', 'other']);
+});
+
+test('persisted metadata isolates accounts, expires misses, and keeps a newer match over a late lookup', async (t) => {
+  const start = Date.UTC(2026, 10, 21, 1);
+  t.mock.timers.enable({ apis: ['Date'], now: start });
+  const owner = 'firebase:metadata-cache|library:local';
+  const other = 'firebase:metadata-other|library:local';
+  const title = '로컬 파일 이름.txt';
+  const miss = '미게시 도서';
+  const metadata = {
+    schemaVersion: 1, titleKey: 'published-book', displayTitle: '게시된 도서',
+    normalizerVersion: '1.3.3', publishedAt: new Date(start).toISOString(), platforms: [],
+  };
+  const lookups = [title, miss, '조회 실패'];
+  const read = () => readCachedReadBookMetadata(owner, lookups);
+  const roundTrip = new Map([[title, { metadata, observedAt: start }], [miss, { metadata: null, observedAt: start }]]);
+  await cacheReadBookMetadata(owner, roundTrip);
+  const earlier = { ...metadata, titleKey: 'old-book' };
+  await cacheReadBookMetadata(owner, new Map([[title, { metadata: earlier, observedAt: start - 1 }]]));
+  assert.deepEqual(await read(), new Map([[title, metadata], [miss, null]]));
+  assert.deepEqual(await readCachedReadBookMetadata(other, lookups), new Map());
+  await cacheReadBookMetadata(other, new Map([[title, { metadata: earlier, observedAt: start }]]));
+  assert.deepEqual(await readCachedReadBookMetadata(other, lookups), new Map([[title, earlier]]));
+
+  t.mock.timers.tick(5 * 60 * 1000);
+  assert.deepEqual(await read(), new Map([[title, metadata]]));
+  t.mock.timers.tick(55 * 60 * 1000);
+  assert.deepEqual(await read(), new Map());
 });
 
 test('cleanup cancels unstarted titles and suppresses late updates', async () => {

@@ -9,6 +9,7 @@ import { parseHTML } from 'linkedom';
 import { useMyPageNavigation } from '../src/hooks/useMyPageNavigation.ts';
 import { setWishlistSaved } from '../src/lib/localWishlist.ts';
 import { closeLocalDB } from '../src/lib/localDB.ts';
+import { cacheReadBookMetadata } from '../src/lib/readBookMetadataCache.ts';
 import { hydrateRemoteReadingSessionsPageV12, saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
 
 // The detail imports the loader statically. Install the fixture before loading
@@ -348,6 +349,8 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
       window.dispatchEvent(new window.Event('hashchange'));
     });
     assert.equal(window.location.hash, '#mypage/read');
+    for (let attempt = 0; attempt < 20 && !visible(ratedLink); attempt++) await act(async () => delay(10));
+    assert.ok(visible(ratedLink));
     await click(window, visible(ratedLink));
     await act(async () => delay(10));
     const halfPoint = editor().querySelector('button[aria-label="4.5점"]');
@@ -454,6 +457,50 @@ test('stars navigate to the detail editor and a failed rating rolls back after r
     await closeLocalDB();
     delete globalThis.myPageTestMetadata;
     hook.deregister();
+  }
+});
+
+test('a reopened read list shows confirmed matches while the new title is still loading', async () => {
+  const { window, root } = setup('#mypage/read');
+  const ownerKey = 'firebase:warm-read-list|library:local';
+  const start = Date.UTC(2026, 10, 21, 1);
+  const matched = '원래 저장된 제목.txt';
+  const missing = '새 파일 제목.txt';
+  const result = (titleKey, displayTitle) => ({
+    schemaVersion: 1, titleKey, displayTitle, normalizerVersion: '1.3.3', publishedAt: new Date(start).toISOString(), platforms: [],
+  });
+  const cached = result('cached-title', '다시 표시된 도서');
+  const fresh = result('new-title', '새로 연결한 도서');
+  const record = (bookId, bookTitle, offset) => ({
+    schemaVersion: 1, sessionId: bookId, bookId, bookTitle, deviceId: 'fixture-device',
+    startedAtClient: start + offset, endedAtClient: start + offset + 60_000, durationMs: 60_000, startProgressPercent: 1,
+    endProgressPercent: 10, timezoneOffsetMinutes: 0, localDate: '2026-11-21', mode: 'screen', completed: false,
+  });
+  await hydrateRemoteReadingSessionsPageV12(ownerKey, [record('matched', matched, 0), record('new', missing, 60_000)], null, null, true, false);
+  await cacheReadBookMetadata(ownerKey, new Map([[matched, { metadata: cached, observedAt: Date.now() }]]));
+  const requested = [];
+  let finish;
+  globalThis.myPageTestMetadata = (titles, options) => new Promise((resolve) => {
+    requested.push(...titles);
+    finish = () => {
+      const result = { metadata: new Map([[missing, fresh]]), failed: new Set() };
+      options.onProgress?.(result, missing);
+      resolve(result);
+    };
+  });
+  const list = () => window.document.querySelector('[aria-label="읽은 책"]');
+  try {
+    await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
+    for (let attempt = 0; attempt < 40 && !finish; attempt++) await act(async () => delay(10));
+    assert.deepEqual(requested, [missing]);
+    assert.match(list().textContent, /다시 표시된 도서/);
+    assert.doesNotMatch(list().textContent, /읽은 책을 불러오는 중|새로 연결한 도서/);
+    await act(async () => finish());
+    assert.match(list().textContent, /새로 연결한 도서/);
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+    delete globalThis.myPageTestMetadata;
   }
 });
 

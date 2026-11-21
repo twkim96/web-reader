@@ -14,6 +14,7 @@ import { DashboardBookRow } from './DashboardBookRow';
 import { ListSort } from './ListSort';
 import { ReviewStar } from './ReviewStar';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
+import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
 
 const readSorts = [
   ['recent', '최근 읽은 순'],
@@ -119,7 +120,11 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
         const names = [...latestByName.keys()].sort((a, b) => latestByName.get(b)! - latestByName.get(a)!);
         const metadata = retained.current.metadata;
         for (const name of metadata.keys()) if (!latestByName.has(name)) metadata.delete(name);
-        const missing = names.filter((name) => !metadata.has(name));
+        const unresolved = names.filter((name) => !metadata.has(name));
+        const cached = await readCachedReadBookMetadata(ownerKey, unresolved);
+        if (disposed) return;
+        for (const [name, match] of cached) metadata.set(name, match);
+        const missing = unresolved.filter((name) => !cached.has(name));
         const known = buildReadBooks(sessions, metadata);
         setBooks(known);
         setError(false);
@@ -146,7 +151,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
               }, 300);
             }
           };
-          const options = { signal: controller.signal, onProgress: update };
+          const options = { signal: controller.signal, onProgress: update, cacheOwnerKey: ownerKey };
           if (preview) {
             // Resolve recent titles in small batches until the dashboard has enough works.
             let resolved = known;
@@ -201,7 +206,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
     ? visibleBooks : [...visibleBooks].sort(readOrder[sort]), [sort, visibleBooks]);
   const status = <>
     {guest && <p className="text-sm opacity-60">로그인 후 동기화된 책이 여기에 표시됩니다.</p>}
-    {!guest && (!visibleBooks || loadingMetadata) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
+    {!guest && (!visibleBooks || (loadingMetadata && visibleBooks.length === 0)) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}
     {error && <p role="alert" className="text-sm">읽은 책을 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => { setError(false); setRetry((value) => value + 1); }}>다시 시도</button></p>}
     {failedCount > 0 && <p role="alert" className="mb-3 text-sm">일부 도서 정보를 불러오지 못했습니다. <button type="button" className="text-accent-500" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></p>}
     {onRetryCatalog && <p role="status" className="mb-3 text-sm">상세 링크를 확인하지 못했습니다. <button type="button" className="text-accent-500" onClick={onRetryCatalog}>다시 시도</button></p>}
