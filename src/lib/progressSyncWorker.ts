@@ -109,7 +109,7 @@ export class ProgressSyncWorker {
     this.now = dependencies.now ?? Date.now;
   }
 
-  async flushOne(now = this.now()) {
+  async flushOne(now = this.now(), onLeader?: () => void) {
     if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
     this.lease = await this.acquireLease(this.syncOwnerKey, this.tabId, now);
     if (!this.lease) return 'not_leader' as const;
@@ -117,6 +117,8 @@ export class ProgressSyncWorker {
       await this.recover(this.syncOwnerKey, this.tabId, this.lease.epoch, now);
       this.recoveredLeaseEpoch = this.lease.epoch;
     }
+    if (this.disposed || !ownerRuntime.isCurrent(this.owner)) return 'stale_owner' as const;
+    onLeader?.();
     const event = await this.claimNext(
       this.syncOwnerKey,
       this.tabId,

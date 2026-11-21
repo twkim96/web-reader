@@ -144,6 +144,20 @@ export const useProgressSyncWorker = (
       else setSyncHealth('blocked-schema');
     };
 
+    let maintenance: Promise<void> | null = null;
+    let nextMaintenanceAt = 0;
+    const requestLeaderMaintenance = () => {
+      if (maintenance || disposed || !ownerRuntime.isCurrent(owner) || Date.now() < nextMaintenanceAt) return;
+      nextMaintenanceAt = Date.now() + 5_000;
+      maintenance = (async () => {
+        try {
+          await reconcileAnnotationBookDeletionIntentsV10(user.uid, syncOwnerKey, annotationContext);
+        } catch (error) {
+          console.error('[AnnotationSync] book deletion reconciliation failed:', error);
+        }
+      })().finally(() => { maintenance = null; });
+    };
+
     const pump = new ProgressSyncPumpController({
       poll: () => runProgressSyncPoll(
           async () => {
@@ -152,17 +166,8 @@ export const useProgressSyncWorker = (
               if (disposed || !ownerRuntime.isCurrent(owner)) return 'stale_owner';
               await bindPendingSyncAuthorityV5(syncOwnerKey, () => !disposed && ownerRuntime.isCurrent(owner));
             }
-            try {
-              await reconcileAnnotationBookDeletionIntentsV10(
-                user.uid,
-                syncOwnerKey,
-                annotationContext,
-              );
-            } catch (error) {
-              console.error('[AnnotationSync] book deletion reconciliation failed:', error);
-            }
             await recoverPending();
-            return worker.flushOne();
+            return worker.flushOne(undefined, requestLeaderMaintenance);
           },
           (error) => console.error('[ProgressSyncWorker] local polling failed:', error),
       ),

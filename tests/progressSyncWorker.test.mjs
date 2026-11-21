@@ -255,7 +255,9 @@ test('a second tab cannot claim while the first lease is live', async () => {
     async () => applied,
     { now: () => clockNow },
   );
-  assert.equal(await first.flushOne(10), 'apply');
+  const maintenance = [];
+  assert.equal(await first.flushOne(10, () => maintenance.push('first')), 'apply');
   await seed();
-  assert.equal(await second.flushOne(11), 'not_leader');
+  assert.equal(await second.flushOne(11, () => maintenance.push('second')), 'not_leader');
+  assert.deepEqual(maintenance, ['first']);
 });

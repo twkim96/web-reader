@@ -280,6 +280,36 @@ test('uses its own replayed marker receipt and finishes when only newer work rem
   assert.equal(await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [ownerKey, 'book-1']), undefined);
 });
 
+test('a repeat deletion during marker acknowledgement preserves the first receipt and generation fence', async () => {
+  const owner = makeOwnerKey(makeFirebaseOwnerKey('repeat-delete'), 'library:local');
+  const bookId = 'repeat-book';
+  await removeBookAndAnnotationsV8(owner, DEVICE_CONTENT_OWNER_KEY, bookId, context);
+  const now = Date.now() + 1_000;
+  const lease = await acquireSyncLeaseV5(owner, 'repeat-tab', now, 5_000);
+  const sent = await claimNextProgressEventV5(owner, 'repeat-tab', lease.epoch, now + 1);
+  const intentKey = [owner, bookId];
+  const db = await initDB();
+  const first = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey);
+
+  await removeBookAndAnnotationsV8(owner, DEVICE_CONTENT_OWNER_KEY, bookId, context);
+  assert.deepEqual(await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey), first);
+  assert.deepEqual((await getOutboxEventsV5(owner)).map(event => event.eventId), [sent.eventId]);
+  const marker = {
+    ...head('fixture', 2, bookId), annotationId: sent.target.annotationId, acceptedEventId: 'next-marker',
+    operation: 'delete', annotation: null, bookGeneration: 2, deletedAtServer: {},
+  };
+  assert.equal(await acknowledgeProgressEventV5(owner, sent.eventId, marker, getExpectedClaimV5(sent), now + 2, 1), true);
+  assert.equal((await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey)).markerRevision, 1);
+  const result = await reconcileAnnotationBookDeletionIntentsV10('repeat-delete', owner, context, now + 3, async () => [
+    head('before-delete', 1, bookId),
+    { ...head('newer-highlight', 1, bookId), bookGeneration: 1 },
+  ]);
+  assert.equal(result.queued, 1);
+  const [cleanup] = await getOutboxEventsV5(owner);
+  assert.equal(cleanup.target.annotationId, 'before-delete');
+  assert.equal(cleanup.deleteBeforeBookGeneration, 1);
+});
+
 test('a stale marker retires only its intent and releases edits at the observed remote generation', async () => {
   const staleOwner = makeOwnerKey(makeFirebaseOwnerKey('stale-marker'), 'library:local');
   const markerId = 'book_delete_marker_v1';

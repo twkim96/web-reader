@@ -60,6 +60,8 @@ TTL을 쓰는 경우 `eventReceipts` 컬렉션 그룹의 `createdAtServer`에 12
 
 ## 반복 장애 조사
 
+- 주석 삭제와 미발급 저장 보호가 들어간 버전으로 전환할 때는 같은 계정의 설치형 PWA와 열린 탭을 모두 업데이트합니다. 이전 버전이 열린 동안에는 도서 전체 삭제를 피합니다. 새 클라이언트의 세대 확인과 탭 잠금은 이전 클라이언트가 직접 보내는 쓰기에 적용되지 않습니다.
+
 - 인증/Drive callback: 실제 접속 origin, OAuth redirect URI, 같은 origin Firebase helper와 SW 제외 여부, pending state 소비를 확인합니다. access token/비밀값을 로그에 남기지 않습니다.
 - 첫 페이지로 잘못 열림: 기존 진행률을 보존하고 재발 직후 진단 JSON의 `readerResumeFailures`와 실제 도서/기기 조건을 확인합니다.
 - 동기화 누락/충돌: UID/owner 수명, offline 여부, outbox·revision·receipt·permission 오류를 구분합니다. 데이터 초기화를 첫 해결책으로 사용하지 않습니다.
