@@ -4,6 +4,8 @@
 
 저장소의 릴리스 기록은 Vercel 배포를 사용합니다. 현재 배포 성공은 대상 커밋/빌드의 배포 상태를 따로 확인해야 하며 Git push나 로컬 build 성공만으로 판정하지 않습니다. runtime은 `npm run build` → `npm run start`로 확인할 수 있습니다. 클라이언트 공개 변수는 빌드에 반영하고 서버 비밀 설정은 [개발 가이드](../development/setup-and-checks.md)에 따라 배포 환경에 설정합니다.
 
+[vercel.json](../../vercel.json)은 프로젝트의 Vercel Functions를 서울(`icn1`)에 배치합니다. 운영 기본 Firestore의 서울 리전(`asia-northeast3`)과 가깝게 두기 위한 설정입니다. 배포 후 동적 API 응답의 `x-vercel-id`에서 함수 실행 위치를 확인합니다. 마이페이지의 인증·조회·작품 정보 연결 시간은 [계측 방법](../development/setup-and-checks.md#완료-증거)으로 배포 전후를 비교합니다. [Vercel 함수 리전](https://vercel.com/docs/functions/configuring-functions/region)
+
 버전은 [package.json](../../package.json), [package-lock.json](../../package-lock.json), [public/sw.js](../../public/sw.js)와 [releaseVersion.test.mjs](../../tests/releaseVersion.test.mjs)의 일관성을 유지합니다. 같은 버전의 코드 변경도 [app-build-id.mjs](../../scripts/app-build-id.mjs)가 `src/`, `public/`, 패키지·Next config·공개 환경변수로 build ID를 계산합니다. 문서 파일만 바꾼 경우 이 입력은 바뀌지 않습니다.
 
 배포 전 작업 범위에 필요한 [검증](../development/setup-and-checks.md#검증-선택)을 끝내고 버전별 증거는 [updates](../updates/README.md)에 보관합니다. 사용자가 위임하지 않은 실제 게시·Rules 배포·서비스 조작을 문서 정리의 일부로 실행하지 않습니다.
