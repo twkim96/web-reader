@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiscoveryBook } from '../lib/bookDiscovery';
-import type { MyPageSavedBook } from '../lib/myPageSocial';
-import { myPageRequest } from '../lib/myPageSocialClient';
+import { MY_PAGE_DASHBOARD_BOOK_LIMIT, type MyPageSavedBook } from '../lib/myPageSocial';
+import { myPageRequest, MyPageRequestError } from '../lib/myPageSocialClient';
+import { dashboardWishlistCache } from '../lib/myPageDashboardCache';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import { useWishlist } from './useWishlist';
 
@@ -17,12 +18,20 @@ export function useAccountWishlist(ownerKey: OwnerKey, enabled: boolean) {
   const refresh = useCallback(async () => {
     if (pending.current) return;
     const generation = ++request.current;
+    const cache = dashboardWishlistCache.beginRead(ownerKey);
     try {
       const result = await myPageRequest<{ entries: MyPageSavedBook[] }>({ view: 'wishlist' }, { owner: ownerKey });
-      if (generation === request.current) { setEntries(result.entries); setError(null); }
+      if (generation === request.current) {
+        cache?.(result.entries.filter(({ item }) => item.saved).slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map(({ book }) => book));
+        setEntries(result.entries);
+        setError(null);
+      }
     } catch (error) {
       if (generation === request.current) {
-        setEntries((current) => current ?? []);
+        if (error instanceof MyPageRequestError && error.status === 401) {
+          cache?.(undefined);
+          setEntries(null);
+        }
         setError((error as Error).message);
       }
     }

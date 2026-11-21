@@ -12,6 +12,8 @@ import type { MyPageBrowseSection } from '../../lib/myPageSocial';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
+import { useMyPageDashboardCards } from '../../hooks/useMyPageDashboardCards';
+import { dashboardWishlistCache } from '../../lib/myPageDashboardCache';
 import { ReadingDashboard } from './ReadingDashboard';
 import { ReadBooks } from './ReadBooks';
 import { BookCover } from './BookCover';
@@ -168,6 +170,8 @@ export function MyPage(props: Props) {
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
+  const cachedWishlist = useMyPageDashboardCards(dashboardWishlistCache, ownerKey, signedIn && tab === 'overview');
+  const dashboardWishlist = wishlist.loading ? cachedWishlist : wishlist.entries.map(({ book }) => book);
   const groupedCatalog = catalog ? getGroupedBookDiscovery(catalog) : null;
   const readBookDetailId = (book: ReadBook) =>
     groupedCatalog && book.platformWorkKeys?.length ? resolveReadBookDiscovery(groupedCatalog, book).book?.id ?? null : null;
@@ -398,10 +402,10 @@ export function MyPage(props: Props) {
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={`${ownerKey}:${feedSection}`} section={feedSection} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
-            <DashboardBookRow title="읽고 싶은 도서" books={wishlist.entries.map(({ book }) => book)}
+            <DashboardBookRow title="읽고 싶은 도서" books={dashboardWishlist ?? []}
               onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
-              {wishlist.loading ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>
-                : !wishlist.error && wishlist.entries.length === 0 && <div className="flex flex-wrap items-center gap-x-4">
+              {!wishlist.error && dashboardWishlist === undefined ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>
+                : !wishlist.error && dashboardWishlist?.length === 0 && <div className="flex flex-wrap items-center gap-x-4">
                   <p className="text-sm opacity-60">담아둔 책이 없습니다.</p>
                   <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
                 </div>}

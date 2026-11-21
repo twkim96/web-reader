@@ -144,6 +144,9 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
           const metadataLoader = await import('../../lib/readBookMetadata');
           if (disposed) return;
           let failedBeforeBatch = 0;
+          let resolved = known;
+          let previewPublished = false;
+          let hasNewMatch = false;
           const update = (result: { metadata: Map<string, PublicBookMetadata | null>; failed: Set<string> }, title: string, expiresAt?: number) => {
             if (disposed) return;
             const value = result.metadata.get(title);
@@ -152,20 +155,32 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
               if (expiresAt !== undefined) matches.set(title, { metadata: value, expiresAt });
             }
             setFailedCount(failedBeforeBatch + result.failed.size);
-            if (!preview && value !== undefined && renderTimer === undefined) {
+            if (value) hasNewMatch = true;
+            if (value !== undefined && renderTimer === undefined && (!preview || (hasNewMatch && !previewPublished))) {
               renderTimer = window.setTimeout(() => {
                 renderTimer = undefined;
-                if (!disposed) setBooks(buildReadBooks(sessions, metadata));
-              }, 300);
+                if (disposed) return;
+                const current = buildReadBooks(sessions, metadata);
+                if (preview) {
+                  // A known alternate name can still be waiting for confirmation.
+                  const existing = new Set(resolved.slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map((book) => book.rowKey ?? book.id));
+                  if (!current.slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).some((book) => !existing.has(book.rowKey ?? book.id))) return;
+                  previewPublished = true;
+                }
+                setBooks(current);
+              }, preview ? 0 : 300);
             }
           };
           const options = { signal: controller.signal, onProgress: update, cacheOwnerKey: ownerKey };
           if (preview) {
             // Resolve recent titles in small batches until the dashboard has enough works.
-            let resolved = known;
             for (let start = 0; start < missing.length && !disposed; start += 8) {
+              hasNewMatch = false;
+              previewPublished = false;
               const result = await metadataLoader.loadReadBookMetadata(missing.slice(start, start + 8), options);
               if (disposed) break;
+              window.clearTimeout(renderTimer);
+              renderTimer = undefined;
               failedBeforeBatch += result.failed.size;
               if (result.metadata.size > 0) {
                 resolved = buildReadBooks(sessions, metadata);

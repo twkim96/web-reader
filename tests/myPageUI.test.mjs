@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
+import { createRequire, registerHooks } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -693,6 +693,112 @@ test('a mounted read list retries an expired miss on a reading history refresh',
     await act(async () => root.unmount());
     await closeLocalDB();
     delete globalThis.myPageTestMetadata;
+  }
+});
+
+test('dashboard shows confirmed books while a slower title in the same batch is pending', async () => {
+  const { window, root } = setup('#mypage/overview');
+  const ownerKey = 'firebase:dashboard-first-book|library:local';
+  const start = Date.UTC(2026, 10, 21, 1);
+  const titles = ['빠르게 매칭된 책', '나중에 매칭된 책'];
+  await hydrateRemoteReadingSessionsPageV12(ownerKey, titles.map((title, index) => ({
+    schemaVersion: 1, sessionId: title, bookId: title, bookTitle: title, deviceId: 'fixture-device',
+    startedAtClient: start + index * 60_000, endedAtClient: start + (index + 1) * 60_000, durationMs: 60_000,
+    startProgressPercent: 1, endProgressPercent: 10, timezoneOffsetMinutes: 0,
+    localDate: '2026-11-21', mode: 'screen', completed: false,
+  })), null, null, true, false);
+  let finish;
+  globalThis.myPageTestMetadata = (_titles, options) => new Promise((resolve) => {
+    const result = { metadata: new Map(), failed: new Set() };
+    const publish = (title) => {
+      result.metadata.set(title, { titleKey: title, displayTitle: title, platforms: [] });
+      options.onProgress(result, title);
+    };
+    publish(titles[0]);
+    finish = () => { publish(titles[1]); resolve(result); };
+  });
+  const listedTitles = () => [...window.document.querySelectorAll('[aria-label="읽은 도서 가로 목록"] li .line-clamp-2')]
+    .map((item) => item.textContent);
+  try {
+    await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
+    for (let attempt = 0; attempt < 40 && listedTitles().length === 0; attempt++) await act(async () => delay(10));
+    assert.deepEqual(listedTitles(), [titles[0]]);
+    await act(async () => finish());
+    assert.deepEqual(listedTitles(), [...titles].reverse());
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+    delete globalThis.myPageTestMetadata;
+  }
+});
+
+test('dashboard reuses recent cards while reconciling only the current login session', async (t) => {
+  const require = createRequire(import.meta.url);
+  const { dashboardReviewCache, dashboardWishlistCache } = require('../src/lib/myPageDashboardCache.ts');
+  const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+  const { window, root } = setup('#mypage/overview');
+  const uid = 'dashboard-card-reentry';
+  const ownerKey = `firebase:${uid}|library:local`;
+  const originalBook = { ...book, id: 'wishlist-preview', title: '기억한 위시리스트' };
+  const review = { id: 'review-preview', title: '기억한 평가', coverTitle: null, coverUrl: null, rating: 4 };
+  const authFixture = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
+        return { url: 'data:text/javascript,' + encodeURIComponent(
+          `export const auth = { currentUser: { uid: ${JSON.stringify(uid)}, getIdToken: async () => 'fixture-token' } };`,
+        ), shortCircuit: true };
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  const refreshes = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).startsWith('/catalog/')) {
+      return Response.json({ schemaVersion: 1, generation: uid, genres: [], tags: [], books: [] });
+    }
+    const view = new URL(url, 'https://test.example').searchParams.get('view');
+    assert.ok(view === 'wishlist' || view === 'reviews');
+    return new Promise((resolve) => { refreshes.push({ view, resolve }); });
+  });
+  ownerRuntime.activate(ownerKey);
+  const render = () => act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
+  const list = (title) => window.document.querySelector(`[aria-label="${title} 가로 목록"]`);
+  try {
+    await render();
+    for (let attempt = 0; attempt < 20 && refreshes.length < 2; attempt++) await act(async () => delay(10));
+    assert.equal(refreshes.length, 2);
+    await act(async () => {
+      for (const { view, resolve } of refreshes.splice(0)) {
+        resolve(Response.json(view === 'wishlist'
+          ? { entries: [{ book: originalBook, item: { workId: originalBook.id, saved: true, revision: 1, addedAt: 0 }, aliases: [] }] }
+          : { reviews: [{ workId: review.id, title: review.title, rating: review.rating }], deletions: [] }));
+      }
+    });
+    await act(async () => root.render(null));
+    await render();
+    assert.match(list('읽고 싶은 도서').textContent, /기억한 위시리스트/);
+    assert.match(list('평점을 남긴 도서').textContent, /기억한 평가/);
+    const readBeforeWrite = dashboardWishlistCache.beginRead(ownerKey);
+    let finishWrite;
+    await act(async () => { finishWrite = dashboardWishlistCache.beginWrite(ownerKey); });
+    assert.equal(dashboardWishlistCache.beginRead(ownerKey)([originalBook]), false);
+    finishWrite();
+    await act(async () => readBeforeWrite([originalBook]));
+    assert.equal(list('읽고 싶은 도서'), null);
+    const previousLoginReviewRead = dashboardReviewCache.beginRead(ownerKey);
+    await act(async () => root.render(null));
+    ownerRuntime.clear();
+    ownerRuntime.activate(ownerKey);
+    previousLoginReviewRead([review]);
+    await render();
+    assert.equal(list('읽고 싶은 도서'), null);
+    assert.equal(list('평점을 남긴 도서'), null);
+  } finally {
+    await act(async () => root.unmount());
+    for (const { resolve } of refreshes) resolve(new Response(null, { status: 503 }));
+    ownerRuntime.clear();
+    await closeLocalDB();
+    authFixture.deregister();
   }
 });
 

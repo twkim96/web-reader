@@ -1,5 +1,6 @@
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import type { MyPageReview } from './myPageSocial';
+import { dashboardReviewCache, dashboardWishlistCache } from './myPageDashboardCache';
 
 export class MyPageRequestError extends Error {
   constructor(readonly status: number) {
@@ -16,6 +17,22 @@ export async function myPageRequest<T>(params: Record<string, string>, options: 
   body?: object;
   signal?: AbortSignal;
 } = {}): Promise<T> {
+  const action = params.action;
+  const cache = action === 'wishlist' || action === 'import-wishlist' ? dashboardWishlistCache
+    : action === 'review' || action === 'import-reviews' ? dashboardReviewCache
+      : undefined;
+  const finishWrite = options.owner && options.body ? cache?.beginWrite(options.owner) : undefined;
+  try {
+    return await requestMyPage<T>(params, options);
+  } finally {
+    finishWrite?.();
+  }
+}
+
+async function requestMyPage<T>(
+  params: Record<string, string>,
+  options: { owner?: OwnerKey; body?: object; signal?: AbortSignal },
+): Promise<T> {
   const headers = new Headers();
   if (options.owner) {
     if (isGuestOwner(options.owner)) throw new MyPageRequestError(401);

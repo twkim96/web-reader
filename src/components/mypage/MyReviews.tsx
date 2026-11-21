@@ -6,6 +6,8 @@ import { REVIEW_LIST_SORTS, sortReviewList, type MyPageOwnReviews, type MyPageRe
 import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
+import { useMyPageDashboardCards } from '../../hooks/useMyPageDashboardCards';
+import { dashboardReviewCache, dashboardReviewCards } from '../../lib/myPageDashboardCache';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
@@ -19,6 +21,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
 }) {
   const guest = isGuestOwner(owner);
   const preview = Boolean(onShowAll);
+  const cachedReviews = useMyPageDashboardCards(dashboardReviewCache, owner, preview && !guest);
   const [reviews, setReviews] = useState<MyPageReview[]>();
   const [sort, setSort] = useMyPageSort(owner, 'reviews', REVIEW_LIST_SORTS, 'recent');
   const [confirmation, setConfirmation] = useState<MyPageReview>();
@@ -35,14 +38,22 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
     request.current = controller;
     const params: Record<string, string> = { view: 'reviews' };
     if (preview) params.preview = '1';
+    const cache = preview ? dashboardReviewCache.beginRead(owner) : undefined;
     void myPageRequest<MyPageOwnReviews>(params, { owner, signal: controller.signal })
       .then((result) => {
         if (controller.signal.aborted) return;
+        if (cache && !cache(dashboardReviewCards(result.reviews))) return;
         setReviews(result.reviews);
         setError('');
       })
       .catch((error: Error) => {
-        if (!controller.signal.aborted) setError(error.message);
+        if (!controller.signal.aborted) {
+          if (error instanceof MyPageRequestError && error.status === 401) {
+            cache?.(undefined);
+            setReviews(undefined);
+          }
+          setError(error.message);
+        }
       });
     return () => {
       controller.abort();
@@ -107,18 +118,16 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
     }
   };
 
+  const reviewCount = reviews?.length ?? cachedReviews?.length;
   const status = <>
       {error && <p role="alert" className="text-sm text-accent-500">{error} <button type="button" className="underline" onClick={() => { setError(''); setAttempt((value) => value + 1); }}>다시 불러오기</button></p>}
       {feedback && <p role="status" className="text-sm opacity-75">{feedback}</p>}
       {guest && <p className="text-sm opacity-65">로그인 후 남긴 평가를 볼 수 있습니다.</p>}
-      {!reviews && !error && !guest && <p role="status" className="text-sm opacity-65">평가를 불러오는 중…</p>}
-      {reviews?.length === 0 && <p className="text-sm opacity-65">남긴 평가가 없습니다.</p>}
+      {reviewCount === undefined && !error && !guest && <p role="status" className="text-sm opacity-65">평가를 불러오는 중…</p>}
+      {reviewCount === 0 && <p className="text-sm opacity-65">남긴 평가가 없습니다.</p>}
   </>;
   if (onShowAll) {
-    const books = (reviews ?? []).map((review) => ({
-      id: review.workId, title: review.title ?? review.workId, coverTitle: review.title ?? null,
-      coverUrl: review.coverUrl ?? null, rating: review.rating,
-    }));
+    const books = reviews ? dashboardReviewCards(reviews) : cachedReviews ?? [];
     return <DashboardBookRow title="평점을 남긴 도서" books={books} onShowAll={guest ? undefined : onShowAll}
       onOpenBook={({ id }) => onOpenBook(id)} coverLoading="direct-with-proxy-fallback"
       renderDetail={({ rating }) => <span className="mt-1 flex items-center gap-1 text-xs text-accent-500" aria-label={`별점 ${rating}점`}>
