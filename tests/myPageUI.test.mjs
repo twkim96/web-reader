@@ -440,10 +440,17 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(allReviews().querySelector('img')?.getAttribute('src'), reviewCover);
     await click(window, visible('button[aria-label="공개 설정"]'));
     assert.equal(visible('section[aria-label="프로필 및 공개 설정"] .mypage-divided-list').children.length, 2);
+    await openMenu('보관');
+    await openCollectionTab('내 평가');
+    assert.equal(visible('select[aria-label="내 평가 정렬"]').querySelector('option:checked').value, 'rating-asc');
+    await openCollectionTab('읽은 책');
+    await select(window, visible('select[aria-label="읽은 책 정렬"]'), 'progress');
+    await openCollectionTab('내 평가');
 
     // The visible read list retains the old metadata. The detail requests it
     // again and receives null for a separate edition of the same work.
-    await openMenu('보관');
+    await openCollectionTab('읽은 책');
+    assert.equal(visible('select[aria-label="읽은 책 정렬"]').querySelector('option:checked').value, 'progress');
     const editionLink = () => visible('a[href="#mypage/book/published-second/review"]');
     const editionRow = () => editionLink()?.closest('article');
     for (let n = 0; n < 20 && !editionRow()?.textContent.includes('2분 읽음'); n++) {
@@ -737,9 +744,18 @@ test('MyPage renders as a page, removes saved books, and isolates account change
     await act(async () => root.render(React.createElement(MyPage, props)));
     assert.equal(window.document.querySelector('[role="dialog"]'), null);
     assert.match(window.document.querySelector('main').textContent, /테스트 도서/);
+    const wishlistSort = () => window.document.querySelector('select[aria-label="위시리스트 정렬"]');
+    const selectedSort = () => wishlistSort().querySelector('option:checked').value;
+    await select(window, wishlistSort(), 'title');
+    await act(async () => root.render(null));
+    await act(async () => root.render(React.createElement(MyPage, props)));
+    assert.equal(selectedSort(), 'title');
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey: 'guest:other|library:local' })));
     assert.doesNotMatch(window.document.querySelector('main').textContent, /테스트 도서/);
+    assert.equal(selectedSort(), 'saved');
+    await select(window, wishlistSort(), 'views');
     await act(async () => root.render(React.createElement(MyPage, props)));
+    assert.equal(selectedSort(), 'title');
     await click(window, window.document.querySelector('button[aria-label="테스트 도서 위시리스트 제거"]'));
     assert.equal(window.location.hash, '#mypage/wishlist');
     assert.match(window.document.querySelector('main').textContent, /담아둔 책 0권/);

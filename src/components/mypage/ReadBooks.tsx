@@ -15,6 +15,7 @@ import { ListSort } from './ListSort';
 import { ReviewStar } from './ReviewStar';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 import { readCachedReadBookMetadata, type ReadBookMetadataMatch } from '../../lib/readBookMetadataCache';
+import { useMyPageSort } from '../../hooks/useMyPageSort';
 
 const readSorts = [
   ['recent', '최근 읽은 순'],
@@ -81,7 +82,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   const [error, setError] = useState(false);
   const [loadingMetadata, setLoadingMetadata] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [sort, setSort] = useState<ReadSort>('recent');
+  const [sort, setSort] = useMyPageSort(ownerKey, 'read', readSorts, 'recent');
   const [visibleCount, setVisibleCount] = useState(20);
   const [failedCount, setFailedCount] = useState(0);
   const accountIndex = useMemo(() => indexReviewWorks(reviews ?? []), [reviews]);

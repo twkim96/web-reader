@@ -288,6 +288,14 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await nextReviews;
   await expect(publicReviews.getByRole('heading', { level: 3 })).toHaveText(['공개 도서 1', '공개 도서 0', '추가 공개 도서']);
   await expect(page.getByRole('region', { name: '위시리스트' }).getByRole('listitem')).toHaveCount(2);
+  const initialAfterReload = page.waitForRequest(request => {
+    const params = new URL(request.url()).searchParams;
+    return params.get('view') === 'profile' && !params.has('section');
+  });
+  await page.reload();
+  expect(new URL((await initialAfterReload).url()).searchParams.get('reviewSort')).toBe('rating-desc');
+  await expect(publicReviews.getByRole('combobox', { name: '공개 평가 정렬' })).toHaveValue('rating-desc');
+  await expect(publicReviews.getByRole('heading', { level: 3 })).toHaveText(['공개 도서 1', '공개 도서 0']);
 });
 
 for (const responseOrder of ['refresh-first', 'sort-first'] as const) {

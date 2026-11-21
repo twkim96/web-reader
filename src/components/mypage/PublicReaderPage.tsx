@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link';
 import { ArrowLeft, Star } from 'lucide-react';
 import { getStoredViewerSettings } from '../../hooks/useViewerSettings';
+import { publicReviewSortKey, readMyPageSort, saveMyPageSort } from '../../hooks/useMyPageSort';
 import { bookDetailHref } from '../../lib/bookDetail';
 import { formatMyPageIdentity, REVIEW_LIST_SORTS, type ReviewListSort, type MyPageVisibility, type PublicMyPage, type PublicProfileBook, type PublicProfileNext } from '../../lib/myPageSocial';
 import { myPageRequest } from '../../lib/myPageSocialClient';
@@ -39,6 +40,7 @@ export function PublicReaderPage({ code }: { code: string }) {
       if (current === generation.current) {
         setProfile(result);
         setLoadedReviewSort(sort);
+        setReviewSort(sort);
       }
     } catch (error) {
       if (current === generation.current) { setProfile(null); setError((error as Error).message); }
@@ -53,6 +55,7 @@ export function PublicReaderPage({ code }: { code: string }) {
     setTheme({ ...getThemeCssVariables(settings), '--accent-500': accent[500] } as React.CSSProperties);
   }, []);
   useEffect(() => {
+    selectedReviewSort.current = readMyPageSort(publicReviewSortKey, REVIEW_LIST_SORTS, 'recent');
     void reload();
     const refresh = () => void reload();
     window.addEventListener('focus', refresh);
@@ -65,6 +68,7 @@ export function PublicReaderPage({ code }: { code: string }) {
     if (sort === selectedReviewSort.current) return;
     selectedReviewSort.current = sort;
     setReviewSort(sort);
+    saveMyPageSort(publicReviewSortKey, sort);
     if (fullReload.current !== null) {
       void reload();
       return;

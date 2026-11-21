@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Star, Trash2 } from 'lucide-react';
-import { REVIEW_LIST_SORTS, sortReviewList, type MyPageOwnReviews, type MyPageReview, type ReviewListSort } from '../../lib/myPageSocial';
+import { REVIEW_LIST_SORTS, sortReviewList, type MyPageOwnReviews, type MyPageReview } from '../../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
+import { useMyPageSort } from '../../hooks/useMyPageSort';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
 import { DashboardBookRow } from './DashboardBookRow';
@@ -19,7 +20,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, changeVersion }: {
   const guest = isGuestOwner(owner);
   const preview = Boolean(onShowAll);
   const [reviews, setReviews] = useState<MyPageReview[]>();
-  const [sort, setSort] = useState<ReviewListSort>('recent');
+  const [sort, setSort] = useMyPageSort(owner, 'reviews', REVIEW_LIST_SORTS, 'recent');
   const [confirmation, setConfirmation] = useState<MyPageReview>();
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');

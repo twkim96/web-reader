@@ -11,6 +11,7 @@ import type { ReadBook } from '../../lib/readBooks';
 import type { MyPageBrowseSection } from '../../lib/myPageSocial';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
+import { useMyPageSort } from '../../hooks/useMyPageSort';
 import { ReadingDashboard } from './ReadingDashboard';
 import { ReadBooks } from './ReadBooks';
 import { BookCover } from './BookCover';
@@ -56,7 +57,6 @@ const catalogSorts = [
 ] as const;
 const wishlistSorts = [['saved', '최근 담은 순'], ...catalogSorts] as const;
 type CatalogSort = typeof catalogSorts[number][0];
-type WishlistSort = typeof wishlistSorts[number][0];
 const bookOrder: Record<CatalogSort, (a: DiscoveryBook, b: DiscoveryBook) => number> = {
   title: (a, b) => a.title.localeCompare(b.title, 'ko'),
   popular: (a, b) => (b.popularity ?? -1) - (a.popularity ?? -1) || a.title.localeCompare(b.title, 'ko'),
@@ -163,8 +163,8 @@ export function MyPage(props: Props) {
   const [source, setSource] = useState('');
   const [genre, setGenre] = useState('');
   const [tag, setTag] = useState('');
-  const [wishlistSort, setWishlistSort] = useState<WishlistSort>('saved');
-  const [discoverySort, setDiscoverySort] = useState<CatalogSort>('popular');
+  const [wishlistSort, setWishlistSort] = useMyPageSort(ownerKey, 'wishlist', wishlistSorts, 'saved');
+  const [discoverySort, setDiscoverySort] = useMyPageSort(ownerKey, 'discover', catalogSorts, 'popular');
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
