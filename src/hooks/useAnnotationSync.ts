@@ -281,6 +281,7 @@ export const useAnnotationSync = ({
     const dispose = () => {
       disposed = true;
       controller.abort();
+      resolveMarkerAuthoritative();
       if (annotationRecoveryRef.current === recovery) annotationRecoveryRef.current = null;
       if (markerRecoveryRef.current === markerRecovery) markerRecoveryRef.current = null;
       recovery.dispose();

@@ -11,6 +11,7 @@ import {
   getOpenSyncConflictsV5,
   getUnresolvedSyncConflictsV5,
   isSyncConflictPresentableV5,
+  isBookmarkOutboxEventV5,
   deferSyncConflictV5,
   previewSyncConflictUseRemoteProgressV5,
   resolveSyncConflictKeepLocalV5,
@@ -22,7 +23,8 @@ import {
 } from '../lib/syncOutboxV5';
 import { getSyncOwnerKey } from '../lib/ownerIdentity';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
-import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
+import { getProgressCommitBaseline, rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
+import { fromManualBookmarkPayload } from '../lib/bookmarkSyncPolicy';
 import { getSyncSessionId } from '../lib/syncSession';
 import { getAutomaticProgressConflictResolution } from '../lib/syncConflictPolicy';
 import { selectProgressSyncConflict } from '../lib/syncConflictPresentation';
@@ -425,6 +427,26 @@ export const useSyncConflictResolution = ({
         return false;
       }
       applyLocalProgressWinnerToRuntime(owner, conflict, replacement);
+      const original = conflict.event?.target;
+      if (original?.kind === 'bookmark' && isBookmarkOutboxEventV5(replacement)
+        && replacement.payload && original.bookmarkId !== replacement.target.bookmarkId) {
+        const restored = fromManualBookmarkPayload(replacement.payload);
+        const { bookId, bookmarkId } = original;
+        const replaceBookmark = (progress: UserProgress) => ({
+          ...progress,
+          bookmarks: [
+            ...(progress.bookmarks ?? []).filter(item => item.id !== bookmarkId && item.id !== restored.id),
+            restored,
+          ],
+        });
+        const current = progressRef.current[bookId];
+        const baseline = getProgressCommitBaseline(owner.ownerKey, bookId, current);
+        if (baseline) rebaseProgressCommitBaseline(owner.ownerKey, bookId, replaceBookmark(baseline));
+        if (current) progressRef.current = { ...progressRef.current, [bookId]: replaceBookmark(current) };
+        setProgress(previous => ownerRuntime.isCurrent(owner) && previous[bookId]
+          ? { ...previous, [bookId]: replaceBookmark(previous[bookId]) }
+          : previous);
+      }
       setConflict(null);
       void refresh().catch((error) => {
         console.error('[SyncConflict] refresh after keep-local failed:', error);
@@ -440,7 +462,7 @@ export const useSyncConflictResolution = ({
       resolvingRef.current.delete(conflict.conflictId);
       if (ownerRuntime.isCurrent(owner)) setResolving(false);
     }
-  }, [activeBookId, applyLocalProgressWinnerToRuntime, conflict, flushReaderProgress, refresh]);
+  }, [activeBookId, applyLocalProgressWinnerToRuntime, conflict, flushReaderProgress, progressRef, refresh, setProgress]);
 
   const useRemote = useCallback(async () => {
     const owner = ownerRuntime.capture();

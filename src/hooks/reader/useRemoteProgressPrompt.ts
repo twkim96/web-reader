@@ -145,7 +145,7 @@ export const useRemoteProgressPrompt = ({
   const [initialRecoveryRecord] = useState(() => readSyncRecovery(recoveryScope));
   const recoveryRecordRef = useRef(initialRecoveryRecord);
   const [syncRecovery, setSyncRecovery] = useState<ReaderSyncRecovery | null>(() => recoveryRecordRef.current?.candidate ?? null);
-  const [syncRecoveryVisible, setSyncRecoveryVisible] = useState(false);
+  const [syncRecoveryVisible, setSyncRecoveryVisible] = useState(() => Boolean(initialRecoveryRecord?.candidate));
   const [syncRecoveryFeedback, setSyncRecoveryFeedback] = useState<string | null>(null);
   const hideSyncRecovery = useCallback(() => setSyncRecoveryVisible(false), []);
   const consumeSyncRecovery = useCallback((identity: string) => {
@@ -898,9 +898,19 @@ export const useRemoteProgressPrompt = ({
     }).finally(() => setResolvingSyncConflict(false));
   }, [adoptAndNavigateRemoteProgress, adoptResolvedBookmarks, commitBookmarks, currentAnchorCfi, currentCfi, getBookmarks, jumpToRemoteProgress, onResolvedRemoteProgressConsumed, onResolvedRemoteProgressFinalize, remoteProgress, resetToRemoteProgress, resolvingSyncConflict, stageAutoBookmark, syncConflict, totalProgress]);
 
+  const currentRemoteAnchor = remoteProgress?.anchorCfi || remoteProgress?.cfi;
+  const recoveryAvailable = isLoaded && syncRecovery && remoteProgress?.operation === 'set'
+    && Boolean(remoteProgress.syncRevision && remoteProgress.acceptedEventId)
+    && getRemoteProgressIdentity(remoteProgress) === syncRecovery.identity
+    && currentRemoteAnchor !== (currentAnchorCfi || currentCfi)
+    && outboxConflictRevision === undefined
+    && (ignoredRemoteRevision === undefined || (remoteProgress.syncRevision ?? 0) > ignoredRemoteRevision)
+    && (localRevision === undefined || remoteProgress.syncRevision === undefined
+      || remoteProgress.syncRevision > localRevision);
+
   return {
-    syncRecovery,
-    syncRecoveryVisible,
+    syncRecovery: recoveryAvailable ? syncRecovery : null,
+    syncRecoveryVisible: Boolean(recoveryAvailable && syncRecoveryVisible),
     hideSyncRecovery,
     consumeSyncRecovery,
     acceptSyncRecovery,

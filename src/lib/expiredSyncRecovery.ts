@@ -238,6 +238,11 @@ export const recoverExpiredProgressFromServer = async (
 };
 
 type SyncTarget = SyncOutboxEventV5['target'];
+export type ExpiredSyncProgressUpdate = {
+  ownerKey: OwnerKey;
+  progress: UserProgress;
+} & ({ kind: 'progress' } | { kind: 'bookmark'; bookmarkId: string });
+
 type RecoveryOptions = {
   serverTrustedNow?: number | null;
   fetchHead?: (uid: string, target: SyncTarget) => Promise<unknown | null>;

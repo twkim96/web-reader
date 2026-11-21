@@ -9,6 +9,16 @@ export type ManualBookmarkMutation =
   | { kind: 'upsert'; bookmark: Bookmark }
   | { kind: 'delete'; bookmarkId: string };
 
+export const fromManualBookmarkPayload = (payload: ManualBookmarkPayloadV2): Bookmark => ({
+  id: payload.bookmarkId,
+  type: 'manual',
+  name: payload.name,
+  cfi: payload.cfi,
+  progressPercent: payload.progressPercent ?? undefined,
+  createdAt: payload.createdAtClient,
+  color: payload.color,
+});
+
 const manualById = (bookmarks: Bookmark[] | undefined) => new Map(
   (bookmarks ?? [])
     .filter((bookmark) => bookmark.type === 'manual')

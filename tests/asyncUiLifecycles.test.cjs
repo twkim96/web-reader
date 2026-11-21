@@ -96,6 +96,68 @@ test('a new save wakes the worker without retrying a different book paused on pe
   }
 });
 
+test('keeping a remotely deleted bookmark updates its id before the reader can delete it again', async () => {
+  const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+  const { useSyncConflictResolution } = require('../src/hooks/useSyncConflictResolution.ts');
+  const { useProgressActions } = require('../src/hooks/useProgressActions.ts');
+  const outbox = require('../src/lib/syncOutboxV5.ts');
+  const { saveProgressToLocalV5 } = require('../src/lib/localDBV5.ts');
+  const ownerKey = 'firebase:keep-bookmark|library:local';
+  const user = { uid: 'keep-bookmark' };
+  const bookId = 'book';
+  const bookmark = { id: 'old-mark', type: 'manual', name: 'mark', color: '#fff', cfi: 'mark', createdAt: 1 };
+  const initial = { bookId, cfi: 'reader', progressPercent: 50, lastRead: 1, bookmarks: [bookmark] };
+  await saveProgressToLocalV5(ownerKey, initial);
+  await outbox.enqueueBookmarkEventV5(ownerKey, {
+    bookId, bookmarkId: bookmark.id, operation: 'bookmark.upsert',
+    payload: { bookmarkId: bookmark.id, cfi: bookmark.cfi, name: bookmark.name, color: bookmark.color,
+      createdAtClient: 1, updatedAtClient: 2, progressPercent: null },
+    localBookmarks: [bookmark],
+    deviceId: 'device', sessionId: 'session', eventId: 'bookmark-event', occurredAtClient: 2,
+  });
+  const lease = await outbox.acquireSyncLeaseV5(ownerKey, 'tab', 10, 50);
+  const claimed = await outbox.claimNextProgressEventV5(ownerKey, 'tab', lease.epoch, 11);
+  await outbox.recordProgressConflictV5(ownerKey, claimed.eventId, {
+    schemaVersion: 2, bookId, bookmarkId: bookmark.id, revision: 2, operation: 'delete',
+    bookmark: null, deletedAtServer: {}, updatedAtServer: {}, occurredAtClient: 3,
+    acceptedEventId: 'deleted-remotely', acceptedDeviceId: 'other',
+  }, outbox.getExpectedClaimV5(claimed), 12);
+
+  ownerRuntime.activate(ownerKey);
+  try {
+    await withDom(async root => {
+      let state, actions, reader;
+      function Harness() {
+        const progressRef = React.useRef({ [bookId]: initial });
+        const [progress, setProgress] = React.useState(progressRef.current);
+        const deviceId = React.useRef('device');
+        state = useSyncConflictResolution({
+          user, ownerKey, activeBookId: bookId, progressRef, setProgress, setRemoteProgress: noop,
+          flushReaderProgress: asyncYes,
+        });
+        actions = useProgressActions({ user, progressRef, setProgress, deviceId, activeBook: { id: bookId } });
+        reader = progress[bookId];
+        return null;
+      }
+      await React.act(async () => root.render(React.createElement(Harness)));
+      for (let i = 0; i < 12 && !state.conflict; i++) {
+        await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+      }
+      assert.equal(state.conflict?.conflictId, 'bookmark-event');
+      await React.act(async () => assert.equal(await state.keepLocal(), true));
+      const [restored] = reader.bookmarks;
+      assert.notEqual(restored.id, bookmark.id);
+      assert.equal(reader.cfi, initial.cfi);
+      await React.act(async () => assert.equal(await actions.saveBookmarkMutation(bookId, {
+        kind: 'delete', bookmarkId: restored.id,
+      }), true));
+      assert.deepEqual(reader.bookmarks, []);
+      const writes = await outbox.getOutboxEventsV5(ownerKey);
+      assert.ok(writes.some(event => event.operation === 'bookmark.delete' && event.target.bookmarkId === restored.id));
+    });
+  } finally { ownerRuntime.clear(); }
+});
+
 test('late cold-start authentication hydrates account progress before mounting its reader', async () => {
   const { readFileSync } = require('node:fs');
   const page = readFileSync(require.resolve('../src/app/page.tsx'), 'utf8');
@@ -182,7 +244,7 @@ test('late cold-start authentication hydrates account progress before mounting i
   }
 });
 
-for (const scenario of ['initial set', 'postinitial set', 'postinitial reset']) test(`remote ${scenario} prompt survives relocation before opening`, async () => {
+for (const scenario of ['initial set', 'postinitial set', 'postinitial reset', 'restore pending offer']) test(`remote ${scenario} prompt survives relocation before opening`, async () => {
   const { useRemoteProgressPrompt } = require('../src/hooks/reader/useRemoteProgressPrompt.ts');
   await withDom(async root => {
     const originalSet = window.setTimeout, originalClear = window.clearTimeout;
@@ -206,6 +268,27 @@ for (const scenario of ['initial set', 'postinitial set', 'postinitial reset']) 
     };
     function Harness(props) { state = useRemoteProgressPrompt({ ...common, ...props }); return null; }
     try {
+      if (scenario === 'restore pending offer') {
+        const scope = 'reader-reopen';
+        const remote = { ...common.remoteProgress, acceptedEventId: 'remote-2' };
+        const { getRemoteProgressIdentity } = require('../src/hooks/reader/remoteProgressAdoption.ts');
+        const { writeSyncRecovery } = require('../src/lib/readerSyncRecovery.ts');
+        const identity = getRemoteProgressIdentity(remote);
+        assert.equal(writeSyncRecovery(scope, { identity, candidate: { identity, cfi: 'remote', percent: 80 } }), true);
+        const render = extra => React.act(async () => root.render(React.createElement(Harness, {
+          recoveryScope: scope, localRevision: 1, currentCfi: 'local', currentAnchorCfi: 'local', totalProgress: 10,
+          ...extra,
+        })));
+        await render({ remoteProgress: undefined });
+        assert.equal(state.syncRecovery, null);
+        await render({ remoteProgress: remote });
+        assert.equal(state.syncRecoveryVisible, true);
+        assert.equal(state.syncRecovery.identity, identity);
+        assert.equal(state.syncConflict, null);
+        await render({ remoteProgress: remote, localRevision: 2 });
+        assert.equal(state.syncRecoveryVisible, false);
+        return;
+      }
       if (scenario !== 'initial set') {
         await React.act(async () => root.render(React.createElement(Harness, { remoteProgress: { ...common.remoteProgress, cfi: 'old-remote', anchorCfi: 'old-remote', lastRead: 100, syncRevision: 1 }, currentCfi: 'local-a', currentAnchorCfi: 'local-a', totalProgress: 20 })));
       }

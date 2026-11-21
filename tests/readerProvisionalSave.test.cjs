@@ -187,6 +187,28 @@ test('TTS remains protected from quiet startup navigation', () => harness(async 
   assert.equal(hook.isQuietResumeEligible(), false);
 }));
 
+test('a recovered bookmark does not fence a pending page save, but a recovered position does', async () => {
+  const ownerKey = 'firebase:expiry-fixture|library:local';
+  const bookId = 'recovering';
+  ownerRuntime.activate(ownerKey);
+  try {
+    await harness(async ({ hook, saves }) => {
+      const publish = kind => window.dispatchEvent(new window.CustomEvent('web-reader-expired-sync-progress', {
+        detail: { kind, ownerKey, progress: { bookId }, ...(kind === 'bookmark' ? { bookmarkId: 'b1' } : {}) },
+      }));
+      hook.markUserProgressChange();
+      hook.handleRelocateForSave({ cfi: 'next-page', progressPercent: 20 });
+      publish('bookmark');
+      assert.equal(await hook.flushCurrentProgress(), true);
+      hook.markUserProgressChange();
+      hook.handleRelocateForSave({ cfi: 'old-viewport', progressPercent: 30 });
+      publish('progress');
+      assert.equal(await hook.flushCurrentProgress(), false);
+      assert.deepEqual(saves.map(([cfi]) => cfi), ['next-page']);
+    }, { ownerKey, bookId });
+  } finally { ownerRuntime.clear(); }
+});
+
 test('an outgoing reader cannot flush its pending guest position into the newly active account', async () => {
   const guestOwner = 'guest:outgoing-reader|library:local';
   const accountOwner = 'firebase:incoming-reader|library:local';

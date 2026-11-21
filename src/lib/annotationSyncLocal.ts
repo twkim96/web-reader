@@ -35,6 +35,7 @@ import {
   type SyncOutboxEventV5,
 } from './syncOutboxV5';
 import { notifyProgressSyncWork } from './progressSyncWake';
+import { finiteWriteLeasesEnabled } from './writeLeaseTransport';
 
 type StoredAnnotation = Annotation & { ownerKey: OwnerKey };
 
@@ -326,7 +327,12 @@ export const enqueueMissingLocalAnnotationPaletteV5 = async (
   if (await hasActiveSyncTargetWorkV5(ownerKey, annotationPaletteTargetKeyV1())) {
     return null;
   }
-  return enqueueAnnotationPaletteEventV5(ownerKey, { payload: { items } }, context);
+  try {
+    return await enqueueAnnotationPaletteEventV5(ownerKey, { payload: { items } }, context);
+  } catch (error) {
+    if ((error as { code?: string }).code === 'sync/resync-required') return null;
+    throw error;
+  }
 };
 
 export const hydrateRemoteAnnotationHeadsV5 = async (
@@ -566,7 +572,8 @@ export const enqueueMissingLocalAnnotationsV5 = async (
       ]) as Promise<SyncConflictV5[]>,
     ]);
     if (
-      targetEvents.some((event) => activeStatuses.has(event.status))
+      targetEvents.some((event) => activeStatuses.has(event.status)
+        || (finiteWriteLeasesEnabled() && event.status === 'expired' && event.recoveryPending !== false))
       || openConflicts.length > 0
       || deferredConflicts.length > 0
     ) continue;
@@ -595,7 +602,7 @@ export const enqueueMissingLocalAnnotationsV5 = async (
   } catch (error) {
     abortTransaction();
     await tx.done.catch(() => undefined);
-    if (signal?.aborted) return [];
+    if (signal?.aborted || (error as { code?: string }).code === 'sync/resync-required') return [];
     throw error;
   } finally {
     signal?.removeEventListener('abort', abortTransaction);

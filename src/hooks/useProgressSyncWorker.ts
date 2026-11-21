@@ -32,6 +32,7 @@ import { assertEventWriteLease, finiteWriteLeasesEnabled, getTrustedWriteLeaseTi
 import {
   listExpiredSyncRecoveryTargets,
   recoverExpiredSyncTargetFromServer,
+  type ExpiredSyncProgressUpdate,
 } from '../lib/expiredSyncRecovery';
 
 export const useProgressSyncWorker = (
@@ -55,6 +56,22 @@ export const useProgressSyncWorker = (
       deviceId,
       sessionId: getSyncSessionId(),
     };
+    let disposed = false;
+    const recoverTarget = async (target: Parameters<typeof recoverExpiredSyncTargetFromServer>[2]) => {
+      const isCurrent = () => !disposed && ownerRuntime.isCurrent(owner);
+      const recovered = await recoverExpiredSyncTargetFromServer(user.uid, syncOwnerKey, target, {
+        isCurrent,
+        serverTrustedNow: getTrustedWriteLeaseTime(syncOwnerKey),
+      });
+      if (!isCurrent() || recovered.status !== 'resynced' || !recovered.progress) return;
+      if (target.kind !== 'progress' && target.kind !== 'bookmark') return;
+      const detail: ExpiredSyncProgressUpdate = {
+        ownerKey: syncOwnerKey,
+        progress: recovered.progress,
+        ...(target.kind === 'bookmark' ? { kind: 'bookmark', bookmarkId: target.bookmarkId } : { kind: 'progress' }),
+      };
+      window.dispatchEvent(new CustomEvent('web-reader-expired-sync-progress', { detail }));
+    };
 
     const worker = new ProgressSyncWorker(
       owner,
@@ -63,15 +80,7 @@ export const useProgressSyncWorker = (
         if (finiteWriteLeasesEnabled()) {
           try { assertEventWriteLease(event.eventId, syncOwnerKey); } catch (error) {
             if ((error as { code?: string }).code !== 'sync/write-lease-expired') throw error;
-            const recovered = await recoverExpiredSyncTargetFromServer(user.uid, syncOwnerKey, event.target, {
-              isCurrent: () => !disposed && ownerRuntime.isCurrent(owner),
-              serverTrustedNow: getTrustedWriteLeaseTime(syncOwnerKey),
-            });
-            if (!disposed && ownerRuntime.isCurrent(owner) && recovered.status === 'resynced' && recovered.progress) {
-              window.dispatchEvent(new CustomEvent('web-reader-expired-sync-progress', {
-                detail: { ownerKey: syncOwnerKey, progress: recovered.progress },
-              }));
-            }
+            await recoverTarget(event.target);
             throw error;
           }
         }
@@ -102,7 +111,6 @@ export const useProgressSyncWorker = (
       {},
       syncOwnerKey,
     );
-    let disposed = false;
 
     let recovering: Promise<void> | null = null;
     let lastRecoveryAttempt = 0;
@@ -115,15 +123,7 @@ export const useProgressSyncWorker = (
         for (const target of await listExpiredSyncRecoveryTargets(syncOwnerKey, getTrustedWriteLeaseTime(syncOwnerKey))) {
           if (disposed || !ownerRuntime.isCurrent(owner)) return;
           try {
-            const recovered = await recoverExpiredSyncTargetFromServer(user.uid, syncOwnerKey, target, {
-              isCurrent: () => !disposed && ownerRuntime.isCurrent(owner),
-              serverTrustedNow: getTrustedWriteLeaseTime(syncOwnerKey),
-            });
-            if (!disposed && ownerRuntime.isCurrent(owner) && recovered.status === 'resynced' && recovered.progress) {
-              window.dispatchEvent(new CustomEvent('web-reader-expired-sync-progress', {
-                detail: { ownerKey: syncOwnerKey, progress: recovered.progress },
-              }));
-            }
+            await recoverTarget(target);
           } catch (error) {
             console.error('[ProgressSyncWorker] expired target recovery failed:', error);
           }
@@ -138,8 +138,7 @@ export const useProgressSyncWorker = (
       if (disposed || !ownerRuntime.isCurrent(owner)) return;
       const recoveryPending = finiteWriteLeasesEnabled() && (await listExpiredSyncRecoveryTargets(syncOwnerKey, getTrustedWriteLeaseTime(syncOwnerKey))).length > 0;
       if (disposed || !ownerRuntime.isCurrent(owner)) return;
-      if (recoveryPending) setSyncHealth('blocked-schema');
-      else if (summary.count === 0) setSyncHealth('healthy');
+      if (summary.count === 0) setSyncHealth(recoveryPending ? 'recovering-expired' : 'healthy');
       else if (summary.errorCodes.some(isAuthSyncErrorCode)) setSyncHealth('paused-auth');
       else if (summary.errorCodes.includes('permission-denied')) setSyncHealth('blocked-permission');
       else setSyncHealth('blocked-schema');

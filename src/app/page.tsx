@@ -74,8 +74,9 @@ import {
 } from '../lib/syncConflictPresentation';
 import { runLogoutFlow } from '../lib/logoutFlow';
 import { LoginDisclosureModal, type LoginDisclosureMode } from '../components/LoginDisclosureModal';
-import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
-import type { OwnerKey } from '../lib/ownerIdentity';
+import { getProgressCommitBaseline, rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
+import { applyManualBookmarkMutation, type ManualBookmarkMutation } from '../lib/bookmarkSyncPolicy';
+import type { ExpiredSyncProgressUpdate } from '../lib/expiredSyncRecovery';
 import type { UserProgress } from '../types';
 
 const getStoredGuestMode = () => (
@@ -422,8 +423,25 @@ export default function Page() {
 
   useEffect(() => {
     const handleRecovered = (event: Event) => {
-      const { ownerKey, progress: recovered } = (event as CustomEvent<{ ownerKey: OwnerKey; progress: UserProgress }>).detail;
+      const detail = (event as CustomEvent<ExpiredSyncProgressUpdate>).detail;
+      const { ownerKey, progress: recovered } = detail;
       if (!activeOwnerKey || getSyncOwnerKey(activeOwnerKey) !== ownerKey) return;
+      if (detail.kind === 'bookmark') {
+        const bookId = recovered.bookId;
+        const bookmark = recovered.bookmarks?.find(item => item.type === 'manual' && item.id === detail.bookmarkId);
+        const mutation: ManualBookmarkMutation = bookmark
+          ? { kind: 'upsert', bookmark }
+          : { kind: 'delete', bookmarkId: detail.bookmarkId };
+        const withBookmark = (progress: UserProgress | undefined) => progress
+          ? { ...progress, bookmarks: applyManualBookmarkMutation(progress.bookmarks, mutation) }
+          : recovered;
+        const current = progressRef.current[bookId];
+        const baseline = getProgressCommitBaseline(activeOwnerKey, bookId, current);
+        rebaseProgressCommitBaseline(activeOwnerKey, bookId, withBookmark(baseline));
+        progressRef.current = { ...progressRef.current, [bookId]: withBookmark(current) };
+        setProgress(previous => ({ ...previous, [bookId]: withBookmark(previous[bookId]) }));
+        return;
+      }
       rebaseProgressCommitBaseline(activeOwnerKey, recovered.bookId, recovered);
       progressRef.current = { ...progressRef.current, [recovered.bookId]: recovered };
       setProgress(previous => ({ ...previous, [recovered.bookId]: recovered }));
@@ -1047,11 +1065,13 @@ export default function Page() {
         <div className="fixed bottom-4 right-4 z-[95] max-w-sm rounded-2xl bg-amber-700 px-4 py-3 text-sm text-white shadow-2xl">
           {syncHealth === 'retrying-receive'
             ? '다른 기기의 읽기 기록을 다시 연결하고 있습니다. 이 기기에 저장된 변경은 보존됩니다.'
-            : syncHealth === 'paused-auth'
-              ? 'Firebase 인증이 만료되어 동기화가 멈췄습니다. 다시 로그인하면 자동으로 재개됩니다.'
-              : syncHealth === 'blocked-permission'
-                ? 'Firestore 권한 문제로 일부 도서의 동기화가 멈췄습니다.'
-                : '동기화 데이터 형식 오류로 일부 도서의 송수신이 멈췄습니다.'}
+            : syncHealth === 'recovering-expired'
+              ? '전송 기한이 지난 기록을 확인하고 있습니다. 최신 클라우드 기록을 다시 불러옵니다.'
+              : syncHealth === 'paused-auth'
+                ? 'Firebase 인증이 만료되어 동기화가 멈췄습니다. 다시 로그인하면 자동으로 재개됩니다.'
+                : syncHealth === 'blocked-permission'
+                  ? 'Firestore 권한 문제로 일부 도서의 동기화가 멈췄습니다.'
+                  : '동기화 데이터 형식 오류로 일부 도서의 송수신이 멈췄습니다.'}
         </div>
       )}
     </div>

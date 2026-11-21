@@ -1,6 +1,7 @@
 export type SyncHealth =
   | 'healthy'
   | 'retrying-receive'
+  | 'recovering-expired'
   | 'paused-auth'
   | 'blocked-permission'
   | 'blocked-schema';
@@ -16,9 +17,10 @@ export const isAuthSyncErrorCode = (code: string) => AUTH_SYNC_ERROR_CODES.has(c
 const HEALTH_PRIORITY: Record<SyncHealth, number> = {
   healthy: 0,
   'retrying-receive': 1,
-  'paused-auth': 2,
-  'blocked-permission': 3,
-  'blocked-schema': 4,
+  'recovering-expired': 2,
+  'paused-auth': 3,
+  'blocked-permission': 4,
+  'blocked-schema': 5,
 };
 
 export const mergeSyncHealth = (...states: SyncHealth[]): SyncHealth => (

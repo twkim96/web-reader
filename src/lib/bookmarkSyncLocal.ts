@@ -11,7 +11,6 @@ import type { OwnerKey } from './ownerIdentity';
 import {
   bookmarkTargetKeyV2,
   type BookmarkHeadV2,
-  type ManualBookmarkPayloadV2,
 } from './progressV2Schema';
 import type {
   RemoteHeadCacheV5,
@@ -19,6 +18,7 @@ import type {
   SyncMetaV5,
   SyncOutboxEventV5,
 } from './syncOutboxV5';
+import { fromManualBookmarkPayload } from './bookmarkSyncPolicy';
 
 const activeStatuses = new Set([
   'pending',
@@ -27,16 +27,6 @@ const activeStatuses = new Set([
   'conflict',
   'paused',
 ]);
-
-const fromRemotePayload = (payload: ManualBookmarkPayloadV2): Bookmark => ({
-  id: payload.bookmarkId,
-  type: 'manual',
-  name: payload.name,
-  cfi: payload.cfi,
-  progressPercent: payload.progressPercent ?? undefined,
-  createdAt: payload.createdAtClient,
-  color: payload.color,
-});
 
 const sameBookmark = (left: Bookmark | undefined, right: Bookmark) => Boolean(
   left
@@ -185,7 +175,7 @@ export const hydrateRemoteBookmarkHeadsV5 = async (
         continue;
       }
 
-      const nextBookmark = fromRemotePayload(head.bookmark!);
+      const nextBookmark = fromManualBookmarkPayload(head.bookmark!);
       if (
         head.acceptedSessionId === currentSessionId
         && sameBookmark(existing, nextBookmark)

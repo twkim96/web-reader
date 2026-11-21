@@ -22,6 +22,7 @@ import type { RemoteProgressJumpCompletion } from './remoteProgressJump';
 import { traceReaderBootstrap } from '../../lib/readerBootstrapTrace';
 import { ownerRuntime } from '../../lib/ownerRuntime';
 import type { OwnerKey } from '../../lib/ownerIdentity';
+import type { ExpiredSyncProgressUpdate } from '../../lib/expiredSyncRecovery';
 
 type SaveContext = {
   currentCfi: string;
@@ -150,8 +151,8 @@ export const useReaderProgressSave = ({
   const replacedByLeaseRecoveryRef = useRef(false);
   useEffect(() => {
     const blockOldViewport = (event: Event) => {
-      const detail = (event as CustomEvent<{ ownerKey: string; progress: UserProgress }>).detail;
-      if (bookId && detail.progress.bookId === bookId && ownerKey === detail.ownerKey) {
+      const detail = (event as CustomEvent<ExpiredSyncProgressUpdate>).detail;
+      if (detail.kind === 'progress' && bookId && detail.progress.bookId === bookId && ownerKey === detail.ownerKey) {
         replacedByLeaseRecoveryRef.current = true;
       }
     };

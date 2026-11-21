@@ -3,8 +3,8 @@ import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { closeLocalDB } = await import('../src/lib/localDB.ts');
-const { LOCAL_DB_NAME } = await import('../src/lib/localDBSchema.ts');
+const { closeLocalDB, initDB } = await import('../src/lib/localDB.ts');
+const { LOCAL_DB_NAME, V5_OUTBOX_STORE } = await import('../src/lib/localDBSchema.ts');
 const {
   getLocalAnnotationsV8,
   saveLocalAnnotationV8,
@@ -369,6 +369,32 @@ test('does not duplicate a missing-palette bootstrap after the app session chang
   assert.equal(first.event.eventId, 'palette-one');
   assert.equal(second, null);
   assert.equal((await getOutboxEventsV5(ownerKey)).length, 1);
+});
+
+test('initial sync leaves expired annotation and palette work for recovery and queues other annotations', async (t) => {
+  const env = 'NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES';
+  const previous = process.env[env];
+  t.after(() => {
+    if (previous === undefined) delete process.env[env];
+    else process.env[env] = previous;
+  });
+  process.env[env] = '0';
+  const expired = annotation('expired');
+  await saveLocalAnnotationV8(ownerKey, expired, context);
+  await enqueueMissingLocalAnnotationPaletteV5(ownerKey, DEFAULT_ANNOTATION_PALETTE, context);
+  const db = await initDB();
+  for (const event of await getOutboxEventsV5(ownerKey)) {
+    await db.put(V5_OUTBOX_STORE, { ...event, status: 'expired', recoveryPending: true });
+  }
+  const fresh = annotation('ready');
+  await saveLocalAnnotationV8(ownerKey, fresh);
+
+  process.env[env] = '1';
+  const uploaded = await enqueueMissingLocalAnnotationsV5(ownerKey, 'book-1', new Set(), context);
+  assert.deepEqual(uploaded.map(event => event.target.annotationId), [fresh.id]);
+  assert.equal(await enqueueMissingLocalAnnotationPaletteV5(ownerKey, DEFAULT_ANNOTATION_PALETTE, context), null);
+  const awaiting = (await getOutboxEventsV5(ownerKey)).filter(event => event.recoveryPending);
+  assert.deepEqual(awaiting.map(event => event.target.kind).sort(), ['annotation', 'palette']);
 });
 
 test('rejects an over-limit remote collection without partially hydrating it', async () => {
