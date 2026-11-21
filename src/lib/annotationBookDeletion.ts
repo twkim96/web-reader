@@ -13,6 +13,9 @@ import {
 import { finiteWriteLeasesEnabled, getTrustedWriteLeaseTime, readRecoverableSyncEventIds } from './writeLeaseTransport';
 import { notifyProgressSyncWork } from './progressSyncWake';
 import { createLeasedEventId, getEventLeaseStatus, parseLeasedEventId } from './writeLeasePolicy';
+import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
+import { annotationTargetKeyV1, isAnnotationHeadV1, type AnnotationHeadV1 } from './annotationSyncSchema';
+import { runWithTimeout } from './readerLoadLifecycle';
 
 const RECONCILE_INTERVAL_MS = 5_000;
 const MAX_RECONCILE_BACKOFF_MS = 5 * 60_000;
@@ -33,6 +36,54 @@ export type AnnotationBookDeletionIntentV10 = {
   writeLeaseDeviceId?: string;
   expired?: boolean;
   recoveryPending?: boolean;
+};
+
+export type ObservedAnnotationBookDeletionV5 =
+  | { markerRevision: number; awaitingMarker?: never }
+  | { markerRevision?: never; awaitingMarker: true };
+
+export const isPendingAnnotationBookDeletionMarkerV5 = (event: SyncOutboxEventV5 | undefined) => (
+  event?.target.kind === 'annotation' && event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
+  && event.operation === 'annotation.delete' && !event.forceDelete
+  && event.status !== 'superseded' && event.status !== 'expired'
+);
+
+export const captureAnnotationBookDeletionV5 = async (
+  ownerKey: OwnerKey,
+  bookId: string,
+  readRemoteMarker?: () => Promise<AnnotationHeadV1 | null>,
+): Promise<ObservedAnnotationBookDeletionV5> => {
+  const db = await initDB();
+  const tx = db.transaction([V5_REMOTE_HEADS_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE, V5_OUTBOX_STORE]);
+  const markerId = ANNOTATION_BOOK_DELETE_MARKER_ID;
+  const [cached, intent] = await Promise.all([
+    tx.objectStore(V5_REMOTE_HEADS_STORE).get([ownerKey, annotationTargetKeyV1(bookId, markerId)]),
+    tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).get([ownerKey, bookId]) as Promise<AnnotationBookDeletionIntentV10 | undefined>,
+  ]);
+  const pendingMarker = intent?.markerEventId && !intent.expired && !intent.markerSuperseded && intent.markerRevision === undefined
+    ? await tx.objectStore(V5_OUTBOX_STORE).get([ownerKey, intent.markerEventId]) as SyncOutboxEventV5 | undefined
+    : undefined;
+  await tx.done;
+  // A repeat confirmation belongs to the pending marker even if its ACK or
+  // cleanup finishes before the shelf finishes deleting the local book.
+  if (isPendingAnnotationBookDeletionMarkerV5(pendingMarker)) {
+    return { awaitingMarker: true };
+  }
+  const head = cached?.head;
+  if (isAnnotationHeadV1(head) && head.bookId === bookId && head.annotationId === markerId
+    && head.operation === 'delete') return { markerRevision: head.revision };
+  if (!readRemoteMarker) return { markerRevision: 0 };
+
+  try {
+    const marker = await runWithTimeout(readRemoteMarker(), 4_000, '원격 주석 삭제 마커 조회 시간 초과');
+    if (marker?.bookId === bookId && marker.annotationId === markerId && marker.operation === 'delete') {
+      return { markerRevision: marker.revision };
+    }
+  } catch (error) {
+    console.warn('[AnnotationSync] Could not confirm a deletion marker before book removal:', error);
+  }
+  // With no observed marker, the server will only accept a first-generation deletion.
+  return { markerRevision: 0 };
 };
 
 export const annotationBookDeletionNeedsRecovery = (

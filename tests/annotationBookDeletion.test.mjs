@@ -11,7 +11,7 @@ const {
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
 } = await import('../src/lib/localDBSchema.ts');
 const { removeBookAndAnnotationsV8 } = await import('../src/lib/localDBV5.ts');
-const { reconcileAnnotationBookDeletionIntentsV10 } = await import(
+const { captureAnnotationBookDeletionV5, reconcileAnnotationBookDeletionIntentsV10 } = await import(
   '../src/lib/annotationBookDeletion.ts'
 );
 const {
@@ -25,6 +25,8 @@ const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
 const { ProgressSyncWorker } = await import('../src/lib/progressSyncWorker.ts');
 const { saveLocalAnnotationV8 } = await import('../src/lib/localAnnotations.ts');
 const { toAnnotationSyncPayloadV1 } = await import('../src/lib/annotationSyncSchema.ts');
+const { decideAnnotationTransaction } = await import('../src/lib/annotationSyncTransaction.ts');
+const { ANNOTATION_BOOK_DELETE_MARKER_ID } = await import('../src/lib/annotationPolicy.ts');
 const { makeFirebaseOwnerKey, makeOwnerKey, DEVICE_CONTENT_OWNER_KEY } = await import(
   '../src/lib/ownerIdentity.ts'
 );
@@ -310,6 +312,40 @@ test('a repeat deletion during marker acknowledgement preserves the first receip
   assert.equal(cleanup.deleteBeforeBookGeneration, 1);
 });
 
+for (const state of ['queued', 'submitted']) {
+  test(`a repeat shelf confirmation preserves the first ${state} marker when its ACK arrives before removal`, async () => {
+    const uid = `repeat-confirmation-${state}`;
+    const owner = makeOwnerKey(makeFirebaseOwnerKey(uid), 'library:local');
+    const bookId = 'book-1';
+    const db = await initDB();
+    await removeBookAndAnnotationsV8(owner, DEVICE_CONTENT_OWNER_KEY, bookId, context);
+    const currentMarker = () => captureAnnotationBookDeletionV5(owner, bookId, async () => {
+      assert.fail('a repeated confirmation must use the existing local intent');
+    });
+    let repeated = state === 'queued' ? await currentMarker() : undefined;
+    const worker = new ProgressSyncWorker(ownerRuntime.activate(owner), 'deleting-tab', async (event) => {
+      const first = decideAnnotationTransaction({ event, serverTime: {} });
+      if (state === 'submitted') repeated = await currentMarker();
+      return first;
+    });
+    assert.equal(await worker.flushOne(), 'apply');
+    await worker.dispose();
+
+    const acknowledged = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [owner, bookId]);
+    assert.equal(acknowledged.markerRevision, 1);
+    await saveLocalAnnotationV8(owner, annotation('new-local-highlight', bookId), context);
+    const pendingBeforeRepeat = await getOutboxEventsV5(owner);
+    assert.equal(pendingBeforeRepeat.length, 1);
+    await removeBookAndAnnotationsV8(owner, DEVICE_CONTENT_OWNER_KEY, bookId, context, repeated);
+    assert.deepEqual(await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [owner, bookId]), acknowledged);
+    assert.deepEqual(await getOutboxEventsV5(owner), pendingBeforeRepeat);
+    const cleanup = await reconcileAnnotationBookDeletionIntentsV10(uid, owner, context, Date.now(), async () => [
+      { ...head('created-after-first-marker', 1, bookId), bookGeneration: 1 },
+    ]);
+    assert.equal(cleanup.queued, 0);
+  });
+}
+
 test('a stale marker retires only its intent and releases edits at the observed remote generation', async () => {
   const staleOwner = makeOwnerKey(makeFirebaseOwnerKey('stale-marker'), 'library:local');
   const markerId = 'book_delete_marker_v1';
@@ -327,7 +363,10 @@ test('a stale marker retires only its intent and releases edits at the observed 
   await db.put(V5_REMOTE_HEADS_STORE, {
     ownerKey: staleOwner, targetKey: markerKey[1], revision: 1, head: remoteMarker(1), updatedAt: 1,
   });
-  await removeBookAndAnnotationsV8(staleOwner, DEVICE_CONTENT_OWNER_KEY, 'book-1', context);
+  const observed = await captureAnnotationBookDeletionV5(staleOwner, 'book-1', async () => {
+    assert.fail('a known marker is the basis for deletion');
+  });
+  await removeBookAndAnnotationsV8(staleOwner, DEVICE_CONTENT_OWNER_KEY, 'book-1', context, observed);
   await saveLocalAnnotationV8(staleOwner, annotation('author-edit'), context);
   const worker = new ProgressSyncWorker(ownerRuntime.activate(staleOwner), 'stale-tab', async (event) => {
     assert.equal(event.target.annotationId, markerId);
@@ -353,6 +392,59 @@ test('a stale marker retires only its intent and releases edits at the observed 
   assert.equal(edit.target.annotationId, 'author-edit');
   assert.equal(edit.bookGeneration, 2);
 });
+
+for (const markerMoved of [false, true]) {
+  test(`deletion from a cold shelf ${markerMoved ? 'does not expand to a concurrent generation' : 'cleans up a book with an earlier deletion'}`, async () => {
+    const uid = markerMoved ? 'cold-shelf-marker-moved' : 'cold-shelf';
+    const coldOwner = makeOwnerKey(makeFirebaseOwnerKey(uid), 'library:local');
+    const bookId = 'readded-book';
+    const markerId = ANNOTATION_BOOK_DELETE_MARKER_ID;
+    const targetKey = `annotation:${bookId}:${markerId}`;
+    const previousEvent = {
+      eventId: 'previous-deletion', targetKey,
+      target: { kind: 'annotation', bookId, annotationId: markerId },
+      operation: 'annotation.delete', payload: null, baseRevision: 0,
+      ...context, occurredAtClient: 1,
+    };
+    const previous = decideAnnotationTransaction({ event: previousEvent, serverTime: {} });
+    assert.equal(previous.status, 'apply');
+    const earlierHighlight = { ...head('readded-highlight', 1, bookId), bookGeneration: previous.head.revision };
+    const readBack = await captureAnnotationBookDeletionV5(coldOwner, bookId, async () => previous.head);
+    const db = await initDB();
+    assert.equal(await db.get(V5_REMOTE_HEADS_STORE, [coldOwner, targetKey]), undefined);
+
+    const remote = markerMoved ? decideAnnotationTransaction({
+      event: { ...previousEvent, eventId: 'concurrent-deletion', baseRevision: previous.head.revision },
+      storedHead: previous.head, storedAggregate: previous.aggregate, storedBookDeleteMarker: previous.head,
+      serverTime: {},
+    }) : previous;
+    assert.equal(remote.status, 'apply');
+    await removeBookAndAnnotationsV8(coldOwner, DEVICE_CONTENT_OWNER_KEY, bookId, context, readBack);
+    const worker = new ProgressSyncWorker(ownerRuntime.activate(coldOwner), 'cold-shelf-tab', async (event) => (
+      decideAnnotationTransaction({
+        event, storedHead: remote.head, storedAggregate: remote.aggregate, storedBookDeleteMarker: remote.head,
+        serverTime: {},
+      })
+    ));
+    assert.equal(await worker.flushOne(), markerMoved ? 'superseded' : 'apply');
+    await worker.dispose();
+
+    const intent = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, [coldOwner, bookId]);
+    const result = await reconcileAnnotationBookDeletionIntentsV10(uid, coldOwner, context, Date.now(), async () => {
+      if (markerMoved) assert.fail('a later remote generation cannot start cleanup for this request');
+      return [earlierHighlight, { ...head('new-highlight', 1, bookId), bookGeneration: 2 }];
+    });
+    assert.equal(result.queued, markerMoved ? 0 : 1);
+    if (markerMoved) {
+      assert.equal(intent.markerSuperseded, true);
+    } else {
+      assert.equal(intent.markerRevision, 2);
+      const [cleanup] = await getOutboxEventsV5(coldOwner);
+      assert.equal(cleanup.target.annotationId, 'readded-highlight');
+      assert.equal(cleanup.deleteBeforeBookGeneration, 2);
+    }
+  });
+}
 
 test('retires an intent whose marker was acknowledged by an old tab without its receipt', async () => {
   const mixedOwner = makeOwnerKey(makeFirebaseOwnerKey('mixed-marker-tab'), 'library:local');

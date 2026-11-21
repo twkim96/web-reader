@@ -33,7 +33,7 @@ import {
 } from './syncOutboxV5';
 import { notifyProgressSyncWork } from './progressSyncWake';
 import { broadcastAnnotationSyncChange } from './annotationSyncWake';
-import type { AnnotationBookDeletionIntentV10 } from './annotationBookDeletion';
+import { isPendingAnnotationBookDeletionMarkerV5, type AnnotationBookDeletionIntentV10, type ObservedAnnotationBookDeletionV5 } from './annotationBookDeletion';
 import { notifyBookCoverCacheChanged } from './bookCoverCache';
 
 export type StoredBookMetadataV5 = Book & {
@@ -232,6 +232,7 @@ export const removeBookAndAnnotationsV8 = (
   contentOwnerKey: OwnerKey,
   bookId: string,
   syncContext?: AnnotationSyncContextV5,
+  observedDeletion?: ObservedAnnotationBookDeletionV5,
 ) => trackLocalCommit((async () => {
   if (syncContext) await prepareSyncEventWriter(annotationOwnerKey, syncContext.deviceId);
   const db = await initDB();
@@ -252,28 +253,25 @@ export const removeBookAndAnnotationsV8 = (
   try {
     const deletionAt = Date.now();
     const annotationStore = tx.objectStore(V8_ANNOTATIONS_STORE);
-    const annotationKeys = await annotationStore.index('by-owner-book').getAllKeys([
-      annotationOwnerKey,
-      bookId,
-    ]);
     let tombstonesQueued = 0;
-    let awaitingExistingMarker = false;
-    if (syncContext) {
+    let awaitingExistingMarker = observedDeletion?.awaitingMarker === true;
+    if (syncContext && !awaitingExistingMarker) {
       const intents = tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE);
       const intent = await intents.get([annotationOwnerKey, bookId]) as AnnotationBookDeletionIntentV10 | undefined;
       const previousMarker = intent?.markerEventId && !intent.expired && !intent.markerSuperseded
         ? await tx.objectStore(V5_OUTBOX_STORE).get([annotationOwnerKey, intent.markerEventId]) as SyncOutboxEventV5 | undefined
         : undefined;
-      awaitingExistingMarker = Boolean(intent?.markerRevision === undefined && previousMarker
-        && previousMarker.status !== 'superseded' && previousMarker.attempts > 0);
-      await supersedeAnnotationBookWorkForDeletionV5(tx, annotationOwnerKey, bookId, deletionAt);
-      // A repeated request keeps the first intent until its submitted marker settles.
+      awaitingExistingMarker = intent?.markerRevision === undefined && isPendingAnnotationBookDeletionMarkerV5(previousMarker);
+      // A repeated request keeps the first intent until its marker settles.
       if (!awaitingExistingMarker) {
+        await supersedeAnnotationBookWorkForDeletionV5(tx, annotationOwnerKey, bookId, deletionAt);
         const [marker] = await appendAnnotationEventsToTransactionV5(tx, annotationOwnerKey, [{
           bookId,
           annotationId: ANNOTATION_BOOK_DELETE_MARKER_ID,
           operation: 'annotation.delete',
           payload: null,
+          baseRevision: observedDeletion?.markerRevision,
+          bookGeneration: observedDeletion?.markerRevision,
           occurredAtClient: deletionAt,
         }], syncContext);
         if (!marker) throw new Error('도서 주석 삭제 marker를 저장하지 못했습니다.');
@@ -289,6 +287,10 @@ export const removeBookAndAnnotationsV8 = (
         tombstonesQueued = 1;
       }
     }
+    const annotationKeys = awaitingExistingMarker ? [] : await annotationStore.index('by-owner-book').getAllKeys([
+      annotationOwnerKey,
+      bookId,
+    ]);
     await Promise.all([
       ...annotationKeys.map((key) => annotationStore.delete(key)),
       tx.objectStore(V5_BOOKS_STORE).delete([contentOwnerKey, bookId]),

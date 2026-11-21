@@ -22,6 +22,9 @@ import {
 } from '../lib/googleDrive';
 import { removeBookAndAnnotationsV8, removeBookFromLocalV5 } from '../lib/localDBV5';
 import { deleteBookInSafeOrder } from '../lib/bookDeletion';
+import { captureAnnotationBookDeletionV5 } from '../lib/annotationBookDeletion';
+import { getAuthoritativeRemoteAnnotationHeadV1 } from '../lib/annotationSyncRemote';
+import { ANNOTATION_BOOK_DELETE_MARKER_ID } from '../lib/annotationPolicy';
 import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
 import { useDeviceId } from '../hooks/useDeviceId';
@@ -617,6 +620,13 @@ export default function Page() {
         handleCloudAuthExpired("클라우드 세션이 만료되어 도서를 삭제하지 못했습니다. 다시 클라우드를 연결한 뒤 삭제해 주세요.");
         return;
       }
+      const observedDeletion = user ? await captureAnnotationBookDeletionV5(
+        annotationOwner.ownerKey,
+        book.id,
+        navigator.onLine
+          ? () => getAuthoritativeRemoteAnnotationHeadV1(user.uid, book.id, ANNOTATION_BOOK_DELETE_MARKER_ID)
+          : undefined,
+      ) : undefined;
       const deleted = await deleteBookInSafeOrder({
         isCurrent: () => ownerRuntime.isCurrent(annotationOwner),
         deleteDrive: shouldDeleteCloud && googleToken
@@ -631,6 +641,7 @@ export default function Page() {
             deviceId: deviceId.current,
             sessionId: getSyncSessionId(),
           } : undefined,
+          observedDeletion,
         ).then(() => {
           clearReaderTtsCursor(annotationOwner.ownerKey, book.id);
         }),
