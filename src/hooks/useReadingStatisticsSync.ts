@@ -162,13 +162,92 @@ export const useReadingStatisticsSync = (
             && await hasLeadership(),
           );
         };
+        const uploadPending = async (limit?: number) => {
+          const pending = await getPendingReadingSessionsV11(syncOwnerKey, Date.now(), limit);
+          if (!await hasClaimLeadership()) return 'stopped';
+          for (const session of pending) {
+            if (!await hasClaimLeadership()) return 'stopped';
+            try {
+              const requestStartedAt = Date.now();
+              const result = await uploadReadingSessionV1(db, user.uid, session);
+              const requestCompletedAt = Date.now();
+              if (!await hasClaimLeadership()) return 'stopped';
+              if (result.status === 'conflict') {
+                const reconciled = await reconcileUploadedReadingSessionConflictV11(
+                  syncOwnerKey,
+                  session,
+                  result.remote,
+                  leaseClaim,
+                );
+                if (!reconciled) return 'stopped';
+                setUploadHealth('healthy');
+                continue;
+              }
+              const markedSynced = await markReadingSessionSyncedV11(
+                syncOwnerKey,
+                session.sessionId,
+                session,
+                leaseClaim,
+              );
+              if (!markedSynced) return 'stopped';
+              setUploadHealth('healthy');
+              if (
+                result.status === 'created'
+                && !readReadingStatisticsClockSample(
+                  session.deviceId,
+                  localStorage,
+                  requestCompletedAt,
+                )
+              ) {
+                void readReadingStatisticsClockSampleSingleFlight(
+                  clockSampleRequests,
+                  session.deviceId,
+                  async () => {
+                    if (!await hasClaimLeadership()) return null;
+                    const sample = await readReadingStatisticsClockSampleV1(
+                      db,
+                      user.uid,
+                      session.sessionId,
+                      requestStartedAt,
+                      requestCompletedAt,
+                    );
+                    return await hasClaimLeadership() ? sample : null;
+                  },
+                ).then((sample) => {
+                  if (sample && isCurrent()) {
+                    writeReadingStatisticsClockSample(session.deviceId, sample);
+                  }
+                }).catch(() => undefined);
+              }
+            } catch (error) {
+              if (!isCurrent()) return 'stopped';
+              if (!await hasClaimLeadership()) return 'stopped';
+              const nextHealth = getHealthForError(error);
+              const nextAttemptAt = await deferReadingSessionSyncV11(
+                syncOwnerKey,
+                session.sessionId,
+                getErrorCode(error),
+                Date.now(),
+                leaseClaim,
+              );
+              if (nextAttemptAt === null) return 'stopped';
+              setUploadHealth(nextHealth);
+              if (nextHealth === 'retrying-receive') scheduleUploadRetry(nextAttemptAt);
+              if (nextHealth !== 'retrying-receive') return 'blocked';
+            }
+          }
+          return 'ready';
+        };
         do {
           requested = false;
           const shouldRefresh = refreshRequested;
           refreshRequested = false;
+          let uploadStatus: Awaited<ReturnType<typeof uploadPending>> = 'ready';
+          let uploadFailure: { error: unknown } | undefined;
           if (shouldRefresh) {
             setRefreshing(true);
             const hydrationStartedAt = performance.now();
+            let interleavedUploadDurationMs = 0;
             let hydrationPageCount = 0;
             let remoteReadAttemptCount = 0;
             let remoteReadCount = 0;
@@ -211,6 +290,19 @@ export const useReadingStatisticsSync = (
                   hydrationPageCount += 1;
                   return result;
                 },
+                uploadBetweenPages: async (limit) => {
+                  if (uploadStatus !== 'ready') return;
+                  const uploadStartedAt = performance.now();
+                  try {
+                    uploadStatus = await uploadPending(limit);
+                  } catch (error) {
+                    // Finish hydration before propagating an unexpected upload failure.
+                    uploadFailure = { error };
+                    uploadStatus = 'blocked';
+                  } finally {
+                    interleavedUploadDurationMs += performance.now() - uploadStartedAt;
+                  }
+                },
               });
               hydrationStatus = hydrationRun.status;
               if (hydrationRun.status === 'lost-leadership') {
@@ -243,7 +335,7 @@ export const useReadingStatisticsSync = (
                 pageCount: hydrationPageCount,
                 remoteReadAttemptCount,
                 remoteReadCount,
-                durationMs: Math.max(0, performance.now() - hydrationStartedAt),
+                durationMs: Math.max(0, performance.now() - hydrationStartedAt - interleavedUploadDurationMs),
                 status: hydrationStatus,
               }).catch((error) => {
                 console.warn('[ReadingStatistics] hydration metrics persistence failed:', error);
@@ -255,79 +347,9 @@ export const useReadingStatisticsSync = (
             }
           }
 
-          const pending = await getPendingReadingSessionsV11(syncOwnerKey);
-          if (!await hasClaimLeadership()) return;
-          for (const session of pending) {
-            if (!await hasClaimLeadership()) return;
-            try {
-              const requestStartedAt = Date.now();
-              const result = await uploadReadingSessionV1(db, user.uid, session);
-              const requestCompletedAt = Date.now();
-              if (!await hasClaimLeadership()) return;
-              if (result.status === 'conflict') {
-                const reconciled = await reconcileUploadedReadingSessionConflictV11(
-                  syncOwnerKey,
-                  session,
-                  result.remote,
-                  leaseClaim,
-                );
-                if (!reconciled) return;
-                setUploadHealth('healthy');
-                continue;
-              }
-              const markedSynced = await markReadingSessionSyncedV11(
-                syncOwnerKey,
-                session.sessionId,
-                session,
-                leaseClaim,
-              );
-              if (!markedSynced) return;
-              setUploadHealth('healthy');
-              if (
-                result.status === 'created'
-                && !readReadingStatisticsClockSample(
-                  session.deviceId,
-                  localStorage,
-                  requestCompletedAt,
-                )
-              ) {
-                void readReadingStatisticsClockSampleSingleFlight(
-                  clockSampleRequests,
-                  session.deviceId,
-                  async () => {
-                    if (!await hasClaimLeadership()) return null;
-                    const sample = await readReadingStatisticsClockSampleV1(
-                      db,
-                      user.uid,
-                      session.sessionId,
-                      requestStartedAt,
-                      requestCompletedAt,
-                    );
-                    return await hasClaimLeadership() ? sample : null;
-                  },
-                ).then((sample) => {
-                  if (sample && isCurrent()) {
-                    writeReadingStatisticsClockSample(session.deviceId, sample);
-                  }
-                }).catch(() => undefined);
-              }
-            } catch (error) {
-              if (!isCurrent()) return;
-              if (!await hasClaimLeadership()) return;
-              const nextHealth = getHealthForError(error);
-              const nextAttemptAt = await deferReadingSessionSyncV11(
-                syncOwnerKey,
-                session.sessionId,
-                getErrorCode(error),
-                Date.now(),
-                leaseClaim,
-              );
-              if (nextAttemptAt === null) return;
-              setUploadHealth(nextHealth);
-              if (nextHealth === 'retrying-receive') scheduleUploadRetry(nextAttemptAt);
-              if (nextHealth !== 'retrying-receive') break;
-            }
-          }
+          if (uploadFailure) throw uploadFailure.error;
+          if (uploadStatus === 'ready') uploadStatus = await uploadPending();
+          if (uploadStatus === 'stopped') return;
         } while (requested && isCurrent());
       } finally {
         running = false;

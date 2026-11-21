@@ -54,6 +54,48 @@ test('hydrates 500-record pages under one leader and preserves the exact cursor 
   assert.deepEqual(commitCursors, fetchCursors);
 });
 
+test('commits the first page before any upload and sends queued sessions before the final page', async () => {
+  const queued = Array.from({ length: 40 }, (_, index) => session(index));
+  const sent = [];
+  let sentAtLastFetch = 0;
+  const commits = [];
+  const nextCursors = [cursor(1, 'remote-1'), cursor(2, 'remote-2'), cursor(3, 'remote-3')];
+  const result = await runReadingStatisticsHydrationAsLeader({
+    initialCursor: null,
+    isLeader: () => true,
+    fetchPage: async (current) => {
+      const pageIndex = commits.length;
+      assert.deepEqual(current, nextCursors[pageIndex - 1] ?? null);
+      if (pageIndex === 0) assert.equal(sent.length, 0);
+      if (pageIndex > 0) {
+        assert.ok(sent.length > sentAtLastFetch, 'uploads must progress between remote pages');
+        assert.ok(queued.length > 0, 'a full upload queue must not delay the next remote page');
+      }
+      sentAtLastFetch = sent.length;
+      return {
+        sessions: [{ sessionId: nextCursors[pageIndex].documentId }],
+        quarantinedDocuments: [],
+        nextCursor: nextCursors[pageIndex],
+        fullHydrationCompleted: pageIndex === nextCursors.length - 1,
+      };
+    },
+    commitPage: async (page) => {
+      commits.push(page.nextCursor);
+      return { quarantinedDocuments: [] };
+    },
+    uploadBetweenPages: async (limit) => {
+      assert.ok(commits.length > 0 && commits.length < nextCursors.length);
+      for (const pending of queued.splice(0, limit)) sent.push(pending.sessionId);
+    },
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(commits, nextCursors);
+  assert.equal(result.pageCount, 3);
+  assert.equal(result.remoteReadCount, 3);
+  assert.ok(sent.length > 0 && queued.length > 0);
+});
+
 test('drops a fetched page when leadership changes before its local commit', async () => {
   let leader = true;
   let fetches = 0;
@@ -104,13 +146,14 @@ test('reports a page committed immediately before leadership loss', async () => 
       sessions: [session(1)],
       quarantinedDocuments: [],
       nextCursor,
-      fullHydrationCompleted: true,
+      fullHydrationCompleted: false,
       remoteReadCount: 1,
     }),
     commitPage: async () => {
       leader = false;
       return { quarantinedDocuments: [] };
     },
+    uploadBetweenPages: async () => assert.fail('a former leader must not run an upload batch'),
   });
 
   assert.equal(result.status, 'lost-leadership');

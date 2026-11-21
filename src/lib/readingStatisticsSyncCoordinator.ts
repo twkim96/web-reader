@@ -4,6 +4,8 @@ import type {
 } from './localReadingStatistics';
 import type { ReadingSessionV1 } from './readingStatistics';
 
+const UPLOAD_ATTEMPTS_BETWEEN_HYDRATION_PAGES = 4;
+
 export type ReadingStatisticsHydrationPage = {
   sessions: readonly ReadingSessionV1[];
   quarantinedDocuments: readonly QuarantinedReadingStatisticsDocumentV12[];
@@ -28,6 +30,7 @@ export const runReadingStatisticsHydrationAsLeader = async ({
   isLeader,
   fetchPage,
   commitPage,
+  uploadBetweenPages,
 }: {
   initialCursor: ReadingStatisticsRemoteCursorV12 | null;
   isLeader: () => boolean | Promise<boolean>;
@@ -38,6 +41,7 @@ export const runReadingStatisticsHydrationAsLeader = async ({
     page: ReadingStatisticsHydrationPage,
     expectedCursor: ReadingStatisticsRemoteCursorV12 | null,
   ) => Promise<{ quarantinedDocuments: readonly unknown[] }>;
+  uploadBetweenPages?: (limit: number) => Promise<void>;
 }): Promise<ReadingStatisticsHydrationRunResult> => {
   let cursor = initialCursor;
   let hydratedCount = 0;
@@ -98,5 +102,6 @@ export const runReadingStatisticsHydrationAsLeader = async ({
         remoteReadCount,
       };
     }
+    if (uploadBetweenPages) await uploadBetweenPages(UPLOAD_ATTEMPTS_BETWEEN_HYDRATION_PAGES);
   }
 };
