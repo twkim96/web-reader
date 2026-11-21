@@ -3,6 +3,7 @@ import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import { resolveLegacyReviewWork, resolveSocialWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
+import { reportMyPageApiTiming } from '../../../server/mypage/performance';
 import { legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
 import {
   currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listPublicProfileReviews, listPublicProfileWishlist,
@@ -110,6 +111,7 @@ async function uniquePublicProfileBooks<T extends { workId: string; time: string
 }
 
 async function publicProfile(db: Firestore, params: URLSearchParams) {
+  const started = performance.now();
   const code = params.get('code')?.toUpperCase() ?? '';
   const section = params.get('section');
   const offset = Number(params.get('offset') ?? 0);
@@ -130,27 +132,35 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   const { uid, account: { visibility, nickname, revision } } = initial;
   if (cursor && cursor.revision !== revision) return fail(409);
   const ratingDirection = reviewSort === 'rating-desc' ? -1 : reviewSort === 'rating-asc' ? 1 : 0;
+  let wishlistCandidates = 0;
+  let reviewCandidates = 0;
   const wishlistWindow = async () => {
     if (!useCursor) {
-      const page = legacyProfilePage(await listWishlist(db, uid), offset);
+      const records = await listWishlist(db, uid);
+      wishlistCandidates = records.length;
+      const page = legacyProfilePage(records, offset);
       return { ...page, entries: await publicBooks(db, page.entries) };
     }
     const records = (await listPublicProfileWishlist(db, uid)).map(({ workId, addedAt }) => ({
       workId, time: Number.isFinite(addedAt) ? Timestamp.fromMillis(addedAt).valueOf() : epoch.valueOf(),
     }));
+    wishlistCandidates = records.length;
     const entries = await uniquePublicProfileBooks(db, records);
     return profileCursorPage(db, entries, ({ record, book }) => [0, record.time, book.workId],
       { code, section: 'wishlist', sort: 'recent', revision }, cursor?.key);
   };
   const reviewWindow = async () => {
     if (!useCursor) {
-      const page = legacyProfilePage(sortReviewList(await listReviews(db, uid), reviewSort), offset);
+      const records = await listReviews(db, uid);
+      reviewCandidates = records.length;
+      const page = legacyProfilePage(sortReviewList(records, reviewSort), offset);
       return { ...page, entries: await publicBooks(db, page.entries) };
     }
     // Timestamp.valueOf() produces a sortable string without the precision loss of toMillis().
     const records = (await listPublicProfileReviews(db, uid)).map(({ updatedAt, ...review }) => ({
       ...review, time: (updatedAt ?? epoch).valueOf(),
     }));
+    reviewCandidates = records.length;
     const entries = await uniquePublicProfileBooks(db, records);
     return profileCursorPage(db, entries, ({ record, book }) => [ratingDirection * record.rating, record.time, book.workId],
       { code, section: 'reviews', sort: reviewSort, revision }, cursor?.key);
@@ -162,6 +172,11 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   const current = await lookupPublicAccount(db, code);
   if (!current) return fail(404);
   if (current.account.revision !== revision) return fail(409);
+  reportMyPageApiTiming('profile', started, {
+    wishlistCandidates, reviewCandidates, wishlistReturned: wishlistPage?.entries.length ?? 0,
+    reviewsReturned: reviewsPage?.entries.length ?? 0,
+    wishlistHasNext: Number(wishlistPage?.next != null), reviewsHasNext: Number(reviewsPage?.next != null),
+  });
 
   return json({
     identity: { code, nickname }, visibility,

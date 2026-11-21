@@ -1,5 +1,6 @@
 import type { PublicBookPlatformId } from './publicBookMetadataSchema';
 import { groupPublicBookWorks, platformWorkKey } from './readBooks';
+import { finishDiscoveryTiming, startDiscoveryTiming } from './myPagePerformance';
 
 export type DiscoveryBook = {
   id: string;
@@ -118,7 +119,9 @@ const groupedDiscoveryCache = new WeakMap<readonly DiscoveryBook[], ReturnType<t
 export function getGroupedBookDiscovery(rows: readonly DiscoveryBook[]) {
   const cached = groupedDiscoveryCache.get(rows);
   if (cached) return cached;
+  const started = startDiscoveryTiming();
   const grouped = groupDiscoveryBooks(rows);
+  finishDiscoveryTiming('grouping', started);
   groupedDiscoveryCache.set(rows, grouped);
   return grouped;
 }
@@ -146,7 +149,12 @@ export function createDiscoveryLoader(fetchIndex: (retry: boolean) => Promise<un
   let pending: Promise<DiscoveryBook[]> | undefined;
   let retry = false;
   return () => {
-    pending ??= Promise.resolve().then(() => fetchIndex(retry)).then(parseDiscoveryIndex).catch((error) => {
+    pending ??= Promise.resolve().then(() => fetchIndex(retry)).then((value) => {
+      const started = startDiscoveryTiming();
+      const result = parseDiscoveryIndex(value);
+      finishDiscoveryTiming('validation', started);
+      return result;
+    }).catch((error) => {
       retry = true;
       pending = undefined;
       throw error;
@@ -166,7 +174,10 @@ export const loadBookDiscovery = createDiscoveryLoader(async (retry) => {
       cache: retry ? 'reload' : 'default',
     });
     if (!response.ok) throw new Error(`Discovery index unavailable: ${response.status}`);
-    return await response.json();
+    const started = startDiscoveryTiming();
+    const result = await response.json();
+    finishDiscoveryTiming('json', started);
+    return result;
   } finally {
     clearTimeout(timer);
   }

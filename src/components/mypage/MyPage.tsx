@@ -6,6 +6,7 @@ import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
+import { finishDiscoveryTiming, startDiscoveryTiming } from '../../lib/myPagePerformance';
 import type { ReadBook } from '../../lib/readBooks';
 import type { MyPageBrowseSection } from '../../lib/myPageSocial';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
@@ -81,6 +82,7 @@ function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): Di
 
   const grouped = getGroupedBookDiscovery(rows);
   const base = sorts.values().next().value ?? (() => {
+    const started = startDiscoveryTiming();
     const searchableTitles = new Map<string, string[]>();
     for (const item of rows) {
       const id = grouped.byId.get(item.id)?.id ?? item.id;
@@ -95,9 +97,12 @@ function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): Di
       for (const name of book.tags) counts.set(name, (counts.get(name) ?? 0) + 1);
     }
     const tags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120).map(([name]) => name);
+    finishDiscoveryTiming('search', started);
     return { searchableTitles, genres: [...genres].sort(), tags };
   })();
+  const started = startDiscoveryTiming();
   const list = { ...base, books: [...grouped.books].sort(bookOrder[sort]) };
+  finishDiscoveryTiming('sort', started);
   sorts.set(sort, list);
   return list;
 }
@@ -149,6 +154,7 @@ export function MyPage(props: Props) {
   const titleRow = useRef<HTMLElement>(null);
   const [openedBook, setOpenedBook] = useState<{ id: string; book: DiscoveryBook | ReadBook }>();
   const readListScroll = useRef<number | null>(null);
+  const discoveryStarted = useRef<number | undefined>(undefined);
   const restoreReadListScroll = useRef(false);
   const [catalog, setCatalog] = useState<DiscoveryBook[] | null>(null);
   const [catalogError, setCatalogError] = useState(false);
@@ -189,6 +195,7 @@ export function MyPage(props: Props) {
   }, []);
   const navigate = (next: Tab) => {
     if (next === tab && !bookId) return;
+    if (next === 'discover') discoveryStarted.current = startDiscoveryTiming();
     readListScroll.current = null;
     window.history.pushState(null, '', `#mypage/${next}`);
     setTab(next);
@@ -271,14 +278,28 @@ export function MyPage(props: Props) {
     if (!discovering || bookId || !catalog) return [];
     const { books, searchableTitles } = getDiscoveryList(catalog, discoverySort);
     const normalized = query.trim().normalize('NFC').toLocaleLowerCase();
-    return books.filter((book) => (
+    if (!normalized && !source && !genre && !tag) return books;
+    const started = startDiscoveryTiming();
+    const filtered = books.filter((book) => (
       (!normalized || (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
         .some((title) => title.includes(normalized)))
       && (!source || book.platforms.some((platform) => platform.id === source))
       && (!genre || book.genre === genre)
       && (!tag || book.tags.includes(tag))
     ));
+    finishDiscoveryTiming('filter', started);
+    return filtered;
   }, [discovering, bookId, catalog, discoverySort, genre, query, source, tag]);
+  useLayoutEffect(() => {
+    if (!discovering || bookId) {
+      discoveryStarted.current = undefined;
+    } else if (discoveryResults.length && discoveryStarted.current !== undefined) {
+      finishDiscoveryTiming('first-rows', discoveryStarted.current);
+      discoveryStarted.current = undefined;
+    } else if (!catalog && discoveryStarted.current === undefined) {
+      discoveryStarted.current = startDiscoveryTiming();
+    }
+  }, [bookId, catalog, discovering, discoveryResults.length]);
   const wishlistResults = useMemo(() => {
     if (tab !== 'wishlist') return [];
     if (wishlistSort === 'saved') return [...wishlist.entries].sort((a, b) => b.addedAt - a.addedAt).map(({ book }) => book);

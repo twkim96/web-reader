@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { FieldPath, FieldValue, GrpcStatus, Timestamp, type DocumentData, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity.ts';
+import { reportMyPageApiTiming } from './performance.ts';
 import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from '../../lib/publicBookReviews.ts';
 import {
   hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageReview,
@@ -349,10 +350,12 @@ const newestFirst = (a: DatedReview, b: DatedReview) => (
 export async function workPublicReviews(
   db: Firestore, canonicalWorkId: string, equivalentWorkIds: readonly string[] = [],
 ): Promise<PublicWorkReviews> {
+  const started = performance.now();
   const workIds = [...new Set([canonicalWorkId, ...equivalentWorkIds])];
   const firstPage = await workEntries(db, canonicalWorkId).orderBy('publishedAt', 'desc').limit(REVIEW_PAGE_SIZE).get();
 
-  return db.runTransaction(async (transaction) => {
+  const { result, scans } = await db.runTransaction(async (transaction) => {
+    const scans = { reviewRows: 0, authorReads: 0, reviewQueries: 0 };
     const byAuthor = workIds.length > 1 ? new Map<string, DatedReview>() : null;
     const publicAuthors = new Map<string, MyPageIdentity | null>();
     const latest: PublicWorkReview[] = [];
@@ -367,7 +370,9 @@ export async function workPublicReviews(
     for (const workId of workIds) {
       const query = workEntries(db, workId).orderBy('publishedAt', 'desc').limit(REVIEW_PAGE_SIZE);
       let page = workId === canonicalWorkId ? firstPage : await transaction.get(query);
+      scans.reviewQueries++;
       while (!page.empty) {
+        scans.reviewRows += page.size;
         const entries = page.docs.filter((document) => {
           const { code, workId: storedWorkId, publishedAt } = document.data();
           // Legacy anonymous entries lack the public identity and canonical write shape.
@@ -377,6 +382,7 @@ export async function workPublicReviews(
         if (entries.length > 0) {
           const unknown = entries.filter(({ id }) => !publicAuthors.has(id));
           if (unknown.length) {
+            scans.authorReads += unknown.length;
             const authors = await transaction.getAll(...unknown.map(({ id }) => profiles(db).doc(id)),
               { fieldMask: ['nickname', 'visibility'] });
             for (const author of authors) {
@@ -403,10 +409,13 @@ export async function workPublicReviews(
         }
         if (page.size < REVIEW_PAGE_SIZE) break;
         page = await transaction.get(query.startAfter(page.docs[page.docs.length - 1]));
+        scans.reviewQueries++;
       }
     }
 
     if (byAuthor) [...byAuthor.values()].sort(newestFirst).forEach(({ review }) => count(review));
-    return { reviews: latest, average: ratingCount > 0 ? ratingSum / ratingCount : null, ratingCount };
+    return { result: { reviews: latest, average: ratingCount > 0 ? ratingSum / ratingCount : null, ratingCount }, scans };
   }, { readOnly: true, readTime: firstPage.readTime });
+  reportMyPageApiTiming('book-reviews', started, { ...scans, returned: result.reviews.length });
+  return result;
 }

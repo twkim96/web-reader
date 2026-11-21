@@ -55,7 +55,7 @@ test('a deep-linked book prepares catalog search only when the list opens', asyn
     };
   });
   const preparations = () => page.evaluate(() => performance.getEntriesByName('alias-search-prepared').length);
-  await page.goto('/#mypage/book/other-title');
+  await page.goto('/?mypagePerf=1#mypage/book/other-title');
   await expect(page.getByRole('region', { name: '도서 기본정보' }).getByRole('heading', { name: '대표 도서' })).toBeVisible();
   expect(await preparations()).toBe(0);
   const openList = async () => {
@@ -69,6 +69,10 @@ test('a deep-linked book prepares catalog search only when the list opens', asyn
   await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
   await openList();
   expect(await preparations()).toBe(1);
+  const phases = await page.evaluate(() => performance.getEntriesByType('measure').map(({ name }) => name));
+  expect(phases).toEqual(expect.arrayContaining(
+    ['json', 'validation', 'grouping', 'search', 'sort', 'filter', 'first-rows'].map((phase) => `mypage:catalog:${phase}`),
+  ));
   await page.getByRole('button', { name: '내 서재', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
   await page.evaluate(() => { window.location.hash = '#mypage/discover'; });
