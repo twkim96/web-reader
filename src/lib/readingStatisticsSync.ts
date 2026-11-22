@@ -2,10 +2,12 @@ import {
   collection,
   doc,
   documentId,
+  endAt,
   getCountFromServer,
   getDocFromServer,
   getDocsFromServer,
   limit,
+  limitToLast,
   orderBy,
   query,
   runTransaction,
@@ -84,26 +86,31 @@ export const verifyRemoteReadingStatisticsAuditV1 = async (
   uid: string,
   expected: { remoteCount: number; cursor: ReadingStatisticsRemoteCursorV12 },
   instrumentation: { onReadAttempt?: () => void; onReadSuccess?: (returnedDocuments: number) => void } = {},
-  sdk: Pick<typeof import('firebase/firestore'), 'collection' | 'documentId' | 'getCountFromServer' | 'getDocsFromServer' | 'limit' | 'orderBy' | 'query'> = {
-    collection, documentId, getCountFromServer, getDocsFromServer, limit, orderBy, query,
-  },
+  sdk: Pick<
+    typeof import('firebase/firestore'),
+    'collection' | 'documentId' | 'endAt' | 'getCountFromServer' | 'getDocsFromServer' | 'limitToLast' | 'orderBy' | 'query'
+  > = { collection, documentId, endAt, getCountFromServer, getDocsFromServer, limitToLast, orderBy, query },
 ) => {
+  const { documentId: cursorId, uploadedAtServerSeconds, uploadedAtServerNanoseconds } = expected.cursor;
   const reference = sdk.collection(firestore, getFirebaseReadingStatisticsPath(APP_ID, uid));
-  const count = await sdk.getCountFromServer(reference);
+  // Check the records already received. Uploads after this cursor belong to
+  // the next incremental read and do not invalidate the weekly audit.
+  const receivedRange = sdk.query(
+    reference,
+    sdk.orderBy('uploadedAtServer', 'asc'),
+    sdk.orderBy(sdk.documentId(), 'asc'),
+    sdk.endAt(new Timestamp(uploadedAtServerSeconds, uploadedAtServerNanoseconds), cursorId),
+  );
+  const count = await sdk.getCountFromServer(receivedRange);
   if (count.data().count !== expected.remoteCount) return false;
   instrumentation.onReadAttempt?.();
-  const snapshot = await sdk.getDocsFromServer(sdk.query(
-    reference,
-    sdk.orderBy('uploadedAtServer', 'desc'),
-    sdk.orderBy(sdk.documentId(), 'desc'),
-    sdk.limit(1),
-  ));
+  const snapshot = await sdk.getDocsFromServer(sdk.query(receivedRange, sdk.limitToLast(1)));
   instrumentation.onReadSuccess?.(snapshot.size);
-  const latest = snapshot.docs[0];
-  const timestamp = readServerTimestampCursor(latest?.data().uploadedAtServer);
-  return latest?.id === expected.cursor.documentId
-    && timestamp?.uploadedAtServerSeconds === expected.cursor.uploadedAtServerSeconds
-    && timestamp.uploadedAtServerNanoseconds === expected.cursor.uploadedAtServerNanoseconds;
+  const last = snapshot.docs[0];
+  const timestamp = readServerTimestampCursor(last?.data().uploadedAtServer);
+  return last?.id === cursorId
+    && timestamp?.uploadedAtServerSeconds === uploadedAtServerSeconds
+    && timestamp.uploadedAtServerNanoseconds === uploadedAtServerNanoseconds;
 };
 
 export const uploadReadingSessionV1 = async (

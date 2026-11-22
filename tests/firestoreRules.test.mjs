@@ -13,16 +13,19 @@ import {
   doc,
   collection,
   documentId,
+  endAt,
   getCountFromServer,
   getDoc,
   getDocs,
   getDocsFromServer,
   limit,
+  limitToLast,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
   setDoc,
+  startAfter,
   Timestamp,
   writeBatch,
 } from 'firebase/firestore';
@@ -35,7 +38,11 @@ import {
 import { prepareWriteLease, createSyncEventId } from '../src/lib/writeLeaseTransport.ts';
 import { parseLeasedEventId } from '../src/lib/writeLeasePolicy.ts';
 import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
-import { uploadReadingSessionV1, verifyRemoteReadingStatisticsAuditV1 } from '../src/lib/readingStatisticsSync.ts';
+import {
+  getRemoteReadingSessionsPageV1,
+  uploadReadingSessionV1,
+  verifyRemoteReadingStatisticsAuditV1,
+} from '../src/lib/readingStatisticsSync.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 
 const projectId = 'demo-web-reader';
@@ -1348,23 +1355,50 @@ test('rejects malformed or cross-owner reading statistic sessions', async () => 
   }));
 });
 
-test('weekly statistics audit can count owner records and uses the exact latest document tie-breaker', async () => {
+test('weekly statistics audit allows a device to fetch only new uploads and rejects missing history', async () => {
   const stamp = new Timestamp(60, 931_000);
-  const sdk = { collection, documentId, getCountFromServer, getDocsFromServer, limit, orderBy, query };
-  await environment.withSecurityRulesDisabled(async (context) => {
-    for (const id of ['earlier-id', 'latest-id']) {
-      await setDoc(doc(context.firestore(), readingStatisticsPath(id)), {
-        ...validReadingSession(id), uploadedAtServer: stamp,
-      });
-    }
+  const newer = new Timestamp(60, 932_000);
+  // The .mjs test and tsx-loaded module use separate SDK builds.
+  const testTimestamp = (stamp) => new Timestamp(stamp.seconds, stamp.nanoseconds);
+  const sdk = {
+    collection, documentId, getCountFromServer, getDocsFromServer, limit, limitToLast, orderBy, query,
+    endAt: (stamp, id) => endAt(testTimestamp(stamp), id),
+    startAfter: (stamp, id) => startAfter(testTimestamp(stamp), id),
+  };
+  const seed = (id, uploadedAtServer) => environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), readingStatisticsPath(id)), {
+      ...validReadingSession(id), uploadedAtServer,
+    });
   });
-  const cursor = { uploadedAtServerSeconds: stamp.seconds, uploadedAtServerNanoseconds: stamp.nanoseconds, documentId: 'latest-id' };
+  await seed('a-earlier', stamp);
+  await seed('b-last-received', stamp);
+  const cursor = {
+    uploadedAtServerSeconds: stamp.seconds,
+    uploadedAtServerNanoseconds: stamp.nanoseconds,
+    documentId: 'b-last-received',
+  };
   const expected = { remoteCount: 2, cursor };
-  assert.equal(await assertSucceeds(verifyRemoteReadingStatisticsAuditV1(database(), 'alice', expected, {}, sdk)), true);
-  assert.equal(await assertSucceeds(verifyRemoteReadingStatisticsAuditV1(database(), 'alice', {
-    ...expected, cursor: { ...cursor, documentId: 'earlier-id' },
-  }, {}, sdk)), false);
+  const db = database();
+  const verify = () => assertSucceeds(verifyRemoteReadingStatisticsAuditV1(db, 'alice', expected, {}, sdk));
+  assert.equal(await verify(), true);
+
+  await seed('c-same-upload-time', stamp);
+  await seed('d-newer-upload-time', newer);
+  assert.equal(await verify(), true, 'uploads after the saved cursor do not invalidate already received history');
+  const page = await assertSucceeds(getRemoteReadingSessionsPageV1(db, 'alice', cursor, 500, sdk));
+  assert.deepEqual(page.sessions.map(({ sessionId }) => sessionId), ['c-same-upload-time', 'd-newer-upload-time']);
   await assertFails(verifyRemoteReadingStatisticsAuditV1(database('mallory'), 'alice', expected, {}, sdk));
+
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await deleteDoc(doc(context.firestore(), readingStatisticsPath('a-earlier')));
+  });
+  assert.equal(await verify(), false, 'new uploads cannot hide a missing earlier document');
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await deleteDoc(doc(context.firestore(), readingStatisticsPath('b-last-received')));
+  });
+  await seed('a-earlier', stamp);
+  await seed('a-replacement', stamp);
+  assert.equal(await verify(), false, 'matching counts cannot hide a missing cursor document');
 });
 
 const leaseUuid = '2af12345-1234-4123-8123-123456789abc';

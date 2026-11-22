@@ -1176,39 +1176,46 @@ test('reports a successful first read when the malformed-cursor follow-up read f
   assert.equal(successes, 1);
 });
 
-test('weekly audit checks the whole collection count and compares the exact newest cursor', async () => {
+test('weekly audit checks the count and last record through the received cursor', async () => {
   const reference = {};
-  let total = 9_429;
-  let latest = { id: 'latest', timestamp: { seconds: 60, nanoseconds: 931 } };
-  let queries = 0;
+  let receivedCount = 9_429;
+  let last = { id: 'last-received', timestamp: { seconds: 60, nanoseconds: 931 } };
+  let markerReads = 0;
+  const boundary = { seconds: 60, nanoseconds: 931, id: 'last-received' };
+  const receivedRange = [reference, ['uploadedAtServer', 'asc'], ['__name__', 'asc'], boundary];
   const sdk = {
     collection: () => reference,
     documentId: () => '__name__',
     orderBy: (...args) => args,
-    limit: (value) => value,
+    endAt: (stamp, id) => ({ seconds: stamp.seconds, nanoseconds: stamp.nanoseconds, id }),
+    limitToLast: (value) => ({ limitToLast: value }),
     query: (...args) => args,
     getCountFromServer: async (target) => {
-      assert.equal(target, reference);
-      return { data: () => ({ count: total }) };
+      assert.deepEqual(target, receivedRange);
+      return { data: () => ({ count: receivedCount }) };
     },
     getDocsFromServer: async (target) => {
-      queries++;
-      assert.deepEqual(target, [reference, ['uploadedAtServer', 'desc'], ['__name__', 'desc'], 1]);
-      return { size: 1, docs: [{ id: latest.id, data: () => ({ uploadedAtServer: latest.timestamp }) }] };
+      markerReads++;
+      assert.deepEqual(target, [receivedRange, { limitToLast: 1 }]);
+      return { size: 1, docs: [{ id: last.id, data: () => ({ uploadedAtServer: last.timestamp }) }] };
     },
   };
-  const expected = { remoteCount: total, cursor: { uploadedAtServerSeconds: 60, uploadedAtServerNanoseconds: 931, documentId: 'latest' } };
+  const expected = {
+    remoteCount: receivedCount,
+    cursor: { uploadedAtServerSeconds: 60, uploadedAtServerNanoseconds: 931, documentId: 'last-received' },
+  };
   const reports = [];
   const verify = () => verifyRemoteReadingStatisticsAuditV1({}, 'alice', expected, { onReadSuccess: (documents) => reports.push(documents) }, sdk);
+
   assert.equal(await verify(), true);
   assert.deepEqual(reports, [1]);
-  latest.timestamp.nanoseconds++;
+  last.timestamp.nanoseconds--;
+  assert.equal(await verify(), false, 'a changed timestamp invalidates the cursor');
+  last = { id: 'earlier-id', timestamp: { seconds: 60, nanoseconds: 931 } };
+  assert.equal(await verify(), false, 'a different record cannot stand in for a missing cursor');
+  receivedCount--;
   assert.equal(await verify(), false);
-  latest = { id: 'new-at-the-same-time', timestamp: { seconds: 60, nanoseconds: 931 } };
-  assert.equal(await verify(), false);
-  total++;
-  assert.equal(await verify(), false);
-  assert.equal(queries, 3, 'a changed count skips the marker lookup');
+  assert.equal(markerReads, 3, 'a changed count skips the marker lookup');
 });
 
 test('accepts only a low-uncertainty server clock sample', async () => {
