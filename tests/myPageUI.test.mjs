@@ -159,6 +159,9 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
   const { window, root } = setup('#mypage/read');
   const uid = 'rating-ui';
   const ownerKey = `firebase:${uid}|library:local`;
+  const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
+  ownerRuntime.activate(ownerKey);
+  t.after(() => ownerRuntime.clear());
   const title = '별점 저장 테스트';
   const alias = '처음 평가할 책';
   const unresolved = '후속 미게시 판본';
@@ -460,6 +463,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     // Restore the earlier server rating before either entry path sees the
     // missing edition. A lower partial snapshot must preserve its evidence.
     secondSaved = true;
+    await act(async () => window.dispatchEvent(new window.Event('online')));
     await openCollectionTab('읽은 책');
     assert.equal(visible('select[aria-label="읽은 책 정렬"]').querySelector('option:checked').value, 'progress');
     const editionLink = () => visible('a[href="#mypage/book/published-second/review"]');
@@ -748,7 +752,6 @@ test('dashboard shows confirmed books while a slower title in the same batch is 
 
 test('dashboard reuses recent cards while reconciling only the current login session', async (t) => {
   const require = createRequire(import.meta.url);
-  const { dashboardReviewCache, dashboardWishlistCache } = require('../src/lib/myPageDashboardCache.ts');
   const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
   const { window, root } = setup('#mypage/overview');
   const uid = 'dashboard-card-reentry';
@@ -792,18 +795,11 @@ test('dashboard reuses recent cards while reconciling only the current login ses
     await render();
     assert.match(list('읽고 싶은 도서').textContent, /기억한 위시리스트/);
     assert.match(list('평점을 남긴 도서').textContent, /기억한 평가/);
-    const readBeforeWrite = dashboardWishlistCache.beginRead(ownerKey);
-    let finishWrite;
-    await act(async () => { finishWrite = dashboardWishlistCache.beginWrite(ownerKey); });
-    assert.equal(dashboardWishlistCache.beginRead(ownerKey)([originalBook]), false);
-    finishWrite();
-    await act(async () => readBeforeWrite([originalBook]));
-    assert.equal(list('읽고 싶은 도서'), null);
-    const previousLoginReviewRead = dashboardReviewCache.beginRead(ownerKey);
+    await act(async () => delay(10));
+    assert.equal(refreshes.length, 0, 'a fresh reentry should not launch private list requests');
     await act(async () => root.render(null));
     ownerRuntime.clear();
     ownerRuntime.activate(ownerKey);
-    previousLoginReviewRead([review]);
     await render();
     assert.equal(list('읽고 싶은 도서'), null);
     assert.equal(list('평점을 남긴 도서'), null);
@@ -1005,7 +1001,7 @@ test('a saved title opens a themed detail page with optional private records and
 
 test('dashboard review writes trigger one fresh read and discard the pre-write response', async (t) => {
   const require = createRequire(import.meta.url);
-  const { dashboardReviewCache } = require('../src/lib/myPageDashboardCache.ts');
+  const { previewReviewListCache } = require('../src/lib/myPageListCache.ts');
   const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
   const { MyReviews } = require('../src/components/mypage/MyReviews.tsx');
   const { window, root } = setup('#mypage/overview');
@@ -1032,7 +1028,7 @@ test('dashboard review writes trigger one fresh read and discard the pre-write r
   const title = () => window.document.querySelector('[aria-label="평점을 남긴 도서 가로 목록"]')?.textContent ?? '';
   ownerRuntime.activate(ownerKey);
   try {
-    const finishFirst = dashboardReviewCache.beginWrite(ownerKey);
+    const finishFirst = previewReviewListCache.beginWrite(ownerKey);
     await act(async () => root.render(React.createElement(MyReviews, { owner: ownerKey, onOpenBook() {}, onShowAll() {} })));
     assert.equal(reads.length, 0);
     await act(async () => finishFirst());
@@ -1040,7 +1036,7 @@ test('dashboard review writes trigger one fresh read and discard the pre-write r
     assert.equal(reads.length, 1);
 
     let finishSecond;
-    await act(async () => { finishSecond = dashboardReviewCache.beginWrite(ownerKey); });
+    await act(async () => { finishSecond = previewReviewListCache.beginWrite(ownerKey); });
     await act(async () => finishSecond());
     for (let attempt = 0; attempt < 20 && reads.length < 2; attempt++) await act(async () => delay(10));
     assert.equal(reads.length, 2);
@@ -1062,6 +1058,11 @@ test('account wishlist reloads after a revision conflict and on visible return',
   const { window, root } = setup('#mypage/wishlist');
   const uid = 'wishlist-revision-conflict';
   const ownerKey = `firebase:${uid}|library:local`;
+  const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
+  ownerRuntime.activate(ownerKey);
+  t.after(() => ownerRuntime.clear());
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
   const authFixture = registerHooks({
     resolve(specifier, context, nextResolve) {
       if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
@@ -1122,6 +1123,7 @@ test('account wishlist reloads after a revision conflict and on visible return',
 
     revision++;
     saved = true;
+    now += 65_000;
     await act(async () => window.document.dispatchEvent(new window.Event('visibilitychange')));
     await waitFor(() => button().textContent === '담김');
     assert.equal(reads, 3);

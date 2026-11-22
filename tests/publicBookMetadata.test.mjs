@@ -93,3 +93,61 @@ test('orders metadata cover candidates by stable platform priority', () => {
     { platform: 'novelpia', coverUrl: 'https://novelpia.com/cover.jpg' },
   ]);
 });
+
+test('default metadata reads share only concurrent document requests and retry after settlement', async () => {
+  const { registerHooks } = await import('node:module');
+  const firestoreStub = `export const doc = (_db, ...parts) => ({ path: parts.join('/') });
+export const getDoc = (ref) => globalThis.publicMetadataTestRead(ref);`;
+  const firebaseStub = `export const db = {}; export const auth = { currentUser: { getIdToken: async () => 'token' } };`;
+  const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (context.parentURL?.includes('/src/lib/publicBookMetadata.ts')) {
+        if (specifier === 'firebase/firestore') return { url: moduleUrl(firestoreStub), format: 'module', shortCircuit: true };
+        if (specifier === './firebase') return { url: moduleUrl(firebaseStub), format: 'module', shortCircuit: true };
+        if (specifier === './publicBookMetadataSchema') return nextResolve('./publicBookMetadataSchema.ts', context);
+        if (specifier === './publicBookCatalog') return nextResolve('./publicBookCatalog.ts', context);
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let calls = 0;
+  const missing = { exists: () => false, metadata: { fromCache: true } };
+  globalThis.publicMetadataTestRead = async () => { calls++; await gate; return missing; };
+  try {
+    const { loadPublicBookMetadata, readDefaultPublicBookMetadataDocument, readSharedPublicBookMetadataDocument } = await import('../src/lib/publicBookMetadata.ts');
+    const first = readDefaultPublicBookMetadataDocument({ path: 'publicBookMetadataV1/ab' });
+    const second = readSharedPublicBookMetadataDocument({ path: 'publicBookMetadataV1/ab' });
+    const other = readDefaultPublicBookMetadataDocument({ path: 'publicBookMetadataV1/cd' });
+    assert.equal(calls, 2);
+    release();
+    assert.equal(await first, missing);
+    assert.equal((await second).snapshot, missing);
+    assert.equal(await other, missing);
+    await readDefaultPublicBookMetadataDocument({ path: 'publicBookMetadataV1/ab' });
+    assert.equal(calls, 3, 'a cache miss is not retained after the concurrent read settles');
+    globalThis.publicMetadataTestRead = async () => { calls++; throw new Error('offline'); };
+    await assert.rejects(readDefaultPublicBookMetadataDocument({ path: 'publicBookMetadataV1/ab' }), /offline/);
+    await assert.rejects(readDefaultPublicBookMetadataDocument({ path: 'publicBookMetadataV1/ab' }), /offline/);
+    assert.equal(calls, 5, 'failed reads are not retained');
+
+    let releaseCallers;
+    const callerGate = new Promise((resolve) => { releaseCallers = resolve; });
+    const paths = [];
+    globalThis.publicMetadataTestRead = async ({ path }) => { paths.push(path); await callerGate; return missing; };
+    const info = loadPublicBookMetadata('작품.epub');
+    const cover = loadPublicBookMetadata('작품.epub');
+    while (!paths.length) await new Promise((resolve) => setImmediate(resolve));
+    releaseCallers();
+    assert.deepEqual(await Promise.all([info, cover]), [null, null]);
+    assert.equal(paths.length, 2, 'the bucket and on-demand document each have one shared read');
+    await loadPublicBookMetadata('작품.epub');
+    assert.equal(paths.length, 4, 'a later caller performs new document reads');
+  } finally {
+    release();
+    delete globalThis.publicMetadataTestRead;
+    hooks.deregister();
+  }
+});

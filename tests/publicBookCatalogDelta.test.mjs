@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 import {
+  loadPublicBookCatalogDelta,
   mergePublicBookCatalogDelta,
   parsePublicBookCatalogDeltaManifest,
   parsePublicBookCatalogDeltaShard,
@@ -70,4 +71,23 @@ test('a refreshed base record wins over a stale request delta for the same alias
   assert.deepEqual(merged.records.get(0), baseRecord);
   assert.deepEqual(merged.popularTags.map(({ label }) => label), ['정기갱신']);
   assert.equal(merged.deltaGeneration, generation);
+});
+
+
+test('unchanged verified delta manifest reuses parsed shards; changed checksum does not', async () => {
+  const shards = new Map(documents.map((id, index) => [id, index === 10 ? shard : emptyShard(index)]));
+  let reads = 0;
+  let current = manifest;
+  const snap = (data) => ({ exists: () => data !== undefined, data: () => data });
+  const api = {
+    getFromServer: async (id) => snap(id === 'manifest' ? current : shards.get(id)),
+    getFromCache: async (id) => { reads++; return snap(shards.get(id)); },
+  };
+  const first = await loadPublicBookCatalogDelta(api);
+  assert.equal(reads, 16);
+  assert.equal(await loadPublicBookCatalogDelta(api, first), first);
+  assert.equal(reads, 16);
+  current = { ...manifest, recordCount: 2 };
+  await assert.rejects(loadPublicBookCatalogDelta(api, first), /record count mismatch/);
+  assert.equal(reads, 32);
 });

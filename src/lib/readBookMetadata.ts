@@ -1,4 +1,3 @@
-import { getDoc } from 'firebase/firestore';
 import type { OwnerKey } from './ownerIdentity';
 import type { PublicBookMetadata, PublicBookMetadataDocumentReader } from './publicBookMetadata';
 import { cacheReadBookMetadata, readBookMetadataExpiry, type ConfirmedReadBookMetadata } from './readBookMetadataCache';
@@ -39,11 +38,12 @@ const readDocument = (reference: Parameters<PublicBookMetadataDocumentReader>[0]
   if (cached) return Promise.resolve(cached.value);
   const pending = documentReads.get(key);
   if (pending) return pending;
-  const startedAt = Date.now();
-  const read = getDoc(reference).then((snapshot) => {
+  const read = import('./publicBookMetadata').then(({ readSharedPublicBookMetadataDocument }) => (
+    readSharedPublicBookMetadataDocument(reference)
+  )).then(({ snapshot, startedAt: observedAt }) => {
     if (!snapshot.exists() && snapshot.metadata.fromCache) throw new Error('Public metadata unavailable offline');
-    const result = { snapshot, confirmedAt: snapshot.metadata.fromCache ? null : startedAt };
-    putCached(documents, key, result, MAX_DOCUMENTS, startedAt + CACHE_TTL_MS);
+    const result = { snapshot, confirmedAt: snapshot.metadata.fromCache ? null : observedAt };
+    putCached(documents, key, result, MAX_DOCUMENTS, observedAt + CACHE_TTL_MS);
     return result;
   }).finally(() => documentReads.delete(key));
   documentReads.set(key, read);

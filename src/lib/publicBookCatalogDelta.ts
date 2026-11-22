@@ -88,12 +88,20 @@ const readDocument = async (api: PublicBookCatalogDeltaFirestoreApi, id: string,
   return remote.data();
 };
 
-export const loadPublicBookCatalogDelta = async (api: PublicBookCatalogDeltaFirestoreApi) => {
+export const loadPublicBookCatalogDelta = async (
+  api: PublicBookCatalogDeltaFirestoreApi,
+  previous?: { manifest: DeltaManifest; entries: Map<string, DeltaRecord> } | null,
+  onCacheFallback?: () => void,
+) => {
   let manifestSnapshot: Snapshot;
-  try { manifestSnapshot = await api.getFromServer('manifest'); } catch { manifestSnapshot = await api.getFromCache('manifest'); }
+  try { manifestSnapshot = await api.getFromServer('manifest'); } catch {
+    onCacheFallback?.();
+    manifestSnapshot = await api.getFromCache('manifest');
+  }
   if (!manifestSnapshot.exists()) return null;
   const manifest = parsePublicBookCatalogDeltaManifest(manifestSnapshot.data());
   if (!manifest) throw new Error('Public catalog delta manifest is invalid');
+  if (previous && stablePublicBookCatalogJson(previous.manifest) === stablePublicBookCatalogJson(manifest)) return previous;
   const raw = await Promise.all(manifest.documents.map((id) => readDocument(api, id, manifest.checksums[id])));
   const entries = new Map<string, DeltaRecord>();
   raw.forEach((value, shard) => {

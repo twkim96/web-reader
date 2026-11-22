@@ -1,5 +1,6 @@
 import { doc, getDoc, type DocumentData, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
+import { invalidatePublicBookCatalog } from './publicBookCatalog';
 import {
   getPublicBookMetadataAliasCandidates,
   normalizePublicBookMetadataAlias,
@@ -38,9 +39,27 @@ const getPublicBookMetadataAliasIds = async (fileName: string) => {
 
 export type PublicBookMetadataDocumentReader = (reference: DocumentReference<DocumentData>) => Promise<DocumentSnapshot<DocumentData>>;
 
+// Share only concurrent default reads. A settled read, including a cached miss,
+// is never retained here, and custom readers keep their own policy.
+type DefaultRead = { snapshot: DocumentSnapshot<DocumentData>; startedAt: number };
+const defaultReads = new Map<string, Promise<DefaultRead>>();
+export const readSharedPublicBookMetadataDocument = (reference: DocumentReference<DocumentData>): Promise<DefaultRead> => {
+  const pending = defaultReads.get(reference.path);
+  if (pending) return pending;
+  const startedAt = Date.now();
+  const read = getDoc(reference).then((snapshot) => ({ snapshot, startedAt })).finally(() => {
+    if (defaultReads.get(reference.path) === read) defaultReads.delete(reference.path);
+  });
+  defaultReads.set(reference.path, read);
+  return read;
+};
+export const readDefaultPublicBookMetadataDocument: PublicBookMetadataDocumentReader = async (reference) => (
+  (await readSharedPublicBookMetadataDocument(reference)).snapshot
+);
+
 export const loadPublicBookMetadata = async (
   fileName: string,
-  readDocument: PublicBookMetadataDocumentReader = getDoc,
+  readDocument: PublicBookMetadataDocumentReader = readDefaultPublicBookMetadataDocument,
   markUncertain?: () => void,
 ) => {
   const aliasIds = await getPublicBookMetadataAliasIds(fileName);
@@ -114,6 +133,7 @@ export const requestPublicBookMetadataRefresh = async (fileName: string) => {
   const user = auth.currentUser;
   if (!user) throw new Error('login-required');
   const token = await user.getIdToken();
+  invalidatePublicBookCatalog();
   const response = await fetch('/api/book-metadata/refresh', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -122,6 +142,7 @@ export const requestPublicBookMetadataRefresh = async (fileName: string) => {
   const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
   const status = payload?.status;
   if (typeof status !== 'string') throw new Error('invalid-response');
+  if (status === 'ready') invalidatePublicBookCatalog();
   const metadata = payload?.document ? parseOnDemandPublicBookMetadata(payload.document) : null;
   return { status: status as PublicBookMetadataRefreshStatus, metadata };
 };

@@ -99,11 +99,12 @@ const checksum = async (value: unknown) => {
   ));
 };
 
-const loadManifest = async (api: PublicBookCatalogFirestoreApi) => {
+const loadManifest = async (api: PublicBookCatalogFirestoreApi, onCacheFallback: () => void) => {
   let snapshot: CatalogDocumentSnapshot;
   try {
     snapshot = await api.getFromServer('manifest');
   } catch {
+    onCacheFallback();
     snapshot = await api.getFromCache('manifest');
   }
   if (!snapshot.exists()) throw new Error('Public catalog manifest is missing');
@@ -139,28 +140,72 @@ const loadGenerationDocument = async (
 let memorySnapshot: PublicBookCatalogSnapshot | null = null;
 let baseMemorySnapshot: PublicBookCatalogSnapshot | null = null;
 let loadPromise: Promise<PublicBookCatalogSnapshot> | null = null;
+let verifiedAt = 0;
+let revision = 0;
+let snapshotApi: PublicBookCatalogFirestoreApi | null = null;
+let previousDelta: Awaited<ReturnType<typeof loadPublicBookCatalogDelta>> = null;
+const FRESHNESS_MS = 60_000;
+
+export const getPublicBookCatalogSnapshot = () => memorySnapshot;
+
+export const invalidatePublicBookCatalog = () => {
+  revision += 1;
+  verifiedAt = 0;
+};
 
 export const resetPublicBookCatalogMemoryForTests = () => {
+  invalidatePublicBookCatalog();
   memorySnapshot = null;
   baseMemorySnapshot = null;
+  snapshotApi = null;
+  previousDelta = null;
   loadPromise = null;
 };
 
 export const loadPublicBookCatalog = async (
   api: PublicBookCatalogFirestoreApi = defaultFirestoreApi,
+  options: { force?: boolean; deltaApi?: PublicBookCatalogFirestoreApi } = {},
 ): Promise<PublicBookCatalogSnapshot> => {
-  if (loadPromise) return loadPromise;
-  loadPromise = (async () => {
-    const manifest = await loadManifest(api);
+  if (options.force) invalidatePublicBookCatalog();
+  if (loadPromise) {
+    const pending = loadPromise;
+    if (!options.force) return pending;
+    try { await pending; } catch { /* Retry after the older request settles. */ }
+    return loadPublicBookCatalog(api, { ...options, force: false });
+  }
+  if (snapshotApi !== api) {
+    memorySnapshot = null;
+    baseMemorySnapshot = null;
+    previousDelta = null;
+    verifiedAt = 0;
+    snapshotApi = api;
+  }
+  if (memorySnapshot && verifiedAt && Date.now() >= verifiedAt && Date.now() - verifiedAt < FRESHNESS_MS) return memorySnapshot;
+  const startedRevision = revision;
+  const startedAt = Date.now();
+  let online = true;
+  let complete = true;
+  const deltaApi = options.deltaApi ?? (api === defaultFirestoreApi ? defaultDeltaFirestoreApi : null);
+  const refreshDelta = async (base: PublicBookCatalogSnapshot) => {
+    if (!deltaApi) return base;
+    try {
+      const delta = await loadPublicBookCatalogDelta(deltaApi, previousDelta, () => { online = false; });
+      if (!online && memorySnapshot) { complete = false; return memorySnapshot; }
+      const merged = base === baseMemorySnapshot && delta === previousDelta && memorySnapshot
+        ? memorySnapshot : mergePublicBookCatalogDelta(base, delta);
+      previousDelta = delta;
+      return merged;
+    } catch (error) {
+      complete = false;
+      console.warn('[PublicBookCatalog] delta refresh failed; retaining current snapshot', error);
+      return memorySnapshot ?? base;
+    }
+  };
+  const task = (async () => {
+    const manifest = await loadManifest(api, () => { online = false; });
     if (baseMemorySnapshot?.manifest.generation === manifest.generation) {
-      if (api !== defaultFirestoreApi) return baseMemorySnapshot;
-      try {
-        memorySnapshot = mergePublicBookCatalogDelta(baseMemorySnapshot, await loadPublicBookCatalogDelta(defaultDeltaFirestoreApi));
-        return memorySnapshot;
-      } catch (error) {
-        console.warn('[PublicBookCatalog] delta refresh failed; retaining current snapshot', error);
-        return memorySnapshot ?? baseMemorySnapshot;
-      }
+      memorySnapshot = await refreshDelta(baseMemorySnapshot);
+      return memorySnapshot;
     }
     const documentIds = [
       ...manifest.aliasDocuments,
@@ -237,23 +282,23 @@ export const loadPublicBookCatalog = async (
       genres,
       popularTags,
     };
-    baseMemorySnapshot = baseSnapshot;
-    if (api !== defaultFirestoreApi) {
-      memorySnapshot = baseSnapshot;
-      return baseSnapshot;
-    }
-    try {
-      memorySnapshot = mergePublicBookCatalogDelta(baseSnapshot, await loadPublicBookCatalogDelta(defaultDeltaFirestoreApi));
-    } catch (error) {
-      console.warn('[PublicBookCatalog] delta load failed; using base catalog', error);
+    const merged = await refreshDelta(baseSnapshot);
+    if (complete) {
+      baseMemorySnapshot = baseSnapshot;
+      memorySnapshot = merged;
+    } else if (!memorySnapshot) {
+      // The validated base remains usable offline, but is not a complete fresh snapshot.
       memorySnapshot = baseSnapshot;
     }
-    return memorySnapshot;
+    return memorySnapshot!;
   })();
+  loadPromise = task;
   try {
-    return await loadPromise;
+    const result = await task;
+    if (online && complete && startedRevision === revision) verifiedAt = startedAt;
+    return result;
   } finally {
-    loadPromise = null;
+    if (loadPromise === task) loadPromise = null;
   }
 };
 

@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readWishlist, setWishlistSaved } from '../src/lib/localWishlist.ts';
-import { buildReadBooks, selectSyncedReadingSessions } from '../src/lib/readBooks.ts';
+import { buildReadBooks, prepareReadBooks, selectSyncedReadingSessions } from '../src/lib/readBooks.ts';
 import { readBookReview, removeBookReview, saveBookReview } from '../src/lib/localBookReview.ts';
 import { bookDetailHref, buildPersonalBookReading, hasBookReviewTarget, readBookDetailId } from '../src/lib/bookDetail.ts';
 import { parsePublicBookReview } from '../src/lib/publicBookReviews.ts';
@@ -71,6 +71,24 @@ test('read books use synced account history even without shelf files, merge meta
   assert.equal(book.lastReadAt, start + 120_000);
   assert.deepEqual(book.fileIds, ['a', 'b']);
   assert.deepEqual(selectSyncedReadingSessions(history, 'guest:test|library:local', new Set()), []);
+});
+
+test('late metadata regrouping preserves time already allocated across overlapping files', () => {
+  const start = Date.UTC(2026, 10, 20, 5);
+  const records = [
+    syncedSession('a', '첫 제목', start, start + 60_000, 30),
+    syncedSession('b', '두 번째 제목', start + 30_000, start + 90_000, 80, { mode: 'tts' }),
+  ];
+  const platforms = [{ platform: 'series', url: 'https://series.naver.com/novel/detail.series?productNo=10' }];
+  const first = { titleKey: '1', displayTitle: '첫 제목', platforms };
+  const second = { titleKey: '2', displayTitle: '두 번째 제목', platforms };
+  const metadata = new Map([['첫 제목', first]]);
+  const build = prepareReadBooks(records);
+  assert.deepEqual(build(metadata).map(({ totalMs, fileIds }) => ({ totalMs, fileIds })),
+    [{ totalMs: 30_000, fileIds: ['a'] }]);
+  metadata.set('두 번째 제목', second);
+  assert.deepEqual(build(metadata).map(({ totalMs, fileIds }) => ({ totalMs, fileIds })),
+    [{ totalMs: 90_000, fileIds: ['a', 'b'] }]);
 });
 
 test('work detail progress uses the highest qualifying merged range', () => {

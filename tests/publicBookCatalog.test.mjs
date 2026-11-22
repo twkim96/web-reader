@@ -9,6 +9,8 @@ import {
   stablePublicBookCatalogJson,
 } from '../src/lib/publicBookCatalogSchema.ts';
 import {
+  getPublicBookCatalogSnapshot,
+  invalidatePublicBookCatalog,
   joinBooksToPublicCatalog,
   loadPublicBookCatalog,
   resetPublicBookCatalogMemoryForTests,
@@ -165,4 +167,125 @@ test('replaces a checksum-mismatched cached shard from the server', async () => 
   };
   await loadPublicBookCatalog(api);
   assert.deepEqual(serverCalls, ['manifest', corruptedId]);
+});
+
+
+test('reuses a verified snapshot within the bound and forces explicit refresh', async () => {
+  resetPublicBookCatalogMemoryForTests();
+  let calls = 0;
+  const api = {
+    getFromServer: async (id) => { calls++; return snapshot(id === 'manifest' ? rawManifest : rawDocuments.get(id)); },
+    getFromCache: async (id) => snapshot(rawDocuments.get(id)),
+  };
+  const first = await loadPublicBookCatalog(api);
+  assert.equal(getPublicBookCatalogSnapshot(), first);
+  assert.equal(await loadPublicBookCatalog(api), first);
+  assert.equal(calls, 1);
+  assert.equal(await loadPublicBookCatalog(api, { force: true }), first);
+  assert.equal(calls, 2);
+});
+
+test('offline manifest and failed delta never become fresh', async () => {
+  resetPublicBookCatalogMemoryForTests();
+  let online = false;
+  let manifestCalls = 0;
+  const api = {
+    getFromServer: async (id) => { if (id === 'manifest') { manifestCalls++; if (!online) throw Error('offline'); return snapshot(rawManifest); } return snapshot(rawDocuments.get(id)); },
+    getFromCache: async (id) => snapshot(id === 'manifest' ? rawManifest : rawDocuments.get(id)),
+  };
+  await loadPublicBookCatalog(api);
+  online = true;
+  await loadPublicBookCatalog(api);
+  assert.equal(manifestCalls, 2);
+  await loadPublicBookCatalog(api);
+  assert.equal(manifestCalls, 2);
+  invalidatePublicBookCatalog();
+  let deltaCalls = 0;
+  const deltaApi = { getFromServer: async () => { deltaCalls++; throw Error('offline'); }, getFromCache: async () => { throw Error('missing'); } };
+  await loadPublicBookCatalog(api, { deltaApi });
+  await loadPublicBookCatalog(api, { deltaApi });
+  assert.equal(deltaCalls, 2);
+});
+
+test('invalidation during an in-flight verification requires a new server check', async () => {
+  resetPublicBookCatalogMemoryForTests();
+  let release;
+  let calls = 0;
+  const api = {
+    getFromServer: async (id) => {
+      if (id !== 'manifest') return snapshot(rawDocuments.get(id));
+      calls++;
+      if (calls === 1) await new Promise((resolve) => { release = resolve; });
+      return snapshot(rawManifest);
+    },
+    getFromCache: async (id) => snapshot(rawDocuments.get(id)),
+  };
+  const pending = loadPublicBookCatalog(api);
+  invalidatePublicBookCatalog();
+  release();
+  await pending;
+  await loadPublicBookCatalog(api);
+  assert.equal(calls, 2);
+});
+
+
+test('a verified snapshot expires after the bounded interval', async (t) => {
+  resetPublicBookCatalogMemoryForTests();
+  t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+  let calls = 0;
+  const api = {
+    getFromServer: async (id) => { calls++; return snapshot(id === 'manifest' ? rawManifest : rawDocuments.get(id)); },
+    getFromCache: async (id) => snapshot(rawDocuments.get(id)),
+  };
+  await loadPublicBookCatalog(api);
+  t.mock.timers.tick(59_999);
+  await loadPublicBookCatalog(api);
+  assert.equal(calls, 1);
+  t.mock.timers.tick(1);
+  await loadPublicBookCatalog(api);
+  assert.equal(calls, 2);
+});
+
+
+test('a failed delta refresh retains the last complete snapshot and remains retryable', async () => {
+  resetPublicBookCatalogMemoryForTests();
+  let deltaCalls = 0;
+  let fail = false;
+  const api = {
+    getFromServer: async (id) => snapshot(id === 'manifest' ? rawManifest : rawDocuments.get(id)),
+    getFromCache: async (id) => snapshot(rawDocuments.get(id)),
+  };
+  const deltaApi = {
+    getFromServer: async () => { deltaCalls++; if (fail) throw Error('offline'); return snapshot(undefined); },
+    getFromCache: async () => { throw Error('cache unavailable'); },
+  };
+  const complete = await loadPublicBookCatalog(api, { deltaApi });
+  fail = true;
+  invalidatePublicBookCatalog();
+  assert.equal(await loadPublicBookCatalog(api, { deltaApi }), complete);
+  assert.equal(getPublicBookCatalogSnapshot(), complete);
+  fail = false;
+  assert.equal(await loadPublicBookCatalog(api, { deltaApi }), complete);
+  assert.equal(deltaCalls, 3);
+});
+
+test('forced refresh after publication waits for old in-flight work and checks again', async () => {
+  resetPublicBookCatalogMemoryForTests();
+  let release;
+  let calls = 0;
+  const api = {
+    getFromServer: async (id) => {
+      if (id !== 'manifest') return snapshot(rawDocuments.get(id));
+      calls++;
+      if (calls === 1) await new Promise((resolve) => { release = resolve; });
+      return snapshot(rawManifest);
+    },
+    getFromCache: async (id) => snapshot(rawDocuments.get(id)),
+  };
+  const beforePublication = loadPublicBookCatalog(api);
+  invalidatePublicBookCatalog();
+  const afterPublication = loadPublicBookCatalog(api, { force: true });
+  release();
+  await Promise.all([beforePublication, afterPublication]);
+  assert.equal(calls, 2);
 });

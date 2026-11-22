@@ -1,5 +1,6 @@
 'use client';
 
+import { measureMyPageWork } from '../../lib/myPagePerformance';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
@@ -90,14 +91,14 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   const statistics = useMemo(() => {
     if (!currentData || currentData.error) return null;
     const details = new Map<string, ReadingActivityBlock[]>();
-    const summary = buildReadingStatistics(currentData.sessions, {}, undefined, {
+    const summary = measureMyPageWork('dashboard-timeline', () => buildReadingStatistics(currentData.sessions, {}, undefined, {
       minimumMs: MIN_READING_STATISTICS_BLOCK_MS,
       onBlock: (block) => {
         const day = details.get(block.localDate);
         if (day) day.push(block);
         else details.set(block.localDate, [block]);
       },
-    });
+    }));
     for (const rows of details.values()) rows.reverse();
     const dayTotals = new Map(summary.days.map(({ localDate, totalMs }) => [localDate, totalMs]));
     return { summary, details, dayTotals };

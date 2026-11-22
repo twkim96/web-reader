@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Book } from '../types';
 import {
+  getPublicBookCatalogSnapshot,
   joinBooksToPublicCatalog,
   loadPublicBookCatalog,
   type PublicBookCatalogBook,
@@ -10,7 +11,7 @@ import {
 export type PublicBookCatalogLoadState = 'loading' | 'ready' | 'error';
 
 export const usePublicBookCatalog = (books: readonly Book[]) => {
-  const [snapshot, setSnapshot] = useState<PublicBookCatalogSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<PublicBookCatalogSnapshot | null>(getPublicBookCatalogSnapshot);
   const [booksById, setBooksById] = useState<Map<string, PublicBookCatalogBook>>(
     () => new Map(),
   );
@@ -19,14 +20,17 @@ export const usePublicBookCatalog = (books: readonly Book[]) => {
 
   useEffect(() => {
     let active = true;
-    void loadPublicBookCatalog().then((nextSnapshot) => {
+    const load = (force = false) => loadPublicBookCatalog(undefined, { force }).then((nextSnapshot) => {
       if (!active) return;
       setSnapshot(nextSnapshot);
     }).catch((error) => {
       console.error('[PublicBookCatalog] load failed:', error);
-      if (active) setState('error');
+      if (active && !getPublicBookCatalogSnapshot()) setState('error');
     });
-    return () => { active = false; };
+    void load(retryNonce > 0);
+    const handleOnline = () => { void load(true); };
+    window.addEventListener('online', handleOnline);
+    return () => { active = false; window.removeEventListener('online', handleOnline); };
   }, [retryNonce]);
 
   useEffect(() => {

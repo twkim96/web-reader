@@ -64,7 +64,9 @@ Playwright WebKit의 기본 임시 프로필은 IndexedDB에 Blob과 File을 저
 
 마이페이지 도서목록의 첫 표시를 비교할 때 주소의 검색 매개변수에 `?mypagePerf=1`을 넣습니다. 브라우저 Performance 패널의 `mypage:catalog:` 측정에서 응답 본문 처리, 인덱스 검증, 작품 묶기, 검색 준비, 정렬, 필터, 목록 첫 행 커밋을 확인할 수 있습니다. 전송 시각과 크기는 같은 실행의 Resource Timing에서 확인합니다. 계정·검색어·작품명은 측정에 남기지 않습니다.
 
-같은 옵션으로 로그인한 위시리스트와 내 평가 요청의 `Server-Timing` 헤더를 확인할 수 있습니다. `auth`는 서버의 인증 확인, `query`는 목록 조회, `resolve`는 작품 정보 연결, `total`은 핸들러 시작부터 응답 생성까지의 시간입니다. `rows`는 읽은 레코드 수와 위시리스트의 활성 항목 수를 표시합니다. 인증이나 응답에 실패하거나 옵션을 끄면 헤더가 생기지 않습니다.
+같은 옵션으로 목록 소비자가 활성화된 뒤 기존 결과로 표시·편집 준비가 되는 시점을 `mypage:wishlist-ready`, `mypage:reviews-ready`, `mypage:review-preview-ready`에서 봅니다. `mypage:read-books-timeline`과 `mypage:dashboard-timeline`은 로컬 독서 기록 계산에 든 시간입니다. 첫 진입과 짧은 재진입을 각각 재고, 네트워크 요청 수와 처음 실제 행이 뜨는 시점도 비교합니다.
+
+로그인한 위시리스트와 내 평가 HTTP 요청은 `Server-Timing` 헤더에 `auth`(인증 전체), `auth-admin`(Admin SDK 준비), `auth-verify`(토큰 서명·폐기 확인을 포함한 검증), `query`(목록 쿼리), `resolve`(작품 연결), `total`(서버 핸들러 시간)을 기록합니다. `rows`는 읽은 레코드 수와 위시리스트의 활성 항목 수입니다. 인증이나 응답에 실패하거나 옵션을 끄면 헤더가 생기지 않습니다.
 
 서버에 `MY_PAGE_PERF_LOG=1`을 설정한 환경에서는 공개 프로필은 후보 수와 실제 원본 목록 반환 문서 수, 후보 캐시 사용 여부와 버전 집계 조회 횟수를 구분해 기록합니다. 작품 평가 집계는 후보·반환·작성자 조회 수를 기록합니다. 평가 가져오기·구버전 저장·백그라운드 보강에서 서버가 독서 기록을 조회하면 메모리 히트(`inMemoryHit`), 최신 표시자만 확인(`markerOnly`), 계산 결과 재사용(`evidenceReused`), `fullScan*` 사유, 보관 크기 추정치, 쿼리·반환 문서 수, 독서 시간 재계산(`timelineBuilds`), 별칭 확인(`aliasResolutions`)과 처리시간을 기록합니다. Firestore 청구 읽기 수는 Query Explain과 운영 지표로 확인합니다.
 

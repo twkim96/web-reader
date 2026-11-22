@@ -6,7 +6,7 @@ import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import { formatReadingDuration } from '../../lib/readingStatistics';
 import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY } from '../../lib/readingStatisticsSessionVisibility';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
-import { buildReadBooks, selectSyncedReadingSessions, type ReadBook } from '../../lib/readBooks';
+import { prepareReadBooks, selectSyncedReadingSessions, type ReadBook } from '../../lib/readBooks';
 import { findReviewWork, indexReviewWorks, MY_PAGE_DASHBOARD_BOOK_LIMIT, type MyPageReview } from '../../lib/myPageSocial';
 import { BookCover } from './BookCover';
 import { BookDetailLink } from './BookDetailLink';
@@ -130,7 +130,8 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
         for (const [name, match] of cached) matches.set(name, match);
         const metadata = new Map([...matches].map(([name, match]) => [name, match.metadata]));
         const missing = unresolved.filter((name) => !cached.has(name));
-        const known = buildReadBooks(sessions, metadata);
+        const buildRows = prepareReadBooks(sessions);
+        const known = buildRows(metadata);
         setBooks(known);
         setError(false);
         setFailedCount(0);
@@ -160,7 +161,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
               renderTimer = window.setTimeout(() => {
                 renderTimer = undefined;
                 if (disposed) return;
-                const current = buildReadBooks(sessions, metadata);
+                const current = buildRows(metadata);
                 if (preview) {
                   // A known alternate name can still be waiting for confirmation.
                   const existing = new Set(resolved.slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map((book) => book.rowKey ?? book.id));
@@ -183,7 +184,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
               renderTimer = undefined;
               failedBeforeBatch += result.failed.size;
               if (result.metadata.size > 0) {
-                resolved = buildReadBooks(sessions, metadata);
+                resolved = buildRows(metadata);
                 setBooks(resolved);
               }
               const nextTitle = missing[start + 8];
@@ -191,7 +192,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
             }
           } else {
             await metadataLoader.loadReadBookMetadata(missing, options);
-            if (!disposed && renderTimer !== undefined) setBooks(buildReadBooks(sessions, metadata));
+            if (!disposed && renderTimer !== undefined) setBooks(buildRows(metadata));
           }
         }
       } catch {

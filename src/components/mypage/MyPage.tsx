@@ -12,8 +12,6 @@ import type { MyPageBrowseSection } from '../../lib/myPageSocial';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
-import { useMyPageDashboardCards } from '../../hooks/useMyPageDashboardCards';
-import { dashboardWishlistCache } from '../../lib/myPageDashboardCache';
 import { ReadingDashboard } from './ReadingDashboard';
 import { ReadBooks } from './ReadBooks';
 import { BookCover } from './BookCover';
@@ -170,8 +168,7 @@ export function MyPage(props: Props) {
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
-  const cachedWishlist = useMyPageDashboardCards(dashboardWishlistCache, ownerKey, signedIn && tab === 'overview');
-  const dashboardWishlist = wishlist.loading ? cachedWishlist : wishlist.entries.map(({ book }) => book);
+  const dashboardWishlist = wishlist.loading ? undefined : wishlist.entries.map(({ book }) => book);
   const groupedCatalog = catalog ? getGroupedBookDiscovery(catalog) : null;
   const readBookDetailId = (book: ReadBook) =>
     groupedCatalog && book.platformWorkKeys?.length ? resolveReadBookDiscovery(groupedCatalog, book).book?.id ?? null : null;
@@ -423,7 +420,7 @@ export function MyPage(props: Props) {
             <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} reviews={reviews} focusReview={focusReview} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
-          {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} changeVersion={reviews.changeVersion} />
+          {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />
             : <p className="mypage-section text-sm">내 평가는 로그인 후 이용할 수 있습니다.</p>)}
           {tab === 'sharing' && (signedIn
             ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />

@@ -1,3 +1,4 @@
+import { measureMyPageWork } from './myPagePerformance';
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import { getPublicBookCoverCandidates, type PublicBookMetadata } from './publicBookMetadataSchema';
 import { buildReadingStatistics, type StoredReadingSessionV11 } from './readingStatistics';
@@ -56,9 +57,35 @@ export function groupPublicBookWorks(works: Iterable<{ titleKey: string; platfor
   return { findTitle, aliases: parent.keys() };
 }
 
+export function prepareReadBooks(sessions: readonly StoredReadingSessionV11[]) {
+  const ids = new Set<string>();
+  const unique = sessions.filter(({ sessionId }) => {
+    if (ids.has(sessionId)) return false;
+    ids.add(sessionId);
+    return true;
+  });
+  let timeByFile: Map<string, number> | undefined;
+  // The winning interval depends on time, device, mode and session ID.
+  // Later title/edition matches only change which work receives the file's time.
+  const getTimeByFile = () => timeByFile ??= measureMyPageWork('read-books-timeline', () => (
+    new Map(buildReadingStatistics(unique).books.map(({ bookId, totalMs }) => [bookId, totalMs]))
+  ));
+  return (metadata: ReadonlyMap<string, PublicBookMetadata | null>) => (
+    buildRows(unique, metadata, getTimeByFile)
+  );
+}
+
 export function buildReadBooks(
   sessions: readonly StoredReadingSessionV11[],
   metadataByTitle: ReadonlyMap<string, PublicBookMetadata | null>,
+): ReadBook[] {
+  return prepareReadBooks(sessions)(metadataByTitle);
+}
+
+function buildRows(
+  sessions: readonly StoredReadingSessionV11[],
+  metadataByTitle: ReadonlyMap<string, PublicBookMetadata | null>,
+  getTimeByFile: () => ReadonlyMap<string, number>,
 ): ReadBook[] {
   // Distinct platform editions can share a title key. Give each edition its
   // own node before joining the entries connected by a platform link.
@@ -98,37 +125,25 @@ export function buildReadBooks(
   }
 
   const details = new Map<string, { lastReadAt: number; progressPercent: number; fileIds: Set<string> }>();
-  const unique = new Set<string>();
-  const unmatchedIds = new Map<string, string>();
-  // Count overlaps with the same algorithm that powers reading statistics.
-  // Keep unmatched sessions in the timeline so overlaps with them are still accounted for.
-  const mapped = sessions.flatMap((session) => {
-    if (unique.has(session.sessionId)) return [];
-    unique.add(session.sessionId);
+  for (const session of sessions) {
     const root = workByFile.get(session.bookId);
-    if (root == null) {
-      const id = unmatchedIds.get(session.bookId) ?? `file:${unmatchedIds.size}`;
-      unmatchedIds.set(session.bookId, id);
-      return [{ ...session, bookId: id }];
-    }
-    const { id, metadata } = groups.get(root)!;
-    if (session.completionRoundNumber === undefined) {
-      const previous = details.get(id);
-      const fileIds = previous?.fileIds ?? new Set<string>();
-      fileIds.add(session.bookId);
-      details.set(id, {
-        lastReadAt: Math.max(previous?.lastReadAt ?? 0, session.endedAtClient),
-        progressPercent: Math.max(previous?.progressPercent ?? 0, session.startProgressPercent, session.endProgressPercent),
-        fileIds,
-      });
-    }
-    return [{ ...session, bookId: id, bookTitle: metadata.displayTitle }];
-  });
+    if (root == null || session.completionRoundNumber !== undefined) continue;
+    const { id } = groups.get(root)!;
+    const previous = details.get(id);
+    const fileIds = previous?.fileIds ?? new Set<string>();
+    fileIds.add(session.bookId);
+    details.set(id, {
+      lastReadAt: Math.max(previous?.lastReadAt ?? 0, session.endedAtClient),
+      progressPercent: Math.max(previous?.progressPercent ?? 0, session.startProgressPercent, session.endProgressPercent),
+      fileIds,
+    });
+  }
 
-  return buildReadingStatistics(mapped).books.flatMap((book) => {
-    const reading = details.get(book.bookId);
-    if (!reading) return [];
-    const rowKey = rowKeys.get(book.bookId)!;
+  const timeByFile = getTimeByFile();
+  return [...details.entries()].flatMap(([bookId, reading]) => {
+    const files = [...reading.fileIds];
+    if (!files.some((file) => timeByFile.has(file))) return [];
+    const rowKey = rowKeys.get(bookId)!;
     const { metadata, titles, platforms } = groups.get(rowKey)!;
     const id = metadata.titleKey;
     return [{
@@ -138,10 +153,10 @@ export function buildReadBooks(
       platformWorkKeys: [...platforms].sort(),
       title: metadata.displayTitle,
       coverUrl: getPublicBookCoverCandidates(metadata)[0]?.coverUrl ?? null,
-      totalMs: book.totalMs,
+      totalMs: files.reduce((sum, file) => sum + (timeByFile.get(file) ?? 0), 0),
       lastReadAt: reading.lastReadAt,
       progressPercent: reading.progressPercent,
-      fileIds: [...reading.fileIds],
+      fileIds: files,
     }];
-  }).sort((a, b) => b.lastReadAt - a.lastReadAt || a.title.localeCompare(b.title, 'ko'));
+  }).sort((a, b) => b.lastReadAt - a.lastReadAt || a.title.localeCompare(b.title, 'ko') || b.totalMs - a.totalMs);
 }

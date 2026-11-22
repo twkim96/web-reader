@@ -34,11 +34,19 @@ const reviewWorkDetails = (work: Awaited<ReturnType<typeof resolveSocialWork>>) 
   coverUrl: work?.book.coverUrl,
 });
 
-async function authenticatedUid(request: Request) {
+async function authenticatedUid(
+  request: Request,
+  report?: (phase: 'auth-admin' | 'auth-verify', elapsed: number) => void,
+) {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+([^\s]+)$/i)?.[1];
   if (!token) return null;
   try {
-    const user = await getAdminAuth().verifyIdToken(token, true);
+    const started = report ? performance.now() : 0;
+    const auth = getAdminAuth();
+    const verifyStarted = report ? performance.now() : 0;
+    report?.('auth-admin', verifyStarted - started);
+    const user = await auth.verifyIdToken(token, true);
+    report?.('auth-verify', performance.now() - verifyStarted);
     return user.firebase.sign_in_provider === 'anonymous' ? null : user.uid;
   } catch { return null; }
 }
@@ -277,7 +285,9 @@ export async function GET(request: Request) {
     if (view === 'people') return fail(404);
     if (view === 'browse') return await publicBrowse(request, params);
     if (view === 'profile') return await publicProfile(getAdminFirestore(), params);
-    const uid = await authenticatedUid(request);
+    const uid = await authenticatedUid(request, timings && ((phase, elapsed) => {
+      timings.push(`${phase};dur=${elapsed.toFixed(1)}`);
+    }));
     if (!uid) return fail(401);
     timing?.('auth');
     const db = getAdminFirestore();
