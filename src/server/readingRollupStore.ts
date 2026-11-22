@@ -6,7 +6,7 @@ import {
   computeReadingCalendarRollup, computeWeeklyReadingRollup, parseReadingRollupMonday,
   selectWeeklyReadingRollupInputs, type WeeklyReadingRollup,
 } from '../lib/readingStatisticsRollup.ts';
-import { addReadingRollupPage, createReadingRollupCarry, type ReadingRollupCarry } from './readingRollupInputs.ts';
+import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart, type ReadingRollupCarry } from './readingRollupInputs.ts';
 
 const hour = 3_600_000;
 const day = 24 * hour;
@@ -34,6 +34,7 @@ type Job = {
   carry: ReadingRollupCarry;
   group: WeekSummary[];
   lastCalendarWeek: string | null;
+  coversHistoryStart?: boolean;
 };
 
 type Lease = { uid: string; token: string };
@@ -104,6 +105,7 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   sourceCutoff: Timestamp;
   carry: ReadingRollupCarry;
   pilotTuesday: boolean;
+  coversHistoryStart?: boolean;
 }, now = Date.now) {
   const { nextWeek, sourceCutoff, carry, pilotTuesday } = seed;
   const group = seed.weeks.map(({ weekStart, days }) => ({ weekStart, days }));
@@ -121,9 +123,10 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
     carry, group, lastCalendarWeek: null,
   };
   const ref = jobs(db).doc(lease.uid);
-  const proposed = jobPayload(job);
+  const seedPayload = jobPayload(job);
+  const proposed = seed.coversHistoryStart ? jobPayload({ ...job, coversHistoryStart: true }) : seedPayload;
   const weeks = seed.weeks.map((item) => ({ weekStart: item.weekStart, payload: payload(item, 256) }));
-  const seedId = createHash('sha256').update(proposed).update(JSON.stringify(weeks)).digest('hex');
+  const seedId = createHash('sha256').update(seedPayload).update(JSON.stringify(weeks)).digest('hex');
   return db.runTransaction(async (tx) => {
     await requireLease(db, tx, lease, now);
     const existing = await tx.get(ref);
@@ -171,6 +174,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         if (error instanceof RangeError) throw new InvalidRollupInput('unsupported-source-boundary');
         throw error;
       }
+      if (job.coversHistoryStart && !rollupCoversHistoryStart(sessions, job.firstWeek)) job.coversHistoryStart = false;
       const last = page.docs.at(-1);
       if (last) job.cursor = { time: stamp(last.get('uploadedAtServer')), id: last.id };
       job.scanned = page.size < limit;
@@ -203,6 +207,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         schemaVersion: 1, firstWeek: job.firstWeek, publishedThroughWeek: closed,
         sourceThrough: previousClose, lastCalendarWeek: job.lastCalendarWeek,
         calendarTail: job.group,
+        coversHistoryStart: job.coversHistoryStart === true,
       });
       tx.update(ref, { payload: next, dueAt: nextDue });
     });

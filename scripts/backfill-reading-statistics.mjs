@@ -17,7 +17,7 @@ import {
   parseReadingRollupMonday,
   selectWeeklyReadingRollupInputs,
 } from '../src/lib/readingStatisticsRollup.ts';
-import { createReadingRollupCarry } from '../src/server/readingRollupInputs.ts';
+import { createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
 import {
   claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
@@ -193,7 +193,10 @@ function loadHandoff(db, project, uid, firstWeek, nextWeek, pilotTuesday) {
     .all(project, uid, firstWeek, nextWeek).map(({ payload }) => JSON.parse(payload));
   const sessions = db.prepare('SELECT payload FROM sessions WHERE project = ? AND uid = ? ORDER BY id COLLATE BINARY')
     .all(project, uid).map(({ payload }) => JSON.parse(payload));
-  return { weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(sessions, nextWeek), pilotTuesday };
+  return {
+    weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(sessions, nextWeek), pilotTuesday,
+    coversHistoryStart: rollupCoversHistoryStart(sessions, firstWeek),
+  };
 }
 
 async function main() {

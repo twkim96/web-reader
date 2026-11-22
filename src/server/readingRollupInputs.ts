@@ -13,6 +13,14 @@ const touches = (session: ReadingSessionV1, lower: number) => (
   (session.activeIntervals ?? [session]).some(({ endedAtClient }) => endedAtClient > lower)
 );
 
+export function rollupCoversHistoryStart(sessions: readonly ReadingSessionV1[], firstWeek: string) {
+  const first = parseReadingRollupMonday(firstWeek);
+  // Without future clock samples, certify only histories whose possible
+  // corrected dates cannot extend before the first publication week.
+  return sessions.every((session) => session.completionRoundNumber !== undefined
+    || session.startedAtClient - session.timezoneOffsetMinutes * 60_000 - READING_SESSION_MAX_CLOCK_OFFSET_MS >= first);
+}
+
 export function createReadingRollupCarry(sessions: readonly ReadingSessionV1[], nextWeek: string): ReadingRollupCarry {
   const lower = lowerBound(nextWeek);
   const contenders = sessions.filter((session) => touches(session, lower));

@@ -85,8 +85,13 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   const published = { schemaVersion: 1, firstWeek: '2026-09-14', publishedThroughWeek: '2026-11-23', lastCalendarWeek: '2026-11-16' };
   await manifest.set({ ...published, calendarTail: [{ weekStart: '2026-11-23', days: [recent] }] });
   const view = { view: 'rollup-calendar' };
+  const audit = { view: 'rollup-audit' };
   const full = { calendar: { firstDay: '2026-09-14', lastDay: '2026-11-29', days: [historical, recent] } };
   assert.deepEqual(await ok(get(view, idToken)), full);
+  assert.deepEqual(await ok(get(audit, idToken)), { covered: false });
+  await manifest.update({ coversHistoryStart: true });
+  assert.deepEqual(await ok(get(audit, idToken)), { covered: true });
+  assert.deepEqual(await ok(get({ ...audit, uid }, otherToken)), { covered: false });
   assert.deepEqual(await ok(get({ ...view, uid }, otherToken)), { calendar: null });
   assert.deepEqual(await ok(get({ ...week('2026-11-16'), uid }, otherToken)), { week: null });
   assert.deepEqual(await ok(get(week('2026-11-16'), idToken)), { week: { weekStart: '2026-11-16', activities: [activity] } });
@@ -98,6 +103,8 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   assert.deepEqual(await ok(get(view, idToken)), full);
   await calendar.delete();
   assert.equal((await get(view, idToken)).status, 503);
+  await manifest.update({ coversHistoryStart: true });
+  assert.equal((await get(audit, idToken)).status, 503);
 });
 
 test('public profile sorts all visible reviews before selecting a page', async () => {

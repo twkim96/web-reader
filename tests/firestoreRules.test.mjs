@@ -46,6 +46,7 @@ import {
   adoptLegacyReadingStatisticsCursorV12,
   getReadingStatisticsHydrationPlanV12,
   hydrateRemoteReadingSessionsPageV12,
+  recordReadingStatisticsVerifiedAuditV12,
 } from '../src/lib/localReadingStatistics.ts';
 import { makeFirebaseOwnerKey, makeOwnerKey } from '../src/lib/ownerIdentity.ts';
 import {
@@ -1487,6 +1488,43 @@ test('a recently completed legacy statistics checkpoint reads only its marker an
     ['marker', readingStatisticsPath(cursor.documentId), cursor.documentId],
     ['incremental', nextId],
   ]);
+});
+
+test('the publication audit compares the old checkpoint and receives only later uploads', async (t) => {
+  await import('fake-indexeddb/auto');
+  t.after(closeLocalDB);
+  const ownerKey = makeOwnerKey(makeFirebaseOwnerKey('published-fixture'), 'library:local');
+  const history = ['archived-a', 'archived-z'].map(validReadingSession);
+  const stamp = new Timestamp(60, 931_000);
+  const future = new Timestamp(60, 932_000);
+  const next = validReadingSession('open-period');
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const batch = writeBatch(context.firestore());
+    for (const session of [...history, next]) batch.set(doc(context.firestore(), readingStatisticsPath(session.sessionId, 'published-fixture')),
+      { ...session, uploadedAtServer: session === next ? future : stamp });
+    await batch.commit();
+  });
+  const fullAt = 200_000;
+  const now = fullAt + 28 * 86_400_000;
+  const exact = { documentId: 'archived-z', uploadedAtServerSeconds: stamp.seconds, uploadedAtServerNanoseconds: stamp.nanoseconds };
+  await hydrateRemoteReadingSessionsPageV12(ownerKey, history, null, exact, true, false, [], fullAt);
+  const lease = await acquireReadingStatisticsSyncLeaseV13(ownerKey, 'published-plan', now);
+  const { candidate } = await getReadingStatisticsHydrationPlanV12(ownerKey, now, true);
+  const db = database('published-fixture');
+  const reads = [];
+  const sdk = { collection, doc, documentId, endAt, getCountFromServer, getDocFromServer, limit, limitToLast,
+    orderBy, query, startAfter, startAt, Timestamp,
+    getDocsFromServer: async (query) => {
+      const snapshot = await getDocsFromServer(query);
+      reads.push(snapshot.docs.map(({ id }) => id));
+      return snapshot;
+    },
+  };
+  assert.equal(await verifyRemoteReadingStatisticsAuditV1(db, 'published-fixture', candidate, {}, sdk), true);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(ownerKey, candidate, lease, () => now), true);
+  const page = await getRemoteReadingSessionsPageV1(db, 'published-fixture', candidate.cursor, 500, sdk, {}, { timestampRangeOnly: true });
+  assert.deepEqual(page.sessions.map(({ sessionId }) => sessionId), [next.sessionId]);
+  assert.deepEqual(reads, [[exact.documentId], [next.sessionId]]);
 });
 
 test('statistics hydration quarantines a mixed-type tail and later resumes within the timestamp range', async () => {

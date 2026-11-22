@@ -70,6 +70,8 @@ const getHealthForError = (error: unknown): SyncHealth => {
   return 'retrying-receive';
 };
 
+const allowPublishedAudit = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1';
+
 export const useReadingStatisticsSync = (
   user: FirebaseUser | null,
   ownerKey: OwnerKey | null,
@@ -272,6 +274,7 @@ export const useReadingStatisticsSync = (
             let emptyQueries = 0;
             let queryMode: 'cursor' | 'no-cursor' | 'unavailable' = 'unavailable';
             let auditProbe: 'matched' | 'mismatch' | 'failed' | undefined;
+            let publishedAudit: boolean | undefined;
             let fullScanReason: ReadingStatisticsFullScanReason | undefined;
             let hydrationStatus: 'completed' | 'lost-leadership' | 'failed' = 'failed';
             const instrumentation = {
@@ -304,7 +307,24 @@ export const useReadingStatisticsSync = (
                   return result;
                 },
               };
-              let plan = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+              const loadPlan = (allow = allowPublishedAudit) => getReadingStatisticsHydrationPlanV12(syncOwnerKey, Date.now(), allow);
+              let plan = await loadPlan();
+              const needsCoverage = ('candidate' in plan && plan.candidate.publishedAudit)
+                || ('catchUpFrom' in plan && plan.catchUpFrom?.publishedAudit);
+              if (needsCoverage) {
+                const result = await import('../lib/myPageSocialClient').then(({ myPageRequest }) => (
+                  myPageRequest<{ covered: boolean }>({ view: 'rollup-audit' }, {
+                    owner: syncOwnerKey, signal: AbortSignal.timeout(8_000),
+                  })
+                )).catch(() => null);
+                if (!await hasClaimLeadership()) {
+                  hydrationStatus = 'lost-leadership';
+                  refreshRequested = true;
+                  return;
+                }
+                publishedAudit = result?.covered === true;
+                if (!publishedAudit) plan = await loadPlan(false);
+              }
               if ('legacyCursor' in plan) {
                 const { legacyCursor } = plan;
                 if (!await hasClaimLeadership()) {
@@ -320,7 +340,8 @@ export const useReadingStatisticsSync = (
                     return;
                   }
                   await adoptLegacyReadingStatisticsCursorV12(syncOwnerKey, legacyCursor, leaseClaim);
-                  plan = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+                  // Adopting a legacy cursor still needs a raw baseline.
+                  plan = await loadPlan(false);
                   if ('legacyCursor' in plan) {
                     refreshRequested = true;
                     return;
@@ -336,7 +357,7 @@ export const useReadingStatisticsSync = (
                 });
                 if (caughtUpCount > 0) {
                   notifyReadingStatisticsChange(syncOwnerKey);
-                  const updated = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+                  const updated = await loadPlan(publishedAudit === true);
                   if (!('state' in updated)) plan = updated;
                 }
               }
@@ -425,6 +446,7 @@ export const useReadingStatisticsSync = (
                 returnedDocuments,
                 emptyQueries,
                 auditProbe,
+                publishedAudit,
                 fullScanReason,
               });
               await recordReadingStatisticsHydrationMetricsV12(syncOwnerKey, {

@@ -18,7 +18,14 @@ async function publishedRange(db: Firestore, uid: string) {
   const lastCalendar = parseReadingRollupMonday(pointer.lastCalendarWeek);
   if (lastCalendar < first + 9 * week || (lastCalendar - first - 9 * week) % calendarBlock !== 0
     || through < lastCalendar || through - lastCalendar >= calendarBlock) throw new Error('Invalid reading rollup publication.');
-  return { root, first, through, lastCalendar, tail: pointer.calendarTail as unknown };
+  return { root, first, through, lastCalendar, tail: pointer.calendarTail as unknown, coversHistoryStart: pointer.coversHistoryStart === true };
+}
+
+export async function hasPublishedReadingAuditCoverage(db: Firestore, uid: string) {
+  const range = await publishedRange(db, uid);
+  if (!range?.coversHistoryStart) return false;
+  await readCalendarRange(db, range);
+  return true;
 }
 
 function readDays(input: unknown, first: number, last: number): ReadingDayStatistics[] {
@@ -37,9 +44,7 @@ function readDays(input: unknown, first: number, last: number): ReadingDayStatis
   });
 }
 
-export async function readPublishedReadingCalendar(db: Firestore, uid: string): Promise<PublishedReadingCalendar | null> {
-  const range = await publishedRange(db, uid);
-  if (!range) return null;
+async function readCalendarRange(db: Firestore, range: NonNullable<Awaited<ReturnType<typeof publishedRange>>>): Promise<PublishedReadingCalendar> {
   const { root, first, through, lastCalendar, tail } = range;
   const calendars = root.collection('readingStatsRollupCalendarsV1');
   const weeks = root.collection('readingStatsRollupWeeksV1');
@@ -62,6 +67,11 @@ export async function readPublishedReadingCalendar(db: Firestore, uid: string): 
     days.push(...readDays(tails[i].days, start, start + 6 * day));
   }
   return { firstDay: readingRollupDayKey(first), lastDay: readingRollupDayKey(through + 6 * day), days };
+}
+
+export async function readPublishedReadingCalendar(db: Firestore, uid: string): Promise<PublishedReadingCalendar | null> {
+  const range = await publishedRange(db, uid);
+  return range ? readCalendarRange(db, range) : null;
 }
 
 export async function readPublishedReadingWeek(db: Firestore, uid: string, weekStart: string): Promise<PublishedReadingWeek | null> {

@@ -79,6 +79,7 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
   hydratedRemoteCount: number;
   lastFullAuditAt: number;
   lastVerifiedAuditAt: number;
+  lastPublishedAuditAt: number;
   fullAuditInProgress: boolean;
   quarantinedDocuments: QuarantinedReadingStatisticsDocumentV12[];
   hydrationRunCount: number;
@@ -191,6 +192,9 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
       && Number(value.lastVerifiedAuditAt) >= 0
       ? Number(value.lastVerifiedAuditAt)
       : 0,
+    lastPublishedAuditAt: 'lastPublishedAuditAt' in value
+      && Number.isSafeInteger(value.lastPublishedAuditAt) && Number(value.lastPublishedAuditAt) >= 0
+      ? Number(value.lastPublishedAuditAt) : 0,
     fullAuditInProgress: 'fullAuditInProgress' in value
       && value.fullAuditInProgress === true,
     quarantinedDocuments: 'quarantinedDocuments' in value
@@ -256,6 +260,7 @@ const createEmptySyncMeta = (ownerKey: OwnerKey): ReadingStatisticsSyncMetaV12 =
   hydratedRemoteCount: 0,
   lastFullAuditAt: 0,
   lastVerifiedAuditAt: 0,
+  lastPublishedAuditAt: 0,
   fullAuditInProgress: true,
   quarantinedDocuments: [],
   hydrationRunCount: 0,
@@ -370,6 +375,7 @@ type ReadingStatisticsAuditCandidateV12 = {
   quarantinedDocumentIds: string[];
   lastFullAuditAt: number;
   lastVerifiedAuditAt: number;
+  publishedAudit?: true;
 };
 
 export type ReadingStatisticsFullScanReason =
@@ -405,16 +411,19 @@ const getAuditCandidate = async (
   ownerKey: OwnerKey,
   meta: ReadingStatisticsSyncMetaV12,
   now: number,
+  publishedAudit = false,
 ): Promise<{ candidate: ReadingStatisticsAuditCandidateV12 } | LocalFullScan> => {
   if (meta.documentId === '__empty__') return { reason: 'empty-history' };
   if (isGuestOwner(ownerKey) || meta.ownerKey !== ownerKey || !meta.cursorVersion
     || !meta.fullHydrationCompleted || meta.fullAuditInProgress
-    || meta.lastFullAuditAt === 0 || now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
-    || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) < HYDRATION_AUDIT_INTERVAL_MS) {
+    || meta.lastFullAuditAt === 0 || (publishedAudit
+      ? (meta.lastPublishedAuditAt > 0 && now - meta.lastPublishedAuditAt < HYDRATION_AUDIT_INTERVAL_MS)
+      : now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
+        || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) < HYDRATION_AUDIT_INTERVAL_MS)) {
     return { reason: 'weekly-audit-unavailable' };
   }
   const quarantinedDocumentIds = meta.quarantinedDocuments.map(({ documentId }) => documentId).sort();
-  if (quarantinedDocumentIds.length > MAX_WEEKLY_QUARANTINE_PROBES
+  if ((publishedAudit && quarantinedDocumentIds.length > 0) || quarantinedDocumentIds.length > MAX_WEEKLY_QUARANTINE_PROBES
     || new Set(quarantinedDocumentIds).size !== quarantinedDocumentIds.length) return { reason: 'quarantined-history' };
   const [syncedCount, latest, ...quarantinedRows] = await Promise.all([
     sessions.index('by-owner-sync-next-attempt').count(IDBKeyRange.bound(
@@ -438,6 +447,7 @@ const getAuditCandidate = async (
     quarantinedDocumentIds,
     lastFullAuditAt: meta.lastFullAuditAt,
     lastVerifiedAuditAt: meta.lastVerifiedAuditAt,
+    ...(publishedAudit ? { publishedAudit: true as const } : {}),
   };
   if (syncedCount > meta.hydratedRemoteCount) return { reason: 'local-synced-count-ahead', catchUpFrom: candidate };
   return { candidate };
@@ -446,6 +456,7 @@ const getAuditCandidate = async (
 export const getReadingStatisticsHydrationPlanV12 = async (
   ownerKey: OwnerKey,
   now = Date.now(),
+  allowPublishedAudit = false,
 ): Promise<ReadingStatisticsHydrationPlanV12> => {
   const db = await initDB();
   const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
@@ -469,13 +480,18 @@ export const getReadingStatisticsHydrationPlanV12 = async (
   const sessions = tx.objectStore(V11_READING_SESSIONS_STORE);
   const localCount = await sessions.index('by-owner').count(ownerKey);
   let plan: ReadingStatisticsHydrationPlanV12;
+  const dueForFull = !meta.fullAuditInProgress && now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS;
+  const publishedAudit = dueForFull && allowPublishedAudit && meta.quarantinedDocuments.length === 0;
+  const publishedAuditFresh = publishedAudit && meta.lastPublishedAuditAt > 0
+    && now >= meta.lastPublishedAuditAt && now - meta.lastPublishedAuditAt < HYDRATION_AUDIT_INTERVAL_MS;
   if (localCount < meta.hydratedRemoteCount) {
     // A surviving cursor must not hide older records after local data loss.
     plan = { reason: 'local-history-missing' };
-  } else if (!meta.fullAuditInProgress && now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS) {
+  } else if (dueForFull && !publishedAudit) {
     plan = { reason: 'periodic-full-audit' };
-  } else if (!meta.fullAuditInProgress && now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) >= HYDRATION_AUDIT_INTERVAL_MS) {
-    plan = await getAuditCandidate(sessions, ownerKey, meta, now);
+  } else if ((publishedAudit && !publishedAuditFresh) || (!dueForFull && !meta.fullAuditInProgress
+    && now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) >= HYDRATION_AUDIT_INTERVAL_MS)) {
+    plan = await getAuditCandidate(sessions, ownerKey, meta, now, publishedAudit);
   } else {
     const { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId, fullHydrationCompleted, quarantinedDocuments, lastFullAuditAt } = meta;
     const cursor = documentId === '__empty__' ? null : { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId };
@@ -527,7 +543,7 @@ export const recordReadingStatisticsVerifiedAuditV12 = async (
   const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
   const value = await metaStore.get(ownerKey);
   const check = value ? await getAuditCandidate(
-    tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, assertSyncMeta(value), clock(),
+    tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, assertSyncMeta(value), clock(), candidate.publishedAudit,
   ) : null;
   const current = check && 'candidate' in check ? check.candidate : null;
   const lease = await tx.objectStore(V13_READING_STATISTICS_LEASES_STORE).get(ownerKey);
@@ -537,9 +553,11 @@ export const recordReadingStatisticsVerifiedAuditV12 = async (
     && sameCursor(current.cursor, candidate.cursor)
     && current.quarantinedDocumentIds.length === candidate.quarantinedDocumentIds.length
     && current.quarantinedDocumentIds.every((id, index) => id === candidate.quarantinedDocumentIds[index])
-    && now - current.lastFullAuditAt < FULL_HYDRATION_AUDIT_INTERVAL_MS
+    && (candidate.publishedAudit || now - current.lastFullAuditAt < FULL_HYDRATION_AUDIT_INTERVAL_MS)
     && isCurrentStatisticsLease(lease, leaseClaim, now);
-  if (canRecord) await metaStore.put({ ...assertSyncMeta(value), lastVerifiedAuditAt: now });
+  if (canRecord) await metaStore.put({ ...assertSyncMeta(value), lastVerifiedAuditAt: now,
+    ...(candidate.publishedAudit ? { lastPublishedAuditAt: now } : {}),
+  });
   await tx.done;
   return Boolean(canRecord);
 };
@@ -680,6 +698,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
           ? now
           : current?.lastFullAuditAt ?? 0,
         lastVerifiedAuditAt: current?.lastVerifiedAuditAt ?? 0,
+        lastPublishedAuditAt: isFullAudit ? 0 : current?.lastPublishedAuditAt ?? 0,
         fullAuditInProgress: isFullAudit && !fullHydrationCompleted,
         quarantinedDocuments: nextQuarantinedDocuments,
       } satisfies ReadingStatisticsSyncMetaV12);

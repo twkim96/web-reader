@@ -700,6 +700,37 @@ test('a quarantine at the cursor can be audited while the 28-day recovery stays 
   assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, fullAt + 4 * week), { reason: 'periodic-full-audit' });
 });
 
+test('a verified publication audit defers raw rehydration but preserves the raw cursor and rollback schedule', async () => {
+  const fullAt = 200_000;
+  const week = 7 * 24 * 60 * 60_000;
+  const checkAt = fullAt + 4 * week;
+  const previous = makeSession('published-marker');
+  const exact = cursor(60, previous.sessionId, 20);
+  await hydrateRemoteReadingSessionsPageV12(owner, [previous], null, exact, true, false, [], fullAt);
+
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, checkAt), { reason: 'periodic-full-audit' });
+  const { candidate } = await getReadingStatisticsHydrationPlanV12(owner, checkAt, true);
+  assert.equal(candidate.publishedAudit, true);
+  assert.deepEqual(candidate.cursor, exact);
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'published-audit', checkAt);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, lease, () => checkAt), true);
+
+  const future = makeSession('open-period-upload');
+  const newer = cursor(60, future.sessionId, 21);
+  await hydrateRemoteReadingSessionsPageV12(owner, [future], exact, newer, true, false, [], checkAt, lease, true);
+  const incremental = await getReadingStatisticsHydrationPlanV12(owner, checkAt + week - 1, true);
+  assert.deepEqual(incremental.state.cursor, newer);
+  assert.equal(incremental.state.lastFullAuditAt, fullAt);
+  assert.equal((await getReadingStatisticsHydrationPlanV12(owner, checkAt + week, true)).candidate.publishedAudit, true);
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, checkAt + week - 1), { reason: 'periodic-full-audit' });
+
+  const db = await initDB();
+  await db.delete(V11_READING_SESSIONS_STORE, [owner, previous.sessionId]);
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, checkAt + 1, true), { reason: 'local-history-missing' });
+  const newDevice = makeOwnerKey(makeFirebaseOwnerKey('other-published'), 'library:local');
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(newDevice, checkAt + 1, true), { reason: 'initial-history' });
+});
+
 test('a malformed local copy cannot block recovery or make a full scan reread the same page', async () => {
   const fullAt = 200_000;
   const checkAt = fullAt + 7 * 24 * 60 * 60_000;

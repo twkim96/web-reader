@@ -6,7 +6,7 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { APP_ID } from '../src/lib/appIdentity.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 import { computeReadingCalendarRollup, computeWeeklyReadingRollup } from '../src/lib/readingStatisticsRollup.ts';
-import { addReadingRollupPage, createReadingRollupCarry } from '../src/server/readingRollupInputs.ts';
+import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
 import {
   claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, runReadingRollupCron, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
@@ -96,17 +96,20 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   const sourceCutoff = Timestamp.fromDate(new Date('2026-11-23T12:00:00Z'));
   let time = sourceCutoff.toMillis();
   const now = () => time;
-  const firstRead = session('old-session', '2026-09-14T09:00:00Z');
+  const firstRead = session('old-session', '2026-09-16T09:00:00Z');
   const across = session('across-week', '2026-11-15T23:58:00Z', {
     clockOffsetMs: 60_000, clockUncertaintyMs: 0, clockMeasuredAtClient: Date.parse('2026-11-15T23:58:00Z'),
   });
   const staged = [across, firstRead];
   const oldWeeks = weekStarts.slice(0, -1).map((week) => computeWeeklyReadingRollup(staged, week));
-  const seed = { weeks: oldWeeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(staged, nextWeek), pilotTuesday: true };
+  const coversHistoryStart = rollupCoversHistoryStart(staged, weekStarts[0]);
+  assert.equal(coversHistoryStart, true);
+  const seed = { weeks: oldWeeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(staged, nextWeek), pilotTuesday: true, coversHistoryStart };
   const lease = await claimReadingRollup(db, uid, now);
   await assert.rejects(stageReadingRollupHandoff(db, lease, { ...seed, weeks: oldWeeks.slice(1) }, now), /10 consecutive/);
   assert.equal(await stageReadingRollupHandoff(db, lease, seed, now), 'staged');
   assert.equal(await stageReadingRollupHandoff(db, lease, seed, now), 'already-staged');
+  assert.equal(await stageReadingRollupHandoff(db, lease, { ...seed, coversHistoryStart: undefined }, now), 'already-staged');
   await releaseReadingRollup(db, lease);
 
   const job = jobRef(uid);
@@ -117,6 +120,7 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   const early = session('a', '2026-11-16T00:03:00Z');
   const later = session('b', '2026-11-16T01:00:00Z');
   const late = session('previous-week-late', '2026-11-12T00:00:00Z');
+  const beforeFirstWeek = session('before-first-week', '2026-09-13T09:00:00Z');
   const stamp = Timestamp.fromDate(new Date('2026-11-23T16:00:00Z'));
   await Promise.all([
     // This row would stop the close if the scheduled path scanned old history.
@@ -125,6 +129,7 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
     sourceRef(uid, 'a').set({ ...early, uploadedAtServer: stamp }),
     sourceRef(uid, 'b').set({ ...later, uploadedAtServer: stamp }),
     sourceRef(uid, late.sessionId).set({ ...late, uploadedAtServer: stamp }),
+    sourceRef(uid, beforeFirstWeek.sessionId).set({ ...beforeFirstWeek, uploadedAtServer: stamp }),
     sourceRef(uid, 'next-cutoff').set({ uploadedAtServer: Timestamp.fromMillis(Date.parse('2026-11-24T09:01:00Z')) }),
   ]);
   time = Date.parse('2026-11-24T08:59:59Z');
@@ -144,6 +149,7 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   assert.equal(result.firstWeek, weekStarts[0]);
   assert.equal(result.publishedThroughWeek, nextWeek);
   assert.equal(result.lastCalendarWeek, nextWeek);
+  assert.equal(result.coversHistoryStart, false, 'a late session before the first week revokes the coverage proof');
   assert.equal(result.sourceThrough.toMillis(), Date.parse('2026-11-24T09:00:00Z'));
   const expected = computeWeeklyReadingRollup([early, across, later, firstRead], nextWeek);
   assert.equal(expected.days[0].totalMs, 480_000);
