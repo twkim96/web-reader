@@ -42,6 +42,16 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 [2026-07-13 production 기준선](../updates/firestore-rules-production-baseline-2026-07-13.md)과 [원문 백업](../backups/firestore.rules.production-2026-07-13.rules)은 당시 v1→v2 배포의 역사적 자료입니다. 배포 설정과 Rules 테스트는 루트의 `firestore.rules`를 읽으며 이 이력 Markdown을 입력으로 사용하지 않습니다. 현재 production Rules는 문서 정리에서 새로 확인하지 않았습니다. 롤백 시 **해당 배포 전에 확인한** 백업을 복원하고, Firestore/IndexedDB 데이터를 삭제하지 않습니다. 오래된 백업은 후속 주석·통계·메타데이터 schema와 맞지 않을 수 있으므로 현재 client와의 호환성을 먼저 확인합니다.
 
+## 공개 프로필 후보 캐시
+
+`MY_PAGE_PROFILE_LIST_CACHE`는 서버 환경 변수입니다. 미설정 상태에서는 기존 조회를 사용합니다.
+
+1. 같은 Firestore를 쓰는 운영·프리뷰의 위시리스트와 평가 변경 서버에 `write`를 적용합니다. 목록 변경과 계정별·목록별 변경 표지를 한 트랜잭션으로 기록합니다.
+2. 표지를 갱신하지 않는 구버전 API와 데이터 수정 도구가 해당 DB의 목록을 더 이상 변경할 수 없는 상태를 확인한 뒤 `read-write`로 바꿉니다. 캐시는 같은 서버 인스턴스 안에서만 재사용합니다. 공개 여부는 요청마다 확인합니다.
+3. 구버전 쓰기 허용, 관리자 복원 또는 표지를 갱신하지 않는 데이터 이관 전에는 `write`로 돌아가 캐시 조회를 중지합니다. 이관을 마치고 쓰기 경로를 확인한 뒤 다시 활성화합니다.
+
+후보 캐시는 새 Firestore 인덱스나 기존 목록 백필을 요구하지 않습니다. [검증 로그](../development/setup-and-checks.md#완료-증거)에서 첫 페이지·다음 페이지·평가 수정·비공개 전환을 비교합니다.
+
 ## 유한 동기화와 영수증 정리
 
 운영 Firestore Rules는 모든 계정의 진행률·책갈피·주석·팔레트 쓰기에 서버 발급 권한을 요구합니다. Vercel 운영 빌드는 기본으로 쓰기 권한을 사용합니다. `NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES=0`로 배포하면 이 경로의 새 쓰기가 거절됩니다. [계약](../SPEC/reader-and-progress.md#유한-동기화)과 [남은 수용 확인](../TODO.md#동기화-유효기간과-영수증-정리)을 먼저 확인합니다.

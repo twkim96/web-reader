@@ -1,79 +1,163 @@
-import { FieldPath, type Firestore, type QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import {
+  FieldPath, Timestamp, type CollectionReference, type Firestore, type Query, type QueryDocumentSnapshot, type Transaction,
+} from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity';
-import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, type ReadingSessionV1 } from '../../lib/readingStatistics';
+import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, toReadingSessionPayload, type ReadingSessionV1 } from '../../lib/readingStatistics';
 import { resolveSocialReadingTitle, resolveSocialWork } from './catalog';
 import { reportMyPageApiTiming, type ReadingEvidenceRoute } from './performance';
 
 type Work = { fileIds: Set<string>; progress: number };
+type Cursor = { stamp: Timestamp; id: string };
+type History = { sessions: ReadingSessionV1[]; documentCount: number; bytes: number; fullScanAt: number };
 type Summary = {
   works: Map<string, Work>;
   totals: Map<string, number>;
   conflictedWorks: Set<string>;
-  marker: string | null;
+  cursor: Cursor | null;
   empty: boolean;
+  history: History | null;
   builtAt: number;
 };
+type ReadCounts = { markerDocuments: number; countQueries: number; scanQueries: number; scanDocuments: number; emptyScanQueries: number };
 const caches = new WeakMap<Firestore, Map<string, { expires: number; promise: Promise<Summary> }>>();
 
 const PAGE_SIZE = 300;
 const RECHECK_MS = 30_000;
-const FULL_REFRESH_MS = 5 * 60_000;
+const REBUILD_SUMMARY_MS = 5 * 60_000;
+const FULL_SCAN_MS = 30 * 60_000;
+const MAX_CACHED_ACCOUNTS = 8;
+const MAX_HISTORY_DOCUMENTS = 12_000;
+const MAX_HISTORY_BYTES = 4 * 1024 * 1024;
 
-// After a short reuse window, check the latest upload before rescanning history.
+const compareIds = (left: string, right: string) => Buffer.compare(Buffer.from(left), Buffer.from(right));
+const compareCursors = (left: Cursor, right: Cursor) => left.stamp.seconds - right.stamp.seconds
+  || left.stamp.nanoseconds - right.stamp.nanoseconds || compareIds(left.id, right.id);
+
 async function summary(db: Firestore, uid: string, route?: ReadingEvidenceRoute): Promise<Summary> {
   if (!uid || uid.includes('/')) throw new Error('Invalid account');
   let cache = caches.get(db);
   if (!cache) { cache = new Map(); caches.set(db, cache); }
   const found = cache.get(uid);
-  if (found && found.expires > Date.now()) return found.promise;
+  if (found && found.expires > Date.now()) {
+    cache.delete(uid);
+    cache.set(uid, found);
+    return found.promise;
+  }
   const start = performance.now();
-  const counts = { markerDocuments: 0, scanQueries: 0, scanDocuments: 0, emptyScanQueries: 0 };
+  const counts: ReadCounts = { markerDocuments: 0, countQueries: 0, scanQueries: 0, scanDocuments: 0, emptyScanQueries: 0 };
   const promise = buildSummary(db, uid, counts, found?.promise).finally(() => {
     if (route) reportMyPageApiTiming(route, start, counts);
   });
+  const entry = { expires: Infinity, promise };
   cache.delete(uid);
-  cache.set(uid, { expires: Date.now() + RECHECK_MS, promise });
-  while (cache.size > 64) cache.delete(cache.keys().next().value!);
-  promise.catch(() => { if (cache?.get(uid)?.promise === promise) cache.delete(uid); });
-  return promise;
+  cache.set(uid, entry);
+  while (cache.size > MAX_CACHED_ACCOUNTS) cache.delete(cache.keys().next().value!);
+  void entry.promise.then(() => {
+    entry.expires = Date.now() + RECHECK_MS;
+  }, () => {
+    if (cache.get(uid) === entry) cache.delete(uid);
+  });
+  return entry.promise;
+}
+
+function parseSession(document: QueryDocumentSnapshot) {
+  const value = document.data();
+  if (typeof value.startedAtClient !== 'number' || typeof value.timezoneOffsetMinutes !== 'number') return null;
+  let localDate: string;
+  try { localDate = getReadingSessionLocalDate(value.startedAtClient, value.timezoneOffsetMinutes); } catch { return null; }
+  const session = { ...value, localDate };
+  if (!isReadingSessionV1(session) || session.sessionId !== document.id) return null;
+  return toReadingSessionPayload(session);
+}
+
+async function scanSessions(transaction: Transaction, source: Query, counts: ReadCounts) {
+  const ordered = source.limit(PAGE_SIZE);
+  const sessions: ReadingSessionV1[] = [];
+  let documentCount = 0;
+  let cursor: QueryDocumentSnapshot | undefined;
+  for (;;) {
+    counts.scanQueries++;
+    const snapshot = await transaction.get(cursor ? ordered.startAfter(cursor) : ordered);
+    documentCount += snapshot.docs.length;
+    counts.scanDocuments += snapshot.docs.length;
+    counts.emptyScanQueries += Number(snapshot.docs.length === 0);
+    for (const document of snapshot.docs) {
+      const session = parseSession(document);
+      if (session) sessions.push(session);
+    }
+    if (snapshot.docs.length < PAGE_SIZE) return { sessions, documentCount };
+    cursor = snapshot.docs[snapshot.docs.length - 1];
+  }
+}
+
+function historyBytes(sessions: ReadingSessionV1[]) {
+  let bytes = 0;
+  for (const session of sessions) {
+    bytes += Buffer.byteLength(JSON.stringify(session));
+    if (bytes > MAX_HISTORY_BYTES) break;
+  }
+  return bytes;
+}
+
+async function readHistory(
+  transaction: Transaction,
+  collection: CollectionReference,
+  cursor: Cursor | null,
+  retained: Summary | null,
+  now: number,
+  counts: ReadCounts,
+): Promise<History> {
+  const cached = retained?.history;
+  const previous = retained?.cursor;
+  if (cached && previous && cursor && now - cached.fullScanAt < FULL_SCAN_MS) {
+    const order = compareCursors(cursor, previous);
+    if (order >= 0) {
+      counts.countQueries++;
+      const { count } = (await transaction.get(collection.count())).data();
+      if (order === 0 && count === cached.documentCount) return cached;
+      if (order > 0 && count > cached.documentCount && count <= MAX_HISTORY_DOCUMENTS) {
+        const newer = await scanSessions(transaction, collection.orderBy('uploadedAtServer')
+          .orderBy(FieldPath.documentId()).startAfter(previous.stamp, previous.id), counts);
+        if (count === cached.documentCount + newer.documentCount) {
+          // Keep the original document-ID order, including tie-breaking in
+          // the clock-sample and completed-round calculations.
+          const sessions = [...cached.sessions, ...newer.sessions].sort((a, b) => compareIds(a.sessionId, b.sessionId));
+          return { sessions, documentCount: count, bytes: cached.bytes + historyBytes(newer.sessions), fullScanAt: cached.fullScanAt };
+        }
+      }
+    }
+  }
+
+  // A full scan includes legacy records without an upload timestamp.
+  const full = await scanSessions(transaction, collection.orderBy(FieldPath.documentId()), counts);
+  return { ...full, bytes: historyBytes(full.sessions), fullScanAt: now };
 }
 
 async function buildSummary(
   db: Firestore,
   uid: string,
-  counts: { markerDocuments: number; scanQueries: number; scanDocuments: number; emptyScanQueries: number },
+  counts: ReadCounts,
   previous?: Promise<Summary>,
 ): Promise<Summary> {
   const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
-  const latest = (await collection.orderBy('uploadedAtServer', 'desc').limit(1).get()).docs[0];
-  counts.markerDocuments = Number(Boolean(latest));
-  const stamp = latest?.get('uploadedAtServer');
-  const marker = stamp ? JSON.stringify([stamp.seconds, stamp.nanoseconds, latest.id]) : null;
-  const retained = await previous?.catch(() => null);
-  // orderBy excludes legacy documents without uploadedAtServer. Reuse a null
-  // marker only if a prior scan confirmed the collection itself was empty.
-  if (retained && retained.marker === marker && (marker !== null || retained.empty)
-    && Date.now() - retained.builtAt < FULL_REFRESH_MS) return retained;
+  const latest = await collection.orderBy('uploadedAtServer', 'desc').orderBy(FieldPath.documentId(), 'desc').limit(1).get();
+  const last = latest.docs[0];
+  counts.markerDocuments = Number(Boolean(last));
+  const stamp = last?.get('uploadedAtServer');
+  const cursor = stamp instanceof Timestamp ? { stamp, id: last.id } : null;
+  const retained = await previous?.catch(() => null) ?? null;
+  const now = Date.now();
+  const unchanged = cursor && retained?.cursor ? compareCursors(cursor, retained.cursor) === 0 : !last && retained?.empty;
+  if (retained && unchanged && now - retained.builtAt < REBUILD_SUMMARY_MS
+    && (!retained.history || now - retained.history.fullScanAt < FULL_SCAN_MS)) return retained;
 
-  const ordered = collection.orderBy(FieldPath.documentId()).limit(PAGE_SIZE);
-  const sessions: ReadingSessionV1[] = [];
-  let cursor: QueryDocumentSnapshot | undefined;
-  for (;;) {
-    counts.scanQueries++;
-    const snapshot = await (cursor ? ordered.startAfter(cursor) : ordered).get();
-    counts.scanDocuments += snapshot.docs.length;
-    counts.emptyScanQueries += Number(snapshot.docs.length === 0);
-    for (const doc of snapshot.docs) {
-      const value = doc.data();
-      if (typeof value.startedAtClient !== 'number' || typeof value.timezoneOffsetMinutes !== 'number') continue;
-      let localDate: string;
-      try { localDate = getReadingSessionLocalDate(value.startedAtClient, value.timezoneOffsetMinutes); } catch { continue; }
-      const session = { ...value, localDate };
-      if (isReadingSessionV1(session) && session.sessionId === doc.id) sessions.push(session);
-    }
-    if (snapshot.docs.length < PAGE_SIZE) break;
-    cursor = snapshot.docs[snapshot.docs.length - 1];
-  }
+  // Check counts and pages against the same snapshot as the latest cursor.
+  // Resolving titles happens after the transaction and can use the catalog cache.
+  const history = await db.runTransaction(
+    (transaction) => readHistory(transaction, collection, cursor, retained, now, counts),
+    { readOnly: true, readTime: latest.readTime },
+  );
+  const sessions = history.sessions;
   const titles = [...new Set(sessions.map((s) => s.bookTitle))];
   const resolved = new Map<string, Awaited<ReturnType<typeof resolveSocialReadingTitle>>>();
   let next = 0;
@@ -118,7 +202,10 @@ async function buildSummary(
     const id = sessionWork.get(session.sessionId);
     if (id) totals.set(id, (totals.get(id) ?? 0) + durationMs);
   });
-  return { works, totals, conflictedWorks, marker, empty: counts.scanDocuments === 0, builtAt: Date.now() };
+  return {
+    works, totals, conflictedWorks, cursor, empty: history.documentCount === 0, builtAt: now,
+    history: history.documentCount <= MAX_HISTORY_DOCUMENTS && history.bytes <= MAX_HISTORY_BYTES ? history : null,
+  };
 }
 
 export async function getSocialReadingEvidence(

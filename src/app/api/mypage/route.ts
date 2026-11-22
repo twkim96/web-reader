@@ -143,14 +143,21 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   const ratingDirection = reviewSort === 'rating-desc' ? -1 : reviewSort === 'rating-asc' ? 1 : 0;
   let wishlistCandidates = 0;
   let reviewCandidates = 0;
+  let wishlistDocumentsRead = 0;
+  let reviewDocumentsRead = 0;
+  let wishlistCacheHit = false;
+  let reviewCacheHit = false;
   const wishlistWindow = async () => {
     if (!useCursor) {
       const records = await listWishlist(db, uid);
-      wishlistCandidates = records.length;
+      wishlistCandidates = wishlistDocumentsRead = records.length;
       const page = legacyProfilePage(records, offset);
       return { ...page, entries: await publicBooks(db, page.entries, resolveWishlistWork) };
     }
-    const records = (await listPublicProfileWishlist(db, uid)).map(({ workId, addedAt }) => ({
+    const result = await listPublicProfileWishlist(db, uid);
+    wishlistDocumentsRead = result.documentsRead;
+    wishlistCacheHit = result.cacheHit;
+    const records = result.records.map(({ workId, addedAt }) => ({
       workId, time: Number.isFinite(addedAt) ? Timestamp.fromMillis(addedAt).valueOf() : epoch.valueOf(),
     }));
     wishlistCandidates = records.length;
@@ -161,12 +168,15 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   const reviewWindow = async () => {
     if (!useCursor) {
       const records = await listReviews(db, uid);
-      reviewCandidates = records.length;
+      reviewCandidates = reviewDocumentsRead = records.length;
       const page = legacyProfilePage(sortReviewList(records, reviewSort), offset);
       return { ...page, entries: await publicBooks(db, page.entries) };
     }
     // Timestamp.valueOf() produces a sortable string without the precision loss of toMillis().
-    const records = (await listPublicProfileReviews(db, uid)).map(({ updatedAt, ...review }) => ({
+    const result = await listPublicProfileReviews(db, uid);
+    reviewDocumentsRead = result.documentsRead;
+    reviewCacheHit = result.cacheHit;
+    const records = result.records.map(({ updatedAt, ...review }) => ({
       ...review, time: (updatedAt ?? epoch).valueOf(),
     }));
     reviewCandidates = records.length;
@@ -182,7 +192,9 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   if (!current) return fail(404);
   if (current.account.revision !== revision) return fail(409);
   reportMyPageApiTiming('profile', started, {
-    wishlistCandidates, reviewCandidates, wishlistReturned: wishlistPage?.entries.length ?? 0,
+    wishlistCandidates, reviewCandidates, wishlistDocumentsRead, reviewDocumentsRead,
+    wishlistCacheHit: Number(wishlistCacheHit), reviewCacheHit: Number(reviewCacheHit),
+    wishlistReturned: wishlistPage?.entries.length ?? 0,
     reviewsReturned: reviewsPage?.entries.length ?? 0,
     wishlistHasNext: Number(wishlistPage?.next != null), reviewsHasNext: Number(reviewsPage?.next != null),
   });

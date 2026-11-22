@@ -23,6 +23,7 @@ const { GET, POST } = unwrap(await import('../src/app/api/mypage/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
 const { getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
 const { loadSocialCatalog, resolveSocialWork } = unwrap(await import('../src/server/mypage/catalog.ts'));
+const { getSocialReadingEvidence } = unwrap(await import('../src/server/mypage/reading.ts'));
 const { parseBookMetadataRefreshRequest } = unwrap(await import('../src/server/bookMetadata/requestSchema.ts'));
 const { platformWorkKey } = unwrap(await import('../src/lib/readBooks.ts'));
 const { getPublicBookMetadataAliasCandidates } = unwrap(await import('../src/lib/publicBookMetadataSchema.ts'));
@@ -190,6 +191,131 @@ test('public profile chooses one newest evaluation per canonical work before pag
     { workId: work.id, rating: 1.5, comment: '최신 평가' },
   ]);
   assert.equal(last.next.reviews, null);
+});
+
+test('public profile reuses candidate reads until a normal edit or deletion changes the section', async (t) => {
+  const mode = process.env.MY_PAGE_PROFILE_LIST_CACHE;
+  const logging = process.env.MY_PAGE_PERF_LOG;
+  process.env.MY_PAGE_PROFILE_LIST_CACHE = 'read-write';
+  process.env.MY_PAGE_PERF_LOG = '1';
+  t.after(() => {
+    if (mode === undefined) delete process.env.MY_PAGE_PROFILE_LIST_CACHE;
+    else process.env.MY_PAGE_PROFILE_LIST_CACHE = mode;
+    if (logging === undefined) delete process.env.MY_PAGE_PERF_LOG;
+    else process.env.MY_PAGE_PERF_LOG = logging;
+  });
+  const logs = [];
+  t.mock.method(console, 'info', (label, data) => {
+    if (label === '[MyPagePerformance]' && data.route === 'profile') logs.push(data);
+  });
+  const { idToken, localId: uid } = await emulatorLogin('profile-reuses-unchanged-candidates');
+  const account = await ok(get({ view: 'account' }, idToken));
+  const visible = { reviews: true, wishlist: true };
+  const settings = await ok(post('account', idToken, { ...account, visibility: visible }));
+  const works = [...new Set((await loadSocialCatalog()).values())].slice(0, 32);
+  const db = getAdminFirestore();
+  const library = db.doc(`artifacts/${APP_ID}/users/${uid}/libraries/local`);
+  const reviews = library.collection('myPageReviewsV1');
+  const wishlist = library.collection('myPageWishlistV1');
+  const batch = db.batch();
+  works.forEach(({ id: workId }, index) => {
+    const id = createHash('sha256').update(workId).digest('hex');
+    const time = 1000 + index;
+    batch.create(wishlist.doc(id), { workId, saved: true, revision: 1, addedAt: time });
+    batch.create(reviews.doc(id), {
+      workId, revision: 1, rating: 3, comment: '기존 평가', totalMs: null, progressPercent: null,
+      deleted: false, updatedAt: Timestamp.fromMillis(time),
+    });
+  });
+  await batch.commit();
+
+  const base = { view: 'profile', code: account.code, pagination: 'cursor' };
+  const first = await ok(get(base));
+  assert.deepEqual([logs.at(-1).reviewDocumentsRead, logs.at(-1).wishlistDocumentsRead], [32, 32]);
+  const next = (section) => ok(get({ ...base, section, cursor: first.next[section] }));
+  assert.equal((await next('reviews')).reviews.length, 2);
+  assert.equal(logs.at(-1).reviewDocumentsRead, 0);
+  assert.equal(logs.at(-1).reviewCacheHit, 1);
+  assert.equal((await next('wishlist')).wishlist.length, 2);
+  assert.equal(logs.at(-1).wishlistDocumentsRead, 0);
+  assert.equal(logs.at(-1).wishlistCacheHit, 1);
+
+  await ok(post('review', idToken, { workId: works[0].id, revision: 1, remove: true }));
+  assert.deepEqual((await next('reviews')).reviews.map(({ workId }) => workId), [works[1].id]);
+  assert.equal(logs.at(-1).reviewDocumentsRead, 31);
+  assert.equal((await next('wishlist')).wishlist.length, 2);
+  assert.equal(logs.at(-1).wishlistDocumentsRead, 0);
+  await ok(post('wishlist', idToken, { workId: works[0].id, revision: 1, saved: false }));
+  assert.deepEqual((await next('wishlist')).wishlist.map(({ workId }) => workId), [works[1].id]);
+  assert.equal(logs.at(-1).wishlistDocumentsRead, 31);
+
+  const client = await initializeTestEnvironment({ projectId: 'demo-web-reader' });
+  try {
+    const marker = doc(client.authenticatedContext(uid).firestore(), 'artifacts', APP_ID, 'users', uid, 'libraries', 'local', 'myPagePublicListRevisionV1', 'reviews');
+    await assertFails(getDoc(marker));
+    await assertFails(setDoc(marker, { updatedAt: new Date() }));
+  } finally { await client.cleanup(); }
+
+  await ok(post('account', idToken, { ...settings, visibility: { reviews: false, wishlist: true } }));
+  assert.equal((await get({ ...base, section: 'reviews', cursor: first.next.reviews })).status, 409);
+  assert.equal((await ok(get(base))).reviews, undefined);
+});
+
+test('review evidence reads only new sessions and includes legacy records after a count mismatch', async (t) => {
+  const logging = process.env.MY_PAGE_PERF_LOG;
+  process.env.MY_PAGE_PERF_LOG = '1';
+  t.after(() => {
+    if (logging === undefined) delete process.env.MY_PAGE_PERF_LOG;
+    else process.env.MY_PAGE_PERF_LOG = logging;
+  });
+  const logs = [];
+  t.mock.method(console, 'info', (label, data) => {
+    if (label === '[MyPagePerformance]' && data.route === 'reading-evidence-deferred') logs.push(data);
+  });
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const db = getAdminFirestore();
+  const uid = 'incremental-review-reading-evidence';
+  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
+  const stamp = new Timestamp(70, 123000);
+  const seed = (sessionId, start, end, progress, uploadedAtServer) => collection.doc(sessionId).set({
+    schemaVersion: 1, sessionId, bookId: 'fixture-file', bookTitle: workId, deviceId: 'fixture-device',
+    mode: 'screen', startedAtClient: start, endedAtClient: end, durationMs: end - start,
+    startProgressPercent: 0, endProgressPercent: progress, timezoneOffsetMinutes: 0, localDate: '1970-01-01',
+    completed: false, ...(uploadedAtServer === undefined ? {} : { uploadedAtServer }),
+  });
+  const evidence = () => getSocialReadingEvidence(db, uid, workId, ['fixture-file'], 'reading-evidence-deferred');
+  await seed('a-earlier', 1000, 3000, 10, stamp);
+  await seed('b-last', 4000, 6000, 20, stamp);
+  assert.deepEqual(await evidence(), { totalMs: 4000, progressPercent: 20 });
+  assert.equal(logs.at(-1).scanDocuments, 2);
+
+  now += 31_000;
+  // A late session overlaps both records and has the same server timestamp.
+  await seed('c-late', 2000, 5000, 30, stamp);
+  assert.deepEqual(await evidence(), { totalMs: 5000, progressPercent: 30 });
+  assert.equal(logs.at(-1).countQueries, 1);
+  assert.equal(logs.at(-1).scanDocuments, 1);
+
+  now += 5 * 60_000;
+  assert.deepEqual(await evidence(), { totalMs: 5000, progressPercent: 30 });
+  assert.equal(logs.at(-1).scanDocuments, 0);
+
+  now += 5 * 60_000;
+  await seed('legacy-without-upload-time', 7000, 9000, 40);
+  assert.deepEqual(await evidence(), { totalMs: 7000, progressPercent: 40 });
+  assert.equal(logs.at(-1).scanDocuments, 4);
+
+  now += 26 * 60_000;
+  assert.deepEqual(await evidence(), { totalMs: 7000, progressPercent: 40 });
+  assert.equal(logs.at(-1).scanDocuments, 0);
+
+  await collection.doc('a-earlier').delete();
+  await seed('replacement-before-cursor', 10_000, 12_000, 50, new Timestamp(65, 0));
+  now += 4 * 60_000;
+  assert.deepEqual(await evidence(), { totalMs: 8000, progressPercent: 50 });
+  assert.equal(logs.at(-1).scanDocuments, 4);
 });
 
 test('concurrent catalog aliases share a cold bucket read and can retry a failed read', async (t) => {

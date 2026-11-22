@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { Timestamp } from 'firebase-admin/firestore';
 import { loadSocialCatalog, resolveLegacyReviewWork, resolveSocialWork } from '../src/server/mypage/catalog.ts';
 import { getSocialReadingEvidence } from '../src/server/mypage/reading.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
@@ -66,6 +67,26 @@ test('explicit social work links require one published root even when the title 
   assert.equal((await resolveSocialWork(db, first.id, [])).book.id, first.id);
 });
 
+function fixtureStats(readRows, onFullScan = () => {}) {
+  return {
+    orderBy(field) {
+      const latest = field === 'uploadedAtServer';
+      const query = {
+        orderBy: () => query,
+        limit: () => query,
+        get: async () => {
+          if (latest) return { docs: readRows().filter((row) => row.get?.('uploadedAtServer')), readTime: Timestamp.now() };
+          onFullScan();
+          return { docs: readRows() };
+        },
+      };
+      return query;
+    },
+  };
+}
+
+const readFixtureTransaction = (callback) => callback({ get: (query) => query.get() });
+
 test('reuses a verified empty history and rescans after the first server-timestamped upload', async (t) => {
   const book = (await loadSocialCatalog()).values().next().value;
   const session = {
@@ -77,13 +98,10 @@ test('reuses a verified empty history and rescans after the first server-timesta
   t.mock.method(Date, 'now', () => now);
   const rows = [];
   let fullScans = 0;
-  const db = { collection: () => ({
-    orderBy: (field) => ({ limit: () => ({ get: async () => {
-      if (field === 'uploadedAtServer') return { docs: rows.filter((row) => row.get('uploadedAtServer')) };
-      fullScans++;
-      return { docs: rows };
-    } }) }),
-  }) };
+  const db = {
+    collection: () => fixtureStats(() => rows, () => { fullScans++; }),
+    runTransaction: readFixtureTransaction,
+  };
   const evidence = (uid) => getSocialReadingEvidence(db, uid, book.id, ['file']);
   const expectEvidence = { totalMs: 2000, progressPercent: 10 };
 
@@ -92,7 +110,7 @@ test('reuses a verified empty history and rescans after the first server-timesta
   await evidence('new-account');
   assert.equal(fullScans, 1);
 
-  rows.push({ id: session.sessionId, get: () => ({ seconds: 1, nanoseconds: 0 }), data: () => session });
+  rows.push({ id: session.sessionId, get: () => new Timestamp(1, 0), data: () => session });
   now += 31_000;
   assert.deepEqual(await evidence('new-account'), expectEvidence);
   assert.equal(fullScans, 2);
@@ -118,12 +136,7 @@ test('published aliases prove reading while private titles and unrelated file hi
   for (const id of [aliasId, canonicalId]) buckets.set(id.slice(0, 2), { ...buckets.get(id.slice(0, 2)), [id]: metadata });
   const session = { schemaVersion: 1, sessionId: 's1', bookId: 'private-file', bookTitle: 'secretfilename.txt', deviceId: 'd1', mode: 'screen', startedAtClient: 1000, endedAtClient: 3000, durationMs: 2000, startProgressPercent: 1, endProgressPercent: 10, timezoneOffsetMinutes: 0, localDate: '1970-01-01', completed: false };
   const sessions = [session];
-  const empty = () => ({ docs: [] });
-  const stats = {
-    orderBy(field) {
-      return { limit: () => ({ get: async () => field === 'uploadedAtServer' ? empty() : { docs: sessions.map((record) => ({ id: record.sessionId, data: () => record })) } }) };
-    },
-  };
+  const stats = fixtureStats(() => sessions.map((record) => ({ id: record.sessionId, data: () => record })));
   const ambiguousId = hash('ambiguousoldname');
   const db = { collection(path) {
     if (path.endsWith('readingStatsV1')) return stats;
@@ -134,7 +147,7 @@ test('published aliases prove reading while private titles and unrelated file hi
           ? { schemaVersion: 1, aliasId: ambiguousId, status: 'ambiguous' } : undefined;
       return { get: async () => ({ exists: Boolean(data), data: () => data }) };
     } };
-  } };
+  }, runTransaction: readFixtureTransaction };
   assert.equal((await resolveSocialWork(db, 'secretfilename.txt')).book.id, book.id);
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['private-file']), { totalMs: 2000, progressPercent: 10 });
   assert.deepEqual(await getSocialReadingEvidence(db, 'user', book.id, ['other-file']), { totalMs: null, progressPercent: null });
