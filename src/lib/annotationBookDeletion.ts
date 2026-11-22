@@ -7,9 +7,10 @@ import {
 } from './localDBSchema';
 import {
   appendAnnotationEventsToTransactionV5,
+  getPendingSyncAuthorityId,
   isAnnotationOutboxEventV5,
   type AnnotationSyncContextV5,
-  type SyncOutboxEventV5,
+  type PendingSyncAuthority, type SyncOutboxEventV5,
 } from './syncOutboxV5';
 import { finiteWriteLeasesEnabled, getTrustedWriteLeaseTime, readRecoverableSyncEventIds } from './writeLeaseTransport';
 import { notifyProgressSyncWork } from './progressSyncWake';
@@ -97,15 +98,19 @@ export const annotationBookDeletionNeedsRecovery = (
   intent: AnnotationBookDeletionIntentV10,
   serverTrustedNow: number | null,
   recoverablePendingIds: ReadonlySet<string>,
+  pendingMarker?: PendingSyncAuthority,
 ): boolean => {
   if (intent.markerSuperseded) return false;
   if (intent.expired) return intent.recoveryPending !== false;
   if (serverTrustedNow === null) return false;
   if (!intent.markerEventId || intent.writeLeaseEventId !== intent.markerEventId || !intent.writeLeaseDeviceId) return true;
+  const authorityId = pendingMarker?.eventId === intent.markerEventId
+    ? getPendingSyncAuthorityId(pendingMarker) : intent.markerEventId;
   if (parseLeasedEventId(intent.writeLeaseEventId)) {
-    return getEventLeaseStatus(intent.writeLeaseEventId, serverTrustedNow, true) === 'expired';
+    return getEventLeaseStatus(intent.writeLeaseEventId, serverTrustedNow, true) === 'expired'
+      && (authorityId === intent.markerEventId || recoverablePendingIds.has(authorityId));
   }
-  return recoverablePendingIds.has(intent.markerEventId);
+  return recoverablePendingIds.has(authorityId);
 };
 
 // Never overwrite an intent that changed while the server request was in flight.
@@ -159,11 +164,18 @@ export const reconcileAnnotationBookDeletionIntentsV10 = async (
   ) as AnnotationBookDeletionIntentV10[];
   const finiteLeases = finiteWriteLeasesEnabled();
   const trustedNow = getTrustedWriteLeaseTime(ownerKey);
-  const recoverablePendingIds = finiteLeases && trustedNow !== null
-    ? await readRecoverableSyncEventIds(ownerKey, intents.flatMap(({ markerEventId, markerSuperseded, expired }) => (
-      markerEventId && !markerSuperseded && !expired ? [markerEventId] : []
-    )))
-    : new Set<string>();
+  const pendingMarkers = new Map<string, SyncOutboxEventV5>();
+  let recoverablePendingIds: ReadonlySet<string> = new Set();
+  if (finiteLeases && trustedNow !== null) {
+    const ids = await Promise.all(intents.flatMap(({ markerEventId, markerSuperseded, expired }) => (
+      markerEventId && !markerSuperseded && !expired ? [(async () => {
+        const event = await db.get(V5_OUTBOX_STORE, [ownerKey, markerEventId]) as SyncOutboxEventV5 | undefined;
+        if (event) pendingMarkers.set(markerEventId, event);
+        return event ? getPendingSyncAuthorityId(event) : markerEventId;
+      })()] : []
+    )));
+    recoverablePendingIds = await readRecoverableSyncEventIds(ownerKey, ids);
+  }
   let queued = 0;
   let failed = 0;
   const fetchAuthoritativeHeads = fetchHeads ?? (await import('./annotationSyncRemote'))
@@ -176,7 +188,7 @@ export const reconcileAnnotationBookDeletionIntentsV10 = async (
       }
       continue;
     }
-    if (finiteLeases && annotationBookDeletionNeedsRecovery(intent, trustedNow, recoverablePendingIds)) {
+    if (finiteLeases && annotationBookDeletionNeedsRecovery(intent, trustedNow, recoverablePendingIds, pendingMarkers.get(intent.markerEventId))) {
       await updateIntent(intent, { expired: true, recoveryPending: true, lastErrorCode: 'sync/write-lease-expired' });
       continue;
     }

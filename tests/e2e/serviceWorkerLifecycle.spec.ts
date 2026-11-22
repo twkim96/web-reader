@@ -183,6 +183,15 @@ test.describe('touch update approval', () => {
     expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
       .toContain('/sw-update-fixture.js');
 
+    const secondTab = await page.context().newPage();
+    await secondTab.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({
+      contentType: 'text/html', body: '<!doctype html><html></html>',
+    }));
+    await secondTab.goto('/');
+    const secondApply = secondTab.getByRole('button', { name: '저장 후 적용', exact: true });
+    await expect(secondApply).toBeEnabled();
+    await secondTab.evaluate(() => { document.documentElement.dataset.originalTab = 'true'; });
+
     // Hold only the activation message so the real button's in-progress state
     // can be observed before controllerchange reloads the app.
     await page.evaluate(() => {
@@ -207,5 +216,12 @@ test.describe('touch update approval', () => {
     await waitForController(page);
     expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
       .toContain('/sw.js');
+    await expect.poll(() => secondTab.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? ''))
+      .toContain('/sw.js');
+    expect(await secondTab.evaluate(() => document.documentElement.dataset.originalTab)).toBe('true');
+    await Promise.all([secondTab.waitForEvent('load'), secondApply.tap()]);
+    await expect(secondApply).toBeHidden();
+    expect(await secondTab.evaluate(() => document.documentElement.dataset.originalTab)).toBeUndefined();
+    await secondTab.close();
   });
 });

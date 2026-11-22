@@ -13,6 +13,7 @@ const {
   enqueueBookmarkEventV5,
   enqueueProgressMutationBatchV5,
   enqueueProgressEventV5,
+  getCachedRemoteProgressVersionV5,
   getExpectedClaimV5,
   getOpenSyncConflictsV5,
   getUnresolvedSyncConflictsV5,
@@ -93,6 +94,25 @@ test('a missing server head is recorded once for a previously synced book only',
   assert.equal(missing.createdAt, 30);
   const repeated = await recordRemoteMissingV5(ownerA, 'book-1', 40);
   assert.deepEqual(repeated, missing);
+});
+
+test('a delayed foreground miss preserves a head acknowledged in another tab', async () => {
+  const expected = await getCachedRemoteProgressVersionV5(ownerA, 'book-1');
+  assert.equal(expected, null);
+  const { event } = await enqueue(ownerA);
+  const claim = await claimNext(10, 'other-tab');
+  assert.equal(await acknowledgeProgressEventV5(ownerA, event.eventId, ackHead(event.eventId, 1), claim.expectedClaim, 12), true);
+  assert.equal(await recordRemoteMissingV5(ownerA, 'book-1', 13, { expected, isCurrent: () => true }), undefined);
+  const first = { revision: 1, acceptedEventId: event.eventId };
+  assert.deepEqual(await getCachedRemoteProgressVersionV5(ownerA, 'book-1'), first);
+
+  await storeRemoteProgressHeadV5(ownerA, ackHead('revision-two', 2), 14);
+  assert.equal(await recordRemoteMissingV5(ownerA, 'book-1', 15, { expected: first, isCurrent: () => true }), undefined);
+  const second = { revision: 2, acceptedEventId: 'revision-two' };
+  assert.equal(await recordRemoteMissingV5(ownerA, 'book-1', 16, { expected: second, isCurrent: () => false }), undefined);
+  assert.deepEqual(await getCachedRemoteProgressVersionV5(ownerA, 'book-1'), second);
+  assert.equal((await recordRemoteMissingV5(ownerA, 'book-1', 17, { expected: second, isCurrent: () => true })).state, 'remote_missing');
+  assert.equal(await getCachedRemoteProgressVersionV5(ownerA, 'book-1'), null);
 });
 
 for (const mode of ['single', 'batch']) {

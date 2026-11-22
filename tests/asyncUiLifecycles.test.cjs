@@ -422,15 +422,24 @@ async function withServiceWorkerUpdateHarness(flushCurrentProgress, run) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const messages = [];
   const errors = [];
-  const worker = { postMessage: message => messages.push(message) };
-  const registration = { waiting: worker, installing: null, addEventListener: noop, removeEventListener: noop };
+  const worker = Object.assign(new EventTarget(), { state: 'installed', postMessage: message => messages.push(message) });
+  const registration = Object.assign(new EventTarget(), { waiting: worker, installing: null });
+  const serviceWorker = Object.assign(new EventTarget(), { controller: {}, register: async () => registration });
+  const activate = () => {
+    registration.waiting = null;
+    worker.state = 'activated';
+    serviceWorker.controller = worker;
+    serviceWorker.dispatchEvent(new Event('controllerchange'));
+  };
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
-    serviceWorker: { controller: {}, register: async () => registration, addEventListener: noop, removeEventListener: noop },
+    serviceWorker,
   } });
   try {
     await withDom(async root => {
       const { useServiceWorkerUpdate } = require('../src/hooks/useServiceWorkerUpdate.ts');
       const api = { current: null };
+      const reloads = [];
+      Object.defineProperty(window, 'location', { configurable: true, value: { reload: () => reloads.push(true) } });
       function Harness() {
         const state = useServiceWorkerUpdate({ flushCurrentProgress, onPersistenceError: message => errors.push(message) });
         React.useLayoutEffect(() => { api.current = state; });
@@ -438,7 +447,7 @@ async function withServiceWorkerUpdateHarness(flushCurrentProgress, run) {
       }
       await React.act(async () => root.render(React.createElement(Harness)));
       assert.equal(api.current.updateAvailable, true);
-      await run({ api, messages, errors, worker });
+      await run({ api, messages, errors, worker, activate, reloads });
     });
   } finally {
     if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor);
@@ -486,7 +495,7 @@ test('service worker update reports applying before saving finishes and ignores 
   let finishSave;
   let flushes = 0;
   const flush = new Promise(resolve => { finishSave = resolve; });
-  await withServiceWorkerUpdateHarness(() => { flushes += 1; return flush; }, async ({ api, messages, errors }) => {
+  await withServiceWorkerUpdateHarness(() => { flushes += 1; return flush; }, async ({ api, messages, errors, activate, reloads }) => {
     let application;
     await React.act(async () => { application = api.current.applyUpdate(); });
     assert.equal(api.current.isApplying, true);
@@ -494,16 +503,19 @@ test('service worker update reports applying before saving finishes and ignores 
     assert.deepEqual(messages, []);
     assert.equal(await api.current.applyUpdate(), false);
     assert.equal(flushes, 1);
-    await React.act(async () => { finishSave(true); assert.equal(await application, true); });
+    await React.act(async () => { finishSave(true); });
     assert.deepEqual(messages, [{ type: 'SKIP_WAITING' }]);
     assert.equal(api.current.isApplying, true, 'busy until activation reloads the page');
+    assert.deepEqual(reloads, []);
+    await React.act(async () => { activate(); assert.equal(await application, true); });
+    assert.deepEqual(reloads, [true]);
     assert.deepEqual(errors, []);
   });
 });
 
 test('service worker update clears applying after failures and allows an explicit retry', async () => {
   let allowSave = false;
-  await withServiceWorkerUpdateHarness(async () => allowSave, async ({ api, messages, errors, worker }) => {
+  await withServiceWorkerUpdateHarness(async () => allowSave, async ({ api, messages, errors, worker, activate, reloads }) => {
     await React.act(async () => { assert.equal(await api.current.applyUpdate(), false); });
     assert.equal(api.current.isApplying, false);
     assert.equal(errors.length, 1);
@@ -513,9 +525,35 @@ test('service worker update clears applying after failures and allows an explici
     await React.act(async () => { assert.equal(await api.current.applyUpdate(), false); });
     assert.equal(api.current.isApplying, false);
     assert.equal(errors.length, 2);
-    worker.postMessage = message => messages.push(message);
+    worker.postMessage = message => { messages.push(message); activate(); };
     await React.act(async () => { assert.equal(await api.current.applyUpdate(), true); });
-    assert.equal(api.current.isApplying, true);
+    assert.equal(api.current.isApplying, false);
+    assert.deepEqual(reloads, [true]);
     assert.deepEqual(messages, [{ type: 'SKIP_WAITING' }]);
+  });
+});
+
+test('another tab can activate the worker without interrupting this tab’s pending save', async () => {
+  const firstSave = Promise.withResolvers();
+  let flush = firstSave.promise;
+  await withServiceWorkerUpdateHarness(() => flush, async ({ api, activate, reloads, messages, errors }) => {
+    let applying;
+    await React.act(async () => { applying = api.current.applyUpdate(); });
+    await React.act(async () => { activate(); });
+    assert.deepEqual(reloads, []);
+    assert.equal(api.current.isApplying, true);
+    await React.act(async () => {
+      firstSave.resolve(false);
+      assert.equal(await applying, false);
+    });
+    assert.deepEqual(reloads, []);
+    assert.equal(api.current.updateAvailable, true);
+    assert.equal(api.current.isApplying, false);
+    assert.equal(errors.length, 1);
+
+    flush = Promise.resolve(true);
+    await React.act(async () => { assert.equal(await api.current.applyUpdate(), true); });
+    assert.deepEqual(reloads, [true]);
+    assert.deepEqual(messages, []);
   });
 });

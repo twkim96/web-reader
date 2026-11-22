@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { waitForCurrentLocalCommits } from '../lib/localCommitTracker';
-import { prepareServiceWorkerUpdate } from '../lib/serviceWorkerUpdatePolicy';
+import { activateWaitingServiceWorker, prepareServiceWorkerUpdate } from '../lib/serviceWorkerUpdatePolicy';
 
 type UseServiceWorkerUpdateOptions = {
   flushCurrentProgress?: () => Promise<boolean>;
   onPersistenceError?: (message: string) => void;
 };
 
+type UpdateSource = {
+  registration: ServiceWorkerRegistration | null;
+  loadedController: ServiceWorker | null;
+};
+
 export const useServiceWorkerUpdate = ({
   flushCurrentProgress,
   onPersistenceError,
 }: UseServiceWorkerUpdateOptions = {}) => {
-  const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const applyingRef = useRef(false);
+  const updateSourceRef = useRef<UpdateSource | null>(null);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -35,68 +41,73 @@ export const useServiceWorkerUpdate = ({
       }).catch((error) => console.warn('[PWA] Development worker cleanup failed:', error));
       return () => { active = false; };
     }
-    let active = true;
-    let registration: ServiceWorkerRegistration | null = null;
+    const { serviceWorker } = navigator;
+    const source: UpdateSource = { registration: null, loadedController: serviceWorker.controller };
+    updateSourceRef.current = source;
+    let observedWorker: ServiceWorker | null = null;
 
-    const inspectWaiting = () => {
-      if (active && registration?.waiting) setWaitingWorker(registration.waiting);
+    const inspectUpdate = () => {
+      const { controller } = serviceWorker;
+      source.loadedController ??= controller;
+      setUpdateAvailable(Boolean(controller && (
+        controller !== source.loadedController || source.registration?.waiting?.state === 'installed'
+      )));
+      const worker = source.registration?.installing ?? source.registration?.waiting ?? null;
+      if (worker === observedWorker) return;
+      observedWorker?.removeEventListener('statechange', inspectUpdate);
+      observedWorker = worker;
+      observedWorker?.addEventListener('statechange', inspectUpdate);
     };
-    const inspectInstalling = () => {
-      const installing = registration?.installing;
-      if (!installing) return;
-      installing.addEventListener('statechange', () => {
-        if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-          inspectWaiting();
-        }
-      });
-    };
-
-    void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((nextRegistration) => {
-      if (!active) return;
-      registration = nextRegistration;
-      inspectWaiting();
-      nextRegistration.addEventListener('updatefound', inspectInstalling);
-      inspectInstalling();
+    serviceWorker.addEventListener('controllerchange', inspectUpdate);
+    void serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((registration) => {
+      if (updateSourceRef.current !== source) return;
+      source.registration = registration;
+      registration.addEventListener('updatefound', inspectUpdate);
+      inspectUpdate();
     }).catch(() => undefined);
-
-    const reloadAfterActivation = () => {
-      if (applyingRef.current) window.location.reload();
-    };
-    navigator.serviceWorker.addEventListener('controllerchange', reloadAfterActivation);
     return () => {
-      active = false;
-      registration?.removeEventListener('updatefound', inspectInstalling);
-      navigator.serviceWorker.removeEventListener('controllerchange', reloadAfterActivation);
+      updateSourceRef.current = null;
+      observedWorker?.removeEventListener('statechange', inspectUpdate);
+      source.registration?.removeEventListener('updatefound', inspectUpdate);
+      serviceWorker.removeEventListener('controllerchange', inspectUpdate);
     };
   }, []);
 
   const applyUpdate = useCallback(async () => {
-    if (!waitingWorker || applyingRef.current) return false;
+    const source = updateSourceRef.current;
+    if (!source || !updateAvailable || applyingRef.current) return false;
     applyingRef.current = true;
     setIsApplying(true);
-    let activating = false;
     try {
       const ready = await prepareServiceWorkerUpdate({
         flushCurrentProgress,
         drainLocalCommits: waitForCurrentLocalCommits,
       });
+      if (updateSourceRef.current !== source) return false;
       if (!ready) {
         onPersistenceError?.('저장 작업 중 오류가 발생해 업데이트 적용을 중단했습니다. 다시 시도해 주세요.');
         return false;
       }
-      waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-      activating = true;
+      const { serviceWorker } = navigator;
+      const { controller } = serviceWorker;
+      // Another tab may already have activated the update, including while
+      // this tab was still saving. Only reload after our own saves complete.
+      if (!controller || controller === source.loadedController) {
+        const worker = source.registration?.waiting;
+        if (worker?.state !== 'installed') throw new Error('No service worker is waiting.');
+        await activateWaitingServiceWorker(serviceWorker, worker);
+      }
+      if (updateSourceRef.current !== source) return false;
+      window.location.reload();
       return true;
     } catch {
       onPersistenceError?.('업데이트를 적용하지 못했습니다. 다시 시도해 주세요.');
       return false;
     } finally {
-      if (!activating) {
-        applyingRef.current = false;
-        setIsApplying(false);
-      }
+      applyingRef.current = false;
+      setIsApplying(false);
     }
-  }, [flushCurrentProgress, onPersistenceError, waitingWorker]);
+  }, [flushCurrentProgress, onPersistenceError, updateAvailable]);
 
-  return { updateAvailable: Boolean(waitingWorker), isApplying, applyUpdate };
+  return { updateAvailable, isApplying, applyUpdate };
 };

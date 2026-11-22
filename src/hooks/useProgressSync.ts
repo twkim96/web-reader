@@ -19,6 +19,7 @@ import {
   parseProgressHeadV2,
 } from '../lib/progressV2Schema';
 import {
+  getCachedRemoteProgressVersionV5,
   recordRemoteBookmarkMissingV5,
   recordRemoteMissingV5,
   storeRemoteHeadsBatchV5,
@@ -314,36 +315,37 @@ export const useProgressSync = ({
       ) return;
       const generation = foregroundRefreshGeneration + 1;
       foregroundRefreshGeneration = generation;
+      const isCurrent = () => ownerRuntime.isCurrent(owner) && foregroundRefreshGeneration === generation;
       const startedAt = performance.now();
       let returnedDocuments: number | undefined;
       let readDurationMs: number | undefined;
       try {
+        const knownHead = await getCachedRemoteProgressVersionV5(syncOwnerKey, activeBookId);
+        if (!isCurrent()) return;
         const snapshot = await getDocFromServer(doc(db, firebaseHistoryPath, activeBookId));
         readDurationMs = Math.round(performance.now() - startedAt);
         returnedDocuments = Number(snapshot.exists());
-        if (
-          !ownerRuntime.isCurrent(owner)
-          || foregroundRefreshGeneration !== generation
-        ) return;
+        if (!isCurrent() || snapshot.metadata.hasPendingWrites) return;
         if (!snapshot.exists()) {
-          await recordRemoteMissingV5(syncOwnerKey, activeBookId);
-          if (
-            !ownerRuntime.isCurrent(owner)
-            || foregroundRefreshGeneration !== generation
-          ) return;
-          setRemoteProgress((prev) => mergeRemotePositionUpdates(
-            prev,
-            {},
-            new Set([activeBookId]),
-          ));
+          if (!knownHead) return;
+          const missing = await recordRemoteMissingV5(syncOwnerKey, activeBookId, Date.now(), {
+            expected: knownHead,
+            isCurrent,
+          });
+          if (!missing || !isCurrent()) return;
+          setRemoteProgress((prev) => {
+            const current = prev[activeBookId];
+            return isCurrent() && current?.syncRevision === knownHead.revision
+              && current.acceptedEventId === knownHead.acceptedEventId
+              ? mergeRemotePositionUpdates(prev, {}, new Set([activeBookId]))
+              : prev;
+          });
           return;
         }
-        if (snapshot.metadata.hasPendingWrites) return;
         const head = parseProgressHeadV2(snapshot.data());
         await storeRemoteHeadsBatchV5(syncOwnerKey, [head]);
         if (
-          !ownerRuntime.isCurrent(owner)
-          || foregroundRefreshGeneration !== generation
+          !isCurrent()
           || isExactSyncSessionEcho(head.acceptedSessionId, getSyncSessionId())
         ) return;
         const serverTime = getTimestampMs(head.updatedAtServer, 0);
@@ -372,7 +374,7 @@ export const useProgressSync = ({
           [head.bookId]: update,
         }));
       } catch (error) {
-        if (ownerRuntime.isCurrent(owner) && foregroundRefreshGeneration === generation) {
+        if (isCurrent()) {
           console.warn('[ProgressV2] active-book foreground refresh failed:', error);
         }
       } finally {
@@ -423,6 +425,7 @@ export const useProgressSync = ({
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
+      foregroundRefreshGeneration++;
       unsubscribeToken();
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);

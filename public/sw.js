@@ -18,36 +18,33 @@ const OPTIONAL_PRECACHE_URLS = [
 const OBSOLETE_PRECACHE_URLS = ['/fonts/SUIT-Variable.woff2'];
 const policy = self.PCReaderSWPolicy;
 
-const putInCache = async (request, response) => {
-  if (!policy.isCacheableResponse(response)) return;
-  const cache = await caches.open(CACHE_NAME);
-  await cache.put(request, response.clone());
-};
+const matchInCache = (request) => caches
+  .match(request, { cacheName: CACHE_NAME })
+  .catch(() => undefined);
 
 const cacheFirst = (event, reload = false) => {
-  const response = caches.open(CACHE_NAME).then(async (cache) => {
-    const cached = reload ? undefined : await cache.match(event.request);
-    if (cached) return cached;
-    const networkResponse = await fetch(event.request);
-    await putInCache(event.request, networkResponse);
-    return networkResponse;
-  });
-  event.waitUntil(response.then(() => undefined).catch(() => undefined));
-  return response;
+  const cached = reload ? Promise.resolve(undefined) : matchInCache(event.request);
+  const network = cached.then(response => response ? undefined : fetch(event.request));
+  event.waitUntil(network.then(async (response) => {
+    if (!policy.isCacheableResponse(response)) return;
+    const copy = response.clone();
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(event.request, copy);
+  }).catch(() => undefined));
+  return cached.then(response => response ?? network);
 };
 
 const navigationShellFirst = async (event) => {
-  const cache = await caches.open(CACHE_NAME);
   // Keep HTML and unversioned runtime modules on one approved deployment.
   // Registration.update() detects the next build independently of navigation.
   if (new URL(event.request.url).pathname === '/') {
-    const installedShell = await cache.match('/');
+    const installedShell = await matchInCache('/');
     if (installedShell) return installedShell;
   }
   try {
     return await fetch(event.request);
   } catch {
-    return (await cache.match('/')) ?? Response.error();
+    return (await matchInCache('/')) ?? Response.error();
   }
 };
 

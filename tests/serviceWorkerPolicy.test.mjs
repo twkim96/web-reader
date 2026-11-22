@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 
 const require = createRequire(import.meta.url);
 const policy = require('../public/sw-policy.js');
@@ -54,4 +55,41 @@ test('waits for explicit update approval and has no catch-all cache route', asyn
   assert.equal((source.match(/self\.skipWaiting\(\)/g) ?? []).length, 1);
   assert.doesNotMatch(source, /clients\.claim/);
   assert.doesNotMatch(source, /event\.respondWith\(networkFirst\(event\)\)/);
+});
+
+test('serves online requests even when Cache Storage cannot be read or written', async () => {
+  const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
+  const handlers = new Map();
+  const scope = {
+    PCReaderSWPolicy: policy,
+    PC_READER_BUILD_ID: 'fixture',
+    location: { origin: 'https://reader.test' },
+    addEventListener: (name, handler) => handlers.set(name, handler),
+  };
+  let writeAttempts = 0;
+  runInNewContext(source, {
+    self: scope, URL, Response, importScripts: () => {},
+    fetch: async () => new Response('online content'),
+    caches: {
+      match: async () => { throw new DOMException('Cache unavailable', 'InvalidStateError'); },
+      open: async () => ({
+        put: async () => {
+          writeAttempts++;
+          throw new DOMException('Cache full', 'QuotaExceededError');
+        },
+      }),
+    },
+  });
+  for (const candidate of [request('/_next/static/application.js'), request('/', { mode: 'navigate' })]) {
+    let response;
+    const pending = [];
+    handlers.get('fetch')({
+      request: candidate,
+      respondWith: promise => { response = promise; },
+      waitUntil: promise => pending.push(promise),
+    });
+    assert.equal(await (await response).text(), 'online content');
+    await Promise.all(pending);
+  }
+  assert.equal(writeAttempts, 1);
 });

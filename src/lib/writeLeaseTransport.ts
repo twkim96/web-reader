@@ -18,7 +18,12 @@ const pending = new Map<OwnerKey, Promise<WriteLease>>();
 const maintenanceRequests = new Map<string, number>();
 let clockAnchor: { server: number; monotonic: number } | null = null;
 const ownerClockAnchors = new Map<OwnerKey, { server: number; monotonic: number }>();
-const placeholders = new Map<string, { owner: OwnerKey; device: string; resolved?: string }>();
+const placeholders = new Map<string, {
+  owner: OwnerKey;
+  device: string;
+  cachedLeaseEventId?: string;
+  resolved?: string;
+}>();
 const monotonicNow = () => performance.now();
 export const getTrustedWriteLeaseNow = (): number | null => clockAnchor
   ? clockAnchor.server + Math.max(0, monotonicNow() - clockAnchor.monotonic) : null;
@@ -43,7 +48,7 @@ const getUsableCachedLease = (ownerKey: OwnerKey, deviceId?: string) => {
   const lease = readCachedLease(ownerKey);
   const trustedNow = getTrustedWriteLeaseTime(ownerKey);
   return lease && (!deviceId || lease.deviceId === deviceId)
-    && (trustedNow === null || isWriteLeaseValid(lease, trustedNow)) ? lease : undefined;
+    && trustedNow !== null && isWriteLeaseValid(lease, trustedNow) ? lease : undefined;
 };
 
 export const prepareSyncEventWriter = (ownerKey: OwnerKey, deviceId?: string) => (
@@ -52,19 +57,21 @@ export const prepareSyncEventWriter = (ownerKey: OwnerKey, deviceId?: string) =>
     : undefined
 );
 
-export const canCoalesceCachedSyncLease = (ownerKey: OwnerKey, eventId: string, deviceId: string) => {
-  const lease = readCachedLease(ownerKey);
-  if (!lease || lease.deviceId !== deviceId) return false;
-  const previous = parseLeasedEventId(eventId);
-  return previous?.leaseId === lease.leaseId && previous.issuedAtMillis === lease.issuedAtMillis;
-};
-
 export const createSyncEventId = (ownerKey: OwnerKey, deviceId?: string) => {
   if (!finiteWriteLeasesEnabled() || !ownerKey.startsWith('firebase:')) return crypto.randomUUID();
   const lease = getUsableCachedLease(ownerKey, deviceId);
   if (lease) return createLeasedEventId(lease);
   const id = createPendingSyncWriterEventId();
-  if (deviceId) placeholders.set(id, { owner: ownerKey, device: deviceId });
+  if (deviceId) {
+    const cached = getTrustedWriteLeaseTime(ownerKey) === null ? readCachedLease(ownerKey) : undefined;
+    placeholders.set(id, {
+      owner: ownerKey,
+      device: deviceId,
+      // Freeze the cached authority now, but use it only once server time
+      // confirms it. It lets a recently offline save survive a full restart.
+      cachedLeaseEventId: cached?.deviceId === deviceId ? createLeasedEventId(cached) : undefined,
+    });
+  }
   return id;
 };
 const getOwnedPendingSyncEvent = (ownerKey: OwnerKey, eventId: string, deviceId: string) => {
@@ -75,6 +82,10 @@ const getOwnedPendingSyncEvent = (ownerKey: OwnerKey, eventId: string, deviceId:
 
 export const ownsPendingSyncEventId = (ownerKey: OwnerKey, eventId: string, deviceId: string) => (
   getOwnedPendingSyncEvent(ownerKey, eventId, deviceId) !== undefined
+);
+
+export const getPendingSyncCachedLeaseEventId = (ownerKey: OwnerKey, eventId: string, deviceId: string) => (
+  getOwnedPendingSyncEvent(ownerKey, eventId, deviceId)?.cachedLeaseEventId
 );
 
 export const isPendingSyncEventId = (ownerKey: OwnerKey, eventId: string, deviceId: string): boolean => {

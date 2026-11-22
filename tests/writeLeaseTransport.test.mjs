@@ -43,8 +43,9 @@ test.after(async () => {
 const input = bookId => ({ bookId, deviceId: 'device', sessionId: 'session', operation: 'progress.set',
   position: { cfi: 'local', anchorCfi: null, progressPercent: 20 }, occurredAtClient: now });
 
-test('cached server lease binds enqueue and the real worker ACK without changing event identity', async () => {
-  const { event } = await enqueueProgressEventV5(ownerKey, input('accepted'));
+test('the real worker ACK preserves the identity of an already leased event', async () => {
+  const eventId = createLeasedEventId(lease);
+  const { event } = await enqueueProgressEventV5(ownerKey, { ...input('accepted'), eventId });
   assert.equal(parseLeasedEventId(event.eventId).leaseId, lease.leaseId);
   const owner = ownerRuntime.activate(ownerKey);
   let appliedId;
@@ -288,7 +289,7 @@ test('first-online placeholders bind once with server time despite skew, while o
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('another runtime skips live placeholders, can send unrelated work, and recovers after release', () => {
+test('another runtime skips live placeholders, preserves valid cached authority, and recovers after release', () => {
   const script = String.raw`
     import assert from 'node:assert/strict';
     import { createRequire } from 'node:module';
@@ -428,6 +429,96 @@ test('another runtime skips live placeholders, can send unrelated work, and reco
     assert.deepEqual(preserved.payload, abandoned.payload);
     assert.equal(conflict.status, 'conflict');
     assert.equal(conflict.payload.cfi, 'late');
+
+    const stored = new Map();
+    globalThis.localStorage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
+    const { createLeasedEventId, parseLeasedEventId, WRITE_LEASE_DURATION_MS } = require('./src/lib/writeLeasePolicy.ts');
+    const freshOwner = 'firebase:reopened|library:local';
+    const recentLease = { leaseId: crypto.randomUUID(), deviceId: 'device', issuedAtMillis: issued - 2 * 864e5 };
+    stored.set('sync_write_lease_v1:' + freshOwner, JSON.stringify(recentLease));
+    const offline = runtime();
+    const priorLocks = new Set(held.keys());
+    const { event: offlineSave } = await offline.outbox.enqueueProgressEventV5(freshOwner, input('offline-restart'));
+    const { removeBookAndAnnotationsV8 } = require('./src/lib/localDBV5.ts');
+    const { DEVICE_CONTENT_OWNER_KEY } = require('./src/lib/ownerIdentity.ts');
+    await removeBookAndAnnotationsV8(freshOwner, DEVICE_CONTENT_OWNER_KEY, 'offline-delete', input('offline-delete'));
+    const { V10_ANNOTATION_BOOK_DELETIONS_STORE } = require('./src/lib/localDBSchema.ts');
+    const intentKey = [freshOwner, 'offline-delete'];
+    const intent = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey);
+    const originalMarker = await db.get(V5_OUTBOX_STORE, [freshOwner, intent.markerEventId]);
+    assert.match(offlineSave.pendingLeaseWriterId, /^unleased_v1_/);
+    assert.equal(parseLeasedEventId(offlineSave.eventId).leaseId, recentLease.leaseId);
+    assert.equal(parseLeasedEventId(originalMarker.eventId).leaseId, recentLease.leaseId);
+    await Promise.all([...held].filter(([name]) => !priorLocks.has(name)).map(async ([, release]) => release()));
+    await Promise.resolve();
+    const restarted = runtime();
+    await restarted.transport.prepareWriteLease({}, 'reopened', freshOwner, 'device');
+    assert.equal(restarted.transport.ownsPendingSyncEventId(freshOwner, offlineSave.pendingLeaseWriterId, 'device'), false);
+    assert.deepEqual(await restarted.recovery.listExpiredSyncRecoveryTargets(freshOwner, issued), []);
+    assert.equal(await restarted.outbox.bindPendingSyncAuthorityV5(freshOwner), 0);
+    const [afterRestart] = await restarted.outbox.getOutboxEventsV5(freshOwner, offlineSave.targetKey);
+    assert.equal(afterRestart.eventId, offlineSave.eventId);
+    assert.equal(afterRestart.payload.cfi, 'local');
+    const boundIntent = await db.get(V10_ANNOTATION_BOOK_DELETIONS_STORE, intentKey);
+    assert.equal(boundIntent.markerEventId, originalMarker.eventId);
+    assert.equal(boundIntent.writeLeaseEventId, boundIntent.markerEventId);
+    const reopenedTab = await restarted.outbox.acquireSyncLeaseV5(freshOwner, 'reopened-tab', issued);
+    const claimedOffline = await restarted.outbox.claimNextProgressEventV5(freshOwner, 'reopened-tab', reopenedTab.epoch, issued);
+    assert.equal(claimedOffline.eventId, offlineSave.eventId);
+    assert.equal(claimedOffline.pendingLeaseWriterId, undefined);
+
+    const expiredOwner = 'firebase:long-idle|library:local';
+    const expiredLease = { ...recentLease, issuedAtMillis: issued - WRITE_LEASE_DURATION_MS - 864e5 };
+    stored.set('sync_write_lease_v1:' + expiredOwner, JSON.stringify(expiredLease));
+    const returning = runtime();
+    const originalId = createLeasedEventId(expiredLease);
+    const { event: attempted } = await returning.outbox.enqueueProgressEventV5(expiredOwner, {
+      ...input('resumed', 'old-attempt'), eventId: originalId,
+    });
+    await db.put(V5_OUTBOX_STORE, { ...attempted, attempts: 1 });
+    const { event: fresh } = await returning.outbox.enqueueProgressEventV5(expiredOwner, input('resumed', 'fresh'));
+    assert.match(fresh.pendingLeaseWriterId, /^unleased_v1_/);
+    assert.equal(parseLeasedEventId(fresh.eventId).issuedAtMillis, expiredLease.issuedAtMillis);
+    const next = await returning.outbox.enqueueProgressEventV5(expiredOwner, input('resumed', 'latest fresh'));
+    assert.equal(next.coalesced, true);
+    assert.equal(next.event.eventId, fresh.eventId);
+    const peer = runtime();
+    await peer.transport.prepareWriteLease({}, 'long-idle', expiredOwner, 'device');
+    assert.equal(await peer.outbox.bindPendingSyncAuthorityV5(expiredOwner), 0, 'a peer cannot extend expired authority');
+    assert.equal(await peer.recovery.quarantineExpiredSyncWork(expiredOwner, fresh.targetKey, issued), 1);
+    assert.equal((await db.get(V5_OUTBOX_STORE, [expiredOwner, fresh.eventId])).status, 'blocked');
+    const peerTab = await peer.outbox.acquireSyncLeaseV5(expiredOwner, 'peer-tab', issued);
+    assert.equal(await peer.outbox.claimNextProgressEventV5(expiredOwner, 'peer-tab', peerTab.epoch, issued), null);
+    const currentLease = await returning.transport.prepareWriteLease({}, 'long-idle', expiredOwner, 'device');
+    assert.equal(await returning.outbox.bindPendingSyncAuthorityV5(expiredOwner), 1);
+    const [prior, newSave] = await returning.outbox.getOutboxEventsV5(expiredOwner, fresh.targetKey);
+    assert.equal(prior.eventId, originalId);
+    assert.equal(prior.attempts, 1);
+    assert.equal(prior.status, 'expired');
+    assert.deepEqual(prior.payload, attempted.payload);
+    assert.equal(parseLeasedEventId(newSave.eventId).leaseId, currentLease.leaseId);
+    assert.equal(newSave.payload.cfi, 'latest fresh');
+    assert.equal((await returning.recovery.recoverExpiredProgressFromServer('long-idle', expiredOwner, 'resumed', {
+      serverTrustedNow: issued, fetchHead: async () => null,
+    })).status, 'conflict');
+    assert.equal((await db.get(V5_OUTBOX_STORE, [expiredOwner, newSave.eventId])).payload.cfi, 'latest fresh');
+
+    let monotonic = 0;
+    Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => monotonic } });
+    const nearExpiryOwner = 'firebase:near-expiry|library:local';
+    const nearExpiry = { ...recentLease, issuedAtMillis: issued - WRITE_LEASE_DURATION_MS + 1_000 };
+    stored.set('sync_write_lease_v1:' + nearExpiryOwner, JSON.stringify(nearExpiry));
+    const nearBoundary = runtime();
+    const { event: nearlyExpired } = await nearBoundary.outbox.enqueueProgressEventV5(nearExpiryOwner, input('nearly-expired'));
+    await nearBoundary.transport.prepareWriteLease({}, 'near-expiry', nearExpiryOwner, 'device');
+    assert.equal(await nearBoundary.outbox.bindPendingSyncAuthorityV5(nearExpiryOwner), 0);
+    assert.equal((await db.get(V5_OUTBOX_STORE, [nearExpiryOwner, nearlyExpired.eventId])).pendingLeaseWriterId, undefined);
+    monotonic += 2_000;
+    assert.equal(await nearBoundary.outbox.bindPendingSyncAuthorityV5(nearExpiryOwner), 0);
+    assert.equal(await nearBoundary.recovery.quarantineExpiredSyncWork(nearExpiryOwner, nearlyExpired.targetKey, issued + monotonic), 1);
+    const [unchanged] = await nearBoundary.outbox.getOutboxEventsV5(nearExpiryOwner, nearlyExpired.targetKey);
+    assert.equal(unchanged.eventId, nearlyExpired.eventId);
+    assert.equal(unchanged.status, 'expired');
   `;
   const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], { cwd: process.cwd(), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
@@ -537,7 +628,7 @@ test('without Web Locks the producer can bind on reconnect and a restarted runti
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('offline cached-lease coalescing requires the same explicit viewport, device, session, and authority', async () => {
+test('offline provisional coalescing requires the same explicit viewport, device, session, and live writer', async () => {
   assert.equal((await import('../src/lib/writeLeaseTransport.ts')).getTrustedWriteLeaseTime(ownerKey), null);
   now = initial;
   const first = {

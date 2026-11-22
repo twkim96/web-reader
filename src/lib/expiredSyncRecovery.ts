@@ -13,6 +13,7 @@ import {
   type ProgressHeadV2,
 } from './progressV2Schema';
 import type { SyncOutboxEventV5, RemoteHeadCacheV5, SyncConflictV5, SyncMetaV5 } from './syncOutboxV5';
+import { getPendingSyncAuthorityId } from './syncOutboxV5';
 import { annotationTargetKeyV1, annotationPaletteTargetKeyV1, getFirebaseAnnotationPalettePath, parseAnnotationPaletteHeadV1, parseAnnotationHeadV1, fromAnnotationSyncPayloadV1, type AnnotationHeadV1 } from './annotationSyncSchema';
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 import { validateHydratedAnnotations } from './annotationSyncLocal';
@@ -36,8 +37,9 @@ const recoveryTime = (ownerKey: OwnerKey, options: { serverTrustedNow?: number |
 const requiresRecovery = (event: RecoveryEvent, trustedNow: number | null, recoverablePendingIds: ReadonlySet<string>) => {
   if (trustedNow === null) return false;
   const status = getEventLeaseStatus(event.eventId, trustedNow, true);
-  return status === 'expired' || (status === 'unleased' && !parseLeasedEventId(event.eventId)
-    && recoverablePendingIds.has(event.eventId));
+  const authorityId = getPendingSyncAuthorityId(event);
+  if (status === 'expired') return authorityId === event.eventId || recoverablePendingIds.has(authorityId);
+  return status === 'unleased' && !parseLeasedEventId(event.eventId) && recoverablePendingIds.has(authorityId);
 };
 const targetRange = (ownerKey: OwnerKey, targetKey: string) => IDBKeyRange.bound(
   [ownerKey, targetKey, 0], [ownerKey, targetKey, Number.MAX_SAFE_INTEGER],
@@ -104,8 +106,8 @@ export const quarantineExpiredSyncWork = async (ownerKey: OwnerKey, targetKey: s
   const [before, ...beforeConflicts] = await readTargetRecoveryRows(snapshot, ownerKey, targetKey);
   await snapshot.done;
   const recoverablePendingIds = await readRecoverableIds(ownerKey, [
-    ...before.map((event) => event.eventId),
-    ...beforeConflicts.flat().flatMap(({ event }) => event ? [event.eventId] : []),
+    ...before.map(getPendingSyncAuthorityId),
+    ...beforeConflicts.flat().flatMap(({ event }) => event ? [getPendingSyncAuthorityId(event)] : []),
   ], now);
   if (!isCurrent()) return 0;
   const tx = db.transaction(stores, 'readwrite');
@@ -159,8 +161,8 @@ export const listExpiredSyncRecoveryTargets = async (ownerKey: OwnerKey, trusted
     db.getAllFromIndex(V10_ANNOTATION_BOOK_DELETIONS_STORE, 'by-owner', ownerKey) as Promise<AnnotationBookDeletionIntentV10[]>,
   ]);
   const recoverablePendingIds = await readRecoverableIds(ownerKey, [
-    ...events.filter((event) => active.has(event.status)).map((event) => event.eventId),
-    ...conflicts.flatMap(({ event }) => event ? [event.eventId] : []),
+    ...events.filter((event) => active.has(event.status)).map(getPendingSyncAuthorityId),
+    ...conflicts.flatMap(({ event }) => event ? [getPendingSyncAuthorityId(event)] : []),
     ...intents.flatMap(({ markerEventId }) => markerEventId ? [markerEventId] : []),
   ], trustedNow);
   const targets = new Map<string, SyncOutboxEventV5['target']>();
@@ -174,9 +176,15 @@ export const listExpiredSyncRecoveryTargets = async (ownerKey: OwnerKey, trusted
       targets.set(conflict.targetKey, conflict.event.target);
     }
   }
-  for (const intent of intents) if (annotationBookDeletionNeedsRecovery(intent, trustedNow, recoverablePendingIds)) {
-    const target = { kind: 'annotation' as const, bookId: intent.bookId, annotationId: ANNOTATION_BOOK_DELETE_MARKER_ID };
-    targets.set(annotationTargetKeyV1(intent.bookId, target.annotationId), target);
+  if (intents.length) {
+    const eventsById = new Map(events.map(event => [event.eventId, event]));
+    for (const intent of intents) {
+      const marker = intent.markerEventId ? eventsById.get(intent.markerEventId) : undefined;
+      if (annotationBookDeletionNeedsRecovery(intent, trustedNow, recoverablePendingIds, marker)) {
+        const target = { kind: 'annotation' as const, bookId: intent.bookId, annotationId: ANNOTATION_BOOK_DELETE_MARKER_ID };
+        targets.set(annotationTargetKeyV1(intent.bookId, target.annotationId), target);
+      }
+    }
   }
   return [...targets.values()];
 };
@@ -419,7 +427,7 @@ const recoverAnnotationBookDeletion = async (
   const isBookAnnotation = (event: RecoveryEvent) => event.target.kind === 'annotation' && event.target.bookId === target.bookId;
   const recoverablePendingIds = await readRecoverableIds(ownerKey, [
     ...(beforeIntent?.markerEventId ? [beforeIntent.markerEventId] : []),
-    ...beforeEvents.flat().filter(isBookAnnotation).map((event) => event.eventId),
+    ...beforeEvents.flat().filter(isBookAnnotation).map(getPendingSyncAuthorityId),
   ], trustedNow);
   // Freeze the old book work and intent together before making any network request.
   const freeze = db.transaction([V10_ANNOTATION_BOOK_DELETIONS_STORE, V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE, V5_REMOTE_HEADS_STORE], 'readwrite');
@@ -433,7 +441,9 @@ const recoverAnnotationBookDeletion = async (
       IDBKeyRange.bound([ownerKey, state, 0], [ownerKey, state, Number.MAX_SAFE_INTEGER])) as Promise<SyncConflictV5[]>)),
     Promise.all([...active, 'expired', 'superseded'].map((status) => outbox.index('by-owner-status').getAll([ownerKey, status]) as Promise<RecoveryEvent[]>)),
   ]);
-  if (!intent || !annotationBookDeletionNeedsRecovery(intent, trustedNow, recoverablePendingIds)
+  const pendingMarker = intent?.markerEventId
+    ? await outbox.get([ownerKey, intent.markerEventId]) as SyncOutboxEventV5 | undefined : undefined;
+  if (!intent || !annotationBookDeletionNeedsRecovery(intent, trustedNow, recoverablePendingIds, pendingMarker)
     || (options.isCurrent && !options.isCurrent())) {
     await freeze.done; return { status: 'blocked' };
   }
@@ -442,7 +452,12 @@ const recoverAnnotationBookDeletion = async (
   const unresolved = oldConflicts.flat().filter((conflict) => conflict.targetKey.startsWith(prefix));
   const isUnprovenDelete = (event: RecoveryEvent) => 'forceDelete' in event && event.forceDelete === true;
   const expiredEvents = events.filter((event) => isUnprovenDelete(event) || requiresRecovery(event, trustedNow, recoverablePendingIds));
-  if (events.some((event) => !parseLeasedEventId(event.eventId) && !recoverablePendingIds.has(event.eventId))) {
+  if (events.some((event) => {
+    const authorityId = getPendingSyncAuthorityId(event);
+    if (recoverablePendingIds.has(authorityId)) return false;
+    if (authorityId === event.eventId) return !parseLeasedEventId(event.eventId);
+    return trustedNow === null || getEventLeaseStatus(event.eventId, trustedNow, true) !== 'valid';
+  })) {
     await freeze.done; return { status: 'blocked' };
   }
   const expiredIds = new Set(expiredEvents.map((event) => event.eventId));

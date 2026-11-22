@@ -1,5 +1,5 @@
 import {
-  canCoalesceCachedSyncLease, createSyncEventId, finiteWriteLeasesEnabled, getTrustedWriteLeaseTime,
+  createSyncEventId, finiteWriteLeasesEnabled, getPendingSyncCachedLeaseEventId, getTrustedWriteLeaseTime,
   isPendingSyncEventId, ownsPendingSyncEventId, prepareSyncEventWriter, resolvePendingSyncEventId,
 } from './writeLeaseTransport';
 import { createLeasedEventId, getEventLeaseStatus, parseLeasedEventId } from './writeLeasePolicy';
@@ -59,9 +59,21 @@ export type OutboxStatusV5 =
   | 'superseded'
   | 'expired';
 
-export type ProgressOutboxEventV5 = {
-  ownerKey: OwnerKey;
+type SyncEventAuthority = {
   eventId: string;
+  pendingLeaseWriterId?: string;
+};
+
+const newSyncEventAuthority = (ownerKey: OwnerKey, deviceId: string, existingId?: string): SyncEventAuthority => {
+  const eventId = existingId ?? createSyncEventId(ownerKey, deviceId);
+  const cachedLeaseEventId = getPendingSyncCachedLeaseEventId(ownerKey, eventId, deviceId);
+  // Keep the original leased ID readable by older tabs. Only the writer
+  // proof permits replacing expired authority before the very first send.
+  return cachedLeaseEventId ? { eventId: cachedLeaseEventId, pendingLeaseWriterId: eventId } : { eventId };
+};
+
+export type ProgressOutboxEventV5 = SyncEventAuthority & {
+  ownerKey: OwnerKey;
   causalViewportId?: string;
   positionToken?: string;
   afterPositionToken?: string;
@@ -84,9 +96,8 @@ export type ProgressOutboxEventV5 = {
   claimToken: string | null;
 };
 
-export type BookmarkOutboxEventV5 = {
+export type BookmarkOutboxEventV5 = SyncEventAuthority & {
   ownerKey: OwnerKey;
-  eventId: string;
   recoveryPending?: boolean;
   target: { kind: 'bookmark'; bookId: string; bookmarkId: string };
   targetKey: string;
@@ -106,9 +117,8 @@ export type BookmarkOutboxEventV5 = {
   claimToken: string | null;
 };
 
-export type AnnotationOutboxEventV5 = {
+export type AnnotationOutboxEventV5 = SyncEventAuthority & {
   ownerKey: OwnerKey;
-  eventId: string;
   recoveryPending?: boolean;
   target: { kind: 'annotation'; bookId: string; annotationId: string };
   targetKey: string;
@@ -132,9 +142,8 @@ export type AnnotationOutboxEventV5 = {
   claimToken: string | null;
 };
 
-export type AnnotationPaletteOutboxEventV5 = {
+export type AnnotationPaletteOutboxEventV5 = SyncEventAuthority & {
   ownerKey: OwnerKey;
-  eventId: string;
   recoveryPending?: boolean;
   target: { kind: 'palette' };
   targetKey: string;
@@ -159,6 +168,20 @@ export type SyncOutboxEventV5 =
   | BookmarkOutboxEventV5
   | AnnotationOutboxEventV5
   | AnnotationPaletteOutboxEventV5;
+
+export type PendingSyncAuthority = Pick<SyncOutboxEventV5,
+  'eventId' | 'pendingLeaseWriterId' | 'status' | 'attempts' | 'claimToken' | 'claimedByTabId' | 'claimedLeaseEpoch'>;
+
+const canBindPendingAuthority = (event: PendingSyncAuthority) => (
+  (event.status === 'pending' || event.status === 'blocked')
+  && event.attempts === 0
+  && !event.claimToken && !event.claimedByTabId && event.claimedLeaseEpoch === null
+);
+
+export const getPendingSyncAuthorityId = (event: PendingSyncAuthority) => (
+  canBindPendingAuthority(event) ? event.pendingLeaseWriterId ?? event.eventId : event.eventId
+);
+
 export type SyncHeadV2 =
   | ProgressHeadV2
   | BookmarkHeadV2
@@ -291,6 +314,17 @@ export type RemoteHeadCacheV5 = {
   revision: number;
   head: SyncHeadV2;
   updatedAt: number;
+};
+
+type ProgressHeadVersion = { revision: number; acceptedEventId: string };
+
+export const getCachedRemoteProgressVersionV5 = async (
+  ownerKey: OwnerKey,
+  bookId: string,
+): Promise<ProgressHeadVersion | null> => {
+  const db = await initDB();
+  const entry = await db.get(V5_REMOTE_HEADS_STORE, [ownerKey, progressTargetKeyV2(bookId)]) as RemoteHeadCacheV5 | undefined;
+  return entry ? { revision: entry.revision, acceptedEventId: entry.head.acceptedEventId } : null;
 };
 
 export type SyncConflictV5 = {
@@ -596,6 +630,7 @@ export const recordRemoteMissingV5 = async (
   ownerKey: OwnerKey,
   bookId: string,
   now = Date.now(),
+  guard?: { expected: ProgressHeadVersion | null; isCurrent: () => boolean },
 ) => {
   const targetKey = progressTargetKeyV2(bookId);
   const db = await initDB();
@@ -608,6 +643,11 @@ export const recordRemoteMissingV5 = async (
     tx.objectStore(V5_SYNC_META_STORE).get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
     conflictStore.get([ownerKey, conflictId]) as Promise<SyncConflictV5 | undefined>,
   ]);
+  if (guard && (!guard.isCurrent() || !cached || !guard.expected
+    || cached.revision !== guard.expected.revision || cached.head.acceptedEventId !== guard.expected.acceptedEventId)) {
+    await tx.done;
+    return undefined;
+  }
   if (!cached && (previous || (meta?.knownRevision ?? 0) === 0)) {
     await tx.done;
     return previous;
@@ -979,7 +1019,7 @@ export const appendAnnotationEventsToTransactionV5 = async (
     }
     const event: AnnotationOutboxEventV5 = {
       ownerKey,
-      eventId: input.eventId ?? context.createEventId?.() ?? createSyncEventId(ownerKey, context.deviceId),
+      ...newSyncEventAuthority(ownerKey, context.deviceId, input.eventId ?? context.createEventId?.()),
       target: {
         kind: 'annotation',
         bookId: input.bookId,
@@ -1128,7 +1168,7 @@ export const appendAnnotationPaletteEventToTransactionV5 = async (
   }
   const event: AnnotationPaletteOutboxEventV5 = {
     ownerKey,
-    eventId: input.eventId ?? context.createEventId?.() ?? createSyncEventId(ownerKey, context.deviceId),
+    ...newSyncEventAuthority(ownerKey, context.deviceId, input.eventId ?? context.createEventId?.()),
     target: { kind: 'palette' },
     targetKey,
     operation: 'palette.set',
@@ -1204,8 +1244,7 @@ const getCoalescibleProgressTail = (
   if (finiteWriteLeasesEnabled() && getTrustedWriteLeaseTime(ownerKey) === null) {
     const sameViewport = input.causalViewportId !== undefined && input.causalViewportId === tail.causalViewportId
       && input.sessionId === tail.sessionId;
-    return sameViewport && (isPendingSyncEventId(ownerKey, tail.eventId, tail.deviceId)
-      || canCoalesceCachedSyncLease(ownerKey, tail.eventId, tail.deviceId)) ? tail : undefined;
+    return sameViewport && isPendingSyncEventId(ownerKey, getPendingSyncAuthorityId(tail), tail.deviceId) ? tail : undefined;
   }
 
   const restoredTail = input.causalViewportId && input.restoredPositionToken
@@ -1334,7 +1373,7 @@ export const enqueueProgressEventV5 = async (
 
   const event: ProgressOutboxEventV5 = {
     ownerKey,
-    eventId: input.eventId ?? createSyncEventId(ownerKey, input.deviceId),
+    ...newSyncEventAuthority(ownerKey, input.deviceId, input.eventId),
     target: { kind: 'progress', bookId: input.bookId },
     targetKey,
     operation: input.operation,
@@ -1444,7 +1483,7 @@ export const enqueueBookmarkEventV5 = async (
   }
   const event: BookmarkOutboxEventV5 = {
     ownerKey,
-    eventId: input.eventId ?? createSyncEventId(ownerKey, input.deviceId),
+    ...newSyncEventAuthority(ownerKey, input.deviceId, input.eventId),
     target: {
       kind: 'bookmark',
       bookId: input.bookId,
@@ -1614,7 +1653,7 @@ export const enqueueProgressMutationBatchV5 = async (
     } else {
       const event: ProgressOutboxEventV5 = {
         ownerKey,
-        eventId: eventInput.eventId ?? createSyncEventId(ownerKey, eventInput.deviceId),
+        ...newSyncEventAuthority(ownerKey, eventInput.deviceId, eventInput.eventId),
         target: { kind: 'progress', bookId: eventInput.bookId },
         targetKey,
         operation: eventInput.operation,
@@ -1690,7 +1729,7 @@ export const enqueueProgressMutationBatchV5 = async (
     }
     const event: BookmarkOutboxEventV5 = {
       ownerKey,
-      eventId: eventInput.eventId ?? createSyncEventId(ownerKey, eventInput.deviceId),
+      ...newSyncEventAuthority(ownerKey, eventInput.deviceId, eventInput.eventId),
       target: {
         kind: 'bookmark',
         bookId: eventInput.bookId,
@@ -1733,9 +1772,11 @@ export const enqueueProgressMutationBatchV5 = async (
   return canonicalProgress;
 };
 
-// Bind only never-submitted local placeholders created by this runtime.
+// Only the live producer can attach fresh authority. The original cached
+// lease remains usable across a full restart until its normal expiry.
 export const bindPendingSyncAuthorityV5 = async (ownerKey: OwnerKey, isCurrent: () => boolean = () => true) => {
-  if (!finiteWriteLeasesEnabled() || !isCurrent()) return 0;
+  const trustedNow = getTrustedWriteLeaseTime(ownerKey);
+  if (!finiteWriteLeasesEnabled() || trustedNow === null || !isCurrent()) return 0;
   const db = await initDB();
   const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE], 'readwrite');
   const outbox = tx.objectStore(V5_OUTBOX_STORE);
@@ -1747,8 +1788,17 @@ export const bindPendingSyncAuthorityV5 = async (ownerKey: OwnerKey, isCurrent: 
   let count = 0;
   for (const event of events) {
     if (!isCurrent()) break;
-    if (event.ownerKey !== ownerKey || event.attempts !== 0 || event.claimToken || event.claimedByTabId
-      || event.claimedLeaseEpoch !== null || !ownsPendingSyncEventId(ownerKey, event.eventId, event.deviceId)) continue;
+    if (event.ownerKey !== ownerKey || !canBindPendingAuthority(event)) continue;
+    if (event.pendingLeaseWriterId && getEventLeaseStatus(event.eventId, trustedNow, true) === 'valid') {
+      // Once accepted as the original leased event, it ages normally even
+      // if it has to wait behind an older write before its first attempt.
+      const confirmed = { ...event };
+      delete confirmed.pendingLeaseWriterId;
+      await outbox.put(confirmed);
+      continue;
+    }
+    const pendingId = getPendingSyncAuthorityId(event);
+    if (!ownsPendingSyncEventId(ownerKey, pendingId, event.deviceId)) continue;
     if (isAnnotationOutboxEventV5(event) && event.forceDelete) continue;
     const intent = event.target.kind === 'annotation' && event.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID
       ? await intents.get([ownerKey, event.target.bookId]) as AnnotationBookDeletionIntentV10 | undefined
@@ -1757,10 +1807,12 @@ export const bindPendingSyncAuthorityV5 = async (ownerKey: OwnerKey, isCurrent: 
     const conflicts = await getTargetOpenAndDeferredConflicts(conflictStore, ownerKey, event.targetKey);
     if (conflicts.some((conflict) => conflict.event?.eventId === event.eventId)) continue;
     if (conflicts.length && event.status !== 'blocked') continue;
-    const id = resolvePendingSyncEventId(ownerKey, event.eventId, event.deviceId);
+    const id = resolvePendingSyncEventId(ownerKey, pendingId, event.deviceId);
     if (!id || id === event.eventId) continue;
     if (await outbox.get([ownerKey, id])) continue;
-    await outbox.add({ ...event, eventId: id });
+    const bound = { ...event, eventId: id };
+    delete bound.pendingLeaseWriterId;
+    await outbox.add(bound);
     await outbox.delete([ownerKey, event.eventId]);
     for (const conflict of conflicts) {
       if (!conflict.blockedEventIds.includes(event.eventId)) continue;
@@ -2138,6 +2190,10 @@ export const claimNextProgressEventV5 = async (
   let candidate: SyncOutboxEventV5 | undefined;
   for (const event of events) {
     if (event.eventId.startsWith('unleased_') || (finiteWriteLeasesEnabled() && !parseLeasedEventId(event.eventId))) continue;
+    if (event.pendingLeaseWriterId && event.attempts === 0) {
+      const trustedNow = getTrustedWriteLeaseTime(ownerKey);
+      if (trustedNow === null || getEventLeaseStatus(event.eventId, trustedNow, true) !== 'valid') continue;
+    }
     if (isAnnotationOutboxEventV5(event) && event.forceDelete) {
       await outbox.put({
         ...event, status: 'superseded', nextAttemptAt: null,
@@ -2226,6 +2282,7 @@ export const claimNextProgressEventV5 = async (
     claimedLeaseEpoch: leaseEpoch,
     claimToken: createClaimToken(),
   };
+  delete claimed.pendingLeaseWriterId;
   await outbox.put(claimed);
   await tx.done;
   return claimed;

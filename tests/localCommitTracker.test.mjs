@@ -5,7 +5,7 @@ import {
   trackLocalCommit,
   waitForCurrentLocalCommits,
 } from '../src/lib/localCommitTracker.ts';
-import { prepareServiceWorkerUpdate } from '../src/lib/serviceWorkerUpdatePolicy.ts';
+import { activateWaitingServiceWorker, prepareServiceWorkerUpdate } from '../src/lib/serviceWorkerUpdatePolicy.ts';
 
 test('waits for local commits active when an update is approved', async () => {
   let resolveCommit;
@@ -71,4 +71,15 @@ test('blocks an update when reader flush or local commit drain fails', async () 
     flushCurrentProgress: async () => true,
     drainLocalCommits: async () => ({ ok: false, rejected: 1 }),
   }), false);
+});
+
+test('a worker that never takes control ends the activation attempt', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const serviceWorker = Object.assign(new EventTarget(), { controller: {} });
+  const activation = assert.rejects(
+    activateWaitingServiceWorker(serviceWorker, { postMessage: () => {} }),
+    /activation timed out/,
+  );
+  t.mock.timers.runAll();
+  await activation;
 });
