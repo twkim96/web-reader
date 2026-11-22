@@ -43,16 +43,13 @@ export const acquireMetadataLease = async (
   const day = new Date(now).toISOString().slice(0, 10);
   const quotaRef = db.collection('bookMetadataDailyQuotaV1').doc(`${sha256(uid).slice(0, 24)}_${day}`);
   return db.runTransaction(async (transaction) => {
-    const [source, lease, quota] = await Promise.all([
-      transaction.get(sourceRef),
-      transaction.get(leaseRef),
-      transaction.get(quotaRef),
-    ]);
+    const source = await transaction.get(sourceRef);
     const sourceData = source.data();
     const freshSource = source.exists && isFresh(sourceData, now) ? sourceData : null;
     if (freshSource && matchesCacheIdentity(freshSource, expected)) {
       return { kind: 'cached', document: freshSource };
     }
+    const [lease, quota] = await Promise.all([transaction.get(leaseRef), transaction.get(quotaRef)]);
     const replacesMismatchedFreshCache = Boolean(freshSource && expected);
     const leaseData = lease.data() as Record<string, unknown> | undefined;
     const leaseUntil = typeof leaseData?.leaseUntil === 'number' ? leaseData.leaseUntil : 0;

@@ -348,6 +348,53 @@ test('concurrent catalog aliases share a cold bucket read and can retry a failed
   assert.equal(reads, 2);
 });
 
+test('on-demand aliases reuse reads and wishlist writes see a remap immediately', async (t) => {
+  const db = getAdminFirestore();
+  const { idToken } = await emulatorLogin('mypage-on-demand-cache');
+  const title = '온디맨드 캐시 확인 전용 작품';
+  const { aliasId } = parseBookMetadataRefreshRequest({ fileName: `${title}.txt` });
+  const ref = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
+  const catalog = await loadSocialCatalog();
+  const [first, second] = [...new Set(catalog.values())].filter(({ platforms }) => platforms.length > 0);
+  assert.notEqual(first.id, second.id);
+  const seed = ({ platforms: [{ id: platform, url }] }) => ref.set({
+    schemaVersion: 1, status: 'ready', aliasId, platforms: [{ platform, url }],
+  });
+  const prototype = Object.getPrototypeOf(ref);
+  const originalGet = prototype.get;
+  let reads = 0;
+  t.mock.method(prototype, 'get', function (...args) {
+    if (this.path === ref.path) reads++;
+    return originalGet.apply(this, args);
+  });
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const resolve = async () => (await resolveSocialWork(db, title))?.book.id ?? null;
+
+  assert.deepEqual(await Promise.all(Array.from({ length: 12 }, resolve)), Array(12).fill(null));
+  assert.equal(reads, 1);
+  await seed(first);
+  assert.equal(await resolve(), null);
+  assert.equal(reads, 1);
+  now += 15_001;
+  assert.equal(await resolve(), first.id);
+  assert.equal(await resolve(), first.id);
+  assert.equal(reads, 2);
+
+  await seed(second);
+  assert.equal(await resolve(), first.id);
+  const { item } = await ok(post('wishlist', idToken, { workId: title, saved: true, revision: null }));
+  assert.equal(item.workId, second.id);
+  now += 60_001;
+  assert.equal(await resolve(), second.id);
+
+  now += 60_001;
+  await ref.update({ status: 'error' });
+  assert.equal(await resolve(), null);
+  await seed(first);
+  assert.equal(await resolve(), first.id);
+});
+
 test('an on-demand title uses its published edition across account review saves and reloads', async () => {
   const db = getAdminFirestore();
   const { idToken, localId: uid } = await emulatorLogin('mypage-on-demand');

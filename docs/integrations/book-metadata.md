@@ -8,6 +8,8 @@
 
 정기 게시의 원본·명령·권한·generation 전환은 [게시 가이드](../operations/book-metadata-publishing.md)가 담당합니다. file_check의 DB/crawler를 Web Reader 요청 API에서 변경하지 않습니다.
 
+마이페이지 서버는 요청 수집 문서에서 이미 게시된 작품으로 연결되는 결과만 인스턴스 내에서 60초간 재사용합니다. 일치하는 작품이 없으면 15초간 재사용하며, 오류나 모호한 결과는 완료 후 보관하지 않습니다. 평가와 위시리스트 변경 대상을 별칭으로 확인할 때는 요청 수집 문서를 다시 읽습니다.
+
 ## `POST /api/book-metadata/refresh`
 
 Node runtime API이며 `Content-Type: application/json`과 `Authorization: Bearer <Firebase ID token>`이 필요합니다. 서버는 revoked token도 검증합니다. 본문은 추가 키 없이 `{"fileName":"<도서 파일명>"}`만 받습니다. 서버가 alias/canonical key를 계산하므로 client가 UID·alias·임의 원격 URL을 선택하지 않습니다.
@@ -23,7 +25,7 @@ Node runtime API이며 `Content-Type: application/json`과 `Authorization: Beare
 | 429 | `quota` 또는 `cooldown`; 즉시 반복 요청하지 않음 |
 | 502 | 수집/게시 복구 실패; 기존 정보 보존 후 재시도 가능 여부 표시 |
 
-UID별 일일 quota, alias별 lease/cooldown과 유효 캐시로 중복 수집을 제어합니다. 요청/응답 크기·시간·기간 수치는 [config.ts](../../src/server/bookMetadata/config.ts)의 `BOOK_METADATA_LIMITS`가 기준입니다. `publishPending`이 남은 캐시 요청은 delta 게시 복구를 시도합니다. 신규 delta도 immutable 문서 확인 후 manifest를 바꿉니다.
+UID별 일일 quota, alias별 lease/cooldown과 유효 캐시로 중복 수집을 제어합니다. 트랜잭션에서 저장된 수집 결과가 유효하면 lease와 quota 문서 조회를 건너뜁니다. 요청/응답 크기·시간·기간 수치는 [config.ts](../../src/server/bookMetadata/config.ts)의 `BOOK_METADATA_LIMITS`가 기준입니다. `publishPending`이 남은 캐시 요청은 delta 게시 복구를 시도합니다. 신규 delta도 immutable 문서 확인 후 manifest를 바꿉니다.
 
 서버의 Firebase Admin 설정은 [개발 가이드](../development/setup-and-checks.md)에 있습니다. 선택적 `NOVELPIA_EMAIL`/`NOVELPIA_PASSWORD`는 요청 수명 동안 인증 session을 제공하며 클라이언트에 노출하지 않습니다. 설정 없음·로그인 제한·제공자 접근 실패와 정상적인 not-found를 구분합니다.
 

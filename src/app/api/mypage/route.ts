@@ -90,8 +90,10 @@ async function ownReviews(db: Firestore, uid: string, preview: boolean, timing?:
   return { reviews: active, deletions: removed };
 }
 
+type PublicBookResolver = (db: Firestore, workId: string) => ReturnType<typeof resolveSocialWork>;
+
 async function publicBooks<T extends { workId: string }>(
-  db: Firestore, records: T[], resolveWork = resolveSocialWork,
+  db: Firestore, records: T[], resolveWork: PublicBookResolver = resolveSocialWork,
 ) {
   return (await Promise.all(records.map(async (record) => {
     const match = await resolveWork(db, record.workId);
@@ -102,7 +104,7 @@ async function publicBooks<T extends { workId: string }>(
 }
 
 async function uniquePublicProfileBooks<T extends { workId: string; time: string }>(
-  db: Firestore, records: T[], resolveWork = resolveSocialWork,
+  db: Firestore, records: T[], resolveWork: PublicBookResolver = resolveSocialWork,
 ) {
   const unique = new Map<string, { record: T; book: PublicProfileBook }>();
   for (let start = 0; start < records.length; start += 20) {
@@ -338,7 +340,7 @@ export async function POST(request: Request) {
         const ids = input.workIds;
         if (!Array.isArray(ids) || ids.length > 20 || !ids.every(isBookDetailId)) return fail(400);
         for (const id of new Set(ids)) {
-          const work = await resolveWishlistWork(db, id);
+          const work = await resolveWishlistWork(db, id, 'fresh');
           if (!work) { unavailable++; continue; }
           await updateWishlist(db, uid, work.book.id, true, null, true, input.accountRevision, [...work.equivalentWorkIds, id]);
           current++;
@@ -382,15 +384,15 @@ export async function POST(request: Request) {
     if (action === 'review' && input.remove === true) {
       if (importOnly || !validRevision(revision)) return fail(400);
       if (platformWorkKeys.length) {
-        const resolved = await resolveSocialWork(db, input.workId, platformWorkKeys);
+        const resolved = await resolveSocialWork(db, input.workId, platformWorkKeys, 'fresh');
         if (!resolved || !resolved.equivalentWorkIds.includes(input.workId)
           || (detailWorkId !== undefined && !resolved.equivalentWorkIds.includes(detailWorkId))) return fail(404);
       }
       return json({ review: await updateReview(db, uid, input.workId, null, revision) });
     }
     const resolved = action === 'wishlist'
-      ? await resolveWishlistWork(db, input.workId)
-      : await resolveSocialWork(db, input.workId, platformWorkKeys);
+      ? await resolveWishlistWork(db, input.workId, 'fresh')
+      : await resolveSocialWork(db, input.workId, platformWorkKeys, 'fresh');
     if (!resolved || (revision !== null && platformWorkKeys.length && !resolved.equivalentWorkIds.includes(input.workId))
       || (detailWorkId !== undefined && !resolved.equivalentWorkIds.includes(detailWorkId))) return fail(404);
 
@@ -405,7 +407,7 @@ export async function POST(request: Request) {
       const historicalIds = expectedSiblings?.map(({ workId }) => workId).filter((id) => !equivalentIds.has(id)) ?? [];
       // Every supplied historical key must independently resolve to this work.
       for (let start = 0; start < historicalIds.length; start += 20) {
-        const matches = await Promise.all(historicalIds.slice(start, start + 20).map((id) => resolveWishlistWork(db, id)));
+        const matches = await Promise.all(historicalIds.slice(start, start + 20).map((id) => resolveWishlistWork(db, id, 'fresh')));
         if (matches.some((match) => match?.book.id !== resolved.book.id)) return fail(409);
       }
       const targetId = revision === null ? resolved.book.id : input.workId;

@@ -39,7 +39,7 @@ after(async () => {
 
 const alias = (value) => value.toString(16).padStart(64, '0');
 
-test('one of ten concurrent requests owns the alias lease and replay uses the cache', async () => {
+test('one of ten concurrent requests owns the alias lease and replay reads only cached metadata', async (t) => {
   const attempts = await Promise.all(Array.from({ length: 10 }, () => (
     acquireMetadataLease(db, alias(1), 'alice', 1_000_000)
   )));
@@ -55,8 +55,19 @@ test('one of ten concurrent requests owns the alias lease and replay uses the ca
   const generation = await saveMetadataAndPublish(db, document, acquired[0].owner);
   assert.match(generation, /^[0-9a-f]{20}$/);
 
+  const paths = [];
+  const runTransaction = db.runTransaction.bind(db);
+  t.mock.method(db, 'runTransaction', (callback, ...options) => runTransaction((transaction) => {
+    const get = transaction.get.bind(transaction);
+    t.mock.method(transaction, 'get', (ref) => {
+      paths.push(ref.path);
+      return get(ref);
+    });
+    return callback(transaction);
+  }, ...options));
   const replay = await acquireMetadataLease(db, alias(1), 'alice', 1_000_200);
   assert.equal(replay.kind, 'cached');
+  assert.deepEqual(paths, [`publicBookMetadataOnDemandV1/${alias(1)}`]);
   assert.equal(replay.document.publishPending, false);
   const manifest = await db.collection('publicBookCatalogDeltaV1').doc('manifest').get();
   assert.equal(manifest.data().recordCount, 1);
