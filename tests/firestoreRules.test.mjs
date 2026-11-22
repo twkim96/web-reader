@@ -155,10 +155,11 @@ test('allows on-demand metadata and delta point reads but blocks list and client
   }
 });
 
-test('keeps the point-read catalog collection exempt from automatic field indexes', async () => {
+test('keeps point-read book metadata and catalogs exempt from automatic field indexes', async () => {
   const config = JSON.parse(await readFile('firestore.indexes.json', 'utf8'));
   assert.deepEqual(config.indexes.filter(({ collectionGroup }) => collectionGroup.startsWith('publicBook')), []);
   assert.deepEqual(config.fieldOverrides.filter(({ collectionGroup }) => collectionGroup.startsWith('publicBook')).map(({ collectionGroup }) => collectionGroup), [
+    'publicBookMetadataV1',
     'publicBookCatalogIndexV1',
     'publicBookCatalogDeltaV1',
     'publicBookMetadataOnDemandV1',
