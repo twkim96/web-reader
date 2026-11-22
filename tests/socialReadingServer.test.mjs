@@ -68,16 +68,32 @@ test('explicit social work links require one published root even when the title 
 });
 
 function fixtureStats(readRows, onFullScan = () => {}) {
+  const timestamp = (row) => row.get?.('uploadedAtServer');
   return {
-    orderBy(field) {
-      const latest = field === 'uploadedAtServer';
+    count: () => ({ get: async () => ({ data: () => ({ count: readRows().length }) }) }),
+    orderBy(field, direction) {
+      const timestampOrdered = field === 'uploadedAtServer';
+      let after;
+      let pageSize;
       const query = {
         orderBy: () => query,
-        limit: () => query,
+        select: () => query,
+        limit: (size) => { pageSize = size; return query; },
+        startAfter: (stamp, id) => { after = { stamp, id }; return query; },
         get: async () => {
-          if (latest) return { docs: readRows().filter((row) => row.get?.('uploadedAtServer')), readTime: Timestamp.now() };
-          onFullScan();
-          return { docs: readRows() };
+          let docs = readRows();
+          if (timestampOrdered) {
+            docs = docs.filter(timestamp).sort((left, right) => (
+              timestamp(left).valueOf().localeCompare(timestamp(right).valueOf())
+              || Buffer.compare(Buffer.from(left.id), Buffer.from(right.id))
+            ));
+            if (direction === 'desc') docs.reverse();
+            if (after) docs = docs.filter((row) => timestamp(row) > after.stamp
+              || (timestamp(row).isEqual(after.stamp) && row.id > after.id));
+          } else {
+            onFullScan();
+          }
+          return { docs: docs.slice(0, pageSize), readTime: Timestamp.now() };
         },
       };
       return query;
@@ -120,6 +136,74 @@ test('reuses a verified empty history and rescans after the first server-timesta
   now += 31_000;
   assert.deepEqual(await evidence('legacy-account'), expectEvidence);
   assert.equal(fullScans, 4);
+});
+
+test('groups filename variants and reassigns a retained timeline after an alias remap', async (t) => {
+  const [first, second, calibration] = [...new Set((await loadSocialCatalog()).values())];
+  const aliasId = hash('neonaliassample');
+  let aliasBook = first;
+  const rows = [];
+  const stats = fixtureStats(() => rows);
+  const db = {
+    collection(path) {
+      if (path.endsWith('readingStatsV1')) return stats;
+      return { doc(id) {
+        return { get: async () => {
+          if (path !== 'publicBookMetadataOnDemandV1' || id !== aliasId) return { exists: false, data: () => undefined };
+          return { exists: true, data: () => ({
+            schemaVersion: 1, aliasId, status: 'ready',
+            platforms: aliasBook.platforms.map(({ id: platform, url }) => ({ platform, url })),
+          }) };
+        } };
+      } };
+    },
+    runTransaction: readFixtureTransaction,
+  };
+  const add = (sessionId, bookId, bookTitle, deviceId, start, progress, stamp, clockOffsetMs) => {
+    const session = {
+      schemaVersion: 1, sessionId, bookId, bookTitle, deviceId, mode: 'screen',
+      startedAtClient: start, endedAtClient: start + 2000, durationMs: 2000,
+      startProgressPercent: 0, endProgressPercent: progress, timezoneOffsetMinutes: 0,
+      completed: false,
+      ...(clockOffsetMs === undefined ? {} : { clockOffsetMs, clockMeasuredAtClient: start, clockUncertaintyMs: 100 }),
+    };
+    rows.push({ id: sessionId, get: () => new Timestamp(stamp, 0), data: () => session });
+  };
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const logs = [];
+  const previousLogging = process.env.MY_PAGE_PERF_LOG;
+  process.env.MY_PAGE_PERF_LOG = '1';
+  t.after(() => {
+    if (previousLogging === undefined) delete process.env.MY_PAGE_PERF_LOG;
+    else process.env.MY_PAGE_PERF_LOG = previousLogging;
+  });
+  t.mock.method(console, 'info', (label, data) => {
+    if (label === '[MyPagePerformance]' && data.route === 'reading-evidence-deferred') logs.push(data);
+  });
+  const evidence = (book, file) => getSocialReadingEvidence(db, 'account', book.id, [file], 'reading-evidence-deferred');
+
+  add('a-overlap-winner', 'second-file', second.id, 'second-device', 8000, 20, 1, -7000);
+  add('b-overlap-loser', 'first-file', 'neonaliassample.txt', 'first-device', 1000, 10, 1);
+  add('c-uncontested', 'first-file', 'neonaliassample.epub', 'first-device', 5000, 30, 1);
+  assert.deepEqual(await evidence(first, 'first-file'), { totalMs: 4000, progressPercent: 30 });
+  assert.equal(logs.at(-1).aliasResolutions, 1);
+
+  // A sample on a different book makes the two devices comparable in server time.
+  now += 31_000;
+  add('d-calibration', 'third-file', calibration.id, 'first-device', 11000, 40, 1, 0);
+  assert.deepEqual(await evidence(first, 'first-file'), { totalMs: 2000, progressPercent: 30 });
+  assert.equal(logs.at(-1).scanDocuments, 1);
+  assert.equal(logs.at(-1).timelineBuilds, 1);
+
+  aliasBook = second;
+  now += 5 * 60_000;
+  assert.deepEqual(await evidence(first, 'first-file'), { totalMs: null, progressPercent: null });
+  assert.equal(logs.at(-1).countQueries, 1);
+  assert.equal(logs.at(-1).scanDocuments, 0);
+  assert.equal(logs.at(-1).timelineBuilds, 0);
+  assert.equal(logs.at(-1).aliasResolutions, 1);
+  assert.deepEqual(await evidence(second, 'first-file'), { totalMs: 4000, progressPercent: 30 });
 });
 
 test('published aliases prove reading while private titles and unrelated file hints do not escape', async () => {

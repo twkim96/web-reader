@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createReadingStatisticsReceiveSchedule } from '../src/lib/readingStatisticsReceiveSchedule.ts';
-import { runReadingStatisticsHydrationAsLeader } from '../src/lib/readingStatisticsSyncCoordinator.ts';
+import { catchUpReadingStatisticsAuditAsLeader, runReadingStatisticsHydrationAsLeader } from '../src/lib/readingStatisticsSyncCoordinator.ts';
 
 const cursor = (seconds, documentId) => ({
   uploadedAtServerSeconds: seconds,
@@ -11,6 +11,40 @@ const cursor = (seconds, documentId) => ({
 });
 
 const session = (index) => ({ sessionId: `session-${index}` });
+
+test('ahead-count preflight leaves a partial, quarantined or unfenced page uncommitted', async () => {
+  const checkpoint = cursor(1, 'previous');
+  const cleanPage = {
+    sessions: [session(1)], quarantinedDocuments: [], nextCursor: cursor(2, 'session-1'), fullHydrationCompleted: true,
+  };
+  for (const [page, keepLeadership] of [
+    [{ ...cleanPage, fullHydrationCompleted: false }, true],
+    [{ ...cleanPage, quarantinedDocuments: [{ documentId: 'bad' }] }, true],
+    [cleanPage, false],
+  ]) {
+    let isLeader = true;
+    assert.equal(await catchUpReadingStatisticsAuditAsLeader(checkpoint, {
+      isLeader: () => isLeader,
+      verifyPreviousRange: async () => true,
+      fetchPage: async (from, options) => {
+        assert.deepEqual(from, checkpoint);
+        assert.deepEqual(options, { singleSnapshot: true });
+        isLeader = keepLeadership;
+        return page;
+      },
+      commitPage: async () => assert.fail('the weekly checkpoint must stay unchanged'),
+    }), 0);
+  }
+});
+
+test('does not advance past a deleted weekly marker even if a replacement preserves the count', async () => {
+  assert.equal(await catchUpReadingStatisticsAuditAsLeader(cursor(1, 'deleted-marker'), {
+    isLeader: () => true,
+    verifyPreviousRange: async () => false,
+    fetchPage: async () => assert.fail('a new tail must not hide a missing marker'),
+    commitPage: async () => assert.fail('the weekly checkpoint must stay unchanged'),
+  }), 0);
+});
 
 test('hydrates 500-record pages under one leader and preserves the exact cursor chain', async () => {
   const pages = [

@@ -50,6 +50,14 @@ const parseRemoteReadingSessionV1 = (value: unknown) => {
   return toReadingSessionPayload(parseReadingSessionV1(value));
 };
 
+const parseRemoteReadingSessionDocument = (data: unknown, documentId: string) => {
+  const session = parseRemoteReadingSessionV1(data);
+  if (session.sessionId !== documentId) {
+    throw new Error('원격 독서 통계 session identity가 올바르지 않습니다.');
+  }
+  return session;
+};
+
 const readServerTimestampCursor = (value: unknown) => {
   if (typeof value !== 'object' || value === null) return null;
   if (
@@ -81,18 +89,39 @@ export const getFirebaseReadingStatisticsPath = (appId: string, uid: string) => 
   `artifacts/${appId}/users/${uid}/libraries/local/readingStatsV1`
 );
 
+const isAtOrBeforeCursor = (document: ReadingStatisticsRemoteCursorV12, cursor: ReadingStatisticsRemoteCursorV12) => {
+  if (document.uploadedAtServerSeconds !== cursor.uploadedAtServerSeconds) {
+    return document.uploadedAtServerSeconds < cursor.uploadedAtServerSeconds;
+  }
+  if (document.uploadedAtServerNanoseconds !== cursor.uploadedAtServerNanoseconds) {
+    return document.uploadedAtServerNanoseconds < cursor.uploadedAtServerNanoseconds;
+  }
+  if (document.documentId === cursor.documentId) return true;
+  // Imported Datastore numeric IDs have special ordering. Let the full scan handle ties involving them.
+  if ([document.documentId, cursor.documentId].some((id) => id.startsWith('__id') && id.endsWith('__'))) return false;
+  // Firestore orders ordinary document IDs by UTF-8 bytes within timestamp ties.
+  const encoder = new TextEncoder();
+  const left = encoder.encode(document.documentId);
+  const right = encoder.encode(cursor.documentId);
+  for (let i = 0; i < Math.min(left.length, right.length); i += 1) {
+    if (left[i] !== right[i]) return left[i] < right[i];
+  }
+  return left.length <= right.length;
+};
+
 export const verifyRemoteReadingStatisticsAuditV1 = async (
   firestore: Firestore,
   uid: string,
-  expected: { remoteCount: number; cursor: ReadingStatisticsRemoteCursorV12 },
+  expected: { remoteCount: number; cursor: ReadingStatisticsRemoteCursorV12; quarantinedDocumentIds?: readonly string[] },
   instrumentation: { onReadAttempt?: () => void; onReadSuccess?: (returnedDocuments: number) => void } = {},
   sdk: Pick<
     typeof import('firebase/firestore'),
-    'collection' | 'documentId' | 'endAt' | 'getCountFromServer' | 'getDocsFromServer' | 'limitToLast' | 'orderBy' | 'query'
-  > = { collection, documentId, endAt, getCountFromServer, getDocsFromServer, limitToLast, orderBy, query },
+    'collection' | 'doc' | 'documentId' | 'endAt' | 'getCountFromServer' | 'getDocFromServer' | 'getDocsFromServer' | 'limitToLast' | 'orderBy' | 'query'
+  > = { collection, doc, documentId, endAt, getCountFromServer, getDocFromServer, getDocsFromServer, limitToLast, orderBy, query },
 ) => {
   const { documentId: cursorId, uploadedAtServerSeconds, uploadedAtServerNanoseconds } = expected.cursor;
-  const reference = sdk.collection(firestore, getFirebaseReadingStatisticsPath(APP_ID, uid));
+  const path = getFirebaseReadingStatisticsPath(APP_ID, uid);
+  const reference = sdk.collection(firestore, path);
   // Check the records already received. Uploads after this cursor belong to
   // the next incremental read and do not invalidate the weekly audit.
   const receivedRange = sdk.query(
@@ -108,9 +137,32 @@ export const verifyRemoteReadingStatisticsAuditV1 = async (
   instrumentation.onReadSuccess?.(snapshot.size);
   const last = snapshot.docs[0];
   const timestamp = readServerTimestampCursor(last?.data().uploadedAtServer);
-  return last?.id === cursorId
-    && timestamp?.uploadedAtServerSeconds === uploadedAtServerSeconds
-    && timestamp.uploadedAtServerNanoseconds === uploadedAtServerNanoseconds;
+  if (last?.id !== cursorId || timestamp?.uploadedAtServerSeconds !== uploadedAtServerSeconds
+    || timestamp.uploadedAtServerNanoseconds !== uploadedAtServerNanoseconds) return false;
+
+  // A count match alone misses repairs made under the same ID and timestamp.
+  for (const id of expected.quarantinedDocumentIds ?? []) {
+    let data = last.data();
+    if (id !== cursorId) {
+      instrumentation.onReadAttempt?.();
+      const quarantined = await sdk.getDocFromServer(sdk.doc(firestore, `${path}/${id}`));
+      instrumentation.onReadSuccess?.(quarantined.exists() ? 1 : 0);
+      if (!quarantined.exists()) return false;
+      data = quarantined.data();
+    }
+    // A Firestore map can look like a Timestamp but sorts outside the timestamp range.
+    const position = data.uploadedAtServer instanceof Timestamp
+      ? readServerTimestampCursor(data.uploadedAtServer)
+      : null;
+    if (!position || !isAtOrBeforeCursor({ ...position, documentId: id }, expected.cursor)) return false;
+    try {
+      parseRemoteReadingSessionDocument(data, id);
+    } catch {
+      continue;
+    }
+    return false;
+  }
+  return true;
 };
 
 export const uploadReadingSessionV1 = async (
@@ -218,6 +270,7 @@ export const getRemoteReadingSessionsPageV1 = async (
     onReadAttempt?: () => void;
     onReadSuccess?: (returnedDocuments: number) => void;
   } = {},
+  { singleSnapshot = false } = {},
 ) => {
   const reference = sdk.collection(
     firestore,
@@ -251,18 +304,14 @@ export const getRemoteReadingSessionsPageV1 = async (
       const data = document.data() as Record<string, unknown>;
       try {
         const timestampCursor = readServerTimestampCursor(data.uploadedAtServer);
-        if (!timestampCursor) {
+        if (!timestampCursor || (singleSnapshot && !(data.uploadedAtServer instanceof Timestamp))) {
           throw new Error('원격 독서 통계 upload cursor가 올바르지 않습니다.');
         }
         nextCursor = {
           ...timestampCursor,
           documentId: document.id,
         };
-        const session = parseRemoteReadingSessionV1(data);
-        if (session.sessionId !== document.id) {
-          throw new Error('원격 독서 통계 session identity가 올바르지 않습니다.');
-        }
-        sessions.push(session);
+        sessions.push(parseRemoteReadingSessionDocument(data, document.id));
       } catch (error) {
         quarantinedDocuments.push({
           documentId: document.id,
@@ -272,7 +321,7 @@ export const getRemoteReadingSessionsPageV1 = async (
         });
       }
     }
-    if (snapshot.size < pageSize) break;
+    if (snapshot.size < pageSize || singleSnapshot) break;
     const lastDocument = snapshot.docs.at(-1);
     if (!lastDocument) break;
     const lastData = lastDocument.data() as Record<string, unknown>;

@@ -25,22 +25,43 @@ export type ReadingStatisticsHydrationRunResult = {
   remoteReadCount: number;
 };
 
+type ReadingStatisticsHydrationOperations = {
+  isLeader: () => boolean | Promise<boolean>;
+  fetchPage: (
+    cursor: ReadingStatisticsRemoteCursorV12 | null,
+    options?: { singleSnapshot: boolean },
+  ) => Promise<ReadingStatisticsHydrationPage>;
+  commitPage: (
+    page: ReadingStatisticsHydrationPage,
+    expectedCursor: ReadingStatisticsRemoteCursorV12 | null,
+  ) => Promise<{ quarantinedDocuments: readonly unknown[] }>;
+};
+
+export const catchUpReadingStatisticsAuditAsLeader = async (
+  cursor: ReadingStatisticsRemoteCursorV12,
+  { isLeader, verifyPreviousRange, fetchPage, commitPage }: ReadingStatisticsHydrationOperations & {
+    verifyPreviousRange: () => Promise<boolean>;
+  },
+) => {
+  // The new tail could otherwise hide a deleted old marker even if the count matches.
+  if (!await isLeader() || !await verifyPreviousRange() || !await isLeader()) return 0;
+  const page = await fetchPage(cursor, { singleSnapshot: true });
+  // Only try a short, clean tail. A weekly audit still has to certify the new
+  // checkpoint, including the local count, after this ordinary page commit.
+  if (!page.fullHydrationCompleted || !page.sessions.length || page.quarantinedDocuments.length
+    || !await isLeader()) return 0;
+  await commitPage(page, cursor);
+  return page.sessions.length;
+};
+
 export const runReadingStatisticsHydrationAsLeader = async ({
   initialCursor,
   isLeader,
   fetchPage,
   commitPage,
   uploadBetweenPages,
-}: {
+}: ReadingStatisticsHydrationOperations & {
   initialCursor: ReadingStatisticsRemoteCursorV12 | null;
-  isLeader: () => boolean | Promise<boolean>;
-  fetchPage: (
-    cursor: ReadingStatisticsRemoteCursorV12 | null,
-  ) => Promise<ReadingStatisticsHydrationPage>;
-  commitPage: (
-    page: ReadingStatisticsHydrationPage,
-    expectedCursor: ReadingStatisticsRemoteCursorV12 | null,
-  ) => Promise<{ quarantinedDocuments: readonly unknown[] }>;
   uploadBetweenPages?: (limit: number) => Promise<void>;
 }): Promise<ReadingStatisticsHydrationRunResult> => {
   let cursor = initialCursor;

@@ -2,24 +2,31 @@ import {
   FieldPath, Timestamp, type CollectionReference, type Firestore, type Query, type QueryDocumentSnapshot, type Transaction,
 } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity';
+import { getPublicBookMetadataAliasCandidates } from '../../lib/publicBookMetadataSchema';
 import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, toReadingSessionPayload, type ReadingSessionV1 } from '../../lib/readingStatistics';
-import { resolveSocialReadingTitle, resolveSocialWork } from './catalog';
+import { loadSocialCatalog, resolveSocialReadingTitle, resolveSocialWork } from './catalog';
 import { reportMyPageApiTiming, type ReadingEvidenceRoute } from './performance';
 
 type Work = { fileIds: Set<string>; progress: number };
 type Cursor = { stamp: Timestamp; id: string };
 type History = { sessions: ReadingSessionV1[]; documentCount: number; bytes: number; fullScanAt: number };
+type FileEvidence = { titles: Set<string>; progress?: number; durationMs: number };
+type TitleMatch = Awaited<ReturnType<typeof resolveSocialReadingTitle>>;
 type Summary = {
   works: Map<string, Work>;
   totals: Map<string, number>;
   conflictedWorks: Set<string>;
   cursor: Cursor | null;
   empty: boolean;
-  history: History | null;
+  history: (History & { files: Map<string, FileEvidence> }) | null;
   builtAt: number;
 };
-type ReadCounts = { markerDocuments: number; countQueries: number; scanQueries: number; scanDocuments: number; emptyScanQueries: number };
+type ReadCounts = {
+  markerDocuments: number; countQueries: number; scanQueries: number; scanDocuments: number; emptyScanQueries: number;
+  timelineBuilds: number; aliasResolutions: number;
+};
 const caches = new WeakMap<Firestore, Map<string, { expires: number; promise: Promise<Summary> }>>();
+let publishedCatalog: ReturnType<typeof loadSocialCatalog> | undefined;
 
 const PAGE_SIZE = 300;
 const RECHECK_MS = 30_000;
@@ -44,7 +51,10 @@ async function summary(db: Firestore, uid: string, route?: ReadingEvidenceRoute)
     return found.promise;
   }
   const start = performance.now();
-  const counts: ReadCounts = { markerDocuments: 0, countQueries: 0, scanQueries: 0, scanDocuments: 0, emptyScanQueries: 0 };
+  const counts: ReadCounts = {
+    markerDocuments: 0, countQueries: 0, scanQueries: 0, scanDocuments: 0, emptyScanQueries: 0,
+    timelineBuilds: 0, aliasResolutions: 0,
+  };
   const promise = buildSummary(db, uid, counts, found?.promise).finally(() => {
     if (route) reportMyPageApiTiming(route, start, counts);
   });
@@ -121,7 +131,9 @@ async function readHistory(
         if (count === cached.documentCount + newer.documentCount) {
           // Keep the original document-ID order, including tie-breaking in
           // the clock-sample and completed-round calculations.
-          const sessions = [...cached.sessions, ...newer.sessions].sort((a, b) => compareIds(a.sessionId, b.sessionId));
+          const sessions = newer.sessions.length
+            ? [...cached.sessions, ...newer.sessions].sort((a, b) => compareIds(a.sessionId, b.sessionId))
+            : cached.sessions;
           return { sessions, documentCount: count, bytes: cached.bytes + historyBytes(newer.sessions), fullScanAt: cached.fullScanAt };
         }
       }
@@ -133,6 +145,59 @@ async function readHistory(
   return { ...full, bytes: historyBytes(full.sessions), fullScanAt: now };
 }
 
+function buildFileEvidence(sessions: ReadingSessionV1[], counts: ReadCounts) {
+  const files = new Map<string, FileEvidence>();
+  for (const session of sessions) {
+    const file = files.get(session.bookId) ?? { titles: new Set<string>(), durationMs: 0 };
+    file.titles.add(session.bookTitle);
+    if (session.completionRoundNumber === undefined) {
+      file.progress = Math.max(file.progress ?? 0, session.startProgressPercent, session.endProgressPercent);
+    }
+    files.set(session.bookId, file);
+  }
+  // Count across every file before assigning titles. Overlap or a clock sample
+  // from another book can change a file's time even when its own sessions match.
+  counts.timelineBuilds++;
+  buildReadingStatistics(sessions, {}, ({ session, durationMs }) => {
+    files.get(session.bookId)!.durationMs += durationMs;
+  });
+  return files;
+}
+
+async function resolveReadingTitles(db: Firestore, files: Map<string, FileEvidence>, counts: ReadCounts) {
+  const titles = new Set<string>();
+  for (const file of files.values()) for (const title of file.titles) titles.add(title);
+  const resolved = new Map<string, TitleMatch>();
+  if (!titles.size) return resolved;
+
+  publishedCatalog ??= loadSocialCatalog().catch((error) => { publishedCatalog = undefined; throw error; });
+  const catalog = await publishedCatalog;
+  const aliasGroups = new Map<string, string[]>();
+  for (const title of titles) {
+    const published = catalog.get(title);
+    if (published) {
+      resolved.set(title, { roots: new Set([published.id]), uncertain: false });
+      continue;
+    }
+    // The resolver tries the same ordered candidates for filename variants.
+    // Only share within this build so remaps keep the catalog's own freshness.
+    const key = JSON.stringify(getPublicBookMetadataAliasCandidates(title));
+    const group = aliasGroups.get(key) ?? [];
+    group.push(title);
+    aliasGroups.set(key, group);
+  }
+
+  const groups = aliasGroups.values();
+  await Promise.all(Array.from({ length: Math.min(8, aliasGroups.size) }, async () => {
+    for (const group of groups) {
+      counts.aliasResolutions++;
+      const match = await resolveSocialReadingTitle(db, group[0]);
+      for (const title of group) resolved.set(title, match);
+    }
+  }));
+  return resolved;
+}
+
 async function buildSummary(
   db: Firestore,
   uid: string,
@@ -140,7 +205,8 @@ async function buildSummary(
   previous?: Promise<Summary>,
 ): Promise<Summary> {
   const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
-  const latest = await collection.orderBy('uploadedAtServer', 'desc').orderBy(FieldPath.documentId(), 'desc').limit(1).get();
+  const latest = await collection.orderBy('uploadedAtServer', 'desc').orderBy(FieldPath.documentId(), 'desc')
+    .select('uploadedAtServer').limit(1).get();
   const last = latest.docs[0];
   counts.markerDocuments = Number(Boolean(last));
   const stamp = last?.get('uploadedAtServer');
@@ -157,54 +223,39 @@ async function buildSummary(
     (transaction) => readHistory(transaction, collection, cursor, retained, now, counts),
     { readOnly: true, readTime: latest.readTime },
   );
-  const sessions = history.sessions;
-  const titles = [...new Set(sessions.map((s) => s.bookTitle))];
-  const resolved = new Map<string, Awaited<ReturnType<typeof resolveSocialReadingTitle>>>();
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(8, titles.length) }, async () => {
-    while (next < titles.length) {
-      const title = titles[next++];
-      resolved.set(title, await resolveSocialReadingTitle(db, title));
-    }
-  }));
+  const files = history.sessions === retained?.history?.sessions
+    ? retained.history.files
+    : buildFileEvidence(history.sessions, counts);
+  const resolved = await resolveReadingTitles(db, files, counts);
   const works = new Map<string, Work>();
-  const fileWorks = new Map<string, Set<string>>();
-  const uncertainFiles = new Set<string>();
-  for (const session of sessions) {
-    const result = resolved.get(session.bookTitle);
-    if (!result) continue;
-    if (result.uncertain) uncertainFiles.add(session.bookId);
-    if (result.roots.size === 0) continue;
-    const ids = fileWorks.get(session.bookId) ?? new Set<string>();
-    for (const id of result.roots) ids.add(id);
-    fileWorks.set(session.bookId, ids);
-  }
   const conflictedWorks = new Set<string>();
-  for (const [file, ids] of fileWorks) {
-    if (ids.size > 1 || uncertainFiles.has(file)) for (const id of ids) conflictedWorks.add(id);
-  }
   const totals = new Map<string, number>();
-  const sessionWork = new Map<string, string>();
-  for (const session of sessions) {
-    const ids = fileWorks.get(session.bookId);
-    if (ids?.size !== 1 || uncertainFiles.has(session.bookId)) continue;
+  for (const [fileId, file] of files) {
+    const ids = new Set<string>();
+    let uncertain = false;
+    for (const title of file.titles) {
+      const result = resolved.get(title)!;
+      uncertain ||= result.uncertain;
+      for (const id of result.roots) ids.add(id);
+    }
+    if (ids.size > 1 || uncertain) {
+      for (const id of ids) conflictedWorks.add(id);
+      continue;
+    }
+    if (!ids.size) continue;
     // An old name can miss while another session still identifies the file.
     const [id] = ids;
-    sessionWork.set(session.sessionId, id);
     const work = works.get(id) ?? { fileIds: new Set<string>(), progress: 0 };
-    if (session.completionRoundNumber === undefined) {
-      work.fileIds.add(session.bookId);
-      work.progress = Math.max(work.progress, session.startProgressPercent, session.endProgressPercent);
+    if (file.progress !== undefined) {
+      work.fileIds.add(fileId);
+      work.progress = Math.max(work.progress, file.progress);
     }
     works.set(id, work);
+    totals.set(id, (totals.get(id) ?? 0) + file.durationMs);
   }
-  buildReadingStatistics(sessions, {}, ({ session, durationMs }) => {
-    const id = sessionWork.get(session.sessionId);
-    if (id) totals.set(id, (totals.get(id) ?? 0) + durationMs);
-  });
   return {
     works, totals, conflictedWorks, cursor, empty: history.documentCount === 0, builtAt: now,
-    history: history.documentCount <= MAX_HISTORY_DOCUMENTS && history.bytes <= MAX_HISTORY_BYTES ? history : null,
+    history: history.documentCount <= MAX_HISTORY_DOCUMENTS && history.bytes <= MAX_HISTORY_BYTES ? { ...history, files } : null,
   };
 }
 

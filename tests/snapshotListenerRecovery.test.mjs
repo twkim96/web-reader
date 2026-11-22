@@ -99,6 +99,36 @@ test('tracks authoritative freshness and can force a healthy listener restart', 
   assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 5_250);
 });
 
+test('only a processed server snapshot received after hiding can satisfy the foreground check', async () => {
+  let now = 100;
+  const pending = Promise.withResolvers();
+  const harness = createHarness({ now: () => now, onSnapshot: (snapshot) => snapshot.wait });
+  harness.controller.start();
+  harness.subscriptions[0].onSnapshot({ authoritative: true, wait: pending.promise });
+  const hiddenAt = ++now;
+  pending.resolve();
+  await flushTasks();
+  assert.equal(harness.controller.hasProcessedAuthoritativeSnapshotsAcross(hiddenAt), false);
+
+  now++;
+  harness.subscriptions[0].onSnapshot({ authoritative: false });
+  await flushTasks();
+  assert.equal(harness.controller.hasProcessedAuthoritativeSnapshotsAcross(hiddenAt), false);
+  harness.subscriptions[0].onSnapshot({ authoritative: true });
+  assert.equal(harness.controller.hasProcessedAuthoritativeSnapshotsAcross(hiddenAt), false);
+  await flushTasks();
+  assert.equal(harness.controller.hasProcessedAuthoritativeSnapshotsAcross(hiddenAt), true);
+
+  harness.controller.forceRestart();
+  assert.equal(harness.controller.hasProcessedAuthoritativeSnapshotsAcross(hiddenAt), false);
+  harness.subscriptions[1].onSnapshot({ authoritative: true });
+  await flushTasks();
+  assert.equal(harness.controller.hasProcessedAuthoritativeSnapshotsAcross(hiddenAt), false);
+  harness.subscriptions[1].onError({ code: 'unavailable' });
+  assert.equal(harness.controller.hasProcessedAuthoritativeSnapshotsAcross(hiddenAt), false);
+  harness.controller.dispose();
+});
+
 test('restarts a healthy listener that never receives an authoritative snapshot and cools down repeats', async () => {
   let now = 1_000;
   const harness = createHarness({ now: () => now });

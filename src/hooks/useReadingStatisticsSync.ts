@@ -13,6 +13,7 @@ import {
   recordReadingStatisticsHydrationMetricsV12,
   recordReadingStatisticsVerifiedAuditV12,
   type ReadingStatisticsFullScanReason,
+  type ReadingStatisticsRemoteCursorV12,
 } from '../lib/localReadingStatistics';
 import { getSyncOwnerKey, splitOwnerKey, type OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
@@ -41,7 +42,11 @@ import {
   READING_STATISTICS_LEASE_HEARTBEAT_MS,
   ReadingStatisticsSyncLeaseRuntime,
 } from '../lib/readingStatisticsSyncLease';
-import { runReadingStatisticsHydrationAsLeader } from '../lib/readingStatisticsSyncCoordinator';
+import {
+  catchUpReadingStatisticsAuditAsLeader,
+  runReadingStatisticsHydrationAsLeader,
+  type ReadingStatisticsHydrationPage,
+} from '../lib/readingStatisticsSyncCoordinator';
 import { createReadingStatisticsReceiveSchedule } from '../lib/readingStatisticsReceiveSchedule';
 import { traceReaderBootstrap } from '../lib/readerBootstrapTrace';
 
@@ -276,7 +281,36 @@ export const useReadingStatisticsSync = (
               },
             };
             try {
-              const plan = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+              const hydrationOperations = {
+                isLeader: hasClaimLeadership,
+                fetchPage: async (cursor: ReadingStatisticsRemoteCursorV12 | null, options?: { singleSnapshot: boolean }) => {
+                  const page = await getRemoteReadingSessionsPageV1(db, user.uid, cursor, undefined, undefined, instrumentation, options);
+                  receivedHistoryDocuments += page.sessions.length + page.quarantinedDocuments.length;
+                  return page;
+                },
+                commitPage: async (page: ReadingStatisticsHydrationPage, cursor: ReadingStatisticsRemoteCursorV12 | null) => {
+                  const result = await hydrateRemoteReadingSessionsPageV12(
+                    syncOwnerKey, page.sessions, cursor, page.nextCursor, page.fullHydrationCompleted,
+                    false, page.quarantinedDocuments, Date.now(), leaseClaim,
+                  );
+                  hydrationPageCount += 1;
+                  return result;
+                },
+              };
+              let plan = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+              if ('catchUpFrom' in plan && plan.catchUpFrom) {
+                const previous = plan.catchUpFrom;
+                const caughtUpCount = await catchUpReadingStatisticsAuditAsLeader(previous.cursor, {
+                  ...hydrationOperations,
+                  verifyPreviousRange: () => verifyRemoteReadingStatisticsAuditV1(db, user.uid, previous, instrumentation)
+                    .catch(() => false),
+                });
+                if (caughtUpCount > 0) {
+                  notifyReadingStatisticsChange(syncOwnerKey);
+                  const updated = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+                  if (!('state' in updated)) plan = updated;
+                }
+              }
               let initialCursor = 'state' in plan ? plan.state.cursor : null;
               if ('candidate' in plan) {
                 if (!await hasClaimLeadership()) {
@@ -302,35 +336,8 @@ export const useReadingStatisticsSync = (
               }
               queryMode = initialCursor ? 'cursor' : 'no-cursor';
               const hydrationRun = await runReadingStatisticsHydrationAsLeader({
+                ...hydrationOperations,
                 initialCursor,
-                isLeader: hasClaimLeadership,
-                fetchPage: async (cursor) => {
-                  const page = await getRemoteReadingSessionsPageV1(
-                    db,
-                    user.uid,
-                    cursor,
-                    undefined,
-                    undefined,
-                    instrumentation,
-                  );
-                  receivedHistoryDocuments += page.sessions.length + page.quarantinedDocuments.length;
-                  return page;
-                },
-                commitPage: async (page, cursor) => {
-                  const result = await hydrateRemoteReadingSessionsPageV12(
-                    syncOwnerKey,
-                    page.sessions,
-                    cursor,
-                    page.nextCursor,
-                    page.fullHydrationCompleted,
-                    false,
-                    page.quarantinedDocuments,
-                    Date.now(),
-                    leaseClaim,
-                  );
-                  hydrationPageCount += 1;
-                  return result;
-                },
                 uploadBetweenPages: async (limit) => {
                   if (uploadStatus !== 'ready') return;
                   const uploadStartedAt = performance.now();

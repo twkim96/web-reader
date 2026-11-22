@@ -302,6 +302,7 @@ export const useProgressSync = ({
       ? getFirebaseSyncHistoryPath(APP_ID, user.uid)
       : null;
     let foregroundRefreshGeneration = 0;
+    let hiddenAt: number | null = null;
 
     const refreshActiveProgressFromServer = async () => {
       if (
@@ -385,10 +386,26 @@ export const useProgressSync = ({
       }
     };
 
-    const handleOnline = () => reconcileListeners('online');
+    const handleOnline = () => {
+      hiddenAt = null;
+      reconcileListeners('online');
+    };
     const handleVisibility = () => {
-      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (document.visibilityState !== 'visible') {
+        hiddenAt = now;
+        return;
+      }
       reconcileListeners('visible');
+      const since = hiddenAt;
+      hiddenAt = null;
+      if (activeBookId && since !== null && now >= since && now - since <= AUTHORITATIVE_SNAPSHOT_STALE_MS
+        && progressRecoveryRef.current?.hasProcessedAuthoritativeSnapshotsAcross(since)) {
+        traceReaderBootstrap({
+          event: 'active-progress-refresh', listener: 'progress', wakeReason: 'visible', status: 'already-confirmed',
+        });
+        return;
+      }
       void refreshActiveProgressFromServer();
     };
     const unsubscribeToken = onIdTokenChanged(auth, (currentUser) => {
@@ -410,7 +427,7 @@ export const useProgressSync = ({
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [activeBookId, setRemoteProgress, user]);
+  }, [activeBookId, ownerKey, setRemoteProgress, user]);
 
   return mergeSyncHealth(
     user ? progressReceiveHealth : 'healthy',

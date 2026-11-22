@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import {
   buildReadingStatistics,
   buildReadingBookRounds,
@@ -19,6 +20,9 @@ import {
   shouldResetReadingActivityForTtsTransition,
   sortReadingBookRoundsByRecent,
 } from '../src/lib/readingStatistics.ts';
+
+// tsx loads the application module and its Firebase dependency as CommonJS.
+const { Timestamp } = createRequire(import.meta.url)('firebase/firestore');
 
 test('formats compact reader time as an unlabeled hour-minute clock', () => {
   assert.equal(formatReadingClock(0), '00:00');
@@ -1140,6 +1144,25 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
     documentId: valid.sessionId,
   });
   assert.equal(page.fullHydrationCompleted, false);
+
+  reads = 0;
+  const checkpoint = { uploadedAtServerSeconds: 59, uploadedAtServerNanoseconds: 7, documentId: 'previous' };
+  const preflight = await getRemoteReadingSessionsPageV1({}, 'alice', checkpoint, 1, sdk, {}, { singleSnapshot: true });
+  assert.equal(reads, 1);
+  assert.equal(preflight.fullHydrationCompleted, false);
+  assert.deepEqual(preflight.nextCursor, checkpoint);
+  assert.equal(preflight.quarantinedDocuments[0].documentId, malformedDocument.id);
+
+  const readTimestampShapedMap = async () => ({
+    size: 1,
+    docs: [{ id: valid.sessionId, data: () => ({ ...valid, uploadedAtServer: { seconds: 60, nanoseconds: 9 } }) }],
+  });
+  const mapPage = await getRemoteReadingSessionsPageV1({}, 'alice', checkpoint, 2, {
+    ...sdk, getDocsFromServer: readTimestampShapedMap,
+  }, {}, { singleSnapshot: true });
+  assert.deepEqual(mapPage.sessions, []);
+  assert.deepEqual(mapPage.nextCursor, checkpoint);
+  assert.equal(mapPage.quarantinedDocuments[0].documentId, valid.sessionId);
 });
 
 test('reports a successful first read when the malformed-cursor follow-up read fails', async () => {
@@ -1216,6 +1239,59 @@ test('weekly audit checks the count and last record through the received cursor'
   receivedCount--;
   assert.equal(await verify(), false);
   assert.equal(markerReads, 3, 'a changed count skips the marker lookup');
+});
+
+test('a bounded weekly audit recognizes stable quarantine and rejects repair, deletion, or a move beyond the cursor', async () => {
+  const earlier = session({ sessionId: 'earlier-corrupt', startedAtClient: 1_000, endedAtClient: 61_000 });
+  const marker = session({ sessionId: 'quarantined-marker', startedAtClient: 1_000, endedAtClient: 61_000 });
+  const timestamp = new Timestamp(60, 931);
+  const damaged = { ...earlier, durationMs: -1, uploadedAtServer: timestamp };
+  let earlierData = damaged;
+  let markerData = { ...marker, durationMs: -1, uploadedAtServer: timestamp };
+  let count = 20_000;
+  const pointPaths = [];
+  let collectionPath;
+  const sdk = {
+    collection: (_db, path) => { collectionPath = path; return {}; },
+    doc: (_db, path) => path,
+    documentId: () => '__name__',
+    orderBy: (...args) => args,
+    endAt: (...args) => args,
+    limitToLast: (value) => value,
+    query: (...args) => args,
+    getCountFromServer: async () => ({ data: () => ({ count }) }),
+    getDocsFromServer: async () => ({ size: 1, docs: [{ id: marker.sessionId, data: () => markerData }] }),
+    getDocFromServer: async (path) => {
+      pointPaths.push(path);
+      return { exists: () => earlierData !== null, data: () => earlierData };
+    },
+  };
+  const expected = {
+    remoteCount: count,
+    cursor: { uploadedAtServerSeconds: 60, uploadedAtServerNanoseconds: 931, documentId: marker.sessionId },
+    quarantinedDocumentIds: [earlier.sessionId, marker.sessionId],
+  };
+  const observations = [];
+  const verify = () => verifyRemoteReadingStatisticsAuditV1({}, 'alice', expected, { onReadSuccess: (size) => observations.push(size) }, sdk);
+  assert.equal(await verify(), true);
+  assert.deepEqual(observations, [1, 1], 'only the cursor and non-cursor quarantine document are returned');
+  assert.deepEqual(pointPaths, [`${collectionPath}/${earlier.sessionId}`]);
+
+  earlierData = { ...earlier, uploadedAtServer: timestamp };
+  assert.equal(await verify(), false, 'a repair may preserve both count and cursor');
+  earlierData = null;
+  assert.equal(await verify(), false, 'deletion remains detectable even if another document compensates for the count');
+  earlierData = { ...damaged, uploadedAtServer: new Timestamp(60, 932) };
+  assert.equal(await verify(), false);
+  earlierData = { ...damaged, uploadedAtServer: { seconds: 60, nanoseconds: 930 } };
+  assert.equal(await verify(), false, 'a timestamp-shaped map is outside the Firestore timestamp range');
+  earlierData = damaged;
+  markerData = { ...marker, uploadedAtServer: timestamp };
+  assert.equal(await verify(), false, 'a repaired quarantine marker is also detected');
+  count -= 1;
+  const pointCount = pointPaths.length;
+  assert.equal(await verify(), false);
+  assert.equal(pointPaths.length, pointCount, 'a count mismatch skips point reads');
 });
 
 test('accepts only a low-uncertainty server clock sample', async () => {

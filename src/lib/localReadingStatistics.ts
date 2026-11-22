@@ -93,6 +93,7 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
 const HYDRATION_AUDIT_INTERVAL_MS = 7 * 24 * 60 * 60_000;
 const FULL_HYDRATION_AUDIT_INTERVAL_MS = 4 * HYDRATION_AUDIT_INTERVAL_MS;
 const MAX_QUARANTINED_DOCUMENTS = 100;
+const MAX_WEEKLY_QUARANTINE_PROBES = 8;
 // Firestore document IDs may be much longer than our 128-character session
 // IDs. A malformed remote document must still remain usable as an exact query
 // cursor so hydration can advance past it.
@@ -363,6 +364,7 @@ export const confirmLocalReadingRoundV11 = (
 type ReadingStatisticsAuditCandidateV12 = {
   cursor: ReadingStatisticsRemoteCursorV12;
   remoteCount: number;
+  quarantinedDocumentIds: string[];
   lastFullAuditAt: number;
   lastVerifiedAuditAt: number;
 };
@@ -381,7 +383,7 @@ export type ReadingStatisticsFullScanReason =
   | 'remote-audit-failed'
   | 'audit-checkpoint-changed';
 
-type LocalFullScan = { reason: ReadingStatisticsFullScanReason };
+type LocalFullScan = { reason: ReadingStatisticsFullScanReason; catchUpFrom?: ReadingStatisticsAuditCandidateV12 };
 type ReadingStatisticsHydrationStateV12 = {
   cursor: ReadingStatisticsRemoteCursorV12 | null;
   fullHydrationCompleted: boolean;
@@ -399,32 +401,40 @@ const getAuditCandidate = async (
   meta: ReadingStatisticsSyncMetaV12,
   now: number,
 ): Promise<{ candidate: ReadingStatisticsAuditCandidateV12 } | LocalFullScan> => {
-  if (meta.quarantinedDocuments.length > 0) return { reason: 'quarantined-history' };
   if (meta.documentId === '__empty__') return { reason: 'empty-history' };
   if (isGuestOwner(ownerKey) || meta.ownerKey !== ownerKey || !meta.fullHydrationCompleted || meta.fullAuditInProgress
-    || meta.hydratedRemoteCount === 0 || meta.lastFullAuditAt === 0 || now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
+    || meta.lastFullAuditAt === 0 || now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
     || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) < HYDRATION_AUDIT_INTERVAL_MS) {
     return { reason: 'weekly-audit-unavailable' };
   }
-  const [syncedCount, latest] = await Promise.all([
+  const quarantinedDocumentIds = meta.quarantinedDocuments.map(({ documentId }) => documentId).sort();
+  if (quarantinedDocumentIds.length > MAX_WEEKLY_QUARANTINE_PROBES
+    || new Set(quarantinedDocumentIds).size !== quarantinedDocumentIds.length) return { reason: 'quarantined-history' };
+  const [syncedCount, latest, ...quarantinedRows] = await Promise.all([
     sessions.index('by-owner-sync-next-attempt').count(IDBKeyRange.bound(
       [ownerKey, 'synced', 0], [ownerKey, 'synced', Number.MAX_SAFE_INTEGER],
     )),
     sessions.get([ownerKey, meta.documentId]),
+    ...quarantinedDocumentIds.map((id) => sessions.get([ownerKey, id])),
   ]);
-  if (syncedCount !== meta.hydratedRemoteCount) {
-    return { reason: syncedCount > meta.hydratedRemoteCount ? 'local-synced-count-ahead' : 'local-synced-count-behind' };
+  // A document cannot stand in for both a received session and a quarantine entry.
+  if (quarantinedRows.some((row) => row !== undefined)) return { reason: 'quarantined-history' };
+  if (syncedCount < meta.hydratedRemoteCount) return { reason: 'local-synced-count-behind' };
+  const remoteCount = meta.hydratedRemoteCount + quarantinedDocumentIds.length;
+  if (remoteCount === 0) return { reason: 'weekly-audit-unavailable' };
+  if (!quarantinedDocumentIds.includes(meta.documentId) && readStoredSession(latest)?.syncState !== 'synced') {
+    return { reason: 'local-cursor-invalid' };
   }
-  if (readStoredSession(latest)?.syncState !== 'synced') return { reason: 'local-cursor-invalid' };
   const { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId } = meta;
-  return {
-    candidate: {
-      cursor: { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId },
-      remoteCount: syncedCount,
-      lastFullAuditAt: meta.lastFullAuditAt,
-      lastVerifiedAuditAt: meta.lastVerifiedAuditAt,
-    },
+  const candidate = {
+    cursor: { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId },
+    remoteCount,
+    quarantinedDocumentIds,
+    lastFullAuditAt: meta.lastFullAuditAt,
+    lastVerifiedAuditAt: meta.lastVerifiedAuditAt,
   };
+  if (syncedCount > meta.hydratedRemoteCount) return { reason: 'local-synced-count-ahead', catchUpFrom: candidate };
+  return { candidate };
 };
 
 export const getReadingStatisticsHydrationPlanV12 = async (
@@ -477,15 +487,17 @@ export const recordReadingStatisticsVerifiedAuditV12 = async (
   const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
   const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
   const value = await metaStore.get(ownerKey);
-  const check = value && await getAuditCandidate(
+  const check = value ? await getAuditCandidate(
     tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, assertSyncMeta(value), clock(),
-  );
+  ) : null;
   const current = check && 'candidate' in check ? check.candidate : null;
   const lease = await tx.objectStore(V13_READING_STATISTICS_LEASES_STORE).get(ownerKey);
   const now = clock();
   const canRecord = current && current.remoteCount === candidate.remoteCount
     && current.lastFullAuditAt === candidate.lastFullAuditAt && current.lastVerifiedAuditAt === candidate.lastVerifiedAuditAt
     && sameCursor(current.cursor, candidate.cursor)
+    && current.quarantinedDocumentIds.length === candidate.quarantinedDocumentIds.length
+    && current.quarantinedDocumentIds.every((id, index) => id === candidate.quarantinedDocumentIds[index])
     && now - current.lastFullAuditAt < FULL_HYDRATION_AUDIT_INTERVAL_MS
     && isCurrentStatisticsLease(lease, leaseClaim, now);
   if (canRecord) await metaStore.put({ ...assertSyncMeta(value), lastVerifiedAuditAt: now });

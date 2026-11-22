@@ -26,6 +26,7 @@ import {
 import {
   acquireReadingStatisticsSyncLeaseV13,
 } from '../src/lib/readingStatisticsSyncLease.ts';
+import { catchUpReadingStatisticsAuditAsLeader } from '../src/lib/readingStatisticsSyncCoordinator.ts';
 import {
   getReadingStatisticsDraftKey,
   getReadingStatisticsDraftRecoveryEnd,
@@ -517,17 +518,95 @@ test('a pending replacement and a lease takeover cannot certify a weekly audit',
   assert.ok((await getLocalReadingSessionsV11(owner)).some((entry) => entry.sessionId === first.sessionId));
 });
 
-test('diagnoses an acknowledged upload that has not reached the weekly receive cursor', async () => {
+test('a short incremental page reconciles an acknowledged upload before weekly verification', async () => {
   const fullAt = 200_000;
   const checkAt = fullAt + 7 * 24 * 60 * 60_000;
   const previous = makeSession('already-received');
   const uploaded = makeSession('newly-uploaded');
-  await hydrateRemoteReadingSessionsPageV12(owner, [previous], null, cursor(60, previous.sessionId), true, true, [], fullAt);
+  const newest = makeSession('other-device');
+  const previousCursor = cursor(60, previous.sessionId, 930);
+  const newestCursor = cursor(60, newest.sessionId, 932);
+  await hydrateRemoteReadingSessionsPageV12(owner, [previous], null, previousCursor, true, true, [], fullAt);
   await saveLocalReadingSessionV11(owner, uploaded);
   assert.equal(await markReadingSessionSyncedV11(owner, uploaded.sessionId, uploaded), true);
-  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, checkAt), {
+  const plan = await getReadingStatisticsHydrationPlanV12(owner, checkAt);
+  assert.deepEqual(plan, {
     reason: 'local-synced-count-ahead',
+    catchUpFrom: {
+      cursor: previousCursor, remoteCount: 1, quarantinedDocumentIds: [],
+      lastFullAuditAt: fullAt, lastVerifiedAuditAt: 0,
+    },
   });
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'catch-up', checkAt);
+  const hydrated = await catchUpReadingStatisticsAuditAsLeader(plan.catchUpFrom.cursor, {
+    isLeader: () => true,
+    verifyPreviousRange: async () => true,
+    fetchPage: async (from) => {
+      assert.deepEqual(from, previousCursor);
+      return { sessions: [uploaded, newest], nextCursor: newestCursor, fullHydrationCompleted: true, quarantinedDocuments: [] };
+    },
+    commitPage: (page, from) => hydrateRemoteReadingSessionsPageV12(
+      owner, page.sessions, from, page.nextCursor, page.fullHydrationCompleted, false, [], checkAt, lease,
+    ),
+  });
+  assert.equal(hydrated, 2);
+  const candidate = (await getReadingStatisticsHydrationPlanV12(owner, checkAt)).candidate;
+  assert.equal(candidate.remoteCount, 3);
+  assert.deepEqual(candidate.cursor, newestCursor);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, lease, () => checkAt), true);
+  assert.equal((await getReadingStatisticsHydrationStateV12(owner, checkAt)).lastFullAuditAt, fullAt);
+});
+
+test('catch-up exposes a missing older session even when excess uploads masked the loss', async () => {
+  const fullAt = 200_000;
+  const checkAt = fullAt + 7 * 24 * 60 * 60_000;
+  const first = makeSession('missing');
+  const last = makeSession('last');
+  const uploaded = [makeSession('upload-a'), makeSession('upload-b')];
+  const checkpoint = cursor(60, last.sessionId);
+  await hydrateRemoteReadingSessionsPageV12(owner, [first, last], null, checkpoint, true, true, [], fullAt);
+  await (await initDB()).delete(V11_READING_SESSIONS_STORE, [owner, first.sessionId]);
+  for (const record of uploaded) {
+    await saveLocalReadingSessionV11(owner, record);
+    await markReadingSessionSyncedV11(owner, record.sessionId, record);
+  }
+  await saveLocalReadingSessionV11(owner, makeSession('pending-replacement'));
+  const plan = await getReadingStatisticsHydrationPlanV12(owner, checkAt);
+  assert.equal(plan.reason, 'local-synced-count-ahead');
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'catch-up-loss', checkAt);
+  await hydrateRemoteReadingSessionsPageV12(owner, uploaded, plan.catchUpFrom.cursor,
+    cursor(60, uploaded.at(-1).sessionId, 1), true, false, [], checkAt, lease);
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, checkAt), { reason: 'local-synced-count-behind' });
+});
+
+test('a quarantine at the cursor can be audited while the 28-day recovery stays due', async () => {
+  const fullAt = 200_000;
+  const week = 7 * 24 * 60 * 60_000;
+  const checkAt = fullAt + week;
+  const known = makeSession('previous');
+  const exact = cursor(60, 'quarantined-marker', 931);
+  const quarantined = [
+    { documentId: 'earlier-quarantine', reason: 'schema mismatch', detectedAt: fullAt },
+    { documentId: exact.documentId, reason: 'schema mismatch', detectedAt: fullAt },
+  ];
+  await hydrateRemoteReadingSessionsPageV12(owner, [known], null, exact, true, true, quarantined, fullAt);
+  const candidate = (await getReadingStatisticsHydrationPlanV12(owner, checkAt)).candidate;
+  assert.equal(candidate.remoteCount, 3);
+  assert.deepEqual(candidate.quarantinedDocumentIds, quarantined.map(({ documentId }) => documentId));
+  assert.deepEqual(candidate.cursor, exact);
+
+  const db = await initDB();
+  const original = await db.get(V12_READING_STATISTICS_SYNC_STORE, owner);
+  await db.put(V12_READING_STATISTICS_SYNC_STORE, {
+    ...original, quarantinedDocuments: [{ ...quarantined[0], documentId: 'changed-quarantine' }, quarantined[1]],
+  });
+  assert.equal((await getReadingStatisticsHydrationPlanV12(owner, checkAt)).candidate.remoteCount, candidate.remoteCount);
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'quarantine-audit', checkAt);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, lease, () => checkAt), false);
+  await db.put(V12_READING_STATISTICS_SYNC_STORE, original);
+  assert.equal(await recordReadingStatisticsVerifiedAuditV12(owner, candidate, lease, () => checkAt), true);
+  assert.deepEqual((await getReadingStatisticsHydrationStateV12(owner, checkAt)).quarantinedDocuments, quarantined);
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, fullAt + 4 * week), { reason: 'periodic-full-audit' });
 });
 
 test('a malformed local copy cannot block recovery or make a full scan reread the same page', async () => {

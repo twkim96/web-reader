@@ -3656,8 +3656,14 @@ try {
     const dragStart = dragStartingProgress < 50 ? 18 : 82;
     const dragStartPointer = dispatchPointer('pointerdown', dragStart, 1);
     dispatchPointer('pointermove', dragTarget, 1);
-    await new Promise(resolve => setTimeout(resolve, 250));
-    const contentPreview = document.querySelector('[data-progress-content-preview]');
+    const previewDeadline = performance.now() + 5000;
+    let contentPreview;
+    do {
+      contentPreview = document.querySelector('[data-progress-content-preview]');
+      const text = contentPreview?.querySelector('p')?.textContent;
+      if (text && text !== '미리보기 불러오는 중…') break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    } while (performance.now() < previewDeadline);
     const previewText = contentPreview?.querySelector('p')?.textContent ?? '';
     const previewDoesNotIntercept = contentPreview ? getComputedStyle(contentPreview).pointerEvents === 'none' : false;
     const dragPointer = dispatchPointer('pointerup', dragTarget, 0);

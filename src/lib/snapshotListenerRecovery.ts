@@ -61,6 +61,8 @@ export class SnapshotListenerRecovery<T> {
   private lastAttachedAt = 0;
   private lastRestartAt = 0;
   private lastAuthoritativeSnapshotAt = 0;
+  private firstAuthoritativeReceivedAt: number | null = null;
+  private lastAuthoritativeReceivedAt: number | null = null;
   private readonly setTimer;
   private readonly clearTimer;
   private readonly now;
@@ -138,6 +140,13 @@ export class SnapshotListenerRecovery<T> {
     return this.lastAuthoritativeSnapshotAt;
   }
 
+  hasProcessedAuthoritativeSnapshotsAcross(at: number) {
+    // The initial snapshot hydrates existing documents but has no removals.
+    return !this.disposed && !this.failed && this.firstAuthoritativeReceivedAt !== null
+      && this.firstAuthoritativeReceivedAt <= at && this.lastAuthoritativeReceivedAt !== null
+      && this.lastAuthoritativeReceivedAt > at;
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -153,6 +162,8 @@ export class SnapshotListenerRecovery<T> {
     const generation = this.generation + 1;
     this.generation = generation;
     this.lastAttachedAt = this.now();
+    this.firstAuthoritativeReceivedAt = null;
+    this.lastAuthoritativeReceivedAt = null;
 
     try {
       const unsubscribe = this.options.subscribe(
@@ -171,21 +182,24 @@ export class SnapshotListenerRecovery<T> {
   }
 
   private enqueueSnapshot(snapshot: T, generation: number) {
+    const receivedAt = this.now();
     this.processingTail = this.processingTail
       .catch(() => undefined)
       .then(async () => {
         if (!this.isCurrent(generation)) return;
         await this.options.onSnapshot(snapshot);
-        this.handleProcessedSnapshot(snapshot, generation);
+        this.handleProcessedSnapshot(snapshot, generation, receivedAt);
       })
       .catch((error) => this.handleError(error, generation));
   }
 
-  private handleProcessedSnapshot(snapshot: T, generation: number) {
+  private handleProcessedSnapshot(snapshot: T, generation: number, receivedAt: number) {
     if (!this.isCurrent(generation) || !this.options.isAuthoritative(snapshot)) return;
     this.failed = false;
     this.retryAttempt = 0;
     this.lastAuthoritativeSnapshotAt = this.now();
+    this.firstAuthoritativeReceivedAt ??= receivedAt;
+    this.lastAuthoritativeReceivedAt = receivedAt;
     this.clearRetryTimer();
     this.setHealth('healthy');
   }
