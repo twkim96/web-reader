@@ -738,7 +738,7 @@ test('retry after a lost review response returns the saved revision without repl
   assert.equal(unauthorized.headers.get('server-timing'), null);
   const measured = await get({ ...previewParams, timing: '1' }, idToken);
   const timings = measured.headers.get('server-timing');
-  assert.match(timings, /^auth;dur=[\d.]+, query;dur=[\d.]+, rows;desc="records=1", resolve;dur=[\d.]+, total;dur=[\d.]+$/);
+  assert.match(timings, /^auth-admin;dur=[\d.]+, auth-verify;dur=[\d.]+, auth;dur=[\d.]+, query;dur=[\d.]+, rows;desc="records=1", resolve;dur=[\d.]+, total;dur=[\d.]+$/);
   const preview = await ok(measured);
   assert.deepEqual(preview.deletions, []);
   assert.deepEqual(preview.reviews.map(({ workId, coverUrl, rating }) => ({ workId, coverUrl, rating })), [
