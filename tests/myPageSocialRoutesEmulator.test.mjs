@@ -194,13 +194,9 @@ test('public profile chooses one newest evaluation per canonical work before pag
 });
 
 test('public profile reuses candidate reads until a normal edit or deletion changes the section', async (t) => {
-  const mode = process.env.MY_PAGE_PROFILE_LIST_CACHE;
   const logging = process.env.MY_PAGE_PERF_LOG;
-  process.env.MY_PAGE_PROFILE_LIST_CACHE = 'read-write';
   process.env.MY_PAGE_PERF_LOG = '1';
   t.after(() => {
-    if (mode === undefined) delete process.env.MY_PAGE_PROFILE_LIST_CACHE;
-    else process.env.MY_PAGE_PROFILE_LIST_CACHE = mode;
     if (logging === undefined) delete process.env.MY_PAGE_PERF_LOG;
     else process.env.MY_PAGE_PERF_LOG = logging;
   });
@@ -240,7 +236,16 @@ test('public profile reuses candidate reads until a normal edit or deletion chan
   assert.equal(logs.at(-1).wishlistDocumentsRead, 0);
   assert.equal(logs.at(-1).wishlistCacheHit, 1);
 
-  await ok(post('review', idToken, { workId: works[0].id, revision: 1, remove: true }));
+  assert.equal(logs.at(-1).wishlistRevisionChecks, 1);
+  await ok(post('review', idToken, {
+    workId: works[0].id, revision: 1, rating: 4.5, comment: '수정한 평가', fileIds: [],
+    readingSnapshot: { totalMs: 2_000, progressPercent: 10 }, readingSnapshotVersion: 1,
+  }));
+  const edited = await ok(get({ ...base, section: 'reviews' }));
+  assert.equal(edited.reviews[0].comment, '수정한 평가');
+  assert.equal(logs.at(-1).reviewDocumentsRead, 32);
+
+  await ok(post('review', idToken, { workId: works[0].id, revision: 2, remove: true }));
   assert.deepEqual((await next('reviews')).reviews.map(({ workId }) => workId), [works[1].id]);
   assert.equal(logs.at(-1).reviewDocumentsRead, 31);
   assert.equal((await next('wishlist')).wishlist.length, 2);
@@ -248,13 +253,6 @@ test('public profile reuses candidate reads until a normal edit or deletion chan
   await ok(post('wishlist', idToken, { workId: works[0].id, revision: 1, saved: false }));
   assert.deepEqual((await next('wishlist')).wishlist.map(({ workId }) => workId), [works[1].id]);
   assert.equal(logs.at(-1).wishlistDocumentsRead, 31);
-
-  const client = await initializeTestEnvironment({ projectId: 'demo-web-reader' });
-  try {
-    const marker = doc(client.authenticatedContext(uid).firestore(), 'artifacts', APP_ID, 'users', uid, 'libraries', 'local', 'myPagePublicListRevisionV1', 'reviews');
-    await assertFails(getDoc(marker));
-    await assertFails(setDoc(marker, { updatedAt: new Date() }));
-  } finally { await client.cleanup(); }
 
   await ok(post('account', idToken, { ...settings, visibility: { reviews: false, wishlist: true } }));
   assert.equal((await get({ ...base, section: 'reviews', cursor: first.next.reviews })).status, 409);

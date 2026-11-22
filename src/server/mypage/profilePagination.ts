@@ -3,7 +3,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { isBookDetailId } from '../../lib/bookDetail';
 import type { MyPageBrowseSection, ReviewListSort } from '../../lib/myPageSocial';
 
-const PROFILE_PAGE_SIZE = 30;
+export const PROFILE_PAGE_SIZE = 30;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const keys = new WeakMap<Firestore, Promise<Buffer>>();

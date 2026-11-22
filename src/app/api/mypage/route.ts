@@ -147,6 +147,8 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   let reviewDocumentsRead = 0;
   let wishlistCacheHit = false;
   let reviewCacheHit = false;
+  let wishlistRevisionChecks = 0;
+  let reviewRevisionChecks = 0;
   const wishlistWindow = async () => {
     if (!useCursor) {
       const records = await listWishlist(db, uid);
@@ -157,6 +159,7 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
     const result = await listPublicProfileWishlist(db, uid);
     wishlistDocumentsRead = result.documentsRead;
     wishlistCacheHit = result.cacheHit;
+    wishlistRevisionChecks = result.revisionChecks;
     const records = result.records.map(({ workId, addedAt }) => ({
       workId, time: Number.isFinite(addedAt) ? Timestamp.fromMillis(addedAt).valueOf() : epoch.valueOf(),
     }));
@@ -176,6 +179,7 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
     const result = await listPublicProfileReviews(db, uid);
     reviewDocumentsRead = result.documentsRead;
     reviewCacheHit = result.cacheHit;
+    reviewRevisionChecks = result.revisionChecks;
     const records = result.records.map(({ updatedAt, ...review }) => ({
       ...review, time: (updatedAt ?? epoch).valueOf(),
     }));
@@ -194,6 +198,7 @@ async function publicProfile(db: Firestore, params: URLSearchParams) {
   reportMyPageApiTiming('profile', started, {
     wishlistCandidates, reviewCandidates, wishlistDocumentsRead, reviewDocumentsRead,
     wishlistCacheHit: Number(wishlistCacheHit), reviewCacheHit: Number(reviewCacheHit),
+    wishlistRevisionChecks, reviewRevisionChecks,
     wishlistReturned: wishlistPage?.entries.length ?? 0,
     reviewsReturned: reviewsPage?.entries.length ?? 0,
     wishlistHasNext: Number(wishlistPage?.next != null), reviewsHasNext: Number(reviewsPage?.next != null),

@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
-import { FieldPath, FieldValue, GrpcStatus, Timestamp, type DocumentData, type Firestore, type Query, type QuerySnapshot, type Transaction } from 'firebase-admin/firestore';
+import { AggregateField, FieldPath, FieldValue, GrpcStatus, Timestamp, type DocumentData, type Firestore, type Query, type QuerySnapshot, type Transaction } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity.ts';
 import { reportMyPageApiTiming } from './performance.ts';
+import { PROFILE_PAGE_SIZE } from './profilePagination.ts';
 import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from '../../lib/publicBookReviews.ts';
 import {
   hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageReview,
@@ -17,6 +18,7 @@ const REVIEW_PAGE_SIZE = 100;
 const PROFILE_CACHE_MS = 2 * 60_000;
 const MAX_CACHED_PROFILE_SECTIONS = 24;
 const MAX_CACHED_PROFILE_ROWS = 1_000;
+const MAX_PROFILE_REVISION_ROWS = 4_000;
 
 type ReviewFields = Pick<MyPageReview, 'rating' | 'comment' | 'totalMs' | 'progressPercent'>;
 type ReviewReading = Pick<ReviewFields, 'totalMs' | 'progressPercent'>;
@@ -41,54 +43,59 @@ const workKey = (workId: string) => createHash('sha256').update(workId).digest('
 const workEntries = (db: Firestore, workId: string) => db.collection('publicBookReviewsV1')
   .doc(workKey(workId)).collection('entries');
 
-const profileListMarker = (db: Firestore, uid: string, section: MyPageBrowseSection) => (
-  library(db, uid).collection('myPagePublicListRevisionV1').doc(section)
-);
-type ProfileListCacheEntry = { revision: string | undefined; expires: number; snapshot: Promise<QuerySnapshot> };
+type ProfileListRevision = { rows: number; sum: number };
+type ProfileListCacheEntry = { revision: ProfileListRevision; expires: number; snapshot: QuerySnapshot };
 const profileListCaches = new WeakMap<Firestore, Map<string, ProfileListCacheEntry>>();
 
-function recordProfileListChange(db: Firestore, transaction: Transaction, uid: string, section: MyPageBrowseSection) {
-  const mode = process.env.MY_PAGE_PROFILE_LIST_CACHE;
-  if (mode === 'write' || mode === 'read-write') {
-    transaction.set(profileListMarker(db, uid, section), { updatedAt: FieldValue.serverTimestamp() });
-  }
+function validProfileListRevision(revision: ProfileListRevision) {
+  return revision.rows <= MAX_PROFILE_REVISION_ROWS
+    && Number.isSafeInteger(revision.sum) && revision.sum >= revision.rows;
 }
 
-async function readPublicProfileList(db: Firestore, uid: string, section: MyPageBrowseSection, source: Query) {
-  if (process.env.MY_PAGE_PROFILE_LIST_CACHE !== 'read-write') {
-    const snapshot = await source.get();
-    return { snapshot, documentsRead: snapshot.size, cacheHit: false };
-  }
-  const marker = await profileListMarker(db, uid, section).get();
-  const revision = marker.updateTime?.valueOf();
+async function readPublicProfileList(
+  db: Firestore, uid: string, section: MyPageBrowseSection, collection: Query, source: Query,
+) {
+  // Both current and older app servers retain deletion records and advance
+  // each changed record's revision. Evidence-only writes leave the rows we
+  // publish untouched. Counting only visible rows would miss some changes.
+  const revisions = collection.orderBy('revision').limit(MAX_PROFILE_REVISION_ROWS + 1).aggregate({
+    rows: AggregateField.count(), sum: AggregateField.sum('revision'),
+  });
   let cache = profileListCaches.get(db);
   if (!cache) { cache = new Map(); profileListCaches.set(db, cache); }
   const key = JSON.stringify([uid, section]);
   const cached = cache.get(key);
-  if (cached && cached.revision === revision && cached.expires > Date.now()) {
-    cache.delete(key);
-    cache.set(key, cached);
-    return { snapshot: await cached.snapshot, documentsRead: 0, cacheHit: true };
+  let revisionChecks = 0;
+  if (cached && cached.expires > Date.now()) {
+    revisionChecks++;
+    const current = await revisions.get().then((result) => result.data()).catch(() => null);
+    if (current && current.rows === cached.revision.rows && current.sum === cached.revision.sum) {
+      cache.delete(key);
+      cache.set(key, cached);
+      return { snapshot: cached.snapshot, documentsRead: 0, cacheHit: true, revisionChecks };
+    }
   }
+  if (cache.get(key) === cached) cache.delete(key);
 
-  // The revision and rows must describe the same committed state, including
-  // when an edit arrives while the rows are being read.
-  const snapshot = db.runTransaction((transaction) => transaction.get(source), {
-    readOnly: true, readTime: marker.readTime,
-  });
-  const entry = { revision, expires: Infinity, snapshot };
-  cache.delete(key);
-  cache.set(key, entry);
-  while (cache.size > MAX_CACHED_PROFILE_SECTIONS) cache.delete(cache.keys().next().value!);
-  try {
-    const result = await snapshot;
-    if (result.size > MAX_CACHED_PROFILE_ROWS && cache.get(key) === entry) cache.delete(key);
-    entry.expires = Date.now() + PROFILE_CACHE_MS;
-    return { snapshot: result, documentsRead: result.size, cacheHit: false };
-  } catch (error) {
-    if (cache.get(key) === entry) cache.delete(key);
-    throw error;
+  const snapshot = await source.get();
+  if (snapshot.size > PROFILE_PAGE_SIZE && snapshot.size <= MAX_CACHED_PROFILE_ROWS
+    && snapshot.docs.every((document) => {
+      const revision = document.get('revision');
+      return Number.isSafeInteger(revision) && revision > 0;
+    })) {
+    revisionChecks++;
+    // Pin the version check to the list snapshot so a concurrent edit can't
+    // associate old rows with a newer set of revisions.
+    const result = await db.runTransaction((transaction) => transaction.get(revisions), {
+      readOnly: true, readTime: snapshot.readTime,
+    }).catch(() => null);
+    const revision = result?.data();
+    if (revision && revision.rows >= snapshot.size && validProfileListRevision(revision)) {
+      cache.set(key, { revision, expires: Date.now() + PROFILE_CACHE_MS, snapshot });
+      while (cache.size > MAX_CACHED_PROFILE_SECTIONS) cache.delete(cache.keys().next().value!);
+    }
   }
+  return { snapshot, documentsRead: snapshot.size, cacheHit: false, revisionChecks };
 }
 
 function publicCode(value: string): string | null {
@@ -217,9 +224,13 @@ export async function listWishlist(db: Firestore, uid: string, includeRemoved = 
 }
 
 export async function listPublicProfileWishlist(db: Firestore, uid: string) {
-  const query = wishlist(db, uid).where('saved', '==', true).select('workId', 'addedAt');
-  const { snapshot, ...metrics } = await readPublicProfileList(db, uid, 'wishlist', query);
-  const records = snapshot.docs.map((document) => document.data() as Pick<MyPageWishlistItem, 'workId' | 'addedAt'>);
+  const collection = wishlist(db, uid);
+  const query = collection.where('saved', '==', true).select('workId', 'addedAt', 'revision');
+  const { snapshot, ...metrics } = await readPublicProfileList(db, uid, 'wishlist', collection, query);
+  const records = snapshot.docs.map((document) => {
+    const { workId, addedAt } = document.data() as MyPageWishlistItem;
+    return { workId, addedAt };
+  });
   return { records, ...metrics };
 }
 
@@ -275,9 +286,6 @@ export async function updateWishlist(
       saved,
     };
     transaction.set(ref, item);
-    if (saved !== Boolean(current?.saved) || (!saved && siblings.some(({ item }) => item.saved))) {
-      recordProfileListChange(db, transaction, uid, 'wishlist');
-    }
     if (!expectedSiblings) return item;
     const siblingRevisions = [{ workId: item.workId, revision: item.revision }];
     for (const sibling of siblings) {
@@ -321,8 +329,9 @@ async function listDatedReviews(db: Firestore, uid: string) {
 }
 
 export async function listPublicProfileReviews(db: Firestore, uid: string) {
-  const query = reviews(db, uid).where('deleted', '==', false).select('workId', 'rating', 'comment', 'updatedAt');
-  const { snapshot, ...metrics } = await readPublicProfileList(db, uid, 'reviews', query);
+  const collection = reviews(db, uid);
+  const query = collection.where('deleted', '==', false).select('workId', 'rating', 'comment', 'updatedAt', 'revision');
+  const { snapshot, ...metrics } = await readPublicProfileList(db, uid, 'reviews', collection, query);
   const records = snapshot.docs.map((document) => {
     const { workId, rating, comment, updatedAt } = document.data();
     return { workId, rating, comment, updatedAt: updatedAt instanceof Timestamp ? updatedAt : null } as
@@ -378,7 +387,6 @@ async function mutateReview(
     if (!importOnly && expectedRevision !== (current?.revision ?? null)) throw new ConflictError();
 
     const revision = (current?.revision ?? 0) + 1;
-    recordProfileListChange(db, transaction, uid, 'reviews');
     if (!fields) {
       transaction.set(ref, { workId, deleted: true, revision });
       transaction.delete(entry);
