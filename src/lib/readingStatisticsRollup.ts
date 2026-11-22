@@ -153,7 +153,7 @@ export function computeWeeklyReadingRollup(
   };
 }
 
-export function computeReadingCalendarRollup(weeks: readonly WeeklyReadingRollup[]): ReadingCalendarRollup {
+export function computeReadingCalendarRollup(weeks: readonly Pick<WeeklyReadingRollup, 'weekStart' | 'days'>[]): ReadingCalendarRollup {
   if (weeks.length !== CALENDAR_WEEK_COUNT) {
     throw new RangeError('Calendar rollup requires exactly 10 consecutive Mondays');
   }

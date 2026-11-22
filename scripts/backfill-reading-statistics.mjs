@@ -17,6 +17,10 @@ import {
   parseReadingRollupMonday,
   selectWeeklyReadingRollupInputs,
 } from '../src/lib/readingStatisticsRollup.ts';
+import { createReadingRollupCarry } from '../src/server/readingRollupInputs.ts';
+import {
+  claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, stageReadingRollupHandoff,
+} from '../src/server/readingRollupStore.ts';
 
 const weekMs = 7 * 86_400_000;
 const pageLimit = 100;
@@ -80,7 +84,7 @@ function readCutoff({ cutoff, cutoff_submillis: remainder }) {
 /** Read only the fixed source generation; store a page and its cursor together. */
 export async function stageReadingStatisticsBackfill(db, {
   project, uid, firstWeek, throughWeek, readPage, dailyReads = 1000, dailyWeeks = 5,
-  currentTime = Date.now,
+  currentTime = Date.now, reserveSharedReads,
 }) {
   const first = parseReadingRollupMonday(firstWeek);
   const through = parseReadingRollupMonday(throughWeek);
@@ -111,8 +115,10 @@ export async function stageReadingStatisticsBackfill(db, {
       return amount;
     });
     if (reserved === 0) break;
+    const limit = reserveSharedReads ? await reserveSharedReads(reserved) : reserved;
+    if (limit === 0) break;
     // Reservations are conservative, including when the final or failed page is shorter.
-    const { documents, readTime } = await readPage(state.cursor, reserved);
+    const { documents, readTime } = await readPage(state.cursor, limit);
     const cutoff = readCutoff(state) ?? readTime;
     if (!(cutoff instanceof Timestamp) || lastBoundary > cutoff.toMillis()) {
       throw new Error('The server cutoff does not cover the requested finished weeks.');
@@ -138,7 +144,7 @@ export async function stageReadingStatisticsBackfill(db, {
       for (const { id, data } of accepted) insert.run(project, uid, id, JSON.stringify(toReadingSessionPayload(data)));
       db.prepare('UPDATE jobs SET cutoff = ?, cutoff_submillis = ?, cursor = ?, ingested = ? WHERE project = ? AND uid = ?')
         .run(cutoff.toMillis(), cutoff.nanoseconds % 1_000_000, documents.at(-1)?.id ?? state.cursor,
-          Number(documents.length < reserved), project, uid);
+          Number(documents.length < limit), project, uid);
       return true;
     });
     if (!staged) break;
@@ -181,11 +187,22 @@ export async function stageReadingStatisticsBackfill(db, {
   };
 }
 
+function loadHandoff(db, project, uid, firstWeek, nextWeek, pilotTuesday) {
+  const sourceCutoff = readCutoff(db.prepare('SELECT * FROM jobs WHERE project = ? AND uid = ?').get(project, uid));
+  const weeks = db.prepare('SELECT payload FROM weeks WHERE project = ? AND uid = ? AND week >= ? AND week < ? ORDER BY week')
+    .all(project, uid, firstWeek, nextWeek).map(({ payload }) => JSON.parse(payload));
+  const sessions = db.prepare('SELECT payload FROM sessions WHERE project = ? AND uid = ? ORDER BY id COLLATE BINARY')
+    .all(project, uid).map(({ payload }) => JSON.parse(payload));
+  return { weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(sessions, nextWeek), pilotTuesday };
+}
+
 async function main() {
   const { values } = parseArgs({ options: {
     project: { type: 'string' }, uid: { type: 'string' },
     'first-week': { type: 'string' }, 'through-week': { type: 'string' },
     'confirm-live-read': { type: 'boolean', default: false },
+    handoff: { type: 'boolean', default: false },
+    'pilot-tuesday': { type: 'boolean', default: false },
     state: { type: 'string', default: join(homedir(), '.local', 'state', 'web-reader', 'statistics-backfill.sqlite') },
     'daily-reads': { type: 'string', default: '1000' },
     'daily-weeks': { type: 'string', default: '5' },
@@ -204,15 +221,31 @@ async function main() {
   if (!emulator && (!values['confirm-live-read'] || project.startsWith('demo-'))) {
     throw new Error('Set FIRESTORE_EMULATOR_HOST or explicitly confirm reads with --confirm-live-read.');
   }
+  const handoff = values.handoff;
+  const pilotTuesday = values['pilot-tuesday'];
+  if ((pilotTuesday && !handoff) || (handoff && parseReadingRollupMonday(throughWeek) - parseReadingRollupMonday(firstWeek) !== 8 * weekMs)) {
+    throw new Error('--handoff requires nine consecutive weeks; --pilot-tuesday is only valid with --handoff.');
+  }
   process.umask(0o077);
   mkdirSync(dirname(resolve(values.state)), { recursive: true, mode: 0o700 });
   const state = openBackfillState(values.state);
   const app = initializeApp({ projectId: project });
+  const db = getFirestore(app);
+  let lease;
   try {
-    const source = getFirestore(app).collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
+    if (handoff) {
+      lease = await claimReadingRollup(db, uid);
+      if (!lease) {
+        console.log(JSON.stringify({ status: 'busy' }));
+        return;
+      }
+    }
+    const stateProject = emulator ? `emulator:${emulator}:${project}` : project;
+    const source = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
     const result = await stageReadingStatisticsBackfill(state, {
-      project: emulator ? `emulator:${emulator}:${project}` : project,
+      project: stateProject,
       uid, firstWeek, throughWeek, dailyReads, dailyWeeks,
+      reserveSharedReads: lease ? (limit) => reserveReadingRollupReads(db, lease, limit) : undefined,
       async readPage(cursor, limit) {
         const ordered = source.orderBy(FieldPath.documentId());
         const page = await (cursor ? ordered.startAfter(cursor) : ordered).limit(limit).get();
@@ -227,11 +260,14 @@ async function main() {
         };
       },
     });
-    console.log(JSON.stringify(result));
+    const saved = lease && result.status === 'complete' ? await stageReadingRollupHandoff(db, lease,
+      loadHandoff(state, stateProject, uid, firstWeek, isoDate(Date.parse(throughWeek) + weekMs), pilotTuesday)) : undefined;
+    console.log(JSON.stringify({ ...result, handoff: saved }));
     if (result.status === 'blocked') process.exitCode = 1;
   } finally {
     state.close();
-    await deleteApp(app);
+    try { if (lease) await releaseReadingRollup(db, lease); }
+    finally { await deleteApp(app); }
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

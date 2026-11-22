@@ -12,6 +12,26 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "readingStatsRollupJobsV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "readingStatsRollupJobsV1",
+      "fieldPath": "dueAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }]
+    },
+    {
+      "collectionGroup": "readingStatsRollupWeeksV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "readingStatsRollupCalendarsV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
       "collectionGroup": "publicBookMetadataV1",
       "fieldPath": "*",
       "indexes": []

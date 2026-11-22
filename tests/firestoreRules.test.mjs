@@ -90,6 +90,25 @@ beforeEach(async () => {
   });
 });
 
+test('clients cannot access staged rollups, operation leases, or private publication pointers', async () => {
+  const base = `artifacts/${appId}`;
+  const job = `${base}/readingStatsRollupJobsV1/alice`;
+  const paths = [
+    job, `${job}/readingStatsRollupWeeksV1/2026-09-14`,
+    `${job}/readingStatsRollupCalendarsV1/2026-11-16`, `${job}/readingStatsRollupManifestsV1/current`,
+    `${base}/readingStatsRollupLeasesV1/alice`, `${base}/readingStatsRollupBudgetsV1/2026-11-24`,
+  ];
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await Promise.all(paths.map((path) => setDoc(doc(context.firestore(), path), { value: 1 })));
+  });
+  const db = environment.authenticatedContext('alice').firestore();
+  for (const path of paths) {
+    const ref = doc(db, path);
+    await assertFails(getDocFromServer(ref));
+    await assertFails(setDoc(ref, { value: 2 }));
+  }
+});
+
 const database = (uid = 'alice') => environment
   .authenticatedContext(uid)
   .firestore();
