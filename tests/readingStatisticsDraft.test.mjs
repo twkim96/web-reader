@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import React, { act } from 'react';
+import React, { act, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 import {
@@ -166,6 +166,87 @@ test('mounted tracker preserves another context active draft and recovers only a
     await closeLocalDB();
     if (previousLocks) Object.defineProperty(navigator, 'locks', previousLocks);
     else delete navigator.locks;
+    Object.assign(globalThis, previous);
+  }
+});
+
+test('forward reading journals every heartbeat and preserves progress at reverse and seek boundaries', async () => {
+  const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT', 'localStorage'];
+  const previous = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
+  const oldNow = Date.now;
+  const oldPerformance = Object.getOwnPropertyDescriptor(globalThis, 'performance');
+  let now = 1_000_000;
+  const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
+  const values = new Map();
+  Object.assign(globalThis, {
+    window, document: window.document, CustomEvent: window.CustomEvent,
+    BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true,
+    localStorage: {
+      get length() { return values.size; }, key: (i) => [...values.keys()][i] ?? null,
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, String(value)),
+      removeItem: (key) => values.delete(key),
+    },
+  });
+  Date.now = () => now;
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+  const ownerKey = makeOwnerKey(makeGuestOwnerKey('navigation-regression'), 'library:local');
+  const root = createRoot(document.getElementById('app'));
+  let tracker;
+  function Harness() {
+    const value = useReadingSessionTracker({ ownerKey, deviceId: 'device', book: { id: 'book', name: 'Book' },
+      isLoaded: true, suspended: false, ttsStatus: 'idle', progressPercent: 10, viewRef: { current: null } });
+    useEffect(() => { tracker = value; }, [value]);
+    return null;
+  }
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => now } });
+    tracker.markActivity();
+    for (let i = 0; i < 48; i++) {
+      now += 5_000;
+      tracker.recordNavigation(10 + (i + 1) / 10, 'page');
+      tracker.markActivity();
+    }
+    assert.equal((await getLocalReadingSessionsV11(ownerKey)).length, 0);
+    const active = [...values.values()].map((value) => { try { return JSON.parse(value); } catch { return null; } })
+      .find((value) => value?.state === 'active');
+    assert.equal(active.lastHeartbeatAt - active.startedAtClient, 240_000);
+    assert.equal(active.endProgressPercent, 14.8);
+    tracker.recordNavigation(14.7, 'anchor');
+    tracker.recordNavigation(14.8, 'layout');
+    now += 5_000;
+    tracker.recordNavigation(12, 'page');
+    now += 10_000;
+    tracker.recordNavigation(40, 'navigation');
+    now += 10_000;
+    await tracker.flushActiveSession();
+    const rows = (await getLocalReadingSessionsV11(ownerKey)).sort((a, b) => a.startedAtClient - b.startedAtClient);
+    assert.deepEqual(rows.map((row) => [row.startProgressPercent, row.endProgressPercent]), [[10, 14.8], [12, 12], [40, 40]]);
+    assert.deepEqual(rows.map((row) => row.durationMs), [245_000, 10_000, 10_000]);
+    tracker.markActivity();
+    for (let i = 0; i < 60; i++) {
+      now += 5_000;
+      tracker.recordNavigation(40 + (i + 1) / 10, 'page');
+      tracker.markActivity();
+    }
+    await tracker.flushActiveSession();
+    const checkpoint = (await getLocalReadingSessionsV11(ownerKey)).find((row) => row.durationMs === 300_000);
+    assert.ok(checkpoint);
+    assert.equal(checkpoint.startProgressPercent, 40);
+    assert.equal(checkpoint.endProgressPercent, 46);
+    tracker.markActivity();
+    now += 120_000;
+    tracker.recordNavigation(70);
+    await tracker.flushActiveSession();
+    const idle = (await getLocalReadingSessionsV11(ownerKey)).find((row) => row.startProgressPercent === 46);
+    assert.equal(idle.durationMs, 90_000);
+    assert.equal(idle.endProgressPercent, 46);
+  } finally {
+    if (oldPerformance) Object.defineProperty(globalThis, 'performance', oldPerformance);
+    await act(async () => root.unmount());
+    await closeLocalDB();
+    Date.now = oldNow;
     Object.assign(globalThis, previous);
   }
 });

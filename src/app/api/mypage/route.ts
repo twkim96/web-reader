@@ -7,7 +7,7 @@ import { reportMyPageApiTiming, type ReadingEvidenceRoute } from '../../../serve
 import { legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
 import {
   currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listPublicProfileReviews, listPublicProfileWishlist,
-  listReviewDeletions, listReviews, listWishlist, lookupPublicAccount,
+  listReviewDeletions, listReviews, listWishlist, lookupPublicAccount, readOwnReviewWork,
   updateAccount, updateReview, updateReviewWithStatus, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
@@ -294,6 +294,18 @@ export async function GET(request: Request) {
     if (view === 'account') return json(await ensureAccount(db, uid));
     if (view === 'wishlist') return respond({ entries: await wishlistBookStates(db, uid, timing) });
     if (view === 'reviews') return respond(await ownReviews(db, uid, params.get('preview') === '1', timing));
+    if (view === 'own-review') {
+      const workId = params.get('workId');
+      if (!isBookDetailId(workId)) return fail(400);
+      const work = await resolveSocialWork(db, workId);
+      if (!work) return fail(404);
+      const { reviews, deletions } = await readOwnReviewWork(db, uid, [work.book.id, ...work.equivalentWorkIds]);
+      const details = reviewWorkDetails(work);
+      return json({
+        reviews: reviews.map((review) => ({ ...review, ...details })),
+        deletions: deletions.map((deletion) => ({ ...deletion, ...details })),
+      });
+    }
     return fail(400);
   } catch {
     return fail(503);
@@ -371,8 +383,10 @@ export async function POST(request: Request) {
             ? null : await resolveLegacyReviewWork(db, workIds, platformWorkKeys);
           if (!work) { unavailable++; continue; }
           const workId = work.book.id;
-          const evidence = await evidenceFor(db, uid, workId, [], 'reading-evidence-import');
-          const imported = await importReview(db, uid, workId, { rating, comment: comment.trim(), ...evidence }, input.accountRevision, work.equivalentWorkIds);
+          const imported = await importReview(
+            db, uid, workId, { rating, comment: comment.trim() }, input.accountRevision, work.equivalentWorkIds,
+            () => evidenceFor(db, uid, workId, [], 'reading-evidence-import'),
+          );
           if (imported) current++;
           else kept++;
         }
@@ -445,14 +459,14 @@ export async function POST(request: Request) {
       if (hasCoverage && typeof input.readingHistoryPartial !== 'boolean') return fail(400);
       const verified = hasCoverage || readingSnapshotVersion === 1 ? local : null;
       // Clients that omitted the snapshot expect server evidence in this response.
-      const fallback = readingSnapshot === undefined
-        ? await evidenceFor(db, uid, resolved.book.id, fileIds, 'reading-evidence-legacy') : undefined;
+      const loadFallback = readingSnapshot === undefined
+        ? () => evidenceFor(db, uid, resolved.book.id, fileIds, 'reading-evidence-legacy') : undefined;
       const { review, applied } = await updateReviewWithStatus(
         db, uid, workId, {
           ...verified, rating, comment: comment.trim(),
           readingHistoryPartial: Boolean(verified && (!hasCoverage || input.readingHistoryPartial)),
         }, revision, importOnly, accountRevision,
-        resolved.equivalentWorkIds, saveId, fallback,
+        resolved.equivalentWorkIds, saveId, loadFallback,
       );
       if (applied && review && review.totalMs == null && review.progressPercent == null && !verified && readingSnapshot !== undefined && !importOnly) {
         after(async () => {

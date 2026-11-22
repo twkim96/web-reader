@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
-import { fullReviewListCache, previewReviewListCache, wishlistListCache, type MyPageListSnapshot } from '../lib/myPageListCache';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { createListCache, fullReviewListCache, previewReviewListCache, wishlistListCache, type MyPageListSnapshot } from '../lib/myPageListCache';
 import { finishMyPageTiming, startDiscoveryTiming } from '../lib/myPagePerformance';
-import { myPageRequest } from '../lib/myPageSocialClient';
+import { MyPageRequestError, myPageRequest } from '../lib/myPageSocialClient';
 import type { MyPageOwnReviews, MyPageSavedBook } from '../lib/myPageSocial';
 import type { OwnerKey } from '../lib/ownerIdentity';
+import { ownerRuntime } from '../lib/ownerRuntime';
 
 type ListCache<T> = {
   subscribe: (listener: () => void) => () => void;
@@ -71,3 +72,30 @@ export const useMyPageReviewList = (owner: OwnerKey, enabled: boolean, preview =
     preview ? 'review-preview-ready' : 'reviews-ready',
   )
 );
+
+export function useMyPageWorkReview(owner: OwnerKey, enabled: boolean, workId: string) {
+  // Book detail is keyed by account and book. The cache owns just that work.
+  const { cache, params } = useMemo(() => ({
+    cache: createListCache<MyPageOwnReviews>(),
+    params: { view: 'own-review', workId },
+  }), [workId]);
+  const session = ownerRuntime.capture();
+  useEffect(() => {
+    if (session) return () => cache.dispose(session);
+  }, [cache, session]);
+  const scopedCache = useMemo(() => ({
+    ...cache,
+    refresh(owner: OwnerKey, load: (signal: AbortSignal) => Promise<MyPageOwnReviews>, force?: boolean) {
+      const session = ownerRuntime.capture();
+      return cache.refresh(owner, async (signal) => {
+        try { return await load(signal); }
+        catch (error) {
+          if (session && !signal.aborted && error instanceof MyPageRequestError && error.status === 401) cache.clear(session, error.message);
+          throw error;
+        }
+      }, force);
+    },
+  }), [cache]);
+  const { data, error, writeVersion, refresh } = useMyPageList(scopedCache, params, owner, enabled, 'reviews-ready');
+  return { cache, data, error, ready: data !== undefined && writeVersion % 2 === 0, refresh };
+}

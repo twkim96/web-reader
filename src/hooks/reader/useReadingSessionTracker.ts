@@ -419,6 +419,7 @@ export const useReadingSessionTracker = ({
     const boundary = getReadingSessionCommitBoundary(
       segment.startedAtClient,
       segment.timezoneOffsetMinutes,
+      segment.mode,
     );
     const stableWallNow = getSegmentWallTime(segment, monotonicNow);
     if (stableWallNow >= boundary) {
@@ -437,6 +438,25 @@ export const useReadingSessionTracker = ({
     activeSegmentRef.current = updatedSegment;
     writeDraft(updatedSegment);
   }, [closeSegment, getDesiredMode, startSegment, writeDraft]);
+
+  const recordNavigation = useCallback((progress: number, reason?: string) => {
+    if (!Number.isFinite(progress)) return;
+    const nextProgress = clampProgress(progress);
+    const segment = activeSegmentRef.current;
+    const previousProgress = clampProgress(progressRef.current);
+    // Foliate restores the current anchor on reflow. Fixed-layout goTo has no reason.
+    const isLayout = reason === 'anchor' || reason === 'layout';
+    const isSeek = reason === 'navigation' || reason === undefined;
+    if (segment?.mode === 'screen' && !isLayout && nextProgress !== previousProgress && (isSeek || nextProgress < previousProgress)) {
+      const now = getMonotonicNow();
+      const endAt = getReadingTrackingEndAt({ mode: segment.mode, now, lastActivityAt: lastActivityAtRef.current });
+      closeSegment(getSegmentWallTime(segment, Math.max(segment.startedAtMonotonic, endAt)));
+      progressRef.current = nextProgress;
+      if (getDesiredMode(now) === 'screen') startSegment('screen', getSegmentWallTime(segment, now), now);
+    } else {
+      progressRef.current = nextProgress;
+    }
+  }, [closeSegment, getDesiredMode, startSegment]);
 
   const markActivity = useCallback(() => {
     interactionFocusRef.current = getNextReadingInteractionFocus(
@@ -511,6 +531,7 @@ export const useReadingSessionTracker = ({
         const boundary = getReadingSessionCommitBoundary(
           segment.startedAtClient,
           segment.timezoneOffsetMinutes,
+          segment.mode,
         );
         if (actualGapEndWallTime >= boundary) {
           closeSegment(getSegmentWallTime(segment, gapStartedAt));
@@ -680,5 +701,5 @@ export const useReadingSessionTracker = ({
     };
   }, [isLoaded, markActivity, viewRef]);
 
-  return { flushActiveSession, getActiveSessionPreview, markActivity };
+  return { flushActiveSession, getActiveSessionPreview, markActivity, recordNavigation };
 };

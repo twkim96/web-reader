@@ -56,6 +56,16 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 별도 환경 변수, 쓰기, 인덱스 배포와 백필 없이 적용합니다. 버전 대조에 실패하면 최신 후보를 읽습니다. 관리자 복원이나 이관으로 공개 목록 문서를 직접 교체할 때도 항목 버전을 보존하거나 증가시킵니다. 이전 버전으로 되돌리는 복원에서는 공개 요청을 재개하기 전에 기존 서버 인스턴스를 교체하거나 후보 캐시가 만료될 때까지 기다립니다. [검증 로그](../development/setup-and-checks.md#완료-증거)에서 첫 페이지·다음 페이지·평가 수정·비공개 전환을 비교합니다.
 
+## 독서 통계 사전 집계 검증
+
+맥에서 Node.js 22.13 이상으로 실행하여 같은 고정 시점의 독서 이력을 SQLite에 페이지별로 저장하고 7일 상세 후보를 계산합니다. 기존 앱과 동일한 겹침·시간 보정·활동 기준을 사용합니다. 각 계정의 마지막으로 저장한 문서 ID와 같은 Pacific 날짜의 프로젝트 예산을 한 SQLite 파일에 기록합니다. 예제는 별도 demo Firestore를 사용합니다.
+
+```sh
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8089 node --import tsx scripts/backfill-reading-statistics.mjs --project demo-web-reader --uid fixture-account --first-week 2026-09-14 --through-week 2026-11-09 --daily-reads 1000 --daily-weeks 5
+```
+
+`--through-week`는 마지막 주의 월요일입니다. 원본 페이지 예산과 후보 생성 주 수는 각기 제한하며, 필요한 원본을 다 모은 뒤 후보 생성을 시작합니다. 기본 SQLite 파일은 `~/.local/state/web-reader/statistics-backfill.sqlite`입니다. 검증 환경에서는 `--state`로 별도 파일을 사용합니다. 이 파일에는 개인 원본 세션이 들어 있으므로 작업 폴더와 Git 밖에서 관리합니다. `weeks` 테이블의 `payload`가 주간 후보입니다. 실행은 Firestore에 쓰거나 삭제하지 않습니다. 운영 데이터를 읽는 테스트는 프로젝트 ID를 명시하고 ADC와 `--confirm-live-read`를 사용하므로 실제 읽기 할당량이 적용됩니다. 같은 DB를 처리하는 동안은 같은 상태 파일을 사용합니다. 앱 조회 전환과 예약 실행은 [통계 사전 집계 TODO](../TODO.md#독서-통계-사전-집계)에 남겨 둡니다.
+
 ## 유한 동기화와 영수증 정리
 
 운영 Firestore Rules는 모든 계정의 진행률·책갈피·주석·팔레트 쓰기에 서버 발급 권한을 요구합니다. Vercel 운영 빌드는 기본으로 쓰기 권한을 사용합니다. `NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES=0`로 배포하면 이 경로의 새 쓰기가 거절됩니다. [계약](../SPEC/reader-and-progress.md#유한-동기화)과 [남은 수용 확인](../TODO.md#동기화-유효기간과-영수증-정리)을 먼저 확인합니다.

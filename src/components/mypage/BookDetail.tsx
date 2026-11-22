@@ -6,12 +6,13 @@ import type { Book, UserProgress } from '../../types';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
 import type { DiscoveryBook } from '../../lib/bookDiscovery';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
-import type { OwnerKey } from '../../lib/ownerIdentity';
+import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 import { getPublicBookCoverCandidates } from '../../lib/publicBookMetadataSchema';
 import { parsePublicBookReview, PUBLIC_BOOK_REVIEW_LIMIT } from '../../lib/publicBookReviews';
-import { resolveReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type PublicWorkReviews } from '../../lib/myPageSocial';
-import type { useMyPageReviews } from '../../hooks/useMyPageReviews';
+import { resolveReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type MyPageReview, type PublicWorkReviews } from '../../lib/myPageSocial';
+import { useMyPageWorkReview } from '../../hooks/useMyPageList';
+import { ownerRuntime } from '../../lib/ownerRuntime';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
 import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/readBooks';
@@ -93,7 +94,7 @@ function CommunityReviews({ workId }: { workId: string }) {
 
 const emptyHistory = { sessions: [], hidden: new Set<string>() };
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, reviews, focusReview }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
@@ -104,10 +105,29 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   catalogLoading: boolean;
   identityBlocked: boolean;
   saved: boolean;
-  reviews: ReturnType<typeof useMyPageReviews>;
   focusReview: boolean;
 }) {
   const lookupId = discovery?.id ?? bookId;
+  const reviews = useMyPageWorkReview(ownerKey, !isGuestOwner(ownerKey) && Boolean(discovery) && !identityBlocked, lookupId);
+  const [reviewChangeVersion, setReviewChangeVersion] = useState(0);
+  const reviewSession = ownerRuntime.capture();
+  const reviewActive = useRef(false);
+  useEffect(() => {
+    reviewActive.current = true;
+    return () => { reviewActive.current = false; };
+  }, []);
+  const changeReview = (review: MyPageReview | null, oldId: string) => {
+    if (!reviewActive.current || reviewSession?.ownerKey !== ownerKey || !ownerRuntime.isCurrent(reviewSession)) return;
+    // Cancel a pre-save response before replacing its data with the server ACK.
+    const finish = reviews.cache.beginWrite(ownerKey);
+    reviews.cache.update(reviewSession, (current) => ({
+      reviews: [...(review ? [review] : []), ...current.reviews.filter((item) => item.workId !== oldId && item.workId !== review?.workId)],
+      deletions: current.deletions.filter((item) => item.workId !== review?.workId),
+    }));
+    finish?.();
+    setReviewChangeVersion((value) => value + 1);
+    void reviews.refresh();
+  };
   const [lookup, setLookup] = useState<{ id: string; value: PublicBookMetadata | null }>();
   const [loading, setLoading] = useState(true);
   const [metadataFailed, setMetadataFailed] = useState(false);
@@ -312,8 +332,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={losesEvidence ? [] : reviewFileIds ?? []}
         readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
         ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
-        error={reviews.error} refresh={reviews.refresh} change={reviews.change} headingRef={reviewHeading} />
-      <CommunityReviews key={`${lookupId}:${reviews.changeVersion}`} workId={lookupId} />
+        error={reviews.error} refresh={reviews.refresh} change={changeReview} headingRef={reviewHeading} />
+      <CommunityReviews key={`${lookupId}:${reviewChangeVersion}`} workId={lookupId} />
     </>
   );
 }

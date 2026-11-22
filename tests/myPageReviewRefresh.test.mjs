@@ -18,6 +18,7 @@ const hook = registerHooks({
 });
 const { MyReviews } = await import('../src/components/mypage/MyReviews.tsx');
 const { useMyPageReviews } = await import('../src/hooks/useMyPageReviews.ts');
+const { useMyPageWorkReview } = await import('../src/hooks/useMyPageList.ts');
 const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
 const review = { workId: 'book', title: 'Book', rating: 4, revision: 1 };
 const result = reviews => Response.json({ reviews, deletions: [] });
@@ -40,6 +41,32 @@ function setup(t) {
   return { window, root: createRoot(window.document.getElementById('root')), advance: () => { now += 65_000; } };
 }
 const click = async (window, element) => act(async () => element.dispatchEvent(new window.Event('click', { bubbles: true })));
+
+test('book detail requests only its own review and ignores a late response for the previous work', async (t) => {
+  const { window, root } = setup(t);
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', (url, { signal }) => new Promise(resolve => {
+    const params = new URL(url, window.location.href).searchParams;
+    requests.push({ params, signal, resolve });
+  }));
+  function Detail({ workId }) {
+    const { data, ready } = useMyPageWorkReview(owner, true, workId);
+    return React.createElement('p', null, ready ? data.reviews[0]?.workId ?? 'empty' : 'loading');
+  }
+  try {
+    await act(async () => root.render(React.createElement(Detail, { workId: 'first' })));
+    await until(() => requests.length === 1);
+    await act(async () => root.render(React.createElement(Detail, { workId: 'second' })));
+    await until(() => requests.length === 2);
+    assert.deepEqual(requests.map(({ params }) => [...params]), [
+      [['view', 'own-review'], ['workId', 'first']], [['view', 'own-review'], ['workId', 'second']],
+    ]);
+    assert.equal(requests[0].signal.aborted, true);
+    await act(async () => requests[1].resolve(result([{ ...review, workId: 'second' }])));
+    await act(async () => requests[0].resolve(result([{ ...review, workId: 'first' }])));
+    assert.equal(window.document.querySelector('p').textContent, 'second');
+  } finally { await act(async () => root.unmount()); }
+});
 
 test('delete invalidates a late list response and refreshes; focus and visibility reload remote changes', async t => {
   const { window, root, advance } = setup(t);

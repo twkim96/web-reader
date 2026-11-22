@@ -278,6 +278,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   const annotationMenuCloseRef = useRef<() => void>(() => undefined);
   const ttsStopRef = useRef<() => void>(() => undefined);
   const markReadingActivityRef = useRef<() => void>(() => undefined);
+  const recordReadingNavigationRef = useRef<(progress: number, reason?: string) => void>(() => undefined);
   const annotationTapRef = useRef<(
     doc: Document,
     point: { x: number; y: number },
@@ -507,6 +508,10 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
   }, [book.readerFormat, bindReaderDocumentInput, bindSelectionDocument, markUserProgressChange]);
 
   const handleReaderRelocate = useCallback((detail: RelocateDetail) => {
+    if (!isSelectionRelocateReason(detail.reason) && !isReaderTtsNavigationReason(detail.reason, detail.navigationSource)) {
+      const progress = detail.progressPercent ?? detail.fraction * 100;
+      recordReadingNavigationRef.current(progress, detail.reason);
+    }
     const autoReadSession = autoReadSessionRef.current;
     if (autoReadSession && (detail.cfi !== autoReadSession.cfi || detail.anchorCfi !== autoReadSession.anchorCfi)) {
       // A newer navigation (including remote adoption) supersedes this snapshot.
@@ -844,6 +849,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     flushActiveSession: flushReadingSession,
     getActiveSessionPreview,
     markActivity: markReadingActivity,
+    recordNavigation: recordReadingNavigation,
   } = useReadingSessionTracker({
     ownerKey,
     book,
@@ -854,6 +860,9 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     progressPercent: totalProgress,
     viewRef,
   });
+  useEffect(() => {
+    recordReadingNavigationRef.current = recordReadingNavigation;
+  }, [recordReadingNavigation]);
   const currentBookReadingTime = useCurrentBookReadingTime({
     ownerKey,
     bookId: book.id,

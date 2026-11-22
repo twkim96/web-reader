@@ -532,10 +532,11 @@ test('validates bounded immutable reading session payloads', () => {
   assert.equal(isReadingSessionV1({ ...valid, sessionId: 'bad/id' }), false);
 });
 
-test('publishes new sessions every minute while accepting five-minute history', () => {
-  assert.equal(READING_SESSION_COMMIT_INTERVAL_MS, 60_000);
+test('uses five-minute screen and one-minute TTS boundaries, limited by midnight', () => {
+  assert.equal(READING_SESSION_COMMIT_INTERVAL_MS, 300_000);
   assert.equal(READING_SESSION_MAX_DURATION_MS, 300_000);
-  assert.equal(getReadingSessionCommitBoundary(1_000, 0), 61_000);
+  assert.equal(getReadingSessionCommitBoundary(1_000, 0), 301_000);
+  assert.equal(getReadingSessionCommitBoundary(1_000, 0, 'tts'), 61_000);
   assert.equal(getReadingSessionCommitBoundary(
     Date.UTC(2026, 7, 12, 14, 59, 30),
     -540,

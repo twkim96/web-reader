@@ -16,9 +16,10 @@ type Entry<T> = {
   pending?: { controller: AbortController; promise: Promise<void> };
   writes: number;
   writeSequence?: number;
+  unregister?: () => void;
 };
 
-function createListCache<T>() {
+export function createListCache<T>() {
   const empty: MyPageListSnapshot<T> = { error: '', writeVersion: 0 };
   const entries = new WeakMap<OwnerSnapshot, Entry<T>>();
   const listeners = new Set<() => void>();
@@ -39,12 +40,19 @@ function createListCache<T>() {
       entry = { snapshot: empty, writes: 0 };
       entries.set(session, entry);
       const scopedEntry = entry;
-      ownerRuntime.registerDisposer(() => invalidate(scopedEntry));
+      entry.unregister = ownerRuntime.registerDisposer(() => invalidate(scopedEntry));
     }
     return { session, entry };
   };
 
   return {
+    dispose(session: OwnerSnapshot) {
+      const entry = entries.get(session);
+      if (!entry) return;
+      invalidate(entry);
+      entry.unregister?.();
+      entries.delete(session);
+    },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };

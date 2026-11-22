@@ -504,6 +504,7 @@ test('an on-demand title uses its published edition across account review saves 
   assert.deepEqual(deleted.reviews, []);
   assert.equal(deleted.deletions[0].workId, work.id);
   assert.ok(deleted.deletions[0].platformWorkKeys.includes(key));
+  assert.deepEqual(await ok(get({ view: 'own-review', workId: work.id }, idToken)), deleted);
   assert.equal((await post('review', idToken, {
     ...input, workId: work.id, revision: deleted.deletions[0].revision, platformWorkKeys: [staleKey],
   })).status, 404);
@@ -514,7 +515,7 @@ test('an on-demand title uses its published edition across account review saves 
   await ok(post('review', idToken, { workId: work.id, revision: restored.revision, remove: true, platformWorkKeys: [key, unknownKey] }));
 });
 
-test('an edit preserves verified private and public reading evidence when session lookup fails', async (t) => {
+test('an edit with verified evidence avoids history lookup while a new review tolerates lookup failure', async (t) => {
   const db = getAdminFirestore();
   const { idToken, localId: uid } = await emulatorLogin('mypage-evidence-failure');
   const { code, nickname, visibility, revision } = await ok(get({ view: 'account' }, idToken));
@@ -542,15 +543,20 @@ test('an edit preserves verified private and public reading evidence when sessio
     const edited = (await ok(post('review', idToken, {
       ...input, rating: 5, comment: '기존 독서기록을 보존', revision: saved.revision,
     }))).review;
-    assert.equal(blocked, true);
+    assert.equal(blocked, false);
     assert.equal(edited.rating, 5);
     assert.equal(edited.totalMs, 60000);
     assert.equal(edited.progressPercent, 55);
+    const other = [...(await loadSocialCatalog()).values()].find(({ id }) => id !== workId);
+    const { review: created } = await ok(post('review', idToken, { ...input, workId: other.id }));
+    assert.equal(blocked, true);
+    assert.equal(created.rating, input.rating);
+    assert.equal(created.totalMs, null);
   } finally {
     clock.mock.restore();
     collectionMock.mock.restore();
   }
-  const own = (await ok(get({ view: 'reviews' }, idToken))).reviews[0];
+  const own = (await ok(get({ view: 'reviews' }, idToken))).reviews.find((review) => review.workId === workId);
   const visible = (await workReviews(workId)).reviews.find(({ author }) => author.code === code);
   for (const review of [own, visible]) {
     assert.equal(review.rating, 5);
@@ -629,9 +635,13 @@ test('local review reading saves immediately and missing reading fills after the
   assert.equal(incompleteEdit.progressPercent, 80);
   assert.equal(deferred.length, 0);
 
-  // An older client can still request the synchronous fallback. Its smaller
-  // verified server total must not replace the evidence already on the review.
+  // An older client's edit can reuse evidence without reading the raw history.
+  const queriesBeforeLegacyEdit = sessionQueries;
   const { review: legacy } = await save({ ...input, rating: 3, revision: incompleteEdit.revision });
+  assert.equal(legacy.totalMs, 180_000);
+  assert.equal(sessionQueries, queriesBeforeLegacyEdit);
+  assert.equal((await post('review', idToken, { ...input, revision: incompleteEdit.revision })).status, 409);
+  assert.equal(sessionQueries, queriesBeforeLegacyEdit);
   const { review: staleClient } = await save({
     ...input, rating: 4, comment: '이전 PWA에서 수정', revision: legacy.revision,
     readingSnapshot: { totalMs: 60_000, progressPercent: 20 },
@@ -730,6 +740,8 @@ test('retry after a lost review response returns the saved revision without repl
 
   const oldWork = [...catalog.values()].find(({ id }) => id !== workId);
   const legacy = await ok(post('review', idToken, { ...input, workId: oldWork.id, saveId: crypto.randomUUID() }));
+  const detail = await ok(get({ view: 'own-review', workId: oldWork.id }, idToken));
+  assert.deepEqual(detail, { reviews: [legacy.review], deletions: [] });
   await ok(post('review', idToken, { workId: oldWork.id, revision: legacy.review.revision, remove: true }));
   const previewParams = { view: 'reviews', preview: '1' };
   assert.equal((await get(previewParams, idToken)).headers.get('server-timing'), null);

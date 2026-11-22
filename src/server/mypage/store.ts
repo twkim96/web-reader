@@ -5,7 +5,7 @@ import { reportMyPageApiTiming } from './performance.ts';
 import { PROFILE_PAGE_SIZE } from './profilePagination.ts';
 import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from '../../lib/publicBookReviews.ts';
 import {
-  hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageReview,
+  hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageOwnReviews, type MyPageReview,
   type MyPageVisibility, type MyPageWishlistItem, type MyPageWishlistRevision, type PublicWorkReview, type PublicWorkReviews,
 } from '../../lib/myPageSocial.ts';
 
@@ -319,6 +319,20 @@ export async function readReview(db: Firestore, uid: string, workId: string): Pr
   return reviewFrom((await reviews(db, uid).doc(workKey(workId)).get()).data());
 }
 
+export async function readOwnReviewWork(db: Firestore, uid: string, workIds: readonly string[]): Promise<MyPageOwnReviews> {
+  const collection = reviews(db, uid);
+  const ids = [...new Set(workIds)];
+  const records = await db.getAll(...ids.map((id) => collection.doc(workKey(id))));
+  const result: MyPageOwnReviews = { reviews: [], deletions: [] };
+  for (const record of records) {
+    const data = record.data();
+    const review = reviewFrom(data);
+    if (review) result.reviews.push(review);
+    else if (data?.deleted === true) result.deletions.push({ workId: data.workId, revision: data.revision });
+  }
+  return result;
+}
+
 async function listDatedReviews(db: Firestore, uid: string) {
   const snapshot = await reviews(db, uid).where('deleted', '==', false).get();
   return snapshot.docs.flatMap((document) => {
@@ -361,11 +375,12 @@ export async function listReviewDeletions(db: Firestore, uid: string) {
 async function mutateReview(
   db: Firestore, uid: string, workId: string, fields: ReviewUpdate | null, expectedRevision: number | null,
   importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [], saveId?: string,
-  fallbackReading?: ReviewReading,
+  loadFallbackReading?: () => Promise<ReviewReading | undefined>,
 ): Promise<{ review: MyPageReview | null; applied: boolean }> {
   const account = importOnly ? null : await ensureAccount(db, uid);
   const ref = reviews(db, uid).doc(workKey(workId));
-  return db.runTransaction(async (transaction) => {
+  const needsEvidence = Symbol('needs reading evidence');
+  const commit = (evidence?: { reading: ReviewReading | undefined }) => db.runTransaction(async (transaction) => {
     const code = account?.code ?? await verifyImportAccount(db, transaction, uid, importAccountRevision);
     const entry = workEntries(db, workId).doc(code);
     const current = (await transaction.get(ref)).data();
@@ -393,7 +408,8 @@ async function mutateReview(
       return { review: null, applied: true };
     }
     const previous = reviewFrom(current);
-    const retained = hasReviewReading(previous) ? previous : fallbackReading;
+    if (loadFallbackReading && !evidence && !hasReviewReading(previous)) return needsEvidence;
+    const retained = hasReviewReading(previous) ? previous : evidence?.reading;
     const { rating, comment, totalMs = retained?.totalMs ?? null, progressPercent = retained?.progressPercent ?? null } = fields;
     // Deferred server evidence can arrive without advancing the edit revision.
     const losesEvidence = fields.readingHistoryPartial && retained
@@ -407,6 +423,13 @@ async function mutateReview(
     transaction.set(entry, { workId, code, ...reviewFields(review), publishedAt });
     return { review, applied: true };
   });
+  const result = await commit();
+  if (result !== needsEvidence) return result;
+  // Loading the account timeline outside Firestore's transaction avoids holding
+  // an item lock during a history scan. Recheck the item and its aliases on retry.
+  const committed = await commit({ reading: await loadFallbackReading?.() });
+  if (committed === needsEvidence) throw new Error('Review evidence was not resolved');
+  return committed;
 }
 
 export async function updateReview(...args: Parameters<typeof mutateReview>) {
@@ -432,9 +455,9 @@ export async function fillReviewReading(
 
 export async function importReview(
   db: Firestore, uid: string, workId: string, fields: ReviewUpdate, accountRevision: number,
-  equivalentWorkIds: readonly string[],
+  equivalentWorkIds: readonly string[], loadFallbackReading?: () => Promise<ReviewReading | undefined>,
 ) {
-  return (await mutateReview(db, uid, workId, fields, null, true, accountRevision, equivalentWorkIds)).applied;
+  return (await mutateReview(db, uid, workId, fields, null, true, accountRevision, equivalentWorkIds, undefined, loadFallbackReading)).applied;
 }
 
 type DatedReview = { review: PublicWorkReview; publishedAt: Timestamp };
