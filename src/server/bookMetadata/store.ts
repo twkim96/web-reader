@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Firestore } from 'firebase-admin/firestore';
+import { GrpcStatus, type Firestore, type Timestamp } from 'firebase-admin/firestore';
 import { canonicalGenre, sha256, type OnDemandMetadata, type PlatformCrawlResult } from './domain.ts';
 import { BOOK_METADATA_LIMITS } from './config.ts';
 
@@ -9,7 +9,7 @@ export const BOOK_METADATA_CRAWLER_VERSION = 'web-reader-1.8.29-v3';
 export type LeaseResult =
   | { kind: 'cached'; document: OnDemandMetadata }
   | { kind: 'acquired'; owner: string }
-  | { kind: 'busy' }
+  | { kind: 'busy'; previousSourceVersion: Timestamp | undefined }
   | { kind: 'quota' }
   | { kind: 'cooldown' };
 
@@ -22,9 +22,11 @@ const isFresh = (value: unknown, now: number): value is OnDemandMetadata => {
     && (record.status === 'ready' || record.status === 'not-found' || record.status === 'ambiguous');
 };
 
+type MetadataCacheIdentity = { queryTitle: string; crawlerVersion: string };
+
 const matchesCacheIdentity = (
   value: OnDemandMetadata,
-  expected?: { queryTitle: string; crawlerVersion: string },
+  expected?: MetadataCacheIdentity,
 ) => !expected || (
   value.queryTitle === expected.queryTitle
   && value.crawlerVersion === expected.crawlerVersion
@@ -35,7 +37,7 @@ export const acquireMetadataLease = async (
   aliasId: string,
   uid: string,
   now = Date.now(),
-  expected?: { queryTitle: string; crawlerVersion: string },
+  expected?: MetadataCacheIdentity,
 ): Promise<LeaseResult> => {
   const owner = randomUUID();
   const sourceRef = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
@@ -53,7 +55,7 @@ export const acquireMetadataLease = async (
     const replacesMismatchedFreshCache = Boolean(freshSource && expected);
     const leaseData = lease.data() as Record<string, unknown> | undefined;
     const leaseUntil = typeof leaseData?.leaseUntil === 'number' ? leaseData.leaseUntil : 0;
-    if (leaseUntil > now) return { kind: 'busy' };
+    if (leaseUntil > now) return { kind: 'busy', previousSourceVersion: source.updateTime };
     const lastStartedAt = typeof leaseData?.lastStartedAt === 'number' ? leaseData.lastStartedAt : 0;
     if (
       !replacesMismatchedFreshCache
@@ -183,7 +185,13 @@ export const publishCatalogDelta = async (db: Firestore, changedDocument?: OnDem
       batch.create(db.collection('publicBookCatalogDeltaV1').doc(documentId), payload);
     }
   }
-  await batch.commit();
+  try {
+    await batch.commit();
+  } catch (error) {
+    // Another request may have created the same generation. The readback
+    // still has to verify every expected shard before either can publish it.
+    if ((error as { code?: unknown } | null)?.code !== GrpcStatus.ALREADY_EXISTS) throw error;
+  }
   const readback = await Promise.all(documents.map((documentId) => db.collection('publicBookCatalogDeltaV1').doc(documentId).get()));
   for (const document of readback) {
     if (!document.exists || sha256(stableJson(document.data())) !== checksums[document.id]) throw new Error(`catalog delta readback mismatch: ${document.id}`);
@@ -196,11 +204,20 @@ export const publishCatalogDelta = async (db: Firestore, changedDocument?: OnDem
     recordCount: Object.keys(records).length,
     checksums,
   };
+  const changedSource = changedDocument && db.collection('publicBookMetadataOnDemandV1').doc(changedDocument.aliasId);
   await db.runTransaction(async (transaction) => {
     const current = await transaction.get(manifestRef);
     const currentGeneration = current.exists ? current.data()?.generation ?? null : null;
     if (currentGeneration !== startingGeneration && currentGeneration !== generation) {
       throw new Error('catalog delta manifest changed during publish');
+    }
+    if (changedSource && changedDocument) {
+      const currentSource = (await transaction.get(changedSource)).data();
+      if (!currentSource || stableJson({ ...currentSource, publishPending: false })
+        !== stableJson({ ...changedDocument, publishPending: false })) {
+        throw new Error('metadata source changed during catalog publish');
+      }
+      if (currentSource.publishPending) transaction.update(changedSource, { publishPending: false });
     }
     transaction.set(manifestRef, manifest, { merge: false });
   });
@@ -210,7 +227,6 @@ export const publishCatalogDelta = async (db: Firestore, changedDocument?: OnDem
 export const recoverPendingCatalogPublication = async (db: Firestore, document: OnDemandMetadata) => {
   if (document.status !== 'ready' || !document.publishPending) return null;
   const manifest = await publishCatalogDelta(db, document);
-  await db.collection('publicBookMetadataOnDemandV1').doc(document.aliasId).update({ publishPending: false });
   return manifest.generation;
 };
 
@@ -230,7 +246,6 @@ export const saveMetadataAndPublish = async (
   if (document.status === 'ready') {
     try {
       const manifest = await publishCatalogDelta(db, document);
-      await sourceRef.update({ publishPending: false });
       return manifest.generation;
     } catch (error) {
       console.error('[BookMetadata] delta publish failed');
@@ -240,12 +255,20 @@ export const saveMetadataAndPublish = async (
   return null;
 };
 
-export const waitForMetadataLease = async (db: Firestore, aliasId: string) => {
+export const waitForMetadataLease = async (
+  db: Firestore, aliasId: string, expected: MetadataCacheIdentity, previousSourceVersion: Timestamp | undefined,
+) => {
   const ref = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
   for (let attempt = 0; attempt < 12; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 750));
     const snapshot = await ref.get();
-    if (snapshot.exists) return snapshot.data() as OnDemandMetadata;
+    const data = snapshot.data() as OnDemandMetadata | undefined;
+    if (!data || data.schemaVersion !== 1 || data.aliasId !== aliasId || data.publishPending
+      || !matchesCacheIdentity(data, expected)) continue;
+    const version = snapshot.updateTime;
+    if (data.status === 'error' && version && (!previousSourceVersion
+      || version.valueOf() > previousSourceVersion.valueOf())) return data;
+    if (isFresh(data, Date.now())) return data;
   }
   return null;
 };

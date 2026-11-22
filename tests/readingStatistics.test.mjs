@@ -476,6 +476,7 @@ import {
   readReadingStatisticsClockSampleV1,
   readReadingStatisticsClockSampleSingleFlight,
   verifyRemoteReadingStatisticsAuditV1,
+  verifyLegacyReadingStatisticsCursorV1,
 } from '../src/lib/readingStatisticsSync.ts';
 import {
   detachReadingActivityTargets,
@@ -953,6 +954,7 @@ test('hydrates one authoritative page after an exact timestamp and document tupl
   const record = session({ sessionId: 'remote-page', startedAtClient: 1_000, endedAtClient: 61_000 });
   const constraints = [];
   const sdk = {
+    Timestamp,
     collection: () => ({ kind: 'collection' }),
     documentId: () => '__name__',
     orderBy: (...args) => ({ kind: 'orderBy', args }),
@@ -968,7 +970,7 @@ test('hydrates one authoritative page after an exact timestamp and document tupl
         id: record.sessionId,
         data: () => ({
           ...record,
-          uploadedAtServer: { seconds: 30, nanoseconds: 321, toMillis: () => 30_000 },
+          uploadedAtServer: new Timestamp(30, 321),
         }),
       }],
     }),
@@ -1008,6 +1010,7 @@ test('normalizes server-accepted local dates and quarantines only malformed reco
     endedAtClient: 122_000,
   });
   const sdk = {
+    Timestamp,
     collection: () => ({}),
     documentId: () => '__name__',
     orderBy: (...args) => ({ args }),
@@ -1022,7 +1025,7 @@ test('normalizes server-accepted local dates and quarantines only malformed reco
           data: () => ({
             ...normalized,
             localDate: '2026-12-31',
-            uploadedAtServer: { seconds: 40, nanoseconds: 1 },
+            uploadedAtServer: new Timestamp(40, 1),
           }),
         },
         {
@@ -1030,7 +1033,7 @@ test('normalizes server-accepted local dates and quarantines only malformed reco
           data: () => ({
             ...malformed,
             durationMs: 59_999,
-            uploadedAtServer: { seconds: 40, nanoseconds: 2 },
+            uploadedAtServer: new Timestamp(40, 2),
           }),
         },
       ],
@@ -1056,6 +1059,7 @@ test('quarantines a malformed upload timestamp and continues with later valid se
     endedAtClient: 61_000,
   });
   const sdk = {
+    Timestamp,
     collection: () => ({}),
     documentId: () => '__name__',
     orderBy: (...args) => ({ args }),
@@ -1073,7 +1077,7 @@ test('quarantines a malformed upload timestamp and continues with later valid se
           id: valid.sessionId,
           data: () => ({
             ...valid,
-            uploadedAtServer: { seconds: 50, nanoseconds: 7 },
+            uploadedAtServer: new Timestamp(50, 7),
           }),
         },
       ],
@@ -1104,13 +1108,14 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
   };
   const validDocument = {
     id: valid.sessionId,
-    data: () => ({ ...valid, uploadedAtServer: { seconds: 60, nanoseconds: 9 } }),
+    data: () => ({ ...valid, uploadedAtServer: new Timestamp(60, 9) }),
   };
   let reads = 0;
   let readAttempts = 0;
   const documentsPerQuery = [];
   const startAfterArguments = [];
   const sdk = {
+    Timestamp,
     collection: () => ({}),
     documentId: () => '__name__',
     orderBy: (...args) => ({ args }),
@@ -1179,6 +1184,7 @@ test('reports a successful first read when the malformed-cursor follow-up read f
     data: () => ({ ...valid, uploadedAtServer: 'bad' }),
   };
   const sdk = {
+    Timestamp,
     collection: () => ({}),
     documentId: () => '__name__',
     orderBy: (...args) => ({ args }),
@@ -1199,14 +1205,51 @@ test('reports a successful first read when the malformed-cursor follow-up read f
   assert.equal(successes, 1);
 });
 
+test('legacy cursor adoption requires an exact authoritative timestamp and document ID', async () => {
+  const cursor = { documentId: 'legacy', uploadedAtServerSeconds: 60, uploadedAtServerNanoseconds: 931 };
+  let uploadedAtServer = new Timestamp(60, 931);
+  let id = cursor.documentId;
+  let exists = true;
+  let hasPendingWrites = false;
+  const paths = [];
+  const sdk = {
+    Timestamp,
+    doc: (_firestore, path) => path,
+    getDocFromServer: async (path) => {
+      paths.push(path);
+      return { id, exists: () => exists, metadata: { hasPendingWrites }, data: () => ({ uploadedAtServer }) };
+    },
+  };
+  const verify = () => verifyLegacyReadingStatisticsCursorV1({}, 'alice', cursor, {}, sdk);
+  assert.equal(await verify(), true);
+  assert.deepEqual(paths, ['artifacts/private-web-novel-viewer/users/alice/libraries/local/readingStatsV1/legacy']);
+  uploadedAtServer = { seconds: 60, nanoseconds: 931 };
+  assert.equal(await verify(), false);
+  uploadedAtServer = new Timestamp(60, 930);
+  assert.equal(await verify(), false);
+  uploadedAtServer = new Timestamp(60, 931);
+  id = 'other';
+  assert.equal(await verify(), false);
+  id = cursor.documentId;
+  exists = false;
+  assert.equal(await verify(), false);
+  exists = true;
+  hasPendingWrites = true;
+  await assert.rejects(verify(), /서버 확인/);
+  await assert.rejects(verifyLegacyReadingStatisticsCursorV1({}, 'alice', cursor, {}, {
+    ...sdk, getDocFromServer: async () => { throw new Error('offline'); },
+  }), /offline/);
+});
+
 test('weekly audit checks the count and last record through the received cursor', async () => {
   const reference = {};
   let receivedCount = 9_429;
-  let last = { id: 'last-received', timestamp: { seconds: 60, nanoseconds: 931 } };
+  let last = { id: 'last-received', timestamp: new Timestamp(60, 931) };
   let markerReads = 0;
   const boundary = { seconds: 60, nanoseconds: 931, id: 'last-received' };
   const receivedRange = [reference, ['uploadedAtServer', 'asc'], ['__name__', 'asc'], boundary];
   const sdk = {
+    Timestamp,
     collection: () => reference,
     documentId: () => '__name__',
     orderBy: (...args) => args,
@@ -1232,13 +1275,15 @@ test('weekly audit checks the count and last record through the received cursor'
 
   assert.equal(await verify(), true);
   assert.deepEqual(reports, [1]);
-  last.timestamp.nanoseconds--;
+  last.timestamp = new Timestamp(60, 930);
   assert.equal(await verify(), false, 'a changed timestamp invalidates the cursor');
-  last = { id: 'earlier-id', timestamp: { seconds: 60, nanoseconds: 931 } };
+  last = { id: 'earlier-id', timestamp: new Timestamp(60, 931) };
   assert.equal(await verify(), false, 'a different record cannot stand in for a missing cursor');
+  last = { id: 'last-received', timestamp: { seconds: 60, nanoseconds: 931 } };
+  assert.equal(await verify(), false, 'a timestamp-shaped map cannot certify the old cursor');
   receivedCount--;
   assert.equal(await verify(), false);
-  assert.equal(markerReads, 3, 'a changed count skips the marker lookup');
+  assert.equal(markerReads, 4, 'a changed count skips the marker lookup');
 });
 
 test('a bounded weekly audit recognizes stable quarantine and rejects repair, deletion, or a move beyond the cursor', async () => {
@@ -1252,6 +1297,7 @@ test('a bounded weekly audit recognizes stable quarantine and rejects repair, de
   const pointPaths = [];
   let collectionPath;
   const sdk = {
+    Timestamp,
     collection: (_db, path) => { collectionPath = path; return {}; },
     doc: (_db, path) => path,
     documentId: () => '__name__',

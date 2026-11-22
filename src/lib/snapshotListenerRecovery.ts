@@ -115,8 +115,8 @@ export class SnapshotListenerRecovery<T> {
     if (options?.force) return this.forceRestart();
     const now = options?.now ?? this.now();
     const staleAfterMs = options?.staleAfterMs ?? 15_000;
-    const neverReceivedAuthoritative = this.lastAuthoritativeSnapshotAt === 0
-      && this.lastAttachedAt > 0
+    const neverReceivedAuthoritative = this.unsubscribe !== undefined
+      && this.firstAuthoritativeReceivedAt === null
       && now - this.lastAttachedAt >= staleAfterMs;
     // An unchanged healthy query emits no new snapshot. Quiet data alone is
     // not evidence of a broken subscription; foreground checks handle freshness.
@@ -162,6 +162,7 @@ export class SnapshotListenerRecovery<T> {
     const generation = this.generation + 1;
     this.generation = generation;
     this.lastAttachedAt = this.now();
+    this.lastAuthoritativeSnapshotAt = 0;
     this.firstAuthoritativeReceivedAt = null;
     this.lastAuthoritativeReceivedAt = null;
 

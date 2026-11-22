@@ -25,7 +25,7 @@ Node runtime API이며 `Content-Type: application/json`과 `Authorization: Beare
 | 429 | `quota` 또는 `cooldown`; 즉시 반복 요청하지 않음 |
 | 502 | 수집/게시 복구 실패; 기존 정보 보존 후 재시도 가능 여부 표시 |
 
-UID별 일일 quota, alias별 lease/cooldown과 유효 캐시로 중복 수집을 제어합니다. 트랜잭션에서 저장된 수집 결과가 유효하면 lease와 quota 문서 조회를 건너뜁니다. 요청/응답 크기·시간·기간 수치는 [config.ts](../../src/server/bookMetadata/config.ts)의 `BOOK_METADATA_LIMITS`가 기준입니다. `publishPending`이 남은 캐시 요청은 delta 게시 복구를 시도합니다. 신규 delta도 immutable 문서 확인 후 manifest를 바꿉니다.
+UID별 일일 quota, alias별 lease/cooldown과 유효 캐시로 중복 수집을 제어합니다. 트랜잭션에서 저장된 수집 결과가 유효하면 lease와 quota 문서 조회를 건너뜁니다. 진행 중인 요청을 기다리는 경우 유효 기간·제목·크롤러 버전이 맞고 게시까지 끝난 결과를 재사용합니다. 대기 중 같은 요청 조건의 새 수집 오류가 저장되면 해당 오류를 전달합니다. 요청/응답 크기·시간·기간 수치는 [config.ts](../../src/server/bookMetadata/config.ts)의 `BOOK_METADATA_LIMITS`가 기준입니다. `publishPending`이 남은 캐시 요청은 delta 게시 복구를 시도합니다. immutable 문서를 확인한 뒤, 게시 대상 원본이 동일한 경우에만 같은 트랜잭션에서 manifest 전환과 `publishPending` 해제를 수행합니다.
 
 서버의 Firebase Admin 설정은 [개발 가이드](../development/setup-and-checks.md)에 있습니다. 선택적 `NOVELPIA_EMAIL`/`NOVELPIA_PASSWORD`는 요청 수명 동안 인증 session을 제공하며 클라이언트에 노출하지 않습니다. 설정 없음·로그인 제한·제공자 접근 실패와 정상적인 not-found를 구분합니다.
 

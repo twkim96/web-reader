@@ -13,13 +13,15 @@ import {
   runTransaction,
   serverTimestamp,
   startAfter,
+  startAt,
   Timestamp,
   type Firestore,
 } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
-import type {
-  QuarantinedReadingStatisticsDocumentV12,
-  ReadingStatisticsRemoteCursorV12,
+import {
+  MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS,
+  type QuarantinedReadingStatisticsDocumentV12,
+  type ReadingStatisticsRemoteCursorV12,
 } from './localReadingStatistics';
 import {
   getReadingSessionLocalDate,
@@ -58,36 +60,39 @@ const parseRemoteReadingSessionDocument = (data: unknown, documentId: string) =>
   return session;
 };
 
-const readServerTimestampCursor = (value: unknown) => {
-  if (typeof value !== 'object' || value === null) return null;
-  if (
-    'seconds' in value
-    && Number.isSafeInteger(value.seconds)
-    && Number(value.seconds) >= 0
-    && 'nanoseconds' in value
-    && Number.isInteger(value.nanoseconds)
-    && Number(value.nanoseconds) >= 0
-    && Number(value.nanoseconds) < 1_000_000_000
-  ) {
-    return {
-      uploadedAtServerSeconds: Number(value.seconds),
-      uploadedAtServerNanoseconds: Number(value.nanoseconds),
-    };
-  }
-  if ('toMillis' in value && typeof value.toMillis === 'function') {
-    const milliseconds = value.toMillis();
-    if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) return null;
-    return {
-      uploadedAtServerSeconds: Math.floor(milliseconds / 1_000),
-      uploadedAtServerNanoseconds: (milliseconds % 1_000) * 1_000_000,
-    };
-  }
-  return null;
+const readServerTimestampCursor = (value: unknown, TimestampClass: typeof Timestamp) => {
+  if (!(value instanceof TimestampClass) || value.seconds < 0) return null;
+  return {
+    uploadedAtServerSeconds: value.seconds,
+    uploadedAtServerNanoseconds: value.nanoseconds,
+  };
 };
 
 export const getFirebaseReadingStatisticsPath = (appId: string, uid: string) => (
   `artifacts/${appId}/users/${uid}/libraries/local/readingStatsV1`
 );
+
+export const verifyLegacyReadingStatisticsCursorV1 = async (
+  firestore: Firestore,
+  uid: string,
+  cursor: ReadingStatisticsRemoteCursorV12,
+  instrumentation: { onReadAttempt?: () => void; onReadSuccess?: (returnedDocuments: number) => void } = {},
+  sdk: Pick<typeof import('firebase/firestore'), 'doc' | 'getDocFromServer' | 'Timestamp'> = {
+    doc, getDocFromServer, Timestamp,
+  },
+) => {
+  const reference = sdk.doc(firestore, `${getFirebaseReadingStatisticsPath(APP_ID, uid)}/${cursor.documentId}`);
+  instrumentation.onReadAttempt?.();
+  const snapshot = await sdk.getDocFromServer(reference);
+  instrumentation.onReadSuccess?.(snapshot.exists() ? 1 : 0);
+  if (snapshot.metadata.hasPendingWrites) {
+    throw new Error('원격 독서 통계 cursor의 서버 확인이 완료되지 않았습니다.');
+  }
+  if (!snapshot.exists() || snapshot.id !== cursor.documentId) return false;
+  const timestamp = readServerTimestampCursor(snapshot.data().uploadedAtServer, sdk.Timestamp);
+  return timestamp?.uploadedAtServerSeconds === cursor.uploadedAtServerSeconds
+    && timestamp.uploadedAtServerNanoseconds === cursor.uploadedAtServerNanoseconds;
+};
 
 const isAtOrBeforeCursor = (document: ReadingStatisticsRemoteCursorV12, cursor: ReadingStatisticsRemoteCursorV12) => {
   if (document.uploadedAtServerSeconds !== cursor.uploadedAtServerSeconds) {
@@ -116,8 +121,8 @@ export const verifyRemoteReadingStatisticsAuditV1 = async (
   instrumentation: { onReadAttempt?: () => void; onReadSuccess?: (returnedDocuments: number) => void } = {},
   sdk: Pick<
     typeof import('firebase/firestore'),
-    'collection' | 'doc' | 'documentId' | 'endAt' | 'getCountFromServer' | 'getDocFromServer' | 'getDocsFromServer' | 'limitToLast' | 'orderBy' | 'query'
-  > = { collection, doc, documentId, endAt, getCountFromServer, getDocFromServer, getDocsFromServer, limitToLast, orderBy, query },
+    'collection' | 'doc' | 'documentId' | 'endAt' | 'getCountFromServer' | 'getDocFromServer' | 'getDocsFromServer' | 'limitToLast' | 'orderBy' | 'query' | 'Timestamp'
+  > = { collection, doc, documentId, endAt, getCountFromServer, getDocFromServer, getDocsFromServer, limitToLast, orderBy, query, Timestamp },
 ) => {
   const { documentId: cursorId, uploadedAtServerSeconds, uploadedAtServerNanoseconds } = expected.cursor;
   const path = getFirebaseReadingStatisticsPath(APP_ID, uid);
@@ -128,7 +133,7 @@ export const verifyRemoteReadingStatisticsAuditV1 = async (
     reference,
     sdk.orderBy('uploadedAtServer', 'asc'),
     sdk.orderBy(sdk.documentId(), 'asc'),
-    sdk.endAt(new Timestamp(uploadedAtServerSeconds, uploadedAtServerNanoseconds), cursorId),
+    sdk.endAt(new sdk.Timestamp(uploadedAtServerSeconds, uploadedAtServerNanoseconds), cursorId),
   );
   const count = await sdk.getCountFromServer(receivedRange);
   if (count.data().count !== expected.remoteCount) return false;
@@ -136,7 +141,7 @@ export const verifyRemoteReadingStatisticsAuditV1 = async (
   const snapshot = await sdk.getDocsFromServer(sdk.query(receivedRange, sdk.limitToLast(1)));
   instrumentation.onReadSuccess?.(snapshot.size);
   const last = snapshot.docs[0];
-  const timestamp = readServerTimestampCursor(last?.data().uploadedAtServer);
+  const timestamp = readServerTimestampCursor(last?.data().uploadedAtServer, sdk.Timestamp);
   if (last?.id !== cursorId || timestamp?.uploadedAtServerSeconds !== uploadedAtServerSeconds
     || timestamp.uploadedAtServerNanoseconds !== uploadedAtServerNanoseconds) return false;
 
@@ -151,9 +156,7 @@ export const verifyRemoteReadingStatisticsAuditV1 = async (
       data = quarantined.data();
     }
     // A Firestore map can look like a Timestamp but sorts outside the timestamp range.
-    const position = data.uploadedAtServer instanceof Timestamp
-      ? readServerTimestampCursor(data.uploadedAtServer)
-      : null;
+    const position = readServerTimestampCursor(data.uploadedAtServer, sdk.Timestamp);
     if (!position || !isAtOrBeforeCursor({ ...position, documentId: id }, expected.cursor)) return false;
     try {
       parseRemoteReadingSessionDocument(data, id);
@@ -256,21 +259,28 @@ export const getRemoteReadingSessionsPageV1 = async (
   pageSize = 500,
   sdk: Pick<
     typeof import('firebase/firestore'),
-    'collection' | 'documentId' | 'getDocsFromServer' | 'limit' | 'orderBy' | 'query' | 'startAfter'
+    'collection' | 'documentId' | 'endAt' | 'getDocsFromServer' | 'limit' | 'orderBy' | 'query' | 'startAfter' | 'startAt' | 'Timestamp'
   > = {
     collection,
     documentId,
+    endAt,
     getDocsFromServer,
     limit,
     orderBy,
     query,
     startAfter,
+    startAt,
+    Timestamp,
   },
   instrumentation: {
     onReadAttempt?: () => void;
     onReadSuccess?: (returnedDocuments: number) => void;
   } = {},
-  { singleSnapshot = false } = {},
+  { singleSnapshot = false, timestampRangeOnly = false, isLeader }: {
+    singleSnapshot?: boolean;
+    timestampRangeOnly?: boolean;
+    isLeader?: () => boolean | Promise<boolean>;
+  } = {},
 ) => {
   const reference = sdk.collection(
     firestore,
@@ -291,9 +301,12 @@ export const getRemoteReadingSessionsPageV1 = async (
     sdk.orderBy('uploadedAtServer', 'asc'),
     sdk.orderBy(sdk.documentId(), 'asc'),
     ...(cursor ? [sdk.startAfter(
-      new Timestamp(cursor.uploadedAtServerSeconds, cursor.uploadedAtServerNanoseconds),
+      new sdk.Timestamp(cursor.uploadedAtServerSeconds, cursor.uploadedAtServerNanoseconds),
       cursor.documentId,
-    )] : []),
+    )] : timestampRangeOnly ? [sdk.startAt(new sdk.Timestamp(0, 0))] : []),
+    // Valid uploads use serverTimestamp(). Later-sorting malformed values cannot
+    // extend an incremental scan or hold back the next poll.
+    ...(timestampRangeOnly ? [sdk.endAt(new sdk.Timestamp(253_402_300_799, 999_999_999))] : []),
     sdk.limit(pageSize),
   ));
   const sessions: ReadingSessionV1[] = [];
@@ -303,8 +316,8 @@ export const getRemoteReadingSessionsPageV1 = async (
     for (const document of snapshot.docs) {
       const data = document.data() as Record<string, unknown>;
       try {
-        const timestampCursor = readServerTimestampCursor(data.uploadedAtServer);
-        if (!timestampCursor || (singleSnapshot && !(data.uploadedAtServer instanceof Timestamp))) {
+        const timestampCursor = readServerTimestampCursor(data.uploadedAtServer, sdk.Timestamp);
+        if (!timestampCursor) {
           throw new Error('원격 독서 통계 upload cursor가 올바르지 않습니다.');
         }
         nextCursor = {
@@ -321,12 +334,16 @@ export const getRemoteReadingSessionsPageV1 = async (
         });
       }
     }
+    if (quarantinedDocuments.length > MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS) {
+      quarantinedDocuments.splice(0, quarantinedDocuments.length - MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS);
+    }
     if (snapshot.size < pageSize || singleSnapshot) break;
     const lastDocument = snapshot.docs.at(-1);
     if (!lastDocument) break;
     const lastData = lastDocument.data() as Record<string, unknown>;
-    const lastTimestamp = readServerTimestampCursor(lastData.uploadedAtServer);
+    const lastTimestamp = readServerTimestampCursor(lastData.uploadedAtServer, sdk.Timestamp);
     if (lastTimestamp) break;
+    if (isLeader && !await isLeader()) break;
     snapshot = await readSnapshot(sdk.query(
       reference,
       sdk.orderBy('uploadedAtServer', 'asc'),

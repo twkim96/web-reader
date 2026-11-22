@@ -56,10 +56,11 @@ export async function POST(request: Request) {
       ? (trustedEntry.platforms[0] as Record<string, unknown>).title
       : null;
   const input = withTrustedQueryTitle(parsedInput, trustedTitle);
-  const lease = await acquireMetadataLease(db, input.aliasId, uid, Date.now(), {
+  const identity = {
     queryTitle: input.queryTitle,
     crawlerVersion: BOOK_METADATA_CRAWLER_VERSION,
-  });
+  };
+  const lease = await acquireMetadataLease(db, input.aliasId, uid, Date.now(), identity);
   if (lease.kind === 'cached') {
     let document = lease.document;
     let generation = null;
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
   if (lease.kind === 'quota') return response({ status: 'quota' }, 429);
   if (lease.kind === 'cooldown') return response({ status: 'cooldown' }, 429);
   if (lease.kind === 'busy') {
-    const document = await waitForMetadataLease(db, input.aliasId);
+    const document = await waitForMetadataLease(db, input.aliasId, identity, lease.previousSourceVersion);
     return document ? response({ status: document.status, document, cached: true }) : response({ status: 'busy' }, 202);
   }
   const controller = new AbortController();

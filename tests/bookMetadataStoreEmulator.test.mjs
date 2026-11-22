@@ -7,7 +7,9 @@ import {
   acquireMetadataLease,
   BOOK_METADATA_CRAWLER_VERSION,
   buildOnDemandMetadata,
+  recoverPendingCatalogPublication,
   saveMetadataAndPublish,
+  waitForMetadataLease,
 } from '../src/server/bookMetadata/store.ts';
 
 let app;
@@ -112,4 +114,113 @@ test('a corrected query and crawler version replace a fresh legacy not-found cac
     crawlerVersion: BOOK_METADATA_CRAWLER_VERSION,
   });
   assert.equal(refreshed.kind, 'acquired');
+});
+
+test('a busy refresh waits past expired, mismatched and unpublished results', async (t) => {
+  const aliasId = alias(400);
+  const now = Date.now();
+  const queryTitle = '최신 작품';
+  const expected = { queryTitle, crawlerVersion: BOOK_METADATA_CRAWLER_VERSION };
+  const source = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
+  const expired = buildOnDemandMetadata(aliasId, alias(401), queryTitle, [], now - 8 * 86_400_000);
+  const pending = buildOnDemandMetadata(aliasId, alias(401), queryTitle, [{
+    platform: 'kakao', status: 'ok', remoteId: '123', remoteTitle: queryTitle,
+    url: 'https://page.kakao.com/content/123',
+  }], now);
+  await source.set(expired);
+  const refresh = await acquireMetadataLease(db, aliasId, 'alice', now, expected);
+  assert.equal(refresh.kind, 'acquired');
+  const busy = await acquireMetadataLease(db, aliasId, 'bob', now, expected);
+  assert.equal(busy.kind, 'busy');
+  const prototype = Object.getPrototypeOf(source);
+  const get = prototype.get;
+  let reads = 0;
+  t.mock.method(prototype, 'get', async function (...args) {
+    if (this.path === source.path) {
+      reads++;
+      if (reads === 2) await source.set({ ...pending, queryTitle: '다른 작품', publishPending: false });
+      if (reads === 3) await source.set(pending);
+      if (reads === 4) await source.update({ publishPending: false });
+    }
+    return get.apply(this, args);
+  });
+  assert.deepEqual(await waitForMetadataLease(db, aliasId, expected, busy.previousSourceVersion), { ...pending, publishPending: false });
+  assert.equal(reads, 4);
+});
+
+test('an older publisher cannot activate its delta or clear a newer source publication', async () => {
+  const aliasId = alias(500);
+  const now = Date.now();
+  const ready = (remoteId, crawledAt) => buildOnDemandMetadata(aliasId, alias(501), '동시 게시 작품', [{
+    platform: 'kakao', status: 'ok', remoteId, remoteTitle: '동시 게시 작품',
+    url: `https://page.kakao.com/content/${remoteId}`, sourceCount: Number(remoteId),
+  }], crawledAt);
+  const old = ready('123', now - 100);
+  const current = ready('456', now);
+  const source = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
+  const delta = db.collection('publicBookCatalogDeltaV1');
+  await source.set(current);
+  await assert.rejects(recoverPendingCatalogPublication(db, old), /metadata source changed/);
+  assert.equal((await delta.doc('manifest').get()).exists, false);
+  assert.deepEqual((await source.get()).data(), current);
+
+  const generation = await recoverPendingCatalogPublication(db, current);
+  assert.equal((await delta.doc('manifest').get()).get('generation'), generation);
+  assert.deepEqual((await source.get()).data(), { ...current, publishPending: false });
+});
+
+test('a waiting reader receives a newly completed crawler error, not the previous error', async (t) => {
+  const aliasId = alias(600);
+  const now = Date.now();
+  const expected = { queryTitle: '수집 오류 작품', crawlerVersion: BOOK_METADATA_CRAWLER_VERSION };
+  const failedResult = (at) => buildOnDemandMetadata(aliasId, alias(601), expected.queryTitle, [
+    { platform: 'kakao', status: 'error' },
+  ], at);
+  const source = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
+  await source.set(failedResult(now - 60_000));
+  const active = await acquireMetadataLease(db, aliasId, 'alice', now, expected);
+  assert.equal(active.kind, 'acquired');
+  const busy = await acquireMetadataLease(db, aliasId, 'bob', now, expected);
+  assert.equal(busy.kind, 'busy');
+  let reads = 0;
+  const prototype = Object.getPrototypeOf(source);
+  const get = prototype.get;
+  const current = failedResult(now + 1000);
+  assert.equal(current.status, 'error');
+  t.mock.method(prototype, 'get', async function (...args) {
+    if (this.path === source.path && ++reads === 2) await saveMetadataAndPublish(db, current, active.owner);
+    return get.apply(this, args);
+  });
+  assert.deepEqual(await waitForMetadataLease(db, aliasId, expected, busy.previousSourceVersion), current);
+  assert.equal(reads, 2);
+});
+
+test('concurrent recovery of the same source accepts matching immutable shards', async (t) => {
+  const aliasId = alias(700);
+  const ready = buildOnDemandMetadata(aliasId, alias(701), '동일 게시 결과', [{
+    platform: 'kakao', status: 'ok', remoteId: '123', remoteTitle: '동일 게시 결과',
+    url: 'https://page.kakao.com/content/123',
+  }]);
+  const source = db.collection('publicBookMetadataOnDemandV1').doc(aliasId);
+  await source.set(ready);
+  const bothReady = Promise.withResolvers();
+  const batch = db.batch.bind(db);
+  let commits = 0;
+  t.mock.method(db, 'batch', () => {
+    const writer = batch();
+    const commit = writer.commit.bind(writer);
+    t.mock.method(writer, 'commit', async () => {
+      if (++commits === 2) bothReady.resolve();
+      await bothReady.promise;
+      return commit();
+    });
+    return writer;
+  });
+  const generations = await Promise.all([
+    recoverPendingCatalogPublication(db, ready),
+    recoverPendingCatalogPublication(db, ready),
+  ]);
+  assert.equal(commits, 2);
+  assert.equal(generations[0], generations[1]);
+  assert.equal((await source.get()).get('publishPending'), false);
 });

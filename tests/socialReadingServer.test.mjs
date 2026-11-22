@@ -103,6 +103,20 @@ function fixtureStats(readRows, onFullScan = () => {}) {
 
 const readFixtureTransaction = (callback) => callback({ get: (query) => query.get() });
 
+function captureReadingEvidenceLogs(t) {
+  const logs = [];
+  const previousLogging = process.env.MY_PAGE_PERF_LOG;
+  process.env.MY_PAGE_PERF_LOG = '1';
+  t.after(() => {
+    if (previousLogging === undefined) delete process.env.MY_PAGE_PERF_LOG;
+    else process.env.MY_PAGE_PERF_LOG = previousLogging;
+  });
+  t.mock.method(console, 'info', (label, data) => {
+    if (label === '[MyPagePerformance]' && data.route === 'reading-evidence-deferred') logs.push(data);
+  });
+  return logs;
+}
+
 test('reuses a verified empty history and rescans after the first server-timestamped upload', async (t) => {
   const book = (await loadSocialCatalog()).values().next().value;
   const session = {
@@ -171,16 +185,7 @@ test('groups filename variants and reassigns a retained timeline after an alias 
   };
   let now = Date.now();
   t.mock.method(Date, 'now', () => now);
-  const logs = [];
-  const previousLogging = process.env.MY_PAGE_PERF_LOG;
-  process.env.MY_PAGE_PERF_LOG = '1';
-  t.after(() => {
-    if (previousLogging === undefined) delete process.env.MY_PAGE_PERF_LOG;
-    else process.env.MY_PAGE_PERF_LOG = previousLogging;
-  });
-  t.mock.method(console, 'info', (label, data) => {
-    if (label === '[MyPagePerformance]' && data.route === 'reading-evidence-deferred') logs.push(data);
-  });
+  const logs = captureReadingEvidenceLogs(t);
   const evidence = (book, file) => getSocialReadingEvidence(db, 'account', book.id, [file], 'reading-evidence-deferred');
 
   add('a-overlap-winner', 'second-file', second.id, 'second-device', 8000, 20, 1, -7000);
@@ -204,6 +209,74 @@ test('groups filename variants and reassigns a retained timeline after an alias 
   assert.equal(logs.at(-1).timelineBuilds, 0);
   assert.equal(logs.at(-1).aliasResolutions, 1);
   assert.deepEqual(await evidence(second, 'first-file'), { totalMs: 4000, progressPercent: 30 });
+});
+
+test('retains large-history evidence through alias rechecks and audits it on schedule', async (t) => {
+  const book = (await loadSocialCatalog()).values().next().value;
+  const sessions = Array.from({ length: 140 }, (_, index) => {
+    const start = 1_700_000_000_000 + index * 2048;
+    const activeIntervals = Array.from({ length: 512 }, (_, interval) => ({
+      startedAtClient: start + interval * 2,
+      endedAtClient: start + interval * 2 + 2,
+    }));
+    return {
+      schemaVersion: 1, sessionId: String(index).padStart(3, '0'), bookId: 'file', bookTitle: book.id, deviceId: 'device',
+      mode: 'tts', startedAtClient: start, endedAtClient: start + 1024, durationMs: 1024, activeIntervals,
+      startProgressPercent: 0, endProgressPercent: 20, timezoneOffsetMinutes: 0, localDate: '2023-11-14', completed: false,
+    };
+  });
+  assert.ok(sessions.reduce((bytes, session) => bytes + Buffer.byteLength(JSON.stringify(session)), 0) > 4 * 1024 * 1024);
+  const stamp = new Timestamp(1, 0);
+  const stats = fixtureStats(() => sessions.map((session) => ({
+    id: session.sessionId, get: () => stamp, data: () => session,
+  })));
+  const db = { collection: () => stats, runTransaction: readFixtureTransaction };
+  const start = Date.now();
+  let now = start;
+  t.mock.method(Date, 'now', () => now);
+  const logs = captureReadingEvidenceLogs(t);
+  const evidence = () => getSocialReadingEvidence(db, 'large-account', book.id, ['file'], 'reading-evidence-deferred');
+  const expected = { totalMs: 140 * 1024, progressPercent: 20 };
+
+  assert.deepEqual(await evidence(), expected);
+  assert.equal(logs.at(-1).fullScanCold, 1);
+  assert.equal(logs.at(-1).scanDocuments, 140);
+  assert.equal(logs.at(-1).retainedRawBytes, 0);
+  assert.ok(logs.at(-1).retainedEvidenceBytes > 0);
+
+  now += 31_000;
+  assert.deepEqual(await evidence(), expected);
+  assert.equal(logs.at(-1).markerDocuments, 1);
+  assert.equal(logs.at(-1).scanQueries, 0);
+
+  for (const elapsed of [5, 29]) {
+    now = start + elapsed * 60_000;
+    assert.deepEqual(await evidence(), expected);
+    assert.equal(logs.at(-1).countQueries, 1);
+    assert.equal(logs.at(-1).scanQueries, 0);
+    assert.equal(logs.at(-1).timelineBuilds, 0);
+    assert.equal(logs.at(-1).evidenceReused, 1);
+  }
+
+  // A same-cursor, same-count edit is detected by the full audit.
+  sessions[0].endProgressPercent = 40;
+  now = start + 30 * 60_000;
+  assert.deepEqual(await evidence(), { ...expected, progressPercent: 40 });
+  assert.equal(logs.at(-1).fullScanAudit, 1);
+  assert.equal(logs.at(-1).scanDocuments, 140);
+  assert.equal(logs.at(-1).timelineBuilds, 1);
+
+  const extra = sessions.at(-1);
+  const extraStart = extra.endedAtClient + 1000;
+  sessions.push({
+    ...extra, sessionId: 'new', mode: 'screen', startedAtClient: extraStart, endedAtClient: extraStart + 2000,
+    durationMs: 2000, activeIntervals: undefined, endProgressPercent: 50,
+  });
+  now += 31_000;
+  assert.deepEqual(await evidence(), { totalMs: expected.totalMs + 2000, progressPercent: 50 });
+  assert.equal(logs.at(-1).countQueries, 1);
+  assert.equal(logs.at(-1).fullScanRawUnavailable, 1);
+  assert.equal(logs.at(-1).scanDocuments, 141);
 });
 
 test('published aliases prove reading while private titles and unrelated file hints do not escape', async () => {

@@ -16,6 +16,7 @@ import {
   endAt,
   getCountFromServer,
   getDoc,
+  getDocFromServer,
   getDocs,
   getDocsFromServer,
   limit,
@@ -26,6 +27,7 @@ import {
   serverTimestamp,
   setDoc,
   startAfter,
+  startAt,
   Timestamp,
   writeBatch,
 } from 'firebase/firestore';
@@ -38,11 +40,21 @@ import {
 import { prepareWriteLease, createSyncEventId } from '../src/lib/writeLeaseTransport.ts';
 import { parseLeasedEventId } from '../src/lib/writeLeasePolicy.ts';
 import { DEFAULT_ANNOTATION_PALETTE } from '../src/lib/annotationPalette.ts';
+import { closeLocalDB, initDB } from '../src/lib/localDB.ts';
+import { V12_READING_STATISTICS_SYNC_STORE } from '../src/lib/localDBSchema.ts';
+import {
+  adoptLegacyReadingStatisticsCursorV12,
+  getReadingStatisticsHydrationPlanV12,
+  hydrateRemoteReadingSessionsPageV12,
+} from '../src/lib/localReadingStatistics.ts';
+import { makeFirebaseOwnerKey, makeOwnerKey } from '../src/lib/ownerIdentity.ts';
 import {
   getRemoteReadingSessionsPageV1,
   uploadReadingSessionV1,
+  verifyLegacyReadingStatisticsCursorV1,
   verifyRemoteReadingStatisticsAuditV1,
 } from '../src/lib/readingStatisticsSync.ts';
+import { acquireReadingStatisticsSyncLeaseV13 } from '../src/lib/readingStatisticsSyncLease.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 
 const projectId = 'demo-web-reader';
@@ -1358,12 +1370,9 @@ test('rejects malformed or cross-owner reading statistic sessions', async () => 
 test('weekly statistics audit allows a device to fetch only new uploads and rejects missing history', async () => {
   const stamp = new Timestamp(60, 931_000);
   const newer = new Timestamp(60, 932_000);
-  // The .mjs test and tsx-loaded module use separate SDK builds.
-  const testTimestamp = (stamp) => new Timestamp(stamp.seconds, stamp.nanoseconds);
   const sdk = {
-    collection, documentId, getCountFromServer, getDocsFromServer, limit, limitToLast, orderBy, query,
-    endAt: (stamp, id) => endAt(testTimestamp(stamp), id),
-    startAfter: (stamp, id) => startAfter(testTimestamp(stamp), id),
+    collection, doc, documentId, endAt, getCountFromServer, getDocsFromServer, limit, limitToLast,
+    orderBy, query, startAfter, startAt, Timestamp,
   };
   const seed = (id, uploadedAtServer) => environment.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), readingStatisticsPath(id)), {
@@ -1399,6 +1408,110 @@ test('weekly statistics audit allows a device to fetch only new uploads and reje
   await seed('a-earlier', stamp);
   await seed('a-replacement', stamp);
   assert.equal(await verify(), false, 'matching counts cannot hide a missing cursor document');
+});
+
+test('a recently completed legacy statistics checkpoint reads only its marker and the next upload', async (t) => {
+  await import('fake-indexeddb/auto');
+  t.after(closeLocalDB);
+  const ownerKey = makeOwnerKey(makeFirebaseOwnerKey('alice'), 'library:local');
+  const historical = ['legacy-history', 'legacy-marker'].map(validReadingSession);
+  const stamp = new Timestamp(60, 931_000);
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const batch = writeBatch(db);
+    for (const session of historical) {
+      batch.set(doc(db, readingStatisticsPath(session.sessionId)), { ...session, uploadedAtServer: stamp });
+    }
+    await batch.commit();
+  });
+
+  const now = Date.now();
+  const cursor = { documentId: 'legacy-marker', uploadedAtServerSeconds: stamp.seconds, uploadedAtServerNanoseconds: stamp.nanoseconds };
+  await hydrateRemoteReadingSessionsPageV12(ownerKey, historical, null, cursor, true, false, [], now);
+  const local = await initDB();
+  const legacy = await local.get(V12_READING_STATISTICS_SYNC_STORE, ownerKey);
+  delete legacy.cursorVersion;
+  await local.put(V12_READING_STATISTICS_SYNC_STORE, legacy);
+
+  const db = database();
+  const nextId = 'new-after-adoption';
+  await assertSucceeds(setDoc(doc(db, readingStatisticsPath(nextId)), {
+    ...validReadingSession(nextId), uploadedAtServer: serverTimestamp(),
+  }));
+  const returned = [];
+  const sdk = {
+    collection, doc, documentId, endAt, limit, orderBy, query, startAfter, startAt, Timestamp,
+    getDocFromServer: async (reference) => {
+      const snapshot = await getDocFromServer(reference);
+      returned.push(['marker', reference.path, snapshot.id]);
+      return snapshot;
+    },
+    getDocsFromServer: async (target) => {
+      const snapshot = await getDocsFromServer(target);
+      returned.push(['incremental', ...snapshot.docs.map(({ id }) => id)]);
+      return snapshot;
+    },
+  };
+  const lease = await acquireReadingStatisticsSyncLeaseV13(ownerKey, 'legacy-adoption', now);
+  const { legacyCursor } = await getReadingStatisticsHydrationPlanV12(ownerKey, now);
+  assert.equal(await verifyLegacyReadingStatisticsCursorV1(db, 'alice', legacyCursor, {}, sdk), true);
+  assert.equal(await adoptLegacyReadingStatisticsCursorV12(ownerKey, legacyCursor, lease, () => now), true);
+  const plan = await getReadingStatisticsHydrationPlanV12(ownerKey, now);
+  assert.equal(plan.state.lastFullAuditAt, now);
+  const page = await getRemoteReadingSessionsPageV1(db, 'alice', plan.state.cursor, 500, sdk, {}, {
+    timestampRangeOnly: !plan.fullAuditInProgress,
+  });
+  assert.equal(page.fullHydrationCompleted, true);
+  assert.deepEqual(page.sessions.map(({ sessionId }) => sessionId), [nextId]);
+  assert.deepEqual(returned, [
+    ['marker', readingStatisticsPath(cursor.documentId), cursor.documentId],
+    ['incremental', nextId],
+  ]);
+});
+
+test('statistics hydration quarantines a mixed-type tail and later resumes within the timestamp range', async () => {
+  const sdk = { collection, doc, documentId, endAt, getDocFromServer, getDocsFromServer, limit, orderBy, query, startAfter, startAt, Timestamp };
+  const stamp = new Timestamp(60, 931_000);
+  const seed = (entries) => environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const batch = writeBatch(db);
+    for (const [id, uploadedAtServer] of entries) {
+      batch.set(doc(db, readingStatisticsPath(id)), { ...validReadingSession(id), uploadedAtServer });
+    }
+    await batch.commit();
+  });
+  await seed([
+    ['a-valid', stamp],
+    ['b-valid', stamp],
+    ['c-map', { seconds: 900_000, nanoseconds: 10 }],
+    ['d-map', { seconds: 900_000, nanoseconds: 10 }],
+    ['e-map', { seconds: 900_000, nanoseconds: 10 }],
+  ]);
+  const db = database();
+  const first = await getRemoteReadingSessionsPageV1(db, 'alice', null, 2, sdk);
+  assert.deepEqual(first.sessions.map(({ sessionId }) => sessionId), ['a-valid', 'b-valid']);
+  assert.equal(first.fullHydrationCompleted, false);
+
+  const storedCursor = structuredClone(first.nextCursor);
+  assert.equal(await verifyLegacyReadingStatisticsCursorV1(db, 'alice', storedCursor, {}, sdk), true);
+  assert.equal(await verifyLegacyReadingStatisticsCursorV1(db, 'alice', {
+    documentId: 'c-map', uploadedAtServerSeconds: 900_000, uploadedAtServerNanoseconds: 10,
+  }, {}, sdk), false);
+  const tail = await getRemoteReadingSessionsPageV1(db, 'alice', storedCursor, 2, sdk);
+  assert.equal(tail.remoteReadCount, 2);
+  assert.deepEqual(tail.sessions, []);
+  assert.deepEqual(tail.quarantinedDocuments.map(({ documentId: id }) => id), ['c-map', 'd-map', 'e-map']);
+  assert.deepEqual(tail.nextCursor, storedCursor);
+  assert.equal(tail.fullHydrationCompleted, true);
+
+  await seed([['f-same-time', stamp], ['g-new-time', new Timestamp(60, 932_000)]]);
+  const next = await getRemoteReadingSessionsPageV1(db, 'alice', storedCursor, 2, sdk, {}, { timestampRangeOnly: true });
+  assert.deepEqual(next.sessions.map(({ sessionId }) => sessionId), ['f-same-time', 'g-new-time']);
+  assert.deepEqual(next.quarantinedDocuments, []);
+  const done = await getRemoteReadingSessionsPageV1(db, 'alice', next.nextCursor, 2, sdk, {}, { timestampRangeOnly: true });
+  assert.equal(done.remoteReadCount, 1);
+  assert.equal(done.fullHydrationCompleted, true);
+  assert.deepEqual(done.quarantinedDocuments, []);
 });
 
 const leaseUuid = '2af12345-1234-4123-8123-123456789abc';

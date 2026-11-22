@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { onIdTokenChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import {
+  adoptLegacyReadingStatisticsCursorV12,
   deferReadingSessionSyncV11,
   getReadingStatisticsHydrationPlanV12,
   getPendingReadingSessionsV11,
@@ -23,6 +24,7 @@ import {
   readReadingStatisticsClockSampleSingleFlight,
   type ReadingStatisticsClockSample,
   uploadReadingSessionV1,
+  verifyLegacyReadingStatisticsCursorV1,
   verifyRemoteReadingStatisticsAuditV1,
 } from '../lib/readingStatisticsSync';
 import {
@@ -281,23 +283,50 @@ export const useReadingStatisticsSync = (
               },
             };
             try {
+              let timestampRangeOnly = false;
               const hydrationOperations = {
                 isLeader: hasClaimLeadership,
                 fetchPage: async (cursor: ReadingStatisticsRemoteCursorV12 | null, options?: { singleSnapshot: boolean }) => {
-                  const page = await getRemoteReadingSessionsPageV1(db, user.uid, cursor, undefined, undefined, instrumentation, options);
+                  const page = await getRemoteReadingSessionsPageV1(db, user.uid, cursor, undefined, undefined, instrumentation, {
+                    ...options,
+                    timestampRangeOnly,
+                    isLeader: hasClaimLeadership,
+                  });
                   receivedHistoryDocuments += page.sessions.length + page.quarantinedDocuments.length;
                   return page;
                 },
                 commitPage: async (page: ReadingStatisticsHydrationPage, cursor: ReadingStatisticsRemoteCursorV12 | null) => {
                   const result = await hydrateRemoteReadingSessionsPageV12(
                     syncOwnerKey, page.sessions, cursor, page.nextCursor, page.fullHydrationCompleted,
-                    false, page.quarantinedDocuments, Date.now(), leaseClaim,
+                    false, page.quarantinedDocuments, Date.now(), leaseClaim, timestampRangeOnly,
                   );
                   hydrationPageCount += 1;
                   return result;
                 },
               };
               let plan = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+              if ('legacyCursor' in plan) {
+                const { legacyCursor } = plan;
+                if (!await hasClaimLeadership()) {
+                  hydrationStatus = 'lost-leadership';
+                  refreshRequested = true;
+                  return;
+                }
+                const verified = await verifyLegacyReadingStatisticsCursorV1(db, user.uid, legacyCursor, instrumentation);
+                if (verified) {
+                  if (!await hasClaimLeadership()) {
+                    hydrationStatus = 'lost-leadership';
+                    refreshRequested = true;
+                    return;
+                  }
+                  await adoptLegacyReadingStatisticsCursorV12(syncOwnerKey, legacyCursor, leaseClaim);
+                  plan = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+                  if ('legacyCursor' in plan) {
+                    refreshRequested = true;
+                    return;
+                  }
+                }
+              }
               if ('catchUpFrom' in plan && plan.catchUpFrom) {
                 const previous = plan.catchUpFrom;
                 const caughtUpCount = await catchUpReadingStatisticsAuditAsLeader(previous.cursor, {
@@ -312,6 +341,7 @@ export const useReadingStatisticsSync = (
                 }
               }
               let initialCursor = 'state' in plan ? plan.state.cursor : null;
+              timestampRangeOnly = 'state' in plan && !plan.fullAuditInProgress;
               if ('candidate' in plan) {
                 if (!await hasClaimLeadership()) {
                   hydrationStatus = 'lost-leadership';
@@ -324,6 +354,7 @@ export const useReadingStatisticsSync = (
                   auditProbe = 'matched';
                   if (await recordReadingStatisticsVerifiedAuditV12(syncOwnerKey, candidate, leaseClaim)) {
                     initialCursor = candidate.cursor;
+                    timestampRangeOnly = true;
                   } else {
                     fullScanReason = 'audit-checkpoint-changed';
                   }

@@ -129,6 +129,35 @@ test('only a processed server snapshot received after hiding can satisfy the for
   harness.controller.dispose();
 });
 
+test('recovers a reattached listener when only the previous generation reached the server', async () => {
+  let now = 1_000;
+  const previousWork = Promise.withResolvers();
+  const harness = createHarness({ now: () => now, onSnapshot: (snapshot) => snapshot.wait });
+  harness.controller.start();
+  harness.subscriptions[0].onSnapshot({ authoritative: true });
+  await flushTasks();
+  harness.subscriptions[0].onSnapshot({ authoritative: true, wait: previousWork.promise });
+  await flushTasks();
+
+  now = 10_000;
+  assert.equal(harness.controller.forceRestart(), true);
+  harness.subscriptions[1].onSnapshot({ authoritative: false });
+  previousWork.resolve();
+  await flushTasks();
+  assert.equal(harness.controller.getLastAuthoritativeSnapshotAt(), 0);
+
+  now = 24_999;
+  assert.equal(harness.controller.reconcile(), false);
+  now++;
+  assert.equal(harness.controller.reconcile(), true);
+  assert.equal(harness.subscriptions[1].disposed, true);
+  harness.subscriptions[2].onSnapshot({ authoritative: true });
+  await flushTasks();
+  now += 60_000;
+  assert.equal(harness.controller.reconcile(), false);
+  harness.controller.dispose();
+});
+
 test('restarts a healthy listener that never receives an authoritative snapshot and cools down repeats', async () => {
   let now = 1_000;
   const harness = createHarness({ now: () => now });

@@ -74,6 +74,7 @@ export type QuarantinedReadingStatisticsDocumentV12 = {
 
 type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
   ownerKey: OwnerKey;
+  cursorVersion: 0 | 1;
   fullHydrationCompleted: boolean;
   hydratedRemoteCount: number;
   lastFullAuditAt: number;
@@ -92,7 +93,7 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
 
 const HYDRATION_AUDIT_INTERVAL_MS = 7 * 24 * 60 * 60_000;
 const FULL_HYDRATION_AUDIT_INTERVAL_MS = 4 * HYDRATION_AUDIT_INTERVAL_MS;
-const MAX_QUARANTINED_DOCUMENTS = 100;
+export const MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS = 100;
 const MAX_WEEKLY_QUARANTINE_PROBES = 8;
 // Firestore document IDs may be much longer than our 128-character session
 // IDs. A malformed remote document must still remain usable as an exact query
@@ -156,7 +157,7 @@ const readQuarantinedDocuments = (value: unknown) => (
       && 'detectedAt' in candidate
       && Number.isSafeInteger(candidate.detectedAt)
       && Number(candidate.detectedAt) >= 0
-    )).slice(-MAX_QUARANTINED_DOCUMENTS)
+    ))
     : []
 );
 
@@ -177,6 +178,7 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
   return {
     ...cursor,
     ownerKey: value.ownerKey as OwnerKey,
+    cursorVersion: 'cursorVersion' in value && value.cursorVersion === 1 ? 1 : 0,
     fullHydrationCompleted: value.fullHydrationCompleted,
     hydratedRemoteCount: Number(value.hydratedRemoteCount),
     lastFullAuditAt: 'lastFullAuditAt' in value
@@ -192,7 +194,7 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
     fullAuditInProgress: 'fullAuditInProgress' in value
       && value.fullAuditInProgress === true,
     quarantinedDocuments: 'quarantinedDocuments' in value
-      ? readQuarantinedDocuments(value.quarantinedDocuments)
+      ? readQuarantinedDocuments(value.quarantinedDocuments).slice(-MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS)
       : [],
     hydrationRunCount: 'hydrationRunCount' in value
       && Number.isSafeInteger(value.hydrationRunCount)
@@ -246,6 +248,7 @@ const sameCursor = (
 
 const createEmptySyncMeta = (ownerKey: OwnerKey): ReadingStatisticsSyncMetaV12 => ({
   ownerKey,
+  cursorVersion: 1,
   uploadedAtServerSeconds: 0,
   uploadedAtServerNanoseconds: 0,
   documentId: '__empty__',
@@ -378,6 +381,7 @@ export type ReadingStatisticsFullScanReason =
   | 'local-synced-count-ahead'
   | 'local-synced-count-behind'
   | 'local-cursor-invalid'
+  | 'legacy-cursor'
   | 'weekly-audit-unavailable'
   | 'remote-audit-mismatch'
   | 'remote-audit-failed'
@@ -391,8 +395,9 @@ type ReadingStatisticsHydrationStateV12 = {
   lastFullAuditAt: number;
 };
 type ReadingStatisticsHydrationPlanV12 =
-  | { state: ReadingStatisticsHydrationStateV12; reason?: 'empty-history' | 'initial-history' }
+  | { state: ReadingStatisticsHydrationStateV12; fullAuditInProgress: boolean; reason?: 'empty-history' | 'initial-history' }
   | { candidate: ReadingStatisticsAuditCandidateV12 }
+  | { reason: 'legacy-cursor'; legacyCursor: ReadingStatisticsRemoteCursorV12 }
   | LocalFullScan;
 
 const getAuditCandidate = async (
@@ -402,7 +407,8 @@ const getAuditCandidate = async (
   now: number,
 ): Promise<{ candidate: ReadingStatisticsAuditCandidateV12 } | LocalFullScan> => {
   if (meta.documentId === '__empty__') return { reason: 'empty-history' };
-  if (isGuestOwner(ownerKey) || meta.ownerKey !== ownerKey || !meta.fullHydrationCompleted || meta.fullAuditInProgress
+  if (isGuestOwner(ownerKey) || meta.ownerKey !== ownerKey || !meta.cursorVersion
+    || !meta.fullHydrationCompleted || meta.fullAuditInProgress
     || meta.lastFullAuditAt === 0 || now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
     || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) < HYDRATION_AUDIT_INTERVAL_MS) {
     return { reason: 'weekly-audit-unavailable' };
@@ -450,6 +456,16 @@ export const getReadingStatisticsHydrationPlanV12 = async (
   }
   const meta = assertSyncMeta(value);
   if (meta.ownerKey !== ownerKey) throw new Error('독서 통계 hydration owner가 올바르지 않습니다.');
+  if (!meta.cursorVersion) {
+    const { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId } = meta;
+    await tx.done;
+    // The empty sentinel has no remote marker to verify. Use an authoritative
+    // scan before trusting an empty timestamp checkpoint.
+    return documentId === '__empty__' ? { reason: 'legacy-cursor' } : {
+      reason: 'legacy-cursor',
+      legacyCursor: { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId },
+    };
+  }
   const sessions = tx.objectStore(V11_READING_SESSIONS_STORE);
   const localCount = await sessions.index('by-owner').count(ownerKey);
   let plan: ReadingStatisticsHydrationPlanV12;
@@ -465,6 +481,7 @@ export const getReadingStatisticsHydrationPlanV12 = async (
     const cursor = documentId === '__empty__' ? null : { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId };
     plan = {
       state: { cursor, fullHydrationCompleted, quarantinedDocuments, lastFullAuditAt },
+      fullAuditInProgress: meta.fullAuditInProgress,
       reason: cursor ? undefined : fullHydrationCompleted ? 'empty-history' : 'initial-history',
     };
   }
@@ -475,6 +492,28 @@ export const getReadingStatisticsHydrationPlanV12 = async (
 export const getReadingStatisticsHydrationStateV12 = async (ownerKey: OwnerKey, now = Date.now()) => {
   const plan = await getReadingStatisticsHydrationPlanV12(ownerKey, now);
   return 'state' in plan ? plan.state : null;
+};
+
+export const adoptLegacyReadingStatisticsCursorV12 = async (
+  ownerKey: OwnerKey,
+  verifiedCursor: ReadingStatisticsRemoteCursorV12,
+  leaseClaim: ReadingStatisticsSyncLeaseClaimV13,
+  clock = Date.now,
+) => {
+  const db = await initDB();
+  const tx = db.transaction([V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
+  const store = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const [value, lease] = await Promise.all([
+    store.get(ownerKey),
+    tx.objectStore(V13_READING_STATISTICS_LEASES_STORE).get(ownerKey),
+  ]);
+  const current = value ? assertSyncMeta(value) : null;
+  const canAdopt = current?.ownerKey === ownerKey && !current.cursorVersion
+    && current.documentId !== '__empty__' && sameCursor(current, verifiedCursor)
+    && isCurrentStatisticsLease(lease, leaseClaim, clock());
+  if (canAdopt) await store.put({ ...value, cursorVersion: 1 });
+  await tx.done;
+  return canAdopt;
 };
 
 export const recordReadingStatisticsVerifiedAuditV12 = async (
@@ -532,6 +571,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
   quarantinedDocuments: readonly QuarantinedReadingStatisticsDocumentV12[] = [],
   now = Date.now(),
   leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
+  timestampRangeOnly = false,
 ) => {
   if (
     (sessions.length > 0 || quarantinedDocuments.length > 0)
@@ -570,6 +610,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
   void tx.done.catch(() => undefined);
   const sessionsStore = tx.objectStore(V11_READING_SESSIONS_STORE);
   const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  let nextQuarantinedDocuments: QuarantinedReadingStatisticsDocumentV12[];
   try {
     if (
       leaseClaim
@@ -584,7 +625,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
     }
     const currentValue = await metaStore.get(ownerKey);
     const current = currentValue ? assertSyncMeta(currentValue) : null;
-    if (expectedCursor && (!current || !sameCursor(current, expectedCursor))) {
+    if (expectedCursor && (!current?.cursorVersion || !sameCursor(current, expectedCursor))) {
       throw new Error('독서 통계 hydration cursor가 다른 작업에 의해 변경되었습니다.');
     }
     for (const session of sessions) {
@@ -612,22 +653,28 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
       }
     }
 
-    const isFullAudit = expectedCursor === null || current?.fullAuditInProgress === true;
+    const isFullAudit = (!timestampRangeOnly && expectedCursor === null) || current?.fullAuditInProgress === true;
+    const preserveCheckpoint = expectedCursor !== null || timestampRangeOnly;
     const quarantineById = new Map(
-      (expectedCursor ? current?.quarantinedDocuments ?? [] : [])
+      (preserveCheckpoint ? current?.quarantinedDocuments ?? [] : [])
         .map((item) => [item.documentId, item]),
     );
+    for (const id of ids) quarantineById.delete(id);
     for (const item of validatedQuarantinedDocuments) quarantineById.set(item.documentId, item);
-    const nextQuarantinedDocuments = [...quarantineById.values()]
+    nextQuarantinedDocuments = [...quarantineById.values()]
       .sort((left, right) => left.detectedAt - right.detectedAt)
-      .slice(-MAX_QUARANTINED_DOCUMENTS);
+      .slice(-MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS);
     const cursor = nextCursor ?? expectedCursor;
-    if (cursor) {
+    if (cursor || fullHydrationCompleted) {
+      const empty = createEmptySyncMeta(ownerKey);
       await metaStore.put({
-        ownerKey,
-        ...cursor,
+        ...(current ?? empty),
+        uploadedAtServerSeconds: cursor?.uploadedAtServerSeconds ?? empty.uploadedAtServerSeconds,
+        uploadedAtServerNanoseconds: cursor?.uploadedAtServerNanoseconds ?? empty.uploadedAtServerNanoseconds,
+        documentId: cursor?.documentId ?? empty.documentId,
+        cursorVersion: 1,
         fullHydrationCompleted,
-        hydratedRemoteCount: (expectedCursor ? current?.hydratedRemoteCount ?? 0 : 0)
+        hydratedRemoteCount: (preserveCheckpoint ? current?.hydratedRemoteCount ?? 0 : 0)
           + sessions.length,
         lastFullAuditAt: isFullAudit && fullHydrationCompleted
           ? now
@@ -635,41 +682,6 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         lastVerifiedAuditAt: current?.lastVerifiedAuditAt ?? 0,
         fullAuditInProgress: isFullAudit && !fullHydrationCompleted,
         quarantinedDocuments: nextQuarantinedDocuments,
-        hydrationRunCount: current?.hydrationRunCount ?? 0,
-        hydrationPageCount: current?.hydrationPageCount ?? 0,
-        hydrationRemoteReadAttemptCount:
-          current?.hydrationRemoteReadAttemptCount ?? 0,
-        hydrationRemoteReadCount: current?.hydrationRemoteReadCount ?? 0,
-        hydrationLostLeadershipRunCount:
-          current?.hydrationLostLeadershipRunCount ?? 0,
-        hydrationFailedRunCount: current?.hydrationFailedRunCount ?? 0,
-        lastHydrationDurationMs: current?.lastHydrationDurationMs ?? 0,
-        lastHydrationCompletedAt: current?.lastHydrationCompletedAt ?? 0,
-      } satisfies ReadingStatisticsSyncMetaV12);
-    } else if (fullHydrationCompleted) {
-      // An empty authoritative collection still needs a durable full-hydration
-      // marker. The sentinel document ID is never used as a query cursor.
-      await metaStore.put({
-        ownerKey,
-        uploadedAtServerSeconds: 0,
-        uploadedAtServerNanoseconds: 0,
-        documentId: '__empty__',
-        fullHydrationCompleted: true,
-        hydratedRemoteCount: 0,
-        lastFullAuditAt: now,
-        lastVerifiedAuditAt: 0,
-        fullAuditInProgress: false,
-        quarantinedDocuments: nextQuarantinedDocuments,
-        hydrationRunCount: current?.hydrationRunCount ?? 0,
-        hydrationPageCount: current?.hydrationPageCount ?? 0,
-        hydrationRemoteReadAttemptCount:
-          current?.hydrationRemoteReadAttemptCount ?? 0,
-        hydrationRemoteReadCount: current?.hydrationRemoteReadCount ?? 0,
-        hydrationLostLeadershipRunCount:
-          current?.hydrationLostLeadershipRunCount ?? 0,
-        hydrationFailedRunCount: current?.hydrationFailedRunCount ?? 0,
-        lastHydrationDurationMs: current?.lastHydrationDurationMs ?? 0,
-        lastHydrationCompletedAt: current?.lastHydrationCompletedAt ?? 0,
       } satisfies ReadingStatisticsSyncMetaV12);
     }
     await tx.done;
@@ -682,9 +694,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
     throw error;
   }
   if (notify && sessions.length > 0) notifyReadingStatisticsChange(ownerKey);
-  return { quarantinedDocuments: nextCursor || fullHydrationCompleted
-    ? (await getReadingStatisticsHydrationStateV12(ownerKey, now))?.quarantinedDocuments ?? []
-    : [] };
+  return { quarantinedDocuments: nextQuarantinedDocuments };
 };
 
 export const reconcileUploadedReadingSessionConflictV11 = async (

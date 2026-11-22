@@ -10,6 +10,7 @@ import {
   V12_READING_STATISTICS_SYNC_STORE,
 } from '../src/lib/localDBSchema.ts';
 import {
+  adoptLegacyReadingStatisticsCursorV12,
   deferReadingSessionSyncV11,
   confirmLocalReadingRoundV11,
   getReadingStatisticsHydrationPlanV12,
@@ -409,6 +410,96 @@ test('records a completed quarantine-only hydration without a timestamp cursor',
   assert.equal(hydration?.fullHydrationCompleted, true);
   assert.deepEqual(hydration?.quarantinedDocuments, quarantined);
   assert.equal(hydration?.lastFullAuditAt, 55_000);
+
+  await closeLocalDB();
+  const plan = await getReadingStatisticsHydrationPlanV12(owner, 56_000);
+  assert.equal(plan.fullAuditInProgress, false);
+  await hydrateRemoteReadingSessionsPageV12(
+    owner, [], plan.state.cursor, null, true, false, [], 56_000, undefined, true,
+  );
+  const checked = await getReadingStatisticsHydrationStateV12(owner, 56_000);
+  assert.deepEqual(checked, hydration, 'an empty timestamp-range poll preserves quarantine and the full audit date');
+});
+
+test('refetches after a legacy map cursor and resumes the rebuilt checkpoint after reload', async () => {
+  const imported = makeSession('legacy-map');
+  const older = makeSession('skipped-older-timestamp');
+  const newer = makeSession('skipped-newer-timestamp');
+  const legacy = cursor(900_000, imported.sessionId, 10);
+  const first = cursor(20, older.sessionId, 931);
+  const last = cursor(20, newer.sessionId, 932);
+  await hydrateRemoteReadingSessionsPageV12(owner, [imported], null, legacy, true, false, [], 10_000);
+  const db = await initDB();
+  const meta = await db.get(V12_READING_STATISTICS_SYNC_STORE, owner);
+  delete meta.cursorVersion;
+  await db.put(V12_READING_STATISTICS_SYNC_STORE, meta);
+
+  await closeLocalDB();
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, 11_000), {
+    reason: 'legacy-cursor', legacyCursor: legacy,
+  });
+  await hydrateRemoteReadingSessionsPageV12(owner, [older], null, first, false, false, [], 11_000);
+  await closeLocalDB();
+  const resume = await getReadingStatisticsHydrationPlanV12(owner, 12_000);
+  assert.equal(resume.fullAuditInProgress, true);
+  assert.deepEqual(resume.state.cursor, first);
+  const quarantine = { documentId: imported.sessionId, reason: 'malformed timestamp', detectedAt: 12_000 };
+  await hydrateRemoteReadingSessionsPageV12(
+    owner, [newer], resume.state.cursor, last, true, false, [quarantine], 12_000,
+  );
+  const completed = await getReadingStatisticsHydrationPlanV12(owner, 13_000);
+  assert.equal(completed.fullAuditInProgress, false);
+  assert.deepEqual(completed.state.cursor, last);
+  assert.deepEqual(completed.state.quarantinedDocuments, [quarantine]);
+  assert.deepEqual((await getLocalReadingSessionsV11(owner)).map(({ sessionId }) => sessionId).sort(), [
+    imported.sessionId, newer.sessionId, older.sessionId,
+  ].sort());
+});
+
+test('adopts an exact legacy cursor only under the current lease and preserves the full audit state', async () => {
+  const record = makeSession('legacy-valid');
+  const exact = cursor(20, record.sessionId, 931);
+  await hydrateRemoteReadingSessionsPageV12(owner, [record], null, exact, false, false, [], 100);
+  const db = await initDB();
+  const legacyMeta = {
+    ...await db.get(V12_READING_STATISTICS_SYNC_STORE, owner),
+    lastFullAuditAt: 50,
+    lastVerifiedAuditAt: 80,
+    hydrationRunCount: 9,
+  };
+  delete legacyMeta.cursorVersion;
+  await db.put(V12_READING_STATISTICS_SYNC_STORE, legacyMeta);
+  const plan = await getReadingStatisticsHydrationPlanV12(owner, 150);
+  assert.deepEqual(plan, { reason: 'legacy-cursor', legacyCursor: exact });
+
+  const stale = await acquireReadingStatisticsSyncLeaseV13(owner, 'old-tab', 100, 50);
+  const current = await acquireReadingStatisticsSyncLeaseV13(owner, 'new-tab', 151, 50);
+  assert.equal(await adoptLegacyReadingStatisticsCursorV12(owner, exact, stale, () => 152), false);
+  assert.equal(await adoptLegacyReadingStatisticsCursorV12(
+    owner, { ...exact, uploadedAtServerNanoseconds: 930 }, current, () => 152,
+  ), false);
+  assert.deepEqual(await db.get(V12_READING_STATISTICS_SYNC_STORE, owner), legacyMeta);
+
+  assert.equal(await adoptLegacyReadingStatisticsCursorV12(owner, exact, current, () => 152), true);
+  assert.equal(await adoptLegacyReadingStatisticsCursorV12(owner, exact, current, () => 152), false);
+  assert.deepEqual(await db.get(V12_READING_STATISTICS_SYNC_STORE, owner), { ...legacyMeta, cursorVersion: 1 });
+  await closeLocalDB();
+  const resumed = await getReadingStatisticsHydrationPlanV12(owner, 153);
+  assert.deepEqual(resumed.state.cursor, exact);
+  assert.equal(resumed.fullAuditInProgress, true);
+  assert.equal(resumed.state.lastFullAuditAt, 50);
+});
+
+test('a legacy empty sentinel requires an authoritative scan', async () => {
+  await hydrateRemoteReadingSessionsPageV12(owner, [], null, null, true, false, [], 100);
+  const db = await initDB();
+  const legacy = await db.get(V12_READING_STATISTICS_SYNC_STORE, owner);
+  delete legacy.cursorVersion;
+  await db.put(V12_READING_STATISTICS_SYNC_STORE, legacy);
+  assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, 101), { reason: 'legacy-cursor' });
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'legacy-empty', 101);
+  assert.equal(await adoptLegacyReadingStatisticsCursorV12(owner, cursor(0, '__empty__'), lease, () => 102), false);
+  assert.deepEqual(await db.get(V12_READING_STATISTICS_SYNC_STORE, owner), legacy);
 });
 
 test('keeps an over-128-character malformed document ID as the exact hydration cursor', async () => {

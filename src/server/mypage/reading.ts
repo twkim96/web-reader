@@ -9,22 +9,38 @@ import { reportMyPageApiTiming, type ReadingEvidenceRoute } from './performance'
 
 type Work = { fileIds: Set<string>; progress: number };
 type Cursor = { stamp: Timestamp; id: string };
-type History = { sessions: ReadingSessionV1[]; documentCount: number; bytes: number; fullScanAt: number };
+type RawHistory = { sessions: ReadingSessionV1[]; bytes: number };
+type History = RawHistory & { documentCount: number; fullScanAt: number };
 type FileEvidence = { titles: Set<string>; progress?: number; durationMs: number };
 type TitleMatch = Awaited<ReturnType<typeof resolveSocialReadingTitle>>;
-type Summary = {
+type HistoryEvidence = {
+  documentCount: number;
+  fullScanAt: number;
+  fileEvidence: { files: Map<string, FileEvidence>; bytes: number } | null;
+  rawHistory: RawHistory | null;
+};
+type RetainedHistoryEvidence = HistoryEvidence & { fileEvidence: NonNullable<HistoryEvidence['fileEvidence']> };
+type Summary = HistoryEvidence & {
   works: Map<string, Work>;
   totals: Map<string, number>;
   conflictedWorks: Set<string>;
   cursor: Cursor | null;
-  empty: boolean;
-  history: (History & { files: Map<string, FileEvidence> }) | null;
   builtAt: number;
 };
+type FullScanReason =
+  | 'fullScanCold'
+  | 'fullScanAudit'
+  | 'fullScanMissingCursor'
+  | 'fullScanRegressedCursor'
+  | 'fullScanCountMismatch'
+  | 'fullScanRawUnavailable'
+  | 'fullScanEvidenceLimit'
+  | 'fullScanAppendLimit';
 type ReadCounts = {
   markerDocuments: number; countQueries: number; scanQueries: number; scanDocuments: number; emptyScanQueries: number;
   timelineBuilds: number; aliasResolutions: number;
-};
+  markerOnly?: number; evidenceReused?: number; retainedEvidenceBytes?: number; retainedRawBytes?: number;
+} & Partial<Record<FullScanReason, number>>;
 const caches = new WeakMap<Firestore, Map<string, { expires: number; promise: Promise<Summary> }>>();
 let publishedCatalog: ReturnType<typeof loadSocialCatalog> | undefined;
 
@@ -35,6 +51,7 @@ const FULL_SCAN_MS = 30 * 60_000;
 const MAX_CACHED_ACCOUNTS = 8;
 const MAX_HISTORY_DOCUMENTS = 12_000;
 const MAX_HISTORY_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_EVIDENCE_BYTES = 2 * 1024 * 1024;
 
 const compareIds = (left: string, right: string) => Buffer.compare(Buffer.from(left), Buffer.from(right));
 const compareCursors = (left: Cursor, right: Cursor) => left.stamp.seconds - right.stamp.seconds
@@ -48,6 +65,7 @@ async function summary(db: Firestore, uid: string, route?: ReadingEvidenceRoute)
   if (found && found.expires > Date.now()) {
     cache.delete(uid);
     cache.set(uid, found);
+    if (route) reportMyPageApiTiming(route, performance.now(), { inMemoryHit: 1 });
     return found.promise;
   }
   const start = performance.now();
@@ -116,33 +134,42 @@ async function readHistory(
   retained: Summary | null,
   now: number,
   counts: ReadCounts,
-): Promise<History> {
-  const cached = retained?.history;
-  const previous = retained?.cursor;
-  if (cached && previous && cursor && now - cached.fullScanAt < FULL_SCAN_MS) {
-    const order = compareCursors(cursor, previous);
-    if (order >= 0) {
-      counts.countQueries++;
-      const { count } = (await transaction.get(collection.count())).data();
-      if (order === 0 && count === cached.documentCount) return cached;
-      if (order > 0 && count > cached.documentCount && count <= MAX_HISTORY_DOCUMENTS) {
-        const newer = await scanSessions(transaction, collection.orderBy('uploadedAtServer')
-          .orderBy(FieldPath.documentId()).startAfter(previous.stamp, previous.id), counts);
-        if (count === cached.documentCount + newer.documentCount) {
-          // Keep the original document-ID order, including tie-breaking in
-          // the clock-sample and completed-round calculations.
-          const sessions = newer.sessions.length
-            ? [...cached.sessions, ...newer.sessions].sort((a, b) => compareIds(a.sessionId, b.sessionId))
-            : cached.sessions;
-          return { sessions, documentCount: count, bytes: cached.bytes + historyBytes(newer.sessions), fullScanAt: cached.fullScanAt };
-        }
-      }
-    }
-  }
+): Promise<History | RetainedHistoryEvidence> {
+  const fullScan = async (reason: FullScanReason) => {
+    counts[reason] = 1;
+    // A full scan includes legacy records without an upload timestamp.
+    const full = await scanSessions(transaction, collection.orderBy(FieldPath.documentId()), counts);
+    return { ...full, bytes: historyBytes(full.sessions), fullScanAt: now };
+  };
 
-  // A full scan includes legacy records without an upload timestamp.
-  const full = await scanSessions(transaction, collection.orderBy(FieldPath.documentId()), counts);
-  return { ...full, bytes: historyBytes(full.sessions), fullScanAt: now };
+  if (!retained) return fullScan('fullScanCold');
+  if (now - retained.fullScanAt >= FULL_SCAN_MS) return fullScan('fullScanAudit');
+  if (!retained.cursor || !cursor) return fullScan('fullScanMissingCursor');
+  const order = compareCursors(cursor, retained.cursor);
+  if (order < 0) return fullScan('fullScanRegressedCursor');
+
+  counts.countQueries++;
+  const { count } = (await transaction.get(collection.count())).data();
+  if (order === 0 && count === retained.documentCount) {
+    if (retained.fileEvidence) return { ...retained, fileEvidence: retained.fileEvidence };
+    if (retained.rawHistory) return { ...retained.rawHistory, documentCount: count, fullScanAt: retained.fullScanAt };
+    return fullScan('fullScanEvidenceLimit');
+  }
+  if (order === 0 || count <= retained.documentCount) return fullScan('fullScanCountMismatch');
+
+  const raw = retained.rawHistory;
+  if (!raw) return fullScan('fullScanRawUnavailable');
+  if (count > MAX_HISTORY_DOCUMENTS) return fullScan('fullScanAppendLimit');
+  const newer = await scanSessions(transaction, collection.orderBy('uploadedAtServer')
+    .orderBy(FieldPath.documentId()).startAfter(retained.cursor.stamp, retained.cursor.id), counts);
+  if (count !== retained.documentCount + newer.documentCount) return fullScan('fullScanCountMismatch');
+
+  // Keep the original document-ID order, including tie-breaking in
+  // the clock-sample and completed-round calculations.
+  const sessions = newer.sessions.length
+    ? [...raw.sessions, ...newer.sessions].sort((a, b) => compareIds(a.sessionId, b.sessionId))
+    : raw.sessions;
+  return { sessions, documentCount: count, bytes: raw.bytes + historyBytes(newer.sessions), fullScanAt: retained.fullScanAt };
 }
 
 function buildFileEvidence(sessions: ReadingSessionV1[], counts: ReadCounts) {
@@ -162,6 +189,16 @@ function buildFileEvidence(sessions: ReadingSessionV1[], counts: ReadCounts) {
     files.get(session.bookId)!.durationMs += durationMs;
   });
   return files;
+}
+
+function estimateFileEvidenceBytes(files: Map<string, FileEvidence>) {
+  let bytes = 0;
+  for (const [id, file] of files) {
+    bytes += 128 + id.length * 2;
+    for (const title of file.titles) bytes += 48 + title.length * 2;
+    if (bytes > MAX_FILE_EVIDENCE_BYTES) break;
+  }
+  return bytes;
 }
 
 async function resolveReadingTitles(db: Firestore, files: Map<string, FileEvidence>, counts: ReadCounts) {
@@ -213,9 +250,14 @@ async function buildSummary(
   const cursor = stamp instanceof Timestamp ? { stamp, id: last.id } : null;
   const retained = await previous?.catch(() => null) ?? null;
   const now = Date.now();
-  const unchanged = cursor && retained?.cursor ? compareCursors(cursor, retained.cursor) === 0 : !last && retained?.empty;
+  const unchanged = cursor && retained?.cursor
+    ? compareCursors(cursor, retained.cursor) === 0
+    : !last && retained?.documentCount === 0;
   if (retained && unchanged && now - retained.builtAt < REBUILD_SUMMARY_MS
-    && (!retained.history || now - retained.history.fullScanAt < FULL_SCAN_MS)) return retained;
+    && now - retained.fullScanAt < FULL_SCAN_MS) {
+    counts.markerOnly = 1;
+    return retained;
+  }
 
   // Check counts and pages against the same snapshot as the latest cursor.
   // Resolving titles happens after the transaction and can use the catalog cache.
@@ -223,9 +265,19 @@ async function buildSummary(
     (transaction) => readHistory(transaction, collection, cursor, retained, now, counts),
     { readOnly: true, readTime: latest.readTime },
   );
-  const files = history.sessions === retained?.history?.sessions
-    ? retained.history.files
-    : buildFileEvidence(history.sessions, counts);
+  const { documentCount, fullScanAt } = history;
+  const previousEvidence = 'fileEvidence' in history ? history.fileEvidence
+    : history.sessions === retained?.rawHistory?.sessions ? retained?.fileEvidence : null;
+  const files = 'fileEvidence' in history ? history.fileEvidence.files
+    : previousEvidence?.files ?? buildFileEvidence(history.sessions, counts);
+  const bytes = previousEvidence?.bytes ?? estimateFileEvidenceBytes(files);
+  const fileEvidence = bytes <= MAX_FILE_EVIDENCE_BYTES ? { files, bytes } : null;
+  counts.evidenceReused = Number(Boolean(previousEvidence));
+  counts.retainedEvidenceBytes = fileEvidence?.bytes ?? 0;
+  const rawHistory = 'rawHistory' in history ? history.rawHistory
+    : documentCount <= MAX_HISTORY_DOCUMENTS && history.bytes <= MAX_HISTORY_BYTES
+      ? { sessions: history.sessions, bytes: history.bytes } : null;
+  counts.retainedRawBytes = rawHistory?.bytes ?? 0;
   const resolved = await resolveReadingTitles(db, files, counts);
   const works = new Map<string, Work>();
   const conflictedWorks = new Set<string>();
@@ -253,10 +305,7 @@ async function buildSummary(
     works.set(id, work);
     totals.set(id, (totals.get(id) ?? 0) + file.durationMs);
   }
-  return {
-    works, totals, conflictedWorks, cursor, empty: history.documentCount === 0, builtAt: now,
-    history: history.documentCount <= MAX_HISTORY_DOCUMENTS && history.bytes <= MAX_HISTORY_BYTES ? { ...history, files } : null,
-  };
+  return { works, totals, conflictedWorks, cursor, fileEvidence, documentCount, fullScanAt, rawHistory, builtAt: now };
 }
 
 export async function getSocialReadingEvidence(

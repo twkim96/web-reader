@@ -304,6 +304,7 @@ test('review evidence reads only new sessions and includes legacy records after 
   await seed('legacy-without-upload-time', 7000, 9000, 40);
   assert.deepEqual(await evidence(), { totalMs: 7000, progressPercent: 40 });
   assert.equal(logs.at(-1).scanDocuments, 4);
+  assert.equal(logs.at(-1).fullScanCountMismatch, 1);
 
   now += 26 * 60_000;
   assert.deepEqual(await evidence(), { totalMs: 7000, progressPercent: 40 });
@@ -314,6 +315,60 @@ test('review evidence reads only new sessions and includes legacy records after 
   now += 4 * 60_000;
   assert.deepEqual(await evidence(), { totalMs: 8000, progressPercent: 50 });
   assert.equal(logs.at(-1).scanDocuments, 4);
+  assert.equal(logs.at(-1).fullScanAudit, 1);
+});
+
+test('review evidence reuses unchanged oversized history after a Firestore count check', async (t) => {
+  const logging = process.env.MY_PAGE_PERF_LOG;
+  process.env.MY_PAGE_PERF_LOG = '1';
+  t.after(() => {
+    if (logging === undefined) delete process.env.MY_PAGE_PERF_LOG;
+    else process.env.MY_PAGE_PERF_LOG = logging;
+  });
+  const logs = [];
+  t.mock.method(console, 'info', (label, data) => {
+    if (label === '[MyPagePerformance]' && data.route === 'reading-evidence-deferred') logs.push(data);
+  });
+  const db = getAdminFirestore();
+  const uid = 'oversized-review-reading-evidence';
+  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
+  const stamp = new Timestamp(71, 0);
+  let payloadBytes = 0;
+  for (let page = 0; page < 5; page++) {
+    const batch = db.batch();
+    for (let index = page * 28; index < (page + 1) * 28; index++) {
+      const start = 1_700_000_000_000 + index * 2048;
+      const activeIntervals = Array.from({ length: 512 }, (_, interval) => ({
+        startedAtClient: start + interval * 2,
+        endedAtClient: start + interval * 2 + 2,
+      }));
+      const session = {
+        schemaVersion: 1, sessionId: String(index).padStart(3, '0'), bookId: 'file', bookTitle: workId, deviceId: 'device',
+        mode: 'tts', startedAtClient: start, endedAtClient: start + 1024, durationMs: 1024, activeIntervals,
+        startProgressPercent: 0, endProgressPercent: 20, timezoneOffsetMinutes: 0, localDate: '2023-11-14', completed: false,
+      };
+      payloadBytes += Buffer.byteLength(JSON.stringify(session));
+      batch.set(collection.doc(session.sessionId), { ...session, uploadedAtServer: stamp });
+    }
+    await batch.commit();
+  }
+  assert.ok(payloadBytes > 4 * 1024 * 1024);
+
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const evidence = () => getSocialReadingEvidence(db, uid, workId, ['file'], 'reading-evidence-deferred');
+  const expected = { totalMs: 140 * 1024, progressPercent: 20 };
+  assert.deepEqual(await evidence(), expected);
+  assert.equal(logs.at(-1).scanDocuments, 140);
+  assert.equal(logs.at(-1).timelineBuilds, 1);
+
+  now += 5 * 60_000;
+  assert.deepEqual(await evidence(), expected);
+  assert.equal(logs.at(-1).markerDocuments, 1);
+  assert.equal(logs.at(-1).countQueries, 1);
+  assert.equal(logs.at(-1).scanQueries, 0);
+  assert.equal(logs.at(-1).timelineBuilds, 0);
 });
 
 test('concurrent catalog aliases share a cold bucket read and can retry a failed read', async (t) => {
