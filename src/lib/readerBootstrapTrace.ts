@@ -1,11 +1,15 @@
 import type { ReadingStatisticsFullScanReason } from './localReadingStatistics';
 
+export type ListenerWakeReason = 'online' | 'visible' | 'auth-token' | 'book-open';
+
 export type ReaderBootstrapTraceEvent = {
   at: number;
   event:
     | 'listener-attached'
     | 'authoritative-snapshot'
     | 'listener-reconciled'
+    | 'active-progress-refresh'
+    | 'write-lease-issuance'
     | 'reading-statistics-hydration'
     | 'remote-decision'
     | 'remote-navigation-result'
@@ -14,6 +18,10 @@ export type ReaderBootstrapTraceEvent = {
     | 'layout-applied'
     | 'relocate';
   listener?: 'progress' | 'bookmark' | 'annotation' | 'palette';
+  wakeReason?: ListenerWakeReason;
+  leaseReason?: 'missing' | 'device-changed' | 'clock-unconfirmed' | 'refresh';
+  durationMs?: number;
+  snapshotDocuments?: number;
   identityHash?: string;
   revision?: number;
   decision?: string;

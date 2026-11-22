@@ -40,7 +40,7 @@ import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { getSyncSessionId, isExactSyncSessionEcho } from '../lib/syncSession';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
 import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
-import { traceReaderBootstrap } from '../lib/readerBootstrapTrace';
+import { traceReaderBootstrap, type ListenerWakeReason } from '../lib/readerBootstrapTrace';
 
 type FirestoreQuerySnapshot = QuerySnapshot<DocumentData, DocumentData>;
 
@@ -96,10 +96,18 @@ export const useProgressSync = ({
     let hydrator = new ServerSnapshotHydrator<
       QueryDocumentSnapshot<DocumentData, DocumentData>
     >();
+    let awaitingServerSince: number | null = null;
     const handleSnapshot = async (snapshot: FirestoreQuerySnapshot) => {
       if (!ownerRuntime.isCurrent(owner)) return;
       if (!snapshot.metadata.fromCache) {
-        traceReaderBootstrap({ event: 'authoritative-snapshot', listener: 'progress' });
+        traceReaderBootstrap({
+          event: 'authoritative-snapshot', listener: 'progress',
+          ...(awaitingServerSince === null ? {} : {
+            durationMs: Math.round(performance.now() - awaitingServerSince),
+            snapshotDocuments: snapshot.size,
+          }),
+        });
+        awaitingServerSince = null;
       }
       const changes = hydrator.select(snapshot);
       if (!changes) return;
@@ -156,6 +164,7 @@ export const useProgressSync = ({
     const recovery = new SnapshotListenerRecovery<FirestoreQuerySnapshot>({
       subscribe: (next, error) => {
         hydrator = new ServerSnapshotHydrator();
+        awaitingServerSince = performance.now();
         traceReaderBootstrap({ event: 'listener-attached', listener: 'progress' });
         return onSnapshot(v2Ref, { includeMetadataChanges: true }, next, error);
       },
@@ -273,13 +282,14 @@ export const useProgressSync = ({
 
   useEffect(() => {
     if (!user) return;
-    const reconcileListeners = (force = false) => {
+    const reconcileListeners = (wakeReason: ListenerWakeReason) => {
       const now = Date.now();
+      const force = wakeReason === 'online';
       if (reconcileSnapshotListener(progressRecoveryRef.current, { force, now })) {
-        traceReaderBootstrap({ event: 'listener-reconciled', listener: 'progress' });
+        traceReaderBootstrap({ event: 'listener-reconciled', listener: 'progress', wakeReason });
       }
       if (reconcileSnapshotListener(bookmarkRecoveryRef.current, { force, now })) {
-        traceReaderBootstrap({ event: 'listener-reconciled', listener: 'bookmark' });
+        traceReaderBootstrap({ event: 'listener-reconciled', listener: 'bookmark', wakeReason });
       }
     };
     const owner = ownerRuntime.capture();
@@ -303,8 +313,13 @@ export const useProgressSync = ({
       ) return;
       const generation = foregroundRefreshGeneration + 1;
       foregroundRefreshGeneration = generation;
+      const startedAt = performance.now();
+      let returnedDocuments: number | undefined;
+      let readDurationMs: number | undefined;
       try {
         const snapshot = await getDocFromServer(doc(db, firebaseHistoryPath, activeBookId));
+        readDurationMs = Math.round(performance.now() - startedAt);
+        returnedDocuments = Number(snapshot.exists());
         if (
           !ownerRuntime.isCurrent(owner)
           || foregroundRefreshGeneration !== generation
@@ -359,17 +374,25 @@ export const useProgressSync = ({
         if (ownerRuntime.isCurrent(owner) && foregroundRefreshGeneration === generation) {
           console.warn('[ProgressV2] active-book foreground refresh failed:', error);
         }
+      } finally {
+        if (ownerRuntime.isCurrent(owner)) {
+          traceReaderBootstrap({
+            event: 'active-progress-refresh', listener: 'progress', wakeReason: 'visible',
+            durationMs: readDurationMs ?? Math.round(performance.now() - startedAt), returnedDocuments,
+            status: returnedDocuments === undefined ? 'read-failed' : 'received',
+          });
+        }
       }
     };
 
-    const handleOnline = () => reconcileListeners(true);
+    const handleOnline = () => reconcileListeners('online');
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return;
-      reconcileListeners();
+      reconcileListeners('visible');
       void refreshActiveProgressFromServer();
     };
     const unsubscribeToken = onIdTokenChanged(auth, (currentUser) => {
-      if (currentUser?.uid === user.uid) reconcileListeners();
+      if (currentUser?.uid === user.uid) reconcileListeners('auth-token');
     });
     // Opening another book recreates its bookmark listener. The account-wide
     // progress listener is longer-lived. Recover initial authoritative gaps or
@@ -378,7 +401,7 @@ export const useProgressSync = ({
       progressRecoveryRef.current,
       { now: Date.now() },
     )) {
-      traceReaderBootstrap({ event: 'listener-reconciled', listener: 'progress' });
+      traceReaderBootstrap({ event: 'listener-reconciled', listener: 'progress', wakeReason: 'book-open' });
     }
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);

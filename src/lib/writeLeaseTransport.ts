@@ -5,6 +5,7 @@ import {
 import { doc, getDocFromServer, serverTimestamp, setDoc, type Firestore } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
 import { splitOwnerKey, type OwnerKey } from './ownerIdentity';
+import { traceReaderBootstrap } from './readerBootstrapTrace';
 import {
   createLeasedEventId, getEventLeaseStatus, isWriteLeaseValid, parseLeasedEventId,
   WRITE_LEASE_REFRESH_MS, type WriteLease,
@@ -113,21 +114,31 @@ export const prepareWriteLease = async (firestore: Firestore, uid: string, owner
     const result = await existing;
     return result.deviceId === deviceId ? result : prepareWriteLease(firestore, uid, ownerKey, deviceId);
   }
+  const leaseReason = !current ? 'missing' : current.deviceId !== deviceId ? 'device-changed'
+    : trustedNow === null ? 'clock-unconfirmed' : 'refresh';
   const work = (async () => {
+    const startedAt = monotonicNow();
+    let status = 'write-failed';
     const leaseId = crypto.randomUUID();
     const ref = doc(firestore, `artifacts/${APP_ID}/users/${uid}/libraries/local/writeLeases/${leaseId}`);
-    await setDoc(ref, { schemaVersion: 1, deviceId, issuedAtServer: serverTimestamp() });
-    const snapshot = await getDocFromServer(ref);
-    const value = snapshot.data();
-    const issuedAtMillis = Math.floor(value?.issuedAtServer?.toMillis?.());
-    const lease = { leaseId, deviceId, issuedAtMillis };
-    if (!snapshot.exists() || value?.schemaVersion !== 1 || value?.deviceId !== deviceId
-      || snapshot.metadata.hasPendingWrites || !isWriteLeaseValid(lease, issuedAtMillis)) throw new Error('서버 쓰기 권한을 확인하지 못했습니다.');
-    clockAnchor = { server: issuedAtMillis, monotonic: monotonicNow() };
-    ownerClockAnchors.set(ownerKey, clockAnchor);
-    leases.set(ownerKey, lease);
-    try { if (typeof localStorage !== 'undefined') localStorage.setItem(cacheKey(ownerKey), JSON.stringify(lease)); } catch { /* Memory permission still works for this session. */ }
-    return lease;
+    try {
+      await setDoc(ref, { schemaVersion: 1, deviceId, issuedAtServer: serverTimestamp() });
+      status = 'confirmation-failed';
+      const snapshot = await getDocFromServer(ref);
+      const value = snapshot.data();
+      const issuedAtMillis = Math.floor(value?.issuedAtServer?.toMillis?.());
+      const lease = { leaseId, deviceId, issuedAtMillis };
+      if (!snapshot.exists() || value?.schemaVersion !== 1 || value?.deviceId !== deviceId
+        || snapshot.metadata.hasPendingWrites || !isWriteLeaseValid(lease, issuedAtMillis)) throw new Error('서버 쓰기 권한을 확인하지 못했습니다.');
+      clockAnchor = { server: issuedAtMillis, monotonic: monotonicNow() };
+      ownerClockAnchors.set(ownerKey, clockAnchor);
+      leases.set(ownerKey, lease);
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem(cacheKey(ownerKey), JSON.stringify(lease)); } catch { /* Memory permission still works for this session. */ }
+      status = 'confirmed';
+      return lease;
+    } finally {
+      traceReaderBootstrap({ event: 'write-lease-issuance', status, leaseReason, durationMs: Math.round(monotonicNow() - startedAt) });
+    }
   })();
   pending.set(ownerKey, work);
   try { return await work; } finally { if (pending.get(ownerKey) === work) pending.delete(ownerKey); }

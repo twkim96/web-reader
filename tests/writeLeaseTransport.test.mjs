@@ -90,11 +90,17 @@ test('first-online placeholders bind once with server time despite skew, while o
     const wait = new Promise(resolve => { release = resolve; });
     let issued = 1700000000000;
     let mono = 100;
+    let leaseWrites = 0;
+    let leaseReads = 0;
     Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => mono } });
     require.cache[path] = { id: path, filename: path, loaded: true, exports: {
-      doc: () => ({}), serverTimestamp: () => ({}), setDoc: async () => { await wait; },
-      getDocFromServer: async () => ({ exists: () => true, metadata: { hasPendingWrites: false },
-        data: () => ({ schemaVersion: 1, deviceId: 'device', issuedAtServer: { toMillis: () => issued } }) }),
+      doc: () => ({}), serverTimestamp: () => ({}),
+      setDoc: async () => { leaseWrites++; await wait; },
+      getDocFromServer: async () => {
+        leaseReads++;
+        return { exists: () => true, metadata: { hasPendingWrites: false },
+          data: () => ({ schemaVersion: 1, deviceId: 'device', issuedAtServer: { toMillis: () => issued } }) };
+      },
     } };
     process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES = '1';
     const held = new Map();
@@ -152,11 +158,22 @@ test('first-online placeholders bind once with server time despite skew, while o
     await deletion.reconcileAnnotationBookDeletionIntentsV10('online', owner, { deviceId: 'device', sessionId: 's' }, issued,
       async () => { deletionFetches++; return []; });
     assert.equal(deletionFetches, 0);
+    globalThis.window = { location: { search: '?readerDebug=1' } };
     const prep = transport.prepareWriteLease({}, 'online', owner, 'device');
+    const joined = transport.prepareWriteLease({}, 'online', owner, 'device');
     const during = transport.createSyncEventId(owner, 'device');
     assert.match(before, /^unleased_/); assert.match(during, /^unleased_/);
     assert.equal(transport.resolvePendingSyncEventId(owner, before, 'device'), null);
-    release(); await prep;
+    mono += 37;
+    release();
+    const savedLease = await prep;
+    assert.equal(await joined, savedLease);
+    assert.equal(await transport.prepareWriteLease({}, 'online', owner, 'device'), savedLease);
+    assert.deepEqual([leaseWrites, leaseReads], [1, 1]);
+    assert.deepEqual(window.__readerBootstrapTrace.map(({ at, ...event }) => event), [
+      { event: 'write-lease-issuance', status: 'confirmed', leaseReason: 'missing', durationMs: 37 },
+    ]);
+    delete globalThis.window;
     assert.equal(transport.getTrustedWriteLeaseTime(owner), issued);
     assert.equal(await outbox.bindPendingSyncAuthorityV5(owner), 2);
     assert.equal(await db.get(schema.V5_OUTBOX_STORE, [owner, before]), undefined);
