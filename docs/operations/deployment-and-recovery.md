@@ -42,6 +42,14 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 [2026-07-13 production 기준선](../updates/firestore-rules-production-baseline-2026-07-13.md)과 [원문 백업](../backups/firestore.rules.production-2026-07-13.rules)은 당시 v1→v2 배포의 역사적 자료입니다. 배포 설정과 Rules 테스트는 루트의 `firestore.rules`를 읽으며 이 이력 Markdown을 입력으로 사용하지 않습니다. 현재 production Rules는 문서 정리에서 새로 확인하지 않았습니다. 롤백 시 **해당 배포 전에 확인한** 백업을 복원하고, Firestore/IndexedDB 데이터를 삭제하지 않습니다. 오래된 백업은 후속 주석·통계·메타데이터 schema와 맞지 않을 수 있으므로 현재 client와의 호환성을 먼저 확인합니다.
 
+### 자동 필드 인덱스 축소
+
+`publicBookMetadataV1`의 상세 버킷은 문서 ID로 조회합니다. `readingStatsV1`은 서버 업로드 시각의 컬렉션 범위 양방향 인덱스를, `eventReceipts`는 생성 시각의 컬렉션 범위 양방향과 컬렉션 그룹 오름차순 인덱스를 사용합니다. 유지 방향과 제외 대상은 [인덱스 정의](../../firestore.indexes.json)가 기준입니다.
+
+기존 컬렉션의 인덱스를 제외할 때는 운영 설정을 기록한 뒤 필요한 개별 필드를 먼저 명시적으로 설정합니다. 필드별 Admin API에서 `updateMask=indexConfig`와 유지할 방향 전체를 보냅니다. 작업 완료와 인덱스 `READY`를 확인하고 실제 쿼리를 실행한 뒤 와일드카드나 미사용 필드를 제외합니다. Firebase CLI 전체 배포에는 이 순서와 완료 대기를 맡기지 않습니다. 롤백할 때는 이전 필드 설정을 복원한 뒤 인덱스 재구축과 실제 쿼리 복구까지 확인합니다.
+
+적용 전후에 도서 상세 단건 조회, 통계 양방향 페이지·주간 건수 대조·문서 ID 기반 조회, 영수증 단건·날짜·그룹 조회를 확인합니다. 인덱스 작업 완료와 DB 전체 용량 지표 `firestore.googleapis.com/storage/data_and_index_storage_bytes`의 감소 확인은 별도입니다. 비교할 때 동일한 데이터베이스와 단위의 적용 전후 시계열을 사용합니다. [Firestore 인덱스 관리](https://firebase.google.com/docs/firestore/query-data/indexing) · [저장량 지표](https://cloud.google.com/monitoring/api/metrics_gcp_d_h)
+
 ## 공개 프로필 후보 캐시
 
 페이지가 여러 개인 공개 목록은 서버 인스턴스 안에서 후보를 짧게 재사용합니다. 삭제 기록까지 포함한 항목 수와 저장 버전의 합을 Firestore에서 대조하고, 처음 저장한 목록과 그 버전은 같은 시점의 스냅샷으로 읽습니다. 위시리스트와 평가를 변경하는 기존 경로는 항목 버전을 높이며 삭제할 때도 버전을 보존합니다.

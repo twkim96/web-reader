@@ -12,6 +12,11 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "publicBookMetadataV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
       "collectionGroup": "publicBookCatalogIndexV1",
       "fieldPath": "*",
       "indexes": []
@@ -23,6 +28,19 @@
     },
     {
       "collectionGroup": "publicBookMetadataOnDemandV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "readingStatsV1",
+      "fieldPath": "uploadedAtServer",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+      ]
+    },
+    {
+      "collectionGroup": "readingStatsV1",
       "fieldPath": "*",
       "indexes": []
     },
