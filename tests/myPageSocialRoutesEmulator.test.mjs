@@ -54,6 +54,52 @@ async function ok(response) {
 const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/api/book-reviews?' + new URLSearchParams({ workId }))));
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
 
+test('calendar endpoints expose only the authenticated owner’s complete publication', async (t) => {
+  const flag = 'NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS';
+  const previousFlag = process.env[flag];
+  t.after(() => {
+    if (previousFlag === undefined) delete process.env[flag]; else process.env[flag] = previousFlag;
+  });
+  const { idToken, localId: uid } = await emulatorLogin('reading-rollup-owner');
+  const { idToken: otherToken } = await emulatorLogin('reading-rollup-other');
+  const root = getAdminFirestore().doc(`artifacts/${APP_ID}/readingStatsRollupJobsV1/${uid}`);
+  const manifest = root.collection('readingStatsRollupManifestsV1').doc('current');
+  const historical = { localDate: '2026-11-16', totalMs: 180_000, screenMs: 180_000, ttsMs: 0 };
+  const recent = { localDate: '2026-11-23', totalMs: 120_000, screenMs: 0, ttsMs: 120_000 };
+  const week = (weekStart) => ({ view: 'rollup-week', week: weekStart });
+  const activity = { localDate: historical.localDate, bookId: 'private-book', bookTitle: '칼바람', mode: 'screen',
+    startAt: Date.parse('2026-11-16T12:00:00Z'), durationMs: 180_000, timezoneOffsetMinutes: 0, progressSpanPercent: 1 };
+  const detailRef = root.collection('readingStatsRollupWeeksV1').doc('2026-11-16');
+  await detailRef.set({ payload: JSON.stringify({ weekStart: '2026-11-16', activities: [activity], files: [{ fileId: 'internal' }] }) });
+
+  process.env[flag] = '0';
+  assert.equal((await get(week('2026-11-16'), idToken)).status, 404);
+  process.env[flag] = '1';
+  assert.equal((await get(week('2026-11-16'))).status, 401);
+  assert.equal((await get(week('2026-11-17'), idToken)).status, 400);
+  assert.deepEqual(await ok(get(week('2026-11-16'), idToken)), { week: null });
+
+  const weekStarts = Array.from({ length: 10 }, (_, i) => new Date(Date.parse('2026-11-16') - i * 7 * 86_400_000).toISOString().slice(0, 10));
+  const calendar = root.collection('readingStatsRollupCalendarsV1').doc('2026-11-16');
+  await calendar.set({ payload: JSON.stringify({ weekStarts, days: [historical] }) });
+  const published = { schemaVersion: 1, firstWeek: '2026-09-14', publishedThroughWeek: '2026-11-23', lastCalendarWeek: '2026-11-16' };
+  await manifest.set({ ...published, calendarTail: [{ weekStart: '2026-11-23', days: [recent] }] });
+  const view = { view: 'rollup-calendar' };
+  const full = { calendar: { firstDay: '2026-09-14', lastDay: '2026-11-29', days: [historical, recent] } };
+  assert.deepEqual(await ok(get(view, idToken)), full);
+  assert.deepEqual(await ok(get({ ...view, uid }, otherToken)), { calendar: null });
+  assert.deepEqual(await ok(get({ ...week('2026-11-16'), uid }, otherToken)), { week: null });
+  assert.deepEqual(await ok(get(week('2026-11-16'), idToken)), { week: { weekStart: '2026-11-16', activities: [activity] } });
+  assert.deepEqual(await ok(get(week('2026-11-30'), idToken)), { week: null });
+
+  // Publications written before inline tail support remain readable.
+  await root.collection('readingStatsRollupWeeksV1').doc('2026-11-23').set({ payload: JSON.stringify({ weekStart: '2026-11-23', days: [recent] }) });
+  await manifest.set(published);
+  assert.deepEqual(await ok(get(view, idToken)), full);
+  await calendar.delete();
+  assert.equal((await get(view, idToken)).status, 503);
+});
+
 test('public profile sorts all visible reviews before selecting a page', async () => {
   const { idToken, localId: uid } = await emulatorLogin('mypage-public-review-sort');
   const account = await ok(get({ view: 'account' }, idToken));

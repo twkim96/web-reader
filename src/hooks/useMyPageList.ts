@@ -7,6 +7,7 @@ import { MyPageRequestError, myPageRequest } from '../lib/myPageSocialClient';
 import type { MyPageOwnReviews, MyPageSavedBook } from '../lib/myPageSocial';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar';
 
 type ListCache<T> = {
   subscribe: (listener: () => void) => () => void;
@@ -17,7 +18,7 @@ type ListCache<T> = {
 
 function useMyPageList<T>(
   cache: ListCache<T>, params: Record<string, string>, owner: OwnerKey, enabled: boolean,
-  phase: 'wishlist-ready' | 'reviews-ready' | 'review-preview-ready',
+  phase: 'wishlist-ready' | 'reviews-ready' | 'review-preview-ready' | 'reading-calendar-ready' | 'reading-week-ready',
 ) {
   const snapshot = useSyncExternalStore(cache.subscribe, () => enabled ? cache.read(owner) : cache.empty(), cache.empty);
   const load = useCallback((force = false) => (
@@ -61,6 +62,8 @@ function useMyPageList<T>(
 const wishlistParams = { view: 'wishlist' };
 const fullReviewParams = { view: 'reviews' };
 const previewReviewParams = { view: 'reviews', preview: '1' };
+const readingCalendarParams = { view: 'rollup-calendar' };
+const readingCalendarCache = createListCache<{ calendar: PublishedReadingCalendar | null }>();
 
 export const useMyPageWishlistList = (owner: OwnerKey, enabled: boolean) => (
   useMyPageList<{ entries: MyPageSavedBook[] }>(wishlistListCache, wishlistParams, owner, enabled, 'wishlist-ready')
@@ -72,6 +75,22 @@ export const useMyPageReviewList = (owner: OwnerKey, enabled: boolean, preview =
     preview ? 'review-preview-ready' : 'reviews-ready',
   )
 );
+
+export const useMyPageReadingCalendar = (owner: OwnerKey, enabled: boolean) => (
+  useMyPageList(readingCalendarCache, readingCalendarParams, owner, enabled, 'reading-calendar-ready')
+);
+
+export function useMyPageReadingWeek(owner: OwnerKey, week: string | null, enabled: boolean) {
+  const { cache, params } = useMemo(() => ({
+    cache: createListCache<{ week: PublishedReadingWeek | null }>(),
+    params: { view: 'rollup-week', week: week ?? '' },
+  }), [week]);
+  const session = ownerRuntime.capture();
+  useEffect(() => {
+    if (session) return () => cache.dispose(session);
+  }, [cache, session]);
+  return useMyPageList(cache, params, owner, Boolean(week) && enabled, 'reading-week-ready');
+}
 
 export function useMyPageWorkReview(owner: OwnerKey, enabled: boolean, workId: string) {
   // Book detail is keyed by account and book. The cache owns just that work.

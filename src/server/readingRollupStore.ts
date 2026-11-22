@@ -202,6 +202,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
       tx.set(ref.collection('readingStatsRollupManifestsV1').doc('current'), {
         schemaVersion: 1, firstWeek: job.firstWeek, publishedThroughWeek: closed,
         sourceThrough: previousClose, lastCalendarWeek: job.lastCalendarWeek,
+        calendarTail: job.group,
       });
       tx.update(ref, { payload: next, dueAt: nextDue });
     });

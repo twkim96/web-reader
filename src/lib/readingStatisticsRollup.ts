@@ -11,7 +11,7 @@ import {
   type ReadingSessionV1,
 } from './readingStatistics';
 
-type ReadingRollupActivity = Omit<ReadingActivityBlock, 'session'> & Pick<
+export type ReadingRollupActivity = Omit<ReadingActivityBlock, 'session'> & Pick<
   ReadingSessionV1,
   'bookId' | 'bookTitle' | 'mode' | 'timezoneOffsetMinutes'
 >;
@@ -43,6 +43,15 @@ export type ReadingCalendarRollup = {
 const DAY_MS = 86_400_000;
 const CALENDAR_WEEK_COUNT = 10;
 const WEEK_MS = 7 * DAY_MS;
+
+export const readingRollupDayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+export function readingRollupWeekForDay(day: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const date = new Date(`${day}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime()) || readingRollupDayKey(date.getTime()) !== day) return null;
+  return readingRollupDayKey(date.getTime() - ((date.getUTCDay() + 6) % 7) * DAY_MS);
+}
 
 export function parseReadingRollupMonday(weekStart: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {

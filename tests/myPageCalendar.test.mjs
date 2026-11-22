@@ -5,10 +5,22 @@ import 'fake-indexeddb/auto';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
-import { ReadingDashboard } from '../src/components/mypage/ReadingDashboard.tsx';
 import { saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
 import { closeLocalDB } from '../src/lib/localDB.ts';
 import { setImmediate as settle } from 'node:timers/promises';
+import { registerHooks } from 'node:module';
+
+const rollupUid = 'calendar-rollup-ui';
+const authMock = registerHooks({ resolve(specifier, context, next) {
+  if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
+    const mock = `export const auth = { currentUser: { uid: '${rollupUid}', getIdToken: async () => 'calendar-token' } };`;
+    return { url: 'data:text/javascript,' + encodeURIComponent(mock), shortCircuit: true };
+  }
+  return next(specifier, context);
+} });
+const { ReadingDashboard } = await import('../src/components/mypage/ReadingDashboard.tsx');
+const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
+test.after(() => authMock.deregister());
 
 const session = (id, start, end, overrides = {}) => ({
   schemaVersion: 1, sessionId: id, bookId: id, bookTitle: id, deviceId: 'device', mode: 'screen',
@@ -161,6 +173,70 @@ test('dashboard updates day and month totals at midnight and on resume without r
     await act(async () => window.dispatchEvent(new window.Event('focus')));
     assert.deepEqual(totals(), ['2분', '2분', '2분']);
     assert.equal(reads.mock.callCount(), 1);
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+  }
+});
+
+test('published days replace local days including zero and load detail only on selecting a populated date', async (t) => {
+  t.mock.method(globalThis, 'Date', class extends Date {
+    constructor(...args) { super(...(args.length ? args : [2026, 10, 25, 12])); }
+    static now() { return new Date().getTime(); }
+  });
+  const ownerKey = `firebase:${rollupUid}|library:local`;
+  ownerRuntime.activate(ownerKey);
+  const key = 'NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS';
+  const flag = process.env[key];
+  process.env[key] = '1';
+  t.after(() => {
+    ownerRuntime.clear();
+    if (flag === undefined) delete process.env[key]; else process.env[key] = flag;
+  });
+  const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
+  const storage = { getItem: () => null, setItem() {}, removeItem() {} };
+  window.localStorage = storage;
+  Object.assign(globalThis, { window, document: window.document, localStorage: storage, HTMLElement: window.HTMLElement,
+    Element: window.Element, Node: window.Node, Event: window.Event, CustomEvent: window.CustomEvent,
+    BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true });
+  for (const day of [1, 16, 17, 25]) {
+    const start = Date.UTC(2026, 10, day, 12);
+    await saveLocalReadingSessionV11(ownerKey, session(`local-${day}`, start, start + 120_000));
+  }
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, { headers }) => {
+    const params = new URL(url, 'https://reader.example').searchParams;
+    assert.equal(headers.get('authorization'), 'Bearer calendar-token');
+    requests.push(params.get('view'));
+    if (params.get('view') === 'rollup-calendar') return Response.json({ calendar: {
+      firstDay: '2026-11-02', lastDay: '2026-11-22', days: [{ localDate: '2026-11-16', totalMs: 180_000, screenMs: 180_000, ttsMs: 0 }],
+    } });
+    assert.equal(params.get('week'), '2026-11-16');
+    return Response.json({ week: { weekStart: '2026-11-16', activities: [{
+      bookId: 'aggregate', bookTitle: '집계 도서', mode: 'screen', timezoneOffsetMinutes: 0, localDate: '2026-11-16',
+      startAt: Date.UTC(2026, 10, 16, 12), durationMs: 180_000, progressSpanPercent: 1.5,
+    }] } });
+  });
+  const root = createRoot(window.document.querySelector('#root'));
+  const totals = () => [...window.document.querySelectorAll('[aria-label="독서 시간 요약"] dd')].map((node) => node.textContent);
+  const select = (day) => act(async () => window.document.querySelector(`button[aria-label^="11월 ${day}일"]`)
+    .dispatchEvent(new window.Event('click', { bubbles: true })));
+  try {
+    await act(async () => root.render(React.createElement(ReadingDashboard, { ownerKey, onOpenStatistics() {}, onOpenAnnotations() {} })));
+    for (let i = 0; i < 50 && totals()[2] !== '7분'; i++) await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 2));
+    });
+    assert.deepEqual(requests, ['rollup-calendar']);
+    assert.deepEqual(totals(), ['2분', '7분', '7분']);
+    assert.equal(window.document.querySelector('button[aria-label^="11월 17일"]').getAttribute('aria-label'), '11월 17일');
+    await select(17);
+    assert.deepEqual(requests, ['rollup-calendar']);
+    await select(16);
+    for (let i = 0; i < 20 && !window.document.querySelector('section[aria-label="선택한 날짜의 독서 기록"] li'); i++) await act(async () => settle());
+    assert.match(window.document.querySelector('section[aria-label="선택한 날짜의 독서 기록"] li').textContent, /집계 도서.*1\.50%p \| 3분/);
+    await select(17);
+    await select(16);
+    assert.deepEqual(requests, ['rollup-calendar', 'rollup-week']);
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

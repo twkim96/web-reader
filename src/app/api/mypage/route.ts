@@ -1,6 +1,8 @@
 import { after } from 'next/server';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
+import { readPublishedReadingCalendar, readPublishedReadingWeek } from '../../../server/readingRollupRead';
+import { readingRollupWeekForDay } from '../../../lib/readingStatisticsRollup';
 import { resolveLegacyReviewWork, resolveSocialWork, resolveWishlistWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
 import { reportMyPageApiTiming, type ReadingEvidenceRoute } from '../../../server/mypage/performance';
@@ -285,12 +287,20 @@ export async function GET(request: Request) {
     if (view === 'people') return fail(404);
     if (view === 'browse') return await publicBrowse(request, params);
     if (view === 'profile') return await publicProfile(getAdminFirestore(), params);
+    const rollupView = view === 'rollup-calendar' || view === 'rollup-week';
+    if (rollupView && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS !== '1') return fail(404);
     const uid = await authenticatedUid(request, timings && ((phase, elapsed) => {
       timings.push(`${phase};dur=${elapsed.toFixed(1)}`);
     }));
     if (!uid) return fail(401);
     timing?.('auth');
     const db = getAdminFirestore();
+    if (view === 'rollup-calendar') return json({ calendar: await readPublishedReadingCalendar(db, uid) });
+    if (view === 'rollup-week') {
+      const weekStart = params.get('week');
+      if (!weekStart || readingRollupWeekForDay(weekStart) !== weekStart) return fail(400);
+      return json({ week: await readPublishedReadingWeek(db, uid, weekStart) });
+    }
     if (view === 'account') return json(await ensureAccount(db, uid));
     if (view === 'wishlist') return respond({ entries: await wishlistBookStates(db, uid, timing) });
     if (view === 'reviews') return respond(await ownReviews(db, uid, params.get('preview') === '1', timing));

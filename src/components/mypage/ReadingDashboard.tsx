@@ -5,17 +5,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
 import { useLocalReadingDate } from '../../hooks/useLocalReadingDate';
+import { useMyPageReadingCalendar, useMyPageReadingWeek } from '../../hooks/useMyPageList';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
-import type { OwnerKey } from '../../lib/ownerIdentity';
+import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import {
   buildReadingStatistics,
   formatReadingDuration,
   getReadingStatisticsRangeBounds,
   isLocalDateWithinBounds,
   MIN_READING_STATISTICS_BLOCK_MS,
-  type ReadingActivityBlock,
   type StoredReadingSessionV11,
 } from '../../lib/readingStatistics';
+import { mergePublishedCalendarDays, publishedCalendarCovers } from '../../lib/readingRollupCalendar';
+import { readingRollupWeekForDay, type ReadingRollupActivity } from '../../lib/readingStatisticsRollup';
 import {
   READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY,
   readHiddenReadingStatisticsSessionIds,
@@ -33,6 +35,7 @@ type Data = {
   ownerKey: OwnerKey;
   sessions: StoredReadingSessionV11[];
   error: boolean;
+  hasHidden: boolean;
 };
 
 const readingTimeFormat = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
@@ -64,10 +67,10 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         const hidden = readHiddenReadingStatisticsSessionIds(ownerKey);
         if (!disposed && current === request) {
-          setData({ ownerKey, sessions: sessions.filter(({ sessionId }) => !hidden.has(sessionId)), error: false });
+          setData({ ownerKey, sessions: sessions.filter(({ sessionId }) => !hidden.has(sessionId)), error: false, hasHidden: hidden.size > 0 });
         }
       } catch {
-        if (!disposed && current === request) setData({ ownerKey, sessions: [], error: true });
+        if (!disposed && current === request) setData({ ownerKey, sessions: [], error: true, hasHidden: false });
       }
     };
     const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => void load());
@@ -88,39 +91,54 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   }, [ownerKey, onRefresh]);
 
   const currentData = data?.ownerKey === ownerKey ? data : null;
+  const { data: published } = useMyPageReadingCalendar(ownerKey,
+    process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1' && !isGuestOwner(ownerKey)
+      && Boolean(currentData && !currentData.error && !currentData.hasHidden));
+  const calendar = published?.calendar ?? null;
   const statistics = useMemo(() => {
     if (!currentData || currentData.error) return null;
-    const details = new Map<string, ReadingActivityBlock[]>();
+    const details = new Map<string, ReadingRollupActivity[]>();
     const summary = measureMyPageWork('dashboard-timeline', () => buildReadingStatistics(currentData.sessions, {}, undefined, {
       minimumMs: MIN_READING_STATISTICS_BLOCK_MS,
-      onBlock: (block) => {
+      onBlock: ({ session, ...activity }) => {
+        if (calendar && publishedCalendarCovers(calendar, activity.localDate)) return;
+        const block = { ...activity, bookId: session.bookId, bookTitle: session.bookTitle, mode: session.mode,
+          timezoneOffsetMinutes: session.timezoneOffsetMinutes };
         const day = details.get(block.localDate);
         if (day) day.push(block);
         else details.set(block.localDate, [block]);
       },
     }));
     for (const rows of details.values()) rows.reverse();
-    const dayTotals = new Map(summary.days.map(({ localDate, totalMs }) => [localDate, totalMs]));
-    return { summary, details, dayTotals };
-  }, [currentData]);
-  const summary = statistics?.summary ?? null;
+    const days = mergePublishedCalendarDays(summary.days, calendar);
+    const dayTotals = new Map(days.map(({ localDate, totalMs }) => [localDate, totalMs]));
+    return { days, details, dayTotals };
+  }, [calendar, currentData]);
+  const days = statistics?.days ?? null;
   const totals = useMemo(() => {
-    if (!summary) return null;
+    if (!days) return null;
     const sumRange = (range: 'today' | 'month') => {
       const bounds = getReadingStatisticsRangeBounds(range, today);
-      return summary.days.reduce((sum, day) => sum + (
+      return days.reduce((sum, day) => sum + (
         isLocalDateWithinBounds(day.localDate, bounds) ? day.totalMs : 0
       ), 0);
     };
-    return [sumRange('today'), sumRange('month'), summary.totalMs];
-  }, [summary, today]);
+    return [sumRange('today'), sumRange('month'), days.reduce((sum, day) => sum + day.totalMs, 0)];
+  }, [days, today]);
   const rowLimit = visibleRows.day === selectedDay ? visibleRows.count : 50;
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
   const firstWeekday = new Date(year, monthIndex, 1).getDay();
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const selectedTotalMs = statistics?.dayTotals.get(selectedDay) ?? 0;
-  const selectedSessions = statistics?.details.get(selectedDay) ?? [];
+  const selectedWeek = calendar && publishedCalendarCovers(calendar, selectedDay) ? readingRollupWeekForDay(selectedDay) : null;
+  const wantsDetails = Boolean(selectedWeek) && selectedTotalMs > 0;
+  const week = useMyPageReadingWeek(ownerKey, selectedWeek, wantsDetails);
+  const selectedSessions = selectedWeek
+    ? week.data?.week?.activities.filter(({ localDate }) => localDate === selectedDay) ?? []
+    : statistics?.details.get(selectedDay) ?? [];
+  const detailFailed = wantsDetails && (Boolean(week.error) || week.data?.week === null);
+  const detailLoading = wantsDetails && !detailFailed && week.data === undefined;
   const changeMonth = (offset: number) => {
     const next = new Date(year, monthIndex + offset, 1);
     setMonth(next);
@@ -169,7 +187,7 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
               const selected = key === selectedDay;
               return (
                 <button key={key} type="button" onClick={() => setSelectedDay(key)} aria-pressed={selected}
-                  aria-label={`${monthIndex + 1}월 ${day}일${!summary ? ', 기록 확인 중' : duration > 0 ? `, ${formatReadingDuration(duration)}` : ''}`}
+                  aria-label={`${monthIndex + 1}월 ${day}일${!days ? ', 기록 확인 중' : duration > 0 ? `, ${formatReadingDuration(duration)}` : ''}`}
                   className={`mx-auto flex h-12 w-full max-w-12 flex-col items-center justify-center rounded-xl text-sm transition-colors ${selected ? 'bg-[color-mix(in_srgb,var(--accent-500)_14%,transparent)] text-accent-500' : 'hover:bg-[color-mix(in_srgb,currentColor_8%,transparent)]'}`}>
                   <span className={selected ? 'font-semibold' : ''}>{day}</span>
                   <span className="mt-0.5 h-3 whitespace-nowrap text-[9px] leading-3 text-accent-500">{duration > 0 ? formatReadingDuration(duration) : ''}</span>
@@ -186,17 +204,21 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
           </div>
           {!currentData || currentData.error ? (
             <p className="mt-3 text-sm opacity-60">{currentData?.error ? '기록을 표시할 수 없습니다.' : '기록을 불러오는 중입니다.'}</p>
+          ) : detailFailed ? (
+            <button type="button" className="mt-3 text-sm text-accent-500" onClick={() => void week.refresh()}>기록을 불러오지 못했습니다. 다시 시도</button>
+          ) : detailLoading ? (
+            <p role="status" className="mt-3 text-sm opacity-60">기록을 불러오는 중입니다.</p>
           ) : selectedSessions.length === 0 ? (
             <p className="mt-3 text-sm opacity-60">이날 읽은 기록이 없습니다.</p>
           ) : (
             <div key={selectedDay} role="region" aria-label="독서 기록 목록" tabIndex={0}
               className="-ml-1 mt-4 max-h-60 overflow-y-auto pr-2 pl-1 [scrollbar-gutter:stable]">
               <ul className="mypage-divided-list">
-                {selectedSessions.slice(0, rowLimit).map(({ session, durationMs, startAt, progressSpanPercent }) => (
-                  <li key={`${session.sessionId}:${startAt}`} className="flex items-center justify-between gap-4 py-1">
+                {selectedSessions.slice(0, rowLimit).map(({ bookId, bookTitle, mode, timezoneOffsetMinutes, durationMs, startAt, progressSpanPercent }, index) => (
+                  <li key={`${bookId}:${startAt}:${index}`} className="flex items-center justify-between gap-4 py-1">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{displayBookTitle(session.bookTitle)}</p>
-                      <p className="mt-1 text-xs opacity-55">{readingTimeFormat.format(startAt - session.timezoneOffsetMinutes * 60_000)} · {session.mode === 'tts' ? '듣기' : '읽기'}</p>
+                      <p className="truncate text-sm font-medium">{displayBookTitle(bookTitle)}</p>
+                      <p className="mt-1 text-xs opacity-55">{readingTimeFormat.format(startAt - timezoneOffsetMinutes * 60_000)} · {mode === 'tts' ? '듣기' : '읽기'}</p>
                     </div>
                     <span className="shrink-0 text-xs opacity-70">
                       {progressSpanPercent !== null && `${progressSpanPercent.toFixed(2)}%p | `}
