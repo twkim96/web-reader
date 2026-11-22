@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   computeReadingCalendarRollup,
   computeWeeklyReadingRollup,
+  selectWeeklyReadingRollupInputs,
 } from '../src/lib/readingStatisticsRollup.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 
@@ -80,6 +81,28 @@ test('uses clock samples outside the week and clips at corrected local midnight'
     fileId: 'screen-book', titles: ['Example'], lastReadAt: Date.parse('2026-11-22T23:02:00Z'), filteredMs: 2 * minute, unfilteredMs: 2 * minute,
     progressIntervals: [[2, 14]], absoluteMaxProgressPercent: 14,
   }]);
+});
+
+test('keeps the early clock sample for a TTS interval that ends inside the week', () => {
+  const old = '2026-11-19T03:00:00Z';
+  const resumed = Date.parse('2026-11-23T01:00:00Z');
+  const clip = session('paused-tts', old, 3, {
+    mode: 'tts', endedAtClient: resumed + 2 * minute, bookId: 'audio-book',
+    activeIntervals: [
+      { startedAtClient: Date.parse(old), endedAtClient: Date.parse(old) + minute },
+      { startedAtClient: resumed, endedAtClient: resumed + 2 * minute },
+    ],
+  });
+  const carrier = session('earlier-clock', old, 1, {
+    clockOffsetMs: minute, clockUncertaintyMs: 0, clockMeasuredAtClient: Date.parse(old),
+  });
+  const irrelevant = session('unrelated', '2026-11-12T03:00:00Z', 3);
+  const all = [irrelevant, carrier, clip];
+  const inputs = selectWeeklyReadingRollupInputs(all, monday);
+  assert.deepEqual(inputs, [carrier, clip]);
+  const selected = computeWeeklyReadingRollup(inputs, monday);
+  assert.deepEqual(selected, computeWeeklyReadingRollup(all, monday));
+  assert.equal(selected.activities[0].startAt, resumed + minute);
 });
 
 test('preserves progress from overlap losers and stationary reads while excluding completion markers', () => {

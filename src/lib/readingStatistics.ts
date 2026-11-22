@@ -8,6 +8,9 @@ export const READING_SESSION_IDLE_TIMEOUT_MS = 90_000;
 export const MIN_READING_STATISTICS_BLOCK_MS = 120_000;
 export const READING_SESSION_MIN_DURATION_MS = 1_000;
 export const READING_SESSION_MAX_ACTIVE_INTERVALS = 512;
+export const READING_SESSION_MAX_TIMEZONE_OFFSET_MINUTES = 14 * 60;
+export const READING_SESSION_MAX_CLOCK_OFFSET_MS = 24 * 60 * 60_000;
+export const READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS = 24 * 60 * 60_000;
 export const READING_ROUND_COMPLETION_PERCENT = 99;
 
 export type ReadingActiveIntervalV1 = {
@@ -190,8 +193,7 @@ export const isReadingSessionV1 = (value: unknown): value is ReadingSessionV1 =>
   if (
     typeof value.timezoneOffsetMinutes !== 'number'
     || !Number.isInteger(value.timezoneOffsetMinutes)
-    || value.timezoneOffsetMinutes < -840
-    || value.timezoneOffsetMinutes > 840
+    || Math.abs(value.timezoneOffsetMinutes) > READING_SESSION_MAX_TIMEZONE_OFFSET_MINUTES
   ) return false;
   if (
     typeof value.localDate !== 'string'
@@ -225,7 +227,7 @@ export const isReadingSessionV1 = (value: unknown): value is ReadingSessionV1 =>
   ];
   if (clockFields.every((field) => field === undefined)) return true;
   return Number.isSafeInteger(value.clockOffsetMs)
-    && Math.abs(Number(value.clockOffsetMs)) <= 24 * 60 * 60_000
+    && Math.abs(Number(value.clockOffsetMs)) <= READING_SESSION_MAX_CLOCK_OFFSET_MS
     && Number.isSafeInteger(value.clockUncertaintyMs)
     && Number(value.clockUncertaintyMs) >= 0
     && Number(value.clockUncertaintyMs) <= 5_000
@@ -574,8 +576,6 @@ type PreparedSession = {
   clockDomain: string;
 };
 
-const CLOCK_SAMPLE_MAX_AGE_MS = 24 * 60 * 60_000;
-
 type ClockSample = { measuredAt: number; offset: number; order: number };
 
 const buildClockSampleIndex = (sessions: readonly ReadingSessionV1[]) => {
@@ -619,7 +619,7 @@ const getClockCorrection = (
   const useEarlier = earlier && (!later || earlierDistance < laterDistance
     || (earlierDistance === laterDistance && earlier.order < later.order));
   const distance = useEarlier ? earlierDistance : laterDistance;
-  return distance <= CLOCK_SAMPLE_MAX_AGE_MS ? (useEarlier ? earlier : later).offset : undefined;
+  return distance <= READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS ? (useEarlier ? earlier : later).offset : undefined;
 };
 
 const compareWinner = (left: PreparedSession, right: PreparedSession) => {
