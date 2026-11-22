@@ -5,14 +5,14 @@ import { onIdTokenChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import {
   deferReadingSessionSyncV11,
-  getReadingStatisticsAuditCandidateV12,
-  getReadingStatisticsHydrationStateV12,
+  getReadingStatisticsHydrationPlanV12,
   getPendingReadingSessionsV11,
   hydrateRemoteReadingSessionsPageV12,
   markReadingSessionSyncedV11,
   reconcileUploadedReadingSessionConflictV11,
   recordReadingStatisticsHydrationMetricsV12,
   recordReadingStatisticsVerifiedAuditV12,
+  type ReadingStatisticsFullScanReason,
 } from '../lib/localReadingStatistics';
 import { getSyncOwnerKey, splitOwnerKey, type OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
@@ -42,6 +42,7 @@ import {
   ReadingStatisticsSyncLeaseRuntime,
 } from '../lib/readingStatisticsSyncLease';
 import { runReadingStatisticsHydrationAsLeader } from '../lib/readingStatisticsSyncCoordinator';
+import { createReadingStatisticsReceiveSchedule } from '../lib/readingStatisticsReceiveSchedule';
 import { traceReaderBootstrap } from '../lib/readerBootstrapTrace';
 
 const getErrorCode = (error: unknown) => {
@@ -98,12 +99,15 @@ export const useReadingStatisticsSync = (
     );
     let disposed = false;
     let running = false;
+    let receiving = false;
     let requested = false;
     let refreshRequested = true;
     let retryTimer: number | null = null;
     let uploadRetryTimer: number | null = null;
     let leaderRetryTimer: number | null = null;
+    let pollTimer: number | null = null;
     let receiveRetryCount = 0;
+    const receiveSchedule = createReadingStatisticsReceiveSchedule();
     const clockSampleRequests = new Map<
       string,
       Promise<ReadingStatisticsClockSample | null>
@@ -116,7 +120,7 @@ export const useReadingStatisticsSync = (
       if (leaderRetryTimer !== null || !isCurrent()) return;
       leaderRetryTimer = window.setTimeout(() => {
         leaderRetryTimer = null;
-        request(true);
+        if (requested || refreshRequested) request(false);
       }, 2_000);
     };
 
@@ -249,6 +253,7 @@ export const useReadingStatisticsSync = (
           let uploadStatus: Awaited<ReturnType<typeof uploadPending>> = 'ready';
           let uploadFailure: { error: unknown } | undefined;
           if (shouldRefresh) {
+            receiving = true;
             setRefreshing(true);
             const hydrationStartedAt = performance.now();
             let interleavedUploadDurationMs = 0;
@@ -256,9 +261,11 @@ export const useReadingStatisticsSync = (
             let remoteReadAttemptCount = 0;
             let remoteReadCount = 0;
             let returnedDocuments = 0;
+            let receivedHistoryDocuments = 0;
             let emptyQueries = 0;
             let queryMode: 'cursor' | 'no-cursor' | 'unavailable' = 'unavailable';
             let auditProbe: 'matched' | 'mismatch' | 'failed' | undefined;
+            let fullScanReason: ReadingStatisticsFullScanReason | undefined;
             let hydrationStatus: 'completed' | 'lost-leadership' | 'failed' = 'failed';
             const instrumentation = {
               onReadAttempt: () => { remoteReadAttemptCount += 1; },
@@ -269,19 +276,29 @@ export const useReadingStatisticsSync = (
               },
             };
             try {
-              const hydration = await getReadingStatisticsHydrationStateV12(syncOwnerKey);
-              let initialCursor = hydration?.cursor ?? null;
-              if (!hydration) {
-                const candidate = await getReadingStatisticsAuditCandidateV12(syncOwnerKey);
-                if (candidate && await hasClaimLeadership()) {
-                  const verified = await verifyRemoteReadingStatisticsAuditV1(db, user.uid, candidate, instrumentation).catch(() => null);
-                  auditProbe = verified === null ? 'failed' : 'mismatch';
-                  if (verified
-                    && await recordReadingStatisticsVerifiedAuditV12(syncOwnerKey, candidate, leaseClaim)) {
-                    initialCursor = candidate.cursor;
-                    auditProbe = 'matched';
-                  }
+              const plan = await getReadingStatisticsHydrationPlanV12(syncOwnerKey);
+              let initialCursor = 'state' in plan ? plan.state.cursor : null;
+              if ('candidate' in plan) {
+                if (!await hasClaimLeadership()) {
+                  hydrationStatus = 'lost-leadership';
+                  refreshRequested = true;
+                  return;
                 }
+                const candidate = plan.candidate;
+                const verified = await verifyRemoteReadingStatisticsAuditV1(db, user.uid, candidate, instrumentation).catch(() => null);
+                if (verified) {
+                  auditProbe = 'matched';
+                  if (await recordReadingStatisticsVerifiedAuditV12(syncOwnerKey, candidate, leaseClaim)) {
+                    initialCursor = candidate.cursor;
+                  } else {
+                    fullScanReason = 'audit-checkpoint-changed';
+                  }
+                } else {
+                  auditProbe = verified === null ? 'failed' : 'mismatch';
+                  fullScanReason = verified === null ? 'remote-audit-failed' : 'remote-audit-mismatch';
+                }
+              } else {
+                fullScanReason = plan.reason;
               }
               queryMode = initialCursor ? 'cursor' : 'no-cursor';
               const hydrationRun = await runReadingStatisticsHydrationAsLeader({
@@ -296,6 +313,7 @@ export const useReadingStatisticsSync = (
                     undefined,
                     instrumentation,
                   );
+                  receivedHistoryDocuments += page.sessions.length + page.quarantinedDocuments.length;
                   return page;
                 },
                 commitPage: async (page, cursor) => {
@@ -341,7 +359,12 @@ export const useReadingStatisticsSync = (
               if (hydrationRun.hydratedCount > 0) {
                 notifyReadingStatisticsChange(syncOwnerKey);
               }
-              notifyReadingStatisticsServerCheck(syncOwnerKey, Date.now());
+              const checkedAt = Date.now();
+              const receivedRecords = receivedHistoryDocuments > 0;
+              receiveSchedule.complete(checkedAt, receivedRecords);
+              notifyReadingStatisticsServerCheck(syncOwnerKey, checkedAt, receivedRecords);
+              if (retryTimer !== null) window.clearTimeout(retryTimer);
+              retryTimer = null;
               receiveRetryCount = 0;
               setReceiveHealth('healthy');
             } catch (error) {
@@ -354,6 +377,7 @@ export const useReadingStatisticsSync = (
               setReceiveHealth(getHealthForError(error));
               if (getHealthForError(error) === 'retrying-receive') scheduleRetry();
             } finally {
+              receiving = false;
               traceReaderBootstrap({
                 event: 'reading-statistics-hydration',
                 status: hydrationStatus,
@@ -363,6 +387,7 @@ export const useReadingStatisticsSync = (
                 returnedDocuments,
                 emptyQueries,
                 auditProbe,
+                fullScanReason,
               });
               await recordReadingStatisticsHydrationMetricsV12(syncOwnerKey, {
                 pageCount: hydrationPageCount,
@@ -386,6 +411,7 @@ export const useReadingStatisticsSync = (
         } while (requested && isCurrent());
       } finally {
         running = false;
+        if ((requested || refreshRequested) && document.visibilityState === 'visible') scheduleLeaderRetry();
       }
     };
 
@@ -401,10 +427,21 @@ export const useReadingStatisticsSync = (
       request(true);
     };
 
+    function schedulePoll() {
+      if (!isCurrent()) return;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => {
+        pollTimer = null;
+        if (navigator.onLine && document.visibilityState === 'visible'
+          && !receiving && retryTimer === null && receiveSchedule.pollDue(Date.now())) request(true);
+        schedulePoll();
+      }, receiveSchedule.nextPollDelay(Date.now()));
+    }
+
     const handleOnline = () => request(true);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        request(true);
+        request(receiveSchedule.wakeDue(Date.now()));
       } else {
         void leaseRuntime.release();
       }
@@ -419,21 +456,25 @@ export const useReadingStatisticsSync = (
     );
     const unsubscribeServerChecks = subscribeReadingStatisticsServerChecks(
       syncOwnerKey,
-      (checkedAt) => {
+      (checkedAt, receivedRecords) => {
         if (checkedAt !== null) {
+          receiveSchedule.observeCheck(checkedAt, receivedRecords);
+          schedulePoll();
           setLastServerCheckedAt((current) => Math.max(current ?? 0, checkedAt));
         }
         setRefreshing(false);
       },
     );
     const unsubscribeToken = onIdTokenChanged(auth, (currentUser) => {
-      if (currentUser?.uid === user.uid) request(true);
+      if (currentUser?.uid === user.uid && !receiving) request(receiveSchedule.wakeDue(Date.now()));
     });
-    const refreshInterval = window.setInterval(() => request(true), 60_000);
+    schedulePoll();
     const heartbeatInterval = window.setInterval(() => {
       if (!isCurrent() || document.visibilityState !== 'visible') return;
       void leaseRuntime.acquire().then((lease) => {
-        if (!lease && isCurrent()) scheduleLeaderRetry();
+        if (!isCurrent() || (!requested && !refreshRequested)) return;
+        if (lease) request(false);
+        else scheduleLeaderRetry();
       }).catch(() => scheduleLeaderRetry());
     }, READING_STATISTICS_LEASE_HEARTBEAT_MS);
     window.addEventListener('online', handleOnline);
@@ -457,7 +498,7 @@ export const useReadingStatisticsSync = (
       unsubscribeToken();
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
-      window.clearInterval(refreshInterval);
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
       window.clearInterval(heartbeatInterval);
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       if (uploadRetryTimer !== null) window.clearTimeout(uploadRetryTimer);

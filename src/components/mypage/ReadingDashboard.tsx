@@ -23,6 +23,7 @@ import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWa
 
 type Props = {
   ownerKey: OwnerKey;
+  onRefresh?: () => void;
   onOpenStatistics: () => void;
   onOpenAnnotations: () => void;
 };
@@ -39,7 +40,7 @@ const dateKey = (year: number, month: number, day: number) => (
   `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 );
 
-export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations }: Props) {
+export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpenAnnotations }: Props) {
   const displayBookTitle = useBookTitleDisplay();
   const today = useLocalReadingDate();
   const [data, setData] = useState<Data | null>(null);
@@ -80,6 +81,10 @@ export function ReadingDashboard({ ownerKey, onOpenStatistics, onOpenAnnotations
       window.removeEventListener('storage', onStorage);
     };
   }, [ownerKey]);
+
+  useEffect(() => {
+    onRefresh?.();
+  }, [ownerKey, onRefresh]);
 
   const currentData = data?.ownerKey === ownerKey ? data : null;
   const statistics = useMemo(() => {

@@ -1,3 +1,5 @@
+import type { ReadingStatisticsFullScanReason } from './localReadingStatistics';
+
 export type ReaderBootstrapTraceEvent = {
   at: number;
   event:
@@ -26,6 +28,7 @@ export type ReaderBootstrapTraceEvent = {
   returnedDocuments?: number;
   emptyQueries?: number;
   auditProbe?: 'matched' | 'mismatch' | 'failed';
+  fullScanReason?: ReadingStatisticsFullScanReason;
 };
 
 export type ReaderOpenPerformanceEvent = {

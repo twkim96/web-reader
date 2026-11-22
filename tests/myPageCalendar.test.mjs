@@ -104,8 +104,12 @@ test('day rows group nearby reading slices and exclude breaks in the recorded ti
       near('hidden-short-a', 2_400_000, { bookId: 'short-a', bookTitle: '짧은 기록 A', endedAtClient: eightAM + 2_430_000, durationMs: 30_000 }),
       near('hidden-short-b', 2_430_000, { bookId: 'short-b', bookTitle: '짧은 기록 B', endedAtClient: eightAM + 2_460_000, durationMs: 30_000 }),
     ]) await saveLocalReadingSessionV11(owner, record);
-    await act(async () => { root.render(React.createElement(ReadingDashboard, { ownerKey: owner, onOpenStatistics() {}, onOpenAnnotations() {} })); });
+    let refreshes = 0;
+    await act(async () => { root.render(React.createElement(ReadingDashboard, {
+      ownerKey: owner, onRefresh() { refreshes++; }, onOpenStatistics() {}, onOpenAnnotations() {},
+    })); });
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    assert.equal(refreshes, 1, 'opening the calendar requests a refresh');
     await act(async () => window.document.querySelector('button[aria-label="이전 달"]').dispatchEvent(new window.Event('click', { bubbles: true })));
     const day = [...window.document.querySelectorAll('button')].find(button => button.getAttribute('aria-label')?.startsWith(`${month.getMonth() + 1}월 15일,`));
     await act(async () => day.dispatchEvent(new window.Event('click', { bubbles: true })));
@@ -118,6 +122,7 @@ test('day rows group nearby reading slices and exclude breaks in the recorded ti
     assert.match(window.document.querySelector('section[aria-label="선택한 날짜의 독서 기록"]').textContent, /15일7분/);
     const totals = [...window.document.querySelectorAll('[aria-label="독서 시간 요약"] dd')].map(node => node.textContent);
     assert.deepEqual(totals, ['0분', '0분', '7분']);
+    assert.equal(refreshes, 1, 'browsing calendar dates does not request another sync');
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

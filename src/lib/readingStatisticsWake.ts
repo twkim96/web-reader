@@ -2,7 +2,11 @@ import type { OwnerKey } from './ownerIdentity';
 
 type ReadingStatisticsChange = { ownerKey: OwnerKey };
 type ReadingStatisticsRefreshRequest = { ownerKey: OwnerKey };
-type ReadingStatisticsServerCheck = { ownerKey: OwnerKey; checkedAt: number | null };
+type ReadingStatisticsServerCheck = {
+  ownerKey: OwnerKey;
+  checkedAt: number | null;
+  receivedRecords?: boolean;
+};
 
 const EVENT_NAME = 'twreader:reading-statistics-change';
 const REFRESH_EVENT_NAME = 'twreader:reading-statistics-refresh';
@@ -101,16 +105,17 @@ export const subscribeReadingStatisticsRefreshRequests = (
 export const notifyReadingStatisticsServerCheck = (
   ownerKey: OwnerKey,
   checkedAt: number | null,
+  receivedRecords?: boolean,
 ) => {
   if (typeof window === 'undefined') return;
-  const check = { ownerKey, checkedAt } satisfies ReadingStatisticsServerCheck;
+  const check = { ownerKey, checkedAt, receivedRecords } satisfies ReadingStatisticsServerCheck;
   window.dispatchEvent(new CustomEvent(SERVER_CHECK_EVENT_NAME, { detail: check }));
   getServerCheckChannel()?.postMessage(check);
 };
 
 export const subscribeReadingStatisticsServerChecks = (
   ownerKey: OwnerKey,
-  listener: (checkedAt: number | null) => void,
+  listener: (checkedAt: number | null, receivedRecords?: boolean) => void,
 ) => {
   if (typeof window === 'undefined') return () => undefined;
   const handle = (check: ReadingStatisticsServerCheck) => {
@@ -118,7 +123,7 @@ export const subscribeReadingStatisticsServerChecks = (
       check.ownerKey === ownerKey
       && (check.checkedAt === null || Number.isSafeInteger(check.checkedAt))
     ) {
-      listener(check.checkedAt);
+      listener(check.checkedAt, typeof check.receivedRecords === 'boolean' ? check.receivedRecords : undefined);
     }
   };
   const handleLocal = (event: Event) => {

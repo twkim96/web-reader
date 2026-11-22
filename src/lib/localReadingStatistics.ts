@@ -360,47 +360,6 @@ export const confirmLocalReadingRoundV11 = (
   return result;
 })());
 
-export const getReadingStatisticsHydrationStateV12 = async (
-  ownerKey: OwnerKey,
-  now = Date.now(),
-) => {
-  const db = await initDB();
-  const tx = db.transaction([
-    V11_READING_SESSIONS_STORE,
-    V12_READING_STATISTICS_SYNC_STORE,
-  ], 'readonly');
-  const metaValue = await tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(ownerKey);
-  if (!metaValue) {
-    await tx.done;
-    return null;
-  }
-  const meta = assertSyncMeta(metaValue);
-  if (meta.ownerKey !== ownerKey) throw new Error('독서 통계 hydration owner가 올바르지 않습니다.');
-  const localCount = await tx.objectStore(V11_READING_SESSIONS_STORE)
-    .index('by-owner')
-    .count(ownerKey);
-  await tx.done;
-  // If the raw-session store was cleared independently, never let a surviving
-  // cursor hide the older remote records. A new authoritative full hydration
-  // will atomically replace this metadata.
-  if (localCount < meta.hydratedRemoteCount) return null;
-  if (
-    !meta.fullAuditInProgress
-    && (now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
-      || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) >= HYDRATION_AUDIT_INTERVAL_MS)
-  ) return null;
-  return {
-    cursor: meta.documentId === '__empty__' ? null : {
-      uploadedAtServerSeconds: meta.uploadedAtServerSeconds,
-      uploadedAtServerNanoseconds: meta.uploadedAtServerNanoseconds,
-      documentId: meta.documentId,
-    },
-    fullHydrationCompleted: meta.fullHydrationCompleted,
-    quarantinedDocuments: meta.quarantinedDocuments,
-    lastFullAuditAt: meta.lastFullAuditAt,
-  };
-};
-
 type ReadingStatisticsAuditCandidateV12 = {
   cursor: ReadingStatisticsRemoteCursorV12;
   remoteCount: number;
@@ -408,41 +367,104 @@ type ReadingStatisticsAuditCandidateV12 = {
   lastVerifiedAuditAt: number;
 };
 
+export type ReadingStatisticsFullScanReason =
+  | 'initial-history'
+  | 'empty-history'
+  | 'local-history-missing'
+  | 'periodic-full-audit'
+  | 'quarantined-history'
+  | 'local-synced-count-ahead'
+  | 'local-synced-count-behind'
+  | 'local-cursor-invalid'
+  | 'weekly-audit-unavailable'
+  | 'remote-audit-mismatch'
+  | 'remote-audit-failed'
+  | 'audit-checkpoint-changed';
+
+type LocalFullScan = { reason: ReadingStatisticsFullScanReason };
+type ReadingStatisticsHydrationStateV12 = {
+  cursor: ReadingStatisticsRemoteCursorV12 | null;
+  fullHydrationCompleted: boolean;
+  quarantinedDocuments: QuarantinedReadingStatisticsDocumentV12[];
+  lastFullAuditAt: number;
+};
+type ReadingStatisticsHydrationPlanV12 =
+  | { state: ReadingStatisticsHydrationStateV12; reason?: 'empty-history' | 'initial-history' }
+  | { candidate: ReadingStatisticsAuditCandidateV12 }
+  | LocalFullScan;
+
 const getAuditCandidate = async (
   sessions: { index: (name: string) => { count: (range: IDBKeyRange) => Promise<number> }; get: (key: [OwnerKey, string]) => Promise<unknown> },
   ownerKey: OwnerKey,
-  value: unknown,
+  meta: ReadingStatisticsSyncMetaV12,
   now: number,
-): Promise<ReadingStatisticsAuditCandidateV12 | null> => {
-  if (!value || isGuestOwner(ownerKey)) return null;
-  const meta = assertSyncMeta(value);
-  if (meta.ownerKey !== ownerKey || !meta.fullHydrationCompleted || meta.fullAuditInProgress
-    || meta.documentId === '__empty__' || meta.hydratedRemoteCount === 0 || meta.quarantinedDocuments.length > 0
-    || meta.lastFullAuditAt === 0 || now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
-    || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) < HYDRATION_AUDIT_INTERVAL_MS) return null;
+): Promise<{ candidate: ReadingStatisticsAuditCandidateV12 } | LocalFullScan> => {
+  if (meta.quarantinedDocuments.length > 0) return { reason: 'quarantined-history' };
+  if (meta.documentId === '__empty__') return { reason: 'empty-history' };
+  if (isGuestOwner(ownerKey) || meta.ownerKey !== ownerKey || !meta.fullHydrationCompleted || meta.fullAuditInProgress
+    || meta.hydratedRemoteCount === 0 || meta.lastFullAuditAt === 0 || now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS
+    || now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) < HYDRATION_AUDIT_INTERVAL_MS) {
+    return { reason: 'weekly-audit-unavailable' };
+  }
   const [syncedCount, latest] = await Promise.all([
     sessions.index('by-owner-sync-next-attempt').count(IDBKeyRange.bound(
       [ownerKey, 'synced', 0], [ownerKey, 'synced', Number.MAX_SAFE_INTEGER],
     )),
     sessions.get([ownerKey, meta.documentId]),
   ]);
-  if (syncedCount !== meta.hydratedRemoteCount || readStoredSession(latest)?.syncState !== 'synced') return null;
+  if (syncedCount !== meta.hydratedRemoteCount) {
+    return { reason: syncedCount > meta.hydratedRemoteCount ? 'local-synced-count-ahead' : 'local-synced-count-behind' };
+  }
+  if (readStoredSession(latest)?.syncState !== 'synced') return { reason: 'local-cursor-invalid' };
   const { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId } = meta;
   return {
-    cursor: { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId },
-    remoteCount: syncedCount,
-    lastFullAuditAt: meta.lastFullAuditAt,
-    lastVerifiedAuditAt: meta.lastVerifiedAuditAt,
+    candidate: {
+      cursor: { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId },
+      remoteCount: syncedCount,
+      lastFullAuditAt: meta.lastFullAuditAt,
+      lastVerifiedAuditAt: meta.lastVerifiedAuditAt,
+    },
   };
 };
 
-export const getReadingStatisticsAuditCandidateV12 = async (ownerKey: OwnerKey, now = Date.now()) => {
+export const getReadingStatisticsHydrationPlanV12 = async (
+  ownerKey: OwnerKey,
+  now = Date.now(),
+): Promise<ReadingStatisticsHydrationPlanV12> => {
   const db = await initDB();
   const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
   const value = await tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(ownerKey);
-  const candidate = await getAuditCandidate(tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, value, now);
+  if (!value) {
+    await tx.done;
+    return { reason: 'initial-history' };
+  }
+  const meta = assertSyncMeta(value);
+  if (meta.ownerKey !== ownerKey) throw new Error('독서 통계 hydration owner가 올바르지 않습니다.');
+  const sessions = tx.objectStore(V11_READING_SESSIONS_STORE);
+  const localCount = await sessions.index('by-owner').count(ownerKey);
+  let plan: ReadingStatisticsHydrationPlanV12;
+  if (localCount < meta.hydratedRemoteCount) {
+    // A surviving cursor must not hide older records after local data loss.
+    plan = { reason: 'local-history-missing' };
+  } else if (!meta.fullAuditInProgress && now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS) {
+    plan = { reason: 'periodic-full-audit' };
+  } else if (!meta.fullAuditInProgress && now - Math.max(meta.lastFullAuditAt, meta.lastVerifiedAuditAt) >= HYDRATION_AUDIT_INTERVAL_MS) {
+    plan = await getAuditCandidate(sessions, ownerKey, meta, now);
+  } else {
+    const { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId, fullHydrationCompleted, quarantinedDocuments, lastFullAuditAt } = meta;
+    const cursor = documentId === '__empty__' ? null : { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId };
+    plan = {
+      state: { cursor, fullHydrationCompleted, quarantinedDocuments, lastFullAuditAt },
+      reason: cursor ? undefined : fullHydrationCompleted ? 'empty-history' : 'initial-history',
+    };
+  }
   await tx.done;
-  return candidate;
+  return plan;
+};
+
+export const getReadingStatisticsHydrationStateV12 = async (ownerKey: OwnerKey, now = Date.now()) => {
+  const plan = await getReadingStatisticsHydrationPlanV12(ownerKey, now);
+  return 'state' in plan ? plan.state : null;
 };
 
 export const recordReadingStatisticsVerifiedAuditV12 = async (
@@ -455,7 +477,10 @@ export const recordReadingStatisticsVerifiedAuditV12 = async (
   const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
   const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
   const value = await metaStore.get(ownerKey);
-  const current = await getAuditCandidate(tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, value, clock());
+  const check = value && await getAuditCandidate(
+    tx.objectStore(V11_READING_SESSIONS_STORE), ownerKey, assertSyncMeta(value), clock(),
+  );
+  const current = check && 'candidate' in check ? check.candidate : null;
   const lease = await tx.objectStore(V13_READING_STATISTICS_LEASES_STORE).get(ownerKey);
   const now = clock();
   const canRecord = current && current.remoteCount === candidate.remoteCount

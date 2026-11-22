@@ -47,23 +47,23 @@ test('delivers explicit statistics refresh requests locally and across tabs by o
     assert.equal(refreshes, 2);
 
     const checks = [];
-    const unsubscribeChecks = subscribeReadingStatisticsServerChecks('owner-a', (checkedAt) => {
-      checks.push(checkedAt);
+    const unsubscribeChecks = subscribeReadingStatisticsServerChecks('owner-a', (checkedAt, receivedRecords) => {
+      checks.push([checkedAt, receivedRecords]);
     });
-    notifyReadingStatisticsServerCheck('owner-a', 123);
+    notifyReadingStatisticsServerCheck('owner-a', 123, false);
     const checkChannel = FakeBroadcastChannel.instances
       .get('twreader-reading-statistics-server-check-v1');
-    assert.deepEqual(checkChannel.posted, [{ ownerKey: 'owner-a', checkedAt: 123 }]);
+    assert.deepEqual(checkChannel.posted, [{ ownerKey: 'owner-a', checkedAt: 123, receivedRecords: false }]);
     checkChannel.dispatchEvent(new MessageEvent('message', {
       data: { ownerKey: 'owner-b', checkedAt: 456 },
     }));
     checkChannel.dispatchEvent(new MessageEvent('message', {
-      data: { ownerKey: 'owner-a', checkedAt: 789 },
+      data: { ownerKey: 'owner-a', checkedAt: 789, receivedRecords: true },
     }));
     checkChannel.dispatchEvent(new MessageEvent('message', {
       data: { ownerKey: 'owner-a', checkedAt: null },
     }));
-    assert.deepEqual(checks, [123, 789, null]);
+    assert.deepEqual(checks, [[123, false], [789, true], [null, undefined]]);
     unsubscribeChecks();
     unsubscribe();
   } finally {

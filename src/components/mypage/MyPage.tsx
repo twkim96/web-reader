@@ -412,7 +412,12 @@ export function MyPage(props: Props) {
             </DashboardBookRow>
             <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} />
             <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
-            <ReadingDashboard ownerKey={ownerKey} onOpenStatistics={() => openTab('statistics')} onOpenAnnotations={() => openTab('annotations')} />
+            <ReadingDashboard
+              ownerKey={ownerKey}
+              onRefresh={props.canRefresh && !bookId ? props.onRefresh : undefined}
+              onOpenStatistics={() => openTab('statistics')}
+              onOpenAnnotations={() => openTab('annotations')}
+            />
           </div>}
           {bookId ? (
             <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} reviews={reviews} focusReview={focusReview} />
