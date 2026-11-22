@@ -8,7 +8,8 @@ import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
-import { buildReadingStatistics } from '../../lib/readingStatistics';
+import { getReadingFileTime } from '../../lib/readingStatisticsRollup';
+import { useMyPageReadingFiles } from '../../hooks/useMyPageList';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import {
   getBookFormatLabel,
@@ -113,6 +114,8 @@ export const BookInfoModal: React.FC<Props> = ({
   const [metadataState, setMetadataState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [requestState, setRequestState] = useState<'idle' | 'requesting' | 'ready' | 'not-found' | 'ambiguous' | 'busy' | 'quota' | 'offline' | 'login-required' | 'error'>('idle');
   const [readingTimeMs, setReadingTimeMs] = useState<number | null>(null);
+  const { data: published } = useMyPageReadingFiles(ownerKey, true);
+  const archived = published?.history;
   const coverUrl = useShelfBookCover(book);
   const dialogRef = useRef<HTMLElement>(null);
   const captureRef = useRef<HTMLDivElement>(null);
@@ -140,13 +143,10 @@ export const BookInfoModal: React.FC<Props> = ({
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         if (!active) return;
         const hiddenSessionIds = readHiddenReadingStatisticsSessionIds(ownerKey);
-        const bookStatistics = buildReadingStatistics(sessions.filter(({ sessionId }) => (
+        const totalMs = getReadingFileTime(sessions.filter(({ sessionId }) => (
           !hiddenSessionIds.has(sessionId)
-        ))).books
-          .find(({ bookId }) => bookId === book.id);
-        setReadingTimeMs(bookStatistics && bookStatistics.totalMs > 0
-          ? bookStatistics.totalMs
-          : null);
+        )), book.id, hiddenSessionIds.size ? null : archived);
+        setReadingTimeMs(totalMs > 0 ? totalMs : null);
       } catch (error) {
         if (!active) return;
         console.warn('[BookInfo] reading statistics lookup failed:', error);
@@ -161,7 +161,7 @@ export const BookInfoModal: React.FC<Props> = ({
       active = false;
       unsubscribe();
     };
-  }, [book.id, ownerKey]);
+  }, [archived, book.id, ownerKey]);
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;

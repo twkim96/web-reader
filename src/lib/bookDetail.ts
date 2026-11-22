@@ -3,6 +3,7 @@ import type { OwnerKey } from './ownerIdentity';
 import { getPublicBookMetadataAliasCandidates, type PublicBookMetadata } from './publicBookMetadataSchema';
 import { getPlatformWorkKeys, groupPublicBookWorks, selectSyncedReadingSessions } from './readBooks';
 import { buildReadingStatistics, type StoredReadingSessionV11 } from './readingStatistics';
+import { extendPublishedReadingFiles, type PublishedReadingFiles } from './readingStatisticsRollup';
 
 const reviewSuffix = '/review';
 export const bookDetailHref = (bookId: string, focusReview = false) =>
@@ -61,7 +62,7 @@ export function buildLocalReviewReading(
 }
 
 export function getWorkReadingTitles({
-  ownerKey, books, progress, bookmarkProgress, sessions, hidden,
+  ownerKey, books, progress, bookmarkProgress, sessions, hidden, archived,
 }: {
   ownerKey: OwnerKey;
   books: readonly Book[];
@@ -69,8 +70,10 @@ export function getWorkReadingTitles({
   bookmarkProgress: Readonly<Record<string, UserProgress>>;
   sessions: readonly StoredReadingSessionV11[];
   hidden: ReadonlySet<string>;
+  archived?: PublishedReadingFiles | null;
 }) {
   const titles = new Set(visibleReadingSessions(sessions, ownerKey, hidden).map(({ bookTitle }) => bookTitle));
+  if (!hidden.size && archived) for (const file of archived.files) for (const title of file.titles) titles.add(title);
   for (const { id, name } of books) {
     if (progress[id]?.progressPercent > 0 || bookmarkProgress[id]?.bookmarks?.some(({ type }) => type === 'manual')) titles.add(name);
   }
@@ -78,7 +81,7 @@ export function getWorkReadingTitles({
 }
 
 export function buildPersonalBookReading({
-  ownerKey, titleKeys, platformWorkKeys = [], metadataByTitle, uncertainTitles, knownFileIds, books, progress, bookmarkProgress = progress, sessions, hidden,
+  ownerKey, titleKeys, platformWorkKeys = [], metadataByTitle, uncertainTitles, knownFileIds, books, progress, bookmarkProgress = progress, sessions, hidden, archived,
 }: {
   ownerKey: OwnerKey;
   titleKeys: readonly string[];
@@ -91,7 +94,9 @@ export function buildPersonalBookReading({
   bookmarkProgress?: Readonly<Record<string, UserProgress>>;
   sessions: readonly StoredReadingSessionV11[];
   hidden: ReadonlySet<string>;
+  archived?: PublishedReadingFiles | null;
 }): PersonalBookReading {
+  const published = hidden.size === 0 ? archived : null;
   const aliases = new Set(titleKeys.flatMap(getPublicBookMetadataAliasCandidates));
   const works = [...(metadataByTitle?.values() ?? [])].filter((metadata) => metadata !== null);
   const workIds = new Map(works.map((metadata, index) => [metadata, String(index)]));
@@ -129,12 +134,13 @@ export function buildPersonalBookReading({
   const visible = visibleReadingSessions(sessions, ownerKey, hidden);
   for (const { id, name } of books) resolveFile(id, name);
   for (const { bookId, bookTitle } of visible) resolveFile(bookId, bookTitle);
+  for (const { fileId, titles } of published?.files ?? []) for (const name of titles) resolveFile(fileId, name);
   // The read list's remembered file IDs support private display only. A
   // matched name for the same file can identify a session under an old name.
   const synced = visible.filter(({ syncState }) => syncState === 'synced');
-  const reviewHistoryPartial = synced.some(({ bookId }) => !identifiedFiles.has(bookId) || uncertainFiles.has(bookId));
-  const targetConflict = synced.some(({ bookId }) =>
-    matchedFiles.has(bookId) && (conflicts.has(bookId) || uncertainFiles.has(bookId)));
+  const evidenceIds = [...synced.map(({ bookId }) => bookId), ...(published?.files.map(({ fileId }) => fileId) ?? [])];
+  const reviewHistoryPartial = evidenceIds.some((id) => !identifiedFiles.has(id) || uncertainFiles.has(id));
+  const targetConflict = evidenceIds.some((id) => matchedFiles.has(id) && (conflicts.has(id) || uncertainFiles.has(id)));
   const reviewFileIds = targetConflict ? null : [...matchedFiles].filter((id) => !conflicts.has(id) && !uncertainFiles.has(id));
   const fileIds = new Set([...knownFileIds, ...matchedFiles].filter((id) => !conflicts.has(id)));
   if (fileIds.size === 0) return { bookmarks: [], totalMs: 0, progressPercent: 0, fileIds: [], reviewFileIds, reviewHistoryPartial, hasRead: false };
@@ -158,22 +164,31 @@ export function buildPersonalBookReading({
     seen.add(sessionId);
     return true;
   });
-  // Keep the full timeline for the same overlap attribution used by the statistics page.
-  buildReadingStatistics(timeline, {}, ({ session, durationMs }) => {
-    if (fileIds.has(session.bookId)) totalMs += durationMs;
-  });
-  for (const session of timeline) {
-    if (!fileIds.has(session.bookId)) continue;
-    hasRead = true;
-    const { startProgressPercent: start, endProgressPercent: end } = session;
-    if (start !== end) intervals.push([Math.min(start, end), Math.max(start, end)]);
+  if (published) {
+    for (const file of extendPublishedReadingFiles(published, timeline)) {
+      if (!fileIds.has(file.fileId)) continue;
+      hasRead = true;
+      totalMs += file.unfilteredMs;
+      intervals.push(...file.progressIntervals);
+    }
+  } else {
+    // Keep the full timeline for the same overlap attribution used by the statistics page.
+    buildReadingStatistics(timeline, {}, ({ session, durationMs }) => {
+      if (fileIds.has(session.bookId)) totalMs += durationMs;
+    });
+    for (const session of timeline) {
+      if (!fileIds.has(session.bookId)) continue;
+      hasRead = true;
+      const { startProgressPercent: start, endProgressPercent: end } = session;
+      if (start !== end) intervals.push([Math.min(start, end), Math.max(start, end)]);
+    }
   }
 
   const ranges: Range[] = [];
   for (const interval of intervals.sort(([a], [b]) => a - b)) {
     const previous = ranges.at(-1);
     if (previous && interval[0] <= previous[1]) previous[1] = Math.max(previous[1], interval[1]);
-    else ranges.push(interval);
+    else ranges.push([...interval]);
   }
   const progressPercent = ranges.reduce((highest, [start, end]) =>
     end + 1e-9 >= start + 2 ? Math.max(highest, end) : highest, 0);

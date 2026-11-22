@@ -18,7 +18,7 @@ export type ReadingRollupActivity = Omit<ReadingActivityBlock, 'session'> & Pick
 
 type ProgressInterval = [startPercent: number, endPercent: number];
 
-type ReadingFileRollup = {
+export type ReadingFileRollup = {
   fileId: string;
   titles: string[];
   lastReadAt: number;
@@ -39,6 +39,12 @@ export type ReadingCalendarRollup = {
   weekStarts: string[];
   days: ReadingDayStatistics[];
 };
+
+export type PublishedReadingFiles = { firstDay: string; lastDay: string; files: ReadingFileRollup[] };
+
+export const readingDayOutsidePublication = (range: Pick<PublishedReadingFiles, 'firstDay' | 'lastDay'>) => (
+  (localDate: string) => localDate < range.firstDay || localDate > range.lastDay
+);
 
 const DAY_MS = 86_400_000;
 const CALENDAR_WEEK_COUNT = 10;
@@ -109,6 +115,42 @@ function unionProgressIntervals(intervals: ProgressInterval[]): ProgressInterval
   return union;
 }
 
+export function mergeReadingFileRollups(...sources: readonly (readonly ReadingFileRollup[])[]): ReadingFileRollup[] {
+  const files = new Map<string, ReadingFileRollup>();
+  for (const source of sources) {
+    for (const file of source) {
+      const previous = files.get(file.fileId);
+      files.set(file.fileId, previous ? {
+        fileId: file.fileId,
+        titles: [...new Set([...previous.titles, ...file.titles])].sort(),
+        lastReadAt: Math.max(previous.lastReadAt, file.lastReadAt),
+        filteredMs: previous.filteredMs + file.filteredMs,
+        unfilteredMs: previous.unfilteredMs + file.unfilteredMs,
+        progressIntervals: unionProgressIntervals([...previous.progressIntervals, ...file.progressIntervals]),
+        absoluteMaxProgressPercent: Math.max(previous.absoluteMaxProgressPercent, file.absoluteMaxProgressPercent),
+      } : file);
+    }
+  }
+  return [...files.values()].sort((left, right) => left.fileId.localeCompare(right.fileId));
+}
+
+export function parseReadingFileRollups(value: unknown): ReadingFileRollup[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids = new Set<string>();
+  const validPercent = (percent: unknown): percent is number => typeof percent === 'number'
+    && Number.isFinite(percent) && percent >= 0 && percent <= 100;
+  for (const file of value) {
+    if (!file || typeof file.fileId !== 'string' || !file.fileId || ids.has(file.fileId)
+      || !Array.isArray(file.titles) || !file.titles.length || !file.titles.every((title: unknown) => typeof title === 'string')
+      || ![file.lastReadAt, file.filteredMs, file.unfilteredMs].every((ms) => Number.isSafeInteger(ms) && ms >= 0)
+      || !validPercent(file.absoluteMaxProgressPercent) || !Array.isArray(file.progressIntervals)
+      || !file.progressIntervals.every((pair: unknown) => Array.isArray(pair) && pair.length === 2
+        && pair.every(validPercent) && pair[0] < pair[1])) return null;
+    ids.add(file.fileId);
+  }
+  return value;
+}
+
 export function computeWeeklyReadingRollup(
   sessions: readonly ReadingSessionV1[],
   weekStart: string,
@@ -126,17 +168,32 @@ export function computeWeeklyReadingRollup(
     },
   });
   const filteredMs = new Map(filtered.books.map(({ bookId, totalMs }) => [bookId, totalMs]));
+  return {
+    weekStart,
+    days: filtered.days,
+    activities: activities.reverse().sort((left, right) => right.localDate.localeCompare(left.localDate)),
+    files: computeReadingFileRollups(sessions, { bounds, filteredMs }),
+  };
+}
+
+export function computeReadingFileRollups(sessions: readonly ReadingSessionV1[], {
+  bounds = {}, filteredMs, includeDate = () => true,
+}: {
+  bounds?: { startLocalDate?: string; endLocalDate?: string };
+  filteredMs?: ReadonlyMap<string, number>;
+  includeDate?: (localDate: string) => boolean;
+} = {}): ReadingFileRollup[] {
   const files = new Map<string, Omit<ReadingFileRollup, 'titles'> & { titles: Set<string> }>();
-  buildReadingStatistics(sessions, bounds, ({ session, durationMs }) => {
-    files.get(session.bookId)!.unfilteredMs += durationMs;
-  }, undefined, (session, lastAt) => {
+  buildReadingStatistics(sessions, bounds, ({ session, durationMs, localDate }) => {
+    if (includeDate(localDate)) files.get(session.bookId)!.unfilteredMs += durationMs;
+  }, undefined, (session, lastAt, localDate) => {
     const { bookId, bookTitle, completionRoundNumber, startProgressPercent, endProgressPercent } = session;
-    if (completionRoundNumber !== undefined) return;
+    if (completionRoundNumber !== undefined || !includeDate(localDate)) return;
     const file = files.get(bookId) ?? {
       fileId: bookId,
       titles: new Set<string>(),
       lastReadAt: 0,
-      filteredMs: filteredMs.get(bookId) ?? 0,
+      filteredMs: filteredMs?.get(bookId) ?? 0,
       unfilteredMs: 0,
       progressIntervals: [],
       absoluteMaxProgressPercent: 0,
@@ -150,16 +207,25 @@ export function computeWeeklyReadingRollup(
     files.set(bookId, file);
   });
 
-  return {
-    weekStart,
-    days: filtered.days,
-    activities: activities.reverse().sort((left, right) => right.localDate.localeCompare(left.localDate)),
-    files: [...files.values()].map((file) => ({
-      ...file,
-      titles: [...file.titles].sort(),
-      progressIntervals: unionProgressIntervals(file.progressIntervals),
-    })).sort((left, right) => left.fileId.localeCompare(right.fileId)),
-  };
+  return [...files.values()].map((file) => ({
+    ...file,
+    titles: [...file.titles].sort(),
+    progressIntervals: unionProgressIntervals(file.progressIntervals),
+  })).sort((left, right) => left.fileId.localeCompare(right.fileId));
+}
+
+export function extendPublishedReadingFiles(history: PublishedReadingFiles, sessions: readonly ReadingSessionV1[]) {
+  return mergeReadingFileRollups(history.files, computeReadingFileRollups(sessions, { includeDate: readingDayOutsidePublication(history) }));
+}
+
+export function getReadingFileTime(sessions: readonly ReadingSessionV1[], fileId: string, history?: PublishedReadingFiles | null) {
+  if (!history) return buildReadingStatistics(sessions).books.find(({ bookId }) => bookId === fileId)?.totalMs ?? 0;
+  const outside = readingDayOutsidePublication(history);
+  let totalMs = history.files.find((file) => file.fileId === fileId)?.unfilteredMs ?? 0;
+  buildReadingStatistics(sessions, {}, ({ session, localDate, durationMs }) => {
+    if (session.bookId === fileId && outside(localDate)) totalMs += durationMs;
+  });
+  return totalMs;
 }
 
 export function computeReadingCalendarRollup(weeks: readonly Pick<WeeklyReadingRollup, 'weekStart' | 'days'>[]): ReadingCalendarRollup {

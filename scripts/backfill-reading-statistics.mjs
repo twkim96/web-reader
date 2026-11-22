@@ -196,6 +196,7 @@ function loadHandoff(db, project, uid, firstWeek, nextWeek, pilotTuesday) {
   return {
     weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(sessions, nextWeek), pilotTuesday,
     coversHistoryStart: rollupCoversHistoryStart(sessions, firstWeek),
+    evidenceCompatible: sessions.every((session) => session.completionRoundNumber === undefined),
   };
 }
 

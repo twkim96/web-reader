@@ -24,6 +24,7 @@ const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews
 const { getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
 const { loadSocialCatalog, resolveSocialWork } = unwrap(await import('../src/server/mypage/catalog.ts'));
 const { getSocialReadingEvidence } = unwrap(await import('../src/server/mypage/reading.ts'));
+const { createReadingRollupCarry } = unwrap(await import('../src/server/readingRollupInputs.ts'));
 const { parseBookMetadataRefreshRequest } = unwrap(await import('../src/server/bookMetadata/requestSchema.ts'));
 const { platformWorkKey } = unwrap(await import('../src/lib/readBooks.ts'));
 const { getPublicBookMetadataAliasCandidates } = unwrap(await import('../src/lib/publicBookMetadataSchema.ts'));
@@ -86,6 +87,19 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   await manifest.set({ ...published, calendarTail: [{ weekStart: '2026-11-23', days: [recent] }] });
   const view = { view: 'rollup-calendar' };
   const audit = { view: 'rollup-audit' };
+  const filesView = { view: 'rollup-files' };
+  const filesRef = root.collection('readingStatsRollupFilesV1').doc('current');
+  const files = [{ fileId: 'private-book', titles: ['칼바람'], lastReadAt: activity.startAt + activity.durationMs,
+    filteredMs: 180_000, unfilteredMs: 180_000, progressIntervals: [[1, 2]], absoluteMaxProgressPercent: 2 }];
+  const payload = JSON.stringify({ files, carry: { sessions: [{ sessionId: 'private-carry' }] } });
+  await filesRef.set({ throughWeek: '2026-11-16', payload });
+  assert.deepEqual(await ok(get(filesView, idToken)), { history: null });
+  await filesRef.update({ throughWeek: '2026-11-23' });
+  assert.equal((await get(filesView)).status, 401);
+  assert.deepEqual(await ok(get({ ...filesView, uid }, otherToken)), { history: null });
+  assert.deepEqual(await ok(get(filesView, idToken)), {
+    history: { firstDay: '2026-09-14', lastDay: '2026-11-29', files },
+  });
   const full = { calendar: { firstDay: '2026-09-14', lastDay: '2026-11-29', days: [historical, recent] } };
   assert.deepEqual(await ok(get(view, idToken)), full);
   assert.deepEqual(await ok(get(audit, idToken)), { covered: false });
@@ -310,6 +324,65 @@ test('public profile reuses candidate reads until a normal edit or deletion chan
   await ok(post('account', idToken, { ...settings, visibility: { reviews: false, wishlist: true } }));
   assert.equal((await get({ ...base, section: 'reviews', cursor: first.next.reviews })).status, 409);
   assert.equal((await ok(get(base))).reviews, undefined);
+});
+
+test('published review evidence combines closed totals, carry and uploads after the publication cursor', async (t) => {
+  const flag = 'NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS';
+  const saved = { [flag]: process.env[flag], MY_PAGE_PERF_LOG: process.env.MY_PAGE_PERF_LOG };
+  process.env[flag] = process.env.MY_PAGE_PERF_LOG = '1';
+  t.after(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const logs = [];
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  t.mock.method(console, 'info', (label, data) => {
+    if (label === '[MyPagePerformance]' && data.route === 'reading-evidence-deferred') logs.push(data);
+  });
+  const db = getAdminFirestore();
+  const uid = 'published-review-reading-evidence';
+  const workId = (await loadSocialCatalog()).values().next().value.id;
+  const root = db.doc(`artifacts/${APP_ID}/readingStatsRollupJobsV1/${uid}`);
+  const source = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
+  const fileId = 'fixture-file';
+  const session = (sessionId, localDate, progress) => {
+    const startedAtClient = Date.parse(localDate + 'T10:00:00Z');
+    return { schemaVersion: 1, sessionId, bookId: fileId, bookTitle: workId, deviceId: 'fixture',
+      mode: 'screen', startedAtClient, endedAtClient: startedAtClient + 120_000, durationMs: 120_000,
+      startProgressPercent: 0, endProgressPercent: progress, timezoneOffsetMinutes: 0, localDate, completed: false };
+  };
+  const old = session('old', '2026-11-20', 10);
+  const carried = session('carry', '2026-11-23', 20);
+  const newer = session('next', '2026-11-24', 30);
+  const sourceThrough = Timestamp.fromMillis(Date.parse('2026-11-24T09:00:00Z'));
+  const files = [{ fileId, titles: [workId], lastReadAt: old.endedAtClient,
+    filteredMs: old.durationMs, unfilteredMs: old.durationMs, progressIntervals: [[0, 10]], absoluteMaxProgressPercent: 10 }];
+  const carry = createReadingRollupCarry([carried], '2026-11-23');
+  await Promise.all([
+    root.collection('readingStatsRollupManifestsV1').doc('current').set({ schemaVersion: 1, firstWeek: '2026-09-14',
+      publishedThroughWeek: '2026-11-16', lastCalendarWeek: '2026-11-16', sourceThrough, coversHistoryStart: true }),
+    root.collection('readingStatsRollupFilesV1').doc('current').set({
+      throughWeek: '2026-11-16', payload: JSON.stringify({ files, carry }),
+    }),
+    source.doc(old.sessionId).set({ ...old, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() - 120_000) }),
+    source.doc(carried.sessionId).set({ ...carried, uploadedAtServer: sourceThrough }),
+    source.doc(newer.sessionId).set({ ...newer, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 120_000) }),
+  ]);
+  assert.deepEqual(await getSocialReadingEvidence(db, uid, workId, [fileId], 'reading-evidence-deferred'),
+    { totalMs: 360_000, progressPercent: 30 });
+  assert.equal(logs.at(-1).publishedFiles, 1);
+  assert.equal(logs.at(-1).scanDocuments, 1);
+  assert.equal(logs.at(-1).markerDocuments, 0);
+
+  const late = session('late', '2026-11-21', 90);
+  await source.doc(late.sessionId).set({ ...late, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 180_000) });
+  now += 31_000;
+  assert.deepEqual(await getSocialReadingEvidence(db, uid, workId, [fileId], 'reading-evidence-deferred'),
+    { totalMs: 480_000, progressPercent: 90 });
+  assert.equal(logs.at(-1).publishedFiles, undefined);
 });
 
 test('review evidence reads only new sessions and includes legacy records after a count mismatch', async (t) => {

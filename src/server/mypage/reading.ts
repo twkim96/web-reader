@@ -4,6 +4,9 @@ import {
 import { APP_ID } from '../../lib/appIdentity';
 import { getPublicBookMetadataAliasCandidates } from '../../lib/publicBookMetadataSchema';
 import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, toReadingSessionPayload, type ReadingSessionV1 } from '../../lib/readingStatistics';
+import { computeReadingFileRollups, mergeReadingFileRollups } from '../../lib/readingStatisticsRollup';
+import { addReadingRollupPage, rollupCanUseFileEvidence } from '../readingRollupInputs';
+import { readPublishedReadingEvidenceInputs } from '../readingRollupRead';
 import { loadSocialCatalog, resolveSocialReadingTitle, resolveSocialWork } from './catalog';
 import { reportMyPageApiTiming, type ReadingEvidenceRoute } from './performance';
 
@@ -26,6 +29,7 @@ type Summary = HistoryEvidence & {
   conflictedWorks: Set<string>;
   cursor: Cursor | null;
   builtAt: number;
+  published?: true;
 };
 type FullScanReason =
   | 'fullScanCold'
@@ -40,6 +44,7 @@ type ReadCounts = {
   markerDocuments: number; countQueries: number; scanQueries: number; scanDocuments: number; emptyScanQueries: number;
   timelineBuilds: number; aliasResolutions: number;
   markerOnly?: number; evidenceReused?: number; retainedEvidenceBytes?: number; retainedRawBytes?: number;
+  publishedFiles?: number;
 } & Partial<Record<FullScanReason, number>>;
 const caches = new WeakMap<Firestore, Map<string, { expires: number; promise: Promise<Summary> }>>();
 let publishedCatalog: ReturnType<typeof loadSocialCatalog> | undefined;
@@ -52,6 +57,7 @@ const MAX_CACHED_ACCOUNTS = 8;
 const MAX_HISTORY_DOCUMENTS = 12_000;
 const MAX_HISTORY_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_EVIDENCE_BYTES = 2 * 1024 * 1024;
+const MAX_PUBLISHED_DELTA_ROWS = 1_200;
 
 const compareIds = (left: string, right: string) => Buffer.compare(Buffer.from(left), Buffer.from(right));
 const compareCursors = (left: Cursor, right: Cursor) => left.stamp.seconds - right.stamp.seconds
@@ -235,12 +241,43 @@ async function resolveReadingTitles(db: Firestore, files: Map<string, FileEviden
   return resolved;
 }
 
+async function publishedFileEvidence(db: Firestore, uid: string, counts: ReadCounts): Promise<Map<string, FileEvidence> | null> {
+  const rollup = await readPublishedReadingEvidenceInputs(db, uid);
+  if (!rollup) return null;
+  const page = await db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`)
+    .orderBy('uploadedAtServer').orderBy(FieldPath.documentId()).startAfter(rollup.sourceThrough)
+    .endAt(new Timestamp(253_402_300_799, 999_999_999)).limit(MAX_PUBLISHED_DELTA_ROWS + 1).get();
+  counts.scanQueries++;
+  counts.scanDocuments += page.size;
+  if (page.empty) counts.emptyScanQueries++;
+  if (page.size > MAX_PUBLISHED_DELTA_ROWS) return null;
+  const delta = page.docs.map(parseSession);
+  if (delta.some((session) => !session)) return null;
+  const sessions = delta.filter((session): session is ReadingSessionV1 => session !== null);
+  if (!rollupCanUseFileEvidence(sessions, rollup.nextWeek)) return null;
+  const combined = addReadingRollupPage(rollup.carry, sessions, rollup.nextWeek);
+  counts.timelineBuilds++;
+  const open = computeReadingFileRollups(combined.sessions, { bounds: { startLocalDate: rollup.nextWeek } });
+  const files = mergeReadingFileRollups(rollup.files, open);
+  counts.publishedFiles = files.length;
+  return new Map(files.map((file) => [file.fileId, {
+    titles: new Set(file.titles), durationMs: file.unfilteredMs, progress: file.absoluteMaxProgressPercent,
+  }]));
+}
+
 async function buildSummary(
   db: Firestore,
   uid: string,
   counts: ReadCounts,
   previous?: Promise<Summary>,
 ): Promise<Summary> {
+  const rolled = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1'
+    ? await publishedFileEvidence(db, uid, counts).catch(() => null) : null;
+  if (rolled) {
+    const resolved = await resolveFileEvidence(db, rolled, counts);
+    return { ...resolved, published: true, cursor: null, fileEvidence: null, documentCount: 0, fullScanAt: 0,
+      rawHistory: null, builtAt: Date.now() };
+  }
   const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
   const latest = await collection.orderBy('uploadedAtServer', 'desc').orderBy(FieldPath.documentId(), 'desc')
     .select('uploadedAtServer').limit(1).get();
@@ -248,7 +285,8 @@ async function buildSummary(
   counts.markerDocuments = Number(Boolean(last));
   const stamp = last?.get('uploadedAtServer');
   const cursor = stamp instanceof Timestamp ? { stamp, id: last.id } : null;
-  const retained = await previous?.catch(() => null) ?? null;
+  const cached = await previous?.catch(() => null) ?? null;
+  const retained = cached?.published ? null : cached;
   const now = Date.now();
   const unchanged = cursor && retained?.cursor
     ? compareCursors(cursor, retained.cursor) === 0
@@ -278,6 +316,10 @@ async function buildSummary(
     : documentCount <= MAX_HISTORY_DOCUMENTS && history.bytes <= MAX_HISTORY_BYTES
       ? { sessions: history.sessions, bytes: history.bytes } : null;
   counts.retainedRawBytes = rawHistory?.bytes ?? 0;
+  return { ...await resolveFileEvidence(db, files, counts), cursor, fileEvidence, documentCount, fullScanAt, rawHistory, builtAt: now };
+}
+
+async function resolveFileEvidence(db: Firestore, files: Map<string, FileEvidence>, counts: ReadCounts) {
   const resolved = await resolveReadingTitles(db, files, counts);
   const works = new Map<string, Work>();
   const conflictedWorks = new Set<string>();
@@ -305,7 +347,7 @@ async function buildSummary(
     works.set(id, work);
     totals.set(id, (totals.get(id) ?? 0) + file.durationMs);
   }
-  return { works, totals, conflictedWorks, cursor, fileEvidence, documentCount, fullScanAt, rawHistory, builtAt: now };
+  return { works, totals, conflictedWorks };
 }
 
 export async function getSocialReadingEvidence(

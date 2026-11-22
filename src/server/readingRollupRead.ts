@@ -1,8 +1,9 @@
-import type { Firestore } from 'firebase-admin/firestore';
+import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { APP_ID } from '../lib/appIdentity.ts';
-import type { ReadingDayStatistics } from '../lib/readingStatistics.ts';
+import { isReadingSessionV1, type ReadingDayStatistics } from '../lib/readingStatistics.ts';
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar.ts';
-import { parseReadingRollupMonday, readingRollupDayKey, readingRollupWeekForDay } from '../lib/readingStatisticsRollup.ts';
+import { parseReadingFileRollups, parseReadingRollupMonday, readingRollupDayKey, readingRollupWeekForDay } from '../lib/readingStatisticsRollup.ts';
+import type { ReadingRollupCarry } from './readingRollupInputs.ts';
 
 const day = 86_400_000;
 const week = day * 7;
@@ -18,7 +19,34 @@ async function publishedRange(db: Firestore, uid: string) {
   const lastCalendar = parseReadingRollupMonday(pointer.lastCalendarWeek);
   if (lastCalendar < first + 9 * week || (lastCalendar - first - 9 * week) % calendarBlock !== 0
     || through < lastCalendar || through - lastCalendar >= calendarBlock) throw new Error('Invalid reading rollup publication.');
-  return { root, first, through, lastCalendar, tail: pointer.calendarTail as unknown, coversHistoryStart: pointer.coversHistoryStart === true };
+  return { root, first, through, lastCalendar, tail: pointer.calendarTail as unknown, coversHistoryStart: pointer.coversHistoryStart === true,
+    sourceThrough: pointer.sourceThrough instanceof Timestamp ? pointer.sourceThrough : null };
+}
+
+async function readFileTotals(db: Firestore, uid: string) {
+  const range = await publishedRange(db, uid);
+  if (!range) return null;
+  const snapshot = await range.root.collection('readingStatsRollupFilesV1').doc('current').get();
+  if (snapshot.get('throughWeek') !== readingRollupDayKey(range.through)) return null;
+  const payload = JSON.parse(snapshot.get('payload'));
+  const files = parseReadingFileRollups(payload.files);
+  return files ? { range, files, carry: payload.carry as unknown } : null;
+}
+
+export async function readPublishedReadingFiles(db: Firestore, uid: string) {
+  const published = await readFileTotals(db, uid);
+  if (!published) return null;
+  return { firstDay: readingRollupDayKey(published.range.first), lastDay: readingRollupDayKey(published.range.through + 6 * day), files: published.files };
+}
+
+export async function readPublishedReadingEvidenceInputs(db: Firestore, uid: string) {
+  const published = await readFileTotals(db, uid);
+  if (!published?.range.coversHistoryStart || !published.range.sourceThrough) return null;
+  const { range, files } = published;
+  const carry = published.carry as ReadingRollupCarry | undefined;
+  if (!carry || !Number.isSafeInteger(carry.sampleFloor) || !Array.isArray(carry.sessions) || !carry.sessions.every(isReadingSessionV1)) return null;
+  return { files, carry, nextWeek: readingRollupDayKey(range.through + week),
+    sourceThrough: published.range.sourceThrough };
 }
 
 export async function hasPublishedReadingAuditCoverage(db: Firestore, uid: string) {

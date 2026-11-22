@@ -11,7 +11,7 @@ import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 import { getPublicBookCoverCandidates } from '../../lib/publicBookMetadataSchema';
 import { parsePublicBookReview, PUBLIC_BOOK_REVIEW_LIMIT } from '../../lib/publicBookReviews';
 import { resolveReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type MyPageReview, type PublicWorkReviews } from '../../lib/myPageSocial';
-import { useMyPageWorkReview } from '../../hooks/useMyPageList';
+import { useMyPageReadingFiles, useMyPageWorkReview } from '../../hooks/useMyPageList';
 import { ownerRuntime } from '../../lib/ownerRuntime';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
@@ -137,6 +137,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     hidden: ReadonlySet<string>;
   } | null>(null);
   const [historyFailed, setHistoryFailed] = useState(false);
+  const { data: published } = useMyPageReadingFiles(ownerKey, Boolean(history && !historyFailed && !history.hidden.size));
+  const archived = published?.history ?? null;
   const [historyLookup, setHistoryLookup] = useState<{
     titles: string;
     metadata: ReadonlyMap<string, PublicBookMetadata | null>;
@@ -148,8 +150,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   const reviewIndex = useMemo(() => indexReviewWorks(reviews.data?.reviews ?? []), [reviews.data]);
   const deletionIndex = useMemo(() => indexReviewWorks(reviews.data?.deletions ?? []), [reviews.data]);
   const readingInput = useMemo(() => ({
-    ownerKey, books, progress, bookmarkProgress, ...(history ?? emptyHistory),
-  }), [ownerKey, books, progress, bookmarkProgress, history]);
+    ownerKey, books, progress, bookmarkProgress, ...(history ?? emptyHistory), archived,
+  }), [ownerKey, books, progress, bookmarkProgress, history, archived]);
   const historyTitles = useMemo(() => JSON.stringify(getWorkReadingTitles(readingInput).sort()), [readingInput]);
 
   const historyResult = historyLookup?.titles === historyTitles ? historyLookup : undefined;

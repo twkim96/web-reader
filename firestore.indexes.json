@@ -37,6 +37,11 @@
       "indexes": []
     },
     {
+      "collectionGroup": "readingStatsRollupFilesV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
       "collectionGroup": "publicBookMetadataV1",
       "fieldPath": "*",
       "indexes": []

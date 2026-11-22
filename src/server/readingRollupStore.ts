@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { FieldPath, FieldValue, Timestamp, type Firestore, type Transaction } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, Timestamp, type DocumentReference, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { APP_ID } from '../lib/appIdentity.ts';
 import { isReadingSessionV1, toReadingSessionPayload } from '../lib/readingStatistics.ts';
 import {
   computeReadingCalendarRollup, computeWeeklyReadingRollup, parseReadingRollupMonday,
-  selectWeeklyReadingRollupInputs, type WeeklyReadingRollup,
+  mergeReadingFileRollups, parseReadingFileRollups, selectWeeklyReadingRollupInputs, type ReadingFileRollup, type WeeklyReadingRollup,
 } from '../lib/readingStatisticsRollup.ts';
-import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart, type ReadingRollupCarry } from './readingRollupInputs.ts';
+import {
+  addReadingRollupPage, createReadingRollupCarry, rollupCanUseFileEvidence, rollupCoversHistoryStart, type ReadingRollupCarry,
+} from './readingRollupInputs.ts';
 
 const hour = 3_600_000;
 const day = 24 * hour;
@@ -35,6 +37,8 @@ type Job = {
   group: WeekSummary[];
   lastCalendarWeek: string | null;
   coversHistoryStart?: boolean;
+  evidenceCompatible?: boolean;
+  evidenceSeedThrough?: Stamp;
 };
 
 type Lease = { uid: string; token: string };
@@ -97,6 +101,22 @@ function payload(value: unknown, maxKiB: number) {
 }
 
 const jobPayload = (job: Job) => payload(job, 512);
+const fileTotalsRef = (ref: DocumentReference) => ref.collection('readingStatsRollupFilesV1').doc('current');
+
+function rollupFilePayload(files: ReadingFileRollup[], carry?: ReadingRollupCarry) {
+  const maxBytes = 768 * 1024;
+  if (carry) {
+    const withCarry = JSON.stringify({ files, carry });
+    if (Buffer.byteLength(withCarry) <= maxBytes) return withCarry;
+  }
+  const json = JSON.stringify({ files });
+  return Buffer.byteLength(json) <= maxBytes ? json : null;
+}
+
+function parseFilePayload(payload: string) {
+  try { return parseReadingFileRollups(JSON.parse(payload).files); }
+  catch { return null; }
+}
 
 /** Install nine unpublished weeks and the inputs for their first regular close. */
 export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, seed: {
@@ -106,6 +126,7 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   carry: ReadingRollupCarry;
   pilotTuesday: boolean;
   coversHistoryStart?: boolean;
+  evidenceCompatible?: boolean;
 }, now = Date.now) {
   const { nextWeek, sourceCutoff, carry, pilotTuesday } = seed;
   const group = seed.weeks.map(({ weekStart, days }) => ({ weekStart, days }));
@@ -124,17 +145,26 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   };
   const ref = jobs(db).doc(lease.uid);
   const seedPayload = jobPayload(job);
-  const proposed = seed.coversHistoryStart ? jobPayload({ ...job, coversHistoryStart: true }) : seedPayload;
+  const proposed = jobPayload({ ...job,
+    ...(seed.coversHistoryStart ? { coversHistoryStart: true } : {}),
+    ...(seed.evidenceCompatible ? { evidenceCompatible: true, evidenceSeedThrough: stamp(sourceCutoff) } : {}),
+  });
   const weeks = seed.weeks.map((item) => ({ weekStart: item.weekStart, payload: payload(item, 256) }));
   const seedId = createHash('sha256').update(seedPayload).update(JSON.stringify(weeks)).digest('hex');
+  const files = rollupFilePayload(mergeReadingFileRollups(...seed.weeks.map((item) => item.files)));
   return db.runTransaction(async (tx) => {
     await requireLease(db, tx, lease, now);
     const existing = await tx.get(ref);
     if (existing.exists) {
-      if (existing.get('seedId') === seedId) return 'already-staged';
-      throw new Error('A different reading rollup handoff already exists.');
+      if (existing.get('seedId') !== seedId) throw new Error('A different reading rollup handoff already exists.');
+      if (files && (JSON.parse(existing.get('payload')) as Job).nextWeek === nextWeek) {
+        const existingFiles = await tx.get(fileTotalsRef(ref));
+        if (!existingFiles.exists) tx.create(fileTotalsRef(ref), { throughWeek: weeks.at(-1)!.weekStart, payload: files });
+      }
+      return 'already-staged';
     }
     for (const { weekStart, payload } of weeks) tx.create(ref.collection('readingStatsRollupWeeksV1').doc(weekStart), { payload });
+    if (files) tx.create(fileTotalsRef(ref), { throughWeek: weeks.at(-1)!.weekStart, payload: files });
     tx.create(ref, { payload: proposed, dueAt: due, seedId });
     return 'staged';
   });
@@ -175,6 +205,13 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         throw error;
       }
       if (job.coversHistoryStart && !rollupCoversHistoryStart(sessions, job.firstWeek)) job.coversHistoryStart = false;
+      if (job.evidenceCompatible) {
+        const seedThrough = job.evidenceSeedThrough && new Timestamp(...job.evidenceSeedThrough);
+        const newSessions = seedThrough
+          ? sessions.filter((_, index) => page.docs[index].get('uploadedAtServer') > seedThrough)
+          : sessions;
+        if (!rollupCanUseFileEvidence(newSessions, job.nextWeek)) job.evidenceCompatible = false;
+      }
       const last = page.docs.at(-1);
       if (last) job.cursor = { time: stamp(last.get('uploadedAtServer')), id: last.id };
       job.scanned = page.size < limit;
@@ -192,6 +229,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const nextDue = dueAt(nextWeek, job.slot);
     const previousClose = new Timestamp(...job.closeAt);
     const nextClose = Timestamp.fromMillis(nextDue);
+    delete job.evidenceSeedThrough;
     job = {
       ...job, nextWeek, sourceAfter: job.closeAt, cursor: null, scanned: false,
       closeAt: nextClose.valueOf() > previousClose.valueOf() ? stamp(nextClose) : job.closeAt,
@@ -199,10 +237,18 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
       group: calendarPayload ? [] : group, lastCalendarWeek: calendarPayload ? closed : job.lastCalendarWeek,
     };
     const next = jobPayload(job);
+    const previousFiles = await fileTotalsRef(ref).get();
+    const previousWeek = date(Date.parse(closed) - week);
+    const prior = previousFiles.get('throughWeek') === previousWeek ? parseFilePayload(previousFiles.get('payload')) : null;
+    const files = prior
+      ? rollupFilePayload(mergeReadingFileRollups(prior, detail.files),
+        job.coversHistoryStart && job.evidenceCompatible ? job.carry : undefined)
+      : null;
     // Readers only ever see a manifest committed with its complete artifacts.
     await saveRollupJob(db, lease, now, (tx) => {
       tx.create(ref.collection('readingStatsRollupWeeksV1').doc(closed), { payload: detailPayload });
       if (calendarPayload) tx.create(ref.collection('readingStatsRollupCalendarsV1').doc(closed), { payload: calendarPayload });
+      if (files) tx.set(fileTotalsRef(ref), { throughWeek: closed, payload: files });
       tx.set(ref.collection('readingStatsRollupManifestsV1').doc('current'), {
         schemaVersion: 1, firstWeek: job.firstWeek, publishedThroughWeek: closed,
         sourceThrough: previousClose, lastCalendarWeek: job.lastCalendarWeek,

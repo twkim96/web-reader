@@ -745,7 +745,7 @@ export const buildReadingStatistics = (
   } = {},
   onCountedSlice?: (slice: ReadingActivitySlice) => void,
   activity?: { minimumMs: number; onBlock?: (block: ReadingActivityBlock) => void },
-  onObservedSession?: (session: ReadingSessionV1, lastAt: number) => void,
+  onObservedSession?: (session: ReadingSessionV1, lastAt: number, localDate: string) => void,
 ): ReadingStatisticsSummary => {
   const startAt = bounds.startAt ?? Number.NEGATIVE_INFINITY;
   const endAt = bounds.endAt ?? Number.POSITIVE_INFINITY;
@@ -840,7 +840,7 @@ export const buildReadingStatistics = (
       const localDate = getReadingSessionLocalDate(slice.startAt, session.timezoneOffsetMinutes);
       if (!isLocalDateWithinBounds(localDate, bounds)) continue;
       if (!existingBook.readDates.includes(localDate)) existingBook.readDates.push(localDate);
-      onObservedSession?.(session, slice.endAt);
+      onObservedSession?.(session, slice.endAt, localDate);
     }
     if (preparedSession.startAt < timeline.firstAt) {
       timeline.firstAt = preparedSession.startAt;

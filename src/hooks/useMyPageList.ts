@@ -5,9 +5,10 @@ import { createListCache, fullReviewListCache, previewReviewListCache, wishlistL
 import { finishMyPageTiming, startDiscoveryTiming } from '../lib/myPagePerformance';
 import { MyPageRequestError, myPageRequest } from '../lib/myPageSocialClient';
 import type { MyPageOwnReviews, MyPageSavedBook } from '../lib/myPageSocial';
-import type { OwnerKey } from '../lib/ownerIdentity';
+import { isGuestOwner, type OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar';
+import type { PublishedReadingFiles } from '../lib/readingStatisticsRollup';
 
 type ListCache<T> = {
   subscribe: (listener: () => void) => () => void;
@@ -18,7 +19,7 @@ type ListCache<T> = {
 
 function useMyPageList<T>(
   cache: ListCache<T>, params: Record<string, string>, owner: OwnerKey, enabled: boolean,
-  phase: 'wishlist-ready' | 'reviews-ready' | 'review-preview-ready' | 'reading-calendar-ready' | 'reading-week-ready',
+  phase: 'wishlist-ready' | 'reviews-ready' | 'review-preview-ready' | 'reading-calendar-ready' | 'reading-week-ready' | 'reading-files-ready',
 ) {
   const snapshot = useSyncExternalStore(cache.subscribe, () => enabled ? cache.read(owner) : cache.empty(), cache.empty);
   const load = useCallback((force = false) => (
@@ -64,6 +65,8 @@ const fullReviewParams = { view: 'reviews' };
 const previewReviewParams = { view: 'reviews', preview: '1' };
 const readingCalendarParams = { view: 'rollup-calendar' };
 const readingCalendarCache = createListCache<{ calendar: PublishedReadingCalendar | null }>();
+const readingFilesParams = { view: 'rollup-files' };
+const readingFilesCache = createListCache<{ history: PublishedReadingFiles | null }>(15 * 60_000);
 
 export const useMyPageWishlistList = (owner: OwnerKey, enabled: boolean) => (
   useMyPageList<{ entries: MyPageSavedBook[] }>(wishlistListCache, wishlistParams, owner, enabled, 'wishlist-ready')
@@ -78,6 +81,11 @@ export const useMyPageReviewList = (owner: OwnerKey, enabled: boolean, preview =
 
 export const useMyPageReadingCalendar = (owner: OwnerKey, enabled: boolean) => (
   useMyPageList(readingCalendarCache, readingCalendarParams, owner, enabled, 'reading-calendar-ready')
+);
+
+export const useMyPageReadingFiles = (owner: OwnerKey, enabled: boolean) => (
+  useMyPageList(readingFilesCache, readingFilesParams, owner, enabled && !isGuestOwner(owner)
+    && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1', 'reading-files-ready')
 );
 
 export function useMyPageReadingWeek(owner: OwnerKey, week: string | null, enabled: boolean) {

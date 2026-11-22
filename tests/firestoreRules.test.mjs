@@ -97,6 +97,7 @@ test('clients cannot access staged rollups, operation leases, or private publica
   const paths = [
     job, `${job}/readingStatsRollupWeeksV1/2026-09-14`,
     `${job}/readingStatsRollupCalendarsV1/2026-11-16`, `${job}/readingStatsRollupManifestsV1/current`,
+    `${job}/readingStatsRollupFilesV1/current`,
     `${base}/readingStatsRollupLeasesV1/alice`, `${base}/readingStatsRollupBudgetsV1/2026-11-24`,
   ];
   await environment.withSecurityRulesDisabled(async (context) => {

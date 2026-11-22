@@ -2,6 +2,7 @@ import { measureMyPageWork } from './myPagePerformance';
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import { getPublicBookCoverCandidates, type PublicBookMetadata } from './publicBookMetadataSchema';
 import { buildReadingStatistics, type StoredReadingSessionV11 } from './readingStatistics';
+import { extendPublishedReadingFiles, type PublishedReadingFiles, type ReadingFileRollup } from './readingStatisticsRollup';
 
 export type ReadBook = {
   id: string;
@@ -57,7 +58,7 @@ export function groupPublicBookWorks(works: Iterable<{ titleKey: string; platfor
   return { findTitle, aliases: parent.keys() };
 }
 
-export function prepareReadBooks(sessions: readonly StoredReadingSessionV11[]) {
+export function prepareReadBooks(sessions: readonly StoredReadingSessionV11[], archived?: PublishedReadingFiles | null) {
   const ids = new Set<string>();
   const unique = sessions.filter(({ sessionId }) => {
     if (ids.has(sessionId)) return false;
@@ -65,13 +66,15 @@ export function prepareReadBooks(sessions: readonly StoredReadingSessionV11[]) {
     return true;
   });
   let timeByFile: Map<string, number> | undefined;
+  const files = archived ? measureMyPageWork('read-books-timeline', () => extendPublishedReadingFiles(archived, unique)) : null;
   // The winning interval depends on time, device, mode and session ID.
   // Later title/edition matches only change which work receives the file's time.
   const getTimeByFile = () => timeByFile ??= measureMyPageWork('read-books-timeline', () => (
-    new Map(buildReadingStatistics(unique).books.map(({ bookId, totalMs }) => [bookId, totalMs]))
+    files ? new Map(files.map(({ fileId, unfilteredMs }) => [fileId, unfilteredMs]))
+      : new Map(buildReadingStatistics(unique).books.map(({ bookId, totalMs }) => [bookId, totalMs]))
   ));
   return (metadata: ReadonlyMap<string, PublicBookMetadata | null>) => (
-    buildRows(unique, metadata, getTimeByFile)
+    buildRows(unique, metadata, getTimeByFile, files)
   );
 }
 
@@ -86,6 +89,7 @@ function buildRows(
   sessions: readonly StoredReadingSessionV11[],
   metadataByTitle: ReadonlyMap<string, PublicBookMetadata | null>,
   getTimeByFile: () => ReadonlyMap<string, number>,
+  files: ReadingFileRollup[] | null,
 ): ReadBook[] {
   // Distinct platform editions can share a title key. Give each edition its
   // own node before joining the entries connected by a platform link.
@@ -112,31 +116,40 @@ function buildRows(
 
   // Alternate recorded names identify the file only when they agree on a work.
   const workByFile = new Map<string, string | null>();
-  for (const session of sessions) {
-    if (!metadataByTitle.has(session.bookTitle)) {
-      workByFile.set(session.bookId, null);
-      continue;
+  const matchFile = (fileId: string, title: string) => {
+    if (!metadataByTitle.has(title)) {
+      workByFile.set(fileId, null);
+      return;
     }
-    const metadata = metadataByTitle.get(session.bookTitle);
-    if (!metadata) continue;
+    const metadata = metadataByTitle.get(title);
+    if (!metadata) return;
     const root = findTitle(works.get(metadata)!.titleKey);
-    const previous = workByFile.get(session.bookId);
-    workByFile.set(session.bookId, previous === undefined || previous === root ? root : null);
-  }
+    const previous = workByFile.get(fileId);
+    workByFile.set(fileId, previous === undefined || previous === root ? root : null);
+  };
+  for (const session of sessions) matchFile(session.bookId, session.bookTitle);
+  for (const file of files ?? []) for (const title of file.titles) matchFile(file.fileId, title);
 
   const details = new Map<string, { lastReadAt: number; progressPercent: number; fileIds: Set<string> }>();
-  for (const session of sessions) {
-    const root = workByFile.get(session.bookId);
-    if (root == null || session.completionRoundNumber !== undefined) continue;
+  const recordFile = (fileId: string, lastReadAt: number, progressPercent: number) => {
+    const root = workByFile.get(fileId);
+    if (root == null) return;
     const { id } = groups.get(root)!;
     const previous = details.get(id);
     const fileIds = previous?.fileIds ?? new Set<string>();
-    fileIds.add(session.bookId);
+    fileIds.add(fileId);
     details.set(id, {
-      lastReadAt: Math.max(previous?.lastReadAt ?? 0, session.endedAtClient),
-      progressPercent: Math.max(previous?.progressPercent ?? 0, session.startProgressPercent, session.endProgressPercent),
+      lastReadAt: Math.max(previous?.lastReadAt ?? 0, lastReadAt),
+      progressPercent: Math.max(previous?.progressPercent ?? 0, progressPercent),
       fileIds,
     });
+  };
+  if (files) {
+    for (const file of files) recordFile(file.fileId, file.lastReadAt, file.absoluteMaxProgressPercent);
+  } else {
+    for (const session of sessions) if (session.completionRoundNumber === undefined) {
+      recordFile(session.bookId, session.endedAtClient, Math.max(session.startProgressPercent, session.endProgressPercent));
+    }
   }
 
   const timeByFile = getTimeByFile();

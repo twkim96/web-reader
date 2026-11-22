@@ -2,8 +2,6 @@ import type { MyPageOwnReviews, MyPageSavedBook } from './myPageSocial';
 import type { OwnerKey } from './ownerIdentity';
 import { ownerRuntime, type OwnerSnapshot } from './ownerRuntime';
 
-const freshnessMs = 60_000;
-
 export type MyPageListSnapshot<T> = Readonly<{
   data?: T;
   error: string;
@@ -19,7 +17,7 @@ type Entry<T> = {
   unregister?: () => void;
 };
 
-export function createListCache<T>() {
+export function createListCache<T>(freshnessMs = 60_000) {
   const empty: MyPageListSnapshot<T> = { error: '', writeVersion: 0 };
   const entries = new WeakMap<OwnerSnapshot, Entry<T>>();
   const listeners = new Set<() => void>();

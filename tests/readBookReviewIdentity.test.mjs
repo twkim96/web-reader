@@ -1,8 +1,9 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPersonalBookReading } from '../src/lib/bookDetail.ts';
-import { buildReadBooks } from '../src/lib/readBooks.ts';
+import { buildLocalReviewReading, buildPersonalBookReading } from '../src/lib/bookDetail.ts';
+import { buildReadBooks, prepareReadBooks } from '../src/lib/readBooks.ts';
+import { computeWeeklyReadingRollup, getReadingFileTime } from '../src/lib/readingStatisticsRollup.ts';
 import { readBookReview, saveBookReview, removeBookReview } from '../src/lib/localBookReview.ts';
 import { findReviewWork, indexReviewWorks, resolveReviewWork } from '../src/lib/myPageSocial.ts';
 
@@ -19,6 +20,37 @@ const meta = (titleKey, platforms) => ({ titleKey, displayTitle: titleKey, platf
 const a = meta('a', [platform('https://example.com/a'), platform('https://example.com/shared', 'kakao')]);
 const b = meta('b', [platform('https://example.com/shared', 'kakao'), platform('https://example.com/b')]);
 const books = (entries) => buildReadBooks(entries.map(([name], i) => session(name, String(i))), new Map(entries));
+
+test('published file totals replace closed local dates and preserve aliases and both progress measures', () => {
+  const read = (name, date, startProgressPercent, endProgressPercent) => {
+    const startedAtClient = Date.parse(date + 'T09:00:00Z');
+    return { ...session(name, 'file'), sessionId: date, localDate: date, startedAtClient,
+      endedAtClient: startedAtClient + 60_000, startProgressPercent, endProgressPercent };
+  };
+  const closed = read('old name', '2026-11-20', 10, 13);
+  // The uncovered dates have an interval that joins the archived one and
+  // a stationary read whose high-water mark applies only to review evidence.
+  const sessions = [closed, read('old name', '2026-11-12', 8, 11), read('new name', '2026-11-23', 70, 70)];
+  const archived = { firstDay: '2026-11-16', lastDay: '2026-11-22',
+    files: computeWeeklyReadingRollup([closed], '2026-11-16').files };
+  const metadataByTitle = new Map([['old name', a], ['new name', b]]);
+  const [book] = prepareReadBooks(sessions, archived)(metadataByTitle);
+  assert.deepEqual(book.fileIds, ['file']);
+  assert.equal(book.totalMs, 180_000);
+  assert.equal(book.lastReadAt, sessions.at(-1).endedAtClient);
+  assert.equal(getReadingFileTime(sessions, 'file', archived), 180_000);
+  const detail = buildPersonalBookReading({
+    ownerKey: owner, titleKeys: [book.id], platformWorkKeys: book.platformWorkKeys, knownFileIds: [],
+    metadataByTitle, books: [], progress: {}, sessions: sessions.slice(1), hidden: new Set(), archived,
+  });
+  assert.deepEqual(detail.reviewFileIds, ['file']);
+  assert.equal(detail.reviewHistoryPartial, false);
+  assert.equal(detail.totalMs, 180_000);
+  assert.equal(detail.progressPercent, 13);
+  assert.deepEqual(buildLocalReviewReading(sessions, owner, new Set(), ['file']),
+    { totalMs: 180_000, progressPercent: 70 });
+  assert.deepEqual(archived.files[0].progressIntervals, [[10, 13]]);
+});
 
 test('a published account review or deletion reopens on a read book with a different title key', () => {
   const [onDemand] = books([['원본 파일', meta('요청 제목', [platform('https://example.com/a')])]]);
