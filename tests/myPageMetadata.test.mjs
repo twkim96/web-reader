@@ -148,6 +148,21 @@ test('home recommendations combine both lists across tag spellings and apply the
   assert.deepEqual(recommendDiscoveryBooks(catalog, [], []), []);
 });
 
+test('home recommendations slightly prefer fewer tags for equal matches and retain a stronger match with many tags', () => {
+  const row = (id, tags, popularity) => [id, id, null, [['series', `https://books.example/${id}`]], 0, tags, popularity, null];
+  const extraTags = Array.from({ length: 60 }, (_, i) => i + 2);
+  const catalog = parseDiscoveryIndex({ ...index, tags: ['모험', '마법', ...extraTags.map((i) => `소재 ${i}`)], books: [
+    row('saved', [0, 1], 8_000),
+    row('equal-sparse', [0], 5_000),
+    row('equal-many', [0, ...extraTags], 9_000),
+    row('strong-many', [0, 1, ...extraTags], 5_000),
+    row('unrelated', extraTags, 9_000),
+  ] });
+  assert.deepEqual(recommendDiscoveryBooks(catalog, [catalog[0]], []).map(({ id }) => id), [
+    'strong-many', 'equal-sparse', 'equal-many',
+  ]);
+});
+
 test('home recommendations rotate the tail while retaining the strongest and excluding newly saved works', () => {
   const row = (id, tags, popularity) => [id, id, null, [['series', `https://books.example/${id}`]], 0, tags, popularity, null];
   const catalog = parseDiscoveryIndex({ ...index, tags: ['모험', '마법', '빙의'], books: [

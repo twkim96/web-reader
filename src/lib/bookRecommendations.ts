@@ -25,7 +25,8 @@ function recommendationTags(book: DiscoveryBook, normalize = normalizeTag) {
   return new Set(book.tags.map(normalize).filter(Boolean));
 }
 
-type TagEntry = { frequency: number; candidates: DiscoveryBook[] };
+type Candidate = { book: DiscoveryBook; tagCountWeight: number };
+type TagEntry = { frequency: number; candidates: Candidate[] };
 const tagIndexCache = new WeakMap<readonly DiscoveryBook[], Map<string, TagEntry>>();
 
 function getTagIndex(books: readonly DiscoveryBook[]) {
@@ -42,11 +43,15 @@ function getTagIndex(books: readonly DiscoveryBook[]) {
     return tag;
   };
   for (const book of books) {
-    const eligible = book.popularity !== null && book.popularity >= minimumPopularity;
-    for (const tag of recommendationTags(book, normalize)) {
+    const bookTags = recommendationTags(book, normalize);
+    const extraTags = Math.max(0, bookTags.size - 6);
+    const candidate = book.popularity !== null && book.popularity >= minimumPopularity
+      ? { book, tagCountWeight: 1 - Math.min(0.05, extraTags * 0.0025) }
+      : null;
+    for (const tag of bookTags) {
       const entry = tags.get(tag) ?? { frequency: 0, candidates: [] };
       entry.frequency += 1;
-      if (eligible) entry.candidates.push(book);
+      if (candidate) entry.candidates.push(candidate);
       tags.set(tag, entry);
     }
   }
@@ -96,8 +101,8 @@ export function recommendDiscoveryBooks(
     const entry = tags.get(tag);
     if (!entry) continue;
     const weight = Math.sqrt(count) / Math.log2(entry.frequency + 1);
-    for (const book of entry.candidates) {
-      if (!excluded.has(book)) scores.set(book, (scores.get(book) ?? 0) + weight);
+    for (const { book, tagCountWeight } of entry.candidates) {
+      if (!excluded.has(book)) scores.set(book, (scores.get(book) ?? 0) + weight * tagCountWeight);
     }
   }
   const ranked = [...scores].sort(([a, scoreA], [b, scoreB]) => (
