@@ -14,6 +14,7 @@ import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
 import { ReadingDashboard } from './ReadingDashboard';
 import { ReadBooks } from './ReadBooks';
+import { RecommendedBooks } from './RecommendedBooks';
 import { BookCover } from './BookCover';
 import { BookDetail } from './BookDetail';
 import { BookDetailLink } from './BookDetailLink';
@@ -168,7 +169,8 @@ export function MyPage(props: Props) {
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
-  const dashboardWishlist = wishlist.loading ? undefined : wishlist.entries.map(({ book }) => book);
+  const { entries: wishlistEntries, loading: wishlistLoading } = wishlist;
+  const dashboardWishlist = useMemo(() => wishlistLoading ? undefined : wishlistEntries.map(({ book }) => book), [wishlistEntries, wishlistLoading]);
   const groupedCatalog = catalog ? getGroupedBookDiscovery(catalog) : null;
   const readBookDetailId = (book: ReadBook) =>
     groupedCatalog && book.platformWorkKeys?.length ? resolveReadBookDiscovery(groupedCatalog, book).book?.id ?? null : null;
@@ -268,7 +270,9 @@ export function MyPage(props: Props) {
   const detailSaved = bookId !== null && !readMatch?.blocked
     && (wishlist.savedIds.has(bookId) || (detailBook !== undefined && wishlist.savedIds.has(detailBook.id)));
   const catalogLoading = !catalog && !catalogError;
-  const needsCatalog = Boolean(bookId) || tab === 'discover' || (signedIn && (tab === 'read' || tab === 'overview'));
+  const hasTaggedWishlist = wishlistEntries.some(({ book }) => book.tags.length > 0);
+  const needsCatalog = Boolean(bookId) || tab === 'discover' || (signedIn && tab === 'read')
+    || (tab === 'overview' && (signedIn || hasTaggedWishlist));
   useEffect(() => {
     if (!needsCatalog || catalog) return;
     let active = true;
@@ -406,7 +410,7 @@ export function MyPage(props: Props) {
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={`${ownerKey}:${feedSection}`} section={feedSection} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
-            <DashboardBookRow title="읽고 싶은 도서" books={dashboardWishlist ?? []}
+            <DashboardBookRow title="위시리스트" books={dashboardWishlist ?? []}
               onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
               {!wishlist.error && dashboardWishlist === undefined ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>
                 : !wishlist.error && dashboardWishlist?.length === 0 && <div className="flex flex-wrap items-center gap-x-4">
@@ -414,8 +418,9 @@ export function MyPage(props: Props) {
                   <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
                 </div>}
             </DashboardBookRow>
-            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} />
             <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
+            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
+              renderBeforePreview={(readBooks) => catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks} onOpenBook={openBook} />} />
             <ReadingDashboard
               ownerKey={ownerKey}
               onRefresh={props.canRefresh && !bookId ? props.onRefresh : undefined}

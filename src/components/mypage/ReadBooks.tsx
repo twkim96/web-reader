@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import { useMyPageReadingFiles } from '../../hooks/useMyPageList';
@@ -66,7 +66,9 @@ function ReadBookRow({ book, detailId, onOpenBook, rating }: {
   );
 }
 
-export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetryCatalog, reviews, reviewError, onRetryReviews }: {
+const emptyBooks: readonly ReadBook[] = [];
+
+export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetryCatalog, reviews, reviewError, onRetryReviews, renderBeforePreview }: {
   ownerKey: OwnerKey;
   onShowAll?: () => void;
   getDetailId: (book: ReadBook) => string | null;
@@ -75,6 +77,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   reviews?: MyPageReview[];
   reviewError?: string;
   onRetryReviews?: () => void;
+  renderBeforePreview?: (books: readonly ReadBook[]) => ReactNode;
 }) {
   const guest = isGuestOwner(ownerKey);
   const { data: published } = useMyPageReadingFiles(ownerKey, !guest);
@@ -238,9 +241,13 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
     {!error && !loadingMetadata && failedCount === 0 && visibleBooks?.length === 0 && <p className="text-sm opacity-60">도서 정보가 연결된 독서 기록이 없습니다.</p>}
   </>;
   if (onShowAll) {
-    return <DashboardBookRow title="읽은 도서" books={visibleBooks ?? []} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} getBookKey={(book) => book.rowKey ?? book.id} coverLoading="direct-with-proxy-fallback">
-      {status}
-    </DashboardBookRow>;
+    const previewBooks = visibleBooks ?? emptyBooks;
+    return <>
+      {renderBeforePreview?.(previewBooks)}
+      <DashboardBookRow title="읽은 도서" books={previewBooks} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} getBookKey={(book) => book.rowKey ?? book.id} coverLoading="direct-with-proxy-fallback">
+        {status}
+      </DashboardBookRow>
+    </>;
   }
 
   return (

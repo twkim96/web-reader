@@ -98,17 +98,17 @@ test('dashboard book sections open the matching detail and full list', async () 
   try {
     await act(async () => root.render(React.createElement(MyPage, props)));
     assert.deepEqual([...main().querySelectorAll('h2')].slice(0, 3).map(({ textContent }) => textContent), [
-      '읽고 싶은 도서', '읽은 도서', '평점을 남긴 도서',
+      '위시리스트', '평점을 남긴 도서', '읽은 도서',
     ]);
-    const row = main().querySelector('[aria-label="읽고 싶은 도서 가로 목록"]');
+    const row = main().querySelector('[aria-label="위시리스트 가로 목록"]');
     assert.equal(row.querySelectorAll('li').length, 3);
     const card = row.querySelector('a[aria-label="test-two"]');
     await click(window, card);
     assert.equal(window.location.hash, '#mypage/book/test-two');
     assert.equal(main().getAttribute('aria-label'), '도서 상세정보');
     await act(async () => window.history.back());
-    assert.equal(main().querySelector('[aria-label="읽고 싶은 도서 가로 목록"]'), row);
-    await click(window, main().querySelector('[aria-label="읽고 싶은 도서 전체 보기"]'));
+    assert.equal(main().querySelector('[aria-label="위시리스트 가로 목록"]'), row);
+    await click(window, main().querySelector('[aria-label="위시리스트 전체 보기"]'));
     assert.equal(window.location.hash, '#mypage/wishlist');
     assert.equal(main().querySelectorAll('article').length, 3);
   } finally {
@@ -814,7 +814,7 @@ test('dashboard reuses recent cards while reconciling only the current login ses
     });
     await act(async () => root.render(null));
     await render();
-    assert.match(list('읽고 싶은 도서').textContent, /기억한 위시리스트/);
+    assert.match(list('위시리스트').textContent, /기억한 위시리스트/);
     assert.match(list('평점을 남긴 도서').textContent, /기억한 평가/);
     await act(async () => delay(10));
     assert.equal(refreshes.length, 0, 'a fresh reentry should not launch private list requests');
@@ -822,7 +822,7 @@ test('dashboard reuses recent cards while reconciling only the current login ses
     ownerRuntime.clear();
     ownerRuntime.activate(ownerKey);
     await render();
-    assert.equal(list('읽고 싶은 도서'), null);
+    assert.equal(list('위시리스트'), null);
     assert.equal(list('평점을 남긴 도서'), null);
   } finally {
     await act(async () => root.unmount());

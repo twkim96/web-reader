@@ -75,6 +75,36 @@ test('book detail loads the catalog thumbnail directly and retries a denied orig
   expect(proxyCalls).toEqual([denied]);
 });
 
+test('home shows personalized recommendations between ratings and read books', async ({ page }) => {
+  await page.addInitScript(() => {
+    const owner = encodeURIComponent('guest:header-test|library:local');
+    const book = { id: 'saved-regression', title: '담은 회귀 도서', coverUrl: null, platforms: [], genre: null,
+      tags: ['회귀'], popularity: 8_000, sourceCount: null };
+    localStorage.setItem(`reader_wishlist_v1:${owner}:${book.id}`, JSON.stringify({ book, addedAt: Date.now() }));
+  });
+  let catalogRequests = 0;
+  await page.route('**/catalog/discovery.v1.json', route => {
+    catalogRequests += 1;
+    return route.fulfill({ json: {
+      schemaVersion: 1, generation: 'home-recommendations', genres: [], tags: ['회귀', '회귀물'],
+      books: [
+        ['saved-regression', '담은 회귀 도서', null, [['series', 'https://example.test/recommend/saved']], null, [0], 8_000, null],
+        ['recommended-regression', '추천 회귀 도서', null, [['kakao', 'https://example.test/recommend/next']], null, [1], 5_000, null],
+        ['low-regression', '낮은 인기 회귀 도서', null, [['series', 'https://example.test/recommend/low']], null, [0], 4_000, null],
+      ],
+    } });
+  });
+  await page.goto('/#mypage/overview');
+  const main = page.getByRole('main');
+  await expect(main.getByRole('heading', { level: 2 }).filter({ hasText: /^(위시리스트|평점을 남긴 도서|추천 도서|읽은 도서)$/ }))
+    .toHaveText(['위시리스트', '평점을 남긴 도서', '추천 도서', '읽은 도서']);
+  const row = page.getByRole('list', { name: '추천 도서 가로 목록' });
+  await expect(row.getByRole('link')).toHaveCount(1);
+  await row.getByRole('link', { name: '추천 회귀 도서', exact: true }).click();
+  await expect(page).toHaveURL(/#mypage\/book\/recommended-regression$/);
+  expect(catalogRequests).toBe(1);
+});
+
 test('mobile book detail scrolls related covers and opens the selected work from the same catalog', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   let catalogRequests = 0;

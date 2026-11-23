@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createDiscoveryLoader, getGroupedBookDiscovery, getRelatedDiscoveryBooks, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
+import { recommendDiscoveryBooks } from '../src/lib/bookRecommendations.ts';
 import { cacheReadBookMetadata, readCachedReadBookMetadata as readCachedMatches } from '../src/lib/readBookMetadataCache.ts';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
@@ -128,6 +129,23 @@ test('related books rank distinctive shared tags and skip the current work and i
     'both', 'rare', 'common-0', 'common-1', 'common-2', 'common-3',
   ]);
   assert.deepEqual(getRelatedDiscoveryBooks(books, byId.get('untagged')), []);
+});
+
+test('home recommendations combine both lists across tag spellings and apply the popularity cutoff', () => {
+  const row = (id, tags, popularity, link = id) => [
+    id, id, null, [['series', `https://books.example/${link}`]], 0, tags, popularity, null,
+  ];
+  const catalog = parseDiscoveryIndex({ ...index, tags: ['회귀', '회귀물', '빙의물', '빙의', '환생', '전략적 성장', '전략적성장'], books: [
+    row('a-saved', [0, 1, 5], 8_000), row('z-saved-edition', [1], 8_000, 'a-saved'),
+    row('read', [2], 8_000), row('both', [1, 3], 4_300), row('read-like', [3], 6_000),
+    row('space-variant', [6], 6_000), row('low-popularity', [0, 3, 6], 4_299),
+    row('other-theme', [4], 9_000), row('unknown-popularity', [1, 3], null),
+  ] });
+  const wishlist = [catalog[1]];
+  const readBooks = [{ id: 'local-title', platformWorkKeys: [platformWorkKey('series', 'https://books.example/read')] }];
+  const recommended = recommendDiscoveryBooks(catalog, wishlist, readBooks).map(({ id }) => id);
+  assert.deepEqual(recommended, ['both', 'space-variant', 'read-like']);
+  assert.deepEqual(recommendDiscoveryBooks(catalog, [], []), []);
 });
 
 test('legacy review export retains recorded platform keys, title-only reviews and local originals', async () => {
