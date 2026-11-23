@@ -17,8 +17,9 @@ import {
   type StoredReadingSessionV11,
 } from './readingStatistics';
 import {
-  compareReadingUploadTimes, isReadingSessionCoveredByPublication, parseReadingRollupArchive, readReadingRollupCheckpoint, readingRollupTailIsSafe,
-  type ReadingRollupArchive, type ReadingRollupBootstrap, type ReadingRollupCheckpoint,
+  compareReadingUploadTimes, isReadingSessionCoveredByPublication, isReadingUploadTime, parseReadingRollupArchive,
+  readReadingRollupCheckpoint, readingRollupTailIsSafe, type ReadingRollupArchive, type ReadingRollupBootstrap,
+  type ReadingRollupCheckpoint, type ReadingUploadTime,
 } from './readingRollupBootstrap';
 import { notifyReadingStatisticsChange } from './readingStatisticsWake';
 import type {
@@ -317,21 +318,24 @@ export async function installReadingStatisticsBootstrap(
   const sessionsStore = tx.objectStore(V11_READING_SESSIONS_STORE);
   const recentKey = readingStatisticsRecentKey(ownerKey);
   const archiveKey = readingStatisticsArchiveKey(ownerKey);
-  const [value, recentRow, localRows, leased] = await Promise.all([
-    metaStore.get(ownerKey), metaStore.get(recentKey), sessionsStore.index('by-owner').getAll(ownerKey),
+  const [value, recentRow, leased] = await Promise.all([
+    metaStore.get(ownerKey), metaStore.get(recentKey),
     hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now),
   ]);
   const current = value ? assertSyncMeta(value) : createEmptySyncMeta(ownerKey);
   const canInstall = recentRow || (!current.published && replaceRawCheckpoint) || (previous
     ? current.published && !current.fullAuditInProgress && samePublishedReading(previous, current.published)
     : !current.published && current.documentId === '__empty__' && !current.fullHydrationCompleted && current.lastFullAuditAt === 0);
-  if (!leased || !canInstall || current.ownerKey !== ownerKey) {
+  const rejected = recentRow?.rejectedSourceThrough;
+  if (!leased || !canInstall || current.ownerKey !== ownerKey
+    || (isReadingUploadTime(rejected) && compareReadingUploadTimes(published.sourceThrough, rejected) <= 0)) {
     await tx.done;
     return false;
   }
   // A legacy tab can replace the owner checkpoint while the archive still backs compacted weeks.
   const saved = current.published ? null : parseReadingRollupArchive((await metaStore.get(archiveKey))?.archive);
   const priorRange = current.published ?? (saved ? { ...saved.calendar, sourceThrough: saved.sourceThrough } : null);
+  const localRows = await sessionsStore.index('by-owner').getAll(ownerKey);
   const locals = new Map(localRows.map((row) => {
     const session = assertStoredSession(row);
     return [session.sessionId, session];
@@ -397,7 +401,7 @@ export async function installReadingStatisticsBootstrap(
 }
 
 export async function beginReadingStatisticsRecentRecovery(
-  ownerKey: OwnerKey, leaseClaim: ReadingStatisticsSyncLeaseClaimV13, now = Date.now(),
+  ownerKey: OwnerKey, leaseClaim: ReadingStatisticsSyncLeaseClaimV13, now = Date.now(), rejectedSourceThrough?: ReadingUploadTime,
 ) {
   const db = await initDB();
   const tx = db.transaction([V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
@@ -407,8 +411,13 @@ export async function beginReadingStatisticsRecentRecovery(
     store.get(key),
     hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now),
   ]);
-  // Legacy tabs can rewrite the owner metadata but do not own the recent cursor.
-  if (leased && !saved) await store.put({ ownerKey: key, state: createEmptySyncMeta(ownerKey) });
+  // Keep the recovery cursor when a publication is rejected again during recent receive.
+  const earlierRejection = saved?.rejectedSourceThrough;
+  const rejectsNewer = rejectedSourceThrough && (!isReadingUploadTime(earlierRejection)
+    || compareReadingUploadTimes(rejectedSourceThrough, earlierRejection) > 0);
+  if (leased && (!saved || rejectsNewer)) await store.put({
+    ownerKey: key, state: saved?.state ?? createEmptySyncMeta(ownerKey), rejectedSourceThrough,
+  });
   await tx.done;
   if (leased && !saved) notifyReadingStatisticsChange(ownerKey);
   return leased;
@@ -946,7 +955,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         published: isFullAudit && fullHydrationCompleted ? undefined : current?.published,
         archivedCursor,
       } satisfies ReadingStatisticsSyncMetaV12;
-      await metaStore.put(recentOnly ? { ownerKey: recentKey, state } : state);
+      await metaStore.put(recentOnly ? { ...recentRow, ownerKey: recentKey, state } : state);
       if (isFullAudit && fullHydrationCompleted) await metaStore.delete(readingStatisticsArchiveKey(ownerKey));
     }
     await tx.done;

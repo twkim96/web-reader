@@ -343,11 +343,11 @@ export const useReadingStatisticsSync = (
               };
               const loadPlan = (allow = allowPublishedAudit) => getReadingStatisticsHydrationPlanV12(syncOwnerKey, Date.now(), allow, true);
               let plan = await loadPlan();
-              const recoverHistory = async () => {
+              const recoverHistory = async (rejectedSourceThrough?: ReadingUploadTime) => {
                 publishedBootstrap = 'fallback';
                 fullScanReason ??= 'published-history-unavailable';
                 published = undefined;
-                if (!await beginReadingStatisticsRecentRecovery(syncOwnerKey, leaseClaim)) return false;
+                if (!await beginReadingStatisticsRecentRecovery(syncOwnerKey, leaseClaim, Date.now(), rejectedSourceThrough)) return false;
                 recentOnly = true;
                 timestampRangeOnly = true;
                 plan = await loadPlan(false);
@@ -356,7 +356,7 @@ export const useReadingStatisticsSync = (
               const previousPublication = 'state' in plan ? plan.published : undefined;
               const initialBootstrap = allowPublishedAudit && !previousPublication && Date.now() >= retryPublicationAt;
               if (recoverRaw || ('reason' in plan && plan.reason === 'published-history-unavailable')) {
-                if (!await recoverHistory()) {
+                if (!await recoverHistory(recoverRaw ? previousPublication?.sourceThrough : undefined)) {
                   hydrationStatus = 'lost-leadership';
                   refreshRequested = true;
                   return;
@@ -496,7 +496,7 @@ export const useReadingStatisticsSync = (
                 hydrationRun = await runHydration();
               } catch (error) {
                 if (!(error instanceof PublishedReadingTailError)) throw error;
-                if (!await hasClaimLeadership() || !await recoverHistory()) {
+                if (!await hasClaimLeadership() || !await recoverHistory(published?.sourceThrough)) {
                   hydrationStatus = 'lost-leadership';
                   refreshRequested = true;
                   return;

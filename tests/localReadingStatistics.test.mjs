@@ -156,7 +156,7 @@ test('an upload near a closed boundary triggers recent recovery that survives a 
   assert.deepEqual((await getLocalReadingSessionsV11(owner)).map(({ sessionId }) => sessionId), ['already-uploaded']);
   const pending = publishedRead('other-device-pending', '2026-11-25T10:00:00Z');
   await saveLocalReadingSessionV11(owner, pending);
-  await beginReadingStatisticsRecentRecovery(owner, lease, now);
+  await beginReadingStatisticsRecentRecovery(owner, lease, now, published.sourceThrough);
   assert.equal(await getLocalReadingRollupArchive(owner), null);
   assert.equal((await getReadingStatisticsHydrationPlanV12(owner, now, true)).state.cursor, null);
   await hydrateRemoteReadingSessionsPageV12(owner, [old], null, last, false, false, [], now, lease, true, undefined, true);
@@ -179,6 +179,10 @@ test('an upload near a closed boundary triggers recent recovery that survives a 
   assert.deepEqual(snapshot.sessions.map(({ sessionId, syncState }) => [sessionId, syncState]), [
     ['late-closed-date', 'synced'], ['already-uploaded', 'synced'], ['other-device-pending', 'pending'],
   ]);
+  assert.equal(await installReadingStatisticsBootstrap(owner, bootstrap, lease, now), false);
+  const waiting = await getReadingStatisticsHydrationPlanV12(owner, now, true);
+  assert.equal(waiting.recentOnly, true);
+  assert.deepEqual(waiting.state.cursor, last);
   const repaired = { ...bootstrap, sourceThrough: { seconds: last.uploadedAtServerSeconds + 1, nanoseconds: 0 } };
   assert.equal(await installReadingStatisticsBootstrap(owner, repaired, lease, now), true);
   const restored = await getReadingStatisticsHydrationPlanV12(owner, now, true);
