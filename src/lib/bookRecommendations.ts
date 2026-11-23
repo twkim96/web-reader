@@ -3,6 +3,7 @@ import { MY_PAGE_DASHBOARD_BOOK_LIMIT } from './myPageSocial';
 import { platformWorkKey, type ReadBook } from './readBooks';
 
 const minimumPopularity = 4_300;
+const maximumScoreBoost = 0.05;
 
 const tagAliases = new Map([
   ['성장물', '성장'], ['성장판무', '성장'],
@@ -53,8 +54,17 @@ function getTagIndex(books: readonly DiscoveryBook[]) {
   return tags;
 }
 
+function rotationWeight(id: string, seed: number) {
+  let hash = seed ^ 0x811c9dc5;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193);
+  }
+  hash = Math.imul(hash ^ (hash >>> 16), 0x85ebca6b);
+  return ((hash ^ (hash >>> 13)) >>> 0) / 0x1_0000_0000;
+}
+
 export function recommendDiscoveryBooks(
-  catalog: readonly DiscoveryBook[], wishlist: readonly DiscoveryBook[], readBooks: readonly ReadBook[],
+  catalog: readonly DiscoveryBook[], wishlist: readonly DiscoveryBook[], readBooks: readonly ReadBook[], rotationSeed?: number,
 ) {
   if (!wishlist.length && !readBooks.length) return [];
 
@@ -90,7 +100,18 @@ export function recommendDiscoveryBooks(
       if (!excluded.has(book)) scores.set(book, (scores.get(book) ?? 0) + weight);
     }
   }
-  return [...scores].sort(([a, scoreA], [b, scoreB]) => (
+  const ranked = [...scores].sort(([a, scoreA], [b, scoreB]) => (
     scoreB - scoreA || (b.popularity ?? 0) - (a.popularity ?? 0) || a.id.localeCompare(b.id)
-  )).slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map(([book]) => book);
+  ));
+  const count = Math.min(ranked.length, MY_PAGE_DASHBOARD_BOOK_LIMIT);
+  const fixedCount = Math.ceil(count * 2 / 3);
+  if (rotationSeed === undefined || count <= fixedCount) return ranked.slice(0, count).map(([book]) => book);
+
+  // Keep the strongest cards in place. Only near-ties can enter the remaining slots.
+  const flexibleCount = count - fixedCount;
+  const rotated = ranked.slice(fixedCount, fixedCount + 4 * flexibleCount)
+    .map(([book, score]) => ({ book, score: score * (1 + maximumScoreBoost * rotationWeight(book.id, rotationSeed)) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, flexibleCount);
+  return [...ranked.slice(0, fixedCount).map(([book]) => book), ...rotated.map(({ book }) => book)];
 }

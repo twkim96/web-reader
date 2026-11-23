@@ -102,6 +102,12 @@ test('home shows personalized recommendations between ratings and read books', a
   await expect(row.getByRole('link')).toHaveCount(1);
   await row.getByRole('link', { name: '추천 회귀 도서', exact: true }).click();
   await expect(page).toHaveURL(/#mypage\/book\/recommended-regression$/);
+  const menu = page.getByRole('navigation', { name: '마이페이지 메뉴', exact: true });
+  await menu.getByRole('button', { name: '도서', exact: true }).click();
+  await page.getByRole('button', { name: '추천 회귀 도서 위시리스트 추가', exact: true }).click();
+  await menu.getByRole('button', { name: '홈', exact: true }).click();
+  await expect(page.getByRole('list', { name: '위시리스트 가로 목록' }).getByRole('link', { name: '추천 회귀 도서', exact: true })).toBeVisible();
+  await expect(row).toHaveCount(0);
   expect(catalogRequests).toBe(1);
 });
 

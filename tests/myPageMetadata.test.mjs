@@ -148,6 +148,26 @@ test('home recommendations combine both lists across tag spellings and apply the
   assert.deepEqual(recommendDiscoveryBooks(catalog, [], []), []);
 });
 
+test('home recommendations rotate the tail while retaining the strongest and excluding newly saved works', () => {
+  const row = (id, tags, popularity) => [id, id, null, [['series', `https://books.example/${id}`]], 0, tags, popularity, null];
+  const catalog = parseDiscoveryIndex({ ...index, tags: ['모험', '마법', '빙의'], books: [
+    row('saved', [0, 1, 2], 8_000),
+    ...Array.from({ length: 8 }, (_, i) => row(`strong-${i}`, [0, 1, 2], 8_000 - i)),
+    ...Array.from({ length: 16 }, (_, i) => row(`similar-${i}`, [0, 1], 7_000 - i)),
+    row('too-distant', [0], 10_000), row('below-cutoff', [0, 1, 2], 4_299),
+  ] });
+  const recommend = (seed, saved = [catalog[0]]) => recommendDiscoveryBooks(catalog, saved, [], seed).map(({ id }) => id);
+  const first = recommend(11);
+  const next = recommend(27);
+  assert.equal(first.length, 12);
+  assert.deepEqual(recommend(11), first);
+  assert.deepEqual(first.slice(0, 8), Array.from({ length: 8 }, (_, i) => `strong-${i}`));
+  assert.deepEqual(next.slice(0, 8), first.slice(0, 8));
+  assert.notDeepEqual(next.slice(8), first.slice(8));
+  assert.ok([...first.slice(8), ...next.slice(8)].every((id) => id.startsWith('similar-')));
+  assert.ok(!recommend(11, [catalog[0], catalog[1]]).includes('strong-0'));
+});
+
 test('legacy review export retains recorded platform keys, title-only reviews and local originals', async () => {
   const owner = 'firebase:review-export|library:local';
   const prefix = `reader_book_review_v1:${encodeURIComponent(owner)}:`;
