@@ -5,7 +5,10 @@ import 'fake-indexeddb/auto';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
-import { hydrateRemoteReadingSessionsPageV12, saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
+import {
+  getReadingStatisticsHydrationPlanV12, hydrateRemoteReadingSessionsPageV12, installReadingStatisticsBootstrap, saveLocalReadingSessionV11,
+} from '../src/lib/localReadingStatistics.ts';
+import { acquireReadingStatisticsSyncLeaseV13 } from '../src/lib/readingStatisticsSyncLease.ts';
 import { notifyReadingStatisticsServerCheck } from '../src/lib/readingStatisticsWake.ts';
 import { closeLocalDB } from '../src/lib/localDB.ts';
 import { setImmediate as settle } from 'node:timers/promises';
@@ -289,6 +292,65 @@ test('published days replace local days including zero and load detail only on s
     assert.equal(summary.totalMs, 420_000);
     assert.deepEqual(new Map(summary.books.map(({ bookId, totalMs }) => [bookId, totalMs])),
       new Map([['local-1', 120_000], ['aggregate', 180_000], ['local-25', 120_000]]));
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+  }
+});
+
+test('a seeded statistics report uses its saved archive offline and gates JSON on a flag rollback', async (t) => {
+  t.mock.method(globalThis, 'Date', class extends Date {
+    constructor(...args) { super(...(args.length ? args : [2026, 10, 25, 12])); }
+    static now() { return new Date().getTime(); }
+  });
+  const ownerKey = 'firebase:calendar-seeded-ui|library:local';
+  ownerRuntime.activate(ownerKey);
+  const key = 'NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS';
+  const previous = process.env[key];
+  process.env[key] = '1';
+  t.after(() => {
+    ownerRuntime.clear();
+    if (previous === undefined) delete process.env[key]; else process.env[key] = previous;
+  });
+  const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
+  Object.assign(globalThis, { window, document: window.document, HTMLElement: window.HTMLElement, Element: window.Element,
+    Node: window.Node, Event: window.Event, CustomEvent: window.CustomEvent, BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true });
+  const carriedAt = Date.UTC(2026, 10, 24, 10);
+  const archivedAt = Date.UTC(2026, 10, 21, 12);
+  const now = Date.now();
+  const lease = await acquireReadingStatisticsSyncLeaseV13(ownerKey, 'report-ui', now);
+  const archive = {
+    calendar: { firstDay: '2026-09-14', lastDay: '2026-11-22',
+      days: [{ localDate: '2026-11-21', totalMs: 180_000, screenMs: 180_000, ttsMs: 0 }] },
+    books: [{ bookId: 'archived', bookTitle: '마감 도서', lastReadAt: archivedAt, screenMs: 180_000, ttsMs: 0 }],
+    files: [],
+    sourceThrough: { seconds: Date.UTC(2026, 10, 24, 11) / 1000, nanoseconds: 11 },
+    carry: { sampleFloor: Date.UTC(2026, 10, 20), sessions: [session('carry', carriedAt, carriedAt + 120_000)] },
+  };
+  assert.equal(await installReadingStatisticsBootstrap(ownerKey, archive, lease, now), true);
+  const { published } = await getReadingStatisticsHydrationPlanV12(ownerKey, now, true);
+  await hydrateRemoteReadingSessionsPageV12(ownerKey, [], null, null, true, false, [], now, lease, true, published);
+  const requests = t.mock.method(globalThis, 'fetch', async () => { throw new Error('Offline'); });
+  const root = createRoot(window.document.querySelector('#root'));
+  const props = { ownerKey, embedded: true, open: true, visible: true, theme: {}, themeVariables: {}, accentColor: 'rose',
+    syncHealth: 'healthy', quarantinedDocumentCount: 0, canRefresh: true, refreshing: false,
+    lastServerCheckedAt: null, onRefresh() {}, onClose() {} };
+  const modal = () => React.createElement(LibraryReadingStatisticsModal, props);
+  const exportButton = () => window.document.querySelector('[data-reading-statistics-export="json"]');
+  const modeTotal = () => window.document.querySelector('[data-reading-statistics-mode-total="screen"]')?.textContent;
+  try {
+    await act(async () => root.render(modal()));
+    for (let i = 0; i < 50 && exportButton()?.disabled; i++) await act(async () => settle());
+    assert.equal(exportButton().disabled, false);
+    assert.equal(modeTotal(), '2분');
+    await act(async () => window.document.querySelector('[data-reading-statistics-range="all"]')
+      .dispatchEvent(new window.Event('click', { bubbles: true })));
+    assert.equal(modeTotal(), '5분');
+    assert.equal(requests.mock.callCount(), 0);
+
+    process.env[key] = '0';
+    await act(async () => root.render(modal()));
+    assert.equal(exportButton().disabled, true, 'the locally cached tail alone is incomplete');
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

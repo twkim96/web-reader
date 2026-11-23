@@ -3,6 +3,7 @@ import {
   V11_READING_SESSIONS_STORE,
   V12_READING_STATISTICS_SYNC_STORE,
   V13_READING_STATISTICS_LEASES_STORE,
+  readingStatisticsArchiveKey,
 } from './localDBSchema';
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import { trackLocalCommit } from './localCommitTracker';
@@ -14,6 +15,10 @@ import {
   type ReadingSessionV1,
   type StoredReadingSessionV11,
 } from './readingStatistics';
+import {
+  compareReadingUploadTimes, parseReadingRollupArchive, readReadingRollupCheckpoint, readingRollupTailIsSafe,
+  type ReadingRollupArchive, type ReadingRollupBootstrap, type ReadingRollupCheckpoint,
+} from './readingRollupBootstrap';
 import { notifyReadingStatisticsChange } from './readingStatisticsWake';
 import type {
   ReadingStatisticsSyncLeaseClaimV13,
@@ -90,6 +95,7 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
   hydrationFailedRunCount: number;
   lastHydrationDurationMs: number;
   lastHydrationCompletedAt: number;
+  published?: ReadingRollupCheckpoint;
 };
 
 const HYDRATION_AUDIT_INTERVAL_MS = 7 * 24 * 60 * 60_000;
@@ -176,6 +182,7 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
     || !Number.isSafeInteger(value.hydratedRemoteCount)
     || Number(value.hydratedRemoteCount) < 0
   ) throw new Error('독서 통계 hydration cursor가 손상되었습니다.');
+  const published = 'published' in value ? readReadingRollupCheckpoint(value.published) : null;
   return {
     ...cursor,
     ownerKey: value.ownerKey as OwnerKey,
@@ -240,6 +247,7 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
       && Number(value.lastHydrationCompletedAt) >= 0
       ? Number(value.lastHydrationCompletedAt)
       : 0,
+    ...(published ? { published } : {}),
   };
 };
 
@@ -272,6 +280,129 @@ const createEmptySyncMeta = (ownerKey: OwnerKey): ReadingStatisticsSyncMetaV12 =
   lastHydrationDurationMs: 0,
   lastHydrationCompletedAt: 0,
 });
+
+export class PublishedReadingTailError extends Error {}
+
+type PublishedStoredSession = StoredReadingSessionV11 & { receivedWithPublication?: true };
+const hasPublicationReceipt = (session: PublishedStoredSession | null) => session?.receivedWithPublication === true;
+
+const samePublishedReading = (left: ReadingRollupCheckpoint, right: ReadingRollupCheckpoint) =>
+  left.firstDay === right.firstDay && left.lastDay === right.lastDay
+  && compareReadingUploadTimes(left.sourceThrough, right.sourceThrough) === 0
+  && left.sampleFloor === right.sampleFloor;
+
+export async function installReadingStatisticsBootstrap(
+  ownerKey: OwnerKey,
+  bootstrap: ReadingRollupBootstrap,
+  leaseClaim: ReadingStatisticsSyncLeaseClaimV13,
+  now = Date.now(),
+  previous?: ReadingRollupCheckpoint,
+) {
+  const { carry, ...archive } = bootstrap;
+  const published: ReadingRollupCheckpoint = {
+    firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
+    sourceThrough: archive.sourceThrough, sampleFloor: carry.sampleFloor, checkedAt: now,
+  };
+  const db = await initDB();
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
+  const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const sessionsStore = tx.objectStore(V11_READING_SESSIONS_STORE);
+  const [value, localRows, leased] = await Promise.all([
+    metaStore.get(ownerKey), sessionsStore.index('by-owner').getAll(ownerKey),
+    hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now),
+  ]);
+  const current = value ? assertSyncMeta(value) : createEmptySyncMeta(ownerKey);
+  const canInstall = previous
+    ? current.published && !current.fullAuditInProgress && samePublishedReading(previous, current.published)
+    : !current.published && current.documentId === '__empty__' && !current.fullHydrationCompleted && current.lastFullAuditAt === 0;
+  if (!leased || !canInstall || current.ownerKey !== ownerKey) {
+    await tx.done;
+    return false;
+  }
+  const locals = new Map(localRows.map((row) => {
+    const session = assertStoredSession(row);
+    return [session.sessionId, session];
+  }));
+  const carryIds = new Set(carry.sessions.map(({ sessionId }) => sessionId));
+  if ((!previous && [...locals.values()].some(({ syncState }) => syncState === 'synced'))
+    || (previous && (published.firstDay > previous.firstDay || published.lastDay < previous.lastDay
+      || compareReadingUploadTimes(published.sourceThrough, previous.sourceThrough) < 0))
+    || carry.sessions.some((session) => {
+      const row = locals.get(session.sessionId);
+      return row && !sameReadingSessionPayload(row, session);
+    })
+    || !readingRollupTailIsSafe(published, [...locals.values(), ...carry.sessions],
+      [...locals.values()].filter((row) => row.syncState === 'pending' && !carryIds.has(row.sessionId)))) {
+    await tx.done;
+    return false;
+  }
+  for (const session of carry.sessions) {
+    const row = locals.get(session.sessionId);
+    if (row?.syncState === 'synced' && hasPublicationReceipt(row)) continue;
+    const stored = { ...toStoredSession(ownerKey, session, 'synced'), receivedWithPublication: true } as const;
+    await sessionsStore.put(stored);
+    locals.set(session.sessionId, stored);
+  }
+  // Replayed tail rows must satisfy the new closing boundary.
+  const sameBoundary = previous && samePublishedReading(previous, published);
+  const keepCursor = sameBoundary && current.documentId !== '__empty__';
+  const empty = createEmptySyncMeta(ownerKey);
+  await metaStore.put({
+    ...current, cursorVersion: 1,
+    uploadedAtServerSeconds: keepCursor ? current.uploadedAtServerSeconds : empty.uploadedAtServerSeconds,
+    uploadedAtServerNanoseconds: keepCursor ? current.uploadedAtServerNanoseconds : empty.uploadedAtServerNanoseconds,
+    documentId: keepCursor ? current.documentId : empty.documentId,
+    fullHydrationCompleted: Boolean(sameBoundary && current.fullHydrationCompleted),
+    fullAuditInProgress: false, published,
+    hydratedRemoteCount: [...locals.values()].filter(hasPublicationReceipt).length,
+  } satisfies ReadingStatisticsSyncMetaV12);
+  await metaStore.put({ ownerKey: readingStatisticsArchiveKey(ownerKey), archive });
+  await tx.done;
+  notifyReadingStatisticsChange(ownerKey);
+  return true;
+}
+
+export async function beginReadingStatisticsRawRecovery(
+  ownerKey: OwnerKey, leaseClaim: ReadingStatisticsSyncLeaseClaimV13, now = Date.now(),
+) {
+  const db = await initDB();
+  const tx = db.transaction([V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
+  const store = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const [value, leased] = await Promise.all([
+    store.get(ownerKey),
+    hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now),
+  ]);
+  const meta = value ? assertSyncMeta(value) : null;
+  if (leased && meta?.published && !meta.fullAuditInProgress) {
+    await store.put({ ...meta, documentId: '__empty__', uploadedAtServerSeconds: 0, uploadedAtServerNanoseconds: 0,
+      fullAuditInProgress: true, fullHydrationCompleted: false, hydratedRemoteCount: 0 });
+  }
+  await tx.done;
+  if (leased && meta?.published) notifyReadingStatisticsChange(ownerKey);
+  return leased;
+}
+
+export async function getLocalReadingRollupArchive(ownerKey: OwnerKey, previous?: ReadingRollupArchive | null): Promise<ReadingRollupArchive | null> {
+  const db = await initDB();
+  const tx = db.transaction(V12_READING_STATISTICS_SYNC_STORE);
+  const value = await tx.store.get(ownerKey);
+  const point = value ? assertSyncMeta(value).published : undefined;
+  const key = readingStatisticsArchiveKey(ownerKey);
+  const saved = point ? await tx.store.get(key) : null;
+  await tx.done;
+  const archive = localArchiveForCheckpoint(saved?.archive, point);
+  return archive && previous && sameArchiveRange(previous, { ...archive.calendar, sourceThrough: archive.sourceThrough }) ? previous : archive;
+}
+
+function sameArchiveRange(archive: ReadingRollupArchive, range: Pick<ReadingRollupCheckpoint, 'firstDay' | 'lastDay' | 'sourceThrough'>) {
+  return archive.calendar.firstDay === range.firstDay && archive.calendar.lastDay === range.lastDay
+    && compareReadingUploadTimes(archive.sourceThrough, range.sourceThrough) === 0;
+}
+
+function localArchiveForCheckpoint(value: unknown, point?: ReadingRollupCheckpoint) {
+  const archive = point && parseReadingRollupArchive(value);
+  return archive && point && sameArchiveRange(archive, point) ? archive : null;
+}
 
 const isCurrentStatisticsLease = (
   value: unknown,
@@ -391,7 +522,8 @@ export type ReadingStatisticsFullScanReason =
   | 'weekly-audit-unavailable'
   | 'remote-audit-mismatch'
   | 'remote-audit-failed'
-  | 'audit-checkpoint-changed';
+  | 'audit-checkpoint-changed'
+  | 'published-history-unavailable';
 
 type LocalFullScan = { reason: ReadingStatisticsFullScanReason; catchUpFrom?: ReadingStatisticsAuditCandidateV12 };
 type ReadingStatisticsHydrationStateV12 = {
@@ -401,7 +533,7 @@ type ReadingStatisticsHydrationStateV12 = {
   lastFullAuditAt: number;
 };
 type ReadingStatisticsHydrationPlanV12 =
-  | { state: ReadingStatisticsHydrationStateV12; fullAuditInProgress: boolean; reason?: 'empty-history' | 'initial-history' }
+  | { state: ReadingStatisticsHydrationStateV12; fullAuditInProgress: boolean; reason?: 'empty-history' | 'initial-history'; published?: ReadingRollupCheckpoint }
   | { candidate: ReadingStatisticsAuditCandidateV12 }
   | { reason: 'legacy-cursor'; legacyCursor: ReadingStatisticsRemoteCursorV12 }
   | LocalFullScan;
@@ -467,6 +599,30 @@ export const getReadingStatisticsHydrationPlanV12 = async (
   }
   const meta = assertSyncMeta(value);
   if (meta.ownerKey !== ownerKey) throw new Error('독서 통계 hydration owner가 올바르지 않습니다.');
+  const sessions = tx.objectStore(V11_READING_SESSIONS_STORE);
+  if (meta.published) {
+    const cursor = meta.documentId === '__empty__' ? null : readRemoteCursor(meta);
+    const state = { cursor, fullHydrationCompleted: meta.fullHydrationCompleted,
+      lastFullAuditAt: meta.lastFullAuditAt, quarantinedDocuments: meta.quarantinedDocuments };
+    if (meta.fullAuditInProgress) {
+      await tx.done;
+      return { state, fullAuditInProgress: true };
+    }
+    if (!allowPublishedAudit) {
+      await tx.done;
+      return { reason: 'published-history-unavailable' };
+    }
+    const [stored, rows] = await Promise.all([
+      tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(readingStatisticsArchiveKey(ownerKey)),
+      sessions.index('by-owner').getAll(ownerKey),
+    ]);
+    await tx.done;
+    const received = rows.map(readStoredSession).filter((row) => row?.syncState === 'synced' && hasPublicationReceipt(row));
+    if (!localArchiveForCheckpoint(stored?.archive, meta.published)
+      || received.length !== meta.hydratedRemoteCount || meta.quarantinedDocuments.length
+      || (cursor && !received.some((row) => row?.sessionId === cursor.documentId))) return { reason: 'published-history-unavailable' };
+    return { state, published: meta.published, fullAuditInProgress: false };
+  }
   if (!meta.cursorVersion) {
     const { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId } = meta;
     await tx.done;
@@ -477,7 +633,6 @@ export const getReadingStatisticsHydrationPlanV12 = async (
       legacyCursor: { uploadedAtServerSeconds, uploadedAtServerNanoseconds, documentId },
     };
   }
-  const sessions = tx.objectStore(V11_READING_SESSIONS_STORE);
   const localCount = await sessions.index('by-owner').count(ownerKey);
   let plan: ReadingStatisticsHydrationPlanV12;
   const dueForFull = !meta.fullAuditInProgress && now - meta.lastFullAuditAt >= FULL_HYDRATION_AUDIT_INTERVAL_MS;
@@ -590,6 +745,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
   now = Date.now(),
   leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
   timestampRangeOnly = false,
+  published?: ReadingRollupCheckpoint,
 ) => {
   if (
     (sessions.length > 0 || quarantinedDocuments.length > 0)
@@ -646,27 +802,42 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
     if (expectedCursor && (!current?.cursorVersion || !sameCursor(current, expectedCursor))) {
       throw new Error('독서 통계 hydration cursor가 다른 작업에 의해 변경되었습니다.');
     }
+    if (published) {
+      if (!current?.published || current.fullAuditInProgress || !samePublishedReading(current.published, published)
+        || (!expectedCursor && current.documentId !== '__empty__')) {
+        throw new Error('독서 통계 발행 커서가 다른 작업에 의해 변경되었습니다.');
+      }
+      if (quarantinedDocuments.length) throw new PublishedReadingTailError('Invalid published statistics tail.');
+      if (sessions.length) {
+        const local = (await sessionsStore.index('by-owner').getAll(ownerKey)).map(assertStoredSession);
+        if (!readingRollupTailIsSafe(published, local, sessions)) throw new PublishedReadingTailError('Unsafe published statistics boundary.');
+      }
+    }
+    let added = 0;
     for (const session of sessions) {
       const existingValue = await sessionsStore.get([ownerKey, session.sessionId]);
       if (!existingValue) {
-        await sessionsStore.add(toStoredSession(ownerKey, session, 'synced'));
+        await sessionsStore.add({ ...toStoredSession(ownerKey, session, 'synced'), ...(published ? { receivedWithPublication: true } : {}) });
+        added++;
         continue;
       }
       const existing = readStoredSession(existingValue);
+      if (!hasPublicationReceipt(existing)) added++;
       if (!existing || !sameReadingSessionPayload(existing, session)) {
         // Cloud sessions are immutable after creation. If an older client left
         // a different local payload under the same ID, converge on the
         // already-committed remote record instead of blocking the whole page.
-        await sessionsStore.put(toStoredSession(ownerKey, session, 'synced'));
+        await sessionsStore.put({ ...toStoredSession(ownerKey, session, 'synced'), ...(published ? { receivedWithPublication: true } : {}) });
         continue;
       }
-      if (existing.syncState !== 'synced') {
+      if (existing.syncState !== 'synced' || (published && !hasPublicationReceipt(existing))) {
         await sessionsStore.put({
           ...existing,
           syncState: 'synced',
           retryCount: 0,
           nextAttemptAt: 0,
           lastErrorCode: null,
+          ...(published ? { receivedWithPublication: true } : {}),
         });
       }
     }
@@ -693,7 +864,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         cursorVersion: 1,
         fullHydrationCompleted,
         hydratedRemoteCount: (preserveCheckpoint ? current?.hydratedRemoteCount ?? 0 : 0)
-          + sessions.length,
+          + (published ? added : sessions.length),
         lastFullAuditAt: isFullAudit && fullHydrationCompleted
           ? now
           : current?.lastFullAuditAt ?? 0,
@@ -701,7 +872,9 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         lastPublishedAuditAt: isFullAudit ? 0 : current?.lastPublishedAuditAt ?? 0,
         fullAuditInProgress: isFullAudit && !fullHydrationCompleted,
         quarantinedDocuments: nextQuarantinedDocuments,
+        published: isFullAudit && fullHydrationCompleted ? undefined : current?.published,
       } satisfies ReadingStatisticsSyncMetaV12);
+      if (isFullAudit && fullHydrationCompleted) await metaStore.delete(readingStatisticsArchiveKey(ownerKey));
     }
     await tx.done;
   } catch (error) {
@@ -836,7 +1009,7 @@ export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
 };
 
 export async function getLocalReadingReportSnapshot(ownerKey: OwnerKey, verifyHistory: boolean) {
-  if (!verifyHistory) return { sessions: await getLocalReadingSessionsV11(ownerKey), rawHistoryComplete: false };
+  if (!verifyHistory) return { sessions: await getLocalReadingSessionsV11(ownerKey), rawHistoryComplete: false, published: undefined, tailComplete: false };
   const db = await initDB();
   const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
   const [values, value] = await Promise.all([
@@ -846,10 +1019,13 @@ export async function getLocalReadingReportSnapshot(ownerKey: OwnerKey, verifyHi
   await tx.done;
   const sessions = sortLocalReadingSessions(values);
   const meta = value ? assertSyncMeta(value) : null;
-  const rawHistoryComplete = Boolean(meta?.fullHydrationCompleted && meta.lastFullAuditAt > 0 && !meta.fullAuditInProgress
+  const received = Boolean(meta?.fullHydrationCompleted && !meta.fullAuditInProgress
     && meta.quarantinedDocuments.length === 0
-    && sessions.filter(({ syncState }) => syncState === 'synced').length >= meta.hydratedRemoteCount);
-  return { sessions, rawHistoryComplete };
+    && (meta.published
+      ? sessions.filter((row) => row.syncState === 'synced' && hasPublicationReceipt(row)).length === meta.hydratedRemoteCount
+      : sessions.filter(({ syncState }) => syncState === 'synced').length >= meta.hydratedRemoteCount));
+  return { sessions, rawHistoryComplete: received && !meta?.published && Boolean(meta?.lastFullAuditAt),
+    published: meta?.published, tailComplete: received && Boolean(meta?.published) };
 }
 
 export const getPendingReadingSessionsV11 = async (

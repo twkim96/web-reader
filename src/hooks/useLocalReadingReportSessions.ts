@@ -4,12 +4,16 @@ import { useEffect, useState } from 'react';
 import { getLocalReadingReportSnapshot } from '../lib/localReadingStatistics';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import type { StoredReadingSessionV11 } from '../lib/readingStatistics';
-import { subscribeReadingStatisticsChanges, subscribeReadingStatisticsServerChecks } from '../lib/readingStatisticsWake';
+import { requestReadingStatisticsRefresh, subscribeReadingStatisticsChanges, subscribeReadingStatisticsServerChecks } from '../lib/readingStatisticsWake';
+import type { ReadingRollupCheckpoint } from '../lib/readingRollupBootstrap';
+import { hasPublishedBoundaryClockRisk } from '../lib/readingRollupCalendar';
 
 type Snapshot = {
   ownerKey: OwnerKey;
   sessions: StoredReadingSessionV11[];
   rawHistoryComplete: boolean;
+  published?: ReadingRollupCheckpoint;
+  tailComplete: boolean;
   error: boolean;
 };
 
@@ -19,6 +23,7 @@ export function useLocalReadingReportSessions(ownerKey: OwnerKey, enabled: boole
     if (!enabled) return;
     let disposed = false;
     let verified = false;
+    let requestedRecovery = false;
     let request = 0;
     let timer: number | undefined;
     const load = async () => {
@@ -26,12 +31,19 @@ export function useLocalReadingReportSessions(ownerKey: OwnerKey, enabled: boole
       try {
         const result = await getLocalReadingReportSnapshot(ownerKey, verifyHistory);
         if (disposed || request !== current) return;
-        verified = result.rawHistoryComplete;
-        setSnapshot({ ownerKey, ...result, error: false });
+        const unsafe = Boolean(result.published && result.tailComplete
+          && hasPublishedBoundaryClockRisk(result.sessions, result.published));
+        const tailComplete = result.tailComplete && !unsafe;
+        verified = result.rawHistoryComplete || tailComplete;
+        setSnapshot({ ownerKey, ...result, tailComplete, error: false });
+        if (unsafe && !requestedRecovery) {
+          requestedRecovery = true;
+          requestReadingStatisticsRefresh(ownerKey, true);
+        }
       } catch (error) {
         if (disposed || request !== current) return;
         console.error('[ReadingStatistics] load failed:', error);
-        setSnapshot({ ownerKey, sessions: [], rawHistoryComplete: false, error: true });
+        setSnapshot({ ownerKey, sessions: [], rawHistoryComplete: false, tailComplete: false, error: true });
       }
     };
     const schedule = () => {

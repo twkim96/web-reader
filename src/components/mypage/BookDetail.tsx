@@ -5,7 +5,7 @@ import { ArrowUpRight, Bookmark as BookmarkIcon, Check, Heart, Star } from 'luci
 import type { Book, UserProgress } from '../../types';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
 import type { DiscoveryBook } from '../../lib/bookDiscovery';
-import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
+import { useLocalReadingReportSessions } from '../../hooks/useLocalReadingReportSessions';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 import { getPublicBookCoverCandidates } from '../../lib/publicBookMetadataSchema';
@@ -16,8 +16,7 @@ import { ownerRuntime } from '../../lib/ownerRuntime';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
 import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/readBooks';
-import { formatReadingDuration, type StoredReadingSessionV11 } from '../../lib/readingStatistics';
-import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
+import { formatReadingDuration } from '../../lib/readingStatistics';
 import { BookCover } from './BookCover';
 import { BookReviewEditor } from './BookReviewEditor';
 
@@ -131,10 +130,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   const [loading, setLoading] = useState(true);
   const [metadataFailed, setMetadataFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [history, setHistory] = useState<{
-    sessions: StoredReadingSessionV11[];
-  } | null>(null);
-  const [historyFailed, setHistoryFailed] = useState(false);
+  const history = useLocalReadingReportSessions(ownerKey, true, !isGuestOwner(ownerKey));
+  const historyFailed = history?.error === true;
   const { data: published } = useMyPageReadingFiles(ownerKey, Boolean(history && !historyFailed));
   const archived = published?.history ?? null;
   const [historyLookup, setHistoryLookup] = useState<{
@@ -192,28 +189,6 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     return () => controller.abort();
   }, [lookupId, retry]);
 
-  useEffect(() => {
-    let revision = 0;
-    const refresh = async () => {
-      const current = ++revision;
-      try {
-        const sessions = await getLocalReadingSessionsV11(ownerKey);
-        if (current === revision) {
-          setHistory({ sessions });
-          setHistoryFailed(false);
-        }
-      } catch {
-        if (current === revision) setHistoryFailed(true);
-      }
-    };
-    const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => { void refresh(); });
-    void refresh();
-    return () => {
-      revision++;
-      unsubscribe();
-    };
-  }, [ownerKey]);
-
   const work = useMemo(() => ({
     id: lookupId,
     equivalentTitleKeys: discovery ? [] : [bookId, ...(readBook?.equivalentTitleKeys ?? []), ...(metadata ? [metadata.titleKey] : [])],
@@ -232,7 +207,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   }), [work, bookId, historyMetadata, historyResult, readingInput, readBook]);
   const completeHistory = history && !historyFailed && (historyTitles === '[]' || historyResult?.failed.size === 0);
   const reviewFileIds = completeHistory ? personal.reviewFileIds : null;
-  const confirmedReading = useMemo(() => history && reviewFileIds
+  const confirmedReading = useMemo(() => history?.rawHistoryComplete && reviewFileIds
     ? buildLocalReviewReading(history.sessions, ownerKey, reviewFileIds)
     : null, [history, ownerKey, reviewFileIds]);
   // A missing edition cannot make a comment edit overwrite a previously

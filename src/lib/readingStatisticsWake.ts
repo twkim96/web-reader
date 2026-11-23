@@ -1,7 +1,7 @@
 import type { OwnerKey } from './ownerIdentity';
 
 type ReadingStatisticsChange = { ownerKey: OwnerKey };
-type ReadingStatisticsRefreshRequest = { ownerKey: OwnerKey };
+type ReadingStatisticsRefreshRequest = { ownerKey: OwnerKey; recoverRaw?: true };
 type ReadingStatisticsServerCheck = {
   ownerKey: OwnerKey;
   checkedAt: number | null;
@@ -72,20 +72,20 @@ export const subscribeReadingStatisticsChanges = (
   };
 };
 
-export const requestReadingStatisticsRefresh = (ownerKey: OwnerKey) => {
+export const requestReadingStatisticsRefresh = (ownerKey: OwnerKey, recoverRaw = false) => {
   if (typeof window === 'undefined') return;
-  const request = { ownerKey } satisfies ReadingStatisticsRefreshRequest;
+  const request = { ownerKey, ...(recoverRaw ? { recoverRaw: true } : {}) } satisfies ReadingStatisticsRefreshRequest;
   window.dispatchEvent(new CustomEvent(REFRESH_EVENT_NAME, { detail: request }));
   getRefreshChannel()?.postMessage(request);
 };
 
 export const subscribeReadingStatisticsRefreshRequests = (
   ownerKey: OwnerKey,
-  listener: () => void,
+  listener: (recoverRaw?: true) => void,
 ) => {
   if (typeof window === 'undefined') return () => undefined;
   const handle = (request: ReadingStatisticsRefreshRequest) => {
-    if (request.ownerKey === ownerKey) listener();
+    if (request.ownerKey === ownerKey) listener(request.recoverRaw);
   };
   const handleLocal = (event: Event) => {
     handle((event as CustomEvent<ReadingStatisticsRefreshRequest>).detail);

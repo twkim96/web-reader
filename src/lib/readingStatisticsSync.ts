@@ -18,6 +18,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
+import type { ReadingUploadTime } from './readingRollupBootstrap';
 import {
   MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS,
   type QuarantinedReadingStatisticsDocumentV12,
@@ -276,9 +277,10 @@ export const getRemoteReadingSessionsPageV1 = async (
     onReadAttempt?: () => void;
     onReadSuccess?: (returnedDocuments: number) => void;
   } = {},
-  { singleSnapshot = false, timestampRangeOnly = false, isLeader }: {
+  { singleSnapshot = false, timestampRangeOnly = false, publishedThrough, isLeader }: {
     singleSnapshot?: boolean;
     timestampRangeOnly?: boolean;
+    publishedThrough?: ReadingUploadTime;
     isLeader?: () => boolean | Promise<boolean>;
   } = {},
 ) => {
@@ -303,7 +305,8 @@ export const getRemoteReadingSessionsPageV1 = async (
     ...(cursor ? [sdk.startAfter(
       new sdk.Timestamp(cursor.uploadedAtServerSeconds, cursor.uploadedAtServerNanoseconds),
       cursor.documentId,
-    )] : timestampRangeOnly ? [sdk.startAt(new sdk.Timestamp(0, 0))] : []),
+    )] : publishedThrough ? [sdk.startAfter(new sdk.Timestamp(publishedThrough.seconds, publishedThrough.nanoseconds))]
+      : timestampRangeOnly ? [sdk.startAt(new sdk.Timestamp(0, 0))] : []),
     // Valid uploads use serverTimestamp(). Later-sorting malformed values cannot
     // extend an incremental scan or hold back the next poll.
     ...(timestampRangeOnly ? [sdk.endAt(new sdk.Timestamp(253_402_300_799, 999_999_999))] : []),

@@ -12,6 +12,7 @@ import { closeLocalDB } from '../src/lib/localDB.ts';
 import { cacheReadBookMetadata } from '../src/lib/readBookMetadataCache.ts';
 import { notifyReadingStatisticsChange } from '../src/lib/readingStatisticsWake.ts';
 import { hydrateRemoteReadingSessionsPageV12, saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
+import { notifyReadingStatisticsServerCheck } from '../src/lib/readingStatisticsWake.ts';
 
 // The detail imports the loader statically. Install the fixture before loading
 // MyPage so both its static and lazy consumers resolve the same loader.
@@ -275,6 +276,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
   });
   const visible = (selector) => window.document.querySelector(selector);
   try {
+    const firstPageCursor = { uploadedAtServerSeconds: 1, uploadedAtServerNanoseconds: 0, documentId: 'private-pdf' };
     const session = {
       schemaVersion: 1, sessionId: 'review-session', bookId: 'review-book', bookTitle: title, deviceId: 'review-device',
       startedAtClient: start, endedAtClient: start + 60_000, durationMs: 60_000, startProgressPercent: 79,
@@ -291,7 +293,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
         startedAtClient: start + 120_000, endedAtClient: start + 180_000, endProgressPercent: 90 },
       { ...session, sessionId: 'private-pdf', bookId: 'private-pdf', bookTitle: privatePdf,
         startedAtClient: start + 300_000, endedAtClient: start + 360_000 },
-    ], null, null, true, false);
+    ], null, firstPageCursor, false, false);
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
     assert.deepEqual([...visible('nav').querySelectorAll('button')].map((button) => button.querySelector('span').textContent), [
       '홈', '도서', '피드', '보관', '기록',
@@ -332,7 +334,13 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     const editor = () => visible('[aria-labelledby="my-book-review-title"]');
     assert.ok(editor().querySelector('[aria-label="별점 미평가"]'));
     assert.equal(editor().querySelector('form'), null);
-    await click(window, editor().querySelector('button[aria-label="3점"]'));
+    const rateSecondWork = async () => {
+      const star = () => editor().querySelector('button[aria-label="3점"]');
+      for (let attempt = 0; attempt < 20 && star()?.disabled; attempt++) await act(async () => delay(10));
+      assert.equal(star()?.disabled, false);
+      await click(window, star());
+    };
+    await rateSecondWork();
     assert.equal([...editor().querySelectorAll('button')].some((button) => button.textContent === '평가 삭제'), false);
     await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.equal(secondWrites[0].workId, secondWorkId);
@@ -346,16 +354,25 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     await click(window, retryHistory());
     for (let attempt = 0; attempt < 20 && retryHistory(); attempt++) await act(async () => delay(10));
     if (retryHistory()) throw new Error('metadata retry control still visible');
-    await click(window, editor().querySelector('button[aria-label="3점"]'));
+    await rateSecondWork();
     await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
-    assert.deepEqual(secondWrites[1].readingSnapshot, { totalMs: 120_000, progressPercent: 90 });
-    assert.equal(secondWrites[1].readingSnapshotVersion, 2);
-    assert.equal(secondWrites[1].readingHistoryPartial, true);
-    await click(window, editor().querySelector('button[aria-label="3점"]'));
+    assert.equal(secondWrites[1].readingSnapshot, null);
+    assert.ok(secondWrites[1].fileIds.length > 0, 'work identity is known, while the raw history page chain is incomplete');
+    await act(async () => {
+      await hydrateRemoteReadingSessionsPageV12(ownerKey, [], firstPageCursor, null, true, false);
+      notifyReadingStatisticsServerCheck(ownerKey, Date.now(), false);
+      await delay(275);
+    });
+    await rateSecondWork();
+    await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.deepEqual(secondWrites[2].readingSnapshot, { totalMs: 120_000, progressPercent: 90 });
+    assert.equal(secondWrites[2].readingSnapshotVersion, 2);
+    assert.equal(secondWrites[2].readingHistoryPartial, true);
+    await rateSecondWork();
     await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '평가 삭제'));
     const expectedKeys = [JSON.stringify(['series', secondURL]), JSON.stringify(['kakao', pendingURL])];
     assert.deepEqual(secondWrites[0].platformWorkKeys, expectedKeys);
-    assert.deepEqual(secondWrites[2], { workId: secondWorkId, detailWorkId: secondWorkId, revision: 1, platformWorkKeys: expectedKeys, remove: true });
+    assert.deepEqual(secondWrites[3], { workId: secondWorkId, detailWorkId: secondWorkId, revision: 1, platformWorkKeys: expectedKeys, remove: true });
     assert.equal(committed.rating, 2);
     const hash = window.location.hash;
     await act(async () => root.render(null));
@@ -371,8 +388,12 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(window.location.hash, '#mypage/read');
     for (let attempt = 0; attempt < 20 && !visible(ratedLink); attempt++) await act(async () => delay(10));
     assert.ok(visible(ratedLink));
+    const beforeRatedHistory = historyReads;
     await click(window, visible(ratedLink));
-    await act(async () => delay(10));
+    for (let attempt = 0; attempt < 20
+      && (historyReads === beforeRatedHistory || editor().querySelector('button[aria-label="4.5점"]').disabled); attempt++) {
+      await act(async () => delay(10));
+    }
     const halfPoint = editor().querySelector('button[aria-label="4.5점"]');
     assert.equal(editor().querySelectorAll('[role="group"] button').length, 10);
     await click(window, halfPoint);
@@ -382,7 +403,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(visible('form'), null);
     assert.equal(writes.length, 1);
     assert.equal(writes[0].comment, draftComment);
-    assert.equal(writes[0].readingSnapshot.progressPercent, 80);
+    assert.equal(writes[0].readingSnapshot?.progressPercent, 80, JSON.stringify(writes[0]));
     await act(async () => { rejectFirst(new TypeError('connection lost')); });
     assert.ok(visible('[aria-label="별점 4.5점"]'));
     for (let attempt = 0; attempt < 30 && !visible('[role="alert"]'); attempt++) {
@@ -493,8 +514,8 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     const beforeRemountHistory = historyReads;
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
     await saveRatingWithPersonalTime('1분', beforeRemountHistory);
-    assert.equal(secondWrites.length, 5);
-    for (const request of secondWrites.slice(3)) {
+    assert.equal(secondWrites.length, 6);
+    for (const request of secondWrites.slice(4)) {
       assert.equal(request.rating, 3);
       assert.equal(request.readingSnapshot, null);
       assert.deepEqual(request.fileIds, []);

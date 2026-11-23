@@ -38,6 +38,7 @@ export type ReaderBootstrapTraceEvent = {
   auditProbe?: 'matched' | 'mismatch' | 'failed';
   fullScanReason?: ReadingStatisticsFullScanReason;
   publishedAudit?: boolean;
+  publishedBootstrap?: 'installed' | 'resumed' | 'fallback';
 };
 
 export type ReaderOpenPerformanceEvent = {

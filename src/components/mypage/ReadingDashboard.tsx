@@ -17,6 +17,7 @@ import {
 } from '../../lib/readingStatistics';
 import { hasPublishedBoundaryClockRisk, mergePublishedCalendarDays, publishedCalendarCovers } from '../../lib/readingRollupCalendar';
 import { readingRollupWeekForDay, type ReadingRollupActivity } from '../../lib/readingStatisticsRollup';
+import { requestReadingStatisticsRefresh } from '../../lib/readingStatisticsWake';
 
 type Props = {
   ownerKey: OwnerKey;
@@ -55,14 +56,16 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   const calendar = useMemo(() => publishedCalendar && !(currentData?.rawHistoryComplete
     && hasPublishedBoundaryClockRisk(currentData.sessions, publishedCalendar)) ? publishedCalendar : null,
   [currentData, publishedCalendar]);
-  const sessions = calendar && !currentData?.rawHistoryComplete ? null : currentData?.sessions;
+  const publishedTailReady = currentData?.tailComplete && calendar?.firstDay === currentData.published?.firstDay
+    && calendar?.lastDay === currentData.published?.lastDay;
+  const sessions = calendar && !currentData?.rawHistoryComplete && !publishedTailReady ? null : currentData?.sessions;
   const statistics = useMemo(() => {
     if (!calendar && (!currentData || currentData.error)) return null;
     const details = new Map<string, ReadingRollupActivity[]>();
     const summary = measureMyPageWork('dashboard-timeline', () => buildReadingStatistics(sessions ?? [], {}, undefined, {
       minimumMs: MIN_READING_STATISTICS_BLOCK_MS,
       onBlock: ({ session, ...activity }) => {
-        if (calendar && publishedCalendarCovers(calendar, activity.localDate)) return;
+        if (calendar && !currentData?.rawHistoryComplete && publishedCalendarCovers(calendar, activity.localDate)) return;
         const block = { ...activity, bookId: session.bookId, bookTitle: session.bookTitle, mode: session.mode,
           timezoneOffsetMinutes: session.timezoneOffsetMinutes };
         const day = details.get(block.localDate);
@@ -95,11 +98,17 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   const selectedWeek = calendar && publishedCalendarCovers(calendar, selectedDay) ? readingRollupWeekForDay(selectedDay) : null;
   const wantsDetails = Boolean(selectedWeek) && selectedTotalMs > 0;
   const week = useMyPageReadingWeek(ownerKey, selectedWeek, wantsDetails);
-  const selectedSessions = selectedWeek
+  const missingWeek = wantsDetails && week.data?.week === null;
+  const localDayFallback = missingWeek && currentData?.rawHistoryComplete;
+  const selectedSessions = selectedWeek && !localDayFallback
     ? week.data?.week?.activities.filter(({ localDate }) => localDate === selectedDay) ?? []
     : statistics?.details.get(selectedDay) ?? [];
-  const detailFailed = wantsDetails && (Boolean(week.error) || week.data?.week === null);
+  const detailFailed = wantsDetails && !localDayFallback && (Boolean(week.error) || missingWeek);
   const detailLoading = wantsDetails && !detailFailed && week.data === undefined;
+  const hasLocalPublication = Boolean(currentData?.published);
+  useEffect(() => {
+    if (missingWeek && hasLocalPublication) requestReadingStatisticsRefresh(ownerKey, true);
+  }, [hasLocalPublication, missingWeek, ownerKey]);
   const changeMonth = (offset: number) => {
     const next = new Date(year, monthIndex + offset, 1);
     setMonth(next);

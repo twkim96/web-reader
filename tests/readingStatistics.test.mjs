@@ -1208,6 +1208,27 @@ test('uses an in-memory document cursor past a full page ending in a malformed t
   assert.equal(mapPage.quarantinedDocuments[0].documentId, valid.sessionId);
 });
 
+test('a published timestamp floor is exclusive without inventing a Firestore document ID', async () => {
+  const floor = { seconds: 100, nanoseconds: 357 };
+  const startAfter = [];
+  const sdk = {
+    Timestamp,
+    collection: () => ({}), documentId: () => '__name__', orderBy: () => ({}),
+    startAfter: (...args) => { startAfter.push(args); return {}; },
+    endAt: () => ({}), startAt: () => assert.fail('must use the publication floor'),
+    limit: () => ({}), query: () => ({}),
+    getDocsFromServer: async () => ({ size: 0, docs: [] }),
+  };
+  const options = { timestampRangeOnly: true, publishedThrough: floor };
+  const initial = await getRemoteReadingSessionsPageV1({}, 'alice', null, 500, sdk, {}, options);
+  assert.deepEqual(startAfter[0], [new Timestamp(100, 357)]);
+  assert.equal(initial.nextCursor, null);
+  assert.equal(initial.fullHydrationCompleted, true);
+  const tail = { uploadedAtServerSeconds: 108, uploadedAtServerNanoseconds: 99, documentId: 'actual-tail' };
+  await getRemoteReadingSessionsPageV1({}, 'alice', tail, 500, sdk, {}, options);
+  assert.deepEqual(startAfter[1], [new Timestamp(108, 99), 'actual-tail']);
+});
+
 test('reports a successful first read when the malformed-cursor follow-up read fails', async () => {
   const valid = session({
     sessionId: 'bad-cursor-before-failure',

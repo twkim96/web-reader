@@ -7,7 +7,7 @@ import { APP_ID } from '../src/lib/appIdentity.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 import { computeReadingCalendarRollup, computeWeeklyReadingRollup, mergeReadingFileRollups } from '../src/lib/readingStatisticsRollup.ts';
 import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
-import { readPublishedReadingFiles, readPublishedReadingReportBooks } from '../src/server/readingRollupRead.ts';
+import { readPublishedReadingEvidenceInputs, readPublishedReadingFiles, readPublishedReadingReportBooks } from '../src/server/readingRollupRead.ts';
 import {
   claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, runReadingRollupCron, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
@@ -197,4 +197,31 @@ test('carry rejects an input that would need clock samples it no longer holds', 
   });
   assert.throws(() => addReadingRollupPage(carry, [tts], nextWeek), /older than the saved input/);
   assert.deepEqual(addReadingRollupPage(carry, [session('old', early)], nextWeek), carry);
+});
+
+test('legacy handoff publishes carry without granting review evidence compatibility', async () => {
+  const uid = 'legacy-carry-publication';
+  const sourceCutoff = Timestamp.fromMillis(Date.parse('2026-11-23T12:00:00Z'));
+  let time = sourceCutoff.toMillis();
+  const now = () => time;
+  const legacy = session('legacy', '2026-09-16T09:00:00Z', { completed: true, completionRoundNumber: 1,
+    completionConfirmedAtClient: Date.parse('2026-09-16T09:03:00Z') });
+  const weeks = weekStarts.slice(0, -1).map((start) => computeWeeklyReadingRollup([legacy], start));
+  const lease = await claimReadingRollup(db, uid, now);
+  await stageReadingRollupHandoff(db, lease, { weeks, nextWeek, sourceCutoff,
+    carry: createReadingRollupCarry([legacy], nextWeek), pilotTuesday: true, coversHistoryStart: true }, now);
+  await releaseReadingRollup(db, lease);
+  time = Date.parse('2026-11-26T09:10:00Z');
+  assert.equal((await runReadingRollupCron(db, { now })).published, 1);
+  const ref = jobRef(uid).collection('readingStatsRollupFilesV1').doc('current');
+  const payload = JSON.parse((await ref.get()).get('payload'));
+  assert.ok(payload.carry);
+  assert.equal(payload.evidenceCompatible, false);
+  assert.equal(await readPublishedReadingEvidenceInputs(db, uid), null);
+  delete payload.evidenceCompatible;
+  await ref.update({ payload: JSON.stringify(payload) });
+  assert.ok(await readPublishedReadingEvidenceInputs(db, uid), 'older carry payloads remain compatible');
+  payload.evidenceCompatible = true;
+  await ref.update({ payload: JSON.stringify(payload) });
+  assert.ok(await readPublishedReadingEvidenceInputs(db, uid));
 });

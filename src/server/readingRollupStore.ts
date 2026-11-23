@@ -104,14 +104,15 @@ function payload(value: unknown, maxKiB: number) {
 const jobPayload = (job: Job) => payload(job, 512);
 const fileTotalsRef = (ref: DocumentReference) => ref.collection('readingStatsRollupFilesV1').doc('current');
 
-function rollupFilePayload(files: ReadingFileRollup[], books: ReadingReportBook[] | null, carry?: ReadingRollupCarry) {
+function rollupFilePayload(files: ReadingFileRollup[], books: ReadingReportBook[] | null, carry?: ReadingRollupCarry, evidenceCompatible?: boolean) {
   const maxBytes = 768 * 1024;
+  const carryFields = carry ? { carry, evidenceCompatible: evidenceCompatible === true } : {};
   if (books) {
-    const withBooks = JSON.stringify({ files, books, ...(carry ? { carry } : {}) });
+    const withBooks = JSON.stringify({ files, books, ...carryFields });
     if (Buffer.byteLength(withBooks) <= maxBytes) return withBooks;
   }
   if (carry) {
-    const withCarry = JSON.stringify({ files, carry });
+    const withCarry = JSON.stringify({ files, ...carryFields });
     if (Buffer.byteLength(withCarry) <= maxBytes) return withCarry;
   }
   if (books && carry) {
@@ -261,7 +262,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const files = prior
       ? rollupFilePayload(mergeReadingFileRollups(prior.files, detail.files),
         prior.books && mergeReadingReportBooks(prior.books, summarizeReadingReportBooks(detail.activities)),
-        job.coversHistoryStart && job.evidenceCompatible ? job.carry : undefined)
+        job.coversHistoryStart ? job.carry : undefined, job.evidenceCompatible)
       : null;
     // Readers only ever see a manifest committed with its complete artifacts.
     await saveRollupJob(db, lease, now, (tx) => {

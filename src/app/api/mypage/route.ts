@@ -2,7 +2,7 @@ import { after } from 'next/server';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import {
-  hasPublishedReadingAuditCoverage, readPublishedReadingCalendar, readPublishedReadingFiles,
+  hasPublishedReadingAuditCoverage, readPublishedReadingBootstrap, readPublishedReadingCalendar, readPublishedReadingFiles,
   readPublishedReadingReportBooks, readPublishedReadingWeek,
 } from '../../../server/readingRollupRead';
 import { readingRollupWeekForDay } from '../../../lib/readingStatisticsRollup';
@@ -290,7 +290,7 @@ export async function GET(request: Request) {
     if (view === 'people') return fail(404);
     if (view === 'browse') return await publicBrowse(request, params);
     if (view === 'profile') return await publicProfile(getAdminFirestore(), params);
-    const rollupView = view === 'rollup-calendar' || view === 'rollup-week' || view === 'rollup-audit' || view === 'rollup-files' || view === 'rollup-books';
+    const rollupView = view === 'rollup-calendar' || view === 'rollup-week' || view === 'rollup-audit' || view === 'rollup-files' || view === 'rollup-books' || view === 'rollup-bootstrap';
     if (rollupView && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS !== '1') return fail(404);
     const uid = await authenticatedUid(request, timings && ((phase, elapsed) => {
       timings.push(`${phase};dur=${elapsed.toFixed(1)}`);
@@ -298,6 +298,7 @@ export async function GET(request: Request) {
     if (!uid) return fail(401);
     timing?.('auth');
     const db = getAdminFirestore();
+    if (view === 'rollup-bootstrap') return json({ bootstrap: await readPublishedReadingBootstrap(db, uid) });
     if (view === 'rollup-files') return json({ history: await readPublishedReadingFiles(db, uid) });
     if (view === 'rollup-books') {
       const firstDay = params.get('firstDay');

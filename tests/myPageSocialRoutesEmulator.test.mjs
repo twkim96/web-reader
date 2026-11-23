@@ -76,6 +76,7 @@ test('calendar endpoints expose only the authenticated owner’s complete public
 
   process.env[flag] = '0';
   assert.equal((await get(week('2026-11-16'), idToken)).status, 404);
+  assert.equal((await get({ view: 'rollup-bootstrap' }, idToken)).status, 404);
   process.env[flag] = '1';
   assert.equal((await get(week('2026-11-16'))).status, 401);
   assert.equal((await get(week('2026-11-17'), idToken)).status, 400);
@@ -89,6 +90,7 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   await manifest.set({ ...published, calendarTail: [{ weekStart: '2026-11-23', days: [recent] }] });
   const view = { view: 'rollup-calendar' };
   const audit = { view: 'rollup-audit' };
+  const bootstrap = { view: 'rollup-bootstrap' };
   const filesView = { view: 'rollup-files' };
   const filesRef = root.collection('readingStatsRollupFilesV1').doc('current');
   const files = [{ fileId: 'private-book', titles: ['칼바람'], lastReadAt: activity.startAt + activity.durationMs,
@@ -121,17 +123,34 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   assert.deepEqual(await ok(get(audit, idToken)), { covered: false });
   await manifest.update({ coversHistoryStart: true });
   assert.deepEqual(await ok(get(audit, idToken)), { covered: true });
+  assert.equal((await get(bootstrap)).status, 401);
+  assert.deepEqual(await ok(get({ ...bootstrap, uid }, otherToken)), { bootstrap: null });
+  assert.deepEqual(await ok(get(bootstrap, idToken)), { bootstrap: null });
+  const sourceThrough = Timestamp.fromMillis(Date.parse('2026-11-30T00:00:00Z'));
+  const carry = { sampleFloor: 0, sessions: [] };
+  const completeBooks = [{ ...books[0], ttsMs: 120_000 }];
+  await manifest.update({ sourceThrough });
+  await filesRef.update({ payload: JSON.stringify({ files, books: completeBooks, carry, evidenceCompatible: false }) });
+  assert.deepEqual(await ok(get(bootstrap, idToken)), { bootstrap: { calendar: full.calendar, files, books: completeBooks,
+    sourceThrough: { seconds: sourceThrough.seconds, nanoseconds: sourceThrough.nanoseconds }, carry } });
+  await filesRef.update({ payload });
+  assert.deepEqual(await ok(get(bootstrap, idToken)), { bootstrap: null });
   assert.deepEqual(await ok(get({ ...audit, uid }, otherToken)), { covered: false });
   assert.deepEqual(await ok(get({ ...view, uid }, otherToken)), { calendar: null });
   assert.deepEqual(await ok(get({ ...week('2026-11-16'), uid }, otherToken)), { week: null });
   assert.deepEqual(await ok(get(week('2026-11-16'), idToken)), { week: { weekStart: '2026-11-16', activities: [activity] } });
   assert.deepEqual(await ok(get(week('2026-11-30'), idToken)), { week: null });
+  assert.deepEqual(await ok(get(week('2026-11-23'), idToken)), { week: null });
+  assert.deepEqual(await ok(get({ view: 'rollup-books', firstDay: '2026-11-23', lastDay: '2026-11-23' }, idToken)), { report: null });
 
   // Publications written before inline tail support remain readable.
   await root.collection('readingStatsRollupWeeksV1').doc('2026-11-23').set({ payload: JSON.stringify({ weekStart: '2026-11-23', days: [recent] }) });
   await manifest.set(published);
   assert.deepEqual(await ok(get(view, idToken)), full);
   await calendar.delete();
+  await manifest.update({ sourceThrough, coversHistoryStart: true, calendarTail: [{ weekStart: '2026-11-23', days: [recent] }] });
+  await filesRef.update({ payload: JSON.stringify({ files, books: completeBooks, carry }) });
+  assert.deepEqual(await ok(get(bootstrap, idToken)), { bootstrap: null });
   assert.equal((await get(view, idToken)).status, 503);
   await manifest.update({ coversHistoryStart: true });
   assert.equal((await get(audit, idToken)).status, 503);

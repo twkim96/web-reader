@@ -15,6 +15,7 @@ import {
   shareReadingStatisticsExport,
 } from '../lib/readingStatisticsExportDelivery';
 import { useLocalReadingReportSessions } from '../hooks/useLocalReadingReportSessions';
+import { requestReadingStatisticsRefresh } from '../lib/readingStatisticsWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { useLocalReadingDate } from '../hooks/useLocalReadingDate';
 import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
@@ -94,7 +95,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
   const canReadRollup = open && visible && !isGuestOwner(ownerKey)
     && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1';
-  const local = useLocalReadingReportSessions(ownerKey, open && visible, canReadRollup);
+  const local = useLocalReadingReportSessions(ownerKey, open && visible, !isGuestOwner(ownerKey));
   useEffect(() => {
     if (open && visible) onRefresh();
   }, [onRefresh, open, visible]);
@@ -152,10 +153,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const calendar = useMemo(() => publishedCalendar && !(local?.rawHistoryComplete
     && hasPublishedBoundaryClockRisk(local.sessions, publishedCalendar)) ? publishedCalendar : null,
   [local, publishedCalendar]);
-  const waitingForRaw = canReadRollup && !local?.rawHistoryComplete;
+  const publishedTailReady = local?.tailComplete && publishedCalendar?.firstDay === local.published?.firstDay
+    && publishedCalendar?.lastDay === local.published?.lastDay;
+  const waitingForHistory = (canReadRollup || Boolean(local?.published)) && !local?.rawHistoryComplete && !publishedTailReady;
   // Until the first local receive is complete, archived slices stand on their
   // own. A partial raw snapshot may omit the sample used at the archive seam.
-  const sessions = calendar && waitingForRaw ? null : local?.sessions;
+  const sessions = calendar && waitingForHistory ? null : local?.sessions;
   const loading = !local && !calendar;
   const localReport = useMemo(() => prepareLocalReadingReport(sessions ?? []), [sessions]);
   const calendarDays = useMemo(() => mergePublishedCalendarDays(localReport.days, calendar), [localReport, calendar]);
@@ -174,7 +177,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     return null;
   }, [calendar, lifetimeMatches, lifetimeReport]);
   const exportDays = lifetimeArchive ? calendarDays : localReport.days;
-  const summary = sumReadingReportDays(range === 'all' && !waitingForRaw && !lifetimePending ? exportDays : calendarDays, rangeBounds);
   const calendarLastDay = calendar?.lastDay;
   const bookReportLastDay = lifetimeReport?.lastDay;
   const refreshCalendar = calendarQuery.refresh;
@@ -198,6 +200,15 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   }, [calendar, range, rangeBounds]);
   const needsRangeBooks = Boolean(selectedArchive?.hasActivity);
   const rangeQuery = useMyPageReadingRangeBooks(ownerKey, needsRangeBooks ? selectedArchive : null);
+  const missingWeek = needsRangeBooks && rangeQuery.data?.report === null;
+  const shouldRecoverPublication = Boolean(local?.published && missingWeek);
+  useEffect(() => {
+    if (shouldRecoverPublication) requestReadingStatisticsRefresh(ownerKey, true);
+  }, [ownerKey, shouldRecoverPublication]);
+  const localRangeFallback = missingWeek && local?.rawHistoryComplete;
+  const summaryDays = range === 'all' && !waitingForHistory && !lifetimePending ? exportDays
+    : localRangeFallback ? localReport.days : calendarDays;
+  const summary = sumReadingReportDays(summaryDays, rangeBounds);
   const archiveReport = useMemo(() => {
     if (range === 'all') return lifetimeArchive;
     if (!selectedArchive) return null;
@@ -206,11 +217,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   }, [lifetimeArchive, range, rangeQuery.data, selectedArchive]);
   const booksPending = range === 'all' ? lifetimePending : needsRangeBooks && !rangeQuery.error && rangeQuery.data === undefined;
   const booksUnavailable = !archiveReport && !booksPending
-    && (needsRangeBooks || (range === 'all' && Boolean(calendar?.days.length) && waitingForRaw));
+    && ((needsRangeBooks && !localRangeFallback) || (range === 'all' && Boolean(calendar?.days.length) && waitingForHistory));
   const books = useMemo(() => booksPending || booksUnavailable ? [] : localReport.books(rangeBounds, archiveReport),
     [archiveReport, booksPending, booksUnavailable, localReport, rangeBounds]);
 
-  const canExport = !loading && !waitingForRaw && sumReadingReportDays(exportDays).totalMs > 0
+  const canExport = !loading && !waitingForHistory && (!local?.published || Boolean(lifetimeArchive))
+    && sumReadingReportDays(exportDays).totalMs > 0
     && (!canReadRollup || Boolean(calendarQuery.data || calendarQuery.error))
     && !lifetimePending;
   const buildExport = () => createReadingStatisticsJsonExport(exportDays, localReport.books({}, lifetimeArchive));
@@ -333,7 +345,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
         <div data-reading-statistics-body="true" className={embedded ? 'mt-5 min-w-0' : 'min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5 sm:px-4 sm:py-3'}>
           {local?.error && <p role="status" className="mb-3 text-center text-xs opacity-70">이 기기의 독서 기록을 불러오지 못했습니다.</p>}
-          {waitingForRaw && calendar && <p role="status" className="mb-3 text-xs opacity-70">동기화를 마치면 최근 기록을 합산하고 JSON으로 저장할 수 있습니다.</p>}
+          {waitingForHistory && calendar && <p role="status" className="mb-3 text-xs opacity-70">동기화를 마치면 최근 기록을 합산하고 JSON으로 저장할 수 있습니다.</p>}
           {feedback && <p role="status" className="mb-3 text-center text-xs font-bold opacity-70">{feedback}</p>}
           {(syncHealth !== 'healthy' || quarantinedDocumentCount > 0) && (
             <div role="status" className="mb-3 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
