@@ -47,10 +47,14 @@ export const readingDayOutsidePublication = (range: Pick<PublishedReadingFiles, 
 );
 
 const DAY_MS = 86_400_000;
-const CALENDAR_WEEK_COUNT = 10;
+export const READING_CALENDAR_WEEK_COUNT = 10;
 const WEEK_MS = 7 * DAY_MS;
 
 export const readingRollupDayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+export const isReadingRollupHandoffWeekCount = (count: number) =>
+  Number.isInteger(count) && count >= READING_CALENDAR_WEEK_COUNT - 1
+    && (count + 1) % READING_CALENDAR_WEEK_COUNT === 0;
 
 export function readingRollupWeekForDay(day: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
@@ -229,7 +233,7 @@ export function getReadingFileTime(sessions: readonly ReadingSessionV1[], fileId
 }
 
 export function computeReadingCalendarRollup(weeks: readonly Pick<WeeklyReadingRollup, 'weekStart' | 'days'>[]): ReadingCalendarRollup {
-  if (weeks.length !== CALENDAR_WEEK_COUNT) {
+  if (weeks.length !== READING_CALENDAR_WEEK_COUNT) {
     throw new RangeError('Calendar rollup requires exactly 10 consecutive Mondays');
   }
   const ordered = Array.from(weeks, (week) => ({ week, monday: parseReadingRollupMonday(week?.weekStart) }))

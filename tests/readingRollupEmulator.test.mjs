@@ -7,7 +7,7 @@ import { APP_ID } from '../src/lib/appIdentity.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 import { computeReadingCalendarRollup, computeWeeklyReadingRollup, mergeReadingFileRollups } from '../src/lib/readingStatisticsRollup.ts';
 import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
-import { readPublishedReadingEvidenceInputs, readPublishedReadingFiles, readPublishedReadingReportBooks } from '../src/server/readingRollupRead.ts';
+import { readPublishedReadingBootstrap, readPublishedReadingEvidenceInputs, readPublishedReadingFiles, readPublishedReadingReportBooks } from '../src/server/readingRollupRead.ts';
 import {
   claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, runReadingRollupCron, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
@@ -199,21 +199,42 @@ test('carry rejects an input that would need clock samples it no longer holds', 
   assert.deepEqual(addReadingRollupPage(carry, [session('old', early)], nextWeek), carry);
 });
 
-test('legacy handoff publishes carry without granting review evidence compatibility', async () => {
+test('the first close publishes a backfilled calendar block and the regular block without granting legacy review compatibility', async () => {
   const uid = 'legacy-carry-publication';
   const sourceCutoff = Timestamp.fromMillis(Date.parse('2026-11-23T12:00:00Z'));
   let time = sourceCutoff.toMillis();
   const now = () => time;
   const legacy = session('legacy', '2026-09-16T09:00:00Z', { completed: true, completionRoundNumber: 1,
     completionConfirmedAtClient: Date.parse('2026-09-16T09:03:00Z') });
-  const weeks = weekStarts.slice(0, -1).map((start) => computeWeeklyReadingRollup([legacy], start));
+  const oldest = session('older-than-nine-weeks', '2026-08-10T09:00:00Z');
+  const candidates = Array.from({ length: 19 }, (_, i) => {
+    const start = new Date(first + (i - 10) * weekMs).toISOString().slice(0, 10);
+    return computeWeeklyReadingRollup([oldest, legacy], start);
+  });
   const lease = await claimReadingRollup(db, uid, now);
-  await stageReadingRollupHandoff(db, lease, { weeks, nextWeek, sourceCutoff,
-    carry: createReadingRollupCarry([legacy], nextWeek), pilotTuesday: true, coversHistoryStart: true }, now);
+  const seed = { weeks: candidates, nextWeek, sourceCutoff,
+    carry: createReadingRollupCarry([oldest, legacy], nextWeek), pilotTuesday: true,
+    coversHistoryStart: rollupCoversHistoryStart([oldest, legacy], candidates[0].weekStart) };
+  await assert.rejects(stageReadingRollupHandoff(db, lease, { ...seed, weeks: candidates.slice(1) }, now), /10 consecutive/);
+  assert.equal(await stageReadingRollupHandoff(db, lease, seed, now), 'staged');
+  assert.equal(await stageReadingRollupHandoff(db, lease, seed, now), 'already-staged');
   await releaseReadingRollup(db, lease);
+  const job = jobRef(uid);
+  const calendars = job.collection('readingStatsRollupCalendarsV1');
+  const earlier = await calendars.doc(candidates[9].weekStart).get();
+  assert.deepEqual(JSON.parse(earlier.get('payload')), computeReadingCalendarRollup(candidates.slice(0, 10)));
+  assert.equal(await readPublishedReadingBootstrap(db, uid), null);
+  assert.equal((await calendars.doc(nextWeek).get()).exists, false);
+
   time = Date.parse('2026-11-26T09:10:00Z');
   assert.equal((await runReadingRollupCron(db, { now })).published, 1);
-  const ref = jobRef(uid).collection('readingStatsRollupFilesV1').doc('current');
+  assert.equal((await calendars.doc(nextWeek).get()).exists, true);
+  const bootstrap = await readPublishedReadingBootstrap(db, uid);
+  assert.equal(bootstrap.calendar.firstDay, candidates[0].weekStart);
+  assert.equal(bootstrap.calendar.lastDay, '2026-11-22');
+  assert.deepEqual(bootstrap.calendar.days.map(({ localDate, totalMs }) => [localDate, totalMs]), [['2026-08-10', 180_000]]);
+  assert.equal(bootstrap.books[0].screenMs, 180_000);
+  const ref = job.collection('readingStatsRollupFilesV1').doc('current');
   const payload = JSON.parse((await ref.get()).get('payload'));
   assert.ok(payload.carry);
   assert.equal(payload.evidenceCompatible, false);

@@ -4,7 +4,7 @@ import { APP_ID } from '../lib/appIdentity.ts';
 import { isReadingSessionV1, toReadingSessionPayload } from '../lib/readingStatistics.ts';
 import { mergeReadingReportBooks, parseReadingReportBooks, summarizeReadingReportBooks, type ReadingReportBook } from '../lib/readingStatisticsReport.ts';
 import {
-  computeReadingCalendarRollup, computeWeeklyReadingRollup, parseReadingRollupMonday,
+  computeReadingCalendarRollup, computeWeeklyReadingRollup, isReadingRollupHandoffWeekCount, parseReadingRollupMonday, READING_CALENDAR_WEEK_COUNT,
   mergeReadingFileRollups, parseReadingFileRollups, selectWeeklyReadingRollupInputs, type ReadingFileRollup, type WeeklyReadingRollup,
 } from '../lib/readingStatisticsRollup.ts';
 import {
@@ -132,7 +132,7 @@ function parseFilePayload(payload: string) {
   catch { return null; }
 }
 
-/** Install nine unpublished weeks and the inputs for their first regular close. */
+/** Stage previous calendar blocks and the nine weeks awaiting their first regular close. */
 export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, seed: {
   weeks: WeeklyReadingRollup[];
   nextWeek: string;
@@ -143,19 +143,30 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   evidenceCompatible?: boolean;
 }, now = Date.now) {
   const { nextWeek, sourceCutoff, carry, pilotTuesday } = seed;
-  const group = seed.weeks.map(({ weekStart, days }) => ({ weekStart, days }));
-  computeReadingCalendarRollup([...group, { weekStart: nextWeek, days: [] }]);
-  if (group.some(({ weekStart }, i) => group[0].weekStart !== date(Date.parse(weekStart) - i * week))
-    || date(Date.parse(group.at(-1)!.weekStart) + week) !== nextWeek) throw new TypeError('Invalid rollup handoff order.');
+  const staged = seed.weeks.map(({ weekStart, days }) => ({ weekStart, days }));
+  if (!isReadingRollupHandoffWeekCount(staged.length)) {
+    throw new RangeError('Handoff requires 10 consecutive weeks including the first regular close, with optional earlier 10-week blocks.');
+  }
+  const firstWeek = staged[0].weekStart;
+  const firstMonday = parseReadingRollupMonday(firstWeek);
+  if (staged.some(({ weekStart }, i) => weekStart !== date(firstMonday + i * week))
+    || nextWeek !== date(firstMonday + staged.length * week)) throw new TypeError('Invalid rollup handoff order.');
+  const earlierWeeks = staged.length + 1 - READING_CALENDAR_WEEK_COUNT;
+  const group = staged.slice(earlierWeeks);
+  const calendars: { lastWeek: string; payload: string }[] = [];
+  for (let i = 0; i < earlierWeeks; i += READING_CALENDAR_WEEK_COUNT) {
+    const block = computeReadingCalendarRollup(staged.slice(i, i + READING_CALENDAR_WEEK_COUNT));
+    calendars.push({ lastWeek: block.weekStarts[0], payload: payload(block, 128) });
+  }
   const slot = pilotTuesday ? 1 : createHash('sha256').update(lease.uid).digest().readUInt32BE() % 6;
   const due = dueAt(nextWeek, slot);
   const job: Job = {
-    firstWeek: group[0].weekStart, nextWeek, slot, closeAt: stamp(Timestamp.fromMillis(due).valueOf() > sourceCutoff.valueOf()
+    firstWeek, nextWeek, slot, closeAt: stamp(Timestamp.fromMillis(due).valueOf() > sourceCutoff.valueOf()
       ? Timestamp.fromMillis(due) : sourceCutoff),
     // Replay one day at the seam because the Mac used document createTime and
     // regular uploads use uploadedAtServer. Session IDs make the replay idempotent.
     sourceAfter: stamp(Timestamp.fromMillis(sourceCutoff.toMillis() - day)), cursor: null, scanned: false,
-    carry, group, lastCalendarWeek: null,
+    carry, group, lastCalendarWeek: calendars.at(-1)?.lastWeek ?? null,
   };
   const ref = jobs(db).doc(lease.uid);
   const seedPayload = jobPayload(job);
@@ -183,6 +194,7 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
       return 'already-staged';
     }
     for (const { weekStart, payload } of weeks) tx.create(ref.collection('readingStatsRollupWeeksV1').doc(weekStart), { payload });
+    for (const { lastWeek, payload } of calendars) tx.create(ref.collection('readingStatsRollupCalendarsV1').doc(lastWeek), { payload });
     if (files) tx.create(fileTotalsRef(ref), { throughWeek: weeks.at(-1)!.weekStart, payload: files });
     tx.create(ref, { payload: proposed, dueAt: due, seedId });
     return 'staged';
@@ -243,7 +255,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const detail = computeWeeklyReadingRollup(selectWeeklyReadingRollupInputs(job.carry.sessions, closed), closed);
     const detailPayload = payload(detail, 256);
     const group = [...job.group, { weekStart: closed, days: detail.days }];
-    const calendarPayload = group.length === 10 ? payload(computeReadingCalendarRollup(group), 128) : null;
+    const calendarPayload = group.length === READING_CALENDAR_WEEK_COUNT ? payload(computeReadingCalendarRollup(group), 128) : null;
     const nextWeek = date(Date.parse(closed) + week);
     const nextDue = dueAt(nextWeek, job.slot);
     const previousClose = new Timestamp(...job.closeAt);

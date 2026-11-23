@@ -14,6 +14,7 @@ import {
 } from '../src/lib/readingStatistics.ts';
 import {
   computeWeeklyReadingRollup,
+  isReadingRollupHandoffWeekCount,
   parseReadingRollupMonday,
   selectWeeklyReadingRollupInputs,
 } from '../src/lib/readingStatisticsRollup.ts';
@@ -227,8 +228,9 @@ async function main() {
   }
   const handoff = values.handoff;
   const pilotTuesday = values['pilot-tuesday'];
-  if ((pilotTuesday && !handoff) || (handoff && parseReadingRollupMonday(throughWeek) - parseReadingRollupMonday(firstWeek) !== 8 * weekMs)) {
-    throw new Error('--handoff requires nine consecutive weeks; --pilot-tuesday is only valid with --handoff.');
+  if (pilotTuesday && !handoff) throw new Error('--pilot-tuesday is only valid with --handoff.');
+  if (handoff && !isReadingRollupHandoffWeekCount(1 + (parseReadingRollupMonday(throughWeek) - parseReadingRollupMonday(firstWeek)) / weekMs)) {
+    throw new Error('--handoff requires 9 consecutive weeks preceded by zero or more complete 10-week blocks.');
   }
   process.umask(0o077);
   mkdirSync(dirname(resolve(values.state)), { recursive: true, mode: 0o700 });
