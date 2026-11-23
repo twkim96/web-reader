@@ -72,23 +72,45 @@ test('resumes from a durable cursor, keeps the cutoff, and shares the daily cap 
   assert.deepEqual(calls, [null, 'old', 'z-late']);
 });
 
-test('a partial shared reservation keeps a full remote page resumable', async (t) => {
+test('the last available Mac read keeps a full remote page resumable', async (t) => {
   const db = openBackfillState(':memory:');
   t.after(() => db.close());
   const source = [entry('first'), entry('second')];
   const calls = [];
   const result = await stageReadingStatisticsBackfill(db, {
-    project: 'demo', uid: 'shared-limit', firstWeek: week, throughWeek: week, dailyReads: 2,
-    currentTime: () => cutoff, reserveSharedReads: async () => 1,
+    project: 'demo', uid: 'last-read', firstWeek: week, throughWeek: week, dailyReads: 1,
+    currentTime: () => cutoff,
     async readPage(cursor, limit) {
       calls.push([cursor, limit]);
       return { readTime: cutoffTimestamp, documents: source.slice(0, limit) };
     },
   });
   assert.equal(result.status, 'reading');
+  assert.equal(result.reservedReadsToday, 1);
   assert.deepEqual(calls, [[null, 1]]);
   assert.equal(db.prepare('SELECT cursor FROM jobs').get().cursor, 'first');
   assert.equal(db.prepare('SELECT COUNT(*) AS size FROM weeks').get().size, 0);
+});
+
+test('Mac backfill reserves no page shortly before the Pacific reset', async (t) => {
+  const db = openBackfillState(':memory:');
+  t.after(() => db.close());
+  const reset = Date.parse('2026-11-25T08:00:00Z');
+  let now = reset - 180_000;
+  let reads = 0;
+  const input = {
+    project: 'demo', uid: 'before-reset', firstWeek: week, throughWeek: week,
+    currentTime: () => now,
+    async readPage() {
+      reads++;
+      return { documents: [], readTime: Timestamp.fromMillis(now) };
+    },
+  };
+  assert.equal((await stageReadingStatisticsBackfill(db, input)).reservedReadsToday, 0);
+  assert.equal(reads, 0);
+  now = reset;
+  assert.equal((await stageReadingStatisticsBackfill(db, input)).status, 'complete');
+  assert.equal(reads, 1);
 });
 
 test('blocks a changed or malformed page without re-reading it or staging a partial week', async (t) => {

@@ -29,7 +29,6 @@ type WeekSummary = Pick<WeeklyReadingRollup, 'weekStart' | 'days'>;
 type Job = {
   firstWeek: string;
   nextWeek: string;
-  slot: number;
   sourceAfter: Stamp;
   closeAt: Stamp;
   cursor: Cursor | null;
@@ -90,9 +89,18 @@ export async function reserveReadingRollupReads(db: Firestore, lease: Lease, req
   });
 }
 
-function dueAt(weekStart: string, slot: number) {
-  // Monday at 18:00 KST precedes the end of Sunday at the largest westward offset.
-  return parseReadingRollupMonday(weekStart) + week + Math.max(14 * hour, slot * day + 9 * hour);
+function weeklyClose(weekStart: string) {
+  return parseReadingRollupMonday(weekStart) + week + day + 9 * hour;
+}
+
+const accountHash = (uid: string) => createHash('sha256').update(uid).digest().readUInt32BE();
+
+function queueOrder(close: number, hash: number, pilot = false) {
+  // Due keys lie within the final millisecond before the common cutoff. The
+  // integer clock sees them all at the cutoff, using the existing dueAt index.
+  const lanes = 2_048;
+  const priority = pilot ? 1 : 2 + hash % (lanes - 2);
+  return close - 1 + priority / lanes;
 }
 
 function payload(value: unknown, maxKiB: number) {
@@ -158,11 +166,11 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
     const block = computeReadingCalendarRollup(staged.slice(i, i + READING_CALENDAR_WEEK_COUNT));
     calendars.push({ lastWeek: block.weekStarts[0], payload: payload(block, 128) });
   }
-  const slot = pilotTuesday ? 1 : createHash('sha256').update(lease.uid).digest().readUInt32BE() % 6;
-  const due = dueAt(nextWeek, slot);
+  const hash = accountHash(lease.uid);
+  const close = weeklyClose(nextWeek);
   const job: Job = {
-    firstWeek, nextWeek, slot, closeAt: stamp(Timestamp.fromMillis(due).valueOf() > sourceCutoff.valueOf()
-      ? Timestamp.fromMillis(due) : sourceCutoff),
+    firstWeek, nextWeek, closeAt: stamp(Timestamp.fromMillis(close).valueOf() > sourceCutoff.valueOf()
+      ? Timestamp.fromMillis(close) : sourceCutoff),
     // Replay one day at the seam because the Mac used document createTime and
     // regular uploads use uploadedAtServer. Session IDs make the replay idempotent.
     sourceAfter: stamp(Timestamp.fromMillis(sourceCutoff.toMillis() - day)), cursor: null, scanned: false,
@@ -184,7 +192,16 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
     await requireLease(db, tx, lease, now);
     const existing = await tx.get(ref);
     if (existing.exists) {
-      if (existing.get('seedId') !== seedId) throw new Error('A different reading rollup handoff already exists.');
+      const saved = existing.get('seedId');
+      if (saved !== seedId) {
+        const slot = pilotTuesday ? 1 : hash % 6;
+        const priorClose = parseReadingRollupMonday(nextWeek) + week + Math.max(14 * hour, slot * day + 9 * hour);
+        const legacySeed = { firstWeek, nextWeek, slot, closeAt: stamp(Timestamp.fromMillis(priorClose).valueOf() > sourceCutoff.valueOf()
+          ? Timestamp.fromMillis(priorClose) : sourceCutoff),
+        sourceAfter: job.sourceAfter, cursor: null, scanned: false, carry, group, lastCalendarWeek: job.lastCalendarWeek };
+        const legacyId = createHash('sha256').update(jobPayload(legacySeed)).update(JSON.stringify(weeks)).digest('hex');
+        if (saved !== legacyId) throw new Error('A different reading rollup handoff already exists.');
+      }
       if (files && (JSON.parse(existing.get('payload')) as Job).nextWeek === nextWeek) {
         const existingFiles = await tx.get(fileTotalsRef(ref));
         if (!existingFiles.exists || !parseFilePayload(existingFiles.get('payload'))?.books) {
@@ -196,7 +213,7 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
     for (const { weekStart, payload } of weeks) tx.create(ref.collection('readingStatsRollupWeeksV1').doc(weekStart), { payload });
     for (const { lastWeek, payload } of calendars) tx.create(ref.collection('readingStatsRollupCalendarsV1').doc(lastWeek), { payload });
     if (files) tx.create(fileTotalsRef(ref), { throughWeek: weeks.at(-1)!.weekStart, payload: files });
-    tx.create(ref, { payload: proposed, dueAt: due, seedId });
+    tx.create(ref, { payload: proposed, dueAt: queueOrder(close, hash, pilotTuesday), seedId });
     return 'staged';
   });
 }
@@ -214,6 +231,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
   const saved = snapshot.get('payload') as string;
   if (!saved || !(snapshot.get('dueAt') <= now())) return 'skipped';
   let job = JSON.parse(saved) as Job;
+  if (new Timestamp(...job.closeAt).valueOf() > Timestamp.fromMillis(now()).valueOf()) return 'skipped';
   const source = db.collection(`${root}/users/${lease.uid}/libraries/local/readingStatsV1`);
   try {
     while (!job.scanned && now() < stopAt) {
@@ -257,9 +275,9 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const group = [...job.group, { weekStart: closed, days: detail.days }];
     const calendarPayload = group.length === READING_CALENDAR_WEEK_COUNT ? payload(computeReadingCalendarRollup(group), 128) : null;
     const nextWeek = date(Date.parse(closed) + week);
-    const nextDue = dueAt(nextWeek, job.slot);
+    const nextCloseTime = weeklyClose(nextWeek);
     const previousClose = new Timestamp(...job.closeAt);
-    const nextClose = Timestamp.fromMillis(nextDue);
+    const nextClose = Timestamp.fromMillis(nextCloseTime);
     delete job.evidenceSeedThrough;
     job = {
       ...job, nextWeek, sourceAfter: job.closeAt, cursor: null, scanned: false,
@@ -287,7 +305,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         calendarTail: job.group,
         coversHistoryStart: job.coversHistoryStart === true,
       });
-      tx.update(ref, { payload: next, dueAt: nextDue });
+      tx.update(ref, { payload: next, dueAt: queueOrder(nextCloseTime, accountHash(lease.uid)) });
     });
     return 'published';
   } catch (error) {

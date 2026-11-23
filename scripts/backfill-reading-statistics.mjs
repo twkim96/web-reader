@@ -20,11 +20,13 @@ import {
 } from '../src/lib/readingStatisticsRollup.ts';
 import { createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
 import {
-  claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, stageReadingRollupHandoff,
+  claimReadingRollup, releaseReadingRollup, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
 
 const weekMs = 7 * 86_400_000;
 const pageLimit = 100;
+const macDailyReads = 10_000;
+const quotaResetBufferMs = 5 * 60_000;
 const maxDraftBytes = 256 * 1024;
 const quotaDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Los_Angeles', dateStyle: 'short' });
 const isoDate = (time) => new Date(time).toISOString().slice(0, 10);
@@ -84,8 +86,8 @@ function readCutoff({ cutoff, cutoff_submillis: remainder }) {
 
 /** Read only the fixed source generation; store a page and its cursor together. */
 export async function stageReadingStatisticsBackfill(db, {
-  project, uid, firstWeek, throughWeek, readPage, dailyReads = 1000, dailyWeeks = 5,
-  currentTime = Date.now, reserveSharedReads,
+  project, uid, firstWeek, throughWeek, readPage, dailyReads = macDailyReads, dailyWeeks = 5,
+  currentTime = Date.now,
 }) {
   const first = parseReadingRollupMonday(firstWeek);
   const through = parseReadingRollupMonday(throughWeek);
@@ -109,14 +111,14 @@ export async function stageReadingStatisticsBackfill(db, {
   while (quotaDate.format(currentTime()) === startDay) {
     const state = job();
     if (state.ingested || state.blocked_reason) break;
-    const reserved = atomic(db, () => {
+    const limit = atomic(db, () => {
+      const now = currentTime();
+      if (quotaDate.format(now) !== startDay || quotaDate.format(now + quotaResetBufferMs) !== startDay) return 0;
       initBudget(startDay);
       const amount = Math.max(0, Math.min(pageLimit, dailyReads - getBudget(startDay).reads));
       db.prepare('UPDATE budgets SET reads = reads + ? WHERE project = ? AND day = ?').run(amount, project, startDay);
       return amount;
     });
-    if (reserved === 0) break;
-    const limit = reserveSharedReads ? await reserveSharedReads(reserved) : reserved;
     if (limit === 0) break;
     // Reservations are conservative, including when the final or failed page is shorter.
     const { documents, readTime } = await readPage(state.cursor, limit);
@@ -209,7 +211,7 @@ async function main() {
     handoff: { type: 'boolean', default: false },
     'pilot-tuesday': { type: 'boolean', default: false },
     state: { type: 'string', default: join(homedir(), '.local', 'state', 'web-reader', 'statistics-backfill.sqlite') },
-    'daily-reads': { type: 'string', default: '1000' },
+    'daily-reads': { type: 'string', default: String(macDailyReads) },
     'daily-weeks': { type: 'string', default: '5' },
   } });
   const { project, uid } = values;
@@ -218,9 +220,9 @@ async function main() {
   const dailyReads = Number(values['daily-reads']);
   const dailyWeeks = Number(values['daily-weeks']);
   if (!project || !/^[a-z0-9-]+$/.test(project) || !uid || !/^[A-Za-z0-9_-]{1,128}$/.test(uid)
-    || !firstWeek || !throughWeek || !Number.isInteger(dailyReads) || dailyReads < 1 || dailyReads > 5000
+    || !firstWeek || !throughWeek || !Number.isInteger(dailyReads) || dailyReads < 1 || dailyReads > macDailyReads
     || !Number.isInteger(dailyWeeks) || dailyWeeks < 1 || dailyWeeks > 9) {
-    throw new Error('Provide --project, --uid, --first-week and --through-week. Daily limits: 1–5000 reads and 1–9 weeks.');
+    throw new Error(`Provide --project, --uid, --first-week and --through-week. Daily limits: 1–${macDailyReads} reads and 1–9 weeks.`);
   }
   const emulator = process.env.FIRESTORE_EMULATOR_HOST;
   if (!emulator && (!values['confirm-live-read'] || project.startsWith('demo-'))) {
@@ -239,19 +241,11 @@ async function main() {
   const db = getFirestore(app);
   let lease;
   try {
-    if (handoff) {
-      lease = await claimReadingRollup(db, uid);
-      if (!lease) {
-        console.log(JSON.stringify({ status: 'busy' }));
-        return;
-      }
-    }
     const stateProject = emulator ? `emulator:${emulator}:${project}` : project;
     const source = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
     const result = await stageReadingStatisticsBackfill(state, {
       project: stateProject,
       uid, firstWeek, throughWeek, dailyReads, dailyWeeks,
-      reserveSharedReads: lease ? (limit) => reserveReadingRollupReads(db, lease, limit) : undefined,
       async readPage(cursor, limit) {
         const ordered = source.orderBy(FieldPath.documentId());
         const page = await (cursor ? ordered.startAfter(cursor) : ordered).limit(limit).get();
@@ -266,8 +260,12 @@ async function main() {
         };
       },
     });
-    const saved = lease && result.status === 'complete' ? await stageReadingRollupHandoff(db, lease,
-      loadHandoff(state, stateProject, uid, firstWeek, isoDate(Date.parse(throughWeek) + weekMs), pilotTuesday)) : undefined;
+    let saved;
+    if (handoff && result.status === 'complete') {
+      const seed = loadHandoff(state, stateProject, uid, firstWeek, isoDate(Date.parse(throughWeek) + weekMs), pilotTuesday);
+      lease = await claimReadingRollup(db, uid);
+      saved = lease ? await stageReadingRollupHandoff(db, lease, seed) : 'busy';
+    }
     console.log(JSON.stringify({ ...result, handoff: saved }));
     if (result.status === 'blocked') process.exitCode = 1;
   } finally {

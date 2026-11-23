@@ -66,7 +66,7 @@ function session(sessionId, started, fields = {}) {
   };
 }
 
-test('Mac and Cron contend for an account lease and share the Pacific-day source quota', async () => {
+test('rollup writers share an account lease and Cron reservations share the Pacific-day quota', async () => {
   let time = Date.parse('2026-12-10T10:00:00Z');
   const now = () => time;
   const [left, right] = await Promise.all([
@@ -90,6 +90,51 @@ test('Mac and Cron contend for an account lease and share the Pacific-day source
   assert.equal((await quotaRef('2026-12-11').get()).get('sourceReads'), 10);
   await releaseReadingRollup(db, renewed);
   await releaseReadingRollup(db, other);
+});
+
+test('same-week accounts become due together and exhausted Cron budget defers the rest in queue order', async () => {
+  const closeWeek = '2026-07-13';
+  const closesAt = Date.parse('2026-07-21T09:00:00Z');
+  let time = closesAt - 1;
+  const now = () => time;
+  const seed = {
+    weeks: Array.from({ length: 9 }, (_, i) => computeWeeklyReadingRollup([],
+      new Date(Date.parse(closeWeek) - (9 - i) * weekMs).toISOString().slice(0, 10))),
+    nextWeek: closeWeek, sourceCutoff: Timestamp.fromMillis(time - 86_400_000), carry: createReadingRollupCarry([], closeWeek),
+  };
+  const accounts = ['queue-alpha', 'queue-bravo', 'queue-pilot'];
+  for (const uid of accounts) {
+    const lease = await claimReadingRollup(db, uid, now);
+    await stageReadingRollupHandoff(db, lease, { ...seed, pilotTuesday: uid === 'queue-pilot' }, now);
+    await releaseReadingRollup(db, lease);
+  }
+  const queue = await db.collection(`${root}/readingStatsRollupJobsV1`)
+    .where('dueAt', '>', time).where('dueAt', '<=', closesAt).orderBy('dueAt').get();
+  assert.equal(queue.size, 3);
+  const [pilot, first, second] = queue.docs;
+  assert.equal(pilot.id, 'queue-pilot');
+  assert.notEqual(first.get('dueAt'), second.get('dueAt'));
+  assert.ok(queue.docs.every(doc => JSON.parse(doc.get('payload')).closeAt[0] === closesAt / 1000));
+  assert.deepEqual(await runReadingRollupCron(db, { now }), {});
+
+  const published = (doc) => doc.ref.collection('readingStatsRollupManifestsV1').doc('current').get();
+  time = closesAt;
+  await quotaRef('2026-07-21').set({ sourceReads: 1900 });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1, budget: 1 });
+  assert.equal((await published(pilot)).exists, true);
+  assert.equal((await published(first)).exists, false);
+  assert.equal((await published(second)).exists, false);
+
+  time += 86_400_000;
+  await quotaRef('2026-07-22').set({ sourceReads: 1900 });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1, budget: 1 });
+  assert.equal((await published(first)).exists, true);
+  assert.equal((await published(second)).exists, false);
+  time += 86_400_000;
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1 });
+  assert.equal((await published(second)).get('sourceThrough').toMillis(), closesAt);
+  // The fixture's next weeks are outside the scope of the remaining tests.
+  await Promise.all(queue.docs.map(({ ref }) => ref.delete()));
 });
 
 test('a budget pause keeps the source cursor and exposes the first calendar only with all ten weeks', async () => {
