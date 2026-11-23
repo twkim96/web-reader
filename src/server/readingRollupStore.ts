@@ -8,8 +8,8 @@ import {
   mergeReadingFileRollups, parseReadingFileRollups, selectWeeklyReadingRollupInputs, type ReadingFileRollup, type WeeklyReadingRollup,
 } from '../lib/readingStatisticsRollup.ts';
 import {
-  addReadingRollupPage, createReadingRollupCarry, preservesClosedReadingAllocation, rollupCanUseFileEvidence,
-  rollupCoversHistoryStart, type ReadingRollupCarry,
+  addReadingRollupPage, closedReadingAllocationDigest, createReadingRollupCarry, rollupCanUseFileEvidence,
+  rollupCoversHistoryStart, sortReadingRollupCarry, type ReadingRollupCarry,
 } from './readingRollupInputs.ts';
 
 const hour = 3_600_000;
@@ -35,6 +35,7 @@ type Job = {
   cursor: Cursor | null;
   scanned: boolean;
   carry: ReadingRollupCarry;
+  closedAllocation?: { sessionCount: number; digest: string };
   group: WeekSummary[];
   lastCalendarWeek: string | null;
   coversHistoryStart?: boolean;
@@ -235,6 +236,13 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
   if (new Timestamp(...job.closeAt).valueOf() > Timestamp.fromMillis(now()).valueOf()) return 'skipped';
   const source = db.collection(`${root}/users/${lease.uid}/libraries/local/readingStatsV1`);
   try {
+    const protectedCount = job.closedAllocation?.sessionCount ?? job.carry.sessions.length;
+    const protectedIds = new Set(job.carry.sessions.slice(0, protectedCount).map(({ sessionId }) => sessionId));
+    // Older checkpoints already checked the allocation after every saved page.
+    job.closedAllocation ??= {
+      sessionCount: protectedCount,
+      digest: closedReadingAllocationDigest(job.carry, job.nextWeek, protectedIds),
+    };
     while (!job.scanned && now() < stopAt) {
       const limit = await reserveReadingRollupReads(db, lease, pageSize, now);
       if (limit === 0) return 'budget';
@@ -249,16 +257,11 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         }
         return toReadingSessionPayload(data);
       });
-      let updatedCarry: ReadingRollupCarry;
-      try { updatedCarry = addReadingRollupPage(job.carry, sessions, job.nextWeek); }
+      try { job.carry = addReadingRollupPage(job.carry, sessions, job.nextWeek); }
       catch (error) {
         if (error instanceof RangeError) throw new InvalidRollupInput('unsupported-source-boundary');
         throw error;
       }
-      if (!preservesClosedReadingAllocation(job.carry, updatedCarry, job.nextWeek)) {
-        throw new InvalidRollupInput('changed-closed-week-allocation');
-      }
-      job.carry = updatedCarry;
       if (job.coversHistoryStart && !rollupCoversHistoryStart(sessions, job.firstWeek)) job.coversHistoryStart = false;
       if (job.evidenceCompatible) {
         const seedThrough = job.evidenceSeedThrough && new Timestamp(...job.evidenceSeedThrough);
@@ -276,7 +279,11 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     if (!job.scanned || now() >= stopAt) return 'pending';
 
     const closed = job.nextWeek;
-    const detail = computeWeeklyReadingRollup(selectWeeklyReadingRollupInputs(job.carry.sessions, closed), closed);
+    const carry = sortReadingRollupCarry(job.carry);
+    if (closedReadingAllocationDigest(carry, closed, protectedIds) !== job.closedAllocation.digest) {
+      throw new InvalidRollupInput('changed-closed-week-allocation');
+    }
+    const detail = computeWeeklyReadingRollup(selectWeeklyReadingRollupInputs(carry.sessions, closed), closed);
     const detailPayload = payload(detail, 256);
     const group = [...job.group, { weekStart: closed, days: detail.days }];
     const calendarPayload = group.length === READING_CALENDAR_WEEK_COUNT ? payload(computeReadingCalendarRollup(group), 128) : null;
@@ -285,10 +292,11 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const previousClose = new Timestamp(...job.closeAt);
     const nextClose = Timestamp.fromMillis(nextCloseTime);
     delete job.evidenceSeedThrough;
+    delete job.closedAllocation;
     job = {
       ...job, nextWeek, sourceAfter: job.closeAt, cursor: null, scanned: false,
       closeAt: nextClose.valueOf() > previousClose.valueOf() ? stamp(nextClose) : job.closeAt,
-      carry: createReadingRollupCarry(job.carry.sessions, nextWeek),
+      carry: createReadingRollupCarry(carry.sessions, nextWeek),
       group: calendarPayload ? [] : group, lastCalendarWeek: calendarPayload ? closed : job.lastCalendarWeek,
     };
     const next = jobPayload(job);

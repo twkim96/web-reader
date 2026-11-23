@@ -229,6 +229,45 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});
 });
 
+test('late records can use a clock sample on a later page after a budget pause', async () => {
+  const uid = 'weekly-late-clock-resume';
+  const sourceCutoff = Timestamp.fromDate(new Date('2026-11-23T08:00:00Z'));
+  let time = sourceCutoff.toMillis();
+  const now = () => time;
+  const frozen = session('z-frozen', '2026-11-15T12:00:00Z', { deviceId: 'other-device' });
+  const late = session('late-sunday', '2026-11-15T14:00:00Z', { timezoneOffsetMinutes: -540 });
+  const monday = session('monday-clock', '2026-11-16T01:00:00Z', {
+    timezoneOffsetMinutes: -540, clockOffsetMs: 500, clockUncertaintyMs: 0,
+    clockMeasuredAtClient: Date.parse('2026-11-16T01:00:00Z'),
+  });
+  const weeks = weekStarts.slice(0, -1).map((week) => computeWeeklyReadingRollup([frozen], week));
+  const lease = await claimReadingRollup(db, uid, now);
+  await stageReadingRollupHandoff(db, lease, {
+    weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry([frozen], nextWeek), pilotTuesday: true,
+  }, now);
+  await releaseReadingRollup(db, lease);
+  await Promise.all([
+    sourceRef(uid, late.sessionId).set({ ...late, uploadedAtServer: Timestamp.fromMillis(time + 60_000) }),
+    sourceRef(uid, monday.sessionId).set({ ...monday, uploadedAtServer: Timestamp.fromMillis(time + 120_000) }),
+  ]);
+
+  const job = jobRef(uid);
+  const details = job.collection('readingStatsRollupWeeksV1');
+  const manifest = job.collection('readingStatsRollupManifestsV1').doc('current');
+  time = Date.parse('2026-11-24T09:10:00Z');
+  await quotaRef('2026-11-24').set({ sourceReads: 1999 });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
+  assert.equal(JSON.parse((await job.get()).get('payload')).cursor.id, late.sessionId);
+  assert.equal((await manifest.get()).exists, false);
+
+  time += 86_400_000;
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1 });
+  assert.equal((await manifest.get()).get('publishedThroughWeek'), nextWeek);
+  assert.deepEqual(JSON.parse((await details.doc(nextWeek).get()).get('payload')),
+    computeWeeklyReadingRollup([frozen, late, monday], nextWeek));
+  assert.deepEqual(JSON.parse((await details.doc(weekStarts[8]).get()).get('payload')), weeks[8]);
+});
+
 test('the first close preserves frozen week slices against late clock readings and overlapping TTS', async () => {
   const sourceCutoff = Timestamp.fromDate(new Date('2026-11-23T08:00:00Z'));
   let time = sourceCutoff.toMillis();

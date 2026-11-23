@@ -5,7 +5,7 @@ import { APP_ID } from '../../lib/appIdentity';
 import { getPublicBookMetadataAliasCandidates } from '../../lib/publicBookMetadataSchema';
 import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, toReadingSessionPayload, type ReadingSessionV1 } from '../../lib/readingStatistics';
 import { computeReadingFileRollups, mergeReadingFileRollups } from '../../lib/readingStatisticsRollup';
-import { addReadingRollupPage, rollupCanUseFileEvidence } from '../readingRollupInputs';
+import { addReadingRollupPage, rollupCanUseFileEvidence, sortReadingRollupCarry } from '../readingRollupInputs';
 import { readPublishedReadingEvidenceInputs } from '../readingRollupRead';
 import { loadSocialCatalog, resolveSocialReadingTitle, resolveSocialWork } from './catalog';
 import { reportMyPageApiTiming, type ReadingEvidenceRoute } from './performance';
@@ -255,7 +255,7 @@ async function publishedFileEvidence(db: Firestore, uid: string, counts: ReadCou
   if (delta.some((session) => !session)) return null;
   const sessions = delta.filter((session): session is ReadingSessionV1 => session !== null);
   if (!rollupCanUseFileEvidence(sessions, rollup.nextWeek)) return null;
-  const combined = addReadingRollupPage(rollup.carry, sessions, rollup.nextWeek);
+  const combined = sortReadingRollupCarry(addReadingRollupPage(rollup.carry, sessions, rollup.nextWeek));
   counts.timelineBuilds++;
   const open = computeReadingFileRollups(combined.sessions, { bounds: { startLocalDate: rollup.nextWeek } });
   const files = mergeReadingFileRollups(rollup.files, open);
