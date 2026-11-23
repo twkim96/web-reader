@@ -57,6 +57,14 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit
       - run: npx playwright test --workers=1
+      - name: Save failing browser page context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-error-context
+          path: test-results/**/error-context.md
+          if-no-files-found: ignore
+          retention-days: 3
 
   browser-regression:
     runs-on: ubuntu-latest
