@@ -75,7 +75,7 @@ test('book detail loads the catalog thumbnail directly and retries a denied orig
   expect(proxyCalls).toEqual([denied]);
 });
 
-test('home shows personalized recommendations between ratings and read books', async ({ page }) => {
+test('home keeps a saved recommendation in place until leaving My Page', async ({ page }) => {
   await page.addInitScript(() => {
     const owner = encodeURIComponent('guest:header-test|library:local');
     const book = { id: 'saved-regression', title: '담은 회귀 도서', coverUrl: null, platforms: [], genre: null,
@@ -90,6 +90,7 @@ test('home shows personalized recommendations between ratings and read books', a
       books: [
         ['saved-regression', '담은 회귀 도서', null, [['series', 'https://example.test/recommend/saved']], null, [0], 8_000, null],
         ['recommended-regression', '추천 회귀 도서', null, [['kakao', 'https://example.test/recommend/next']], null, [1], 5_000, null],
+        ['another-regression', '다른 회귀 도서', null, [['series', 'https://example.test/recommend/other']], null, [0], 4_800, null],
         ['low-regression', '낮은 인기 회귀 도서', null, [['series', 'https://example.test/recommend/low']], null, [0], 4_000, null],
       ],
     } });
@@ -99,7 +100,9 @@ test('home shows personalized recommendations between ratings and read books', a
   await expect(main.getByRole('heading', { level: 2 }).filter({ hasText: /^(위시리스트|평점을 남긴 도서|추천 도서|읽은 도서)$/ }))
     .toHaveText(['위시리스트', '평점을 남긴 도서', '추천 도서', '읽은 도서']);
   const row = page.getByRole('list', { name: '추천 도서 가로 목록' });
-  await expect(row.getByRole('link')).toHaveCount(1);
+  const cards = row.getByRole('link');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toHaveAccessibleName('추천 회귀 도서');
   await row.getByRole('link', { name: '추천 회귀 도서', exact: true }).click();
   await expect(page).toHaveURL(/#mypage\/book\/recommended-regression$/);
   const menu = page.getByRole('navigation', { name: '마이페이지 메뉴', exact: true });
@@ -107,8 +110,18 @@ test('home shows personalized recommendations between ratings and read books', a
   await page.getByRole('button', { name: '추천 회귀 도서 위시리스트 추가', exact: true }).click();
   await menu.getByRole('button', { name: '홈', exact: true }).click();
   await expect(page.getByRole('list', { name: '위시리스트 가로 목록' }).getByRole('link', { name: '추천 회귀 도서', exact: true })).toBeVisible();
-  await expect(row).toHaveCount(0);
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toHaveAccessibleName('추천 회귀 도서');
+  await expect(cards.last()).toHaveAccessibleName('다른 회귀 도서');
+  await page.getByRole('button', { name: '내 서재', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
+  await page.evaluate(() => { window.location.hash = '#mypage/overview'; });
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toHaveAccessibleName('다른 회귀 도서');
   expect(catalogRequests).toBe(1);
+  await page.reload();
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toHaveAccessibleName('다른 회귀 도서');
 });
 
 test('mobile book detail scrolls related covers and opens the selected work from the same catalog', async ({ page }) => {

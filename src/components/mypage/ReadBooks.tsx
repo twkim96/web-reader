@@ -77,7 +77,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   reviews?: MyPageReview[];
   reviewError?: string;
   onRetryReviews?: () => void;
-  renderBeforePreview?: (books: readonly ReadBook[]) => ReactNode;
+  renderBeforePreview?: (books: readonly ReadBook[] | null) => ReactNode;
 }) {
   const guest = isGuestOwner(ownerKey);
   const { data: published } = useMyPageReadingFiles(ownerKey, !guest);
@@ -243,7 +243,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   if (onShowAll) {
     const previewBooks = visibleBooks ?? emptyBooks;
     return <>
-      {renderBeforePreview?.(previewBooks)}
+      {renderBeforePreview?.(guest || error ? previewBooks : visibleBooks)}
       <DashboardBookRow title="읽은 도서" books={previewBooks} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} getBookKey={(book) => book.rowKey ?? book.id} coverLoading="direct-with-proxy-fallback">
         {status}
       </DashboardBookRow>

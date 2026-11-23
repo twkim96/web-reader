@@ -1,22 +1,31 @@
 'use client';
 
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo } from 'react';
 import type { DiscoveryBook } from '../../lib/bookDiscovery';
 import { recommendDiscoveryBooks } from '../../lib/bookRecommendations';
 import type { ReadBook } from '../../lib/readBooks';
 import { DashboardBookRow } from './DashboardBookRow';
 
-export function RecommendedBooks({ catalog, wishlist, readBooks, onOpenBook }: {
+export function RecommendedBooks({ catalog, wishlist, readBooks, rotationSeed, previousBooks, keepPrevious, onRemember, onOpenBook }: {
   catalog: readonly DiscoveryBook[];
   wishlist?: readonly DiscoveryBook[];
-  readBooks: readonly ReadBook[];
+  readBooks: readonly ReadBook[] | null;
+  rotationSeed: number;
+  previousBooks?: readonly DiscoveryBook[];
+  keepPrevious: boolean;
+  onRemember: (books: readonly DiscoveryBook[]) => void;
   onOpenBook: (book: DiscoveryBook) => void;
 }) {
-  const [rotationSeed] = useState(() => Math.floor(Math.random() * 0x1_0000_0000));
   const readyCatalog = useDeferredValue<readonly DiscoveryBook[] | null>(catalog, null);
-  const books = useMemo(() => readyCatalog ? recommendDiscoveryBooks(readyCatalog, wishlist ?? [], readBooks, rotationSeed) : [],
-    [readyCatalog, wishlist, readBooks, rotationSeed]);
-  if (!books.length) return null;
+  const ranked = useMemo(() => !keepPrevious && readyCatalog && wishlist && readBooks
+    ? recommendDiscoveryBooks(readyCatalog, wishlist, readBooks, rotationSeed) : undefined,
+  [keepPrevious, readyCatalog, wishlist, readBooks, rotationSeed]);
+  useEffect(() => {
+    if (ranked && ranked !== previousBooks) onRemember(ranked);
+  }, [ranked, previousBooks, onRemember]);
+
+  const books = wishlist ? ranked ?? previousBooks : undefined;
+  if (!books?.length) return null;
 
   return <DashboardBookRow title="추천 도서" books={books} onOpenBook={onOpenBook}
     coverLoading="direct-with-proxy-fallback" />;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, House, Library, Plus, Search, Settings2 } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
@@ -158,6 +158,8 @@ export function MyPage(props: Props) {
   const discoveryStarted = useRef<number | undefined>(undefined);
   const restoreReadListScroll = useRef(false);
   const [catalog, setCatalog] = useState<DiscoveryBook[] | null>(null);
+  const [recommendationSeed] = useState(() => Math.floor(Math.random() * 0x1_0000_0000));
+  const [recommended, setRecommended] = useState<{ ownerKey: OwnerKey; books: readonly DiscoveryBook[] }>();
   const [catalogError, setCatalogError] = useState(false);
   const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState('');
@@ -172,6 +174,12 @@ export function MyPage(props: Props) {
   const { entries: wishlistEntries, loading: wishlistLoading } = wishlist;
   const dashboardWishlist = useMemo(() => wishlistLoading ? undefined : wishlistEntries.map(({ book }) => book), [wishlistEntries, wishlistLoading]);
   const groupedCatalog = catalog ? getGroupedBookDiscovery(catalog) : null;
+  const previousRecommendations = recommended?.ownerKey === ownerKey ? recommended.books : undefined;
+  const keepRecommendations = previousRecommendations?.some(({ id }) => wishlist.savedIds.has(id)
+    || groupedCatalog?.equivalents.get(id)?.some((alias) => wishlist.savedIds.has(alias))) ?? false;
+  const rememberRecommendations = useCallback((books: readonly DiscoveryBook[]) => {
+    setRecommended({ ownerKey, books });
+  }, [ownerKey]);
   const readBookDetailId = (book: ReadBook) =>
     groupedCatalog && book.platformWorkKeys?.length ? resolveReadBookDiscovery(groupedCatalog, book).book?.id ?? null : null;
   const reviews = useMyPageReviews(ownerKey, signedIn && tab === 'read' && !bookId);
@@ -420,7 +428,9 @@ export function MyPage(props: Props) {
             </DashboardBookRow>
             <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
             <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
-              renderBeforePreview={(readBooks) => catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks} onOpenBook={openBook} />} />
+              renderBeforePreview={(readBooks) => catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
+                rotationSeed={recommendationSeed} previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
+                onRemember={rememberRecommendations} onOpenBook={openBook} />} />
             <ReadingDashboard
               ownerKey={ownerKey}
               onRefresh={props.canRefresh && !bookId ? props.onRefresh : undefined}
