@@ -31,6 +31,22 @@ export function isReadingUploadTime(value: unknown): value is ReadingUploadTime 
 
 export const compareReadingUploadTimes = (a: ReadingUploadTime, b: ReadingUploadTime) => a.seconds - b.seconds || a.nanoseconds - b.nanoseconds;
 
+const dayMs = 86_400_000;
+const weekMs = 7 * dayMs;
+const tuesdayCutoffEpoch = Date.UTC(1970, 0, 6, 9);
+
+export function latestReadingPublicationCutoff(now: number) {
+  return tuesdayCutoffEpoch + Math.floor((now - tuesdayCutoffEpoch) / weekMs) * weekMs;
+}
+
+export function shouldCheckReadingPublication(now: number, lastAttempt: number, lastDay?: string, manual = false) {
+  const cutoff = latestReadingPublicationCutoff(now);
+  if (manual) return lastAttempt < cutoff || now - lastAttempt >= 15_000;
+  // A publication ends on Sunday. Its next week closes the Tuesday after that week.
+  if (lastDay && cutoff < Date.parse(lastDay) + 9 * dayMs + 9 * 3_600_000) return false;
+  return now - lastAttempt >= 3_600_000 || lastAttempt < cutoff;
+}
+
 export function readReadingRollupCheckpoint(value: unknown): ReadingRollupCheckpoint | null {
   if (!value || typeof value !== 'object') return null;
   const point = value as ReadingRollupCheckpoint;

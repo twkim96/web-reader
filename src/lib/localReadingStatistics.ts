@@ -423,16 +423,25 @@ export async function beginReadingStatisticsRecentRecovery(
   return leased;
 }
 
-export async function getLocalReadingRollupArchive(ownerKey: OwnerKey, previous?: ReadingRollupArchive | null): Promise<ReadingRollupArchive | null> {
+export type LocalReadingRollupArchive = ReadingRollupArchive | 'unavailable' | null;
+
+export async function getLocalReadingRollupArchive(ownerKey: OwnerKey, previous?: LocalReadingRollupArchive): Promise<LocalReadingRollupArchive> {
   const db = await initDB();
   const tx = db.transaction(V12_READING_STATISTICS_SYNC_STORE);
   const [value, recentRow] = await Promise.all([tx.store.get(ownerKey), tx.store.get(readingStatisticsRecentKey(ownerKey))]);
-  const point = value && !recentRow ? assertSyncMeta(value).published : undefined;
+  if (recentRow) {
+    await tx.done;
+    return 'unavailable';
+  }
+  const point = value ? assertSyncMeta(value).published : undefined;
   const key = readingStatisticsArchiveKey(ownerKey);
-  const saved = point ? await tx.store.get(key) : null;
+  const saved = point ? await tx.store.get(key) : await tx.store.getKey(key);
   await tx.done;
+  if (!point) return saved ? 'unavailable' : null;
   const archive = localArchiveForCheckpoint(saved?.archive, point);
-  return archive && previous && sameArchiveRange(previous, { ...archive.calendar, sourceThrough: archive.sourceThrough }) ? previous : archive;
+  if (!archive) return 'unavailable';
+  return previous && previous !== 'unavailable'
+    && sameArchiveRange(previous, { ...archive.calendar, sourceThrough: archive.sourceThrough }) ? previous : archive;
 }
 
 function sameArchiveRange(archive: ReadingRollupArchive, range: Pick<ReadingRollupCheckpoint, 'firstDay' | 'lastDay' | 'sourceThrough'>) {

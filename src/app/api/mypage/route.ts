@@ -2,10 +2,11 @@ import { after } from 'next/server';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import {
-  hasPublishedReadingAuditCoverage, readPublishedReadingBootstrap, readPublishedReadingCalendar, readPublishedReadingFiles,
+  hasPublishedReadingAuditCoverage, readPublishedReadingBootstrapUpdate, readPublishedReadingCalendar, readPublishedReadingFiles,
   readPublishedReadingReportBooks, readPublishedReadingWeek,
 } from '../../../server/readingRollupRead';
 import { readingRollupWeekForDay } from '../../../lib/readingStatisticsRollup';
+import { isReadingUploadTime } from '../../../lib/readingRollupBootstrap';
 import { resolveLegacyReviewWork, resolveSocialWork, resolveWishlistWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
 import { reportMyPageApiTiming, type ReadingEvidenceRoute } from '../../../server/mypage/performance';
@@ -298,7 +299,19 @@ export async function GET(request: Request) {
     if (!uid) return fail(401);
     timing?.('auth');
     const db = getAdminFirestore();
-    if (view === 'rollup-bootstrap') return json({ bootstrap: await readPublishedReadingBootstrap(db, uid) });
+    if (view === 'rollup-bootstrap') {
+      const firstDay = params.get('knownFirstDay');
+      const lastDay = params.get('knownLastDay');
+      const seconds = params.get('knownSeconds');
+      const nanos = params.get('knownNanos');
+      if (firstDay === null && lastDay === null && seconds === null && nanos === null) {
+        return json(await readPublishedReadingBootstrapUpdate(db, uid));
+      }
+      const sourceThrough = { seconds: Number(seconds), nanoseconds: Number(nanos) };
+      if (!firstDay || readingRollupWeekForDay(firstDay) !== firstDay || !lastDay || !readingRollupWeekForDay(lastDay)
+        || firstDay > lastDay || !/^\d+$/.test(seconds ?? '') || !/^\d+$/.test(nanos ?? '') || !isReadingUploadTime(sourceThrough)) return fail(400);
+      return json(await readPublishedReadingBootstrapUpdate(db, uid, { firstDay, lastDay, sourceThrough }));
+    }
     if (view === 'rollup-files') return json({ history: await readPublishedReadingFiles(db, uid) });
     if (view === 'rollup-books') {
       const firstDay = params.get('firstDay');

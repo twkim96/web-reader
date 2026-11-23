@@ -157,7 +157,7 @@ test('an upload near a closed boundary triggers recent recovery that survives a 
   const pending = publishedRead('other-device-pending', '2026-11-25T10:00:00Z');
   await saveLocalReadingSessionV11(owner, pending);
   await beginReadingStatisticsRecentRecovery(owner, lease, now, published.sourceThrough);
-  assert.equal(await getLocalReadingRollupArchive(owner), null);
+  assert.equal(await getLocalReadingRollupArchive(owner), 'unavailable');
   assert.equal((await getReadingStatisticsHydrationPlanV12(owner, now, true)).state.cursor, null);
   await hydrateRemoteReadingSessionsPageV12(owner, [old], null, last, false, false, [], now, lease, true, undefined, true);
   const db = await initDB();
@@ -171,7 +171,7 @@ test('an upload near a closed boundary triggers recent recovery that survives a 
   assert.deepEqual(plan.state.cursor, last);
   assert.equal(plan.published, undefined);
   await hydrateRemoteReadingSessionsPageV12(owner, [], last, last, true, false, [], now, lease, true, undefined, true);
-  assert.equal(await getLocalReadingRollupArchive(owner), null);
+  assert.equal(await getLocalReadingRollupArchive(owner), 'unavailable');
   const snapshot = await getLocalReadingReportSnapshot(owner, true);
   assert.equal(snapshot.recentOnly, true);
   assert.equal(snapshot.rawHistoryComplete, false);
@@ -317,7 +317,7 @@ test('a corrupt saved publication cannot authorize a timestamp skip', async () =
   await installReadingStatisticsBootstrap(owner, publishedFixture(), lease, now);
   const db = await initDB();
   await db.put(V12_READING_STATISTICS_SYNC_STORE, { ownerKey: readingStatisticsArchiveKey(owner), archive: {} });
-  assert.equal(await getLocalReadingRollupArchive(owner), null);
+  assert.equal(await getLocalReadingRollupArchive(owner), 'unavailable');
   assert.deepEqual(await getReadingStatisticsHydrationPlanV12(owner, now, true), { reason: 'published-history-unavailable' });
 });
 

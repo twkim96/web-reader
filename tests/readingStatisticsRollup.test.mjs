@@ -6,10 +6,26 @@ import {
   selectWeeklyReadingRollupInputs,
 } from '../src/lib/readingStatisticsRollup.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
+import { shouldCheckReadingPublication } from '../src/lib/readingRollupBootstrap.ts';
 
 const monday = '2026-11-23';
 const minute = 60_000;
 const week = 7 * 86_400_000;
+
+test('a just-checked publication can be checked again at the next Tuesday cutoff or on manual refresh', () => {
+  const cutoff = Date.parse('2026-12-01T09:00:00Z');
+  const justBefore = cutoff - 1_000;
+  const prior = '2026-11-22';
+  assert.equal(shouldCheckReadingPublication(justBefore, justBefore - 60_000, prior), false);
+  assert.equal(shouldCheckReadingPublication(justBefore, justBefore - 60_000, prior, true), true);
+  assert.equal(shouldCheckReadingPublication(cutoff, justBefore, prior), true);
+  assert.equal(shouldCheckReadingPublication(cutoff, justBefore, undefined, true), true);
+  assert.equal(shouldCheckReadingPublication(cutoff + 10_000, cutoff, prior, true), false);
+  assert.equal(shouldCheckReadingPublication(cutoff + 20_000, cutoff, prior, true), true);
+  assert.equal(shouldCheckReadingPublication(cutoff + 20_000, cutoff, prior), false);
+  assert.equal(shouldCheckReadingPublication(cutoff + 3_600_000, cutoff, prior), true);
+  assert.equal(shouldCheckReadingPublication(cutoff + 3_600_000, cutoff, '2026-11-29'), false);
+});
 
 function session(sessionId, start, minutes, fields = {}) {
   const startedAtClient = Date.parse(start);

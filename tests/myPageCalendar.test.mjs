@@ -6,7 +6,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 import {
-  beginReadingStatisticsRecentRecovery, getReadingStatisticsHydrationPlanV12, hydrateRemoteReadingSessionsPageV12,
+  beginReadingStatisticsRecentRecovery, getLocalReadingSessionsV11, getReadingStatisticsHydrationPlanV12, hydrateRemoteReadingSessionsPageV12,
   installReadingStatisticsBootstrap, saveLocalReadingSessionV11,
 } from '../src/lib/localReadingStatistics.ts';
 import { acquireReadingStatisticsSyncLeaseV13 } from '../src/lib/readingStatisticsSyncLease.ts';
@@ -14,18 +14,22 @@ import { notifyReadingStatisticsServerCheck } from '../src/lib/readingStatistics
 import { closeLocalDB } from '../src/lib/localDB.ts';
 import { setImmediate as settle } from 'node:timers/promises';
 import { registerHooks } from 'node:module';
+import { getReadingFileTime } from '../src/lib/readingStatisticsRollup.ts';
 
 const rollupUid = 'calendar-rollup-ui';
+const authMockUrl = 'data:text/javascript,' + encodeURIComponent(
+  `export const auth = { currentUser: { uid: '${rollupUid}', getIdToken: async () => 'calendar-token' } };`,
+);
 const authMock = registerHooks({ resolve(specifier, context, next) {
   if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
-    const mock = `export const auth = { currentUser: { uid: '${rollupUid}', getIdToken: async () => 'calendar-token' } };`;
-    return { url: 'data:text/javascript,' + encodeURIComponent(mock), shortCircuit: true };
+    return { url: authMockUrl, shortCircuit: true };
   }
   return next(specifier, context);
 } });
 const { ReadingDashboard } = await import('../src/components/mypage/ReadingDashboard.tsx');
 const { LibraryReadingStatisticsModal } = await import('../src/components/LibraryReadingStatisticsModal.tsx');
 const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
+const { useMyPageReadingFiles } = await import('../src/hooks/useMyPageList.ts');
 test.after(() => authMock.deregister());
 
 const session = (id, start, end, overrides = {}) => ({
@@ -359,6 +363,72 @@ test('a seeded statistics report uses its saved archive offline and gates JSON o
     assert.equal(modeTotal(), '2분');
     assert.equal(window.document.querySelector('[data-reading-statistics-range="all"]').textContent, '확인된 기록');
     assert.equal(exportButton().disabled, true, 'the recent fallback cannot be exported as the whole history');
+  } finally {
+    await act(async () => root.unmount());
+    await closeLocalDB();
+  }
+});
+
+test('recent recovery prevents a cached file rollup from being added to corrected raw time', async (t) => {
+  const { auth } = await import(authMockUrl);
+  const previousUid = auth.currentUser.uid;
+  const uid = 'calendar-recovery-ui';
+  auth.currentUser.uid = uid;
+  const owner = `firebase:${uid}|library:local`;
+  ownerRuntime.activate(owner);
+  const flag = 'NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS';
+  const previous = process.env[flag];
+  process.env[flag] = '1';
+  t.after(() => {
+    auth.currentUser.uid = previousUid;
+    ownerRuntime.clear();
+    if (previous === undefined) delete process.env[flag]; else process.env[flag] = previous;
+  });
+  const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
+  Object.assign(globalThis, { window, document: window.document, HTMLElement: window.HTMLElement, Element: window.Element,
+    Node: window.Node, Event: window.Event, CustomEvent: window.CustomEvent, BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true });
+  const midnight = Date.parse('2026-11-23T00:00:00Z');
+  const now = Date.parse('2026-11-26T00:00:00Z');
+  const sourceThrough = { seconds: Date.parse('2026-11-24T09:00:00Z') / 1_000, nanoseconds: 0 };
+  const bookId = 'recovery-file';
+  const file = { fileId: bookId, titles: [bookId], lastReadAt: midnight, filteredMs: 120_000, unfilteredMs: 120_000,
+    progressIntervals: [[0, 1]], absoluteMaxProgressPercent: 1 };
+  const closed = { firstDay: '2026-09-14', lastDay: '2026-11-22' };
+  const requests = t.mock.method(globalThis, 'fetch', async (input) => {
+    assert.equal(new URL(String(input), 'https://reader.test').searchParams.get('view'), 'rollup-files');
+    return Response.json({ history: { ...closed, files: [file] } });
+  });
+  const root = createRoot(window.document.querySelector('#root'));
+  let current;
+  const Probe = () => { current = useMyPageReadingFiles(owner, true); return null; };
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'files-recovery', now);
+  const sunday = session('recover-sunday', midnight - 120_000, midnight, { bookId });
+  const monday = session('recover-monday', midnight, midnight + 180_000, {
+    bookId, clockOffsetMs: 240_000, clockUncertaintyMs: 0, clockMeasuredAtClient: midnight,
+  });
+  try {
+    await act(async () => root.render(React.createElement(Probe)));
+    for (let i = 0; i < 25 && !current.data; i++) await act(async () => new Promise(resolve => setTimeout(resolve, 20)));
+    assert.equal(current.data.history.files[0].unfilteredMs, 120_000);
+    const bootstrap = {
+      calendar: { ...closed, days: [{ localDate: closed.lastDay, totalMs: 120_000, screenMs: 120_000, ttsMs: 0 }] },
+      files: [file], books: [{ bookId, bookTitle: bookId, lastReadAt: midnight, screenMs: 120_000, ttsMs: 0 }],
+      sourceThrough, carry: { sampleFloor: midnight - 3 * 86_400_000, sessions: [sunday] },
+    };
+    await act(async () => { assert.equal(await installReadingStatisticsBootstrap(owner, bootstrap, lease, now), true); });
+    await act(async () => beginReadingStatisticsRecentRecovery(owner, lease, now, sourceThrough));
+    await act(async () => hydrateRemoteReadingSessionsPageV12(owner, [sunday, monday], null,
+      { uploadedAtServerSeconds: sourceThrough.seconds + 1, uploadedAtServerNanoseconds: 0, documentId: monday.sessionId },
+      true, true, [], now, lease, true, undefined, true));
+    for (let i = 0; i < 25 && current.data?.history !== null; i++) {
+      await act(async () => new Promise(resolve => setTimeout(resolve, 20)));
+    }
+    assert.equal(current.data.history, null);
+    const sessions = await getLocalReadingSessionsV11(owner);
+    assert.equal(getReadingFileTime(sessions, bookId, { ...closed, files: [file] }), 420_000);
+    assert.equal(getReadingFileTime(sessions, bookId, current.data.history), 300_000);
+    await act(async () => current.refresh());
+    assert.equal(requests.mock.callCount(), 1);
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

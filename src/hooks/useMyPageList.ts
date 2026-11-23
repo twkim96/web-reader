@@ -10,9 +10,8 @@ import { ownerRuntime } from '../lib/ownerRuntime';
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar';
 import type { PublishedReadingFiles } from '../lib/readingStatisticsRollup';
 import type { PublishedReadingReportBooks, ReadingReportRange } from '../lib/readingStatisticsReport';
-import { getLocalReadingRollupArchive } from '../lib/localReadingStatistics';
+import { getLocalReadingRollupArchive, type LocalReadingRollupArchive } from '../lib/localReadingStatistics';
 import { subscribeReadingStatisticsChanges } from '../lib/readingStatisticsWake';
-import type { ReadingRollupArchive } from '../lib/readingRollupBootstrap';
 
 type ListCache<T> = {
   subscribe: (listener: () => void) => () => void;
@@ -73,14 +72,14 @@ const readingFilesParams = { view: 'rollup-files' };
 const readingFilesCache = createListCache<{ history: PublishedReadingFiles | null }>(15 * 60_000);
 const readingBookTotalsParams = { view: 'rollup-books' };
 const readingBookTotalsCache = createListCache<{ report: PublishedReadingReportBooks | null }>(15 * 60_000);
-const localReadingArchiveCache = createListCache<ReadingRollupArchive | null>(Infinity);
+const localReadingArchiveCache = createListCache<LocalReadingRollupArchive>(Infinity);
 const noArchiveRefresh = () => undefined;
 
 function usePublishedReadingArchive(owner: OwnerKey, enabled: boolean) {
   const snapshot = useSyncExternalStore(localReadingArchiveCache.subscribe,
     () => enabled ? localReadingArchiveCache.read(owner) : localReadingArchiveCache.empty(), localReadingArchiveCache.empty);
   const load = useCallback((force = false) => localReadingArchiveCache.refresh(owner,
-    () => getLocalReadingRollupArchive(owner, localReadingArchiveCache.read(owner).data).catch(() => null), force), [owner]);
+    () => getLocalReadingRollupArchive(owner, localReadingArchiveCache.read(owner).data).catch(() => 'unavailable'), force), [owner]);
   useEffect(() => {
     if (!enabled) return;
     void load();
@@ -107,25 +106,28 @@ export const useMyPageReviewList = (owner: OwnerKey, enabled: boolean, preview =
 export function useMyPageReadingCalendar(owner: OwnerKey, enabled: boolean) {
   const archive = usePublishedReadingArchive(owner, enabled);
   const remote = useMyPageList(readingCalendarCache, readingCalendarParams, owner, enabled && archive === null, 'reading-calendar-ready');
-  const data = useMemo(() => archive ? { calendar: archive.calendar } : remote.data, [archive, remote.data]);
-  return { ...remote, data, refresh: archive ? noArchiveRefresh : remote.refresh };
+  const data = useMemo(() => archive === 'unavailable' ? { calendar: null }
+    : archive ? { calendar: archive.calendar } : remote.data, [archive, remote.data]);
+  return { ...remote, data, refresh: archive === null ? remote.refresh : noArchiveRefresh };
 }
 
 export function useMyPageReadingFiles(owner: OwnerKey, enabled: boolean) {
   const active = enabled && !isGuestOwner(owner) && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1';
   const archive = usePublishedReadingArchive(owner, active);
   const remote = useMyPageList(readingFilesCache, readingFilesParams, owner, active && archive === null, 'reading-files-ready');
-  const data = useMemo(() => archive ? { history: { firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
+  const data = useMemo(() => archive === 'unavailable' ? { history: null }
+    : archive ? { history: { firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
     files: archive.files } } : remote.data, [archive, remote.data]);
-  return { ...remote, data };
+  return { ...remote, data, refresh: archive === null ? remote.refresh : noArchiveRefresh };
 }
 
 export function useMyPageReadingBookTotals(owner: OwnerKey, enabled: boolean) {
   const archive = usePublishedReadingArchive(owner, enabled);
   const remote = useMyPageList(readingBookTotalsCache, readingBookTotalsParams, owner, enabled && archive === null, 'reading-book-totals-ready');
-  const data = useMemo(() => archive ? { report: { firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
+  const data = useMemo(() => archive === 'unavailable' ? { report: null }
+    : archive ? { report: { firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
     books: archive.books } } : remote.data, [archive, remote.data]);
-  return { ...remote, data, refresh: archive ? noArchiveRefresh : remote.refresh };
+  return { ...remote, data, refresh: archive === null ? remote.refresh : noArchiveRefresh };
 }
 
 export function useMyPageReadingRangeBooks(owner: OwnerKey, range: ReadingReportRange | null) {

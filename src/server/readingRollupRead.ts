@@ -4,7 +4,7 @@ import { isReadingSessionV1, type ReadingDayStatistics } from '../lib/readingSta
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar.ts';
 import { parseReadingReportBooks, summarizeReadingReportBooks, type PublishedReadingReportBooks, type ReadingReportRange } from '../lib/readingStatisticsReport.ts';
 import { parseReadingFileRollups, parseReadingRollupMonday, readingRollupDayKey, readingRollupWeekForDay } from '../lib/readingStatisticsRollup.ts';
-import { parseReadingRollupBootstrap } from '../lib/readingRollupBootstrap.ts';
+import { compareReadingUploadTimes, parseReadingRollupBootstrap, type ReadingUploadTime } from '../lib/readingRollupBootstrap.ts';
 import type { ReadingRollupCarry } from './readingRollupInputs.ts';
 
 const day = 86_400_000;
@@ -117,9 +117,16 @@ async function readCalendarRange(db: Firestore, range: PublishedRange) {
     ? snapshots.slice(ends.length).map((snapshot) => JSON.parse(snapshot.get('payload'))) : tail);
 }
 
-export async function readPublishedReadingBootstrap(db: Firestore, uid: string) {
+type KnownReadingPublication = { firstDay: string; lastDay: string; sourceThrough: ReadingUploadTime };
+
+export async function readPublishedReadingBootstrapUpdate(db: Firestore, uid: string, known?: KnownReadingPublication) {
   const range = await publishedRange(db, uid, true);
-  if (!range?.coversHistoryStart || !range.sourceThrough || (range.tail === undefined && range.through !== range.lastCalendar)) return null;
+  if (!range?.coversHistoryStart || !range.sourceThrough || (range.tail === undefined && range.through !== range.lastCalendar)) {
+    return { bootstrap: null };
+  }
+  const sourceThrough = { seconds: range.sourceThrough.seconds, nanoseconds: range.sourceThrough.nanoseconds };
+  if (known && known.firstDay === readingRollupDayKey(range.first) && known.lastDay === readingRollupDayKey(range.through + 6 * day)
+    && compareReadingUploadTimes(known.sourceThrough, sourceThrough) === 0) return { unchanged: true as const };
   const ends = calendarEnds(range);
   const calendars = range.root.collection('readingStatsRollupCalendarsV1');
   const [projection, ...snapshots] = await db.getAll(range.root.collection('readingStatsRollupFilesV1').doc('current'),
@@ -127,17 +134,21 @@ export async function readPublishedReadingBootstrap(db: Firestore, uid: string) 
   const throughWeek = readingRollupDayKey(range.through);
   const projectedWeek = projection.get('throughWeek');
   if (typeof projectedWeek === 'string' && projectedWeek > throughWeek) throw new Error('Reading publication advanced during bootstrap.');
-  if (projectedWeek !== throughWeek || snapshots.some((snapshot) => !snapshot.exists)) return null;
+  if (projectedWeek !== throughWeek || snapshots.some((snapshot) => !snapshot.exists)) return { bootstrap: null };
   // A transport error is retryable. Invalid artifacts disable the shortcut.
   try {
     const { files, books, carry } = JSON.parse(projection.get('payload'));
-    return parseReadingRollupBootstrap({
+    return { bootstrap: parseReadingRollupBootstrap({
       calendar: decodeCalendar(range, ends, snapshots, range.tail ?? []), files, books, carry,
-      sourceThrough: { seconds: range.sourceThrough.seconds, nanoseconds: range.sourceThrough.nanoseconds },
-    });
+      sourceThrough,
+    }) };
   } catch {
-    return null;
+    return { bootstrap: null };
   }
+}
+
+export async function readPublishedReadingBootstrap(db: Firestore, uid: string) {
+  return (await readPublishedReadingBootstrapUpdate(db, uid)).bootstrap ?? null;
 }
 
 export async function readPublishedReadingCalendar(db: Firestore, uid: string): Promise<PublishedReadingCalendar | null> {

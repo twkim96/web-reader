@@ -54,7 +54,10 @@ import {
 } from '../lib/readingStatisticsSyncCoordinator';
 import { createReadingStatisticsReceiveSchedule } from '../lib/readingStatisticsReceiveSchedule';
 import { traceReaderBootstrap } from '../lib/readerBootstrapTrace';
-import { parseReadingRollupBootstrap, type ReadingRollupCheckpoint, type ReadingUploadTime } from '../lib/readingRollupBootstrap';
+import {
+  latestReadingPublicationCutoff, parseReadingRollupBootstrap, shouldCheckReadingPublication,
+  type ReadingRollupCheckpoint, type ReadingUploadTime,
+} from '../lib/readingRollupBootstrap';
 
 const getErrorCode = (error: unknown) => {
   if (typeof error === 'object' && error !== null && 'code' in error) {
@@ -75,16 +78,18 @@ const getHealthForError = (error: unknown): SyncHealth => {
 };
 
 const allowPublishedAudit = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1';
-const PUBLICATION_RECHECK_MS = 7 * 86_400_000;
 const RECENT_HISTORY_MS = 14 * 86_400_000;
 
-async function loadPublishedReadingBootstrap(owner: OwnerKey) {
+async function loadPublishedReadingBootstrap(owner: OwnerKey, known?: ReadingRollupCheckpoint) {
   const { myPageRequest, MyPageRequestError } = await import('../lib/myPageSocialClient');
   try {
-    const result = await myPageRequest<{ bootstrap: unknown }>({ view: 'rollup-bootstrap' }, {
+    const result = await myPageRequest<{ bootstrap?: unknown; unchanged?: true }>({ view: 'rollup-bootstrap', ...(known && {
+      knownFirstDay: known.firstDay, knownLastDay: known.lastDay,
+      knownSeconds: String(known.sourceThrough.seconds), knownNanos: String(known.sourceThrough.nanoseconds),
+    }) }, {
       owner, signal: AbortSignal.timeout(8_000),
     });
-    return parseReadingRollupBootstrap(result.bootstrap);
+    return result.unchanged === true && known ? undefined : parseReadingRollupBootstrap(result.bootstrap);
   } catch (error) {
     if (error instanceof MyPageRequestError && error.status === 404) return null;
     throw error;
@@ -131,7 +136,9 @@ export const useReadingStatisticsSync = (
     let requested = false;
     let refreshRequested = true;
     let recoverRawRequested = false;
-    let retryPublicationAt = 0;
+    let publicationRefreshRequested = false;
+    let lastPublicationAttempt = 0;
+    let foregroundPublicationCutoff = latestReadingPublicationCutoff(Date.now());
     let retryTimer: number | null = null;
     let uploadRetryTimer: number | null = null;
     let leaderRetryTimer: number | null = null;
@@ -284,7 +291,9 @@ export const useReadingStatisticsSync = (
           let uploadFailure: { error: unknown } | undefined;
           if (shouldRefresh) {
             const recoverRaw = recoverRawRequested;
+            const refreshPublication = publicationRefreshRequested;
             recoverRawRequested = false;
+            publicationRefreshRequested = false;
             receiving = true;
             setRefreshing(true);
             const hydrationStartedAt = performance.now();
@@ -354,25 +363,25 @@ export const useReadingStatisticsSync = (
                 return true;
               };
               const previousPublication = 'state' in plan ? plan.published : undefined;
-              const initialBootstrap = allowPublishedAudit && !previousPublication && Date.now() >= retryPublicationAt;
               if (recoverRaw || ('reason' in plan && plan.reason === 'published-history-unavailable')) {
                 if (!await recoverHistory(recoverRaw ? previousPublication?.sourceThrough : undefined)) {
                   hydrationStatus = 'lost-leadership';
                   refreshRequested = true;
                   return;
                 }
-              } else if (initialBootstrap || (previousPublication
-                && Date.now() >= Math.max(retryPublicationAt, previousPublication.checkedAt + PUBLICATION_RECHECK_MS))) {
+              } else if (allowPublishedAudit && shouldCheckReadingPublication(
+                Date.now(), lastPublicationAttempt, previousPublication?.lastDay, refreshPublication,
+              )) {
                 // Network failure leaves a previously verified publication usable.
-                const bootstrap = await loadPublishedReadingBootstrap(syncOwnerKey).catch(() => undefined);
-                retryPublicationAt = Date.now() + 60 * 60_000;
+                lastPublicationAttempt = Date.now();
+                const bootstrap = await loadPublishedReadingBootstrap(syncOwnerKey, previousPublication).catch(() => undefined);
                 if (!await hasClaimLeadership()) {
                   hydrationStatus = 'lost-leadership';
                   refreshRequested = true;
                   return;
                 }
                 if (bootstrap && withinRecentTime(bootstrap.sourceThrough) && await installReadingStatisticsBootstrap(
-                  syncOwnerKey, bootstrap, leaseClaim, Date.now(), previousPublication, initialBootstrap,
+                  syncOwnerKey, bootstrap, leaseClaim, Date.now(), previousPublication, !previousPublication,
                 )) {
                   publishedBootstrap = previousPublication ? 'resumed' : 'installed';
                   plan = await loadPlan();
@@ -588,6 +597,7 @@ export const useReadingStatisticsSync = (
     }
 
     const requestExplicitRefresh = () => {
+      publicationRefreshRequested = true;
       setRefreshing(true);
       request(true);
     };
@@ -606,7 +616,11 @@ export const useReadingStatisticsSync = (
     const handleOnline = () => request(true);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        request(receiveSchedule.wakeDue(Date.now()));
+        const now = Date.now();
+        const cutoff = latestReadingPublicationCutoff(now);
+        const newCutoff = cutoff > foregroundPublicationCutoff && lastPublicationAttempt < cutoff;
+        foregroundPublicationCutoff = cutoff;
+        request(receiveSchedule.wakeDue(now) || (allowPublishedAudit && newCutoff));
       } else {
         void leaseRuntime.release();
       }

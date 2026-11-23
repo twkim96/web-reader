@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { FieldPath, FieldValue, Timestamp, type DocumentReference, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { APP_ID } from '../lib/appIdentity.ts';
 import { isReadingSessionV1, toReadingSessionPayload } from '../lib/readingStatistics.ts';
@@ -18,6 +19,8 @@ const week = 7 * day;
 const leaseDuration = 5 * 60_000;
 const dailySourceReads = 2_000;
 const pageSize = 100;
+const maxJobPayloadBytes = 512 * 1024;
+const maxDecodedCarryBytes = 8 * 1024 * 1024;
 const quotaDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Los_Angeles', dateStyle: 'short' });
 const root = `artifacts/${APP_ID}`;
 const jobs = (db: Firestore) => db.collection(`${root}/readingStatsRollupJobsV1`);
@@ -41,6 +44,9 @@ type Job = {
   coversHistoryStart?: boolean;
   evidenceCompatible?: boolean;
   evidenceSeedThrough?: Stamp;
+};
+type PersistedJob = Omit<Job, 'carry'> & {
+  carry: ReadingRollupCarry | { encoding: 'gzip-v1'; data: string };
 };
 
 type Lease = { uid: string; token: string };
@@ -111,7 +117,31 @@ function payload(value: unknown, maxKiB: number) {
   return json;
 }
 
-const jobPayload = (job: Job) => payload(job, 512);
+function jobPayload(job: Job) {
+  const json = JSON.stringify(job);
+  // Keep small checkpoints readable by older writers, including after rollover.
+  if (Buffer.byteLength(json) <= maxJobPayloadBytes) return json;
+
+  const carry = Buffer.from(JSON.stringify(job.carry));
+  if (carry.length > maxDecodedCarryBytes) throw new InvalidRollupInput('rollup-payload-too-large');
+  return payload({ ...job, carry: { encoding: 'gzip-v1', data: gzipSync(carry).toString('base64') } }, maxJobPayloadBytes / 1024);
+}
+
+function readJobPayload(payload: string): Job {
+  const job = JSON.parse(payload) as PersistedJob;
+  if (!('encoding' in job.carry)) return { ...job, carry: job.carry };
+
+  if (job.carry.encoding !== 'gzip-v1' || Buffer.byteLength(payload) > maxJobPayloadBytes) {
+    throw new Error('Unsupported reading rollup checkpoint.');
+  }
+  const json = gunzipSync(Buffer.from(job.carry.data, 'base64'), { maxOutputLength: maxDecodedCarryBytes });
+  const carry = JSON.parse(json.toString('utf8')) as ReadingRollupCarry;
+  if (!Number.isSafeInteger(carry.sampleFloor) || !Array.isArray(carry.sessions)) {
+    throw new Error('Invalid reading rollup checkpoint.');
+  }
+  return { ...job, carry };
+}
+
 const fileTotalsRef = (ref: DocumentReference) => ref.collection('readingStatsRollupFilesV1').doc('current');
 
 function rollupFilePayload(files: ReadingFileRollup[], books: ReadingReportBook[] | null, carry?: ReadingRollupCarry, evidenceCompatible?: boolean) {
@@ -179,7 +209,8 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
     carry, group, lastCalendarWeek: calendars.at(-1)?.lastWeek ?? null,
   };
   const ref = jobs(db).doc(lease.uid);
-  const seedPayload = jobPayload(job);
+  // Hash the original seed JSON so the identity is independent of storage encoding.
+  const seedPayload = JSON.stringify(job);
   const proposed = jobPayload({ ...job,
     ...(seed.coversHistoryStart ? { coversHistoryStart: true } : {}),
     ...(seed.evidenceCompatible ? { evidenceCompatible: true, evidenceSeedThrough: stamp(sourceCutoff) } : {}),
@@ -201,10 +232,10 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
         const legacySeed = { firstWeek, nextWeek, slot, closeAt: stamp(Timestamp.fromMillis(priorClose).valueOf() > sourceCutoff.valueOf()
           ? Timestamp.fromMillis(priorClose) : sourceCutoff),
         sourceAfter: job.sourceAfter, cursor: null, scanned: false, carry, group, lastCalendarWeek: job.lastCalendarWeek };
-        const legacyId = createHash('sha256').update(jobPayload(legacySeed)).update(JSON.stringify(weeks)).digest('hex');
+        const legacyId = createHash('sha256').update(JSON.stringify(legacySeed)).update(JSON.stringify(weeks)).digest('hex');
         if (saved !== legacyId) throw new Error('A different reading rollup handoff already exists.');
       }
-      if (files && (JSON.parse(existing.get('payload')) as Job).nextWeek === nextWeek) {
+      if (files && (JSON.parse(existing.get('payload')) as Pick<Job, 'nextWeek'>).nextWeek === nextWeek) {
         const existingFiles = await tx.get(fileTotalsRef(ref));
         if (!existingFiles.exists || !parseFilePayload(existingFiles.get('payload'))?.books) {
           tx.set(fileTotalsRef(ref), { throughWeek: weeks.at(-1)!.weekStart, payload: files });
@@ -232,7 +263,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
   const snapshot = await ref.get();
   const saved = snapshot.get('payload') as string;
   if (!saved || !(snapshot.get('dueAt') <= now())) return 'skipped';
-  let job = JSON.parse(saved) as Job;
+  let job = readJobPayload(saved);
   if (new Timestamp(...job.closeAt).valueOf() > Timestamp.fromMillis(now()).valueOf()) return 'skipped';
   const source = db.collection(`${root}/users/${lease.uid}/libraries/local/readingStatsV1`);
   try {

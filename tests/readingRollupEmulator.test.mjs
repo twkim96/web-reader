@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, test } from 'node:test';
 import { registerHooks } from 'node:module';
+import { gunzipSync } from 'node:zlib';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { APP_ID } from '../src/lib/appIdentity.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 import { computeReadingCalendarRollup, computeWeeklyReadingRollup, mergeReadingFileRollups } from '../src/lib/readingStatisticsRollup.ts';
@@ -227,6 +229,88 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   assert.equal((await job.get()).get('blocked'), 'invalid-source-session');
   assert.equal((await manifest.get()).get('publishedThroughWeek'), nextWeek);
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});
+});
+
+test('normal one-minute TTS survives the legacy checkpoint size limit and resumes without rereading pages', async (t) => {
+  const uid = 'weekly-tts-large-carry';
+  const job = jobRef(uid);
+  t.after(() => job.delete());
+  const openWeek = '2026-06-08';
+  const followingWeek = '2026-06-15';
+  const sourceCutoff = Timestamp.fromDate(new Date('2026-06-15T08:00:00Z'));
+  let time = sourceCutoff.toMillis();
+  const now = () => time;
+  const frozen = session('frozen-sunday', '2026-06-07T12:00:00Z');
+  const oldWeeks = Array.from({ length: 9 }, (_, i) => computeWeeklyReadingRollup([frozen],
+    new Date(Date.parse(openWeek) - (9 - i) * weekMs).toISOString().slice(0, 10)));
+  const seed = { weeks: oldWeeks, nextWeek: openWeek, sourceCutoff,
+    carry: createReadingRollupCarry([frozen], openWeek), pilotTuesday: true, coversHistoryStart: true };
+  const lease = await claimReadingRollup(db, uid, now);
+  assert.equal(await stageReadingRollupHandoff(db, lease, seed, now), 'staged');
+  await releaseReadingRollup(db, lease);
+
+  const tts = Array.from({ length: 980 + 24 }, (_, i) => {
+    const startedAtClient = Date.parse(openWeek) + Math.floor(i / 140) * 86_400_000 + 9 * 3_600_000 + (i % 140) * 60_000;
+    const endedAtClient = startedAtClient + 60_000;
+    return session(randomUUID(), new Date(startedAtClient).toISOString(), {
+      bookId: 'drive-fiction-identifier-2026-06-volume-01', bookTitle: '별빛 도서관의 여행 1권',
+      deviceId: 'fa7aa6cb-09ce-457f-b7d8-4d8993953e07', mode: 'tts', endedAtClient, durationMs: 60_000,
+      activeIntervals: [{ startedAtClient, endedAtClient }],
+      clockMeasuredAtClient: startedAtClient - 1_000, clockOffsetMs: 0, clockUncertaintyMs: 100,
+    });
+  }).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+  const uploadedAtServer = new Timestamp(sourceCutoff.seconds + 86_400, 123_000);
+  for (let i = 0; i < tts.length; i += 400) {
+    const batch = db.batch();
+    for (const row of tts.slice(i, i + 400)) batch.set(sourceRef(uid, row.sessionId), { ...row, uploadedAtServer });
+    await batch.commit();
+  }
+
+  const manifest = job.collection('readingStatsRollupManifestsV1').doc('current');
+  const detail = job.collection('readingStatsRollupWeeksV1').doc(openWeek);
+  const dueAt = (await job.get()).get('dueAt');
+  time = Date.parse('2026-06-16T09:10:00Z');
+  await quotaRef('2026-06-16').set({ sourceReads: 1300 });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
+  const legacy = JSON.parse((await job.get()).get('payload'));
+  assert.equal(legacy.cursor.id, tts[699].sessionId);
+  assert.deepEqual(legacy.carry.sessions, [frozen, ...tts.slice(0, 700)]);
+  // A size-blocked job retains its last successful checkpoint. Requeue only its metadata.
+  await job.update({ blocked: 'rollup-payload-too-large', dueAt: FieldValue.delete() });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), {});
+  await job.update({ blocked: FieldValue.delete(), dueAt });
+
+  time += 86_400_000;
+  await quotaRef('2026-06-17').set({ sourceReads: 1740 });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
+  const saved = (await job.get()).get('payload');
+  const checkpoint = JSON.parse(saved);
+  assert.equal(checkpoint.cursor.id, tts[959].sessionId);
+  assert.deepEqual(checkpoint.cursor.time, [uploadedAtServer.seconds, uploadedAtServer.nanoseconds]);
+  assert.deepEqual(checkpoint.closedAllocation, legacy.closedAllocation);
+  assert.equal(checkpoint.carry.encoding, 'gzip-v1');
+  const carry = JSON.parse(gunzipSync(Buffer.from(checkpoint.carry.data, 'base64')).toString('utf8'));
+  assert.deepEqual(carry, { sampleFloor: legacy.carry.sampleFloor, sessions: [frozen, ...tts.slice(0, 960)] });
+  assert.ok(Buffer.byteLength(JSON.stringify({ ...checkpoint, carry })) > 512 * 1024);
+  assert.ok(Buffer.byteLength(saved) <= 512 * 1024);
+  assert.equal((await manifest.get()).exists, false);
+  assert.equal((await detail.get()).exists, false);
+  const retryLease = await claimReadingRollup(db, uid, now);
+  assert.equal(await stageReadingRollupHandoff(db, retryLease, seed, now), 'already-staged');
+  await releaseReadingRollup(db, retryLease);
+  assert.equal((await job.get()).get('payload'), saved);
+
+  time += 86_400_000;
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1 });
+  assert.equal((await quotaRef('2026-06-18').get()).get('sourceReads'), 100);
+  const expected = computeWeeklyReadingRollup([frozen, ...tts], openWeek);
+  assert.equal(expected.days.reduce((sum, day) => sum + day.ttsMs, 0), 980 * 60_000);
+  assert.deepEqual(JSON.parse((await detail.get()).get('payload')), expected);
+  assert.equal((await manifest.get()).get('publishedThroughWeek'), openWeek);
+  const nextCarry = createReadingRollupCarry([frozen, ...tts], followingWeek);
+  assert.deepEqual(JSON.parse((await job.get()).get('payload')).carry, nextCarry);
+  const files = job.collection('readingStatsRollupFilesV1').doc('current');
+  assert.deepEqual(JSON.parse((await files.get()).get('payload')).carry, nextCarry);
 });
 
 test('late records can use a clock sample on a later page after a budget pause', async () => {

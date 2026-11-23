@@ -133,7 +133,13 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   await filesRef.update({ payload: JSON.stringify({ files, books: completeBooks, carry, evidenceCompatible: false }) });
   assert.deepEqual(await ok(get(bootstrap, idToken)), { bootstrap: { calendar: full.calendar, files, books: completeBooks,
     sourceThrough: { seconds: sourceThrough.seconds, nanoseconds: sourceThrough.nanoseconds }, carry } });
+  const known = { ...bootstrap, knownFirstDay: '2026-09-14', knownLastDay: '2026-11-29', knownSeconds: String(sourceThrough.seconds), knownNanos: '0' };
+  assert.equal((await get(known)).status, 401);
+  assert.deepEqual(await ok(get(known, otherToken)), { bootstrap: null });
+  assert.equal((await get({ ...known, knownNanos: '' }, idToken)).status, 400);
   await filesRef.update({ payload });
+  assert.deepEqual(await ok(get(known, idToken)), { unchanged: true }, 'unchanged discovery needs only the publication manifest');
+  assert.deepEqual(await ok(get({ ...known, knownNanos: '1' }, idToken)), { bootstrap: null });
   assert.deepEqual(await ok(get(bootstrap, idToken)), { bootstrap: null });
   assert.deepEqual(await ok(get({ ...audit, uid }, otherToken)), { covered: false });
   assert.deepEqual(await ok(get({ ...view, uid }, otherToken)), { calendar: null });
