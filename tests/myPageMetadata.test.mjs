@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createDiscoveryLoader, getGroupedBookDiscovery, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
+import { createDiscoveryLoader, getGroupedBookDiscovery, getRelatedDiscoveryBooks, groupDiscoveryBooks, loadBookDiscovery, parseDiscoveryIndex } from '../src/lib/bookDiscovery.ts';
 import { cacheReadBookMetadata, readCachedReadBookMetadata as readCachedMatches } from '../src/lib/readBookMetadataCache.ts';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../src/lib/bookDetail.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
@@ -110,6 +110,24 @@ test('reentering discovery with the same loaded catalog reuses its canonical ind
   }));
   assert.notEqual(next, first);
   assert.equal(next.byId.get('stable-title-key').title, '새 제목');
+});
+
+test('related books rank distinctive shared tags and skip the current work and its alternate editions', () => {
+  const catalogRow = (id, tags, popularity, link = id) => [
+    id, id, null, [['series', `https://books.example/${link}`]], 0, tags, popularity, null,
+  ];
+  const { books, byId } = groupDiscoveryBooks(parseDiscoveryIndex({ ...index, books: [
+    catalogRow('a-current', [0, 1], 0),
+    catalogRow('z-alias', [0, 1], 100, 'a-current'),
+    catalogRow('both', [0, 1], 0),
+    catalogRow('rare', [1], 0),
+    catalogRow('untagged', [], 100),
+    ...Array.from({ length: 8 }, (_, i) => catalogRow(`common-${i}`, [0], 100 - i)),
+  ] }));
+  assert.deepEqual(getRelatedDiscoveryBooks(books, byId.get('z-alias')).map(({ id }) => id), [
+    'both', 'rare', 'common-0', 'common-1', 'common-2', 'common-3',
+  ]);
+  assert.deepEqual(getRelatedDiscoveryBooks(books, byId.get('untagged')), []);
 });
 
 test('legacy review export retains recorded platform keys, title-only reviews and local originals', async () => {

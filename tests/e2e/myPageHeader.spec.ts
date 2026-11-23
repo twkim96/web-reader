@@ -75,6 +75,48 @@ test('book detail loads the catalog thumbnail directly and retries a denied orig
   expect(proxyCalls).toEqual([denied]);
 });
 
+test('mobile book detail scrolls related covers and opens the selected work from the same catalog', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  let catalogRequests = 0;
+  const openedReviews = new Set<string>();
+  await page.route('**/catalog/discovery.v1.json', route => {
+    catalogRequests += 1;
+    return route.fulfill({ json: {
+      schemaVersion: 1, generation: 'related-books', genres: [], tags: ['모험'],
+      books: Array.from({ length: 8 }, (_, i) => [
+        `related-${i}`, `모험 도서 ${i}`, null, [['series', `https://example.test/related/${i}`]], null, [0], 100 - i, null,
+      ]),
+    } });
+  });
+  await page.route('**/api/book-reviews?*', route => {
+    const workId = new URL(route.request().url()).searchParams.get('workId');
+    if (workId) openedReviews.add(workId);
+    return route.fulfill({ json: { reviews: [], ratingCount: 0, average: null } });
+  });
+
+  await page.goto('/#mypage/book/related-0');
+  const row = page.getByRole('list', { name: '연관 도서 가로 목록' });
+  await expect(row.getByRole('link')).toHaveCount(6);
+  await expect(row.getByRole('link', { name: '모험 도서 0' })).toHaveCount(0);
+  expect(await row.evaluate(list => list.scrollWidth > list.clientWidth)).toBe(true);
+  await row.scrollIntoViewIfNeeded();
+  const box = (await row.boundingBox())!;
+  await page.mouse.move(box.x + box.width - 20, box.y + 25);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 25, box.y + 25, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => row.evaluate(list => list.scrollLeft)).toBeGreaterThan(0);
+  await expect(page).toHaveURL(/#mypage\/book\/related-0$/);
+  await expect.poll(() => [...openedReviews]).toEqual(['related-0']);
+
+  await row.getByRole('link', { name: '모험 도서 6', exact: true }).click();
+  await expect(page.getByRole('region', { name: '도서 기본정보' }).getByRole('heading', { name: '모험 도서 6' })).toBeVisible();
+  await expect.poll(() => [...openedReviews]).toEqual(['related-0', 'related-6']);
+  await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
+  await expect(page).toHaveURL(/#mypage\/book\/related-0$/);
+  expect(catalogRequests).toBe(1);
+});
+
 test('a deep-linked book prepares catalog search only when the list opens', async ({ page }) => {
   await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
     schemaVersion: 1, generation: 'catalog-preparation-test', genres: ['판타지'], tags: ['모험'],

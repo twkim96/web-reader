@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, House, Library, Plus, Search, Settings2 } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
-import { getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { getGroupedBookDiscovery, getRelatedDiscoveryBooks, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
 import { finishDiscoveryTiming, startDiscoveryTiming } from '../../lib/myPagePerformance';
 import type { ReadBook } from '../../lib/readBooks';
@@ -213,7 +213,7 @@ export function MyPage(props: Props) {
     }
   };
   const openBookById = (id: string, book?: DiscoveryBook | ReadBook, reviewTarget = false) => {
-    if (tab === 'read') readListScroll.current = window.scrollY;
+    if (tab === 'read' && !bookId) readListScroll.current = window.scrollY;
     window.history.pushState({ ...window.history.state, myPageBookFrom: tab }, '', bookDetailHref(id, reviewTarget));
     setOpenedBook(book ? { id, book } : undefined);
     setBookId(id);
@@ -258,6 +258,13 @@ export function MyPage(props: Props) {
   const readMatch = readSource && groupedCatalog ? resolveReadBookDiscovery(groupedCatalog, readSource) : undefined;
   const detailBook = !bookId ? undefined : readSource ? readMatch?.book : groupedCatalog?.byId.get(bookId)
     ?? discoverySource ?? wishlist.entries.find(({ book }) => book.id === bookId)?.book;
+  const relatedBookId = detailBook?.id;
+  const relatedBooks = useMemo(() => {
+    if (!catalog || !relatedBookId) return [];
+    const grouped = getGroupedBookDiscovery(catalog);
+    const current = grouped.byId.get(relatedBookId);
+    return current ? getRelatedDiscoveryBooks(grouped.books, current) : [];
+  }, [catalog, relatedBookId]);
   const detailSaved = bookId !== null && !readMatch?.blocked
     && (wishlist.savedIds.has(bookId) || (detailBook !== undefined && wishlist.savedIds.has(detailBook.id)));
   const catalogLoading = !catalog && !catalogError;
@@ -417,7 +424,7 @@ export function MyPage(props: Props) {
             />
           </div>}
           {bookId ? (
-            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} />
+            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} relatedBooks={relatedBooks} onOpenRelatedBook={openBook} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
           {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />

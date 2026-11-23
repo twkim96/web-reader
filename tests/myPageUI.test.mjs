@@ -992,8 +992,11 @@ test('a saved title opens a themed detail page with optional private records and
     const personal = main().querySelector('[aria-label="내 독서 기록"]');
     assert.match(personal.textContent, /읽은 시간1분/);
     assert.match(personal.textContent, /진행도18%/);
-    assert.match(personal.textContent, /로컬 책갈피/);
-    assert.equal(personal.querySelector('.mypage-divided-list').children.length, 2);
+    const bookmarks = personal.querySelector('details');
+    assert.equal(bookmarks.hasAttribute('open'), false);
+    assert.equal(bookmarks.querySelector('summary').textContent.trim(), '책갈피');
+    assert.match(bookmarks.textContent, /로컬 책갈피/);
+    assert.equal(bookmarks.querySelector('.mypage-divided-list').children.length, 2);
     const reviews = main().querySelector('[aria-label="다른 독자의 평가"]');
     assert.equal(reviews.querySelectorAll('li').length, 2);
     assert.match(reviews.querySelector('li').textContent, /행복한사자#7K4M2Q8R.*4\/5.*2분 읽음.*40%/);

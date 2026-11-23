@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, Bookmark as BookmarkIcon, Check, Heart, Star } from 'lucide-react';
+import { ArrowUpRight, Bookmark as BookmarkIcon, Check, ChevronDown, Heart, Star } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
 import type { DiscoveryBook } from '../../lib/bookDiscovery';
@@ -19,6 +19,7 @@ import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/r
 import { formatReadingDuration } from '../../lib/readingStatistics';
 import { BookCover } from './BookCover';
 import { BookReviewEditor } from './BookReviewEditor';
+import { DashboardBookRow } from './DashboardBookRow';
 
 const percent = new Intl.NumberFormat('ko', { maximumFractionDigits: 2 });
 const formatPercent = (number: number) => `${percent.format(number)}%`;
@@ -92,7 +93,7 @@ function CommunityReviews({ workId }: { workId: string }) {
 
 const emptyHistory = { sessions: [] };
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, relatedBooks, onOpenRelatedBook }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
@@ -104,6 +105,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   identityBlocked: boolean;
   saved: boolean;
   focusReview: boolean;
+  relatedBooks: readonly DiscoveryBook[];
+  onOpenRelatedBook: (book: DiscoveryBook) => void;
 }) {
   const lookupId = discovery?.id ?? bookId;
   const reviews = useMyPageWorkReview(ownerKey, !isGuestOwner(ownerKey) && Boolean(discovery) && !identityBlocked, lookupId);
@@ -288,17 +291,21 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
             </dl>
           )}
           {personal.bookmarks.length > 0 && (
-            <div className="mt-4">
-              <h3 className="text-xs opacity-65">책갈피</h3>
-              <ul className="mypage-divided-list mt-2">
+            <details className="group/bookmarks mt-2">
+              <summary className="flex min-h-10 cursor-pointer list-none items-center gap-1 rounded-sm text-xs opacity-65 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-accent-500 [&::-webkit-details-marker]:hidden">
+                책갈피 <ChevronDown size={14} aria-hidden="true" className="group-open/bookmarks:rotate-180" />
+              </summary>
+              <ul className="mypage-divided-list">
                 {personal.bookmarks.map(({ id, name, progressPercent }) => <li key={id} className="flex items-start gap-2 text-sm"><BookmarkIcon size={14} className="mt-0.5 shrink-0 text-accent-500" /><span className="min-w-0 flex-1 break-words">{name || '책갈피'}</span>{progressPercent !== undefined && <span className="shrink-0 text-xs tabular-nums opacity-65">{formatPercent(progressPercent)}</span>}</li>)}
               </ul>
-            </div>
+            </details>
           )}
         </section>
       )}
       {Boolean(historyResult?.failed.size) && <p role="status" className="text-sm opacity-65">일부 독서 기록을 연결하지 못했습니다. <button type="button" className="text-accent-500" onClick={() => retryHistoryMetadata((value) => value + 1)}>기록 다시 연결</button></p>}
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
+      {relatedBooks.length > 0 && <DashboardBookRow title="연관 도서" books={relatedBooks} onOpenBook={onOpenRelatedBook}
+        compact coverLoading="direct-with-proxy-fallback" />}
       <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={losesEvidence ? [] : reviewFileIds ?? []}
         readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
         ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}

@@ -12,7 +12,7 @@ const showAllClass = '-mr-2 flex min-h-11 shrink-0 items-center gap-1 rounded-lg
 const showAllContent = <>전체 보기 <ChevronRight size={16} aria-hidden="true" /></>;
 
 export function DashboardBookRow<T extends { id: string; title: string; coverUrl: string | null; coverTitle?: string | null }>({
-  title, books, onOpenBook, getDetailId, getBookKey, onShowAll, showAllHref, renderDetail, coverLoading, children,
+  title, books, onOpenBook, getDetailId, getBookKey, onShowAll, showAllHref, renderDetail, coverLoading, compact = false, children,
 }: {
   title: string;
   books: readonly T[];
@@ -23,6 +23,7 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
   showAllHref?: string;
   renderDetail?: (book: T) => ReactNode;
   coverLoading?: BookCoverLoading;
+  compact?: boolean;
   children?: ReactNode;
 }) {
   const drag = useMouseDragScroll();
@@ -30,7 +31,7 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
   return (
     <section aria-label={title} className="min-w-0">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-tight sm:text-xl">{title}</h2>
+        <h2 className={compact ? 'text-sm font-semibold' : 'text-lg font-semibold tracking-tight sm:text-xl'}>{title}</h2>
         {showAllHref ? <Link href={showAllHref} prefetch={false} aria-label={`${title} 전체 보기`} className={showAllClass}>{showAllContent}</Link>
           : onShowAll && <button type="button" onClick={onShowAll} aria-label={`${title} 전체 보기`} className={showAllClass}>{showAllContent}</button>}
       </div>
@@ -43,12 +44,12 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
             const detailId = getDetailId ? getDetailId(book) : book.id;
             const key = getBookKey?.(book) ?? book.id;
             return (
-              <li key={key} className="w-[var(--mypage-cover-width,clamp(5.5rem,29vw,7.5rem))] shrink-0">
+              <li key={key} className={`shrink-0 ${compact ? 'w-16 sm:w-[4.5rem]' : 'w-[var(--mypage-cover-width,clamp(5.5rem,29vw,7.5rem))]'}`}>
                 <BookDetailLink bookId={detailId} onOpen={() => onOpenBook(book)} label={book.title}
                   className="group block rounded-lg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
                   <BookCover url={book.coverUrl} identity={detailId ?? key}
                     title={book.coverTitle === undefined ? book.title : book.coverTitle} large coverLoading={coverLoading} />
-                  <span className="mt-2 line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:text-accent-500">{book.title}</span>
+                  <span className={`line-clamp-2 break-words font-semibold leading-snug group-hover:text-accent-500 ${compact ? 'mt-1.5 text-xs' : 'mt-2 text-sm'}`}>{book.title}</span>
                   {renderDetail?.(book)}
                 </BookDetailLink>
               </li>

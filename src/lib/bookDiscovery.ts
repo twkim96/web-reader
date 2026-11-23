@@ -126,6 +126,39 @@ export function getGroupedBookDiscovery(rows: readonly DiscoveryBook[]) {
   return grouped;
 }
 
+const discoveryBooksByTag = new WeakMap<readonly DiscoveryBook[], Map<string, DiscoveryBook[]>>();
+
+export function getRelatedDiscoveryBooks(books: readonly DiscoveryBook[], current: DiscoveryBook) {
+  if (!current.tags.length) return [];
+
+  let booksByTag = discoveryBooksByTag.get(books);
+  if (!booksByTag) {
+    booksByTag = new Map();
+    for (const book of books) for (const tag of new Set(book.tags)) {
+      const matches = booksByTag.get(tag);
+      if (matches) matches.push(book);
+      else booksByTag.set(tag, [book]);
+    }
+    discoveryBooksByTag.set(books, booksByTag);
+  }
+
+  const scores = new Map<DiscoveryBook, number>();
+  for (const tag of new Set(current.tags)) {
+    const matches = booksByTag.get(tag);
+    if (!matches) continue;
+    const weight = 1 / Math.log2(matches.length + 1);
+    for (const book of matches) {
+      if (book.id !== current.id) scores.set(book, (scores.get(book) ?? 0) + weight);
+    }
+  }
+
+  const sameGenre = (book: DiscoveryBook) => Number(current.genre !== null && book.genre === current.genre);
+  return [...scores].sort(([a, scoreA], [b, scoreB]) => (
+    scoreB - scoreA || sameGenre(b) - sameGenre(a) || (b.popularity ?? -1) - (a.popularity ?? -1)
+    || a.id.localeCompare(b.id)
+  )).slice(0, 6).map(([book]) => book);
+}
+
 export function resolveReadBookDiscovery(
   catalog: ReturnType<typeof groupDiscoveryBooks>,
   book: { id: string; equivalentTitleKeys?: string[]; platformWorkKeys?: string[] },
