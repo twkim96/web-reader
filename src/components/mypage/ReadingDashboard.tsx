@@ -6,7 +6,7 @@ import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
 import { useLocalReadingDate } from '../../hooks/useLocalReadingDate';
 import { useMyPageReadingCalendar, useMyPageReadingWeek } from '../../hooks/useMyPageList';
-import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
+import { useLocalReadingReportSessions } from '../../hooks/useLocalReadingReportSessions';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import {
   buildReadingStatistics,
@@ -14,28 +14,15 @@ import {
   getReadingStatisticsRangeBounds,
   isLocalDateWithinBounds,
   MIN_READING_STATISTICS_BLOCK_MS,
-  type StoredReadingSessionV11,
 } from '../../lib/readingStatistics';
-import { mergePublishedCalendarDays, publishedCalendarCovers } from '../../lib/readingRollupCalendar';
+import { hasPublishedBoundaryClockRisk, mergePublishedCalendarDays, publishedCalendarCovers } from '../../lib/readingRollupCalendar';
 import { readingRollupWeekForDay, type ReadingRollupActivity } from '../../lib/readingStatisticsRollup';
-import {
-  READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY,
-  readHiddenReadingStatisticsSessionIds,
-} from '../../lib/readingStatisticsSessionVisibility';
-import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 
 type Props = {
   ownerKey: OwnerKey;
   onRefresh?: () => void;
   onOpenStatistics: () => void;
   onOpenAnnotations: () => void;
-};
-
-type Data = {
-  ownerKey: OwnerKey;
-  sessions: StoredReadingSessionV11[];
-  error: boolean;
-  hasHidden: boolean;
 };
 
 const readingTimeFormat = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
@@ -47,7 +34,6 @@ const dateKey = (year: number, month: number, day: number) => (
 export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpenAnnotations }: Props) {
   const displayBookTitle = useBookTitleDisplay();
   const today = useLocalReadingDate();
-  const [data, setData] = useState<Data | null>(null);
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -58,47 +44,22 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   });
   const [visibleRows, setVisibleRows] = useState({ day: '', count: 50 });
 
-  useEffect(() => {
-    let disposed = false;
-    let request = 0;
-    const load = async () => {
-      const current = ++request;
-      try {
-        const sessions = await getLocalReadingSessionsV11(ownerKey);
-        const hidden = readHiddenReadingStatisticsSessionIds(ownerKey);
-        if (!disposed && current === request) {
-          setData({ ownerKey, sessions: sessions.filter(({ sessionId }) => !hidden.has(sessionId)), error: false, hasHidden: hidden.size > 0 });
-        }
-      } catch {
-        if (!disposed && current === request) setData({ ownerKey, sessions: [], error: true, hasHidden: false });
-      }
-    };
-    const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => void load());
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY || event.key === null) void load();
-    };
-    window.addEventListener('storage', onStorage);
-    void load();
-    return () => {
-      disposed = true;
-      unsubscribe();
-      window.removeEventListener('storage', onStorage);
-    };
-  }, [ownerKey]);
-
+  const canUseRollup = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1' && !isGuestOwner(ownerKey);
+  const currentData = useLocalReadingReportSessions(ownerKey, true, canUseRollup);
   useEffect(() => {
     onRefresh?.();
   }, [ownerKey, onRefresh]);
 
-  const currentData = data?.ownerKey === ownerKey ? data : null;
-  const { data: published } = useMyPageReadingCalendar(ownerKey,
-    process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1' && !isGuestOwner(ownerKey)
-      && Boolean(currentData && !currentData.error && !currentData.hasHidden));
-  const calendar = published?.calendar ?? null;
+  const { data: published } = useMyPageReadingCalendar(ownerKey, canUseRollup);
+  const publishedCalendar = published?.calendar ?? null;
+  const calendar = useMemo(() => publishedCalendar && !(currentData?.rawHistoryComplete
+    && hasPublishedBoundaryClockRisk(currentData.sessions, publishedCalendar)) ? publishedCalendar : null,
+  [currentData, publishedCalendar]);
+  const sessions = calendar && !currentData?.rawHistoryComplete ? null : currentData?.sessions;
   const statistics = useMemo(() => {
-    if (!currentData || currentData.error) return null;
+    if (!calendar && (!currentData || currentData.error)) return null;
     const details = new Map<string, ReadingRollupActivity[]>();
-    const summary = measureMyPageWork('dashboard-timeline', () => buildReadingStatistics(currentData.sessions, {}, undefined, {
+    const summary = measureMyPageWork('dashboard-timeline', () => buildReadingStatistics(sessions ?? [], {}, undefined, {
       minimumMs: MIN_READING_STATISTICS_BLOCK_MS,
       onBlock: ({ session, ...activity }) => {
         if (calendar && publishedCalendarCovers(calendar, activity.localDate)) return;
@@ -113,7 +74,7 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
     const days = mergePublishedCalendarDays(summary.days, calendar);
     const dayTotals = new Map(days.map(({ localDate, totalMs }) => [localDate, totalMs]));
     return { days, details, dayTotals };
-  }, [calendar, currentData]);
+  }, [calendar, currentData, sessions]);
   const days = statistics?.days ?? null;
   const totals = useMemo(() => {
     if (!days) return null;

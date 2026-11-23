@@ -300,7 +300,7 @@ test('a direct detail lookup resolves transitive published aliases and keeps loc
     timezoneOffsetMinutes: 0, mode: 'screen', completed: false, startProgressPercent: 4, endProgressPercent: 9,
   });
   const reading = {
-    ownerKey, books: [], hidden: new Set(),
+    ownerKey, books: [],
     sessions: [makeSession('private-id', bookTitle, start), makeSession('bridge-id', bridgeName, start + 120_000)],
     progress: { 'private-id': { syncRevision: 2, progressPercent: 50 } },
     bookmarkProgress: { 'private-id': { syncRevision: 1, progressPercent: 9, bookmarks: [bookmark] } },
@@ -329,9 +329,8 @@ test('a file that loses its metadata cannot give list and direct detail differen
   const primary = makeSession('primary', '첫 번째 파일.epub', 0, 60_000, 20);
   const edition = makeSession('edition', '다른 판본.txt', 120_000, 120_000, 80);
   const sessions = [primary, edition];
-  const hidden = new Set();
   const input = {
-    ownerKey, sessions, hidden, books: [], progress: {}, titleKeys: ['published'],
+    ownerKey, sessions, books: [], progress: {}, titleKeys: ['published'],
     platformWorkKeys: [platformWorkKey(platform.platform, platform.url)],
   };
   const load = createReadMetadataLoader(async (title) => title === primary.bookTitle ? metadata : null);
@@ -345,13 +344,13 @@ test('a file that loses its metadata cannot give list and direct detail differen
   assert.deepEqual(direct.reviewFileIds, ['primary']);
   assert.equal(fromList.reviewHistoryPartial, true);
   assert.equal(direct.reviewHistoryPartial, true);
-  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, direct.reviewFileIds), {
+  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, direct.reviewFileIds), {
     totalMs: 60_000, progressPercent: 20,
   });
 
   const resolved = new Map(missing.metadata).set(edition.bookTitle, metadata);
   const recovered = buildPersonalBookReading({ ...input, metadataByTitle: resolved, knownFileIds: [] });
-  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, recovered.reviewFileIds), {
+  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, recovered.reviewFileIds), {
     totalMs: 180_000, progressPercent: 80,
   });
 
@@ -375,7 +374,7 @@ test('a file that loses its metadata cannot give list and direct detail differen
 
   const sameFile = [primary, { ...edition, bookId: primary.bookId }];
   const renamed = buildPersonalBookReading({ ...input, sessions: sameFile, metadataByTitle: missing.metadata, knownFileIds: [] });
-  assert.deepEqual(buildLocalReviewReading(sameFile, ownerKey, hidden, renamed.reviewFileIds), {
+  assert.deepEqual(buildLocalReviewReading(sameFile, ownerKey, renamed.reviewFileIds), {
     totalMs: 180_000, progressPercent: 80,
   });
   const uncertain = buildPersonalBookReading({
@@ -395,11 +394,9 @@ test('review evidence uses the highest synced progress even below the detail dis
     syncState: 'synced',
   };
   const sessions = [session, { ...session, sessionId: '2', syncState: 'pending', endProgressPercent: 99 }];
-  const hidden = new Set();
   const direct = buildPersonalBookReading({
-    ownerKey, books: [], hidden, sessions: [session], progress: {}, knownFileIds: [], titleKeys: ['title'],
+    ownerKey, books: [], sessions: [session], progress: {}, knownFileIds: [], titleKeys: ['title'],
   });
   assert.equal(direct.progressPercent, 0);
-  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, hidden, direct.reviewFileIds), { totalMs: 60_000, progressPercent: 80 });
-  assert.equal(buildLocalReviewReading(sessions, ownerKey, new Set([session.sessionId]), direct.fileIds), null);
+  assert.deepEqual(buildLocalReviewReading(sessions, ownerKey, direct.reviewFileIds), { totalMs: 60_000, progressPercent: 80 });
 });

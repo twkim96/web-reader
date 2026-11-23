@@ -9,6 +9,7 @@ import { isGuestOwner, type OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar';
 import type { PublishedReadingFiles } from '../lib/readingStatisticsRollup';
+import type { PublishedReadingReportBooks, ReadingReportRange } from '../lib/readingStatisticsReport';
 
 type ListCache<T> = {
   subscribe: (listener: () => void) => () => void;
@@ -19,7 +20,7 @@ type ListCache<T> = {
 
 function useMyPageList<T>(
   cache: ListCache<T>, params: Record<string, string>, owner: OwnerKey, enabled: boolean,
-  phase: 'wishlist-ready' | 'reviews-ready' | 'review-preview-ready' | 'reading-calendar-ready' | 'reading-week-ready' | 'reading-files-ready',
+  phase: 'wishlist-ready' | 'reviews-ready' | 'review-preview-ready' | 'reading-calendar-ready' | 'reading-week-ready' | 'reading-files-ready' | 'reading-book-totals-ready',
 ) {
   const snapshot = useSyncExternalStore(cache.subscribe, () => enabled ? cache.read(owner) : cache.empty(), cache.empty);
   const load = useCallback((force = false) => (
@@ -67,6 +68,8 @@ const readingCalendarParams = { view: 'rollup-calendar' };
 const readingCalendarCache = createListCache<{ calendar: PublishedReadingCalendar | null }>();
 const readingFilesParams = { view: 'rollup-files' };
 const readingFilesCache = createListCache<{ history: PublishedReadingFiles | null }>(15 * 60_000);
+const readingBookTotalsParams = { view: 'rollup-books' };
+const readingBookTotalsCache = createListCache<{ report: PublishedReadingReportBooks | null }>(15 * 60_000);
 
 export const useMyPageWishlistList = (owner: OwnerKey, enabled: boolean) => (
   useMyPageList<{ entries: MyPageSavedBook[] }>(wishlistListCache, wishlistParams, owner, enabled, 'wishlist-ready')
@@ -87,6 +90,24 @@ export const useMyPageReadingFiles = (owner: OwnerKey, enabled: boolean) => (
   useMyPageList(readingFilesCache, readingFilesParams, owner, enabled && !isGuestOwner(owner)
     && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1', 'reading-files-ready')
 );
+
+export const useMyPageReadingBookTotals = (owner: OwnerKey, enabled: boolean) => (
+  useMyPageList(readingBookTotalsCache, readingBookTotalsParams, owner, enabled, 'reading-book-totals-ready')
+);
+
+export function useMyPageReadingRangeBooks(owner: OwnerKey, range: ReadingReportRange | null) {
+  const firstDay = range?.firstDay ?? '';
+  const lastDay = range?.lastDay ?? '';
+  const { cache, params } = useMemo(() => ({
+    cache: createListCache<{ report: PublishedReadingReportBooks | null }>(15 * 60_000),
+    params: { view: 'rollup-books', firstDay, lastDay },
+  }), [firstDay, lastDay]);
+  const session = ownerRuntime.capture();
+  useEffect(() => {
+    if (session) return () => cache.dispose(session);
+  }, [cache, session]);
+  return useMyPageList(cache, params, owner, range !== null, 'reading-book-totals-ready');
+}
 
 export function useMyPageReadingWeek(owner: OwnerKey, week: string | null, enabled: boolean) {
   const { cache, params } = useMemo(() => ({

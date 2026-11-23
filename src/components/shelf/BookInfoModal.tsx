@@ -25,7 +25,6 @@ import {
   type PublicBookMetadata,
   type PublicBookPlatformMetadata,
 } from '../../lib/publicBookMetadata';
-import { readHiddenReadingStatisticsSessionIds } from '../../lib/readingStatisticsSessionVisibility';
 import type { PublicBookCatalogBook } from '../../lib/publicBookCatalog';
 import type { PublicBookCatalogLoadState } from '../../hooks/usePublicBookCatalog';
 import { useShelfBookCover } from './useShelfBookCovers';
@@ -142,10 +141,7 @@ export const BookInfoModal: React.FC<Props> = ({
       try {
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         if (!active) return;
-        const hiddenSessionIds = readHiddenReadingStatisticsSessionIds(ownerKey);
-        const totalMs = getReadingFileTime(sessions.filter(({ sessionId }) => (
-          !hiddenSessionIds.has(sessionId)
-        )), book.id, hiddenSessionIds.size ? null : archived);
+        const totalMs = getReadingFileTime(sessions, book.id, archived);
         setReadingTimeMs(totalMs > 0 ? totalMs : null);
       } catch (error) {
         if (!active) return;

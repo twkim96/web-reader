@@ -808,6 +808,10 @@ export const recordReadingStatisticsHydrationMetricsV12 = async (
 
 const queuedSessionReads = new Map<OwnerKey, { result: Promise<StoredReadingSessionV11[]>; shared: boolean }>();
 
+const sortLocalReadingSessions = (values: unknown[]) => values.map(assertStoredSession).sort((left, right) => (
+  left.startedAtClient - right.startedAtClient || left.sessionId.localeCompare(right.sessionId)
+));
+
 export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
   let read = queuedSessionReads.get(ownerKey);
   if (read) {
@@ -819,9 +823,7 @@ export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
         queuedSessionReads.delete(ownerKey);
       });
       const values = await db.getAllFromIndex(V11_READING_SESSIONS_STORE, 'by-owner', ownerKey);
-      return values.map(assertStoredSession).sort((left, right) => (
-        left.startedAtClient - right.startedAtClient || left.sessionId.localeCompare(right.sessionId)
-      ));
+      return sortLocalReadingSessions(values);
     })();
     read = { result, shared: false };
     queuedSessionReads.set(ownerKey, read);
@@ -832,6 +834,23 @@ export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
     ? { ...session, activeIntervals: session.activeIntervals.map((interval) => ({ ...interval })) }
     : { ...session });
 };
+
+export async function getLocalReadingReportSnapshot(ownerKey: OwnerKey, verifyHistory: boolean) {
+  if (!verifyHistory) return { sessions: await getLocalReadingSessionsV11(ownerKey), rawHistoryComplete: false };
+  const db = await initDB();
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
+  const [values, value] = await Promise.all([
+    tx.objectStore(V11_READING_SESSIONS_STORE).index('by-owner').getAll(ownerKey),
+    tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(ownerKey),
+  ]);
+  await tx.done;
+  const sessions = sortLocalReadingSessions(values);
+  const meta = value ? assertSyncMeta(value) : null;
+  const rawHistoryComplete = Boolean(meta?.fullHydrationCompleted && meta.lastFullAuditAt > 0 && !meta.fullAuditInProgress
+    && meta.quarantinedDocuments.length === 0
+    && sessions.filter(({ syncState }) => syncState === 'synced').length >= meta.hydratedRemoteCount);
+  return { sessions, rawHistoryComplete };
+}
 
 export const getPendingReadingSessionsV11 = async (
   ownerKey: OwnerKey,

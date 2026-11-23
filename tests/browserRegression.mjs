@@ -6499,9 +6499,8 @@ try {
       const existingKeys = store.index('by-owner-book').getAllKeys([ownerKey, bookId]);
       existingKeys.onerror = () => reject(existingKeys.error);
       existingKeys.onsuccess = () => {
-        // The real reader session was already asserted above. Remove it before
-        // the round fixture so the round-order contract never depends on the
-        // wall clock or on whether this regression happens to cross midnight.
+        // The real reader session was already asserted above. Use fixed local
+        // times to verify the same title merges across legacy rounds.
         for (const key of existingKeys.result) store.delete(key);
 
         const now = new Date();
@@ -6557,6 +6556,10 @@ try {
         put('round-fixture-first-start', 0, 0, 50, false);
         put('round-fixture-first-finish', 121_000, 50, 100, true, base + 241_000);
         put('round-fixture-second-start', 242_000, 0, 25, false);
+        localStorage.setItem('reading_statistics_hidden_sessions_v1', JSON.stringify({
+          version: 1,
+          entries: [{ ownerKey, bookId, roundNumber: 1, sessionIds: ['round-fixture-first-start'], hiddenAt: Date.now() }],
+        }));
       };
       transaction.oncomplete = () => { db.close(); resolve(true); };
       transaction.onerror = () => reject(transaction.error);
@@ -6573,6 +6576,10 @@ try {
     'Boolean(document.querySelector(\'[data-reading-statistics-modal="true"]\'))',
     'reading statistics modal',
   );
+  await waitFor(
+    "Boolean(document.querySelector('[data-reading-statistics-modal] [data-reading-statistics-book]'))",
+    'reading statistics records',
+  );
   const readingStatisticsUi = await evaluate(`(() => {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');
     const body = modal?.querySelector('[data-reading-statistics-body="true"]');
@@ -6588,7 +6595,6 @@ try {
       .filter((element) => !(
         element.closest('[data-reading-statistics-refresh="true"]')
         || element.matches('[data-reading-statistics-range][aria-pressed="true"]')
-        || element.matches('[data-reading-statistics-book-filter="true"] button[aria-pressed="true"]')
         || element.matches('[data-reading-statistics-book-duration="true"]')
       ));
     const buttons = [...modal.querySelectorAll('button')].map((button) => {
@@ -6600,11 +6606,6 @@ try {
         range: button.getAttribute('data-reading-statistics-range'),
         headerClose: button.hasAttribute('data-menu-sheet-close'),
         headerAction: Boolean(button.closest('.app-menu-sheet-header-actions')),
-        compact: Boolean(
-          button.closest('[data-reading-statistics-book-filter="true"]')
-          || button.hasAttribute('data-reading-statistics-complete')
-          || button.hasAttribute('data-reading-statistics-confirm-complete')
-        ),
       };
     });
     return {
@@ -6617,7 +6618,7 @@ try {
       horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
       bodyHorizontalOverflow: body ? Math.max(0, body.scrollWidth - body.clientWidth) : -1,
       actionButtonsReachable: buttons
-        .filter(({ range, compact, headerClose, headerAction }) => !range && !compact && !headerClose && !headerAction)
+        .filter(({ range, headerClose, headerAction }) => !range && !headerClose && !headerAction)
         .every(({ width, height }) => width >= 44 && height >= 44),
       headerCloseSize: buttons.filter(({ headerClose }) => headerClose)
         .map(({ width, height }) => ({ width, height })),
@@ -6675,207 +6676,37 @@ try {
   assert.notEqual(readingStatisticsUi.exportTextColor, readingStatisticsUi.modalTextColor, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.shareTextColor, readingStatisticsUi.exportTextColor, JSON.stringify(readingStatisticsUi));
   assert.equal(readingStatisticsUi.shareBackground, readingStatisticsUi.exportBackground, JSON.stringify(readingStatisticsUi));
-  const bookRoundUi = await evaluate(`(() => {
+  const bookReportUi = await evaluate(`(async () => {
     const modal = document.querySelector('[data-reading-statistics-modal="true"]');
-    const filters = modal?.querySelector('[data-reading-statistics-book-filter="true"]');
-    const rows = [...(modal?.querySelectorAll('[data-reading-statistics-book="true"]') ?? [])];
+    const fixtureBookId = localStorage.getItem('__browserRegressionSelectionBookId');
+    const rows = [...modal.querySelectorAll('[data-reading-statistics-book-id]')]
+      .filter((row) => row.getAttribute('data-reading-statistics-book-id') === fixtureBookId);
+    const makeUrl = URL.createObjectURL;
+    const anchorClick = HTMLAnchorElement.prototype.click;
+    let downloaded;
+    try {
+      URL.createObjectURL = (blob) => { downloaded = blob; return makeUrl.call(URL, blob); };
+      HTMLAnchorElement.prototype.click = function () {};
+      modal.querySelector('[data-reading-statistics-export="json"]').click();
+    } finally {
+      URL.createObjectURL = makeUrl;
+      HTMLAnchorElement.prototype.click = anchorClick;
+    }
     return {
-      filterText: filters?.textContent?.replace(/\\s+/g, '') ?? '',
-      summaryText: modal?.querySelector('[data-reading-statistics-book-summary="true"]')
-        ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-      filterPressed: [...(filters?.querySelectorAll('button') ?? [])]
-        .map((button) => [button.textContent?.trim(), button.getAttribute('aria-pressed')]),
-      fixtureBookId: localStorage.getItem('__browserRegressionSelectionBookId'),
-      rounds: rows.map((row) => row.getAttribute('data-reading-statistics-round')),
-      rowTexts: rows.map((row) => row.textContent?.replace(/\\s+/g, ' ').trim()),
-      confirmableRounds: rows
-        .filter((row) => row.querySelector('[data-reading-statistics-confirm-complete="true"]'))
-        .map((row) => row.getAttribute('data-reading-statistics-round')),
-      completedLabels: rows
-        .map((row) => row.querySelector('[data-reading-statistics-complete="true"]')?.textContent?.trim())
-        .filter(Boolean),
-      confirmableLabels: rows
-        .map((row) => row.querySelector('[data-reading-statistics-confirm-complete="true"]')?.textContent?.trim())
-        .filter(Boolean),
+      rows: rows.map((row) => row.textContent?.trim()),
+      oldControls: Boolean(modal.querySelector('[data-reading-statistics-round], [data-reading-statistics-book-filter], [data-reading-statistics-complete]')),
+      report: downloaded ? JSON.parse(await downloaded.text()) : null,
+      fixtureBookId,
+      legacyPreference: localStorage.getItem('reading_statistics_hidden_sessions_v1') !== null,
     };
   })()`);
-  assert.equal(bookRoundUi.filterText, '전체|현재|완료');
-  assert.match(bookRoundUi.summaryText, /^\d+권 읽는 중 · 완료 \d+권$/);
-  assert.doesNotMatch(bookRoundUi.summaryText, /회차/);
-  assert.deepEqual(bookRoundUi.filterPressed, [
-    ['전체', 'true'], ['현재', 'false'], ['완료', 'false'],
-  ]);
-  const fixtureRoundSelector = `[data-reading-statistics-book-id="${bookRoundUi.fixtureBookId}"]`;
-  const fixtureRounds = await evaluate(`[
-    ...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})
-  ].map((row) => row.getAttribute('data-reading-statistics-round'))`);
-  assert.deepEqual(fixtureRounds, ['2', '1'], JSON.stringify({ bookRoundUi, fixtureRounds }));
-  assert.ok(bookRoundUi.rowTexts.every((text) => /\d+회차/.test(text)), JSON.stringify(bookRoundUi));
-  assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('1회차')), JSON.stringify(bookRoundUi));
-  assert.ok(bookRoundUi.rowTexts.some((text) => text.includes('2회차')), JSON.stringify(bookRoundUi));
-  assert.deepEqual(bookRoundUi.confirmableRounds, ['2'], JSON.stringify(bookRoundUi));
-  assert.ok(bookRoundUi.completedLabels.every((label) => label === '완료됨'), JSON.stringify(bookRoundUi));
-  assert.deepEqual(bookRoundUi.confirmableLabels, ['완료하기'], JSON.stringify(bookRoundUi));
-  assert.ok(bookRoundUi.rowTexts.every((text) => text.includes('시작')), JSON.stringify(bookRoundUi));
-  await evaluate(`document.querySelector('[data-reading-statistics-complete="true"]')?.click()`);
-  await evaluate('window.__regressionNextFrame(2)');
-  const completionUi = await evaluate(`(() => {
-    const complete = document.querySelector('[data-reading-statistics-complete="true"]');
-    return {
-      expanded: complete?.getAttribute('aria-expanded'),
-      dates: document.querySelector('[data-reading-statistics-completion-dates="true"]')
-        ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-    };
-  })()`);
-  assert.equal(completionUi.expanded, 'true');
-  assert.match(completionUi.dates, /시작 .* 종료/);
-  await evaluate(`(() => {
-    const filters = document.querySelector('[data-reading-statistics-book-filter="true"]');
-    [...(filters?.querySelectorAll('button') ?? [])]
-      .find((button) => button.textContent?.trim() === '현재')?.click();
-  })()`);
-  await evaluate('window.__regressionNextFrame(2)');
-  const currentRoundUi = await evaluate(`(() => ({
-    count: document.querySelectorAll('[data-reading-statistics-book="true"]').length,
-    rounds: [...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})]
-      .map((row) => row.getAttribute('data-reading-statistics-round')),
-  }))()`);
-  assert.ok(currentRoundUi.rounds.includes('2'), JSON.stringify(currentRoundUi));
-  assert.ok(!currentRoundUi.rounds.includes('1'), JSON.stringify(currentRoundUi));
-  await evaluate(`(() => {
-    const filters = document.querySelector('[data-reading-statistics-book-filter="true"]');
-    [...(filters?.querySelectorAll('button') ?? [])]
-      .find((button) => button.textContent?.trim() === '완료')?.click();
-  })()`);
-  await evaluate('window.__regressionNextFrame(2)');
-  const completedRoundUi = await evaluate(`[
-    ...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})
-  ].map((row) => row.getAttribute('data-reading-statistics-round'))`);
-  assert.ok(completedRoundUi.includes('1'), JSON.stringify(completedRoundUi));
-  assert.ok(!completedRoundUi.includes('2'), JSON.stringify(completedRoundUi));
-  await evaluate(`(() => {
-    const filters = document.querySelector('[data-reading-statistics-book-filter="true"]');
-    [...(filters?.querySelectorAll('button') ?? [])]
-      .find((button) => button.textContent?.trim() === '전체')?.click();
-  })()`);
-  await evaluate('window.__regressionNextFrame(2)');
-  await evaluate(`document.querySelector(
-    ${JSON.stringify(`${fixtureRoundSelector}[data-reading-statistics-round="2"] [data-reading-statistics-confirm-complete="true"]`)}
-  )?.click()`);
-  await waitFor(
-    `Boolean(document.querySelector('[data-confirm-dialog-surface="true"]'))`,
-    'reading round completion confirmation',
-  );
-  const completionConfirmationUi = await evaluate(`(() => {
-    const dialog = document.querySelector('[data-confirm-dialog-surface="true"]');
-    return {
-      text: dialog?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-      sheet: dialog?.classList.contains('app-menu-sheet') ?? false,
-      section: dialog?.querySelector('[data-confirm-dialog-section="true"]')
-        ?.classList.contains('app-menu-sheet-section') ?? false,
-      actions: [...(dialog?.querySelectorAll('[data-confirm-dialog-action]') ?? [])]
-        .every((button) => button.classList.contains('app-menu-sheet-action')),
-    };
-  })()`);
-  assert.match(completionConfirmationUi.text, /정말 완료/);
-  assert.equal(completionConfirmationUi.sheet, true, JSON.stringify(completionConfirmationUi));
-  assert.equal(completionConfirmationUi.section, true, JSON.stringify(completionConfirmationUi));
-  assert.equal(completionConfirmationUi.actions, true, JSON.stringify(completionConfirmationUi));
-  await evaluate(`document.querySelector('[data-confirm-dialog-action="confirm"]')?.click()`);
-  await waitFor(
-    `!document.querySelector(${JSON.stringify(
-      `${fixtureRoundSelector}[data-reading-statistics-round="2"] [data-reading-statistics-confirm-complete="true"]`,
-    )})`,
-    'explicit reading round completion',
-  );
-  const confirmedRoundUi = await evaluate(`(() => {
-    const modal = document.querySelector('[data-reading-statistics-modal="true"]');
-    const rows = [...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})];
-    return {
-      summary: modal?.querySelector('[data-reading-statistics-book-summary="true"]')
-        ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-      completedRounds: rows
-        .filter((row) => row.querySelector('[data-reading-statistics-complete="true"]'))
-        .map((row) => row.getAttribute('data-reading-statistics-round')),
-      feedback: modal?.querySelector('[data-reading-statistics-body] > p[role="status"]')?.textContent?.trim() ?? '',
-    };
-  })()`);
-  assert.equal(confirmedRoundUi.summary, '0권 읽는 중 · 완료 1권');
-  assert.deepEqual(confirmedRoundUi.completedRounds, ['2', '1']);
-  assert.match(confirmedRoundUi.feedback, /2회차를 완료/);
-  const totalsBeforeBookListDeletion = await evaluate(`(() => ({
-    headlines: [...document.querySelectorAll('[data-reading-statistics-headline]')]
-      .map((element) => element.textContent?.replace(/\\s+/g, ' ').trim()),
-    modes: [...document.querySelectorAll('[data-reading-statistics-mode-total]')]
-      .map((element) => element.textContent?.trim()),
-  }))()`);
-  await evaluate(`(async () => {
-    const row = document.querySelector(${JSON.stringify(
-      `${fixtureRoundSelector}[data-reading-statistics-round="1"]`,
-    )});
-    if (!row) return false;
-    const rect = row.getBoundingClientRect();
-    row.dispatchEvent(new PointerEvent('pointerdown', {
-      bubbles: true,
-      cancelable: true,
-      pointerId: 91,
-      pointerType: 'touch',
-      clientX: rect.left + 12,
-      clientY: rect.top + 12,
-    }));
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    row.dispatchEvent(new PointerEvent('pointerup', {
-      bubbles: true,
-      pointerId: 91,
-      pointerType: 'touch',
-      clientX: rect.left + 12,
-      clientY: rect.top + 12,
-    }));
-    return true;
-  })()`);
-  await waitFor(
-    `[...document.querySelectorAll('button')]
-      .some((button) => button.textContent?.trim() === '목록에서 삭제')`,
-    'reading statistics long-press delete confirmation',
-  );
-  const bookListDeletionMessage = await evaluate(`(() => {
-    const button = [...document.querySelectorAll('button')]
-      .find((candidate) => candidate.textContent?.trim() === '목록에서 삭제');
-    return button?.closest('.fixed')?.textContent?.replace(/\\s+/g, ' ').trim() ?? '';
-  })()`);
-  assert.match(bookListDeletionMessage, /1회차/);
-  assert.match(bookListDeletionMessage, /선택한 회차의 세션만/);
-  assert.match(bookListDeletionMessage, /다른 회차/);
-  assert.match(bookListDeletionMessage, /표시되는 독서 합계.*제외/);
-  await evaluate(`[
-    ...document.querySelectorAll('button')
-  ].find((button) => button.textContent?.trim() === '목록에서 삭제')?.click()`);
-  await waitFor(
-    `document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)}).length === 1
-      && document.querySelector(${JSON.stringify(`${fixtureRoundSelector}[data-reading-statistics-round="2"]`)}) !== null`,
-    'reading statistics single-round list deletion',
-  );
-  const bookListDeletionUi = await evaluate(`(() => ({
-    headlines: [...document.querySelectorAll('[data-reading-statistics-headline]')]
-      .map((element) => element.textContent?.replace(/\\s+/g, ' ').trim()),
-    modes: [...document.querySelectorAll('[data-reading-statistics-mode-total]')]
-      .map((element) => element.textContent?.trim()),
-    summary: document.querySelector('[data-reading-statistics-book-summary="true"]')
-      ?.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
-    feedback: document.querySelector('[data-reading-statistics-body] > p[role="status"]')
-      ?.textContent?.trim() ?? '',
-    remainingRounds: [...document.querySelectorAll(${JSON.stringify(fixtureRoundSelector)})]
-      .map((row) => row.getAttribute('data-reading-statistics-round')),
-    jsonEnabled: !document.querySelector('[data-reading-statistics-export="json"]')?.disabled,
-  }))()`);
-  assert.notDeepEqual(bookListDeletionUi.headlines, totalsBeforeBookListDeletion.headlines);
-  assert.notDeepEqual(bookListDeletionUi.modes, totalsBeforeBookListDeletion.modes);
-  assert.deepEqual(bookListDeletionUi.headlines, ['오늘2분', '이번 주2분', '이번 달2분']);
-  assert.deepEqual(bookListDeletionUi.modes, ['2분', '0분']);
-  assert.equal(bookListDeletionUi.summary, '0권 읽는 중 · 완료 1권');
-  assert.deepEqual(bookListDeletionUi.remainingRounds, ['2']);
-  assert.match(bookListDeletionUi.feedback, /1회차.*표시 합계에서 제외/);
-  assert.equal(bookListDeletionUi.jsonEnabled, true);
+  assert.equal(bookReportUi.rows.length, 1);
+  assert.match(bookReportUi.rows[0], /6분/);
+  assert.equal(bookReportUi.oldControls, false);
+  assert.equal(bookReportUi.legacyPreference, true);
+  assert.equal(bookReportUi.report?.schemaVersion, 2);
+  assert.equal(bookReportUi.report?.sessions, undefined);
+  assert.equal(bookReportUi.report?.summary.books.find(({ bookId }) => bookId === bookReportUi.fixtureBookId)?.totalMs, 360_000);
   await evaluate(`document.querySelector('button[aria-label="독서 통계 닫기"]')?.click()`);
   await evaluate(`localStorage.removeItem('reading_statistics_hidden_sessions_v1')`);
   await command('Emulation.setDeviceMetricsOverride', {

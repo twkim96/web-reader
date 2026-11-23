@@ -17,7 +17,6 @@ import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
 import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/readBooks';
 import { formatReadingDuration, type StoredReadingSessionV11 } from '../../lib/readingStatistics';
-import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY } from '../../lib/readingStatisticsSessionVisibility';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import { BookCover } from './BookCover';
 import { BookReviewEditor } from './BookReviewEditor';
@@ -92,7 +91,7 @@ function CommunityReviews({ workId }: { workId: string }) {
   );
 }
 
-const emptyHistory = { sessions: [], hidden: new Set<string>() };
+const emptyHistory = { sessions: [] };
 
 export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview }: {
   bookId: string;
@@ -134,10 +133,9 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   const [retry, setRetry] = useState(0);
   const [history, setHistory] = useState<{
     sessions: StoredReadingSessionV11[];
-    hidden: ReadonlySet<string>;
   } | null>(null);
   const [historyFailed, setHistoryFailed] = useState(false);
-  const { data: published } = useMyPageReadingFiles(ownerKey, Boolean(history && !historyFailed && !history.hidden.size));
+  const { data: published } = useMyPageReadingFiles(ownerKey, Boolean(history && !historyFailed));
   const archived = published?.history ?? null;
   const [historyLookup, setHistoryLookup] = useState<{
     titles: string;
@@ -201,7 +199,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       try {
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         if (current === revision) {
-          setHistory({ sessions, hidden: readHiddenReadingStatisticsSessionIds(ownerKey) });
+          setHistory({ sessions });
           setHistoryFailed(false);
         }
       } catch {
@@ -209,15 +207,10 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       }
     };
     const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => { void refresh(); });
-    const storage = (event: StorageEvent) => {
-      if (event.key === null || event.key === READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY) void refresh();
-    };
-    window.addEventListener('storage', storage);
     void refresh();
     return () => {
       revision++;
       unsubscribe();
-      window.removeEventListener('storage', storage);
     };
   }, [ownerKey]);
 
@@ -240,7 +233,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   const completeHistory = history && !historyFailed && (historyTitles === '[]' || historyResult?.failed.size === 0);
   const reviewFileIds = completeHistory ? personal.reviewFileIds : null;
   const confirmedReading = useMemo(() => history && reviewFileIds
-    ? buildLocalReviewReading(history.sessions, ownerKey, history.hidden, reviewFileIds)
+    ? buildLocalReviewReading(history.sessions, ownerKey, reviewFileIds)
     : null, [history, ownerKey, reviewFileIds]);
   // A missing edition cannot make a comment edit overwrite a previously
   // confirmed reading total with the lower bound visible on this device.

@@ -5,7 +5,6 @@ import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
 import { useMyPageReadingFiles } from '../../hooks/useMyPageList';
 import { formatReadingDuration } from '../../lib/readingStatistics';
-import { readHiddenReadingStatisticsSessionIds, READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY } from '../../lib/readingStatisticsSessionVisibility';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
 import { prepareReadBooks, selectSyncedReadingSessions, type ReadBook } from '../../lib/readBooks';
 import { findReviewWork, indexReviewWorks, MY_PAGE_DASHBOARD_BOOK_LIMIT, type MyPageReview } from '../../lib/myPageSocial';
@@ -112,9 +111,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
       try {
         const stored = await getLocalReadingSessionsV11(ownerKey);
         if (disposed) return;
-        const hidden = readHiddenReadingStatisticsSessionIds(ownerKey);
-        const sessions = selectSyncedReadingSessions(stored, ownerKey, hidden);
-        const archive = hidden.size ? null : archived;
+        const sessions = selectSyncedReadingSessions(stored, ownerKey);
         const fileDates = new Map<string, number>();
         for (const session of sessions) {
           fileDates.set(session.bookId, Math.max(fileDates.get(session.bookId) ?? 0, session.endedAtClient));
@@ -123,7 +120,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
         for (const { bookId, bookTitle } of sessions) {
           latestByName.set(bookTitle, Math.max(latestByName.get(bookTitle) ?? 0, fileDates.get(bookId)!));
         }
-        for (const file of archive?.files ?? []) for (const title of file.titles) {
+        for (const file of archived?.files ?? []) for (const title of file.titles) {
           latestByName.set(title, Math.max(latestByName.get(title) ?? 0, file.lastReadAt, fileDates.get(file.fileId) ?? 0));
         }
         const names = [...latestByName.keys()].sort((a, b) => latestByName.get(b)! - latestByName.get(a)!);
@@ -138,7 +135,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
         for (const [name, match] of cached) matches.set(name, match);
         const metadata = new Map([...matches].map(([name, match]) => [name, match.metadata]));
         const missing = unresolved.filter((name) => !cached.has(name));
-        const buildRows = prepareReadBooks(sessions, archive);
+        const buildRows = prepareReadBooks(sessions, archived);
         const known = buildRows(metadata);
         setBooks(known);
         setError(false);
@@ -218,17 +215,12 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
       timer = window.setTimeout(() => void load(), 350);
     };
     const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, schedule);
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === null || event.key === READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY) schedule();
-    };
-    window.addEventListener('storage', onStorage);
     void load();
     return () => {
       disposed = true;
       controller.abort();
       window.clearTimeout(timer);
       window.clearTimeout(renderTimer);
-      window.removeEventListener('storage', onStorage);
       unsubscribe();
     };
   }, [archived, guest, ownerKey, preview, retry]);

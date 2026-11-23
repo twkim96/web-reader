@@ -41,13 +41,13 @@ test('published file totals replace closed local dates and preserve aliases and 
   assert.equal(getReadingFileTime(sessions, 'file', archived), 180_000);
   const detail = buildPersonalBookReading({
     ownerKey: owner, titleKeys: [book.id], platformWorkKeys: book.platformWorkKeys, knownFileIds: [],
-    metadataByTitle, books: [], progress: {}, sessions: sessions.slice(1), hidden: new Set(), archived,
+    metadataByTitle, books: [], progress: {}, sessions: sessions.slice(1), hidden: new Set([closed.sessionId]), archived,
   });
   assert.deepEqual(detail.reviewFileIds, ['file']);
   assert.equal(detail.reviewHistoryPartial, false);
   assert.equal(detail.totalMs, 180_000);
   assert.equal(detail.progressPercent, 13);
-  assert.deepEqual(buildLocalReviewReading(sessions, owner, new Set(), ['file']),
+  assert.deepEqual(buildLocalReviewReading(sessions, owner, ['file']),
     { totalMs: 180_000, progressPercent: 70 });
   assert.deepEqual(archived.files[0].progressIntervals, [[10, 13]]);
 });
@@ -107,7 +107,7 @@ test('long links keep their read row and conflicting files cannot contribute det
   const [book] = books([['first', first]]);
   const detail = buildPersonalBookReading({
     ownerKey: owner, titleKeys: [book.id], platformWorkKeys: book.platformWorkKeys, knownFileIds: ['file'],
-    metadataByTitle, books: [], progress: {}, sessions: history, hidden: new Set(),
+    metadataByTitle, books: [], progress: {}, sessions: history,
   });
   assert.deepEqual(detail.fileIds, []);
   assert.equal(detail.hasRead, false);

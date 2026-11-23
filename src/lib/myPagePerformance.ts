@@ -15,7 +15,7 @@ export function finishDiscoveryTiming(phase: DiscoveryPhase, start: number | und
 }
 
 type MyPagePhase = 'wishlist-ready' | 'reviews-ready' | 'review-preview-ready' | 'read-books-timeline' | 'dashboard-timeline'
-  | 'reading-calendar-ready' | 'reading-week-ready' | 'reading-files-ready';
+  | 'reading-calendar-ready' | 'reading-week-ready' | 'reading-files-ready' | 'reading-book-totals-ready';
 
 export function finishMyPageTiming(phase: MyPagePhase, start: number | undefined) {
   if (start !== undefined) performance.measure(`mypage:${phase}`, { start, end: performance.now() });

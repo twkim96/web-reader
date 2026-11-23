@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { FieldPath, FieldValue, Timestamp, type DocumentReference, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { APP_ID } from '../lib/appIdentity.ts';
 import { isReadingSessionV1, toReadingSessionPayload } from '../lib/readingStatistics.ts';
+import { mergeReadingReportBooks, parseReadingReportBooks, summarizeReadingReportBooks, type ReadingReportBook } from '../lib/readingStatisticsReport.ts';
 import {
   computeReadingCalendarRollup, computeWeeklyReadingRollup, parseReadingRollupMonday,
   mergeReadingFileRollups, parseReadingFileRollups, selectWeeklyReadingRollupInputs, type ReadingFileRollup, type WeeklyReadingRollup,
@@ -103,18 +104,30 @@ function payload(value: unknown, maxKiB: number) {
 const jobPayload = (job: Job) => payload(job, 512);
 const fileTotalsRef = (ref: DocumentReference) => ref.collection('readingStatsRollupFilesV1').doc('current');
 
-function rollupFilePayload(files: ReadingFileRollup[], carry?: ReadingRollupCarry) {
+function rollupFilePayload(files: ReadingFileRollup[], books: ReadingReportBook[] | null, carry?: ReadingRollupCarry) {
   const maxBytes = 768 * 1024;
+  if (books) {
+    const withBooks = JSON.stringify({ files, books, ...(carry ? { carry } : {}) });
+    if (Buffer.byteLength(withBooks) <= maxBytes) return withBooks;
+  }
   if (carry) {
     const withCarry = JSON.stringify({ files, carry });
     if (Buffer.byteLength(withCarry) <= maxBytes) return withCarry;
+  }
+  if (books && carry) {
+    const withoutCarry = JSON.stringify({ files, books });
+    if (Buffer.byteLength(withoutCarry) <= maxBytes) return withoutCarry;
   }
   const json = JSON.stringify({ files });
   return Buffer.byteLength(json) <= maxBytes ? json : null;
 }
 
 function parseFilePayload(payload: string) {
-  try { return parseReadingFileRollups(JSON.parse(payload).files); }
+  try {
+    const value = JSON.parse(payload);
+    const files = parseReadingFileRollups(value.files);
+    return files ? { files, books: parseReadingReportBooks(value.books) } : null;
+  }
   catch { return null; }
 }
 
@@ -151,7 +164,10 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   });
   const weeks = seed.weeks.map((item) => ({ weekStart: item.weekStart, payload: payload(item, 256) }));
   const seedId = createHash('sha256').update(seedPayload).update(JSON.stringify(weeks)).digest('hex');
-  const files = rollupFilePayload(mergeReadingFileRollups(...seed.weeks.map((item) => item.files)));
+  const files = rollupFilePayload(
+    mergeReadingFileRollups(...seed.weeks.map((item) => item.files)),
+    summarizeReadingReportBooks(seed.weeks.flatMap((item) => item.activities)),
+  );
   return db.runTransaction(async (tx) => {
     await requireLease(db, tx, lease, now);
     const existing = await tx.get(ref);
@@ -159,7 +175,9 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
       if (existing.get('seedId') !== seedId) throw new Error('A different reading rollup handoff already exists.');
       if (files && (JSON.parse(existing.get('payload')) as Job).nextWeek === nextWeek) {
         const existingFiles = await tx.get(fileTotalsRef(ref));
-        if (!existingFiles.exists) tx.create(fileTotalsRef(ref), { throughWeek: weeks.at(-1)!.weekStart, payload: files });
+        if (!existingFiles.exists || !parseFilePayload(existingFiles.get('payload'))?.books) {
+          tx.set(fileTotalsRef(ref), { throughWeek: weeks.at(-1)!.weekStart, payload: files });
+        }
       }
       return 'already-staged';
     }
@@ -241,7 +259,8 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const previousWeek = date(Date.parse(closed) - week);
     const prior = previousFiles.get('throughWeek') === previousWeek ? parseFilePayload(previousFiles.get('payload')) : null;
     const files = prior
-      ? rollupFilePayload(mergeReadingFileRollups(prior, detail.files),
+      ? rollupFilePayload(mergeReadingFileRollups(prior.files, detail.files),
+        prior.books && mergeReadingReportBooks(prior.books, summarizeReadingReportBooks(detail.activities)),
         job.coversHistoryStart && job.evidenceCompatible ? job.carry : undefined)
       : null;
     // Readers only ever see a manifest committed with its complete artifacts.

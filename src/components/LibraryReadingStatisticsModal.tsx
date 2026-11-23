@@ -1,36 +1,20 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Database, FileJson, Headphones, Monitor, RefreshCw, Share2 } from 'lucide-react';
 import type { ThemeClasses } from '../types';
-import type { OwnerKey } from '../lib/ownerIdentity';
-import {
-  confirmLocalReadingRoundV11,
-  getLocalReadingSessionsV11,
-} from '../lib/localReadingStatistics';
-import {
-  buildReadingStatistics,
-  buildReadingBookRounds,
-  formatReadingDuration,
-  getReadingStatisticsRangeBounds,
-  isLocalDateWithinBounds,
-  MIN_READING_STATISTICS_BLOCK_MS,
-  sortReadingBookRoundsByRecent,
-  type ReadingStatisticsRange,
-  type StoredReadingSessionV11,
-} from '../lib/readingStatistics';
-import {
-  createReadingStatisticsJsonExport,
-} from '../lib/readingStatisticsExport';
+import { isGuestOwner, type OwnerKey } from '../lib/ownerIdentity';
+import { formatReadingDuration, getReadingStatisticsRangeBounds, type ReadingStatisticsRange } from '../lib/readingStatistics';
+import { hasPublishedBoundaryClockRisk, mergePublishedCalendarDays } from '../lib/readingRollupCalendar';
+import { prepareLocalReadingReport, sumReadingReportDays } from '../lib/readingStatisticsReport';
+import { createReadingStatisticsJsonExport } from '../lib/readingStatisticsExport';
+import { useMyPageReadingBookTotals, useMyPageReadingCalendar, useMyPageReadingRangeBooks } from '../hooks/useMyPageList';
 import {
   downloadReadingStatisticsExport,
   isReadingStatisticsShareCapabilityError,
   shareReadingStatisticsExport,
 } from '../lib/readingStatisticsExportDelivery';
-import {
-  notifyReadingStatisticsChange,
-  subscribeReadingStatisticsChanges,
-} from '../lib/readingStatisticsWake';
+import { useLocalReadingReportSessions } from '../hooks/useLocalReadingReportSessions';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { useLocalReadingDate } from '../hooks/useLocalReadingDate';
 import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
@@ -43,12 +27,6 @@ import {
 } from '../lib/readerBootstrapTrace';
 import { ACCENT_PALETTE } from '../lib/constants';
 import { FOLIATE_RUNTIME_REVISION } from '../lib/foliateRuntimeCache';
-import { ConfirmDialog } from './ConfirmDialog';
-import {
-  READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY,
-  hideReadingStatisticsRound,
-  readHiddenReadingStatisticsSessionIds,
-} from '../lib/readingStatisticsSessionVisibility';
 import { MenuSheetHeader } from './MenuSheetHeader';
 
 type Props = {
@@ -68,26 +46,12 @@ type Props = {
   onClose: () => void;
 };
 
-type BookListFilter = 'all' | 'current' | 'completed';
 const StatisticsPageHeader = ({ title, titleId, trailing }: React.ComponentProps<typeof MenuSheetHeader>) => (
   <header className="flex flex-wrap items-center justify-between gap-3">
     <h2 id={titleId} className="text-xl font-semibold tracking-tight">{title}</h2>
     <div className="app-menu-sheet-header-actions flex items-center gap-1">{trailing}</div>
   </header>
 );
-type PendingBookListDeletion = {
-  bookId: string;
-  bookTitle: string;
-  roundNumber: number;
-  sourceSessionIds: string[];
-};
-type PendingRoundCompletion = {
-  bookId: string;
-  bookTitle: string;
-  roundNumber: number;
-  rowKey: string;
-};
-
 const rangeLabels: Array<{ value: ReadingStatisticsRange; label: string }> = [
   { value: 'today', label: '오늘' },
   { value: 'week', label: '이번 주' },
@@ -114,25 +78,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const Header = embedded ? StatisticsPageHeader : MenuSheetHeader;
   const sectionClass = embedded ? '' : `app-menu-sheet-section border ${theme.border}`;
   const displayBookTitle = useBookTitleDisplay();
-  const [sessions, setSessions] = useState<StoredReadingSessionV11[]>([]);
   const [range, setRange] = useState<ReadingStatisticsRange>('week');
-  const [bookListFilter, setBookListFilter] = useState<BookListFilter>('all');
-  const [expandedCompletionRows, setExpandedCompletionRows] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
   const [sharing, setSharing] = useState(false);
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
-  const [completingRoundKey, setCompletingRoundKey] = useState<string | null>(null);
-  const [pendingRoundCompletion, setPendingRoundCompletion] = useState<PendingRoundCompletion | null>(null);
-  const [hiddenSessionIds, setHiddenSessionIds] = useState<Set<string>>(() => new Set());
-  const [pendingBookListDeletion, setPendingBookListDeletion] = useState<PendingBookListDeletion | null>(null);
   const aggregationNow = useLocalReadingDate(open && visible);
   const dialogRef = useRef<HTMLElement>(null);
-  const reloadTimerRef = useRef<number | null>(null);
-  const bookListLongPressTimerRef = useRef<number | null>(null);
-  const bookListLongPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   useBodyScrollLock(open && visible && !embedded);
   const accent = ACCENT_PALETTE[accentColor] || ACCENT_PALETTE.rose;
   const accentStyle = {
@@ -141,47 +92,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     '--accent-600': accent[600],
   } as React.CSSProperties;
 
-  const reload = useCallback(async (showLoading = false) => {
-    if (showLoading) setLoading(true);
-    try {
-      setSessions(await getLocalReadingSessionsV11(ownerKey));
-      setHiddenSessionIds(readHiddenReadingStatisticsSessionIds(ownerKey));
-    } catch (error) {
-      console.error('[ReadingStatistics] load failed:', error);
-      setFeedback('독서 통계를 불러오지 못했습니다.');
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  }, [ownerKey]);
-
+  const canReadRollup = open && visible && !isGuestOwner(ownerKey)
+    && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1';
+  const local = useLocalReadingReportSessions(ownerKey, open && visible, canReadRollup);
   useEffect(() => {
-    if (!open || !visible) return;
-    void reload(true);
-    onRefresh();
-    const unsubscribe = subscribeReadingStatisticsChanges(ownerKey, () => {
-      if (reloadTimerRef.current !== null) window.clearTimeout(reloadTimerRef.current);
-      reloadTimerRef.current = window.setTimeout(() => {
-        reloadTimerRef.current = null;
-        void reload();
-      }, 250);
-    });
-    return () => {
-      unsubscribe();
-      if (reloadTimerRef.current !== null) window.clearTimeout(reloadTimerRef.current);
-      reloadTimerRef.current = null;
-    };
-  }, [onRefresh, open, ownerKey, reload, visible]);
-
-  useEffect(() => {
-    if (!open || !visible) return;
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === READING_STATISTICS_HIDDEN_SESSIONS_STORAGE_KEY) {
-        setHiddenSessionIds(readHiddenReadingStatisticsSessionIds(ownerKey));
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, [open, ownerKey, visible]);
+    if (open && visible) onRefresh();
+  }, [onRefresh, open, visible]);
 
   const serverCheckLabel = refreshing
     ? '서버 기록 확인 중…'
@@ -203,12 +119,9 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (pendingRoundCompletion) setPendingRoundCompletion(null);
-        else if (pendingBookListDeletion) setPendingBookListDeletion(null);
-        else onClose();
+        onClose();
         return;
       }
-      if (pendingRoundCompletion || pendingBookListDeletion) return;
       if (event.key !== 'Tab' || !dialog) return;
       const focusable = [...dialog.querySelectorAll<HTMLElement>(selector)]
         .filter((element) => element.getClientRects().length > 0);
@@ -232,184 +145,99 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
       window.removeEventListener('keydown', handleKeyDown);
       previous?.focus();
     };
-  }, [embedded, onClose, open, pendingBookListDeletion, pendingRoundCompletion, visible]);
+  }, [embedded, onClose, open, visible]);
 
-  const visibleSessions = useMemo(() => sessions.filter(({ sessionId }) => (
-    !hiddenSessionIds.has(sessionId)
-  )), [hiddenSessionIds, sessions]);
-  const { allSummary, sessionTimeByDay } = useMemo(() => {
-    const sessionTimeByDay = new Map<string, Map<string, number>>();
-    const allSummary = buildReadingStatistics(visibleSessions, {}, ({ session, localDate, durationMs }) => {
-      let day = sessionTimeByDay.get(localDate);
-      if (!day) {
-        day = new Map();
-        sessionTimeByDay.set(localDate, day);
-      }
-      day.set(session.sessionId, (day.get(session.sessionId) ?? 0) + durationMs);
-    }, { minimumMs: MIN_READING_STATISTICS_BLOCK_MS });
-    return { allSummary, sessionTimeByDay };
-  }, [visibleSessions]);
+  const calendarQuery = useMyPageReadingCalendar(ownerKey, canReadRollup);
+  const publishedCalendar = calendarQuery.data?.calendar ?? null;
+  const calendar = useMemo(() => publishedCalendar && !(local?.rawHistoryComplete
+    && hasPublishedBoundaryClockRisk(local.sessions, publishedCalendar)) ? publishedCalendar : null,
+  [local, publishedCalendar]);
+  const waitingForRaw = canReadRollup && !local?.rawHistoryComplete;
+  // Until the first local receive is complete, archived slices stand on their
+  // own. A partial raw snapshot may omit the sample used at the archive seam.
+  const sessions = calendar && waitingForRaw ? null : local?.sessions;
+  const loading = !local && !calendar;
+  const localReport = useMemo(() => prepareLocalReadingReport(sessions ?? []), [sessions]);
+  const calendarDays = useMemo(() => mergePublishedCalendarDays(localReport.days, calendar), [localReport, calendar]);
   const rangeBounds = useMemo(() => getReadingStatisticsRangeBounds(range, aggregationNow), [range, aggregationNow]);
-  const summary = useMemo(() => {
-    const totals = { screenMs: 0, ttsMs: 0 };
-    for (const day of allSummary.days) {
-      if (!isLocalDateWithinBounds(day.localDate, rangeBounds)) continue;
-      totals.screenMs += day.screenMs;
-      totals.ttsMs += day.ttsMs;
-    }
-    return totals;
-  }, [allSummary.days, rangeBounds]);
-  const headlineTotals = useMemo(() => Object.fromEntries(
-    (['today', 'week', 'month'] as const).map((value) => {
-      const bounds = getReadingStatisticsRangeBounds(value, aggregationNow);
-      return [value, allSummary.days.reduce((total, day) => (
-        isLocalDateWithinBounds(day.localDate, bounds)
-          ? total + day.totalMs
-          : total
-      ), 0)];
-    }),
-  ) as Record<'today' | 'week' | 'month', number>, [aggregationNow, allSummary.days]);
-  const bookRounds = useMemo(() => {
-    const countedMsBySession = new Map<string, number>();
-    for (const [localDate, day] of sessionTimeByDay) {
-      if (!isLocalDateWithinBounds(localDate, rangeBounds)) continue;
-      for (const [sessionId, durationMs] of day) {
-        countedMsBySession.set(sessionId, (countedMsBySession.get(sessionId) ?? 0) + durationMs);
-      }
-    }
-    return buildReadingBookRounds(sessions, rangeBounds, hiddenSessionIds, countedMsBySession);
-  }, [hiddenSessionIds, rangeBounds, sessions, sessionTimeByDay]);
-  const listedBookRounds = useMemo(
-    () => sortReadingBookRoundsByRecent(bookRounds),
-    [bookRounds],
-  );
-  const bookStatusSummary = useMemo(() => {
-    const latestRoundByBook = new Map<string, (typeof listedBookRounds)[number]>();
-    for (const round of listedBookRounds) {
-      const latest = latestRoundByBook.get(round.bookId);
-      if (!latest || round.roundNumber > latest.roundNumber) {
-        latestRoundByBook.set(round.bookId, round);
-      }
-    }
-    const latestRounds = [...latestRoundByBook.values()];
+  const headlineTotals = Object.fromEntries((['today', 'week', 'month'] as const).map((value) => [
+    value, sumReadingReportDays(calendarDays, getReadingStatisticsRangeBounds(value, aggregationNow)).totalMs,
+  ]));
+
+  const lifetimeQuery = useMyPageReadingBookTotals(ownerKey, Boolean(calendar?.days.length));
+  const lifetimeReport = lifetimeQuery.data?.report;
+  const lifetimeMatches = lifetimeReport && calendar?.firstDay === lifetimeReport.firstDay && calendar.lastDay === lifetimeReport.lastDay;
+  const lifetimePending = Boolean(calendar?.days.length && lifetimeQuery.data === undefined && !lifetimeQuery.error);
+  const lifetimeArchive = useMemo(() => {
+    if (lifetimeMatches) return lifetimeReport;
+    if (calendar && calendar.days.length === 0) return { firstDay: calendar.firstDay, lastDay: calendar.lastDay, books: [] };
+    return null;
+  }, [calendar, lifetimeMatches, lifetimeReport]);
+  const exportDays = lifetimeArchive ? calendarDays : localReport.days;
+  const summary = sumReadingReportDays(range === 'all' && !waitingForRaw && !lifetimePending ? exportDays : calendarDays, rangeBounds);
+  const calendarLastDay = calendar?.lastDay;
+  const bookReportLastDay = lifetimeReport?.lastDay;
+  const refreshCalendar = calendarQuery.refresh;
+  const refreshLifetime = lifetimeQuery.refresh;
+  const mismatchedLifetime = Boolean(lifetimeReport && calendar && !lifetimeMatches);
+  useEffect(() => {
+    if (!mismatchedLifetime || !calendarLastDay || !bookReportLastDay) return;
+    if (bookReportLastDay <= calendarLastDay) void refreshLifetime();
+    if (bookReportLastDay >= calendarLastDay) void refreshCalendar();
+  }, [bookReportLastDay, calendarLastDay, mismatchedLifetime, refreshCalendar, refreshLifetime]);
+
+  const selectedArchive = useMemo(() => {
+    if (!calendar || range === 'all') return null;
+    const firstDay = rangeBounds.startLocalDate && rangeBounds.startLocalDate > calendar.firstDay ? rangeBounds.startLocalDate : calendar.firstDay;
+    const lastDay = rangeBounds.endLocalDate && rangeBounds.endLocalDate < calendar.lastDay ? rangeBounds.endLocalDate : calendar.lastDay;
+    if (firstDay > lastDay) return null;
     return {
-      currentCount: latestRounds.filter(({ completed }) => !completed).length,
-      completedCount: latestRounds.filter(({ completed }) => completed).length,
+      firstDay, lastDay,
+      hasActivity: calendar.days.some(({ localDate }) => localDate >= firstDay && localDate <= lastDay),
     };
-  }, [listedBookRounds]);
-  const visibleBookRounds = useMemo(() => listedBookRounds.filter((book) => (
-    bookListFilter === 'all'
-    || (bookListFilter === 'completed' ? book.completed : !book.completed)
-  )), [bookListFilter, listedBookRounds]);
-  const formatReadingDate = (localDate: string) => {
-    const [year, month, day] = localDate.split('-').map(Number);
-    return `${year}. ${month}. ${day}.`;
+  }, [calendar, range, rangeBounds]);
+  const needsRangeBooks = Boolean(selectedArchive?.hasActivity);
+  const rangeQuery = useMyPageReadingRangeBooks(ownerKey, needsRangeBooks ? selectedArchive : null);
+  const archiveReport = useMemo(() => {
+    if (range === 'all') return lifetimeArchive;
+    if (!selectedArchive) return null;
+    if (selectedArchive.hasActivity) return rangeQuery.data?.report ?? null;
+    return { firstDay: selectedArchive.firstDay, lastDay: selectedArchive.lastDay, books: [] };
+  }, [lifetimeArchive, range, rangeQuery.data, selectedArchive]);
+  const booksPending = range === 'all' ? lifetimePending : needsRangeBooks && !rangeQuery.error && rangeQuery.data === undefined;
+  const booksUnavailable = !archiveReport && !booksPending
+    && (needsRangeBooks || (range === 'all' && Boolean(calendar?.days.length) && waitingForRaw));
+  const books = useMemo(() => booksPending || booksUnavailable ? [] : localReport.books(rangeBounds, archiveReport),
+    [archiveReport, booksPending, booksUnavailable, localReport, rangeBounds]);
+
+  const canExport = !loading && !waitingForRaw && sumReadingReportDays(exportDays).totalMs > 0
+    && (!canReadRollup || Boolean(calendarQuery.data || calendarQuery.error))
+    && !lifetimePending;
+  const buildExport = () => createReadingStatisticsJsonExport(exportDays, localReport.books({}, lifetimeArchive));
+  const refresh = () => {
+    onRefresh();
+    if (canReadRollup) void calendarQuery.refresh();
+    if (calendar?.days.length) void lifetimeQuery.refresh();
+    if (needsRangeBooks) void rangeQuery.refresh();
   };
-  const confirmRound = async (bookId: string, roundNumber: number, rowKey: string) => {
-    setCompletingRoundKey(rowKey);
-    setFeedback('');
-    try {
-      const result = await confirmLocalReadingRoundV11(ownerKey, bookId, roundNumber);
-      if (result.status === 'created') {
-        setFeedback(`${roundNumber}회차를 완료했습니다.`);
-      } else if (result.status === 'already-completed') {
-        setFeedback('이미 완료된 회차입니다.');
-      } else {
-        setFeedback('최신 회차가 바뀌었습니다. 목록을 다시 확인해 주세요.');
-      }
-      await reload();
-    } catch (error) {
-      console.error('[ReadingStatistics] round completion failed:', error);
-      setFeedback('회차를 완료하지 못했습니다.');
-    } finally {
-      setCompletingRoundKey(null);
-    }
-  };
-
-  const clearBookListLongPress = useCallback(() => {
-    if (bookListLongPressTimerRef.current !== null) {
-      window.clearTimeout(bookListLongPressTimerRef.current);
-    }
-    bookListLongPressTimerRef.current = null;
-    bookListLongPressStartRef.current = null;
-  }, []);
-
-  const startBookListLongPress = useCallback((
-    event: React.PointerEvent<HTMLElement>,
-    book: PendingBookListDeletion,
-  ) => {
-    if (
-      (event.pointerType === 'mouse' && event.button !== 0)
-      || (event.target instanceof Element && event.target.closest('button,a,input'))
-    ) return;
-    clearBookListLongPress();
-    bookListLongPressStartRef.current = {
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-    };
-    bookListLongPressTimerRef.current = window.setTimeout(() => {
-      bookListLongPressTimerRef.current = null;
-      bookListLongPressStartRef.current = null;
-      setPendingBookListDeletion(book);
-    }, 650);
-  }, [clearBookListLongPress]);
-
-  const moveBookListLongPress = useCallback((event: React.PointerEvent<HTMLElement>) => {
-    const start = bookListLongPressStartRef.current;
-    if (!start || start.pointerId !== event.pointerId) return;
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) {
-      clearBookListLongPress();
-    }
-  }, [clearBookListLongPress]);
-
-  useEffect(() => () => clearBookListLongPress(), [clearBookListLongPress]);
-
-  const confirmBookListDeletion = useCallback(() => {
-    if (!pendingBookListDeletion) return;
-    if (!hideReadingStatisticsRound(
-      ownerKey,
-      pendingBookListDeletion.bookId,
-      pendingBookListDeletion.roundNumber,
-      pendingBookListDeletion.sourceSessionIds,
-    )) {
-      setFeedback('회차 기록을 목록에서 삭제하지 못했습니다.');
-      return;
-    }
-    setHiddenSessionIds((current) => new Set([
-      ...current,
-      ...pendingBookListDeletion.sourceSessionIds,
-    ]));
-    setExpandedCompletionRows((current) => {
-      const next = new Set(current);
-      next.delete(`${pendingBookListDeletion.bookId}:${pendingBookListDeletion.roundNumber}`);
-      return next;
-    });
-    setFeedback(`${pendingBookListDeletion.roundNumber}회차 기록을 통계에서 숨겼습니다. 해당 시간은 표시 합계에서 제외됩니다.`);
-    setPendingBookListDeletion(null);
-    notifyReadingStatisticsChange(ownerKey);
-  }, [ownerKey, pendingBookListDeletion]);
-
   const exportJson = () => {
-    downloadReadingStatisticsExport(createReadingStatisticsJsonExport(visibleSessions));
+    downloadReadingStatisticsExport(buildExport());
     setFeedback('JSON 통계를 저장했습니다.');
   };
   const share = async () => {
+    const file = buildExport();
     setSharing(true);
     try {
-      const shared = await shareReadingStatisticsExport(
-        createReadingStatisticsJsonExport(visibleSessions),
-      );
-      if (!shared) {
-        downloadReadingStatisticsExport(createReadingStatisticsJsonExport(visibleSessions));
-        setFeedback('공유를 지원하지 않아 JSON 파일로 저장했습니다.');
-      } else {
+      if (await shareReadingStatisticsExport(file)) {
         setFeedback('통계 파일을 공유했습니다.');
+      } else {
+        downloadReadingStatisticsExport(file);
+        setFeedback('공유를 지원하지 않아 JSON 파일로 저장했습니다.');
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       if (isReadingStatisticsShareCapabilityError(error)) {
-        downloadReadingStatisticsExport(createReadingStatisticsJsonExport(visibleSessions));
+        downloadReadingStatisticsExport(file);
         setFeedback('공유를 지원하지 않아 JSON 파일로 저장했습니다.');
       } else {
         console.error('[ReadingStatistics] share failed:', error);
@@ -449,7 +277,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
   if (!open) return null;
   return (
-    <>
     <div
       data-menu-sheet-backdrop={embedded ? undefined : 'true'}
       className={embedded ? 'min-w-0' : `app-menu-sheet-backdrop fixed inset-0 z-[105] ${visible ? 'flex' : 'hidden'} items-center justify-center bg-black/65 p-2 backdrop-blur-sm sm:p-5`}
@@ -479,10 +306,10 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
           secondaryClass={theme.secondary}
           trailing={(
             <>
-            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={visibleSessions.length === 0} aria-label="독서 통계 JSON 저장" title="독서 통계 JSON 저장" className="app-menu-header-action">
+            <button type="button" data-reading-statistics-export="json" onClick={exportJson} disabled={!canExport} aria-label="독서 통계 JSON 저장" title="독서 통계 JSON 저장" className="app-menu-header-action">
               <FileJson size={16} />
             </button>
-            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || visibleSessions.length === 0} aria-label={sharing ? '독서 통계 공유 중' : '독서 통계 공유'} title={sharing ? '독서 통계 공유 중' : '독서 통계 JSON 공유'} aria-busy={sharing} className="app-menu-header-action">
+            <button type="button" data-reading-statistics-share="true" onClick={() => void share()} disabled={sharing || !canExport} aria-label={sharing ? '독서 통계 공유 중' : '독서 통계 공유'} title={sharing ? '독서 통계 공유 중' : '독서 통계 JSON 공유'} aria-busy={sharing} className="app-menu-header-action">
               <Share2 size={16} />
             </button>
             <button type="button" data-reading-statistics-diagnostics="true" onClick={() => void exportDiagnostics()} disabled={exportingDiagnostics} aria-label={exportingDiagnostics ? '진단 JSON 생성 중' : '진단 JSON 저장'} title={exportingDiagnostics ? '진단 JSON 생성 중' : '진단 JSON 저장'} aria-busy={exportingDiagnostics} className="app-menu-header-action">
@@ -491,7 +318,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
             <button
               type="button"
               data-reading-statistics-refresh="true"
-              onClick={onRefresh}
+              onClick={refresh}
               disabled={!canRefresh || refreshing}
               aria-label="독서 통계 새로고침"
               title={`서버에 올라온 독서 기록 다시 확인 · ${serverCheckLabel}`}
@@ -505,6 +332,8 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
         />
 
         <div data-reading-statistics-body="true" className={embedded ? 'mt-5 min-w-0' : 'min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5 sm:px-4 sm:py-3'}>
+          {local?.error && <p role="status" className="mb-3 text-center text-xs opacity-70">이 기기의 독서 기록을 불러오지 못했습니다.</p>}
+          {waitingForRaw && calendar && <p role="status" className="mb-3 text-xs opacity-70">동기화를 마치면 최근 기록을 합산하고 JSON으로 저장할 수 있습니다.</p>}
           {feedback && <p role="status" className="mb-3 text-center text-xs font-bold opacity-70">{feedback}</p>}
           {(syncHealth !== 'healthy' || quarantinedDocumentCount > 0) && (
             <div role="status" className="mb-3 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
@@ -563,119 +392,31 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                 </div>
               </div>
 
-              <div className={`flex items-end justify-between gap-2 ${embedded ? 'mt-8' : 'mt-3'}`}>
-                <div>
-                  <h3 className={embedded ? 'text-base font-semibold' : 'text-xs font-black sm:text-sm'}>도서별 기록</h3>
-                  <p data-reading-statistics-book-summary="true" className="text-[10px] opacity-50">
-                    {bookStatusSummary.currentCount}권 읽는 중 · 완료 {bookStatusSummary.completedCount}권
-                  </p>
-                </div>
-                <div data-reading-statistics-book-filter="true" className="flex shrink-0 items-center text-[11px] font-bold opacity-55">
-                  {(['all', 'current', 'completed'] as const).map((value, index) => (
-                    <React.Fragment key={value}>
-                      {index > 0 && <span aria-hidden="true" className="px-1 opacity-35">|</span>}
-                      <button
-                        type="button"
-                        onClick={() => setBookListFilter(value)}
-                        aria-pressed={bookListFilter === value}
-                        className={bookListFilter === value ? 'text-accent-500 opacity-100' : 'hover:opacity-100'}
-                      >
-                        {value === 'all' ? '전체' : value === 'current' ? '현재' : '완료'}
-                      </button>
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-
+              <h3 className={embedded ? 'mt-8 text-base font-semibold' : 'mt-3 text-xs font-black sm:text-sm'}>도서별 기록</h3>
               <div className={`mt-2 grid min-w-0 ${embedded ? 'mypage-divided-list' : 'gap-1.5'}`}>
-                {visibleBookRounds.length === 0 ? (
+                {booksPending || booksUnavailable ? (
+                  <p role="status" className="py-4 text-sm opacity-60">
+                    {booksPending ? '도서별 기록을 불러오는 중…' : '도서별 집계를 불러오지 못했습니다.'}
+                  </p>
+                ) : books.length === 0 ? (
                   <div className={`text-sm opacity-60 ${embedded ? 'py-4' : `${sectionClass} rounded-2xl py-12 text-center`}`}>아직 기록된 독서 시간이 없습니다.</div>
-                ) : visibleBookRounds.map((book) => {
-                  const rowKey = `${book.bookId}:${book.roundNumber}`;
-                  const completionExpanded = expandedCompletionRows.has(rowKey);
-                  return (
+                ) : books.map((book) => (
                   <article
-                    key={rowKey}
+                    key={book.bookId}
                     data-reading-statistics-book="true"
                     data-reading-statistics-book-id={book.bookId}
-                    data-reading-statistics-round={book.roundNumber}
-                    title="길게 눌러 이 회차를 통계 목록에서 삭제"
-                    onPointerDown={(event) => startBookListLongPress(event, {
-                      bookId: book.bookId,
-                      bookTitle: book.bookTitle,
-                      roundNumber: book.roundNumber,
-                      sourceSessionIds: book.sourceSessionIds,
-                    })}
-                    onPointerMove={moveBookListLongPress}
-                    onPointerUp={clearBookListLongPress}
-                    onPointerCancel={clearBookListLongPress}
-                    onPointerLeave={clearBookListLongPress}
-                    onContextMenu={(event) => {
-                      if (event.target instanceof Element && event.target.closest('button,a,input')) return;
-                      event.preventDefault();
-                      setPendingBookListDeletion({
-                        bookId: book.bookId,
-                        bookTitle: book.bookTitle,
-                        roundNumber: book.roundNumber,
-                        sourceSessionIds: book.sourceSessionIds,
-                      });
-                    }}
-                    className={`min-w-0 touch-manipulation select-none ${embedded ? 'mypage-book-list-item' : `${sectionClass} overflow-hidden rounded-xl px-2.5 py-2`}`}
+                    className={`min-w-0 ${embedded ? 'mypage-book-list-item' : `${sectionClass} overflow-hidden rounded-xl px-2.5 py-2`}`}
                   >
                     <div className="flex min-w-0 items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h4 className="truncate text-xs font-bold sm:text-sm">{displayBookTitle(book.bookTitle)} · {book.roundNumber}회차</h4>
-                        <p className="mt-0.5 truncate text-[10px] opacity-50">시작 {formatReadingDate(book.startedLocalDate)} · {book.endProgressPercent.toFixed(1)}%</p>
-                        {completionExpanded && book.completedLocalDate && (
-                          <p data-reading-statistics-completion-dates="true" className="mt-1 text-[10px] font-bold opacity-65">
-                            시작 {formatReadingDate(book.startedLocalDate)} · 종료 {formatReadingDate(book.completedLocalDate)}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end">
-                        <strong data-reading-statistics-book-duration="true" className="text-xs text-accent-500 sm:text-sm">{formatReadingDuration(book.totalMs)}</strong>
-                        {book.completed ? (
-                          <button
-                            type="button"
-                            data-reading-statistics-complete="true"
-                            aria-expanded={completionExpanded}
-                            aria-label={`${displayBookTitle(book.bookTitle)} ${book.roundNumber}회차 시작일과 종료일`}
-                            onClick={() => setExpandedCompletionRows((current) => {
-                              const next = new Set(current);
-                              if (next.has(rowKey)) next.delete(rowKey);
-                              else next.add(rowKey);
-                              return next;
-                            })}
-                            className={`mt-0.5 rounded-md border ${theme.border} ${theme.secondary} px-1.5 py-0.5 text-xs font-bold opacity-65 hover:opacity-100 sm:text-sm`}
-                          >
-                            완료됨
-                          </button>
-                        ) : book.canComplete ? (
-                          <button
-                            type="button"
-                            data-reading-statistics-confirm-complete="true"
-                            disabled={completingRoundKey !== null}
-                            aria-label={`${displayBookTitle(book.bookTitle)} ${book.roundNumber}회차 완료 처리`}
-                            onClick={() => setPendingRoundCompletion({
-                              bookId: book.bookId,
-                              bookTitle: book.bookTitle,
-                              roundNumber: book.roundNumber,
-                              rowKey,
-                            })}
-                            className={`mt-0.5 rounded-md border ${theme.border} ${theme.secondary} px-1.5 py-0.5 text-xs font-bold opacity-65 hover:opacity-100 disabled:opacity-30 sm:text-sm`}
-                          >
-                            {completingRoundKey === rowKey ? '처리 중' : '완료하기'}
-                          </button>
-                        ) : null}
-                      </div>
+                      <h4 className="truncate text-xs font-bold sm:text-sm">{displayBookTitle(book.bookTitle)}</h4>
+                      <strong data-reading-statistics-book-duration="true" className="shrink-0 text-xs text-accent-500 sm:text-sm">{formatReadingDuration(book.screenMs + book.ttsMs)}</strong>
                     </div>
                     <div className="mt-1 flex min-w-0 gap-2 text-[10px] opacity-55">
                       <span>화면 {formatReadingDuration(book.screenMs)}</span>
                       <span>TTS {formatReadingDuration(book.ttsMs)}</span>
                     </div>
                   </article>
-                  );
-                })}
+                ))}
               </div>
             </>
           )}
@@ -683,31 +424,5 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
       </section>
     </div>
-    {pendingRoundCompletion && (
-      <ConfirmDialog
-        message={`“${displayBookTitle(pendingRoundCompletion.bookTitle)}” ${pendingRoundCompletion.roundNumber}회차를 정말 완료할까요?`}
-        subMessage="완료 후 이어서 읽은 기록은 새 회차로 집계될 수 있습니다. 실제로 완독한 경우에만 완료해 주세요."
-        confirmLabel="완료 처리"
-        variant="info"
-        theme={theme}
-        onConfirm={() => {
-          const pending = pendingRoundCompletion;
-          setPendingRoundCompletion(null);
-          void confirmRound(pending.bookId, pending.roundNumber, pending.rowKey);
-        }}
-        onCancel={() => setPendingRoundCompletion(null)}
-      />
-    )}
-    {pendingBookListDeletion && (
-      <ConfirmDialog
-        message={`“${displayBookTitle(pendingBookListDeletion.bookTitle)}” ${pendingBookListDeletion.roundNumber}회차를 목록에서 삭제할까요?`}
-        subMessage="선택한 회차의 세션만 통계에서 숨깁니다. 같은 책의 다른 회차와 원본 세션은 유지되며, 표시되는 독서 합계에서는 제외됩니다."
-        confirmLabel="목록에서 삭제"
-        theme={theme}
-        onConfirm={confirmBookListDeletion}
-        onCancel={() => setPendingBookListDeletion(null)}
-      />
-    )}
-    </>
   );
 };

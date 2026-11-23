@@ -61,16 +61,16 @@ test('read books use synced account history even without shelf files, merge meta
     ['다른 파일명.txt', { titleKey: 'requested-alias', displayTitle: '요청 당시 제목', platforms }],
     ['이름 변경.epub', null],
   ]);
-  const records = selectSyncedReadingSessions(history, ownerA, new Set(['hidden']));
+  const records = selectSyncedReadingSessions(history, ownerA);
   const [book, ...otherBooks] = buildReadBooks(records, metadata);
   assert.deepEqual(otherBooks, []);
   assert.equal(book.id, 'canonical');
   assert.equal(book.title, '정식 제목');
-  assert.equal(book.totalMs, 120_000);
-  assert.equal(book.progressPercent, 72);
-  assert.equal(book.lastReadAt, start + 120_000);
-  assert.deepEqual(book.fileIds, ['a', 'b']);
-  assert.deepEqual(selectSyncedReadingSessions(history, 'guest:test|library:local', new Set()), []);
+  assert.equal(book.totalMs, 180_000);
+  assert.equal(book.progressPercent, 100);
+  assert.equal(book.lastReadAt, start + 360_000);
+  assert.deepEqual(book.fileIds, ['a', 'b', 'hidden']);
+  assert.deepEqual(selectSyncedReadingSessions(history, 'guest:test|library:local'), []);
 });
 
 test('late metadata regrouping preserves time already allocated across overlapping files', () => {
@@ -106,8 +106,8 @@ test('work detail progress uses the highest qualifying merged range', () => {
       session('other-account', 63, 75, 4, { ownerKey: ownerB }),
     ],
   });
-  assert.equal(reading.progressPercent, 12);
-  assert.equal(reading.totalMs, 180_000);
+  assert.equal(reading.progressPercent, 69);
+  assert.equal(reading.totalMs, 240_000);
   assert.ok(reading.hasRead);
 });
 

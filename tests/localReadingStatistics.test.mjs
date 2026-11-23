@@ -15,6 +15,7 @@ import {
   confirmLocalReadingRoundV11,
   getReadingStatisticsHydrationPlanV12,
   getReadingStatisticsHydrationStateV12,
+  getLocalReadingReportSnapshot,
   getLocalReadingSessionsV11,
   getPendingReadingSessionsV11,
   hydrateRemoteReadingSessionsPageV12,
@@ -67,6 +68,21 @@ const makeSession = (sessionId = 'session-1', bookTitle = 'Book') => ({
   timezoneOffsetMinutes: 0,
   localDate: getReadingSessionLocalDate(1_000, 0),
   completed: false,
+});
+
+test('a statistics snapshot does not treat the first received page as the complete raw history', async () => {
+  const reportOwner = makeOwnerKey(makeFirebaseOwnerKey('report-snapshot'), 'library:local');
+  const first = makeSession('report-first');
+  const firstCursor = cursor(60, first.sessionId);
+  await hydrateRemoteReadingSessionsPageV12(reportOwner, [first], null, firstCursor, false, false);
+  const partial = await getLocalReadingReportSnapshot(reportOwner, true);
+  assert.deepEqual(partial.sessions.map(({ sessionId }) => sessionId), [first.sessionId]);
+  assert.equal(partial.rawHistoryComplete, false);
+  await hydrateRemoteReadingSessionsPageV12(reportOwner, [], firstCursor, null, true, false);
+  assert.equal((await getLocalReadingReportSnapshot(reportOwner, true)).rawHistoryComplete, true);
+  const db = await initDB();
+  await db.delete(V11_READING_SESSIONS_STORE, [reportOwner, first.sessionId]);
+  assert.equal((await getLocalReadingReportSnapshot(reportOwner, true)).rawHistoryComplete, false);
 });
 
 const deleteDatabase = async () => {

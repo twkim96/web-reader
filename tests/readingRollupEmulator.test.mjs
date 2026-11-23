@@ -7,7 +7,7 @@ import { APP_ID } from '../src/lib/appIdentity.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
 import { computeReadingCalendarRollup, computeWeeklyReadingRollup, mergeReadingFileRollups } from '../src/lib/readingStatisticsRollup.ts';
 import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
-import { readPublishedReadingFiles } from '../src/server/readingRollupRead.ts';
+import { readPublishedReadingFiles, readPublishedReadingReportBooks } from '../src/server/readingRollupRead.ts';
 import {
   claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, runReadingRollupCron, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
@@ -123,6 +123,7 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   const calendar = job.collection('readingStatsRollupCalendarsV1').doc(nextWeek);
   assert.equal((await manifest.get()).exists, false);
   assert.equal(await readPublishedReadingFiles(db, uid), null);
+  assert.equal(await readPublishedReadingReportBooks(db, uid), null);
   const early = session('a', '2026-11-16T00:03:00Z');
   const later = session('b', '2026-11-16T01:00:00Z');
   const late = session('previous-week-late', '2026-11-12T00:00:00Z');
@@ -167,6 +168,11 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
     files: mergeReadingFileRollups(...oldWeeks.map(({ files }) => files), expected.files),
   });
   assert.equal(JSON.parse((await filesRef.get()).get('payload')).carry, undefined);
+  const { books } = await readPublishedReadingReportBooks(db, uid);
+  const totalMs = [...oldWeeks, expected].flatMap(({ days }) => days).reduce((sum, day) => sum + day.totalMs, 0);
+  assert.equal(books.length, 1);
+  assert.deepEqual({ bookId: books[0].bookId, screenMs: books[0].screenMs, ttsMs: books[0].ttsMs },
+    { bookId: 'book', screenMs: totalMs, ttsMs: 0 });
   assert.equal(JSON.parse((await job.get()).get('payload')).evidenceCompatible, false);
   assert.deepEqual(JSON.parse((await weeks.doc(weekStarts[8]).get()).get('payload')), oldWeeks[8]);
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});

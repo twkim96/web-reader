@@ -1,7 +1,10 @@
 import { after } from 'next/server';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
-import { hasPublishedReadingAuditCoverage, readPublishedReadingCalendar, readPublishedReadingFiles, readPublishedReadingWeek } from '../../../server/readingRollupRead';
+import {
+  hasPublishedReadingAuditCoverage, readPublishedReadingCalendar, readPublishedReadingFiles,
+  readPublishedReadingReportBooks, readPublishedReadingWeek,
+} from '../../../server/readingRollupRead';
 import { readingRollupWeekForDay } from '../../../lib/readingStatisticsRollup';
 import { resolveLegacyReviewWork, resolveSocialWork, resolveWishlistWork } from '../../../server/mypage/catalog';
 import { getSocialReadingEvidence } from '../../../server/mypage/reading';
@@ -287,7 +290,7 @@ export async function GET(request: Request) {
     if (view === 'people') return fail(404);
     if (view === 'browse') return await publicBrowse(request, params);
     if (view === 'profile') return await publicProfile(getAdminFirestore(), params);
-    const rollupView = view === 'rollup-calendar' || view === 'rollup-week' || view === 'rollup-audit' || view === 'rollup-files';
+    const rollupView = view === 'rollup-calendar' || view === 'rollup-week' || view === 'rollup-audit' || view === 'rollup-files' || view === 'rollup-books';
     if (rollupView && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS !== '1') return fail(404);
     const uid = await authenticatedUid(request, timings && ((phase, elapsed) => {
       timings.push(`${phase};dur=${elapsed.toFixed(1)}`);
@@ -296,6 +299,14 @@ export async function GET(request: Request) {
     timing?.('auth');
     const db = getAdminFirestore();
     if (view === 'rollup-files') return json({ history: await readPublishedReadingFiles(db, uid) });
+    if (view === 'rollup-books') {
+      const firstDay = params.get('firstDay');
+      const lastDay = params.get('lastDay');
+      if (firstDay === null && lastDay === null) return json({ report: await readPublishedReadingReportBooks(db, uid) });
+      if (!firstDay || !lastDay || !readingRollupWeekForDay(firstDay) || !readingRollupWeekForDay(lastDay)
+        || firstDay > lastDay || Date.parse(lastDay) - Date.parse(firstDay) > 30 * 86_400_000) return fail(400);
+      return json({ report: await readPublishedReadingReportBooks(db, uid, { firstDay, lastDay }) });
+    }
     if (view === 'rollup-audit') return json({ covered: await hasPublishedReadingAuditCoverage(db, uid) });
     if (view === 'rollup-calendar') return json({ calendar: await readPublishedReadingCalendar(db, uid) });
     if (view === 'rollup-week') {

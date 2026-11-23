@@ -7,7 +7,6 @@ import { formatReadingClock } from '../../lib/readingStatistics';
 import { getReadingFileTime } from '../../lib/readingStatisticsRollup';
 import type { ReadingSessionV1 } from '../../lib/readingStatistics';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
-import { readHiddenReadingStatisticsSessionIds } from '../../lib/readingStatisticsSessionVisibility';
 import { useMyPageReadingFiles } from '../useMyPageList';
 
 const DISPLAY_REFRESH_MS = 5_000;
@@ -52,10 +51,7 @@ export const useCurrentBookReadingTime = ({
       try {
         const sessions = await getLocalReadingSessionsV11(ownerKey);
         if (cancelled || generation !== loadGeneration) return;
-        const hiddenSessionIds = readHiddenReadingStatisticsSessionIds(ownerKey);
-        persistedMs = getReadingFileTime(sessions.filter(({ sessionId }) => (
-          !hiddenSessionIds.has(sessionId)
-        )), bookId, hiddenSessionIds.size ? null : archived);
+        persistedMs = getReadingFileTime(sessions, bookId, archived);
         refreshDisplay(true);
       } catch (error) {
         console.error('[ReadingStatistics] current book total load failed:', error);

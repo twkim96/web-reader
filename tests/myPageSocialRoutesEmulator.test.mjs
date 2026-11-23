@@ -72,6 +72,7 @@ test('calendar endpoints expose only the authenticated owner’s complete public
     startAt: Date.parse('2026-11-16T12:00:00Z'), durationMs: 180_000, timezoneOffsetMinutes: 0, progressSpanPercent: 1 };
   const detailRef = root.collection('readingStatsRollupWeeksV1').doc('2026-11-16');
   await detailRef.set({ payload: JSON.stringify({ weekStart: '2026-11-16', activities: [activity], files: [{ fileId: 'internal' }] }) });
+  const selectedBooks = { view: 'rollup-books', firstDay: historical.localDate, lastDay: historical.localDate };
 
   process.env[flag] = '0';
   assert.equal((await get(week('2026-11-16'), idToken)).status, 404);
@@ -79,6 +80,7 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   assert.equal((await get(week('2026-11-16'))).status, 401);
   assert.equal((await get(week('2026-11-17'), idToken)).status, 400);
   assert.deepEqual(await ok(get(week('2026-11-16'), idToken)), { week: null });
+  assert.deepEqual(await ok(get(selectedBooks, idToken)), { report: null });
 
   const weekStarts = Array.from({ length: 10 }, (_, i) => new Date(Date.parse('2026-11-16') - i * 7 * 86_400_000).toISOString().slice(0, 10));
   const calendar = root.collection('readingStatsRollupCalendarsV1').doc('2026-11-16');
@@ -91,7 +93,8 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   const filesRef = root.collection('readingStatsRollupFilesV1').doc('current');
   const files = [{ fileId: 'private-book', titles: ['칼바람'], lastReadAt: activity.startAt + activity.durationMs,
     filteredMs: 180_000, unfilteredMs: 180_000, progressIntervals: [[1, 2]], absoluteMaxProgressPercent: 2 }];
-  const payload = JSON.stringify({ files, carry: { sessions: [{ sessionId: 'private-carry' }] } });
+  const books = [{ bookId: activity.bookId, bookTitle: activity.bookTitle, lastReadAt: activity.startAt, screenMs: 180_000, ttsMs: 0 }];
+  const payload = JSON.stringify({ files, books, carry: { sessions: [{ sessionId: 'private-carry' }] } });
   await filesRef.set({ throughWeek: '2026-11-16', payload });
   assert.deepEqual(await ok(get(filesView, idToken)), { history: null });
   await filesRef.update({ throughWeek: '2026-11-23' });
@@ -99,6 +102,19 @@ test('calendar endpoints expose only the authenticated owner’s complete public
   assert.deepEqual(await ok(get({ ...filesView, uid }, otherToken)), { history: null });
   assert.deepEqual(await ok(get(filesView, idToken)), {
     history: { firstDay: '2026-09-14', lastDay: '2026-11-29', files },
+  });
+  assert.equal((await get(selectedBooks)).status, 401);
+  assert.equal((await get({ ...selectedBooks, firstDay: '2026-09-14' }, idToken)).status, 400);
+  assert.equal((await get({ view: 'rollup-books', firstDay: historical.localDate }, idToken)).status, 400);
+  assert.deepEqual(await ok(get({ ...selectedBooks, uid }, otherToken)), { report: null });
+  assert.deepEqual(await ok(get(selectedBooks, idToken)), {
+    report: { firstDay: historical.localDate, lastDay: historical.localDate, books },
+  });
+  assert.deepEqual(await ok(get({ ...selectedBooks, firstDay: '2026-11-17', lastDay: '2026-11-17' }, idToken)), {
+    report: { firstDay: '2026-11-17', lastDay: '2026-11-17', books: [] },
+  });
+  assert.deepEqual(await ok(get({ view: 'rollup-books' }, idToken)), {
+    report: { firstDay: '2026-09-14', lastDay: '2026-11-29', books },
   });
   const full = { calendar: { firstDay: '2026-09-14', lastDay: '2026-11-29', days: [historical, recent] } };
   assert.deepEqual(await ok(get(view, idToken)), full);

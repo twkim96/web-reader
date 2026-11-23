@@ -467,10 +467,9 @@ test('omits reading rounds with no counted time in the selected date range', () 
   });
   assert.deepEqual(rounds, []);
 });
-import {
-  createReadingStatisticsJsonExport,
-  createReadingStatisticsMarkdownExport,
-} from '../src/lib/readingStatisticsExport.ts';
+import { createReadingStatisticsJsonExport } from '../src/lib/readingStatisticsExport.ts';
+import { prepareLocalReadingReport } from '../src/lib/readingStatisticsReport.ts';
+import { hasPublishedBoundaryClockRisk, mergePublishedCalendarDays } from '../src/lib/readingRollupCalendar.ts';
 import {
   getRemoteReadingSessionsPageV1,
   readReadingStatisticsClockSampleV1,
@@ -754,7 +753,7 @@ test('uses chronological progress snapshots instead of min and max percentages',
   assert.equal(summary.books[0].endProgressPercent, 30);
 });
 
-test('statistics require two active minutes per block while exports retain original sessions', () => {
+test('statistics and JSON require two active minutes per reading block', () => {
   const sessions = [
     session({ sessionId: 'idle', bookId: 'idle', startedAtClient: 1_000, endedAtClient: 91_000 }),
     session({ sessionId: 'just-short', bookId: 'short', startedAtClient: 91_000, endedAtClient: 210_999 }),
@@ -776,20 +775,58 @@ test('statistics require two active minutes per block while exports retain origi
     .map(({ bookId, totalMs }) => [bookId, totalMs]), [['book-1', 120_000]]);
   assert.equal(buildReadingStatistics(sessions).totalMs, 359_999);
 
-  const json = createReadingStatisticsJsonExport(sessions, 1_700_000_000_000);
+  const local = prepareLocalReadingReport(sessions);
+  const json = createReadingStatisticsJsonExport(local.days, local.books({}), 1_700_000_000_000);
   const parsed = JSON.parse(json.text);
-  assert.equal(parsed.schemaVersion, 1);
-  assert.equal(parsed.sessions.length, sessions.length);
+  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.sessions, undefined);
+  assert.equal(parsed.summary.completedBookCount, undefined);
   assert.equal(parsed.summary.totalMs, displayed.totalMs);
-  assert.deepEqual(parsed.summary.books.map(({ bookId }) => bookId), ['book-1']);
+  assert.deepEqual(parsed.summary.books.map(({ bookId, totalMs }) => [bookId, totalMs]), [['book-1', 120_000]]);
   assert.equal(parsed.summary.screenMs, 120_000);
   assert.equal(parsed.summary.ttsMs, 0);
-  assert.equal(parsed.sessions.every(isReadingSessionV1), true);
+});
 
-  const markdown = createReadingStatisticsMarkdownExport(sessions, 1_700_000_000_000);
-  assert.match(markdown.text, /총 독서 시간: 2분/);
-  assert.match(markdown.text, /화면 독서: 2분/);
-  assert.match(markdown.text, /TTS 듣기: 0분/);
+test('statistics and JSON replace covered dates, including empty days, and keep both uncovered sides', () => {
+  const dates = ['2026-11-15', '2026-11-16', '2026-11-17', '2026-11-23'];
+  const local = prepareLocalReadingReport(dates.map((localDate, index) => {
+    const startedAtClient = Date.parse(localDate + 'T10:00:00Z');
+    return session({ sessionId: String(index), localDate, startedAtClient, endedAtClient: startedAtClient + 120_000 });
+  }));
+  const archiveRange = { firstDay: '2026-11-16', lastDay: '2026-11-22' };
+  const calendar = { ...archiveRange, days: [{ localDate: dates[1], totalMs: 180_000, screenMs: 0, ttsMs: 180_000 }] };
+  const archive = { ...archiveRange, books: [{
+    bookId: 'book-1', bookTitle: 'Archived title', lastReadAt: Date.parse(dates[1] + 'T11:00:00Z'),
+    screenMs: 0, ttsMs: 180_000,
+  }] };
+  const days = mergePublishedCalendarDays(local.days, calendar);
+  const books = local.books({}, archive);
+  const { summary } = JSON.parse(createReadingStatisticsJsonExport(days, books).text);
+  assert.deepEqual(summary.days.map(({ localDate }) => localDate), [dates[3], dates[1], dates[0]]);
+  assert.equal(summary.totalMs, 420_000);
+  assert.deepEqual(summary.books.map(({ screenMs, ttsMs, totalMs }) => [screenMs, ttsMs, totalMs]),
+    [[240_000, 180_000, 420_000]]);
+  const selected = local.books({ startLocalDate: dates[1], endLocalDate: dates[2] }, archive);
+  assert.deepEqual(selected, archive.books);
+});
+
+test('a newly received clock sample can move a closed session into the next reporting week', () => {
+  const startedAtClient = Date.parse('2026-11-22T23:55:00Z');
+  const closed = session({ sessionId: 'closed', startedAtClient, endedAtClient: startedAtClient + 240_000, clockOffsetMs: null });
+  const laterStart = Date.parse('2026-11-23T00:05:00Z');
+  const clock = session({
+    sessionId: 'new-clock', startedAtClient: laterStart, endedAtClient: laterStart + 60_000,
+    clockOffsetMs: 600_000, clockUncertaintyMs: 0, clockMeasuredAtClient: laterStart,
+  });
+  const range = { firstDay: '2026-11-16', lastDay: '2026-11-22' };
+  const closedSummary = prepareLocalReadingReport([closed]);
+  const corrected = prepareLocalReadingReport([closed, clock]);
+  assert.deepEqual(closedSummary.days.map(({ localDate }) => localDate), ['2026-11-22']);
+  assert.deepEqual(corrected.days.map(({ localDate }) => localDate), ['2026-11-23']);
+  assert.equal(hasPublishedBoundaryClockRisk([closed], range), false);
+  assert.equal(hasPublishedBoundaryClockRisk([closed, { ...clock, deviceId: 'other' }], range), false);
+  assert.equal(hasPublishedBoundaryClockRisk([closed, clock], range), true);
+  assert.equal(corrected.days[0].totalMs, 240_000);
 });
 
 test('a checkpoint that crosses corrected midnight does not assign its full progress to either day', () => {

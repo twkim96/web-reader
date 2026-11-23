@@ -20,9 +20,8 @@ export type ReadBook = {
 export const selectSyncedReadingSessions = (
   sessions: readonly StoredReadingSessionV11[],
   ownerKey: OwnerKey,
-  hidden: ReadonlySet<string>,
 ) => isGuestOwner(ownerKey) ? [] : sessions.filter((session) => (
-  session.ownerKey === ownerKey && session.syncState === 'synced' && !hidden.has(session.sessionId)
+  session.ownerKey === ownerKey && session.syncState === 'synced'
 ));
 
 export const platformWorkKey = (platform: string, url: string) => JSON.stringify([platform, url]);

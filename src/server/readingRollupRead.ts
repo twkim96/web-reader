@@ -2,6 +2,7 @@ import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { APP_ID } from '../lib/appIdentity.ts';
 import { isReadingSessionV1, type ReadingDayStatistics } from '../lib/readingStatistics.ts';
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar.ts';
+import { parseReadingReportBooks, summarizeReadingReportBooks, type PublishedReadingReportBooks, type ReadingReportRange } from '../lib/readingStatisticsReport.ts';
 import { parseReadingFileRollups, parseReadingRollupMonday, readingRollupDayKey, readingRollupWeekForDay } from '../lib/readingStatisticsRollup.ts';
 import type { ReadingRollupCarry } from './readingRollupInputs.ts';
 
@@ -30,7 +31,7 @@ async function readFileTotals(db: Firestore, uid: string) {
   if (snapshot.get('throughWeek') !== readingRollupDayKey(range.through)) return null;
   const payload = JSON.parse(snapshot.get('payload'));
   const files = parseReadingFileRollups(payload.files);
-  return files ? { range, files, carry: payload.carry as unknown } : null;
+  return files ? { range, files, carry: payload.carry as unknown, books: payload.books as unknown } : null;
 }
 
 export async function readPublishedReadingFiles(db: Firestore, uid: string) {
@@ -102,12 +103,8 @@ export async function readPublishedReadingCalendar(db: Firestore, uid: string): 
   return range ? readCalendarRange(db, range) : null;
 }
 
-export async function readPublishedReadingWeek(db: Firestore, uid: string, weekStart: string): Promise<PublishedReadingWeek | null> {
-  const start = parseReadingRollupMonday(weekStart);
-  const range = await publishedRange(db, uid);
-  if (!range || start < range.first || start > range.through) return null;
-  const snapshot = await range.root.collection('readingStatsRollupWeeksV1').doc(weekStart).get();
-  const detail = JSON.parse(snapshot.get('payload')) as PublishedReadingWeek;
+function readWeekActivities(payload: string, weekStart: string) {
+  const detail = JSON.parse(payload) as PublishedReadingWeek;
   if (detail.weekStart !== weekStart || !Array.isArray(detail.activities)) throw new Error('Incomplete reading rollup detail.');
   const activities = detail.activities.map((row) => {
     const { localDate, bookId, bookTitle, mode, startAt, durationMs, timezoneOffsetMinutes, progressSpanPercent } = row;
@@ -119,5 +116,37 @@ export async function readPublishedReadingWeek(db: Firestore, uid: string, weekS
     }
     return { localDate, bookId, bookTitle, mode, startAt, durationMs, timezoneOffsetMinutes, progressSpanPercent };
   });
-  return { weekStart, activities };
+  return activities;
+}
+
+export async function readPublishedReadingWeek(db: Firestore, uid: string, weekStart: string): Promise<PublishedReadingWeek | null> {
+  const start = parseReadingRollupMonday(weekStart);
+  const range = await publishedRange(db, uid);
+  if (!range || start < range.first || start > range.through) return null;
+  const snapshot = await range.root.collection('readingStatsRollupWeeksV1').doc(weekStart).get();
+  return { weekStart, activities: readWeekActivities(snapshot.get('payload'), weekStart) };
+}
+
+export async function readPublishedReadingReportBooks(
+  db: Firestore, uid: string, selected?: ReadingReportRange,
+): Promise<PublishedReadingReportBooks | null> {
+  if (!selected) {
+    const published = await readFileTotals(db, uid);
+    const books = parseReadingReportBooks(published?.books);
+    if (!published || !books) return null;
+    const { first, through } = published.range;
+    return { firstDay: readingRollupDayKey(first), lastDay: readingRollupDayKey(through + 6 * day), books };
+  }
+
+  const range = await publishedRange(db, uid);
+  const { firstDay, lastDay } = selected;
+  if (!range || firstDay < readingRollupDayKey(range.first) || lastDay > readingRollupDayKey(range.through + 6 * day)) return null;
+  const start = parseReadingRollupMonday(readingRollupWeekForDay(firstDay)!);
+  const end = Date.parse(lastDay);
+  const weeks = range.root.collection('readingStatsRollupWeeksV1');
+  const refs = Array.from({ length: 1 + Math.floor((end - start) / week) }, (_, index) => weeks.doc(readingRollupDayKey(start + index * week)));
+  const snapshots = await db.getAll(...refs);
+  const activities = snapshots.flatMap((snapshot) => readWeekActivities(snapshot.get('payload'), snapshot.id)
+    .filter(({ localDate }) => localDate >= firstDay && localDate <= lastDay));
+  return { ...selected, books: summarizeReadingReportBooks(activities) };
 }

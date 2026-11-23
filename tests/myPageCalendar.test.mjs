@@ -5,7 +5,8 @@ import 'fake-indexeddb/auto';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
-import { saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
+import { hydrateRemoteReadingSessionsPageV12, saveLocalReadingSessionV11 } from '../src/lib/localReadingStatistics.ts';
+import { notifyReadingStatisticsServerCheck } from '../src/lib/readingStatisticsWake.ts';
 import { closeLocalDB } from '../src/lib/localDB.ts';
 import { setImmediate as settle } from 'node:timers/promises';
 import { registerHooks } from 'node:module';
@@ -19,6 +20,7 @@ const authMock = registerHooks({ resolve(specifier, context, next) {
   return next(specifier, context);
 } });
 const { ReadingDashboard } = await import('../src/components/mypage/ReadingDashboard.tsx');
+const { LibraryReadingStatisticsModal } = await import('../src/components/LibraryReadingStatisticsModal.tsx');
 const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
 test.after(() => authMock.deregister());
 
@@ -199,11 +201,17 @@ test('published days replace local days including zero and load detail only on s
   Object.assign(globalThis, { window, document: window.document, localStorage: storage, HTMLElement: window.HTMLElement,
     Element: window.Element, Node: window.Node, Event: window.Event, CustomEvent: window.CustomEvent,
     BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true });
-  for (const day of [1, 16, 17, 25]) {
+  const records = [1, 16, 17, 25].map((day) => {
     const start = Date.UTC(2026, 10, day, 12);
-    await saveLocalReadingSessionV11(ownerKey, session(`local-${day}`, start, start + 120_000));
-  }
+    return session(`local-${day}`, start, start + 120_000);
+  });
+  const cursor = { documentId: 'local-25', uploadedAtServerSeconds: 100, uploadedAtServerNanoseconds: 0 };
+  await hydrateRemoteReadingSessionsPageV12(ownerKey, records, null, cursor, false);
   const requests = [];
+  const archiveBooks = [{
+    bookId: 'aggregate', bookTitle: '집계 도서', lastReadAt: Date.UTC(2026, 10, 16, 12),
+    screenMs: 180_000, ttsMs: 0,
+  }];
   t.mock.method(globalThis, 'fetch', async (url, { headers }) => {
     const params = new URL(url, 'https://reader.example').searchParams;
     assert.equal(headers.get('authorization'), 'Bearer calendar-token');
@@ -211,6 +219,14 @@ test('published days replace local days including zero and load detail only on s
     if (params.get('view') === 'rollup-calendar') return Response.json({ calendar: {
       firstDay: '2026-11-02', lastDay: '2026-11-22', days: [{ localDate: '2026-11-16', totalMs: 180_000, screenMs: 180_000, ttsMs: 0 }],
     } });
+    if (params.get('view') === 'rollup-books') {
+      if (params.has('firstDay')) {
+        assert.equal(params.get('firstDay'), '2026-11-02');
+        assert.equal(params.get('lastDay'), '2026-11-22');
+        requests[requests.length - 1] = 'rollup-books-range';
+      }
+      return Response.json({ report: { firstDay: '2026-11-02', lastDay: '2026-11-22', books: archiveBooks } });
+    }
     assert.equal(params.get('week'), '2026-11-16');
     return Response.json({ week: { weekStart: '2026-11-16', activities: [{
       bookId: 'aggregate', bookTitle: '집계 도서', mode: 'screen', timezoneOffsetMinutes: 0, localDate: '2026-11-16',
@@ -223,10 +239,16 @@ test('published days replace local days including zero and load detail only on s
     .dispatchEvent(new window.Event('click', { bubbles: true })));
   try {
     await act(async () => root.render(React.createElement(ReadingDashboard, { ownerKey, onOpenStatistics() {}, onOpenAnnotations() {} })));
-    for (let i = 0; i < 50 && totals()[2] !== '7분'; i++) await act(async () => {
+    for (let i = 0; i < 50 && totals()[2] !== '3분'; i++) await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 2));
     });
     assert.deepEqual(requests, ['rollup-calendar']);
+    assert.deepEqual(totals(), ['0분', '3분', '3분']);
+    await act(async () => {
+      await hydrateRemoteReadingSessionsPageV12(ownerKey, [], cursor, null, true);
+      notifyReadingStatisticsServerCheck(ownerKey, Date.now(), false);
+      await new Promise(resolve => setTimeout(resolve, 300));
+    });
     assert.deepEqual(totals(), ['2분', '7분', '7분']);
     assert.equal(window.document.querySelector('button[aria-label^="11월 17일"]').getAttribute('aria-label'), '11월 17일');
     await select(17);
@@ -237,6 +259,36 @@ test('published days replace local days including zero and load detail only on s
     await select(17);
     await select(16);
     assert.deepEqual(requests, ['rollup-calendar', 'rollup-week']);
+
+    await act(async () => root.render(React.createElement(LibraryReadingStatisticsModal, {
+      ownerKey, embedded: true, open: true, visible: true, theme: {}, themeVariables: {}, accentColor: 'rose',
+      syncHealth: 'healthy', quarantinedDocumentCount: 0, canRefresh: true, refreshing: false,
+      lastServerCheckedAt: null, onRefresh() {}, onClose() {},
+    })));
+    const modeTotal = () => window.document.querySelector('[data-reading-statistics-mode-total="screen"]')?.textContent;
+    for (let i = 0; i < 20 && modeTotal() !== '2분'; i++) await act(async () => settle());
+    assert.equal(modeTotal(), '2분');
+    assert.deepEqual(requests, ['rollup-calendar', 'rollup-week', 'rollup-books']);
+    const chooseRange = (range) => act(async () => window.document.querySelector(`[data-reading-statistics-range="${range}"]`)
+      .dispatchEvent(new window.Event('click', { bubbles: true })));
+    await chooseRange('month');
+    for (let i = 0; i < 20 && !window.document.querySelector('[data-reading-statistics-book-id="aggregate"]'); i++) await act(async () => settle());
+    assert.match(window.document.querySelector('[data-reading-statistics-book-id="aggregate"]').textContent, /집계 도서.*3분/);
+    assert.equal(modeTotal(), '7분');
+    await chooseRange('all');
+    assert.equal(modeTotal(), '7분');
+    assert.deepEqual(requests, ['rollup-calendar', 'rollup-week', 'rollup-books', 'rollup-books-range']);
+    let downloaded;
+    t.mock.method(URL, 'createObjectURL', (blob) => {
+      downloaded = blob;
+      return 'blob:statistics-report';
+    });
+    await act(async () => window.document.querySelector('[data-reading-statistics-export="json"]')
+      .dispatchEvent(new window.Event('click', { bubbles: true })));
+    const { summary } = JSON.parse(await downloaded.text());
+    assert.equal(summary.totalMs, 420_000);
+    assert.deepEqual(new Map(summary.books.map(({ bookId, totalMs }) => [bookId, totalMs])),
+      new Map([['local-1', 120_000], ['aggregate', 180_000], ['local-25', 120_000]]));
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();
