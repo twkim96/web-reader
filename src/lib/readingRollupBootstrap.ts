@@ -1,5 +1,8 @@
 import { hasPublishedBoundaryClockRisk, type PublishedReadingCalendar } from './readingRollupCalendar';
-import { isReadingSessionV1, READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS, READING_SESSION_MAX_CLOCK_OFFSET_MS, type ReadingSessionV1 } from './readingStatistics';
+import {
+  isReadingSessionV1, READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS, READING_SESSION_MAX_CLOCK_OFFSET_MS,
+  READING_SESSION_MAX_TIMEZONE_OFFSET_MINUTES, type ReadingSessionV1,
+} from './readingStatistics';
 import { parseReadingReportBooks, type ReadingReportBook } from './readingStatisticsReport';
 import { parseReadingFileRollups, readingRollupWeekForDay, type ReadingFileRollup } from './readingStatisticsRollup';
 
@@ -65,6 +68,17 @@ export function parseReadingRollupBootstrap(value: unknown): ReadingRollupBootst
     || !carry.sessions.every(isReadingSessionV1) || new Set(carry.sessions.map(({ sessionId }) => sessionId)).size !== carry.sessions.length
     || hasPublishedBoundaryClockRisk(carry.sessions, archive.calendar)) return null;
   return { ...archive, carry };
+}
+
+/** The session is covered and cannot affect any open-day activity or clock correction. */
+export function isReadingSessionCoveredByPublication(point: ReadingRollupCheckpoint, session: ReadingSessionV1) {
+  if ((session.clockMeasuredAtClient ?? -Infinity) >= point.sampleFloor) return false;
+  const firstDay = Date.parse(point.firstDay);
+  const openDay = Date.parse(point.lastDay) + 86_400_000;
+  const earliestLocalStart = session.startedAtClient - session.timezoneOffsetMinutes * 60_000 - READING_SESSION_MAX_CLOCK_OFFSET_MS;
+  // Overlap is resolved in absolute time, including across different device timezones.
+  const earliestOpenStart = openDay - READING_SESSION_MAX_TIMEZONE_OFFSET_MINUTES * 60_000;
+  return earliestLocalStart >= firstDay && session.endedAtClient + READING_SESSION_MAX_CLOCK_OFFSET_MS <= earliestOpenStart;
 }
 
 /** A tail upload must not move a finalized date or need pre-carry calibration. */

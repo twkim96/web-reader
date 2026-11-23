@@ -354,8 +354,7 @@ export const useReadingStatisticsSync = (
                 return true;
               };
               const previousPublication = 'state' in plan ? plan.published : undefined;
-              const initialBootstrap = allowPublishedAudit && !previousPublication && Date.now() >= retryPublicationAt
-                && (!('state' in plan) || plan.recentOnly || plan.fullAuditInProgress || !withinRecent(plan.state.cursor));
+              const initialBootstrap = allowPublishedAudit && !previousPublication && Date.now() >= retryPublicationAt;
               if (recoverRaw || ('reason' in plan && plan.reason === 'published-history-unavailable')) {
                 if (!await recoverHistory()) {
                   hydrationStatus = 'lost-leadership';

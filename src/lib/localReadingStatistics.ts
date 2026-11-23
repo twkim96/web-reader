@@ -17,7 +17,7 @@ import {
   type StoredReadingSessionV11,
 } from './readingStatistics';
 import {
-  compareReadingUploadTimes, parseReadingRollupArchive, readReadingRollupCheckpoint, readingRollupTailIsSafe,
+  compareReadingUploadTimes, isReadingSessionCoveredByPublication, parseReadingRollupArchive, readReadingRollupCheckpoint, readingRollupTailIsSafe,
   type ReadingRollupArchive, type ReadingRollupBootstrap, type ReadingRollupCheckpoint,
 } from './readingRollupBootstrap';
 import { notifyReadingStatisticsChange } from './readingStatisticsWake';
@@ -97,6 +97,7 @@ type ReadingStatisticsSyncMetaV12 = ReadingStatisticsRemoteCursorV12 & {
   lastHydrationDurationMs: number;
   lastHydrationCompletedAt: number;
   published?: ReadingRollupCheckpoint;
+  archivedCursor?: ReadingStatisticsRemoteCursorV12;
 };
 
 const HYDRATION_AUDIT_INTERVAL_MS = 7 * 24 * 60 * 60_000;
@@ -184,6 +185,7 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
     || Number(value.hydratedRemoteCount) < 0
   ) throw new Error('독서 통계 hydration cursor가 손상되었습니다.');
   const published = 'published' in value ? readReadingRollupCheckpoint(value.published) : null;
+  const archivedCursor = 'archivedCursor' in value ? readRemoteCursor(value.archivedCursor) : null;
   return {
     ...cursor,
     ownerKey: value.ownerKey as OwnerKey,
@@ -249,6 +251,7 @@ const assertSyncMeta = (value: unknown): ReadingStatisticsSyncMetaV12 => {
       ? Number(value.lastHydrationCompletedAt)
       : 0,
     ...(published ? { published } : {}),
+    ...(published && archivedCursor && sameCursor(cursor, archivedCursor) ? { archivedCursor } : {}),
   };
 };
 
@@ -286,6 +289,8 @@ export class PublishedReadingTailError extends Error {}
 
 type PublishedStoredSession = StoredReadingSessionV11 & { receivedWithPublication?: true };
 const hasPublicationReceipt = (session: PublishedStoredSession | null) => session?.receivedWithPublication === true;
+const hasPublishedCursor = (meta: ReadingStatisticsSyncMetaV12, received: readonly (StoredReadingSessionV11 | null)[]) =>
+  meta.documentId === '__empty__' || Boolean(meta.archivedCursor) || received.some((row) => row?.sessionId === meta.documentId);
 
 const samePublishedReading = (left: ReadingRollupCheckpoint, right: ReadingRollupCheckpoint) =>
   left.firstDay === right.firstDay && left.lastDay === right.lastDay
@@ -300,6 +305,7 @@ export async function installReadingStatisticsBootstrap(
   previous?: ReadingRollupCheckpoint,
   replaceRawCheckpoint = false,
 ) {
+  if (isGuestOwner(ownerKey)) return false;
   const { carry, ...archive } = bootstrap;
   const published: ReadingRollupCheckpoint = {
     firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
@@ -310,6 +316,7 @@ export async function installReadingStatisticsBootstrap(
   const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
   const sessionsStore = tx.objectStore(V11_READING_SESSIONS_STORE);
   const recentKey = readingStatisticsRecentKey(ownerKey);
+  const archiveKey = readingStatisticsArchiveKey(ownerKey);
   const [value, recentRow, localRows, leased] = await Promise.all([
     metaStore.get(ownerKey), metaStore.get(recentKey), sessionsStore.index('by-owner').getAll(ownerKey),
     hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now),
@@ -322,23 +329,46 @@ export async function installReadingStatisticsBootstrap(
     await tx.done;
     return false;
   }
+  // A legacy tab can replace the owner checkpoint while the archive still backs compacted weeks.
+  const saved = current.published ? null : parseReadingRollupArchive((await metaStore.get(archiveKey))?.archive);
+  const priorRange = current.published ?? (saved ? { ...saved.calendar, sourceThrough: saved.sourceThrough } : null);
   const locals = new Map(localRows.map((row) => {
     const session = assertStoredSession(row);
     return [session.sessionId, session];
   }));
   const carryIds = new Set(carry.sessions.map(({ sessionId }) => sessionId));
+  const covered = (row: StoredReadingSessionV11) => !carryIds.has(row.sessionId) && isReadingSessionCoveredByPublication(published, row);
+  const retained = [...locals.values()].filter((row) => !covered(row));
   if ((!previous && !recentRow && !replaceRawCheckpoint && [...locals.values()].some(({ syncState }) => syncState === 'synced'))
-    || (current.published && (published.firstDay > current.published.firstDay || published.lastDay < current.published.lastDay
-      || compareReadingUploadTimes(published.sourceThrough, current.published.sourceThrough) < 0))
+    || (priorRange && (published.firstDay > priorRange.firstDay || published.lastDay < priorRange.lastDay
+      || compareReadingUploadTimes(published.sourceThrough, priorRange.sourceThrough) < 0))
     || carry.sessions.some((session) => {
       const row = locals.get(session.sessionId);
       return row && !sameReadingSessionPayload(row, session);
     })
-    || !readingRollupTailIsSafe(published, [...locals.values(), ...carry.sessions],
-      [...locals.values()].filter((row) => row.syncState === 'pending' && !carryIds.has(row.sessionId)))) {
+    || !readingRollupTailIsSafe(published, [...retained, ...carry.sessions],
+      retained.filter((row) => row.syncState === 'pending' && !carryIds.has(row.sessionId)))) {
     await tx.done;
     return false;
   }
+  // Replayed tail rows must satisfy the new closing boundary.
+  const sameBoundary = previous && samePublishedReading(previous, published);
+  const keepCursor = sameBoundary && current.documentId !== '__empty__';
+  let archivedCursor = keepCursor ? current.archivedCursor : undefined;
+  const compactWrites: Promise<unknown>[] = [];
+  for (const row of locals.values()) {
+    if (row.syncState === 'synced' && covered(row)) {
+      compactWrites.push(sessionsStore.delete([ownerKey, row.sessionId]));
+      locals.delete(row.sessionId);
+      if (keepCursor && current.documentId === row.sessionId) archivedCursor = readRemoteCursor(current) ?? undefined;
+    } else if (!sameBoundary && !carryIds.has(row.sessionId) && hasPublicationReceipt(row)) {
+      const retained: PublishedStoredSession = { ...row };
+      delete retained.receivedWithPublication;
+      compactWrites.push(sessionsStore.put(retained));
+      locals.set(row.sessionId, retained);
+    }
+  }
+  await Promise.all(compactWrites);
   for (const session of carry.sessions) {
     const row = locals.get(session.sessionId);
     if (row?.syncState === 'synced' && hasPublicationReceipt(row)) continue;
@@ -346,9 +376,6 @@ export async function installReadingStatisticsBootstrap(
     await sessionsStore.put(stored);
     locals.set(session.sessionId, stored);
   }
-  // Replayed tail rows must satisfy the new closing boundary.
-  const sameBoundary = previous && samePublishedReading(previous, published);
-  const keepCursor = sameBoundary && current.documentId !== '__empty__';
   const empty = createEmptySyncMeta(ownerKey);
   await metaStore.put({
     ...current, cursorVersion: 1,
@@ -357,9 +384,12 @@ export async function installReadingStatisticsBootstrap(
     documentId: keepCursor ? current.documentId : empty.documentId,
     fullHydrationCompleted: Boolean(sameBoundary && current.fullHydrationCompleted),
     fullAuditInProgress: false, published,
+    archivedCursor,
+    lastFullAuditAt: 0,
+    quarantinedDocuments: keepCursor ? current.quarantinedDocuments : [],
     hydratedRemoteCount: [...locals.values()].filter(hasPublicationReceipt).length,
   } satisfies ReadingStatisticsSyncMetaV12);
-  await metaStore.put({ ownerKey: readingStatisticsArchiveKey(ownerKey), archive });
+  await metaStore.put({ ownerKey: archiveKey, archive });
   if (recentRow) await metaStore.delete(recentKey);
   await tx.done;
   notifyReadingStatisticsChange(ownerKey);
@@ -606,11 +636,16 @@ export const getReadingStatisticsHydrationPlanV12 = async (
       fullHydrationCompleted: false, lastFullAuditAt: 0, quarantinedDocuments: recent.quarantinedDocuments,
     } };
   }
-  if (!value) {
+  const meta = value ? assertSyncMeta(value) : null;
+  const archiveKey = readingStatisticsArchiveKey(ownerKey);
+  if (!meta?.published && await metaStore.getKey(archiveKey)) {
+    await tx.done;
+    return { reason: 'published-history-unavailable' };
+  }
+  if (!meta) {
     await tx.done;
     return { reason: 'initial-history' };
   }
-  const meta = assertSyncMeta(value);
   if (meta.ownerKey !== ownerKey) throw new Error('독서 통계 hydration owner가 올바르지 않습니다.');
   const sessions = tx.objectStore(V11_READING_SESSIONS_STORE);
   if (meta.published) {
@@ -626,14 +661,16 @@ export const getReadingStatisticsHydrationPlanV12 = async (
       return { reason: 'published-history-unavailable' };
     }
     const [stored, rows] = await Promise.all([
-      tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(readingStatisticsArchiveKey(ownerKey)),
+      metaStore.get(archiveKey),
       sessions.index('by-owner').getAll(ownerKey),
     ]);
     await tx.done;
     const received = rows.map(readStoredSession).filter((row) => row?.syncState === 'synced' && hasPublicationReceipt(row));
     if (!localArchiveForCheckpoint(stored?.archive, meta.published)
       || received.length !== meta.hydratedRemoteCount || meta.quarantinedDocuments.length
-      || (cursor && !received.some((row) => row?.sessionId === cursor.documentId))) return { reason: 'published-history-unavailable' };
+      || !hasPublishedCursor(meta, received)) {
+      return { reason: 'published-history-unavailable' };
+    }
     return { state, published: meta.published, fullAuditInProgress: false };
   }
   if (!meta.cursorVersion) {
@@ -820,6 +857,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
     if (expectedCursor && (!current?.cursorVersion || !sameCursor(current, expectedCursor))) {
       throw new Error('독서 통계 hydration cursor가 다른 작업에 의해 변경되었습니다.');
     }
+    const covered = new Set<string>();
     if (published) {
       if (!current?.published || current.fullAuditInProgress || !samePublishedReading(current.published, published)
         || (!expectedCursor && current.documentId !== '__empty__')) {
@@ -828,18 +866,31 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
       if (quarantinedDocuments.length) throw new PublishedReadingTailError('Invalid published statistics tail.');
       if (sessions.length) {
         const local = (await sessionsStore.index('by-owner').getAll(ownerKey)).map(assertStoredSession);
-        if (!readingRollupTailIsSafe(published, local, sessions)) throw new PublishedReadingTailError('Unsafe published statistics boundary.');
+        const open = sessions.filter((session) => {
+          if (!isReadingSessionCoveredByPublication(published, session)) return true;
+          covered.add(session.sessionId);
+          return false;
+        });
+        if (!readingRollupTailIsSafe(published, local, open)) throw new PublishedReadingTailError('Unsafe published statistics boundary.');
       }
     }
     let added = 0;
     for (const session of sessions) {
-      const existingValue = await sessionsStore.get([ownerKey, session.sessionId]);
+      const key = [ownerKey, session.sessionId];
+      const existingValue = await sessionsStore.get(key);
+      const existing = readStoredSession(existingValue);
+      if (covered.has(session.sessionId)) {
+        if (existing?.syncState === 'synced') {
+          await sessionsStore.delete(key);
+          if (hasPublicationReceipt(existing)) added--;
+        }
+        continue;
+      }
       if (!existingValue) {
         await sessionsStore.add({ ...toStoredSession(ownerKey, session, 'synced'), ...(published ? { receivedWithPublication: true } : {}) });
         added++;
         continue;
       }
-      const existing = readStoredSession(existingValue);
       if (!hasPublicationReceipt(existing)) added++;
       if (!existing || !sameReadingSessionPayload(existing, session)) {
         // Cloud sessions are immutable after creation. If an older client left
@@ -874,6 +925,8 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
     const cursor = nextCursor ?? expectedCursor;
     if (cursor || fullHydrationCompleted) {
       const empty = createEmptySyncMeta(ownerKey);
+      const archivedCursor = published && cursor && ((nextCursor && covered.has(nextCursor.documentId))
+        || (current?.archivedCursor && sameCursor(current.archivedCursor, cursor))) ? cursor : undefined;
       const state = {
         ...(current ?? empty),
         uploadedAtServerSeconds: cursor?.uploadedAtServerSeconds ?? empty.uploadedAtServerSeconds,
@@ -891,6 +944,7 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
         fullAuditInProgress: isFullAudit && !fullHydrationCompleted,
         quarantinedDocuments: nextQuarantinedDocuments,
         published: isFullAudit && fullHydrationCompleted ? undefined : current?.published,
+        archivedCursor,
       } satisfies ReadingStatisticsSyncMetaV12;
       await metaStore.put(recentOnly ? { ownerKey: recentKey, state } : state);
       if (isFullAudit && fullHydrationCompleted) await metaStore.delete(readingStatisticsArchiveKey(ownerKey));
@@ -1031,19 +1085,22 @@ export async function getLocalReadingReportSnapshot(ownerKey: OwnerKey, verifyHi
   if (!verifyHistory) return { sessions: await getLocalReadingSessionsV11(ownerKey), rawHistoryComplete: false, published: undefined, tailComplete: false, recentOnly: false };
   const db = await initDB();
   const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
-  const [values, value, recentRow] = await Promise.all([
+  const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const [values, value, recentRow, archiveKey] = await Promise.all([
     tx.objectStore(V11_READING_SESSIONS_STORE).index('by-owner').getAll(ownerKey),
-    tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(ownerKey),
-    tx.objectStore(V12_READING_STATISTICS_SYNC_STORE).get(readingStatisticsRecentKey(ownerKey)),
+    metaStore.get(ownerKey), metaStore.get(readingStatisticsRecentKey(ownerKey)), metaStore.getKey(readingStatisticsArchiveKey(ownerKey)),
   ]);
   await tx.done;
   const sessions = sortLocalReadingSessions(values);
-  if (recentRow) return { sessions, rawHistoryComplete: false, published: undefined, tailComplete: false, recentOnly: true };
   const meta = value ? assertSyncMeta(value) : null;
+  if (recentRow || (archiveKey && !meta?.published)) {
+    return { sessions, rawHistoryComplete: false, published: undefined, tailComplete: false, recentOnly: true };
+  }
+  const receivedSessions = meta?.published ? sessions.filter((row) => row.syncState === 'synced' && hasPublicationReceipt(row)) : [];
   const received = Boolean(meta?.fullHydrationCompleted && !meta.fullAuditInProgress
     && meta.quarantinedDocuments.length === 0
     && (meta.published
-      ? sessions.filter((row) => row.syncState === 'synced' && hasPublicationReceipt(row)).length === meta.hydratedRemoteCount
+      ? receivedSessions.length === meta.hydratedRemoteCount && hasPublishedCursor(meta, receivedSessions)
       : sessions.filter(({ syncState }) => syncState === 'synced').length >= meta.hydratedRemoteCount));
   return { sessions, rawHistoryComplete: received && !meta?.published && Boolean(meta?.lastFullAuditAt),
     published: meta?.published, tailComplete: received && Boolean(meta?.published), recentOnly: false };
