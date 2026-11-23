@@ -8,7 +8,8 @@ import {
   mergeReadingFileRollups, parseReadingFileRollups, selectWeeklyReadingRollupInputs, type ReadingFileRollup, type WeeklyReadingRollup,
 } from '../lib/readingStatisticsRollup.ts';
 import {
-  addReadingRollupPage, createReadingRollupCarry, rollupCanUseFileEvidence, rollupCoversHistoryStart, type ReadingRollupCarry,
+  addReadingRollupPage, createReadingRollupCarry, preservesClosedReadingAllocation, rollupCanUseFileEvidence,
+  rollupCoversHistoryStart, type ReadingRollupCarry,
 } from './readingRollupInputs.ts';
 
 const hour = 3_600_000;
@@ -248,11 +249,16 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         }
         return toReadingSessionPayload(data);
       });
-      try { job.carry = addReadingRollupPage(job.carry, sessions, job.nextWeek); }
+      let updatedCarry: ReadingRollupCarry;
+      try { updatedCarry = addReadingRollupPage(job.carry, sessions, job.nextWeek); }
       catch (error) {
         if (error instanceof RangeError) throw new InvalidRollupInput('unsupported-source-boundary');
         throw error;
       }
+      if (!preservesClosedReadingAllocation(job.carry, updatedCarry, job.nextWeek)) {
+        throw new InvalidRollupInput('changed-closed-week-allocation');
+      }
+      job.carry = updatedCarry;
       if (job.coversHistoryStart && !rollupCoversHistoryStart(sessions, job.firstWeek)) job.coversHistoryStart = false;
       if (job.evidenceCompatible) {
         const seedThrough = job.evidenceSeedThrough && new Timestamp(...job.evidenceSeedThrough);

@@ -171,7 +171,7 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   assert.equal(await readPublishedReadingReportBooks(db, uid), null);
   const early = session('a', '2026-11-16T00:03:00Z');
   const later = session('b', '2026-11-16T01:00:00Z');
-  const late = session('previous-week-late', '2026-11-12T00:00:00Z');
+  const late = session('previous-week-late', '2026-11-15T10:00:00Z');
   const beforeFirstWeek = session('before-first-week', '2026-09-13T09:00:00Z');
   const stamp = Timestamp.fromDate(new Date('2026-11-23T16:00:00Z'));
   await Promise.all([
@@ -227,6 +227,60 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   assert.equal((await job.get()).get('blocked'), 'invalid-source-session');
   assert.equal((await manifest.get()).get('publishedThroughWeek'), nextWeek);
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});
+});
+
+test('the first close preserves frozen week slices against late clock readings and overlapping TTS', async () => {
+  const sourceCutoff = Timestamp.fromDate(new Date('2026-11-23T08:00:00Z'));
+  let time = sourceCutoff.toMillis();
+  const now = () => time;
+  const measuredAt = Date.parse('2026-11-16T00:01:00Z');
+  const midnight = Date.parse('2026-11-16T00:00:00Z');
+  const cases = [
+    {
+      uid: 'changed-clock-seam',
+      old: session('sunday', '2026-11-15T23:57:00Z'),
+      late: session('new-clock', '2026-11-16T00:01:00Z', {
+        endedAtClient: measuredAt + 60_000, durationMs: 60_000, bookId: 'sample',
+        clockOffsetMs: 120_000, clockUncertaintyMs: 0, clockMeasuredAtClient: measuredAt,
+      }),
+    },
+    {
+      uid: 'changed-tts-seam',
+      old: session('sunday-other-timezone', '2026-11-16T00:00:00Z', {
+        timezoneOffsetMinutes: 60, localDate: '2026-11-15',
+        clockOffsetMs: 0, clockUncertaintyMs: 0, clockMeasuredAtClient: midnight,
+      }),
+      late: session('new-tts', '2026-11-16T00:00:00Z', {
+        deviceId: 'other-device', mode: 'tts',
+        clockOffsetMs: 0, clockUncertaintyMs: 0, clockMeasuredAtClient: midnight,
+      }),
+    },
+  ];
+  for (const { uid, old, late } of cases) {
+    const weeks = weekStarts.slice(0, -1).map((week) => computeWeeklyReadingRollup([old], week));
+    assert.equal(weeks.at(-1).days[0].totalMs, 180_000);
+    assert.ok(computeWeeklyReadingRollup([old, late], nextWeek).days[0].totalMs > 0);
+    assert.equal(computeWeeklyReadingRollup([old, late], weekStarts[8]).days.length, 0);
+    const lease = await claimReadingRollup(db, uid, now);
+    await stageReadingRollupHandoff(db, lease, {
+      weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry([old], nextWeek), pilotTuesday: true,
+    }, now);
+    await releaseReadingRollup(db, lease);
+    await sourceRef(uid, late.sessionId).set({ ...late, uploadedAtServer: Timestamp.fromMillis(time + 60_000) });
+  }
+
+  time = Date.parse('2026-11-24T09:10:00Z');
+  await quotaRef('2026-11-24').set({ sourceReads: 0 });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { blocked: 2 });
+  for (const { uid } of cases) {
+    const job = jobRef(uid);
+    assert.equal((await job.get()).get('blocked'), 'changed-closed-week-allocation');
+    assert.equal((await job.get()).get('dueAt'), undefined);
+    const weeks = job.collection('readingStatsRollupWeeksV1');
+    assert.equal(JSON.parse((await weeks.doc(weekStarts[8]).get()).get('payload')).days[0].totalMs, 180_000);
+    assert.equal((await weeks.doc(nextWeek).get()).exists, false);
+    assert.equal((await job.collection('readingStatsRollupManifestsV1').doc('current').get()).exists, false);
+  }
 });
 
 test('carry rejects an input that would need clock samples it no longer holds', () => {

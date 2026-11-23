@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return new Response(null, { status: 401 });
   try {
     const outcomes = await runReadingRollupCron(getAdminFirestore());
+    console.info('[reading-rollup] schedule result', outcomes);
     return Response.json(outcomes, { status: outcomes.failed ? 503 : 200, headers: { 'Cache-Control': 'no-store' } });
   } catch {
     return new Response(null, { status: 503 });

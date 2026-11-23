@@ -221,8 +221,8 @@ async function main() {
   const dailyWeeks = Number(values['daily-weeks']);
   if (!project || !/^[a-z0-9-]+$/.test(project) || !uid || !/^[A-Za-z0-9_-]{1,128}$/.test(uid)
     || !firstWeek || !throughWeek || !Number.isInteger(dailyReads) || dailyReads < 1 || dailyReads > macDailyReads
-    || !Number.isInteger(dailyWeeks) || dailyWeeks < 1 || dailyWeeks > 9) {
-    throw new Error(`Provide --project, --uid, --first-week and --through-week. Daily limits: 1–${macDailyReads} reads and 1–9 weeks.`);
+    || !Number.isSafeInteger(dailyWeeks) || dailyWeeks < 1) {
+    throw new Error(`Provide --project, --uid, --first-week and --through-week. Daily limits: 1–${macDailyReads} reads and a positive local week count.`);
   }
   const emulator = process.env.FIRESTORE_EMULATOR_HOST;
   if (!emulator && (!values['confirm-live-read'] || project.startsWith('demo-'))) {

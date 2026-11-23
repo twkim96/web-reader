@@ -1,4 +1,5 @@
 import {
+  buildReadingStatistics, getReadingSessionLocalDate,
   READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS, READING_SESSION_MAX_CLOCK_OFFSET_MS,
   READING_SESSION_MAX_DURATION_MS, READING_SESSION_MAX_TIMEZONE_OFFSET_MINUTES,
   sameReadingSessionPayload, type ReadingSessionV1,
@@ -57,4 +58,22 @@ export function addReadingRollupPage(carry: ReadingRollupCarry, page: readonly R
     // Match SQLite BINARY order so equal-distance clock samples use the same tie-break.
     sessions: [...sessions.values()].sort((a, b) => Buffer.compare(Buffer.from(a.sessionId), Buffer.from(b.sessionId))),
   };
+}
+
+export function preservesClosedReadingAllocation(before: ReadingRollupCarry, after: ReadingRollupCarry, openWeek: string) {
+  if (before.sessions.length === after.sessions.length) return true;
+  const previousIds = new Set(before.sessions.map(({ sessionId }) => sessionId));
+  const endLocalDate = getReadingSessionLocalDate(parseReadingRollupMonday(openWeek) - 1, 0);
+  const bounds = { endLocalDate };
+  const closedSlices = (carry: ReadingRollupCarry) => {
+    const slices: string[] = [];
+    // Raw slices also feed the per-book totals that include sub-two-minute blocks.
+    buildReadingStatistics(carry.sessions, bounds, ({ session, startAt, durationMs }) => {
+      if (previousIds.has(session.sessionId)) slices.push(JSON.stringify([session.sessionId, startAt, durationMs]));
+    });
+    return slices.sort();
+  };
+  const frozen = closedSlices(before);
+  const candidate = closedSlices(after);
+  return frozen.length === candidate.length && frozen.every((slice, index) => slice === candidate[index]);
 }
