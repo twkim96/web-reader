@@ -283,7 +283,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
           <h2 className="text-lg font-semibold tracking-tight">내 독서 기록</h2>
           {personal.hasRead && (
             <dl className="mt-3 flex items-start gap-8 text-sm sm:gap-10">
-              <div><dt className="text-xs opacity-65">읽은 시간</dt><dd className="mt-1 font-medium">{formatReadingDuration(personal.totalMs)}</dd></div>
+              <div><dt className="text-xs opacity-65">{history?.recentOnly && !archived ? '확인된 독서 시간' : '읽은 시간'}</dt><dd className="mt-1 font-medium">{formatReadingDuration(personal.totalMs)}</dd></div>
               <div className="text-right"><dt className="text-xs opacity-65">진행도</dt><dd className="mt-1 font-medium tabular-nums">{formatPercent(personal.progressPercent)}</dd></div>
             </dl>
           )}

@@ -6,7 +6,8 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
 import {
-  getReadingStatisticsHydrationPlanV12, hydrateRemoteReadingSessionsPageV12, installReadingStatisticsBootstrap, saveLocalReadingSessionV11,
+  beginReadingStatisticsRecentRecovery, getReadingStatisticsHydrationPlanV12, hydrateRemoteReadingSessionsPageV12,
+  installReadingStatisticsBootstrap, saveLocalReadingSessionV11,
 } from '../src/lib/localReadingStatistics.ts';
 import { acquireReadingStatisticsSyncLeaseV13 } from '../src/lib/readingStatisticsSyncLease.ts';
 import { notifyReadingStatisticsServerCheck } from '../src/lib/readingStatisticsWake.ts';
@@ -351,6 +352,13 @@ test('a seeded statistics report uses its saved archive offline and gates JSON o
     process.env[key] = '0';
     await act(async () => root.render(modal()));
     assert.equal(exportButton().disabled, true, 'the locally cached tail alone is incomplete');
+    await act(async () => beginReadingStatisticsRecentRecovery(ownerKey, lease, now));
+    for (let i = 0; i < 25 && !window.document.body.textContent.includes('확인된 독서 기록만'); i++) {
+      await act(async () => new Promise(resolve => setTimeout(resolve, 20)));
+    }
+    assert.equal(modeTotal(), '2분');
+    assert.equal(window.document.querySelector('[data-reading-statistics-range="all"]').textContent, '확인된 기록');
+    assert.equal(exportButton().disabled, true, 'the recent fallback cannot be exported as the whole history');
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();

@@ -14,6 +14,7 @@ type Snapshot = {
   rawHistoryComplete: boolean;
   published?: ReadingRollupCheckpoint;
   tailComplete: boolean;
+  recentOnly: boolean;
   error: boolean;
 };
 
@@ -43,7 +44,7 @@ export function useLocalReadingReportSessions(ownerKey: OwnerKey, enabled: boole
       } catch (error) {
         if (disposed || request !== current) return;
         console.error('[ReadingStatistics] load failed:', error);
-        setSnapshot({ ownerKey, sessions: [], rawHistoryComplete: false, tailComplete: false, error: true });
+        setSnapshot({ ownerKey, sessions: [], rawHistoryComplete: false, tailComplete: false, recentOnly: false, error: true });
       }
     };
     const schedule = () => {

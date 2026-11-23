@@ -416,8 +416,10 @@ test('published review evidence combines closed totals, carry and uploads after 
   await source.doc(late.sessionId).set({ ...late, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 180_000) });
   now += 31_000;
   assert.deepEqual(await getSocialReadingEvidence(db, uid, workId, [fileId], 'reading-evidence-deferred'),
-    { totalMs: 480_000, progressPercent: 90 });
+    { totalMs: null, progressPercent: null });
   assert.equal(logs.at(-1).publishedFiles, undefined);
+  assert.equal(logs.at(-1).scanDocuments, 2);
+  assert.equal(logs.at(-1).markerDocuments, 0);
 });
 
 test('review evidence reads only new sessions and includes legacy records after a count mismatch', async (t) => {

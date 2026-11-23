@@ -277,10 +277,11 @@ export const getRemoteReadingSessionsPageV1 = async (
     onReadAttempt?: () => void;
     onReadSuccess?: (returnedDocuments: number) => void;
   } = {},
-  { singleSnapshot = false, timestampRangeOnly = false, publishedThrough, isLeader }: {
+  { singleSnapshot = false, timestampRangeOnly = false, publishedThrough, recentSince, isLeader }: {
     singleSnapshot?: boolean;
     timestampRangeOnly?: boolean;
     publishedThrough?: ReadingUploadTime;
+    recentSince?: number;
     isLeader?: () => boolean | Promise<boolean>;
   } = {},
 ) => {
@@ -298,18 +299,22 @@ export const getRemoteReadingSessionsPageV1 = async (
     instrumentation.onReadSuccess?.(result.size);
     return result;
   };
+  const recentFloor = recentSince === undefined ? undefined : sdk.Timestamp.fromMillis(recentSince);
+  const useCursor = cursor && (!recentFloor || cursor.uploadedAtServerSeconds > recentFloor.seconds
+    || (cursor.uploadedAtServerSeconds === recentFloor.seconds && cursor.uploadedAtServerNanoseconds >= recentFloor.nanoseconds));
   let snapshot = await readSnapshot(sdk.query(
     reference,
     sdk.orderBy('uploadedAtServer', 'asc'),
     sdk.orderBy(sdk.documentId(), 'asc'),
-    ...(cursor ? [sdk.startAfter(
+    ...(useCursor ? [sdk.startAfter(
       new sdk.Timestamp(cursor.uploadedAtServerSeconds, cursor.uploadedAtServerNanoseconds),
       cursor.documentId,
     )] : publishedThrough ? [sdk.startAfter(new sdk.Timestamp(publishedThrough.seconds, publishedThrough.nanoseconds))]
+      : recentFloor ? [sdk.startAt(recentFloor)]
       : timestampRangeOnly ? [sdk.startAt(new sdk.Timestamp(0, 0))] : []),
     // Valid uploads use serverTimestamp(). Later-sorting malformed values cannot
     // extend an incremental scan or hold back the next poll.
-    ...(timestampRangeOnly ? [sdk.endAt(new sdk.Timestamp(253_402_300_799, 999_999_999))] : []),
+    ...(timestampRangeOnly || recentFloor ? [sdk.endAt(new sdk.Timestamp(253_402_300_799, 999_999_999))] : []),
     sdk.limit(pageSize),
   ));
   const sessions: ReadingSessionV1[] = [];

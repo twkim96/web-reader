@@ -15,7 +15,6 @@ import {
   shareReadingStatisticsExport,
 } from '../lib/readingStatisticsExportDelivery';
 import { useLocalReadingReportSessions } from '../hooks/useLocalReadingReportSessions';
-import { requestReadingStatisticsRefresh } from '../lib/readingStatisticsWake';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { useLocalReadingDate } from '../hooks/useLocalReadingDate';
 import { useBookTitleDisplay } from '../contexts/BookTitleDisplayContext';
@@ -150,12 +149,12 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
   const calendarQuery = useMyPageReadingCalendar(ownerKey, canReadRollup);
   const publishedCalendar = calendarQuery.data?.calendar ?? null;
-  const calendar = useMemo(() => publishedCalendar && !(local?.rawHistoryComplete
+  const calendar = useMemo(() => publishedCalendar && !local?.recentOnly && !(local?.rawHistoryComplete
     && hasPublishedBoundaryClockRisk(local.sessions, publishedCalendar)) ? publishedCalendar : null,
   [local, publishedCalendar]);
   const publishedTailReady = local?.tailComplete && publishedCalendar?.firstDay === local.published?.firstDay
     && publishedCalendar?.lastDay === local.published?.lastDay;
-  const waitingForHistory = (canReadRollup || Boolean(local?.published)) && !local?.rawHistoryComplete && !publishedTailReady;
+  const waitingForHistory = !local?.recentOnly && (canReadRollup || Boolean(local?.published)) && !local?.rawHistoryComplete && !publishedTailReady;
   // Until the first local receive is complete, archived slices stand on their
   // own. A partial raw snapshot may omit the sample used at the archive seam.
   const sessions = calendar && waitingForHistory ? null : local?.sessions;
@@ -201,10 +200,6 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const needsRangeBooks = Boolean(selectedArchive?.hasActivity);
   const rangeQuery = useMyPageReadingRangeBooks(ownerKey, needsRangeBooks ? selectedArchive : null);
   const missingWeek = needsRangeBooks && rangeQuery.data?.report === null;
-  const shouldRecoverPublication = Boolean(local?.published && missingWeek);
-  useEffect(() => {
-    if (shouldRecoverPublication) requestReadingStatisticsRefresh(ownerKey, true);
-  }, [ownerKey, shouldRecoverPublication]);
   const localRangeFallback = missingWeek && local?.rawHistoryComplete;
   const summaryDays = range === 'all' && !waitingForHistory && !lifetimePending ? exportDays
     : localRangeFallback ? localReport.days : calendarDays;
@@ -221,7 +216,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
   const books = useMemo(() => booksPending || booksUnavailable ? [] : localReport.books(rangeBounds, archiveReport),
     [archiveReport, booksPending, booksUnavailable, localReport, rangeBounds]);
 
-  const canExport = !loading && !waitingForHistory && (!local?.published || Boolean(lifetimeArchive))
+  const canExport = !loading && !local?.recentOnly && !waitingForHistory && (!local?.published || Boolean(lifetimeArchive))
     && sumReadingReportDays(exportDays).totalMs > 0
     && (!canReadRollup || Boolean(calendarQuery.data || calendarQuery.error))
     && !lifetimePending;
@@ -345,6 +340,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
 
         <div data-reading-statistics-body="true" className={embedded ? 'mt-5 min-w-0' : 'min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-2.5 sm:px-4 sm:py-3'}>
           {local?.error && <p role="status" className="mb-3 text-center text-xs opacity-70">이 기기의 독서 기록을 불러오지 못했습니다.</p>}
+          {local?.recentOnly && <p role="status" className="mb-3 text-xs opacity-70">확인된 독서 기록만 표시합니다. 전체 기록을 받으면 JSON을 저장할 수 있습니다.</p>}
           {waitingForHistory && calendar && <p role="status" className="mb-3 text-xs opacity-70">동기화를 마치면 최근 기록을 합산하고 JSON으로 저장할 수 있습니다.</p>}
           {feedback && <p role="status" className="mb-3 text-center text-xs font-bold opacity-70">{feedback}</p>}
           {(syncHealth !== 'healthy' || quarantinedDocumentCount > 0) && (
@@ -388,7 +384,7 @@ export const LibraryReadingStatisticsModal: React.FC<Props> = ({
                     aria-pressed={range === item.value}
                     className={`min-h-8 min-w-[3.75rem] flex-1 rounded-lg px-2 text-[11px] font-bold sm:min-h-9 sm:rounded-xl sm:text-xs ${range === item.value ? (embedded ? 'text-accent-500' : 'bg-accent-600 text-white') : 'opacity-60 hover:opacity-100'}`}
                   >
-                    {item.label}
+                    {local?.recentOnly && item.value === 'all' ? '확인된 기록' : item.label}
                   </button>
                 ))}
               </div>

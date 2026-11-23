@@ -37,6 +37,7 @@ export type ReaderBootstrapTraceEvent = {
   emptyQueries?: number;
   auditProbe?: 'matched' | 'mismatch' | 'failed';
   fullScanReason?: ReadingStatisticsFullScanReason;
+  recentOnly?: boolean;
   publishedAudit?: boolean;
   publishedBootstrap?: 'installed' | 'resumed' | 'fallback';
 };

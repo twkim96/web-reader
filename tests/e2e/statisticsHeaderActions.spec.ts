@@ -15,18 +15,23 @@ test('statistics header has icon actions and exports and shares only JSON', asyn
   await page.evaluate(async () => {
     const request = indexedDB.open('web-reader-db');
     const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    const now = Date.now();
-    const timezoneOffsetMinutes = new Date().getTimezoneOffset();
+    const today = new Date();
+    const now = today.setHours(12, 0, 0, 0);
+    const timezoneOffsetMinutes = today.getTimezoneOffset();
     const localDate = new Date(now - timezoneOffsetMinutes * 60000).toISOString().slice(0, 10);
     const tx = db.transaction('reading-sessions-v11', 'readwrite');
-    tx.objectStore('reading-sessions-v11').put({
+    const store = tx.objectStore('reading-sessions-v11');
+    const session = {
       ownerKey: `guest:${localStorage.getItem('web_reader_guest_install_id')}|library:local`,
       schemaVersion: 1, sessionId: 'header-actions-test', bookId: 'header-book', bookTitle: 'Header test',
-      deviceId: 'test-device', mode: 'screen', startedAtClient: now - 60000, endedAtClient: now,
-      durationMs: 60000, startProgressPercent: 0, endProgressPercent: 10,
+      deviceId: 'test-device', mode: 'screen', startedAtClient: now - 120_000, endedAtClient: now,
+      durationMs: 120_000, startProgressPercent: 0, endProgressPercent: 10,
       timezoneOffsetMinutes, localDate, completed: false,
       syncState: 'synced', retryCount: 0, nextAttemptAt: 0, lastErrorCode: null,
-    });
+    };
+    store.put(session);
+    store.put({ ...session, sessionId: 'short-session', bookId: 'short-book',
+      startedAtClient: now - 660_000, endedAtClient: now - 600_000, durationMs: 60_000 });
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
     db.close();
     Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
@@ -39,8 +44,8 @@ test('statistics header has icon actions and exports and shares only JSON', asyn
   const header = modal.locator('[data-menu-sheet-header]');
   await expect(header.locator('.app-menu-sheet-header-actions button')).toHaveCount(4);
   await expect(header.locator('[data-reading-statistics-export="json"]')).toBeEnabled();
-  await expect(modal.locator('[data-reading-statistics-mode-total="screen"]')).toHaveText('0분');
-  await expect(modal.locator('[data-reading-statistics-book="true"]')).toHaveCount(0);
+  await expect(modal.locator('[data-reading-statistics-mode-total="screen"]')).toHaveText('2분');
+  await expect(modal.locator('[data-reading-statistics-book="true"]')).toHaveCount(1);
   await expect(modal.locator('[data-reading-statistics-export="markdown"]')).toHaveCount(0);
   await expect(header).toHaveText('독서 통계');
   await expect(header).toHaveCSS('border-bottom-width', '0px');
@@ -55,12 +60,13 @@ test('statistics header has icon actions and exports and shares only JSON', asyn
   const download = await pending;
   expect(download.suggestedFilename()).toMatch(/\.json$/);
   const payload = JSON.parse(await readFile((await download.path())!, 'utf8'));
-  expect(payload.schemaVersion).toBe(1);
-  expect(payload.sessions.map((session: { sessionId: string }) => session.sessionId)).toEqual(['header-actions-test']);
-  expect(payload.summary.totalMs).toBe(0);
+  expect(payload.schemaVersion).toBe(2);
+  expect(payload.sessions).toBeUndefined();
+  expect(payload.summary.books.map((book: { bookId: string }) => book.bookId)).toEqual(['header-book']);
+  expect(payload.summary.totalMs).toBe(120_000);
   await header.getByRole('button', { name: '독서 통계 공유', exact: true }).click();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, '__sharedStatistics')?.name)).toMatch(/\.json$/);
-  expect(await page.evaluate(() => JSON.parse(Reflect.get(window, '__sharedStatistics').text).sessions.length)).toBe(1);
+  expect(await page.evaluate(() => JSON.parse(Reflect.get(window, '__sharedStatistics').text).summary.totalMs)).toBe(120_000);
   await page.evaluate(() => Object.defineProperty(navigator, 'share', { configurable: true, value: undefined }));
   const fallback = page.waitForEvent('download');
   await header.getByRole('button', { name: '독서 통계 공유', exact: true }).click();

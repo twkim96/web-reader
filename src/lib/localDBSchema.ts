@@ -25,6 +25,7 @@ export const V10_ANNOTATION_BOOK_DELETIONS_STORE = 'annotation-book-deletions-v1
 export const V11_READING_SESSIONS_STORE = 'reading-sessions-v11';
 export const V12_READING_STATISTICS_SYNC_STORE = 'reading-statistics-sync-v12';
 export const readingStatisticsArchiveKey = (ownerKey: string) => [ownerKey, 'published-reading'];
+export const readingStatisticsRecentKey = (ownerKey: string) => [ownerKey, 'recent-reading'];
 export const V13_READING_STATISTICS_LEASES_STORE = 'reading-statistics-leases-v13';
 export const V14_BOOK_COVERS_STORE = 'book-covers-v14';
 

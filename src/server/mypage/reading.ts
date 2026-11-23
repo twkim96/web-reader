@@ -271,10 +271,10 @@ async function buildSummary(
   counts: ReadCounts,
   previous?: Promise<Summary>,
 ): Promise<Summary> {
-  const rolled = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1'
-    ? await publishedFileEvidence(db, uid, counts).catch(() => null) : null;
-  if (rolled) {
-    const resolved = await resolveFileEvidence(db, rolled, counts);
+  if (process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1') {
+    const rolled = await publishedFileEvidence(db, uid, counts).catch(() => null);
+    const resolved = rolled ? await resolveFileEvidence(db, rolled, counts)
+      : { works: new Map(), totals: new Map(), conflictedWorks: new Set<string>() };
     return { ...resolved, published: true, cursor: null, fileEvidence: null, documentCount: 0, fullScanAt: 0,
       rawHistory: null, builtAt: Date.now() };
   }

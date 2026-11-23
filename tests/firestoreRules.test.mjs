@@ -1573,6 +1573,28 @@ test('statistics hydration quarantines a mixed-type tail and later resumes withi
   assert.deepEqual(done.quarantinedDocuments, []);
 });
 
+test('recent statistics recovery skips older uploads and resumes across equal timestamps', async () => {
+  const boundary = Timestamp.fromMillis(Date.UTC(2026, 10, 9));
+  const prior = new Timestamp(boundary.seconds - 1, 999_999_000);
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const batch = writeBatch(db);
+    for (const [id, stamp] of [['recent-old', prior], ['recent-a', boundary], ['recent-b', boundary]]) {
+      batch.set(doc(db, readingStatisticsPath(id)), { ...validReadingSession(id), uploadedAtServer: stamp });
+    }
+    await batch.commit();
+  });
+  const stale = { documentId: 'recent-old', uploadedAtServerSeconds: prior.seconds, uploadedAtServerNanoseconds: prior.nanoseconds };
+  const options = { recentSince: boundary.toMillis() };
+  const db = database();
+  const sdk = { collection, documentId, endAt, getDocsFromServer, limit, orderBy, query, startAfter, startAt, Timestamp };
+  const first = await getRemoteReadingSessionsPageV1(db, 'alice', stale, 1, sdk, {}, options);
+  const second = await getRemoteReadingSessionsPageV1(db, 'alice', first.nextCursor, 2, sdk, {}, options);
+  assert.deepEqual(first.sessions.map(({ sessionId }) => sessionId), ['recent-a']);
+  assert.deepEqual(second.sessions.map(({ sessionId }) => sessionId), ['recent-b']);
+  assert.equal(second.fullHydrationCompleted, true);
+});
+
 const leaseUuid = '2af12345-1234-4123-8123-123456789abc';
 const eventUuid = '3af12345-1234-4123-8123-123456789abc';
 const leasePath = (uid = 'alice') => `artifacts/${appId}/users/${uid}/libraries/local/writeLeases/${leaseUuid}`;

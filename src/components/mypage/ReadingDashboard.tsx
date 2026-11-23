@@ -17,7 +17,6 @@ import {
 } from '../../lib/readingStatistics';
 import { hasPublishedBoundaryClockRisk, mergePublishedCalendarDays, publishedCalendarCovers } from '../../lib/readingRollupCalendar';
 import { readingRollupWeekForDay, type ReadingRollupActivity } from '../../lib/readingStatisticsRollup';
-import { requestReadingStatisticsRefresh } from '../../lib/readingStatisticsWake';
 
 type Props = {
   ownerKey: OwnerKey;
@@ -46,14 +45,14 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   const [visibleRows, setVisibleRows] = useState({ day: '', count: 50 });
 
   const canUseRollup = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1' && !isGuestOwner(ownerKey);
-  const currentData = useLocalReadingReportSessions(ownerKey, true, canUseRollup);
+  const currentData = useLocalReadingReportSessions(ownerKey, true, !isGuestOwner(ownerKey));
   useEffect(() => {
     onRefresh?.();
   }, [ownerKey, onRefresh]);
 
   const { data: published } = useMyPageReadingCalendar(ownerKey, canUseRollup);
   const publishedCalendar = published?.calendar ?? null;
-  const calendar = useMemo(() => publishedCalendar && !(currentData?.rawHistoryComplete
+  const calendar = useMemo(() => publishedCalendar && !currentData?.recentOnly && !(currentData?.rawHistoryComplete
     && hasPublishedBoundaryClockRisk(currentData.sessions, publishedCalendar)) ? publishedCalendar : null,
   [currentData, publishedCalendar]);
   const publishedTailReady = currentData?.tailComplete && calendar?.firstDay === currentData.published?.firstDay
@@ -105,10 +104,6 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
     : statistics?.details.get(selectedDay) ?? [];
   const detailFailed = wantsDetails && !localDayFallback && (Boolean(week.error) || missingWeek);
   const detailLoading = wantsDetails && !detailFailed && week.data === undefined;
-  const hasLocalPublication = Boolean(currentData?.published);
-  useEffect(() => {
-    if (missingWeek && hasLocalPublication) requestReadingStatisticsRefresh(ownerKey, true);
-  }, [hasLocalPublication, missingWeek, ownerKey]);
   const changeMonth = (offset: number) => {
     const next = new Date(year, monthIndex + offset, 1);
     setMonth(next);
@@ -120,7 +115,7 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
       <section aria-label="독서 시간 요약">
         <h2 className="text-lg font-semibold tracking-tight sm:text-xl">독서 시간</h2>
         <dl className="mt-4 grid grid-cols-3 gap-3 sm:gap-6">
-          {['오늘', '이번 달', '전체'].map((label, index) => (
+          {['오늘', '이번 달', currentData?.recentOnly ? '확인된 기록' : '전체'].map((label, index) => (
             <div key={label} className="min-w-0">
               <dt className="text-xs opacity-60 sm:text-sm">{label}</dt>
               <dd className="mt-1.5 text-base font-semibold tracking-tight tabular-nums sm:text-xl">{totals ? formatReadingDuration(totals[index]) : '—'}</dd>
@@ -131,6 +126,9 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
 
       {(!currentData || currentData.error) && (
         <p role="status" className="text-sm opacity-70">{currentData?.error ? '독서 기록을 불러오지 못했습니다.' : '독서 기록을 불러오는 중입니다.'}</p>
+      )}
+      {currentData?.recentOnly && (
+        <p role="status" className="text-sm opacity-70">서버는 최근 14일에 올라온 기록만 확인합니다. 이전 기록은 이 기기에 있는 만큼 표시합니다.</p>
       )}
 
       <div className="grid items-start gap-6 sm:gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -179,7 +177,7 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
           ) : detailLoading ? (
             <p role="status" className="mt-3 text-sm opacity-60">기록을 불러오는 중입니다.</p>
           ) : selectedSessions.length === 0 ? (
-            <p className="mt-3 text-sm opacity-60">이날 읽은 기록이 없습니다.</p>
+            <p className="mt-3 text-sm opacity-60">{currentData.recentOnly ? '이날 확인된 독서 기록이 없습니다.' : '이날 읽은 기록이 없습니다.'}</p>
           ) : (
             <div key={selectedDay} role="region" aria-label="독서 기록 목록" tabIndex={0}
               className="-ml-1 mt-4 max-h-60 overflow-y-auto pr-2 pl-1 [scrollbar-gutter:stable]">

@@ -19,6 +19,7 @@ import {
   V11_READING_SESSIONS_STORE,
   V12_READING_STATISTICS_SYNC_STORE,
   readingStatisticsArchiveKey,
+  readingStatisticsRecentKey,
   V14_BOOK_COVERS_STORE,
 } from './localDBSchema';
 import type { ArchiveImageIndex } from './archiveImageBook';
@@ -393,5 +394,6 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
   const statisticsSyncTx = db.transaction(V12_READING_STATISTICS_SYNC_STORE, 'readwrite');
   await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(ownerKey);
   await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(readingStatisticsArchiveKey(ownerKey));
+  await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(readingStatisticsRecentKey(ownerKey));
   await statisticsSyncTx.done;
 };
