@@ -1,5 +1,5 @@
 import { getGroupedBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from './bookDiscovery';
-import { discoveryRotationWeight, weightDiscoveryPlatformMix } from './discoveryCandidateWeights';
+import { sampleDiscoveryBooks, weightDiscoveryPlatformMix } from './discoveryCandidateWeights';
 import { MY_PAGE_DASHBOARD_BOOK_LIMIT } from './myPageSocial';
 import { platformWorkKey, type ReadBook } from './readBooks';
 
@@ -121,12 +121,6 @@ export function recommendDiscoveryBooks(
   if (!count) return [];
   const cutoffScore = ranked[count - 1][1] * minimumRelativeScore;
   const eligible = ranked.filter(([, score]) => score >= cutoffScore);
-  const weighted = weightDiscoveryPlatformMix(eligible);
-  const candidates = (weighted?.sort((a, b) => b[1] - a[1]) ?? eligible).slice(0, maximumRecommendationCandidates);
-  if (rotationSeed === undefined) return candidates.map(([book]) => book);
-
-  // Exponential draws give each remaining book a chance proportional to its score.
-  return candidates.map(([book, score]) => ({ book, draw: -Math.log(discoveryRotationWeight(book.id, rotationSeed)) / score }))
-    .sort((a, b) => a.draw - b.draw)
-    .map(({ book }) => book);
+  if (rotationSeed === undefined) return eligible.slice(0, maximumRecommendationCandidates).map(([book]) => book);
+  return sampleDiscoveryBooks(weightDiscoveryPlatformMix(eligible) ?? eligible, rotationSeed, maximumRecommendationCandidates);
 }

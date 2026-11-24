@@ -210,27 +210,37 @@ test('recommendations sample every slot by score and exclude distant or already 
   assert.ok(!recommend(11, [catalog[0], catalog[1]]).includes('strong-0'));
 });
 
-test('a crowded recommendation pool gives equally relevant minority platforms a chance before the candidate cap', () => {
+test('the recommendation limit does not preselect minority platforms or exclude equally relevant works', () => {
   const row = (id, platform, tags, popularity) => [
     id, id, null, [[platform, `https://books.example/${id}`]], 0, tags, popularity, null,
   ];
   const catalog = parseDiscoveryIndex({ ...index, tags: ['모험', '마법', '야구'], books: [
     row('saved', 'novelpia', [0, 1], 8_000),
-    ...Array.from({ length: 60 }, (_, i) => row(`novelpia-${i}`, 'novelpia', [0, 1], 8_000 - i)),
-    row('series-match', 'series', [0, 1], 5_000),
-    row('kakao-match', 'kakao', [0, 1], 5_000),
+    ...Array.from({ length: 70 }, (_, i) => row(`novelpia-${i}`, 'novelpia', [0, 1], 8_000 - i)),
+    ...Array.from({ length: 20 }, (_, i) => row(`series-${i}`, 'series', [0, 1], 5_000)),
+    ...Array.from({ length: 10 }, (_, i) => row(`kakao-${i}`, 'kakao', [0, 1], 5_000)),
     row('unrelated-series', 'series', [2], 9_000),
     row('unpopular-kakao', 'kakao', [0, 1], 4_000),
   ] });
   const results = Array.from({ length: 128 }, (_, seed) => recommendDiscoveryBooks(catalog, [catalog[0]], [], seed)
+    .map(({ id }) => id));
+  const firstDraws = results.flatMap((books) => books.slice(0, 12));
+  const singlePlatform = catalog.map((book) => ({
+    ...book, platforms: book.platforms.map((platform) => ({ ...platform, id: 'novelpia' })),
+  }));
+  const unweighted = results.flatMap((_, seed) => recommendDiscoveryBooks(singlePlatform, [singlePlatform[0]], [], seed)
     .slice(0, 12).map(({ id }) => id));
-  assert.ok(results.some((books) => books.includes('series-match')));
-  assert.ok(results.some((books) => books.includes('kakao-match')));
-  assert.ok(results.some((books) => books.every((id) => id.startsWith('novelpia-'))));
-  assert.ok(results.every((books) => books.length === 12 && books.every((id) => /^(novelpia-\d+|series-match|kakao-match)$/.test(id))));
+  for (const idPrefix of ['series-', 'kakao-']) {
+    assert.ok(firstDraws.filter((id) => id.startsWith(idPrefix)).length
+      > unweighted.filter((id) => id.startsWith(idPrefix)).length);
+  }
+  assert.ok(firstDraws.filter((id) => id.startsWith('novelpia-')).length > firstDraws.length / 2);
+  assert.ok(results.some((books) => books.includes('novelpia-69') && !books.includes('series-0')));
+  assert.ok(results.every((books) => books.length === 50 && new Set(books).size === 50
+    && books.every((id) => /^(novelpia|series|kakao)-\d+$/.test(id))));
 });
 
-test('diverse related books can surface near the front while the strongest tag match stays first', () => {
+test('related books favor the strongest tag match while rotating other eligible works', () => {
   const row = (id, platforms, tags, popularity) => [
     id, id, null, platforms.map((platform) => [platform, `https://books.example/${platform}/${id}`]), 0, tags, popularity, null,
   ];
@@ -246,10 +256,12 @@ test('diverse related books can surface near the front while the strongest tag m
   const related = (seed) => getRelatedDiscoveryBooks(books, byId.get('current'), seed).map(({ id }) => id);
   const results = Array.from({ length: 64 }, (_, seed) => related(seed));
   assert.deepEqual(related(3), results[3]);
-  assert.ok(results.every((ids) => ids[0] === 'closer' && !ids.includes('unrelated')
+  assert.ok(results.filter((ids) => ids[0] === 'closer').length > results.length / 2);
+  assert.ok(results.every((ids) => !ids.includes('unrelated')
     && !ids.includes('current') && ids.length === 12 && new Set(ids).size === 12));
   assert.ok(results.some((ids) => ids.slice(0, 5).includes('series-match')));
   assert.ok(results.some((ids) => ids.slice(0, 5).includes('kakao-match')));
+  assert.ok(results.some((ids) => !ids.includes('series-match') && !ids.includes('kakao-match')));
 });
 
 test('legacy review export retains recorded platform keys, title-only reviews and local originals', async () => {

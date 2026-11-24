@@ -1,7 +1,7 @@
 import type { PublicBookPlatformId } from './publicBookMetadataSchema';
 import { groupPublicBookWorks, platformWorkKey } from './readBooks';
 import { finishDiscoveryTiming, startDiscoveryTiming } from './myPagePerformance';
-import { discoveryRotationWeight, weightDiscoveryPlatformMix } from './discoveryCandidateWeights';
+import { sampleDiscoveryBooks, weightDiscoveryPlatformMix } from './discoveryCandidateWeights';
 
 export type DiscoveryBook = {
   id: string;
@@ -160,13 +160,10 @@ export function getRelatedDiscoveryBooks(books: readonly DiscoveryBook[], curren
   ));
   const shown = 12;
   const cutoff = (ranked[Math.min(shown, ranked.length) - 1]?.[1] ?? 0) * 0.8;
-  // Squared relevance and bounded variation keep strong tag matches near the top.
+  // Give strong tag matches more influence here than in personalized recommendations.
   const weighted = weightDiscoveryPlatformMix(ranked.filter(([, score]) => score >= cutoff)
-    .map(([book, score]) => [book, score ** 2]));
-  if (!weighted) return ranked.slice(0, shown).map(([book]) => book);
-  return weighted.map(([book, score]) => ({
-    book, score: score * (1 + 0.25 * discoveryRotationWeight(book.id, rotationSeed)),
-  })).sort((a, b) => b.score - a.score).slice(0, shown).map(({ book }) => book);
+    .map(([book, score]) => [book, score ** 4]));
+  return weighted ? sampleDiscoveryBooks(weighted, rotationSeed, shown) : ranked.slice(0, shown).map(([book]) => book);
 }
 
 export function resolveReadBookDiscovery(

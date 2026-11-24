@@ -31,7 +31,7 @@ export function weightDiscoveryPlatformMix(candidates: readonly ScoredDiscoveryB
   });
 }
 
-export function discoveryRotationWeight(id: string, seed: number) {
+function discoveryRotationWeight(id: string, seed: number) {
   let hash = seed ^ 0x811c9dc5;
   for (let index = 0; index < id.length; index += 1) {
     hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193);
@@ -39,4 +39,12 @@ export function discoveryRotationWeight(id: string, seed: number) {
   hash = Math.imul(hash ^ (hash >>> 16), 0x85ebca6b);
   hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35);
   return (((hash ^ (hash >>> 16)) >>> 0) + 0.5) / 0x1_0000_0000;
+}
+
+export function sampleDiscoveryBooks(candidates: readonly ScoredDiscoveryBook[], seed: number, limit: number) {
+  // Independent exponential draws sample without replacement in proportion to weight.
+  return candidates.map(([book, weight]) => ({ book, draw: -Math.log(discoveryRotationWeight(book.id, seed)) / weight }))
+    .sort((a, b) => a.draw - b.draw)
+    .slice(0, limit)
+    .map(({ book }) => book);
 }
