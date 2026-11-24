@@ -144,11 +144,11 @@ test('home recommendations combine both lists across tag spellings and apply the
   const wishlist = [catalog[1]];
   const readBooks = [{ id: 'local-title', platformWorkKeys: [platformWorkKey('series', 'https://books.example/read')] }];
   const recommended = recommendDiscoveryBooks(catalog, wishlist, readBooks).map(({ id }) => id);
-  assert.deepEqual(recommended, ['both', 'space-variant', 'read-like']);
+  assert.deepEqual(recommended, ['both', 'read-like', 'space-variant']);
   assert.deepEqual(recommendDiscoveryBooks(catalog, [], []), []);
 });
 
-test('home recommendations slightly prefer fewer tags for equal matches and retain a stronger match with many tags', () => {
+test('home recommendations prefer fewer extra tags for equal matches and keep a stronger match with many tags', () => {
   const row = (id, tags, popularity) => [id, id, null, [['series', `https://books.example/${id}`]], 0, tags, popularity, null];
   const extraTags = Array.from({ length: 60 }, (_, i) => i + 2);
   const catalog = parseDiscoveryIndex({ ...index, tags: ['모험', '마법', ...extraTags.map((i) => `소재 ${i}`)], books: [
@@ -161,6 +161,33 @@ test('home recommendations slightly prefer fewer tags for equal matches and reta
   assert.deepEqual(recommendDiscoveryBooks(catalog, [catalog[0]], []).map(({ id }) => id), [
     'strong-many', 'equal-sparse', 'equal-many',
   ]);
+});
+
+test('home recommendations prefer two supported tags over an isolated rare match', () => {
+  const row = (id, tags, popularity) => [id, id, null, [['series', `https://books.example/${id}`]], 0, tags, popularity, null];
+  const catalog = parseDiscoveryIndex({ ...index, tags: ['탑등반', '생존', '설원 전투', '탑등반물'], books: [
+    row('saved', [0, 1, 2], 8_000),
+    row('two-matches', [3, 1], 7_000),
+    row('only-rare', [2], 8_000),
+    ...Array.from({ length: 25 }, (_, i) => row(`tower-${i}`, [0], 4_000)),
+    ...Array.from({ length: 140 }, (_, i) => row(`survival-${i}`, [1], 4_000)),
+  ] });
+  assert.deepEqual(recommendDiscoveryBooks(catalog, [catalog[0]], []).map(({ id }) => id), [
+    'two-matches', 'only-rare',
+  ]);
+});
+
+test('home recommendations keep a sparsely tagged reading interest visible beside a densely tagged wishlist', () => {
+  const row = (id, tags, popularity) => [id, id, null, [['series', `https://books.example/${id}`]], 0, tags, popularity, null];
+  const extraTags = Array.from({ length: 12 }, (_, i) => `무협 소재 ${i}`);
+  const catalog = parseDiscoveryIndex({ ...index, tags: ['무협', '야구', ...extraTags], books: [
+    row('wishlist-seed', [0, ...extraTags.map((_, i) => i + 2)], 9_000),
+    row('read-seed', [1], 9_000),
+    row('martial-arts', [0], 8_000),
+    row('baseball', [1], 5_000),
+  ] });
+  const recommendations = recommendDiscoveryBooks(catalog, [catalog[0]], [{ id: 'read-seed' }]);
+  assert.deepEqual(recommendations.map(({ id }) => id), ['baseball', 'martial-arts']);
 });
 
 test('recommendations sample every slot by score and exclude distant or already saved works', () => {
