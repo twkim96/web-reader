@@ -123,10 +123,10 @@ test('related books rank distinctive shared tags and skip the current work and i
     catalogRow('both', [0, 1], 0),
     catalogRow('rare', [1], 0),
     catalogRow('untagged', [], 100),
-    ...Array.from({ length: 8 }, (_, i) => catalogRow(`common-${i}`, [0], 100 - i)),
+    ...Array.from({ length: 12 }, (_, i) => catalogRow(`common-${i}`, [0], 100 - i)),
   ] }));
   assert.deepEqual(getRelatedDiscoveryBooks(books, byId.get('z-alias')).map(({ id }) => id), [
-    'both', 'rare', 'common-0', 'common-1', 'common-2', 'common-3',
+    'both', 'rare', ...Array.from({ length: 10 }, (_, i) => `common-${i}`),
   ]);
   assert.deepEqual(getRelatedDiscoveryBooks(books, byId.get('untagged')), []);
 });

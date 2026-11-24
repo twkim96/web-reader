@@ -81,6 +81,7 @@ const setup = (hash = '#mypage/wishlist') => {
 const props = {
   ownerKey: owner, books: [], progress: {}, bookmarkProgress: {}, theme: { bg: '', text: '', border: '', secondary: '' }, themeVariables: {}, accentColor: 'rose',
   syncHealth: 'healthy', quarantinedDocumentCount: 0, canRefresh: false, refreshing: false, lastServerCheckedAt: null,
+  showRecommendedBooks: true, onShowRecommendedBooksChange() {},
   onRefresh() {}, onBack() {},
 };
 const click = async (window, element) => act(async () => element.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true })));
@@ -476,7 +477,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     await select(window, reviewSort, 'rating-asc');
     assert.deepEqual([...allReviews().querySelectorAll('h3')].map(({ textContent }) => textContent), [unread.id, title]);
     assert.equal(allReviews().querySelector('img')?.getAttribute('src'), reviewCover);
-    await click(window, visible('button[aria-label="공개 설정"]'));
+    await click(window, visible('button[aria-label="마이페이지 설정"]'));
     assert.equal(visible('section[aria-label="프로필 및 공개 설정"] .mypage-divided-list').children.length, 2);
     await openMenu('보관');
     await openCollectionTab('내 평가');

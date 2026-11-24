@@ -890,6 +890,8 @@ export default function Page() {
           canRefresh={readingStatisticsSync.canRefresh}
           refreshing={readingStatisticsSync.refreshing}
           lastServerCheckedAt={readingStatisticsSync.lastServerCheckedAt}
+          showRecommendedBooks={settings.showRecommendedBooks !== false}
+          onShowRecommendedBooksChange={(showRecommendedBooks) => updateSettings({ showRecommendedBooks })}
           onRefresh={readingStatisticsSync.refresh}
           onBack={closeMyPage}
         />

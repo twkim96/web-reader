@@ -37,7 +37,7 @@ const tabLabels = {
   calendar: '캘린더',
   statistics: '통계',
   annotations: '주석',
-  sharing: '공개 설정',
+  sharing: '마이페이지 설정',
 } as const;
 
 type Tab = keyof typeof tabLabels;
@@ -112,7 +112,7 @@ function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): Di
 const desktopQuery = '(min-width: 640px)';
 const headerActions = [
   { id: 'shelf', label: '내 서재', icon: Library },
-  { id: 'sharing', label: '공개 설정', icon: Settings2 },
+  { id: 'sharing', label: tabLabels.sharing, icon: Settings2 },
 ] as const;
 const readTab = (): Tab => {
   if (typeof window === 'undefined') return 'overview';
@@ -142,6 +142,8 @@ type Props = {
   canRefresh: boolean;
   refreshing: boolean;
   lastServerCheckedAt: number | null;
+  showRecommendedBooks: boolean;
+  onShowRecommendedBooksChange: (visible: boolean) => void;
   onRefresh: () => void;
   onBack: () => void;
 };
@@ -279,7 +281,7 @@ export function MyPage(props: Props) {
   const detailSaved = bookId !== null && !readMatch?.blocked
     && (wishlist.savedIds.has(bookId) || (detailBook !== undefined && wishlist.savedIds.has(detailBook.id)));
   const catalogLoading = !catalog && !catalogError;
-  const hasTaggedWishlist = wishlistEntries.some(({ book }) => book.tags.length > 0);
+  const hasTaggedWishlist = props.showRecommendedBooks && wishlistEntries.some(({ book }) => book.tags.length > 0);
   const needsCatalog = Boolean(bookId) || tab === 'discover' || (signedIn && tab === 'read')
     || (tab === 'overview' && (signedIn || hasTaggedWishlist));
   useEffect(() => {
@@ -430,7 +432,7 @@ export function MyPage(props: Props) {
               </DashboardBookRow>
               <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
                 renderBeforePreview={(readBooks) => <>
-                  {catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
+                  {props.showRecommendedBooks && catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
                     rotationSeed={recommendationSeed} previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
                     onRemember={rememberRecommendations} onOpenBook={openBook} />}
                   <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
@@ -449,9 +451,19 @@ export function MyPage(props: Props) {
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
           {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />
             : <p className="mypage-section text-sm">내 평가는 로그인 후 이용할 수 있습니다.</p>)}
-          {tab === 'sharing' && (signedIn
-            ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />
-            : <p className="mypage-section text-sm">공개 설정은 로그인 후 이용할 수 있습니다.</p>)}
+          {tab === 'sharing' && <>
+            <section className="mypage-section max-w-md space-y-2" aria-label="화면 설정">
+              <h2 className="text-xl font-semibold">화면 설정</h2>
+              <label className="flex min-h-10 items-center justify-between gap-4 text-sm">
+                추천 도서 보기
+                <input type="checkbox" checked={props.showRecommendedBooks} className="size-4 accent-[var(--accent-500)]"
+                  onChange={(event) => props.onShowRecommendedBooksChange(event.target.checked)} />
+              </label>
+            </section>
+            {signedIn
+              ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />
+              : <p className="mypage-section text-sm">공개 설정은 로그인 후 이용할 수 있습니다.</p>}
+          </>}
           {browse && <>
             <div>
               <div className="flex items-center justify-between gap-3">

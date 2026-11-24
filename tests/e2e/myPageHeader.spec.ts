@@ -122,6 +122,20 @@ test('home keeps a saved recommendation in place until leaving My Page', async (
   await page.reload();
   await expect(cards).toHaveCount(1);
   await expect(cards.first()).toHaveAccessibleName('다른 회귀 도서');
+
+  const settings = page.getByRole('button', { name: '마이페이지 설정', exact: true });
+  const toggle = page.getByRole('checkbox', { name: '추천 도서 보기', exact: true });
+  await settings.click();
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await menu.getByRole('button', { name: '홈', exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await page.reload();
+  await settings.click();
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await menu.getByRole('button', { name: '홈', exact: true }).click();
+  await expect(cards.first()).toHaveAccessibleName('다른 회귀 도서');
 });
 
 test('mobile book detail scrolls related covers and opens the selected work from the same catalog', async ({ page }) => {
@@ -132,7 +146,7 @@ test('mobile book detail scrolls related covers and opens the selected work from
     catalogRequests += 1;
     return route.fulfill({ json: {
       schemaVersion: 1, generation: 'related-books', genres: [], tags: ['모험'],
-      books: Array.from({ length: 8 }, (_, i) => [
+      books: Array.from({ length: 15 }, (_, i) => [
         `related-${i}`, `모험 도서 ${i}`, null, [['series', `https://example.test/related/${i}`]], null, [0], 100 - i, null,
       ]),
     } });
@@ -145,7 +159,7 @@ test('mobile book detail scrolls related covers and opens the selected work from
 
   await page.goto('/#mypage/book/related-0');
   const row = page.getByRole('list', { name: '연관 도서 가로 목록' });
-  await expect(row.getByRole('link')).toHaveCount(6);
+  await expect(row.getByRole('link')).toHaveCount(12);
   await expect(row.getByRole('link', { name: '모험 도서 0' })).toHaveCount(0);
   expect(await row.evaluate(list => list.scrollWidth > list.clientWidth)).toBe(true);
   await row.scrollIntoViewIfNeeded();
@@ -158,9 +172,9 @@ test('mobile book detail scrolls related covers and opens the selected work from
   await expect(page).toHaveURL(/#mypage\/book\/related-0$/);
   await expect.poll(() => [...openedReviews]).toEqual(['related-0']);
 
-  await row.getByRole('link', { name: '모험 도서 6', exact: true }).click();
-  await expect(page.getByRole('region', { name: '도서 기본정보' }).getByRole('heading', { name: '모험 도서 6' })).toBeVisible();
-  await expect.poll(() => [...openedReviews]).toEqual(['related-0', 'related-6']);
+  await row.getByRole('link', { name: '모험 도서 12', exact: true }).click();
+  await expect(page.getByRole('region', { name: '도서 기본정보' }).getByRole('heading', { name: '모험 도서 12' })).toBeVisible();
+  await expect.poll(() => [...openedReviews]).toEqual(['related-0', 'related-12']);
   await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
   await expect(page).toHaveURL(/#mypage\/book\/related-0$/);
   expect(catalogRequests).toBe(1);
@@ -217,7 +231,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   const shortcuts = page.getByRole('group', { name: '마이페이지 바로가기' });
   await expect(shortcuts.getByRole('button')).toHaveCount(2);
   await expect(shortcuts.getByRole('button', { name: '내 서재' })).toBeVisible();
-  await expect(shortcuts.getByRole('button', { name: '공개 설정' })).toBeVisible();
+  await expect(shortcuts.getByRole('button', { name: '마이페이지 설정' })).toBeVisible();
   await expect(shortcuts).toHaveCSS('backdrop-filter', 'none');
   const dividers = page.locator('[data-mypage-header-divider]');
   const catalog = menu.getByRole('button', { name: '도서', exact: true });
@@ -253,7 +267,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
     await expect(dividers).toHaveCount(0);
     const backColor = await back.evaluate(button => getComputedStyle(button).color);
     await expect(shortcuts.getByRole('button', { name: '내 서재' })).toHaveCSS('color', backColor);
-    await expect(shortcuts.getByRole('button', { name: '공개 설정' })).toHaveCSS('color', backColor);
+    await expect(shortcuts.getByRole('button', { name: '마이페이지 설정' })).toHaveCSS('color', backColor);
     await assertDivider(firstBook.locator('..'));
     await expect(menu.getByText('홈')).toHaveCSS('position', 'static');
     await expect(catalog.getByText('도서')).toHaveCSS('position', 'static');
@@ -312,7 +326,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await expect.poll(geometry).toMatchObject({ pinned: true, inline: true });
   await expect(collection).toHaveAttribute('aria-current', 'page');
   await expect(collectionTabs.getByRole('button', { name: '위시리스트' })).toHaveAttribute('aria-current', 'page');
-  await shortcuts.getByRole('button', { name: '공개 설정' }).click();
+  await shortcuts.getByRole('button', { name: '마이페이지 설정' }).click();
   await expect(page).toHaveURL(/#mypage\/sharing$/);
   await catalog.click();
   const search = page.getByRole('textbox', { name: '도서 제목 검색' });

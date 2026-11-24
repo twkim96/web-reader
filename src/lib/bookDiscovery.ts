@@ -156,7 +156,7 @@ export function getRelatedDiscoveryBooks(books: readonly DiscoveryBook[], curren
   return [...scores].sort(([a, scoreA], [b, scoreB]) => (
     scoreB - scoreA || sameGenre(b) - sameGenre(a) || (b.popularity ?? -1) - (a.popularity ?? -1)
     || a.id.localeCompare(b.id)
-  )).slice(0, 6).map(([book]) => book);
+  )).slice(0, 12).map(([book]) => book);
 }
 
 export function resolveReadBookDiscovery(

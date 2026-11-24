@@ -39,6 +39,7 @@ export const defaultSettings: ViewerSettings = {
   landscapeTwoPage: false,
   autoOpenLastBook: true,
   summarizeBookTitles: true,
+  showRecommendedBooks: true,
   fontFamily: 'ridi',
   accentColor: 'rose',
   translationProvider: 'auto',
@@ -81,6 +82,7 @@ export const getStoredViewerSettings = () => {
       verticalMarginStep: clampReaderMarginStep(merged.verticalMarginStep),
       landscapeTwoPage: merged.landscapeTwoPage === true,
       summarizeBookTitles: merged.summarizeBookTitles !== false,
+      showRecommendedBooks: merged.showRecommendedBooks !== false,
       archiveWebtoonMode: merged.archiveWebtoonMode === true,
       translationProvider: normalizeReaderTranslationProvider(merged.translationProvider),
       translationSourceLanguage: normalizeReaderTranslationSourceLanguage(
