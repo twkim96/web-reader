@@ -316,14 +316,13 @@ export default function Page() {
     activeBookId: activeBook?.id,
     ownerKey: activeOwnerKey,
   });
-  const sendSyncHealth = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
+  const { health: sendSyncHealth, recoveryAvailable: sendRecoveryAvailable } = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
   const readingStatisticsSync = useReadingStatisticsSync(user, activeOwnerKey);
   const syncHealth = mergeSyncHealth(
     receiveSyncHealth,
     sendSyncHealth,
     annotationSyncHealth,
   );
-  const sendRecoveryAvailable = sendSyncHealth === 'blocked-schema' || sendSyncHealth === 'blocked-permission';
   const receiveRetryAvailable = [receiveSyncHealth, annotationSyncHealth].some(
     (health) => health === 'blocked-schema' || health === 'blocked-permission',
   );
@@ -1242,12 +1241,13 @@ export default function Page() {
                 <button type="button" className="font-semibold underline" onClick={() => void prepareSyncRecovery()}>
                   복구 옵션
                 </button>
-              ) : receiveRetryAvailable ? (
+              ) : null}
+              {receiveRetryAvailable && (
                 <button type="button" className="font-semibold underline"
                   onClick={() => window.dispatchEvent(new Event(SYNC_RECEIVE_RETRY_EVENT))}>
                   다시 연결
                 </button>
-              ) : null}
+              )}
               {syncRecoveryFeedback && (
                 <button type="button" className="font-semibold underline" onClick={() => setSyncRecoveryFeedback(null)}>
                   닫기

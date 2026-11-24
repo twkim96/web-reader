@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isAuthSyncErrorCode, mergeSyncHealth } from '../src/lib/syncHealth.ts';
+import { getPausedWriteSyncState, isAuthSyncErrorCode, mergeSyncHealth } from '../src/lib/syncHealth.ts';
 
 test('merges send and receive health by actionable severity', () => {
   assert.equal(mergeSyncHealth('healthy', 'retrying-receive'), 'retrying-receive');
@@ -15,4 +15,10 @@ test('classifies every resumable Firebase token expiry as authentication health'
   assert.equal(isAuthSyncErrorCode('auth/user-token-expired'), true);
   assert.equal(isAuthSyncErrorCode('auth/id-token-expired'), true);
   assert.equal(isAuthSyncErrorCode('permission-denied'), false);
+});
+
+test('a token failure does not hide the paused format or permission failure of a different write', () => {
+  assert.deepEqual(getPausedWriteSyncState(['auth/user-token-expired', 'invalid-argument']), { health: 'paused-auth', recoveryAvailable: true });
+  assert.deepEqual(getPausedWriteSyncState(['permission-denied', 'unauthenticated']), { health: 'paused-auth', recoveryAvailable: true });
+  assert.deepEqual(getPausedWriteSyncState(['auth/id-token-expired']), { health: 'paused-auth', recoveryAvailable: false });
 });

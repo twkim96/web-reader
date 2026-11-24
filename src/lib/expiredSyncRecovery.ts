@@ -97,6 +97,9 @@ const readTargetRecoveryRows = (
 
 type PausedRecovery = { eventId: string; snapshot: string };
 
+const isActiveAnnotationDeletion = (intent?: AnnotationBookDeletionIntentV10) =>
+  Boolean(intent && !intent.markerSuperseded && !(intent.expired && intent.recoveryPending === false));
+
 const awaitRecoveryHead = <T,>(read: Promise<T>, manual?: PausedRecovery) =>
   manual ? runWithTimeout(read, 15_000, '서버 동기화 기록 조회 시간 초과') : read;
 
@@ -363,7 +366,7 @@ const fetchOtherHead = async (uid: string, target: Extract<SyncTarget, { kind: '
 
 export const preparePausedSyncRecovery = async (ownerKey: OwnerKey) => {
   const db = await initDB();
-  const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE]);
+  const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE, V10_ANNOTATION_BOOK_DELETIONS_STORE]);
   const events = await tx.objectStore(V5_OUTBOX_STORE).index('by-owner-status').getAll([ownerKey, 'paused']) as SyncOutboxEventV5[];
   const distinct = new Map(events.map((event) => [event.targetKey, event]));
   const targets = await Promise.all([...distinct.values()].map(async ({ target, targetKey, eventId, lastErrorCode }) => {
@@ -373,8 +376,11 @@ export const preparePausedSyncRecovery = async (ownerKey: OwnerKey) => {
       || (target.kind === 'annotation' && target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID)) {
       return { ...item, recovery: null };
     }
-    const [rows, open, deferred] = await readTargetRecoveryRows(tx, ownerKey, targetKey);
-    const recovery = rows.filter(isUnsettled).every(canReplaceManually)
+    const [[rows, open, deferred], intent] = await Promise.all([
+      readTargetRecoveryRows(tx, ownerKey, targetKey),
+      target.kind === 'annotation' ? tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).get([ownerKey, target.bookId]) : undefined,
+    ]);
+    const recovery = !isActiveAnnotationDeletion(intent) && rows.filter(isUnsettled).every(canReplaceManually)
       ? { eventId, snapshot: recoverySnapshot(rows, [...open, ...deferred]) }
       : null;
     return { ...item, recovery };
@@ -698,9 +704,9 @@ const recoverAnnotation = async (
     !incoming || cached.revision > incoming.revision
     || (cached.revision === incoming.revision && cached.head.acceptedEventId !== incoming.acceptedEventId)
   ));
-  if ((options.isCurrent && !options.isCurrent()) || (intent && options.manual)
+  if ((options.isCurrent && !options.isCurrent()) || (options.manual && isActiveAnnotationDeletion(intent))
     || (options.manual && (meta?.knownRevision ?? 0) > (head?.revision ?? 0))
-    || (intent?.expired && intent.recoveryPending !== false) || !pending?.length
+    || (intent?.expired && !intent.markerSuperseded && intent.recoveryPending !== false) || !pending?.length
     || markerEvents.some((event) => active.has(event.status) || (event.status === 'expired' && event.recoveryPending !== false))
     || markerOpen.length || markerDeferred.length || stale(remote, head) || stale(markerRemote, marker)) {
     await tx.done;

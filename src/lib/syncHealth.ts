@@ -14,6 +14,14 @@ const AUTH_SYNC_ERROR_CODES = new Set([
 
 export const isAuthSyncErrorCode = (code: string) => AUTH_SYNC_ERROR_CODES.has(code);
 
+export const getPausedWriteSyncState = (errorCodes: readonly string[]) => {
+  const recoverable = errorCodes.filter((code) => !isAuthSyncErrorCode(code));
+  const health: SyncHealth = errorCodes.some(isAuthSyncErrorCode) ? 'paused-auth'
+    : recoverable.includes('permission-denied') ? 'blocked-permission'
+      : recoverable.length ? 'blocked-schema' : 'healthy';
+  return { health, recoveryAvailable: recoverable.length > 0 };
+};
+
 export const SYNC_RECEIVE_RETRY_EVENT = 'web-reader-sync-receive-retry';
 
 const HEALTH_PRIORITY: Record<SyncHealth, number> = {

@@ -309,6 +309,26 @@ test('manual server recovery safeguards paused cleanup from an acknowledged book
   }), { status: 'blocked' });
   assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, 'cleanup']), cleanup);
 });
+
+test('manual recovery of a new annotation ignores a completed deletion recovery intent', async () => {
+  const db = await seedAnnotation();
+  const paused = await db.get(V5_OUTBOX_STORE, [owner, 'note-event']);
+  await db.put(V5_OUTBOX_STORE, { ...paused, status: 'paused' });
+  const marker = { ...annotationHead, annotationId: 'book_delete_marker_v1', revision: 3,
+    acceptedEventId: 'marker', operation: 'delete', annotation: null, bookGeneration: 3, deletedAtServer: {} };
+  const head = { ...annotationHead, bookGeneration: 3 };
+  const intent = { ownerKey: owner, bookId: 'book', markerRevision: 3, createdAt: 1, expired: true, recoveryPending: true };
+  await db.put('annotation-book-deletions-v10', intent);
+  assert.equal((await preparePausedSyncRecovery(owner))[0].recovery, null);
+  await db.put('annotation-book-deletions-v10', { ...intent, recoveryPending: false });
+  const [selection] = await preparePausedSyncRecovery(owner);
+  const fetchAnnotationBook = async () => ({ heads: [head], marker, targetHead: head });
+  await db.put('annotation-book-deletions-v10', intent);
+  assert.deepEqual(await recoverPausedSyncTargetFromServer('test', owner, selection, { fetchAnnotationBook }), { status: 'blocked' });
+  await db.put('annotation-book-deletions-v10', { ...intent, recoveryPending: false });
+  assert.deepEqual(await recoverPausedSyncTargetFromServer('test', owner, selection, { fetchAnnotationBook }), { status: 'resynced' });
+  assert.equal((await db.get('annotations-v8', [owner, 'book', 'note'])).quote, 'remote');
+});
 test('annotation recovery adopts authoritative head while preserving expired payload', async () => {
   const db = await seedAnnotation();
   const result = await recoverExpiredSyncTargetFromServer('test', owner, annotationTarget, {

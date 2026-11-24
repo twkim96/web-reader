@@ -25,7 +25,7 @@ import {
 import { runProgressSyncPoll } from '../lib/progressSyncPolling';
 import { subscribeProgressSyncWork } from '../lib/progressSyncWake';
 import { ProgressSyncPumpController } from '../lib/progressSyncPump';
-import { isAuthSyncErrorCode, type SyncHealth } from '../lib/syncHealth';
+import { getPausedWriteSyncState, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
 import { reconcileAnnotationBookDeletionIntentsV10 } from '../lib/annotationBookDeletion';
 import { assertEventWriteLease, finiteWriteLeasesEnabled, getTrustedWriteLeaseTime, prepareWriteLease, requestReceiptMaintenance } from '../lib/writeLeaseTransport';
@@ -40,11 +40,11 @@ export const useProgressSyncWorker = (
   ownerKey: string | null,
   deviceId: string,
 ) => {
-  const [syncHealth, setSyncHealth] = useState<SyncHealth>('healthy');
+  const [state, setState] = useState<{ health: SyncHealth; recoveryAvailable: boolean }>({ health: 'healthy', recoveryAvailable: false });
 
   useEffect(() => {
     if (!user) {
-      setSyncHealth('healthy');
+      setState({ health: 'healthy', recoveryAvailable: false });
       return;
     }
     const owner = ownerRuntime.capture();
@@ -138,10 +138,8 @@ export const useProgressSyncWorker = (
       if (disposed || !ownerRuntime.isCurrent(owner)) return;
       const recoveryPending = finiteWriteLeasesEnabled() && (await listExpiredSyncRecoveryTargets(syncOwnerKey, getTrustedWriteLeaseTime(syncOwnerKey))).length > 0;
       if (disposed || !ownerRuntime.isCurrent(owner)) return;
-      if (summary.count === 0) setSyncHealth(recoveryPending ? 'recovering-expired' : 'healthy');
-      else if (summary.errorCodes.some(isAuthSyncErrorCode)) setSyncHealth('paused-auth');
-      else if (summary.errorCodes.includes('permission-denied')) setSyncHealth('blocked-permission');
-      else setSyncHealth('blocked-schema');
+      if (summary.count === 0) setState({ health: recoveryPending ? 'recovering-expired' : 'healthy', recoveryAvailable: false });
+      else setState(getPausedWriteSyncState(summary.errorCodes));
     };
 
     let maintenance: Promise<void> | null = null;
@@ -224,5 +222,5 @@ export const useProgressSyncWorker = (
     };
   }, [deviceId, ownerKey, user]);
 
-  return syncHealth;
+  return state;
 };
