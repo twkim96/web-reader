@@ -22,7 +22,17 @@
       "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }]
     },
     {
+      "collectionGroup": "readingStatsRollupJobsV1",
+      "fieldPath": "bootstrapDueAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }]
+    },
+    {
       "collectionGroup": "readingStatsRollupWeeksV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "readingStatsRollupBootstrapChunksV1",
       "fieldPath": "*",
       "indexes": []
     },

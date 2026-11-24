@@ -7,6 +7,7 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { APP_ID } from '../src/lib/appIdentity.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
+import { latestReadingPublicationCutoff } from '../src/lib/readingRollupBootstrap.ts';
 import { computeReadingCalendarRollup, computeWeeklyReadingRollup, mergeReadingFileRollups } from '../src/lib/readingStatisticsRollup.ts';
 import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
 import { readPublishedReadingBootstrap, readPublishedReadingEvidenceInputs, readPublishedReadingFiles, readPublishedReadingReportBooks } from '../src/server/readingRollupRead.ts';
@@ -36,6 +37,8 @@ test('the scheduled route requires both enablement and the Cron secret', async (
   });
   t.after(() => hooks.deregister());
   const route = await import('../src/app/api/reading-statistics/rollup/route.ts');
+  const { getAdminAuth } = await import('../src/server/firebaseAdmin.ts');
+  const listAccounts = t.mock.method(getAdminAuth(), 'listUsers', async () => ({ users: [] }));
   const { GET } = route.default ?? route;
   const env = process.env;
   const original = { ENABLE_READING_STATS_ROLLUP: env.ENABLE_READING_STATS_ROLLUP, CRON_SECRET: env.CRON_SECRET };
@@ -56,6 +59,7 @@ test('the scheduled route requires both enablement and the Cron secret', async (
   const response = await GET(request(env.CRON_SECRET));
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(listAccounts.mock.callCount(), 1);
 });
 
 function session(sessionId, started, fields = {}) {
@@ -92,6 +96,134 @@ test('rollup writers share an account lease and Cron reservations share the Paci
   assert.equal((await quotaRef('2026-12-11').get()).get('sourceReads'), 10);
   await releaseReadingRollup(db, renewed);
   await releaseReadingRollup(db, other);
+});
+
+test('Cron enrolls an account with reading history and resumes its private initial scan without a client visit', async (t) => {
+  const enrollmentApp = initializeApp({ projectId: 'demo-web-reader-rollup-enrollment' }, 'rollup-enrollment-test');
+  t.after(() => deleteApp(enrollmentApp));
+  const store = getFirestore(enrollmentApp);
+  const uid = 'account.with-history';
+  const job = store.doc(`${root}/readingStatsRollupJobsV1/${uid}`);
+  const existing = store.doc(`${root}/readingStatsRollupJobsV1/already-registered`);
+  const reading = store.collection(`${root}/users/${uid}/libraries/local/readingStatsV1`);
+  const chunks = job.collection('readingStatsRollupBootstrapChunksV1');
+  const weekDetails = job.collection('readingStatsRollupWeeksV1');
+  const manifest = job.collection('readingStatsRollupManifestsV1').doc('current');
+  const day = 86_400_000;
+  const cutoff = latestReadingPublicationCutoff(Date.now());
+  const closeWeek = cutoff - 8 * day - 9 * 3_600_000;
+  const date = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const recent = session('c-modern', new Date(closeWeek + 2 * day).toISOString());
+  const legacy = session('b-legacy', new Date(closeWeek - 3 * day).toISOString());
+  const late = session('a-uploaded-during-scan', new Date(closeWeek + 9 * day).toISOString());
+  const pacific = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Los_Angeles', dateStyle: 'short' });
+  let time = Math.max(Date.now(), cutoff) + day;
+  const now = () => time;
+  await Promise.all([
+    reading.doc(legacy.sessionId).create(legacy),
+    reading.doc(recent.sessionId).create({ ...recent, uploadedAtServer: FieldValue.serverTimestamp() }),
+    existing.create({ dueAt: time + 30 * day, payload: 'original-pilot-job' }),
+  ]);
+  const pages = [];
+  const listAccounts = async (limit, pageToken) => {
+    pages.push(pageToken);
+    assert.ok(limit <= 20);
+    return pageToken
+      ? { users: [{ uid: 'empty-account', disabled: false }] }
+      : { users: [{ uid, disabled: false }, { uid: existing.id, disabled: false }], pageToken: 'next-page' };
+  };
+  assert.deepEqual(await runReadingRollupCron(store, { now, listAccounts }), { enrolled: 1 });
+  assert.equal((await existing.get()).get('payload'), 'original-pilot-job');
+  assert.equal((await job.get()).get('dueAt'), undefined);
+  assert.equal((await manifest.get()).exists, false);
+
+  const budget = store.doc(`${root}/readingStatsRollupBudgetsV1/${pacific.format(time)}`);
+  await budget.set({ sourceReads: 3_999 });
+  assert.deepEqual(await runReadingRollupCron(store, { now, listAccounts }), { budget: 1 });
+  const firstScan = (await job.get()).get('bootstrap');
+  assert.equal(firstScan.cursor, legacy.sessionId);
+  assert.equal((await chunks.get()).size, 1);
+  await reading.doc(late.sessionId).create({ ...late, uploadedAtServer: FieldValue.serverTimestamp() });
+
+  time += day;
+  assert.deepEqual(await runReadingRollupCron(store, { now, listAccounts }), { prepared: 1 });
+  assert.deepEqual(pages, [undefined, 'next-page']);
+  assert.equal((await store.doc(`${root}/readingStatsRollupJobsV1/empty-account`).get()).exists, false);
+  assert.equal((await manifest.get()).exists, false);
+  assert.deepEqual(JSON.parse((await weekDetails.doc(date(closeWeek - weekMs)).get()).get('payload')).days
+    .map(({ localDate, totalMs }) => [localDate, totalMs]), [[legacy.localDate, legacy.durationMs]]);
+
+  time += day;
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+  const published = await readPublishedReadingBootstrap(store, uid);
+  assert.ok(published);
+  assert.equal(published.calendar.lastDay, date(closeWeek + 6 * day));
+  assert.deepEqual(published.calendar.days.map(({ localDate }) => localDate).sort(), [legacy.localDate, recent.localDate]);
+  assert.equal((await chunks.get()).empty, true);
+
+  time = Math.max(time, cutoff + weekMs + 3_600_000);
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+  const next = JSON.parse((await weekDetails.doc(date(closeWeek + weekMs)).get()).get('payload'));
+  assert.deepEqual(next.days.map(({ localDate, totalMs }) => [localDate, totalMs]), [[late.localDate, late.durationMs]]);
+});
+
+test('an automatic handoff leaves the still-open previous week available for uploads before Tuesday cutoff', async (t) => {
+  const enrollmentApp = initializeApp({ projectId: 'demo-web-reader-rollup-cutoff' }, 'rollup-enrollment-cutoff');
+  t.after(() => deleteApp(enrollmentApp));
+  const store = getFirestore(enrollmentApp);
+  const uid = 'first-read-near-cutoff';
+  const job = store.doc(`${root}/readingStatsRollupJobsV1/${uid}`);
+  const reading = store.collection(`${root}/users/${uid}/libraries/local/readingStatsV1`);
+  const latest = session('current-week-first-read', '2026-10-13T08:50:00Z');
+  const late = session('previous-sunday-uploaded-before-cutoff', '2026-10-11T18:00:00Z');
+  let time = Date.parse('2026-10-13T08:55:00Z');
+  const now = () => time;
+  const payload = JSON.stringify([latest]);
+  await Promise.all([
+    job.create({ bootstrapDueAt: time, bootstrap: { cutoff: Timestamp.fromMillis(time), cursor: latest.sessionId,
+      chunks: 1, bytes: Buffer.byteLength(payload), scanned: true } }),
+    job.collection('readingStatsRollupBootstrapChunksV1').doc('0').create({ payload }),
+    reading.doc(latest.sessionId).create({ ...latest, uploadedAtServer: Timestamp.fromMillis(time - 1) }),
+  ]);
+
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { prepared: 1 });
+  const week = job.collection('readingStatsRollupWeeksV1').doc('2026-10-05');
+  assert.equal((await week.get()).exists, false);
+  await reading.doc(late.sessionId).create({ ...late, uploadedAtServer: Timestamp.fromDate(new Date('2026-10-13T08:58:00Z')) });
+  time = Date.parse('2026-10-13T09:00:00Z');
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+  assert.deepEqual(JSON.parse((await week.get()).get('payload')).days.map(({ localDate, totalMs }) => [localDate, totalMs]),
+    [[late.localDate, late.durationMs]]);
+});
+
+test('an oversized initial page checkpoints only the committed source prefix', async (t) => {
+  const enrollmentApp = initializeApp({ projectId: 'demo-web-reader-rollup-large-page' }, 'rollup-large-page-test');
+  t.after(() => deleteApp(enrollmentApp));
+  const store = getFirestore(enrollmentApp);
+  const uid = 'large-imported-history';
+  const job = store.doc(`${root}/readingStatsRollupJobsV1/${uid}`);
+  const reading = store.collection(`${root}/users/${uid}/libraries/local/readingStatsV1`);
+  const pacific = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Los_Angeles', dateStyle: 'short' });
+  const time = Date.parse('2026-11-25T09:05:00Z');
+  const now = () => time;
+  const fixture = Array.from({ length: 18 }, (_, index) => {
+    const entry = session(`imported-${String(index).padStart(2, '0')}`, '2026-11-18T09:00:00Z', { mode: 'tts' });
+    // Older Admin imports can retain extra fields in valid interval records.
+    return { ...entry, activeIntervals: [{ startedAtClient: entry.startedAtClient, endedAtClient: entry.endedAtClient,
+      importMetadata: 'x'.repeat(480 * 1024) }] };
+  });
+  await Promise.all(fixture.map((entry) => reading.doc(entry.sessionId).create(entry)));
+  await job.create({ bootstrapDueAt: time, bootstrap: { cutoff: null, cursor: null, chunks: 0, bytes: 0, scanned: false } });
+  await store.doc(`${root}/readingStatsRollupBudgetsV1/${pacific.format(time)}`).set({ sourceReads: 3_900 });
+
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { budget: 1 });
+  const progress = (await job.get()).get('bootstrap');
+  const staged = (await job.collection('readingStatsRollupBootstrapChunksV1').get()).docs
+    .flatMap((doc) => JSON.parse(doc.get('payload')).map(({ sessionId }) => sessionId)).sort();
+  assert.ok(staged.length > 0 && staged.length < fixture.length);
+  assert.deepEqual(staged, fixture.slice(0, staged.length).map(({ sessionId }) => sessionId));
+  assert.equal(progress.cursor, staged.at(-1));
+  assert.equal(progress.scanned, false);
 });
 
 test('same-week accounts become due together and exhausted Cron budget defers the rest in queue order', async () => {
