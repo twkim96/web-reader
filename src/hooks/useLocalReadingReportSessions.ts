@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react';
 import { getLocalReadingReportSnapshot } from '../lib/localReadingStatistics';
 import type { OwnerKey } from '../lib/ownerIdentity';
 import type { StoredReadingSessionV11 } from '../lib/readingStatistics';
-import { requestReadingStatisticsRefresh, subscribeReadingStatisticsChanges, subscribeReadingStatisticsServerChecks } from '../lib/readingStatisticsWake';
+import { subscribeReadingStatisticsChanges, subscribeReadingStatisticsServerChecks } from '../lib/readingStatisticsWake';
 import type { ReadingRollupCheckpoint } from '../lib/readingRollupBootstrap';
-import { hasPublishedBoundaryClockRisk } from '../lib/readingRollupCalendar';
 
 type Snapshot = {
   ownerKey: OwnerKey;
@@ -24,7 +23,6 @@ export function useLocalReadingReportSessions(ownerKey: OwnerKey, enabled: boole
     if (!enabled) return;
     let disposed = false;
     let verified = false;
-    let requestedRecovery = false;
     let request = 0;
     let timer: number | undefined;
     const load = async () => {
@@ -32,15 +30,8 @@ export function useLocalReadingReportSessions(ownerKey: OwnerKey, enabled: boole
       try {
         const result = await getLocalReadingReportSnapshot(ownerKey, verifyHistory);
         if (disposed || request !== current) return;
-        const unsafe = Boolean(result.published && result.tailComplete
-          && hasPublishedBoundaryClockRisk(result.sessions, result.published));
-        const tailComplete = result.tailComplete && !unsafe;
-        verified = result.rawHistoryComplete || tailComplete;
-        setSnapshot({ ownerKey, ...result, tailComplete, error: false });
-        if (unsafe && !requestedRecovery) {
-          requestedRecovery = true;
-          requestReadingStatisticsRefresh(ownerKey, true);
-        }
+        verified = result.rawHistoryComplete || result.tailComplete;
+        setSnapshot({ ownerKey, ...result, error: false });
       } catch (error) {
         if (disposed || request !== current) return;
         console.error('[ReadingStatistics] load failed:', error);

@@ -8,13 +8,14 @@ import {
   isReadingSessionV1, READING_SESSION_MAX_CLOCK_OFFSET_MS, toReadingSessionPayload, type ReadingSessionV1,
 } from '../lib/readingStatistics.ts';
 import { mergeReadingReportBooks, parseReadingReportBooks, summarizeReadingReportBooks, type ReadingReportBook } from '../lib/readingStatisticsReport.ts';
+import { selectReadingRollupTail } from '../lib/readingRollupBootstrap.ts';
 import {
   computeReadingCalendarRollup, computeWeeklyReadingRollup, isReadingRollupHandoffWeekCount, parseReadingRollupMonday, READING_CALENDAR_WEEK_COUNT,
   mergeReadingFileRollups, parseReadingFileRollups, readingRollupWeekForDay, selectWeeklyReadingRollupInputs,
   type ReadingFileRollup, type WeeklyReadingRollup,
 } from '../lib/readingStatisticsRollup.ts';
 import {
-  addReadingRollupPage, closedReadingAllocationDigest, createReadingRollupCarry, rollupCanUseFileEvidence,
+  addReadingRollupPageWithoutChangingClosedWeek, closedReadingAllocationDigest, createReadingRollupCarry, rollupCanUseFileEvidence,
   rollupCoversHistoryStart, sortReadingRollupCarry, type ReadingRollupCarry,
 } from './readingRollupInputs.ts';
 
@@ -50,6 +51,8 @@ type Job = {
   scanned: boolean;
   carry: ReadingRollupCarry;
   closedAllocation?: { sessionCount: number; digest: string };
+  tailPolicy?: 1;
+  handoffSourceThrough?: Stamp;
   group: WeekSummary[];
   lastCalendarWeek: string | null;
   coversHistoryStart?: boolean;
@@ -230,6 +233,7 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   // Hash the original seed JSON so the identity is independent of storage encoding.
   const seedPayload = JSON.stringify(job);
   const proposed = jobPayload({ ...job,
+    handoffSourceThrough: stamp(sourceCutoff),
     ...(seed.coversHistoryStart ? { coversHistoryStart: true } : {}),
     ...(seed.evidenceCompatible ? { evidenceCompatible: true, evidenceSeedThrough: stamp(sourceCutoff) } : {}),
   });
@@ -462,13 +466,35 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const cleanup: number | undefined = snapshot.get('bootstrapCleanup');
     if (cleanup) await clearReadingRollupBootstrap(db, lease, ref, cleanup, stopAt, now);
     const source = sourceRef(db, lease.uid);
+    if (job.tailPolicy !== 1) {
+      if (job.cursor || job.scanned) {
+        const baseline = job.closedAllocation;
+        if (!baseline || !Number.isSafeInteger(baseline.sessionCount)
+          || baseline.sessionCount < 0 || baseline.sessionCount > job.carry.sessions.length) {
+          throw new InvalidRollupInput('unverified-closed-week-checkpoint');
+        }
+        job.carry = { ...job.carry, sessions: job.carry.sessions.slice(0, baseline.sessionCount) };
+        const ids = new Set(job.carry.sessions.map(({ sessionId }) => sessionId));
+        if (closedReadingAllocationDigest(job.carry, job.nextWeek, ids) !== baseline.digest) {
+          throw new InvalidRollupInput('unverified-closed-week-checkpoint');
+        }
+        delete job.closedAllocation;
+        job.cursor = null;
+        job.scanned = false;
+      }
+      job.tailPolicy = 1;
+    }
     const protectedCount = job.closedAllocation?.sessionCount ?? job.carry.sessions.length;
     const protectedIds = new Set(job.carry.sessions.slice(0, protectedCount).map(({ sessionId }) => sessionId));
-    // Older checkpoints already checked the allocation after every saved page.
-    job.closedAllocation ??= {
-      sessionCount: protectedCount,
-      digest: closedReadingAllocationDigest(job.carry, job.nextWeek, protectedIds),
-    };
+    const digest = closedReadingAllocationDigest(sortReadingRollupCarry(job.carry), job.nextWeek, protectedIds);
+    if (job.closedAllocation && job.closedAllocation.digest !== digest) {
+      throw new InvalidRollupInput('changed-closed-week-allocation');
+    }
+    job.closedAllocation ??= { sessionCount: protectedCount, digest };
+    const openDay = parseReadingRollupMonday(job.nextWeek);
+    const point = { firstDay: job.firstWeek, lastDay: date(openDay - day), sampleFloor: job.carry.sampleFloor };
+    const handoffStamp = job.handoffSourceThrough ?? job.evidenceSeedThrough;
+    const handoffCutoff = handoffStamp && new Timestamp(...handoffStamp);
     while (!job.scanned && now() < stopAt) {
       const limit = await reserveReadingRollupReads(db, lease, pageSize, now);
       if (limit === 0) return 'budget';
@@ -483,12 +509,21 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         }
         return toReadingSessionPayload(data);
       });
-      try { job.carry = addReadingRollupPage(job.carry, sessions, job.nextWeek); }
+      const retainedIds = new Set(job.carry.sessions.map(({ sessionId }) => sessionId));
+      const replays = sessions.filter(({ sessionId }) => retainedIds.has(sessionId));
+      const incoming = sessions.filter((session, index) => {
+        if (retainedIds.has(session.sessionId)) return false;
+        const doc = page.docs[index];
+        return !handoffCutoff || doc.createTime > handoffCutoff || doc.updateTime > handoffCutoff;
+      });
+      const eligible = [...replays, ...selectReadingRollupTail(point, job.carry.sessions, incoming)];
+      try {
+        job.carry = addReadingRollupPageWithoutChangingClosedWeek(job.carry, eligible, job.nextWeek, protectedIds, digest);
+      }
       catch (error) {
         if (error instanceof RangeError) throw new InvalidRollupInput('unsupported-source-boundary');
         throw error;
       }
-      if (job.coversHistoryStart && !rollupCoversHistoryStart(sessions, job.firstWeek)) job.coversHistoryStart = false;
       if (job.evidenceCompatible) {
         const seedThrough = job.evidenceSeedThrough && new Timestamp(...job.evidenceSeedThrough);
         const newSessions = seedThrough
@@ -518,6 +553,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const previousClose = new Timestamp(...job.closeAt);
     const nextClose = Timestamp.fromMillis(nextCloseTime);
     delete job.evidenceSeedThrough;
+    delete job.handoffSourceThrough;
     delete job.closedAllocation;
     job = {
       ...job, nextWeek, sourceAfter: job.closeAt, cursor: null, scanned: false,

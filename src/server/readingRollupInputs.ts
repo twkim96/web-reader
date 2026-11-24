@@ -78,3 +78,20 @@ export function closedReadingAllocationDigest(carry: ReadingRollupCarry, openWee
   });
   return createHash('sha256').update(JSON.stringify(slices.sort())).digest('hex');
 }
+
+/** Usually the whole page is safe. Isolate conflicting rows only on a boundary change. */
+export function addReadingRollupPageWithoutChangingClosedWeek(
+  carry: ReadingRollupCarry,
+  page: readonly ReadingSessionV1[],
+  week: string,
+  protectedIds: ReadonlySet<string>,
+  digest: string,
+): ReadingRollupCarry {
+  if (page.length === 0) return carry;
+  const combined = addReadingRollupPage(carry, page, week);
+  if (closedReadingAllocationDigest(sortReadingRollupCarry(combined), week, protectedIds) === digest) return combined;
+  if (page.length === 1) return carry;
+  const middle = Math.floor(page.length / 2);
+  const left = addReadingRollupPageWithoutChangingClosedWeek(carry, page.slice(0, middle), week, protectedIds, digest);
+  return addReadingRollupPageWithoutChangingClosedWeek(left, page.slice(middle), week, protectedIds, digest);
+}

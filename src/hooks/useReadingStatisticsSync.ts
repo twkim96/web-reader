@@ -135,7 +135,6 @@ export const useReadingStatisticsSync = (
     let receiving = false;
     let requested = false;
     let refreshRequested = true;
-    let recoverRawRequested = false;
     let publicationRefreshRequested = false;
     let lastPublicationAttempt = 0;
     let foregroundPublicationCutoff = latestReadingPublicationCutoff(Date.now());
@@ -290,9 +289,7 @@ export const useReadingStatisticsSync = (
           let uploadStatus: Awaited<ReturnType<typeof uploadPending>> = 'ready';
           let uploadFailure: { error: unknown } | undefined;
           if (shouldRefresh) {
-            const recoverRaw = recoverRawRequested;
             const refreshPublication = publicationRefreshRequested;
-            recoverRawRequested = false;
             publicationRefreshRequested = false;
             receiving = true;
             setRefreshing(true);
@@ -363,8 +360,8 @@ export const useReadingStatisticsSync = (
                 return true;
               };
               const previousPublication = 'state' in plan ? plan.published : undefined;
-              if (recoverRaw || ('reason' in plan && plan.reason === 'published-history-unavailable')) {
-                if (!await recoverHistory(recoverRaw ? previousPublication?.sourceThrough : undefined)) {
+              if ('reason' in plan && plan.reason === 'published-history-unavailable') {
+                if (!await recoverHistory()) {
                   hydrationStatus = 'lost-leadership';
                   refreshRequested = true;
                   return;
@@ -631,10 +628,7 @@ export const useReadingStatisticsSync = (
     );
     const unsubscribeRefreshRequests = subscribeReadingStatisticsRefreshRequests(
       syncOwnerKey,
-      (recoverRaw) => {
-        if (recoverRaw) recoverRawRequested = true;
-        requestExplicitRefresh();
-      },
+      requestExplicitRefresh,
     );
     const unsubscribeServerChecks = subscribeReadingStatisticsServerChecks(
       syncOwnerKey,
