@@ -16,6 +16,7 @@ import { ownerRuntime } from '../../lib/ownerRuntime';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
 import { getPlatformWorkKeys, platformWorkKey, type ReadBook } from '../../lib/readBooks';
+import { canMergeLocalReadingWithPublication } from '../../lib/readingRollupCalendar';
 import { formatReadingDuration } from '../../lib/readingStatistics';
 import { BookCover } from './BookCover';
 import { BookReviewEditor } from './BookReviewEditor';
@@ -91,8 +92,6 @@ function CommunityReviews({ workId }: { workId: string }) {
   );
 }
 
-const emptyHistory = { sessions: [] };
-
 export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, onOpenRelatedBook }: {
   bookId: string;
   discovery?: DiscoveryBook;
@@ -155,7 +154,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   const reviewIndex = useMemo(() => indexReviewWorks(reviews.data?.reviews ?? []), [reviews.data]);
   const deletionIndex = useMemo(() => indexReviewWorks(reviews.data?.deletions ?? []), [reviews.data]);
   const readingInput = useMemo(() => ({
-    ownerKey, books, progress, bookmarkProgress, ...(history ?? emptyHistory), archived,
+    ownerKey, books, progress, bookmarkProgress, archived,
+    sessions: archived && !canMergeLocalReadingWithPublication(history, archived) ? [] : history?.sessions ?? [],
   }), [ownerKey, books, progress, bookmarkProgress, history, archived]);
   const historyTitles = useMemo(() => JSON.stringify(getWorkReadingTitles(readingInput).sort()), [readingInput]);
 

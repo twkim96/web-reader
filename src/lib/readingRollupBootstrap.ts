@@ -1,6 +1,7 @@
-import { hasPublishedBoundaryClockRisk, type PublishedReadingCalendar } from './readingRollupCalendar';
+import type { PublishedReadingCalendar } from './readingRollupCalendar';
 import {
-  isReadingSessionV1, READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS, READING_SESSION_MAX_CLOCK_OFFSET_MS,
+  buildReadingStatistics, getReadingSessionLocalStartsBefore, isReadingSessionV1,
+  READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS, READING_SESSION_MAX_CLOCK_OFFSET_MS, READING_SESSION_MAX_TIMEZONE_OFFSET_MINUTES,
   type ReadingSessionV1,
 } from './readingStatistics';
 import { parseReadingReportBooks, type ReadingReportBook } from './readingStatisticsReport';
@@ -85,36 +86,68 @@ export function parseReadingRollupBootstrap(value: unknown): ReadingRollupBootst
   return { ...archive, carry };
 }
 
-export const canIncludeReadingRollupTailSession = (session: ReadingSessionV1, openDay: number, sampleFloor: number) =>
-  session.startedAtClient - session.timezoneOffsetMinutes * 60_000 - READING_SESSION_MAX_CLOCK_OFFSET_MS >= openDay
-  && session.startedAtClient - READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS >= sampleFloor;
+function cannotAffectClosedAllocation(
+  openDay: number, received: readonly ReadingSessionV1[], incoming: readonly ReadingSessionV1[],
+) {
+  let latestClosedUtc = -Infinity;
+  let minimumOffset = 0;
+  const firstNewSample = new Map<string, number>();
+  for (const rows of [received, incoming]) {
+    for (const session of rows) {
+      latestClosedUtc = Math.max(latestClosedUtc, openDay + session.timezoneOffsetMinutes * 60_000);
+      minimumOffset = Math.min(minimumOffset, session.clockOffsetMs ?? 0);
+    }
+  }
+  for (const session of incoming) {
+    if (session.startedAtClient + minimumOffset < latestClosedUtc) return false;
+    if (session.clockMeasuredAtClient !== undefined) {
+      firstNewSample.set(session.deviceId, Math.min(session.clockMeasuredAtClient,
+        firstNewSample.get(session.deviceId) ?? Infinity));
+    }
+  }
+  // A later sample cannot displace an existing closer sample for any input
+  // whose timing or clock domain could affect a closed slice.
+  return received.every(({ deviceId, startedAtClient, clockMeasuredAtClient }) => {
+    if (startedAtClient + minimumOffset >= latestClosedUtc || !firstNewSample.has(deviceId)) return true;
+    if (clockMeasuredAtClient === undefined) return false;
+    const existingDistance = Math.abs(clockMeasuredAtClient - startedAtClient);
+    return existingDistance <= READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS
+      && startedAtClient + existingDistance < firstNewSample.get(deviceId)!;
+  });
+}
 
 /** Keep the published input and admit only additions that leave its date boundary intact. */
 export function selectReadingRollupTail<T extends ReadingSessionV1>(
-  point: Pick<ReadingRollupCheckpoint, 'firstDay' | 'lastDay' | 'sampleFloor'>,
+  point: Pick<ReadingRollupCheckpoint, 'lastDay' | 'sampleFloor'>,
   received: readonly ReadingSessionV1[],
   incoming: readonly T[],
 ): T[] {
   const openDay = Date.parse(point.lastDay) + dayMs;
-  const eligible = incoming.filter((session) => canIncludeReadingRollupTailSession(session, openDay, point.sampleFloor));
-  if (!hasPublishedBoundaryClockRisk([...received, ...eligible], point)) return eligible;
-
-  // The ordinary page is checked once. When a clock sample creates a risk,
-  // admit compatible rows in receive order and discard only the offending rows.
-  const byDevice = new Map<string, ReadingSessionV1[]>();
-  for (const row of received) {
-    const rows = byDevice.get(row.deviceId) ?? [];
-    rows.push(row);
-    byDevice.set(row.deviceId, rows);
-  }
-  return eligible.filter((row) => {
-    const rows = byDevice.get(row.deviceId) ?? [];
-    rows.push(row);
-    if (row.clockMeasuredAtClient !== undefined && hasPublishedBoundaryClockRisk(rows, point)) {
-      rows.pop();
-      return false;
-    }
-    byDevice.set(row.deviceId, rows);
-    return true;
+  const eligible = incoming.filter((session) => session.completionRoundNumber === undefined
+    && session.startedAtClient - READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS >= point.sampleFloor);
+  if (eligible.length === 0) return [];
+  const latestClosedStart = openDay + READING_SESSION_MAX_TIMEZONE_OFFSET_MINUTES * 60_000 + READING_SESSION_MAX_CLOCK_OFFSET_MS;
+  const canAffectClosed = (session: ReadingSessionV1) => session.startedAtClient < latestClosedStart
+    || (session.clockMeasuredAtClient ?? Infinity) < latestClosedStart + READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS;
+  if (!eligible.some(canAffectClosed) || cannotAffectClosedAllocation(openDay, received, eligible)) return eligible;
+  const closedSignature = (sessions: readonly ReadingSessionV1[]) => {
+    const starts = getReadingSessionLocalStartsBefore(sessions, openDay);
+    if (starts.size === 0) return '';
+    const slices: [string, number, number][] = [];
+    buildReadingStatistics(sessions, { endLocalDate: point.lastDay }, ({ session, startAt, durationMs }) => {
+      slices.push([session.sessionId, startAt, durationMs]);
+    });
+    return JSON.stringify([[...starts].sort(), slices.sort()]);
+  };
+  const boundaryInputs = received.filter(canAffectClosed);
+  const fixed = closedSignature(boundaryInputs);
+  // Limit checks to inputs that can affect the seam and keep the decision
+  // independent of how the upload-ordered stream was paginated.
+  return eligible.filter((session) => {
+    if (!canAffectClosed(session)) return true;
+    boundaryInputs.push(session);
+    if (closedSignature(boundaryInputs) === fixed) return true;
+    boundaryInputs.pop();
+    return false;
   });
 }

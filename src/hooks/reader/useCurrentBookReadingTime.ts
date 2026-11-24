@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { OwnerKey } from '../../lib/ownerIdentity';
-import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
+import { getLocalReadingSessionsForFileTotals } from '../../lib/localReadingStatistics';
 import { formatReadingClock } from '../../lib/readingStatistics';
 import { getReadingFileTime } from '../../lib/readingStatisticsRollup';
 import type { ReadingSessionV1 } from '../../lib/readingStatistics';
@@ -49,7 +49,7 @@ export const useCurrentBookReadingTime = ({
     const reloadPersisted = async () => {
       const generation = ++loadGeneration;
       try {
-        const sessions = await getLocalReadingSessionsV11(ownerKey);
+        const sessions = await getLocalReadingSessionsForFileTotals(ownerKey, archived);
         if (cancelled || generation !== loadGeneration) return;
         persistedMs = getReadingFileTime(sessions, bookId, archived);
         refreshDisplay(true);

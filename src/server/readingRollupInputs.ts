@@ -23,13 +23,6 @@ export function rollupCoversHistoryStart(sessions: readonly ReadingSessionV1[], 
     || session.startedAtClient - session.timezoneOffsetMinutes * 60_000 - READING_SESSION_MAX_CLOCK_OFFSET_MS >= first);
 }
 
-// Reviews still resolve aliases across the complete history. A late read
-// could add an alias or progress to a file that is already frozen.
-export function rollupCanUseFileEvidence(sessions: readonly ReadingSessionV1[], openWeek: string) {
-  return sessions.every((session) => session.completionRoundNumber === undefined)
-    && rollupCoversHistoryStart(sessions, openWeek);
-}
-
 export function createReadingRollupCarry(sessions: readonly ReadingSessionV1[], nextWeek: string): ReadingRollupCarry {
   const lower = lowerBound(nextWeek);
   const contenders = sessions.filter((session) => touches(session, lower));

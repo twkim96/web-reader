@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
-import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
+import { getLocalReadingSessionsForFileTotals } from '../../lib/localReadingStatistics';
 import { useMyPageReadingFiles } from '../../hooks/useMyPageList';
 import { formatReadingDuration } from '../../lib/readingStatistics';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
@@ -113,7 +113,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
       if (running) { dirty = true; return; }
       running = true;
       try {
-        const stored = await getLocalReadingSessionsV11(ownerKey);
+        const stored = await getLocalReadingSessionsForFileTotals(ownerKey, archived);
         if (disposed) return;
         const sessions = selectSyncedReadingSessions(stored, ownerKey);
         const fileDates = new Map<string, number>();

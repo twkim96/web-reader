@@ -19,6 +19,23 @@ export function mergePublishedCalendarDays(local: ReadingDayStatistics[], calend
   return [...local.filter(({ localDate }) => !publishedCalendarCovers(calendar, localDate)), ...calendar.days];
 }
 
+export function canMergeLocalReadingWithPublication(
+  local: {
+    sessions: readonly ReadingSessionV1[];
+    rawHistoryComplete: boolean;
+    tailComplete: boolean;
+    published?: Pick<PublishedReadingCalendar, 'firstDay' | 'lastDay'>;
+  } | null,
+  publication: Pick<PublishedReadingCalendar, 'firstDay' | 'lastDay'>,
+) {
+  if (!local) return false;
+  if (local.published) {
+    return local.tailComplete && local.published.firstDay === publication.firstDay
+      && local.published.lastDay === publication.lastDay;
+  }
+  return local.rawHistoryComplete && !hasPublishedBoundaryClockRisk(local.sessions, publication);
+}
+
 export function hasPublishedBoundaryClockRisk(
   sessions: readonly ReadingSessionV1[],
   { firstDay, lastDay }: Pick<PublishedReadingCalendar, 'firstDay' | 'lastDay'>,

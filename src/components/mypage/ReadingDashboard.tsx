@@ -15,7 +15,7 @@ import {
   isLocalDateWithinBounds,
   MIN_READING_STATISTICS_BLOCK_MS,
 } from '../../lib/readingStatistics';
-import { hasPublishedBoundaryClockRisk, mergePublishedCalendarDays, publishedCalendarCovers } from '../../lib/readingRollupCalendar';
+import { canMergeLocalReadingWithPublication, mergePublishedCalendarDays, publishedCalendarCovers } from '../../lib/readingRollupCalendar';
 import { readingRollupWeekForDay, type ReadingRollupActivity } from '../../lib/readingStatisticsRollup';
 
 type Props = {
@@ -51,20 +51,15 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   }, [ownerKey, onRefresh]);
 
   const { data: published } = useMyPageReadingCalendar(ownerKey, canUseRollup);
-  const publishedCalendar = published?.calendar ?? null;
-  const calendar = useMemo(() => publishedCalendar && !currentData?.recentOnly && !(currentData?.rawHistoryComplete
-    && hasPublishedBoundaryClockRisk(currentData.sessions, publishedCalendar)) ? publishedCalendar : null,
-  [currentData, publishedCalendar]);
-  const publishedTailReady = currentData?.tailComplete && calendar?.firstDay === currentData.published?.firstDay
-    && calendar?.lastDay === currentData.published?.lastDay;
-  const sessions = calendar && !currentData?.rawHistoryComplete && !publishedTailReady ? null : currentData?.sessions;
+  const calendar = published?.calendar ?? null;
+  const sessions = calendar && !canMergeLocalReadingWithPublication(currentData, calendar) ? null : currentData?.sessions;
   const statistics = useMemo(() => {
     if (!calendar && (!currentData || currentData.error)) return null;
     const details = new Map<string, ReadingRollupActivity[]>();
     const summary = measureMyPageWork('dashboard-timeline', () => buildReadingStatistics(sessions ?? [], {}, undefined, {
       minimumMs: MIN_READING_STATISTICS_BLOCK_MS,
       onBlock: ({ session, ...activity }) => {
-        if (calendar && !currentData?.rawHistoryComplete && publishedCalendarCovers(calendar, activity.localDate)) return;
+        if (calendar && publishedCalendarCovers(calendar, activity.localDate)) return;
         const block = { ...activity, bookId: session.bookId, bookTitle: session.bookTitle, mode: session.mode,
           timezoneOffsetMinutes: session.timezoneOffsetMinutes };
         const day = details.get(block.localDate);
@@ -98,11 +93,10 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   const wantsDetails = Boolean(selectedWeek) && selectedTotalMs > 0;
   const week = useMyPageReadingWeek(ownerKey, selectedWeek, wantsDetails);
   const missingWeek = wantsDetails && week.data?.week === null;
-  const localDayFallback = missingWeek && currentData?.rawHistoryComplete;
-  const selectedSessions = selectedWeek && !localDayFallback
+  const selectedSessions = selectedWeek
     ? week.data?.week?.activities.filter(({ localDate }) => localDate === selectedDay) ?? []
     : statistics?.details.get(selectedDay) ?? [];
-  const detailFailed = wantsDetails && !localDayFallback && (Boolean(week.error) || missingWeek);
+  const detailFailed = wantsDetails && (Boolean(week.error) || missingWeek);
   const detailLoading = wantsDetails && !detailFailed && week.data === undefined;
   const changeMonth = (offset: number) => {
     const next = new Date(year, monthIndex + offset, 1);
@@ -128,7 +122,9 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
         <p role="status" className="text-sm opacity-70">{currentData?.error ? '독서 기록을 불러오지 못했습니다.' : '독서 기록을 불러오는 중입니다.'}</p>
       )}
       {currentData?.recentOnly && (
-        <p role="status" className="text-sm opacity-70">서버는 최근 14일에 올라온 기록만 확인합니다. 이전 기록은 이 기기에 있는 만큼 표시합니다.</p>
+        <p role="status" className="text-sm opacity-70">{calendar
+          ? '확정된 독서 기록을 표시하고 있습니다. 이후 기록은 확인 중입니다.'
+          : '서버는 최근 14일에 올라온 기록만 확인합니다. 이전 기록은 이 기기에 있는 만큼 표시합니다.'}</p>
       )}
 
       <div className="grid items-start gap-6 sm:gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">

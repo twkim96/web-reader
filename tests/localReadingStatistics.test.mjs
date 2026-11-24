@@ -25,7 +25,6 @@ import {
   hydrateRemoteReadingSessionsPageV12,
   installReadingStatisticsBootstrap,
   markReadingSessionSyncedV11,
-  PublishedReadingTailError,
   reconcileUploadedReadingSessionConflictV11,
   recordReadingStatisticsHydrationMetricsV12,
   recordReadingStatisticsVerifiedAuditV12,
@@ -146,16 +145,17 @@ test('old recent-only recovery can adopt the same publication and skip a late bo
   const bootstrap = publishedFixture();
   const now = Date.parse('2026-11-26T00:00:00Z');
   const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'upgrade', now);
-  const late = publishedRead('late-first-open-day', '2026-11-23T13:00:00Z');
-  const normal = publishedRead('normal-open-day', '2026-11-25T11:00:00Z');
+  const late = publishedRead('late-closed-day', '2026-11-22T23:58:00Z');
+  const normal = publishedRead('normal-first-open-day', '2026-11-23T13:00:00Z');
   const last = cursor(bootstrap.sourceThrough.seconds + 2, late.sessionId, 92);
   await installReadingStatisticsBootstrap(owner, bootstrap, lease, now);
-  await beginReadingStatisticsRecentRecovery(owner, lease, now, bootstrap.sourceThrough);
+  await beginReadingStatisticsRecentRecovery(owner, lease, now);
   await hydrateRemoteReadingSessionsPageV12(owner, [late, normal], null, last, true, false, [], now, lease, true, undefined, true);
   const db = await initDB();
   const recoveryKey = readingStatisticsRecentKey(owner);
   const previous = await db.get(V12_READING_STATISTICS_SYNC_STORE, recoveryKey);
-  delete previous.rejectionVersion;
+  previous.rejectedSourceThrough = bootstrap.sourceThrough;
+  previous.rejectionVersion = 1;
   await db.put(V12_READING_STATISTICS_SYNC_STORE, previous);
   await closeLocalDB();
 
@@ -168,61 +168,33 @@ test('old recent-only recovery can adopt the same publication and skip a late bo
   assert.deepEqual((await getLocalReadingRollupArchive(owner)).calendar, bootstrap.calendar);
   const report = await getLocalReadingReportSnapshot(owner, true);
   assert.equal(report.tailComplete, true);
-  assert.deepEqual(report.sessions.map(({ sessionId }) => sessionId), ['already-uploaded', normal.sessionId]);
-  await saveLocalReadingSessionV11(owner, late);
-  assert.deepEqual((await getLocalReadingSessionsV11(owner)).map(({ sessionId }) => sessionId), ['already-uploaded', normal.sessionId]);
+  assert.deepEqual(report.sessions.map(({ sessionId }) => sessionId), [normal.sessionId, 'already-uploaded']);
 });
 
-test('a malformed published upload still uses bounded recovery and rejects its checkpoint after a restart', async () => {
+test('a malformed published upload is skipped and the tail resumes past it after restart', async () => {
   const bootstrap = publishedFixture();
   const now = Date.parse('2026-11-26T00:00:00Z');
-  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'recover', now);
-  await installReadingStatisticsBootstrap(owner, bootstrap, lease, now);
+  const lease = await acquireReadingStatisticsSyncLeaseV13(owner, 'quarantined-tail', now);
+  assert.equal(await installReadingStatisticsBootstrap(owner, bootstrap, lease, now), true);
   const { published } = await getReadingStatisticsHydrationPlanV12(owner, now, true);
-  const old = publishedRead('late-closed-date', '2026-11-22T23:59:00Z');
-  const last = cursor(bootstrap.sourceThrough.seconds + 1, old.sessionId, 92);
-  await assert.rejects(
-    hydrateRemoteReadingSessionsPageV12(owner, [], null, last, true, false, [{
-      documentId: last.documentId, reason: 'invalid-schema', detectedAt: now,
-    }], now, lease, true, published),
-    PublishedReadingTailError,
-  );
-  assert.deepEqual((await getLocalReadingSessionsV11(owner)).map(({ sessionId }) => sessionId), ['already-uploaded']);
-  const pending = publishedRead('other-device-pending', '2026-11-25T10:00:00Z');
-  await saveLocalReadingSessionV11(owner, pending);
-  await beginReadingStatisticsRecentRecovery(owner, lease, now, published.sourceThrough);
-  assert.equal(await getLocalReadingRollupArchive(owner), 'unavailable');
-  assert.equal((await getReadingStatisticsHydrationPlanV12(owner, now, true)).state.cursor, null);
-  await hydrateRemoteReadingSessionsPageV12(owner, [old], null, last, false, false, [], now, lease, true, undefined, true);
-  const db = await initDB();
-  const legacyMeta = await db.get(V12_READING_STATISTICS_SYNC_STORE, owner);
-  delete legacyMeta.published;
-  await db.put(V12_READING_STATISTICS_SYNC_STORE, legacyMeta);
+  const normal = publishedRead('valid-open-day', '2026-11-25T11:00:00Z');
+  const last = cursor(bootstrap.sourceThrough.seconds + 2, 'invalid-source', 92);
+  const bad = { documentId: last.documentId, reason: 'invalid-schema', detectedAt: now };
+  await hydrateRemoteReadingSessionsPageV12(owner, [normal], null, last, true, false, [bad], now, lease, true, published);
   await closeLocalDB();
-  await beginReadingStatisticsRecentRecovery(owner, lease, now);
-  const plan = await getReadingStatisticsHydrationPlanV12(owner, now, false);
-  assert.equal(plan.recentOnly, true);
-  assert.deepEqual(plan.state.cursor, last);
-  assert.equal(plan.published, undefined);
-  await hydrateRemoteReadingSessionsPageV12(owner, [], last, last, true, false, [], now, lease, true, undefined, true);
-  assert.equal(await getLocalReadingRollupArchive(owner), 'unavailable');
-  const snapshot = await getLocalReadingReportSnapshot(owner, true);
-  assert.equal(snapshot.recentOnly, true);
-  assert.equal(snapshot.rawHistoryComplete, false);
-  assert.equal((await getReadingStatisticsHydrationPlanV12(owner, now, true)).state.lastFullAuditAt, 0);
-  assert.deepEqual(snapshot.sessions.map(({ sessionId, syncState }) => [sessionId, syncState]), [
-    ['late-closed-date', 'synced'], ['already-uploaded', 'synced'], ['other-device-pending', 'pending'],
-  ]);
-  assert.equal(await installReadingStatisticsBootstrap(owner, bootstrap, lease, now), false);
-  const waiting = await getReadingStatisticsHydrationPlanV12(owner, now, true);
-  assert.equal(waiting.recentOnly, true);
-  assert.deepEqual(waiting.state.cursor, last);
-  const repaired = { ...bootstrap, sourceThrough: { seconds: last.uploadedAtServerSeconds + 1, nanoseconds: 0 } };
-  assert.equal(await installReadingStatisticsBootstrap(owner, repaired, lease, now), true);
-  const restored = await getReadingStatisticsHydrationPlanV12(owner, now, true);
-  assert.equal(restored.recentOnly, undefined);
-  assert.deepEqual(restored.published.sourceThrough, repaired.sourceThrough);
-  assert.equal((await getLocalReadingRollupArchive(owner)).calendar.lastDay, repaired.calendar.lastDay);
+
+  const resumed = await getReadingStatisticsHydrationPlanV12(owner, now, true);
+  assert.deepEqual(resumed.state.cursor, last);
+  assert.deepEqual(resumed.state.quarantinedDocuments, [bad]);
+  assert.deepEqual((await getLocalReadingRollupArchive(owner)).calendar, bootstrap.calendar);
+  assert.equal((await getLocalReadingReportSnapshot(owner, true)).tailComplete, true);
+
+  const next = publishedRead('next-open-day', '2026-11-26T11:00:00Z');
+  const nextCursor = cursor(last.uploadedAtServerSeconds + 1, next.sessionId);
+  await hydrateRemoteReadingSessionsPageV12(owner, [next], last, nextCursor, true, false, [], now, lease, true, resumed.published);
+  assert.deepEqual((await getLocalReadingSessionsV11(owner)).map(({ sessionId }) => sessionId),
+    ['already-uploaded', normal.sessionId, next.sessionId]);
+  assert.equal((await getLocalReadingReportSnapshot(owner, true)).tailComplete, true);
 });
 
 test('an existing device compacts closed sessions and resumes past a late archived upload without a raw row', async () => {
@@ -244,9 +216,10 @@ test('an existing device compacts closed sessions and resumes past a late archiv
   assert.equal(await installReadingStatisticsBootstrap(owner, bootstrap, lease, now, undefined, true), true);
   const { published } = await getReadingStatisticsHydrationPlanV12(owner, now, true);
   assert.deepEqual((await getLocalReadingSessionsV11(owner)).map(({ sessionId }) => sessionId),
-    [clock.sessionId, boundary.sessionId, 'already-uploaded']);
+    [pending.sessionId, clock.sessionId, boundary.sessionId, 'already-uploaded']);
 
   const late = publishedRead('late-archived', '2026-11-15T04:00:00Z');
+  await saveLocalReadingSessionV11(owner, late);
   const last = cursor(bootstrap.sourceThrough.seconds + 1, late.sessionId, 86);
   await hydrateRemoteReadingSessionsPageV12(owner, [late], null, last, false, false, [], now, lease, true, published);
   await hydrateRemoteReadingSessionsPageV12(owner, [], last, last, true, false, [], now, lease, true, published);
@@ -256,7 +229,9 @@ test('an existing device compacts closed sessions and resumes past a late archiv
   const snapshot = await getLocalReadingReportSnapshot(owner, true);
   assert.equal(snapshot.tailComplete, true);
   assert.equal(snapshot.rawHistoryComplete, false);
-  assert.equal(snapshot.sessions.some(({ sessionId }) => sessionId === late.sessionId), false);
+  assert.equal(snapshot.sessions.some(({ sessionId }) => sessionId === late.sessionId || sessionId === pending.sessionId), false);
+  assert.deepEqual((await getPendingReadingSessionsV11(owner, now)).map(({ sessionId }) => sessionId).sort(),
+    [late.sessionId, pending.sessionId].sort());
   assert.deepEqual((await getLocalReadingRollupArchive(owner)).calendar, bootstrap.calendar);
 
   const open = publishedRead('open-after-late', '2026-11-25T12:00:00Z');

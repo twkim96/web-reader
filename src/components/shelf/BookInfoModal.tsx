@@ -7,7 +7,7 @@ import { BookOpen, CalendarClock, Clipboard, Clock3, Database, ExternalLink, Fil
 import type { Book, UserProgress } from '../../types';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
-import { getLocalReadingSessionsV11 } from '../../lib/localReadingStatistics';
+import { getLocalReadingSessionsForFileTotals } from '../../lib/localReadingStatistics';
 import { getReadingFileTime } from '../../lib/readingStatisticsRollup';
 import { useMyPageReadingFiles } from '../../hooks/useMyPageList';
 import { subscribeReadingStatisticsChanges } from '../../lib/readingStatisticsWake';
@@ -139,7 +139,7 @@ export const BookInfoModal: React.FC<Props> = ({
     let active = true;
     const reload = async () => {
       try {
-        const sessions = await getLocalReadingSessionsV11(ownerKey);
+        const sessions = await getLocalReadingSessionsForFileTotals(ownerKey, archived);
         if (!active) return;
         const totalMs = getReadingFileTime(sessions, book.id, archived);
         setReadingTimeMs(totalMs > 0 ? totalMs : null);

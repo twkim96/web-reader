@@ -15,7 +15,6 @@ import {
   reconcileUploadedReadingSessionConflictV11,
   recordReadingStatisticsHydrationMetricsV12,
   recordReadingStatisticsVerifiedAuditV12,
-  PublishedReadingTailError,
   type ReadingStatisticsFullScanReason,
   type ReadingStatisticsRemoteCursorV12,
 } from '../lib/localReadingStatistics';
@@ -349,11 +348,11 @@ export const useReadingStatisticsSync = (
               };
               const loadPlan = (allow = allowPublishedAudit) => getReadingStatisticsHydrationPlanV12(syncOwnerKey, Date.now(), allow, true);
               let plan = await loadPlan();
-              const recoverHistory = async (rejectedSourceThrough?: ReadingUploadTime) => {
+              const recoverHistory = async () => {
                 publishedBootstrap = 'fallback';
                 fullScanReason ??= 'published-history-unavailable';
                 published = undefined;
-                if (!await beginReadingStatisticsRecentRecovery(syncOwnerKey, leaseClaim, Date.now(), rejectedSourceThrough)) return false;
+                if (!await beginReadingStatisticsRecentRecovery(syncOwnerKey, leaseClaim, Date.now())) return false;
                 recentOnly = true;
                 timestampRangeOnly = true;
                 plan = await loadPlan(false);
@@ -382,10 +381,6 @@ export const useReadingStatisticsSync = (
                 )) {
                   publishedBootstrap = previousPublication ? 'resumed' : 'installed';
                   plan = await loadPlan();
-                } else if (previousPublication && bootstrap !== undefined && !await recoverHistory()) {
-                  hydrationStatus = 'lost-leadership';
-                  refreshRequested = true;
-                  return;
                 }
               }
               const needsCoverage = ('candidate' in plan && plan.candidate.publishedAudit)
@@ -480,7 +475,7 @@ export const useReadingStatisticsSync = (
                 initialCursor = 'state' in plan ? plan.state.cursor : null;
               }
               queryMode = initialCursor ? 'cursor' : 'no-cursor';
-              const runHydration = () => runReadingStatisticsHydrationAsLeader({
+              const hydrationRun = await runReadingStatisticsHydrationAsLeader({
                 ...hydrationOperations,
                 initialCursor,
                 uploadBetweenPages: async (limit) => {
@@ -497,22 +492,6 @@ export const useReadingStatisticsSync = (
                   }
                 },
               });
-              let hydrationRun: Awaited<ReturnType<typeof runHydration>>;
-              try {
-                hydrationRun = await runHydration();
-              } catch (error) {
-                if (!(error instanceof PublishedReadingTailError)) throw error;
-                if (!await hasClaimLeadership() || !await recoverHistory(published?.sourceThrough)) {
-                  hydrationStatus = 'lost-leadership';
-                  refreshRequested = true;
-                  return;
-                }
-                fullScanReason = 'published-history-unavailable';
-                initialCursor = 'state' in plan ? plan.state.cursor : null;
-                timestampRangeOnly = true;
-                queryMode = initialCursor ? 'cursor' : 'no-cursor';
-                hydrationRun = await runHydration();
-              }
               hydrationStatus = hydrationRun.status;
               if (hydrationRun.status === 'lost-leadership') {
                 refreshRequested = true;
@@ -524,7 +503,7 @@ export const useReadingStatisticsSync = (
                 return;
               }
               setQuarantinedCount(hydrationRun.quarantinedCount);
-              if (hydrationRun.hydratedCount > 0 || publicationReceivePending || publishedBootstrap === 'fallback') {
+              if (receivedHistoryDocuments > 0 || publicationReceivePending || publishedBootstrap === 'fallback') {
                 notifyReadingStatisticsChange(syncOwnerKey);
               }
               const checkedAt = Date.now();

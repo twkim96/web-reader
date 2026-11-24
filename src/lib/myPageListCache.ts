@@ -60,6 +60,10 @@ export function createListCache<T>(freshnessMs = 60_000) {
       const session = ownerRuntime.capture();
       return (session?.ownerKey === owner ? entries.get(session)?.snapshot : undefined) ?? empty;
     },
+    isRefreshing(owner: OwnerKey) {
+      const session = ownerRuntime.capture();
+      return session?.ownerKey === owner && Boolean(entries.get(session)?.pending);
+    },
     refresh(owner: OwnerKey, load: (signal: AbortSignal) => Promise<T>, force = false) {
       const state = scope(owner);
       if (!state || state.entry.writes > 0) return;

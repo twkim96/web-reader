@@ -120,6 +120,7 @@ test('Cron enrolls an account with reading history and resumes its private initi
   let time = Math.max(Date.now(), cutoff) + day;
   const now = () => time;
   await Promise.all([
+    reading.doc('0-malformed-import').create({ schemaVersion: 1, sessionId: '0-malformed-import' }),
     reading.doc(legacy.sessionId).create(legacy),
     reading.doc(recent.sessionId).create({ ...recent, uploadedAtServer: FieldValue.serverTimestamp() }),
     existing.create({ dueAt: time + 30 * day, payload: 'original-pilot-job' }),
@@ -138,7 +139,7 @@ test('Cron enrolls an account with reading history and resumes its private initi
   assert.equal((await manifest.get()).exists, false);
 
   const budget = store.doc(`${root}/readingStatsRollupBudgetsV1/${pacific.format(time)}`);
-  await budget.set({ sourceReads: 3_999 });
+  await budget.set({ sourceReads: 3_998 });
   assert.deepEqual(await runReadingRollupCron(store, { now, listAccounts }), { budget: 1 });
   const firstScan = (await job.get()).get('bootstrap');
   assert.equal(firstScan.cursor, legacy.sessionId);
@@ -160,6 +161,7 @@ test('Cron enrolls an account with reading history and resumes its private initi
   assert.equal(published.calendar.lastDay, date(closeWeek + 6 * day));
   assert.deepEqual(published.calendar.days.map(({ localDate }) => localDate).sort(), [legacy.localDate, recent.localDate]);
   assert.equal((await chunks.get()).empty, true);
+  assert.equal((await reading.doc('0-malformed-import').get()).exists, true);
 
   time = Math.max(time, cutoff + weekMs + 3_600_000);
   assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
@@ -303,7 +305,7 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   assert.equal((await manifest.get()).exists, false);
   assert.equal(await readPublishedReadingFiles(db, uid), null);
   assert.equal(await readPublishedReadingReportBooks(db, uid), null);
-  const early = session('a', '2026-11-17T00:03:00Z');
+  const early = session('a', '2026-11-16T00:03:00Z');
   const later = session('b', '2026-11-17T01:00:00Z');
   const late = session('previous-week-late', '2026-11-15T10:00:00Z');
   const beforeFirstWeek = session('before-first-week', '2026-09-13T09:00:00Z');
@@ -352,14 +354,19 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   assert.equal(books.length, 1);
   assert.deepEqual({ bookId: books[0].bookId, screenMs: books[0].screenMs, ttsMs: books[0].ttsMs },
     { bookId: 'book', screenMs: totalMs, ttsMs: 0 });
-  assert.equal(JSON.parse((await job.get()).get('payload')).evidenceCompatible, false);
+  assert.equal(JSON.parse((await job.get()).get('payload')).evidenceCompatible, true);
   assert.deepEqual(JSON.parse((await weeks.doc(weekStarts[8]).get()).get('payload')), oldWeeks[8]);
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});
 
   time = Date.parse('2026-12-01T09:10:00Z');
-  assert.deepEqual(await runReadingRollupCron(db, { now }), { blocked: 1 });
-  assert.equal((await job.get()).get('blocked'), 'invalid-source-session');
-  assert.equal((await manifest.get()).get('publishedThroughWeek'), nextWeek);
+  const afterInvalid = session('valid-after-invalid', '2026-11-26T00:03:00Z');
+  await sourceRef(uid, afterInvalid.sessionId).set({ ...afterInvalid, uploadedAtServer: Timestamp.fromMillis(time - 3_600_000) });
+  assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1 });
+  assert.equal((await job.get()).get('blocked'), undefined);
+  assert.equal((await manifest.get()).get('publishedThroughWeek'), '2026-11-23');
+  assert.ok(JSON.parse((await weeks.doc('2026-11-23').get()).get('payload')).days
+    .some(({ localDate, totalMs }) => localDate === afterInvalid.localDate && totalMs === afterInvalid.durationMs));
+  assert.equal((await sourceRef(uid, 'next-cutoff').get()).exists, true);
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});
 });
 
@@ -480,7 +487,7 @@ test('an old checkpoint replays a discarded page and publishes valid later rows 
   assert.equal(checkpoint.carry.sessions.some(({ sessionId }) => sessionId === late.sessionId), false);
   assert.equal((await manifest.get()).exists, false);
   // Emulate a pre-upgrade writer that had already accepted that late input.
-  delete checkpoint.tailPolicy;
+  checkpoint.tailPolicy = 1;
   checkpoint.carry.sessions.push(late);
   await job.update({ payload: JSON.stringify(checkpoint) });
 

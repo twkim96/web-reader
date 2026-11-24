@@ -395,13 +395,15 @@ test('published review evidence combines closed totals, carry and uploads after 
       mode: 'screen', startedAtClient, endedAtClient: startedAtClient + 120_000, durationMs: 120_000,
       startProgressPercent: 0, endProgressPercent: progress, timezoneOffsetMinutes: 0, localDate, completed: false };
   };
-  const old = session('old', '2026-11-20', 10);
+  const oldStart = Date.parse('2026-11-22T23:57:00Z');
+  const old = { ...session('old', '2026-11-22', 10), startedAtClient: oldStart,
+    endedAtClient: oldStart + 180_000, durationMs: 180_000 };
   const carried = session('carry', '2026-11-23', 20);
   const newer = session('next', '2026-11-24', 30);
   const sourceThrough = Timestamp.fromMillis(Date.parse('2026-11-24T09:00:00Z'));
   const files = [{ fileId, titles: [workId], lastReadAt: old.endedAtClient,
     filteredMs: old.durationMs, unfilteredMs: old.durationMs, progressIntervals: [[0, 10]], absoluteMaxProgressPercent: 10 }];
-  const carry = createReadingRollupCarry([carried], '2026-11-23');
+  const carry = createReadingRollupCarry([old, carried], '2026-11-23');
   await Promise.all([
     root.collection('readingStatsRollupManifestsV1').doc('current').set({ schemaVersion: 1, firstWeek: '2026-09-14',
       publishedThroughWeek: '2026-11-16', lastCalendarWeek: '2026-11-16', sourceThrough, coversHistoryStart: true }),
@@ -413,18 +415,24 @@ test('published review evidence combines closed totals, carry and uploads after 
     source.doc(newer.sessionId).set({ ...newer, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 120_000) }),
   ]);
   assert.deepEqual(await getSocialReadingEvidence(db, uid, workId, [fileId], 'reading-evidence-deferred'),
-    { totalMs: 360_000, progressPercent: 30 });
+    { totalMs: 420_000, progressPercent: 30 });
   assert.equal(logs.at(-1).publishedFiles, 1);
   assert.equal(logs.at(-1).scanDocuments, 1);
   assert.equal(logs.at(-1).markerDocuments, 0);
 
   const late = session('late', '2026-11-21', 90);
-  await source.doc(late.sessionId).set({ ...late, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 180_000) });
+  const shifting = { ...session('late-clock', '2026-11-25', 80),
+    clockOffsetMs: 120_000, clockUncertaintyMs: 0, clockMeasuredAtClient: oldStart + 60_000 };
+  await Promise.all([
+    source.doc(late.sessionId).set({ ...late, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 180_000) }),
+    source.doc(shifting.sessionId).set({ ...shifting, uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 240_000) }),
+    source.doc('malformed').set({ uploadedAtServer: Timestamp.fromMillis(sourceThrough.toMillis() + 260_000) }),
+  ]);
   now += 31_000;
   assert.deepEqual(await getSocialReadingEvidence(db, uid, workId, [fileId], 'reading-evidence-deferred'),
-    { totalMs: null, progressPercent: null });
-  assert.equal(logs.at(-1).publishedFiles, undefined);
-  assert.equal(logs.at(-1).scanDocuments, 2);
+    { totalMs: 420_000, progressPercent: 30 });
+  assert.equal(logs.at(-1).publishedFiles, 1);
+  assert.equal(logs.at(-1).scanDocuments, 4);
   assert.equal(logs.at(-1).markerDocuments, 0);
 });
 

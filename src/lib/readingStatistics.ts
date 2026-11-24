@@ -576,18 +576,27 @@ type PreparedSession = {
   clockDomain: string;
 };
 
-type ClockSample = { measuredAt: number; offset: number; order: number };
+type ClockSample = { measuredAt: number; offset: number; sessionId: string };
+
+// Match Firestore and SQLite's order for equal-distance samples, even when
+// the sessions arrive in different pages or are loaded in time order.
+const compareClockSampleIds = (left: string, right: string) => {
+  const length = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < length && left[index] === right[index]) index++;
+  return index === length ? left.length - right.length : left.codePointAt(index)! - right.codePointAt(index)!;
+};
 
 const buildClockSampleIndex = (sessions: readonly ReadingSessionV1[]) => {
   const samplesByDevice = new Map<string, ClockSample[]>();
-  sessions.forEach(({ deviceId, clockMeasuredAtClient, clockOffsetMs }, order) => {
+  sessions.forEach(({ deviceId, clockMeasuredAtClient, clockOffsetMs, sessionId }) => {
     if (clockMeasuredAtClient === undefined || clockOffsetMs === undefined) return;
     const samples = samplesByDevice.get(deviceId) ?? [];
-    samples.push({ measuredAt: clockMeasuredAtClient, offset: clockOffsetMs, order });
+    samples.push({ measuredAt: clockMeasuredAtClient, offset: clockOffsetMs, sessionId });
     samplesByDevice.set(deviceId, samples);
   });
   for (const [deviceId, samples] of samplesByDevice) {
-    samples.sort((left, right) => left.measuredAt - right.measuredAt || left.order - right.order);
+    samples.sort((left, right) => left.measuredAt - right.measuredAt || compareClockSampleIds(left.sessionId, right.sessionId));
     samplesByDevice.set(deviceId, samples.filter((sample, index) =>
       sample.measuredAt !== samples[index - 1]?.measuredAt));
   }
@@ -610,21 +619,33 @@ const getClockCorrection = (
     else upper = middle;
   }
 
-  // Only the samples on either side can be closest. An equal distance
-  // keeps the first sample from the original input, as before.
+  // Only the samples on either side can be closest.
   const earlier = samples[lower - 1];
   const later = samples[lower];
   const earlierDistance = earlier ? start - earlier.measuredAt : Infinity;
   const laterDistance = later ? later.measuredAt - start : Infinity;
   const useEarlier = earlier && (!later || earlierDistance < laterDistance
-    || (earlierDistance === laterDistance && earlier.order < later.order));
+    || (earlierDistance === laterDistance && compareClockSampleIds(earlier.sessionId, later.sessionId) < 0));
   const distance = useEarlier ? earlierDistance : laterDistance;
   return distance <= READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS ? (useEarlier ? earlier : later).offset : undefined;
 };
 
+export function getReadingSessionLocalStartsBefore(sessions: readonly ReadingSessionV1[], boundary: number) {
+  const samples = buildClockSampleIndex(sessions);
+  const closed = new Map<string, number>();
+  for (const session of sessions) {
+    if (session.completionRoundNumber !== undefined) continue;
+    const localStart = session.startedAtClient - session.timezoneOffsetMinutes * 60_000
+      + (getClockCorrection(session, samples) ?? 0);
+    if (localStart < boundary) closed.set(session.sessionId, localStart);
+  }
+  return closed;
+}
+
 const compareWinner = (left: PreparedSession, right: PreparedSession) => {
   const modeDifference = Number(right.session.mode === 'tts') - Number(left.session.mode === 'tts');
-  return modeDifference || left.session.sessionId.localeCompare(right.session.sessionId);
+  return modeDifference || left.session.sessionId.localeCompare(right.session.sessionId)
+    || compareClockSampleIds(left.session.sessionId, right.session.sessionId);
 };
 
 const heapPush = (heap: PreparedSession[], value: PreparedSession) => {

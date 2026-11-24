@@ -618,7 +618,7 @@ test('normalizes trusted device clocks and isolates uncalibrated clock domains',
   assert.equal(uncertain.uncertainClockSessionCount, 2);
 });
 
-test('clock correction uses the first sample on a tie and ignores samples older than a day', () => {
+test('clock correction breaks ties by session ID across input orders and ignores samples older than a day', () => {
   const start = Date.UTC(2026, 10, 20, 12);
   const day = 24 * 60 * 60_000;
   const target = session({
@@ -641,7 +641,7 @@ test('clock correction uses the first sample on a tie and ignores samples older 
     return { correctedStart, uncertain: summary.uncertainClockSessionCount };
   };
   assert.deepEqual(measure([after, before, sameTime]), { correctedStart: start + 11_000, uncertain: 0 });
-  assert.deepEqual(measure([before, after, sameTime]), { correctedStart: start - 5_000, uncertain: 0 });
+  assert.deepEqual(measure([sameTime, before, after]), { correctedStart: start + 11_000, uncertain: 0 });
   assert.deepEqual(measure([sample('edge', start - day, 17_000)]), { correctedStart: start + 17_000, uncertain: 0 });
   assert.equal(measure([sample('expired', start - day - 1, 17_000)]).correctedStart, start);
 });

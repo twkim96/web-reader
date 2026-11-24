@@ -80,16 +80,28 @@ function usePublishedReadingArchive(owner: OwnerKey, enabled: boolean) {
     () => enabled ? localReadingArchiveCache.read(owner) : localReadingArchiveCache.empty(), localReadingArchiveCache.empty);
   const load = useCallback((force = false) => localReadingArchiveCache.refresh(owner,
     () => getLocalReadingRollupArchive(owner, localReadingArchiveCache.read(owner).data).catch(() => 'unavailable'), force), [owner]);
+  const refresh = useCallback(() => {
+    const session = ownerRuntime.capture();
+    const inFlight = localReadingArchiveCache.isRefreshing(owner);
+    const current = load(true);
+    return inFlight ? current?.then(() => {
+      if (ownerRuntime.isCurrent(session)) return load(true);
+    }) : current;
+  }, [load, owner]);
   useEffect(() => {
     if (!enabled) return;
-    void load();
-    return subscribeReadingStatisticsChanges(owner, () => {
-      const pending = load();
-      if (pending) void pending.then(() => load(true));
-      else void load(true);
-    });
-  }, [enabled, load, owner]);
-  return snapshot.data;
+    const revalidate = () => { if (document.visibilityState !== 'hidden') void refresh(); };
+    const unsubscribe = subscribeReadingStatisticsChanges(owner, () => { void refresh(); });
+    void refresh();
+    window.addEventListener('focus', revalidate);
+    document.addEventListener('visibilitychange', revalidate);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', revalidate);
+      document.removeEventListener('visibilitychange', revalidate);
+    };
+  }, [enabled, refresh, owner]);
+  return { archive: snapshot.data, refresh };
 }
 
 export const useMyPageWishlistList = (owner: OwnerKey, enabled: boolean) => (
@@ -104,27 +116,31 @@ export const useMyPageReviewList = (owner: OwnerKey, enabled: boolean, preview =
 );
 
 export function useMyPageReadingCalendar(owner: OwnerKey, enabled: boolean) {
-  const archive = usePublishedReadingArchive(owner, enabled);
-  const remote = useMyPageList(readingCalendarCache, readingCalendarParams, owner, enabled && archive === null, 'reading-calendar-ready');
-  const data = useMemo(() => archive === 'unavailable' ? { calendar: null }
-    : archive ? { calendar: archive.calendar } : remote.data, [archive, remote.data]);
-  return { ...remote, data, refresh: archive === null ? remote.refresh : noArchiveRefresh };
+  const { archive, refresh } = usePublishedReadingArchive(owner, enabled);
+  const needsCalendar = archive === null || archive === 'unavailable';
+  const remote = useMyPageList(readingCalendarCache, readingCalendarParams, owner, enabled && needsCalendar, 'reading-calendar-ready');
+  const data = useMemo(() => archive && archive !== 'unavailable' ? { calendar: archive.calendar } : remote.data,
+    [archive, remote.data]);
+  const { refresh: refreshRemote } = remote;
+  const refreshCalendar = useCallback(() => needsCalendar
+    ? Promise.all([refresh(), refreshRemote()]).then(() => undefined) : refresh(), [needsCalendar, refresh, refreshRemote]);
+  return { ...remote, data, refresh: refreshCalendar };
 }
 
 export function useMyPageReadingFiles(owner: OwnerKey, enabled: boolean) {
   const active = enabled && !isGuestOwner(owner) && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1';
-  const archive = usePublishedReadingArchive(owner, active);
+  const { archive } = usePublishedReadingArchive(owner, active);
   const remote = useMyPageList(readingFilesCache, readingFilesParams, owner, active && archive === null, 'reading-files-ready');
-  const data = useMemo(() => archive === 'unavailable' ? { history: null }
+  const data = useMemo(() => archive === 'unavailable' || archive && 'recentOnly' in archive ? { history: null }
     : archive ? { history: { firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
     files: archive.files } } : remote.data, [archive, remote.data]);
   return { ...remote, data, refresh: archive === null ? remote.refresh : noArchiveRefresh };
 }
 
 export function useMyPageReadingBookTotals(owner: OwnerKey, enabled: boolean) {
-  const archive = usePublishedReadingArchive(owner, enabled);
+  const { archive } = usePublishedReadingArchive(owner, enabled);
   const remote = useMyPageList(readingBookTotalsCache, readingBookTotalsParams, owner, enabled && archive === null, 'reading-book-totals-ready');
-  const data = useMemo(() => archive === 'unavailable' ? { report: null }
+  const data = useMemo(() => archive === 'unavailable' || archive && 'recentOnly' in archive ? { report: null }
     : archive ? { report: { firstDay: archive.calendar.firstDay, lastDay: archive.calendar.lastDay,
     books: archive.books } } : remote.data, [archive, remote.data]);
   return { ...remote, data, refresh: archive === null ? remote.refresh : noArchiveRefresh };

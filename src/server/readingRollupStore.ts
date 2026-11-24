@@ -15,7 +15,7 @@ import {
   type ReadingFileRollup, type WeeklyReadingRollup,
 } from '../lib/readingStatisticsRollup.ts';
 import {
-  addReadingRollupPageWithoutChangingClosedWeek, closedReadingAllocationDigest, createReadingRollupCarry, rollupCanUseFileEvidence,
+  addReadingRollupPageWithoutChangingClosedWeek, closedReadingAllocationDigest, createReadingRollupCarry,
   rollupCoversHistoryStart, sortReadingRollupCarry, type ReadingRollupCarry,
 } from './readingRollupInputs.ts';
 
@@ -51,7 +51,7 @@ type Job = {
   scanned: boolean;
   carry: ReadingRollupCarry;
   closedAllocation?: { sessionCount: number; digest: string };
-  tailPolicy?: 1;
+  tailPolicy?: 1 | 2;
   handoffSourceThrough?: Stamp;
   group: WeekSummary[];
   lastCalendarWeek: string | null;
@@ -339,17 +339,17 @@ function encodeBootstrapPage(documents: readonly QueryDocumentSnapshot[], cutoff
   let examined = 0;
   let pageBytes = 0;
   for (const doc of documents) {
-    if (doc.createTime > cutoff) {
+    const value = doc.data();
+    if (doc.createTime > cutoff || doc.updateTime > cutoff || !isReadingSessionV1(value) || value.sessionId !== doc.id) {
       examined++;
       continue;
     }
-    const value = doc.data();
-    if (doc.updateTime > cutoff || !isReadingSessionV1(value) || value.sessionId !== doc.id) {
-      throw new InvalidRollupInput('invalid-bootstrap-source-session');
-    }
     const row = JSON.stringify(toReadingSessionPayload(value));
     const bytes = Buffer.byteLength(row) + 1;
-    if (bytes + 2 > bootstrapChunkBytes) throw new InvalidRollupInput('bootstrap-source-too-large');
+    if (bytes + 2 > bootstrapChunkBytes) {
+      examined++;
+      continue;
+    }
     // Leave a Firestore request-size margin for chunk boundaries and metadata.
     if (pageBytes + bytes > maxBootstrapPageBytes) break;
     examined++;
@@ -466,7 +466,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const cleanup: number | undefined = snapshot.get('bootstrapCleanup');
     if (cleanup) await clearReadingRollupBootstrap(db, lease, ref, cleanup, stopAt, now);
     const source = sourceRef(db, lease.uid);
-    if (job.tailPolicy !== 1) {
+    if (job.tailPolicy !== 2) {
       if (job.cursor || job.scanned) {
         const baseline = job.closedAllocation;
         if (!baseline || !Number.isSafeInteger(baseline.sessionCount)
@@ -482,7 +482,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         job.cursor = null;
         job.scanned = false;
       }
-      job.tailPolicy = 1;
+      job.tailPolicy = 2;
     }
     const protectedCount = job.closedAllocation?.sessionCount ?? job.carry.sessions.length;
     const protectedIds = new Set(job.carry.sessions.slice(0, protectedCount).map(({ sessionId }) => sessionId));
@@ -492,7 +492,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     }
     job.closedAllocation ??= { sessionCount: protectedCount, digest };
     const openDay = parseReadingRollupMonday(job.nextWeek);
-    const point = { firstDay: job.firstWeek, lastDay: date(openDay - day), sampleFloor: job.carry.sampleFloor };
+    const point = { lastDay: date(openDay - day), sampleFloor: job.carry.sampleFloor };
     const handoffStamp = job.handoffSourceThrough ?? job.evidenceSeedThrough;
     const handoffCutoff = handoffStamp && new Timestamp(...handoffStamp);
     while (!job.scanned && now() < stopAt) {
@@ -502,34 +502,23 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         .where('uploadedAtServer', '<=', new Timestamp(...job.closeAt))
         .orderBy('uploadedAtServer').orderBy(FieldPath.documentId());
       const page = await (job.cursor ? ordered.startAfter(new Timestamp(...job.cursor.time), job.cursor.id) : ordered).limit(limit).get();
-      const sessions = page.docs.map((doc) => {
+      const parsed = page.docs.flatMap((doc) => {
         const data = doc.data();
-        if (!(data.uploadedAtServer instanceof Timestamp) || !isReadingSessionV1(data) || data.sessionId !== doc.id) {
-          throw new InvalidRollupInput('invalid-source-session');
-        }
-        return toReadingSessionPayload(data);
+        const uploadedAt = data.uploadedAtServer;
+        return uploadedAt instanceof Timestamp && isReadingSessionV1(data) && data.sessionId === doc.id
+          ? [{ doc, session: toReadingSessionPayload(data) }]
+          : [];
       });
       const retainedIds = new Set(job.carry.sessions.map(({ sessionId }) => sessionId));
-      const replays = sessions.filter(({ sessionId }) => retainedIds.has(sessionId));
-      const incoming = sessions.filter((session, index) => {
-        if (retainedIds.has(session.sessionId)) return false;
-        const doc = page.docs[index];
-        return !handoffCutoff || doc.createTime > handoffCutoff || doc.updateTime > handoffCutoff;
-      });
-      const eligible = [...replays, ...selectReadingRollupTail(point, job.carry.sessions, incoming)];
+      const incoming = parsed.filter(({ doc, session }) => !retainedIds.has(session.sessionId)
+        && (!handoffCutoff || doc.createTime > handoffCutoff || doc.updateTime > handoffCutoff)).map(({ session }) => session);
+      const eligible = selectReadingRollupTail(point, job.carry.sessions, incoming);
       try {
         job.carry = addReadingRollupPageWithoutChangingClosedWeek(job.carry, eligible, job.nextWeek, protectedIds, digest);
       }
       catch (error) {
         if (error instanceof RangeError) throw new InvalidRollupInput('unsupported-source-boundary');
         throw error;
-      }
-      if (job.evidenceCompatible) {
-        const seedThrough = job.evidenceSeedThrough && new Timestamp(...job.evidenceSeedThrough);
-        const newSessions = seedThrough
-          ? sessions.filter((_, index) => page.docs[index].get('uploadedAtServer') > seedThrough)
-          : sessions;
-        if (!rollupCanUseFileEvidence(newSessions, job.nextWeek)) job.evidenceCompatible = false;
       }
       const last = page.docs.at(-1);
       if (last) job.cursor = { time: stamp(last.get('uploadedAtServer')), id: last.id };
