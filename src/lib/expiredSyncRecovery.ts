@@ -7,7 +7,7 @@ import {
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
 } from './localDBSchema';
 import { annotationBookDeletionNeedsRecovery, type AnnotationBookDeletionIntentV10 } from './annotationBookDeletion';
-import type { OwnerKey } from './ownerIdentity';
+import { makeFirebaseOwnerKey, splitOwnerKey, type OwnerKey } from './ownerIdentity';
 import {
   getFirebaseSyncHistoryPath, parseProgressHeadV2, parseBookmarkHeadV2, progressTargetKeyV2, bookmarkTargetKeyV2,
   type ProgressHeadV2,
@@ -25,6 +25,7 @@ import { getEventLeaseStatus, parseLeasedEventId } from './writeLeasePolicy';
 import { getTrustedWriteLeaseTime, readRecoverableSyncEventIds } from './writeLeaseTransport';
 import type { IDBPTransaction } from 'idb';
 import type { SyncHeadV2 } from './syncOutboxV5';
+import { runWithTimeout } from './readerLoadLifecycle';
 
 type RecoveryEvent = Omit<SyncOutboxEventV5, 'status' | 'target'> & {
   target: SyncOutboxEventV5['target'];
@@ -93,6 +94,43 @@ const readTargetRecoveryRows = (
   tx.objectStore(V5_SYNC_CONFLICTS_STORE).index('by-owner-target-state').getAll([ownerKey, targetKey, 'open']) as Promise<SyncConflictV5[]>,
   tx.objectStore(V5_SYNC_CONFLICTS_STORE).index('by-owner-target-state').getAll([ownerKey, targetKey, 'deferred']) as Promise<SyncConflictV5[]>,
 ]);
+
+type PausedRecovery = { eventId: string; snapshot: string };
+
+const awaitRecoveryHead = <T,>(read: Promise<T>, manual?: PausedRecovery) =>
+  manual ? runWithTimeout(read, 15_000, '서버 동기화 기록 조회 시간 초과') : read;
+
+const isUnsettled = (event: RecoveryEvent) => active.has(event.status)
+  || (event.status === 'expired' && event.recoveryPending !== false);
+
+const canReplaceManually = (event: RecoveryEvent) => active.has(event.status) && event.status !== 'in_flight'
+  && hasRecoveryTarget(event.target)
+  && !(event.target.kind === 'annotation'
+    && ('deleteBeforeBookGeneration' in event || ('forceDelete' in event && event.forceDelete === true)));
+
+const recoverySnapshot = (events: RecoveryEvent[], conflicts: SyncConflictV5[]) =>
+  JSON.stringify([events.filter(isUnsettled), conflicts]);
+
+const manualRecoveryRows = (events: RecoveryEvent[], conflicts: SyncConflictV5[], recovery: PausedRecovery) => {
+  const unsettled = events.filter(isUnsettled);
+  if (!unsettled.some((event) => event.eventId === recovery.eventId && event.status === 'paused')
+    || unsettled.some((event) => !canReplaceManually(event))
+    || recoverySnapshot(events, conflicts) !== recovery.snapshot) return null;
+  return unsettled;
+};
+
+const finishRecovery = (
+  tx: IDBPTransaction<unknown, string[], 'readwrite'>, pending: RecoveryEvent[],
+  conflicts: SyncConflictV5[], manual?: PausedRecovery,
+) => [
+  ...pending.map((event) => tx.objectStore(V5_OUTBOX_STORE).put(manual
+    ? { ...event, status: 'superseded', nextAttemptAt: null, recoveryPending: false,
+      claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null }
+    : { ...event, recoveryPending: false })),
+  ...(manual ? conflicts.map((conflict) => tx.objectStore(V5_SYNC_CONFLICTS_STORE).put({
+    ...conflict, state: 'resolved_remote', resolvedAt: Date.now(),
+  })) : []),
+];
 
 const readRecoverableIds = (ownerKey: OwnerKey, ids: string[], trustedNow: number | null) => trustedNow === null
   ? Promise.resolve(new Set<string>())
@@ -207,12 +245,15 @@ const fetchServerHead = async (uid: string, bookId: string): Promise<unknown | n
 
 export const recoverExpiredProgressFromServer = async (
   uid: string, ownerKey: OwnerKey, bookId: string,
-  options: { fetchHead?: (uid: string, bookId: string) => Promise<unknown | null>; isCurrent?: () => boolean; serverTrustedNow?: number | null } = {},
+  options: { fetchHead?: (uid: string, bookId: string) => Promise<unknown | null>; isCurrent?: () => boolean;
+    serverTrustedNow?: number | null; manual?: PausedRecovery } = {},
 ): Promise<{ status: 'resynced'; progress: UserProgress } | { status: 'conflict' } | { status: 'blocked' }> => {
   if (options.isCurrent && !options.isCurrent()) return { status: 'blocked' };
-  await quarantineExpiredSyncWork(ownerKey, progressTargetKeyV2(bookId), recoveryTime(ownerKey, options), options.isCurrent);
+  if (!options.manual) {
+    await quarantineExpiredSyncWork(ownerKey, progressTargetKeyV2(bookId), recoveryTime(ownerKey, options), options.isCurrent);
+  }
   if (options.isCurrent && !options.isCurrent()) return { status: 'blocked' };
-  const rawHead = await (options.fetchHead ?? fetchServerHead)(uid, bookId);
+  const rawHead = await awaitRecoveryHead((options.fetchHead ?? fetchServerHead)(uid, bookId), options.manual);
   if (options.isCurrent && !options.isCurrent()) return { status: 'blocked' };
   const head: ProgressHeadV2 | null = rawHead === null ? null : parseProgressHeadV2(rawHead);
   if (head && head.bookId !== bookId) throw new Error('Server progress head bookId mismatch');
@@ -233,22 +274,25 @@ export const recoverExpiredProgressFromServer = async (
     remoteStore.get([ownerKey, targetKey]) as Promise<RemoteHeadCacheV5 | undefined>,
     metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
   ]);
-  const pending = events.filter((event) => event.status === 'expired' && event.recoveryPending !== false);
-  if ((options.isCurrent && !options.isCurrent()) || !pending.length
+  const conflicts = [...open, ...deferred];
+  const pending = options.manual ? manualRecoveryRows(events, conflicts, options.manual)
+    : events.filter((event) => event.status === 'expired' && event.recoveryPending !== false);
+  if ((options.isCurrent && !options.isCurrent()) || !pending?.length
+    || (options.manual && Math.max(meta?.knownRevision ?? 0, existing?.syncRevision ?? 0) > (head?.revision ?? 0))
     || (!head && remote)
     || (head && remote && (remote.revision > head.revision
       || (remote.revision === head.revision && remote.head.acceptedEventId !== head.acceptedEventId)))) {
     await tx.done;
     return { status: 'blocked' };
   }
-  if (events.some((event) => active.has(event.status))) {
+  if (!options.manual && events.some((event) => active.has(event.status))) {
     const preserved = await preserveSuccessorConflict(tx, ownerKey, events, [...open, ...deferred], head,
       recoveryTime(ownerKey, options), meta);
     await tx.done;
     if (preserved) notifyProgressSyncWork(ownerKey);
     return preserved ? { status: 'conflict' } : { status: 'blocked' };
   }
-  if (open.length || deferred.length) { await tx.done; return { status: 'blocked' }; }
+  if (!options.manual && conflicts.length) { await tx.done; return { status: 'blocked' }; }
   const revision = head?.revision ?? 0;
   const time = head?.updatedAtServer as { toDate?: () => Date } | undefined;
   const position = head?.operation === 'set' ? head.position : null;
@@ -267,7 +311,7 @@ export const recoverExpiredProgressFromServer = async (
     progressStore.put({ ...progress, ownerKey }),
     head ? remoteStore.put({ ownerKey, targetKey, revision, head, updatedAt: now }) : remoteStore.delete([ownerKey, targetKey]),
     metaStore.put({ ownerKey, targetKey, nextSequence: meta?.nextSequence ?? 1, knownRevision: revision, updatedAt: now }),
-    ...pending.map((event) => outbox.put({ ...event, recoveryPending: false })),
+    ...finishRecovery(tx, pending, conflicts, options.manual),
   ]);
   await tx.done;
   return { status: 'resynced', progress };
@@ -284,6 +328,7 @@ type RecoveryOptions = {
   fetchHead?: (uid: string, target: SyncTarget) => Promise<unknown | null>;
   isCurrent?: () => boolean;
   fetchAnnotationBook?: (uid: string, bookId: string, annotationId: string) => Promise<{ heads: unknown[]; marker: unknown | null; targetHead?: unknown | null }>;
+  manual?: PausedRecovery;
 };
 
 const getTargetKey = (target: SyncTarget) => {
@@ -294,6 +339,15 @@ const getTargetKey = (target: SyncTarget) => {
     case 'palette': return annotationPaletteTargetKeyV1();
   }
 };
+
+const hasRecoveryTarget = (target: SyncTarget | null | undefined): target is SyncTarget => Boolean(
+  target && typeof target === 'object' && (target.kind === 'palette' || (
+    'bookId' in target && typeof target.bookId === 'string' && target.bookId.length > 0
+    && (target.kind === 'progress'
+      || (target.kind === 'bookmark' && typeof target.bookmarkId === 'string' && target.bookmarkId.length > 0)
+      || (target.kind === 'annotation' && typeof target.annotationId === 'string' && target.annotationId.length > 0))
+  ))
+);
 
 const fetchOtherHead = async (uid: string, target: Extract<SyncTarget, { kind: 'bookmark' | 'palette' }>) => {
   const [{ doc, getDocFromServer }, { db }] = await Promise.all([
@@ -307,6 +361,45 @@ const fetchOtherHead = async (uid: string, target: Extract<SyncTarget, { kind: '
   return snapshot.exists() ? snapshot.data() : null;
 };
 
+export const preparePausedSyncRecovery = async (ownerKey: OwnerKey) => {
+  const db = await initDB();
+  const tx = db.transaction([V5_OUTBOX_STORE, V5_SYNC_CONFLICTS_STORE]);
+  const events = await tx.objectStore(V5_OUTBOX_STORE).index('by-owner-status').getAll([ownerKey, 'paused']) as SyncOutboxEventV5[];
+  const distinct = new Map(events.map((event) => [event.targetKey, event]));
+  const targets = await Promise.all([...distinct.values()].map(async ({ target, targetKey, eventId, lastErrorCode }) => {
+    if (!hasRecoveryTarget(target)) return { target: null, targetKey, eventId, lastErrorCode, recovery: null };
+    const item = { target, targetKey, eventId, lastErrorCode };
+    if (getTargetKey(target) !== targetKey
+      || (target.kind === 'annotation' && target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID)) {
+      return { ...item, recovery: null };
+    }
+    const [rows, open, deferred] = await readTargetRecoveryRows(tx, ownerKey, targetKey);
+    const recovery = rows.filter(isUnsettled).every(canReplaceManually)
+      ? { eventId, snapshot: recoverySnapshot(rows, [...open, ...deferred]) }
+      : null;
+    return { ...item, recovery };
+  }));
+  await tx.done;
+  return targets;
+};
+
+export type PausedSyncRecoverySelection = Awaited<ReturnType<typeof preparePausedSyncRecovery>>[number];
+
+export const recoverPausedSyncTargetFromServer = async (
+  uid: string, ownerKey: OwnerKey, selection: PausedSyncRecoverySelection,
+  options: Omit<RecoveryOptions, 'manual'> = {},
+) => {
+  if (!selection.recovery || !selection.target || splitOwnerKey(ownerKey).authOwnerKey !== makeFirebaseOwnerKey(uid)
+    || (selection.target.kind === 'annotation' && selection.target.annotationId === ANNOTATION_BOOK_DELETE_MARKER_ID)) {
+    return { status: 'blocked' } as const;
+  }
+  const result = await recoverExpiredSyncTargetFromServer(uid, ownerKey, selection.target, {
+    ...options, manual: selection.recovery,
+  });
+  if (result.status === 'resynced') notifyProgressSyncWork(ownerKey);
+  return result;
+};
+
 export const recoverExpiredSyncTargetFromServer = async (
   uid: string, ownerKey: OwnerKey, target: SyncTarget, options: RecoveryOptions = {},
 ): Promise<{ status: 'resynced'; progress?: UserProgress } | { status: 'conflict' } | { status: 'blocked' }> => {
@@ -315,6 +408,7 @@ export const recoverExpiredSyncTargetFromServer = async (
       isCurrent: options.isCurrent,
       serverTrustedNow: options.serverTrustedNow,
       fetchHead: options.fetchHead ? (id) => options.fetchHead!(id, target) : undefined,
+      manual: options.manual,
     });
   }
   if (options.isCurrent && !options.isCurrent()) return { status: 'blocked' };
@@ -322,10 +416,10 @@ export const recoverExpiredSyncTargetFromServer = async (
     return recoverAnnotationBookDeletion(uid, ownerKey, target, options);
   }
   const targetKey = getTargetKey(target);
-  await quarantineExpiredSyncWork(ownerKey, targetKey, recoveryTime(ownerKey, options), options.isCurrent);
+  if (!options.manual) await quarantineExpiredSyncWork(ownerKey, targetKey, recoveryTime(ownerKey, options), options.isCurrent);
   if (options.isCurrent && !options.isCurrent()) return { status: 'blocked' };
   if (target.kind === 'annotation') return recoverAnnotation(uid, ownerKey, target, options);
-  const raw = await (options.fetchHead ? options.fetchHead(uid, target) : fetchOtherHead(uid, target));
+  const raw = await awaitRecoveryHead((options.fetchHead ?? fetchOtherHead)(uid, target), options.manual);
   if (options.isCurrent && !options.isCurrent()) return { status: 'blocked' };
   const head = raw === null ? null : target.kind === 'bookmark'
     ? parseBookmarkHeadV2(raw) : parseAnnotationPaletteHeadV1(raw);
@@ -347,21 +441,24 @@ export const recoverExpiredSyncTargetFromServer = async (
     metas.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
     target.kind === 'bookmark' ? tx.objectStore(V5_PROGRESS_STORE).get([ownerKey, target.bookId]) as Promise<UserProgress | undefined> : Promise.resolve(undefined),
   ]);
-  const pending = events.filter((event) => event.status === 'expired' && event.recoveryPending !== false);
-  if ((options.isCurrent && !options.isCurrent()) || !pending.length
+  const unresolved = [...open, ...deferred] as SyncConflictV5[];
+  const pending = options.manual ? manualRecoveryRows(events, unresolved, options.manual)
+    : events.filter((event) => event.status === 'expired' && event.recoveryPending !== false);
+  if ((options.isCurrent && !options.isCurrent()) || !pending?.length
+    || (options.manual && (meta?.knownRevision ?? 0) > (head?.revision ?? 0))
     || (!head && remote) || (head && remote && (remote.revision > head.revision
       || (remote.revision === head.revision && remote.head.acceptedEventId !== head.acceptedEventId)))) {
     await tx.done;
     return { status: 'blocked' };
   }
-  if (events.some((event) => active.has(event.status))) {
+  if (!options.manual && events.some((event) => active.has(event.status))) {
     const preserved = await preserveSuccessorConflict(tx, ownerKey, events, [...open, ...deferred] as SyncConflictV5[], head,
       recoveryTime(ownerKey, options), meta);
     await tx.done;
     if (preserved) notifyProgressSyncWork(ownerKey);
     return preserved ? { status: 'conflict' } : { status: 'blocked' };
   }
-  if (open.length || deferred.length) { await tx.done; return { status: 'blocked' }; }
+  if (!options.manual && unresolved.length) { await tx.done; return { status: 'blocked' }; }
   const now = Date.now();
   let progress: UserProgress | undefined;
   if (target.kind === 'bookmark') {
@@ -384,7 +481,7 @@ export const recoverExpiredSyncTargetFromServer = async (
     }) : Promise.resolve(),
     head ? remotes.put({ ownerKey, targetKey, revision, head, updatedAt: now }) : remotes.delete([ownerKey, targetKey]),
     metas.put({ ownerKey, targetKey, knownRevision: revision, nextSequence: meta?.nextSequence ?? 1, updatedAt: now }),
-    ...pending.map((event) => outbox.put({ ...event, recoveryPending: false })),
+    ...finishRecovery(tx, pending, unresolved, options.manual),
   ]);
   await tx.done;
   if (target.kind === 'palette') notifyAnnotationSyncChange({ ownerKey, palette: normalizeAnnotationPalette(head && 'palette' in head ? head.palette.items : undefined) });
@@ -551,7 +648,9 @@ const recoverAnnotationBookDeletion = async (
 const recoverAnnotation = async (
   uid: string, ownerKey: OwnerKey, target: Extract<SyncTarget, { kind: 'annotation' }>, options: RecoveryOptions,
 ): Promise<{ status: 'resynced' } | { status: 'conflict' } | { status: 'blocked' }> => {
-  const raw = await (options.fetchAnnotationBook ?? fetchAnnotationBook)(uid, target.bookId, target.annotationId);
+  const raw = await awaitRecoveryHead(
+    (options.fetchAnnotationBook ?? fetchAnnotationBook)(uid, target.bookId, target.annotationId), options.manual,
+  );
   if (options.isCurrent && !options.isCurrent()) return { status: 'blocked' };
   const heads = raw.heads.map(parseAnnotationHeadV1);
   const marker = raw.marker === null ? null : parseAnnotationHeadV1(raw.marker);
@@ -592,18 +691,22 @@ const recoverAnnotation = async (
     annotations.index('by-owner-book').getAll([ownerKey, target.bookId]) as Promise<Annotation[]>,
     tx.objectStore(V10_ANNOTATION_BOOK_DELETIONS_STORE).get([ownerKey, target.bookId]) as Promise<AnnotationBookDeletionIntentV10 | undefined>,
   ]);
-  const pending = events.filter((event) => event.status === 'expired' && event.recoveryPending !== false);
+  const unresolved = [...open, ...deferred] as SyncConflictV5[];
+  const pending = options.manual ? manualRecoveryRows(events, unresolved, options.manual)
+    : events.filter((event) => event.status === 'expired' && event.recoveryPending !== false);
   const stale = (cached: RemoteHeadCacheV5 | undefined, incoming: AnnotationHeadV1 | null) => Boolean(cached && (
     !incoming || cached.revision > incoming.revision
     || (cached.revision === incoming.revision && cached.head.acceptedEventId !== incoming.acceptedEventId)
   ));
-  if ((options.isCurrent && !options.isCurrent()) || (intent?.expired && intent.recoveryPending !== false) || !pending.length
+  if ((options.isCurrent && !options.isCurrent()) || (intent && options.manual)
+    || (options.manual && (meta?.knownRevision ?? 0) > (head?.revision ?? 0))
+    || (intent?.expired && intent.recoveryPending !== false) || !pending?.length
     || markerEvents.some((event) => active.has(event.status) || (event.status === 'expired' && event.recoveryPending !== false))
     || markerOpen.length || markerDeferred.length || stale(remote, head) || stale(markerRemote, marker)) {
     await tx.done;
     return { status: 'blocked' };
   }
-  if (events.some((event) => active.has(event.status))) {
+  if (!options.manual && events.some((event) => active.has(event.status))) {
     const preserved = await preserveSuccessorConflict(tx, ownerKey, events, [...open, ...deferred] as SyncConflictV5[], head,
       recoveryTime(ownerKey, options), meta, generation);
     if (preserved && marker) await remotes.put({ ownerKey, targetKey: markerKey, revision: marker.revision, head: marker, updatedAt: Date.now() });
@@ -611,7 +714,7 @@ const recoverAnnotation = async (
     if (preserved) { notifyProgressSyncWork(ownerKey); notifyAnnotationSyncChange({ ownerKey, bookId: target.bookId }); }
     return preserved ? { status: 'conflict' } : { status: 'blocked' };
   }
-  if (open.length || deferred.length) { await tx.done; return { status: 'blocked' }; }
+  if (!options.manual && unresolved.length) { await tx.done; return { status: 'blocked' }; }
   try {
     validateHydratedAnnotations([...stored.filter((item) => item.id !== target.annotationId), ...(position ? [position] : [])]);
   } catch {
@@ -625,7 +728,7 @@ const recoverAnnotation = async (
     head ? remotes.put({ ownerKey, targetKey: key, revision: head.revision, head, updatedAt: now }) : remotes.delete([ownerKey, key]),
     marker ? remotes.put({ ownerKey, targetKey: markerKey, revision: marker.revision, head: marker, updatedAt: now }) : Promise.resolve(),
     metas.put({ ownerKey, targetKey: key, knownRevision: head?.revision ?? 0, nextSequence: meta?.nextSequence ?? 1, updatedAt: now }),
-    ...pending.map((event) => outbox.put({ ...event, recoveryPending: false })),
+    ...finishRecovery(tx, pending, unresolved, options.manual),
   ]);
   await tx.done;
   notifyAnnotationSyncChange({ ownerKey, bookId: target.bookId });

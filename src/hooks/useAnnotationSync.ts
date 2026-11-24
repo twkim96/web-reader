@@ -48,7 +48,7 @@ import type { AdoptRemoteAnnotationPaletteResultV9 } from '../lib/localAnnotatio
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from '../lib/annotationPolicy';
 import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
-import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
+import { mergeSyncHealth, SYNC_RECEIVE_RETRY_EVENT, type SyncHealth } from '../lib/syncHealth';
 import { isExactSyncSessionEcho } from '../lib/syncSession';
 import {
   notifyAnnotationSyncChange,
@@ -389,10 +389,12 @@ export const useAnnotationSync = ({
       if (user?.uid === uid) retry();
     });
     window.addEventListener('online', handleOnline);
+    window.addEventListener(SYNC_RECEIVE_RETRY_EVENT, retry);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       unsubscribeToken();
       window.removeEventListener('online', handleOnline);
+      window.removeEventListener(SYNC_RECEIVE_RETRY_EVENT, retry);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [context, ownerKey]);

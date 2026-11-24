@@ -6,10 +6,11 @@ import { LOCAL_DB_NAME, V5_OUTBOX_STORE } from '../src/lib/localDBSchema.ts';
 import { makeFirebaseOwnerKey, makeOwnerKey } from '../src/lib/ownerIdentity.ts';
 import { saveLocalAnnotationV8 } from '../src/lib/localAnnotations.ts';
 import { reconcileAnnotationBookDeletionIntentsV10 } from '../src/lib/annotationBookDeletion.ts';
-import { acquireSyncLeaseV5, claimNextProgressEventV5, enqueueProgressEventV5 } from '../src/lib/syncOutboxV5.ts';
+import { acquireSyncLeaseV5, claimNextProgressEventV5, enqueueProgressEventV5, resumePausedAuthEventsV5 } from '../src/lib/syncOutboxV5.ts';
 import { quarantineExpiredProgressWork as quarantineProgress, hasExpiredProgressRecoveryPending,
   listExpiredProgressRecoveryBooks, recoverExpiredProgressFromServer as recoverProgress, quarantineExpiredSyncWork as quarantineWork,
-  hasExpiredSyncRecoveryPending, listExpiredSyncRecoveryTargets, recoverExpiredSyncTargetFromServer as recoverTarget } from '../src/lib/expiredSyncRecovery.ts';
+  hasExpiredSyncRecoveryPending, listExpiredSyncRecoveryTargets, recoverExpiredSyncTargetFromServer as recoverTarget,
+  preparePausedSyncRecovery, recoverPausedSyncTargetFromServer } from '../src/lib/expiredSyncRecovery.ts';
 
 const fixtureServerNow = 1700000000000 + 181 * 864e5;
 const quarantineExpiredProgressWork = (owner, book, now = fixtureServerNow) => quarantineProgress(owner, book, now);
@@ -47,6 +48,73 @@ async function seed() {
 }
 test.beforeEach(reset);
 test.after(reset);
+
+test('manual recovery replaces only the confirmed target after receiving its server head', async () => {
+  const db = await seed();
+  const paused = { ...event(id, 1, 'paused'), lastErrorCode: 'invalid-argument' };
+  const other = { ...event('other', 1, 'pending'), target: { kind: 'progress', bookId: 'other' }, targetKey: 'progress:other' };
+  await db.put(V5_OUTBOX_STORE, paused);
+  await db.put(V5_OUTBOX_STORE, other);
+  const [selection] = await preparePausedSyncRecovery(owner);
+  assert.equal(selection.lastErrorCode, 'invalid-argument');
+  await assert.rejects(recoverPausedSyncTargetFromServer('test', owner, selection, {
+    fetchHead: async () => { throw new Error('unavailable'); },
+  }), /unavailable/);
+  assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, id]), paused);
+  assert.deepEqual(await db.get('progress-v5', [owner, 'book']), old);
+
+  const result = await recoverPausedSyncTargetFromServer('test', owner, selection, { fetchHead: async () => head });
+  assert.equal(result.status, 'resynced');
+  assert.equal(result.progress.cfi, 'server');
+  assert.deepEqual(result.progress.bookmarks, old.bookmarks);
+  assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, 'other']), other);
+  for (const eventId of [id, 'unleased_old']) {
+    assert.equal((await db.get(V5_OUTBOX_STORE, [owner, eventId])).status, 'superseded');
+  }
+  assert.deepEqual((await db.get(V5_OUTBOX_STORE, [owner, id])).payload, position);
+  assert.equal((await db.get('sync-conflicts-v5', [owner, 'c'])).state, 'resolved_remote');
+  assert.deepEqual(await preparePausedSyncRecovery(owner), []);
+});
+
+test('manual recovery keeps an edit that changed under the same event ID during the server read', async () => {
+  const db = await seed();
+  await db.put(V5_OUTBOX_STORE, event(id, 1, 'paused'));
+  const [selection] = await preparePausedSyncRecovery(owner);
+  const edit = { ...event('unleased_old', 2, 'pending'), payload: { ...position, cfi: 'new edit' } };
+  const result = await recoverPausedSyncTargetFromServer('test', owner, selection, {
+    fetchHead: async () => { await db.put(V5_OUTBOX_STORE, edit); return head; },
+  });
+  assert.deepEqual(result, { status: 'blocked' });
+  assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, 'unleased_old']), edit);
+  assert.equal((await db.get(V5_OUTBOX_STORE, [owner, id])).status, 'paused');
+  assert.deepEqual(await db.get('progress-v5', [owner, 'book']), old);
+});
+
+test('manual local retry keeps the original permission event and leaves schema failures paused', async () => {
+  const db = await initDB();
+  const permission = { ...event(id, 1, 'paused'), lastErrorCode: 'permission-denied' };
+  const invalid = { ...event('invalid', 1, 'paused'), lastErrorCode: 'invalid-argument' };
+  const other = { ...event('other', 1, 'paused'), lastErrorCode: 'permission-denied' };
+  for (const row of [permission, invalid, other]) await db.put(V5_OUTBOX_STORE, row);
+  assert.equal(await resumePausedAuthEventsV5(owner, 100, true, { eventId: 'invalid', isCurrent: () => true }), 0);
+  assert.equal(await resumePausedAuthEventsV5(owner, 100, true, { eventId: id, isCurrent: () => false }), 0);
+  assert.equal(await resumePausedAuthEventsV5(owner, 100, true, { eventId: id, isCurrent: () => true }), 1);
+  assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, id]), {
+    ...permission, status: 'pending', nextAttemptAt: 100, lastErrorCode: null,
+    claimedByTabId: null, claimedLeaseEpoch: null, claimToken: null,
+  });
+  assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, 'invalid']), invalid);
+  assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, 'other']), other);
+});
+
+test('a paused row without a target does not hide the other recovery choices', async () => {
+  const db = await initDB();
+  await db.put(V5_OUTBOX_STORE, event(id, 1, 'paused'));
+  await db.put(V5_OUTBOX_STORE, { ...event('invalid', 1, 'paused'), target: null, targetKey: 'invalid' });
+  const targets = await preparePausedSyncRecovery(owner);
+  assert.ok(targets.find(({ eventId }) => eventId === id).recovery);
+  assert.equal(targets.find(({ eventId }) => eventId === 'invalid').recovery, null);
+});
 
 test('without trusted time leased and legacy events are never classified expired', async () => {
   const db = await initDB();
@@ -227,6 +295,20 @@ async function seedAnnotation() {
   await db.put('annotations-v8', { ...annotation, ownerKey: owner, quote: 'local', anchorState: 'active' });
   return db;
 }
+
+test('manual server recovery safeguards paused cleanup from an acknowledged book deletion', async () => {
+  const db = await initDB();
+  await db.put('annotation-book-deletions-v10', { ownerKey: owner, bookId: 'book', markerRevision: 3, createdAt: 1 });
+  const cleanup = { ...event('cleanup', 1, 'paused'), target: annotationTarget, targetKey: annotationKey,
+    operation: 'annotation.delete', payload: null, deleteBeforeBookGeneration: 3 };
+  await db.put(V5_OUTBOX_STORE, cleanup);
+  const [selection] = await preparePausedSyncRecovery(owner);
+  assert.equal(selection.recovery, null);
+  assert.deepEqual(await recoverPausedSyncTargetFromServer('test', owner, selection, {
+    fetchAnnotationBook: async () => assert.fail('Cleanup recovery must stop before reading the server'),
+  }), { status: 'blocked' });
+  assert.deepEqual(await db.get(V5_OUTBOX_STORE, [owner, 'cleanup']), cleanup);
+});
 test('annotation recovery adopts authoritative head while preserving expired payload', async () => {
   const db = await seedAnnotation();
   const result = await recoverExpiredSyncTargetFromServer('test', owner, annotationTarget, {

@@ -2463,17 +2463,19 @@ export const resumePausedAuthEventsV5 = async (
   ownerKey: OwnerKey,
   now = Date.now(),
   retryPermissionDenied = true,
+  selection?: { eventId: string; isCurrent: () => boolean },
 ) => {
   const db = await initDB();
   const tx = db.transaction(V5_OUTBOX_STORE, 'readwrite');
   const store = tx.objectStore(V5_OUTBOX_STORE);
-  const events = await store.index('by-owner-status').getAll([
+  const events = (selection ? [await store.get([ownerKey, selection.eventId])] : await store.index('by-owner-status').getAll([
     ownerKey,
     'paused',
-  ]) as SyncOutboxEventV5[];
+  ])) as Array<SyncOutboxEventV5 | undefined>;
   let resumed = 0;
   for (const event of events) {
-    if (!event.lastErrorCode || !resumableAuthCodes.has(event.lastErrorCode)
+    if (event?.status !== 'paused' || !event.lastErrorCode || !resumableAuthCodes.has(event.lastErrorCode)
+      || (selection && !selection.isCurrent())
       || (!retryPermissionDenied && event.lastErrorCode === 'permission-denied')) continue;
     resumed += 1;
     await store.put({

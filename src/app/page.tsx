@@ -54,6 +54,7 @@ import {
   makeGuestOwnerKey,
   makeOwnerKey,
   getSyncOwnerKey,
+  splitOwnerKey,
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
@@ -65,7 +66,7 @@ import {
   hasPendingGoogleDriveOAuth,
 } from '../lib/googleDriveOAuth';
 import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
-import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
+import { mergeSyncHealth, SYNC_RECEIVE_RETRY_EVENT, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
 const MyPage = dynamic(() => import('../components/mypage/MyPage').then((module) => module.MyPage), { ssr: false });
 import { LibraryReadingStatisticsModal } from '../components/LibraryReadingStatisticsModal';
@@ -79,8 +80,16 @@ import { runLogoutFlow } from '../lib/logoutFlow';
 import { LoginDisclosureModal, type LoginDisclosureMode } from '../components/LoginDisclosureModal';
 import { getProgressCommitBaseline, rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { applyManualBookmarkMutation, type ManualBookmarkMutation } from '../lib/bookmarkSyncPolicy';
-import type { ExpiredSyncProgressUpdate } from '../lib/expiredSyncRecovery';
+import {
+  preparePausedSyncRecovery, recoverPausedSyncTargetFromServer,
+  type ExpiredSyncProgressUpdate, type PausedSyncRecoverySelection,
+} from '../lib/expiredSyncRecovery';
+import { resumePausedAuthEventsV5 } from '../lib/syncOutboxV5';
 import type { UserProgress } from '../types';
+
+const recoveryTargetLabels = {
+  progress: '읽던 위치', bookmark: '책갈피', annotation: '주석', palette: '주석 색상',
+} as const;
 
 const getStoredGuestMode = () => (
   typeof window !== 'undefined' && localStorage.getItem('isGuest') === 'true'
@@ -116,6 +125,14 @@ export default function Page() {
   const [loginDisclosureMode, setLoginDisclosureMode] = useState<LoginDisclosureMode | null>(null);
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [annotationSyncHealth, setAnnotationSyncHealth] = useState<SyncHealth>('healthy');
+  const [syncRecovery, setSyncRecovery] = useState<{
+    owner: NonNullable<ReturnType<typeof ownerRuntime.capture>>;
+    targets: PausedSyncRecoverySelection[];
+    selected?: PausedSyncRecoverySelection;
+  } | null>(null);
+  const [syncRecoveryBusy, setSyncRecoveryBusy] = useState(false);
+  const [syncRecoveryFeedback, setSyncRecoveryFeedback] = useState<string | null>(null);
+  const syncRecoveryRunning = useRef(false);
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
   const [recentlyImportedBookIds, setRecentlyImportedBookIds] = useState<string[]>([]);
   const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -306,6 +323,76 @@ export default function Page() {
     sendSyncHealth,
     annotationSyncHealth,
   );
+  const sendRecoveryAvailable = sendSyncHealth === 'blocked-schema' || sendSyncHealth === 'blocked-permission';
+  const receiveRetryAvailable = [receiveSyncHealth, annotationSyncHealth].some(
+    (health) => health === 'blocked-schema' || health === 'blocked-permission',
+  );
+  const prepareSyncRecovery = async () => {
+    const owner = ownerRuntime.capture();
+    if (!owner || !user || splitOwnerKey(owner.ownerKey).authOwnerKey !== `firebase:${user.uid}` || syncRecoveryRunning.current) return;
+    syncRecoveryRunning.current = true;
+    setSyncRecoveryBusy(true);
+    setSyncRecoveryFeedback(null);
+    try {
+      if (!await flushReaderProgress()) {
+        if (ownerRuntime.isCurrent(owner)) setSyncRecoveryFeedback('읽던 위치를 저장한 뒤 다시 시도해 주세요.');
+        return;
+      }
+      const targets = await preparePausedSyncRecovery(getSyncOwnerKey(owner.ownerKey));
+      if (!ownerRuntime.isCurrent(owner)) return;
+      if (targets.length) setSyncRecovery({ owner, targets });
+      else setSyncRecoveryFeedback('확인할 전송 중단 기록이 없습니다.');
+    } catch {
+      if (ownerRuntime.isCurrent(owner)) setSyncRecoveryFeedback('중단된 기록을 확인하지 못했습니다. 다시 시도해 주세요.');
+    } finally {
+      syncRecoveryRunning.current = false;
+      setSyncRecoveryBusy(false);
+    }
+  };
+  const applySyncRecovery = async (selection: PausedSyncRecoverySelection, useServer: boolean) => {
+    if (!syncRecovery || !user || syncRecoveryRunning.current) return;
+    const { owner } = syncRecovery;
+    if (!ownerRuntime.isCurrent(owner) || splitOwnerKey(owner.ownerKey).authOwnerKey !== `firebase:${user.uid}`) return;
+    if (!navigator.onLine) {
+      setSyncRecoveryFeedback('인터넷에 연결한 뒤 복구할 수 있습니다.');
+      setSyncRecovery(null);
+      return;
+    }
+    syncRecoveryRunning.current = true;
+    setSyncRecoveryBusy(true);
+    setSyncRecovery(null);
+    const ownerKey = getSyncOwnerKey(owner.ownerKey);
+    const isCurrent = () => ownerRuntime.isCurrent(owner);
+    try {
+      if (!useServer) {
+        const resumed = await resumePausedAuthEventsV5(ownerKey, Date.now(), true, {
+          eventId: selection.eventId, isCurrent,
+        });
+        if (isCurrent()) setSyncRecoveryFeedback(resumed
+          ? '이 기기의 기록을 다시 전송합니다.' : '작업이 변경됐습니다. 목록을 다시 확인해 주세요.');
+        return;
+      }
+      const result = await recoverPausedSyncTargetFromServer(user.uid, ownerKey, selection, { isCurrent });
+      if (!isCurrent()) return;
+      if (result.status !== 'resynced') {
+        setSyncRecoveryFeedback('작업이 변경됐거나 서버 기록을 안전하게 적용할 수 없습니다.');
+        return;
+      }
+      const { target } = selection;
+      if (result.progress && (target?.kind === 'progress' || target?.kind === 'bookmark')) {
+        const detail: ExpiredSyncProgressUpdate = { ownerKey, progress: result.progress,
+          ...(target.kind === 'bookmark' ? { kind: 'bookmark', bookmarkId: target.bookmarkId } : { kind: 'progress' }) };
+        window.dispatchEvent(new CustomEvent('web-reader-expired-sync-progress', { detail }));
+      }
+      setSyncRecoveryFeedback('서버 기록으로 복구했습니다.');
+      window.dispatchEvent(new Event(SYNC_RECEIVE_RETRY_EVENT));
+    } catch {
+      if (isCurrent()) setSyncRecoveryFeedback('복구하지 못했습니다. 이 기기의 기록을 보존했습니다.');
+    } finally {
+      syncRecoveryRunning.current = false;
+      setSyncRecoveryBusy(false);
+    }
+  };
   const syncConflictResolution = useSyncConflictResolution({
     user,
     progressRef,
@@ -369,6 +456,8 @@ export default function Page() {
     ? readerReopen.version : '';
   const readerInteractionBlocked = showSyncConflictDialog
     || syncConflictResolution.resolving
+    || (syncRecovery !== null && ownerRuntime.isCurrent(syncRecovery.owner))
+    || syncRecoveryBusy
     || readingStatisticsOpen
     || pendingAction !== null
     || loginDisclosureMode !== null
@@ -1074,9 +1163,71 @@ export default function Page() {
         </div>
       )}
 
-      {syncHealth !== 'healthy' && (
-        <div className="fixed bottom-4 right-4 z-[95] max-w-sm rounded-2xl bg-amber-700 px-4 py-3 text-sm text-white shadow-2xl">
-          {syncHealth === 'retrying-receive'
+      {syncRecovery && !syncRecovery.selected && ownerRuntime.isCurrent(syncRecovery.owner) && (
+        <ConfirmDialog
+          key="sync-recovery-targets"
+          variant="info"
+          message="동기화가 중단된 기록"
+          subMessage={
+            <span className="block max-h-[45dvh] space-y-3 overflow-y-auto text-left">
+              {syncRecovery.targets.map((selection) => {
+                const { target, targetKey, lastErrorCode, recovery } = selection;
+                const title = target && 'bookId' in target
+                  ? books.find(({ id }) => id === target.bookId)?.name ?? '서재에 없는 도서'
+                  : null;
+                const retryLocal = target && lastErrorCode === 'permission-denied';
+                return (
+                  <span key={targetKey} className="block space-y-1">
+                    <span className="block break-words">
+                      {title && `${title} · `}{target ? recoveryTargetLabels[target.kind] : '대상을 확인할 수 없는 기록'}
+                    </span>
+                    <span className="block font-normal">
+                      {retryLocal ? '전송 권한 오류' : '전송 오류'}
+                      {lastErrorCode && /^[a-zA-Z0-9_/-]{1,120}$/.test(lastErrorCode) && ` (${lastErrorCode})`}
+                    </span>
+                    <span className="flex flex-wrap gap-x-3 gap-y-1">
+                      {recovery && (
+                        <button type="button" className="min-h-8 underline"
+                          onClick={() => setSyncRecovery({ ...syncRecovery, selected: selection })}>
+                          서버 기록 적용
+                        </button>
+                      )}
+                      {retryLocal && (
+                        <button type="button" className="min-h-8 underline"
+                          onClick={() => void applySyncRecovery(selection, false)}>
+                          기기 기록 재전송
+                        </button>
+                      )}
+                      {!recovery && !retryLocal && <span className="font-normal">이 기록은 여기서 복구할 수 없습니다.</span>}
+                    </span>
+                  </span>
+                );
+              })}
+            </span>
+          }
+          confirmLabel="닫기"
+          hideCancel
+          dismissible
+          theme={theme}
+          onConfirm={() => setSyncRecovery(null)}
+          onCancel={() => setSyncRecovery(null)}
+        />
+      )}
+      {syncRecovery?.selected && ownerRuntime.isCurrent(syncRecovery.owner) && (
+        <ConfirmDialog
+          key="sync-recovery-confirm"
+          message="서버 기록으로 복구할까요?"
+          subMessage="선택한 기록의 이 기기 미전송 변경을 취소하고 서버 기록을 적용합니다."
+          confirmLabel="복구"
+          theme={theme}
+          onConfirm={() => syncRecovery.selected && void applySyncRecovery(syncRecovery.selected, true)}
+          onCancel={() => setSyncRecovery({ ...syncRecovery, selected: undefined })}
+        />
+      )}
+
+      {(syncHealth !== 'healthy' || syncRecoveryFeedback || syncRecoveryBusy) && (
+        <div className={`fixed bottom-4 right-4 z-[95] max-w-sm rounded-2xl px-4 py-3 text-sm text-white shadow-2xl ${syncHealth === 'healthy' ? 'bg-slate-700' : 'bg-amber-700'}`}>
+          {syncRecoveryBusy ? '동기화 기록을 확인하는 중입니다.' : syncRecoveryFeedback ?? (syncHealth === 'retrying-receive'
             ? '다른 기기의 읽기 기록을 다시 연결하고 있습니다. 이 기기에 저장된 변경은 보존됩니다.'
             : syncHealth === 'recovering-expired'
               ? '전송 기한이 지난 기록을 확인하고 있습니다. 최신 클라우드 기록을 다시 불러옵니다.'
@@ -1084,7 +1235,26 @@ export default function Page() {
                 ? 'Firebase 인증이 만료되어 동기화가 멈췄습니다. 다시 로그인하면 자동으로 재개됩니다.'
                 : syncHealth === 'blocked-permission'
                   ? 'Firestore 권한 문제로 일부 도서의 동기화가 멈췄습니다.'
-                  : '동기화 데이터 형식 오류로 일부 도서의 송수신이 멈췄습니다.'}
+                  : '동기화 데이터 형식 오류로 일부 도서의 송수신이 멈췄습니다.')}
+          {!syncRecoveryBusy && (sendRecoveryAvailable || receiveRetryAvailable || syncRecoveryFeedback) && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+              {sendRecoveryAvailable ? (
+                <button type="button" className="font-semibold underline" onClick={() => void prepareSyncRecovery()}>
+                  복구 옵션
+                </button>
+              ) : receiveRetryAvailable ? (
+                <button type="button" className="font-semibold underline"
+                  onClick={() => window.dispatchEvent(new Event(SYNC_RECEIVE_RETRY_EVENT))}>
+                  다시 연결
+                </button>
+              ) : null}
+              {syncRecoveryFeedback && (
+                <button type="button" className="font-semibold underline" onClick={() => setSyncRecoveryFeedback(null)}>
+                  닫기
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

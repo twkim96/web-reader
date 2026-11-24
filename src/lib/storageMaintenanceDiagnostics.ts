@@ -40,13 +40,14 @@ const ageMs = (now: number, timestamps: number[]) => {
   return Number.isFinite(oldest) ? Math.max(0, now - oldest) : 0;
 };
 
-const countBy = <T>(values: readonly T[], readKey: (value: T) => string) => (
-  values.reduce<Record<string, number>>((counts, value) => {
+const countBy = <T>(values: readonly T[], readKey: (value: T) => string) => {
+  const counts = new Map<string, number>();
+  for (const value of values) {
     const key = readKey(value);
-    counts[key] = (counts[key] ?? 0) + 1;
-    return counts;
-  }, {})
-);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Object.fromEntries(counts);
+};
 
 const readOwnerRange = (ownerKey: OwnerKey) => IDBKeyRange.bound(
   [ownerKey, ''],
@@ -62,6 +63,8 @@ export type StorageMaintenanceDiagnosticsV1 = {
     count: number;
     approximateBytes: number;
     byStatus: Record<string, number>;
+    pausedByError: Record<string, number>;
+    pausedByTarget: Record<string, number>;
     oldestAgeMs: number;
     supersededOlderThan30Days: number;
   };
@@ -144,6 +147,7 @@ export const collectStorageMaintenanceDiagnosticsV1 = async (
     storageEstimate = {};
   }
   const usage = Number.isFinite(storageEstimate.usage) ? Number(storageEstimate.usage) : null;
+  const paused = outbox.filter(({ status }) => status === 'paused');
   const quota = Number.isFinite(storageEstimate.quota) && Number(storageEstimate.quota) > 0
     ? Number(storageEstimate.quota)
     : null;
@@ -156,6 +160,9 @@ export const collectStorageMaintenanceDiagnosticsV1 = async (
       count: outbox.length,
       approximateBytes: approximateBytes(outbox),
       byStatus: countBy(outbox, ({ status }) => status),
+      pausedByError: countBy(paused, ({ lastErrorCode }) =>
+        lastErrorCode && /^[a-zA-Z0-9_/-]{1,120}$/.test(lastErrorCode) ? lastErrorCode : 'unknown'),
+      pausedByTarget: countBy(paused, ({ target }) => target?.kind ?? 'unknown'),
       oldestAgeMs: ageMs(now, outbox.map(({ occurredAtClient }) => occurredAtClient)),
       supersededOlderThan30Days: outbox.filter((event) => (
         event.status === 'superseded'

@@ -40,7 +40,7 @@ import {
 import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { getSyncSessionId, isExactSyncSessionEcho } from '../lib/syncSession';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
-import { mergeSyncHealth, type SyncHealth } from '../lib/syncHealth';
+import { mergeSyncHealth, SYNC_RECEIVE_RETRY_EVENT, type SyncHealth } from '../lib/syncHealth';
 import { traceReaderBootstrap, type ListenerWakeReason } from '../lib/readerBootstrapTrace';
 
 type FirestoreQuerySnapshot = QuerySnapshot<DocumentData, DocumentData>;
@@ -422,11 +422,17 @@ export const useProgressSync = ({
     )) {
       traceReaderBootstrap({ event: 'listener-reconciled', listener: 'progress', wakeReason: 'book-open' });
     }
+    const retryReceive = () => {
+      progressRecoveryRef.current?.retryNow();
+      bookmarkRecoveryRef.current?.retryNow();
+    };
+    window.addEventListener(SYNC_RECEIVE_RETRY_EVENT, retryReceive);
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       foregroundRefreshGeneration++;
       unsubscribeToken();
+      window.removeEventListener(SYNC_RECEIVE_RETRY_EVENT, retryReceive);
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
     };

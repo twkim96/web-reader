@@ -788,9 +788,13 @@ export const recordReadingStatisticsVerifiedAuditV12 = async (
 
 export const getReadingStatisticsHydrationMetricsV12 = async (ownerKey: OwnerKey) => {
   const db = await initDB();
-  const value = await db.get(V12_READING_STATISTICS_SYNC_STORE, ownerKey);
-  if (!value) return null;
-  const meta = assertSyncMeta(value);
+  const tx = db.transaction(V12_READING_STATISTICS_SYNC_STORE);
+  const [value, recent] = await Promise.all([
+    tx.store.get(ownerKey), tx.store.get(readingStatisticsRecentKey(ownerKey)),
+  ]);
+  await tx.done;
+  if (!value && !recent) return null;
+  const meta = assertSyncMeta(value ?? recent?.state);
   return {
     runCount: meta.hydrationRunCount,
     pageCount: meta.hydrationPageCount,
@@ -800,6 +804,11 @@ export const getReadingStatisticsHydrationMetricsV12 = async (ownerKey: OwnerKey
     failedRunCount: meta.hydrationFailedRunCount,
     lastDurationMs: meta.lastHydrationDurationMs,
     lastCompletedAt: meta.lastHydrationCompletedAt,
+    ...(meta.published ? { installedPublication: {
+      firstDay: meta.published.firstDay, lastDay: meta.published.lastDay, sourceThrough: meta.published.sourceThrough,
+    } } : {}),
+    ...(recent ? { recentOnly: true, ...(isReadingUploadTime(recent.rejectedSourceThrough)
+      ? { rejectedPublicationCutoff: recent.rejectedSourceThrough } : {}) } : {}),
   };
 };
 
