@@ -3,7 +3,8 @@ import { MY_PAGE_DASHBOARD_BOOK_LIMIT } from './myPageSocial';
 import { platformWorkKey, type ReadBook } from './readBooks';
 
 const minimumPopularity = 4_300;
-const maximumScoreBoost = 0.05;
+const maximumRecommendationCandidates = 50;
+const minimumRelativeScore = 0.8;
 
 const tagAliases = new Map([
   ['성장물', '성장'], ['성장판무', '성장'],
@@ -65,7 +66,8 @@ function rotationWeight(id: string, seed: number) {
     hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193);
   }
   hash = Math.imul(hash ^ (hash >>> 16), 0x85ebca6b);
-  return ((hash ^ (hash >>> 13)) >>> 0) / 0x1_0000_0000;
+  hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35);
+  return (((hash ^ (hash >>> 16)) >>> 0) + 0.5) / 0x1_0000_0000;
 }
 
 export function recommendDiscoveryBooks(
@@ -109,14 +111,13 @@ export function recommendDiscoveryBooks(
     scoreB - scoreA || (b.popularity ?? 0) - (a.popularity ?? 0) || a.id.localeCompare(b.id)
   ));
   const count = Math.min(ranked.length, MY_PAGE_DASHBOARD_BOOK_LIMIT);
-  const fixedCount = Math.ceil(count * 2 / 3);
-  if (rotationSeed === undefined || count <= fixedCount) return ranked.slice(0, count).map(([book]) => book);
+  if (!count) return [];
+  const cutoffScore = ranked[count - 1][1] * minimumRelativeScore;
+  const candidates = ranked.slice(0, maximumRecommendationCandidates).filter(([, score]) => score >= cutoffScore);
+  if (rotationSeed === undefined) return candidates.map(([book]) => book);
 
-  // Keep the strongest cards in place. Only near-ties can enter the remaining slots.
-  const flexibleCount = count - fixedCount;
-  const rotated = ranked.slice(fixedCount, fixedCount + 4 * flexibleCount)
-    .map(([book, score]) => ({ book, score: score * (1 + maximumScoreBoost * rotationWeight(book.id, rotationSeed)) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, flexibleCount);
-  return [...ranked.slice(0, fixedCount).map(([book]) => book), ...rotated.map(({ book }) => book)];
+  // Exponential draws give each remaining book a chance proportional to its score.
+  return candidates.map(([book, score]) => ({ book, draw: -Math.log(rotationWeight(book.id, rotationSeed)) / score }))
+    .sort((a, b) => a.draw - b.draw)
+    .map(({ book }) => book);
 }

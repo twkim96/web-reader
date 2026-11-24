@@ -68,7 +68,7 @@ function ReadBookRow({ book, detailId, onOpenBook, rating }: {
 
 const emptyBooks: readonly ReadBook[] = [];
 
-export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetryCatalog, reviews, reviewError, onRetryReviews, renderBeforePreview }: {
+export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetryCatalog, reviews, reviewError, onRetryReviews, renderBeforePreview, hidePreview = false }: {
   ownerKey: OwnerKey;
   onShowAll?: () => void;
   getDetailId: (book: ReadBook) => string | null;
@@ -78,6 +78,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   reviewError?: string;
   onRetryReviews?: () => void;
   renderBeforePreview?: (books: readonly ReadBook[] | null) => ReactNode;
+  hidePreview?: boolean;
 }) {
   const guest = isGuestOwner(ownerKey);
   const { data: published } = useMyPageReadingFiles(ownerKey, !guest);
@@ -244,9 +245,9 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
     const previewBooks = visibleBooks ?? emptyBooks;
     return <>
       {renderBeforePreview?.(guest || error ? previewBooks : visibleBooks)}
-      <DashboardBookRow title="읽은 도서" books={previewBooks} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} getBookKey={(book) => book.rowKey ?? book.id} coverLoading="direct-with-proxy-fallback">
+      {!hidePreview && <DashboardBookRow title="읽은 도서" books={previewBooks} onShowAll={onShowAll} onOpenBook={onOpenBook} getDetailId={getDetailId} getBookKey={(book) => book.rowKey ?? book.id} coverLoading="direct-with-proxy-fallback">
         {status}
-      </DashboardBookRow>
+      </DashboardBookRow>}
     </>;
   }
 

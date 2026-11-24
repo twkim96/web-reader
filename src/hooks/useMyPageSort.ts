@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { OwnerKey } from '../lib/ownerIdentity';
 
 type SortOptions<T extends string> = readonly (readonly [T, string])[];
-type PrivateList = 'discover' | 'read' | 'wishlist' | 'reviews';
+type PrivateList = 'discover' | 'read' | 'wishlist' | 'reviews' | 'recommendations';
 const sortPrefix = 'reader_mypage_sort_v1';
 export const publicReviewSortKey = `${sortPrefix}:public-reviews`;
 

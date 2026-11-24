@@ -163,7 +163,7 @@ test('home recommendations slightly prefer fewer tags for equal matches and reta
   ]);
 });
 
-test('home recommendations rotate the tail while retaining the strongest and excluding newly saved works', () => {
+test('recommendations sample every slot by score and exclude distant or already saved works', () => {
   const row = (id, tags, popularity) => [id, id, null, [['series', `https://books.example/${id}`]], 0, tags, popularity, null];
   const catalog = parseDiscoveryIndex({ ...index, tags: ['모험', '마법', '빙의'], books: [
     row('saved', [0, 1, 2], 8_000),
@@ -172,14 +172,14 @@ test('home recommendations rotate the tail while retaining the strongest and exc
     row('too-distant', [0], 10_000), row('below-cutoff', [0, 1, 2], 4_299),
   ] });
   const recommend = (seed, saved = [catalog[0]]) => recommendDiscoveryBooks(catalog, saved, [], seed).map(({ id }) => id);
-  const first = recommend(11);
-  const next = recommend(27);
-  assert.equal(first.length, 12);
-  assert.deepEqual(recommend(11), first);
-  assert.deepEqual(first.slice(0, 8), Array.from({ length: 8 }, (_, i) => `strong-${i}`));
-  assert.deepEqual(next.slice(0, 8), first.slice(0, 8));
-  assert.notDeepEqual(next.slice(8), first.slice(8));
-  assert.ok([...first.slice(8), ...next.slice(8)].every((id) => id.startsWith('similar-')));
+  const results = Array.from({ length: 256 }, (_, seed) => recommend(seed));
+  assert.deepEqual(recommend(11), results[11]);
+  assert.ok(results.every((books) => books.length === 24 && new Set(books).size === 24));
+  assert.ok(results.every((books) => books.every((id) => /^(strong|similar)-/.test(id))));
+  const firstPicks = results.map(([first]) => first);
+  assert.ok(firstPicks.some((id) => id.startsWith('similar-')));
+  assert.ok(results.some((books) => !books.slice(0, 12).includes('strong-0')));
+  assert.ok(firstPicks.filter((id) => id.startsWith('strong-')).length > firstPicks.filter((id) => id.startsWith('similar-')).length / 2);
   assert.ok(!recommend(11, [catalog[0], catalog[1]]).includes('strong-0'));
 });
 

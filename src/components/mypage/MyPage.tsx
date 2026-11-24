@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, House, Library, Plus, Search, Settings2 } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
-import { getGroupedBookDiscovery, getRelatedDiscoveryBooks, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
 import { finishDiscoveryTiming, startDiscoveryTiming } from '../../lib/myPagePerformance';
 import type { ReadBook } from '../../lib/readBooks';
@@ -29,6 +29,7 @@ import type { SyncHealth } from '../../lib/syncHealth';
 
 const tabLabels = {
   overview: '대시보드',
+  recommendations: '추천 도서',
   discover: '도서목록',
   browse: '피드',
   read: '읽은 책',
@@ -58,6 +59,7 @@ const catalogSorts = [
   ['title', '가나다순'],
 ] as const;
 const wishlistSorts = [['saved', '최근 담은 순'], ...catalogSorts] as const;
+const recommendationSorts = [['recommended', '추천순'], ...catalogSorts] as const;
 type CatalogSort = typeof catalogSorts[number][0];
 const bookOrder: Record<CatalogSort, (a: DiscoveryBook, b: DiscoveryBook) => number> = {
   title: (a, b) => a.title.localeCompare(b.title, 'ko'),
@@ -171,6 +173,7 @@ export function MyPage(props: Props) {
   const [tag, setTag] = useState('');
   const [wishlistSort, setWishlistSort] = useMyPageSort(ownerKey, 'wishlist', wishlistSorts, 'saved');
   const [discoverySort, setDiscoverySort] = useMyPageSort(ownerKey, 'discover', catalogSorts, 'popular');
+  const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
   const [visibleCount, setVisibleCount] = useState(60);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
@@ -211,7 +214,8 @@ export function MyPage(props: Props) {
     if (next === tab && !bookId) return;
     if (next === 'discover') discoveryStarted.current = startDiscoveryTiming();
     readListScroll.current = null;
-    window.history.pushState(null, '', `#mypage/${next}`);
+    window.history.pushState(next === 'recommendations' && tab === 'overview' ? { myPageRecommendationsFromHome: true } : null,
+      '', `#mypage/${next}`);
     setTab(next);
     if (next !== 'browse') setFeedSection('reviews');
     setBookId(null);
@@ -267,23 +271,18 @@ export function MyPage(props: Props) {
   const readSource = matchingSource && !('platforms' in matchingSource) ? matchingSource : undefined;
   const discoverySource = matchingSource && 'platforms' in matchingSource ? matchingSource : undefined;
   const discovering = tab === 'discover';
+  const showOverview = tab === 'overview';
+  const showRecommendationList = tab === 'recommendations';
   const browse = discovering || tab === 'wishlist';
   const readMatch = readSource && groupedCatalog ? resolveReadBookDiscovery(groupedCatalog, readSource) : undefined;
   const detailBook = !bookId ? undefined : readSource ? readMatch?.book : groupedCatalog?.byId.get(bookId)
     ?? discoverySource ?? wishlist.entries.find(({ book }) => book.id === bookId)?.book;
-  const relatedBookId = detailBook?.id;
-  const relatedBooks = useMemo(() => {
-    if (!catalog || !relatedBookId) return [];
-    const grouped = getGroupedBookDiscovery(catalog);
-    const current = grouped.byId.get(relatedBookId);
-    return current ? getRelatedDiscoveryBooks(grouped.books, current) : [];
-  }, [catalog, relatedBookId]);
   const detailSaved = bookId !== null && !readMatch?.blocked
     && (wishlist.savedIds.has(bookId) || (detailBook !== undefined && wishlist.savedIds.has(detailBook.id)));
   const catalogLoading = !catalog && !catalogError;
   const hasTaggedWishlist = props.showRecommendedBooks && wishlistEntries.some(({ book }) => book.tags.length > 0);
   const needsCatalog = Boolean(bookId) || tab === 'discover' || (signedIn && tab === 'read')
-    || (tab === 'overview' && (signedIn || hasTaggedWishlist));
+    || (showOverview && (signedIn || hasTaggedWishlist)) || (showRecommendationList && props.showRecommendedBooks);
   useEffect(() => {
     if (!needsCatalog || catalog) return;
     let active = true;
@@ -332,7 +331,7 @@ export function MyPage(props: Props) {
   const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setTag(''); setVisibleCount(60); };
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
   const detailLabel = tabLabels[tab];
-  const activeGroup = primaryMenu.find(({ tabs }) => tabs.some((id) => id === tab));
+  const activeGroup = primaryMenu.find(({ tabs }) => tabs.some((id) => id === (showRecommendationList ? 'overview' : tab)));
   const sectionTabs = tab === 'browse'
     ? feedTabs.map(({ id, label }) => ({ id, label, selected: feedSection === id, select: () => setFeedSection(id) }))
     : activeGroup && activeGroup.tabs.length > 1
@@ -343,9 +342,14 @@ export function MyPage(props: Props) {
   const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
   const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
   const headerButton = 'flex size-11 items-center justify-center rounded-full hover:bg-current/10';
-  const title = bookId ? '도서 상세정보' : '마이페이지';
+  const title = bookId ? '도서 상세정보' : showRecommendationList ? tabLabels.recommendations : '마이페이지';
+  const closeRecommendations = () => {
+    if (window.history.state?.myPageRecommendationsFromHome) window.history.back();
+    else openTab('overview');
+  };
   const backButton = (
-    <button type="button" onClick={bookId ? closeBook : onBack} aria-label={bookId ? '도서 목록으로 돌아가기' : '서재로 돌아가기'}
+    <button type="button" onClick={bookId ? closeBook : showRecommendationList ? closeRecommendations : onBack}
+      aria-label={bookId ? '도서 목록으로 돌아가기' : showRecommendationList ? '홈으로 돌아가기' : '서재로 돌아가기'}
       className={`${headerButton} transition-colors`}><ArrowLeft size={19} /></button>
   );
   const shortcuts = (
@@ -364,13 +368,42 @@ export function MyPage(props: Props) {
     const { icon: Icon, label, tabs: [firstTab] } = group;
     return (
       <button key={firstTab} type="button" aria-current={selected ? 'page' : undefined}
-        onClick={() => openTab(selected ? tab : firstTab)}
+        onClick={() => openTab(selected && !showRecommendationList ? tab : firstTab)}
         className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500 sm:min-h-11 sm:flex-row sm:gap-1.5 sm:rounded-xl sm:px-2.5 sm:text-sm ${selected ? 'font-semibold text-accent-500 sm:bg-accent-500/10' : 'font-medium opacity-65 hover:bg-current/5 hover:opacity-100'}`}>
         <Icon size={19} aria-hidden="true" className="shrink-0" />
         <span>{label}</span>
       </button>
     );
   });
+
+  const renderBookRow = (book: DiscoveryBook, deferCover = false) => {
+    const saved = wishlist.savedIds.has(book.id);
+    return <article key={book.id} className="mypage-book-list-item flex items-center">
+      <BookDetailLink bookId={book.id} onOpen={() => openBook(book)} label={book.title} className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg pr-3 sm:gap-4 sm:pr-4">
+        <BookCover url={book.coverUrl} identity={book.id} title={book.title} coverLoading={deferCover ? 'direct-with-proxy-fallback' : undefined} />
+        <div className="min-w-0 flex-1">
+          <h3 className="line-clamp-2 text-sm font-semibold leading-6 group-hover:text-accent-500">{book.title}</h3>
+          <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 opacity-50">{book.genre && <span>{book.genre}</span>}{[...new Set(book.platforms.map(({ label }) => label))].map((label) => <span key={label}>{label}</span>)}{book.sourceCount !== null && <span>{sourceCountFormat.format(book.sourceCount)} 조회·다운로드</span>}</div>
+          {book.tags.length > 0 && <p className="mt-1 truncate text-[11px] opacity-40">{book.tags.slice(0, 5).map((name) => `#${name}`).join(' ')}</p>}
+        </div>
+      </BookDetailLink>
+      <button type="button" aria-label={`${book.title} 위시리스트 ${saved ? '제거' : '추가'}`} aria-pressed={saved} disabled={wishlist.loading || wishlist.saving} onClick={() => void wishlist.setSaved(book, !saved)} className={`flex size-10 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40 ${saved ? 'bg-accent-500/10 text-accent-500' : 'opacity-65 hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:opacity-100'}`}>{saved ? <Check size={18} /> : <Plus size={18} />}</button>
+    </article>;
+  };
+
+  const renderRecommendationList = (books: readonly DiscoveryBook[] | undefined) => {
+    if (!books && wishlist.error) return null;
+    if (!books) return <p role="status" className="py-10 text-center text-sm opacity-65">추천 도서를 불러오는 중…</p>;
+    if (!books.length) return <p className="py-8 text-center text-sm opacity-65">추천 도서가 아직 없습니다.</p>;
+    const sorted = recommendationSort === 'recommended' ? books : [...books].sort(bookOrder[recommendationSort]);
+    return <section aria-label="추천 도서 목록" className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs opacity-55">{books.length.toLocaleString()}권</p>
+        <ListSort label="추천 도서 정렬" value={recommendationSort} options={recommendationSorts} onChange={setRecommendationSort} />
+      </div>
+      <div className="mypage-divided-list">{sorted.map((book) => renderBookRow(book, true))}</div>
+    </section>;
+  };
 
   return (
     <div data-my-page="true" className="min-h-dvh [--mypage-title-height:4.8rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
@@ -420,8 +453,8 @@ export function MyPage(props: Props) {
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detailLabel}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={`${ownerKey}:${feedSection}`} section={feedSection} owner={ownerKey} onOpenBook={openBookById} /></div>}
-          {(tab === 'overview' || tab === 'calendar') && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
-            {tab === 'overview' && <>
+          {(showOverview || showRecommendationList || tab === 'calendar') && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
+            {showOverview && (
               <DashboardBookRow title="위시리스트" books={dashboardWishlist ?? []}
                 onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
                 {!wishlist.error && dashboardWishlist === undefined ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>
@@ -430,23 +463,32 @@ export function MyPage(props: Props) {
                     <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
                   </div>}
               </DashboardBookRow>
+            )}
+            {(showOverview || (showRecommendationList && props.showRecommendedBooks && catalog)) && (
               <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
+                hidePreview={showRecommendationList}
                 renderBeforePreview={(readBooks) => <>
                   {props.showRecommendedBooks && catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
                     rotationSeed={recommendationSeed} previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
-                    onRemember={rememberRecommendations} onOpenBook={openBook} />}
-                  <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
+                    onRemember={rememberRecommendations} onOpenBook={openBook} onShowAll={() => openTab('recommendations')}
+                    renderList={showRecommendationList ? renderRecommendationList : undefined} />}
+                  {showOverview && <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />}
                 </>} />
-            </>}
-            <ReadingDashboard
+            )}
+            {showRecommendationList && (!props.showRecommendedBooks
+              ? <p className="text-sm opacity-65">마이페이지 설정에서 추천 도서 보기를 켤 수 있습니다.</p>
+              : !catalog && (catalogError
+                ? <p role="alert" className="text-sm opacity-65">도서 정보를 불러오지 못했습니다. <button type="button" onClick={retryCatalog} className="text-accent-500">다시 시도</button></p>
+                : renderRecommendationList(undefined)))}
+            {!showRecommendationList && <ReadingDashboard
               ownerKey={ownerKey}
               onRefresh={props.canRefresh && !bookId ? props.onRefresh : undefined}
               onOpenStatistics={() => openTab('statistics')}
               onOpenAnnotations={() => openTab('annotations')}
-            />
+            />}
           </div>}
           {bookId ? (
-            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} relatedBooks={relatedBooks} onOpenRelatedBook={openBook} />
+            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} catalog={catalog} onOpenRelatedBook={openBook} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
           {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />
@@ -490,20 +532,7 @@ export function MyPage(props: Props) {
               : tab === 'discover' && catalogError ? <div role="alert" className="py-8 text-center"><p className="text-sm opacity-70">도서 정보를 불러오지 못했습니다.</p><button type="button" onClick={retryCatalog} className="mt-3 min-h-10 px-3 text-sm font-medium text-accent-500">다시 시도</button></div>
               : results.length === 0 ? <div className="py-8 text-center"><BookOpen size={28} className="mx-auto mb-3 opacity-40" /><p className="text-sm opacity-70">{tab === 'wishlist' ? '담아둔 책이 없습니다.' : discoveryBooks?.length ? '조건에 맞는 책이 없습니다.' : '공개된 도서 정보가 없습니다.'}</p>{Boolean(discoveryBooks?.length) && <button type="button" onClick={resetFilters} className="mt-3 text-sm text-accent-500">필터 초기화</button>}</div>
               : <div className="mypage-divided-list">
-                {results.slice(0, visibleCount).map((book) => {
-                  const saved = wishlist.savedIds.has(book.id);
-                  return <article key={book.id} className="mypage-book-list-item flex items-center">
-                    <BookDetailLink bookId={book.id} onOpen={() => openBook(book)} label={book.title} className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg pr-3 sm:gap-4 sm:pr-4">
-                      <BookCover url={book.coverUrl} identity={book.id} title={book.title} />
-                      <div className="min-w-0 flex-1">
-                        <h3 className="line-clamp-2 text-sm font-semibold leading-6 group-hover:text-accent-500">{book.title}</h3>
-                        <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 opacity-50">{book.genre && <span>{book.genre}</span>}{[...new Set(book.platforms.map(({ label }) => label))].map((label) => <span key={label}>{label}</span>)}{book.sourceCount !== null && <span>{sourceCountFormat.format(book.sourceCount)} 조회·다운로드</span>}</div>
-                        {book.tags.length > 0 && <p className="mt-1 truncate text-[11px] opacity-40">{book.tags.slice(0, 5).map((name) => `#${name}`).join(' ')}</p>}
-                      </div>
-                    </BookDetailLink>
-                    <button type="button" aria-label={`${book.title} 위시리스트 ${saved ? '제거' : '추가'}`} aria-pressed={saved} disabled={wishlist.loading || wishlist.saving} onClick={() => void wishlist.setSaved(book, !saved)} className={`flex size-10 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40 ${saved ? 'bg-accent-500/10 text-accent-500' : 'opacity-65 hover:bg-[color-mix(in_srgb,currentColor_5%,transparent)] hover:text-accent-500 hover:opacity-100'}`}>{saved ? <Check size={18} /> : <Plus size={18} />}</button>
-                  </article>;
-                })}
+                {results.slice(0, visibleCount).map((book) => renderBookRow(book))}
               </div>}
               {results.length > visibleCount && <button type="button" onClick={() => setVisibleCount((count) => count + 60)} className="mt-3 min-h-11 w-full text-sm font-medium text-accent-500">더 보기 ({(results.length - visibleCount).toLocaleString()}권)</button>}
             </section>

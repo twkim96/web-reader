@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bookmark as BookmarkIcon, Check, ChevronDown, Heart, Star } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
-import type { DiscoveryBook } from '../../lib/bookDiscovery';
+import { getGroupedBookDiscovery, getRelatedDiscoveryBooks, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { useLocalReadingReportSessions } from '../../hooks/useLocalReadingReportSessions';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
@@ -93,7 +93,7 @@ function CommunityReviews({ workId }: { workId: string }) {
 
 const emptyHistory = { sessions: [] };
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, relatedBooks, onOpenRelatedBook }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, onOpenRelatedBook }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
@@ -105,9 +105,16 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   identityBlocked: boolean;
   saved: boolean;
   focusReview: boolean;
-  relatedBooks: readonly DiscoveryBook[];
+  catalog: readonly DiscoveryBook[] | null;
   onOpenRelatedBook: (book: DiscoveryBook) => void;
 }) {
+  const relatedBookId = discovery?.id;
+  const relatedBooks = useMemo(() => {
+    if (!catalog || !relatedBookId) return [];
+    const grouped = getGroupedBookDiscovery(catalog);
+    const current = grouped.byId.get(relatedBookId);
+    return current ? getRelatedDiscoveryBooks(grouped.books, current) : [];
+  }, [catalog, relatedBookId]);
   const lookupId = discovery?.id ?? bookId;
   const reviews = useMyPageWorkReview(ownerKey, !isGuestOwner(ownerKey) && Boolean(discovery) && !identityBlocked, lookupId);
   const [reviewChangeVersion, setReviewChangeVersion] = useState(0);
