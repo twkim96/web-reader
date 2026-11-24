@@ -488,7 +488,7 @@ export function MyPage(props: Props) {
             />}
           </div>}
           {bookId ? (
-            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} catalog={catalog} onOpenRelatedBook={openBook} />
+            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} catalog={catalog} rotationSeed={recommendationSeed} onOpenRelatedBook={openBook} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
           {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />

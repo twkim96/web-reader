@@ -1,6 +1,7 @@
 import type { PublicBookPlatformId } from './publicBookMetadataSchema';
 import { groupPublicBookWorks, platformWorkKey } from './readBooks';
 import { finishDiscoveryTiming, startDiscoveryTiming } from './myPagePerformance';
+import { discoveryRotationWeight, weightDiscoveryPlatformMix } from './discoveryCandidateWeights';
 
 export type DiscoveryBook = {
   id: string;
@@ -128,7 +129,7 @@ export function getGroupedBookDiscovery(rows: readonly DiscoveryBook[]) {
 
 const discoveryBooksByTag = new WeakMap<readonly DiscoveryBook[], Map<string, DiscoveryBook[]>>();
 
-export function getRelatedDiscoveryBooks(books: readonly DiscoveryBook[], current: DiscoveryBook) {
+export function getRelatedDiscoveryBooks(books: readonly DiscoveryBook[], current: DiscoveryBook, rotationSeed = 0) {
   if (!current.tags.length) return [];
 
   let booksByTag = discoveryBooksByTag.get(books);
@@ -153,10 +154,19 @@ export function getRelatedDiscoveryBooks(books: readonly DiscoveryBook[], curren
   }
 
   const sameGenre = (book: DiscoveryBook) => Number(current.genre !== null && book.genre === current.genre);
-  return [...scores].sort(([a, scoreA], [b, scoreB]) => (
+  const ranked = [...scores].sort(([a, scoreA], [b, scoreB]) => (
     scoreB - scoreA || sameGenre(b) - sameGenre(a) || (b.popularity ?? -1) - (a.popularity ?? -1)
     || a.id.localeCompare(b.id)
-  )).slice(0, 12).map(([book]) => book);
+  ));
+  const shown = 12;
+  const cutoff = (ranked[Math.min(shown, ranked.length) - 1]?.[1] ?? 0) * 0.8;
+  // Squared relevance and bounded variation keep strong tag matches near the top.
+  const weighted = weightDiscoveryPlatformMix(ranked.filter(([, score]) => score >= cutoff)
+    .map(([book, score]) => [book, score ** 2]));
+  if (!weighted) return ranked.slice(0, shown).map(([book]) => book);
+  return weighted.map(([book, score]) => ({
+    book, score: score * (1 + 0.25 * discoveryRotationWeight(book.id, rotationSeed)),
+  })).sort((a, b) => b.score - a.score).slice(0, shown).map(({ book }) => book);
 }
 
 export function resolveReadBookDiscovery(

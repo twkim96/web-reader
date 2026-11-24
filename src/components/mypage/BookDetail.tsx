@@ -92,7 +92,7 @@ function CommunityReviews({ workId }: { workId: string }) {
   );
 }
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, onOpenRelatedBook }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, rotationSeed, onOpenRelatedBook }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
@@ -105,6 +105,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   saved: boolean;
   focusReview: boolean;
   catalog: readonly DiscoveryBook[] | null;
+  rotationSeed: number;
   onOpenRelatedBook: (book: DiscoveryBook) => void;
 }) {
   const relatedBookId = discovery?.id;
@@ -112,8 +113,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     if (!catalog || !relatedBookId) return [];
     const grouped = getGroupedBookDiscovery(catalog);
     const current = grouped.byId.get(relatedBookId);
-    return current ? getRelatedDiscoveryBooks(grouped.books, current) : [];
-  }, [catalog, relatedBookId]);
+    return current ? getRelatedDiscoveryBooks(grouped.books, current, rotationSeed) : [];
+  }, [catalog, relatedBookId, rotationSeed]);
   const lookupId = discovery?.id ?? bookId;
   const reviews = useMyPageWorkReview(ownerKey, !isGuestOwner(ownerKey) && Boolean(discovery) && !identityBlocked, lookupId);
   const [reviewChangeVersion, setReviewChangeVersion] = useState(0);

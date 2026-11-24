@@ -1,4 +1,5 @@
 import { getGroupedBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from './bookDiscovery';
+import { discoveryRotationWeight, weightDiscoveryPlatformMix } from './discoveryCandidateWeights';
 import { MY_PAGE_DASHBOARD_BOOK_LIMIT } from './myPageSocial';
 import { platformWorkKey, type ReadBook } from './readBooks';
 
@@ -72,16 +73,6 @@ function getTagIndex(books: readonly DiscoveryBook[]) {
   return tags;
 }
 
-function rotationWeight(id: string, seed: number) {
-  let hash = seed ^ 0x811c9dc5;
-  for (let index = 0; index < id.length; index += 1) {
-    hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193);
-  }
-  hash = Math.imul(hash ^ (hash >>> 16), 0x85ebca6b);
-  hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35);
-  return (((hash ^ (hash >>> 16)) >>> 0) + 0.5) / 0x1_0000_0000;
-}
-
 export function recommendDiscoveryBooks(
   catalog: readonly DiscoveryBook[], wishlist: readonly DiscoveryBook[], readBooks: readonly ReadBook[], rotationSeed?: number,
 ) {
@@ -129,11 +120,13 @@ export function recommendDiscoveryBooks(
   const count = Math.min(ranked.length, MY_PAGE_DASHBOARD_BOOK_LIMIT);
   if (!count) return [];
   const cutoffScore = ranked[count - 1][1] * minimumRelativeScore;
-  const candidates = ranked.slice(0, maximumRecommendationCandidates).filter(([, score]) => score >= cutoffScore);
+  const eligible = ranked.filter(([, score]) => score >= cutoffScore);
+  const weighted = weightDiscoveryPlatformMix(eligible);
+  const candidates = (weighted?.sort((a, b) => b[1] - a[1]) ?? eligible).slice(0, maximumRecommendationCandidates);
   if (rotationSeed === undefined) return candidates.map(([book]) => book);
 
   // Exponential draws give each remaining book a chance proportional to its score.
-  return candidates.map(([book, score]) => ({ book, draw: -Math.log(rotationWeight(book.id, rotationSeed)) / score }))
+  return candidates.map(([book, score]) => ({ book, draw: -Math.log(discoveryRotationWeight(book.id, rotationSeed)) / score }))
     .sort((a, b) => a.draw - b.draw)
     .map(({ book }) => book);
 }
