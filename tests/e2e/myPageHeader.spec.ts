@@ -98,7 +98,7 @@ test('home keeps a saved recommendation in place until leaving My Page', async (
   await page.goto('/#mypage/overview');
   const main = page.getByRole('main');
   await expect(main.getByRole('heading', { level: 2 }).filter({ hasText: /^(위시리스트|평점을 남긴 도서|추천 도서|읽은 도서)$/ }))
-    .toHaveText(['위시리스트', '평점을 남긴 도서', '추천 도서', '읽은 도서']);
+    .toHaveText(['위시리스트', '추천 도서', '평점을 남긴 도서', '읽은 도서']);
   const row = page.getByRole('list', { name: '추천 도서 가로 목록' });
   const cards = row.getByRole('link');
   await expect(cards).toHaveCount(2);
@@ -515,9 +515,12 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
 
     const records = footer.getByRole('button', { name: '기록' });
     await records.click();
-    await expect(page).toHaveURL(/#mypage\/statistics$/);
+    await expect(page).toHaveURL(/#mypage\/calendar$/);
     const recordTabs = page.getByRole('navigation', { name: '기록 메뉴', exact: true });
-    await expect(recordTabs.getByRole('button')).toHaveText(['통계', '주석']);
+    await expect(recordTabs.getByRole('button')).toHaveText(['캘린더', '통계', '주석']);
+    await expect(page.getByRole('region', { name: '독서 달력' })).toBeVisible();
+    await recordTabs.getByRole('button', { name: '통계' }).click();
+    await expect(page).toHaveURL(/#mypage\/statistics$/);
     await recordTabs.getByRole('button', { name: '주석' }).click();
     await expect(page).toHaveURL(/#mypage\/annotations$/);
     await expect(records).toHaveAttribute('aria-current', 'page');
@@ -607,7 +610,8 @@ async function assertOtherDividerLists(page: Page, menu: Locator) {
   const records = page.getByRole('navigation', { name: '기록 메뉴', exact: true });
   for (const [navigation, tab, selector] of [
     [menu, '홈', '[aria-label="독서 기록 목록"] li'],
-    [menu, '기록', '[data-reading-statistics-book]'],
+    [menu, '기록', '[aria-label="독서 기록 목록"] li'],
+    [records, '통계', '[data-reading-statistics-book]'],
     [records, '주석', '[data-library-annotation-item]'],
   ] as const) {
     await navigation.getByRole('button', { name: tab, exact: true }).click();

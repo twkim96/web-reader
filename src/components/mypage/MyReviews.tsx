@@ -79,7 +79,7 @@ export function MyReviews({ owner, onOpenBook, onShowAll, paused = false }: {
   </>;
   if (onShowAll) {
     const books = reviews ? dashboardReviewCards(reviews) : [];
-    return <DashboardBookRow title="평점을 남긴 도서" books={books} onShowAll={guest ? undefined : onShowAll}
+    return <DashboardBookRow title="평점을 남긴 도서" books={books} onShowAll={onShowAll}
       onOpenBook={({ id }) => onOpenBook(id)} coverLoading="direct-with-proxy-fallback"
       renderDetail={({ rating }) => <span className="mt-1 flex items-center gap-1 text-xs text-accent-500" aria-label={`별점 ${rating}점`}>
         <Star size={13} fill="currentColor" aria-hidden="true" /> {rating}/5

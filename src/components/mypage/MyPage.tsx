@@ -34,6 +34,7 @@ const tabLabels = {
   read: '읽은 책',
   wishlist: '위시리스트',
   reviews: '내 평가',
+  calendar: '캘린더',
   statistics: '통계',
   annotations: '주석',
   sharing: '공개 설정',
@@ -45,7 +46,7 @@ const primaryMenu = [
   { label: '도서', icon: BookCopy, tabs: ['discover'] },
   { label: '피드', icon: Compass, tabs: ['browse'] },
   { label: '보관', icon: Archive, tabs: ['read', 'wishlist', 'reviews'] },
-  { label: '기록', icon: ChartNoAxesColumn, tabs: ['statistics', 'annotations'] },
+  { label: '기록', icon: ChartNoAxesColumn, tabs: ['calendar', 'statistics', 'annotations'] },
 ] satisfies readonly { label: string; icon: typeof House; tabs: readonly [Tab, ...Tab[]] }[];
 const feedTabs = [
   { id: 'reviews', label: '평점을 남긴 도서' },
@@ -417,20 +418,24 @@ export function MyPage(props: Props) {
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detailLabel}>
           {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={`${ownerKey}:${feedSection}`} section={feedSection} owner={ownerKey} onOpenBook={openBookById} /></div>}
-          {tab === 'overview' && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
-            <DashboardBookRow title="위시리스트" books={dashboardWishlist ?? []}
-              onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
-              {!wishlist.error && dashboardWishlist === undefined ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>
-                : !wishlist.error && dashboardWishlist?.length === 0 && <div className="flex flex-wrap items-center gap-x-4">
-                  <p className="text-sm opacity-60">담아둔 책이 없습니다.</p>
-                  <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
-                </div>}
-            </DashboardBookRow>
-            <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
-            <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
-              renderBeforePreview={(readBooks) => catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
-                rotationSeed={recommendationSeed} previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
-                onRemember={rememberRecommendations} onOpenBook={openBook} />} />
+          {(tab === 'overview' || tab === 'calendar') && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
+            {tab === 'overview' && <>
+              <DashboardBookRow title="위시리스트" books={dashboardWishlist ?? []}
+                onOpenBook={openBook} onShowAll={() => openTab('wishlist')}>
+                {!wishlist.error && dashboardWishlist === undefined ? <p role="status" className="text-sm opacity-60">위시리스트를 불러오는 중…</p>
+                  : !wishlist.error && dashboardWishlist?.length === 0 && <div className="flex flex-wrap items-center gap-x-4">
+                    <p className="text-sm opacity-60">담아둔 책이 없습니다.</p>
+                    <button type="button" onClick={() => openTab('discover')} className="flex min-h-10 items-center gap-1.5 text-xs font-semibold text-accent-500"><Plus size={16} />도서 찾아보기</button>
+                  </div>}
+              </DashboardBookRow>
+              <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
+                renderBeforePreview={(readBooks) => <>
+                  {catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
+                    rotationSeed={recommendationSeed} previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
+                    onRemember={rememberRecommendations} onOpenBook={openBook} />}
+                  <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />
+                </>} />
+            </>}
             <ReadingDashboard
               ownerKey={ownerKey}
               onRefresh={props.canRefresh && !bookId ? props.onRefresh : undefined}

@@ -111,6 +111,10 @@ test('dashboard book sections open the matching detail and full list', async () 
     await click(window, main().querySelector('[aria-label="위시리스트 전체 보기"]'));
     assert.equal(window.location.hash, '#mypage/wishlist');
     assert.equal(main().querySelectorAll('article').length, 3);
+    await act(async () => window.history.back());
+    await click(window, main().querySelector('[aria-label="평점을 남긴 도서 전체 보기"]'));
+    assert.equal(window.location.hash, '#mypage/reviews');
+    assert.match(main().textContent, /내 평가는 로그인 후 이용할 수 있습니다/);
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();
