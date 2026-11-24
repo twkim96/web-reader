@@ -77,7 +77,7 @@ test('rollup writers share an account lease and Cron reservations share the Paci
   assert.ok(Boolean(left) !== Boolean(right));
   const firstLease = left ?? right;
   const other = await claimReadingRollup(db, 'budget-other-account', now);
-  await quotaRef('2026-12-10').set({ sourceReads: 1850 });
+  await quotaRef('2026-12-10').set({ sourceReads: 3_850 });
   assert.equal(await reserveReadingRollupReads(db, firstLease, 100, now), 100);
   assert.equal(await reserveReadingRollupReads(db, other, 100, now), 50);
   assert.equal(await reserveReadingRollupReads(db, other, 1, now), 0);
@@ -121,14 +121,14 @@ test('same-week accounts become due together and exhausted Cron budget defers th
 
   const published = (doc) => doc.ref.collection('readingStatsRollupManifestsV1').doc('current').get();
   time = closesAt;
-  await quotaRef('2026-07-21').set({ sourceReads: 1900 });
+  await quotaRef('2026-07-21').set({ sourceReads: 3_900 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1, budget: 1 });
   assert.equal((await published(pilot)).exists, true);
   assert.equal((await published(first)).exists, false);
   assert.equal((await published(second)).exists, false);
 
   time += 86_400_000;
-  await quotaRef('2026-07-22').set({ sourceReads: 1900 });
+  await quotaRef('2026-07-22').set({ sourceReads: 3_900 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { published: 1, budget: 1 });
   assert.equal((await published(first)).exists, true);
   assert.equal((await published(second)).exists, false);
@@ -189,7 +189,7 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   time = Date.parse('2026-11-24T08:59:59Z');
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});
   time = Date.parse('2026-11-24T09:10:00Z');
-  await quotaRef('2026-11-24').set({ sourceReads: 1999 });
+  await quotaRef('2026-11-24').set({ sourceReads: 3_999 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
   const checkpoint = JSON.parse((await job.get()).get('payload'));
   assert.equal(checkpoint.cursor.id, across.sessionId);
@@ -270,7 +270,7 @@ test('normal one-minute TTS survives the legacy checkpoint size limit and resume
   const detail = job.collection('readingStatsRollupWeeksV1').doc(openWeek);
   const dueAt = (await job.get()).get('dueAt');
   time = Date.parse('2026-06-16T09:10:00Z');
-  await quotaRef('2026-06-16').set({ sourceReads: 1300 });
+  await quotaRef('2026-06-16').set({ sourceReads: 3_300 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
   const legacy = JSON.parse((await job.get()).get('payload'));
   assert.equal(legacy.cursor.id, tts[699].sessionId);
@@ -281,7 +281,7 @@ test('normal one-minute TTS survives the legacy checkpoint size limit and resume
   await job.update({ blocked: FieldValue.delete(), dueAt });
 
   time += 86_400_000;
-  await quotaRef('2026-06-17').set({ sourceReads: 1740 });
+  await quotaRef('2026-06-17').set({ sourceReads: 3_740 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
   const saved = (await job.get()).get('payload');
   const checkpoint = JSON.parse(saved);
@@ -339,7 +339,7 @@ test('late records can use a clock sample on a later page after a budget pause',
   const details = job.collection('readingStatsRollupWeeksV1');
   const manifest = job.collection('readingStatsRollupManifestsV1').doc('current');
   time = Date.parse('2026-11-24T09:10:00Z');
-  await quotaRef('2026-11-24').set({ sourceReads: 1999 });
+  await quotaRef('2026-11-24').set({ sourceReads: 3_999 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
   assert.equal(JSON.parse((await job.get()).get('payload')).cursor.id, late.sessionId);
   assert.equal((await manifest.get()).exists, false);
