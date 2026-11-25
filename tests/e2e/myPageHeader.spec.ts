@@ -76,6 +76,45 @@ test('discovery completes hashtag queries and combines removable tag filters', a
   await expect(list.getByRole('link', { name: '마법 도서', exact: true })).toBeVisible();
 });
 
+test('discovery completes Korean tag initials by title count in a horizontal row', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const extraTags = Array.from({ length: 7 }, (_, index) => `가나다 태그 ${index + 1}`);
+  await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
+    schemaVersion: 1, generation: 'tag-initials', genres: [],
+    tags: ['가상현실', '게임', '기연', '고유명사', '마법게임', ...extraTags],
+    books: [[0, 1], [0, 1], [0, 1], [0, 2], [2, 3], [4], ...extraTags.map((_, index) => [index + 5])]
+      .map((tags, index) => [
+        `initials-${index}`, `초성 검색 도서 ${index}`, null,
+        [['series', `https://example.test/initials/${index}`]], null, tags, 100 - index, null,
+      ]),
+  } }));
+
+  await page.goto('/#mypage/discover');
+  const search = page.getByRole('textbox', { name: '도서 제목 또는 태그 검색' });
+  const suggestions = page.getByRole('group', { name: '태그 자동완성' });
+  const buttons = suggestions.getByRole('button');
+  const books = page.getByRole('region', { name: '도서 목록', exact: true }).getByRole('link');
+
+  await search.fill('#ㄱ');
+  await expect(buttons).toHaveCount(11);
+  await expect(buttons.nth(0)).toHaveText('#가상현실 4권');
+  await expect(buttons.nth(1)).toHaveText('#게임 3권');
+  const row = (await suggestions.boundingBox())!;
+  await page.mouse.move(row.x + row.width - 30, row.y + 14);
+  await page.mouse.down();
+  await page.mouse.move(row.x + 30, row.y + 14, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => suggestions.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  await expect(search).toHaveValue('#ㄱ');
+
+  await search.fill('#ㄱㅇ');
+  await expect(buttons).toHaveText(['#게임 3권', '#기연 2권', '#고유명사 1권']);
+  await expect(books).toHaveCount(5);
+  await buttons.last().click();
+  await expect(page.getByRole('button', { name: '#고유명사 제거' })).toBeVisible();
+  await expect(books).toHaveCount(1);
+});
+
 test('book detail loads the catalog thumbnail directly and retries a denied original once', async ({ page }) => {
   const direct = 'https://comicthumb-phinf.pstatic.net/detail-cover.png?type=w160';
   const denied = 'https://dn-img-page.kakao.com/detail-denied.png';

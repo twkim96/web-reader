@@ -11,6 +11,7 @@ import type { ReadBook } from '../../lib/readBooks';
 import type { MyPageBrowseSection } from '../../lib/myPageSocial';
 import type { PublicBookCatalogTag } from '../../lib/publicBookCatalogSchema';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
+import { useMouseDragScroll } from '../../hooks/useMouseDragScroll';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
 import { ReadingDashboard } from './ReadingDashboard';
@@ -74,7 +75,6 @@ type DiscoveryList = {
   genres: readonly string[];
   tags: readonly string[];
   catalogTags: readonly PublicBookCatalogTag[];
-  searchableTags: ReadonlyMap<string, string>;
   books: readonly DiscoveryBook[];
 };
 const discoveryListCache = new WeakMap<readonly DiscoveryBook[], Map<CatalogSort, DiscoveryList>>();
@@ -107,9 +107,8 @@ function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): Di
     const tags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120)
       .map(([name]) => name).sort((a, b) => a.localeCompare(b, 'ko'));
     const catalogTags = [...counts].map(([label, titleCount], id) => ({ id, label, titleCount }));
-    const searchableTags = new Map(catalogTags.map(({ label }) => [label, normalizeShelfTagQuery(label)]));
     finishDiscoveryTiming('search', started);
-    return { searchableTitles, genres: [...genres].sort(), tags, catalogTags, searchableTags };
+    return { searchableTitles, genres: [...genres].sort(), tags, catalogTags };
   })();
   const started = startDiscoveryTiming();
   const list = { ...base, books: [...grouped.books].sort(bookOrder[sort]) };
@@ -179,6 +178,7 @@ export function MyPage(props: Props) {
   const [genre, setGenre] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const discoverySearchRef = useRef<HTMLInputElement>(null);
+  const tagSuggestionDrag = useMouseDragScroll();
   const [wishlistSort, setWishlistSort] = useMyPageSort(ownerKey, 'wishlist', wishlistSorts, 'saved');
   const [discoverySort, setDiscoverySort] = useMyPageSort(ownerKey, 'discover', catalogSorts, 'popular');
   const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
@@ -306,20 +306,23 @@ export function MyPage(props: Props) {
   const tags = discoveryList?.tags ?? [];
   const tagMode = query.trim().startsWith('#');
   const tagQuery = tagMode ? normalizeShelfTagQuery(query.trim().slice(1)) : '';
-  const tagSuggestions = useMemo(() => {
+  const tagMatches = useMemo(() => {
     if (!tagMode || !discovering || bookId || !catalog) return [];
     const { catalogTags } = getDiscoveryList(catalog, discoverySort);
-    return searchPublicBookCatalogTags(catalogTags.filter(({ label }) => !selectedTags.includes(label)), tagQuery);
-  }, [bookId, catalog, discovering, discoverySort, selectedTags, tagMode, tagQuery]);
+    return searchPublicBookCatalogTags(catalogTags, tagQuery, Infinity);
+  }, [bookId, catalog, discovering, discoverySort, tagMode, tagQuery]);
+  const availableTagSuggestions = tagMatches.filter(({ label }) => !selectedTags.includes(label));
+  const tagSuggestions = tagQuery ? availableTagSuggestions : availableTagSuggestions.slice(0, 8);
   const discoveryResults = useMemo(() => {
     if (!discovering || bookId || !catalog) return [];
-    const { books, searchableTitles, searchableTags } = getDiscoveryList(catalog, discoverySort);
+    const { books, searchableTitles } = getDiscoveryList(catalog, discoverySort);
     const normalized = query.trim().normalize('NFC').toLocaleLowerCase();
     if (!normalized && !source && !genre && !selectedTags.length) return books;
     const started = startDiscoveryTiming();
+    const matchingTags = new Set(tagMatches.map(({ label }) => label));
     const filtered = books.filter((book) => (
       (!normalized || (tagMode
-        ? book.tags.some((name) => searchableTags.get(name)?.includes(tagQuery))
+        ? book.tags.some((name) => matchingTags.has(name))
         : (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
           .some((title) => title.includes(normalized))))
       && (!source || book.platforms.some((platform) => platform.id === source))
@@ -328,7 +331,7 @@ export function MyPage(props: Props) {
     ));
     finishDiscoveryTiming('filter', started);
     return filtered;
-  }, [bookId, catalog, discovering, discoverySort, genre, query, selectedTags, source, tagMode, tagQuery]);
+  }, [bookId, catalog, discovering, discoverySort, genre, query, selectedTags, source, tagMode, tagMatches]);
   useLayoutEffect(() => {
     if (!discovering || bookId) {
       discoveryStarted.current = undefined;
@@ -569,10 +572,11 @@ export function MyPage(props: Props) {
                   placeholder="도서 제목 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
               </div>
               {tagSuggestions.length > 0 && (
-                <div role="group" aria-label="태그 자동완성" className="flex flex-wrap gap-1.5">
+                <div key={tagQuery} role="group" aria-label="태그 자동완성" {...tagSuggestionDrag}
+                  className="flex max-w-full gap-1.5 overflow-x-auto overscroll-x-contain pb-1 data-[mouse-dragging=true]:cursor-grabbing data-[mouse-dragging=true]:select-none">
                   {tagSuggestions.map(({ label, titleCount }) => (
                     <button key={label} type="button" onClick={() => addTag(label)}
-                      className="min-h-8 rounded-md bg-current/5 px-2.5 text-xs font-semibold ring-1 ring-inset ring-current/15 hover:text-accent-500">
+                      className="min-h-8 shrink-0 whitespace-nowrap rounded-md bg-current/5 px-2.5 text-xs font-semibold ring-1 ring-inset ring-current/15 hover:text-accent-500">
                       #{label} <span className="opacity-55">{titleCount.toLocaleString('ko-KR')}권</span>
                     </button>
                   ))}
