@@ -62,6 +62,8 @@ Drive 원본은 재다운로드용입니다. 로컬로만 넣은 원본은 사�
 
 공용 Firestore에서 켜기 전에 운영·이전 배포 URL·프리뷰·진행 중 요청 중 작품별 원본만 갱신할 수 있는 쓰기 경로를 차단하거나 격리합니다. 요약을 읽는 배포와 쓰는 배포에 같은 세대 값을 사용합니다. 기존 쓰기 방식으로 롤백하기 전에 요약 조회를 중지합니다. 작품별 원본만 갱신된 기간이 있으면 새로운 세대로 재개해 기존 원본에서 요약을 다시 만듭니다. 관리자 도구로 작품별 원본을 복원할 때도 같은 절차를 따릅니다.
 
+운영 `twreader`에서는 [Vercel Firewall](https://vercel.com/twkims-projects-b9c7f5a3/twreader/firewall/rules)의 **My Page writes on production domain only** 규칙이 다른 호스트의 `POST /api/mypage`를 거부합니다. 운영 호스트는 `twreader.vercel.app`입니다. 마이페이지 쓰기를 검증하는 프리뷰에는 격리된 프로젝트나 에뮬레이터를 사용합니다.
+
 ## 독서 통계 사전 집계 검증
 
 맥에서 Node.js 22.13 이상으로 실행하여 같은 고정 시점의 독서 이력을 SQLite에 페이지별로 저장하고 7일 상세 후보를 계산합니다. 기존 앱과 동일한 겹침·시간 보정·활동 기준을 사용합니다. 각 계정의 마지막으로 저장한 문서 ID와 같은 Pacific 날짜의 프로젝트 예산을 한 SQLite 파일에 기록합니다. 예제는 별도 demo Firestore를 사용합니다.

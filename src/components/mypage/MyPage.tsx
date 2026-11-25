@@ -25,6 +25,7 @@ import { MyReviews } from './MyReviews';
 import { ListSort } from './ListSort';
 import { LibraryAnnotations } from '../LibraryAnnotations';
 import { LibraryReadingStatisticsModal } from '../LibraryReadingStatisticsModal';
+import { normalizeShelfTagQuery } from '../shelf/tagSearch';
 import type { SyncHealth } from '../../lib/syncHealth';
 
 const tabLabels = {
@@ -100,7 +101,8 @@ function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): Di
       if (book.genre) genres.add(book.genre);
       for (const name of book.tags) counts.set(name, (counts.get(name) ?? 0) + 1);
     }
-    const tags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120).map(([name]) => name);
+    const tags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120)
+      .map(([name]) => name).sort((a, b) => a.localeCompare(b, 'ko'));
     finishDiscoveryTiming('search', started);
     return { searchableTitles, genres: [...genres].sort(), tags };
   })();
@@ -300,11 +302,15 @@ export function MyPage(props: Props) {
     if (!discovering || bookId || !catalog) return [];
     const { books, searchableTitles } = getDiscoveryList(catalog, discoverySort);
     const normalized = query.trim().normalize('NFC').toLocaleLowerCase();
+    const searchTags = normalized.startsWith('#');
+    const tagQuery = searchTags ? normalizeShelfTagQuery(normalized.slice(1)) : '';
     if (!normalized && !source && !genre && !tag) return books;
     const started = startDiscoveryTiming();
     const filtered = books.filter((book) => (
-      (!normalized || (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
-        .some((title) => title.includes(normalized)))
+      (!normalized || (searchTags
+        ? book.tags.some((name) => normalizeShelfTagQuery(name).includes(tagQuery))
+        : (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
+          .some((title) => title.includes(normalized))))
       && (!source || book.platforms.some((platform) => platform.id === source))
       && (!genre || book.genre === genre)
       && (!tag || book.tags.includes(tag))
@@ -520,7 +526,7 @@ export function MyPage(props: Props) {
               </div>
             </div>
             {discovering && <section aria-label="도서 검색 및 필터" className="space-y-2.5">
-              <label className="flex items-center gap-2.5 rounded-lg px-3 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input aria-label="도서 제목 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 검색" className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
+              <label className="flex items-center gap-2.5 rounded-lg px-3 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input aria-label="도서 제목 또는 태그 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 또는 #태그 검색" className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <select aria-label="도서 플랫폼 필터" value={source} onChange={(event) => { setSource(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 플랫폼</option><option value="series">네이버 시리즈</option><option value="kakao">카카오페이지</option><option value="novelpia">노벨피아</option></select>
                 <select aria-label="도서 장르 필터" value={genre} onChange={(event) => { setGenre(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 장르</option>{genres.map((name) => <option key={name}>{name}</option>)}</select>
