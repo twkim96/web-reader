@@ -1050,6 +1050,9 @@ test('authenticated account writes and both public visibility flags share one pu
     await assertFails(getDoc(doc(firestore, 'publicReaderProfilesV1', code)));
     await assertFails(setDoc(doc(firestore, 'publicReaderProfilesV1', code), { nickname: 'tampered' }));
     await assertFails(getDoc(doc(firestore, 'artifacts', APP_ID, 'users', uid, 'libraries', 'local', 'myPageSharingV1', 'settings')));
+    const snapshot = doc(firestore, 'artifacts', APP_ID, 'users', uid, 'libraries', 'local', 'myPageWishlistSnapshotV1', 'current');
+    await assertFails(getDoc(snapshot));
+    await assertFails(setDoc(snapshot, { generation: 'test', payload: null }));
   } finally { await client.cleanup(); }
 });
 
@@ -1240,7 +1243,7 @@ test('removing a merged wishlist work compares all saved revisions before changi
   } while (cursor);
 });
 
-test('wishlist writes compare exact historical revisions after confirming the published work', async () => {
+test('wishlist writes compare exact historical revisions after confirming the published work', async (t) => {
   const { idToken, localId: uid } = await emulatorLogin('wishlist-historical-revisions');
   const db = getAdminFirestore();
   const catalog = await loadSocialCatalog();
@@ -1267,6 +1270,7 @@ test('wishlist writes compare exact historical revisions after confirming the pu
   const seed = (workId, revision, addedAt) => ref(workId).set({ workId, revision, addedAt, saved: true });
   await ref(historical).set({ workId: historical, revision: 3, addedAt: 2000, saved: false });
   await ok(post('import-wishlist', idToken, { workIds: [historical], accountRevision: shared.revision }));
+  await ok(post('import-wishlist', idToken, { workIds: [work.id], accountRevision: shared.revision }));
   assert.equal((await ref(work.id).get()).exists, false);
   assert.equal((await ref(historical).get()).get('saved'), false);
   await Promise.all([seed(work.id, 2, 3000), seed(historical, 4, 2000), seed(other.id, 1, 1000)]);
@@ -1302,4 +1306,28 @@ test('wishlist writes compare exact historical revisions after confirming the pu
   assert.equal(removedHistorical.item.workId, historical);
   assert.deepEqual(removedHistorical.siblingRevisions, [{ workId: historical, revision: 8 }, { workId: work.id, revision: 3 }]);
   assert.equal((await ref(historical).get()).get('saved'), false);
+
+  const flag = 'MY_PAGE_WISHLIST_SNAPSHOT_GENERATION';
+  const previous = process.env[flag];
+  process.env[flag] = 'test-route';
+  t.after(() => {
+    if (previous === undefined) delete process.env[flag]; else process.env[flag] = previous;
+  });
+  const snapshot = list.parent.collection('myPageWishlistSnapshotV1').doc('current');
+  assert.deepEqual((await publicProfile()).wishlist.map(({ workId }) => workId), [other.id]);
+  assert.equal((await snapshot.get()).exists, false);
+
+  const removedState = await readWork();
+  assert.equal(removedState.item.saved, false);
+  assert.equal((await snapshot.get()).get('generation'), 'test-route');
+  const restored = await ok(post('wishlist', idToken, {
+    workId: removedState.item.workId, revision: removedState.item.revision, saved: true,
+    siblingRevisions: removedState.siblingRevisions,
+  }));
+  const current = await readWork();
+  assert.equal(current.item.workId, restored.item.workId);
+  assert.equal(current.item.saved, true);
+  await ok(remove(current));
+  assert.equal((await readWork()).item.saved, false);
+  assert.deepEqual((await publicProfile()).wishlist.map(({ workId }) => workId), [other.id]);
 });

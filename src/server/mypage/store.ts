@@ -3,6 +3,9 @@ import { AggregateField, FieldPath, FieldValue, GrpcStatus, Timestamp, type Docu
 import { APP_ID } from '../../lib/appIdentity.ts';
 import { reportMyPageApiTiming } from './performance.ts';
 import { PROFILE_PAGE_SIZE } from './profilePagination.ts';
+import {
+  readWishlistSnapshot, WISHLIST_SNAPSHOT_ROW_LIMIT, wishlistSnapshotGeneration, writeWishlistSnapshot,
+} from './wishlistSnapshot.ts';
 import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from '../../lib/publicBookReviews.ts';
 import {
   hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageOwnReviews, type MyPageReview,
@@ -38,6 +41,7 @@ const library = (db: Firestore, uid: string) => db.doc(`artifacts/${APP_ID}/user
 const ownerRef = (db: Firestore, uid: string) => library(db, uid).collection('myPageSharingV1').doc('settings');
 const profiles = (db: Firestore) => db.collection('publicReaderProfilesV1');
 const wishlist = (db: Firestore, uid: string) => library(db, uid).collection('myPageWishlistV1');
+const wishlistSnapshotRef = (db: Firestore, uid: string) => library(db, uid).collection('myPageWishlistSnapshotV1').doc('current');
 const reviews = (db: Firestore, uid: string) => library(db, uid).collection('myPageReviewsV1');
 const workKey = (workId: string) => createHash('sha256').update(workId).digest('hex');
 const workEntries = (db: Firestore, workId: string) => db.collection('publicBookReviewsV1')
@@ -203,6 +207,23 @@ function wishlistItem(data: DocumentData): MyPageWishlistItem {
   return { workId, addedAt, revision, saved };
 }
 
+const compareWishlistNewest = (a: MyPageWishlistItem, b: MyPageWishlistItem) =>
+  b.addedAt - a.addedAt || a.workId.localeCompare(b.workId);
+
+export async function listOwnWishlist(db: Firestore, uid: string): Promise<MyPageWishlistItem[]> {
+  const generation = wishlistSnapshotGeneration();
+  if (!generation) return listWishlist(db, uid, true);
+  const ref = wishlistSnapshotRef(db, uid);
+  const current = readWishlistSnapshot(await ref.get(), generation);
+  const items = current === undefined ? await db.runTransaction(async (transaction) => {
+    const existing = readWishlistSnapshot(await transaction.get(ref), generation);
+    if (existing !== undefined) return existing;
+    const source = await transaction.get(wishlist(db, uid).limit(WISHLIST_SNAPSHOT_ROW_LIMIT + 1));
+    return writeWishlistSnapshot(transaction, ref, generation, source.docs.map((document) => wishlistItem(document.data())));
+  }) : current;
+  return items ? items.toSorted(compareWishlistNewest) : listWishlist(db, uid, true);
+}
+
 export async function listWishlist(db: Firestore, uid: string, includeRemoved = false, limit?: number): Promise<MyPageWishlistItem[]> {
   const collection = wishlist(db, uid);
   const query = includeRemoved ? collection : collection.where('saved', '==', true);
@@ -218,8 +239,8 @@ export async function listWishlist(db: Firestore, uid: string, includeRemoved = 
   }
   const snapshot = await query.get();
   const items = snapshot.docs.map((document) => wishlistItem(document.data()))
-    .sort((a, b) => b.addedAt - a.addedAt || (limit === undefined
-      ? a.workId.localeCompare(b.workId) : Buffer.compare(Buffer.from(a.workId), Buffer.from(b.workId))));
+    .sort(limit === undefined ? compareWishlistNewest
+      : (a, b) => b.addedAt - a.addedAt || Buffer.compare(Buffer.from(a.workId), Buffer.from(b.workId)));
   return limit === undefined ? items : items.slice(0, limit);
 }
 
@@ -253,6 +274,7 @@ export async function updateWishlist(
 ): Promise<MyPageWishlistItem & { siblingRevisions?: MyPageWishlistRevision[] }> {
   const collection = wishlist(db, uid);
   const ref = collection.doc(workKey(workId));
+  const generation = wishlistSnapshotGeneration();
   const alternatives = [...new Set(equivalentWorkIds)].filter((id) => id !== workId);
   return db.runTransaction(async (transaction) => {
     if (importOnly) await verifyImportAccount(db, transaction, uid, importAccountRevision);
@@ -285,15 +307,33 @@ export async function updateWishlist(
       revision: (current?.revision ?? 0) + 1,
       saved,
     };
+    const siblingStates = expectedSiblings ? siblings.map((sibling) => {
+      const changed = !saved && sibling.item.saved;
+      return { ...sibling, changed, item: changed
+        ? { ...sibling.item, revision: sibling.item.revision + 1, saved: false } : sibling.item };
+    }) : [];
+    if (generation) {
+      const snapshotRef = wishlistSnapshotRef(db, uid);
+      let existing = readWishlistSnapshot(await transaction.get(snapshotRef), generation);
+      if (existing === undefined) {
+        const source = await transaction.get(collection.limit(WISHLIST_SNAPSHOT_ROW_LIMIT + 1));
+        existing = source.docs.map((document) => wishlistItem(document.data()));
+      }
+      if (existing) {
+        const items = new Map(existing.map((entry) => [entry.workId, entry]));
+        if (items.size === existing.length && existing.length <= WISHLIST_SNAPSHOT_ROW_LIMIT) {
+          items.set(item.workId, item);
+          for (const sibling of siblingStates) if (sibling.changed) items.set(sibling.item.workId, sibling.item);
+          writeWishlistSnapshot(transaction, snapshotRef, generation, [...items.values()]);
+        } else {
+          transaction.set(snapshotRef, { generation, payload: null });
+        }
+      }
+    }
     transaction.set(ref, item);
     if (!expectedSiblings) return item;
-    const siblingRevisions = [{ workId: item.workId, revision: item.revision }];
-    for (const sibling of siblings) {
-      const change = !saved && sibling.item.saved;
-      const revision = sibling.item.revision + Number(change);
-      if (change) transaction.set(sibling.ref, { ...sibling.item, revision, saved: false });
-      siblingRevisions.push({ workId: sibling.item.workId, revision });
-    }
+    for (const sibling of siblingStates) if (sibling.changed) transaction.set(sibling.ref, sibling.item);
+    const siblingRevisions = [item, ...siblingStates.map(({ item }) => item)].map(({ workId, revision }) => ({ workId, revision }));
     return { ...item, siblingRevisions };
   });
 }

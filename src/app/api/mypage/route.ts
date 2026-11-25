@@ -13,7 +13,7 @@ import { reportMyPageApiTiming, type ReadingEvidenceRoute } from '../../../serve
 import { legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../../server/mypage/profilePagination';
 import {
   currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listPublicProfileReviews, listPublicProfileWishlist,
-  listReviewDeletions, listReviews, listWishlist, lookupPublicAccount, readOwnReviewWork,
+  listOwnWishlist, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount, readOwnReviewWork,
   updateAccount, updateReview, updateReviewWithStatus, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
@@ -59,15 +59,15 @@ async function authenticatedUid(
 
 type ListTiming = (phase: 'auth' | 'query' | 'resolve', counts?: { records: number; saved?: number }) => void;
 
-async function wishlistBookStates(db: Firestore, uid: string, timing?: ListTiming): Promise<MyPageSavedBook[]> {
-  const entries = await listWishlist(db, uid, true);
+async function wishlistBookStates(db: Firestore, uid: string, timing?: ListTiming, lookup: 'cached' | 'fresh' = 'cached'): Promise<MyPageSavedBook[]> {
+  const entries = await listOwnWishlist(db, uid);
   timing?.('query', { records: entries.length, saved: entries.filter(({ saved }) => saved).length });
   // Prefer an active entry if previously distinct keys now identify one work.
   entries.sort((a, b) => Number(b.saved) - Number(a.saved));
   const books = new Map<string, MyPageSavedBook & { siblingRevisions: MyPageWishlistRevision[] }>();
   for (let start = 0; start < entries.length; start += 20) {
     const batch = await Promise.all(entries.slice(start, start + 20).map(async (item) => {
-      const resolved = await resolveWishlistWork(db, item.workId);
+      const resolved = await resolveWishlistWork(db, item.workId, lookup);
       if (!resolved) return null;
       return { item, book: resolved.book, aliases: resolved.equivalentWorkIds };
     }));
@@ -398,10 +398,15 @@ export async function POST(request: Request) {
       if (action === 'import-wishlist') {
         const ids = input.workIds;
         if (!Array.isArray(ids) || ids.length > 20 || !ids.every(isBookDetailId)) return fail(400);
+        const known = ids.length ? await wishlistBookStates(db, uid, undefined, 'fresh') : [];
+        const previousIds = new Map(known.map(({ book, siblingRevisions }) => [
+          book.id, siblingRevisions?.map(({ workId }) => workId) ?? [],
+        ]));
         for (const id of new Set(ids)) {
           const work = await resolveWishlistWork(db, id, 'fresh');
           if (!work) { unavailable++; continue; }
-          await updateWishlist(db, uid, work.book.id, true, null, true, input.accountRevision, [...work.equivalentWorkIds, id]);
+          await updateWishlist(db, uid, work.book.id, true, null, true, input.accountRevision,
+            [...work.equivalentWorkIds, id, ...(previousIds.get(work.book.id) ?? [])]);
           current++;
         }
       } else {
@@ -465,6 +470,10 @@ export async function POST(request: Request) {
         || new Set(expected.map(({ workId }) => workId)).size !== expected.length)) return fail(400);
       const expectedSiblings = expected as MyPageWishlistRevision[] | undefined;
       const equivalentIds = new Set([...resolved.equivalentWorkIds, input.workId]);
+      if (importOnly) {
+        const previous = (await wishlistBookStates(db, uid, undefined, 'fresh')).find(({ book }) => book.id === resolved.book.id);
+        for (const { workId } of previous?.siblingRevisions ?? []) equivalentIds.add(workId);
+      }
       const historicalIds = expectedSiblings?.map(({ workId }) => workId).filter((id) => !equivalentIds.has(id)) ?? [];
       // Every supplied historical key must independently resolve to this work.
       for (let start = 0; start < historicalIds.length; start += 20) {

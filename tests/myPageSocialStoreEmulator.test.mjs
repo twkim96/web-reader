@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import crypto, { createHash, randomUUID } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { DocumentReference, getFirestore, Query, Timestamp } from 'firebase-admin/firestore';
+import { APP_ID } from '../src/lib/appIdentity.ts';
 import { MY_PAGE_CODE } from '../src/lib/myPageSocial.ts';
+import { WISHLIST_SNAPSHOT_ROW_LIMIT } from '../src/server/mypage/wishlistSnapshot.ts';
 import {
   ConflictError,
   ensureAccount,
+  listOwnWishlist,
   listReviews,
   listWishlist,
   lookupPublicAccount,
@@ -142,6 +145,108 @@ test('item revisions isolate works and preserve tombstones during import', async
   assert.ok(!(await listWishlist(db, uid)).some(({ workId }) => workId === c));
   assert.equal((await updateReview(db, uid, c, review(2), null, true, nextAccount.revision)).rating, 2);
   assert.equal((await updateWishlist(db, uid, c, true, null, true, nextAccount.revision)).saved, true);
+});
+
+const wishlistList = (uid) => db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/myPageWishlistV1`);
+const wishlistSnapshot = (uid) => wishlistList(uid).parent.collection('myPageWishlistSnapshotV1').doc('current');
+
+test('one-document wishlist keeps deletes, independent writes, and rollback data in sync', async (t) => {
+  const uid = randomUUID();
+  const generation = 'test-first';
+  const flag = 'MY_PAGE_WISHLIST_SNAPSHOT_GENERATION';
+  const previous = process.env[flag];
+  t.after(() => {
+    if (previous === undefined) delete process.env[flag]; else process.env[flag] = previous;
+  });
+  delete process.env[flag];
+  const account = await ensureAccount(db, uid);
+  const removed = await updateWishlist(db, uid, 'removed', false, null);
+  const original = await updateWishlist(db, uid, 'original', true, null);
+  assert.equal((await wishlistSnapshot(uid).get()).exists, false);
+  process.env[flag] = generation;
+  const [, added, independent] = await Promise.all([
+    listOwnWishlist(db, uid),
+    updateWishlist(db, uid, 'added', true, null),
+    updateWishlist(db, uid, 'independent', true, null),
+  ]);
+  assert.equal((await wishlistSnapshot(uid).get()).get('generation'), generation);
+  const query = t.mock.method(Query.prototype, 'get');
+  const getDocument = t.mock.method(DocumentReference.prototype, 'get');
+  const warm = await listOwnWishlist(db, uid);
+  const warmQueries = query.mock.callCount();
+  const warmDocuments = getDocument.mock.callCount();
+  query.mock.restore();
+  getDocument.mock.restore();
+  assert.equal(warmQueries, 0);
+  assert.equal(warmDocuments, 1);
+  assert.deepEqual(warm, await listWishlist(db, uid, true));
+  assert.deepEqual(new Set(warm.map(({ workId }) => workId)), new Set(['removed', 'original', 'added', 'independent']));
+  assert.deepEqual(await updateWishlist(db, uid, removed.workId, true, null, true, account.revision), removed);
+
+  const racing = await Promise.allSettled([
+    updateWishlist(db, uid, 'original', false, original.revision),
+    updateWishlist(db, uid, 'original', false, original.revision),
+  ]);
+  assert.equal(racing.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.ok(racing.find(({ status }) => status === 'rejected').reason instanceof ConflictError);
+  const deleted = JSON.parse((await wishlistSnapshot(uid).get()).get('payload'));
+  assert.ok(!deleted.saved.some(([workId]) => workId === 'original'));
+  assert.ok(deleted.removed.some(([workId, revision]) => workId === 'original' && revision === original.revision + 1));
+  assert.deepEqual(await listOwnWishlist(db, uid), await listWishlist(db, uid, true));
+  assert.deepEqual((await updateWishlist(db, uid, 'original', true, original.revision + 1)).saved, true);
+
+  delete process.env[flag];
+  await updateWishlist(db, uid, 'added', false, added.revision);
+  assert.equal((await wishlistSnapshot(uid).get()).get('generation'), generation);
+  assert.ok((await listOwnWishlist(db, uid)).some(({ workId, saved }) => workId === 'added' && !saved));
+  process.env[flag] = 'test-after-legacy-write';
+  assert.deepEqual(await listOwnWishlist(db, uid), await listWishlist(db, uid, true));
+  assert.equal((await wishlistSnapshot(uid).get()).get('generation'), 'test-after-legacy-write');
+  assert.ok((await listOwnWishlist(db, uid)).some(({ workId, saved, revision }) => (
+    workId === independent.workId && saved && revision === independent.revision
+  )));
+});
+
+test('oversized wishlists use the complete legacy list after first read or later growth', async (t) => {
+  const flag = 'MY_PAGE_WISHLIST_SNAPSHOT_GENERATION';
+  const previous = process.env[flag];
+  process.env[flag] = 'test-overflow';
+  t.after(() => {
+    if (previous === undefined) delete process.env[flag]; else process.env[flag] = previous;
+  });
+  const seed = async (uid, count, prefix = '한'.repeat(480)) => {
+    for (let offset = 0; offset < count; offset += 400) {
+      const batch = db.batch();
+      for (let index = offset; index < Math.min(offset + 400, count); index++) {
+        const workId = prefix + index;
+        batch.create(wishlistList(uid).doc(createHash('sha256').update(workId).digest('hex')),
+          { workId, revision: 1, addedAt: 1_000, saved: index > 0 });
+      }
+      await batch.commit();
+    }
+  };
+  const oversized = randomUUID();
+  await seed(oversized, 370);
+  assert.equal((await listOwnWishlist(db, oversized)).length, 370);
+  assert.equal((await wishlistSnapshot(oversized).get()).get('payload'), null);
+
+  const growing = randomUUID();
+  await seed(growing, 355);
+  assert.equal((await listOwnWishlist(db, growing)).length, 355);
+  assert.equal(typeof (await wishlistSnapshot(growing).get()).get('payload'), 'string');
+  for (let index = 0; index < 15; index++) {
+    await updateWishlist(db, growing, '글'.repeat(480) + index, true, null);
+  }
+  assert.equal((await wishlistSnapshot(growing).get()).get('payload'), null);
+  const all = await listOwnWishlist(db, growing);
+  assert.equal(all.length, 370);
+  assert.ok(all.some(({ saved, workId }) => !saved && workId === '한'.repeat(480) + '0'));
+
+  const many = randomUUID();
+  const count = WISHLIST_SNAPSHOT_ROW_LIMIT + 2;
+  await seed(many, count, 'short-');
+  assert.equal((await listOwnWishlist(db, many)).length, count);
+  assert.equal((await wishlistSnapshot(many).get()).get('payload'), null);
 });
 
 test('public reviews scan beyond the display limit and pin visibility and aliases to one server snapshot', async (t) => {
