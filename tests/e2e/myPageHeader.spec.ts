@@ -37,6 +37,45 @@ test.beforeEach(async ({ page }) => {
   } }));
 });
 
+test('discovery completes hashtag queries and combines removable tag filters', async ({ page }) => {
+  await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
+    schemaVersion: 1, generation: 'tag-search', genres: [], tags: ['회귀물', '마법', '던전'],
+    books: [
+      ['both-tags', '두 태그 도서', null, [['series', 'https://example.test/tags/both']], null, [0, 1], 10, null],
+      ['return-tag', '회귀 도서', null, [['series', 'https://example.test/tags/return']], null, [0, 2], 9, null],
+      ['magic-tag', '마법 도서', null, [['series', 'https://example.test/tags/magic']], null, [1], 8, null],
+    ],
+  } }));
+  await page.goto('/#mypage/discover');
+  const list = page.getByRole('region', { name: '도서 목록', exact: true });
+  const search = page.getByRole('textbox', { name: '도서 제목 또는 태그 검색' });
+  const filter = page.getByLabel('도서 태그 필터');
+  await expect(filter.getByRole('option')).toHaveText(['태그 추가', '던전', '마법', '회귀물']);
+
+  await search.fill('#회 귀');
+  const suggestions = page.getByRole('group', { name: '태그 자동완성' });
+  await expect(list.getByRole('link')).toHaveCount(2);
+  await suggestions.getByRole('button', { name: '#회귀물 2권' }).click();
+  const removeReturn = page.getByRole('button', { name: '#회귀물 제거' });
+  await expect(removeReturn).toBeVisible();
+  await expect(search).toHaveValue('');
+
+  await search.fill('#마법');
+  await expect(suggestions.getByRole('button', { name: '#마법 2권' })).toBeVisible();
+  await search.press('Enter');
+  const removeMagic = page.getByRole('button', { name: '#마법 제거' });
+  await expect(removeMagic).toBeVisible();
+  await expect(list.getByRole('link')).toHaveCount(1);
+  await expect(list.getByRole('link', { name: '두 태그 도서', exact: true })).toBeVisible();
+  await removeReturn.click();
+  await expect(removeReturn).toHaveCount(0);
+  await expect(removeMagic).toBeVisible();
+  await expect(list.getByRole('link')).toHaveCount(2);
+  await search.fill('마법 도서');
+  await expect(list.getByRole('link')).toHaveCount(1);
+  await expect(list.getByRole('link', { name: '마법 도서', exact: true })).toBeVisible();
+});
+
 test('book detail loads the catalog thumbnail directly and retries a denied original once', async ({ page }) => {
   const direct = 'https://comicthumb-phinf.pstatic.net/detail-cover.png?type=w160';
   const denied = 'https://dn-img-page.kakao.com/detail-denied.png';

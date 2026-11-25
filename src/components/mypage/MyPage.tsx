@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, House, Library, Plus, Search, Settings2 } from 'lucide-react';
+import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, Hash, House, Library, Plus, Search, Settings2, X } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
@@ -9,6 +9,7 @@ import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib
 import { finishDiscoveryTiming, startDiscoveryTiming } from '../../lib/myPagePerformance';
 import type { ReadBook } from '../../lib/readBooks';
 import type { MyPageBrowseSection } from '../../lib/myPageSocial';
+import type { PublicBookCatalogTag } from '../../lib/publicBookCatalogSchema';
 import { useAccountWishlist } from '../../hooks/useAccountWishlist';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
@@ -25,7 +26,7 @@ import { MyReviews } from './MyReviews';
 import { ListSort } from './ListSort';
 import { LibraryAnnotations } from '../LibraryAnnotations';
 import { LibraryReadingStatisticsModal } from '../LibraryReadingStatisticsModal';
-import { normalizeShelfTagQuery } from '../shelf/tagSearch';
+import { normalizeShelfTagQuery, searchPublicBookCatalogTags } from '../shelf/tagSearch';
 import type { SyncHealth } from '../../lib/syncHealth';
 
 const tabLabels = {
@@ -72,6 +73,8 @@ type DiscoveryList = {
   searchableTitles: ReadonlyMap<string, readonly string[]>;
   genres: readonly string[];
   tags: readonly string[];
+  catalogTags: readonly PublicBookCatalogTag[];
+  searchableTags: ReadonlyMap<string, string>;
   books: readonly DiscoveryBook[];
 };
 const discoveryListCache = new WeakMap<readonly DiscoveryBook[], Map<CatalogSort, DiscoveryList>>();
@@ -103,8 +106,10 @@ function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): Di
     }
     const tags = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 120)
       .map(([name]) => name).sort((a, b) => a.localeCompare(b, 'ko'));
+    const catalogTags = [...counts].map(([label, titleCount], id) => ({ id, label, titleCount }));
+    const searchableTags = new Map(catalogTags.map(({ label }) => [label, normalizeShelfTagQuery(label)]));
     finishDiscoveryTiming('search', started);
-    return { searchableTitles, genres: [...genres].sort(), tags };
+    return { searchableTitles, genres: [...genres].sort(), tags, catalogTags, searchableTags };
   })();
   const started = startDiscoveryTiming();
   const list = { ...base, books: [...grouped.books].sort(bookOrder[sort]) };
@@ -172,7 +177,8 @@ export function MyPage(props: Props) {
   const [query, setQuery] = useState('');
   const [source, setSource] = useState('');
   const [genre, setGenre] = useState('');
-  const [tag, setTag] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const discoverySearchRef = useRef<HTMLInputElement>(null);
   const [wishlistSort, setWishlistSort] = useMyPageSort(ownerKey, 'wishlist', wishlistSorts, 'saved');
   const [discoverySort, setDiscoverySort] = useMyPageSort(ownerKey, 'discover', catalogSorts, 'popular');
   const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
@@ -298,26 +304,31 @@ export function MyPage(props: Props) {
   const discoveryBooks = discoveryList?.books;
   const genres = discoveryList?.genres ?? [];
   const tags = discoveryList?.tags ?? [];
+  const tagMode = query.trim().startsWith('#');
+  const tagQuery = tagMode ? normalizeShelfTagQuery(query.trim().slice(1)) : '';
+  const tagSuggestions = useMemo(() => {
+    if (!tagMode || !discovering || bookId || !catalog) return [];
+    const { catalogTags } = getDiscoveryList(catalog, discoverySort);
+    return searchPublicBookCatalogTags(catalogTags.filter(({ label }) => !selectedTags.includes(label)), tagQuery);
+  }, [bookId, catalog, discovering, discoverySort, selectedTags, tagMode, tagQuery]);
   const discoveryResults = useMemo(() => {
     if (!discovering || bookId || !catalog) return [];
-    const { books, searchableTitles } = getDiscoveryList(catalog, discoverySort);
+    const { books, searchableTitles, searchableTags } = getDiscoveryList(catalog, discoverySort);
     const normalized = query.trim().normalize('NFC').toLocaleLowerCase();
-    const searchTags = normalized.startsWith('#');
-    const tagQuery = searchTags ? normalizeShelfTagQuery(normalized.slice(1)) : '';
-    if (!normalized && !source && !genre && !tag) return books;
+    if (!normalized && !source && !genre && !selectedTags.length) return books;
     const started = startDiscoveryTiming();
     const filtered = books.filter((book) => (
-      (!normalized || (searchTags
-        ? book.tags.some((name) => normalizeShelfTagQuery(name).includes(tagQuery))
+      (!normalized || (tagMode
+        ? book.tags.some((name) => searchableTags.get(name)?.includes(tagQuery))
         : (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
           .some((title) => title.includes(normalized))))
       && (!source || book.platforms.some((platform) => platform.id === source))
       && (!genre || book.genre === genre)
-      && (!tag || book.tags.includes(tag))
+      && selectedTags.every((name) => book.tags.includes(name))
     ));
     finishDiscoveryTiming('filter', started);
     return filtered;
-  }, [discovering, bookId, catalog, discoverySort, genre, query, source, tag]);
+  }, [bookId, catalog, discovering, discoverySort, genre, query, selectedTags, source, tagMode, tagQuery]);
   useLayoutEffect(() => {
     if (!discovering || bookId) {
       discoveryStarted.current = undefined;
@@ -334,7 +345,19 @@ export function MyPage(props: Props) {
     return wishlist.entries.map(({ book }) => book).sort(bookOrder[wishlistSort]);
   }, [tab, wishlist.entries, wishlistSort]);
   const results = discovering ? discoveryResults : wishlistResults;
-  const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setTag(''); setVisibleCount(60); };
+  const addTag = (name: string) => {
+    if (!name) return;
+    setSelectedTags((current) => current.includes(name) ? current : [...current, name]);
+    if (tagMode) setQuery('');
+    setVisibleCount(60);
+    discoverySearchRef.current?.focus();
+  };
+  const removeTag = (name: string) => {
+    setSelectedTags((current) => current.filter((tag) => tag !== name));
+    setVisibleCount(60);
+    discoverySearchRef.current?.focus();
+  };
+  const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setSelectedTags([]); setVisibleCount(60); };
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
   const detailLabel = tabLabels[tab];
   const activeGroup = primaryMenu.find(({ tabs }) => tabs.some((id) => id === (showRecommendationList ? 'overview' : tab)));
@@ -526,11 +549,39 @@ export function MyPage(props: Props) {
               </div>
             </div>
             {discovering && <section aria-label="도서 검색 및 필터" className="space-y-2.5">
-              <label className="flex items-center gap-2.5 rounded-lg px-3 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500"><Search size={17} className="shrink-0 opacity-60" /><input aria-label="도서 제목 또는 태그 검색" value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }} placeholder="도서 제목 또는 #태그 검색" className="min-h-10 min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
+              <div className="flex min-h-10 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-3 py-1 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500">
+                {tagMode ? <Hash size={17} aria-hidden="true" className="shrink-0 text-accent-500" />
+                  : <Search size={17} aria-hidden="true" className="shrink-0 opacity-60" />}
+                {selectedTags.map((name) => (
+                  <button key={name} type="button" aria-label={`#${name} 제거`} onClick={() => removeTag(name)}
+                    className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-md bg-accent-500/15 px-2 text-xs font-semibold text-accent-500 hover:bg-accent-500/25">
+                    <span className="truncate">#{name}</span><X size={12} aria-hidden="true" className="shrink-0" />
+                  </button>
+                ))}
+                <input ref={discoverySearchRef} aria-label="도서 제목 또는 태그 검색" value={query}
+                  onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.nativeEvent.isComposing && tagSuggestions[0]) {
+                      event.preventDefault();
+                      addTag(tagSuggestions[0].label);
+                    }
+                  }}
+                  placeholder="도서 제목 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
+              </div>
+              {tagSuggestions.length > 0 && (
+                <div role="group" aria-label="태그 자동완성" className="flex flex-wrap gap-1.5">
+                  {tagSuggestions.map(({ label, titleCount }) => (
+                    <button key={label} type="button" onClick={() => addTag(label)}
+                      className="min-h-8 rounded-md bg-current/5 px-2.5 text-xs font-semibold ring-1 ring-inset ring-current/15 hover:text-accent-500">
+                      #{label} <span className="opacity-55">{titleCount.toLocaleString('ko-KR')}권</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <select aria-label="도서 플랫폼 필터" value={source} onChange={(event) => { setSource(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 플랫폼</option><option value="series">네이버 시리즈</option><option value="kakao">카카오페이지</option><option value="novelpia">노벨피아</option></select>
                 <select aria-label="도서 장르 필터" value={genre} onChange={(event) => { setGenre(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 장르</option>{genres.map((name) => <option key={name}>{name}</option>)}</select>
-                <select aria-label="도서 태그 필터" value={tag} onChange={(event) => { setTag(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 태그</option>{tags.map((name) => <option key={name}>{name}</option>)}</select>
+                <select aria-label="도서 태그 필터" value="" onChange={(event) => addTag(event.target.value)} className={inputClass}><option value="">태그 추가</option>{tags.filter((name) => !selectedTags.includes(name)).map((name) => <option key={name}>{name}</option>)}</select>
               </div>
             </section>}
             <section aria-label="도서 목록">
