@@ -98,7 +98,7 @@
 ## 실제 로그인·Drive 재연결
 
 - [1.8.35](updates/update_1.8.35.md#검증-결과)의 인증 실사용 재확인은 아직 대기입니다. state fallback과 logout disposer 수정은 구현되어 있으나 실제 첫 callback의 성공 근거를 대신하지 않습니다.
-- 다음 작업: 배포 브라우저/PWA/WebView에서 로그아웃 성공·실패, Firebase 재로그인, 첫 Drive 연결과 token 만료 뒤 redirect 재연결을 확인합니다. 앱 origin·Firebase helper·state 소비를 비교하고 비밀값을 기록하지 않습니다.
+- 다음 작업: 배포 브라우저/PWA/WebView에서 로그아웃 성공·실패, Firebase 재로그인, 첫 Drive 연결과 token 만료 뒤 redirect 재연결을 확인합니다. 설치형 PWA에서 로그아웃한 뒤 오프라인으로 앱을 다시 열고 게스트의 읽은 책에서 최신 위치로 이어 읽는지 확인합니다. 앱 origin·Firebase helper·state 소비를 비교하고 비밀값을 기록하지 않습니다.
 - 설치형 PWA에 로그인한 채 책 본문과 진행률을 기기에 저장하고, 비행기 모드에서 앱을 완전히 닫았다 열어 같은 위치가 복원되는지 확인합니다. 연결을 복구하면 읽던 화면을 유지하면서 Drive 목록을 갱신하는지도 봅니다.
 - 공유 폴더 가져오기의 남은 실계정 검증은 미초대 Drive 계정에서 버튼이 숨겨지는지와 여러 파일을 제출했을 때 일부 실패가 표시되는지입니다. 프리뷰에서 초대 계정으로 Picker의 TXT·EPUB 동시 선택, TXT의 Drive 내부 복사와 즉시 재시도 뒤 서재 사본 한 건 표시를 확인했습니다. [설정과 경계](integrations/firebase-and-drive.md#초대-계정의-공유-폴더-가져오기)
 - 완료 조건: 기존 오류 화면/상태 불일치가 재현되는지 판정하고, Drive 목록 복구·로컬 서재 보존·Firebase 상태 유지 결과를 기록합니다.

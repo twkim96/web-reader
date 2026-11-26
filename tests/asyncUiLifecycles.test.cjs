@@ -171,7 +171,7 @@ test('keeping a remotely deleted bookmark updates its id before the reader can d
 });
 
 for (const offline of [false, true]) test(
-  `late cold-start authentication hydrates account progress before mounting its reader (offline=${offline})`,
+  `late cold-start authentication hydrates before opening the reader and hands off positions on logout (offline=${offline})`,
   async () => {
   const { readFileSync } = require('node:fs');
   const page = readFileSync(require.resolve('../src/app/page.tsx'), 'utf8');
@@ -199,8 +199,11 @@ for (const offline of [false, true]) test(
       const originalSet = window.setTimeout, originalClear = window.clearTimeout;
       const timers = new Map();
       const opens = [];
+      const guestRestores = [];
+      const logoutReadingOwner = { current: undefined };
       const book = { id: 'cold-start-book' };
       let resolveAccount;
+      let resolveLogoutRestore;
       let driveLoads = 0;
       const loadLibraryFromDrive = async () => { driveLoads++; return true; };
       const accountHydration = new Promise(resolve => { resolveAccount = resolve; });
@@ -223,15 +226,20 @@ for (const offline of [false, true]) test(
         const isGuestRef = React.useRef(false);
         const triedAutoOpen = React.useRef(false);
         const resetLibraryState = React.useCallback(() => { setBooks([]); setProgress({}); }, []);
-        const restoreLocalData = React.useCallback(async () => {
+        const restoreLocalData = React.useCallback(async (options) => {
           const account = ownerRuntime.capture().ownerKey.startsWith('firebase:');
           if (account) await accountHydration;
+          else {
+            guestRestores.push(options?.retainPositionsFrom);
+            if (options?.retainPositionsFrom) await new Promise(resolve => { resolveLogoutRestore = resolve; });
+          }
           setBooks([book]);
           setProgress(account ? { [book.id]: { progressPercent: 60 } } : {});
           return true;
         }, []);
         const { isLibraryBootstrapReady, isAuthenticatedLibraryReady } = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
-          setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: offline ? yes : no });
+          setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: offline ? yes : no,
+          logoutReadingOwner });
         useNetworkLibrarySync({ user, isAuthenticatedLibraryReady, googleToken: offline ? 'token' : null,
           driveSessionId: offline ? 'session' : null, loadLibraryFromDrive, setView, setIsOfflineMode: noop });
         React.useEffect(() => {
@@ -265,6 +273,16 @@ for (const offline of [false, true]) test(
           assert.equal(driveLoads, 1);
           assert.equal(opens.length, 1);
         }
+        const accountOwner = ownerRuntime.capture().ownerKey;
+        const previousGuestRestores = guestRestores.length;
+        logoutReadingOwner.current = accountOwner;
+        ownerRuntime.clear();
+        await React.act(async () => authCallback(null));
+        assert.equal(localStorage.getItem('isGuest'), 'true');
+        assert.equal(logoutReadingOwner.current, undefined);
+        await React.act(async () => authCallback(null));
+        assert.deepEqual(guestRestores.slice(previousGuestRestores), [accountOwner]);
+        await React.act(async () => resolveLogoutRestore());
       } finally {
         window.setTimeout = originalSet;
         window.clearTimeout = originalClear;

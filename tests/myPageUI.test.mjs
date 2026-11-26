@@ -85,7 +85,7 @@ const props = {
   ownerKey: owner, books: [], progress: {}, bookmarkProgress: {}, theme: { bg: '', text: '', border: '', secondary: '' }, themeVariables: {}, accentColor: 'rose',
   syncHealth: 'healthy', quarantinedDocumentCount: 0, canRefresh: false, refreshing: false, lastServerCheckedAt: null,
   showRecommendedBooks: true, onShowRecommendedBooksChange() {},
-  onRefresh() {}, onBack() {},
+  onRefresh() {}, onBack() {}, onOpenDeviceBook() {},
 };
 const click = async (window, element) => act(async () => element.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true })));
 const select = (window, element, value) => act(async () => {
@@ -102,7 +102,7 @@ test('dashboard book sections open the matching detail and full list', async () 
   try {
     await act(async () => root.render(React.createElement(MyPage, props)));
     assert.deepEqual([...main().querySelectorAll('h2')].slice(0, 3).map(({ textContent }) => textContent), [
-      '위시리스트', '평점을 남긴 도서', '읽은 도서',
+      '위시리스트', '평점을 남긴 도서', '이 기기에서 읽은 책',
     ]);
     const row = main().querySelector('[aria-label="위시리스트 가로 목록"]');
     assert.equal(row.querySelectorAll('li').length, 3);
@@ -122,6 +122,40 @@ test('dashboard book sections open the matching detail and full list', async () 
   } finally {
     await act(async () => root.unmount());
     await closeLocalDB();
+  }
+});
+
+test('guest read list opens device books directly from their saved progress', async () => {
+  const { window, root } = setup('#mypage/overview');
+  const older = { id: 'older', name: '어제 읽은 책.epub', mimeType: 'application/epub+zip', source: 'local' };
+  const latest = { ...older, id: 'latest', name: '오늘 읽은 책.epub' };
+  const reset = { ...older, id: 'reset', name: '기록 초기화한 책.epub' };
+  const position = (bookId, cfi, lastRead, progressPercent) => ({ bookId, cfi, lastRead, progressPercent });
+  const opened = [];
+  try {
+    await act(async () => root.render(React.createElement(MyPage, {
+      ...props,
+      books: [older, latest, reset],
+      bookmarkProgress: {
+        older: position('older', 'saved-older', 10, 52),
+        latest: position('latest', 'saved-latest', 20, 13),
+        reset: position('reset', '', 30, 0),
+        missing: position('missing', 'not-downloaded', 40, 20),
+      },
+      onOpenDeviceBook: book => opened.push(book),
+    })));
+    const preview = window.document.querySelector('[aria-label="이 기기에서 읽은 책 가로 목록"]');
+    assert.match(preview.querySelector('button').textContent, /오늘 읽은 책/);
+    await click(window, preview.querySelector('button'));
+    assert.deepEqual(opened, [latest]);
+    await click(window, window.document.querySelector('[aria-label="이 기기에서 읽은 책 전체 보기"]'));
+    const items = [...window.document.querySelectorAll('main [aria-label="이 기기에서 읽은 책"] li button')];
+    assert.equal(items.length, 2);
+    assert.match(items[0].textContent, /13\.0%/);
+    await click(window, items[1]);
+    assert.deepEqual(opened, [latest, older]);
+  } finally {
+    await act(async () => root.unmount());
   }
 });
 

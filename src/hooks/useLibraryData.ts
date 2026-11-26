@@ -20,11 +20,13 @@ import {
 import {
   getAllLocalProgressV5,
   getAllOfflineBooksV5,
+  retainReadingPositionsOnDeviceV5,
 } from '../lib/localDBV5';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import {
   DEVICE_CONTENT_OWNER_KEY,
   getSyncOwnerKey,
+  type OwnerKey,
 } from '../lib/ownerIdentity';
 import { DriveLoadCoordinator } from '../lib/driveLoadCoordinator';
 import { Book, RemoteProgressUpdate, UserProgress, ViewState } from '../types';
@@ -41,6 +43,7 @@ interface UseLibraryDataOptions {
 export type RestoreLocalDataOptions = {
   preventRedirect?: boolean;
   replaceBooks?: boolean;
+  retainPositionsFrom?: OwnerKey;
 };
 
 interface UseLibraryDataResult {
@@ -56,17 +59,6 @@ interface UseLibraryDataResult {
   loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
   resetLibraryState: () => void;
 }
-
-const normalizeRestoreOptions = (options?: boolean | RestoreLocalDataOptions): Required<RestoreLocalDataOptions> => {
-  if (typeof options === 'boolean') {
-    return { preventRedirect: options, replaceBooks: false };
-  }
-
-  return {
-    preventRedirect: options?.preventRedirect ?? false,
-    replaceBooks: options?.replaceBooks ?? false,
-  };
-};
 
 export const useLibraryData = ({
   clearToken,
@@ -103,17 +95,28 @@ export const useLibraryData = ({
   }, []);
 
   const restoreLocalData = useCallback(async (options?: boolean | RestoreLocalDataOptions) => {
-    const { preventRedirect, replaceBooks } = normalizeRestoreOptions(options);
+    const { preventRedirect = false, replaceBooks = false, retainPositionsFrom } =
+      typeof options === 'boolean' ? { preventRedirect: options } : options ?? {};
     const capturedOwner = ownerRuntime.capture();
     if (!capturedOwner) return false;
 
     try {
       const owner = capturedOwner;
       if (!preventRedirect) setIsOfflineMode(true);
+      const progressOwner = getSyncOwnerKey(owner.ownerKey);
+      if (retainPositionsFrom) {
+        // A failed local write should not leave the signed-out shelf loading.
+        await retainReadingPositionsOnDeviceV5(getSyncOwnerKey(retainPositionsFrom), progressOwner)
+          .catch(() => {
+            if (ownerRuntime.isCurrent(owner)) {
+              onLibraryError?.('기기에 읽기 위치를 남기지 못했습니다. 같은 계정으로 다시 로그인하면 저장된 위치를 볼 수 있습니다.');
+            }
+          });
+      }
 
       const [localBooks, localProgress] = await Promise.all([
         getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY),
-        getAllLocalProgressV5(getSyncOwnerKey(owner.ownerKey)),
+        getAllLocalProgressV5(progressOwner),
       ]);
       if (!ownerRuntime.isCurrent(owner)) return false;
 
@@ -151,7 +154,7 @@ export const useLibraryData = ({
       console.error('Failed to restore local data:', error);
       return false;
     }
-  }, [setIsOfflineMode, setView]);
+  }, [onLibraryError, setIsOfflineMode, setView]);
 
   const loadLibraryFromDrive = useCallback(async (
     token: string,

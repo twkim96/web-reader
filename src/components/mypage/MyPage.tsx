@@ -31,6 +31,7 @@ import { LibraryAnnotations } from '../LibraryAnnotations';
 import { LibraryReadingStatisticsModal } from '../LibraryReadingStatisticsModal';
 import { normalizeShelfTagQuery, searchPublicBookCatalogTags } from '../shelf/tagSearch';
 import type { SyncHealth } from '../../lib/syncHealth';
+import { useBookTitleDisplay } from '../../contexts/BookTitleDisplayContext';
 
 const tabLabels = {
   overview: '대시보드',
@@ -164,6 +165,7 @@ type Props = {
   books: Book[];
   progress: Record<string, UserProgress>;
   bookmarkProgress: Record<string, UserProgress>;
+  onOpenDeviceBook: (book: Book) => void;
   theme: ThemeClasses;
   themeVariables: React.CSSProperties;
   accentColor: string;
@@ -209,6 +211,15 @@ export function MyPage(props: Props) {
   const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
   const [visibleCount, setVisibleCount] = useState(initialSearch.visibleCount);
   const signedIn = !isGuestOwner(ownerKey);
+  const formatBookTitle = useBookTitleDisplay();
+  const deviceReadBooks = useMemo(() => {
+    if (signedIn) return [];
+    return books.flatMap((book) => {
+      const position = bookmarkProgress[book.id];
+      if (!position?.lastRead || (!position.cfi && !position.anchorCfi && position.progressPercent <= 0)) return [];
+      return [{ id: book.id, book, title: formatBookTitle(book.name), coverUrl: null, position }];
+    }).sort((a, b) => b.position.lastRead - a.position.lastRead);
+  }, [books, bookmarkProgress, formatBookTitle, signedIn]);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
   const { entries: wishlistEntries, loading: wishlistLoading } = wishlist;
   const dashboardWishlist = useMemo(() => wishlistLoading ? undefined : wishlistEntries.map(({ book }) => book), [wishlistEntries, wishlistLoading]);
@@ -577,7 +588,23 @@ export function MyPage(props: Props) {
           </nav>
         )}
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detailLabel}>
-          {tab === 'read' && <div hidden={Boolean(bookId)}><ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} /></div>}
+          {tab === 'read' && <div hidden={Boolean(bookId)}>
+            {signedIn ? <ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} />
+              : <section aria-label="이 기기에서 읽은 책">
+                <h2 className="mb-3 text-lg font-semibold tracking-tight">이 기기에서 읽은 책</h2>
+                {deviceReadBooks.length ? <ul className="mypage-divided-list">
+                  {deviceReadBooks.map(({ id, book, title, position }) => (
+                    <li key={id} className="mypage-book-list-item">
+                      <button type="button" onClick={() => props.onOpenDeviceBook(book)}
+                        className="flex min-h-11 w-full items-center gap-3 px-1 text-left hover:text-accent-500">
+                        <span className="min-w-0 grow break-words text-sm font-semibold">{title}</span>
+                        <span className="shrink-0 text-xs opacity-65">{position.progressPercent.toFixed(1)}%</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul> : <p className="text-sm opacity-60">이 기기에 저장된 읽기 위치가 없습니다.</p>}
+              </section>}
+          </div>}
           {tab === 'browse' && <div hidden={Boolean(bookId)}><PublicBrowse key={`${ownerKey}:${feedSection}`} section={feedSection} owner={ownerKey} onOpenBook={openBookById} /></div>}
           {(showOverview || showRecommendationList || tab === 'calendar') && <div hidden={Boolean(bookId)} className="space-y-8 [--mypage-cover-width:clamp(3.85rem,20.3vw,5.25rem)] sm:space-y-10">
             {showOverview && (
@@ -592,7 +619,7 @@ export function MyPage(props: Props) {
             )}
             {(showOverview || (showRecommendationList && props.showRecommendedBooks && catalog)) && (
               <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
-                hidePreview={showRecommendationList}
+                hidePreview={showRecommendationList || !signedIn}
                 renderBeforePreview={(readBooks) => <>
                   {props.showRecommendedBooks && catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
                     rotationSeed={recommendationSeed} previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
@@ -601,6 +628,10 @@ export function MyPage(props: Props) {
                   {showOverview && <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />}
                 </>} />
             )}
+            {showOverview && !signedIn && <DashboardBookRow title="이 기기에서 읽은 책" books={deviceReadBooks}
+              onShowAll={() => openTab('read')} onOpenBook={({ book }) => props.onOpenDeviceBook(book)} openInReader>
+              {!deviceReadBooks.length && <p className="text-sm opacity-60">이 기기에 저장된 읽기 위치가 없습니다.</p>}
+            </DashboardBookRow>}
             {showRecommendationList && (!props.showRecommendedBooks
               ? <p className="text-sm opacity-65">마이페이지 설정에서 추천 도서 보기를 켤 수 있습니다.</p>
               : !catalog && (catalogError

@@ -12,7 +12,7 @@ const showAllClass = '-mr-2 flex min-h-11 shrink-0 items-center gap-1 rounded-lg
 const showAllContent = <>전체 보기 <ChevronRight size={16} aria-hidden="true" /></>;
 
 export function DashboardBookRow<T extends { id: string; title: string; coverUrl: string | null; coverTitle?: string | null }>({
-  title, books, onOpenBook, getDetailId, getBookKey, onShowAll, showAllHref, renderDetail, coverLoading, compact = false, children,
+  title, books, onOpenBook, getDetailId, getBookKey, onShowAll, showAllHref, renderDetail, coverLoading, compact = false, openInReader = false, children,
 }: {
   title: string;
   books: readonly T[];
@@ -24,6 +24,7 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
   renderDetail?: (book: T) => ReactNode;
   coverLoading?: BookCoverLoading;
   compact?: boolean;
+  openInReader?: boolean;
   children?: ReactNode;
 }) {
   const drag = useMouseDragScroll();
@@ -43,15 +44,19 @@ export function DashboardBookRow<T extends { id: string; title: string; coverUrl
           {books.slice(0, MY_PAGE_DASHBOARD_BOOK_LIMIT).map((book) => {
             const detailId = getDetailId ? getDetailId(book) : book.id;
             const key = getBookKey?.(book) ?? book.id;
+            const className = 'group block w-full rounded-lg text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500';
+            const content = <>
+              <BookCover url={book.coverUrl} identity={detailId ?? key}
+                title={book.coverTitle === undefined ? book.title : book.coverTitle} large coverLoading={coverLoading} />
+              <span className={`line-clamp-2 break-words font-semibold leading-snug group-hover:text-accent-500 ${compact ? 'mt-1.5 text-xs' : 'mt-2 text-sm'}`}>{book.title}</span>
+              {renderDetail?.(book)}
+            </>;
             return (
               <li key={key} className={`shrink-0 ${compact ? 'w-16 sm:w-[4.5rem]' : 'w-[var(--mypage-cover-width,clamp(5.5rem,29vw,7.5rem))]'}`}>
-                <BookDetailLink bookId={detailId} onOpen={() => onOpenBook(book)} label={book.title}
-                  className="group block rounded-lg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500">
-                  <BookCover url={book.coverUrl} identity={detailId ?? key}
-                    title={book.coverTitle === undefined ? book.title : book.coverTitle} large coverLoading={coverLoading} />
-                  <span className={`line-clamp-2 break-words font-semibold leading-snug group-hover:text-accent-500 ${compact ? 'mt-1.5 text-xs' : 'mt-2 text-sm'}`}>{book.title}</span>
-                  {renderDetail?.(book)}
-                </BookDetailLink>
+                {openInReader ? <button type="button" className={className} onClick={() => onOpenBook(book)}>{content}</button>
+                  : <BookDetailLink bookId={detailId} onOpen={() => onOpenBook(book)} label={book.title} className={className}>
+                    {content}
+                  </BookDetailLink>}
               </li>
             );
           })}

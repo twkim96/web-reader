@@ -8,6 +8,7 @@ import {
   makeFirebaseOwnerKey,
   makeGuestOwnerKey,
   makeOwnerKey,
+  type OwnerKey,
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 
@@ -20,6 +21,7 @@ interface UseAuthBootstrapOptions {
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
   resetLibraryState: () => void;
   shouldHoldShelfForDrive: () => boolean;
+  logoutReadingOwner?: MutableRefObject<OwnerKey | undefined>;
 }
 
 export const useAuthBootstrap = ({
@@ -31,6 +33,7 @@ export const useAuthBootstrap = ({
   restoreLocalData,
   resetLibraryState,
   shouldHoldShelfForDrive,
+  logoutReadingOwner,
 }: UseAuthBootstrapOptions) => {
   const [isAuthenticatedLibraryReady, setIsAuthenticatedLibraryReady] = useState(false);
   const [isLibraryBootstrapReady, setIsLibraryBootstrapReady] = useState(false);
@@ -49,7 +52,11 @@ export const useAuthBootstrap = ({
         'library:local',
       ));
       if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
-      guestRestore ??= restoreLocalData({ replaceBooks: true });
+      if (!guestRestore) {
+        const retainPositionsFrom = logoutReadingOwner?.current;
+        if (logoutReadingOwner) logoutReadingOwner.current = undefined;
+        guestRestore = restoreLocalData({ replaceBooks: true, retainPositionsFrom });
+      }
       void guestRestore.then(() => {
         if (!isActive || generation !== authGeneration || !isGuestRef.current) return;
         setIsLibraryBootstrapReady(true);
@@ -136,6 +143,7 @@ export const useAuthBootstrap = ({
     setUser,
     setView,
     shouldHoldShelfForDrive,
+    logoutReadingOwner,
   ]);
 
   return { isAuthenticatedLibraryReady, isLibraryBootstrapReady };

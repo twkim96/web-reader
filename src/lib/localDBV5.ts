@@ -23,7 +23,7 @@ import {
   V14_BOOK_COVERS_STORE,
 } from './localDBSchema';
 import type { ArchiveImageIndex } from './archiveImageBook';
-import type { OwnerKey } from './ownerIdentity';
+import { DEVICE_CONTENT_OWNER_KEY, isGuestOwner, type OwnerKey } from './ownerIdentity';
 import { hasEnoughStorageForWrite } from './storageCapacity';
 import { trackLocalCommit } from './localCommitTracker';
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
@@ -153,6 +153,26 @@ export const getAllLocalProgressV5 = async (ownerKey: OwnerKey) => {
   const db = await initDB();
   return db.getAllFromIndex(V5_PROGRESS_STORE, 'by-owner', ownerKey) as
     Promise<StoredProgressV5[]>;
+};
+
+export const retainReadingPositionsOnDeviceV5 = async (account: OwnerKey, guest: OwnerKey) => {
+  if (isGuestOwner(account) || !isGuestOwner(guest) || guest === DEVICE_CONTENT_OWNER_KEY) return;
+  const db = await initDB();
+  const tx = db.transaction([V5_BOOKS_STORE, V5_PROGRESS_STORE], 'readwrite');
+  const store = tx.objectStore(V5_PROGRESS_STORE);
+  const [accountRows, guestRows] = await Promise.all([
+    store.index('by-owner').getAll(account) as Promise<StoredProgressV5[]>,
+    store.index('by-owner').getAll(guest) as Promise<StoredProgressV5[]>,
+  ]);
+  const guestPositions = new Map(guestRows.map((item) => [item.bookId, item]));
+  const books = tx.objectStore(V5_BOOKS_STORE);
+  for (const { bookId, cfi, anchorCfi, progressPercent, lastRead } of accountRows) {
+    const current = guestPositions.get(bookId);
+    if (!Number.isFinite(lastRead) || lastRead <= (current?.lastRead ?? 0)) continue;
+    if (!await books.getKey([DEVICE_CONTENT_OWNER_KEY, bookId])) continue;
+    await store.put({ ownerKey: guest, bookId, cfi, anchorCfi, progressPercent, lastRead, bookmarks: current?.bookmarks });
+  }
+  await tx.done;
 };
 
 export const loadProgressFromLocalV5 = async (

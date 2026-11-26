@@ -15,8 +15,10 @@ const {
   getAllOfflineBooksV5,
   getOfflineBookIdsV5,
   loadBookFromLocalV5,
+  loadProgressFromLocalV5,
   removeBookAndAnnotationsV8,
   removeBookFromLocalV5,
+  retainReadingPositionsOnDeviceV5,
   saveArchiveInspectionToLocalV5,
   saveBookToLocalV5,
   saveProgressToLocalV5,
@@ -66,6 +68,50 @@ test('lists cached book IDs for the requested content owner', async () => {
   assert.deepEqual(await getOfflineBookIdsV5(DEVICE_CONTENT_OWNER_KEY), new Set(['device-copy']));
   assert.deepEqual(await getOfflineBookIdsV5(ownerA), new Set(['account-copy']));
   assert.deepEqual(await getOfflineBookIdsV5(ownerB), new Set());
+});
+
+test('retains the latest cached reading positions on logout without copying account bookmarks or sync state', async () => {
+  await deleteDatabase();
+  const guest = 'guest:device-reader|library:local';
+  const position = (bookId, lastRead, progressPercent, extra = {}) => ({
+    bookId, lastRead, progressPercent, cfi: 'cfi:' + lastRead, anchorCfi: 'anchor:' + lastRead, ...extra,
+  });
+  const guestBookmarks = [{ id: 'guest-mark', type: 'manual', cfi: 'guest-cfi' }];
+  const accountPosition = position('account-newer', 20, 12, {
+    bookmarks: [{ id: 'private-mark', type: 'manual', cfi: 'private-cfi' }],
+    syncRevision: 7, acceptedEventId: 'account-event', localPositionToken: 'account-pending', ignoredRemoteRevision: 9,
+  });
+  for (const id of ['account-newer', 'guest-newer', 'same-time', 'reset']) {
+    await saveBookToLocalV5(DEVICE_CONTENT_OWNER_KEY, makeBook(id), new Blob([id]));
+  }
+  await saveProgressToLocalV5(ownerA, accountPosition);
+  await saveProgressToLocalV5(guest, position('account-newer', 10, 90, { bookmarks: guestBookmarks }));
+  await saveProgressToLocalV5(guest, position('guest-newer', 30, 20));
+  await saveProgressToLocalV5(ownerA, position('guest-newer', 20, 99));
+  await saveProgressToLocalV5(guest, position('same-time', 20, 10));
+  await saveProgressToLocalV5(ownerA, position('same-time', 20, 99));
+  await saveProgressToLocalV5(guest, position('reset', 10, 50));
+  await saveProgressToLocalV5(ownerA, position('reset', 20, 0, { cfi: '', anchorCfi: '' }));
+  await saveProgressToLocalV5(ownerA, position('cloud-only', 30, 80));
+  await saveProgressToLocalV5(ownerB, position('account-newer', 40, 50));
+
+  await retainReadingPositionsOnDeviceV5(ownerA, guest);
+  await retainReadingPositionsOnDeviceV5(ownerA, guest);
+  const copied = await loadProgressFromLocalV5(guest, 'account-newer');
+  assert.equal(copied.cfi, accountPosition.cfi);
+  assert.equal(copied.anchorCfi, accountPosition.anchorCfi);
+  assert.equal(copied.progressPercent, 12);
+  assert.deepEqual(copied.bookmarks, guestBookmarks);
+  for (const field of ['syncRevision', 'acceptedEventId', 'localPositionToken', 'ignoredRemoteRevision']) {
+    assert.equal(copied[field], undefined);
+  }
+  assert.equal((await loadProgressFromLocalV5(guest, 'guest-newer')).cfi, 'cfi:30');
+  assert.equal((await loadProgressFromLocalV5(guest, 'same-time')).progressPercent, 10);
+  assert.equal((await loadProgressFromLocalV5(guest, 'reset')).progressPercent, 0);
+  assert.equal(await loadProgressFromLocalV5(guest, 'cloud-only'), undefined);
+  assert.equal((await loadProgressFromLocalV5(ownerA, 'account-newer')).syncRevision, 7);
+  assert.equal((await loadProgressFromLocalV5(ownerB, 'account-newer')).cfi, 'cfi:40');
+  assert.deepEqual(await getOutboxEventsV5(guest), []);
 });
 
 const makeAnnotation = (ownerBookId, id, colorId = 'yellow') => ({

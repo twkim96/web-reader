@@ -58,6 +58,7 @@ test('lets the Firebase auth callback perform exactly one guest-library transiti
   )?.[1] ?? '';
 
   assert.match(prepareUi, /isGuestRef\.current = true/);
+  assert.match(prepareUi, /logoutReadingOwner\.current = logoutOwner\?\.ownerKey/);
   assert.match(prepareUi, /localStorage\.setItem\('isGuest', 'true'\)/);
   assert.match(prepareUi, /ownerRuntime\.clear\(\)/);
   assert.doesNotMatch(prepareUi, /setView\('loading'\)/);
@@ -65,10 +66,12 @@ test('lets the Firebase auth callback perform exactly one guest-library transiti
   assert.match(cleanup, /clearPendingGoogleDriveOAuthStates\(sessionStorage, localStorage\)/);
   assert.doesNotMatch(cleanup, /window\.(?:location|history)/);
   assert.match(recovery, /isGuestRef\.current = false/);
+  assert.match(recovery, /logoutReadingOwner\.current = undefined/);
   assert.match(recovery, /ownerRuntime\.activate\(logoutOwner\.ownerKey\)/);
   assert.match(recovery, /localStorage\.removeItem\('isGuest'\)/);
   assert.match(authBootstrap, /if \(firebaseUser\) \{\s+\/\/[^\n]+\n\s+\/\/[^\n]+\n\s+guestRestore = null;/);
   assert.match(authBootstrap, /else if \(isGuestRef\.current\) \{\s+setIsGuest\(true\);\s+activateGuest/);
+  assert.match(authBootstrap, /guestRestore = restoreLocalData\(\{ replaceBooks: true, retainPositionsFrom \}\)/);
   assert.match(authBootstrap, /if \(!isActive \|\| initialAuthSettled \|\| isGuestRef\.current \|\| auth\.currentUser\) return;/);
   assert.match(authBootstrap, /enterGuestLibrary\(\+\+authGeneration\);/);
   assert.match(authBootstrap, /window\.clearTimeout\(authFallbackTimer\)/);

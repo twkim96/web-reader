@@ -55,7 +55,9 @@ import {
   makeOwnerKey,
   getSyncOwnerKey,
   splitOwnerKey,
+  type OwnerKey,
 } from '../lib/ownerIdentity';
+import { waitForCurrentLocalCommits } from '../lib/localCommitTracker';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useSyncConflictResolution } from '../hooks/useSyncConflictResolution';
 import { useAnnotationSyncConflictResolution } from '../hooks/useAnnotationSyncConflictResolution';
@@ -117,6 +119,7 @@ export default function Page() {
   const [isGuest, setIsGuest] = useState(getStoredGuestMode);
   // [Fix] Auth Effect에서 isGuest를 의존성으로 쓰면 Firebase 리스너가 재구독됨 → ref로 대체
   const isGuestRef = useRef(getStoredGuestMode());
+  const logoutReadingOwner = useRef<OwnerKey | undefined>(undefined);
 
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
   const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
@@ -306,6 +309,7 @@ export default function Page() {
     restoreLocalData,
     resetLibraryState,
     shouldHoldShelfForDrive,
+    logoutReadingOwner,
   });
   const receiveSyncHealth = useProgressSync({
     user,
@@ -630,6 +634,8 @@ export default function Page() {
 
     if (action === 'logout') {
       const logoutOwner = ownerRuntime.capture();
+      await waitForCurrentLocalCommits();
+      if (logoutOwner && !ownerRuntime.isCurrent(logoutOwner)) return;
       await runLogoutFlow({
         prepareUi: () => {
           // Mark the upcoming anonymous auth state as a guest transition before
@@ -637,6 +643,7 @@ export default function Page() {
           // Firestore listener and outbox worker observes a stale owner before
           // Firebase drops its credential and cannot pause work as permission-denied.
           setActiveBook(null);
+          logoutReadingOwner.current = logoutOwner?.ownerKey;
           ownerRuntime.clear();
           isGuestRef.current = true;
           localStorage.setItem('isGuest', 'true');
@@ -649,6 +656,7 @@ export default function Page() {
           clearLastReaderSession();
         },
         recoverUi: (error) => {
+          logoutReadingOwner.current = undefined;
           if (logoutOwner) ownerRuntime.activate(logoutOwner.ownerKey);
           isGuestRef.current = false;
           localStorage.removeItem('isGuest');
@@ -976,6 +984,7 @@ export default function Page() {
           books={books}
           progress={shelfProgress}
           bookmarkProgress={progress}
+          onOpenDeviceBook={handleOpenBook}
           theme={theme}
           themeVariables={themeCssVariables}
           accentColor={effectiveAccentColor}
