@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { createHash } from 'node:crypto';
 import { computeAppBuildId } from './scripts/app-build-id.mjs';
 
 const isPreview = process.env.VERCEL_ENV === 'preview';
@@ -12,10 +13,13 @@ const previewAuthHost = isPreview && approvedPreviewAuthHosts.has(branchHost)
   : '';
 const finiteSyncLeases = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES
   ?? (process.env.VERCEL_ENV === 'production' ? '1' : '0');
+const adminUid = process.env.WEB_READER_ADMIN_UID?.trim();
+const adminMenuHash = adminUid ? createHash('sha256').update(adminUid).digest('hex') : '';
 const appBuildId: string = computeAppBuildId(process.cwd(), {
   ...process.env,
   NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES: finiteSyncLeases,
   NEXT_PUBLIC_WEB_READER_PREVIEW_AUTH_HOST: previewAuthHost,
+  NEXT_PUBLIC_WEB_READER_ADMIN_MENU_HASH: adminMenuHash,
 });
 
 const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'web-novel-viewer';
@@ -38,6 +42,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_WEB_READER_PREVIEW: isPreview ? '1' : '0',
     NEXT_PUBLIC_WEB_READER_PREVIEW_AUTH_HOST: previewAuthHost,
     NEXT_PUBLIC_WEB_READER_TAILSCALE_DEV_HOST: allowedDevOrigins?.[0] ?? '',
+    NEXT_PUBLIC_WEB_READER_ADMIN_MENU_HASH: adminMenuHash,
   },
   async headers() {
     return [

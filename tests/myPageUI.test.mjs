@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createRequire, registerHooks } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import React, { act } from 'react';
@@ -92,6 +93,33 @@ const click = async (window, element) => act(async () => element.dispatchEvent(n
 const select = (window, element, value) => act(async () => {
   element.querySelector(`option[value="${value}"]`).selected = true;
   element.dispatchEvent(new window.Event('change', { bubbles: true }));
+});
+
+test('only the configured pilot sees the admin settings entry without a network check', async (t) => {
+  const { window, root } = setup();
+  const { AdminSettingsLink } = await import('../src/components/mypage/AdminSettingsLink.tsx');
+  const env = 'NEXT_PUBLIC_WEB_READER_ADMIN_MENU_HASH';
+  const previous = process.env[env];
+  t.after(() => { if (previous === undefined) delete process.env[env]; else process.env[env] = previous; });
+  const previousSelf = globalThis.self;
+  globalThis.self = window;
+  t.after(() => { if (previousSelf === undefined) delete globalThis.self; else globalThis.self = previousSelf; });
+  process.env[env] = createHash('sha256').update('menu-pilot').digest('hex');
+  const fetch = t.mock.method(globalThis, 'fetch', async () => { throw new Error('Menu should not call the network'); });
+  const link = () => window.document.querySelector('a[href="/admin"]');
+  const render = (ownerKey) => act(async () => root.render(React.createElement(AdminSettingsLink, { ownerKey })));
+  try {
+    await render(owner);
+    assert.equal(link(), null);
+    await render('firebase:menu-pilot|library:local');
+    for (let attempt = 0; attempt < 20 && !link(); attempt++) await act(async () => delay(5));
+    assert.equal(link()?.textContent.trim(), '관리자 화면');
+    await render('firebase:other-reader|library:local');
+    assert.equal(link(), null);
+    assert.equal(fetch.mock.callCount(), 0);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 test('My Page offers the next login step in the header until both accounts are connected', async () => {

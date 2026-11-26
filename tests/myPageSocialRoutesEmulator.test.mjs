@@ -22,7 +22,8 @@ const { workUnitAsyncStorage } = unwrap(await import('next/dist/server/app-rende
 const { GET, POST } = unwrap(await import('../src/app/api/mypage/route.ts'));
 const { GET: sharedDriveGet, POST: sharedDrivePost } = unwrap(await import('../src/app/api/shared-drive/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
-const { getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
+const { GET: getAdminAccounts } = unwrap(await import('../src/app/api/admin/accounts/route.ts'));
+const { getAdminAuth, getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
 const { loadSocialCatalog, resolveSocialWork } = unwrap(await import('../src/server/mypage/catalog.ts'));
 const { getSocialReadingEvidence } = unwrap(await import('../src/server/mypage/reading.ts'));
 const { createReadingRollupCarry } = unwrap(await import('../src/server/readingRollupInputs.ts'));
@@ -55,6 +56,74 @@ async function ok(response) {
 }
 const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/api/book-reviews?' + new URLSearchParams({ workId }))));
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
+
+test('admin accounts authorizes only the pilot and reads two published weeks on demand', async (t) => {
+  const pilot = await emulatorLogin('admin-pilot');
+  const reader = await emulatorLogin('admin-reader');
+  const env = 'WEB_READER_ADMIN_UID';
+  const previous = process.env[env];
+  t.after(() => { if (previous === undefined) delete process.env[env]; else process.env[env] = previous; });
+  const request = (token, uid) => getAdminAccounts(new Request(`http://localhost/api/admin/accounts${uid ? `?${new URLSearchParams({ uid })}` : ''}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  }));
+  delete process.env[env];
+  assert.equal((await request(pilot.idToken)).status, 404);
+  process.env[env] = pilot.localId;
+
+  const now = Date.now();
+  const day = 86_400_000;
+  const today = Math.floor((now + 9 * 3_600_000) / day) * day - 9 * 3_600_000;
+  const account = (uid, lastSignIn, lastRefresh) => ({
+    uid, providerData: [{ providerId: 'google.com' }], metadata: {
+      lastSignInTime: new Date(lastSignIn).toISOString(), lastRefreshTime: lastRefresh && new Date(lastRefresh).toISOString(),
+    },
+  });
+  const pages = t.mock.method(getAdminAuth(), 'listUsers', async (_limit, cursor) => cursor === 'next'
+    ? { users: [account('recent-reader', today - 8 * day), { ...account('disabled', now), disabled: true }] }
+    : { users: [account(pilot.localId, now), account(reader.localId, today - 35 * day, now),
+      account('week-reader', today - day)], pageToken: 'next' });
+  const db = getAdminFirestore();
+  const reads = t.mock.method(db, 'getAll');
+  assert.equal((await request()).status, 401);
+  assert.equal((await request(reader.idToken)).status, 403);
+  assert.equal((await request(reader.idToken, pilot.localId)).status, 403);
+  assert.equal(pages.mock.callCount(), 0);
+  assert.equal(reads.mock.callCount(), 0);
+
+  const overviewResponse = await request(pilot.idToken);
+  assert.equal(overviewResponse.status, 200);
+  assert.equal(overviewResponse.headers.get('cache-control'), 'private, no-store');
+  const overview = await overviewResponse.json();
+  assert.deepEqual(overview.activity, { today: 2, week: 3, month: 4 });
+  assert.deepEqual(overview.accounts.map(({ uid }) => uid), [pilot.localId, 'week-reader', 'recent-reader']);
+  assert.equal(pages.mock.callCount(), 2);
+  assert.equal(reads.mock.callCount(), 0);
+
+  const job = db.doc(`artifacts/${APP_ID}/readingStatsRollupJobsV1/${pilot.localId}`);
+  t.after(async () => db.recursiveDelete(job));
+  const week = (id) => job.collection('readingStatsRollupWeeksV1').doc(id);
+  const manifest = job.collection('readingStatsRollupManifestsV1').doc('current');
+  const due = Date.parse('2026-12-01T09:00:00Z');
+  await Promise.all([
+    job.set({ dueAt: due - 0.5, payload: 'private raw carry' }),
+    ...['2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23'].map((date) => week(date).set({ payload: 'private book list' })),
+  ]);
+  const unpublished = await (await request(pilot.idToken, pilot.localId)).json();
+  assert.equal(unpublished.publishedThrough, null);
+  assert.deepEqual(unpublished.weeks, []);
+
+  await manifest.set({ firstWeek: '2026-11-02', publishedThroughWeek: '2026-11-16', calendarTail: 'private activity' });
+  const detailResponse = await request(pilot.idToken, pilot.localId);
+  assert.equal(detailResponse.status, 200);
+  const detailText = await detailResponse.text();
+  const detail = JSON.parse(detailText);
+  assert.equal(detail.state, 'scheduled');
+  assert.equal(detail.nextDue, due);
+  assert.equal(detail.publishedThrough, '2026-11-16');
+  assert.deepEqual(detail.weeks.map(({ start }) => start), ['2026-11-16', '2026-11-09']);
+  assert.ok(detail.weeks.every(({ writtenAt }) => Number.isFinite(writtenAt)));
+  assert.doesNotMatch(detailText, /private|payload|calendarTail/);
+});
 
 test('shared Drive imports restrict search and Drive-native copy to the shared folder tree', async (t) => {
   const account = await emulatorLogin('shared-drive-first');

@@ -16,6 +16,7 @@
 
 - [개발 환경과 검증](development/setup-and-checks.md): 설정 변수, 실행 명령, 자동검증과 실기기 확인
 - [배포·업데이트·복구](operations/deployment-and-recovery.md): PWA 캐시, 데이터 보존, Rules 배포와 장애 진단
+- [관리자 계정 현황](operations/deployment-and-recovery.md#관리자-계정-현황): 파일럿 전용 로그인 현황과 집계 상태
 - [공개 도서 메타데이터 게시](operations/book-metadata-publishing.md): 읽기 전용 SQLite 원본, 미리보기와 Firestore 게시
 - [Firebase·Google Drive](integrations/firebase-and-drive.md): 인증 설정, 계정 경계, 토큰·폴더 수명
 - [메타데이터와 표지 API](integrations/book-metadata.md): 인증·입출력·쿼터·실패 처리와 공개 카탈로그

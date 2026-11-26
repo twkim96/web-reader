@@ -17,6 +17,7 @@ import { useMouseDragScroll } from '../../hooks/useMouseDragScroll';
 import { useMyPageReviews } from '../../hooks/useMyPageReviews';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
 import { ReadingDashboard } from './ReadingDashboard';
+import { AdminSettingsLink } from './AdminSettingsLink';
 import { ReadBooks } from './ReadBooks';
 import { RecommendedBooks } from './RecommendedBooks';
 import { BookCover } from './BookCover';
@@ -666,6 +667,7 @@ export function MyPage(props: Props) {
                 <input type="checkbox" checked={props.showRecommendedBooks} className="size-4 accent-[var(--accent-500)]"
                   onChange={(event) => props.onShowRecommendedBooksChange(event.target.checked)} />
               </label>
+              {signedIn && <AdminSettingsLink ownerKey={ownerKey} />}
             </section>
             {signedIn
               ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />
