@@ -30,7 +30,7 @@ test('bridges only the short-lived OAuth state across browser contexts', async (
     readFile(new URL('../src/hooks/useGoogleDriveToken.ts', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(oauthHook, /rememberGoogleDriveOAuthState\(sessionStorage, localStorage, state\)/);
+  assert.match(oauthHook, /rememberGoogleDriveOAuthState\(sessionStorage, localStorage, state, window\.location\.hash\)/);
   assert.match(oauthHook, /consumeGoogleDriveOAuthState\(\s*sessionStorage,\s*localStorage,/);
   assert.match(oauthState, /GOOGLE_DRIVE_OAUTH_STATE_TTL_MS = 10 \* 60 \* 1000/);
   const rememberState = oauthState.match(

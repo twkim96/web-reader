@@ -13,6 +13,7 @@ import {
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useOwnerSnapshot } from './useOwnerSnapshot';
+import { libraryLandingView } from '../lib/loginNavigation';
 
 interface UseAuthBootstrapOptions {
   isGuestRef: MutableRefObject<boolean>;
@@ -23,8 +24,9 @@ interface UseAuthBootstrapOptions {
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<RestoreLocalDataResult>;
   resetLibraryState: () => void;
   shouldHoldShelfForDrive: () => boolean;
+  shouldWaitForAuthRedirect?: () => boolean;
   flushOutgoingProgress?: () => Promise<boolean> | undefined;
-  onAuthenticatedLibraryRestoreSettled?: () => void;
+  onLibraryRestoreSettled?: (authenticated: boolean) => void;
 }
 
 export const useAuthBootstrap = ({
@@ -36,8 +38,9 @@ export const useAuthBootstrap = ({
   restoreLocalData,
   resetLibraryState,
   shouldHoldShelfForDrive,
+  shouldWaitForAuthRedirect,
   flushOutgoingProgress,
-  onAuthenticatedLibraryRestoreSettled,
+  onLibraryRestoreSettled,
 }: UseAuthBootstrapOptions) => {
   const activeOwner = useOwnerSnapshot();
   const [readyOwnerKey, setReadyOwnerKey] = useState<OwnerKey | null>(null);
@@ -56,6 +59,7 @@ export const useAuthBootstrap = ({
     let initialAuthSettled = false;
     let authGeneration = 0;
     let guestRestore: Promise<RestoreLocalDataResult> | null = null;
+    const returningFromAuth = shouldWaitForAuthRedirect?.() ?? false;
     setReadyOwnerKey(null);
 
     const restoreLibrary = (
@@ -95,7 +99,7 @@ export const useAuthBootstrap = ({
       const nextOwner = ownerRuntime.activate(guestOwnerKey());
       if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
       const restoreGuest = () => restoreLocalData({
-        replaceBooks: true, guestHandoff: { owner: nextOwner.ownerKey, confirmed, ...(refreshFrom && { refreshFrom }) },
+        preventRedirect: true, replaceBooks: true, guestHandoff: { owner: nextOwner.ownerKey, confirmed, ...(refreshFrom && { refreshFrom }) },
       });
       if (confirmed && guestRestore) {
         guestRestore = guestRestore.then(result => result === 'stale' && ownerRuntime.isCurrent(nextOwner)
@@ -105,9 +109,11 @@ export const useAuthBootstrap = ({
       restoreLibrary(generation, () => guestRestore ??= restoreGuest(), () => {
         setReadyOwnerKey(nextOwner.ownerKey);
         setIsOfflineMode(true);
-        setView((current) => current === 'reader' ? 'reader' : 'shelf');
+        setView((current) => current === 'reader' ? current : libraryLandingView());
+        if (confirmed) onLibraryRestoreSettled?.(false);
       }, () => {
         guestRestore = null;
+        if (confirmed) onLibraryRestoreSettled?.(false);
       });
     };
 
@@ -120,10 +126,11 @@ export const useAuthBootstrap = ({
 
     // A remembered guest is entirely local. Do not hold its shelf behind an
     // external Firebase callback; that callback may arrive late or not at all.
-    if (isGuestRef.current) activateGuest(++authGeneration);
+    if (isGuestRef.current && !returningFromAuth) activateGuest(++authGeneration);
 
     const authFallbackTimer = window.setTimeout(() => {
       if (!isActive || initialAuthSettled || isGuestRef.current || auth.currentUser) return;
+      if (returningFromAuth) return;
       // An offline Firebase restore can outlast this UI fallback. Wait for the
       // SDK to resolve the cached account before exposing the guest reader.
       if (navigator.onLine === false) return;
@@ -161,14 +168,14 @@ export const useAuthBootstrap = ({
           preventRedirect: true, replaceBooks: true, guestHandoff: { owner: guestOwnerKey(), confirmed: true },
         }), () => {
           setReadyOwnerKey(nextOwner.ownerKey);
-          onAuthenticatedLibraryRestoreSettled?.();
+          onLibraryRestoreSettled?.(true);
           if (navigator.onLine !== false && shouldHoldShelfForDrive()) {
             setView('loading');
             return;
           }
           setIsOfflineMode(true);
-          setView((prev) => prev === 'reader' ? 'reader' : 'shelf');
-        }, onAuthenticatedLibraryRestoreSettled);
+          setView((current) => current === 'reader' ? current : libraryLandingView());
+        }, () => onLibraryRestoreSettled?.(true));
         setUser(firebaseUser);
         setIsGuest(false);
         isGuestRef.current = false;
@@ -220,8 +227,9 @@ export const useAuthBootstrap = ({
     setUser,
     setView,
     shouldHoldShelfForDrive,
+    shouldWaitForAuthRedirect,
     flushOutgoingProgress,
-    onAuthenticatedLibraryRestoreSettled,
+    onLibraryRestoreSettled,
   ]);
 
   return {

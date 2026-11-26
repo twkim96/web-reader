@@ -14,11 +14,12 @@ function storage() {
     removeItem: k => values.delete(k), clear: () => values.clear() };
 }
 async function withDom(run) {
-  const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT', 'localStorage'];
+  const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT', 'localStorage', 'sessionStorage', 'location', 'history'];
   const previous = Object.fromEntries(keys.map(k => [k, globalThis[k]]));
   const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
   Object.assign(globalThis, { window, document: window.document, CustomEvent: window.CustomEvent,
-    BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true, localStorage: storage() });
+    BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true, localStorage: storage(), sessionStorage: storage(),
+    location: { pathname: '/', search: '', hash: '' } });
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
   const root = createRoot(document.getElementById('app'));
   try { await run(root); }
@@ -84,6 +85,112 @@ test('cancelling a popup ignores its late account and accepts a new login indepe
       if (previous[index]) require.cache[path] = previous[index]; else delete require.cache[path];
     });
   }
+});
+
+for (const succeeds of [true, false]) {
+  test(`Firebase redirect restores the open detail and blocks the guest view until ${succeeds ? 'account' : 'guest'} hydration`, async (t) => {
+    const paths = ['../src/lib/firebase.ts', 'firebase/auth', '../src/hooks/useGoogleLogin.ts', '../src/hooks/useAuthBootstrap.ts']
+      .map(path => require.resolve(path));
+    const previous = paths.map(path => require.cache[path]);
+    const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+    const auth = { currentUser: null };
+    let authCallback;
+    const redirect = t.mock.fn(() => new Promise(() => {}));
+    require.cache[paths[0]] = { id: paths[0], filename: paths[0], loaded: true, exports: {
+      auth, setGoogleRedirectCancelled: noop,
+    } };
+    require.cache[paths[1]] = { id: paths[1], filename: paths[1], loaded: true, exports: {
+      signInWithRedirect: redirect,
+      onAuthStateChanged: (_auth, callback) => { authCallback = callback; return noop; },
+    } };
+    delete require.cache[paths[2]];
+    delete require.cache[paths[3]];
+    try {
+      const { useGoogleLogin } = require(paths[2]);
+      const { useAuthBootstrap } = require(paths[3]);
+      await withDom(async root => {
+        const detail = '#mypage/book/fixture/review';
+        window.location = { pathname: '/', search: '', hash: detail };
+        window.history = { replaceState: (_state, _title, url) => { window.location.hash = new URL(url, 'https://reader.test').hash; } };
+        localStorage.setItem('isGuest', 'true');
+        let returning = false;
+        let login;
+        let resolveLibrary;
+        const restores = [];
+        const restoreLocalData = async () => {
+          restores.push(ownerRuntime.capture().ownerKey);
+          return returning ? new Promise(resolve => { resolveLibrary = resolve; }) : 'restored';
+        };
+        function Harness() {
+          login = useGoogleLogin(noop);
+          const [view, setView] = React.useState('loading');
+          const isGuestRef = React.useRef(true);
+          const library = useAuthBootstrap({ isGuestRef, setView,
+            setUser: noop, setIsGuest: noop, setIsOfflineMode: noop, restoreLocalData, resetLibraryState: noop,
+            shouldHoldShelfForDrive: no, shouldWaitForAuthRedirect: login.isReturning, onLibraryRestoreSettled: login.finish,
+          });
+          return React.createElement('output', null, `${view}:${library.isLibraryBootstrapReady}:${login.phase ?? ''}`);
+        }
+        const status = () => document.querySelector('output').textContent;
+        await React.act(async () => root.render(React.createElement(Harness, { key: 'before' })));
+        assert.equal(status(), 'mypage:true:');
+        await React.act(async () => login.start('redirect'));
+        assert.equal(redirect.mock.callCount(), 1);
+        assert.equal(status(), 'mypage:true:waiting');
+
+        returning = true;
+        window.location.hash = '';
+        await React.act(async () => root.render(React.createElement(Harness, { key: 'callback' })));
+        assert.equal(window.location.hash, detail);
+        assert.equal(status(), 'loading:false:waiting');
+        assert.equal(restores.length, 1, 'do not preload guest data on the redirect callback');
+
+        auth.currentUser = succeeds ? { uid: 'redirect-account' } : null;
+        await React.act(async () => authCallback(auth.currentUser));
+        assert.equal(status(), 'loading:false:waiting');
+        assert.equal(restores.at(-1).startsWith(succeeds ? 'firebase:' : 'guest:'), true);
+        await React.act(async () => resolveLibrary('restored'));
+        assert.equal(status(), 'mypage:true:');
+        assert.equal(sessionStorage.length, 0);
+      });
+    } finally {
+      ownerRuntime.clear();
+      paths.forEach((path, index) => {
+        if (previous[index]) require.cache[path] = previous[index]; else delete require.cache[path];
+      });
+    }
+  });
+}
+
+test('Drive callback removes credentials from history and lands on the open detail after the cloud shelf loads', async () => {
+  const { useDriveOAuthRedirect } = require('../src/hooks/useDriveOAuthRedirect.ts');
+  const { useNetworkLibrarySync } = require('../src/hooks/useNetworkLibrarySync.ts');
+  const { rememberGoogleDriveOAuthState } = require('../src/lib/googleDriveOAuth.ts');
+  await withDom(async root => {
+    const detail = '#mypage/book/fixture';
+    const token = 'drive-fixture-token';
+    const state = 'drive-fixture-state';
+    rememberGoogleDriveOAuthState(storage(), localStorage, state, detail);
+    window.location = { pathname: '/', search: '', hash: `#access_token=${token}&expires_in=3600&state=${state}` };
+    window.history = { replaceState: (_state, _title, url) => { window.location.hash = new URL(url, 'https://reader.test').hash; } };
+    const user = { uid: 'drive-redirect-account' };
+    let resolveCloud;
+    const loadLibraryFromDrive = () => new Promise(resolve => { resolveCloud = resolve; });
+    function Harness() {
+      const [view, setView] = React.useState('loading');
+      const [googleToken, setToken] = React.useState(null);
+      const saveToken = React.useCallback(value => { setToken(value); return state; }, []);
+      useDriveOAuthRedirect({ saveToken, setView, setIsOfflineMode: noop, setAuthErrorMessage: error => assert.fail(error) });
+      useNetworkLibrarySync({ user, googleToken, driveSessionId: googleToken ? state : null,
+        isAuthenticatedLibraryReady: true, setView, setIsOfflineMode: noop, loadLibraryFromDrive });
+      return React.createElement('output', null, view);
+    }
+    await React.act(async () => root.render(React.createElement(Harness)));
+    assert.equal(window.location.hash, detail);
+    assert.equal(document.querySelector('output').textContent, 'loading');
+    await React.act(async () => resolveCloud(true));
+    assert.equal(document.querySelector('output').textContent, 'mypage');
+  });
 });
 
 test('new saves wake the worker, including after a failed logout restores the same owner', { timeout: 5_000 }, async (t) => {

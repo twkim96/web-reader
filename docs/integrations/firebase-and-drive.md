@@ -15,7 +15,7 @@ Firebase Google 로그인은 앱의 사용자 UID를 정합니다. 진행률·�
 - [next.config.ts](../../next.config.ts)는 `/__/auth/*`, `/__/firebase/*`를 `${NEXT_PUBLIC_FIREBASE_PROJECT_ID}.firebaseapp.com`으로 프록시합니다. 같은 origin의 Firebase helper를 사용하는 조건이며 단순 302 대체로 처리하지 않습니다.
 - 배포/PWA에서 helper 응답·쿠키·redirect 복귀를 확인합니다. Service Worker가 인증 경로를 캐싱하지 않아야 합니다.
 
-팝업 인증 결과는 메모리 전용 Firebase Auth에 먼저 들어갑니다. 취소되거나 다른 시도로 바뀐 결과는 앱 계정에 적용하지 않습니다. 이미 열린 Google 팝업은 별도로 닫을 수 있습니다. 같은 창에서 이동하기 전에 앱에서 취소하면 현재 탭을 다시 열고, 해당 탭에서 늦게 돌아온 redirect 로그인 결과는 다음 로그인 시도 전까지 거부합니다.
+팝업 인증 결과는 메모리 전용 Firebase Auth에 먼저 들어갑니다. 취소되거나 다른 시도로 바뀐 결과는 앱 계정에 적용하지 않습니다. 이미 열린 Google 팝업은 별도로 닫을 수 있습니다. 같은 창에서 로그인하면 현재 탭에 복귀 주소를 보관하고, 돌아오면 Firebase가 계정을 확인하고 해당 계정 또는 게스트의 로컬 서재를 준비할 때까지 입력을 막습니다. 완료하면 로그인 전의 마이페이지 탭이나 작품 상세로 돌아갑니다. 계정이 확정되기 전에 앱에서 취소하면 현재 탭을 다시 열고, 해당 탭에서 늦게 돌아온 redirect 로그인 결과는 다음 로그인 시도 전까지 거부합니다.
 
 로그아웃은 대기 중인 로컬 저장 완료 → UI 준비 → Firebase `signOut` 성공 → 로컬 연결 상태 정리 순서입니다. 성공 뒤 게스트 서재를 불러올 때 [기기에서 이어 읽을 위치](../SPEC/reader-and-progress.md#읽기와-시작-위치)를 보존합니다. 실패하면 같은 계정을 새 소유자 세대로 활성화해 진행률 송수신과 통계 동기화를 다시 시작합니다. 이전 세대의 비동기 응답은 폐기합니다. 계정 전환이 저장된 기기 도서를 지우는 작업을 뜻하지 않습니다. 실제 PWA/WebView sign-out/sign-in 수용 확인은 [TODO](../TODO.md)에 있습니다.
 
@@ -23,11 +23,11 @@ Firebase Google 로그인은 앱의 사용자 UID를 정합니다. 진행률·�
 
 OAuth 동의 화면에 `drive.file`, `drive.readonly`, `drive.appdata`를 등록하고 Drive API를 활성화합니다. Google Cloud 클라이언트의 redirect URI에는 앱의 origin+pathname(루트 배포 예: `https://<앱-host>/`)을 등록합니다. `drive.readonly`의 제한된 범위와 공개 서비스의 Google 검증 조건도 확인합니다.
 
-`useDriveOAuthRedirect`는 같은 창에서 Google 계정 선택 페이지로 이동해 access token을 요청합니다. 최초 연결·만료/401 뒤 재연결 모두 이 redirect 경로를 사용합니다. callback의 state를 검증한 뒤 hash를 history에서 제거합니다.
+`useDriveOAuthRedirect`는 같은 창에서 Google 계정 선택 페이지로 이동해 access token을 요청합니다. 최초 연결·만료/401 뒤 재연결 모두 이 redirect 경로를 사용합니다. callback의 state를 검증한 뒤 인증 정보가 들어간 hash를 복귀 주소로 교체합니다. 서재가 준비되면 Drive 연결 전의 마이페이지 탭이나 작품 상세로 돌아갑니다.
 
 access token·만료 시각·session ID는 메모리와 현재 탭의 `sessionStorage`(`google_drive_session_v2`)에만 저장합니다. 같은 탭 새로고침에서는 유효한 token을 복원하지만 탭 종료·만료 후에는 다시 연결해야 합니다. token을 localStorage/IndexedDB에 저장하지 않습니다.
 
-OAuth **state**는 token과 다릅니다. `google_drive_oauth_state_v2`의 session 값과, PWA 재진입을 위한 localStorage의 `google_drive_oauth_pending_states_v1`을 사용합니다. 공유 pending state는 10분 유효·최대 4건이며 callback에서 소비합니다. 연결 해제·로그아웃은 pending state도 정리합니다. 이 fallback의 구현을 실제 Android/iPad 첫 callback 수용 완료로 간주하지 않습니다.
+OAuth **state**와 복귀 주소는 `google_drive_oauth_state_v2`의 session 값과 PWA 재진입을 위한 localStorage의 `google_drive_oauth_pending_states_v1`에 함께 저장합니다. 공유 저장소에는 10분 이내의 state를 최대 4건 보관합니다. callback에서 해당 state를 소비하고 연결 해제·로그아웃 때도 정리합니다.
 
 해제 시 원격 token revoke를 제한된 시간 동안 시도하고 실패해도 로컬 해제를 끝냅니다. token 교체·만료·401은 세션별 Drive 요청/cache를 무효화합니다. 확인된 로컬 파일과 Firebase 상태는 계속 사용할 수 있습니다.
 

@@ -1,23 +1,38 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { signInWithPopup, signInWithRedirect, updateCurrentUser } from 'firebase/auth';
 import { auth, getGooglePopupAuth, googleProvider, setGoogleRedirectCancelled } from '../lib/firebase';
+import { clearFirebaseLoginRedirect, readFirebaseLoginRedirect, rememberFirebaseLoginRedirect, restoreLoginHash } from '../lib/loginNavigation';
 
-type LoginAttempt = { mode: 'popup' | 'redirect'; committing: boolean };
+type LoginAttempt = { mode: 'popup' | 'redirect'; committing: boolean; returning?: boolean };
 type LoginPhase = 'waiting' | 'finishing';
 
 export function useGoogleLogin(onError: (error: unknown) => void) {
   const attempt = useRef<LoginAttempt | null>(null);
   const [phase, setPhase] = useState<LoginPhase | null>(null);
 
-  const finish = useCallback(() => {
-    if (!attempt.current) return;
+  const finish = useCallback((authenticated = true) => {
+    const current = attempt.current;
+    if (!current || (!authenticated && !current.returning)) return;
     attempt.current = null;
+    if (current.mode === 'redirect') clearFirebaseLoginRedirect();
     setPhase(null);
   }, []);
+  const isReturning = useCallback(() => Boolean(attempt.current?.returning), []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const returnHash = readFirebaseLoginRedirect();
+    if (returnHash !== null) {
+      restoreLoginHash(returnHash);
+      const returning: LoginAttempt = { mode: 'redirect', committing: false, returning: true };
+      attempt.current = returning;
+      // Restore the guard before the auth bootstrap can render a guest shelf.
+      // The first server render shows only the library loading screen.
+      window.queueMicrotask(() => {
+        if (attempt.current === returning) setPhase('waiting');
+      });
+    }
     const onPageShow = (event: PageTransitionEvent) => {
-      if (!event.persisted || attempt.current?.mode !== 'redirect') return;
+      if (!event.persisted || attempt.current?.mode !== 'redirect' || attempt.current.returning) return;
       finish();
     };
     window.addEventListener('pageshow', onPageShow);
@@ -36,6 +51,7 @@ export function useGoogleLogin(onError: (error: unknown) => void) {
 
     const logIn = async () => {
       if (mode === 'redirect') {
+        rememberFirebaseLoginRedirect();
         await signInWithRedirect(auth, googleProvider);
         return;
       }
@@ -48,12 +64,10 @@ export function useGoogleLogin(onError: (error: unknown) => void) {
     };
     void logIn().then(() => {
       if (attempt.current !== current || current.committing) return;
-      attempt.current = null;
-      setPhase(null);
+      finish();
     }).catch((error: unknown) => {
       if (attempt.current !== current) return;
-      attempt.current = null;
-      setPhase(null);
+      finish();
       const code = (error as { code?: string } | null)?.code;
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
       onError(error);
@@ -66,10 +80,11 @@ export function useGoogleLogin(onError: (error: unknown) => void) {
     attempt.current = null;
     setPhase(null);
     if (current.mode === 'redirect') {
+      clearFirebaseLoginRedirect();
       setGoogleRedirectCancelled(true);
       window.location.reload();
     }
   };
 
-  return { start, cancel, phase, finish };
+  return { start, cancel, phase, finish, isReturning };
 }

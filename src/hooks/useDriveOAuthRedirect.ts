@@ -6,6 +6,7 @@ import {
   parseGoogleDriveOAuthResult,
   rememberGoogleDriveOAuthState,
 } from '../lib/googleDriveOAuth';
+import { libraryLandingView, restoreLoginHash } from '../lib/loginNavigation';
 
 interface UseDriveOAuthRedirectOptions {
   saveToken: (token: string, expiresIn: number) => string;
@@ -23,12 +24,12 @@ export const useDriveOAuthRedirect = ({
   useEffect(() => {
     const result = parseGoogleDriveOAuthResult(window.location.hash);
     if (!result) return;
-    const hasValidState = consumeGoogleDriveOAuthState(
+    const returnHash = consumeGoogleDriveOAuthState(
       sessionStorage,
       localStorage,
       result.state,
     );
-    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    restoreLoginHash(returnHash ?? '');
 
     if (
       result.error
@@ -37,12 +38,12 @@ export const useDriveOAuthRedirect = ({
       || result.expiresIn <= 0
     ) {
       setAuthErrorMessage('Google Drive 연결을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
-      setView('shelf');
+      setView(libraryLandingView());
       return;
     }
-    if (!hasValidState) {
+    if (returnHash === null) {
       setAuthErrorMessage('Google Drive 연결 상태를 확인하지 못했습니다. 다시 시도해 주세요.');
-      setView('shelf');
+      setView(libraryLandingView());
       return;
     }
 
@@ -53,12 +54,11 @@ export const useDriveOAuthRedirect = ({
 
   return useCallback((clientId: string) => {
     const state = crypto.randomUUID();
-    if (!rememberGoogleDriveOAuthState(sessionStorage, localStorage, state)) {
+    if (!rememberGoogleDriveOAuthState(sessionStorage, localStorage, state, window.location.hash)) {
       setAuthErrorMessage('Google Drive 연결 상태를 저장하지 못했습니다. 다시 시도해 주세요.');
-      setView('shelf');
       return;
     }
     const redirectUri = `${window.location.origin}${window.location.pathname}`;
     window.location.assign(buildGoogleDriveOAuthUrl(clientId, redirectUri, state));
-  }, [setAuthErrorMessage, setView]);
+  }, [setAuthErrorMessage]);
 };

@@ -2,6 +2,7 @@ import { Dispatch, SetStateAction, useEffect, useRef } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { ViewState } from '../types';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import { libraryLandingView } from '../lib/loginNavigation';
 
 interface UseNetworkLibrarySyncOptions {
   user: FirebaseUser | null;
@@ -32,7 +33,7 @@ export const useNetworkLibrarySync = ({
       return;
     }
     if (navigator.onLine === false) {
-      setView((current) => current === 'loading' ? 'shelf' : current);
+      setView((current) => current === 'loading' ? libraryLandingView() : current);
       return;
     }
     const loadIdentity = JSON.stringify([userId, ownerGeneration, driveSessionId]);
@@ -42,7 +43,7 @@ export const useNetworkLibrarySync = ({
     window.queueMicrotask(() => {
       if (!active) return;
       if (navigator.onLine === false) {
-        setView((current) => current === 'loading' ? 'shelf' : current);
+        setView((current) => current === 'loading' ? libraryLandingView() : current);
         return;
       }
       setView('loading');
@@ -50,11 +51,11 @@ export const useNetworkLibrarySync = ({
         if (!active) return;
         if (isSuccess) loadedDriveSessionRef.current = loadIdentity;
         else setIsOfflineMode(true);
-        setView('shelf');
+        setView(libraryLandingView());
       }).catch(() => {
         if (!active) return;
         setIsOfflineMode(true);
-        setView('shelf');
+        setView(libraryLandingView());
       });
     });
     return () => {

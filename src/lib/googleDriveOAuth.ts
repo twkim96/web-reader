@@ -1,3 +1,5 @@
+import { myPageLoginHash } from './loginNavigation.ts';
+
 const DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/drive.readonly',
@@ -15,11 +17,31 @@ type OAuthStateStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 type PendingGoogleDriveOAuthState = {
   state: string;
   createdAt: number;
+  returnHash?: string;
 };
 
 const isValidStateValue = (value: unknown): value is string => (
   typeof value === 'string' && value.length > 0 && value.length <= 256
 );
+
+function isStoredOAuthState(entry: unknown): entry is PendingGoogleDriveOAuthState {
+  return typeof entry === 'object' && entry !== null
+    && 'state' in entry && isValidStateValue(entry.state)
+    && 'createdAt' in entry && typeof entry.createdAt === 'number' && Number.isFinite(entry.createdAt);
+}
+
+function readTabState(session: Pick<Storage, 'getItem'>): Pick<PendingGoogleDriveOAuthState, 'state' | 'returnHash'> | null {
+  try {
+    const saved = session.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
+    if (saved?.startsWith('{')) {
+      const entry: unknown = JSON.parse(saved);
+      return isStoredOAuthState(entry) ? entry : null;
+    }
+    return isValidStateValue(saved) ? { state: saved, returnHash: '' } : null;
+  } catch {
+    return null;
+  }
+}
 
 const readPendingGoogleDriveOAuthStates = (
   storage: Pick<Storage, 'getItem'>,
@@ -30,17 +52,8 @@ const readPendingGoogleDriveOAuthStates = (
     if (!serialized) return [];
     const parsed: unknown = JSON.parse(serialized);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((entry): entry is PendingGoogleDriveOAuthState => (
-      typeof entry === 'object'
-      && entry !== null
-      && 'state' in entry
-      && isValidStateValue(entry.state)
-      && 'createdAt' in entry
-      && typeof entry.createdAt === 'number'
-      && Number.isFinite(entry.createdAt)
-      && entry.createdAt <= now
-      && now - entry.createdAt <= GOOGLE_DRIVE_OAUTH_STATE_TTL_MS
-    ));
+    return parsed.filter((entry) => isStoredOAuthState(entry)
+      && entry.createdAt <= now && now - entry.createdAt <= GOOGLE_DRIVE_OAUTH_STATE_TTL_MS);
   } catch {
     return [];
   }
@@ -66,13 +79,15 @@ export const rememberGoogleDriveOAuthState = (
   session: Pick<Storage, 'setItem'>,
   shared: OAuthStateStorage,
   state: string,
+  returnHash = '',
   now = Date.now(),
 ) => {
   if (!isValidStateValue(state)) return false;
+  const entry = { state, createdAt: now, returnHash: myPageLoginHash(returnHash) };
 
   let storedInSession = false;
   try {
-    session.setItem(GOOGLE_DRIVE_OAUTH_STATE_KEY, state);
+    session.setItem(GOOGLE_DRIVE_OAUTH_STATE_KEY, JSON.stringify(entry));
     storedInSession = true;
   } catch {
     // The same-origin fallback below can still bridge a PWA relaunch.
@@ -80,7 +95,7 @@ export const rememberGoogleDriveOAuthState = (
 
   const pending = readPendingGoogleDriveOAuthStates(shared, now)
     .filter((entry) => entry.state !== state);
-  pending.push({ state, createdAt: now });
+  pending.push(entry);
   const storedInShared = writePendingGoogleDriveOAuthStates(
     shared,
     pending.slice(-MAX_PENDING_GOOGLE_DRIVE_OAUTH_STATES),
@@ -94,24 +109,21 @@ export const consumeGoogleDriveOAuthState = (
   returnedState: string | null,
   now = Date.now(),
 ) => {
-  let sessionState: string | null = null;
+  const sessionState = readTabState(session);
   try {
-    sessionState = session.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
-    session.removeItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
+    if (!sessionState || sessionState.state === returnedState) session.removeItem(GOOGLE_DRIVE_OAUTH_STATE_KEY);
   } catch {
     // The shared pending-state record remains available.
   }
 
   const pending = readPendingGoogleDriveOAuthStates(shared, now);
-  const sharedMatch = isValidStateValue(returnedState)
-    && pending.some((entry) => entry.state === returnedState);
+  const match = sessionState?.state === returnedState ? sessionState : pending.find((entry) => entry.state === returnedState);
   writePendingGoogleDriveOAuthStates(
     shared,
     pending.filter((entry) => entry.state !== returnedState),
   );
 
-  return isValidStateValue(returnedState)
-    && (sessionState === returnedState || sharedMatch);
+  return match ? myPageLoginHash(match.returnHash) : null;
 };
 
 export const clearPendingGoogleDriveOAuthStates = (
@@ -138,11 +150,7 @@ export const hasPendingGoogleDriveOAuth = (
 ) => {
   const result = parseGoogleDriveOAuthResult(hash);
   if (!result || !isValidStateValue(result.state)) return false;
-  try {
-    if (session.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY) === result.state) return true;
-  } catch {
-    // The shared pending-state record remains available.
-  }
+  if (readTabState(session)?.state === result.state) return true;
   return readPendingGoogleDriveOAuthStates(shared, now)
     .some((entry) => entry.state === result.state);
 };
@@ -165,9 +173,10 @@ export const buildGoogleDriveOAuthUrl = (
 };
 
 export const parseGoogleDriveOAuthResult = (hash: string) => {
+  if (myPageLoginHash(hash)) return null;
   const value = hash.startsWith('#') ? hash.slice(1) : hash;
-  if (!value.includes('access_token=') && !value.includes('error=')) return null;
   const params = new URLSearchParams(value);
+  if (!params.has('access_token') && !params.has('error')) return null;
   const expiresIn = Number(params.get('expires_in'));
   return {
     accessToken: params.get('access_token'),

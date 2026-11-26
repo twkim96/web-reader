@@ -181,6 +181,12 @@ export default function Page() {
     hasPendingGoogleDriveOAuth(sessionStorage, localStorage, window.location.hash)
     || hasRestorableDriveTokenSession(sessionStorage)
   ), []);
+  const isReturningFromFirebaseLogin = googleLogin.isReturning;
+  const shouldWaitForAuthRedirect = useCallback(() => isReturningFromFirebaseLogin()
+    || hasPendingGoogleDriveOAuth(sessionStorage, localStorage, window.location.hash), [isReturningFromFirebaseLogin]);
+  useEffect(() => {
+    if (shouldWaitForAuthRedirect()) hasTriedAutoOpenLastBookRef.current = true;
+  }, [shouldWaitForAuthRedirect]);
 
   const { settings, updateSettings } = useViewerSettings();
   const { isInstallable, isIOS, promptInstall, isStandalone } = usePWAInstall();
@@ -332,8 +338,9 @@ export default function Page() {
     restoreLocalData,
     resetLibraryState,
     shouldHoldShelfForDrive,
+    shouldWaitForAuthRedirect,
     flushOutgoingProgress,
-    onAuthenticatedLibraryRestoreSettled: googleLogin.finish,
+    onLibraryRestoreSettled: googleLogin.finish,
   });
   const syncUser = isAuthenticatedLibraryReady && !flushingOutgoingProgress ? user : null;
   const receiveSyncHealth = useProgressSync({
@@ -912,7 +919,7 @@ export default function Page() {
     />
   );
   const loginDialog = !localDBDialog && !outgoingProgressDialog && googleLogin.phase && (
-    <LoginProgressDialog finishing={googleLogin.phase === 'finishing'} onCancel={googleLogin.cancel} style={dynamicStyles} />
+    <LoginProgressDialog finishing={googleLogin.phase === 'finishing' || Boolean(user)} onCancel={googleLogin.cancel} style={dynamicStyles} />
   );
 
   if (view === 'loading' || !isLibraryBootstrapReady) {

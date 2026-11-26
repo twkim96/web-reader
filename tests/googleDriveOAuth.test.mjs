@@ -59,19 +59,20 @@ test('detects a pending redirect state for the shared bootstrap gate', () => {
 test('consumes the current-tab Drive OAuth state exactly once', () => {
   const session = createStorage();
   const shared = createStorage();
-  assert.equal(rememberGoogleDriveOAuthState(session, shared, 'state-1', 1_000), true);
-  assert.equal(session.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY), 'state-1');
-  assert.equal(consumeGoogleDriveOAuthState(session, shared, 'state-1', 2_000), true);
+  const detail = '#mypage/book/fixture/review';
+  assert.equal(rememberGoogleDriveOAuthState(session, shared, 'state-1', detail, 1_000), true);
+  assert.equal(consumeGoogleDriveOAuthState(session, shared, 'state-1', 2_000), detail);
   assert.equal(session.getItem(GOOGLE_DRIVE_OAUTH_STATE_KEY), null);
   assert.equal(shared.getItem(GOOGLE_DRIVE_OAUTH_PENDING_STATES_KEY), null);
-  assert.equal(consumeGoogleDriveOAuthState(session, shared, 'state-1', 2_001), false);
+  assert.equal(consumeGoogleDriveOAuthState(session, shared, 'state-1', 2_001), null);
 });
 
 test('accepts a fresh shared state after the OAuth callback opens a new context', () => {
   const originalSession = createStorage();
   const callbackSession = createStorage();
   const shared = createStorage();
-  rememberGoogleDriveOAuthState(originalSession, shared, 'state-pwa', 10_000);
+  const catalog = '#mypage/discover?q=%40writer';
+  rememberGoogleDriveOAuthState(originalSession, shared, 'state-pwa', catalog, 10_000);
 
   assert.equal(hasPendingGoogleDriveOAuth(
     callbackSession,
@@ -81,21 +82,21 @@ test('accepts a fresh shared state after the OAuth callback opens a new context'
   ), true);
   assert.equal(
     consumeGoogleDriveOAuthState(callbackSession, shared, 'state-pwa', 10_500),
-    true,
+    catalog,
   );
   assert.equal(
     consumeGoogleDriveOAuthState(callbackSession, shared, 'state-pwa', 10_501),
-    false,
+    null,
   );
 });
 
 test('rejects mismatched and expired shared OAuth states', () => {
   const session = createStorage();
   const shared = createStorage();
-  rememberGoogleDriveOAuthState(session, shared, 'state-valid', 5_000);
+  rememberGoogleDriveOAuthState(session, shared, 'state-valid', '#mypage/discover', 5_000);
   assert.equal(
     consumeGoogleDriveOAuthState(createStorage(), shared, 'state-wrong', 6_000),
-    false,
+    null,
   );
   assert.equal(
     consumeGoogleDriveOAuthState(
@@ -104,7 +105,7 @@ test('rejects mismatched and expired shared OAuth states', () => {
       'state-valid',
       5_000 + GOOGLE_DRIVE_OAUTH_STATE_TTL_MS + 1,
     ),
-    false,
+    null,
   );
   assert.equal(shared.getItem(GOOGLE_DRIVE_OAUTH_PENDING_STATES_KEY), null);
 });
@@ -113,7 +114,7 @@ test('retains recent parallel states and clears every pending state on disconnec
   const session = createStorage();
   const shared = createStorage();
   for (let index = 0; index < 6; index += 1) {
-    rememberGoogleDriveOAuthState(session, shared, `state-${index}`, 1_000 + index);
+    rememberGoogleDriveOAuthState(session, shared, `state-${index}`, '', 1_000 + index);
   }
   const pending = JSON.parse(shared.getItem(GOOGLE_DRIVE_OAUTH_PENDING_STATES_KEY));
   assert.deepEqual(pending.map(({ state }) => state), [
@@ -124,11 +125,11 @@ test('retains recent parallel states and clears every pending state on disconnec
   ]);
   assert.equal(
     consumeGoogleDriveOAuthState(createStorage(), shared, 'state-3', 2_000),
-    true,
+    '',
   );
   assert.equal(
     consumeGoogleDriveOAuthState(createStorage(), shared, 'state-4', 2_001),
-    true,
+    '',
   );
 
   clearPendingGoogleDriveOAuthStates(session, shared);
@@ -146,4 +147,13 @@ test('parses a Drive redirect fragment and ignores ordinary reader hashes', () =
     error: null,
   });
   assert.equal(parseGoogleDriveOAuthResult('#chapter-3'), null);
+  assert.equal(parseGoogleDriveOAuthResult('#mypage/discover?q=story&error=fiction'), null);
+});
+
+test('legacy Drive redirect state works and an external return URL is ignored', () => {
+  const session = createStorage({ [GOOGLE_DRIVE_OAUTH_STATE_KEY]: 'legacy-state' });
+  const shared = createStorage();
+  assert.equal(consumeGoogleDriveOAuthState(session, shared, 'legacy-state'), '');
+  rememberGoogleDriveOAuthState(session, shared, 'state-valid', 'https://outside.example');
+  assert.equal(consumeGoogleDriveOAuthState(session, shared, 'state-valid'), '');
 });
