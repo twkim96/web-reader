@@ -126,7 +126,10 @@ export async function POST(request: Request) {
     }
     return fail(400);
   } catch (error) {
-    if (error instanceof SharedDriveError) return fail(error.status, 'drive');
+    if (error instanceof SharedDriveError) {
+      if (process.env.VERCEL_ENV === 'preview') console.warn('[SharedDrive] Google API', error.status, error.reason ?? 'unspecified');
+      return fail(error.status, 'drive');
+    }
     if (isGoogleDriveAuthError(error)) return fail(401, 'drive');
     return fail(error instanceof SyntaxError ? 400 : 503);
   }

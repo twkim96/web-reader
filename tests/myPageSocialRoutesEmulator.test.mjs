@@ -132,6 +132,8 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
       const query = url.searchParams.get('q');
       if (query.startsWith("name = 'web viewer'")) return Response.json({ files: [] });
       assert.ok(query.includes("name contains '테스트'"));
+      assert.ok(query.includes('fullText contains'));
+      assert.equal(url.searchParams.has('orderBy'), false);
       return url.searchParams.has('pageToken')
         ? Response.json({ files: [secondBook] })
         : Response.json({ files: [unrelatedBook, nestedBook], nextPageToken: 'another-page' });

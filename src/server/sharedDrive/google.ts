@@ -12,6 +12,10 @@ const MAX_SEARCH_PAGES = 3;
 const MAX_SEARCH_LOOKUPS = 48;
 const MAX_RESULTS = 30;
 export const COPY_LIMIT = 8;
+const driveErrorReasons = new Set([
+  'appNotAuthorizedToFile', 'badRequest', 'forbidden', 'insufficientFilePermissions', 'insufficientPermissions',
+  'rateLimitExceeded', 'userRateLimitExceeded', 'accessNotConfigured', 'domainPolicy',
+]);
 
 type DriveFile = {
   id?: string;
@@ -26,7 +30,7 @@ type DriveFile = {
 };
 
 export class SharedDriveError extends Error {
-  constructor(readonly status: number) {
+  constructor(readonly status: number, readonly reason?: string) {
     super('Shared Drive request failed');
   }
 }
@@ -44,7 +48,12 @@ function driveJson<T>(token: string, path: string, params: Record<string, string
     signal,
     redirect: 'error',
   }, 6_000, async (response) => {
-    if (!response.ok) throw new SharedDriveError([401, 403, 404, 409].includes(response.status) ? response.status : 503);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: { errors?: { reason?: string }[] } } | null;
+      const reason = payload?.error?.errors?.[0]?.reason;
+      throw new SharedDriveError([400, 401, 403, 404, 409].includes(response.status) ? response.status : 503,
+        reason && driveErrorReasons.has(reason) ? reason : undefined);
+    }
     return await response.json() as T;
   });
 }
@@ -126,8 +135,7 @@ export async function searchSharedFolder(token: string, rootId: string, title: s
   for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
     const result: { files?: DriveFile[]; nextPageToken?: string; incompleteSearch?: boolean } =
       await driveJson(token, '/files', {
-        q: query, pageSize: '50', orderBy: 'name_natural',
-        supportsAllDrives: 'true', includeItemsFromAllDrives: 'true',
+        q: query, pageSize: '50',
         fields: `nextPageToken,incompleteSearch,files(${SOURCE_FIELDS})`,
         ...(pageToken && { pageToken }),
       }, signal);
