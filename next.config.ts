@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
-import { createHash } from 'node:crypto';
 import { computeAppBuildId } from './scripts/app-build-id.mjs';
+import { configuredAdminHash } from './src/server/adminAccess';
 
 const isPreview = process.env.VERCEL_ENV === 'preview';
 const approvedPreviewAuthHosts = new Set([
@@ -13,8 +13,7 @@ const previewAuthHost = isPreview && approvedPreviewAuthHosts.has(branchHost)
   : '';
 const finiteSyncLeases = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES
   ?? (process.env.VERCEL_ENV === 'production' ? '1' : '0');
-const adminUid = process.env.WEB_READER_ADMIN_UID?.trim();
-const adminMenuHash = adminUid ? createHash('sha256').update(adminUid).digest('hex') : '';
+const adminMenuHash = configuredAdminHash();
 const appBuildId: string = computeAppBuildId(process.cwd(), {
   ...process.env,
   NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES: finiteSyncLeases,

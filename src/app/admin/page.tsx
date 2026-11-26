@@ -110,7 +110,7 @@ function Accounts({ admin }: { admin: User }) {
   const { activity, accounts } = overview;
   return <>
     <section aria-labelledby="account-activity-heading">
-      <h2 id="account-activity-heading" className="text-lg font-semibold">계정 활동</h2>
+      <h2 id="account-activity-heading" className="text-lg font-semibold">로그인 계정 수</h2>
       <dl className="mt-4 grid grid-cols-3 gap-3">
         {([['오늘', activity.today], ['최근 7일', activity.week], ['최근 30일', activity.month]] as const).map(([label, count]) => (
           <div key={label}>
@@ -119,7 +119,6 @@ function Accounts({ admin }: { admin: User }) {
           </div>
         ))}
       </dl>
-      <p className="mt-3 text-xs opacity-60">Firebase 로그인·토큰 갱신 기록 기준</p>
     </section>
     <section aria-labelledby="active-account-heading" className="mt-10">
       <h2 id="active-account-heading" className="text-lg font-semibold">최근 30일 로그인 계정 <span className="ml-1 text-sm font-normal opacity-65">{accounts.length}명</span></h2>

@@ -8,7 +8,7 @@
 
 ## 마이페이지 로컬 시안 확인
 
-- 배포 환경에 파일럿 Firebase UID를 설정한 뒤 마이페이지 설정의 관리자 링크, 다른 계정의 접근 거절, 실제 Auth 활동 수치와 주간 발행 상태를 확인합니다. [관리자 계정 현황](operations/deployment-and-recovery.md#관리자-계정-현황)
+- 운영에서 파일럿 계정의 관리자 링크, 다른 계정의 접근 거절, 실제 Firebase 로그인 수치와 주간 발행 상태를 확인합니다. [관리자 계정 현황](operations/deployment-and-recovery.md#관리자-계정-현황)
 
 - 다음 실제 [통합 게시](operations/book-metadata-publishing.md#control-server-경로)에서 Firestore 게시와 같은 원본의 탐색 인덱스와 소개글 파일이 Vercel 프리뷰에 반영되는지 확인합니다. 도서목록 작가 검색과 상세에서만 소개글을 요청하는 동작이 대상입니다.
 - 운영 배포 전 검증으로 [CI](https://github.com/twkim96/web-reader/actions/runs/44834297956), 로그인한 Edge 프리뷰의 마이페이지·작품 상세 진입, 격리 Firebase 환경에서 동일 계정의 두 브라우저 간 위시리스트·평가 동기화를 확인했습니다.

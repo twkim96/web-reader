@@ -94,7 +94,7 @@ test('admin accounts authorizes only the pilot and reads two published weeks on 
   assert.equal(overviewResponse.status, 200);
   assert.equal(overviewResponse.headers.get('cache-control'), 'private, no-store');
   const overview = await overviewResponse.json();
-  assert.deepEqual(overview.activity, { today: 2, week: 3, month: 4 });
+  assert.deepEqual(overview.activity, { today: 1, week: 2, month: 3 });
   assert.deepEqual(overview.accounts.map(({ uid }) => uid), [pilot.localId, 'week-reader', 'recent-reader']);
   assert.equal(pages.mock.callCount(), 2);
   assert.equal(reads.mock.callCount(), 0);

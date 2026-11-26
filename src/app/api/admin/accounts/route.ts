@@ -1,6 +1,7 @@
 import { APP_ID } from '../../../../lib/appIdentity';
 import type { AdminAccountsOverview, AdminRollupStatus } from '../../../../lib/adminAccounts';
 import { parseReadingRollupMonday, readingRollupDayKey } from '../../../../lib/readingStatisticsRollup';
+import { adminAccountHash, configuredAdminHash } from '../../../../server/adminAccess';
 import { getAdminAuth, getAdminFirestore } from '../../../../server/firebaseAdmin';
 
 const dayMs = 86_400_000;
@@ -21,15 +22,13 @@ async function readOverview(now: number): Promise<AdminAccountsOverview> {
     for (const user of page.users) {
       if (user.disabled || user.providerData.length === 0) continue;
       const lastSignIn = Date.parse(user.metadata.lastSignInTime);
+      if (!Number.isFinite(lastSignIn) || lastSignIn > now) continue;
+      if (lastSignIn >= today) activity.today++;
+      if (lastSignIn >= weekStart) activity.week++;
+      if (lastSignIn >= monthStart) activity.month++;
+      if (lastSignIn < lastSignInCutoff) continue;
       const refresh = Date.parse(user.metadata.lastRefreshTime ?? '');
       const lastRefresh = Number.isFinite(refresh) && refresh <= now ? refresh : null;
-      const lastActivity = Math.max(lastSignIn || 0, lastRefresh ?? 0);
-      if (lastActivity <= now) {
-        if (lastActivity >= today) activity.today++;
-        if (lastActivity >= weekStart) activity.week++;
-        if (lastActivity >= monthStart) activity.month++;
-      }
-      if (lastSignIn < lastSignInCutoff || lastSignIn > now || !Number.isFinite(lastSignIn)) continue;
       accounts.push({ uid: user.uid, label: user.displayName || user.email || user.uid,
         email: user.displayName ? user.email ?? null : null, lastSignIn, lastRefresh });
     }
@@ -71,13 +70,15 @@ async function readRollup(uid: string): Promise<AdminRollupStatus> {
 }
 
 export async function GET(request: Request) {
-  const adminUid = process.env.WEB_READER_ADMIN_UID?.trim();
-  if (!adminUid) return json({ error: 'unavailable' }, 404);
+  const adminHash = configuredAdminHash();
+  if (!adminHash) return json({ error: 'unavailable' }, 404);
   const token = request.headers.get('authorization')?.match(/^Bearer ([^\s]+)$/i)?.[1];
   if (!token) return json({ error: 'unauthenticated' }, 401);
   try {
     const account = await getAdminAuth().verifyIdToken(token, true);
-    if (account.uid !== adminUid || account.firebase.sign_in_provider === 'anonymous') return json({ error: 'forbidden' }, 403);
+    if (account.firebase.sign_in_provider === 'anonymous' || adminAccountHash(account.uid) !== adminHash) {
+      return json({ error: 'forbidden' }, 403);
+    }
   } catch {
     return json({ error: 'unauthenticated' }, 401);
   }
