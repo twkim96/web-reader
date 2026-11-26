@@ -21,7 +21,7 @@ import { formatReadingDuration } from '../../lib/readingStatistics';
 import { BookCover } from './BookCover';
 import { BookReviewEditor } from './BookReviewEditor';
 import { DashboardBookRow } from './DashboardBookRow';
-import { SharedDriveFolderLink } from './SharedDriveFolderLink';
+import { SharedDriveImport, type SharedDriveConnection } from './SharedDriveImport';
 
 const percent = new Intl.NumberFormat('ko', { maximumFractionDigits: 2 });
 const formatPercent = (number: number) => `${percent.format(number)}%`;
@@ -119,11 +119,12 @@ function CommunityReviews({ workId }: { workId: string }) {
   );
 }
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, rotationSeed, onOpenRelatedBook, onSearchCatalog }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, rotationSeed, onOpenRelatedBook, onSearchCatalog }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
   ownerKey: OwnerKey;
+  sharedDrive?: SharedDriveConnection;
   books: Book[];
   progress: Record<string, UserProgress>;
   bookmarkProgress: Record<string, UserProgress>;
@@ -335,7 +336,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
           readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
           ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
           error={reviews.error} refresh={reviews.refresh} change={changeReview} editorRef={reviewEditor} />
-        <SharedDriveFolderLink key={ownerKey} owner={ownerKey} />
+        {sharedDrive && !isGuestOwner(ownerKey) && <SharedDriveImport key={sharedDrive.sessionId} owner={ownerKey} drive={sharedDrive} title={title} />}
       </section>
       {discovery?.synopsis && <BookSynopsis key={`${discovery.synopsis.workId}:${discovery.synopsis.shard}`} reference={discovery.synopsis} />}
       {hasPersonal && (

@@ -161,52 +161,71 @@ test('browse replaces user search with public book rows grouped by reader', asyn
   }
 });
 
-test('the shared Drive button waits for server permission and requests the link on click', async (t) => {
+test('the shared Drive picker limits Google Picker to title candidates and refreshes after copying', async (t) => {
   const { window, root } = setup();
-  const { SharedDriveFolderLink } = await import('../src/components/mypage/SharedDriveFolderLink.tsx');
+  const { SharedDriveImport } = await import('../src/components/mypage/SharedDriveImport.tsx');
   const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
   const uid = 'shared-drive-ui';
-  const ownerKey = `firebase:${uid}|library:local`;
+  const owner = `firebase:${uid}|library:local`;
   const authFixture = registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
+      if (specifier === '../../lib/firebase' && context.parentURL?.endsWith('/SharedDriveImport.tsx')) {
         return { url: 'data:text/javascript,' + encodeURIComponent(
-          `export const auth = { currentUser: { uid: '${uid}', getIdToken: async () => 'fixture-drive-token' } };`
+          `export const auth = { currentUser: { uid: '${uid}', getIdToken: async () => 'fixture-firebase-token' } };`
         ), shortCircuit: true };
       }
       return nextResolve(specifier, context);
     },
   });
-  ownerRuntime.activate(ownerKey);
-  const requests = [];
-  const forwarded = [];
-  const folderUrl = 'https://drive.google.com/drive/folders/fixture-test-folder-id';
-  window.location.assign = (url) => forwarded.push(url);
+  ownerRuntime.activate(owner);
   let available = false;
+  const requests = [];
+  const candidates = ['fixture-source-file', 'fixture-second-file'];
+  let shownIds;
+  let refreshed = 0;
+  let callback;
+  const props = { owner, drive: { token: 'fixture-drive-token', sessionId: 'session', refreshShelf: () => { refreshed++; } }, title: '테스트 도서' };
+  class DocsView {
+    setFileIds(value) { shownIds = value; return this; }
+    setMode() { return this; }
+  }
+  class PickerBuilder {
+    addView() { return this; }
+    enableFeature(feature) { assert.equal(feature, 'multi'); return this; }
+    setOAuthToken(token) { assert.equal(token, props.drive.token); return this; }
+    setDeveloperKey() { return this; }
+    setAppId() { return this; }
+    setOrigin() { return this; }
+    setTitle() { return this; }
+    setCallback(value) { callback = value; return this; }
+    build() { return { setVisible() {}, dispose() {} }; }
+  }
+  window.google = { picker: { DocsView, PickerBuilder, ViewId: { DOCS: 'docs' }, DocsViewMode: { LIST: 'list' },
+    Feature: { MULTISELECT_ENABLED: 'multi' }, Action: { PICKED: 'picked', CANCEL: 'cancel', ERROR: 'error' } } };
   t.mock.method(globalThis, 'fetch', async (url, options) => {
-    const params = new URL(url, 'http://localhost').searchParams;
-    assert.equal(params.get('view'), 'shared-drive');
-    assert.equal(options.headers.get('authorization'), 'Bearer fixture-drive-token');
-    requests.push(params.get('open'));
-    return Response.json(params.has('open') ? { url: folderUrl } : { available });
+    assert.equal(url, '/api/shared-drive');
+    assert.equal(options.headers.Authorization, 'Bearer fixture-firebase-token');
+    assert.equal(options.headers['X-Drive-Access-Token'], props.drive.token);
+    const request = options.body ? JSON.parse(options.body) : null;
+    requests.push(request);
+    if (request?.action === 'search') return Response.json({ ids: candidates, limited: false });
+    if (request?.action === 'copy') return Response.json({ results: [true, true] });
+    return Response.json(available ? { available, pickerKey: 'key', appId: '123456' } : { available });
   });
   try {
-    const button = () => window.document.querySelector('#root button');
-    await act(async () => root.render(React.createElement(SharedDriveFolderLink, { owner })));
-    assert.deepEqual(requests, []);
-    await act(async () => root.render(React.createElement(SharedDriveFolderLink, { key: 'denied', owner: ownerKey })));
+    const button = () => [...window.document.querySelectorAll('#root button')].find((item) => item.textContent === '공유 폴더에서 가져오기');
+    await act(async () => root.render(React.createElement(SharedDriveImport, { key: 'denied', ...props })));
     for (let attempt = 0; attempt < 20 && requests.length < 1; attempt++) await act(async () => delay(10));
-    assert.deepEqual(requests, [null]);
-    assert.equal(button(), null);
+    assert.equal(button(), undefined);
     available = true;
-    await act(async () => root.render(React.createElement(SharedDriveFolderLink, { key: 'allowed', owner: ownerKey })));
+    await act(async () => root.render(React.createElement(SharedDriveImport, { key: 'allowed', ...props })));
     for (let attempt = 0; attempt < 20 && !button(); attempt++) await act(async () => delay(10));
-    assert.equal(button().textContent, 'Google Drive에서 열기');
-    assert.deepEqual(requests, [null, null]);
-    assert.equal(window.document.querySelector('#root a'), null);
     await click(window, button());
-    assert.deepEqual(requests, [null, null, '1']);
-    assert.deepEqual(forwarded, [folderUrl]);
+    for (let attempt = 0; attempt < 20 && !callback; attempt++) await act(async () => delay(10));
+    assert.equal(shownIds, candidates.join(','));
+    await act(async () => callback({ action: 'picked', docs: [...candidates.map((id) => ({ id })), { id: 'outside' }] }));
+    assert.deepEqual(requests, [null, null, { action: 'search', query: props.title }, { action: 'copy', ids: candidates }]);
+    assert.equal(refreshed, 1);
   } finally {
     await act(async () => root.unmount());
     ownerRuntime.clear();

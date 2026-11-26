@@ -291,18 +291,6 @@ export async function GET(request: Request) {
     if (view === 'people') return fail(404);
     if (view === 'browse') return await publicBrowse(request, params);
     if (view === 'profile') return await publicProfile(getAdminFirestore(), params);
-    if (view === 'shared-drive') {
-      const folderId = process.env.WEB_READER_SHARED_DRIVE_FOLDER_ID?.trim() ?? '';
-      const allowedUids = process.env.WEB_READER_SHARED_DRIVE_ALLOWED_UIDS?.split(',').map((uid) => uid.trim()).filter(Boolean) ?? [];
-      const open = params.get('open') === '1';
-      if (!/^[A-Za-z0-9_-]{10,200}$/.test(folderId) || allowedUids.length === 0) {
-        return open ? fail(404) : json({ available: false });
-      }
-      const uid = await authenticatedUid(request);
-      if (!uid) return fail(401);
-      if (!allowedUids.includes(uid)) return open ? fail(404) : json({ available: false });
-      return open ? json({ url: `https://drive.google.com/drive/folders/${folderId}` }) : json({ available: true });
-    }
     const rollupView = view === 'rollup-calendar' || view === 'rollup-week' || view === 'rollup-audit' || view === 'rollup-files' || view === 'rollup-books' || view === 'rollup-bootstrap';
     if (rollupView && process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS !== '1') return fail(404);
     const uid = await authenticatedUid(request, timings && ((phase, elapsed) => {

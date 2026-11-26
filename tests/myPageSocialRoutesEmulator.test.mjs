@@ -20,6 +20,7 @@ const unwrap = (module) => module.default ?? module;
 const { workAsyncStorage } = unwrap(await import('next/dist/server/app-render/work-async-storage.external.js'));
 const { workUnitAsyncStorage } = unwrap(await import('next/dist/server/app-render/work-unit-async-storage.external.js'));
 const { GET, POST } = unwrap(await import('../src/app/api/mypage/route.ts'));
+const { GET: sharedDriveGet, POST: sharedDrivePost } = unwrap(await import('../src/app/api/shared-drive/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
 const { getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
 const { loadSocialCatalog, resolveSocialWork } = unwrap(await import('../src/server/mypage/catalog.ts'));
@@ -55,39 +56,141 @@ async function ok(response) {
 const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/api/book-reviews?' + new URLSearchParams({ workId }))));
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
 
-test('shared Drive discovery and opening both enforce the Firebase allowlist', async (t) => {
-  const folderSetting = 'WEB_READER_SHARED_DRIVE_FOLDER_ID';
-  const allowlistSetting = 'WEB_READER_SHARED_DRIVE_ALLOWED_UIDS';
-  const previous = new Map([folderSetting, allowlistSetting].map((key) => [key, process.env[key]]));
+test('shared Drive imports restrict search and Drive-native copy to the shared folder tree', async (t) => {
+  const allowed = await emulatorLogin('shared-drive-allowed');
+  const denied = await emulatorLogin('shared-drive-denied');
+  const root = 'fixture-source-folder';
+  const nested = 'fixture-nested-folder';
+  const file = 'fixture-source-book';
+  const second = 'fixture-second-book';
+  const unrelated = 'fixture-unrelated-book';
+  const outside = 'fixture-outside-folder';
+  const library = 'fixture-private-library';
+  const driveToken = 'fixture-drive-token';
+  const endpoint = 'http://localhost/api/shared-drive';
+  const env = {
+    WEB_READER_SHARED_DRIVE_FOLDER_ID: root,
+    WEB_READER_SHARED_DRIVE_ALLOWED_UIDS: allowed.localId,
+    WEB_READER_SHARED_DRIVE_PICKER_KEY: 'fixture-picker-key',
+    WEB_READER_SHARED_DRIVE_PICKER_APP_ID: '123456',
+  };
+  const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, env);
   t.after(() => {
-    for (const [key, value] of previous) {
+    for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   });
-  const view = { view: 'shared-drive' };
-  const open = { ...view, open: '1' };
-  const folderId = 'fixture-test-folder-id';
-  const allowed = await emulatorLogin('shared-drive-allowed');
-  const denied = await emulatorLogin('shared-drive-denied');
-  process.env[folderSetting] = folderId;
-  process.env[allowlistSetting] = '';
-  assert.deepEqual(await ok(get(view, allowed.idToken)), { available: false });
-  assert.equal((await get(open, allowed.idToken)).status, 404);
 
-  process.env[allowlistSetting] = `  ${allowed.localId}  `;
-  assert.deepEqual(await ok(get(view, allowed.idToken)), { available: true });
-  assert.deepEqual(await ok(get(open, allowed.idToken)), { url: `https://drive.google.com/drive/folders/${folderId}` });
-  assert.deepEqual(await ok(get(view, denied.idToken)), { available: false });
-  for (const token of [undefined, 'invalid-token', denied.idToken]) {
-    const response = await get(open, token);
-    assert.equal(response.status, token === denied.idToken ? 404 : 401);
-    assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.doesNotMatch(await response.text(), /drive\.google\.com|fixture-test-folder-id/);
-  }
-  process.env[allowlistSetting] = denied.localId;
-  assert.equal((await get(open, allowed.idToken)).status, 404);
-  process.env[folderSetting] = 'https://example.test/untrusted';
-  assert.deepEqual(await ok(get(view, denied.idToken)), { available: false });
+  const originalFetch = globalThis.fetch;
+  const folderMime = 'application/vnd.google-apps.folder';
+  const folder = { mimeType: folderMime, trashed: false, capabilities: { canListChildren: true } };
+  const nestedBook = { id: file, name: '테스트.epub', mimeType: 'application/epub+zip', size: '1040',
+    trashed: false, parents: [nested], capabilities: { canCopy: true } };
+  const secondBook = { ...nestedBook, id: second, name: '테스트 외전.epub', parents: [root] };
+  const unrelatedBook = { ...nestedBook, id: unrelated, parents: [outside] };
+  const copied = [];
+  const copiesById = new Map();
+  let generatedCount = 0;
+  let loseNextCopyResponse = true;
+  let allowedByDrive = true;
+  let ownedFolderExists = false;
+  let sourceMoved = false;
+  let canCopy = true;
+  let sharedDestination = false;
+  t.mock.method(globalThis, 'fetch', async (input, options) => {
+    const url = new URL(String(input));
+    if (url.hostname !== 'www.googleapis.com') return originalFetch(input, options);
+    assert.equal(new Headers(options.headers).get('authorization'), 'Bearer ' + driveToken);
+    const path = url.pathname.split('/').at(-1);
+    if (path === 'about') return Response.json({ user: { permissionId: 'fixture-drive-account' } });
+    if (path === root) return allowedByDrive ? Response.json(folder) : new Response(null, { status: 404 });
+    if (path === nested) return Response.json({ ...folder, parents: [sourceMoved ? outside : root] });
+    if (path === outside) return Response.json(folder);
+    if (path === file) return Response.json({ ...nestedBook, capabilities: { canCopy } });
+    if (path === second) return Response.json(secondBook);
+    if (path === unrelated) return Response.json(unrelatedBook);
+    if (copiesById.has(path)) {
+      return Response.json({ id: path, parents: [library], trashed: false, ownedByMe: true, shared: false });
+    }
+    if (path === 'generateIds') return Response.json({
+      ids: Array.from({ length: Number(url.searchParams.get('count')) }, () => `fixture-new-copy-${++generatedCount}`),
+    });
+    if (path === library) return Response.json({ ...folder, id: library, name: 'web viewer', ownedByMe: true,
+      shared: sharedDestination, capabilities: { canAddChildren: true } });
+    if (url.searchParams.get('spaces') === 'appDataFolder') return Response.json({ files: [] });
+    if (url.searchParams.get('uploadType') === 'multipart') return Response.json({ id: 'fixture-registry' });
+    if (path === 'files' && options.method === 'POST') {
+      assert.equal(ownedFolderExists, false);
+      assert.deepEqual(JSON.parse(options.body), { name: 'web viewer', mimeType: folderMime });
+      ownedFolderExists = true;
+      return Response.json({ id: library });
+    }
+    if (path === 'files') {
+      const query = url.searchParams.get('q');
+      if (query.startsWith("name = 'web viewer'")) return Response.json({ files: [] });
+      assert.ok(query.includes("name contains '테스트'"));
+      return url.searchParams.has('pageToken')
+        ? Response.json({ files: [secondBook] })
+        : Response.json({ files: [unrelatedBook, nestedBook], nextPageToken: 'another-page' });
+    }
+    if (path === 'copy') {
+      assert.equal(url.searchParams.get('ignoreDefaultVisibility'), 'true');
+      const { id, parents } = JSON.parse(options.body);
+      assert.deepEqual(parents, [library]);
+      assert.match(id, /^fixture-new-copy-\d+$/);
+      if (copiesById.has(id)) return new Response(null, { status: 409 });
+      const source = url.pathname.split('/').at(-2);
+      copiesById.set(id, source);
+      copied.push(source);
+      if (source === file && loseNextCopyResponse) {
+        loseNextCopyResponse = false;
+        return new Response(null, { status: 503 });
+      }
+      return Response.json({ id });
+    }
+    throw new Error('Unexpected Drive operation');
+  });
+
+  const request = (body, token = allowed.idToken, origin = 'http://localhost') => new Request(endpoint, {
+    method: body ? 'POST' : 'GET',
+    headers: { authorization: 'Bearer ' + token, 'x-drive-access-token': driveToken, 'content-type': 'application/json', origin },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const privateJson = async (response) => {
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    const text = await response.text();
+    for (const secret of [root, nested, outside, unrelated, library, driveToken, 'fixture-new-copy']) assert.ok(!text.includes(secret));
+    return JSON.parse(text);
+  };
+  assert.deepEqual(await privateJson(await sharedDriveGet(request(undefined, denied.idToken))), { available: false });
+  allowedByDrive = false;
+  assert.deepEqual(await privateJson(await sharedDriveGet(request())), { available: false });
+  assert.equal((await sharedDrivePost(request({ action: 'search', query: '테스트' }))).status, 403);
+  allowedByDrive = true;
+  assert.deepEqual(await privateJson(await sharedDriveGet(request())), { available: true,
+    pickerKey: env.WEB_READER_SHARED_DRIVE_PICKER_KEY, appId: env.WEB_READER_SHARED_DRIVE_PICKER_APP_ID });
+  const search = { action: 'search', query: '테스트' };
+  assert.equal((await sharedDrivePost(request(search, allowed.idToken, 'https://elsewhere.test'))).status, 403);
+  assert.deepEqual(await privateJson(await sharedDrivePost(request(search))), { ids: [file, second], limited: false });
+  const copy = (ids) => sharedDrivePost(request({ action: 'copy', ids }));
+  assert.deepEqual(await privateJson(await copy([unrelated])), { results: [false] });
+  sourceMoved = true;
+  assert.deepEqual(await privateJson(await copy([file])), { results: [false] });
+  sourceMoved = false;
+  canCopy = false;
+  assert.deepEqual(await privateJson(await copy([file])), { results: [false] });
+  canCopy = true;
+  const attempts = await Promise.all([copy([file, second]), copy([file, second])]);
+  assert.ok(attempts.every((attempt) => attempt.ok || attempt.status === 409));
+  const results = await Promise.all(attempts.filter((attempt) => attempt.ok).map(privateJson));
+  assert.ok(results.some((item) => item.results[0] === false && item.results[1] === true));
+  assert.deepEqual(await privateJson(await copy([second, file])), { results: [true, true] });
+  assert.equal(generatedCount, 2);
+  sharedDestination = true;
+  assert.equal((await copy([second])).status, 403);
+  assert.deepEqual(copied.sort(), [file, second].sort());
 });
 
 test('calendar endpoints expose only the authenticated owner’s complete publication', async (t) => {
