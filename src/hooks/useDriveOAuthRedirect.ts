@@ -10,14 +10,12 @@ import { libraryLandingView, restoreLoginHash } from '../lib/loginNavigation';
 
 interface UseDriveOAuthRedirectOptions {
   saveToken: (token: string, expiresIn: number) => string;
-  setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
   setAuthErrorMessage: Dispatch<SetStateAction<string | null>>;
 }
 
 export const useDriveOAuthRedirect = ({
   saveToken,
-  setIsOfflineMode,
   setView,
   setAuthErrorMessage,
 }: UseDriveOAuthRedirectOptions) => {
@@ -48,9 +46,8 @@ export const useDriveOAuthRedirect = ({
     }
 
     saveToken(result.accessToken, result.expiresIn);
-    setIsOfflineMode(false);
-    setView('loading');
-  }, [saveToken, setAuthErrorMessage, setIsOfflineMode, setView]);
+    setView((current) => current === 'loading' ? libraryLandingView() : current);
+  }, [saveToken, setAuthErrorMessage, setView]);
 
   return useCallback((clientId: string) => {
     const state = crypto.randomUUID();

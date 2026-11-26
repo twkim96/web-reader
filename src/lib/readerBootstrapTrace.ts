@@ -22,6 +22,8 @@ export type ReaderBootstrapTraceEvent = {
   leaseReason?: 'missing' | 'device-changed' | 'clock-unconfirmed' | 'refresh';
   durationMs?: number;
   snapshotDocuments?: number;
+  snapshotChanges?: number;
+  snapshotSource?: 'initial' | 'listener-reattach' | 'sdk-reconnect';
   identityHash?: string;
   revision?: number;
   decision?: string;

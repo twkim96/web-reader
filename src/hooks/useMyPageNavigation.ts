@@ -21,7 +21,7 @@ export function useMyPageNavigation({ view, setView, isLibraryBootstrapReady, au
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [setView]);
   useEffect(() => {
-    // Drive owns the startup screen; the reader owns its Back stack and panels.
+    // Wait for local hydration and leave the reader’s Back stack to the reader.
     if (!isLibraryBootstrapReady || view === 'loading' || view === 'reader') return;
     const update = () => {
       if (window.location.hash.startsWith('#mypage')) {

@@ -96,6 +96,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       const folderId = await getDriveLibraryFolderId(googleToken, {
         cacheKey: driveCacheKey,
         createIfMissing: true,
+        signal,
       });
       if (signal.aborted || uploadGenerationRef.current !== generation) {
         return { book: null, stopBatch: true };

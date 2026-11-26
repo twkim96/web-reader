@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExtern
 import { createListCache, fullReviewListCache, previewReviewListCache, wishlistListCache, type MyPageListSnapshot } from '../lib/myPageListCache';
 import { finishMyPageTiming, startDiscoveryTiming } from '../lib/myPagePerformance';
 import { MyPageRequestError, myPageRequest } from '../lib/myPageSocialClient';
-import type { MyPageOwnReviews, MyPageSavedBook } from '../lib/myPageSocial';
+import type { MyPageOwnReviews, MyPageReview, MyPageReviewDeletion, MyPageSavedBook } from '../lib/myPageSocial';
 import { isGuestOwner, type OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar';
@@ -114,6 +114,14 @@ export const useMyPageReviewList = (owner: OwnerKey, enabled: boolean, preview =
     preview ? 'review-preview-ready' : 'reviews-ready',
   )
 );
+
+export function applyReviewAcknowledgement(current: MyPageOwnReviews, entry: MyPageReview | MyPageReviewDeletion): MyPageOwnReviews {
+  const newer = (item: MyPageReview | MyPageReviewDeletion) => item.workId === entry.workId && item.revision > entry.revision;
+  if (current.reviews.some(newer) || current.deletions.some(newer)) return current;
+  const reviews = current.reviews.filter(({ workId }) => workId !== entry.workId);
+  const deletions = current.deletions.filter(({ workId }) => workId !== entry.workId);
+  return 'rating' in entry ? { reviews: [entry, ...reviews], deletions } : { reviews, deletions: [entry, ...deletions] };
+}
 
 export function useMyPageReadingCalendar(owner: OwnerKey, enabled: boolean) {
   const { archive, refresh } = usePublishedReadingArchive(owner, enabled);

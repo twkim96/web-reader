@@ -10,8 +10,8 @@ import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
 import { getPublicBookCoverCandidates } from '../../lib/publicBookMetadataSchema';
 import { parsePublicBookReview, PUBLIC_BOOK_REVIEW_LIMIT } from '../../lib/publicBookReviews';
-import { resolveReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type MyPageReview, type PublicWorkReviews } from '../../lib/myPageSocial';
-import { useMyPageReadingFiles, useMyPageWorkReview } from '../../hooks/useMyPageList';
+import { resolveReviewWork, formatMyPageIdentity, indexReviewWorks, MY_PAGE_CODE, publicReaderHref, type MyPageIdentity, type MyPageReview, type MyPageReviewDeletion, type PublicWorkReviews } from '../../lib/myPageSocial';
+import { applyReviewAcknowledgement, useMyPageReadingFiles, useMyPageWorkReview } from '../../hooks/useMyPageList';
 import { ownerRuntime } from '../../lib/ownerRuntime';
 import { loadReadBookMetadata } from '../../lib/readBookMetadata';
 import { readCachedReadBookMetadata } from '../../lib/readBookMetadataCache';
@@ -166,14 +166,11 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive,
     reviewActive.current = true;
     return () => { reviewActive.current = false; };
   }, []);
-  const changeReview = (review: MyPageReview | null, oldId: string) => {
+  const changeReview = (entry: MyPageReview | MyPageReviewDeletion) => {
     if (!reviewActive.current || reviewSession?.ownerKey !== ownerKey || !ownerRuntime.isCurrent(reviewSession)) return;
     // Cancel a pre-save response before replacing its data with the server ACK.
     const finish = reviews.cache.beginWrite(ownerKey);
-    reviews.cache.update(reviewSession, (current) => ({
-      reviews: [...(review ? [review] : []), ...current.reviews.filter((item) => item.workId !== oldId && item.workId !== review?.workId)],
-      deletions: current.deletions.filter((item) => item.workId !== review?.workId),
-    }));
+    reviews.cache.update(reviewSession, (current) => applyReviewAcknowledgement(current, entry));
     finish?.();
     setReviewChangeVersion((value) => value + 1);
     void reviews.refresh();

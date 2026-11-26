@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   try {
     const outcomes = await runReadingRollupCron(getAdminFirestore(), {
       listAccounts: (limit, pageToken) => getAdminAuth().listUsers(limit, pageToken),
+      reportQueue: metrics => console.info('[reading-rollup] queue', metrics),
     });
     console.info('[reading-rollup] schedule result', outcomes);
     return Response.json(outcomes, { status: outcomes.failed ? 503 : 200, headers: { 'Cache-Control': 'no-store' } });

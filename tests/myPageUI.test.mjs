@@ -432,6 +432,10 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     platformWorkKeys: [JSON.stringify(['series', secondURL])] };
   const secondWrites = [];
   let secondSaved = false;
+  let secondRevision = null;
+  let refreshAfterDelete;
+  let holdReviewRefresh = false;
+  let wishlistReads = 0;
   const writes = [];
   let rejectFirst;
   let finishUnread;
@@ -456,22 +460,31 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     if (String(url).startsWith('/api/book-reviews?')) return Response.json({ reviews: [], ratingCount: 0, average: null });
     assert.match(String(url), /^\/api\/mypage\?/);
     if (options.method === 'GET') {
-      if (String(url).includes('view=wishlist')) return Response.json({
-        entries: [{ book: unread, item: { saved: true, addedAt: start, revision: 1, workId: unread.id }, aliases: [] }],
-      });
+      if (String(url).includes('view=wishlist')) {
+        wishlistReads++;
+        return Response.json({ entries: [{ book: unread, item: { saved: true, addedAt: start, revision: 1, workId: unread.id }, aliases: [] }] });
+      }
       if (String(url).includes('view=account')) return Response.json({
         code: '00000001', nickname: '독자', revision: 1, visibility: { reviews: true, wishlist: false },
       });
-      return Response.json({
-        reviews: [committed, ...(secondSaved ? [secondReview] : []), ...(unreadSaved ? [unreadRating] : [])],
-        deletions: [],
-      });
+      const reviews = {
+        reviews: [committed, ...(secondSaved ? [{ ...secondReview, revision: secondRevision }] : []), ...(unreadSaved ? [unreadRating] : [])],
+        deletions: !secondSaved && secondRevision ? [{ workId: secondWorkId, revision: secondRevision, platformWorkKeys: secondReview.platformWorkKeys }] : [],
+      };
+      if (holdReviewRefresh && String(url).includes('view=own-review')) {
+        holdReviewRefresh = false;
+        return new Promise(resolve => { refreshAfterDelete = () => resolve(Response.json(reviews)); });
+      }
+      return Response.json(reviews);
     }
     const body = JSON.parse(options.body);
     if (body.workId === secondWorkId) {
       secondWrites.push(body);
+      if (body.revision !== secondRevision) return new Response(null, { status: 409 });
+      secondRevision = (secondRevision ?? 0) + 1;
       secondSaved = !body.remove;
-      return Response.json({ review: secondSaved ? secondReview : null });
+      return Response.json(secondSaved ? { review: { ...secondReview, revision: secondRevision } }
+        : { review: null, deletion: { workId: secondWorkId, revision: secondRevision, platformWorkKeys: secondReview.platformWorkKeys } });
     }
     writes.push(body);
     if (writes.length === 1) return new Promise((_, reject) => { rejectFirst = reject; });
@@ -515,6 +528,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     const readList = () => visible('section[aria-label="읽은 책"] .mypage-divided-list');
     for (let attempt = 0; attempt < 20 && !readList().children.length; attempt++) await act(async () => delay(20));
     assert.equal(readList().children.length, 2);
+    assert.equal(wishlistReads, 0);
     assert.equal(readList().querySelector('a'), null);
     await act(async () => finishCatalogFailure());
     assert.equal(readList().querySelector('a'), null);
@@ -543,6 +557,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(visible(unratedLink).querySelectorAll('svg[fill="none"]').length, 5);
     assert.equal(visible(unratedLink).getAttribute('href'), '#mypage/book/published-second/review');
     await click(window, visible(unratedLink));
+    assert.equal(wishlistReads, 1);
     assert.equal(window.location.hash, '#mypage/book/published-second/review');
     assert.ok(scrollTargets.includes('my-book-review'));
     const editor = () => visible('#my-book-review');
@@ -583,10 +598,22 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(secondWrites[2].readingSnapshotVersion, 2);
     assert.equal(secondWrites[2].readingHistoryPartial, true);
     await rateSecondWork();
+    holdReviewRefresh = true;
     await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '평가 삭제'));
     const expectedKeys = [JSON.stringify(['series', secondURL]), JSON.stringify(['kakao', pendingURL])];
     assert.deepEqual(secondWrites[0].platformWorkKeys, expectedKeys);
-    assert.deepEqual(secondWrites[3], { workId: secondWorkId, detailWorkId: secondWorkId, revision: 1, platformWorkKeys: expectedKeys, remove: true });
+    assert.deepEqual(secondWrites[3], { workId: secondWorkId, detailWorkId: secondWorkId, revision: 3, platformWorkKeys: expectedKeys, remove: true });
+    assert.equal(typeof refreshAfterDelete, 'function');
+    await rateSecondWork();
+    await act(async () => editor().querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.equal(secondWrites[4].workId, secondWorkId);
+    assert.equal(secondWrites[4].revision, 4);
+    assert.equal(secondSaved, true);
+    await act(async () => refreshAfterDelete());
+    assert.ok(editor().querySelector('[aria-label="별점 3점"]'));
+    await rateSecondWork();
+    await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '평가 삭제'));
+    assert.equal(secondWrites[5].revision, 5);
     assert.equal(committed.rating, 2);
     const hash = window.location.hash;
     await act(async () => root.render(null));
@@ -704,6 +731,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     // Restore the earlier server rating before either entry path sees the
     // missing edition. A lower partial snapshot must preserve its evidence.
     secondSaved = true;
+    secondRevision++;
     await act(async () => window.dispatchEvent(new window.Event('online')));
     await openCollectionTab('읽은 책');
     assert.equal(visible('select[aria-label="읽은 책 정렬"]').querySelector('option:checked').value, 'progress');
@@ -734,8 +762,8 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     const beforeRemountHistory = historyReads;
     await act(async () => root.render(React.createElement(MyPage, { ...props, ownerKey })));
     await saveRatingWithPersonalTime('1분', beforeRemountHistory);
-    assert.equal(secondWrites.length, 6);
-    for (const request of secondWrites.slice(4)) {
+    assert.equal(secondWrites.length, 8);
+    for (const request of secondWrites.slice(6)) {
       assert.equal(request.rating, 3);
       assert.equal(request.readingSnapshot, null);
       assert.deepEqual(request.fileIds, []);
@@ -1345,8 +1373,8 @@ test('account wishlist reloads after a revision conflict and on visible return',
     saved = body.saved;
     return Response.json(entry());
   });
-  const Fixture = () => {
-    const state = useAccountWishlist(ownerKey, true);
+  const Fixture = ({ enabled }) => {
+    const state = useAccountWishlist(ownerKey, enabled);
     const active = state.savedIds.has(book.id);
     return React.createElement('button', {
       disabled: state.loading || state.saving,
@@ -1359,7 +1387,12 @@ test('account wishlist reloads after a revision conflict and on visible return',
     assert.ok(condition());
   };
   try {
-    await act(async () => root.render(React.createElement(Fixture)));
+    setWishlistSaved(ownerKey, book, true, window.localStorage);
+    await act(async () => root.render(React.createElement(Fixture, { enabled: false })));
+    assert.equal(reads, 0);
+    assert.equal(button().textContent, '비어 있음');
+    assert.equal(button().disabled, true);
+    await act(async () => root.render(React.createElement(Fixture, { enabled: true })));
     await waitFor(() => button().textContent === '담김');
     await click(window, button());
     await waitFor(() => reads === 2 && !button().disabled);

@@ -5,10 +5,9 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 test('restores only the current-tab Drive session and reloads its library', async () => {
-  const [tokenHook, networkHook, authHook] = await Promise.all([
+  const [tokenHook, networkHook] = await Promise.all([
     readFile(new URL('../src/hooks/useGoogleDriveToken.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/hooks/useNetworkLibrarySync.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/hooks/useAuthBootstrap.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(tokenHook, /sessionStorage\.getItem\(DRIVE_TOKEN_SESSION_KEY\)/);
   assert.match(tokenHook, /sessionStorage\.setItem\(DRIVE_TOKEN_SESSION_KEY/);
@@ -16,11 +15,6 @@ test('restores only the current-tab Drive session and reloads its library', asyn
   assert.match(networkHook, /driveSessionId/);
   assert.match(networkHook, /isAuthenticatedLibraryReady/);
   assert.match(networkHook, /loadLibraryFromDrive\(googleToken, driveSessionId\)/);
-  assert.match(authHook, /shouldHoldShelfForDrive\(\)/);
-  const authenticatedDriveGate = authHook.indexOf('shouldHoldShelfForDrive()');
-  assert.ok(
-    authenticatedDriveGate < authHook.indexOf('setIsOfflineMode(true)', authenticatedDriveGate),
-  );
 });
 
 test('bridges only the short-lived OAuth state across browser contexts', async () => {

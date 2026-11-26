@@ -1,9 +1,9 @@
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { APP_ID } from '../lib/appIdentity.ts';
-import { isReadingSessionV1, type ReadingDayStatistics } from '../lib/readingStatistics.ts';
+import { isReadingSessionV1 } from '../lib/readingStatistics.ts';
 import type { PublishedReadingCalendar, PublishedReadingWeek } from '../lib/readingRollupCalendar.ts';
 import { parseReadingReportBooks, summarizeReadingReportBooks, type PublishedReadingReportBooks, type ReadingReportRange } from '../lib/readingStatisticsReport.ts';
-import { parseReadingFileRollups, parseReadingRollupMonday, readingRollupDayKey, readingRollupWeekForDay } from '../lib/readingStatisticsRollup.ts';
+import { parseReadingFileRollups, parseReadingRollupMonday, readReadingRollupDays, readingRollupDayKey, readingRollupWeekForDay } from '../lib/readingStatisticsRollup.ts';
 import { compareReadingUploadTimes, parseReadingRollupBootstrap, type ReadingUploadTime } from '../lib/readingRollupBootstrap.ts';
 import type { ReadingRollupCarry } from './readingRollupInputs.ts';
 
@@ -64,22 +64,6 @@ export async function hasPublishedReadingAuditCoverage(db: Firestore, uid: strin
   return true;
 }
 
-function readDays(input: unknown, first: number, last: number): ReadingDayStatistics[] {
-  if (!Array.isArray(input)) throw new Error('Invalid reading rollup days.');
-  const firstKey = readingRollupDayKey(first);
-  const lastKey = readingRollupDayKey(last);
-  const seen = new Set<string>();
-  return input.map((entry) => {
-    if (!entry || typeof entry.localDate !== 'string' || !readingRollupWeekForDay(entry.localDate)
-      || entry.localDate < firstKey || entry.localDate > lastKey || seen.has(entry.localDate)
-      || ![entry.totalMs, entry.screenMs, entry.ttsMs].every((ms) => Number.isSafeInteger(ms) && ms >= 0)
-      || entry.totalMs !== entry.screenMs + entry.ttsMs) throw new Error('Invalid reading rollup day.');
-    const { localDate, totalMs, screenMs, ttsMs } = entry;
-    seen.add(localDate);
-    return { localDate, totalMs, screenMs, ttsMs };
-  });
-}
-
 type PublishedRange = NonNullable<Awaited<ReturnType<typeof publishedRange>>>;
 const calendarEnds = ({ first, lastCalendar }: PublishedRange) =>
   Array.from({ length: 1 + (lastCalendar - first - 9 * week) / calendarBlock }, (_, i) => first + 9 * week + i * calendarBlock);
@@ -95,13 +79,13 @@ function decodeCalendar(
       || block.weekStarts.some((start: unknown, j: number) => start !== readingRollupDayKey(end - j * week))) {
       throw new Error('Incomplete reading rollup calendar.');
     }
-    return readDays(block.days, end - 9 * week, end + 6 * day);
+    return readReadingRollupDays(block.days, end - 9 * week, end + 6 * day);
   });
   const trailing = calendarTrailingWeeks(range);
   if (!Array.isArray(tails) || tails.length !== trailing.length) throw new Error('Incomplete reading rollup calendar tail.');
   for (const [i, start] of trailing.entries()) {
     if (tails[i]?.weekStart !== readingRollupDayKey(start)) throw new Error('Invalid reading rollup week.');
-    days.push(...readDays(tails[i].days, start, start + 6 * day));
+    days.push(...readReadingRollupDays(tails[i].days, start, start + 6 * day));
   }
   return { firstDay: readingRollupDayKey(range.first), lastDay: readingRollupDayKey(range.through + 6 * day), days };
 }

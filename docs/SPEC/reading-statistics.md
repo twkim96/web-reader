@@ -52,7 +52,7 @@ Bootstrap 추적은 `?readerDebug=1` 또는 `reader_bootstrap_trace_v1` 설정�
 
 `readerBootstrapTrace`의 `reading-statistics-hydration`은 원격 수신 한 번에 대해 시작 커서 유무, 문서 반환 쿼리의 시도·완료·빈 응답 횟수, 반환 문서 수, 건수 대조 결과(`auditProbe`)와 집계 범위 확인 결과(`publishedAudit`)를 기록합니다. `publishedBootstrap`으로 집계 첫 수신, 이후 수신, 원본 복구를 구분합니다. 저장소 요약의 `remoteReadCount`는 완료한 문서 반환 쿼리 횟수입니다. 주간 검사의 집계 쿼리 비용은 Firestore 사용량과 대조합니다. `fullScanReason`으로 신규·빈 이력, 로컬 누락·건수 차이·격리, 정기 전체 검사, 원격 대조 불일치·실패 등을 구분합니다. 같은 기기의 전송 확인이 수신 커서보다 앞서면 `local-synced-count-ahead`로 기록될 수 있습니다.
 
-진행률은 `listener-reconciled`의 `wakeReason`으로 재시작 원인을 확인하고, 리스너를 붙인 뒤 첫 `authoritative-snapshot`의 `durationMs`와 `snapshotDocuments`로 준비 시간과 결과 크기를 봅니다. 스냅샷 문서 수는 Firestore에서 과금한 읽기 수와 다를 수 있습니다. 화면 복귀 시 열린 책의 단건 조회는 `active-progress-refresh`에 기록합니다. `write-lease-issuance`에는 실제 발급 시도의 사유·결과·시간이 남습니다. 같은 실행에서 이미 확인한 권한을 재사용하거나 진행 중인 발급에 합류한 경우에는 발급 이벤트가 생기지 않습니다. 실기기에서는 같은 계정으로 앱 재실행과 네트워크 복귀를 각각 재현한 직후 진단 JSON을 저장해 비교합니다.
+진행률은 `listener-attached` 건수와 `listener-reconciled`의 `wakeReason`으로 앱의 구독 시작과 재시작을 확인합니다. 첫 서버 스냅샷과 캐시 상태 뒤 서버로 복귀한 스냅샷의 `snapshotSource`를 비교하면 앱 재구독과 SDK 수신 복귀를 구분할 수 있습니다. `durationMs`는 해당 수신을 기다린 시간, `snapshotDocuments`는 전체 문서 수, `snapshotChanges`는 적용 후보 변경 수입니다. 청구 읽기 수는 Firestore 운영 지표와 대조합니다. 화면 복귀 시 열린 책의 단건 조회는 `active-progress-refresh`에 기록합니다. `write-lease-issuance`에는 실제 발급 시도의 사유·결과·시간이 남습니다. 같은 실행에서 이미 확인한 권한을 재사용하거나 진행 중인 발급에 합류한 경우에는 발급 이벤트가 생기지 않습니다. 실기기에서는 같은 계정으로 앱 재실행과 네트워크 복귀를 각각 재현한 직후 진단 JSON을 저장해 비교합니다.
 
 ## 코드와 검증
 

@@ -41,6 +41,7 @@ interface UseLibraryDataOptions {
   setView: Dispatch<SetStateAction<ViewState>>;
   onLibraryError?: (message: string) => void;
   driveSessionId: string | null;
+  getCurrentDriveSessionId: () => string | null;
   deviceId?: MutableRefObject<string>;
 }
 
@@ -72,6 +73,7 @@ export const useLibraryData = ({
   setView,
   onLibraryError,
   driveSessionId,
+  getCurrentDriveSessionId,
   deviceId,
 }: UseLibraryDataOptions): UseLibraryDataResult => {
   const [books, setBooks] = useState<Book[]>([]);
@@ -80,7 +82,6 @@ export const useLibraryData = ({
   const [driveCacheKey, setDriveCacheKey] = useState<string | null>(null);
   const progressRef = useRef<Record<string, UserProgress>>({});
   const driveLoadCoordinatorRef = useRef(new DriveLoadCoordinator());
-  const driveSessionIdRef = useRef(driveSessionId);
 
   useEffect(() => {
     progressRef.current = progress;
@@ -88,7 +89,6 @@ export const useLibraryData = ({
 
   useLayoutEffect(() => {
     const coordinator = driveLoadCoordinatorRef.current;
-    driveSessionIdRef.current = driveSessionId;
     coordinator.cancel();
     return () => coordinator.cancel();
   }, [driveSessionId]);
@@ -96,6 +96,7 @@ export const useLibraryData = ({
   const resetLibraryState = useCallback(() => {
     driveLoadCoordinatorRef.current.cancel();
     progressRef.current = {};
+    setDriveCacheKey(null);
     setBooks([]);
     setProgress({});
     setRemoteProgress({});
@@ -174,42 +175,48 @@ export const useLibraryData = ({
     const previousOwner = ownerRuntime.capture();
     if (!previousOwner) return false;
     const sessionId = requestedDriveSessionId ?? driveSessionId;
-    if (!sessionId) return false;
-    const requestKey = sessionId;
-    return driveLoadCoordinatorRef.current.run(requestKey, async (request) => {
+    if (!sessionId || getCurrentDriveSessionId() !== sessionId) return false;
+    const requestKey = JSON.stringify([previousOwner.generation, sessionId]);
+    const coordinator = driveLoadCoordinatorRef.current;
+    return coordinator.run(requestKey, async (request) => {
+      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(20_000)]);
+      const dispose = ownerRuntime.registerDisposer(() => {
+        if (coordinator.isCurrent(request)) coordinator.cancel();
+      });
       const isCurrent = () => (
-        driveLoadCoordinatorRef.current.isCurrent(request)
+        coordinator.isCurrent(request)
         && ownerRuntime.isCurrent(previousOwner)
-        && driveSessionIdRef.current === sessionId
+        && getCurrentDriveSessionId() === sessionId
       );
       let attemptedCacheKey: string | null = null;
       try {
-        const permissionId = await getDriveUserPermissionId(token, request.signal);
+        const permissionId = await getDriveUserPermissionId(token, signal);
         if (!isCurrent()) return false;
         const driveNamespace = `drive:${encodeURIComponent(permissionId)}`;
         const cacheKey = `${driveNamespace}::${sessionId}`;
         attemptedCacheKey = cacheKey;
         const folderId = await getDriveLibraryFolderId(token, {
           cacheKey,
-          signal: request.signal,
+          signal,
         });
         if (!isCurrent()) return false;
         invalidateDriveCachesForOwner(driveNamespace, cacheKey);
-        setDriveCacheKey(cacheKey);
 
         const data = folderId
-          ? await fetchDriveFiles(token, folderId, request.signal)
+          ? await fetchDriveFiles(token, folderId, signal)
           : { files: [] };
         if (!isCurrent()) return false;
         const cloudBooks = (data.files as Book[])
           .map((book) => ({ ...book, source: 'cloud' as const }));
         const cloudIds = new Set(cloudBooks.map((book) => book.id));
         const localBooks = await getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY);
+        signal.throwIfAborted();
         if (!isCurrent()) return false;
         const localOnly = localBooks
           .filter((book) => !cloudIds.has(book.id))
           .map((book) => ({ ...book, source: 'local' as const }));
-        setBooks([...cloudBooks, ...localOnly]);
+        setDriveCacheKey((current) => isCurrent() ? cacheKey : current);
+        setBooks((current) => isCurrent() ? [...cloudBooks, ...localOnly] : current);
 
         setIsOfflineMode(false);
         return true;
@@ -226,9 +233,11 @@ export const useLibraryData = ({
         console.warn('Drive Library Load Failed (Offline or Error)');
         setIsOfflineMode(true);
         return false;
+      } finally {
+        dispose();
       }
     });
-  }, [clearToken, driveSessionId, onLibraryError, setIsOfflineMode]);
+  }, [clearToken, driveSessionId, getCurrentDriveSessionId, onLibraryError, setIsOfflineMode]);
 
   return {
     books,
@@ -238,7 +247,7 @@ export const useLibraryData = ({
     progressRef,
     remoteProgress,
     setRemoteProgress,
-    driveCacheKey: driveSessionId ? driveCacheKey : null,
+    driveCacheKey: driveSessionId && driveCacheKey?.endsWith(`::${driveSessionId}`) ? driveCacheKey : null,
     restoreLocalData,
     loadLibraryFromDrive,
     resetLibraryState,

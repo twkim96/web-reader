@@ -9,7 +9,7 @@ import {
 import { BOOK_REVIEW_TEXT_LIMIT, isBookRating } from '../../lib/publicBookReviews.ts';
 import {
   hasPublicMyPage, MY_PAGE_CODE, parseMyPageVisibility, type MyPageAccount, type MyPageBrowseSection, type MyPageIdentity, type MyPageOwnReviews, type MyPageReview,
-  type MyPageVisibility, type MyPageWishlistItem, type MyPageWishlistRevision, type PublicWorkReview, type PublicWorkReviews,
+  type MyPageReviewDeletion, type MyPageVisibility, type MyPageWishlistItem, type MyPageWishlistRevision, type PublicWorkReview, type PublicWorkReviews,
 } from '../../lib/myPageSocial.ts';
 
 const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -416,7 +416,7 @@ async function mutateReview(
   db: Firestore, uid: string, workId: string, fields: ReviewUpdate | null, expectedRevision: number | null,
   importOnly = false, importAccountRevision?: number, equivalentWorkIds: readonly string[] = [], saveId?: string,
   loadFallbackReading?: () => Promise<ReviewReading | undefined>,
-): Promise<{ review: MyPageReview | null; applied: boolean }> {
+): Promise<{ review: MyPageReview | null; deletion?: MyPageReviewDeletion; applied: boolean }> {
   const account = importOnly ? null : await ensureAccount(db, uid);
   const ref = reviews(db, uid).doc(workKey(workId));
   const needsEvidence = Symbol('needs reading evidence');
@@ -443,9 +443,10 @@ async function mutateReview(
 
     const revision = (current?.revision ?? 0) + 1;
     if (!fields) {
-      transaction.set(ref, { workId, deleted: true, revision });
+      const deletion = { workId, revision };
+      transaction.set(ref, { ...deletion, deleted: true });
       transaction.delete(entry);
-      return { review: null, applied: true };
+      return { review: null, deletion, applied: true };
     }
     const previous = reviewFrom(current);
     if (loadFallbackReading && !evidence && !hasReviewReading(previous)) return needsEvidence;
@@ -511,14 +512,29 @@ export async function workPublicReviews(
 ): Promise<PublicWorkReviews> {
   const started = performance.now();
   const workIds = [...new Set([canonicalWorkId, ...equivalentWorkIds])];
+  const firstQueryStarted = performance.now();
   const firstPage = await workEntries(db, canonicalWorkId).orderBy('publishedAt', 'desc').limit(REVIEW_PAGE_SIZE).get();
+  const firstQueryMs = performance.now() - firstQueryStarted;
+  const firstScan = {
+    workCount: workIds.length, reviewRows: 0, validReviewRows: 0, visibleReviewRows: 0,
+    reviewQueries: 1, emptyReviewQueries: Number(firstPage.empty), reviewQueryMs: firstQueryMs,
+    authorReads: 0, authorBatches: 0, authorReadMs: 0,
+  };
   if (workIds.length === 1 && firstPage.empty) {
-    reportMyPageApiTiming('book-reviews', started, { reviewRows: 0, authorReads: 0, reviewQueries: 1, returned: 0 });
+    reportMyPageApiTiming('book-reviews', started, { ...firstScan, ratingCount: 0, returned: 0 });
     return { reviews: [], average: null, ratingCount: 0 };
   }
 
   const { result, scans } = await db.runTransaction(async (transaction) => {
-    const scans = { reviewRows: 0, authorReads: 0, reviewQueries: 0 };
+    const scans = { ...firstScan };
+    const readPage = async (query: Query) => {
+      const queryStarted = performance.now();
+      const page = await transaction.get(query);
+      scans.reviewQueryMs += performance.now() - queryStarted;
+      scans.reviewQueries++;
+      if (page.empty) scans.emptyReviewQueries++;
+      return page;
+    };
     const byAuthor = workIds.length > 1 ? new Map<string, DatedReview>() : null;
     const publicAuthors = new Map<string, MyPageIdentity | null>();
     const latest: PublicWorkReview[] = [];
@@ -532,8 +548,7 @@ export async function workPublicReviews(
 
     for (const workId of workIds) {
       const query = workEntries(db, workId).orderBy('publishedAt', 'desc').limit(REVIEW_PAGE_SIZE);
-      let page = workId === canonicalWorkId ? firstPage : await transaction.get(query);
-      scans.reviewQueries++;
+      let page = workId === canonicalWorkId ? firstPage : await readPage(query);
       while (!page.empty) {
         scans.reviewRows += page.size;
         const entries = page.docs.filter((document) => {
@@ -542,12 +557,16 @@ export async function workPublicReviews(
           return code === document.id && publicCode(code) === code
             && storedWorkId === workId && publishedAt instanceof Timestamp && validReviewFields(reviewFields(document.data()));
         });
+        scans.validReviewRows += entries.length;
         if (entries.length > 0) {
           const unknown = entries.filter(({ id }) => !publicAuthors.has(id));
           if (unknown.length) {
             scans.authorReads += unknown.length;
+            scans.authorBatches++;
+            const authorStarted = performance.now();
             const authors = await transaction.getAll(...unknown.map(({ id }) => profiles(db).doc(id)),
               { fieldMask: ['nickname', 'visibility'] });
+            scans.authorReadMs += performance.now() - authorStarted;
             for (const author of authors) {
               const nickname = author.get('nickname');
               const visibility = parseMyPageVisibility(author.get('visibility'));
@@ -558,6 +577,7 @@ export async function workPublicReviews(
           for (const entry of entries) {
             const author = publicAuthors.get(entry.id);
             if (!author) continue;
+            scans.visibleReviewRows++;
             const data = entry.data();
             const review = { author, ...reviewFields(data) };
             if (!byAuthor) {
@@ -571,14 +591,13 @@ export async function workPublicReviews(
           if (!byAuthor) publicAuthors.clear();
         }
         if (page.size < REVIEW_PAGE_SIZE) break;
-        page = await transaction.get(query.startAfter(page.docs[page.docs.length - 1]));
-        scans.reviewQueries++;
+        page = await readPage(query.startAfter(page.docs[page.docs.length - 1]));
       }
     }
 
     if (byAuthor) [...byAuthor.values()].sort(newestFirst).forEach(({ review }) => count(review));
     return { result: { reviews: latest, average: ratingCount > 0 ? ratingSum / ratingCount : null, ratingCount }, scans };
   }, { readOnly: true, readTime: firstPage.readTime });
-  reportMyPageApiTiming('book-reviews', started, { ...scans, returned: result.reviews.length });
+  reportMyPageApiTiming('book-reviews', started, { ...scans, ratingCount: result.ratingCount, returned: result.reviews.length });
   return result;
 }

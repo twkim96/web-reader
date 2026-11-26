@@ -273,6 +273,69 @@ test('same-week accounts become due together and exhausted Cron budget defers th
   await Promise.all(queue.docs.map(({ ref }) => ref.delete()));
 });
 
+test('isolates damaged checkpoints and drains more than one page of healthy jobs', async (t) => {
+  const app = initializeApp({ projectId: 'demo-web-reader-rollup-queue' }, 'rollup-queue-test');
+  t.after(() => deleteApp(app));
+  const store = getFirestore(app);
+  const jobs = store.collection(`${root}/readingStatsRollupJobsV1`);
+  const closeWeek = '2026-07-13';
+  const cutoff = Date.parse('2026-07-21T09:00:00Z');
+  let time = cutoff;
+  const now = () => time;
+  const stamp = (date) => [date / 1000, 0];
+  const valid = {
+    firstWeek: closeWeek, nextWeek: closeWeek, sourceAfter: stamp(cutoff - weekMs), closeAt: stamp(cutoff),
+    cursor: null, scanned: false, carry: createReadingRollupCarry([], closeWeek), lastCalendarWeek: null, group: [],
+  };
+  const damaged = [
+    { payload: '{' },
+    { payload: JSON.stringify({ ...valid, carry: undefined }) },
+    { payload: JSON.stringify({ ...valid, carry: { encoding: 'gzip-v1', data: 'AAAA' } }) },
+    { payload: JSON.stringify({ ...valid, nextWeek: '2026-07-14' }) },
+    { payload: JSON.stringify({ ...valid, carry: { sampleFloor: 0, sessions: [null] } }) },
+    { payload: JSON.stringify({ ...valid, firstWeek: '2026-07-06', group: [
+      { weekStart: '2026-07-06', days: [{ localDate: '2026-07-12', totalMs: 1, screenMs: 0, ttsMs: 0 }] },
+    ] }) },
+    {},
+  ];
+  const healthy = Array.from({ length: 8 }, (_, index) => jobs.doc(`healthy-${index}`));
+  const transient = jobs.doc('transient');
+  const healthyJob = { payload: JSON.stringify(valid), dueAt: cutoff - 1 };
+  await Promise.all([
+    ...damaged.map((data, index) => jobs.doc(`broken-${index}`).set({ ...data, dueAt: cutoff - 30 })),
+    ...healthy.map(ref => ref.set(healthyJob)),
+    transient.set({ ...healthyJob, dueAt: cutoff - 15 }),
+    jobs.doc('broken-bootstrap').set({ bootstrapDueAt: cutoff, bootstrap: { chunks: -1 } }),
+  ]);
+
+  const prototype = Object.getPrototypeOf(transient);
+  const originalGet = prototype.get;
+  let failOnce = true;
+  t.mock.method(prototype, 'get', function (...args) {
+    if (this.path === transient.path && failOnce) {
+      failOnce = false;
+      throw new Error('transient read failure');
+    }
+    return originalGet.apply(this, args);
+  });
+
+  let queue;
+  assert.deepEqual(await runReadingRollupCron(store, { now, reportQueue: value => { queue = value; } }),
+    { blocked: 8, published: 8, failed: 1 });
+  assert.equal(queue.regularVisited, 16);
+  assert.equal(queue.bootstrapVisited, 1);
+  assert.equal((await transient.get()).get('dueAt'), time + 3_600_000);
+  const blocked = await jobs.doc('broken-0').get();
+  assert.equal(blocked.get('blocked'), 'invalid-rollup-checkpoint');
+  assert.equal(blocked.get('dueAt'), undefined);
+  assert.equal(blocked.get('payload'), '{', 'retains the checkpoint for repair');
+  for (const ref of healthy) {
+    assert.equal((await ref.collection('readingStatsRollupManifestsV1').doc('current').get()).get('publishedThroughWeek'), closeWeek);
+  }
+  time += 3_600_000;
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+});
+
 test('a budget pause keeps the source cursor and exposes the first calendar only with all ten weeks', async () => {
   const uid = 'weekly-pilot-fixture';
   const sourceCutoff = Timestamp.fromDate(new Date('2026-11-23T12:00:00Z'));

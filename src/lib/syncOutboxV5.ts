@@ -22,7 +22,7 @@ import {
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
 } from './localDBSchema';
 import { DEVICE_CONTENT_OWNER_KEY, type OwnerKey } from './ownerIdentity';
-import type { GuestReadingHandoff } from './localDBV5';
+import { pendingGuestReadingEdit, type GuestReadingHandoff, type GuestReadingPosition } from './guestReadingHandoff';
 import type { AnnotationBookDeletionIntentV10 } from './annotationBookDeletion';
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 import {
@@ -1568,7 +1568,11 @@ export const mergeProgressMutationBatchV5 = (
   };
 };
 
-type GuestProgressImport = { handoff: GuestReadingHandoff; isCurrent: () => boolean };
+type GuestProgressImport = {
+  handoff: GuestReadingHandoff;
+  edit: NonNullable<ReturnType<typeof pendingGuestReadingEdit>>;
+  isCurrent: () => boolean;
+};
 
 export function enqueueProgressMutationBatchV5(ownerKey: OwnerKey, input: EnqueueProgressMutationBatchInput): Promise<UserProgress>;
 export function enqueueProgressMutationBatchV5(ownerKey: OwnerKey, input: EnqueueProgressMutationBatchInput, guestImport: GuestProgressImport): Promise<UserProgress | undefined>;
@@ -1608,7 +1612,7 @@ export async function enqueueProgressMutationBatchV5(
     V5_OUTBOX_STORE,
     V5_SYNC_META_STORE,
     V5_SYNC_CONFLICTS_STORE,
-    ...(guestImport ? [V5_BOOKS_STORE, V5_REMOTE_HEADS_STORE] : []),
+    ...(guestImport ? [V5_BOOKS_STORE] : []),
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
@@ -1619,50 +1623,46 @@ export async function enqueueProgressMutationBatchV5(
     (UserProgress & { ownerKey?: OwnerKey }) | undefined;
 
   let importedMarker: GuestReadingHandoff | undefined;
-  let comparedRemoteProgress: ProgressHeadV2 | undefined;
   if (guestImport) {
-    const { handoff, isCurrent } = guestImport;
+    const { handoff, edit, isCurrent } = guestImport;
     const { bookId, lastRead, cfi, anchorCfi, progressPercent } = input.progress;
-    const [marker, guest, cached, contentKey] = await Promise.all([
+    const [marker, guest, contentKey] = await Promise.all([
       metaStore.get([handoff.ownerKey, handoff.targetKey]) as Promise<GuestReadingHandoff | undefined>,
-      progressStore.get([handoff.ownerKey, bookId]) as Promise<UserProgress | undefined>,
-      tx.objectStore(V5_REMOTE_HEADS_STORE).get([ownerKey, progressTargetKeyV2(bookId)]) as Promise<RemoteHeadCacheV5 | undefined>,
+      progressStore.get([handoff.ownerKey, bookId]) as Promise<GuestReadingPosition | undefined>,
       tx.objectStore(V5_BOOKS_STORE).getKey([DEVICE_CONTENT_OWNER_KEY, bookId]),
     ]);
-    const remote = cached?.head;
+    const pending = marker && guest && pendingGuestReadingEdit(marker, guest);
     if (!isCurrent() || marker?.attemptId !== handoff.attemptId || !marker.confirmed || marker.account !== ownerKey
-      || !contentKey || guest?.lastRead !== lastRead
-      || lastRead <= Math.max(marker.startedAt, marker.importedThrough?.[bookId] ?? 0)
+      || !contentKey || guest?.lastRead !== lastRead || !pending || pending.id !== edit.id || pending.lastRead !== edit.lastRead
       || guest.cfi !== cfi || guest.anchorCfi !== anchorCfi || guest.progressPercent !== progressPercent) {
       await tx.done;
       return undefined;
     }
-    importedMarker = { ...marker, importedThrough: { ...marker.importedThrough, [bookId]: lastRead } };
-    comparedRemoteProgress = remote && 'position' in remote ? remote : undefined;
-    const serverTime = comparedRemoteProgress?.updatedAtServer as { seconds?: number; nanoseconds?: number } | undefined;
-    const publishedAt = (serverTime?.seconds ?? 0) * 1000 + (serverTime?.nanoseconds ?? 0) / 1_000_000;
-    if (lastRead <= Math.max(existingProgress?.lastRead ?? 0, publishedAt)) {
-      await metaStore.put(importedMarker);
-      await tx.done;
-      return undefined;
-    }
+    importedMarker = edit.id
+      ? { ...marker, importedEditIds: { ...marker.importedEditIds, [bookId]: edit.id } }
+      : { ...marker, importedThrough: { ...marker.importedThrough, [bookId]: lastRead } };
+    const basis = marker.bases?.[bookId];
     input = {
       ...input,
       progress: { ...existingProgress, ...input.progress, bookmarks: existingProgress?.bookmarks },
       progressEvent: input.progressEvent && {
         ...input.progressEvent,
-        causalRevision: existingProgress?.syncRevision,
-        causalIgnoredRevision: existingProgress?.ignoredRemoteRevision,
-        causalAcceptedEventId: existingProgress?.acceptedEventId,
-        restoredPositionToken: existingProgress?.localPositionToken,
+        // The guest continued from the logout position. A head received at re-login
+        // cannot serve as that position's base, regardless of its server timestamp.
+        causalRevision: basis?.syncRevision,
+        causalIgnoredRevision: basis?.ignoredRemoteRevision,
+        causalAcceptedEventId: basis?.acceptedEventId,
+        restoredPositionToken: basis?.localPositionToken,
+        resetAfterPositionToken: input.progressEvent.operation === 'progress.reset' ? basis?.localPositionToken : undefined,
       },
     };
   }
 
   let batchCausalState: Partial<UserProgress> = {};
   if (input.progressEvent) {
-    let eventInput = input.progressEvent;
+    const eventInput = input.progressEvent;
     const occurredAtClient = eventInput.occurredAtClient ?? Date.now();
+    const nextAttemptAt = guestImport ? Date.now() : occurredAtClient;
     const targetKey = progressTargetKeyV2(eventInput.bookId);
     const [storedMeta, targetEvents, targetConflicts] = await Promise.all([
       metaStore.get([ownerKey, targetKey]) as Promise<SyncMetaV5 | undefined>,
@@ -1677,14 +1677,6 @@ export async function enqueueProgressMutationBatchV5(
     const unresolved = targetEvents
       .filter((event) => activeStatuses.has(event.status))
       .sort(eventSort);
-    if (comparedRemoteProgress && Number.isFinite((comparedRemoteProgress.updatedAtServer as { seconds?: number } | undefined)?.seconds)
-      && !unresolved.length && !targetConflicts.length
-      && comparedRemoteProgress.revision > (eventInput.causalRevision ?? 0)) {
-      eventInput = {
-        ...eventInput, causalRevision: comparedRemoteProgress.revision,
-        causalAcceptedEventId: comparedRemoteProgress.acceptedEventId, restoredPositionToken: undefined,
-      };
-    }
     batchCausalState = getProgressCausalState(input.progress, eventInput, meta);
     const coalesced = getCoalescibleProgressTail(unresolved, eventInput, ownerKey);
     const openConflict = targetConflicts[0];
@@ -1704,7 +1696,7 @@ export async function enqueueProgressMutationBatchV5(
         sessionId: eventInput.sessionId,
         payload: eventInput.position,
         occurredAtClient,
-        nextAttemptAt: occurredAtClient,
+        nextAttemptAt,
         lastErrorCode: null,
       });
     } else {
@@ -1726,7 +1718,7 @@ export async function enqueueProgressMutationBatchV5(
           candidate.status === 'blocked' || candidate.status === 'conflict'
         )) ? 'blocked' : 'pending',
         attempts: 0,
-        nextAttemptAt: occurredAtClient,
+        nextAttemptAt,
         lastErrorCode: null,
         claimedByTabId: null,
         claimedLeaseEpoch: null,

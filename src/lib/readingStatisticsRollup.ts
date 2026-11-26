@@ -74,6 +74,22 @@ export function parseReadingRollupMonday(weekStart: string) {
   return date.getTime();
 }
 
+export function readReadingRollupDays(input: unknown, first: number, last: number): ReadingDayStatistics[] {
+  if (!Array.isArray(input)) throw new Error('Invalid reading rollup days.');
+  const firstKey = readingRollupDayKey(first);
+  const lastKey = readingRollupDayKey(last);
+  const seen = new Set<string>();
+  return input.map((entry) => {
+    if (!entry || typeof entry.localDate !== 'string' || !readingRollupWeekForDay(entry.localDate)
+      || entry.localDate < firstKey || entry.localDate > lastKey || seen.has(entry.localDate)
+      || ![entry.totalMs, entry.screenMs, entry.ttsMs].every((ms) => Number.isSafeInteger(ms) && ms >= 0)
+      || entry.totalMs !== entry.screenMs + entry.ttsMs) throw new Error('Invalid reading rollup day.');
+    const { localDate, totalMs, screenMs, ttsMs } = entry;
+    seen.add(localDate);
+    return { localDate, totalMs, screenMs, ttsMs };
+  });
+}
+
 /** Keep possible timeline contenders and any clock samples they could select. */
 export function selectWeeklyReadingRollupInputs(sessions: readonly ReadingSessionV1[], weekStart: string) {
   const monday = parseReadingRollupMonday(weekStart);

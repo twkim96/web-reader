@@ -1,16 +1,14 @@
-import { Dispatch, SetStateAction, useEffect, useRef } from 'react';
+import { Dispatch, SetStateAction, useEffect, useRef, useState } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { ViewState } from '../types';
 import { ownerRuntime } from '../lib/ownerRuntime';
-import { libraryLandingView } from '../lib/loginNavigation';
 
 interface UseNetworkLibrarySyncOptions {
   user: FirebaseUser | null;
   googleToken: string | null;
   driveSessionId: string | null;
+  getCurrentDriveSessionId: () => string | null;
   isAuthenticatedLibraryReady: boolean;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
-  setView: Dispatch<SetStateAction<ViewState>>;
   loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
 }
 
@@ -18,76 +16,33 @@ export const useNetworkLibrarySync = ({
   user,
   googleToken,
   driveSessionId,
+  getCurrentDriveSessionId,
   isAuthenticatedLibraryReady,
   setIsOfflineMode,
-  setView,
   loadLibraryFromDrive,
 }: UseNetworkLibrarySyncOptions) => {
-  const loadedDriveSessionRef = useRef<string | null>(null);
-  const userId = user?.uid;
-  const ownerGeneration = ownerRuntime.capture()?.generation;
+  const owner = ownerRuntime.capture();
+  const identity = user && isAuthenticatedLibraryReady && googleToken && driveSessionId
+    ? JSON.stringify([user.uid, owner?.generation, driveSessionId]) : null;
+  const loaded = useRef<string | null>(null);
+  const [settled, setSettled] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!userId || !isAuthenticatedLibraryReady || !googleToken || !driveSessionId) {
-      loadedDriveSessionRef.current = null;
-      return;
-    }
-    if (navigator.onLine === false) {
-      setView((current) => current === 'loading' ? libraryLandingView() : current);
-      return;
-    }
-    const loadIdentity = JSON.stringify([userId, ownerGeneration, driveSessionId]);
-    if (loadedDriveSessionRef.current === loadIdentity) return;
-    loadedDriveSessionRef.current = null;
+    if (!identity) loaded.current = null;
     let active = true;
-    window.queueMicrotask(() => {
-      if (!active) return;
-      if (navigator.onLine === false) {
-        setView((current) => current === 'loading' ? libraryLandingView() : current);
-        return;
-      }
-      setView('loading');
-      void loadLibraryFromDrive(googleToken, driveSessionId).then((isSuccess) => {
-        if (!active) return;
-        if (isSuccess) loadedDriveSessionRef.current = loadIdentity;
-        else setIsOfflineMode(true);
-        setView(libraryLandingView());
-      }).catch(() => {
-        if (!active) return;
-        setIsOfflineMode(true);
-        setView(libraryLandingView());
-      });
-    });
-    return () => {
-      active = false;
+    const isCurrentOwner = () => active && (!owner || ownerRuntime.isCurrent(owner));
+    const isCurrent = () => isCurrentOwner() && getCurrentDriveSessionId() === driveSessionId;
+    const refresh = async () => {
+      if (!identity || !googleToken || !driveSessionId || !isCurrent() || navigator.onLine === false) return;
+      const success = await loadLibraryFromDrive(googleToken, driveSessionId).catch(() => false);
+      if (!isCurrent()) return;
+      if (success) loaded.current = identity;
+      else setIsOfflineMode(true);
+      setSettled(identity);
     };
-  }, [
-    driveSessionId,
-    googleToken,
-    isAuthenticatedLibraryReady,
-    loadLibraryFromDrive,
-    setIsOfflineMode,
-    setView,
-    userId,
-    ownerGeneration,
-  ]);
-
-  useEffect(() => {
-    let active = true;
-    const handleOnline = () => {
-      if (!userId || !isAuthenticatedLibraryReady || !googleToken || !driveSessionId) return;
-
-      void loadLibraryFromDrive(googleToken, driveSessionId).then((isSuccess) => {
-        if (active && !isSuccess) setIsOfflineMode(true);
-      }).catch(() => {
-        if (active) setIsOfflineMode(true);
-      });
-    };
-
-    const handleOffline = () => {
-      setIsOfflineMode(true);
-    };
-
+    const handleOnline = () => { void refresh(); };
+    const handleOffline = () => { if (isCurrentOwner()) setIsOfflineMode(true); };
+    if (identity && loaded.current !== identity) window.queueMicrotask(handleOnline);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
@@ -95,5 +50,7 @@ export const useNetworkLibrarySync = ({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [driveSessionId, googleToken, isAuthenticatedLibraryReady, loadLibraryFromDrive, setIsOfflineMode, userId, ownerGeneration]);
+  }, [identity, driveSessionId, getCurrentDriveSessionId, googleToken, loadLibraryFromDrive, owner, setIsOfflineMode]);
+
+  return Boolean(identity && settled !== identity && navigator.onLine !== false);
 };

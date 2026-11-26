@@ -14,7 +14,7 @@ import { legacyProfilePage, parseProfileCursor, profileCursorPage } from '../../
 import {
   currentBrowseReaders, ensureAccount, fillReviewReading, importReview, listBrowseReaders, listPublicProfileReviews, listPublicProfileWishlist,
   listOwnWishlist, listReviewDeletions, listReviews, listWishlist, lookupPublicAccount, readOwnReviewWork,
-  updateAccount, updateReview, updateReviewWithStatus, updateWishlist,
+  updateAccount, updateReviewWithStatus, updateWishlist,
 } from '../../../server/mypage/store';
 import { isBookDetailId } from '../../../lib/bookDetail';
 import { BOOK_REVIEW_TEXT_LIMIT, REVIEW_READING_SNAPSHOT_VERSION, isBookRating, parsePublicBookReview } from '../../../lib/publicBookReviews';
@@ -449,12 +449,14 @@ export async function POST(request: Request) {
     // A saved review remains withdrawable even if its work left the catalog.
     if (action === 'review' && input.remove === true) {
       if (importOnly || !validRevision(revision)) return fail(400);
+      let resolved: Awaited<ReturnType<typeof resolveSocialWork>> = null;
       if (platformWorkKeys.length) {
-        const resolved = await resolveSocialWork(db, input.workId, platformWorkKeys, 'fresh');
+        resolved = await resolveSocialWork(db, input.workId, platformWorkKeys, 'fresh');
         if (!resolved || !resolved.equivalentWorkIds.includes(input.workId)
           || (detailWorkId !== undefined && !resolved.equivalentWorkIds.includes(detailWorkId))) return fail(404);
       }
-      return json({ review: await updateReview(db, uid, input.workId, null, revision) });
+      const { review, deletion } = await updateReviewWithStatus(db, uid, input.workId, null, revision);
+      return json({ review, deletion: { ...deletion, ...(resolved ? reviewWorkDetails(resolved) : {}) } });
     }
     const resolved = action === 'wishlist'
       ? await resolveWishlistWork(db, input.workId, 'fresh')

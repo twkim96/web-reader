@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Star, Trash2 } from 'lucide-react';
-import { REVIEW_LIST_SORTS, sortReviewList, type MyPageReview } from '../../lib/myPageSocial';
+import { REVIEW_LIST_SORTS, sortReviewList, type MyPageReview, type MyPageReviewDeletion } from '../../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError } from '../../lib/myPageSocialClient';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { useMyPageSort } from '../../hooks/useMyPageSort';
-import { useMyPageReviewList } from '../../hooks/useMyPageList';
+import { applyReviewAcknowledgement, useMyPageReviewList } from '../../hooks/useMyPageList';
 import { fullReviewListCache } from '../../lib/myPageListCache';
 import { ownerRuntime } from '../../lib/ownerRuntime';
 import { dashboardReviewCards } from '../../lib/myPageDashboardCards';
@@ -47,11 +47,11 @@ export function MyReviews({ owner, onOpenBook, onShowAll, paused = false }: {
     setFeedback('');
     const { workId, revision } = confirmation;
     try {
-      await myPageRequest({ action: 'review' }, { owner, signal: controller.signal, body: { workId, revision, remove: true } });
+      const { deletion } = await myPageRequest<{ deletion: MyPageReviewDeletion }>({ action: 'review' }, {
+        owner, signal: controller.signal, body: { workId, revision, remove: true },
+      });
       if (controller.signal.aborted || !ownerRuntime.isCurrent(session)) return;
-      fullReviewListCache.update(session, (current) => ({
-        ...current, reviews: current.reviews.filter((item) => item.workId !== workId),
-      }));
+      fullReviewListCache.update(session, (current) => applyReviewAcknowledgement(current, deletion));
       void refresh();
       setConfirmation(undefined);
       setFeedback('평가를 삭제했습니다.');

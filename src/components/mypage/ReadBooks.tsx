@@ -68,7 +68,7 @@ function ReadBookRow({ book, detailId, onOpenBook, rating }: {
 
 const emptyBooks: readonly ReadBook[] = [];
 
-export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetryCatalog, reviews, reviewError, onRetryReviews, renderBeforePreview, hidePreview = false }: {
+export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetryCatalog, reviews, reviewError, onRetryReviews, renderBeforePreview, hidePreview = false, active = true }: {
   ownerKey: OwnerKey;
   onShowAll?: () => void;
   getDetailId: (book: ReadBook) => string | null;
@@ -79,9 +79,10 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   onRetryReviews?: () => void;
   renderBeforePreview?: (books: readonly ReadBook[] | null) => ReactNode;
   hidePreview?: boolean;
+  active?: boolean;
 }) {
   const guest = isGuestOwner(ownerKey);
-  const { data: published } = useMyPageReadingFiles(ownerKey, !guest);
+  const { data: published } = useMyPageReadingFiles(ownerKey, active && !guest);
   const archived = published?.history;
   const preview = Boolean(onShowAll);
   const [books, setBooks] = useState<ReadBook[] | null>(null);
@@ -95,7 +96,7 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
   const retained = useRef<{ owner: OwnerKey; matches: Map<string, ReadBookMetadataMatch> }>({ owner: ownerKey, matches: new Map() });
 
   useEffect(() => {
-    if (guest) return;
+    if (guest || !active) return;
     const controller = new AbortController();
     if (retained.current.owner !== ownerKey) {
       retained.current = { owner: ownerKey, matches: new Map() };
@@ -227,11 +228,11 @@ export function ReadBooks({ ownerKey, onShowAll, onOpenBook, getDetailId, onRetr
       window.clearTimeout(renderTimer);
       unsubscribe();
     };
-  }, [archived, guest, ownerKey, preview, retry]);
+  }, [active, archived, guest, ownerKey, preview, retry]);
 
   const visibleBooks = !guest && retained.current.owner === ownerKey ? books : null;
-  const orderedBooks = useMemo(() => !visibleBooks || sort === 'recent'
-    ? visibleBooks : [...visibleBooks].sort(readOrder[sort]), [sort, visibleBooks]);
+  const orderedBooks = useMemo(() => !active || preview || !visibleBooks || sort === 'recent'
+    ? visibleBooks : [...visibleBooks].sort(readOrder[sort]), [active, preview, sort, visibleBooks]);
   const status = <>
     {guest && <p className="text-sm opacity-60">로그인 후 동기화된 책이 여기에 표시됩니다.</p>}
     {!guest && (!visibleBooks || (loadingMetadata && visibleBooks.length === 0)) && !error && <p role="status" className="text-sm opacity-60">읽은 책을 불러오는 중…</p>}

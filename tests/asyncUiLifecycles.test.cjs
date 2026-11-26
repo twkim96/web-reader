@@ -127,7 +127,7 @@ for (const succeeds of [true, false]) {
           const isGuestRef = React.useRef(true);
           const library = useAuthBootstrap({ isGuestRef, setView,
             setUser: noop, setIsGuest: noop, setIsOfflineMode: noop, restoreLocalData, resetLibraryState: noop,
-            shouldHoldShelfForDrive: no, shouldWaitForAuthRedirect: login.isReturning, onLibraryRestoreSettled: login.finish,
+            shouldWaitForAuthRedirect: login.isReturning, onLibraryRestoreSettled: login.finish,
           });
           return React.createElement('output', null, `${view}:${library.isLibraryBootstrapReady}:${login.phase ?? ''}`);
         }
@@ -162,7 +162,7 @@ for (const succeeds of [true, false]) {
   });
 }
 
-test('Drive callback removes credentials from history and lands on the open detail after the cloud shelf loads', async () => {
+test('Drive callback restores the detail before refresh finishes and preserves navigation during refresh', async () => {
   const { useDriveOAuthRedirect } = require('../src/hooks/useDriveOAuthRedirect.ts');
   const { useNetworkLibrarySync } = require('../src/hooks/useNetworkLibrarySync.ts');
   const { rememberGoogleDriveOAuthState } = require('../src/lib/googleDriveOAuth.ts');
@@ -170,26 +170,29 @@ test('Drive callback removes credentials from history and lands on the open deta
     const detail = '#mypage/book/fixture';
     const token = 'drive-fixture-token';
     const state = 'drive-fixture-state';
+    const getCurrentDriveSessionId = () => state;
     rememberGoogleDriveOAuthState(storage(), localStorage, state, detail);
     window.location = { pathname: '/', search: '', hash: `#access_token=${token}&expires_in=3600&state=${state}` };
     window.history = { replaceState: (_state, _title, url) => { window.location.hash = new URL(url, 'https://reader.test').hash; } };
     const user = { uid: 'drive-redirect-account' };
-    let resolveCloud;
+    let resolveCloud, navigate;
     const loadLibraryFromDrive = () => new Promise(resolve => { resolveCloud = resolve; });
     function Harness() {
       const [view, setView] = React.useState('loading');
       const [googleToken, setToken] = React.useState(null);
       const saveToken = React.useCallback(value => { setToken(value); return state; }, []);
-      useDriveOAuthRedirect({ saveToken, setView, setIsOfflineMode: noop, setAuthErrorMessage: error => assert.fail(error) });
+      navigate = setView;
+      useDriveOAuthRedirect({ saveToken, setView, setAuthErrorMessage: error => assert.fail(error) });
       useNetworkLibrarySync({ user, googleToken, driveSessionId: googleToken ? state : null,
-        isAuthenticatedLibraryReady: true, setView, setIsOfflineMode: noop, loadLibraryFromDrive });
+        isAuthenticatedLibraryReady: true, getCurrentDriveSessionId, setIsOfflineMode: noop, loadLibraryFromDrive });
       return React.createElement('output', null, view);
     }
     await React.act(async () => root.render(React.createElement(Harness)));
     assert.equal(window.location.hash, detail);
-    assert.equal(document.querySelector('output').textContent, 'loading');
-    await React.act(async () => resolveCloud(true));
     assert.equal(document.querySelector('output').textContent, 'mypage');
+    await React.act(async () => navigate('reader'));
+    await React.act(async () => resolveCloud(true));
+    assert.equal(document.querySelector('output').textContent, 'reader');
   });
 });
 
@@ -375,7 +378,7 @@ test('a failed library read preserves durable progress and a genuinely empty lib
       // fixture exercises real IndexedDB results without mounting Firebase.
       let library;
       function Harness() {
-        library = useLibraryData({ clearToken: noop, setIsOfflineMode: noop, setView: noop, driveSessionId: null });
+        library = useLibraryData({ clearToken: noop, setIsOfflineMode: noop, setView: noop, driveSessionId: null, getCurrentDriveSessionId: () => null });
         return null;
       }
       ownerRuntime.activate(ownerKey);
@@ -417,6 +420,7 @@ for (const offline of [false, true]) test(
       const { useNetworkLibrarySync } = require('../src/hooks/useNetworkLibrarySync.ts');
       const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
       const network = { onLine: !offline };
+      const getCurrentDriveSessionId = () => 'session';
       Object.defineProperty(globalThis, 'navigator', { configurable: true, value: network });
       const originalSet = window.setTimeout, originalClear = window.clearTimeout;
       const timers = new Map();
@@ -431,7 +435,11 @@ for (const offline of [false, true]) test(
       let accountAttempts = 0;
       let bootstrap;
       let driveLoads = 0;
-      const loadLibraryFromDrive = async () => { driveLoads++; return true; };
+      let resolveDrive;
+      const loadLibraryFromDrive = () => {
+        driveLoads++;
+        return new Promise(resolve => { resolveDrive = resolve; });
+      };
       const accountHydration = new Promise(resolve => { resolveAccount = resolve; });
       window.setTimeout = (fn, ms, ...args) => ms === 3_000
         ? (timers.set(-1, () => fn(...args)), -1)
@@ -469,11 +477,12 @@ for (const offline of [false, true]) test(
           return 'restored';
         }, []);
         bootstrap = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
-          setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: offline ? yes : no,
+          setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState,
           flushOutgoingProgress });
         const { isLibraryBootstrapReady, isAuthenticatedLibraryReady } = bootstrap;
-        useNetworkLibrarySync({ user, isAuthenticatedLibraryReady, googleToken: offline ? 'token' : null,
-          driveSessionId: offline ? 'session' : null, loadLibraryFromDrive, setView, setIsOfflineMode: noop });
+        useNetworkLibrarySync({ user, isAuthenticatedLibraryReady, googleToken: 'token',
+          driveSessionId: 'session', getCurrentDriveSessionId,
+          loadLibraryFromDrive, setIsOfflineMode: noop });
         React.useEffect(() => {
           if (triedAutoOpen.current || view !== 'shelf' || !isLibraryBootstrapReady || !books.length) return;
           triedAutoOpen.current = true;
@@ -507,13 +516,15 @@ for (const offline of [false, true]) test(
         assert.equal(opens.length, guestOpens + 1);
         assert.ok(opens.at(-1).ownerKey.startsWith('firebase:cold-start-account'));
         assert.equal(opens.at(-1).initialPercent, 60, 'account reader captures the durable saved position');
-        assert.equal(driveLoads, 0);
+        assert.equal(driveLoads, offline ? 0 : 1, 'local reading starts while the initial Drive request is pending');
         if (offline) {
           network.onLine = true;
           await React.act(async () => window.dispatchEvent(new window.Event('online')));
           assert.equal(driveLoads, 1);
           assert.equal(opens.length, 1);
         }
+        await React.act(async () => resolveDrive(true));
+        assert.equal(opens.length, guestOpens + 1, 'Drive refresh does not remount the active reader');
         const accountOwner = ownerRuntime.capture();
         const previousGuestRestores = guestRestores.length;
         await React.act(async () => authCallback(null));
@@ -620,19 +631,18 @@ for (const scenario of ['initial set', 'postinitial set', 'postinitial small mov
 test('same-account relogin reloads the preserved Drive tab session', async () => {
   const { useNetworkLibrarySync } = require('../src/hooks/useNetworkLibrarySync.ts');
   await withDom(async root => {
-    let loads = 0, view = 'loading';
+    let loads = 0;
     const common = { googleToken: 'fixture-token', driveSessionId: 'fixture-drive-session',
-      setIsOfflineMode: noop, setView: value => { view = value; },
+      setIsOfflineMode: noop, getCurrentDriveSessionId: () => 'fixture-drive-session',
       loadLibraryFromDrive: async () => { loads++; return true; } };
     function Harness(props) { useNetworkLibrarySync({ ...common, ...props }); return null; }
     await React.act(async () => root.render(React.createElement(Harness, { user: { uid: 'A' }, isAuthenticatedLibraryReady: true })));
-    assert.equal(loads, 1); assert.equal(view, 'shelf');
+    assert.equal(loads, 1);
     await React.act(async () => root.render(React.createElement(Harness, { user: null, isAuthenticatedLibraryReady: false })));
-    view = 'loading'; // useAuthBootstrap's shouldHoldShelfForDrive() branch.
     await React.act(async () => root.render(React.createElement(Harness, { user: { uid: 'A' }, isAuthenticatedLibraryReady: true })));
-    assert.equal(loads, 2); assert.equal(view, 'shelf');
+    assert.equal(loads, 2);
     await React.act(async () => root.render(React.createElement(Harness, { user: { uid: 'B' }, isAuthenticatedLibraryReady: true })));
-    assert.equal(loads, 3); assert.equal(view, 'shelf');
+    assert.equal(loads, 3);
     await React.act(async () => root.render(React.createElement(Harness, { user: { uid: 'B' }, isAuthenticatedLibraryReady: true })));
     assert.equal(loads, 3); // A normal rerender keeps the restored library.
   });
@@ -643,9 +653,9 @@ test('cancelled auth load cannot complete the next account shelf or suppress its
   const { useNetworkLibrarySync } = require('../src/hooks/useNetworkLibrarySync.ts');
   await withDom(async root => {
     const pending = [];
-    let view = 'loading', offline = false;
+    let offline = false;
     const common = { googleToken: 'token', driveSessionId: 'same-session',
-      setIsOfflineMode: value => { offline = value; }, setView: value => { view = value; },
+      setIsOfflineMode: value => { offline = value; }, getCurrentDriveSessionId: () => 'same-session',
       loadLibraryFromDrive: () => new Promise(resolve => pending.push(resolve)) };
     function Harness(props) { useNetworkLibrarySync({ ...common, ...props }); return null; }
     const render = async user => React.act(async () => root.render(React.createElement(Harness, {
@@ -655,13 +665,56 @@ test('cancelled auth load cannot complete the next account shelf or suppress its
     await render({ uid: 'B' });
     assert.equal(pending.length, 2);
     await React.act(async () => pending[0](false));
-    assert.equal(view, 'loading'); assert.equal(offline, false);
+    assert.equal(offline, false);
     await render({ uid: 'A' });
     assert.equal(pending.length, 3);
     await React.act(async () => pending[1](true));
-    assert.equal(view, 'loading');
-    await React.act(async () => pending[2](true));
-    assert.equal(view, 'shelf');
+    await React.act(async () => pending[2](false));
+    assert.equal(offline, true);
+  });
+});
+
+test('a replaced Drive session cannot clear the current token or apply its inventory', async (t) => {
+  const { useLibraryData } = require('../src/hooks/useLibraryData.ts');
+  const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+  let finishOldIdentity;
+  t.mock.method(globalThis, 'fetch', async (request, { headers }) => {
+    if (headers.Authorization === 'Bearer old-token') {
+      return new Promise(resolve => { finishOldIdentity = resolve; });
+    }
+    const url = new URL(request);
+    if (url.pathname.endsWith('/about')) return Response.json({ user: { permissionId: 'new-account' } });
+    if (url.searchParams.get('spaces') === 'appDataFolder') return Response.json({ files: [] });
+    if (url.searchParams.get('q')?.includes("name = 'web viewer'")) return Response.json({ files: [{ id: 'new-folder' }] });
+    if (url.pathname.includes('/upload/')) return Response.json({ id: 'new-registry' });
+    return Response.json({ files: [{ id: 'current-drive-book', name: 'fixture.txt', mimeType: 'text/plain' }] });
+  });
+
+  await withDom(async root => {
+    let library;
+    let clears = 0;
+    let currentSession = 'old-session';
+    const getCurrentDriveSessionId = () => currentSession;
+    const clearToken = () => { clears++; };
+    function Harness({ driveSessionId }) {
+      library = useLibraryData({ clearToken, setView: noop, setIsOfflineMode: noop, driveSessionId, getCurrentDriveSessionId });
+      return null;
+    }
+    ownerRuntime.activate('firebase:drive-refresh|library:local');
+    try {
+      await React.act(async () => root.render(React.createElement(Harness, { driveSessionId: currentSession })));
+      let stale;
+      await React.act(async () => { stale = library.loadLibraryFromDrive('old-token'); });
+      // Token memory already changed even if React has not committed the next session.
+      currentSession = 'new-session';
+      await React.act(async () => finishOldIdentity(new Response(null, { status: 401 })));
+      assert.equal(await stale, false);
+      assert.equal(clears, 0);
+      await React.act(async () => root.render(React.createElement(Harness, { driveSessionId: currentSession })));
+      await React.act(async () => assert.equal(await library.loadLibraryFromDrive('new-token'), true));
+      assert.equal(library.driveCacheKey, 'drive:new-account::new-session');
+      assert.deepEqual(library.books.filter(book => book.source === 'cloud').map(book => book.id), ['current-drive-book']);
+    } finally { ownerRuntime.clear(); }
   });
 });
 
@@ -670,10 +723,10 @@ test('cancelled pre-load microtask and rejected load both allow a fresh restore'
   await withDom(async root => {
     const original = window.queueMicrotask;
     const queued = [];
-    let loads = 0, view = 'loading';
+    let loads = 0;
     window.queueMicrotask = fn => queued.push(fn);
     const common = { googleToken: 'token', driveSessionId: 'session',
-      setIsOfflineMode: noop, setView: value => { view = value; },
+      setIsOfflineMode: noop, getCurrentDriveSessionId: () => 'session',
       loadLibraryFromDrive: async () => { loads++; if (loads === 1) throw new Error('offline'); return true; } };
     function Harness(props) { useNetworkLibrarySync({ ...common, ...props }); return null; }
     const render = async ready => React.act(async () => root.render(React.createElement(Harness, {
@@ -682,10 +735,10 @@ test('cancelled pre-load microtask and rejected load both allow a fresh restore'
     try {
       await render(true); await render(false); await render(true);
       await React.act(async () => queued.splice(0).forEach(fn => fn()));
-      assert.equal(loads, 1); assert.equal(view, 'shelf');
+      assert.equal(loads, 1);
       await render(false); await render(true);
       await React.act(async () => queued.splice(0).forEach(fn => fn()));
-      assert.equal(loads, 2); assert.equal(view, 'shelf');
+      assert.equal(loads, 2);
     } finally { window.queueMicrotask = original; }
   });
 });
@@ -699,7 +752,7 @@ test('batched logout and same-account login reloads when only the owner generati
     const user = { uid: 'batched-A' };
     const authOwner = makeOwnerKey(makeFirebaseOwnerKey(user.uid), 'library:local');
     const common = { user, googleToken: 'token', driveSessionId: 'session', isAuthenticatedLibraryReady: true,
-      setIsOfflineMode: noop, setView: noop, loadLibraryFromDrive: async () => { loads++; return true; } };
+      setIsOfflineMode: noop, getCurrentDriveSessionId: () => 'session', loadLibraryFromDrive: async () => { loads++; return true; } };
     function Harness() { useNetworkLibrarySync(common); return null; }
     try {
       ownerRuntime.activate(authOwner);

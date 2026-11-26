@@ -23,7 +23,6 @@ interface UseAuthBootstrapOptions {
   setView: Dispatch<SetStateAction<ViewState>>;
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<RestoreLocalDataResult>;
   resetLibraryState: () => void;
-  shouldHoldShelfForDrive: () => boolean;
   shouldWaitForAuthRedirect?: () => boolean;
   flushOutgoingProgress?: () => Promise<boolean> | undefined;
   onLibraryRestoreSettled?: (authenticated: boolean) => void;
@@ -37,7 +36,6 @@ export const useAuthBootstrap = ({
   setView,
   restoreLocalData,
   resetLibraryState,
-  shouldHoldShelfForDrive,
   shouldWaitForAuthRedirect,
   flushOutgoingProgress,
   onLibraryRestoreSettled,
@@ -169,10 +167,6 @@ export const useAuthBootstrap = ({
         }), () => {
           setReadyOwnerKey(nextOwner.ownerKey);
           onLibraryRestoreSettled?.(true);
-          if (navigator.onLine !== false && shouldHoldShelfForDrive()) {
-            setView('loading');
-            return;
-          }
           setIsOfflineMode(true);
           setView((current) => current === 'reader' ? current : libraryLandingView());
         }, () => onLibraryRestoreSettled?.(true));
@@ -226,7 +220,6 @@ export const useAuthBootstrap = ({
     setIsOfflineMode,
     setUser,
     setView,
-    shouldHoldShelfForDrive,
     shouldWaitForAuthRedirect,
     flushOutgoingProgress,
     onLibraryRestoreSettled,

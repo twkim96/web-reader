@@ -152,9 +152,12 @@ test('restarts a pending logout handoff and syncs newer guest positions only to 
   await saveProgressToLocalV5(ownerA, saved(lateAccountBook, editTime, 81, { syncRevision: 2 }));
   await retainReadingPositionsOnDeviceV5(ownerA, guest, recovered, true);
   assert.equal((await loadProgressFromLocalV5(guest, lateAccountBook)).progressPercent, 81);
-  for (const id of [bookId, remoteFirst, remoteOlder]) {
-    await saveProgressToLocalV5(guest, saved(id, editTime, 42, { bookmarks: [guestBookmark] }));
-  }
+  // Minutes of clock correction must not make a genuine guest edit disappear.
+  const guestEditTime = handoff.startedAt - 5 * 60_000;
+  await saveProgressToLocalV5(guest, saved(bookId, guestEditTime, 42, { bookmarks: [guestBookmark] }));
+  await saveProgressToLocalV5(guest, saved(remoteFirst, guestEditTime, 42));
+  await saveProgressToLocalV5(guest, saved(remoteOlder, editTime + 5 * 60_000, 42));
+  await saveProgressToLocalV5(guest, saved(lateAccountBook, editTime, 81, { bookmarks: [guestBookmark] }), false);
   const published = editTime + 100;
   const remoteHead = {
     schemaVersion: 2, bookId: remoteFirst, revision: 3, acceptedEventId: 'other-reader', operation: 'set',
@@ -164,29 +167,34 @@ test('restarts a pending logout handoff and syncs newer guest positions only to 
   };
   const olderHead = { ...remoteHead, bookId: remoteOlder, updatedAtServer: { seconds: 1, nanoseconds: 0 } };
   await storeRemoteHeadsBatchV5(ownerA, [remoteHead, olderHead]);
-  await restoreGuestReadingToAccountV5(ownerA, guest, 'fixture-device', 'fixture-session', () => true);
-  await restoreGuestReadingToAccountV5(ownerA, guest, 'fixture-device', 'fixture-session', () => true);
+  await saveProgressToLocalV5(ownerA, saved(remoteFirst, published, 33, { syncRevision: 3, acceptedEventId: 'other-reader' }));
+  await Promise.all(['fixture-session', 'second-tab'].map((session) =>
+    restoreGuestReadingToAccountV5(ownerA, guest, 'fixture-device', session, () => true)));
   const resumed = await loadProgressFromLocalV5(ownerA, bookId);
   assert.equal(resumed.progressPercent, 42, 'latest can be an intentional move backwards');
-  assert.equal(resumed.lastRead, editTime);
+  assert.equal(resumed.lastRead, guestEditTime);
   assert.deepEqual(resumed.bookmarks, [privateBookmark]);
-  assert.equal((await loadProgressFromLocalV5(ownerA, remoteFirst)).progressPercent, 60);
+  assert.equal((await loadProgressFromLocalV5(ownerA, remoteFirst)).progressPercent, 42);
   const events = await getOutboxEventsV5(ownerA);
-  assert.equal(events.length, 2);
+  assert.equal(events.length, 3);
   const imported = events.find(event => event.target.bookId === bookId);
   assert.equal(imported.baseRevision, 2);
-  assert.equal(imported.occurredAtClient, editTime);
+  assert.equal(imported.occurredAtClient, guestEditTime);
   assert.equal(decideProgressTransaction({
     event: imported, storedHead: { ...remoteHead, bookId }, storedReceipt: undefined, serverTime: published,
   }).status, 'conflict', 'a late different-device revision still goes through normal conflict handling');
   assert.equal(decideProgressTransaction({
+    event: events.find(event => event.target.bookId === remoteFirst), storedHead: remoteHead,
+    storedReceipt: undefined, serverTime: published,
+  }).status, 'conflict', 'recovery or re-login seeing a newer head does not change the logout base revision');
+  assert.equal(decideProgressTransaction({
     event: events.find(event => event.target.bookId === remoteOlder), storedHead: olderHead,
     storedReceipt: undefined, serverTime: published,
-  }).status, 'apply', 'a known remote publication older than the guest edit is its comparison baseline');
+  }).status, 'conflict', 'a fast guest clock cannot promote the cached server head to the logout baseline');
   await saveProgressToLocalV5(guest, saved(lateGuestBook, editTime + 1, 83));
   await restoreGuestReadingToAccountV5(ownerA, guest, 'fixture-device', 'fixture-session', () => true);
   assert.equal((await loadProgressFromLocalV5(ownerA, lateGuestBook)).progressPercent, 83);
-  assert.equal((await getOutboxEventsV5(ownerA)).length, 3, 'a second tab only queues the newly flushed guest row');
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 4, 'a second tab only queues the newly flushed guest row');
 
   const otherHandoff = await beginGuestReadingHandoff(ownerA, guest);
   await retainReadingPositionsOnDeviceV5(ownerA, guest, otherHandoff);
@@ -205,6 +213,26 @@ test('restarts a pending logout handoff and syncs newer guest positions only to 
   await clearGuestReadingHandoff(failed, true);
   await retainReadingPositionsOnDeviceV5(ownerA, guest, failed);
   assert.equal(await readGuestReadingHandoff(guest), undefined);
+});
+
+test('imports a pending legacy guest edit without adopting a newer account revision', async () => {
+  await deleteDatabase();
+  const guest = 'guest:legacy-guest|library:local';
+  const bookId = 'legacy-guest-edit';
+  await saveBookToLocalV5(DEVICE_CONTENT_OWNER_KEY, makeBook(bookId), new Blob(['book']));
+  await saveProgressToLocalV5(ownerA, { bookId, cfi: 'account', progressPercent: 60, lastRead: 500, syncRevision: 2 });
+  await saveProgressToLocalV5(guest, { bookId, cfi: 'guest', progressPercent: 40, lastRead: 200 });
+  const db = await initDB();
+  await db.put(schema.V5_SYNC_META_STORE, {
+    ownerKey: guest, account: ownerA, targetKey: 'guest-reading-handoff', attemptId: 'legacy', startedAt: 100, confirmed: true,
+  });
+
+  await restoreGuestReadingToAccountV5(ownerA, guest, 'device', 'session', () => true, bookId);
+  await restoreGuestReadingToAccountV5(ownerA, guest, 'device', 'session', () => true, bookId);
+  const [event] = await getOutboxEventsV5(ownerA);
+  assert.equal(event.baseRevision, 0, 'unknown logout revision goes through normal conflict handling');
+  assert.equal(event.payload.progressPercent, 40);
+  assert.equal((await getOutboxEventsV5(ownerA)).length, 1);
 });
 
 test('preserves a guest edit across logout while its account target requires expired-event recovery', async (t) => {

@@ -6,10 +6,27 @@ import { buildReadBooks, prepareReadBooks, selectSyncedReadingSessions } from '.
 import { readBookReview, removeBookReview, saveBookReview } from '../src/lib/localBookReview.ts';
 import { bookDetailHref, buildPersonalBookReading, hasBookReviewTarget, readBookDetailId } from '../src/lib/bookDetail.ts';
 import { parsePublicBookReview } from '../src/lib/publicBookReviews.ts';
+import { createRecommendationRanker } from '../src/components/mypage/RecommendedBooks.tsx';
 
 const ownerA = 'firebase:alice|library:local';
 const ownerB = 'firebase:bob|library:local';
 const book = { id: 'book', title: '책', coverUrl: null, platforms: [], genre: null, tags: [], popularity: null, sourceCount: null };
+test('recommendations reuse equivalent reading rows and invalidate for exclusions beyond the seed window', () => {
+  const catalog = Array.from({ length: 18 }, (_, index) => ({
+    ...book, id: `book-${index}`, title: `Book ${index}`, tags: ['성장'], popularity: 5_000,
+  }));
+  const rank = createRecommendationRanker(catalog, 17);
+  const read = catalog.slice(0, 12).map(({ id }) => ({ id, totalMs: 100 }));
+  const first = rank([], read);
+  assert.equal(first.length, 6);
+  assert.strictEqual(rank([], read.map(row => ({ ...row, totalMs: 200 }))), first);
+  const excluded = rank([], [...read, { id: 'local-title', equivalentTitleKeys: [first[0].id] }]);
+  assert.equal(excluded.length, 5);
+  assert.ok(excluded.every(({ id }) => id !== first[0].id));
+  assert.equal(createRecommendationRanker(catalog.slice(0, 13), 17)([], read).length, 1);
+  assert.notDeepEqual(createRecommendationRanker(catalog, 18)([], read), first);
+});
+
 class MockStorage {
   data = new Map();
   get length() { return this.data.size; }

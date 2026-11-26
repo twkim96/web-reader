@@ -6,12 +6,13 @@ import type { MyPageSavedBook } from '../lib/myPageSocial';
 import { myPageRequest, MyPageRequestError } from '../lib/myPageSocialClient';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useMyPageWishlistList } from './useMyPageList';
-import type { OwnerKey } from '../lib/ownerIdentity';
+import { isGuestOwner, type OwnerKey } from '../lib/ownerIdentity';
 import { useWishlist } from './useWishlist';
 
 export function useAccountWishlist(ownerKey: OwnerKey, enabled: boolean) {
-  const local = useWishlist(ownerKey, !enabled);
-  const { data, error, refresh, writeVersion } = useMyPageWishlistList(ownerKey, enabled);
+  const guest = isGuestOwner(ownerKey);
+  const local = useWishlist(ownerKey, guest && enabled);
+  const { data, error, refresh, writeVersion } = useMyPageWishlistList(ownerKey, !guest && enabled);
   const entries = data?.entries;
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -56,10 +57,10 @@ export function useAccountWishlist(ownerKey: OwnerKey, enabled: boolean) {
   };
   const reload = () => {
     setSaveError('');
-    return refresh();
+    if (enabled && !guest) return refresh();
   };
-  return enabled ? {
+  return !guest ? {
     entries: savedEntries,
-    savedIds, setSaved: change, error: error || saveError, loading: !entries, saving: saving || writeVersion % 2 !== 0, refresh: reload,
-  } : { ...local, saving: false, refresh: reload };
+    savedIds, setSaved: change, error: enabled ? error || saveError : '', loading: !entries, saving: saving || writeVersion % 2 !== 0, refresh: reload,
+  } : { ...local, error: enabled ? local.error : null, saving: false, refresh: reload };
 }

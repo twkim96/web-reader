@@ -17,7 +17,7 @@ const flags: Array<{ key: keyof MyPageVisibility; label: string }> = [
   { key: 'wishlist', label: '위시리스트 공개' },
 ];
 
-export function MyPageSharingSettings({ owner, onWishlistImported }: { owner: OwnerKey; onWishlistImported: () => void }) {
+export function MyPageSharingSettings({ owner }: { owner: OwnerKey }) {
   const [account, setAccount] = useState<MyPageAccount>();
   const [draft, setDraft] = useState<MyPageAccount>();
   const [error, setError] = useState('');
@@ -97,10 +97,8 @@ export function MyPageSharingSettings({ owner, onWishlistImported }: { owner: Ow
         kept ? `계정에 평가나 삭제 기록이 있는 ${kept}건은 그대로 두었습니다.` : '',
         unavailable ? `작품을 확인하지 못한 ${unavailable}건은 건너뛰었습니다.` : '',
       ].filter(Boolean).join(' '));
-      onWishlistImported();
     } catch (error) {
       setError((error as Error).message);
-      onWishlistImported();
     } finally { setPending(false); }
   };
 

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Timestamp } from 'firebase-admin/firestore';
+import { isSameDriveRequestOrigin } from '../../../server/driveLibraryFolder';
 import { getAdminAuth, getAdminFirestore } from '../../../server/firebaseAdmin';
 import { getDriveUserPermissionId, isGoogleDriveAuthError } from '../../../lib/googleDrive';
 import {
@@ -107,10 +108,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const settings = config();
   if (!settings) return fail(404);
-  // Vercel can forward a branch alias request under the deployment's internal URL.
-  const branchUrl = process.env.VERCEL_ENV === 'preview' ? process.env.VERCEL_BRANCH_URL : undefined;
-  const origin = branchUrl ? `https://${branchUrl}` : new URL(request.url).origin;
-  if (request.headers.get('origin') !== origin) return fail(403, 'origin');
+  if (!isSameDriveRequestOrigin(request)) return fail(403, 'origin');
   const token = await authorize(request);
   if (!token) return fail(403, 'account');
   if (!request.headers.get('content-type')?.startsWith('application/json')) return fail(415);

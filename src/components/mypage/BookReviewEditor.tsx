@@ -28,7 +28,7 @@ export function BookReviewEditor({
   loadingHistory: boolean;
   error: string;
   refresh: () => void;
-  change: (review: MyPageReview | null, oldId: string) => void;
+  change: (entry: MyPageReview | MyPageReviewDeletion) => void;
   editorRef: Ref<HTMLElement>;
 }) {
   const guest = isGuestOwner(ownerKey);
@@ -61,7 +61,7 @@ export function BookReviewEditor({
         fileIds: fileIds.slice(0, 32), readingSnapshot,
         ...(readingSnapshot ? { readingSnapshotVersion: REVIEW_READING_SNAPSHOT_VERSION, readingHistoryPartial } : {}),
       });
-      change(saved, targetId);
+      change(saved);
     } catch (failure) {
       setDraft(draft);
       setSaveFailed(true);
@@ -81,9 +81,13 @@ export function BookReviewEditor({
     setPending(true);
     setFeedback('');
     try {
-      await myPageRequest({ action: 'review' }, { owner: ownerKey, body: { workId: target.workId, detailWorkId: workId, revision: target.revision, platformWorkKeys, remove: true } });
-      change(null, target.workId);
+      const { deletion } = await myPageRequest<{ deletion?: MyPageReviewDeletion }>({ action: 'review' }, {
+        owner: ownerKey, body: { workId: target.workId, detailWorkId: workId, revision: target.revision, platformWorkKeys, remove: true },
+      });
+      if (deletion) change(deletion);
+      else refresh();
       setDraft(undefined);
+      setSaveFailed(false);
     } catch (failure) {
       refresh();
       setFeedback(failure instanceof Error ? failure.message : '평가를 지우지 못했습니다.');

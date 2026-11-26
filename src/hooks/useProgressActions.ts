@@ -126,7 +126,7 @@ export const useProgressActions = ({
     if (!ownerRuntime.isCurrent(owner)) return null;
     const progressOwnerKey = getSyncOwnerKey(owner.ownerKey);
     if (!user) {
-      await saveProgressToLocalV5(progressOwnerKey, progressData);
+      await saveProgressToLocalV5(progressOwnerKey, progressData, syncPosition);
       return progressData;
     }
     return enqueueProgressMutationBatchV5(progressOwnerKey, {

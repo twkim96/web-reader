@@ -47,6 +47,7 @@ import {
   clearLastReaderSession,
   getLastReaderBookCandidate,
   isLastReaderProgressComplete,
+  readLastReaderSession,
   saveLastReaderSession,
 } from '../lib/lastReaderSession';
 import {
@@ -68,7 +69,6 @@ import {
   clearPendingGoogleDriveOAuthStates,
   hasPendingGoogleDriveOAuth,
 } from '../lib/googleDriveOAuth';
-import { hasRestorableDriveTokenSession } from '../lib/driveTokenMemory';
 import { mergeSyncHealth, SYNC_RECEIVE_RETRY_EVENT, type SyncHealth } from '../lib/syncHealth';
 import { getSyncSessionId } from '../lib/syncSession';
 const MyPage = dynamic(() => import('../components/mypage/MyPage').then((module) => module.MyPage), { ssr: false });
@@ -109,6 +109,7 @@ export default function Page() {
     saveToken,
     clearToken,
     hasValidToken,
+    getCurrentDriveSessionId,
     revokeToken,
   } = useGoogleDriveToken();
   const [activeBook, setActiveBook] = useState<Book | null>(null);
@@ -177,10 +178,6 @@ export default function Page() {
     () => readerProgressConflictAutoResolveEligibilityRef.current?.() ?? false,
     [],
   );
-  const shouldHoldShelfForDrive = useCallback(() => (
-    hasPendingGoogleDriveOAuth(sessionStorage, localStorage, window.location.hash)
-    || hasRestorableDriveTokenSession(sessionStorage)
-  ), []);
   const isReturningFromFirebaseLogin = googleLogin.isReturning;
   const shouldWaitForAuthRedirect = useCallback(() => isReturningFromFirebaseLogin()
     || hasPendingGoogleDriveOAuth(sessionStorage, localStorage, window.location.hash), [isReturningFromFirebaseLogin]);
@@ -309,6 +306,7 @@ export default function Page() {
     setView,
     onLibraryError: setAuthErrorMessage,
     driveSessionId,
+    getCurrentDriveSessionId,
   });
   const shelfProgress = useMemo(
     () => mergeLatestProgressForDisplay(progress, remoteProgress),
@@ -337,7 +335,6 @@ export default function Page() {
     setView,
     restoreLocalData,
     resetLibraryState,
-    shouldHoldShelfForDrive,
     shouldWaitForAuthRedirect,
     flushOutgoingProgress,
     onLibraryRestoreSettled: googleLogin.finish,
@@ -504,18 +501,17 @@ export default function Page() {
     || localDBLifecycleEvent !== null
     || showInstallPrompt;
   const outboxProgressConflictRevision = syncConflictResolution.activeProgressConflictRevision;
-  useNetworkLibrarySync({
+  const driveRefreshPending = useNetworkLibrarySync({
     user,
     googleToken,
     driveSessionId,
+    getCurrentDriveSessionId,
     isAuthenticatedLibraryReady,
     setIsOfflineMode,
-    setView,
     loadLibraryFromDrive,
   });
   const startDriveOAuth = useDriveOAuthRedirect({
     saveToken,
-    setIsOfflineMode,
     setView,
     setAuthErrorMessage,
   });
@@ -848,6 +844,10 @@ export default function Page() {
       hasTriedAutoOpenLastBookRef.current = true;
       return;
     }
+    if (driveRefreshPending) {
+      const session = readLastReaderSession();
+      if (session && !books.some((book) => book.id === session.bookId)) return;
+    }
     if (books.length === 0) {
       document.documentElement.dataset.lastReaderAutoOpen = 'empty-library';
       clearLastReaderSession();
@@ -872,7 +872,7 @@ export default function Page() {
     document.documentElement.dataset.lastReaderAutoOpen = `opening:${lastBook.id}`;
     setActiveBook(lastBook);
     setView('reader');
-  }, [books, isLibraryBootstrapReady, settings.autoOpenLastBook, view]);
+  }, [books, driveRefreshPending, isLibraryBootstrapReady, settings.autoOpenLastBook, view]);
 
   useEffect(() => {
     if (!activeBook) return;

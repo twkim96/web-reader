@@ -21,6 +21,7 @@ const { workAsyncStorage } = unwrap(await import('next/dist/server/app-render/wo
 const { workUnitAsyncStorage } = unwrap(await import('next/dist/server/app-render/work-unit-async-storage.external.js'));
 const { GET, POST } = unwrap(await import('../src/app/api/mypage/route.ts'));
 const { GET: sharedDriveGet, POST: sharedDrivePost } = unwrap(await import('../src/app/api/shared-drive/route.ts'));
+const { POST: driveLibraryFolderPost } = unwrap(await import('../src/app/api/drive-library-folder/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
 const { GET: getAdminAccounts } = unwrap(await import('../src/app/api/admin/accounts/route.ts'));
 const { getAdminAuth, getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
@@ -71,15 +72,18 @@ test('admin accounts authorizes only the pilot and reads two published weeks on 
   process.env[env] = pilot.localId;
 
   const now = Date.now();
+  t.mock.method(Date, 'now', () => now);
   const day = 86_400_000;
   const today = Math.floor((now + 9 * 3_600_000) / day) * day - 9 * 3_600_000;
+  const monthStart = today - 29 * day;
   const account = (uid, lastSignIn, lastRefresh) => ({
     uid, providerData: [{ providerId: 'google.com' }], metadata: {
       lastSignInTime: new Date(lastSignIn).toISOString(), lastRefreshTime: lastRefresh && new Date(lastRefresh).toISOString(),
     },
   });
   const pages = t.mock.method(getAdminAuth(), 'listUsers', async (_limit, cursor) => cursor === 'next'
-    ? { users: [account('recent-reader', today - 8 * day), { ...account('disabled', now), disabled: true }] }
+    ? { users: [account('recent-reader', today - 8 * day), { ...account('disabled', now), disabled: true },
+      account('month-boundary', monthStart), account('before-month', monthStart - 1)] }
     : { users: [account(pilot.localId, now), account(reader.localId, today - 35 * day, now),
       account('week-reader', today - day)], pageToken: 'next' });
   const db = getAdminFirestore();
@@ -94,8 +98,8 @@ test('admin accounts authorizes only the pilot and reads two published weeks on 
   assert.equal(overviewResponse.status, 200);
   assert.equal(overviewResponse.headers.get('cache-control'), 'private, no-store');
   const overview = await overviewResponse.json();
-  assert.deepEqual(overview.activity, { today: 1, week: 2, month: 3 });
-  assert.deepEqual(overview.accounts.map(({ uid }) => uid), [pilot.localId, 'week-reader', 'recent-reader']);
+  assert.deepEqual(overview.activity, { today: 1, week: 2, month: 4 });
+  assert.deepEqual(overview.accounts.map(({ uid }) => uid), [pilot.localId, 'week-reader', 'recent-reader', 'month-boundary']);
   assert.equal(pages.mock.callCount(), 2);
   assert.equal(reads.mock.callCount(), 0);
 
@@ -171,6 +175,10 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   let parentThrottled = false;
   let registryThrottled = false;
   let registeredLibrary;
+  let folderExists = false;
+  let folderCreates = 0;
+  const folderCreateStarted = Promise.withResolvers();
+  const folderCreateWillReply = Promise.withResolvers();
   let sourceMoved = false;
   let canCopy = true;
   let sharedDestination = false;
@@ -194,22 +202,30 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     if (copiesById.has(path)) {
       return Response.json({ id: path, parents: [library], trashed: false, ownedByMe: true, shared: false });
     }
-    if (path === 'generateIds') return Response.json({
-      ids: Array.from({ length: Number(url.searchParams.get('count')) }, () => `fixture-new-copy-${++generatedCount}`),
-    });
-    if (path === library || path === replacement) return Response.json({ ...folder, id: path, name: 'web viewer', ownedByMe: true,
-      shared: sharedDestination, capabilities: { canAddChildren: true } });
+    if (path === 'generateIds') return Response.json({ ids: !folderExists ? [library]
+      : Array.from({ length: Number(url.searchParams.get('count')) }, () => `fixture-new-copy-${++generatedCount}`) });
+    if (path === library || path === replacement) {
+      if (path === library && !folderExists) return new Response(null, { status: 404 });
+      return Response.json({ ...folder, id: path, name: 'web viewer', ownedByMe: true,
+        shared: sharedDestination, capabilities: { canAddChildren: true } });
+    }
     if (url.searchParams.get('spaces') === 'appDataFolder') {
       if (registryThrottled) return quotaError();
       return Response.json({ files: registeredLibrary ? [{ id: registryId }] : [] });
     }
     if (path === registryId) return Response.json({ version: 1, folderId: registeredLibrary });
-    if (url.searchParams.get('uploadType') === 'multipart') return Response.json({ id: registryId });
+    if (url.searchParams.get('uploadType') === 'multipart') {
+      registeredLibrary = library;
+      return Response.json({ id: registryId });
+    }
     if (path === 'files' && options.method === 'POST') {
       assert.equal(registeredLibrary, undefined);
-      assert.deepEqual(JSON.parse(options.body), { name: 'web viewer', mimeType: folderMime });
-      registeredLibrary = library;
-      return Response.json({ id: library });
+      assert.deepEqual(JSON.parse(options.body), { id: library, name: 'web viewer', mimeType: folderMime });
+      folderExists = true;
+      folderCreates++;
+      folderCreateStarted.resolve();
+      await folderCreateWillReply.promise;
+      return new Response(null, { status: 503 });
     }
     if (path === 'files') {
       const query = url.searchParams.get('q');
@@ -280,11 +296,27 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   canCopy = false;
   assert.deepEqual(await privateJson(await copy([file])), { results: [false] });
   canCopy = true;
+  const uploadFolderRequest = (origin = 'https://preview.example.test') => new Request('http://localhost/api/drive-library-folder', {
+    method: 'POST', headers: { authorization: 'Bearer ' + driveToken, origin },
+  });
+  assert.equal((await driveLibraryFolderPost(uploadFolderRequest('https://elsewhere.test'))).status, 403);
+  const firstFolder = driveLibraryFolderPost(uploadFolderRequest());
+  await Promise.race([folderCreateStarted.promise, firstFolder.then(result => assert.fail(`Folder creation returned ${result.status}`))]);
+  try {
+    assert.equal((await copy([file])).status, 409, 'shared import uses the normal upload lease');
+  } finally {
+    folderCreateWillReply.resolve();
+  }
+  assert.equal((await firstFolder).status, 503);
+  assert.equal(registeredLibrary, undefined, 'Drive created the folder but the upload-side handler lost the response');
+
   const attempts = await Promise.all([copy([file, second]), copy([file, second])]);
   assert.ok(attempts.every((attempt) => attempt.ok || attempt.status === 409));
   const results = await Promise.all(attempts.filter((attempt) => attempt.ok).map(privateJson));
   assert.ok(results.some((item) => item.results[0] === false && item.results[1] === true));
   assert.deepEqual(await privateJson(await copy([second, file])), { results: [true, true] });
+  assert.equal(folderCreates, 1, 'the copy handler reclaims the reserved Drive folder');
+  assert.deepEqual(await (await driveLibraryFolderPost(uploadFolderRequest())).json(), { folderId: library });
   assert.equal(generatedCount, 2);
   parentThrottled = true;
   assert.equal((await copy([file])).status, 429);
@@ -927,17 +959,23 @@ test('an on-demand title uses its published edition across account review saves 
   }));
   assert.equal(updated.rating, 5);
   assert.equal(updated.workId, work.id);
-  await ok(post('review', secondDevice, { workId: updated.workId, revision: updated.revision, remove: true }));
+  const { review: deletedReview, deletion } = await ok(post('review', secondDevice, {
+    workId: updated.workId, detailWorkId: work.id, revision: updated.revision, remove: true, platformWorkKeys: [key],
+  }));
+  assert.equal(deletedReview, null);
+  assert.equal(deletion.workId, updated.workId);
+  assert.equal(deletion.revision, updated.revision + 1);
+  assert.ok(deletion.platformWorkKeys.includes(key));
+  assert.equal((await post('review', idToken, { workId: updated.workId, revision: updated.revision, remove: true })).status, 409);
   const deleted = await ok(get({ view: 'reviews' }, idToken));
   assert.deepEqual(deleted.reviews, []);
-  assert.equal(deleted.deletions[0].workId, work.id);
-  assert.ok(deleted.deletions[0].platformWorkKeys.includes(key));
+  assert.deepEqual(deleted.deletions, [deletion]);
   assert.deepEqual(await ok(get({ view: 'own-review', workId: work.id }, idToken)), deleted);
   assert.equal((await post('review', idToken, {
     ...input, workId: work.id, revision: deleted.deletions[0].revision, platformWorkKeys: [staleKey],
   })).status, 404);
   const restored = (await ok(post('review', idToken, {
-    ...input, workId: work.id, revision: deleted.deletions[0].revision,
+    ...input, workId: deletion.workId, revision: deletion.revision,
   }))).review;
   assert.equal(restored.workId, work.id);
   await ok(post('review', idToken, { workId: work.id, revision: restored.revision, remove: true, platformWorkKeys: [key, unknownKey] }));

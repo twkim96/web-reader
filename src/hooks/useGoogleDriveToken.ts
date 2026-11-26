@@ -72,6 +72,8 @@ export const useGoogleDriveToken = () => {
     return memoryRef.current!.isValid();
   }, []);
 
+  const getCurrentDriveSessionId = useCallback(() => memoryRef.current!.getSessionId(), []);
+
   const revokeToken = useCallback(async () => {
     const token = googleToken;
     if (!token) return;
@@ -97,6 +99,7 @@ export const useGoogleDriveToken = () => {
     saveToken,
     clearToken,
     hasValidToken,
+    getCurrentDriveSessionId,
     revokeToken,
   };
 };

@@ -1,7 +1,8 @@
 import 'server-only';
 
 import { getBookMaxBytes, getSourceBookFormat } from '../../lib/bookFormats';
-import { DRIVE_LIBRARY_FOLDER_NAME, fetchAndConsumeWithTimeout, getDriveLibraryFolderId, invalidateDriveCache } from '../../lib/googleDrive';
+import { DRIVE_LIBRARY_FOLDER_NAME, fetchAndConsumeWithTimeout, GoogleDriveFolderConflictError } from '../../lib/googleDrive';
+import { DriveLibraryFolderBusyError, resolveCoordinatedDriveLibraryFolder } from '../driveLibraryFolder';
 
 const API = 'https://www.googleapis.com/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -161,9 +162,12 @@ export async function searchSharedFolder(token: string, rootId: string, title: s
 }
 
 export async function getSharedDriveDestination(token: string, permissionId: string, sourceId: string, signal: AbortSignal) {
-  const cacheKey = `shared-import:${permissionId}`;
-  invalidateDriveCache(cacheKey);
-  const id = await getDriveLibraryFolderId(token, { cacheKey, createIfMissing: true, requireRegistryAccess: true, signal });
+  const id = await resolveCoordinatedDriveLibraryFolder(token, permissionId, signal, true).catch((error: unknown) => {
+    if (error instanceof DriveLibraryFolderBusyError || error instanceof GoogleDriveFolderConflictError) {
+      throw new SharedDriveError(409);
+    }
+    throw error;
+  });
   if (!isDriveId(id) || id === sourceId) throw new SharedDriveError(403);
   const destination = await getFile(token, id, 'name,mimeType,trashed,ownedByMe,shared,capabilities(canAddChildren)', signal);
   if (destination.name !== DRIVE_LIBRARY_FOLDER_NAME || destination.mimeType !== FOLDER_MIME || destination.trashed !== false

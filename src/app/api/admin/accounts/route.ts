@@ -13,7 +13,6 @@ async function readOverview(now: number): Promise<AdminAccountsOverview> {
   const today = Math.floor((now + kstOffsetMs) / dayMs) * dayMs - kstOffsetMs;
   const weekStart = today - 6 * dayMs;
   const monthStart = today - 29 * dayMs;
-  const lastSignInCutoff = now - 30 * dayMs;
   const activity = { today: 0, week: 0, month: 0 };
   const accounts: AdminAccountsOverview['accounts'] = [];
   let pageToken: string | undefined;
@@ -25,8 +24,8 @@ async function readOverview(now: number): Promise<AdminAccountsOverview> {
       if (!Number.isFinite(lastSignIn) || lastSignIn > now) continue;
       if (lastSignIn >= today) activity.today++;
       if (lastSignIn >= weekStart) activity.week++;
-      if (lastSignIn >= monthStart) activity.month++;
-      if (lastSignIn < lastSignInCutoff) continue;
+      if (lastSignIn < monthStart) continue;
+      activity.month++;
       const refresh = Date.parse(user.metadata.lastRefreshTime ?? '');
       const lastRefresh = Number.isFinite(refresh) && refresh <= now ? refresh : null;
       accounts.push({ uid: user.uid, label: user.displayName || user.email || user.uid,

@@ -83,26 +83,6 @@ export class GoogleDriveFolderConflictError extends Error {
 export const isGoogleDriveAuthError = (error: unknown) => error instanceof GoogleDriveAuthError;
 export const isGoogleDrivePermissionError = (error: unknown) => error instanceof GoogleDrivePermissionError;
 
-export const getDriveUserPermissionId = async (token: string, signal?: AbortSignal) => {
-  const response = await fetchWithTimeout(
-    'https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',
-    { headers: { Authorization: `Bearer ${token}` }, signal },
-    5000,
-  );
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('Drive 사용자 식별 정보 조회 실패');
-  }
-
-  const data = await response.json() as { user?: { permissionId?: unknown } };
-  const permissionId = data.user?.permissionId;
-  if (typeof permissionId !== 'string' || !permissionId.trim()) {
-    throw new Error('Drive 사용자 식별 정보가 없습니다.');
-  }
-  return permissionId.trim();
-};
-
 export const DRIVE_LIBRARY_FOLDER_NAME = 'web viewer';
 const DRIVE_LIBRARY_REGISTRY_NAME = 'twreader-library.json';
 const MAX_DRIVE_LIST_PAGES = 100;
@@ -133,6 +113,38 @@ const throwIfGoogleDrivePermissionError = (response: Response) => {
   }
 };
 
+const readDriveJson = <T>(response: Response, message: string): Promise<T> => {
+  if (!response.ok) {
+    throwIfGoogleDriveAuthError(response);
+    throwIfGoogleDrivePermissionError(response);
+    throw new Error(message);
+  }
+  return response.json() as Promise<T>;
+};
+
+const fetchDriveMetadata = <T>(
+  url: string,
+  token: string,
+  signal: AbortSignal | undefined,
+  consume: (response: Response) => Promise<T>,
+) => fetchAndConsumeWithTimeout(url, {
+  headers: { Authorization: `Bearer ${token}` },
+  signal,
+}, 5000, consume);
+
+export const getDriveUserPermissionId = async (token: string, signal?: AbortSignal) => {
+  const data = await fetchDriveMetadata(
+    'https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',
+    token, signal,
+    (response) => readDriveJson<{ user?: { permissionId?: unknown } }>(response, 'Drive 사용자 식별 정보 조회 실패'),
+  );
+  const permissionId = data.user?.permissionId;
+  if (typeof permissionId !== 'string' || !permissionId.trim()) {
+    throw new Error('Drive 사용자 식별 정보가 없습니다.');
+  }
+  return permissionId.trim();
+};
+
 const listDriveFolders = async (query: string, token: string, signal?: AbortSignal) => {
   const files: DriveFolder[] = [];
   const seenTokens = new Set<string>();
@@ -145,22 +157,8 @@ const listDriveFolders = async (query: string, token: string, signal?: AbortSign
     url.searchParams.set('pageSize', '100');
     url.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,trashed)');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const response = await fetchWithTimeout(
-      url.toString(),
-      { headers: { Authorization: `Bearer ${token}` }, signal },
-      5000,
-    );
-
-    if (!response.ok) {
-      throwIfGoogleDriveAuthError(response);
-      throwIfGoogleDrivePermissionError(response);
-      throw new Error('폴더 목록 조회 실패');
-    }
-
-    const data = await response.json() as {
-      files?: DriveFolder[];
-      nextPageToken?: string;
-    };
+    const data = await fetchDriveMetadata(url.toString(), token, signal, (response) =>
+      readDriveJson<{ files?: DriveFolder[]; nextPageToken?: string }>(response, '폴더 목록 조회 실패'));
     files.push(...(data.files ?? []));
     if (!data.nextPageToken) return files;
     if (seenTokens.has(data.nextPageToken)) {
@@ -178,20 +176,11 @@ const rememberLibraryFolderId = (cacheKey: string, folderId: string) => {
 };
 
 const fetchDriveFolder = async (folderId: string, token: string, signal?: AbortSignal) => {
-  const response = await fetchWithTimeout(
+  return fetchDriveMetadata(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed`,
-    { headers: { Authorization: `Bearer ${token}` }, signal },
-    5000,
+    token, signal,
+    async (response) => response.status === 404 ? null : readDriveJson<DriveFolder>(response, '폴더 정보 조회 실패'),
   );
-
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('폴더 정보 조회 실패');
-  }
-
-  return await response.json() as DriveFolder;
 };
 
 const isUsableLibraryFolder = (folder: DriveFolder | null) => (
@@ -213,21 +202,11 @@ const readDriveLibraryRegistry = async (token: string, signal?: AbortSignal, req
     url.searchParams.set('pageSize', '100');
     url.searchParams.set('fields', 'nextPageToken,files(id,modifiedTime)');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const response = await fetchWithTimeout(
-      url.toString(),
-      { headers: { Authorization: `Bearer ${token}` }, signal },
-      5000,
-    );
-
-    if (response.status === 403 && !requireAccess) return null;
-    if (!response.ok) {
-      throwIfGoogleDriveAuthError(response);
-      throw new Error('라이브러리 폴더 설정 조회 실패');
-    }
-    const data = await response.json() as {
-      files?: Array<{ id: string }>;
-      nextPageToken?: string;
-    };
+    const data = await fetchDriveMetadata(url.toString(), token, signal, async (response) => {
+      if (response.status === 403 && !requireAccess) return null;
+      return readDriveJson<{ files?: Array<{ id: string }>; nextPageToken?: string }>(response, '라이브러리 폴더 설정 조회 실패');
+    });
+    if (!data) return null;
     files.push(...(data.files ?? []));
     if (!data.nextPageToken) break;
     if (seenTokens.has(data.nextPageToken)) {
@@ -242,18 +221,15 @@ const readDriveLibraryRegistry = async (token: string, signal?: AbortSignal, req
   if (files.length === 0) return null;
 
   for (const [index, file] of files.entries()) {
-    const contentResponse = await fetchWithTimeout(
+    const config = await fetchDriveMetadata(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`,
-      { headers: { Authorization: `Bearer ${token}` }, signal },
-      5000,
+      token, signal,
+      async (response) => {
+        if (response.status === 404 || (response.status === 403 && !requireAccess)) return null;
+        return readDriveJson<{ version?: unknown; folderId?: unknown }>(response, '라이브러리 폴더 설정 다운로드 실패');
+      },
     );
-    if (contentResponse.status === 404 || (contentResponse.status === 403 && !requireAccess)) continue;
-    if (!contentResponse.ok) {
-      throwIfGoogleDriveAuthError(contentResponse);
-      throw new Error('라이브러리 폴더 설정 다운로드 실패');
-    }
-
-    const config = await contentResponse.json() as { version?: unknown; folderId?: unknown };
+    if (!config) continue;
     if (config.version === 1 && typeof config.folderId === 'string') {
       return {
         fileId: file.id,
@@ -379,7 +355,7 @@ const syncDriveLibraryRegistry = async (
       }
       syncedLibraryRegistry.set(cacheKey, folderId);
     } catch (error) {
-      if (isGoogleDriveAuthError(error)) throw error;
+      if (isGoogleDriveAuthError(error) || signal?.aborted) throw error;
       // Existing drive.file-only tokens cannot access appDataFolder. Retry after
       // the next OAuth connection without blocking the current library.
     }
@@ -394,9 +370,23 @@ const syncDriveLibraryRegistry = async (
   }
 };
 
-const createLibraryFolder = async (token: string, signal?: AbortSignal) => {
-  const response = await fetchWithTimeout(
-    'https://www.googleapis.com/drive/v3/files',
+const isDriveId = (value: unknown): value is string =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{5,200}$/.test(value);
+
+export async function generateDriveLibraryFolderId(token: string, signal: AbortSignal) {
+  const data = await fetchDriveMetadata(
+    'https://www.googleapis.com/drive/v3/files/generateIds?count=1&space=drive',
+    token, signal,
+    (response) => readDriveJson<{ ids?: unknown[] }>(response, '라이브러리 폴더 ID 예약 실패'),
+  );
+  const id = data.ids?.[0];
+  if (data.ids?.length !== 1 || !isDriveId(id)) throw new Error('잘못된 라이브러리 폴더 ID입니다.');
+  return id;
+}
+
+const createLibraryFolder = async (token: string, signal?: AbortSignal, reservedId?: string) => {
+  const id = await fetchAndConsumeWithTimeout(
+    'https://www.googleapis.com/drive/v3/files?fields=id&ignoreDefaultVisibility=true',
     {
       method: 'POST',
       headers: {
@@ -404,30 +394,80 @@ const createLibraryFolder = async (token: string, signal?: AbortSignal) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        ...(reservedId && { id: reservedId }),
         name: DRIVE_LIBRARY_FOLDER_NAME,
         mimeType: 'application/vnd.google-apps.folder',
       }),
       signal,
     },
-    10000
+    10000,
+    async (response) => {
+      if (reservedId && response.status === 409) return null;
+      const data = await readDriveJson<{ id?: unknown }>(response, '폴더 생성 실패');
+      if (!isDriveId(data.id) || (reservedId && data.id !== reservedId)) {
+        throw new Error('생성된 라이브러리 폴더 ID를 확인할 수 없습니다.');
+      }
+      return data.id;
+    },
   );
+  if (id) return id;
 
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    throwIfGoogleDrivePermissionError(response);
-    throw new Error('폴더 생성 실패');
-  }
-  const data = await response.json();
-  return data.id;
+  const existing = await fetchDriveFolder(reservedId!, token, signal);
+  if (existing?.id === reservedId && isUsableLibraryFolder(existing)) return reservedId!;
+  throw new GoogleDriveFolderConflictError('예약된 라이브러리 폴더를 확인할 수 없습니다. Google Drive에서 폴더 상태를 확인해 주세요.');
 };
 
-type DriveLibraryFolderOptions = { createIfMissing?: boolean; signal?: AbortSignal; requireRegistryAccess?: boolean };
+export async function readReservedDriveLibraryFolder(token: string, id: string, signal: AbortSignal) {
+  const existing = await fetchDriveFolder(id, token, signal);
+  if (!existing) return null;
+  if (existing.id === id && isUsableLibraryFolder(existing)) return id;
+  throw new GoogleDriveFolderConflictError('예약된 라이브러리 폴더를 확인할 수 없습니다. Google Drive에서 폴더 상태를 확인해 주세요.');
+}
+
+export function createReservedDriveLibraryFolder(token: string, id: string, signal: AbortSignal) {
+  return createLibraryFolder(token, signal, id);
+}
+
+export const DRIVE_FOLDER_COORDINATION_PATH = '/api/drive-library-folder';
+export const DRIVE_FOLDER_COORDINATION_UNCONFIGURED = 'drive-folder-coordination-unconfigured';
+
+async function requestCoordinatedLibraryFolder(token: string, signal?: AbortSignal) {
+  return fetchAndConsumeWithTimeout(DRIVE_FOLDER_COORDINATION_PATH, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+    signal,
+  }, 35_000, async (response) => {
+    if (response.status === 501) {
+      const data = await response.json() as { error?: unknown };
+      if (data.error === DRIVE_FOLDER_COORDINATION_UNCONFIGURED) return null;
+    }
+    if (response.status === 409) {
+      const data = await response.json() as { error?: unknown };
+      const message = data.error === 'drive-folder-busy'
+        ? '다른 요청이 라이브러리 폴더를 준비 중입니다. 잠시 후 다시 시도해 주세요.'
+        : '라이브러리 폴더를 확인할 수 없습니다. Google Drive에서 폴더 상태를 확인해 주세요.';
+      throw new GoogleDriveFolderConflictError(message);
+    }
+    const data = await readDriveJson<{ folderId?: unknown }>(response, '라이브러리 폴더 준비 실패');
+    if (!isDriveId(data.folderId)) throw new Error('라이브러리 폴더 ID를 확인할 수 없습니다.');
+    return data.folderId;
+  });
+}
+
+type DriveLibraryFolderOptions = {
+  createIfMissing?: boolean;
+  signal?: AbortSignal;
+  requireRegistryAccess?: boolean;
+  createMissingFolder?: () => Promise<string>;
+  recoverReservedFolder?: () => Promise<string | null>;
+};
 
 const resolveDriveLibraryFolderId = async (
   token: string,
   cacheKey: string,
-  { createIfMissing = false, signal, requireRegistryAccess }: DriveLibraryFolderOptions,
-) => {
+  { createIfMissing = false, signal, requireRegistryAccess, createMissingFolder, recoverReservedFolder }: DriveLibraryFolderOptions,
+): Promise<string | null> => {
   const cachedFolderId = libraryFolderCache.get(cacheKey) ?? null;
   if (cachedFolderId) {
     const cachedFolder = await fetchDriveFolder(cachedFolderId, token, signal);
@@ -451,6 +491,28 @@ const resolveDriveLibraryFolderId = async (
     }
   }
 
+  if (createIfMissing && !createMissingFolder) {
+    const coordinatedId = await requestCoordinatedLibraryFolder(token, signal);
+    if (coordinatedId) return rememberLibraryFolderId(cacheKey, coordinatedId);
+
+    // Standalone installs share first creation across tabs on this origin.
+    const permissionId = await getDriveUserPermissionId(token, signal);
+    const createStandalone = (): Promise<string | null> => resolveDriveLibraryFolderId(token, cacheKey, {
+      createIfMissing: true, signal,
+      createMissingFolder: () => createLibraryFolder(token, signal),
+    });
+    if (typeof navigator !== 'undefined' && navigator.locks) {
+      return navigator.locks.request(`web-reader:drive-folder:${permissionId}`, { signal }, createStandalone);
+    }
+    return createStandalone();
+  }
+
+  const recoveredId = await recoverReservedFolder?.();
+  if (recoveredId) {
+    await syncDriveLibraryRegistry(recoveredId, token, cacheKey, registry, signal);
+    return rememberLibraryFolderId(cacheKey, recoveredId);
+  }
+
   const namedQuery = [
     `name = '${DRIVE_LIBRARY_FOLDER_NAME}'`,
     "mimeType = 'application/vnd.google-apps.folder'",
@@ -467,11 +529,11 @@ const resolveDriveLibraryFolderId = async (
       "이름이 같은 'web viewer' 폴더가 여러 개라 라이브러리를 자동 선택하지 않았습니다.",
     );
   }
-  if (!createIfMissing) return null;
+  if (!createIfMissing || !createMissingFolder) return null;
 
-  const folderId = rememberLibraryFolderId(cacheKey, await createLibraryFolder(token, signal));
+  const folderId = await createMissingFolder();
   await syncDriveLibraryRegistry(folderId, token, cacheKey, registry, signal);
-  return folderId;
+  return rememberLibraryFolderId(cacheKey, folderId);
 };
 
 export const getDriveLibraryFolderId = async (
@@ -586,21 +648,8 @@ export const fetchDriveFiles = async (
       'nextPageToken,files(id,name,mimeType,size,modifiedTime,md5Checksum)',
     );
     if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const response = await fetchWithTimeout(
-      url.toString(),
-      { headers: { Authorization: `Bearer ${token}` }, signal },
-      5000,
-    );
-
-    if (!response.ok) {
-      throwIfGoogleDriveAuthError(response);
-      throwIfGoogleDrivePermissionError(response);
-      throw new Error('파일 목록 조회 실패');
-    }
-    const data = await response.json() as {
-      files?: Book[];
-      nextPageToken?: string;
-    };
+    const data = await fetchDriveMetadata(url.toString(), token, signal, (response) =>
+      readDriveJson<{ files?: Book[]; nextPageToken?: string }>(response, '파일 목록 조회 실패'));
     files.push(...(data.files ?? []));
     if (!data.nextPageToken) {
       return { files: normalizeDriveBooks(files) };
@@ -654,26 +703,16 @@ export const fetchFullFileBlob = async (fileId: string, token: string, signal?: 
 };
 
 export const deleteDriveFile = async (fileId: string, token: string) => {
-  const response = await fetchWithTimeout(
+  await fetchAndConsumeWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
-    {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+    10000,
+    async (response) => {
+      // A previous attempt may have deleted the file before local progress reset.
+      if (response.ok || response.status === 404) return;
+      throwIfGoogleDriveAuthError(response);
+      throwIfGoogleDrivePermissionError(response);
+      throw new Error('파일 삭제 실패');
     },
-    10000
   );
-
-  // A previous attempt may have deleted the Drive file before local progress
-  // reset failed. Treat the missing file as an idempotent deletion success so
-  // the retained local book can finish cleanup on retry.
-  if (response.status === 404) return;
-  if (!response.ok) {
-    throwIfGoogleDriveAuthError(response);
-    if (response.status === 403) {
-      const errorText = await response.text();
-      console.warn('Google Drive Delete Permission Error:', errorText);
-      throw new GoogleDrivePermissionError('클라우드 도서 삭제 권한이 없습니다.');
-    }
-    throw new Error('클라우드 도서 삭제 실패');
-  }
 };

@@ -19,7 +19,7 @@ import { useMyPageSort } from '../../hooks/useMyPageSort';
 import { ReadingDashboard } from './ReadingDashboard';
 import { AdminSettingsLink } from './AdminSettingsLink';
 import { ReadBooks } from './ReadBooks';
-import { RecommendedBooks } from './RecommendedBooks';
+import { createRecommendationRanker, RecommendedBooks } from './RecommendedBooks';
 import { BookCover } from './BookCover';
 import { BookDetail } from './BookDetail';
 import { BookDetailLink } from './BookDetailLink';
@@ -198,7 +198,7 @@ export function MyPage(props: Props) {
   const restoreReadListScroll = useRef(false);
   const [catalog, setCatalog] = useState<DiscoveryBook[] | null>(null);
   const [recommendationSeed] = useState(() => Math.floor(Math.random() * 0x1_0000_0000));
-  const [recommended, setRecommended] = useState<{ ownerKey: OwnerKey; books: readonly DiscoveryBook[] }>();
+  const [recommended, setRecommended] = useState<{ ownerKey: OwnerKey; catalog: readonly DiscoveryBook[]; books: readonly DiscoveryBook[] }>();
   const [catalogError, setCatalogError] = useState(false);
   const [retry, setRetry] = useState(0);
   const [initialSearch] = useState(() => readSavedDiscoverySearch(ownerKey) ?? emptyDiscoverySearch(readDiscoveryPreset()));
@@ -215,25 +215,33 @@ export function MyPage(props: Props) {
   const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
   const [visibleCount, setVisibleCount] = useState(initialSearch.visibleCount);
   const signedIn = !isGuestOwner(ownerKey);
+  const discovering = tab === 'discover';
+  const showOverview = tab === 'overview';
+  const showRecommendationList = tab === 'recommendations';
+  const needsWishlist = Boolean(bookId) || showOverview || discovering || tab === 'wishlist'
+    || (showRecommendationList && props.showRecommendedBooks);
+  const showDeviceReadBooks = !signedIn && !bookId && (showOverview || tab === 'read');
   const formatBookTitle = useBookTitleDisplay();
   const deviceReadBooks = useMemo(() => {
-    if (signedIn) return [];
+    if (!showDeviceReadBooks) return [];
     return books.flatMap((book) => {
       const position = bookmarkProgress[book.id];
       if (!position?.lastRead || (!position.cfi && !position.anchorCfi && position.progressPercent <= 0)) return [];
       return [{ id: book.id, book, title: formatBookTitle(book.name), coverUrl: null, position }];
     }).sort((a, b) => b.position.lastRead - a.position.lastRead);
-  }, [books, bookmarkProgress, formatBookTitle, signedIn]);
-  const wishlist = useAccountWishlist(ownerKey, signedIn);
+  }, [books, bookmarkProgress, formatBookTitle, showDeviceReadBooks]);
+  const wishlist = useAccountWishlist(ownerKey, needsWishlist);
   const { entries: wishlistEntries, loading: wishlistLoading } = wishlist;
   const dashboardWishlist = useMemo(() => wishlistLoading ? undefined : wishlistEntries.map(({ book }) => book), [wishlistEntries, wishlistLoading]);
   const groupedCatalog = catalog ? getGroupedBookDiscovery(catalog) : null;
-  const previousRecommendations = recommended?.ownerKey === ownerKey ? recommended.books : undefined;
-  const keepRecommendations = previousRecommendations?.some(({ id }) => wishlist.savedIds.has(id)
-    || groupedCatalog?.equivalents.get(id)?.some((alias) => wishlist.savedIds.has(alias))) ?? false;
+  const recommendationRanker = useMemo(() => catalog ? { ownerKey, rank: createRecommendationRanker(catalog, recommendationSeed) } : null,
+    [catalog, ownerKey, recommendationSeed]);
+  const previousRecommendations = recommended?.ownerKey === ownerKey && recommended.catalog === catalog ? recommended.books : undefined;
+  const keepRecommendations = !bookId && (previousRecommendations?.some(({ id }) => wishlist.savedIds.has(id)
+    || groupedCatalog?.equivalents.get(id)?.some((alias) => wishlist.savedIds.has(alias))) ?? false);
   const rememberRecommendations = useCallback((books: readonly DiscoveryBook[]) => {
-    setRecommended({ ownerKey, books });
-  }, [ownerKey]);
+    if (catalog) setRecommended({ ownerKey, catalog, books });
+  }, [catalog, ownerKey]);
   const readBookDetailId = (book: ReadBook) =>
     groupedCatalog && book.platformWorkKeys?.length ? resolveReadBookDiscovery(groupedCatalog, book).book?.id ?? null : null;
   const reviews = useMyPageReviews(ownerKey, signedIn && tab === 'read' && !bookId);
@@ -353,9 +361,6 @@ export function MyPage(props: Props) {
   const matchingSource = openedBook?.id === bookId ? openedBook?.book : undefined;
   const readSource = matchingSource && !('platforms' in matchingSource) ? matchingSource : undefined;
   const discoverySource = matchingSource && 'platforms' in matchingSource ? matchingSource : undefined;
-  const discovering = tab === 'discover';
-  const showOverview = tab === 'overview';
-  const showRecommendationList = tab === 'recommendations';
   const browse = discovering || tab === 'wishlist';
   const readMatch = readSource && groupedCatalog ? resolveReadBookDiscovery(groupedCatalog, readSource) : undefined;
   const detailBook = !bookId ? undefined : readSource ? readMatch?.book : groupedCatalog?.byId.get(bookId)
@@ -434,10 +439,10 @@ export function MyPage(props: Props) {
     }
   }, [bookId, catalog, discovering, discoveryResults.length]);
   const wishlistResults = useMemo(() => {
-    if (tab !== 'wishlist') return [];
+    if (tab !== 'wishlist' || bookId) return [];
     if (wishlistSort === 'saved') return [...wishlist.entries].sort((a, b) => b.addedAt - a.addedAt).map(({ book }) => book);
     return wishlist.entries.map(({ book }) => book).sort(bookOrder[wishlistSort]);
-  }, [tab, wishlist.entries, wishlistSort]);
+  }, [bookId, tab, wishlist.entries, wishlistSort]);
   const results = discovering ? discoveryResults : wishlistResults;
   const addTag = (name: string) => {
     if (!name) return;
@@ -598,7 +603,7 @@ export function MyPage(props: Props) {
         )}
         <main className="min-w-0 space-y-4 sm:space-y-6" aria-label={bookId ? '도서 상세정보' : detailLabel}>
           {tab === 'read' && <div hidden={Boolean(bookId)}>
-            {signedIn ? <ReadBooks key={ownerKey} ownerKey={ownerKey} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} />
+            {signedIn ? <ReadBooks key={ownerKey} ownerKey={ownerKey} active={!bookId} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined} reviews={reviews.data?.reviews} reviewError={reviews.error} onRetryReviews={reviews.refresh} />
               : <section aria-label="이 기기에서 읽은 책">
                 <h2 className="mb-3 text-lg font-semibold tracking-tight">이 기기에서 읽은 책</h2>
                 {deviceReadBooks.length ? <ul className="mypage-divided-list">
@@ -628,10 +633,10 @@ export function MyPage(props: Props) {
             )}
             {(showOverview || (showRecommendationList && props.showRecommendedBooks && catalog)) && (
               <ReadBooks key={`read:${ownerKey}`} ownerKey={ownerKey} onShowAll={() => openTab('read')} onOpenBook={openBook} getDetailId={readBookDetailId} onRetryCatalog={catalogError ? retryCatalog : undefined}
-                hidePreview={showRecommendationList || !signedIn}
+                hidePreview={showRecommendationList || !signedIn} active={!bookId}
                 renderBeforePreview={(readBooks) => <>
-                  {props.showRecommendedBooks && catalog && <RecommendedBooks catalog={catalog} wishlist={dashboardWishlist} readBooks={readBooks}
-                    rotationSeed={recommendationSeed} previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
+                  {!bookId && props.showRecommendedBooks && recommendationRanker && <RecommendedBooks rank={recommendationRanker.rank} wishlist={dashboardWishlist} readBooks={readBooks}
+                    previousBooks={previousRecommendations} keepPrevious={keepRecommendations}
                     onRemember={rememberRecommendations} onOpenBook={openBook} onShowAll={() => openTab('recommendations')}
                     renderList={showRecommendationList ? renderRecommendationList : undefined} />}
                   {showOverview && <MyReviews key={ownerKey} owner={ownerKey} paused={Boolean(bookId)} onShowAll={() => openTab('reviews')} onOpenBook={openBookById} />}
@@ -648,6 +653,7 @@ export function MyPage(props: Props) {
                 : renderRecommendationList(undefined)))}
             {!showRecommendationList && <ReadingDashboard
               ownerKey={ownerKey}
+              active={!bookId}
               onRefresh={props.canRefresh && !bookId ? props.onRefresh : undefined}
               onOpenStatistics={() => openTab('statistics')}
               onOpenAnnotations={() => openTab('annotations')}
@@ -670,7 +676,7 @@ export function MyPage(props: Props) {
               {signedIn && <AdminSettingsLink ownerKey={ownerKey} />}
             </section>
             {signedIn
-              ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} onWishlistImported={() => void wishlist.refresh()} />
+              ? <MyPageSharingSettings key={ownerKey} owner={ownerKey} />
               : <p className="mypage-section text-sm">공개 설정은 로그인 후 이용할 수 있습니다.</p>}
           </>}
           {browse && <>

@@ -42,7 +42,7 @@ import { ServerSnapshotHydrator } from '../lib/serverSnapshotHydrator';
 import { getSyncSessionId, isExactSyncSessionEcho } from '../lib/syncSession';
 import { SnapshotListenerRecovery } from '../lib/snapshotListenerRecovery';
 import { mergeSyncHealth, SYNC_RECEIVE_RETRY_EVENT, type SyncHealth } from '../lib/syncHealth';
-import { traceReaderBootstrap, type ListenerWakeReason } from '../lib/readerBootstrapTrace';
+import { traceReaderBootstrap, type ListenerWakeReason, type ReaderBootstrapTraceEvent } from '../lib/readerBootstrapTrace';
 
 type FirestoreQuerySnapshot = QuerySnapshot<DocumentData, DocumentData>;
 
@@ -99,19 +99,24 @@ export const useProgressSync = ({
       QueryDocumentSnapshot<DocumentData, DocumentData>
     >();
     let awaitingServerSince: number | null = null;
+    let snapshotSource: ReaderBootstrapTraceEvent['snapshotSource'];
+    let attachedBefore = false;
     const handleSnapshot = async (snapshot: FirestoreQuerySnapshot) => {
       if (!ownerRuntime.isCurrent(owner)) return;
-      if (!snapshot.metadata.fromCache) {
+      const changes = hydrator.select(snapshot);
+      if (snapshot.metadata.fromCache && awaitingServerSince === null) {
+        awaitingServerSince = performance.now();
+        snapshotSource = 'sdk-reconnect';
+      } else if (!snapshot.metadata.fromCache && awaitingServerSince !== null) {
         traceReaderBootstrap({
           event: 'authoritative-snapshot', listener: 'progress',
-          ...(awaitingServerSince === null ? {} : {
-            durationMs: Math.round(performance.now() - awaitingServerSince),
-            snapshotDocuments: snapshot.size,
-          }),
+          durationMs: Math.round(performance.now() - awaitingServerSince),
+          snapshotDocuments: snapshot.size,
+          snapshotChanges: changes?.length ?? 0,
+          snapshotSource,
         });
         awaitingServerSince = null;
       }
-      const changes = hydrator.select(snapshot);
       if (!changes) return;
       const remoteUpdates: Record<string, RemotePositionUpdate> = {};
       const removedBookIds = new Set<string>();
@@ -167,7 +172,9 @@ export const useProgressSync = ({
       subscribe: (next, error) => {
         hydrator = new ServerSnapshotHydrator();
         awaitingServerSince = performance.now();
-        traceReaderBootstrap({ event: 'listener-attached', listener: 'progress' });
+        snapshotSource = attachedBefore ? 'listener-reattach' : 'initial';
+        attachedBefore = true;
+        traceReaderBootstrap({ event: 'listener-attached', listener: 'progress', snapshotSource });
         return onSnapshot(v2Ref, { includeMetadataChanges: true }, next, error);
       },
       onSnapshot: handleSnapshot,

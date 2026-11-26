@@ -91,6 +91,63 @@ test('resolves a stable Drive permission id before opening an owner namespace', 
   assert.equal(await getDriveUserPermissionId('permission-token'), 'permission-123');
 });
 
+test('bounds identity, registry, folder metadata, and book listing when only headers arrive', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+
+  const cases = [
+    ['identity', () => getDriveUserPermissionId('token'), (url) => url.pathname.endsWith('/about')],
+    ['registry list', () => getDriveLibraryFolderId('token', { cacheKey: 'stalled-registry-list' }),
+      (url) => url.searchParams.get('spaces') === 'appDataFolder'],
+    ['registry content', () => getDriveLibraryFolderId('token', { cacheKey: 'stalled-registry-content' }),
+      (url) => url.searchParams.get('alt') === 'media'],
+    ['registered folder', () => getDriveLibraryFolderId('token', { cacheKey: 'stalled-folder-metadata' }),
+      (url) => url.pathname.endsWith('/my-folder')],
+    ['named folders', () => getDriveLibraryFolderId('token', { cacheKey: 'stalled-named-folders' }),
+      (url) => url.searchParams.get('spaces') === 'drive'],
+    ['book list', () => fetchDriveFiles('token', 'my-folder'), (url) => url.searchParams.get('q')?.includes('in parents')],
+  ];
+
+  for (const [name, load, shouldStall] of cases) {
+    let signal;
+    globalThis.fetch = async (request, options) => {
+      const url = new URL(request);
+      if (shouldStall(url)) {
+        signal = options.signal;
+        return new Response(new ReadableStream({ start(controller) {
+          signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+        } }));
+      }
+      if (url.searchParams.get('spaces') === 'appDataFolder') {
+        return Response.json({ files: name === 'named folders' ? [] : [{ id: 'registry' }] });
+      }
+      if (url.searchParams.get('alt') === 'media') return Response.json({ version: 1, folderId: 'my-folder' });
+      assert.fail('Unexpected request: ' + url);
+    };
+
+    const rejected = assert.rejects(load(), /Network timeout/, name);
+    await new Promise(setImmediate);
+    assert.ok(signal, name);
+    t.mock.timers.tick(5000);
+    await rejected;
+    assert.equal(signal.aborted, true, name);
+  }
+});
+
+test('cancels the Drive shelf response body on caller abort', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const caller = new AbortController();
+  globalThis.fetch = async (_request, { signal }) => new Response(new ReadableStream({ start(controller) {
+    signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+  } }));
+  const rejected = assert.rejects(fetchDriveFiles('token', 'my-folder', caller.signal), { name: 'AbortError' });
+  await new Promise(setImmediate);
+  caller.abort();
+  await rejected;
+});
+
 test('preserves Drive authorization expiry while resolving permission id', async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
@@ -491,8 +548,14 @@ test('single-flights concurrent empty-account folder creation', async (t) => {
 
   let folderCreates = 0;
   let registryCreates = 0;
+  let coordinatorRequests = 0;
   globalThis.fetch = async (url, options = {}) => {
     const requestUrl = String(url);
+    if (requestUrl === '/api/drive-library-folder') {
+      coordinatorRequests++;
+      return Response.json({ error: 'drive-folder-coordination-unconfigured' }, { status: 501 });
+    }
+    if (requestUrl.includes('/about?')) return Response.json({ user: { permissionId: 'standalone-fixture' } });
     if (requestUrl.includes('spaces=appDataFolder')) {
       return new Response(JSON.stringify({ files: [] }), { status: 200 });
     }
@@ -518,8 +581,22 @@ test('single-flights concurrent empty-account folder creation', async (t) => {
   ]);
 
   assert.deepEqual(results, ['created-folder', 'created-folder', 'created-folder']);
+  assert.equal(coordinatorRequests, 1);
   assert.equal(folderCreates, 1);
   assert.equal(registryCreates, 1);
+});
+
+test('does not create a local Drive folder when configured coordination is busy or unavailable', async (t) => {
+  let status = 409;
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    if (input === '/api/drive-library-folder') return Response.json({ error: 'drive-folder-busy' }, { status });
+    if (new URL(input).searchParams.get('spaces') === 'appDataFolder') return Response.json({ files: [] });
+    assert.fail(`Unexpected direct Drive operation: ${input}`);
+  });
+  const resolve = () => getDriveLibraryFolderId('fixture', { cacheKey: 'coordinator-busy', createIfMissing: true });
+  await assert.rejects(resolve(), GoogleDriveFolderConflictError);
+  status = 503;
+  await assert.rejects(resolve(), /폴더 준비 실패/);
 });
 
 test('clears a failed folder single-flight so the next call can retry', async (t) => {

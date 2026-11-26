@@ -20,6 +20,7 @@ import { readingRollupWeekForDay, type ReadingRollupActivity } from '../../lib/r
 
 type Props = {
   ownerKey: OwnerKey;
+  active?: boolean;
   onRefresh?: () => void;
   onOpenStatistics: () => void;
   onOpenAnnotations: () => void;
@@ -31,7 +32,7 @@ const dateKey = (year: number, month: number, day: number) => (
   `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 );
 
-export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpenAnnotations }: Props) {
+export function ReadingDashboard({ ownerKey, active = true, onRefresh, onOpenStatistics, onOpenAnnotations }: Props) {
   const displayBookTitle = useBookTitleDisplay();
   const today = useLocalReadingDate();
   const [month, setMonth] = useState(() => {
@@ -45,12 +46,12 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   const [visibleRows, setVisibleRows] = useState({ day: '', count: 50 });
 
   const canUseRollup = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1' && !isGuestOwner(ownerKey);
-  const currentData = useLocalReadingReportSessions(ownerKey, true, !isGuestOwner(ownerKey));
+  const currentData = useLocalReadingReportSessions(ownerKey, active, !isGuestOwner(ownerKey));
   useEffect(() => {
-    onRefresh?.();
-  }, [ownerKey, onRefresh]);
+    if (active) onRefresh?.();
+  }, [active, ownerKey, onRefresh]);
 
-  const { data: published } = useMyPageReadingCalendar(ownerKey, canUseRollup);
+  const { data: published } = useMyPageReadingCalendar(ownerKey, active && canUseRollup);
   const calendar = published?.calendar ?? null;
   const sessions = calendar && !canMergeLocalReadingWithPublication(currentData, calendar) ? null : currentData?.sessions;
   const statistics = useMemo(() => {
@@ -91,7 +92,7 @@ export function ReadingDashboard({ ownerKey, onRefresh, onOpenStatistics, onOpen
   const selectedTotalMs = statistics?.dayTotals.get(selectedDay) ?? 0;
   const selectedWeek = calendar && publishedCalendarCovers(calendar, selectedDay) ? readingRollupWeekForDay(selectedDay) : null;
   const wantsDetails = Boolean(selectedWeek) && selectedTotalMs > 0;
-  const week = useMyPageReadingWeek(ownerKey, selectedWeek, wantsDetails);
+  const week = useMyPageReadingWeek(ownerKey, selectedWeek, active && wantsDetails);
   const missingWeek = wantsDetails && week.data?.week === null;
   const selectedSessions = selectedWeek
     ? week.data?.week?.activities.filter(({ localDate }) => localDate === selectedDay) ?? []

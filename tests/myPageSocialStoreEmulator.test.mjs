@@ -250,6 +250,10 @@ test('oversized wishlists use the complete legacy list after first read or later
 });
 
 test('public reviews scan beyond the display limit and pin visibility and aliases to one server snapshot', async (t) => {
+  const previousPerf = process.env.MY_PAGE_PERF_LOG;
+  process.env.MY_PAGE_PERF_LOG = '1';
+  t.after(() => { if (previousPerf === undefined) delete process.env.MY_PAGE_PERF_LOG; else process.env.MY_PAGE_PERF_LOG = previousPerf; });
+  const timing = t.mock.method(console, 'info', () => {});
   const uid = randomUUID();
   const workId = randomUUID();
   const alias = randomUUID();
@@ -318,6 +322,14 @@ test('public reviews scan beyond the display limit and pin visibility and aliase
   });
   assert.equal(pinned.ratingCount, 102);
   assert.equal(pinned.average, (20 * 5 + 81 * 2 + 1) / 102);
+  const [label, metrics] = timing.mock.calls.at(-1).arguments;
+  assert.equal(label, '[MyPagePerformance]');
+  const { durationMs, reviewQueryMs, authorReadMs, ...counts } = metrics;
+  assert.ok(durationMs >= 0 && reviewQueryMs > 0 && authorReadMs > 0);
+  assert.deepEqual(counts, {
+    route: 'book-reviews', workCount: 2, reviewRows: 105, validReviewRows: 104, visibleReviewRows: 103,
+    reviewQueries: 3, emptyReviewQueries: 0, authorReads: 103, authorBatches: 3, ratingCount: 102, returned: 20,
+  });
 
   const fresh = await workPublicReviews(db, workId, [alias]);
   assert.equal(fresh.reviews.length, 20);
@@ -325,4 +337,9 @@ test('public reviews scan beyond the display limit and pin visibility and aliase
   assert.equal(fresh.ratingCount, 101);
   assert.equal(fresh.average, (20 * 5 + 81 * 2) / 101);
   assert.deepEqual(await workPublicReviews(db, alias), { reviews: [], ratingCount: 0, average: null });
+  assert.deepEqual(await workPublicReviews(db, randomUUID()), { reviews: [], ratingCount: 0, average: null });
+  const [, empty] = timing.mock.calls.at(-1).arguments;
+  assert.equal(empty.reviewQueries, 1);
+  assert.equal(empty.emptyReviewQueries, 1);
+  assert.equal(empty.authorBatches, 0);
 });

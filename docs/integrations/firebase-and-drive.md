@@ -23,7 +23,7 @@ Firebase Google 로그인은 앱의 사용자 UID를 정합니다. 진행률·�
 
 OAuth 동의 화면에 `drive.file`, `drive.readonly`, `drive.appdata`를 등록하고 Drive API를 활성화합니다. Google Cloud 클라이언트의 redirect URI에는 앱의 origin+pathname(루트 배포 예: `https://<앱-host>/`)을 등록합니다. `drive.readonly`의 제한된 범위와 공개 서비스의 Google 검증 조건도 확인합니다.
 
-`useDriveOAuthRedirect`는 같은 창에서 Google 계정 선택 페이지로 이동해 access token을 요청합니다. 최초 연결·만료/401 뒤 재연결 모두 이 redirect 경로를 사용합니다. callback의 state를 검증한 뒤 인증 정보가 들어간 hash를 복귀 주소로 교체합니다. 서재가 준비되면 Drive 연결 전의 마이페이지 탭이나 작품 상세로 돌아갑니다.
+`useDriveOAuthRedirect`는 같은 창에서 Google 계정 선택 페이지로 이동해 access token을 요청합니다. 최초 연결·만료/401 뒤 재연결 모두 이 redirect 경로를 사용합니다. callback의 state를 검증한 뒤 인증 정보가 들어간 hash를 복귀 주소로 교체합니다. 현재 계정의 로컬 서재가 준비되면 Drive 연결 전의 마이페이지 탭이나 작품 상세로 돌아갑니다. Drive 목록은 백그라운드에서 불러오며 열린 화면과 리더를 유지합니다. 마지막으로 읽던 책이 Drive에만 있으면 목록을 확인한 뒤 자동으로 엽니다.
 
 access token·만료 시각·session ID는 메모리와 현재 탭의 `sessionStorage`(`google_drive_session_v2`)에만 저장합니다. 같은 탭 새로고침에서는 유효한 token을 복원하지만 탭 종료·만료 후에는 다시 연결해야 합니다. token을 localStorage/IndexedDB에 저장하지 않습니다.
 
@@ -37,7 +37,9 @@ Drive v3의 `files`, `about`과 resumable upload를 사용합니다. 앱은 확�
 
 Drive 웹에서 직접 추가한 지원 파일도 읽기 목록에 나타날 수 있습니다. 앱이 만든 파일이 아니면 `drive.file` 삭제 권한이 부족할 수 있으므로 403을 로그인 만료로 바꾸지 않습니다. 삭제의 로컬 보존 순서는 [서재 사양](../SPEC/library-and-files.md#캐시삭제-계약)에 있습니다.
 
-네트워크/본문 소비 timeout, 취소, pagination과 upload retry는 [googleDrive.ts](../../src/lib/googleDrive.ts), [driveUpload.ts](../../src/lib/driveUpload.ts)를 기준으로 합니다. 취소된 요청 결과가 새 Drive session을 덮지 않아야 합니다.
+Drive 계정 식별·목록·폴더·registry 조회의 요청 기한에는 응답 본문 읽기까지 포함합니다. 네트워크 취소, pagination과 upload retry는 [googleDrive.ts](../../src/lib/googleDrive.ts), [driveUpload.ts](../../src/lib/driveUpload.ts)를 기준으로 합니다. 서재 갱신에는 전체 요청 기한이 있으며, 시작 시점의 로그인 세대와 Drive 세션이 모두 유지되는 동안만 반영합니다.
+
+일반 업로드가 확인된 서재 폴더를 찾지 못하면 서버에 폴더 결정을 요청합니다. 서버는 Drive의 `permissionId`로 공유 가져오기와 동일한 작업권을 얻고, Google에서 받은 폴더 ID를 생성 전에 관리자 전용 `driveLibraryFolderCoordinationV1`에 기록합니다. 폴더 생성 응답이나 registry 쓰기가 실패한 뒤에도 같은 ID를 확인해 이어갑니다. 기존 폴더를 확인한 일반 업로드는 Drive에서 직접 처리합니다. 이 요청은 Google Drive 토큰을 사용하며 Firebase 사용자 로그인이나 도서 본문 전송이 필요하지 않습니다. Firebase Admin 설정을 자동 감지하기 어려운 배포는 `WEB_READER_DRIVE_FOLDER_COORDINATION=1`로 조정을 켤 수 있습니다. 조정 기능을 구성하지 않은 독립 설치에서는 가능한 경우 같은 브라우저의 탭끼리 Web Locks로 폴더 생성을 조정합니다.
 
 ## 초대 계정의 공유 폴더 가져오기
 
