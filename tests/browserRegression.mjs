@@ -3964,21 +3964,24 @@ try {
       }
       return predicate();
     };
+    const progressKey = [
+      'guest:browser-regression|library:local',
+      localStorage.getItem('__browserRegressionSelectionBookId'),
+    ];
     const readProgress = async () => {
       const request = indexedDB.open('web-reader-db');
       const db = await new Promise((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const all = db.transaction('progress-v5', 'readonly')
-        .objectStore('progress-v5').getAll();
-      const records = await new Promise((resolve, reject) => {
-        all.onsuccess = () => resolve(all.result);
-        all.onerror = () => reject(all.error);
+      const get = db.transaction('progress-v5', 'readonly')
+        .objectStore('progress-v5').get(progressKey);
+      const progress = await new Promise((resolve, reject) => {
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
       });
       db.close();
-      const bookId = localStorage.getItem('__browserRegressionSelectionBookId');
-      return records.find((record) => record.bookId === bookId) ?? null;
+      return progress;
     };
     const comparableProgress = (progress) => progress ? {
       cfi: progress.cfi ?? null,
@@ -4009,22 +4012,16 @@ try {
       }
       return null;
     };
-    const seedProgressSentinel = async () => {
+    const writeFixtureProgress = async (progress) => {
       const request = indexedDB.open('web-reader-db');
       const db = await new Promise((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
       const tx = db.transaction('progress-v5', 'readwrite');
-      tx.objectStore('progress-v5').put({
-        ownerKey: 'guest:browser-regression|library:local',
-        bookId: localStorage.getItem('__browserRegressionSelectionBookId'),
-        cfi: 'epubcfi(/tts-regression-sentinel)',
-        progressPercent: 12.34,
-        revision: 77,
-        updatedAtClient: 1_787_000_000_000,
-        lastRead: 1_787_000_000_000,
-      });
+      const store = tx.objectStore('progress-v5');
+      if (progress) store.put(progress);
+      else store.delete(progressKey);
       await new Promise((resolve, reject) => {
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
@@ -4048,7 +4045,16 @@ try {
       window.__readerProgressRegressionPhase = value;
     };
     await window.__flushReaderProgressForRegression?.();
-    await seedProgressSentinel();
+    const originalProgress = await readProgress();
+    await writeFixtureProgress({
+      ownerKey: progressKey[0],
+      bookId: progressKey[1],
+      cfi: 'epubcfi(/tts-regression-sentinel)',
+      progressPercent: 12.34,
+      revision: 77,
+      updatedAtClient: 1_787_000_000_000,
+      lastRead: 1_787_000_000_000,
+    });
     setProgressPhase('chapter-start');
     const progressWrites = [];
     const originalProgressPut = IDBObjectStore.prototype.put;
@@ -4189,6 +4195,8 @@ try {
     IDBObjectStore.prototype.put = originalProgressPut;
     view.removeEventListener('relocate', handleRelocate);
     if (originalLocationRange) view.lastLocation.range = originalLocationRange;
+    // Later reopen tests need the original state, independent of reader writes.
+    await writeFixtureProgress(originalProgress);
     return {
       advanced,
       afterWindowIndex,
@@ -4252,6 +4260,7 @@ try {
   );
   assert.deepEqual(chapterTts.paragraphIndexes.slice(0, 56), Array.from({ length: 56 }, (_, index) => index));
   assert.ok(chapterTts.relocateReasons.includes('tts-navigation'), JSON.stringify(chapterTts));
+  assert.equal(chapterTts.progressBefore?.cfi, 'epubcfi(/tts-regression-sentinel)');
   assert.deepEqual(chapterTts.progressAfterWindow, chapterTts.progressBefore);
   assert.deepEqual(chapterTts.progressWrites, [], JSON.stringify(chapterTts));
   assert.equal(chapterTts.cursorSourceIndex, 55, JSON.stringify(chapterTts));
