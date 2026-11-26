@@ -2,6 +2,7 @@ import type { PublicBookPlatformId } from './publicBookMetadataSchema';
 import { groupPublicBookWorks, platformWorkKey } from './readBooks';
 import { finishDiscoveryTiming, startDiscoveryTiming } from './myPagePerformance';
 import { sampleDiscoveryBooks, weightDiscoveryPlatformMix } from './discoveryCandidateWeights';
+import { getHangulInitials, isHangulInitialQuery, normalizeHangulSearchText } from './hangulSearch';
 
 export type DiscoveryBook = {
   id: string;
@@ -156,10 +157,11 @@ export function getGroupedBookDiscovery(rows: readonly DiscoveryBook[]) {
   return grouped;
 }
 
-const discoveryAuthors = new WeakMap<readonly DiscoveryBook[], Map<string, Set<DiscoveryBook>>>();
+type DiscoveryAuthor = { label: string; searchName: string; initials: string; books: Set<DiscoveryBook> };
+const discoveryAuthors = new WeakMap<readonly DiscoveryBook[], Map<string, DiscoveryAuthor>>();
 const normalizeAuthor = (name: string) => name.trim().normalize('NFC').toLowerCase();
 
-export function getDiscoveryAuthorBooks(rows: readonly DiscoveryBook[], author: string): ReadonlySet<DiscoveryBook> | undefined {
+function getDiscoveryAuthors(rows: readonly DiscoveryBook[]) {
   let index = discoveryAuthors.get(rows);
   if (!index) {
     index = new Map();
@@ -168,13 +170,33 @@ export function getDiscoveryAuthorBooks(rows: readonly DiscoveryBook[], author: 
       const book = byId.get(row.id);
       if (!row.author || !book) continue;
       const name = normalizeAuthor(row.author);
-      const matches = index.get(name) ?? new Set<DiscoveryBook>();
-      matches.add(book);
-      index.set(name, matches);
+      let entry = index.get(name);
+      if (!entry) {
+        const searchName = normalizeHangulSearchText(row.author);
+        entry = { label: row.author, searchName, initials: getHangulInitials(searchName), books: new Set() };
+        index.set(name, entry);
+      }
+      entry.books.add(book);
     }
     discoveryAuthors.set(rows, index);
   }
-  return index.get(normalizeAuthor(author));
+  return index;
+}
+
+export function getDiscoveryAuthorBooks(rows: readonly DiscoveryBook[], author: string): ReadonlySet<DiscoveryBook> | undefined {
+  return getDiscoveryAuthors(rows).get(normalizeAuthor(author))?.books;
+}
+
+export function searchDiscoveryAuthors(rows: readonly DiscoveryBook[], rawQuery: string) {
+  const query = normalizeHangulSearchText(rawQuery);
+  if (!query) return [];
+  const initials = isHangulInitialQuery(query);
+  const matches = [...getDiscoveryAuthors(rows).values()].filter((entry) => (
+    initials ? entry.initials.startsWith(query) : entry.searchName.includes(query)
+  ));
+  const rank = ({ searchName }: DiscoveryAuthor) => searchName === query ? 0 : searchName.startsWith(query) ? 1 : 2;
+  return matches.sort((a, b) => (initials ? 0 : rank(a) - rank(b))
+    || b.books.size - a.books.size || a.label.localeCompare(b.label, 'ko'));
 }
 
 const discoveryBooksByTag = new WeakMap<readonly DiscoveryBook[], Map<string, DiscoveryBook[]>>();

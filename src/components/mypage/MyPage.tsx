@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowLeft, Archive, AtSign, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, Hash, House, Library, Plus, Search, Settings2, X } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
-import { getDiscoveryAuthorBooks, getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { getDiscoveryAuthorBooks, getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, searchDiscoveryAuthors, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
 import { finishDiscoveryTiming, startDiscoveryTiming } from '../../lib/myPagePerformance';
 import type { ReadBook } from '../../lib/readBooks';
@@ -185,11 +185,12 @@ export function MyPage(props: Props) {
   const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState(readDiscoveryPreset);
   const discoveryPreset = useRef(query);
+  const [exactAuthor, setExactAuthor] = useState(() => query.startsWith('@'));
   const [source, setSource] = useState('');
   const [genre, setGenre] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const discoverySearchRef = useRef<HTMLInputElement>(null);
-  const tagSuggestionDrag = useMouseDragScroll();
+  const suggestionDrag = useMouseDragScroll();
   const [wishlistSort, setWishlistSort] = useMyPageSort(ownerKey, 'wishlist', wishlistSorts, 'saved');
   const [discoverySort, setDiscoverySort] = useMyPageSort(ownerKey, 'discover', catalogSorts, 'popular');
   const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
@@ -231,6 +232,7 @@ export function MyPage(props: Props) {
   }, []);
   const resetFilters = useCallback((initialQuery = '') => {
     setQuery(initialQuery);
+    setExactAuthor(initialQuery.startsWith('@'));
     setSource('');
     setGenre('');
     setSelectedTags([]);
@@ -341,6 +343,13 @@ export function MyPage(props: Props) {
   }, [bookId, catalog, discovering, discoverySort, tagMode, tagQuery]);
   const availableTagSuggestions = tagMatches.filter(({ label }) => !selectedTags.includes(label));
   const tagSuggestions = tagQuery ? availableTagSuggestions : availableTagSuggestions.slice(0, 8);
+  const authorMatches = useMemo(() => {
+    if (exactAuthor || !authorQuery || !discovering || bookId || !catalog) return [];
+    return searchDiscoveryAuthors(catalog, authorQuery);
+  }, [authorQuery, bookId, catalog, discovering, exactAuthor]);
+  const suggestions = tagMode ? tagSuggestions : authorMatches.slice(0, 24).map(({ label, books }) => ({
+    label, titleCount: books.size,
+  }));
   const discoveryResults = useMemo(() => {
     if (!discovering || bookId || !catalog) return [];
     const { books, searchableTitles } = getDiscoveryList(catalog, discoverySort);
@@ -348,7 +357,9 @@ export function MyPage(props: Props) {
     if (!normalized && !source && !genre && !selectedTags.length) return books;
     const started = startDiscoveryTiming();
     const matchingTags = new Set(tagMatches.map(({ label }) => label));
-    const authorBooks = authorQuery ? getDiscoveryAuthorBooks(catalog, authorQuery) : undefined;
+    const authorBooks = authorQuery && exactAuthor
+      ? getDiscoveryAuthorBooks(catalog, authorQuery)
+      : new Set(authorMatches.flatMap((entry) => [...entry.books]));
     const matchesQuery = (book: DiscoveryBook) => {
       if (!normalized) return true;
       if (authorMode) return authorBooks?.has(book) ?? false;
@@ -364,7 +375,7 @@ export function MyPage(props: Props) {
     ));
     finishDiscoveryTiming('filter', started);
     return filtered;
-  }, [authorMode, authorQuery, bookId, catalog, discovering, discoverySort, genre, query, selectedTags, source, tagMode, tagMatches]);
+  }, [authorMatches, authorMode, authorQuery, bookId, catalog, discovering, discoverySort, exactAuthor, genre, query, selectedTags, source, tagMode, tagMatches]);
   useLayoutEffect(() => {
     if (!discovering || bookId) {
       discoveryStarted.current = undefined;
@@ -397,6 +408,18 @@ export function MyPage(props: Props) {
   const openDiscoverySearch = (preset: string) => {
     resetFilters(preset);
     navigate('discover', preset);
+  };
+  const selectSuggestion = (label: string) => {
+    if (tagMode) {
+      addTag(label);
+      return;
+    }
+    const preset = `@${label}`;
+    setQuery(preset);
+    setExactAuthor(true);
+    setVisibleCount(60);
+    navigate('discover', preset);
+    discoverySearchRef.current?.focus();
   };
   const detailLabel = tabLabels[tab];
   const activeGroup = primaryMenu.find(({ tabs }) => tabs.some((id) => id === (showRecommendationList ? 'overview' : tab)));
@@ -599,22 +622,22 @@ export function MyPage(props: Props) {
                   </button>
                 ))}
                 <input ref={discoverySearchRef} aria-label="도서 제목, 작가 또는 태그 검색" value={query}
-                  onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }}
+                  onChange={(event) => { setQuery(event.target.value); setExactAuthor(false); setVisibleCount(60); }}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.nativeEvent.isComposing && tagSuggestions[0]) {
+                    if (event.key === 'Enter' && !event.nativeEvent.isComposing && suggestions[0]) {
                       event.preventDefault();
-                      addTag(tagSuggestions[0].label);
+                      selectSuggestion(suggestions[0].label);
                     }
                   }}
                   placeholder="제목, @작가명 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
               </div>
-              {tagSuggestions.length > 0 && (
-                <div key={tagQuery} role="group" aria-label="태그 자동완성" {...tagSuggestionDrag}
+              {suggestions.length > 0 && (
+                <div key={tagMode ? tagQuery : query} role="group" aria-label={tagMode ? '태그 자동완성' : '작가 자동완성'} {...suggestionDrag}
                   className="flex max-w-full gap-1.5 overflow-x-auto overscroll-x-contain pb-1 data-[mouse-dragging=true]:cursor-grabbing data-[mouse-dragging=true]:select-none">
-                  {tagSuggestions.map(({ label, titleCount }) => (
-                    <button key={label} type="button" onClick={() => addTag(label)}
+                  {suggestions.map(({ label, titleCount }) => (
+                    <button key={label} type="button" onClick={() => selectSuggestion(label)}
                       className="min-h-8 shrink-0 whitespace-nowrap rounded-md bg-current/5 px-2.5 text-xs font-semibold ring-1 ring-inset ring-current/15 hover:text-accent-500">
-                      #{label} <span className="opacity-55">{titleCount.toLocaleString('ko-KR')}권</span>
+                      {tagMode ? '#' : '@'}{label} <span className="opacity-55">{titleCount.toLocaleString('ko-KR')}권</span>
                     </button>
                   ))}
                 </div>

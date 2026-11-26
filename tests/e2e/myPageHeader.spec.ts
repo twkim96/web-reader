@@ -165,8 +165,10 @@ test('detail author and tag shortcuts open catalog searches and the author row g
       ['second-alias', '둘째 별칭', null, [['kakao', 'https://example.test/author/2']], null, [], 8, null],
       ['third', '셋째 작품', null, [['series', 'https://example.test/author/3']], null, [0], 7, null],
       ['fourth', '별 이야기', null, [['series', 'https://example.test/author/4']], null, [], 6, null],
+      ['horse', '첫 번째 모험', null, [['series', 'https://example.test/author/5']], null, [], 5, null],
+      ['blue-horse', '두 번째 모험', null, [['series', 'https://example.test/author/6']], null, [], 4, null],
     ],
-    details: [['별', null], [null, null], ['별', null], ['별빛', null], ['다른 이름', null]],
+    details: [['별', null], [null, null], ['별', null], ['별빛', null], ['다른 이름', null], ['목마', null], ['푸른목마', null]],
   } }));
 
   await page.goto('/#mypage/book/first');
@@ -201,6 +203,20 @@ test('detail author and tag shortcuts open catalog searches and the author row g
   await page.reload();
   await expect(search).toHaveValue('#별빛');
   await expectWorks(['첫 작품', '셋째 작품']);
+
+  const suggestions = page.getByRole('group', { name: '작가 자동완성' });
+  await search.fill('@ㅁ');
+  await expect(suggestions.getByRole('button', { name: '@목마 1권' })).toBeVisible();
+  await expectWorks(['첫 번째 모험']);
+  await search.fill('@ㅁㅁ');
+  await expectWorks(['첫 번째 모험']);
+  await search.fill('@목');
+  await expect(suggestions.getByRole('button')).toHaveText(['@목마 1권', '@푸른목마 1권']);
+  await expectWorks(['첫 번째 모험', '두 번째 모험']);
+  await suggestions.getByRole('button', { name: '@목마 1권' }).click();
+  await expect(search).toHaveValue('@목마');
+  await expect(suggestions).toHaveCount(0);
+  await expectWorks(['첫 번째 모험']);
 });
 
 test('book detail loads the catalog thumbnail directly and retries a denied original once', async ({ page }) => {

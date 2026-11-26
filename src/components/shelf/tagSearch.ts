@@ -1,11 +1,9 @@
 import type { PublicBookCatalogTag } from '../../lib/publicBookCatalogSchema.ts';
+import { getHangulInitials, isHangulInitialQuery, normalizeHangulSearchText } from '../../lib/hangulSearch.ts';
 import type { PreparedShelfBook } from './bookUtils.ts';
 import { getShelfTagTitleCounts, type ShelfPopularTag } from './filterTags.ts';
 
-export const normalizeShelfTagQuery = (value: string) => value
-  .normalize('NFKC')
-  .replace(/\s+/g, '')
-  .toLowerCase();
+export const normalizeShelfTagQuery = normalizeHangulSearchText;
 
 const rankTag = (label: string, query: string) => {
   if (!query || label === query) return 0;
@@ -13,19 +11,17 @@ const rankTag = (label: string, query: string) => {
   return 2;
 };
 
-const tagInitials = (label: string) => label.replace(/[가-힣]/g, (syllable) => syllable.normalize('NFD')[0]);
-
 export const searchPublicBookCatalogTags = (
   tags: Iterable<PublicBookCatalogTag>,
   rawQuery: string,
   limit = 8,
 ) => {
   const query = normalizeShelfTagQuery(rawQuery);
-  const isInitialQuery = /^[\u1100-\u1112]+$/u.test(query);
+  const isInitialQuery = isHangulInitialQuery(query);
   return [...tags]
     .flatMap((tag) => {
       const label = normalizeShelfTagQuery(tag.label);
-      const matches = isInitialQuery ? tagInitials(label).startsWith(query) : label.includes(query);
+      const matches = isInitialQuery ? getHangulInitials(label).startsWith(query) : label.includes(query);
       if (!matches) return [];
       return [{ tag, rank: isInitialQuery ? 0 : rankTag(label, query) }];
     })
