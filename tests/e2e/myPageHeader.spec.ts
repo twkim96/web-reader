@@ -298,8 +298,8 @@ test('home keeps a saved recommendation in place until leaving My Page', async (
   });
   await page.goto('/#mypage/overview');
   const main = page.getByRole('main');
-  await expect(main.getByRole('heading', { level: 2 }).filter({ hasText: /^(위시리스트|평점을 남긴 도서|추천 도서|읽은 도서)$/ }))
-    .toHaveText(['위시리스트', '추천 도서', '평점을 남긴 도서', '읽은 도서']);
+  await expect(main.getByRole('heading', { level: 2 }).filter({ hasText: /^(위시리스트|평점을 남긴 도서|추천 도서|이 기기에서 읽은 책)$/ }))
+    .toHaveText(['위시리스트', '추천 도서', '평점을 남긴 도서', '이 기기에서 읽은 책']);
   const row = page.getByRole('list', { name: '추천 도서 가로 목록' });
   const cards = row.getByRole('link');
   await expect(cards).toHaveCount(2);
@@ -427,7 +427,7 @@ test('a deep-linked book prepares catalog search only when the list opens', asyn
   await expect(page.getByRole('region', { name: '도서 기본정보' }).getByRole('heading', { name: '대표 도서' })).toBeVisible();
   expect(await preparations()).toBe(0);
   const openList = async () => {
-    const search = page.getByRole('textbox', { name: '도서 제목 검색' });
+    const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
     await expect(search).toBeVisible();
     await search.fill('별칭 제목');
     const book = page.getByRole('link', { name: '대표 도서', exact: true });
@@ -554,7 +554,7 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await shortcuts.getByRole('button', { name: '마이페이지 설정' }).click();
   await expect(page).toHaveURL(/#mypage\/sharing$/);
   await catalog.click();
-  const search = page.getByRole('textbox', { name: '도서 제목 검색' });
+  const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
   await expect(firstBook).toBeVisible();
   const match = page.getByRole('link', { name: '테스트 도서 72', exact: true });
   await expect(match).toHaveCount(0);
@@ -565,16 +565,16 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   await shortcuts.getByRole('button', { name: '내 서재' }).click();
   await expect(page.getByRole('heading', { name: 'Guest Library', exact: true })).toBeVisible();
   await page.goto('/#mypage/book/menu-test-0/review');
-  const reviewHeading = page.getByRole('heading', { name: '내 평가', exact: true });
-  await expect(reviewHeading).toBeFocused();
-  await expect(reviewHeading).toBeInViewport();
+  const reviewEditor = page.getByRole('region', { name: '내 평가', exact: true });
+  await expect(reviewEditor).toBeFocused();
+  await expect(reviewEditor).toBeInViewport();
   await assertDivider(page.getByRole('region', { name: '다른 독자의 평가' }).getByRole('listitem').first());
-  const storefront = page.getByRole('link', { name: '네이버 시리즈', exact: true }).locator('..');
-  await page.setViewportSize({ width: 393, height: 700 });
-  await assertDivider(storefront);
-  await page.setViewportSize({ width: 1280, height: 700 });
-  await expect(storefront).toHaveCSS('position', 'relative');
-  expect(await storefront.evaluate(item => getComputedStyle(item, '::after').display)).toBe('none');
+  const storefronts = page.getByRole('list', { name: '플랫폼 출처' }).getByRole('listitem');
+  for (const width of [393, 1280]) {
+    await page.setViewportSize({ width, height: 700 });
+    await expect(storefronts.first()).toHaveCSS('border-inline-start-width', '0px');
+    await expect(storefronts.nth(1)).toHaveCSS('border-inline-start-width', '1px');
+  }
   await assertOtherDividerLists(page, menu);
   await page.goto('/#mypage/book/menu-test-0');
   const metrics = page.getByRole('region', { name: '내 독서 기록' }).locator('dl');
