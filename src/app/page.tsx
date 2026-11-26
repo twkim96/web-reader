@@ -2,8 +2,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { auth, googleProvider } from '../lib/firebase';
-import { signInWithPopup, signInWithRedirect, signOut, User as FirebaseUser } from 'firebase/auth';
+import { auth } from '../lib/firebase';
+import { signOut, User as FirebaseUser } from 'firebase/auth';
 
 import { Shelf } from '../components/shelf';
 import { BookTitleDisplayProvider } from '../contexts/BookTitleDisplayContext';
@@ -49,10 +49,7 @@ import {
   saveLastReaderSession,
 } from '../lib/lastReaderSession';
 import {
-  getOrCreateGuestInstallId,
   DEVICE_CONTENT_OWNER_KEY,
-  makeGuestOwnerKey,
-  makeOwnerKey,
   getSyncOwnerKey,
   splitOwnerKey,
   type OwnerKey,
@@ -80,6 +77,8 @@ import {
 } from '../lib/syncConflictPresentation';
 import { runLogoutFlow } from '../lib/logoutFlow';
 import { LoginDisclosureModal, type LoginDisclosureMode } from '../components/LoginDisclosureModal';
+import { LoginProgressDialog } from '../components/LoginProgressDialog';
+import { useGoogleLogin } from '../hooks/useGoogleLogin';
 import { getProgressCommitBaseline, rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
 import { applyManualBookmarkMutation, type ManualBookmarkMutation } from '../lib/bookmarkSyncPolicy';
 import {
@@ -126,6 +125,10 @@ export default function Page() {
   const [cloudPermissionMessage, setCloudPermissionMessage] = useState<React.ReactNode | null>(null);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
   const [loginDisclosureMode, setLoginDisclosureMode] = useState<LoginDisclosureMode | null>(null);
+  const googleLogin = useGoogleLogin((error) => {
+    console.error('[Auth] Google sign-in failed:', error);
+    setAuthErrorMessage('Google 로그인을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+  });
   const [progressPersistenceError, setProgressPersistenceError] = useState<string | null>(null);
   const [annotationSyncHealth, setAnnotationSyncHealth] = useState<SyncHealth>('healthy');
   const [syncRecovery, setSyncRecovery] = useState<{
@@ -310,6 +313,7 @@ export default function Page() {
     resetLibraryState,
     shouldHoldShelfForDrive,
     logoutReadingOwner,
+    onAuthenticatedLibraryReady: googleLogin.finish,
   });
   const receiveSyncHealth = useProgressSync({
     user,
@@ -487,25 +491,6 @@ export default function Page() {
     setAuthErrorMessage,
   });
 
-
-  const enterGuestShelf = useCallback(async () => {
-    ownerRuntime.activate(makeOwnerKey(
-      makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)),
-      'library:local',
-    ));
-    resetLibraryState();
-    setActiveBook(null);
-    setView('loading');
-    setIsGuest(true);
-    isGuestRef.current = true;
-    localStorage.setItem('isGuest', 'true');
-    setIsOfflineMode(true);
-    setUser(null);
-    clearToken();
-    await restoreLocalData({ replaceBooks: true }); // 게스트 모드는 로컬 책장만 표시
-    setView('shelf');
-  }, [clearToken, resetLibraryState, restoreLocalData]);
-
   const handleLocalMode = async () => {
     setView('loading');
     await restoreLocalData({ replaceBooks: true }); // 로컬 모드 전환 시 클라우드 캐시 제거
@@ -611,18 +596,7 @@ export default function Page() {
 
     const usePopup = (process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_WEB_READER_PREVIEW === '1')
       && window.location.host !== auth.config.authDomain;
-    const login = usePopup
-      ? signInWithPopup(auth, googleProvider)
-      : signInWithRedirect(auth, googleProvider);
-    login.catch((error) => {
-      if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') return;
-      console.error('[Auth] Google sign-in failed:', error);
-
-      setAuthErrorMessage(
-        'Google 로그인을 시작하지 못했습니다. 새로고침 후 다시 시도해 주세요.'
-      );
-      void enterGuestShelf();
-    });
+    googleLogin.start(usePopup ? 'popup' : 'redirect');
   };
 
   const handleLogout = () => setPendingAction('logout');
@@ -860,6 +834,10 @@ export default function Page() {
     ...themeCssVariables,
   } as React.CSSProperties;
 
+  const loginDialog = googleLogin.phase && (
+    <LoginProgressDialog finishing={googleLogin.phase === 'finishing'} onCancel={googleLogin.cancel} style={dynamicStyles} />
+  );
+
   if (view === 'loading' || (view === 'reader' && !isLibraryBootstrapReady)) {
     return (
       <div
@@ -873,6 +851,7 @@ export default function Page() {
       >
         <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
         <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
+        {loginDialog}
       </div>
     );
   }
@@ -1039,6 +1018,7 @@ export default function Page() {
           onConfirm={loginDisclosureMode === 'firebase' ? handleLoginTrigger : handleDriveConnectTrigger}
         />
       )}
+      {loginDialog}
 
       {cloudAuthExpiredMessage && (
         <ConfirmDialog

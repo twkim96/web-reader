@@ -1,6 +1,6 @@
 // src/lib/firebase.ts
 import { getApps, initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { browserPopupRedirectResolver, getAuth, GoogleAuthProvider, inMemoryPersistence, initializeAuth, type Auth } from "firebase/auth";
 import { Firestore, getFirestore, initializeFirestore, memoryLocalCache, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 export { APP_ID } from './appIdentity';
 
@@ -27,6 +27,35 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
+
+const cancelledGoogleRedirectKey = 'web-reader:cancelled-google-redirect';
+
+export function setGoogleRedirectCancelled(cancelled: boolean) {
+  try {
+    if (cancelled) sessionStorage.setItem(cancelledGoogleRedirectKey, '1');
+    else sessionStorage.removeItem(cancelledGoogleRedirectKey);
+  } catch { /* The browser may restrict tab storage. */ }
+}
+
+if (typeof window !== 'undefined') {
+  auth.beforeAuthStateChanged((user) => {
+    if (!user) return;
+    let cancelled = false;
+    try { cancelled = sessionStorage.getItem(cancelledGoogleRedirectKey) === '1'; } catch { /* Tab storage is unavailable. */ }
+    if (cancelled) throw new Error('Google redirect was cancelled');
+  });
+}
+
+let googlePopupAuth: Auth | undefined;
+export function getGooglePopupAuth() {
+  // Keep an abandoned popup result out of the primary account and open the
+  // guest shelf immediately on cancel. Only the accepted result is promoted.
+  googlePopupAuth ??= initializeAuth(initializeApp(app.options, 'web-reader-google-popup'), {
+    persistence: inMemoryPersistence,
+    popupRedirectResolver: browserPopupRedirectResolver,
+  });
+  return googlePopupAuth;
+}
 
 let db: Firestore;
 try {

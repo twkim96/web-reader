@@ -29,6 +29,63 @@ const yes = () => true;
 const no = () => false;
 const asyncYes = async () => true;
 
+test('cancelling a popup ignores its late account and accepts a new login independently', async () => {
+  const paths = ['../src/lib/firebase.ts', 'firebase/auth', '../src/hooks/useGoogleLogin.ts']
+    .map(path => require.resolve(path));
+  const previous = paths.map(path => require.cache[path]);
+  const auth = { currentUser: null };
+  const popupAuth = {};
+  const popups = [];
+  const accepted = [];
+  const errors = [];
+  require.cache[paths[0]] = { id: paths[0], filename: paths[0], loaded: true, exports: {
+    auth, getGooglePopupAuth: () => popupAuth, setGoogleRedirectCancelled: noop,
+  } };
+  require.cache[paths[1]] = { id: paths[1], filename: paths[1], loaded: true, exports: {
+    signInWithPopup: (target) => {
+      assert.equal(target, popupAuth);
+      return new Promise(resolve => popups.push(resolve));
+    },
+    updateCurrentUser: async (target, user) => {
+      assert.equal(target, auth);
+      accepted.push(user.uid);
+      auth.currentUser = user;
+    },
+  } };
+  delete require.cache[paths[2]];
+  try {
+    const { useGoogleLogin } = require(paths[2]);
+    await withDom(async root => {
+      let login;
+      function Harness() {
+        login = useGoogleLogin(error => errors.push(error));
+        return React.createElement('output', null, login.phase);
+      }
+      await React.act(async () => root.render(React.createElement(Harness)));
+      const phase = () => document.querySelector('output').textContent;
+      await React.act(async () => { login.start('popup'); login.start('popup'); });
+      assert.equal(phase(), 'waiting');
+      assert.equal(popups.length, 1);
+      await React.act(async () => login.cancel());
+      assert.equal(phase(), '');
+      await React.act(async () => login.start('popup'));
+      await React.act(async () => popups[0]({ user: { uid: 'abandoned' } }));
+      assert.equal(phase(), 'waiting');
+      assert.equal(auth.currentUser, null);
+      await React.act(async () => popups[1]({ user: { uid: 'accepted' } }));
+      assert.equal(phase(), 'finishing');
+      assert.deepEqual(accepted, ['accepted']);
+      await React.act(async () => login.finish());
+      assert.equal(phase(), '');
+      assert.deepEqual(errors, []);
+    });
+  } finally {
+    paths.forEach((path, index) => {
+      if (previous[index]) require.cache[path] = previous[index]; else delete require.cache[path];
+    });
+  }
+});
+
 test('a new save wakes the worker without retrying a different book paused on permission-denied', { timeout: 5_000 }, async (t) => {
   const firebasePath = require.resolve('../src/lib/firebase.ts');
   const authPath = require.resolve('firebase/auth');

@@ -15,6 +15,8 @@ Firebase Google 로그인은 앱의 사용자 UID를 정합니다. 진행률·�
 - [next.config.ts](../../next.config.ts)는 `/__/auth/*`, `/__/firebase/*`를 `${NEXT_PUBLIC_FIREBASE_PROJECT_ID}.firebaseapp.com`으로 프록시합니다. 같은 origin의 Firebase helper를 사용하는 조건이며 단순 302 대체로 처리하지 않습니다.
 - 배포/PWA에서 helper 응답·쿠키·redirect 복귀를 확인합니다. Service Worker가 인증 경로를 캐싱하지 않아야 합니다.
 
+팝업 인증 결과는 메모리 전용 Firebase Auth에 먼저 들어갑니다. 취소되거나 다른 시도로 바뀐 결과는 앱 계정에 적용하지 않습니다. 이미 열린 Google 팝업은 별도로 닫을 수 있습니다. 같은 창에서 이동하기 전에 앱에서 취소하면 현재 탭을 다시 열고, 해당 탭에서 늦게 돌아온 redirect 로그인 결과는 다음 로그인 시도 전까지 거부합니다.
+
 로그아웃은 대기 중인 로컬 저장 완료 → UI 준비 → Firebase `signOut` 성공 → 로컬 연결 상태 정리 순서입니다. 성공 뒤 게스트 서재를 불러올 때 [기기에서 이어 읽을 위치](../SPEC/reader-and-progress.md#읽기와-시작-위치)를 보존합니다. 실패하면 owner/UI를 복구하고 성공한 것으로 취급하지 않습니다. 계정 전환이 저장된 기기 도서를 지우는 작업을 뜻하지 않습니다. 실제 PWA/WebView sign-out/sign-in 수용 확인은 [TODO](../TODO.md)에 있습니다.
 
 ## Drive OAuth와 수명

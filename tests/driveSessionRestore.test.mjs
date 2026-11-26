@@ -42,14 +42,17 @@ test('bridges only the short-lived OAuth state across browser contexts', async (
 });
 
 test('keeps the guest shelf active while Firebase redirects so login cancellation can recover', async () => {
-  const page = await readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  const [page, loginHook] = await Promise.all([
+    readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/hooks/useGoogleLogin.ts', import.meta.url), 'utf8'),
+  ]);
   const loginHandler = page.match(
     /const handleLoginTrigger = \(\) => \{([\s\S]*?)\n  \};/,
   )?.[1] ?? '';
 
   assert.match(loginHandler, /setLoginDisclosureMode\(null\)/);
-  assert.match(loginHandler, /signInWithRedirect\(auth, googleProvider\)/);
-  assert.match(loginHandler, /void enterGuestShelf\(\)/);
+  assert.match(loginHandler, /googleLogin\.start\(usePopup \? 'popup' : 'redirect'\)/);
+  assert.match(loginHook, /signInWithRedirect\(auth, googleProvider\)/);
   assert.doesNotMatch(loginHandler, /setView\(['"]loading['"]\)/);
   assert.doesNotMatch(loginHandler, /localStorage\.removeItem\(['"]isGuest['"]\)/);
   assert.doesNotMatch(loginHandler, /ownerRuntime\.clear\(\)/);

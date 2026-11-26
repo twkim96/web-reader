@@ -22,6 +22,7 @@ interface UseAuthBootstrapOptions {
   resetLibraryState: () => void;
   shouldHoldShelfForDrive: () => boolean;
   logoutReadingOwner?: MutableRefObject<OwnerKey | undefined>;
+  onAuthenticatedLibraryReady?: () => void;
 }
 
 export const useAuthBootstrap = ({
@@ -34,6 +35,7 @@ export const useAuthBootstrap = ({
   resetLibraryState,
   shouldHoldShelfForDrive,
   logoutReadingOwner,
+  onAuthenticatedLibraryReady,
 }: UseAuthBootstrapOptions) => {
   const [isAuthenticatedLibraryReady, setIsAuthenticatedLibraryReady] = useState(false);
   const [isLibraryBootstrapReady, setIsLibraryBootstrapReady] = useState(false);
@@ -107,6 +109,7 @@ export const useAuthBootstrap = ({
           if (!isActive || callbackGeneration !== authGeneration) return;
           setIsAuthenticatedLibraryReady(true);
           setIsLibraryBootstrapReady(true);
+          onAuthenticatedLibraryReady?.();
           if (navigator.onLine !== false && shouldHoldShelfForDrive()) {
             setView('loading');
             return;
@@ -144,6 +147,7 @@ export const useAuthBootstrap = ({
     setView,
     shouldHoldShelfForDrive,
     logoutReadingOwner,
+    onAuthenticatedLibraryReady,
   ]);
 
   return { isAuthenticatedLibraryReady, isLibraryBootstrapReady };
