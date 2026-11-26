@@ -156,6 +156,53 @@ test('discovery searches by author and loads the current synopsis only in book d
   expect(indexRequests).toBe(2);
 });
 
+test('detail author and tag shortcuts open catalog searches and the author row groups matching names', async ({ page }) => {
+  await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
+    schemaVersion: 1, generation: 'author-shortcut', genres: [], tags: ['별빛'],
+    books: [
+      ['first', '첫 작품', null, [['series', 'https://example.test/author/1']], null, [0], 10, null],
+      ['second', '둘째 작품', null, [['kakao', 'https://example.test/author/2']], null, [], 9, null],
+      ['second-alias', '둘째 별칭', null, [['kakao', 'https://example.test/author/2']], null, [], 8, null],
+      ['third', '셋째 작품', null, [['series', 'https://example.test/author/3']], null, [0], 7, null],
+      ['fourth', '별 이야기', null, [['series', 'https://example.test/author/4']], null, [], 6, null],
+    ],
+    details: [['별', null], [null, null], ['별', null], ['별빛', null], ['다른 이름', null]],
+  } }));
+
+  await page.goto('/#mypage/book/first');
+  const basic = page.getByRole('region', { name: '도서 기본정보' });
+  const author = basic.getByRole('button', { name: '별', exact: true });
+  const authorRow = page.getByRole('list', { name: '별 작가의 도서 가로 목록' });
+  const related = page.getByRole('region', { name: '연관 도서', exact: true });
+  await expect(related.getByRole('link', { name: '셋째 작품' })).toBeVisible();
+  await expect(authorRow.getByRole('link')).toHaveCount(1);
+  await authorRow.getByRole('link', { name: '둘째 작품' }).click();
+  await expect(basic.getByRole('heading', { name: '둘째 작품' })).toBeVisible();
+  await page.getByRole('button', { name: '도서 목록으로 돌아가기' }).click();
+  await expect(author).toBeVisible();
+
+  await author.click();
+  const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
+  const results = page.getByRole('region', { name: '도서 목록', exact: true }).getByRole('link');
+  const expectWorks = async (titles: string[]) => {
+    await expect(results).toHaveCount(titles.length);
+    for (const [index, title] of titles.entries()) await expect(results.nth(index)).toHaveAccessibleName(title);
+  };
+  await expect(search).toHaveValue('@별');
+  await expectWorks(['첫 작품', '둘째 작품']);
+  await search.fill('@별빛');
+  await expectWorks(['셋째 작품']);
+  await page.goBack();
+  const tag = basic.getByRole('button', { name: '#별빛' });
+  await expect(tag).toBeVisible();
+  await tag.click();
+  await expect(search).toHaveValue('#별빛');
+  await expectWorks(['첫 작품', '셋째 작품']);
+  await page.reload();
+  await expect(search).toHaveValue('#별빛');
+  await expectWorks(['첫 작품', '셋째 작품']);
+});
+
 test('book detail loads the catalog thumbnail directly and retries a denied original once', async ({ page }) => {
   const direct = 'https://comicthumb-phinf.pstatic.net/detail-cover.png?type=w160';
   const denied = 'https://dn-img-page.kakao.com/detail-denied.png';

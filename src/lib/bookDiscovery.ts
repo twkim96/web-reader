@@ -156,6 +156,27 @@ export function getGroupedBookDiscovery(rows: readonly DiscoveryBook[]) {
   return grouped;
 }
 
+const discoveryAuthors = new WeakMap<readonly DiscoveryBook[], Map<string, Set<DiscoveryBook>>>();
+const normalizeAuthor = (name: string) => name.trim().normalize('NFC').toLowerCase();
+
+export function getDiscoveryAuthorBooks(rows: readonly DiscoveryBook[], author: string): ReadonlySet<DiscoveryBook> | undefined {
+  let index = discoveryAuthors.get(rows);
+  if (!index) {
+    index = new Map();
+    const { byId } = getGroupedBookDiscovery(rows);
+    for (const row of rows) {
+      const book = byId.get(row.id);
+      if (!row.author || !book) continue;
+      const name = normalizeAuthor(row.author);
+      const matches = index.get(name) ?? new Set<DiscoveryBook>();
+      matches.add(book);
+      index.set(name, matches);
+    }
+    discoveryAuthors.set(rows, index);
+  }
+  return index.get(normalizeAuthor(author));
+}
+
 const discoveryBooksByTag = new WeakMap<readonly DiscoveryBook[], Map<string, DiscoveryBook[]>>();
 
 export function getRelatedDiscoveryBooks(books: readonly DiscoveryBook[], current: DiscoveryBook, rotationSeed = 0) {

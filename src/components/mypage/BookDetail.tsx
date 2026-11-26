@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bookmark as BookmarkIcon, Check, ChevronDown, Heart, Star } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
-import { getGroupedBookDiscovery, getRelatedDiscoveryBooks, loadDiscoverySynopsis, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { getDiscoveryAuthorBooks, getGroupedBookDiscovery, getRelatedDiscoveryBooks, loadDiscoverySynopsis, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { useLocalReadingReportSessions } from '../../hooks/useLocalReadingReportSessions';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
@@ -118,7 +118,7 @@ function CommunityReviews({ workId }: { workId: string }) {
   );
 }
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, rotationSeed, onOpenRelatedBook }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, rotationSeed, onOpenRelatedBook, onSearchCatalog }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
@@ -133,14 +133,21 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   catalog: readonly DiscoveryBook[] | null;
   rotationSeed: number;
   onOpenRelatedBook: (book: DiscoveryBook) => void;
+  onSearchCatalog: (query: string) => void;
 }) {
   const relatedBookId = discovery?.id;
+  const author = discovery?.author;
   const relatedBooks = useMemo(() => {
     if (!catalog || !relatedBookId) return [];
     const grouped = getGroupedBookDiscovery(catalog);
     const current = grouped.byId.get(relatedBookId);
     return current ? getRelatedDiscoveryBooks(grouped.books, current, rotationSeed) : [];
   }, [catalog, relatedBookId, rotationSeed]);
+  const authorBooks = useMemo(() => {
+    if (!catalog || !author) return [];
+    return [...(getDiscoveryAuthorBooks(catalog, author) ?? [])].filter((book) => book.id !== relatedBookId)
+      .sort((a, b) => (b.popularity ?? -1) - (a.popularity ?? -1) || a.title.localeCompare(b.title, 'ko'));
+  }, [author, catalog, relatedBookId]);
   const lookupId = discovery?.id ?? bookId;
   const reviews = useMyPageWorkReview(ownerKey, !isGuestOwner(ownerKey) && Boolean(discovery) && !identityBlocked, lookupId);
   const [reviewChangeVersion, setReviewChangeVersion] = useState(0);
@@ -296,8 +303,16 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
               </div>
             </div>
             <h2 className="break-words text-xl font-semibold leading-snug tracking-tight sm:text-3xl">{title}</h2>
-            {discovery?.author && <p className="mt-1 break-words text-sm opacity-70">{discovery.author}</p>}
-            {discovery?.tags.length ? <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-1.5 text-xs opacity-65">{discovery.tags.map((tag) => <li key={tag} className="break-all">#{tag}</li>)}</ul> : null}
+            {author && <button type="button" onClick={() => onSearchCatalog(`@${author}`)}
+              className="mt-1 block text-left break-words text-sm opacity-70 hover:text-accent-500 hover:underline hover:opacity-100">{author}</button>}
+            {discovery?.tags.length ? (
+              <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-1.5 text-xs">
+                {discovery.tags.map((tag) => <li key={tag} className="min-w-0">
+                  <button type="button" onClick={() => onSearchCatalog(`#${tag}`)}
+                    className="break-all opacity-65 hover:text-accent-500 hover:underline hover:opacity-100">#{tag}</button>
+                </li>)}
+              </ul>
+            ) : null}
             {discovery?.sourceCount != null && !metadata && <p className="mt-3 text-xs opacity-65">조회·다운로드 {discovery.sourceCount.toLocaleString('ko')}</p>}
           </div>
         </div>
@@ -345,6 +360,8 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       {Boolean(historyResult?.failed.size) && <p role="status" className="text-sm opacity-65">일부 독서 기록을 연결하지 못했습니다. <button type="button" className="text-accent-500" onClick={() => retryHistoryMetadata((value) => value + 1)}>기록 다시 연결</button></p>}
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
       {relatedBooks.length > 0 && <DashboardBookRow title="연관 도서" books={relatedBooks} onOpenBook={onOpenRelatedBook}
+        compact coverLoading="direct-with-proxy-fallback" />}
+      {author && authorBooks.length > 0 && <DashboardBookRow title={`${author} 작가의 도서`} books={authorBooks} onOpenBook={onOpenRelatedBook}
         compact coverLoading="direct-with-proxy-fallback" />}
       <CommunityReviews key={`${lookupId}:${reviewChangeVersion}`} workId={lookupId} />
     </>

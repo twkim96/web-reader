@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Archive, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, Hash, House, Library, Plus, Search, Settings2, X } from 'lucide-react';
+import { ArrowLeft, Archive, AtSign, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, Hash, House, Library, Plus, Search, Settings2, X } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
-import { getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { getDiscoveryAuthorBooks, getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { bookDetailHref, hasBookReviewTarget, readBookDetailId } from '../../lib/bookDetail';
 import { finishDiscoveryTiming, startDiscoveryTiming } from '../../lib/myPagePerformance';
 import type { ReadBook } from '../../lib/readBooks';
@@ -127,11 +127,20 @@ const readTab = (): Tab => {
   if (typeof window === 'undefined') return 'overview';
   const candidate = readBookDetailId(window.location.hash)
     ? window.history.state?.myPageBookFrom ?? 'discover'
-    : window.location.hash.split('/')[1];
+    : window.location.hash.split('?')[0].split('/')[1];
   if (candidate === 'people') return 'browse';
   return typeof candidate === 'string' && Object.hasOwn(tabLabels, candidate) ? candidate as Tab : 'overview';
 };
 const readDetailId = () => typeof window === 'undefined' ? null : readBookDetailId(window.location.hash);
+const readDiscoveryPreset = () => {
+  if (typeof window === 'undefined') return '';
+  if (readDetailId()) {
+    const preset = window.history.state?.myPageDiscoveryPreset;
+    return typeof preset === 'string' ? preset : '';
+  }
+  const [path, params] = window.location.hash.split('?');
+  return path === '#mypage/discover' ? new URLSearchParams(params).get('q') ?? '' : '';
+};
 const inputClass = 'min-h-11 min-w-0 rounded-lg px-3 ring-1 ring-inset ring-current/15 text-sm focus-visible:outline-2 focus-visible:outline-accent-500';
 const titleMiddleY = (header: HTMLElement) => {
   const { top, height } = header.getBoundingClientRect();
@@ -174,7 +183,8 @@ export function MyPage(props: Props) {
   const [recommended, setRecommended] = useState<{ ownerKey: OwnerKey; books: readonly DiscoveryBook[] }>();
   const [catalogError, setCatalogError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(readDiscoveryPreset);
+  const discoveryPreset = useRef(query);
   const [source, setSource] = useState('');
   const [genre, setGenre] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -219,12 +229,20 @@ export function MyPage(props: Props) {
       window.removeEventListener('resize', update);
     };
   }, []);
-  const navigate = (next: Tab) => {
-    if (next === tab && !bookId) return;
+  const resetFilters = useCallback((initialQuery = '') => {
+    setQuery(initialQuery);
+    setSource('');
+    setGenre('');
+    setSelectedTags([]);
+    setVisibleCount(60);
+  }, []);
+  const navigate = (next: Tab, preset = '') => {
+    if (next === tab && !bookId && preset === discoveryPreset.current) return;
     if (next === 'discover') discoveryStarted.current = startDiscoveryTiming();
     readListScroll.current = null;
+    discoveryPreset.current = preset;
     window.history.pushState(next === 'recommendations' && tab === 'overview' ? { myPageRecommendationsFromHome: true } : null,
-      '', `#mypage/${next}`);
+      '', `#mypage/${next}${preset ? `?q=${encodeURIComponent(preset)}` : ''}`);
     setTab(next);
     if (next !== 'browse') setFeedSection('reviews');
     setBookId(null);
@@ -240,7 +258,9 @@ export function MyPage(props: Props) {
   };
   const openBookById = (id: string, book?: DiscoveryBook | ReadBook, reviewTarget = false) => {
     if (tab === 'read' && !bookId) readListScroll.current = window.scrollY;
-    window.history.pushState({ ...window.history.state, myPageBookFrom: tab }, '', bookDetailHref(id, reviewTarget));
+    window.history.pushState({
+      ...window.history.state, myPageBookFrom: tab, myPageDiscoveryPreset: discoveryPreset.current,
+    }, '', bookDetailHref(id, reviewTarget));
     setOpenedBook(book ? { id, book } : undefined);
     setBookId(id);
     setFocusReview(reviewTarget);
@@ -258,6 +278,11 @@ export function MyPage(props: Props) {
     const update = () => {
       const nextTab = readTab();
       const nextBook = readDetailId();
+      const preset = readDiscoveryPreset();
+      if (discoveryPreset.current !== preset) {
+        discoveryPreset.current = preset;
+        resetFilters(preset);
+      }
       restoreReadListScroll.current = nextTab === 'read' && nextBook === null;
       setTab(nextTab);
       if (nextTab !== 'browse') setFeedSection('reviews');
@@ -270,7 +295,7 @@ export function MyPage(props: Props) {
       window.removeEventListener('popstate', update);
       window.removeEventListener('hashchange', update);
     };
-  }, []);
+  }, [resetFilters]);
   useLayoutEffect(() => {
     if (!restoreReadListScroll.current || bookId || tab !== 'read') return;
     restoreReadListScroll.current = false;
@@ -307,6 +332,8 @@ export function MyPage(props: Props) {
   const tags = discoveryList?.tags ?? [];
   const tagMode = query.trim().startsWith('#');
   const tagQuery = tagMode ? normalizeShelfTagQuery(query.trim().slice(1)) : '';
+  const authorMode = query.trim().startsWith('@');
+  const authorQuery = authorMode ? query.trim().slice(1).trim() : '';
   const tagMatches = useMemo(() => {
     if (!tagMode || !discovering || bookId || !catalog) return [];
     const { catalogTags } = getDiscoveryList(catalog, discoverySort);
@@ -317,22 +344,27 @@ export function MyPage(props: Props) {
   const discoveryResults = useMemo(() => {
     if (!discovering || bookId || !catalog) return [];
     const { books, searchableTitles } = getDiscoveryList(catalog, discoverySort);
-    const normalized = query.trim().normalize('NFC').toLocaleLowerCase();
+    const normalized = authorMode ? authorQuery : query.trim().normalize('NFC').toLocaleLowerCase();
     if (!normalized && !source && !genre && !selectedTags.length) return books;
     const started = startDiscoveryTiming();
     const matchingTags = new Set(tagMatches.map(({ label }) => label));
+    const authorBooks = authorQuery ? getDiscoveryAuthorBooks(catalog, authorQuery) : undefined;
+    const matchesQuery = (book: DiscoveryBook) => {
+      if (!normalized) return true;
+      if (authorMode) return authorBooks?.has(book) ?? false;
+      if (tagMode) return book.tags.some((name) => matchingTags.has(name));
+      return (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
+        .some((title) => title.includes(normalized));
+    };
     const filtered = books.filter((book) => (
-      (!normalized || (tagMode
-        ? book.tags.some((name) => matchingTags.has(name))
-        : (searchableTitles.get(book.id) ?? [book.title.normalize('NFC').toLocaleLowerCase()])
-          .some((title) => title.includes(normalized))))
+      matchesQuery(book)
       && (!source || book.platforms.some((platform) => platform.id === source))
       && (!genre || book.genre === genre)
       && selectedTags.every((name) => book.tags.includes(name))
     ));
     finishDiscoveryTiming('filter', started);
     return filtered;
-  }, [bookId, catalog, discovering, discoverySort, genre, query, selectedTags, source, tagMode, tagMatches]);
+  }, [authorMode, authorQuery, bookId, catalog, discovering, discoverySort, genre, query, selectedTags, source, tagMode, tagMatches]);
   useLayoutEffect(() => {
     if (!discovering || bookId) {
       discoveryStarted.current = undefined;
@@ -361,8 +393,11 @@ export function MyPage(props: Props) {
     setVisibleCount(60);
     discoverySearchRef.current?.focus();
   };
-  const resetFilters = () => { setQuery(''); setSource(''); setGenre(''); setSelectedTags([]); setVisibleCount(60); };
   const openTab = (next: Tab) => { resetFilters(); navigate(next); };
+  const openDiscoverySearch = (preset: string) => {
+    resetFilters(preset);
+    navigate('discover', preset);
+  };
   const detailLabel = tabLabels[tab];
   const activeGroup = primaryMenu.find(({ tabs }) => tabs.some((id) => id === (showRecommendationList ? 'overview' : tab)));
   const sectionTabs = tab === 'browse'
@@ -521,7 +556,7 @@ export function MyPage(props: Props) {
             />}
           </div>}
           {bookId ? (
-            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} catalog={catalog} rotationSeed={recommendationSeed} onOpenRelatedBook={openBook} />
+            <BookDetail key={`${ownerKey}:${bookId}`} bookId={bookId} discovery={detailBook} readBook={readSource} ownerKey={ownerKey} books={books} progress={progress} bookmarkProgress={bookmarkProgress} catalogLoading={catalogLoading && !detailBook} identityBlocked={Boolean(readMatch?.blocked || (catalogError && readSource?.platformWorkKeys?.length))} saved={detailSaved} focusReview={focusReview} catalog={catalog} rotationSeed={recommendationSeed} onOpenRelatedBook={openBook} onSearchCatalog={openDiscoverySearch} />
           ) : <>
           {wishlist.error && <p role="alert" className="text-sm text-accent-500">{wishlist.error} {signedIn && <button type="button" onClick={() => void wishlist.refresh()} className="underline">위시리스트 다시 불러오기</button>}</p>}
           {tab === 'reviews' && (signedIn ? <MyReviews key={ownerKey} owner={ownerKey} onOpenBook={openBookById} />
@@ -555,6 +590,7 @@ export function MyPage(props: Props) {
             {discovering && <section aria-label="도서 검색 및 필터" className="space-y-2.5">
               <div className="flex min-h-10 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-3 py-1 ring-1 ring-inset ring-current/15 focus-within:outline-2 focus-within:outline-accent-500">
                 {tagMode ? <Hash size={17} aria-hidden="true" className="shrink-0 text-accent-500" />
+                  : authorMode ? <AtSign size={17} aria-hidden="true" className="shrink-0 text-accent-500" />
                   : <Search size={17} aria-hidden="true" className="shrink-0 opacity-60" />}
                 {selectedTags.map((name) => (
                   <button key={name} type="button" aria-label={`#${name} 제거`} onClick={() => removeTag(name)}
@@ -570,7 +606,7 @@ export function MyPage(props: Props) {
                       addTag(tagSuggestions[0].label);
                     }
                   }}
-                  placeholder="도서 제목, 작가 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
+                  placeholder="제목, @작가명 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
               </div>
               {tagSuggestions.length > 0 && (
                 <div key={tagQuery} role="group" aria-label="태그 자동완성" {...tagSuggestionDrag}
@@ -592,7 +628,7 @@ export function MyPage(props: Props) {
             <section aria-label="도서 목록">
               {loading ? <div role="status" className="py-10 text-center text-sm opacity-65">{tab === 'discover' ? '도서 정보를 불러오는 중…' : '위시리스트를 불러오는 중…'}</div>
               : tab === 'discover' && catalogError ? <div role="alert" className="py-8 text-center"><p className="text-sm opacity-70">도서 정보를 불러오지 못했습니다.</p><button type="button" onClick={retryCatalog} className="mt-3 min-h-10 px-3 text-sm font-medium text-accent-500">다시 시도</button></div>
-              : results.length === 0 ? <div className="py-8 text-center"><BookOpen size={28} className="mx-auto mb-3 opacity-40" /><p className="text-sm opacity-70">{tab === 'wishlist' ? '담아둔 책이 없습니다.' : discoveryBooks?.length ? '조건에 맞는 책이 없습니다.' : '공개된 도서 정보가 없습니다.'}</p>{Boolean(discoveryBooks?.length) && <button type="button" onClick={resetFilters} className="mt-3 text-sm text-accent-500">필터 초기화</button>}</div>
+              : results.length === 0 ? <div className="py-8 text-center"><BookOpen size={28} className="mx-auto mb-3 opacity-40" /><p className="text-sm opacity-70">{tab === 'wishlist' ? '담아둔 책이 없습니다.' : discoveryBooks?.length ? '조건에 맞는 책이 없습니다.' : '공개된 도서 정보가 없습니다.'}</p>{Boolean(discoveryBooks?.length) && <button type="button" onClick={() => openTab('discover')} className="mt-3 text-sm text-accent-500">필터 초기화</button>}</div>
               : <div className="mypage-divided-list">
                 {results.slice(0, visibleCount).map((book) => renderBookRow(book))}
               </div>}
