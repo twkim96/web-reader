@@ -21,6 +21,7 @@ import { formatReadingDuration } from '../../lib/readingStatistics';
 import { BookCover } from './BookCover';
 import { BookReviewEditor } from './BookReviewEditor';
 import { DashboardBookRow } from './DashboardBookRow';
+import { SharedDriveFolderLink } from './SharedDriveFolderLink';
 
 const percent = new Intl.NumberFormat('ko', { maximumFractionDigits: 2 });
 const formatPercent = (number: number) => `${percent.format(number)}%`;
@@ -334,6 +335,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
           readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
           ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
           error={reviews.error} refresh={reviews.refresh} change={changeReview} editorRef={reviewEditor} />
+        <SharedDriveFolderLink key={ownerKey} owner={ownerKey} />
       </section>
       {discovery?.synopsis && <BookSynopsis key={`${discovery.synopsis.workId}:${discovery.synopsis.shard}`} reference={discovery.synopsis} />}
       {hasPersonal && (

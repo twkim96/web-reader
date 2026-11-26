@@ -37,6 +37,12 @@ Drive 웹에서 직접 추가한 지원 파일도 읽기 목록에 나타날 수
 
 네트워크/본문 소비 timeout, 취소, pagination과 upload retry는 [googleDrive.ts](../../src/lib/googleDrive.ts), [driveUpload.ts](../../src/lib/driveUpload.ts)를 기준으로 합니다. 취소된 요청 결과가 새 Drive session을 덮지 않아야 합니다.
 
+## 초대 계정의 공유 폴더 버튼
+
+도서 상세에서 서버가 허용한 Firebase 계정에 **Google Drive에서 열기**를 표시합니다. 서버 환경변수 `WEB_READER_SHARED_DRIVE_FOLDER_ID`에는 폴더 URL의 마지막 ID를, `WEB_READER_SHARED_DRIVE_ALLOWED_UIDS`에는 허용할 Firebase UID를 쉼표로 구분해 넣습니다. 두 값이 모두 설정된 배포에서만 버튼을 사용할 수 있습니다. 값을 로컬 비공개 환경 파일이나 해당 Vercel 프리뷰 환경에 보관합니다.
+
+버튼 표시 응답에는 표시 여부만 들어갑니다. 클릭 요청에서 서버가 Firebase 토큰과 허용 목록을 다시 확인한 뒤 해당 폴더 주소를 반환합니다. 응답은 캐시하지 않습니다. 실제 폴더 열람은 Google Drive에 로그인한 계정과 해당 폴더의 공유 설정을 따릅니다. 초대 계정만 열람하게 하려면 폴더의 일반 액세스를 **제한됨**으로 설정합니다. 허용된 브라우저에는 클릭 시 폴더 주소가 표시될 수 있습니다.
+
 ## Firestore 경로와 Rules
 
 내부 앱 ID는 [appIdentity.ts](../../src/lib/appIdentity.ts)의 `APP_ID`입니다. Firebase 웹 앱 ID 설정과 혼동하지 않습니다. 현재 계정 경로는 `artifacts/{APP_ID}/users/{uid}/libraries/local/` 아래입니다.

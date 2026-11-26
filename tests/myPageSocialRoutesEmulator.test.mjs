@@ -55,6 +55,41 @@ async function ok(response) {
 const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/api/book-reviews?' + new URLSearchParams({ workId }))));
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
 
+test('shared Drive discovery and opening both enforce the Firebase allowlist', async (t) => {
+  const folderSetting = 'WEB_READER_SHARED_DRIVE_FOLDER_ID';
+  const allowlistSetting = 'WEB_READER_SHARED_DRIVE_ALLOWED_UIDS';
+  const previous = new Map([folderSetting, allowlistSetting].map((key) => [key, process.env[key]]));
+  t.after(() => {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+  const view = { view: 'shared-drive' };
+  const open = { ...view, open: '1' };
+  const folderId = 'fixture-test-folder-id';
+  const allowed = await emulatorLogin('shared-drive-allowed');
+  const denied = await emulatorLogin('shared-drive-denied');
+  process.env[folderSetting] = folderId;
+  process.env[allowlistSetting] = '';
+  assert.deepEqual(await ok(get(view, allowed.idToken)), { available: false });
+  assert.equal((await get(open, allowed.idToken)).status, 404);
+
+  process.env[allowlistSetting] = `  ${allowed.localId}  `;
+  assert.deepEqual(await ok(get(view, allowed.idToken)), { available: true });
+  assert.deepEqual(await ok(get(open, allowed.idToken)), { url: `https://drive.google.com/drive/folders/${folderId}` });
+  assert.deepEqual(await ok(get(view, denied.idToken)), { available: false });
+  for (const token of [undefined, 'invalid-token', denied.idToken]) {
+    const response = await get(open, token);
+    assert.equal(response.status, token === denied.idToken ? 404 : 401);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.doesNotMatch(await response.text(), /drive\.google\.com|fixture-test-folder-id/);
+  }
+  process.env[allowlistSetting] = denied.localId;
+  assert.equal((await get(open, allowed.idToken)).status, 404);
+  process.env[folderSetting] = 'https://example.test/untrusted';
+  assert.deepEqual(await ok(get(view, denied.idToken)), { available: false });
+});
+
 test('calendar endpoints expose only the authenticated owner’s complete publication', async (t) => {
   const flag = 'NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS';
   const previousFlag = process.env[flag];

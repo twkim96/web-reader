@@ -161,6 +161,59 @@ test('browse replaces user search with public book rows grouped by reader', asyn
   }
 });
 
+test('the shared Drive button waits for server permission and requests the link on click', async (t) => {
+  const { window, root } = setup();
+  const { SharedDriveFolderLink } = await import('../src/components/mypage/SharedDriveFolderLink.tsx');
+  const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
+  const uid = 'shared-drive-ui';
+  const ownerKey = `firebase:${uid}|library:local`;
+  const authFixture = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === './firebase' && context.parentURL?.endsWith('/myPageSocialClient.ts')) {
+        return { url: 'data:text/javascript,' + encodeURIComponent(
+          `export const auth = { currentUser: { uid: '${uid}', getIdToken: async () => 'fixture-drive-token' } };`
+        ), shortCircuit: true };
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  ownerRuntime.activate(ownerKey);
+  const requests = [];
+  const forwarded = [];
+  const folderUrl = 'https://drive.google.com/drive/folders/fixture-test-folder-id';
+  window.location.assign = (url) => forwarded.push(url);
+  let available = false;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const params = new URL(url, 'http://localhost').searchParams;
+    assert.equal(params.get('view'), 'shared-drive');
+    assert.equal(options.headers.get('authorization'), 'Bearer fixture-drive-token');
+    requests.push(params.get('open'));
+    return Response.json(params.has('open') ? { url: folderUrl } : { available });
+  });
+  try {
+    const button = () => window.document.querySelector('#root button');
+    await act(async () => root.render(React.createElement(SharedDriveFolderLink, { owner })));
+    assert.deepEqual(requests, []);
+    await act(async () => root.render(React.createElement(SharedDriveFolderLink, { key: 'denied', owner: ownerKey })));
+    for (let attempt = 0; attempt < 20 && requests.length < 1; attempt++) await act(async () => delay(10));
+    assert.deepEqual(requests, [null]);
+    assert.equal(button(), null);
+    available = true;
+    await act(async () => root.render(React.createElement(SharedDriveFolderLink, { key: 'allowed', owner: ownerKey })));
+    for (let attempt = 0; attempt < 20 && !button(); attempt++) await act(async () => delay(10));
+    assert.equal(button().textContent, 'Google Drive에서 열기');
+    assert.deepEqual(requests, [null, null]);
+    assert.equal(window.document.querySelector('#root a'), null);
+    await click(window, button());
+    assert.deepEqual(requests, [null, null, '1']);
+    assert.deepEqual(forwarded, [folderUrl]);
+  } finally {
+    await act(async () => root.unmount());
+    ownerRuntime.clear();
+    authFixture.deregister();
+  }
+});
+
 test('stars navigate to the detail editor, preserving the draft across failed saves and conflicts', async (t) => {
   const { window, root } = setup('#mypage/read');
   const uid = 'rating-ui';
