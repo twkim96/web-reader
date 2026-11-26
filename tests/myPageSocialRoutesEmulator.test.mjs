@@ -66,6 +66,8 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   const unrelated = 'fixture-unrelated-book';
   const outside = 'fixture-outside-folder';
   const library = 'fixture-private-library';
+  const replacement = 'fixture-replacement-library';
+  const registryId = 'fixture-library-registry';
   const driveToken = 'fixture-drive-token';
   const endpoint = 'http://localhost/api/shared-drive';
   const env = {
@@ -96,18 +98,25 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   let generatedCount = 0;
   let loseNextCopyResponse = true;
   let allowedByDrive = true;
-  let ownedFolderExists = false;
+  let rootThrottled = false;
+  let parentThrottled = false;
+  let registryThrottled = false;
+  let registeredLibrary;
   let sourceMoved = false;
   let canCopy = true;
   let sharedDestination = false;
+  const quotaError = () => Response.json({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } }, { status: 403 });
   t.mock.method(globalThis, 'fetch', async (input, options) => {
     const url = new URL(String(input));
     if (url.hostname !== 'www.googleapis.com') return originalFetch(input, options);
     assert.equal(new Headers(options.headers).get('authorization'), 'Bearer ' + driveToken);
     const path = url.pathname.split('/').at(-1);
     if (path === 'about') return Response.json({ user: { permissionId: 'fixture-drive-account' } });
-    if (path === root) return allowedByDrive ? Response.json(folder) : new Response(null, { status: 404 });
-    if (path === nested) return Response.json({ ...folder, parents: [sourceMoved ? outside : root] });
+    if (path === root) {
+      if (rootThrottled) return quotaError();
+      return allowedByDrive ? Response.json(folder) : new Response(null, { status: 404 });
+    }
+    if (path === nested) return parentThrottled ? quotaError() : Response.json({ ...folder, parents: [sourceMoved ? outside : root] });
     if (path === outside) return Response.json(folder);
     if (path === file) return Response.json({ ...nestedBook, capabilities: { canCopy } });
     if (path === second) return Response.json(secondBook);
@@ -118,14 +127,18 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     if (path === 'generateIds') return Response.json({
       ids: Array.from({ length: Number(url.searchParams.get('count')) }, () => `fixture-new-copy-${++generatedCount}`),
     });
-    if (path === library) return Response.json({ ...folder, id: library, name: 'web viewer', ownedByMe: true,
+    if (path === library || path === replacement) return Response.json({ ...folder, id: path, name: 'web viewer', ownedByMe: true,
       shared: sharedDestination, capabilities: { canAddChildren: true } });
-    if (url.searchParams.get('spaces') === 'appDataFolder') return Response.json({ files: [] });
-    if (url.searchParams.get('uploadType') === 'multipart') return Response.json({ id: 'fixture-registry' });
+    if (url.searchParams.get('spaces') === 'appDataFolder') {
+      if (registryThrottled) return quotaError();
+      return Response.json({ files: registeredLibrary ? [{ id: registryId }] : [] });
+    }
+    if (path === registryId) return Response.json({ version: 1, folderId: registeredLibrary });
+    if (url.searchParams.get('uploadType') === 'multipart') return Response.json({ id: registryId });
     if (path === 'files' && options.method === 'POST') {
-      assert.equal(ownedFolderExists, false);
+      assert.equal(registeredLibrary, undefined);
       assert.deepEqual(JSON.parse(options.body), { name: 'web viewer', mimeType: folderMime });
-      ownedFolderExists = true;
+      registeredLibrary = library;
       return Response.json({ id: library });
     }
     if (path === 'files') {
@@ -177,6 +190,12 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     pickerKey: env.WEB_READER_SHARED_DRIVE_PICKER_KEY, appId: env.WEB_READER_SHARED_DRIVE_PICKER_APP_ID });
   const search = { action: 'search', query: '테스트' };
   assert.equal((await sharedDrivePost(request(search, allowed.idToken, 'https://elsewhere.test'))).status, 403);
+  rootThrottled = true;
+  assert.equal((await sharedDriveGet(request())).status, 429);
+  rootThrottled = false;
+  parentThrottled = true;
+  assert.equal((await sharedDrivePost(request(search))).status, 429);
+  parentThrottled = false;
   assert.deepEqual(await privateJson(await sharedDrivePost(request(search))), { ids: [file, second], limited: false });
   const copy = (ids) => sharedDrivePost(request({ action: 'copy', ids }));
   assert.deepEqual(await privateJson(await copy([unrelated])), { results: [false] });
@@ -194,6 +213,14 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   assert.equal(generatedCount, 2);
   sharedDestination = true;
   assert.equal((await copy([second])).status, 403);
+  sharedDestination = false;
+  registryThrottled = true;
+  assert.equal((await copy([second])).status, 503);
+  registryThrottled = false;
+  registeredLibrary = replacement;
+  const changedDestination = await copy([second]);
+  assert.equal(changedDestination.status, 409);
+  assert.equal((await changedDestination.json()).reason, 'destination-changed');
   assert.deepEqual(copied.sort(), [file, second].sort());
 });
 

@@ -149,7 +149,7 @@ export function BookReviewEditor({
               <button type="submit" disabled={pending || !canEdit || !draftMatches} className="min-h-10 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white disabled:opacity-40">저장</button>
             </div>
           </form>
-        ) : null}
+        ) : displayed?.comment ? <p className="mt-2 break-words text-sm opacity-80">{displayed.comment}</p> : null}
       </>}
       {feedback && <p role="alert" className="mt-2 text-sm text-accent-500">{feedback}</p>}
     </section>

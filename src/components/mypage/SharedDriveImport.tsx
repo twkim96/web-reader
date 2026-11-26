@@ -7,7 +7,11 @@ import { pickSharedDriveFiles } from '../../lib/googleDrivePicker';
 
 export type SharedDriveConnection = { token: string; sessionId: string; refreshShelf: () => void };
 type PickerConfig = { available: true; pickerKey: string; appId: string } | { available: false };
-class SharedDriveRequestError extends Error {}
+class SharedDriveRequestError extends Error {
+  constructor(readonly status: number, readonly reason: string) {
+    super(`HTTP ${status}${reason ? `/${reason}` : ''}`);
+  }
+}
 
 async function requestImport<T>(owner: OwnerKey, driveToken: string, signal: AbortSignal, body?: object): Promise<T> {
   const session = ownerRuntime.capture();
@@ -28,8 +32,8 @@ async function requestImport<T>(owner: OwnerKey, driveToken: string, signal: Abo
   });
   if (!response.ok) {
     const details = await response.json().catch(() => null) as { reason?: unknown } | null;
-    const reason = typeof details?.reason === 'string' && /^[a-z]{1,16}$/.test(details.reason) ? `/${details.reason}` : '';
-    throw new SharedDriveRequestError(`HTTP ${response.status}${reason}`);
+    const reason = typeof details?.reason === 'string' && /^[a-z-]{1,24}$/.test(details.reason) ? details.reason : '';
+    throw new SharedDriveRequestError(response.status, reason);
   }
   const data = await response.json() as T;
   signal.throwIfAborted();
@@ -41,6 +45,8 @@ const actionStyle = 'min-h-10 rounded-lg px-3 text-sm font-semibold text-accent-
 
 export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; drive: SharedDriveConnection; title: string }) {
   const [status, setStatus] = useState<PickerConfig>();
+  const [checkFailed, setCheckFailed] = useState(false);
+  const [checkAttempts, setCheckAttempts] = useState(0);
   const [query, setQuery] = useState(() => title.slice(0, 200));
   const [busy, setBusy] = useState(false);
   const [refine, setRefine] = useState(false);
@@ -50,12 +56,14 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
 
   useEffect(() => {
     const check = new AbortController();
-    void requestImport<PickerConfig>(owner, token, check.signal).then(setStatus).catch(() => {});
+    void requestImport<PickerConfig>(owner, token, check.signal).then(setStatus).catch(() => {
+      if (!check.signal.aborted) setCheckFailed(true);
+    });
     return () => {
       check.abort();
       controller.current?.abort();
     };
-  }, [owner, token]);
+  }, [owner, token, checkAttempts]);
 
   async function open(value: string) {
     if (!status?.available || !value.trim() || controller.current) return;
@@ -90,7 +98,13 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
         if (process.env.NEXT_PUBLIC_WEB_READER_PREVIEW === '1') {
           console.warn('[SharedDrive]', error instanceof SharedDriveRequestError ? error.message : 'Picker or client session failed');
         }
-        setFeedback('가져오기를 완료하지 못했습니다. Drive 연결과 서재를 확인한 뒤 다시 시도해 주세요.');
+        if (error instanceof SharedDriveRequestError && error.reason === 'destination-changed') {
+          setFeedback('복사 대상 서재가 바뀌었습니다. 이전 서재에 사본이 있는지 확인해 주세요.');
+        } else if (error instanceof SharedDriveRequestError && error.status === 429) {
+          setFeedback('Drive가 요청을 제한하고 있습니다. 잠시 후 다시 시도해 주세요.');
+        } else {
+          setFeedback('가져오기를 완료하지 못했습니다. Drive 연결과 서재를 확인한 뒤 다시 시도해 주세요.');
+        }
       }
     } finally {
       if (controller.current === current) {
@@ -100,7 +114,15 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
     }
   }
 
-  if (!status?.available) return null;
+  if (!status?.available) return checkFailed ? (
+    <p role="status" className="mt-1 text-sm opacity-70">
+      공유 폴더 연결을 확인하지 못했습니다.
+      <button type="button" className={actionStyle} onClick={() => {
+        setCheckFailed(false);
+        setCheckAttempts((current) => current + 1);
+      }}>다시 확인</button>
+    </p>
+  ) : null;
   return (
     <div className="mt-1">
       <button type="button" disabled={busy} onClick={() => {

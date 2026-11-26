@@ -316,6 +316,7 @@ function readSynopsisShard(shard: string) {
 
 export async function loadDiscoverySynopsis(
   reference: NonNullable<DiscoveryBook['synopsis']>,
+  platformKeys: readonly string[],
   signal: AbortSignal,
 ): Promise<string | null> {
   const read = async ({ shard, workId }: typeof reference) => {
@@ -330,10 +331,18 @@ export async function loadDiscoverySynopsis(
   };
   const result = await read(reference);
   if (result !== undefined) return result;
+  if (!platformKeys.length) return null;
   // A deploy may replace a shard referenced by an already-open app.
   const refreshedIndex = parseDiscoveryIndex(await fetchDiscoveryIndex(true));
   signal.throwIfAborted();
-  const current = getGroupedBookDiscovery(refreshedIndex).byId.get(reference.workId)?.synopsis;
+  const grouped = getGroupedBookDiscovery(refreshedIndex);
+  const matches = new Set(platformKeys.flatMap((key) => {
+    const id = grouped.platforms.get(key);
+    return id === undefined ? [] : [id];
+  }));
+  if (matches.size !== 1) return null;
+  const [currentId] = matches;
+  const current = grouped.byId.get(currentId)?.synopsis;
   if (!current) return null;
   if (current.shard === reference.shard) throw new Error('Synopsis unavailable');
   const refreshed = await read(current);

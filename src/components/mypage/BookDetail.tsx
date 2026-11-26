@@ -26,20 +26,26 @@ import { SharedDriveImport, type SharedDriveConnection } from './SharedDriveImpo
 const percent = new Intl.NumberFormat('ko', { maximumFractionDigits: 2 });
 const formatPercent = (number: number) => `${percent.format(number)}%`;
 
-function BookSynopsis({ reference }: { reference: NonNullable<DiscoveryBook['synopsis']> }) {
+function BookSynopsis({ reference, platformKeys }: {
+  reference: NonNullable<DiscoveryBook['synopsis']>;
+  platformKeys: readonly string[];
+}) {
   const [text, setText] = useState<string | null>();
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const { shard, workId } = reference;
   useEffect(() => {
     const controller = new AbortController();
-    void loadDiscoverySynopsis({ shard, workId }, controller.signal).then((value) => {
-      if (!controller.signal.aborted) setText(value);
+    void loadDiscoverySynopsis({ shard, workId }, platformKeys, controller.signal).then((value) => {
+      if (!controller.signal.aborted) {
+        setText(value);
+        setFailed(false);
+      }
     }).catch(() => {
       if (!controller.signal.aborted) setFailed(true);
     });
     return () => controller.abort();
-  }, [retry, shard, workId]);
+  }, [retry, shard, workId, platformKeys]);
 
   if (text === null) return null;
   return (
@@ -338,7 +344,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive,
           error={reviews.error} refresh={reviews.refresh} change={changeReview} editorRef={reviewEditor} />
         {sharedDrive && !isGuestOwner(ownerKey) && <SharedDriveImport key={sharedDrive.sessionId} owner={ownerKey} drive={sharedDrive} title={title} />}
       </section>
-      {discovery?.synopsis && <BookSynopsis key={`${discovery.synopsis.workId}:${discovery.synopsis.shard}`} reference={discovery.synopsis} />}
+      {discovery?.synopsis && <BookSynopsis key={`${discovery.synopsis.workId}:${discovery.synopsis.shard}`} reference={discovery.synopsis} platformKeys={platformKeys} />}
       {hasPersonal && (
         <section className="mypage-section" aria-label="내 독서 기록">
           <h2 className="text-lg font-semibold tracking-tight">내 독서 기록</h2>

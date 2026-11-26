@@ -143,6 +143,15 @@ const readDiscoveryPreset = () => {
   const [path, params] = window.location.hash.split('?');
   return path === '#mypage/discover' ? new URLSearchParams(params).get('q') ?? '' : '';
 };
+type DiscoverySearch = { query: string; exactAuthor: boolean; source: string; genre: string; selectedTags: string[]; visibleCount: number };
+const emptyDiscoverySearch = (query: string): DiscoverySearch => ({
+  query, exactAuthor: query.startsWith('@'), source: '', genre: '', selectedTags: [], visibleCount: 60,
+});
+const readSavedDiscoverySearch = (ownerKey: OwnerKey): DiscoverySearch | undefined => {
+  if (typeof window === 'undefined') return;
+  const entry = window.history.state?.myPageDiscoverySearch;
+  if (entry?.ownerKey === ownerKey) return entry.search;
+};
 const inputClass = 'min-h-11 min-w-0 rounded-lg px-3 ring-1 ring-inset ring-current/15 text-sm focus-visible:outline-2 focus-visible:outline-accent-500';
 const titleMiddleY = (header: HTMLElement) => {
   const { top, height } = header.getBoundingClientRect();
@@ -186,18 +195,19 @@ export function MyPage(props: Props) {
   const [recommended, setRecommended] = useState<{ ownerKey: OwnerKey; books: readonly DiscoveryBook[] }>();
   const [catalogError, setCatalogError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [query, setQuery] = useState(readDiscoveryPreset);
-  const discoveryPreset = useRef(query);
-  const [exactAuthor, setExactAuthor] = useState(() => query.startsWith('@'));
-  const [source, setSource] = useState('');
-  const [genre, setGenre] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [initialSearch] = useState(() => readSavedDiscoverySearch(ownerKey) ?? emptyDiscoverySearch(readDiscoveryPreset()));
+  const [query, setQuery] = useState(initialSearch.query);
+  const discoveryPreset = useRef(readDiscoveryPreset());
+  const [exactAuthor, setExactAuthor] = useState(initialSearch.exactAuthor);
+  const [source, setSource] = useState(initialSearch.source);
+  const [genre, setGenre] = useState(initialSearch.genre);
+  const [selectedTags, setSelectedTags] = useState(initialSearch.selectedTags);
   const discoverySearchRef = useRef<HTMLInputElement>(null);
   const suggestionDrag = useMouseDragScroll();
   const [wishlistSort, setWishlistSort] = useMyPageSort(ownerKey, 'wishlist', wishlistSorts, 'saved');
   const [discoverySort, setDiscoverySort] = useMyPageSort(ownerKey, 'discover', catalogSorts, 'popular');
   const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
-  const [visibleCount, setVisibleCount] = useState(60);
+  const [visibleCount, setVisibleCount] = useState(initialSearch.visibleCount);
   const signedIn = !isGuestOwner(ownerKey);
   const wishlist = useAccountWishlist(ownerKey, signedIn);
   const { entries: wishlistEntries, loading: wishlistLoading } = wishlist;
@@ -233,21 +243,39 @@ export function MyPage(props: Props) {
       window.removeEventListener('resize', update);
     };
   }, []);
-  const resetFilters = useCallback((initialQuery = '') => {
-    setQuery(initialQuery);
-    setExactAuthor(initialQuery.startsWith('@'));
-    setSource('');
-    setGenre('');
-    setSelectedTags([]);
-    setVisibleCount(60);
+  const applyDiscoverySearch = useCallback((search: DiscoverySearch) => {
+    setQuery(search.query);
+    setExactAuthor(search.exactAuthor);
+    setSource(search.source);
+    setGenre(search.genre);
+    setSelectedTags(search.selectedTags);
+    setVisibleCount(search.visibleCount);
   }, []);
-  const navigate = (next: Tab, preset = '') => {
-    if (next === tab && !bookId && preset === discoveryPreset.current) return;
+  const currentDiscoverySearch = { query, exactAuthor, source, genre, selectedTags, visibleCount };
+  const saveDiscoverySearch = () => {
+    if (tab !== 'discover') return;
+    window.history.replaceState({
+      ...window.history.state, myPageDiscoverySearch: { ownerKey, search: currentDiscoverySearch },
+    }, '', window.location.href);
+  };
+  const navigate = (next: Tab, preset = '', nextSearch?: DiscoverySearch) => {
+    if (next === tab && !bookId && preset === discoveryPreset.current) {
+      if (nextSearch) {
+        window.history.replaceState({
+          ...window.history.state, myPageDiscoverySearch: { ownerKey, search: nextSearch },
+        }, '', window.location.href);
+      }
+      return;
+    }
+    saveDiscoverySearch();
     if (next === 'discover') discoveryStarted.current = startDiscoveryTiming();
     readListScroll.current = null;
     discoveryPreset.current = preset;
-    window.history.pushState(next === 'recommendations' && tab === 'overview' ? { myPageRecommendationsFromHome: true } : null,
-      '', `#mypage/${next}${preset ? `?q=${encodeURIComponent(preset)}` : ''}`);
+    window.history.pushState(
+      nextSearch ? { myPageDiscoverySearch: { ownerKey, search: nextSearch } }
+        : next === 'recommendations' && tab === 'overview' ? { myPageRecommendationsFromHome: true } : null,
+      '', `#mypage/${next}${preset ? `?q=${encodeURIComponent(preset)}` : ''}`,
+    );
     setTab(next);
     if (next !== 'browse') setFeedSection('reviews');
     setBookId(null);
@@ -263,6 +291,7 @@ export function MyPage(props: Props) {
   };
   const openBookById = (id: string, book?: DiscoveryBook | ReadBook, reviewTarget = false) => {
     if (tab === 'read' && !bookId) readListScroll.current = window.scrollY;
+    saveDiscoverySearch();
     window.history.pushState({
       ...window.history.state, myPageBookFrom: tab, myPageDiscoveryPreset: discoveryPreset.current,
     }, '', bookDetailHref(id, reviewTarget));
@@ -284,10 +313,10 @@ export function MyPage(props: Props) {
       const nextTab = readTab();
       const nextBook = readDetailId();
       const preset = readDiscoveryPreset();
-      if (discoveryPreset.current !== preset) {
-        discoveryPreset.current = preset;
-        resetFilters(preset);
+      if (nextTab === 'discover' || discoveryPreset.current !== preset) {
+        applyDiscoverySearch(readSavedDiscoverySearch(ownerKey) ?? emptyDiscoverySearch(preset));
       }
+      discoveryPreset.current = preset;
       restoreReadListScroll.current = nextTab === 'read' && nextBook === null;
       setTab(nextTab);
       if (nextTab !== 'browse') setFeedSection('reviews');
@@ -300,7 +329,7 @@ export function MyPage(props: Props) {
       window.removeEventListener('popstate', update);
       window.removeEventListener('hashchange', update);
     };
-  }, [resetFilters]);
+  }, [applyDiscoverySearch, ownerKey]);
   useLayoutEffect(() => {
     if (!restoreReadListScroll.current || bookId || tab !== 'read') return;
     restoreReadListScroll.current = false;
@@ -407,9 +436,13 @@ export function MyPage(props: Props) {
     setVisibleCount(60);
     discoverySearchRef.current?.focus();
   };
-  const openTab = (next: Tab) => { resetFilters(); navigate(next); };
+  const openTab = (next: Tab) => {
+    const search = emptyDiscoverySearch('');
+    applyDiscoverySearch(search);
+    navigate(next, '', next === 'discover' ? search : undefined);
+  };
   const openDiscoverySearch = (preset: string) => {
-    resetFilters(preset);
+    applyDiscoverySearch(emptyDiscoverySearch(preset));
     navigate('discover', preset);
   };
   const selectSuggestion = (label: string) => {
@@ -418,10 +451,9 @@ export function MyPage(props: Props) {
       return;
     }
     const preset = `@${label}`;
-    setQuery(preset);
-    setExactAuthor(true);
-    setVisibleCount(60);
-    navigate('discover', preset);
+    const search = { ...currentDiscoverySearch, query: preset, exactAuthor: true, visibleCount: 60 };
+    applyDiscoverySearch(search);
+    navigate('discover', preset, search);
     discoverySearchRef.current?.focus();
   };
   const detailLabel = tabLabels[tab];

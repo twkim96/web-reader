@@ -56,6 +56,9 @@ const setup = (hash = '#mypage/wishlist') => {
   let index = 0;
   window.history = {
     get state() { return states[index]; },
+    replaceState(state) {
+      states[index] = state;
+    },
     pushState(state, _title, url) {
       stack.splice(index + 1);
       states.splice(index + 1);
@@ -179,6 +182,7 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
   });
   ownerRuntime.activate(owner);
   let available = false;
+  let checkThrottled = false;
   const requests = [];
   const candidates = ['fixture-source-file', 'fixture-second-file'];
   let shownIds;
@@ -210,6 +214,7 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
     requests.push(request);
     if (request?.action === 'search') return Response.json({ ids: candidates, limited: false });
     if (request?.action === 'copy') return Response.json({ results: [true, true] });
+    if (checkThrottled) return Response.json({ reason: 'drive' }, { status: 429 });
     return Response.json(available ? { available, pickerKey: 'key', appId: '123456' } : { available });
   });
   try {
@@ -218,13 +223,19 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
     for (let attempt = 0; attempt < 20 && requests.length < 1; attempt++) await act(async () => delay(10));
     assert.equal(button(), undefined);
     available = true;
+    checkThrottled = true;
     await act(async () => root.render(React.createElement(SharedDriveImport, { key: 'allowed', ...props })));
+    const retry = () => [...window.document.querySelectorAll('#root button')].find((item) => item.textContent === '다시 확인');
+    for (let attempt = 0; attempt < 20 && !retry(); attempt++) await act(async () => delay(10));
+    assert.equal(button(), undefined);
+    checkThrottled = false;
+    await click(window, retry());
     for (let attempt = 0; attempt < 20 && !button(); attempt++) await act(async () => delay(10));
     await click(window, button());
     for (let attempt = 0; attempt < 20 && !callback; attempt++) await act(async () => delay(10));
     assert.equal(shownIds, candidates.join(','));
     await act(async () => callback({ action: 'picked', docs: [...candidates.map((id) => ({ id })), { id: 'outside' }] }));
-    assert.deepEqual(requests, [null, null, { action: 'search', query: props.title }, { action: 'copy', ids: candidates }]);
+    assert.deepEqual(requests, [null, null, null, { action: 'search', query: props.title }, { action: 'copy', ids: candidates }]);
     assert.equal(refreshed, 1);
   } finally {
     await act(async () => root.unmount());
@@ -472,7 +483,8 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
       await act(async () => delay(10));
     }
     const halfPoint = editor().querySelector('button[aria-label="4.5점"]');
-    assert.equal(editor().textContent.includes(draftComment), false);
+    assert.match(editor().textContent, new RegExp(draftComment));
+    assert.equal(editor().querySelector('input[aria-label="한줄평 (선택)"]'), null);
     assert.equal(editor().querySelectorAll('[role="group"] button').length, 10);
     await click(window, halfPoint);
     assert.equal(halfPoint.getAttribute('aria-pressed'), 'true');
@@ -517,6 +529,10 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(writes[4].revision, 2);
     assert.equal(writes[4].comment, draftComment);
     assert.ok(editor().querySelector('[aria-label="별점 4.5점"]'));
+    assert.match(editor().textContent, new RegExp(draftComment));
+    await click(window, editor().querySelector('button[aria-label="3점"]'));
+    await click(window, [...editor().querySelectorAll('button')].find((button) => button.textContent === '취소'));
+    assert.match(editor().textContent, new RegExp(draftComment));
     await openMenu('보관');
     for (let attempt = 0; attempt < 20 && !visible(`a[aria-label="${title} 내 평가, 별점 4.5점"]`); attempt++) {
       await act(async () => delay(10));

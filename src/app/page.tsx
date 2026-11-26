@@ -968,7 +968,10 @@ export default function Page() {
           key={activeOwnerKey}
           ownerKey={activeOwnerKey}
           sharedDrive={googleToken && !isOfflineMode && driveSessionId && driveCacheKey?.endsWith(`::${driveSessionId}`)
-            ? { token: googleToken, sessionId: driveSessionId, refreshShelf: () => { void loadLibraryFromDrive(googleToken); } }
+            ? { token: googleToken, sessionId: driveSessionId, refreshShelf: () => {
+              invalidateDriveCache(driveCacheKey);
+              void loadLibraryFromDrive(googleToken);
+            } }
             : undefined}
           books={books}
           progress={shelfProgress}

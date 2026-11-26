@@ -200,7 +200,7 @@ const isUsableLibraryFolder = (folder: DriveFolder | null) => (
   && folder.name === DRIVE_LIBRARY_FOLDER_NAME
 );
 
-const readDriveLibraryRegistry = async (token: string, signal?: AbortSignal) => {
+const readDriveLibraryRegistry = async (token: string, signal?: AbortSignal, requireAccess = false) => {
   const query = `name = '${DRIVE_LIBRARY_REGISTRY_NAME}' and 'appDataFolder' in parents and trashed = false`;
   const files: Array<{ id: string }> = [];
   const seenTokens = new Set<string>();
@@ -219,7 +219,7 @@ const readDriveLibraryRegistry = async (token: string, signal?: AbortSignal) => 
       5000,
     );
 
-    if (response.status === 403) return null;
+    if (response.status === 403 && !requireAccess) return null;
     if (!response.ok) {
       throwIfGoogleDriveAuthError(response);
       throw new Error('라이브러리 폴더 설정 조회 실패');
@@ -247,7 +247,7 @@ const readDriveLibraryRegistry = async (token: string, signal?: AbortSignal) => 
       { headers: { Authorization: `Bearer ${token}` }, signal },
       5000,
     );
-    if (contentResponse.status === 403 || contentResponse.status === 404) continue;
+    if (contentResponse.status === 404 || (contentResponse.status === 403 && !requireAccess)) continue;
     if (!contentResponse.ok) {
       throwIfGoogleDriveAuthError(contentResponse);
       throw new Error('라이브러리 폴더 설정 다운로드 실패');
@@ -421,10 +421,12 @@ const createLibraryFolder = async (token: string, signal?: AbortSignal) => {
   return data.id;
 };
 
+type DriveLibraryFolderOptions = { createIfMissing?: boolean; signal?: AbortSignal; requireRegistryAccess?: boolean };
+
 const resolveDriveLibraryFolderId = async (
   token: string,
   cacheKey: string,
-  { createIfMissing = false, signal }: { createIfMissing?: boolean; signal?: AbortSignal } = {},
+  { createIfMissing = false, signal, requireRegistryAccess }: DriveLibraryFolderOptions,
 ) => {
   const cachedFolderId = libraryFolderCache.get(cacheKey) ?? null;
   if (cachedFolderId) {
@@ -437,7 +439,7 @@ const resolveDriveLibraryFolderId = async (
     syncedLibraryRegistry.delete(cacheKey);
   }
 
-  const registry = await readDriveLibraryRegistry(token, signal);
+  const registry = await readDriveLibraryRegistry(token, signal, requireRegistryAccess);
   if (registry?.folderId) {
     const registeredFolder = await fetchDriveFolder(registry.folderId, token, signal);
     if (isUsableLibraryFolder(registeredFolder)) {
@@ -474,7 +476,7 @@ const resolveDriveLibraryFolderId = async (
 
 export const getDriveLibraryFolderId = async (
   token: string,
-  options: { cacheKey: string; createIfMissing?: boolean; signal?: AbortSignal },
+  options: DriveLibraryFolderOptions & { cacheKey: string },
 ): Promise<string | null> => {
   const { cacheKey } = options;
   const createIfMissing = options.createIfMissing ?? false;
@@ -483,16 +485,12 @@ export const getDriveLibraryFolderId = async (
     const folderId = await current.promise;
     if (folderId || !createIfMissing || current.createIfMissing) return folderId;
     return getDriveLibraryFolderId(token, {
-      cacheKey,
+      ...options,
       createIfMissing: true,
-      signal: options.signal,
     });
   }
 
-  const promise = resolveDriveLibraryFolderId(token, cacheKey, {
-    createIfMissing,
-    signal: options.signal,
-  });
+  const promise = resolveDriveLibraryFolderId(token, cacheKey, options);
   libraryFolderInFlight.set(cacheKey, { createIfMissing, promise });
   try {
     return await promise;

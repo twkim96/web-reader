@@ -126,10 +126,15 @@ test('discovery searches by author and loads the current synopsis only in book d
     return route.fulfill({ json: {
       schemaVersion: 1, generation: shard, genres: [], tags: [],
       books: [
-        ['소설', '별의 이야기', null, [['series', 'https://example.test/synopsis/first']], null, [], 10, null],
+        shard === oldShard
+          ? ['소설', '별의 이야기', null, [['series', 'https://example.test/synopsis/first']], null, [], 10, null]
+          : ['새소설', '별의 이야기 새 제목', null, [['series', 'https://example.test/synopsis/first']], null, [], 10, null],
         ['다른책', '다른 이야기', null, [['series', 'https://example.test/synopsis/second']], null, [], 9, null],
+        ...(shard === newShard
+          ? [['소설', '이전 제목을 재사용한 다른 작품', null, [['series', 'https://example.test/synopsis/third']], null, [], 8, null]]
+          : []),
       ],
-      details: [['하늘 작가', 0], [null, 1]],
+      details: [['하늘 작가', 0], [null, 1], ...(shard === newShard ? [[null, 0]] : [])],
       synopsisShards: [shard, secondShard],
     } });
   });
@@ -137,7 +142,7 @@ test('discovery searches by author and loads the current synopsis only in book d
     const shard = new URL(route.request().url()).pathname.split('/').at(-1);
     if (shard) shardRequests.push(shard);
     return shard === `${newShard}.json`
-      ? route.fulfill({ json: { 소설: '새로 올라온 작품 소개\n둘째 줄' } })
+      ? route.fulfill({ json: { 새소설: '새로 올라온 작품 소개\n둘째 줄', 소설: '다른 작품 소개' } })
       : route.fulfill({ status: 404 });
   });
 
@@ -156,7 +161,7 @@ test('discovery searches by author and loads the current synopsis only in book d
   expect(indexRequests).toBe(2);
 });
 
-test('detail author and tag shortcuts open catalog searches and the author row groups matching names', async ({ page }) => {
+test('detail author and tag shortcuts restore the prior catalog filters on back', async ({ page }) => {
   await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
     schemaVersion: 1, generation: 'author-shortcut', genres: [], tags: ['별빛'],
     books: [
@@ -171,7 +176,13 @@ test('detail author and tag shortcuts open catalog searches and the author row g
     details: [['별', null], [null, null], ['별', null], ['별빛', null], ['다른 이름', null], ['목마', null], ['푸른목마', null]],
   } }));
 
-  await page.goto('/#mypage/book/first');
+  await page.goto('/#mypage/discover');
+  const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
+  const platform = page.getByRole('combobox', { name: '도서 플랫폼 필터' });
+  await search.fill('@별');
+  await platform.selectOption('series');
+  await page.getByRole('combobox', { name: '도서 태그 필터' }).selectOption('별빛');
+  await page.getByRole('region', { name: '도서 목록', exact: true }).getByRole('link', { name: '첫 작품' }).click();
   const basic = page.getByRole('region', { name: '도서 기본정보' });
   const author = basic.getByRole('button', { name: '별', exact: true });
   const authorRow = page.getByRole('list', { name: '별 작가의 도서 가로 목록' });
@@ -184,7 +195,6 @@ test('detail author and tag shortcuts open catalog searches and the author row g
   await expect(author).toBeVisible();
 
   await author.click();
-  const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
   const results = page.getByRole('region', { name: '도서 목록', exact: true }).getByRole('link');
   const expectWorks = async (titles: string[]) => {
     await expect(results).toHaveCount(titles.length);
@@ -200,6 +210,15 @@ test('detail author and tag shortcuts open catalog searches and the author row g
   await tag.click();
   await expect(search).toHaveValue('#별빛');
   await expectWorks(['첫 작품', '셋째 작품']);
+  await page.goBack();
+  await expect(author).toBeVisible();
+  await page.goBack();
+  await expect(search).toHaveValue('@별');
+  await expect(platform).toHaveValue('series');
+  await expect(page.getByRole('button', { name: '#별빛 제거' })).toBeVisible();
+  await expectWorks(['첫 작품', '셋째 작품']);
+  await page.goForward();
+  await tag.click();
   await page.reload();
   await expect(search).toHaveValue('#별빛');
   await expectWorks(['첫 작품', '셋째 작품']);

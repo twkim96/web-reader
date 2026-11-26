@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getBookMaxBytes, getSourceBookFormat } from '../../lib/bookFormats';
-import { DRIVE_LIBRARY_FOLDER_NAME, fetchAndConsumeWithTimeout, getDriveLibraryFolderId } from '../../lib/googleDrive';
+import { DRIVE_LIBRARY_FOLDER_NAME, fetchAndConsumeWithTimeout, getDriveLibraryFolderId, invalidateDriveCache } from '../../lib/googleDrive';
 
 const API = 'https://www.googleapis.com/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -12,10 +12,9 @@ const MAX_SEARCH_PAGES = 3;
 const MAX_SEARCH_LOOKUPS = 48;
 const MAX_RESULTS = 30;
 export const COPY_LIMIT = 8;
-const driveErrorReasons = new Set([
-  'appNotAuthorizedToFile', 'badRequest', 'forbidden', 'insufficientFilePermissions', 'insufficientPermissions',
-  'rateLimitExceeded', 'userRateLimitExceeded', 'accessNotConfigured', 'domainPolicy',
-]);
+const accessDeniedReasons = new Set(['appNotAuthorizedToFile', 'forbidden', 'insufficientFilePermissions', 'domainPolicy']);
+const quotaReasons = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'dailyLimitExceeded', 'quotaExceeded']);
+const driveErrorReasons = new Set([...accessDeniedReasons, ...quotaReasons, 'badRequest', 'insufficientPermissions', 'accessNotConfigured']);
 
 type DriveFile = {
   id?: string;
@@ -50,9 +49,11 @@ function driveJson<T>(token: string, path: string, params: Record<string, string
   }, 6_000, async (response) => {
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as { error?: { errors?: { reason?: string }[] } } | null;
-      const reason = payload?.error?.errors?.[0]?.reason;
-      throw new SharedDriveError([400, 401, 403, 404, 409].includes(response.status) ? response.status : 503,
-        reason && driveErrorReasons.has(reason) ? reason : undefined);
+      const reasons = payload?.error?.errors?.map(({ reason }) => reason ?? '') ?? [];
+      const quota = reasons.find((reason) => quotaReasons.has(reason));
+      const reason = quota ?? reasons.find((reason) => driveErrorReasons.has(reason));
+      const status = quota ? 429 : [400, 401, 403, 404, 409, 429].includes(response.status) ? response.status : 503;
+      throw new SharedDriveError(status, reason);
     }
     return await response.json() as T;
   });
@@ -61,7 +62,9 @@ function driveJson<T>(token: string, path: string, params: Record<string, string
 const getFile = (token: string, id: string, fields: string, signal: AbortSignal) =>
   driveJson<DriveFile>(token, `/files/${encodeURIComponent(id)}`, { fields, supportsAllDrives: 'true' }, signal);
 
-const isMissing = (error: unknown) => error instanceof SharedDriveError && [403, 404].includes(error.status);
+const isMissing = (error: unknown) => error instanceof SharedDriveError && (
+  error.status === 404 || (error.status === 403 && !!error.reason && accessDeniedReasons.has(error.reason))
+);
 
 export async function canReadSharedFolder(token: string, folderId: string, signal: AbortSignal) {
   try {
@@ -158,7 +161,9 @@ export async function searchSharedFolder(token: string, rootId: string, title: s
 }
 
 export async function getSharedDriveDestination(token: string, permissionId: string, sourceId: string, signal: AbortSignal) {
-  const id = await getDriveLibraryFolderId(token, { cacheKey: `shared-import:${permissionId}`, createIfMissing: true, signal });
+  const cacheKey = `shared-import:${permissionId}`;
+  invalidateDriveCache(cacheKey);
+  const id = await getDriveLibraryFolderId(token, { cacheKey, createIfMissing: true, requireRegistryAccess: true, signal });
   if (!isDriveId(id) || id === sourceId) throw new SharedDriveError(403);
   const destination = await getFile(token, id, 'name,mimeType,trashed,ownedByMe,shared,capabilities(canAddChildren)', signal);
   if (destination.name !== DRIVE_LIBRARY_FOLDER_NAME || destination.mimeType !== FOLDER_MIME || destination.trashed !== false

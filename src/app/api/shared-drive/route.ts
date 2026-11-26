@@ -8,12 +8,13 @@ import {
 
 const headers = { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' };
 const json = (body: object, status = 200) => Response.json(body, { status, headers });
-const fail = (status: number, reason?: 'origin' | 'account' | 'folder' | 'drive') =>
+const fail = (status: number, reason?: 'origin' | 'account' | 'folder' | 'drive' | 'destination-changed') =>
   json({ error: 'shared-drive-unavailable', ...(reason && { reason }) }, status);
 export const maxDuration = 45;
 const COPY_RETRY_WINDOW_MS = 10 * 60_000;
 const MAX_RECENT_COPIES = 128;
-type RecentCopy = { id: string; until: number };
+type RecentCopy = { id: string; until: number; sourceKey?: string };
+const hash = (value: string) => createHash('sha256').update(value).digest('base64url');
 
 function config() {
   const folderId = process.env.WEB_READER_SHARED_DRIVE_FOLDER_ID?.trim();
@@ -38,7 +39,7 @@ async function authorize(request: Request, allowedUids: string[]) {
 
 async function copy(token: string, folderId: string, ids: string[], signal: AbortSignal) {
   const permissionId = await getDriveUserPermissionId(token, signal);
-  const key = createHash('sha256').update(permissionId).digest('base64url');
+  const key = hash(permissionId);
   const db = getAdminFirestore();
   const ref = db.collection('sharedDriveImportLocksV1').doc(key);
   const lease = randomUUID();
@@ -60,12 +61,19 @@ async function copy(token: string, folderId: string, ids: string[], signal: Abor
       const now = Date.now();
       const previous = snapshot.get('recentCopies') as Record<string, RecentCopy> | undefined;
       const recent = new Map(Object.entries(previous ?? {}).filter(([, entry]) => entry.until > now));
-      const keyFor = (source: string) => createHash('sha256').update(`${destination}:${source}`).digest('base64url');
-      const missing = sources.map(keyFor).filter((key) => !recent.has(key));
+      const keyFor = (source: string) => hash(`${destination}:${source}`);
+      const recordedDestinations = new Map([...recent].flatMap(([key, entry]) => entry.sourceKey ? [[entry.sourceKey, key]] : []));
+      const missing = sources.filter((source) => {
+        const recorded = recordedDestinations.get(hash(source));
+        if (recorded && recorded !== keyFor(source)) throw new SharedDriveError(409, 'destination-changed');
+        return !recent.has(keyFor(source));
+      });
       if (recent.size + missing.length > MAX_RECENT_COPIES) throw new SharedDriveError(429);
       if (missing.length) {
         const generated = await generateCopyIds(token, missing.length, signal);
-        for (const [index, key] of missing.entries()) recent.set(key, { id: generated[index], until: now + COPY_RETRY_WINDOW_MS });
+        for (const [index, source] of missing.entries()) {
+          recent.set(keyFor(source), { id: generated[index], until: now + COPY_RETRY_WINDOW_MS, sourceKey: hash(source) });
+        }
         await db.runTransaction(async (transaction) => {
           if ((await transaction.get(ref)).get('lease') !== lease) throw new SharedDriveError(409);
           transaction.update(ref, { recentCopies: Object.fromEntries(recent) });
@@ -92,8 +100,8 @@ export async function GET(request: Request) {
   try {
     const available = await canReadSharedFolder(token, settings.folderId, request.signal);
     return json(available ? { available, pickerKey: settings.pickerKey, appId: settings.appId } : { available });
-  } catch {
-    return json({ available: false });
+  } catch (error) {
+    return fail(error instanceof SharedDriveError && [401, 429].includes(error.status) ? error.status : 503, 'drive');
   }
 }
 
@@ -127,6 +135,7 @@ export async function POST(request: Request) {
     return fail(400);
   } catch (error) {
     if (error instanceof SharedDriveError) {
+      if (error.reason === 'destination-changed') return fail(409, 'destination-changed');
       if (process.env.VERCEL_ENV === 'preview') console.warn('[SharedDrive] Google API', error.status, error.reason ?? 'unspecified');
       return fail(error.status, 'drive');
     }
