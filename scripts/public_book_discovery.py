@@ -94,7 +94,7 @@ def build_discovery_details(connection: sqlite3.Connection, discovery: dict[str,
     def flush() -> None:
         index = len(shards)
         name = checksum(pending)
-        shards[name + ".json"] = discovery_bytes(pending)
+        shards[name] = discovery_bytes(pending)
         references.update(dict.fromkeys(pending, index))
         pending.clear()
 
@@ -109,9 +109,9 @@ def build_discovery_details(connection: sqlite3.Connection, discovery: dict[str,
     if pending:
         flush()
     if authors or shards:
-        discovery["synopsisShards"] = [name.removesuffix(".json") for name in shards]
+        discovery["synopsisShards"] = list(shards)
         discovery["details"] = [
             [authors.get(key), references.get(key)] for key in books
         ]
         discovery["generation"] = checksum({k: v for k, v in discovery.items() if k != "generation"})
-    return shards
+    return {f"{name}.json": data for name, data in shards.items()}
