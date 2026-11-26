@@ -2,9 +2,13 @@ import type { NextConfig } from "next";
 import { computeAppBuildId } from './scripts/app-build-id.mjs';
 
 const isPreview = process.env.VERCEL_ENV === 'preview';
-const approvedPreviewAuthHost = 'twreader-git-preview-mypage-twkims-projects-b9c7f5a3.vercel.app';
-const previewAuthHost = isPreview && process.env.VERCEL_BRANCH_URL === approvedPreviewAuthHost
-  ? approvedPreviewAuthHost
+const approvedPreviewAuthHosts = new Set([
+  'twreader-git-preview-mypage-twkims-projects-b9c7f5a3.vercel.app',
+  'twreader-git-codex-shared-drive-button-twkims-projects-b9c7f5a3.vercel.app',
+]);
+const branchHost = process.env.VERCEL_BRANCH_URL ?? '';
+const previewAuthHost = isPreview && approvedPreviewAuthHosts.has(branchHost)
+  ? branchHost
   : '';
 const finiteSyncLeases = process.env.NEXT_PUBLIC_ENABLE_FINITE_SYNC_LEASES
   ?? (process.env.VERCEL_ENV === 'production' ? '1' : '0');
