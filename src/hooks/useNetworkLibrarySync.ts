@@ -31,12 +31,20 @@ export const useNetworkLibrarySync = ({
       loadedDriveSessionRef.current = null;
       return;
     }
+    if (navigator.onLine === false) {
+      setView((current) => current === 'loading' ? 'shelf' : current);
+      return;
+    }
     const loadIdentity = JSON.stringify([userId, ownerGeneration, driveSessionId]);
     if (loadedDriveSessionRef.current === loadIdentity) return;
     loadedDriveSessionRef.current = null;
     let active = true;
     window.queueMicrotask(() => {
       if (!active) return;
+      if (navigator.onLine === false) {
+        setView((current) => current === 'loading' ? 'shelf' : current);
+        return;
+      }
       setView('loading');
       void loadLibraryFromDrive(googleToken, driveSessionId).then((isSuccess) => {
         if (!active) return;

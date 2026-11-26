@@ -74,6 +74,9 @@ export const useAuthBootstrap = ({
 
     const authFallbackTimer = window.setTimeout(() => {
       if (!isActive || initialAuthSettled || isGuestRef.current || auth.currentUser) return;
+      // An offline Firebase restore can outlast this UI fallback. Wait for the
+      // SDK to resolve the cached account before exposing the guest reader.
+      if (navigator.onLine === false) return;
       enterGuestLibrary(++authGeneration);
     }, 3_000);
 
@@ -97,7 +100,7 @@ export const useAuthBootstrap = ({
           if (!isActive || callbackGeneration !== authGeneration) return;
           setIsAuthenticatedLibraryReady(true);
           setIsLibraryBootstrapReady(true);
-          if (shouldHoldShelfForDrive()) {
+          if (navigator.onLine !== false && shouldHoldShelfForDrive()) {
             setView('loading');
             return;
           }

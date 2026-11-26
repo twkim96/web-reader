@@ -170,7 +170,9 @@ test('keeping a remotely deleted bookmark updates its id before the reader can d
   } finally { ownerRuntime.clear(); }
 });
 
-test('late cold-start authentication hydrates account progress before mounting its reader', async () => {
+for (const offline of [false, true]) test(
+  `late cold-start authentication hydrates account progress before mounting its reader (offline=${offline})`,
+  async () => {
   const { readFileSync } = require('node:fs');
   const page = readFileSync(require.resolve('../src/app/page.tsx'), 'utf8');
   const predicate = page.match(/\{(view === 'reader'[^\n]+) && \(\s*<EpubReader/)?.[1];
@@ -190,11 +192,17 @@ test('late cold-start authentication hydrates account progress before mounting i
   try {
     const { useAuthBootstrap } = require('../src/hooks/useAuthBootstrap.ts');
     await withDom(async root => {
+      const { useNetworkLibrarySync } = require('../src/hooks/useNetworkLibrarySync.ts');
+      const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+      const network = { onLine: !offline };
+      Object.defineProperty(globalThis, 'navigator', { configurable: true, value: network });
       const originalSet = window.setTimeout, originalClear = window.clearTimeout;
       const timers = new Map();
       const opens = [];
       const book = { id: 'cold-start-book' };
       let resolveAccount;
+      let driveLoads = 0;
+      const loadLibraryFromDrive = async () => { driveLoads++; return true; };
       const accountHydration = new Promise(resolve => { resolveAccount = resolve; });
       window.setTimeout = (fn, ms, ...args) => ms === 3_000
         ? (timers.set(-1, () => fn(...args)), -1)
@@ -206,7 +214,7 @@ test('late cold-start authentication hydrates account progress before mounting i
         return null;
       }
       function Harness() {
-        const [, setUser] = React.useState(null);
+        const [user, setUser] = React.useState(null);
         const [, setIsGuest] = React.useState(false);
         const [view, setView] = React.useState('loading');
         const [books, setBooks] = React.useState([]);
@@ -222,8 +230,10 @@ test('late cold-start authentication hydrates account progress before mounting i
           setProgress(account ? { [book.id]: { progressPercent: 60 } } : {});
           return true;
         }, []);
-        const { isLibraryBootstrapReady } = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
-          setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: no });
+        const { isLibraryBootstrapReady, isAuthenticatedLibraryReady } = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
+          setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: offline ? yes : no });
+        useNetworkLibrarySync({ user, isAuthenticatedLibraryReady, googleToken: offline ? 'token' : null,
+          driveSessionId: offline ? 'session' : null, loadLibraryFromDrive, setView, setIsOfflineMode: noop });
         React.useEffect(() => {
           if (triedAutoOpen.current || view !== 'shelf' || !isLibraryBootstrapReady || !books.length) return;
           triedAutoOpen.current = true;
@@ -238,15 +248,29 @@ test('late cold-start authentication hydrates account progress before mounting i
         ownerRuntime.clear();
         await React.act(async () => root.render(React.createElement(Harness)));
         await React.act(async () => { for (const fn of timers.values()) fn(); timers.clear(); });
-        assert.equal(opens.length, 1, 'fallback guest can open the shared device book');
-        assert.equal(opens[0].initialPercent, undefined);
+        const guestOpens = offline ? 0 : 1;
+        assert.equal(opens.length, guestOpens);
+        if (!offline) assert.equal(opens[0].initialPercent, undefined);
+        if (offline) assert.equal(localStorage.getItem('isGuest'), null);
         await React.act(async () => authCallback({ uid: 'cold-start-account' }));
-        assert.equal(opens.length, 1, 'account reader must wait for its pending hydration');
+        assert.equal(opens.length, guestOpens, 'account reader must wait for its pending hydration');
         await React.act(async () => resolveAccount());
-        assert.equal(opens.length, 2);
-        assert.ok(opens[1].ownerKey.startsWith('firebase:cold-start-account'));
-        assert.equal(opens[1].initialPercent, 60, 'account reader captures the durable saved position');
-      } finally { window.setTimeout = originalSet; window.clearTimeout = originalClear; }
+        assert.equal(opens.length, guestOpens + 1);
+        assert.ok(opens.at(-1).ownerKey.startsWith('firebase:cold-start-account'));
+        assert.equal(opens.at(-1).initialPercent, 60, 'account reader captures the durable saved position');
+        assert.equal(driveLoads, 0);
+        if (offline) {
+          network.onLine = true;
+          await React.act(async () => window.dispatchEvent(new window.Event('online')));
+          assert.equal(driveLoads, 1);
+          assert.equal(opens.length, 1);
+        }
+      } finally {
+        window.setTimeout = originalSet;
+        window.clearTimeout = originalClear;
+        if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);
+        else delete globalThis.navigator;
+      }
     });
   } finally {
     ownerRuntime.clear();
