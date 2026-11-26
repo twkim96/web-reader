@@ -454,7 +454,12 @@ test('My Page brings its desktop back button, menu and shortcuts together on scr
   const back = page.getByRole('button', { name: '서재로 돌아가기' });
   const menu = page.getByRole('navigation', { name: '마이페이지 메뉴' });
   const shortcuts = page.getByRole('group', { name: '마이페이지 바로가기' });
-  await expect(shortcuts.getByRole('button')).toHaveCount(2);
+  await expect(shortcuts.getByRole('button')).toHaveCount(3);
+  await shortcuts.getByRole('button', { name: 'Google 계정으로 로그인' }).click();
+  const login = page.getByRole('dialog', { name: '개인정보 처리방침' });
+  await expect(login.getByRole('button', { name: 'Google 계정으로 로그인' })).toBeVisible();
+  await login.getByRole('button', { name: '취소', exact: true }).click();
+  await expect(login).toBeHidden();
   await expect(shortcuts.getByRole('button', { name: '내 서재' })).toBeVisible();
   await expect(shortcuts.getByRole('button', { name: '마이페이지 설정' })).toBeVisible();
   await expect(shortcuts).toHaveCSS('backdrop-filter', 'none');
@@ -699,7 +704,8 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
     const footer = page.getByRole('navigation', { name: '마이페이지 하단 메뉴' });
     const buttons = footer.getByRole('button');
     await expect(title).toBeInViewport();
-    await expect(header.getByRole('button')).toHaveCount(3);
+    await expect(header.getByRole('button')).toHaveCount(4);
+    await expect(header.getByRole('button', { name: 'Google 계정으로 로그인' })).toBeVisible();
     await expect(desktopMenu).toBeHidden();
     await expect(page.getByRole('link', { name: '테스트 도서 0', exact: true })).toBeVisible();
     await expect(buttons).toHaveText(['홈', '도서', '피드', '보관', '기록']);
@@ -718,7 +724,7 @@ test('My Page keeps all five mobile labels visible and opens its grouped tabs', 
     await page.evaluate(() => window.scrollTo(0, 400));
     await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
     await expect(title).toBeInViewport();
-    await expect(header.getByRole('button')).toHaveCount(3);
+    await expect(header.getByRole('button')).toHaveCount(4);
     expect((await header.boundingBox())!.y).toBe(0);
     expect(await footer.boundingBox()).toEqual(footerBox);
     await expect(page.locator('[data-mypage-menu]')).toHaveAttribute('data-mypage-menu', 'expanded');

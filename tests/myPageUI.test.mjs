@@ -85,12 +85,39 @@ const props = {
   ownerKey: owner, books: [], progress: {}, bookmarkProgress: {}, theme: { bg: '', text: '', border: '', secondary: '' }, themeVariables: {}, accentColor: 'rose',
   syncHealth: 'healthy', quarantinedDocumentCount: 0, canRefresh: false, refreshing: false, lastServerCheckedAt: null,
   showRecommendedBooks: true, onShowRecommendedBooksChange() {},
+  driveConnected: false, onConnect() {},
   onRefresh() {}, onBack() {}, onOpenDeviceBook() {},
 };
 const click = async (window, element) => act(async () => element.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true })));
 const select = (window, element, value) => act(async () => {
   element.querySelector(`option[value="${value}"]`).selected = true;
   element.dispatchEvent(new window.Event('change', { bubbles: true }));
+});
+
+test('My Page offers the next login step in the header until both accounts are connected', async () => {
+  const { window, root } = setup();
+  const signedInOwner = 'firebase:header-connect|library:local';
+  let loginRequests = 0;
+  const render = (ownerKey, driveConnected) => act(async () => root.render(React.createElement(MyPage, {
+    ...props, key: ownerKey, ownerKey, driveConnected, onConnect: () => { loginRequests++; },
+  })));
+  const shortcuts = () => [...window.document.querySelector('[aria-label="마이페이지 바로가기"]').querySelectorAll('button')];
+  const labels = () => shortcuts().map((button) => button.getAttribute('aria-label'));
+  try {
+    await render(owner, false);
+    assert.deepEqual(labels(), ['Google 계정으로 로그인', '내 서재', '마이페이지 설정']);
+    await click(window, shortcuts()[0]);
+    await render(signedInOwner, false);
+    assert.deepEqual(labels(), ['Google Drive 연결', '내 서재', '마이페이지 설정']);
+    await click(window, shortcuts()[0]);
+    assert.equal(loginRequests, 2);
+    await render(signedInOwner, true);
+    assert.deepEqual(labels(), ['내 서재', '마이페이지 설정']);
+    await render(signedInOwner, false);
+    assert.deepEqual(labels(), ['Google Drive 연결', '내 서재', '마이페이지 설정']);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 test('dashboard book sections open the matching detail and full list', async () => {

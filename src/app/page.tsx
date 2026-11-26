@@ -566,7 +566,7 @@ export default function Page() {
   }, [resetExpiredDriveSession]);
 
   useEffect(() => {
-    if (!googleToken || isOfflineMode) return;
+    if (!googleToken || (isOfflineMode && view !== 'mypage')) return;
 
     const validateCloudSession = () => {
       if (!hasValidToken()) {
@@ -1045,6 +1045,8 @@ export default function Page() {
         <MyPage
           key={activeOwnerKey}
           ownerKey={activeOwnerKey}
+          driveConnected={Boolean(googleToken && driveSessionId)}
+          onConnect={handleConnect}
           sharedDrive={googleToken && driveSessionId && driveCacheKey?.endsWith(`::${driveSessionId}`)
             ? { token: googleToken, sessionId: driveSessionId, hasValidToken, refreshShelf: () => {
               invalidateDriveCache(driveCacheKey);

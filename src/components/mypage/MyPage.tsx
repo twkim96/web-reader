@@ -3,7 +3,7 @@
 import type { SharedDriveConnection } from './SharedDriveImport';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Archive, AtSign, BookCopy, BookOpen, ChartNoAxesColumn, Check, Compass, Hash, House, Library, Plus, Search, Settings2, X } from 'lucide-react';
+import { ArrowLeft, Archive, AtSign, BookCopy, BookOpen, ChartNoAxesColumn, Check, Cloud, Compass, Hash, House, Library, LockKeyhole, Plus, Search, Settings2, X } from 'lucide-react';
 import type { Book, ThemeClasses, UserProgress } from '../../types';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import { getDiscoveryAuthorBooks, getGroupedBookDiscovery, loadBookDiscovery, resolveReadBookDiscovery, searchDiscoveryAuthors, type DiscoveryBook } from '../../lib/bookDiscovery';
@@ -161,6 +161,8 @@ const titleMiddleY = (header: HTMLElement) => {
 
 type Props = {
   ownerKey: OwnerKey;
+  driveConnected: boolean;
+  onConnect: () => void;
   sharedDrive?: SharedDriveConnection;
   onSharedDriveReconnect?: () => void;
   books: Book[];
@@ -480,6 +482,9 @@ export function MyPage(props: Props) {
   const headerActionPosition = compactMenu ? '' : 'translate-y-[calc(-1.625rem_-_var(--mypage-title-height)/2)]';
   const headerActionMotion = 'motion-safe:transition-[translate,background-color] motion-safe:duration-200';
   const headerButton = 'flex size-11 items-center justify-center rounded-full hover:bg-current/10';
+  const showConnect = !signedIn || !props.driveConnected;
+  const ConnectIcon = signedIn ? Cloud : LockKeyhole;
+  const connectLabel = signedIn ? 'Google Drive 연결' : 'Google 계정으로 로그인';
   const title = bookId ? '도서 상세정보' : showRecommendationList ? tabLabels.recommendations : '마이페이지';
   const closeRecommendations = () => {
     if (window.history.state?.myPageRecommendationsFromHome) window.history.back();
@@ -492,6 +497,8 @@ export function MyPage(props: Props) {
   );
   const shortcuts = (
     <div role="group" aria-label="마이페이지 바로가기" className="flex">
+      {showConnect && <button type="button" aria-label={connectLabel} title={connectLabel} onClick={props.onConnect}
+        className={`${headerButton} transition-colors`}><ConnectIcon size={19} aria-hidden="true" /></button>}
       {headerActions.map(({ id, label, icon: Icon }) => (
         <button key={id} type="button" aria-label={label} title={label} aria-current={tab === id ? 'page' : undefined}
           onClick={id === 'shelf' ? onBack : () => openTab(id)}
@@ -544,9 +551,9 @@ export function MyPage(props: Props) {
   };
 
   return (
-    <div data-my-page="true" className="min-h-dvh [--mypage-title-height:4.8rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)]" style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
+    <div data-my-page="true" className={`min-h-dvh [--mypage-title-height:4.8rem] [--mypage-title-half:calc(var(--mypage-title-height)/2)] ${showConnect ? '[--mypage-connect-width:2.75rem]' : '[--mypage-connect-width:0rem]'}`} style={{ ...themeVariables, backgroundColor: 'var(--viewer-theme-bg)', color: 'var(--viewer-theme-text)' }}>
       <header ref={titleRow} className="hidden sm:block">
-        <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[5.25rem] pr-32">
+        <div className="mx-auto flex h-[var(--mypage-title-height)] max-w-5xl items-center pl-[5.25rem] pr-[calc(8rem+var(--mypage-connect-width))]">
           <h1 className="text-[1.4375rem] leading-8 font-semibold tracking-tight">{title}</h1>
         </div>
       </header>
@@ -557,9 +564,9 @@ export function MyPage(props: Props) {
             <div className={`absolute left-8 top-1 ${headerActionMotion} ${headerActionPosition}`}>{backButton}</div>
             <div className={`absolute right-8 top-1 z-10 ${headerActionMotion} ${headerActionPosition}`}>{shortcuts}</div>
             {compactMenu && (
-              <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[6.75rem] top-4.5 h-4 w-px bg-current/25 sm:right-[7.5rem]" />
+              <span aria-hidden="true" data-mypage-header-divider className="pointer-events-none absolute right-[calc(7.5rem+var(--mypage-connect-width))] top-4.5 h-4 w-px bg-current/25" />
             )}
-            <nav aria-label="마이페이지 메뉴" className={`flex gap-1 motion-safe:transition-[margin] motion-safe:duration-200 ${compactMenu ? 'ml-[3.25rem] mr-24' : ''}`}>
+            <nav aria-label="마이페이지 메뉴" className={`flex gap-1 motion-safe:transition-[margin] motion-safe:duration-200 ${compactMenu ? 'ml-[3.25rem] mr-[calc(6rem+var(--mypage-connect-width))]' : ''}`}>
               {mainItems}
             </nav>
           </div>
