@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { CloudDownload } from 'lucide-react';
 import { ownerRuntime } from '../../lib/ownerRuntime';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { pickSharedDriveFiles } from '../../lib/googleDrivePicker';
@@ -130,11 +131,13 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
   ) : null;
   return (
     <div className="mt-1">
-      <button type="button" disabled={busy} onClick={() => {
+      <button type="button" aria-label="공유 폴더에서 가져오기" title="공유 폴더에서 가져오기" disabled={busy} onClick={() => {
         const initial = title.slice(0, 200);
         setQuery(initial);
         void open(initial);
-      }} className={actionStyle}>공유 폴더에서 가져오기</button>
+      }} className="inline-flex size-11 items-center justify-center rounded-lg text-accent-500 hover:bg-current/5 focus-visible:outline-2 focus-visible:outline-accent-500 disabled:opacity-40">
+        <CloudDownload size={18} aria-hidden="true" />
+      </button>
       {refine && <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); void open(query); }}>
         <input aria-label="공유 폴더 파일 검색" value={query} maxLength={200} required disabled={busy}
           onChange={(event) => setQuery(event.target.value)}

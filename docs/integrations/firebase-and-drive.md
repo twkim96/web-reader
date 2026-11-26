@@ -39,7 +39,7 @@ Drive 웹에서 직접 추가한 지원 파일도 읽기 목록에 나타날 수
 
 ## 초대 계정의 공유 폴더 가져오기
 
-서버가 Firebase 허용 목록과 현재 연결한 Google Drive 계정의 지정 폴더 접근 권한을 확인하면 도서 상세에 **공유 폴더에서 가져오기**가 표시됩니다. 공유 폴더의 일반 액세스를 **제한됨**으로 설정합니다. 기존 서재 OAuth의 `drive.readonly`, `drive.file`, `drive.appdata`를 재사용합니다.
+서버가 Firebase 허용 목록과 현재 연결한 Google Drive 계정의 지정 폴더 접근 권한을 확인하면 도서 상세에서 가져오기를 사용할 수 있습니다. 공유 폴더의 일반 액세스를 **제한됨**으로 설정합니다. 기존 서재 OAuth의 `drive.readonly`, `drive.file`, `drive.appdata`를 재사용합니다.
 
 서버는 현재 작품 제목으로 Drive 후보를 찾고 각 파일의 상위 폴더를 따라가며 지정 폴더의 하위인지 확인합니다. Google Picker에는 일치한 원본 파일 ID를 전달하고 공유 폴더 ID는 서버에 둡니다. 후보가 많아서 조회 한도에 도달하면 검색어를 좁힐 수 있습니다. 선택할 때 Picker가 기존 `drive.file` 범위에 그 파일의 개별 접근 권한을 부여합니다. [Google Picker](https://developers.google.com/workspace/drive/picker/guides/web-picker)
 

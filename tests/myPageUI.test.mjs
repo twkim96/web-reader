@@ -252,16 +252,16 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
     return Response.json(available ? { available, pickerKey: 'key', appId: '123456' } : { available });
   });
   try {
-    const button = () => [...window.document.querySelectorAll('#root button')].find((item) => item.textContent === '공유 폴더에서 가져오기');
+    const button = () => window.document.querySelector('#root button[aria-label="공유 폴더에서 가져오기"]');
     await act(async () => root.render(React.createElement(SharedDriveImport, { key: 'denied', ...props })));
     for (let attempt = 0; attempt < 20 && requests.length < 1; attempt++) await act(async () => delay(10));
-    assert.equal(button(), undefined);
+    assert.equal(button(), null);
     available = true;
     checkThrottled = true;
     await act(async () => root.render(React.createElement(SharedDriveImport, { key: 'allowed', ...props })));
     const retry = () => [...window.document.querySelectorAll('#root button')].find((item) => item.textContent === '다시 확인');
     for (let attempt = 0; attempt < 20 && !retry(); attempt++) await act(async () => delay(10));
-    assert.equal(button(), undefined);
+    assert.equal(button(), null);
     checkThrottled = false;
     await click(window, retry());
     for (let attempt = 0; attempt < 20 && !button(); attempt++) await act(async () => delay(10));
