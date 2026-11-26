@@ -4,9 +4,13 @@ import { auth, db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import { useOwnerSnapshot } from './useOwnerSnapshot';
 import {
+  GUEST_INSTALL_ID_KEY,
   getSyncOwnerKey,
+  makeGuestOwnerKey,
+  makeOwnerKey,
   splitOwnerKey,
 } from '../lib/ownerIdentity';
+import { restoreGuestReadingToAccountV5 } from '../lib/localDBV5';
 import { applyProgressEventTransaction } from '../lib/progressSyncTransaction';
 import { applyBookmarkEventTransaction } from '../lib/bookmarkSyncTransaction';
 import {
@@ -66,9 +70,22 @@ export const useProgressSyncWorker = (
       });
       if (!isCurrent() || recovered.status !== 'resynced' || !recovered.progress) return;
       if (target.kind !== 'progress' && target.kind !== 'bookmark') return;
+      let progress = recovered.progress;
+      const guestId = target.kind === 'progress' ? localStorage.getItem(GUEST_INSTALL_ID_KEY) : null;
+      if (guestId) {
+        const guestOwner = makeOwnerKey(makeGuestOwnerKey(guestId), 'library:local');
+        const imported = await restoreGuestReadingToAccountV5(
+          syncOwnerKey, guestOwner, deviceId, annotationContext.sessionId, isCurrent, target.bookId,
+        ).catch((error) => {
+          console.warn('[ProgressSync] Guest position remains pending:', error);
+          return undefined;
+        });
+        if (!isCurrent()) return;
+        if (imported) progress = imported;
+      }
       const detail: ExpiredSyncProgressUpdate = {
         ownerKey: syncOwnerKey,
-        progress: recovered.progress,
+        progress,
         ...(target.kind === 'bookmark' ? { kind: 'bookmark', bookmarkId: target.bookmarkId } : { kind: 'progress' }),
       };
       window.dispatchEvent(new CustomEvent('web-reader-expired-sync-progress', { detail }));

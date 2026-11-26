@@ -23,7 +23,7 @@ interface UseAuthBootstrapOptions {
   restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<RestoreLocalDataResult>;
   resetLibraryState: () => void;
   shouldHoldShelfForDrive: () => boolean;
-  logoutReadingOwner?: MutableRefObject<OwnerKey | undefined>;
+  flushOutgoingProgress?: () => Promise<boolean> | undefined;
   onAuthenticatedLibraryRestoreSettled?: () => void;
 }
 
@@ -36,7 +36,7 @@ export const useAuthBootstrap = ({
   restoreLocalData,
   resetLibraryState,
   shouldHoldShelfForDrive,
-  logoutReadingOwner,
+  flushOutgoingProgress,
   onAuthenticatedLibraryRestoreSettled,
 }: UseAuthBootstrapOptions) => {
   const activeOwner = useOwnerSnapshot();
@@ -44,6 +44,10 @@ export const useAuthBootstrap = ({
   const isLibraryBootstrapReady = readyOwnerKey !== null && readyOwnerKey === activeOwner?.ownerKey;
   const isAuthenticatedLibraryReady = isLibraryBootstrapReady && !isGuestOwner(readyOwnerKey);
   const [libraryRestoreFailed, setLibraryRestoreFailed] = useState(false);
+  const [flushingOutgoingProgress, setFlushingOutgoingProgress] = useState(false);
+  const [outgoingProgressFailed, setOutgoingProgressFailed] = useState(false);
+  const retryOutgoingProgressRef = useRef<(() => void) | null>(null);
+  const retryOutgoingProgress = useCallback(() => retryOutgoingProgressRef.current?.(), []);
   const retryRestore = useRef<(() => void) | null>(null);
   const retryLibraryRestore = useCallback(() => retryRestore.current?.(), []);
 
@@ -83,21 +87,22 @@ export const useAuthBootstrap = ({
       start();
     };
 
-    const activateGuest = (generation: number) => {
+    const guestOwnerKey = () => makeOwnerKey(
+      makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)), 'library:local',
+    );
+    const activateGuest = (generation: number, confirmed = false, refreshFrom?: OwnerKey) => {
       const previousOwner = ownerRuntime.capture();
-      const nextOwner = ownerRuntime.activate(makeOwnerKey(
-        makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)),
-        'library:local',
-      ));
+      const nextOwner = ownerRuntime.activate(guestOwnerKey());
       if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
-      const restoreGuest = () => {
-        if (guestRestore) return guestRestore;
-        const retainPositionsFrom = logoutReadingOwner?.current;
-        if (logoutReadingOwner) logoutReadingOwner.current = undefined;
-        guestRestore = restoreLocalData({ replaceBooks: true, retainPositionsFrom });
-        return guestRestore;
-      };
-      restoreLibrary(generation, restoreGuest, () => {
+      const restoreGuest = () => restoreLocalData({
+        replaceBooks: true, guestHandoff: { owner: nextOwner.ownerKey, confirmed, ...(refreshFrom && { refreshFrom }) },
+      });
+      if (confirmed && guestRestore) {
+        guestRestore = guestRestore.then(result => result === 'stale' && ownerRuntime.isCurrent(nextOwner)
+          ? restoreGuest()
+          : result);
+      }
+      restoreLibrary(generation, () => guestRestore ??= restoreGuest(), () => {
         setReadyOwnerKey(nextOwner.ownerKey);
         setIsOfflineMode(true);
         setView((current) => current === 'reader' ? 'reader' : 'shelf');
@@ -106,11 +111,11 @@ export const useAuthBootstrap = ({
       });
     };
 
-    const enterGuestLibrary = (generation: number) => {
+    const enterGuestLibrary = (generation: number, confirmed = false, refreshFrom?: OwnerKey) => {
       setIsGuest(true);
       isGuestRef.current = true;
       localStorage.setItem('isGuest', 'true');
-      activateGuest(generation);
+      activateGuest(generation, confirmed, refreshFrom);
     };
 
     // A remembered guest is entirely local. Do not hold its shelf behind an
@@ -128,18 +133,33 @@ export const useAuthBootstrap = ({
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       initialAuthSettled = true;
       window.clearTimeout(authFallbackTimer);
-      setReadyOwnerKey(null);
       const callbackGeneration = ++authGeneration;
       const previousOwner = ownerRuntime.capture();
-      if (firebaseUser) {
+      const nextOwnerKey = firebaseUser
+        ? makeOwnerKey(makeFirebaseOwnerKey(firebaseUser.uid), 'library:local')
+        : guestOwnerKey();
+
+      const applyAuthChange = () => {
+        if (!isActive || callbackGeneration !== authGeneration) return;
+        retryOutgoingProgressRef.current = null;
+        setFlushingOutgoingProgress(false);
+        setOutgoingProgressFailed(false);
+        setReadyOwnerKey(null);
+        if (!firebaseUser) {
+          enterGuestLibrary(callbackGeneration, true,
+            previousOwner && !isGuestOwner(previousOwner.ownerKey) ? previousOwner.ownerKey : undefined);
+          setUser(null);
+          return;
+        }
         // A later logout must hydrate the guest owner again instead of reusing
         // the guest restore that may have completed before the login redirect.
         guestRestore = null;
-        const authOwnerKey = makeFirebaseOwnerKey(firebaseUser.uid);
-        const nextOwner = ownerRuntime.activate(makeOwnerKey(authOwnerKey, 'library:local'));
+        const nextOwner = ownerRuntime.activate(nextOwnerKey);
         if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
 
-        restoreLibrary(callbackGeneration, () => restoreLocalData({ preventRedirect: true, replaceBooks: true }), () => {
+        restoreLibrary(callbackGeneration, () => restoreLocalData({
+          preventRedirect: true, replaceBooks: true, guestHandoff: { owner: guestOwnerKey(), confirmed: true },
+        }), () => {
           setReadyOwnerKey(nextOwner.ownerKey);
           onAuthenticatedLibraryRestoreSettled?.();
           if (navigator.onLine !== false && shouldHoldShelfForDrive()) {
@@ -149,24 +169,45 @@ export const useAuthBootstrap = ({
           setIsOfflineMode(true);
           setView((prev) => prev === 'reader' ? 'reader' : 'shelf');
         }, onAuthenticatedLibraryRestoreSettled);
-      } else if (isGuestRef.current) {
-        setIsGuest(true);
-        activateGuest(callbackGeneration);
-      } else {
-        enterGuestLibrary(callbackGeneration);
-      }
-      setUser(firebaseUser);
-
-      if (firebaseUser) {
+        setUser(firebaseUser);
         setIsGuest(false);
         isGuestRef.current = false;
         localStorage.removeItem('isGuest');
-      }
+      };
+
+      // Flush against the outgoing owner before the account boundary invalidates
+      // its reader. The callback may have been triggered by a different tab.
+      const flushThenSwitch = () => {
+        if (!isActive || callbackGeneration !== authGeneration) return;
+        retryOutgoingProgressRef.current = null;
+        setOutgoingProgressFailed(false);
+        const flush = previousOwner && previousOwner.ownerKey !== nextOwnerKey
+          ? flushOutgoingProgress?.() : undefined;
+        if (!flush) {
+          applyAuthChange();
+          return;
+        }
+        setFlushingOutgoingProgress(true);
+        const preserveForRetry = () => {
+          if (!isActive || callbackGeneration !== authGeneration) return;
+          retryOutgoingProgressRef.current = flushThenSwitch;
+          setOutgoingProgressFailed(true);
+        };
+        void flush.then((saved) => {
+          if (saved) applyAuthChange();
+          else preserveForRetry();
+        }, (error) => {
+          console.error('[AuthBootstrap] outgoing position flush failed:', error);
+          preserveForRetry();
+        });
+      };
+      flushThenSwitch();
     });
 
     return () => {
       isActive = false;
       retryRestore.current = null;
+      retryOutgoingProgressRef.current = null;
       window.clearTimeout(authFallbackTimer);
       unsubscribeAuth();
     };
@@ -179,9 +220,12 @@ export const useAuthBootstrap = ({
     setUser,
     setView,
     shouldHoldShelfForDrive,
-    logoutReadingOwner,
+    flushOutgoingProgress,
     onAuthenticatedLibraryRestoreSettled,
   ]);
 
-  return { isAuthenticatedLibraryReady, isLibraryBootstrapReady, libraryRestoreFailed, retryLibraryRestore };
+  return {
+    isAuthenticatedLibraryReady, isLibraryBootstrapReady, libraryRestoreFailed, retryLibraryRestore,
+    flushingOutgoingProgress, outgoingProgressFailed, retryOutgoingProgress,
+  };
 };

@@ -30,10 +30,12 @@ import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 import { annotationTargetKeyV1 } from './annotationSyncSchema';
 import {
   appendAnnotationEventsToTransactionV5,
+  enqueueProgressMutationBatchV5,
   supersedeAnnotationBookWorkForDeletionV5,
   type AnnotationSyncContextV5,
   type SyncOutboxEventV5,
 } from './syncOutboxV5';
+import { isProgressPositionV2 } from './progressV2Schema';
 import { notifyProgressSyncWork } from './progressSyncWake';
 import { broadcastAnnotationSyncChange } from './annotationSyncWake';
 import { isPendingAnnotationBookDeletionMarkerV5, type AnnotationBookDeletionIntentV10, type ObservedAnnotationBookDeletionV5 } from './annotationBookDeletion';
@@ -155,10 +157,69 @@ export const getAllLocalProgressV5 = async (ownerKey: OwnerKey) => {
     Promise<StoredProgressV5[]>;
 };
 
-export const retainReadingPositionsOnDeviceV5 = async (account: OwnerKey, guest: OwnerKey) => {
+export type GuestReadingHandoff = {
+  ownerKey: OwnerKey;
+  targetKey: 'guest-reading-handoff';
+  account: OwnerKey;
+  attemptId: string;
+  startedAt: number;
+  confirmed: boolean;
+  importedThrough?: Record<string, number>;
+  restoreConfirmedOnCancel?: boolean;
+};
+
+export const beginGuestReadingHandoff = async (account: OwnerKey, guest: OwnerKey) => {
+  const db = await initDB();
+  const tx = db.transaction(V5_SYNC_META_STORE, 'readwrite');
+  void tx.done.catch(() => undefined);
+  const prior = await tx.store.get([guest, 'guest-reading-handoff']) as GuestReadingHandoff | undefined;
+  const continuing = prior?.account === account && (prior.confirmed || prior.restoreConfirmedOnCancel);
+  const handoff: GuestReadingHandoff = {
+    ownerKey: guest, targetKey: 'guest-reading-handoff', account,
+    attemptId: crypto.randomUUID(), startedAt: continuing ? prior.startedAt : Date.now(), confirmed: false,
+    importedThrough: continuing ? prior.importedThrough : undefined,
+    restoreConfirmedOnCancel: continuing || undefined,
+  };
+  await tx.store.put(handoff);
+  await tx.done;
+  return handoff;
+};
+
+export const readGuestReadingHandoff = async (guest: OwnerKey) => {
+  const db = await initDB();
+  return db.get(V5_SYNC_META_STORE, [guest, 'guest-reading-handoff']) as Promise<GuestReadingHandoff | undefined>;
+};
+
+export const clearGuestReadingHandoff = async (handoff: GuestReadingHandoff, pendingOnly = false) => {
+  const db = await initDB();
+  const tx = db.transaction(V5_SYNC_META_STORE, 'readwrite');
+  void tx.done.catch(() => undefined);
+  const key = [handoff.ownerKey, handoff.targetKey];
+  const latest = await tx.store.get(key) as GuestReadingHandoff | undefined;
+  if (latest?.attemptId === handoff.attemptId && (!pendingOnly || !latest.confirmed)) {
+    if (pendingOnly && latest.restoreConfirmedOnCancel) {
+      await tx.store.put({ ...latest, confirmed: true, restoreConfirmedOnCancel: undefined });
+    } else await tx.store.delete(key);
+  }
+  await tx.done;
+};
+
+export const retainReadingPositionsOnDeviceV5 = async (
+  account: OwnerKey, guest: OwnerKey, handoff?: GuestReadingHandoff, refreshConfirmed = false,
+) => {
   if (isGuestOwner(account) || !isGuestOwner(guest) || guest === DEVICE_CONTENT_OWNER_KEY) return;
   const db = await initDB();
-  const tx = db.transaction([V5_BOOKS_STORE, V5_PROGRESS_STORE], 'readwrite');
+  const tx = db.transaction([V5_BOOKS_STORE, V5_PROGRESS_STORE, V5_SYNC_META_STORE], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const meta = tx.objectStore(V5_SYNC_META_STORE);
+  let currentHandoff: GuestReadingHandoff | undefined;
+  if (handoff) {
+    currentHandoff = await meta.get([guest, handoff.targetKey]) as GuestReadingHandoff | undefined;
+    if (currentHandoff?.attemptId !== handoff.attemptId || (currentHandoff.confirmed && !refreshConfirmed)) {
+      await tx.done;
+      return;
+    }
+  }
   const store = tx.objectStore(V5_PROGRESS_STORE);
   const [accountRows, guestRows] = await Promise.all([
     store.index('by-owner').getAll(account) as Promise<StoredProgressV5[]>,
@@ -166,13 +227,61 @@ export const retainReadingPositionsOnDeviceV5 = async (account: OwnerKey, guest:
   ]);
   const guestPositions = new Map(guestRows.map((item) => [item.bookId, item]));
   const books = tx.objectStore(V5_BOOKS_STORE);
+  const copiedAfterLogout = new Map<string, number>();
   for (const { bookId, cfi, anchorCfi, progressPercent, lastRead } of accountRows) {
     const current = guestPositions.get(bookId);
     if (!Number.isFinite(lastRead) || lastRead <= (current?.lastRead ?? 0)) continue;
     if (!await books.getKey([DEVICE_CONTENT_OWNER_KEY, bookId])) continue;
     await store.put({ ownerKey: guest, bookId, cfi, anchorCfi, progressPercent, lastRead, bookmarks: current?.bookmarks });
+    if (currentHandoff && lastRead > currentHandoff.startedAt) copiedAfterLogout.set(bookId, lastRead);
   }
+  if (currentHandoff) await meta.put({
+    ...currentHandoff, confirmed: true, restoreConfirmedOnCancel: undefined,
+    importedThrough: { ...currentHandoff.importedThrough, ...Object.fromEntries(copiedAfterLogout) },
+  });
   await tx.done;
+};
+
+export const restoreGuestReadingToAccountV5 = async (
+  account: OwnerKey,
+  guest: OwnerKey,
+  deviceId: string,
+  sessionId: string,
+  isCurrent: () => boolean,
+  targetBookId?: string,
+) => {
+  const handoff = await readGuestReadingHandoff(guest);
+  if (!handoff || !isCurrent()) return;
+  if (handoff.account !== account) {
+    await clearGuestReadingHandoff(handoff);
+    return;
+  }
+  if (!handoff.confirmed) return;
+  const rows = targetBookId
+    ? [await loadProgressFromLocalV5(guest, targetBookId)].filter(row => row !== undefined)
+    : await getAllLocalProgressV5(guest);
+  let imported: UserProgress | undefined;
+  for (const { bookId, cfi, anchorCfi, progressPercent, lastRead } of rows) {
+    if (!isCurrent()) return;
+    if (!Number.isSafeInteger(lastRead) || lastRead <= Math.max(handoff.startedAt, handoff.importedThrough?.[bookId] ?? 0)) continue;
+    const position = cfi ? { cfi, anchorCfi: anchorCfi || null, progressPercent } : null;
+    if (position ? !isProgressPositionV2(position) : progressPercent !== 0) continue;
+    try {
+      imported = await enqueueProgressMutationBatchV5(account, {
+        progress: { bookId, cfi, anchorCfi, progressPercent, lastRead },
+        progressEvent: {
+          bookId, operation: position ? 'progress.set' : 'progress.reset', position,
+          deviceId, sessionId, localBookmarks: [], occurredAtClient: lastRead,
+          causalViewportId: handoff.attemptId,
+        },
+        bookmarkEvents: [],
+      }, { handoff, isCurrent });
+    } catch (error) {
+      // The recovery worker retries this row after it has the server head.
+      if ((error as { code?: string } | null)?.code !== 'sync/resync-required') throw error;
+    }
+  }
+  return imported;
 };
 
 export const loadProgressFromLocalV5 = async (

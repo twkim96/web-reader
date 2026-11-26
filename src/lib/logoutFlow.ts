@@ -2,7 +2,7 @@ export type LogoutFlowOptions = {
   prepareUi: () => void;
   signOut: () => Promise<void>;
   commitLocalCleanup: () => void;
-  recoverUi: (error: unknown) => void;
+  recoverUi: (error: unknown) => void | Promise<unknown>;
 };
 
 export const runLogoutFlow = async ({
@@ -15,7 +15,7 @@ export const runLogoutFlow = async ({
   try {
     await signOut();
   } catch (error) {
-    recoverUi(error);
+    await recoverUi(error);
     return false;
   }
 

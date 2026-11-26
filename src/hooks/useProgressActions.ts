@@ -535,10 +535,7 @@ export const useProgressActions = ({
         progressRef.current[bookId]?.ignoredRemoteRevision ?? 0,
       ) || undefined,
     };
-    return {
-      resetData,
-      bookmarkChanges: diffManualBookmarks(committed?.bookmarks, [], resetData.lastRead),
-    };
+    return { resetData };
   }, [getCommittedProgress, progressRef]);
 
   // A queued reset keeps the revision seen when requested. After earlier writes
@@ -589,7 +586,7 @@ export const useProgressActions = ({
     owner: OwnerSnapshot,
   ) => {
     if (!ownerRuntime.isCurrent(owner)) return false;
-    const { resetData, bookmarkChanges } = captureProgressReset(owner, bookId);
+    const { resetData } = captureProgressReset(owner, bookId);
     try {
       const committed = await queueProgressWrite(bookId, async () => {
         if (!ownerRuntime.isCurrent(owner)) return false;
@@ -599,6 +596,8 @@ export const useProgressActions = ({
           return true;
         }
         const resetAfterPositionToken = getResetAfterPositionToken(owner, bookId);
+        const latest = await loadProgressFromLocalV5(progressOwnerKey, bookId);
+        const bookmarkChanges = diffManualBookmarks(latest?.bookmarks, [], resetData.lastRead);
         const resetCommitted = await persistProgress(
           owner,
           bookId,

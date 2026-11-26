@@ -20,7 +20,9 @@ import {
 import {
   getAllLocalProgressV5,
   getAllOfflineBooksV5,
+  readGuestReadingHandoff,
   retainReadingPositionsOnDeviceV5,
+  restoreGuestReadingToAccountV5,
 } from '../lib/localDBV5';
 import { ownerRuntime } from '../lib/ownerRuntime';
 import {
@@ -31,6 +33,7 @@ import {
 import { DriveLoadCoordinator } from '../lib/driveLoadCoordinator';
 import { Book, RemoteProgressUpdate, UserProgress, ViewState } from '../types';
 import { rebaseProgressCommitBaseline } from '../lib/progressCommitBaseline';
+import { getSyncSessionId } from '../lib/syncSession';
 
 interface UseLibraryDataOptions {
   clearToken: () => void;
@@ -38,12 +41,13 @@ interface UseLibraryDataOptions {
   setView: Dispatch<SetStateAction<ViewState>>;
   onLibraryError?: (message: string) => void;
   driveSessionId: string | null;
+  deviceId?: MutableRefObject<string>;
 }
 
 export type RestoreLocalDataOptions = {
   preventRedirect?: boolean;
   replaceBooks?: boolean;
-  retainPositionsFrom?: OwnerKey;
+  guestHandoff?: { owner: OwnerKey; confirmed: boolean; refreshFrom?: OwnerKey };
 };
 
 export type RestoreLocalDataResult = 'restored' | 'empty' | 'failed' | 'stale';
@@ -68,6 +72,7 @@ export const useLibraryData = ({
   setView,
   onLibraryError,
   driveSessionId,
+  deviceId,
 }: UseLibraryDataOptions): UseLibraryDataResult => {
   const [books, setBooks] = useState<Book[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
@@ -97,7 +102,7 @@ export const useLibraryData = ({
   }, []);
 
   const restoreLocalData = useCallback(async (options?: boolean | RestoreLocalDataOptions): Promise<RestoreLocalDataResult> => {
-    const { preventRedirect = false, replaceBooks = false, retainPositionsFrom } =
+    const { preventRedirect = false, replaceBooks = false, guestHandoff } =
       typeof options === 'boolean' ? { preventRedirect: options } : options ?? {};
     const capturedOwner = ownerRuntime.capture();
     if (!capturedOwner) return 'stale';
@@ -106,14 +111,18 @@ export const useLibraryData = ({
       const owner = capturedOwner;
       if (!preventRedirect) setIsOfflineMode(true);
       const progressOwner = getSyncOwnerKey(owner.ownerKey);
-      if (retainPositionsFrom) {
-        // A failed local write should not leave the signed-out shelf loading.
-        await retainReadingPositionsOnDeviceV5(getSyncOwnerKey(retainPositionsFrom), progressOwner)
-          .catch(() => {
-            if (ownerRuntime.isCurrent(owner)) {
-              onLibraryError?.('기기에 읽기 위치를 남기지 못했습니다. 같은 계정으로 다시 로그인하면 저장된 위치를 볼 수 있습니다.');
-            }
-          });
+      if (guestHandoff) {
+        if (progressOwner === guestHandoff.owner) {
+          const handoff = await readGuestReadingHandoff(progressOwner);
+          const refreshConfirmed = guestHandoff.refreshFrom !== undefined && handoff?.account === guestHandoff.refreshFrom;
+          if (handoff && (refreshConfirmed || (!handoff.confirmed && guestHandoff.refreshFrom === undefined))) {
+            if (!guestHandoff.confirmed || !ownerRuntime.isCurrent(owner)) return 'stale';
+            await retainReadingPositionsOnDeviceV5(handoff.account, progressOwner, handoff, refreshConfirmed);
+          }
+        } else if (deviceId?.current) {
+          await restoreGuestReadingToAccountV5(progressOwner, guestHandoff.owner, deviceId.current,
+            getSyncSessionId(), () => ownerRuntime.isCurrent(owner));
+        }
       }
 
       const [localBooks, localProgress] = await Promise.all([
@@ -156,7 +165,7 @@ export const useLibraryData = ({
       console.error('Failed to restore local data:', error);
       return ownerRuntime.isCurrent(capturedOwner) ? 'failed' : 'stale';
     }
-  }, [onLibraryError, setIsOfflineMode, setView]);
+  }, [deviceId, setIsOfflineMode, setView]);
 
   const loadLibraryFromDrive = useCallback(async (
     token: string,

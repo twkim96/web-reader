@@ -315,7 +315,9 @@ for (const offline of [false, true]) test(
       const timers = new Map();
       const opens = [];
       const guestRestores = [];
-      const logoutReadingOwner = { current: undefined };
+      let resolveOutgoingFlush;
+      const flushOutgoingProgress = () => ownerRuntime.capture()?.ownerKey.startsWith('firebase:')
+        ? new Promise(resolve => { resolveOutgoingFlush = resolve; }) : undefined;
       const book = { id: 'cold-start-book' };
       let resolveAccount;
       let resolveLogoutRestore;
@@ -352,8 +354,8 @@ for (const offline of [false, true]) test(
             if (++accountAttempts === 1 && !offline) return 'failed';
           }
           else {
-            guestRestores.push(options?.retainPositionsFrom);
-            if (options?.retainPositionsFrom) await new Promise(resolve => { resolveLogoutRestore = resolve; });
+            guestRestores.push(options?.guestHandoff);
+            if (options?.guestHandoff?.confirmed) await new Promise(resolve => { resolveLogoutRestore = resolve; });
           }
           setBooks([book]);
           setProgress(account ? { [book.id]: { progressPercent: 60 } } : {});
@@ -361,7 +363,7 @@ for (const offline of [false, true]) test(
         }, []);
         bootstrap = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
           setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: offline ? yes : no,
-          logoutReadingOwner });
+          flushOutgoingProgress });
         const { isLibraryBootstrapReady, isAuthenticatedLibraryReady } = bootstrap;
         useNetworkLibrarySync({ user, isAuthenticatedLibraryReady, googleToken: offline ? 'token' : null,
           driveSessionId: offline ? 'session' : null, loadLibraryFromDrive, setView, setIsOfflineMode: noop });
@@ -405,14 +407,23 @@ for (const offline of [false, true]) test(
           assert.equal(driveLoads, 1);
           assert.equal(opens.length, 1);
         }
-        const accountOwner = ownerRuntime.capture().ownerKey;
+        const accountOwner = ownerRuntime.capture();
         const previousGuestRestores = guestRestores.length;
-        logoutReadingOwner.current = accountOwner;
-        await React.act(async () => { ownerRuntime.clear(); authCallback(null); });
-        assert.equal(localStorage.getItem('isGuest'), 'true');
-        assert.equal(logoutReadingOwner.current, undefined);
         await React.act(async () => authCallback(null));
-        assert.deepEqual(guestRestores.slice(previousGuestRestores), [accountOwner]);
+        assert.equal(bootstrap.flushingOutgoingProgress, true);
+        assert.equal(ownerRuntime.isCurrent(accountOwner), true, 'a cross-tab sign-out must wait for the outgoing reader save');
+        assert.equal(guestRestores.length, previousGuestRestores);
+        await React.act(async () => resolveOutgoingFlush(false));
+        assert.equal(bootstrap.outgoingProgressFailed, true);
+        assert.equal(ownerRuntime.isCurrent(accountOwner), true, 'a failed save keeps the outgoing owner available for retry');
+        await React.act(async () => bootstrap.retryOutgoingProgress());
+        await React.act(async () => resolveOutgoingFlush(true));
+        assert.equal(localStorage.getItem('isGuest'), 'true');
+        assert.equal(ownerRuntime.isCurrent(accountOwner), false);
+        await React.act(async () => authCallback(null));
+        assert.deepEqual(guestRestores.slice(previousGuestRestores), [{
+          owner: ownerRuntime.capture().ownerKey, confirmed: true, refreshFrom: accountOwner.ownerKey,
+        }]);
         await React.act(async () => resolveLogoutRestore());
         await React.act(async () => authCallback({ uid: 'empty-account' }));
         assert.equal(bootstrap.isAuthenticatedLibraryReady, true, 'a successful empty read is ready');
@@ -732,4 +743,87 @@ test('another tab can activate the worker without interrupting this tab’s pend
     assert.deepEqual(reloads, [true]);
     assert.deepEqual(messages, []);
   });
+});
+
+test('statistics receive notifies once at exit for committed pages even when the next page fails or leadership is lost', async () => {
+  const modules = [
+    '../src/lib/firebase.ts', 'firebase/auth', '../src/lib/localReadingStatistics.ts',
+    '../src/lib/ownerRuntime.ts', '../src/hooks/useOwnerSnapshot.ts',
+    '../src/lib/readingStatisticsSync.ts', '../src/lib/readingStatisticsWake.ts',
+    '../src/lib/readingStatisticsSyncLease.ts', '../src/hooks/useReadingStatisticsSync.ts',
+  ];
+  const paths = modules.map(name => require.resolve(name));
+  const previous = paths.map(path => require.cache[path]);
+  const setModule = (index, exports) => {
+    const path = paths[index];
+    require.cache[path] = { id: path, filename: path, loaded: true, exports };
+  };
+  const ownerKey = 'firebase:stats-regression|library:local';
+  const owner = { ownerKey };
+  const user = { uid: 'stats-regression' };
+  try {
+    for (const scenario of ['failure', 'lost', 'uncommitted', 'empty', 'rollup', 'success']) {
+      let leader = true;
+      let fetches = 0;
+      let commits = 0;
+      let notifications = 0;
+      let finish;
+      const finished = new Promise(resolve => { finish = resolve; });
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const firstCursor = { uploadedAtServerSeconds: nowSeconds, uploadedAtServerNanoseconds: 0, documentId: 'first' };
+      setModule(0, { auth: {}, db: {} });
+      setModule(1, { onIdTokenChanged: () => noop });
+      setModule(2, {
+        getPendingReadingSessionsV11: async () => [],
+        getReadingStatisticsHydrationPlanV12: async () => ({
+          state: { cursor: firstCursor, lastFullAuditAt: Date.now(), fullHydrationCompleted: scenario !== 'rollup' },
+          ...(scenario === 'rollup' ? { published: { sourceThrough: { seconds: nowSeconds, nanoseconds: 0 } } } : {}),
+        }),
+        hydrateRemoteReadingSessionsPageV12: async () => {
+          commits++;
+          if (scenario === 'lost') leader = false;
+          return { quarantinedDocuments: [] };
+        },
+        recordReadingStatisticsHydrationMetricsV12: async () => { finish(); },
+      });
+      setModule(3, { ownerRuntime: { isCurrent: yes, registerDisposer: () => noop } });
+      setModule(4, { useOwnerSnapshot: () => owner });
+      setModule(5, { getRemoteReadingSessionsPageV1: async () => {
+        fetches++;
+        if (scenario === 'failure' && fetches === 2) throw new Error('next page failed');
+        if (scenario === 'uncommitted') leader = false;
+        const empty = scenario === 'empty' || scenario === 'rollup';
+        return { sessions: empty ? [] : [{ sessionId: `remote-${fetches}` }], quarantinedDocuments: [],
+          nextCursor: firstCursor, fullHydrationCompleted: empty || scenario === 'success' };
+      } });
+      setModule(6, {
+        notifyReadingStatisticsChange: key => { assert.equal(key, ownerKey); notifications++; },
+        notifyReadingStatisticsServerCheck: noop, requestReadingStatisticsRefresh: noop,
+        subscribeReadingStatisticsChanges: () => noop, subscribeReadingStatisticsRefreshRequests: () => noop,
+        subscribeReadingStatisticsServerChecks: () => noop,
+      });
+      setModule(7, { READING_STATISTICS_LEASE_HEARTBEAT_MS: 100000,
+        ReadingStatisticsSyncLeaseRuntime: class {
+          claim = { holderTabId: 'test', epoch: 1 };
+          async acquire() { return this.claim; }
+          async isCurrent() { return leader; }
+          async release() {}
+        } });
+      delete require.cache[paths[8]];
+      const { useReadingStatisticsSync } = require(paths[8]);
+      await withDom(async root => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        function Harness() { useReadingStatisticsSync(user, ownerKey); return null; }
+        await React.act(async () => root.render(React.createElement(Harness)));
+        await React.act(async () => finished);
+        assert.equal(notifications, ['failure', 'lost', 'rollup', 'success'].includes(scenario) ? 1 : 0, scenario);
+        assert.equal(commits, scenario === 'uncommitted' ? 0 : 1, scenario);
+        if (scenario === 'failure') assert.equal(fetches, 2);
+      });
+    }
+  } finally {
+    paths.forEach((path, index) => {
+      if (previous[index]) require.cache[path] = previous[index]; else delete require.cache[path];
+    });
+  }
 });

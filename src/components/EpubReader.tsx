@@ -112,7 +112,7 @@ interface EpubReaderProps {
   outboxProgressConflictRevision?: number;
   ignoredRemoteRevision?: number;
   onIgnoreRemoteProgress?: (bookId: string, revision: number) => Promise<boolean>;
-  onRegisterProgressFlush?: (flush: (() => Promise<boolean>) | null) => void;
+  onRegisterProgressFlush?: (flush: ((reason?: 'owner-change') => Promise<boolean>) | null) => void;
   onRegisterQuietResumeEligibility?: (check: (() => boolean) | null) => void;
   onRegisterProgressConflictAutoResolveEligibility?: (check: (() => boolean) | null) => void;
   interactionBlocked?: boolean;
@@ -399,6 +399,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     lastSaveTimeRef,
     updateSaveContext,
     markUserInteraction,
+    beginManualNavigation,
     markUserProgressChange,
     setTtsProgressFenceActive,
     handleRelocateForSave,
@@ -1575,7 +1576,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     pendingManualJumpRef.current = staged;
 
     if (!targetAlreadyCurrent) {
-      const committed = await goTo(targetCfi);
+      const finishManualNavigation = beginManualNavigation();
+      let committed: boolean;
+      try {
+        committed = await goTo(targetCfi);
+      } finally {
+        finishManualNavigation();
+      }
       if (!committed) {
         if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
         return false;
@@ -1593,7 +1600,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
     }
     return saved;
-  }, [isProvisionalNavigationActive, navigateWithinPreview, goToStable, commitBookmarks, currentAnchorCfi, currentCfi, goTo, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
+  }, [isProvisionalNavigationActive, navigateWithinPreview, goToStable, commitBookmarks, currentAnchorCfi, currentCfi, goTo, beginManualNavigation, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
 
   const [syncRecoveryBusy, setSyncRecoveryBusy] = React.useState(false);
   const syncRecoveryMoveRef = useRef(false);
@@ -1633,7 +1640,13 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     pendingManualJumpRef.current = staged;
 
     if (Math.abs(targetPct - totalProgress) >= 0.05) {
-      const committed = await goToFraction(fraction);
+      const finishManualNavigation = beginManualNavigation();
+      let committed: boolean;
+      try {
+        committed = await goToFraction(fraction);
+      } finally {
+        finishManualNavigation();
+      }
       if (!committed) {
         if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
         return false;
@@ -1651,7 +1664,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
       if (pendingManualJumpRef.current?.key === key) pendingManualJumpRef.current = null;
     }
     return saved;
-  }, [isProvisionalNavigationActive, navigateWithinPreview, goToFractionStable, commitBookmarks, currentAnchorCfi, currentCfi, goToFraction, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
+  }, [isProvisionalNavigationActive, navigateWithinPreview, goToFractionStable, commitBookmarks, currentAnchorCfi, currentCfi, goToFraction, beginManualNavigation, markReadingActivity, markUserProgressChange, saveCurrentProgress, stageAutoBookmark, totalProgress]);
 
   const handleJump = useCallback(async () => {
     const trimmed = chrome.jumpInput.trim();

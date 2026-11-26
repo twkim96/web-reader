@@ -300,6 +300,7 @@ export const useReadingStatisticsSync = (
             let remoteReadCount = 0;
             let returnedDocuments = 0;
             let receivedHistoryDocuments = 0;
+            let notifyOnExit = false;
             let emptyQueries = 0;
             let queryMode: 'cursor' | 'no-cursor' | 'unavailable' = 'unavailable';
             let auditProbe: 'matched' | 'mismatch' | 'failed' | undefined;
@@ -344,6 +345,7 @@ export const useReadingStatisticsSync = (
                     published, recentOnly,
                   );
                   hydrationPageCount += 1;
+                  if (page.sessions.length > 0 || page.quarantinedDocuments.length > 0) notifyOnExit = true;
                   return result;
                 },
               };
@@ -431,7 +433,6 @@ export const useReadingStatisticsSync = (
                     .catch(() => false),
                 });
                 if (caughtUpCount > 0) {
-                  notifyReadingStatisticsChange(syncOwnerKey);
                   const updated = await loadPlan(publishedAudit === true);
                   if (!('state' in updated)) plan = updated;
                 }
@@ -505,7 +506,7 @@ export const useReadingStatisticsSync = (
               }
               setQuarantinedCount(hydrationRun.quarantinedCount);
               if (receivedHistoryDocuments > 0 || publicationReceivePending || publishedBootstrap === 'fallback') {
-                notifyReadingStatisticsChange(syncOwnerKey);
+                notifyOnExit = true;
               }
               const checkedAt = Date.now();
               const receivedRecords = receivedHistoryDocuments > 0;
@@ -526,6 +527,7 @@ export const useReadingStatisticsSync = (
               if (getHealthForError(error) === 'retrying-receive') scheduleRetry();
             } finally {
               receiving = false;
+              if (notifyOnExit) notifyReadingStatisticsChange(syncOwnerKey);
               traceReaderBootstrap({
                 event: 'reading-statistics-hydration',
                 status: hydrationStatus,

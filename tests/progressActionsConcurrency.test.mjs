@@ -361,6 +361,75 @@ test('durable bookmark commit stays successful when the first convergence read f
   }
 });
 
+for (const action of ['deleteProgress', 'deleteBookProgress']) {
+  test(`${action} handles a bookmark queued behind an in-flight progress save`, async () => {
+    const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT'];
+    const previous = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
+    const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
+    Object.assign(globalThis, { window, document: window.document, CustomEvent: window.CustomEvent,
+      BroadcastChannel: undefined, IS_REACT_ACT_ENVIRONMENT: true });
+    const uid = `queued-bookmark-${action}`;
+    const ownerKey = makeOwnerKey(makeFirebaseOwnerKey(uid), 'library:local');
+    ownerRuntime.activate(ownerKey);
+    const owner = ownerRuntime.capture();
+    const initial = progress([], { syncRevision: 7, acceptedEventId: 'event-7' });
+    await saveProgressToLocalV5(ownerKey, initial);
+    let actions;
+    function Harness() {
+      const [, setProgress] = useState({ 'book-1': initial });
+      const progressRef = useRef({ 'book-1': initial });
+      const current = useProgressActions({ activeBook: { id: 'book-1' }, user: { uid },
+        deviceId: { current: 'device' }, progressRef, setProgress });
+      useEffect(() => { actions = current; }, [current]);
+      return null;
+    }
+    const root = createRoot(document.getElementById('app'));
+    const originalPut = IDBObjectStore.prototype.put;
+    let queued;
+    try {
+      await act(async () => root.render(React.createElement(Harness)));
+      IDBObjectStore.prototype.put = function(value, ...args) {
+        const request = originalPut.call(this, value, ...args);
+        if (!queued && value.ownerKey === ownerKey && value.cfi === 'next-cfi') {
+          const savingBookmark = actions.saveBookmarkMutation('book-1', {
+            kind: 'upsert', bookmark: bookmark('queued', 30),
+          });
+          const deleting = action === 'deleteBookProgress'
+            ? actions.deleteBookProgress('book-1', owner)
+            : actions.deleteProgress('book-1');
+          queued = [savingBookmark, deleting];
+        }
+        return request;
+      };
+      await act(async () => {
+        const saving = actions.saveProgress('next-cfi', 35, undefined, { force: true });
+        assert.equal(await saving, true);
+        assert.ok(queued);
+        assert.deepEqual(await Promise.all(queued), [true, true]);
+      });
+      const events = await getOutboxEventsV5(ownerKey);
+      const reset = events.find(event => event.operation === 'progress.reset');
+      // The reset follows this hook's pending position event from revision 7.
+      assert.equal(reset.baseRevision, 8);
+      assert.deepEqual(events.filter(event => event.target.kind === 'bookmark')
+        .map(event => [event.operation, event.target.bookmarkId]),
+      action === 'deleteBookProgress'
+        ? [['bookmark.delete', 'queued']]
+        : [['bookmark.upsert', 'queued']]);
+      const stored = await loadProgressFromLocalV5(ownerKey, 'book-1');
+      if (action === 'deleteBookProgress') assert.equal(stored, undefined);
+      else {
+        assert.equal(stored.cfi, '');
+        assert.deepEqual(stored.bookmarks.map(({ id }) => id), ['queued']);
+      }
+    } finally {
+      IDBObjectStore.prototype.put = originalPut;
+      await act(async () => root.unmount());
+      Object.assign(globalThis, previous);
+    }
+  });
+}
+
 for (const scenario of ['owner-switch', 'newer-write', 'deferred-updater']) {
   test(`delete completion preserves the current display during ${scenario}`, async () => {
     const keys = ['window', 'document', 'CustomEvent', 'BroadcastChannel', 'IS_REACT_ACT_ENVIRONMENT'];

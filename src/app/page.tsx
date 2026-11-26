@@ -20,7 +20,7 @@ import {
   isGoogleDriveAuthError,
   isGoogleDrivePermissionError,
 } from '../lib/googleDrive';
-import { removeBookAndAnnotationsV8, removeBookFromLocalV5 } from '../lib/localDBV5';
+import { beginGuestReadingHandoff, clearGuestReadingHandoff, removeBookAndAnnotationsV8, removeBookFromLocalV5 } from '../lib/localDBV5';
 import { deleteBookInSafeOrder } from '../lib/bookDeletion';
 import { captureAnnotationBookDeletionV5 } from '../lib/annotationBookDeletion';
 import { getAuthoritativeRemoteAnnotationHeadV1 } from '../lib/annotationSyncRemote';
@@ -51,9 +51,12 @@ import {
 } from '../lib/lastReaderSession';
 import {
   DEVICE_CONTENT_OWNER_KEY,
+  getOrCreateGuestInstallId,
+  isGuestOwner,
+  makeGuestOwnerKey,
+  makeOwnerKey,
   getSyncOwnerKey,
   splitOwnerKey,
-  type OwnerKey,
 } from '../lib/ownerIdentity';
 import { waitForCurrentLocalCommits } from '../lib/localCommitTracker';
 import { ownerRuntime } from '../lib/ownerRuntime';
@@ -119,7 +122,7 @@ export default function Page() {
   const [isGuest, setIsGuest] = useState(getStoredGuestMode);
   // [Fix] Auth Effect에서 isGuest를 의존성으로 쓰면 Firebase 리스너가 재구독됨 → ref로 대체
   const isGuestRef = useRef(getStoredGuestMode());
-  const logoutReadingOwner = useRef<OwnerKey | undefined>(undefined);
+  const logoutRunning = useRef(false);
 
   const [pendingAction, setPendingAction] = useState<'logout' | 'disconnect' | null>(null);
   const [cloudAuthExpiredMessage, setCloudAuthExpiredMessage] = useState<React.ReactNode | null>(null);
@@ -142,7 +145,17 @@ export default function Page() {
   const syncRecoveryRunning = useRef(false);
   const [localDBLifecycleEvent, setLocalDBLifecycleEvent] = useState<LocalDBLifecycleEvent | null>(null);
   const [recentlyImportedBookIds, setRecentlyImportedBookIds] = useState<string[]>([]);
-  const readerProgressFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const readerProgressFlushRef = useRef<((reason?: 'owner-change') => Promise<boolean>) | null>(null);
+  const flushOutgoingProgress = useCallback(() => {
+    const flush = readerProgressFlushRef.current;
+    if (!flush) return;
+    return (async () => {
+      await waitForCurrentLocalCommits();
+      const saved = await flush('owner-change');
+      if (saved) setProgressPersistenceError(null);
+      return saved;
+    })();
+  }, []);
   const flushReaderProgress = useCallback(async () => readerProgressFlushRef.current?.() ?? true, []);
   const readerQuietResumeEligibilityRef = useRef<(() => boolean) | null>(null);
   const readerProgressConflictAutoResolveEligibilityRef = useRef<(() => boolean) | null>(null);
@@ -284,6 +297,7 @@ export default function Page() {
     loadLibraryFromDrive,
     resetLibraryState,
   } = useLibraryData({
+    deviceId,
     clearToken,
     setIsOfflineMode,
     setView,
@@ -306,6 +320,9 @@ export default function Page() {
     isLibraryBootstrapReady,
     libraryRestoreFailed,
     retryLibraryRestore,
+    flushingOutgoingProgress,
+    outgoingProgressFailed,
+    retryOutgoingProgress,
   } = useAuthBootstrap({
     isGuestRef,
     setUser,
@@ -315,10 +332,10 @@ export default function Page() {
     restoreLocalData,
     resetLibraryState,
     shouldHoldShelfForDrive,
-    logoutReadingOwner,
+    flushOutgoingProgress,
     onAuthenticatedLibraryRestoreSettled: googleLogin.finish,
   });
-  const syncUser = isAuthenticatedLibraryReady ? user : null;
+  const syncUser = isAuthenticatedLibraryReady && !flushingOutgoingProgress ? user : null;
   const receiveSyncHealth = useProgressSync({
     user: syncUser,
     deviceId,
@@ -466,6 +483,7 @@ export default function Page() {
   const readerVersion = readerReopen?.ownerKey === activeOwnerKey && readerReopen.bookId === activeBook?.id
     ? readerReopen.version : '';
   const readerInteractionBlocked = showSyncConflictDialog
+    || flushingOutgoingProgress
     || syncConflictResolution.resolving
     || (syncRecovery !== null && ownerRuntime.isCurrent(syncRecovery.owner))
     || syncRecoveryBusy
@@ -612,38 +630,59 @@ export default function Page() {
 
     if (action === 'logout') {
       const logoutOwner = ownerRuntime.capture();
-      await waitForCurrentLocalCommits();
-      if (logoutOwner && !ownerRuntime.isCurrent(logoutOwner)) return;
-      await runLogoutFlow({
-        prepareUi: () => {
-          // Mark the upcoming anonymous auth state as a guest transition before
-          // Firebase emits it. Invalidate the authenticated owner first so every
-          // Firestore listener and outbox worker observes a stale owner before
-          // Firebase drops its credential and cannot pause work as permission-denied.
-          setActiveBook(null);
-          logoutReadingOwner.current = logoutOwner?.ownerKey;
-          ownerRuntime.clear();
-          isGuestRef.current = true;
-          localStorage.setItem('isGuest', 'true');
-        },
-        signOut: () => signOut(auth),
-        commitLocalCleanup: () => {
-          if (driveCacheKey) invalidateDriveCache(driveCacheKey);
-          clearToken();
-          clearPendingGoogleDriveOAuthStates(sessionStorage, localStorage);
-          clearLastReaderSession();
-        },
-        recoverUi: (error) => {
-          logoutReadingOwner.current = undefined;
-          if (logoutOwner) ownerRuntime.activate(logoutOwner.ownerKey);
-          isGuestRef.current = false;
-          localStorage.removeItem('isGuest');
-          setIsGuest(false);
-          console.error('[Auth] Sign out failed:', error);
-          setAuthErrorMessage('로그아웃하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.');
-          setView('shelf');
-        },
-      });
+      if (!logoutOwner || isGuestOwner(logoutOwner.ownerKey) || logoutRunning.current) return;
+      logoutRunning.current = true;
+      try {
+        const flushed = await flushReaderProgress();
+        const commits = await waitForCurrentLocalCommits();
+        if (!ownerRuntime.isCurrent(logoutOwner)) return;
+        if (!flushed || !commits.ok) {
+          setAuthErrorMessage('읽기 위치를 저장하지 못했습니다. 잠시 후 로그아웃을 다시 시도해 주세요.');
+          return;
+        }
+        const guestOwner = makeOwnerKey(makeGuestOwnerKey(getOrCreateGuestInstallId(localStorage)), 'library:local');
+        const handoff = await beginGuestReadingHandoff(getSyncOwnerKey(logoutOwner.ownerKey), guestOwner);
+        if (!ownerRuntime.isCurrent(logoutOwner)) {
+          await clearGuestReadingHandoff(handoff, true);
+          return;
+        }
+        await runLogoutFlow({
+          prepareUi: () => {
+            // Mark the upcoming anonymous auth state as a guest transition before
+            // Firebase emits it. Invalidate the authenticated owner first so every
+            // Firestore listener and outbox worker observes a stale owner before
+            // Firebase drops its credential and cannot pause work as permission-denied.
+            setActiveBook(null);
+            ownerRuntime.clear();
+            isGuestRef.current = true;
+          },
+          signOut: () => signOut(auth),
+          commitLocalCleanup: () => {
+            if (driveCacheKey) invalidateDriveCache(driveCacheKey);
+            clearToken();
+            clearPendingGoogleDriveOAuthStates(sessionStorage, localStorage);
+            clearLastReaderSession();
+          },
+          recoverUi: async (error) => {
+            await clearGuestReadingHandoff(handoff, true).catch((failure) => {
+              console.error('[Auth] Could not clear failed logout handoff:', failure);
+            });
+            if (auth.currentUser?.uid !== user?.uid || ownerRuntime.capture()) return;
+            ownerRuntime.activate(logoutOwner.ownerKey);
+            isGuestRef.current = false;
+            localStorage.removeItem('isGuest');
+            setIsGuest(false);
+            console.error('[Auth] Sign out failed:', error);
+            setAuthErrorMessage('로그아웃하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.');
+            setView('shelf');
+          },
+        });
+      } catch (error) {
+        console.error('[Auth] Could not prepare logout:', error);
+        setAuthErrorMessage('읽기 위치를 보존하지 못했습니다. 잠시 후 로그아웃을 다시 시도해 주세요.');
+      } finally {
+        logoutRunning.current = false;
+      }
     } else if (action === 'disconnect') {
       await revokeToken();
       if (driveCacheKey) invalidateDriveCache(driveCacheKey);
@@ -838,7 +877,36 @@ export default function Page() {
     ...themeCssVariables,
   } as React.CSSProperties;
 
-  const loginDialog = googleLogin.phase && (
+  const localDBDialog = localDBLifecycleEvent && (
+    <ConfirmDialog
+      message={localDBLifecycleEvent.type === 'blocked'
+        ? '다른 탭이 로컬 서재 업데이트를 막고 있습니다.'
+        : '로컬 서재 연결을 다시 열어야 합니다.'}
+      subMessage={localDBLifecycleEvent.type === 'blocked'
+        ? '다른 웹리더 탭을 닫은 뒤 이 탭을 다시 불러와 주세요.'
+        : '안전하게 연결을 닫았습니다. 페이지를 다시 불러오면 복구를 계속합니다.'}
+      confirmLabel="다시 불러오기"
+      hideCancel
+      variant="info"
+      theme={theme}
+      onConfirm={() => window.location.reload()}
+      onCancel={() => setLocalDBLifecycleEvent(null)}
+    />
+  );
+
+  const outgoingProgressDialog = !localDBDialog && outgoingProgressFailed && (
+    <ConfirmDialog
+      message="읽기 위치를 저장하지 못했습니다."
+      subMessage="현재 위치를 저장한 뒤 계정을 전환합니다."
+      confirmLabel="다시 시도"
+      hideCancel
+      variant="info"
+      theme={theme}
+      onConfirm={retryOutgoingProgress}
+      onCancel={retryOutgoingProgress}
+    />
+  );
+  const loginDialog = !localDBDialog && !outgoingProgressDialog && googleLogin.phase && (
     <LoginProgressDialog finishing={googleLogin.phase === 'finishing'} onCancel={googleLogin.cancel} style={dynamicStyles} />
   );
 
@@ -867,6 +935,8 @@ export default function Page() {
             <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
           </>
         )}
+        {localDBDialog}
+        {outgoingProgressDialog}
         {loginDialog}
       </div>
     );
@@ -1075,7 +1145,7 @@ export default function Page() {
         />
       )}
 
-      {progressPersistenceError && (
+      {progressPersistenceError && !flushingOutgoingProgress && (
         <div className="fixed bottom-4 left-1/2 z-[110] flex w-[min(92vw,36rem)] -translate-x-1/2 items-center gap-3 rounded-2xl bg-rose-700 px-4 py-3 text-sm text-white shadow-2xl">
           <span className="flex-1">{progressPersistenceError}</span>
           <button
@@ -1097,22 +1167,8 @@ export default function Page() {
         />
       )}
 
-      {localDBLifecycleEvent && (
-        <ConfirmDialog
-          message={localDBLifecycleEvent.type === 'blocked'
-            ? '다른 탭이 로컬 서재 업데이트를 막고 있습니다.'
-            : '로컬 서재 연결을 다시 열어야 합니다.'}
-          subMessage={localDBLifecycleEvent.type === 'blocked'
-            ? '다른 웹리더 탭을 닫은 뒤 이 탭을 다시 불러와 주세요.'
-            : '안전하게 연결을 닫았습니다. 페이지를 다시 불러오면 복구를 계속합니다.'}
-          confirmLabel="다시 불러오기"
-          hideCancel
-          variant="info"
-          theme={theme}
-          onConfirm={() => window.location.reload()}
-          onCancel={() => setLocalDBLifecycleEvent(null)}
-        />
-      )}
+      {localDBDialog}
+      {outgoingProgressDialog}
 
       {showSyncReviewBadge && (
         <button

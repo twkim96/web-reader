@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { initDB } from './localDB';
 import {
+  V5_BOOKS_STORE,
   V5_OUTBOX_STORE,
   V5_PROGRESS_STORE,
   V5_REMOTE_HEADS_STORE,
@@ -20,7 +21,8 @@ import {
   V5_SYNC_META_STORE,
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
 } from './localDBSchema';
-import type { OwnerKey } from './ownerIdentity';
+import { DEVICE_CONTENT_OWNER_KEY, type OwnerKey } from './ownerIdentity';
+import type { GuestReadingHandoff } from './localDBV5';
 import type { AnnotationBookDeletionIntentV10 } from './annotationBookDeletion';
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from './annotationPolicy';
 import {
@@ -1566,10 +1568,15 @@ export const mergeProgressMutationBatchV5 = (
   };
 };
 
-export const enqueueProgressMutationBatchV5 = async (
+type GuestProgressImport = { handoff: GuestReadingHandoff; isCurrent: () => boolean };
+
+export function enqueueProgressMutationBatchV5(ownerKey: OwnerKey, input: EnqueueProgressMutationBatchInput): Promise<UserProgress>;
+export function enqueueProgressMutationBatchV5(ownerKey: OwnerKey, input: EnqueueProgressMutationBatchInput, guestImport: GuestProgressImport): Promise<UserProgress | undefined>;
+export async function enqueueProgressMutationBatchV5(
   ownerKey: OwnerKey,
   input: EnqueueProgressMutationBatchInput,
-): Promise<UserProgress> => {
+  guestImport?: GuestProgressImport,
+): Promise<UserProgress | undefined> {
   if (input.progressEvent) validateEnqueueInput(input.progressEvent);
   input.bookmarkEvents.forEach(validateBookmarkEnqueueInput);
   if (
@@ -1601,6 +1608,7 @@ export const enqueueProgressMutationBatchV5 = async (
     V5_OUTBOX_STORE,
     V5_SYNC_META_STORE,
     V5_SYNC_CONFLICTS_STORE,
+    ...(guestImport ? [V5_BOOKS_STORE, V5_REMOTE_HEADS_STORE] : []),
   ], 'readwrite');
   void tx.done.catch(() => undefined);
   const progressStore = tx.objectStore(V5_PROGRESS_STORE);
@@ -1610,9 +1618,50 @@ export const enqueueProgressMutationBatchV5 = async (
   const existingProgress = await progressStore.get([ownerKey, input.progress.bookId]) as
     (UserProgress & { ownerKey?: OwnerKey }) | undefined;
 
+  let importedMarker: GuestReadingHandoff | undefined;
+  let comparedRemoteProgress: ProgressHeadV2 | undefined;
+  if (guestImport) {
+    const { handoff, isCurrent } = guestImport;
+    const { bookId, lastRead, cfi, anchorCfi, progressPercent } = input.progress;
+    const [marker, guest, cached, contentKey] = await Promise.all([
+      metaStore.get([handoff.ownerKey, handoff.targetKey]) as Promise<GuestReadingHandoff | undefined>,
+      progressStore.get([handoff.ownerKey, bookId]) as Promise<UserProgress | undefined>,
+      tx.objectStore(V5_REMOTE_HEADS_STORE).get([ownerKey, progressTargetKeyV2(bookId)]) as Promise<RemoteHeadCacheV5 | undefined>,
+      tx.objectStore(V5_BOOKS_STORE).getKey([DEVICE_CONTENT_OWNER_KEY, bookId]),
+    ]);
+    const remote = cached?.head;
+    if (!isCurrent() || marker?.attemptId !== handoff.attemptId || !marker.confirmed || marker.account !== ownerKey
+      || !contentKey || guest?.lastRead !== lastRead
+      || lastRead <= Math.max(marker.startedAt, marker.importedThrough?.[bookId] ?? 0)
+      || guest.cfi !== cfi || guest.anchorCfi !== anchorCfi || guest.progressPercent !== progressPercent) {
+      await tx.done;
+      return undefined;
+    }
+    importedMarker = { ...marker, importedThrough: { ...marker.importedThrough, [bookId]: lastRead } };
+    comparedRemoteProgress = remote && 'position' in remote ? remote : undefined;
+    const serverTime = comparedRemoteProgress?.updatedAtServer as { seconds?: number; nanoseconds?: number } | undefined;
+    const publishedAt = (serverTime?.seconds ?? 0) * 1000 + (serverTime?.nanoseconds ?? 0) / 1_000_000;
+    if (lastRead <= Math.max(existingProgress?.lastRead ?? 0, publishedAt)) {
+      await metaStore.put(importedMarker);
+      await tx.done;
+      return undefined;
+    }
+    input = {
+      ...input,
+      progress: { ...existingProgress, ...input.progress, bookmarks: existingProgress?.bookmarks },
+      progressEvent: input.progressEvent && {
+        ...input.progressEvent,
+        causalRevision: existingProgress?.syncRevision,
+        causalIgnoredRevision: existingProgress?.ignoredRemoteRevision,
+        causalAcceptedEventId: existingProgress?.acceptedEventId,
+        restoredPositionToken: existingProgress?.localPositionToken,
+      },
+    };
+  }
+
   let batchCausalState: Partial<UserProgress> = {};
   if (input.progressEvent) {
-    const eventInput = input.progressEvent;
+    let eventInput = input.progressEvent;
     const occurredAtClient = eventInput.occurredAtClient ?? Date.now();
     const targetKey = progressTargetKeyV2(eventInput.bookId);
     const [storedMeta, targetEvents, targetConflicts] = await Promise.all([
@@ -1625,10 +1674,18 @@ export const enqueueProgressMutationBatchV5 = async (
     ]);
     requireRecoveredTarget(targetEvents, tx);
     const meta = storedMeta ?? defaultSyncMeta(ownerKey, targetKey, occurredAtClient);
-    batchCausalState = getProgressCausalState(input.progress, eventInput, meta);
     const unresolved = targetEvents
       .filter((event) => activeStatuses.has(event.status))
       .sort(eventSort);
+    if (comparedRemoteProgress && Number.isFinite((comparedRemoteProgress.updatedAtServer as { seconds?: number } | undefined)?.seconds)
+      && !unresolved.length && !targetConflicts.length
+      && comparedRemoteProgress.revision > (eventInput.causalRevision ?? 0)) {
+      eventInput = {
+        ...eventInput, causalRevision: comparedRemoteProgress.revision,
+        causalAcceptedEventId: comparedRemoteProgress.acceptedEventId, restoredPositionToken: undefined,
+      };
+    }
+    batchCausalState = getProgressCausalState(input.progress, eventInput, meta);
     const coalesced = getCoalescibleProgressTail(unresolved, eventInput, ownerKey);
     const openConflict = targetConflicts[0];
     const positionToken = !openConflict && eventInput.operation === 'progress.set' && eventInput.causalViewportId
@@ -1765,12 +1822,13 @@ export const enqueueProgressMutationBatchV5 = async (
 
   const canonicalProgress = { ...mergeProgressMutationBatchV5(existingProgress, input), ...batchCausalState };
   await progressStore.put({ ...canonicalProgress, ownerKey });
+  if (importedMarker) await metaStore.put(importedMarker);
   await tx.done;
   if (input.progressEvent || input.bookmarkEvents.length > 0) {
     notifyProgressSyncWork(ownerKey);
   }
   return canonicalProgress;
-};
+}
 
 // Only the live producer can attach fresh authority. The original cached
 // lease remains usable across a full restart until its normal expiry.

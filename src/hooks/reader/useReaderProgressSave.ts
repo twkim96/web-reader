@@ -139,6 +139,7 @@ export const useReaderProgressSave = ({
   const skipNextSaveRef = useRef(true);
   const hasUnsavedUserChangeRef = useRef(false);
   const interactionGenerationRef = useRef(0);
+  const pendingManualNavigationCountRef = useRef(0);
   const inFlightCommitCountRef = useRef(0);
   const forceNextRelocateSaveRef = useRef(false);
   const pendingExpectedPercentRef = useRef<number | null>(null);
@@ -198,6 +199,20 @@ export const useReaderProgressSave = ({
   const markUserInteraction = useCallback(() => {
     traceReaderProgressRegression({ event: 'user-interaction' });
   }, []);
+
+  const beginManualNavigation = useCallback(() => {
+    markUserInteraction();
+    interactionGenerationRef.current += 1;
+    pendingManualNavigationCountRef.current += 1;
+    remoteNavigationAttemptRef.current?.controller.abort();
+    remoteNavigationAttemptRef.current = null;
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      pendingManualNavigationCountRef.current -= 1;
+    };
+  }, [markUserInteraction]);
 
   const beginRemoteNavigationAttempt = useCallback((): ReaderRemoteNavigationAttempt => {
     remoteNavigationAttemptRef.current?.controller.abort();
@@ -689,10 +704,15 @@ export const useReaderProgressSave = ({
   }), [getPersistenceState]);
 
   const isProgressConflictAutoResolveEligible = useCallback(() => (
-    isReaderProgressPersistenceSettled(getPersistenceState())
+    pendingManualNavigationCountRef.current === 0
+    && isReaderProgressPersistenceSettled(getPersistenceState())
   ), [getPersistenceState]);
 
-  const flushCurrentProgress = useCallback(async () => {
+  const flushCurrentProgress = useCallback(async (reason?: 'owner-change') => {
+    if (reason === 'owner-change' && provisionalRef.current) {
+      await provisionalRef.current.commit;
+      cancelProvisionalNavigation();
+    }
     if (provisionalRef.current) return false;
     if (isReaderProgressPersistenceSettled(getPersistenceState())) return true;
     if (!hasUnsavedUserChangeRef.current && !pendingRelocateSaveRef.current) return false;
@@ -718,7 +738,7 @@ export const useReaderProgressSave = ({
       ) return true;
     }
     return false;
-  }, [getPersistenceState, saveCurrentProgress]);
+  }, [cancelProvisionalNavigation, getPersistenceState, saveCurrentProgress]);
 
   useEffect(() => () => {
     clearRelocateSaveTimer();
@@ -886,6 +906,7 @@ export const useReaderProgressSave = ({
     lastSaveTimeRef,
     updateSaveContext,
     markUserInteraction,
+    beginManualNavigation,
     markUserProgressChange,
     setTtsProgressFenceActive,
     saveProgressIfChanged,

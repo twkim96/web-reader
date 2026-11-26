@@ -6,6 +6,7 @@ const { parseHTML } = require('linkedom');
 const { createRoot } = require('react-dom/client');
 const { useReaderProgressSave } = require('../src/hooks/reader/useReaderProgressSave.ts');
 const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+const { executeCanonicalRemoteProgressNavigation } = require('../src/hooks/reader/remoteProgressAdoption.ts');
 
 async function harness(run, options = {}) {
   const keys = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'];
@@ -160,6 +161,34 @@ test('opening reader chrome permits startup resume but an actual page move perma
   hook.handleRelocateForSave({ cfi: 'after-turn', progressPercent: 15 });
   await hook.flushCurrentProgress();
   assert.equal(hook.isQuietResumeEligible(), false);
+}));
+
+test('manual navigation intent cancels a waiting remote resume without marking a failed move dirty', () => harness(async ({ hook, saves, adoptionCalls }) => {
+  let ready;
+  const attempt = hook.beginRemoteNavigationAttempt();
+  let remoteMoves = 0;
+  const remote = executeCanonicalRemoteProgressNavigation({
+    isCurrent: () => hook.isRemoteNavigationAttemptCurrent(attempt) && hook.isQuietResumeEligible(),
+    ready: () => new Promise(resolve => { ready = resolve; }),
+    adopt: () => hook.adoptRemoteProgressBeforeNavigation({}, attempt.signal),
+    prepare: () => 1,
+    cancel: () => {},
+    navigate: async () => { remoteMoves++; return true; },
+  });
+  const finish = hook.beginManualNavigation();
+  assert.equal(attempt.signal.aborted, true);
+  assert.equal(hook.isQuietResumeEligible(), false);
+  assert.equal(hook.isProgressConflictAutoResolveEligible(), false);
+  ready(true);
+  assert.equal((await remote).status, 'cancelled');
+  assert.equal(adoptionCalls(), 0);
+  assert.equal(remoteMoves, 0);
+  assert.equal(await hook.flushCurrentProgress(), true);
+  finish(); // The manual goTo failed; it never becomes a saveable change.
+  assert.equal(hook.isProgressConflictAutoResolveEligible(), true);
+  assert.equal(hook.isQuietResumeEligible(), false);
+  assert.equal(await hook.saveCurrentProgress({ force: true }), false);
+  assert.equal(saves.length, 0);
 }));
 
 test('maximum-interval relocation saves retain the page anchor during continuous reading', (t) => {
