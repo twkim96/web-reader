@@ -156,7 +156,7 @@ export function useSharedDriveImport({ owner, drive, title, onReconnect }: {
         setQuery(initial);
         void open(initial);
       }} className="relative inline-flex size-6 items-center justify-center rounded-md text-accent-500 before:absolute before:-inset-y-2.5 before:-start-2.5 before:end-0 hover:bg-current/5 focus-visible:outline-2 focus-visible:outline-accent-500 disabled:opacity-40">
-        <CloudDownload size={18} aria-hidden="true" />
+        <CloudDownload size={19} aria-hidden="true" />
       </button>),
     panel: drive && (refine || feedback) ? <>
       {refine && <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); void open(query); }}>
