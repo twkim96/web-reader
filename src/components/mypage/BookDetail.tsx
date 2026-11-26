@@ -21,7 +21,7 @@ import { formatReadingDuration } from '../../lib/readingStatistics';
 import { BookCover } from './BookCover';
 import { BookReviewEditor } from './BookReviewEditor';
 import { DashboardBookRow } from './DashboardBookRow';
-import { SharedDriveImport, type SharedDriveConnection } from './SharedDriveImport';
+import { useSharedDriveImport, type SharedDriveConnection } from './SharedDriveImport';
 
 const percent = new Intl.NumberFormat('ko', { maximumFractionDigits: 2 });
 const formatPercent = (number: number) => `${percent.format(number)}%`;
@@ -125,12 +125,13 @@ function CommunityReviews({ workId }: { workId: string }) {
   );
 }
 
-export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, rotationSeed, onOpenRelatedBook, onSearchCatalog }: {
+export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive, onSharedDriveReconnect, books, progress, bookmarkProgress, catalogLoading, identityBlocked, saved, focusReview, catalog, rotationSeed, onOpenRelatedBook, onSearchCatalog }: {
   bookId: string;
   discovery?: DiscoveryBook;
   readBook?: ReadBook;
   ownerKey: OwnerKey;
   sharedDrive?: SharedDriveConnection;
+  onSharedDriveReconnect?: () => void;
   books: Book[];
   progress: Record<string, UserProgress>;
   bookmarkProgress: Record<string, UserProgress>;
@@ -271,6 +272,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive,
   const readingSnapshot = losesEvidence ? null : confirmedReading;
   const reviewPlatformKeys = [...new Set([...work.platformWorkKeys, ...(readBook?.platformWorkKeys ?? [])])];
   const title = discovery?.title ?? metadata?.displayTitle ?? readBook?.title;
+  const driveImport = useSharedDriveImport({ owner: ownerKey, drive: isGuestOwner(ownerKey) ? undefined : sharedDrive, title, onReconnect: onSharedDriveReconnect });
   useEffect(() => {
     const editor = reviewEditor.current;
     if (!focusReview || !title || !editor) return;
@@ -305,6 +307,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive,
               <div className="min-w-0 break-words text-xs font-semibold text-accent-500">{discovery?.genre}</div>
               <div className="flex shrink-0 items-center gap-2.5">
                 {personal.hasRead && <span role="img" aria-label="읽은 기록 있음" title="읽은 기록 있음" className="text-accent-500"><Check size={18} aria-hidden="true" /></span>}
+                {driveImport.button}
                 <span role="img" aria-label={saved ? '위시리스트에 담김' : '위시리스트에 담기지 않음'} title={saved ? '위시리스트에 담김' : '위시리스트에 담기지 않음'} className={saved ? 'text-accent-500' : 'opacity-55'}>
                   <Heart size={19} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
                 </span>
@@ -342,7 +345,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, sharedDrive,
           readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
           ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
           error={reviews.error} refresh={reviews.refresh} change={changeReview} editorRef={reviewEditor} />
-        {sharedDrive && !isGuestOwner(ownerKey) && <SharedDriveImport key={sharedDrive.sessionId} owner={ownerKey} drive={sharedDrive} title={title} />}
+        {driveImport.panel}
       </section>
       {discovery?.synopsis && <BookSynopsis key={`${discovery.synopsis.workId}:${discovery.synopsis.shard}`} reference={discovery.synopsis} platformKeys={platformKeys} />}
       {hasPersonal && (

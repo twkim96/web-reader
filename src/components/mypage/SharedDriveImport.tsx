@@ -6,7 +6,7 @@ import { ownerRuntime } from '../../lib/ownerRuntime';
 import type { OwnerKey } from '../../lib/ownerIdentity';
 import { pickSharedDriveFiles } from '../../lib/googleDrivePicker';
 
-export type SharedDriveConnection = { token: string; sessionId: string; refreshShelf: () => void };
+export type SharedDriveConnection = { token: string; sessionId: string; hasValidToken: () => boolean; refreshShelf: () => void };
 type PickerConfig = { available: true; pickerKey: string; appId: string } | { available: false };
 class SharedDriveRequestError extends Error {
   constructor(readonly status: number, readonly reason: string) {
@@ -44,30 +44,46 @@ async function requestImport<T>(owner: OwnerKey, driveToken: string, signal: Abo
 
 const actionStyle = 'min-h-10 rounded-lg px-3 text-sm font-semibold text-accent-500 hover:bg-current/5 disabled:opacity-40';
 
-export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; drive: SharedDriveConnection; title: string }) {
-  const [status, setStatus] = useState<PickerConfig>();
-  const [checkFailed, setCheckFailed] = useState(false);
+export function useSharedDriveImport({ owner, drive, title, onReconnect }: {
+  owner: OwnerKey;
+  drive?: SharedDriveConnection;
+  title?: string;
+  onReconnect?: () => void;
+}) {
+  const [checked, setChecked] = useState<{ sessionId: string; result: PickerConfig | 'failed' }>();
   const [checkAttempts, setCheckAttempts] = useState(0);
-  const [query, setQuery] = useState(() => title.slice(0, 200));
+  const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [refine, setRefine] = useState(false);
   const [feedback, setFeedback] = useState('');
   const controller = useRef<AbortController | null>(null);
-  const token = drive.token;
+  const token = drive?.token;
+  const sessionId = drive?.sessionId;
+  const hasTitle = Boolean(title);
+  // Keep the verified button on this detail after expiry. A new Drive session needs its own check.
+  const status = !sessionId || sessionId === checked?.sessionId ? checked?.result : undefined;
 
   useEffect(() => {
+    if (!token || !sessionId || !hasTitle) return;
     const check = new AbortController();
-    void requestImport<PickerConfig>(owner, token, check.signal).then(setStatus).catch(() => {
-      if (!check.signal.aborted) setCheckFailed(true);
+    void requestImport<PickerConfig>(owner, token, check.signal).then((result) => {
+      if (!check.signal.aborted) setChecked({ sessionId, result });
+    }).catch(() => {
+      if (!check.signal.aborted) setChecked({ sessionId, result: 'failed' });
     });
     return () => {
       check.abort();
       controller.current?.abort();
     };
-  }, [owner, token, checkAttempts]);
+  }, [owner, token, sessionId, hasTitle, checkAttempts]);
 
   async function open(value: string) {
-    if (!status?.available || !value.trim() || controller.current) return;
+    if (!status || status === 'failed' || !status.available || !value.trim() || controller.current) return;
+    if (!drive?.hasValidToken()) {
+      onReconnect?.();
+      return;
+    }
+    const { token } = drive;
     const current = new AbortController();
     const { signal } = current;
     controller.current = current;
@@ -104,7 +120,11 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
         if (process.env.NEXT_PUBLIC_WEB_READER_PREVIEW === '1') {
           console.warn('[SharedDrive]', error instanceof SharedDriveRequestError ? error.message : 'Picker or client session failed');
         }
-        if (error instanceof SharedDriveRequestError && error.reason === 'destination-changed') {
+        if (error instanceof SharedDriveRequestError && error.status === 401 && error.reason === 'drive') {
+          setRefine(false);
+          setFeedback('');
+          onReconnect?.();
+        } else if (error instanceof SharedDriveRequestError && error.reason === 'destination-changed') {
           setFeedback('복사 대상 서재가 바뀌었습니다. 이전 서재에 사본이 있는지 확인해 주세요.');
         } else if (error instanceof SharedDriveRequestError && error.status === 429) {
           setFeedback('Drive가 요청을 제한하고 있습니다. 잠시 후 다시 시도해 주세요.');
@@ -115,29 +135,30 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
     } finally {
       if (controller.current === current) {
         controller.current = null;
-        if (!signal.aborted) setBusy(false);
+        setBusy(false);
       }
     }
   }
 
-  if (!status?.available) return checkFailed ? (
+  if (!status || status === 'failed' || !status.available) return { button: null, panel: drive && status === 'failed' ? (
     <p role="status" className="mt-1 text-sm opacity-70">
       공유 폴더 연결을 확인하지 못했습니다.
       <button type="button" className={actionStyle} onClick={() => {
-        setCheckFailed(false);
+        setChecked(undefined);
         setCheckAttempts((current) => current + 1);
       }}>다시 확인</button>
     </p>
-  ) : null;
-  return (
-    <div className="mt-1">
+  ) : null };
+  return {
+    button: (
       <button type="button" aria-label="공유 폴더에서 가져오기" title="공유 폴더에서 가져오기" disabled={busy} onClick={() => {
-        const initial = title.slice(0, 200);
+        const initial = title?.slice(0, 200) ?? '';
         setQuery(initial);
         void open(initial);
-      }} className="inline-flex size-11 items-center justify-center rounded-lg text-accent-500 hover:bg-current/5 focus-visible:outline-2 focus-visible:outline-accent-500 disabled:opacity-40">
+      }} className="relative inline-flex size-6 items-center justify-center rounded-md text-accent-500 before:absolute before:-inset-y-2.5 before:-start-2.5 before:end-0 hover:bg-current/5 focus-visible:outline-2 focus-visible:outline-accent-500 disabled:opacity-40">
         <CloudDownload size={18} aria-hidden="true" />
-      </button>
+      </button>),
+    panel: drive && (refine || feedback) ? <>
       {refine && <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); void open(query); }}>
         <input aria-label="공유 폴더 파일 검색" value={query} maxLength={200} required disabled={busy}
           onChange={(event) => setQuery(event.target.value)}
@@ -145,6 +166,6 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
         <button type="submit" disabled={busy} className={actionStyle}>다시 검색</button>
       </form>}
       {feedback && <p role="status" className="mt-2 text-sm opacity-70">{feedback}</p>}
-    </div>
-  );
+    </> : null,
+  };
 }

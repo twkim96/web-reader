@@ -553,20 +553,25 @@ export default function Page() {
     return () => window.removeEventListener('web-reader-expired-sync-progress', handleRecovered);
   }, [activeBook, activeOwnerKey, progressRef, setProgress]);
 
-  const handleCloudAuthExpired = useCallback((message?: React.ReactNode) => {
+  const resetExpiredDriveSession = useCallback(() => {
     if (driveCacheKey) invalidateDriveCache(driveCacheKey);
     clearToken();
     setIsOfflineMode(true);
-    setCloudAuthExpiredMessage(message || "현재 도서는 기기에만 저장됩니다. 다시 클라우드를 연결하면 구글 드라이브 업로드를 사용할 수 있습니다.");
     void restoreLocalData({ preventRedirect: true, replaceBooks: true });
   }, [clearToken, driveCacheKey, restoreLocalData]);
+
+  const handleCloudAuthExpired = useCallback((message?: React.ReactNode) => {
+    resetExpiredDriveSession();
+    setCloudAuthExpiredMessage(message || "현재 도서는 기기에만 저장됩니다. 다시 클라우드를 연결하면 구글 드라이브 업로드를 사용할 수 있습니다.");
+  }, [resetExpiredDriveSession]);
 
   useEffect(() => {
     if (!googleToken || isOfflineMode) return;
 
     const validateCloudSession = () => {
       if (!hasValidToken()) {
-        handleCloudAuthExpired();
+        if (view === 'mypage' && window.location.hash.startsWith('#mypage/book/')) resetExpiredDriveSession();
+        else handleCloudAuthExpired();
       }
     };
 
@@ -588,7 +593,7 @@ export default function Page() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.clearInterval(intervalId);
     };
-  }, [googleToken, handleCloudAuthExpired, hasValidToken, isOfflineMode]);
+  }, [googleToken, handleCloudAuthExpired, hasValidToken, isOfflineMode, resetExpiredDriveSession, view]);
 
   const handleConnect = () => {
     if (isGuest || !user) {
@@ -1040,12 +1045,16 @@ export default function Page() {
         <MyPage
           key={activeOwnerKey}
           ownerKey={activeOwnerKey}
-          sharedDrive={googleToken && !isOfflineMode && driveSessionId && driveCacheKey?.endsWith(`::${driveSessionId}`)
-            ? { token: googleToken, sessionId: driveSessionId, refreshShelf: () => {
+          sharedDrive={googleToken && driveSessionId && driveCacheKey?.endsWith(`::${driveSessionId}`)
+            ? { token: googleToken, sessionId: driveSessionId, hasValidToken, refreshShelf: () => {
               invalidateDriveCache(driveCacheKey);
               void loadLibraryFromDrive(googleToken);
             } }
             : undefined}
+          onSharedDriveReconnect={() => {
+            if (googleToken) resetExpiredDriveSession();
+            setLoginDisclosureMode('drive-reconnect');
+          }}
           books={books}
           progress={shelfProgress}
           bookmarkProgress={progress}

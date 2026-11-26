@@ -41,7 +41,7 @@ Drive 웹에서 직접 추가한 지원 파일도 읽기 목록에 나타날 수
 
 ## 초대 계정의 공유 폴더 가져오기
 
-앱에 로그인한 뒤 연결한 Google Drive 계정에 지정 폴더를 읽을 권한이 있으면 도서 상세에 가져오기 버튼이 표시됩니다. 서버가 검색과 복사 요청마다 폴더 권한을 다시 확인합니다. 공유 폴더의 일반 액세스를 **제한됨**으로 설정하고 Google Drive에서 사용자를 초대하거나 권한을 회수합니다. 기존 서재 OAuth의 `drive.readonly`, `drive.file`, `drive.appdata`를 재사용합니다.
+앱에 로그인한 뒤 연결한 Google Drive 계정에 지정 폴더를 읽을 권한이 있으면 도서 상세의 위시리스트 하트 왼쪽에 가져오기 버튼이 표시됩니다. 같은 상세 화면에서 Drive 세션이 만료되면 버튼을 눌러 Google Drive 로그인 창을 열 수 있습니다. 서버는 새 Drive 세션과 검색·복사 요청의 폴더 권한을 확인합니다. 공유 폴더의 일반 액세스를 **제한됨**으로 설정하고 Google Drive에서 사용자를 초대하거나 권한을 회수합니다. 기존 서재 OAuth의 `drive.readonly`, `drive.file`, `drive.appdata`를 재사용합니다.
 
 서버는 현재 작품 제목으로 Drive 후보를 찾고 각 파일의 상위 폴더를 따라가며 지정 폴더의 하위인지 확인합니다. Google Picker에는 일치한 원본 파일 ID를 전달하고 공유 폴더 ID는 서버에 둡니다. 후보가 많아서 조회 한도에 도달하면 검색어를 좁힐 수 있습니다. 선택할 때 Picker가 기존 `drive.file` 범위에 그 파일의 개별 접근 권한을 부여합니다. [Google Picker](https://developers.google.com/workspace/drive/picker/guides/web-picker)
 

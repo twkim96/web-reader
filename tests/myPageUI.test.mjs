@@ -198,9 +198,13 @@ test('browse replaces user search with public book rows grouped by reader', asyn
   }
 });
 
-test('the shared Drive picker limits Google Picker to title candidates and refreshes after copying', async (t) => {
+test('the shared Drive picker limits candidates, refreshes after copying, and offers login after expiry', async (t) => {
   const { window, root } = setup();
-  const { SharedDriveImport } = await import('../src/components/mypage/SharedDriveImport.tsx');
+  const { useSharedDriveImport } = await import('../src/components/mypage/SharedDriveImport.tsx');
+  function ImportControl(props) {
+    const { button, panel } = useSharedDriveImport(props);
+    return React.createElement(React.Fragment, null, button, panel);
+  }
   const { ownerRuntime } = await import('../src/lib/ownerRuntime.ts');
   const uid = 'shared-drive-ui';
   const owner = `firebase:${uid}|library:local`;
@@ -217,12 +221,20 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
   ownerRuntime.activate(owner);
   let available = false;
   let checkThrottled = false;
+  let driveRejected = false;
+  let tokenValid = true;
   const requests = [];
   const candidates = ['fixture-source-file', 'fixture-second-file'];
   let shownIds;
   let refreshed = 0;
   let callback;
-  const props = { owner, drive: { token: 'fixture-drive-token', sessionId: 'session', refreshShelf: () => { refreshed++; } }, title: '테스트 도서' };
+  let loginRequests = 0;
+  const props = {
+    owner,
+    drive: { token: 'fixture-drive-token', sessionId: 'session', hasValidToken: () => tokenValid, refreshShelf: () => { refreshed++; } },
+    title: '테스트 도서',
+    onReconnect: () => { loginRequests++; },
+  };
   class DocsView {
     setFileIds(value) { shownIds = value; return this; }
     setMode() { return this; }
@@ -246,6 +258,7 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
     assert.equal(options.headers['X-Drive-Access-Token'], props.drive.token);
     const request = options.body ? JSON.parse(options.body) : null;
     requests.push(request);
+    if (request?.action === 'search' && driveRejected) return Response.json({ reason: 'drive' }, { status: 401 });
     if (request?.action === 'search') return Response.json({ ids: candidates, limited: false });
     if (request?.action === 'copy') return Response.json({ results: [true, false] });
     if (checkThrottled) return Response.json({ reason: 'drive' }, { status: 429 });
@@ -253,12 +266,13 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
   });
   try {
     const button = () => window.document.querySelector('#root button[aria-label="공유 폴더에서 가져오기"]');
-    await act(async () => root.render(React.createElement(SharedDriveImport, { key: 'denied', ...props })));
+    await act(async () => root.render(React.createElement(ImportControl, { key: 'denied', ...props })));
     for (let attempt = 0; attempt < 20 && requests.length < 1; attempt++) await act(async () => delay(10));
     assert.equal(button(), null);
     available = true;
     checkThrottled = true;
-    await act(async () => root.render(React.createElement(SharedDriveImport, { key: 'allowed', ...props })));
+    const renderAllowed = (drive) => act(async () => root.render(React.createElement(ImportControl, { key: 'allowed', ...props, drive })));
+    await renderAllowed(props.drive);
     const retry = () => [...window.document.querySelectorAll('#root button')].find((item) => item.textContent === '다시 확인');
     for (let attempt = 0; attempt < 20 && !retry(); attempt++) await act(async () => delay(10));
     assert.equal(button(), null);
@@ -272,6 +286,28 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
     assert.deepEqual(requests, [null, null, null, { action: 'search', query: props.title }, { action: 'copy', ids: candidates }]);
     assert.equal(refreshed, 1);
     assert.match(window.document.querySelector('[role="status"]').textContent, /1권을 서재로 가져왔습니다.*1권은 복사를 확인하지 못했습니다/);
+
+    driveRejected = true;
+    await click(window, button());
+    for (let attempt = 0; attempt < 20 && loginRequests === 0; attempt++) await act(async () => delay(10));
+    assert.equal(loginRequests, 1);
+    const requestCount = requests.length;
+    tokenValid = false;
+    await click(window, button());
+    assert.equal(loginRequests, 2);
+    await renderAllowed(undefined);
+    assert.ok(button());
+    await click(window, button());
+    assert.equal(loginRequests, 3);
+    assert.equal(requests.length, requestCount);
+
+    available = false;
+    tokenValid = true;
+    await renderAllowed({ ...props.drive, sessionId: 'new-account-session' });
+    assert.equal(button(), null);
+    for (let attempt = 0; attempt < 20 && requests.length === requestCount; attempt++) await act(async () => delay(10));
+    assert.equal(requests.length, requestCount + 1);
+    assert.equal(button(), null);
   } finally {
     await act(async () => root.unmount());
     ownerRuntime.clear();

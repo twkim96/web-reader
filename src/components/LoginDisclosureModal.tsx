@@ -4,7 +4,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { GoogleSignInButtonAsset } from './GoogleSignInButtonAsset';
 import { MenuSheetHeader } from './MenuSheetHeader';
 
-export type LoginDisclosureMode = 'firebase' | 'drive';
+export type LoginDisclosureMode = 'firebase' | 'drive' | 'drive-reconnect';
 
 interface LoginDisclosureModalProps {
   theme: {
@@ -53,7 +53,7 @@ export const LoginDisclosureModal: React.FC<LoginDisclosureModalProps> = ({
       >
         <MenuSheetHeader
           kind="login-disclosure"
-          title="개인정보 처리방침"
+          title={mode === 'drive-reconnect' ? 'Google Drive 로그인이 필요합니다' : '개인정보 처리방침'}
           titleId="login-disclosure-title"
           onClose={onClose}
           closeLabel="로그인 안내 닫기"
