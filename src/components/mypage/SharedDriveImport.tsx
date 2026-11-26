@@ -91,8 +91,13 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
       setFeedback('서재로 복사 중…');
       const { results } = await requestImport<{ results: boolean[] }>(owner, token, signal, { action: 'copy', ids: selected });
       const copied = results.filter(Boolean).length;
-      if (copied) drive.refreshShelf();
-      setFeedback(`${copied}권을 서재로 가져왔습니다.${copied < results.length ? ` ${results.length - copied}권은 복사를 확인하지 못했습니다.` : ''}`);
+      if (!copied) {
+        setFeedback('복사를 확인하지 못했습니다. 서재를 확인한 뒤 다시 시도해 주세요.');
+        return;
+      }
+      drive.refreshShelf();
+      setFeedback(copied === results.length ? `${copied}권을 서재로 가져왔습니다.`
+        : `${copied}권을 서재로 가져왔습니다. ${results.length - copied}권은 복사를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.`);
     } catch (error) {
       if (!signal.aborted) {
         if (process.env.NEXT_PUBLIC_WEB_READER_PREVIEW === '1') {

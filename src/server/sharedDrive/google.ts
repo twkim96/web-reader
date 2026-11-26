@@ -191,15 +191,21 @@ export async function copySharedFiles(
       return file.id === id && bookFile(file) && await membership.contains(file);
     } catch (error) {
       if (isMissing(error)) return false;
+      if (error instanceof SharedDriveError && (error.status === 429 || error.status === 503)) return error;
       throw error;
     }
   }));
-  if (!sources.some(Boolean)) return ids.map(() => false);
+  const verifiedIds = ids.filter((_, index) => sources[index] === true);
+  if (!verifiedIds.length) {
+    const transient = sources.find((source) => source instanceof SharedDriveError);
+    if (transient) throw transient;
+    return ids.map(() => false);
+  }
   const destination = await getSharedDriveDestination(token, permissionId, rootId, signal);
-  const copyIds = await reserveCopyIds(destination, ids.filter((_, index) => sources[index]));
+  const copyIds = await reserveCopyIds(destination, verifiedIds);
   signal.throwIfAborted();
   return Promise.all(ids.map(async (id, index) => {
-    if (!sources[index]) return false;
+    if (sources[index] !== true) return false;
     const copyId = copyIds.get(id);
     if (!copyId) return false;
     try {

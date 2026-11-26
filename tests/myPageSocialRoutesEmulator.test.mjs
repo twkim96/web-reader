@@ -63,6 +63,7 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   const nested = 'fixture-nested-folder';
   const file = 'fixture-source-book';
   const second = 'fixture-second-book';
+  const third = 'fixture-third-book';
   const unrelated = 'fixture-unrelated-book';
   const outside = 'fixture-outside-folder';
   const library = 'fixture-private-library';
@@ -120,6 +121,7 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     if (path === outside) return Response.json(folder);
     if (path === file) return Response.json({ ...nestedBook, capabilities: { canCopy } });
     if (path === second) return Response.json(secondBook);
+    if (path === third) return Response.json({ ...secondBook, id: third });
     if (path === unrelated) return Response.json(unrelatedBook);
     if (copiesById.has(path)) {
       return Response.json({ id: path, parents: [library], trashed: false, ownedByMe: true, shared: false });
@@ -211,6 +213,13 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   assert.ok(results.some((item) => item.results[0] === false && item.results[1] === true));
   assert.deepEqual(await privateJson(await copy([second, file])), { results: [true, true] });
   assert.equal(generatedCount, 2);
+  parentThrottled = true;
+  assert.equal((await copy([file])).status, 429);
+  assert.deepEqual(await privateJson(await copy([file, third])), { results: [false, true] });
+  assert.equal(copied.filter((source) => source === third).length, 1);
+  parentThrottled = false;
+  assert.deepEqual(await privateJson(await copy([file, third])), { results: [true, true] });
+  assert.equal(generatedCount, 3);
   sharedDestination = true;
   assert.equal((await copy([second])).status, 403);
   sharedDestination = false;
@@ -221,7 +230,7 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   const changedDestination = await copy([second]);
   assert.equal(changedDestination.status, 409);
   assert.equal((await changedDestination.json()).reason, 'destination-changed');
-  assert.deepEqual(copied.sort(), [file, second].sort());
+  assert.deepEqual(copied.sort(), [file, second, third].sort());
 });
 
 test('calendar endpoints expose only the authenticated owner’s complete publication', async (t) => {

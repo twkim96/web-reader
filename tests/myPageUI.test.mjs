@@ -213,7 +213,7 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
     const request = options.body ? JSON.parse(options.body) : null;
     requests.push(request);
     if (request?.action === 'search') return Response.json({ ids: candidates, limited: false });
-    if (request?.action === 'copy') return Response.json({ results: [true, true] });
+    if (request?.action === 'copy') return Response.json({ results: [true, false] });
     if (checkThrottled) return Response.json({ reason: 'drive' }, { status: 429 });
     return Response.json(available ? { available, pickerKey: 'key', appId: '123456' } : { available });
   });
@@ -237,6 +237,7 @@ test('the shared Drive picker limits Google Picker to title candidates and refre
     await act(async () => callback({ action: 'picked', docs: [...candidates.map((id) => ({ id })), { id: 'outside' }] }));
     assert.deepEqual(requests, [null, null, null, { action: 'search', query: props.title }, { action: 'copy', ids: candidates }]);
     assert.equal(refreshed, 1);
+    assert.match(window.document.querySelector('[role="status"]').textContent, /1권을 서재로 가져왔습니다.*1권은 복사를 확인하지 못했습니다/);
   } finally {
     await act(async () => root.unmount());
     ownerRuntime.clear();
