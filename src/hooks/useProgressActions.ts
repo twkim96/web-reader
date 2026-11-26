@@ -14,7 +14,7 @@ import {
   SaveProgressOptions,
   UserProgress,
 } from '../types';
-import { hasProgressChanged, toProgressPercent } from './progressPolicy';
+import { getBookmarksKey, hasProgressChanged, toProgressPercent } from './progressPolicy';
 import {
   adoptRemoteProgressLocallyV5,
   enqueueProgressMutationBatchV5,
@@ -122,12 +122,14 @@ export const useProgressActions = ({
     syncPosition: boolean,
     bookmarkOccurredAtClient = progressData.lastRead,
     causalOptions?: SaveProgressOptions & { resetAfterPositionToken?: string },
+    localAutoBookmarks?: Bookmark[],
   ) => {
     if (!ownerRuntime.isCurrent(owner)) return null;
     const progressOwnerKey = getSyncOwnerKey(owner.ownerKey);
     if (!user) {
-      await saveProgressToLocalV5(progressOwnerKey, progressData, syncPosition);
-      return progressData;
+      return saveProgressToLocalV5(progressOwnerKey, progressData, {
+        readingPosition: syncPosition, bookmarkChanges, autoBookmarks: localAutoBookmarks,
+      });
     }
     return enqueueProgressMutationBatchV5(progressOwnerKey, {
       progress: progressData,
@@ -356,9 +358,12 @@ export const useProgressActions = ({
     // carry a stale bookmark snapshot, so preserve the latest manual set and
     // only take local-only auto bookmarks from the captured relocate payload.
     const currentManualBookmarks = currentBookmarks.filter((bookmark) => bookmark.type === 'manual');
+    const currentAutoBookmarks = currentBookmarks.filter((bookmark) => bookmark.type === 'auto');
     const requestedAutoBookmarks = bookmarks !== undefined
       ? bookmarks.filter((bookmark) => bookmark.type === 'auto')
-      : currentBookmarks.filter((bookmark) => bookmark.type === 'auto');
+      : currentAutoBookmarks;
+    const localAutoBookmarks = getBookmarksKey(currentAutoBookmarks) !== getBookmarksKey(requestedAutoBookmarks)
+      ? requestedAutoBookmarks : undefined;
     const finalBookmarks = [...currentManualBookmarks, ...requestedAutoBookmarks];
     const nextAnchorCfi = String(
       options?.anchorCfi
@@ -415,6 +420,7 @@ export const useProgressActions = ({
           syncPosition,
           progressData.lastRead,
           options,
+          localAutoBookmarks,
         );
         if (committed) {
           rebaseProgressCommitBaseline(owner.ownerKey, bookId, committed);
@@ -556,12 +562,8 @@ export const useProgressActions = ({
       const canonical = await queueProgressWrite(bookId, async () => {
         if (!ownerRuntime.isCurrent(owner)) return null;
         const resetAfterPositionToken = getResetAfterPositionToken(owner, bookId);
-        const bookmarks = user
-          ? resetData.bookmarks
-          : (await loadProgressFromLocalV5(getSyncOwnerKey(owner.ownerKey), bookId))?.bookmarks
-            ?.filter(bookmark => bookmark.type === 'manual') ?? [];
-        return persistProgress(owner, bookId, { ...resetData, bookmarks }, [], true,
-          resetData.lastRead, { resetAfterPositionToken });
+        return persistProgress(owner, bookId, resetData, [], true,
+          resetData.lastRead, { resetAfterPositionToken }, []);
       });
       if (!canonical) return false;
       rebaseProgressCommitBaseline(owner.ownerKey, bookId, canonical);
@@ -579,7 +581,7 @@ export const useProgressActions = ({
       reportPersistenceError(error);
       return false;
     }
-  }, [beginLocalWrite, captureProgressReset, getResetAfterPositionToken, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress, user]);
+  }, [beginLocalWrite, captureProgressReset, getResetAfterPositionToken, isLatestLocalWrite, persistProgress, progressRef, queueProgressWrite, reportPersistenceError, setProgress]);
 
   const deleteBookProgress = useCallback(async (
     bookId: string,

@@ -1,5 +1,5 @@
 import { prepareSyncEventWriter } from './writeLeaseTransport';
-import { Book, UserProgress } from '../types';
+import { Book, Bookmark, UserProgress } from '../types';
 import type { IDBPTransaction } from 'idb';
 import type { StoredBookContent } from './bookContent';
 import { initDB, LocalStorageCapacityError } from './localDB';
@@ -41,6 +41,7 @@ import { broadcastAnnotationSyncChange } from './annotationSyncWake';
 import { isPendingAnnotationBookDeletionMarkerV5, type AnnotationBookDeletionIntentV10, type ObservedAnnotationBookDeletionV5 } from './annotationBookDeletion';
 import { notifyBookCoverCacheChanged } from './bookCoverCache';
 import { pendingGuestReadingEdit, type GuestReadingHandoff, type GuestReadingBasis, type GuestReadingPosition } from './guestReadingHandoff';
+import { applyManualBookmarkMutation, fromManualBookmarkPayload, type BookmarkSyncChange } from './bookmarkSyncPolicy';
 
 export type StoredBookMetadataV5 = Book & {
   ownerKey: OwnerKey;
@@ -144,28 +145,68 @@ export const getAllOfflineBooksV5 = async (ownerKey: OwnerKey) => {
     Promise<StoredBookMetadataV5[]>;
 };
 
+type LocalProgressMutation = {
+  readingPosition: boolean;
+  bookmarkChanges: readonly BookmarkSyncChange[];
+  autoBookmarks?: Bookmark[];
+};
+
+const localProgressFields = (stored: UserProgress): UserProgress => ({
+  bookId: stored.bookId,
+  cfi: stored.cfi,
+  anchorCfi: stored.anchorCfi,
+  progressPercent: stored.progressPercent,
+  lastRead: stored.lastRead,
+  bookmarks: stored.bookmarks,
+  syncRevision: stored.syncRevision,
+  acceptedEventId: stored.acceptedEventId,
+  localPositionToken: stored.localPositionToken,
+  ignoredRemoteRevision: stored.ignoredRemoteRevision,
+});
+
 export const saveProgressToLocalV5 = async (
   ownerKey: OwnerKey,
   progress: UserProgress,
-  readingPosition = true,
-) => {
+  mutation?: LocalProgressMutation,
+): Promise<UserProgress> => {
   const db = await initDB();
-  if (!isGuestOwner(ownerKey)) {
+  const markGuestEdit = isGuestOwner(ownerKey) && (mutation?.readingPosition ?? true);
+  if (!mutation && !markGuestEdit) {
     await db.put(V5_PROGRESS_STORE, { ...progress, ownerKey });
-    return;
+    return progress;
   }
-  const tx = db.transaction([V5_PROGRESS_STORE, V5_SYNC_META_STORE], 'readwrite');
+  const tx = db.transaction(markGuestEdit ? [V5_PROGRESS_STORE, V5_SYNC_META_STORE] : [V5_PROGRESS_STORE], 'readwrite');
   void tx.done.catch(() => undefined);
   const positions = tx.objectStore(V5_PROGRESS_STORE);
   const [current, handoff] = await Promise.all([
     positions.get([ownerKey, progress.bookId]) as Promise<GuestReadingPosition | undefined>,
-    tx.objectStore(V5_SYNC_META_STORE).get([ownerKey, 'guest-reading-handoff']) as Promise<GuestReadingHandoff | undefined>,
+    markGuestEdit
+      ? tx.objectStore(V5_SYNC_META_STORE).get([ownerKey, 'guest-reading-handoff']) as Promise<GuestReadingHandoff | undefined>
+      : undefined,
   ]);
-  const guestReadingEdit = readingPosition && handoff?.confirmed
+  const guestReadingEdit = handoff?.confirmed
     ? { generation: handoff.editGeneration ?? handoff.attemptId, id: crypto.randomUUID() }
     : current?.guestReadingEdit;
-  await positions.put({ ...progress, ownerKey, guestReadingEdit });
+  let canonical = progress;
+  if (mutation) {
+    // The calling tab can lag behind IndexedDB. Preserve fields it is not editing.
+    const position = mutation.readingPosition ? progress : current ?? {
+      bookId: progress.bookId, cfi: '', anchorCfi: '', progressPercent: 0, lastRead: 0,
+    };
+    let bookmarks = current?.bookmarks ?? [];
+    for (const change of mutation.bookmarkChanges) {
+      bookmarks = applyManualBookmarkMutation(bookmarks, change.operation === 'bookmark.delete'
+        ? { kind: 'delete', bookmarkId: change.bookmarkId }
+        : { kind: 'upsert', bookmark: fromManualBookmarkPayload(change.payload) });
+    }
+    if (mutation.autoBookmarks !== undefined) {
+      bookmarks = [...bookmarks.filter(bookmark => bookmark.type === 'manual'), ...mutation.autoBookmarks];
+    }
+    canonical = localProgressFields({ ...position, bookmarks });
+  }
+  await positions.put({ ...canonical, ownerKey, guestReadingEdit });
   await tx.done;
+  return canonical;
 };
 
 export const getAllLocalProgressV5 = async (ownerKey: OwnerKey) => {
@@ -326,18 +367,7 @@ export const loadProgressFromLocalV5 = async (
   const db = await initDB();
   const stored = await db.get(V5_PROGRESS_STORE, [ownerKey, bookId]) as StoredProgressV5 | undefined;
   if (!stored) return undefined;
-  return {
-    bookId: stored.bookId,
-    cfi: stored.cfi,
-    anchorCfi: stored.anchorCfi,
-    progressPercent: stored.progressPercent,
-    lastRead: stored.lastRead,
-    bookmarks: stored.bookmarks,
-    syncRevision: stored.syncRevision,
-    acceptedEventId: stored.acceptedEventId,
-    localPositionToken: stored.localPositionToken,
-    ignoredRemoteRevision: stored.ignoredRemoteRevision,
-  };
+  return localProgressFields(stored);
 };
 
 export const removeProgressFromLocalV5 = async (

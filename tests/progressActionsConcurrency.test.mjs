@@ -160,7 +160,7 @@ test('explicit local bookmark mutation converges React to transaction-current X+
   }
 });
 
-test('guest stale position save preserves manual bookmarks committed after the relocate snapshot', async () => {
+test('guest position and bookmark writes preserve changes owned by another tab and converge the display', async () => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   const previousActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -180,6 +180,11 @@ test('guest stale position save preserves manual bookmarks committed after the r
   const staleRelocateBookmarks = initialDisplay.bookmarks;
   const localX = bookmark('local-x', 30);
   const localY = bookmark('local-y', 40);
+  const otherTabMark = bookmark('other-tab', 20);
+  const otherTabAuto = { ...bookmark('other-tab-auto', 25), type: 'auto' };
+  const newerPosition = progress([otherTabMark, otherTabAuto], {
+    cfi: 'other-tab-position', anchorCfi: 'other-tab-anchor', progressPercent: 65, lastRead: 100,
+  });
   await saveProgressToLocalV5(ownerKey, initialDisplay);
 
   let controls;
@@ -207,12 +212,36 @@ test('guest stale position save preserves manual bookmarks committed after the r
     await act(async () => {
       root.render(React.createElement(Harness));
     });
+    await saveProgressToLocalV5(ownerKey, newerPosition);
 
     await act(async () => {
       assert.equal(await controls.actions.saveBookmarkMutation('book-1', {
         kind: 'upsert',
         bookmark: localX,
       }), true);
+    });
+    const afterManual = await loadProgressFromLocalV5(ownerKey, 'book-1');
+    assert.equal(afterManual.cfi, newerPosition.cfi);
+    assert.equal(afterManual.anchorCfi, newerPosition.anchorCfi);
+    assert.equal(afterManual.progressPercent, newerPosition.progressPercent);
+    assert.equal(afterManual.lastRead, newerPosition.lastRead);
+    assert.deepEqual(afterManual.bookmarks.map(({ id }) => id), ['local-x', 'other-tab', 'other-tab-auto']);
+    assert.deepEqual(renderedProgress['book-1'], afterManual);
+
+    const auto = { ...bookmark('local-auto', 45), type: 'auto' };
+    const laterPosition = progress(afterManual.bookmarks, {
+      cfi: 'later-tab-position', anchorCfi: 'later-tab-anchor', progressPercent: 80, lastRead: 150,
+    });
+    await saveProgressToLocalV5(ownerKey, laterPosition);
+    await act(async () => assert.equal(await controls.actions.saveProgress(
+      afterManual.cfi, afterManual.progressPercent, [auto, ...afterManual.bookmarks],
+      { anchorCfi: afterManual.anchorCfi },
+    ), true));
+    const afterAuto = await loadProgressFromLocalV5(ownerKey, 'book-1');
+    assert.deepEqual(afterAuto, { ...afterManual, ...laterPosition, bookmarks: [localX, otherTabMark, auto, otherTabAuto] });
+    assert.deepEqual(renderedProgress['book-1'], afterAuto);
+
+    await act(async () => {
       assert.equal(await controls.actions.saveBookmarkMutation('book-1', {
         kind: 'upsert',
         bookmark: localY,
@@ -227,14 +256,14 @@ test('guest stale position save preserves manual bookmarks committed after the r
 
     const stored = await loadProgressFromLocalV5(ownerKey, 'book-1');
     assert.equal(stored.cfi, 'stale-relocate-cfi');
-    assert.deepEqual(stored.bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
-    assert.deepEqual(renderedProgress['book-1'].bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
+    assert.deepEqual(stored.bookmarks.filter(({ type }) => type === 'manual').map(({ id }) => id), ['local-y', 'local-x', 'other-tab']);
+    assert.deepEqual(renderedProgress['book-1'], stored);
     assert.deepEqual(await getOutboxEventsV5(ownerKey), []);
 
     await act(async () => assert.equal(await controls.actions.deleteProgress('book-1'), true));
     const reset = await loadProgressFromLocalV5(ownerKey, 'book-1');
     assert.equal(reset.progressPercent, 0);
-    assert.deepEqual(reset.bookmarks.map(({ id }) => id), ['local-y', 'local-x']);
+    assert.deepEqual(reset.bookmarks.map(({ id }) => id), ['local-y', 'local-x', 'other-tab']);
     assert.deepEqual(await getOutboxEventsV5(ownerKey), []);
   } finally {
     await act(async () => {

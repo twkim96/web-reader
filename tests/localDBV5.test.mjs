@@ -157,7 +157,13 @@ test('restarts a pending logout handoff and syncs newer guest positions only to 
   await saveProgressToLocalV5(guest, saved(bookId, guestEditTime, 42, { bookmarks: [guestBookmark] }));
   await saveProgressToLocalV5(guest, saved(remoteFirst, guestEditTime, 42));
   await saveProgressToLocalV5(guest, saved(remoteOlder, editTime + 5 * 60_000, 42));
-  await saveProgressToLocalV5(guest, saved(lateAccountBook, editTime, 81, { bookmarks: [guestBookmark] }), false);
+  await saveProgressToLocalV5(guest, saved(lateAccountBook, editTime, 81), {
+    readingPosition: false, bookmarkChanges: [{
+      operation: 'bookmark.upsert', bookmarkId: guestBookmark.id,
+      payload: { bookmarkId: guestBookmark.id, cfi: guestBookmark.cfi, name: 'Guest mark', color: '#000000',
+        progressPercent: null, createdAtClient: editTime, updatedAtClient: editTime },
+    }],
+  });
   const published = editTime + 100;
   const remoteHead = {
     schemaVersion: 2, bookId: remoteFirst, revision: 3, acceptedEventId: 'other-reader', operation: 'set',
@@ -213,6 +219,52 @@ test('restarts a pending logout handoff and syncs newer guest positions only to 
   await clearGuestReadingHandoff(failed, true);
   await retainReadingPositionsOnDeviceV5(ownerA, guest, failed);
   assert.equal(await readGuestReadingHandoff(guest), undefined);
+});
+
+test('bookmark-only writes cannot change the position attached to a guest edit before or after import', async () => {
+  await deleteDatabase();
+  const guest = 'guest:bookmark-race|library:local';
+  const bookId = 'bookmark-race-book';
+  const original = { bookId, cfi: 'account', anchorCfi: 'account-anchor', progressPercent: 10, lastRead: 10, syncRevision: 2 };
+  await saveBookToLocalV5(DEVICE_CONTENT_OWNER_KEY, makeBook(bookId), new Blob(['book']));
+  await saveProgressToLocalV5(ownerA, original);
+  const handoff = await beginGuestReadingHandoff(ownerA, guest);
+  await retainReadingPositionsOnDeviceV5(ownerA, guest, handoff);
+
+  const newer = { ...original, cfi: 'guest-new', anchorCfi: 'guest-anchor', progressPercent: 20, lastRead: 20,
+    acceptedEventId: 'previous-event', ignoredRemoteRevision: 1, localPositionToken: 'previous-position' };
+  await saveProgressToLocalV5(guest, newer);
+  const db = await initDB();
+  const getGuestRow = () => db.get(schema.V5_PROGRESS_STORE, [guest, bookId]);
+  const { guestReadingEdit } = await getGuestRow();
+  assert.ok(guestReadingEdit?.id);
+  const stale = { bookId, cfi: 'old-tab', anchorCfi: 'old-anchor', progressPercent: 10, lastRead: 5 };
+  const mutateBookmark = (operation, payload) => saveProgressToLocalV5(guest, stale, {
+    readingPosition: false,
+    bookmarkChanges: [{ operation, bookmarkId: 'guest-only', payload }],
+  });
+  const canonical = await mutateBookmark('bookmark.upsert', {
+    bookmarkId: 'guest-only', name: 'Guest only', cfi: 'guest-mark', color: '#000000',
+    progressPercent: null, createdAtClient: 30, updatedAtClient: 30,
+  });
+  assert.deepEqual(canonical, { ...newer, bookmarks: canonical.bookmarks });
+  assert.equal(canonical.bookmarks[0].id, 'guest-only');
+  assert.deepEqual((await getGuestRow()).guestReadingEdit, guestReadingEdit);
+  const importGuest = () => restoreGuestReadingToAccountV5(ownerA, guest, 'device', 'session', () => true, bookId);
+  const imported = await importGuest();
+  assert.equal(imported.cfi, newer.cfi);
+  assert.equal(imported.anchorCfi, newer.anchorCfi);
+  assert.equal(imported.progressPercent, newer.progressPercent);
+  assert.deepEqual(imported.bookmarks, []);
+
+  const afterDeletion = await mutateBookmark('bookmark.delete', null);
+  assert.deepEqual(afterDeletion, { ...newer, bookmarks: [] });
+  assert.deepEqual((await getGuestRow()).guestReadingEdit, guestReadingEdit);
+  assert.equal(await importGuest(), undefined);
+  const [event, ...duplicates] = await getOutboxEventsV5(ownerA);
+  assert.equal(event.payload.cfi, newer.cfi);
+  assert.equal(event.baseRevision, 2);
+  assert.deepEqual(duplicates, []);
 });
 
 test('imports a pending legacy guest edit without adopting a newer account revision', async () => {
