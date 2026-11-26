@@ -13,7 +13,7 @@ const secondaryAction = 'min-h-10 rounded-full px-3 text-xs font-medium hover:bg
 
 export function BookReviewEditor({
   ownerKey, workId, platformWorkKeys, fileIds, readingSnapshot, readingHistoryPartial, review, deletion, blocked, ready,
-  loadingHistory, error, refresh, change, headingRef,
+  loadingHistory, error, refresh, change, editorRef,
 }: {
   ownerKey: OwnerKey;
   workId: string;
@@ -29,7 +29,7 @@ export function BookReviewEditor({
   error: string;
   refresh: () => void;
   change: (review: MyPageReview | null, oldId: string) => void;
-  headingRef: Ref<HTMLHeadingElement>;
+  editorRef: Ref<HTMLElement>;
 }) {
   const guest = isGuestOwner(ownerKey);
   const [draft, setDraft] = useState<Draft>();
@@ -97,16 +97,15 @@ export function BookReviewEditor({
   const rating = displayed?.rating ?? 0;
 
   return (
-    <section className="mypage-section" aria-labelledby="my-book-review-title">
-      <h2 id="my-book-review-title" ref={headingRef} tabIndex={-1}
-        className="scroll-mt-[calc(4rem+env(safe-area-inset-top))] text-lg font-semibold focus:outline-none sm:scroll-mt-16">내 평가</h2>
-      {guest ? <p className="mt-2 text-sm opacity-65">로그인 후 평가를 남길 수 있습니다.</p>
-        : blocked ? <p role="status" className="mt-2 text-sm opacity-65">작품을 확인할 수 없어 이 화면에서 평가를 변경할 수 없습니다.</p>
-        : error ? <p role="alert" className="mt-2 text-sm text-accent-500">{error} <button type="button" onClick={refresh} className="underline">다시 시도</button></p>
-        : !ready || loadingHistory ? <p role="status" className="mt-2 text-sm opacity-65">평가를 불러오는 중…</p>
+    <section id="my-book-review" ref={editorRef} tabIndex={-1} aria-label="내 평가"
+      className="mt-2 min-w-0 scroll-mt-[calc(4rem+env(safe-area-inset-top))] focus:outline-none sm:scroll-mt-16">
+      {guest ? <p className="text-xs opacity-65">로그인 후 평가를 남길 수 있습니다.</p>
+        : blocked ? <p role="status" className="text-sm opacity-65">작품을 확인할 수 없어 이 화면에서 평가를 변경할 수 없습니다.</p>
+        : error ? <p role="alert" className="text-sm text-accent-500">{error} <button type="button" onClick={refresh} className="underline">다시 시도</button></p>
+        : !ready || loadingHistory ? <p role="status" className="sr-only">평가를 불러오는 중…</p>
         : null}
       {!guest && !blocked && <>
-        <div role="group" aria-label={rating ? `별점 ${rating}점` : '별점 미평가'} className="mt-2 flex">
+        <div role="group" aria-label={rating ? `별점 ${rating}점` : '별점 미평가'} className="flex">
           {[1, 2, 3, 4, 5].map((position) => (
             <div key={position} className={`relative grid size-9 place-items-center ${!canEdit || pending ? 'opacity-50' : ''}`}>
               <ReviewStar position={position} rating={rating} size={21} />
@@ -150,7 +149,7 @@ export function BookReviewEditor({
               <button type="submit" disabled={pending || !canEdit || !draftMatches} className="min-h-10 rounded-full bg-accent-500 px-4 text-xs font-semibold text-white disabled:opacity-40">저장</button>
             </div>
           </form>
-        ) : displayed?.comment && <p className="mt-2 break-words text-sm">{displayed.comment}</p>}
+        ) : null}
       </>}
       {feedback && <p role="alert" className="mt-2 text-sm text-accent-500">{feedback}</p>}
     </section>

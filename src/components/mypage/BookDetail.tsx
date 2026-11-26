@@ -177,7 +177,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
     uncertainTitles?: ReadonlySet<string>;
   }>();
   const [historyRetry, retryHistoryMetadata] = useState(0);
-  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const reviewEditor = useRef<HTMLElement>(null);
   const reviewIndex = useMemo(() => indexReviewWorks(reviews.data?.reviews ?? []), [reviews.data]);
   const deletionIndex = useMemo(() => indexReviewWorks(reviews.data?.deletions ?? []), [reviews.data]);
   const readingInput = useMemo(() => ({
@@ -257,10 +257,10 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
   const reviewPlatformKeys = [...new Set([...work.platformWorkKeys, ...(readBook?.platformWorkKeys ?? [])])];
   const title = discovery?.title ?? metadata?.displayTitle ?? readBook?.title;
   useEffect(() => {
-    const heading = reviewHeading.current;
-    if (!focusReview || !title || !heading) return;
-    heading.focus({ preventScroll: true });
-    heading.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+    const editor = reviewEditor.current;
+    if (!focusReview || !title || !editor) return;
+    editor.focus({ preventScroll: true });
+    editor.scrollIntoView?.({ block: 'start', behavior: 'instant' });
   }, [focusReview, title]);
   const cover = discovery?.coverUrl ?? getPublicBookCoverCandidates(metadata)[0]?.coverUrl ?? readBook?.coverUrl ?? null;
   const platforms = new Map((discovery?.platforms ?? []).map(({ id, label, url }) => [
@@ -302,11 +302,11 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
           </div>
         </div>
         {platforms.size > 0 && (
-          <ul className="mypage-divided-list mt-5 sm:grid-cols-3 sm:[&>li::after]:hidden">
+          <ul aria-label="플랫폼 출처" className="mt-4 flex max-w-full items-stretch gap-3 overflow-x-auto overscroll-x-contain pb-1 sm:gap-4">
             {[...platforms].map(([key, { label, url, metrics }]) => (
-              <li key={key} className="min-w-0">
-                <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 text-sm font-medium text-accent-500">{label}<ArrowUpRight size={14} /></a>
-                {metrics && <div className="flex flex-wrap gap-x-2 text-xs leading-5 opacity-65">
+              <li key={key} className="shrink-0 border-s border-current/15 ps-3 whitespace-nowrap first:border-s-0 first:ps-0 sm:ps-4">
+                <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 text-xs font-semibold text-accent-500 sm:text-sm">{label}<ArrowUpRight aria-hidden="true" size={13} /></a>
+                {metrics && <div className="flex gap-x-1.5 text-[11px] leading-4 opacity-65 sm:text-xs">
                   {metrics.viewCount !== null && <span>{metrics.viewCount.toLocaleString('ko')} 조회</span>}
                   {metrics.downloadCount !== null && <span>{metrics.downloadCount.toLocaleString('ko')} 다운로드</span>}
                   {metrics.rating !== null && <span>평점 {metrics.rating.toLocaleString('ko')}</span>}
@@ -315,6 +315,10 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
             ))}
           </ul>
         )}
+        <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={losesEvidence ? [] : reviewFileIds ?? []}
+          readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
+          ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
+          error={reviews.error} refresh={reviews.refresh} change={changeReview} editorRef={reviewEditor} />
       </section>
       {discovery?.synopsis && <BookSynopsis key={`${discovery.synopsis.workId}:${discovery.synopsis.shard}`} reference={discovery.synopsis} />}
       {hasPersonal && (
@@ -342,10 +346,6 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
       {historyFailed && <p role="status" className="text-sm opacity-65">내 독서 기록을 불러오지 못했습니다.</p>}
       {relatedBooks.length > 0 && <DashboardBookRow title="연관 도서" books={relatedBooks} onOpenBook={onOpenRelatedBook}
         compact coverLoading="direct-with-proxy-fallback" />}
-      <BookReviewEditor key={work.id} ownerKey={ownerKey} workId={work.id} platformWorkKeys={reviewPlatformKeys} fileIds={losesEvidence ? [] : reviewFileIds ?? []}
-        readingSnapshot={readingSnapshot} readingHistoryPartial={personal.reviewHistoryPartial} review={review.entry} deletion={deletion.entry} blocked={reviewBlocked}
-        ready={reviews.ready} loadingHistory={catalogLoading || (!history && !historyFailed)}
-        error={reviews.error} refresh={reviews.refresh} change={changeReview} headingRef={reviewHeading} />
       <CommunityReviews key={`${lookupId}:${reviewChangeVersion}`} workId={lookupId} />
     </>
   );

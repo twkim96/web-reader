@@ -280,7 +280,9 @@ test('mobile book detail scrolls related covers and opens the selected work from
     return route.fulfill({ json: {
       schemaVersion: 1, generation: 'related-books', genres: [], tags: ['모험'],
       books: Array.from({ length: 15 }, (_, i) => [
-        `related-${i}`, `모험 도서 ${i}`, null, [['series', `https://example.test/related/${i}`]], null, [0], 100 - i, null,
+        `related-${i}`, `모험 도서 ${i}`, null,
+        [['series', `https://example.test/related/${i}`], ['kakao', `https://example.test/kakao/related/${i}`]],
+        null, [0], 100 - i, null,
       ]),
     } });
   });
@@ -291,6 +293,14 @@ test('mobile book detail scrolls related covers and opens the selected work from
   });
 
   await page.goto('/#mypage/book/related-0');
+  const sources = page.getByRole('list', { name: '플랫폼 출처' });
+  const seriesSource = sources.getByRole('link', { name: '네이버 시리즈' });
+  const kakaoSource = sources.getByRole('link', { name: '카카오페이지' });
+  await expect(seriesSource).toBeVisible();
+  await expect(kakaoSource).toBeVisible();
+  const [seriesBox, kakaoBox] = await Promise.all([seriesSource.boundingBox(), kakaoSource.boundingBox()]);
+  expect(kakaoBox!.y).toBe(seriesBox!.y);
+  expect(kakaoBox!.x).toBeGreaterThan(seriesBox!.x);
   const row = page.getByRole('list', { name: '연관 도서 가로 목록' });
   await expect(row.getByRole('link')).toHaveCount(12);
   await expect(row.getByRole('link', { name: '모험 도서 0' })).toHaveCount(0);

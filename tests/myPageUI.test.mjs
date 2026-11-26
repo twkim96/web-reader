@@ -335,8 +335,8 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
     assert.equal(visible(unratedLink).getAttribute('href'), '#mypage/book/published-second/review');
     await click(window, visible(unratedLink));
     assert.equal(window.location.hash, '#mypage/book/published-second/review');
-    assert.ok(scrollTargets.includes('my-book-review-title'));
-    const editor = () => visible('[aria-labelledby="my-book-review-title"]');
+    assert.ok(scrollTargets.includes('my-book-review'));
+    const editor = () => visible('#my-book-review');
     assert.ok(editor().querySelector('[aria-label="별점 미평가"]'));
     assert.equal(editor().querySelector('form'), null);
     const rateSecondWork = async () => {
@@ -400,6 +400,7 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
       await act(async () => delay(10));
     }
     const halfPoint = editor().querySelector('button[aria-label="4.5점"]');
+    assert.equal(editor().textContent.includes(draftComment), false);
     assert.equal(editor().querySelectorAll('[role="group"] button').length, 10);
     await click(window, halfPoint);
     assert.equal(halfPoint.getAttribute('aria-pressed'), 'true');
@@ -990,8 +991,10 @@ test('a saved title opens a themed detail page with optional private records and
     assert.ok(historyRequests.includes(saved.id));
     assert.ok(!historyRequests.includes(localBook.name));
     const basic = main().querySelector('[aria-label="도서 기본정보"]');
-    assert.equal(basic.querySelector('a[href^="https://series.naver.com"]').textContent, platform.label);
-    assert.equal(basic.querySelector('a[href^="https://page.kakao.com"]').textContent, '카카오페이지');
+    const sources = basic.querySelector('ul[aria-label="플랫폼 출처"]');
+    assert.equal(sources.querySelector('a[href^="https://series.naver.com"]').textContent, platform.label);
+    assert.equal(sources.querySelector('a[href^="https://page.kakao.com"]').textContent, '카카오페이지');
+    assert.equal(sources.nextElementSibling?.getAttribute('aria-label'), '내 평가');
     assert.deepEqual([...basic.querySelectorAll('[role="img"]')].map((icon) => icon.getAttribute('aria-label')),
       ['읽은 기록 있음', '위시리스트에 담김']);
     const personal = main().querySelector('[aria-label="내 독서 기록"]');
