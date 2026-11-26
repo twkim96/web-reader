@@ -8,7 +8,8 @@ import {
 
 const headers = { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' };
 const json = (body: object, status = 200) => Response.json(body, { status, headers });
-const fail = (status: number) => json({ error: 'shared-drive-unavailable' }, status);
+const fail = (status: number, reason?: 'origin' | 'account' | 'folder' | 'drive') =>
+  json({ error: 'shared-drive-unavailable', ...(reason && { reason }) }, status);
 export const maxDuration = 45;
 const COPY_RETRY_WINDOW_MS = 10 * 60_000;
 const MAX_RECENT_COPIES = 128;
@@ -99,9 +100,12 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const settings = config();
   if (!settings) return fail(404);
-  if (request.headers.get('origin') !== new URL(request.url).origin) return fail(403);
+  // Vercel can forward a branch alias request under the deployment's internal URL.
+  const branchUrl = process.env.VERCEL_ENV === 'preview' ? process.env.VERCEL_BRANCH_URL : undefined;
+  const origin = branchUrl ? `https://${branchUrl}` : new URL(request.url).origin;
+  if (request.headers.get('origin') !== origin) return fail(403, 'origin');
   const token = await authorize(request, settings.allowedUids);
-  if (!token) return fail(403);
+  if (!token) return fail(403, 'account');
   if (!request.headers.get('content-type')?.startsWith('application/json')) return fail(415);
   try {
     const raw = await request.text();
@@ -110,7 +114,7 @@ export async function POST(request: Request) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return fail(400);
     const { action, query, ids } = body;
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
-    if (!(await canReadSharedFolder(token, settings.folderId, signal))) return fail(403);
+    if (!(await canReadSharedFolder(token, settings.folderId, signal))) return fail(403, 'folder');
     if (action === 'search' && typeof query === 'string') {
       const title = query.trim();
       if (!title || title.length > 200 || /[\u0000-\u001f]/.test(title)) return fail(400);
@@ -122,8 +126,8 @@ export async function POST(request: Request) {
     }
     return fail(400);
   } catch (error) {
-    if (error instanceof SharedDriveError) return fail(error.status);
-    if (isGoogleDriveAuthError(error)) return fail(401);
+    if (error instanceof SharedDriveError) return fail(error.status, 'drive');
+    if (isGoogleDriveAuthError(error)) return fail(401, 'drive');
     return fail(error instanceof SyntaxError ? 400 : 503);
   }
 }

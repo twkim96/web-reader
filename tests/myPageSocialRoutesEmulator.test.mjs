@@ -73,6 +73,8 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     WEB_READER_SHARED_DRIVE_ALLOWED_UIDS: allowed.localId,
     WEB_READER_SHARED_DRIVE_PICKER_KEY: 'fixture-picker-key',
     WEB_READER_SHARED_DRIVE_PICKER_APP_ID: '123456',
+    VERCEL_ENV: 'preview',
+    VERCEL_BRANCH_URL: 'preview.example.test',
   };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
@@ -152,7 +154,7 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     throw new Error('Unexpected Drive operation');
   });
 
-  const request = (body, token = allowed.idToken, origin = 'http://localhost') => new Request(endpoint, {
+  const request = (body, token = allowed.idToken, origin = 'https://preview.example.test') => new Request(endpoint, {
     method: body ? 'POST' : 'GET',
     headers: { authorization: 'Bearer ' + token, 'x-drive-access-token': driveToken, 'content-type': 'application/json', origin },
     body: body ? JSON.stringify(body) : undefined,

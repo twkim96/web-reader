@@ -7,6 +7,7 @@ import { pickSharedDriveFiles } from '../../lib/googleDrivePicker';
 
 export type SharedDriveConnection = { token: string; sessionId: string; refreshShelf: () => void };
 type PickerConfig = { available: true; pickerKey: string; appId: string } | { available: false };
+class SharedDriveRequestError extends Error {}
 
 async function requestImport<T>(owner: OwnerKey, driveToken: string, signal: AbortSignal, body?: object): Promise<T> {
   const session = ownerRuntime.capture();
@@ -25,7 +26,11 @@ async function requestImport<T>(owner: OwnerKey, driveToken: string, signal: Abo
     body: body ? JSON.stringify(body) : undefined,
     cache: 'no-store', signal,
   });
-  if (!response.ok) throw new Error('Import unavailable');
+  if (!response.ok) {
+    const details = await response.json().catch(() => null) as { reason?: unknown } | null;
+    const reason = typeof details?.reason === 'string' && /^[a-z]{1,16}$/.test(details.reason) ? `/${details.reason}` : '';
+    throw new SharedDriveRequestError(`HTTP ${response.status}${reason}`);
+  }
   const data = await response.json() as T;
   signal.throwIfAborted();
   if (!ownerRuntime.isCurrent(session) || auth.currentUser?.uid !== user.uid) throw new Error('Account changed');
@@ -80,8 +85,13 @@ export function SharedDriveImport({ owner, drive, title }: { owner: OwnerKey; dr
       const copied = results.filter(Boolean).length;
       if (copied) drive.refreshShelf();
       setFeedback(`${copied}권을 서재로 가져왔습니다.${copied < results.length ? ` ${results.length - copied}권은 복사를 확인하지 못했습니다.` : ''}`);
-    } catch {
-      if (!signal.aborted) setFeedback('가져오기를 완료하지 못했습니다. Drive 연결과 서재를 확인한 뒤 다시 시도해 주세요.');
+    } catch (error) {
+      if (!signal.aborted) {
+        if (process.env.NEXT_PUBLIC_WEB_READER_PREVIEW === '1') {
+          console.warn('[SharedDrive]', error instanceof SharedDriveRequestError ? error.message : 'Picker or client session failed');
+        }
+        setFeedback('가져오기를 완료하지 못했습니다. Drive 연결과 서재를 확인한 뒤 다시 시도해 주세요.');
+      }
     } finally {
       if (controller.current === current) {
         controller.current = null;
