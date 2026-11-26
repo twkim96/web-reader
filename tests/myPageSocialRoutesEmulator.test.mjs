@@ -57,8 +57,8 @@ const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
 
 test('shared Drive imports restrict search and Drive-native copy to the shared folder tree', async (t) => {
-  const allowed = await emulatorLogin('shared-drive-allowed');
-  const denied = await emulatorLogin('shared-drive-denied');
+  const account = await emulatorLogin('shared-drive-first');
+  const otherAccount = await emulatorLogin('shared-drive-second');
   const root = 'fixture-source-folder';
   const nested = 'fixture-nested-folder';
   const file = 'fixture-source-book';
@@ -73,7 +73,6 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
   const endpoint = 'http://localhost/api/shared-drive';
   const env = {
     WEB_READER_SHARED_DRIVE_FOLDER_ID: root,
-    WEB_READER_SHARED_DRIVE_ALLOWED_UIDS: allowed.localId,
     WEB_READER_SHARED_DRIVE_PICKER_KEY: 'fixture-picker-key',
     WEB_READER_SHARED_DRIVE_PICKER_APP_ID: '123456',
     VERCEL_ENV: 'preview',
@@ -171,7 +170,7 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     throw new Error('Unexpected Drive operation');
   });
 
-  const request = (body, token = allowed.idToken, origin = 'https://preview.example.test') => new Request(endpoint, {
+  const request = (body, token = account.idToken, origin = 'https://preview.example.test') => new Request(endpoint, {
     method: body ? 'POST' : 'GET',
     headers: { authorization: 'Bearer ' + token, 'x-drive-access-token': driveToken, 'content-type': 'application/json', origin },
     body: body ? JSON.stringify(body) : undefined,
@@ -183,15 +182,20 @@ test('shared Drive imports restrict search and Drive-native copy to the shared f
     for (const secret of [root, nested, outside, unrelated, library, driveToken, 'fixture-new-copy']) assert.ok(!text.includes(secret));
     return JSON.parse(text);
   };
-  assert.deepEqual(await privateJson(await sharedDriveGet(request(undefined, denied.idToken))), { available: false });
-  allowedByDrive = false;
-  assert.deepEqual(await privateJson(await sharedDriveGet(request())), { available: false });
-  assert.equal((await sharedDrivePost(request({ action: 'search', query: '테스트' }))).status, 403);
-  allowedByDrive = true;
-  assert.deepEqual(await privateJson(await sharedDriveGet(request())), { available: true,
-    pickerKey: env.WEB_READER_SHARED_DRIVE_PICKER_KEY, appId: env.WEB_READER_SHARED_DRIVE_PICKER_APP_ID });
   const search = { action: 'search', query: '테스트' };
-  assert.equal((await sharedDrivePost(request(search, allowed.idToken, 'https://elsewhere.test'))).status, 403);
+  const available = { available: true, pickerKey: env.WEB_READER_SHARED_DRIVE_PICKER_KEY,
+    appId: env.WEB_READER_SHARED_DRIVE_PICKER_APP_ID };
+  assert.deepEqual(await privateJson(await sharedDriveGet(request(undefined, ''))), { available: false });
+  assert.equal((await sharedDrivePost(request(search, ''))).status, 403);
+  assert.deepEqual(await privateJson(await sharedDriveGet(request())), available);
+  assert.deepEqual(await privateJson(await sharedDriveGet(request(undefined, otherAccount.idToken))), available);
+  assert.deepEqual(await privateJson(await sharedDrivePost(request(search, otherAccount.idToken))), { ids: [file, second], limited: false });
+  allowedByDrive = false;
+  assert.deepEqual(await privateJson(await sharedDriveGet(request(undefined, otherAccount.idToken))), { available: false });
+  assert.equal((await sharedDrivePost(request(search, otherAccount.idToken))).status, 403);
+  assert.equal((await sharedDrivePost(request({ action: 'copy', ids: [file] }, otherAccount.idToken))).status, 403);
+  allowedByDrive = true;
+  assert.equal((await sharedDrivePost(request(search, account.idToken, 'https://elsewhere.test'))).status, 403);
   rootThrottled = true;
   assert.equal((await sharedDriveGet(request())).status, 429);
   rootThrottled = false;

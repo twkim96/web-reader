@@ -41,7 +41,7 @@ Drive 웹에서 직접 추가한 지원 파일도 읽기 목록에 나타날 수
 
 ## 초대 계정의 공유 폴더 가져오기
 
-서버가 Firebase 허용 목록과 현재 연결한 Google Drive 계정의 지정 폴더 접근 권한을 확인하면 도서 상세에서 가져오기를 사용할 수 있습니다. 공유 폴더의 일반 액세스를 **제한됨**으로 설정합니다. 기존 서재 OAuth의 `drive.readonly`, `drive.file`, `drive.appdata`를 재사용합니다.
+앱에 로그인한 뒤 연결한 Google Drive 계정에 지정 폴더를 읽을 권한이 있으면 도서 상세에 가져오기 버튼이 표시됩니다. 서버가 검색과 복사 요청마다 폴더 권한을 다시 확인합니다. 공유 폴더의 일반 액세스를 **제한됨**으로 설정하고 Google Drive에서 사용자를 초대하거나 권한을 회수합니다. 기존 서재 OAuth의 `drive.readonly`, `drive.file`, `drive.appdata`를 재사용합니다.
 
 서버는 현재 작품 제목으로 Drive 후보를 찾고 각 파일의 상위 폴더를 따라가며 지정 폴더의 하위인지 확인합니다. Google Picker에는 일치한 원본 파일 ID를 전달하고 공유 폴더 ID는 서버에 둡니다. 후보가 많아서 조회 한도에 도달하면 검색어를 좁힐 수 있습니다. 선택할 때 Picker가 기존 `drive.file` 범위에 그 파일의 개별 접근 권한을 부여합니다. [Google Picker](https://developers.google.com/workspace/drive/picker/guides/web-picker)
 
@@ -49,10 +49,9 @@ Drive 웹에서 직접 추가한 지원 파일도 읽기 목록에 나타날 수
 
 계정별 복사를 직렬화하고, 복사할 때마다 최신 서재 폴더 설정을 확인합니다. 서버가 Google에서 사전에 발급한 사본 ID를 10분 동안 재사용하며 이 기간에 같은 원본의 대상 폴더가 변경되면 복사를 중단합니다. 응답 유실로 재시도할 때 Drive가 동일 ID에 409를 반환하면 서버는 사본의 위치와 권한을 확인합니다. Drive의 일시적인 오류로 공유 폴더 확인이 실패하면 다시 확인할 수 있습니다. 여러 파일을 선택했을 때 개별 원본의 확인에 일시 오류가 나면 검증을 마친 원본부터 복사하고, 성공한 파일과 복사를 확인하지 못한 파일의 수를 표시합니다. 관리자 전용 `sharedDriveImportLocksV1`의 계정별 문서에는 토큰 없이 복사 잠금과 최근 사본 ID를 보관합니다. `expiresAt`으로 만료 문서를 정리할 수 있습니다.
 
-서재 OAuth 클라이언트와 같은 Google Cloud 프로젝트에서 Google Picker API를 활성화합니다. 프리뷰 origin을 허용하는 웹사이트 제한과 Picker API 제한을 붙인 브라우저 키를 사용합니다. 다음 환경변수는 활성화할 브랜치 환경에 설정합니다.
+서재 OAuth 클라이언트와 같은 Google Cloud 프로젝트에서 Google Picker API를 활성화합니다. 기능을 활성화할 배포의 origin을 허용하는 웹사이트 제한과 Picker API 제한을 붙인 브라우저 키를 사용합니다. 다음 환경변수는 각 배포 환경에 설정합니다.
 
 - `WEB_READER_SHARED_DRIVE_FOLDER_ID`에 폴더 ID
-- `WEB_READER_SHARED_DRIVE_ALLOWED_UIDS`에 쉼표로 구분한 Firebase UID
 - `WEB_READER_SHARED_DRIVE_PICKER_KEY`에 Picker 브라우저 키
 - `WEB_READER_SHARED_DRIVE_PICKER_APP_ID`에 동일 Google Cloud 프로젝트 번호
 

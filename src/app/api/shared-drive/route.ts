@@ -18,20 +18,19 @@ const hash = (value: string) => createHash('sha256').update(value).digest('base6
 
 function config() {
   const folderId = process.env.WEB_READER_SHARED_DRIVE_FOLDER_ID?.trim();
-  const allowedUids = process.env.WEB_READER_SHARED_DRIVE_ALLOWED_UIDS?.split(',').map((uid) => uid.trim()).filter(Boolean);
   const pickerKey = process.env.WEB_READER_SHARED_DRIVE_PICKER_KEY?.trim();
   const appId = process.env.WEB_READER_SHARED_DRIVE_PICKER_APP_ID?.trim();
-  if (!isDriveId(folderId) || !allowedUids?.length || !pickerKey || !appId || !/^\d+$/.test(appId)) return null;
-  return { folderId, allowedUids, pickerKey, appId };
+  if (!isDriveId(folderId) || !pickerKey || !appId || !/^\d+$/.test(appId)) return null;
+  return { folderId, pickerKey, appId };
 }
 
-async function authorize(request: Request, allowedUids: string[]) {
+async function authorize(request: Request) {
   const token = request.headers.get('authorization')?.match(/^Bearer ([^\s]+)$/i)?.[1];
   const driveToken = request.headers.get('x-drive-access-token');
   if (!token || !driveToken || !/^[A-Za-z0-9._~-]{10,4096}$/.test(driveToken)) return null;
   try {
     const auth = await getAdminAuth().verifyIdToken(token, true);
-    return auth.firebase.sign_in_provider !== 'anonymous' && allowedUids.includes(auth.uid) ? driveToken : null;
+    return auth.firebase.sign_in_provider !== 'anonymous' ? driveToken : null;
   } catch {
     return null;
   }
@@ -95,7 +94,7 @@ async function copy(token: string, folderId: string, ids: string[], signal: Abor
 export async function GET(request: Request) {
   const settings = config();
   if (!settings) return json({ available: false });
-  const token = await authorize(request, settings.allowedUids);
+  const token = await authorize(request);
   if (!token) return json({ available: false });
   try {
     const available = await canReadSharedFolder(token, settings.folderId, request.signal);
@@ -112,7 +111,7 @@ export async function POST(request: Request) {
   const branchUrl = process.env.VERCEL_ENV === 'preview' ? process.env.VERCEL_BRANCH_URL : undefined;
   const origin = branchUrl ? `https://${branchUrl}` : new URL(request.url).origin;
   if (request.headers.get('origin') !== origin) return fail(403, 'origin');
-  const token = await authorize(request, settings.allowedUids);
+  const token = await authorize(request);
   if (!token) return fail(403, 'account');
   if (!request.headers.get('content-type')?.startsWith('application/json')) return fail(415);
   try {
